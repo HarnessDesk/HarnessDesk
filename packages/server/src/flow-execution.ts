@@ -297,6 +297,12 @@ export interface FlowExecutionPort {
    * `message`, git run hardened — see `card-commit.ts`. Answers the commit,
    * or one sentence saying why nothing was committed.
    */
+  /**
+   * A fresh checkout of `cwd`'s repository at commit `at`, detached, cut with
+   * hardened git (no hook runs), for one `run_check` (#1082). `remove` takes
+   * it away, forced, whatever the check left in it.
+   */
+  checkoutAt?(cwd: string, at: string): Promise<{ readonly cwd: string; remove(): Promise<void> }>
   commitWork?(cwd: string, before: readonly string[], message: string): Promise<
     { readonly commit: string; readonly paths: readonly string[] } | { readonly refused: string }
   >
@@ -310,7 +316,8 @@ export interface FlowExecutionPort {
   runCheck(
     command: string,
     where: { readonly cwd: string; readonly timeoutSec: number; readonly flowContext?: string; readonly signal?: AbortSignal },
-    card: { readonly goal: string; readonly card: number; readonly name: string; readonly round: number },
+    /** `advisory`: a Seat's `run_check` — recorded so no rule counts it (#1082). */
+    card: { readonly goal: string; readonly card: number; readonly name: string; readonly round: number; readonly advisory?: true },
   ): Promise<{ readonly result: { readonly exit: number | null; readonly timedOut: boolean; readonly tail: string }; readonly evidence: string | null; readonly problem: string | null }>
 }
 
@@ -510,6 +517,10 @@ export interface FlowClosure {
 
 export const INDEPENDENT = 'This step needs an independent provider. Choose a seat from another provider.'
 export const BRIEF_CHANGED = 'The Agent brief changed. Start a new run to use it.'
+/** How many `run_check` runs one card may ask for in one turn, and in all (#1082). */
+export const RUN_CHECK_PER_TURN = 3
+export const RUN_CHECK_PER_CARD = 10
+
 export const CHECK_CWD_OUTSIDE = 'This check points outside the project. Choose a folder inside the project and review it again.'
 export const CHECK_UNPLANNED = 'This check’s checkouts were not recorded when its round opened, so it was not run. Start a new run.'
 const LANE_REFUSED = 'This step needs its own checkout, ports and browser profile, and they could not all be prepared, so its Seat was released.'
@@ -711,8 +722,10 @@ export class FlowExecutions {
   #disposed = false
   /** The checks running now, by Goal: what a pause or a stop aborts without waiting for the run's queue. */
   readonly #checks = new Map<string, Set<AbortController>>()
-  /** Each declared check running now, by `realpath\0name`, until it ends: one run of it per checkout (`#holdCheck`). */
-  readonly #checksHeld = new Map<string, Promise<void>>()
+  /** `run_check` asks by `goal#card`: the turn they were last counted on, how many in it, how many in all (#1082). */
+  readonly #checkAsks = new Map<string, { readonly turn: number; readonly inTurn: number; readonly total: number }>()
+  /** Cards with a `run_check` running now, by `goal#card`: one at a time on a card. */
+  readonly #checkAsking = new Set<string>()
   /** Goals a broken run file names: no new round opens on them until it is restored. */
   #blocked = new Map<string, string>()
   /** Set when a run file names no readable Goal: nothing new starts anywhere. */
@@ -1606,22 +1619,41 @@ export class FlowExecutions {
   /**
    * `run_check` for a card a v2 run bound (#1082): the host runs one of the
    * run's own declared checks — a `check` role, picked by its name, never a
-   * command the caller writes — in the card's Seat checkout at its current
-   * commit, through the same runner, timeout, output cap and evidence append
-   * a check card uses. A Seat's own sandbox may refuse a child process a
-   * listening socket; the host's does not, so a reviewer never has to be
-   * given the network to learn whether the change starts. Any grant may ask:
-   * running a declared check is what the check card itself does, and the
-   * person consented to those commands when the run started. Null for a card
-   * no v2 run bound, which is not this tool's.
+   * command the caller writes — on the commit the card was handed, in a
+   * fresh detached checkout the host cuts for this one run and removes
+   * after, through the same runner, timeout and output cap a check card uses.
+   * A Seat's own sandbox may refuse a child process a listening socket; the
+   * host's does not, so a reviewer never has to be given the network to learn
+   * whether the change starts.
+   *
+   * What keeps it from being a way out of that sandbox:
+   * - Only a Seat that cannot write may ask (`!mayCommit`). A Seat that can
+   *   write could otherwise put a test in its tree, have the host run it
+   *   unsandboxed and read what it printed, again and again.
+   * - It never runs in anybody's working tree: the checkout is cut from a
+   *   commit — the one the card's seating was handed, or its own checkout's
+   *   committed `HEAD` — so uncommitted edits are never what runs.
+   * - Its fact is advisory (`advisory`, `counted: false`): it informs the
+   *   review, and never satisfies or overturns a rule's check guard.
+   * - A few runs a turn and a few more a card, one at a time, and none while
+   *   the run is not live or its dispatch is held.
+   *
+   * Null for a card no v2 run bound, which is not this tool's.
    */
-  async runCheckFor(goal: string, card: number, name: string | null): Promise<string | null> {
+  async runCheckFor(goal: string, card: number, name: string | null, commit: string | null): Promise<string | null> {
     const run = this.#runOfCard(goal, card)
     if (!run || run.document.format !== 'agents') return null
     const round = run.rounds.find((one) => one.cards.includes(card))
     const role = run.document.flow.roles.find((one) => one.id === round?.role)
     if (!round || role?.kind !== 'agent') return null
-    if (run.state !== 'running' && run.state !== 'stalled') return `Refused: this card’s flow run is ${run.state}, so no check runs for it now.`
+    if (run.state !== 'running' || run.intake?.dispatchHeld) {
+      return 'Refused: this card’s flow run is paused or not running, so no check runs for it now.'
+    }
+    const index = round.cards.indexOf(card)
+    const binding = bindingsFor(run, role.id)[index]
+    if (!binding || mayCommit(binding.agent, binding.grant)) {
+      return 'Refused: run_check is for Seats that only read; a Seat that can write has its work checked by the flow’s own check card.'
+    }
     const declared = policyOf(run).roles.flatMap((one) => (one.kind === 'check' && one.check ? [{ name: one.id, check: one.check }] : []))
     if (declared.length === 0) return 'Refused: this card’s flow declares no check, so there is nothing to run.'
     const names = declared.map((one) => one.name).join(', ')
@@ -1634,34 +1666,69 @@ export class FlowExecutions {
         : `Refused: this card’s flow declares no check named “${name}”; it declares: ${names}.`
     }
     const { seat } = this.#seatForCard(run, card)
-    if (!seat) return `Refused: card #${card} has no Seat, so it has no checkout to check.`
-    const check = chosen.check
-    let cwd = seat.checkout.cwd
-    if (check.cwd) {
-      if (isAbsolute(check.cwd)) return `Refused: ${CHECK_CWD_OUTSIDE}`
-      try {
-        cwd = await (await ConfinedTree.open(cwd)).resolveDir(insideRelative(check.cwd))
-      } catch {
-        return `Refused: ${CHECK_CWD_OUTSIDE}`
-      }
+    if (!seat) return `Refused: card #${card} has no Seat, so it was handed no commit to check.`
+    // The commit under review: what the card's seating was handed, else its own checkout's committed HEAD.
+    const seating = run.seatPlans?.[String(round.n)]
+    const handed = seating?.base
+      ? [seating.base]
+      : seating && seating.handed.length > 0
+        ? [...new Set(seating.handed.map((one) => one.at))]
+        : [(await this.#port.headOf(seat.checkout.cwd, seat.checkout.branch)).at].filter((one): one is string => one !== null)
+    if (handed.length === 0) return `Refused: card #${card}'s checkout has no commit yet, and a check runs on one.`
+    const at = commit === null ? (handed.length === 1 ? handed[0]! : null) : handed.find((one) => one === commit || (commit.length >= 7 && one.startsWith(commit))) ?? null
+    if (at === null) {
+      return commit === null
+        ? `Refused: card #${card} was handed several commits, so name the one to check with commit: ${handed.join(', ')}.`
+        : `Refused: card #${card} was not handed ${commit}; it was handed ${handed.join(', ')}.`
     }
-    const head = await this.#port.headOf(cwd, null)
-    if (head.at === null) return `Refused: card #${card}'s checkout has no commit yet, and a check is bound to one.`
-    const release = await this.#holdCheck(cwd, chosen.name, false)
-    if (!release) {
-      return `Refused: ${chosen.name} is already running in this checkout; wait for it, then read its result on the card or run it again.`
+    const ask = `${goal}#${card}`
+    if (this.#checkAsking.has(ask)) return `Refused: a run_check for card #${card} is already running; wait for its answer.`
+    const turn = run.operations.filter((one) => one.key === `turn:${round.n}:${index}` || one.key.startsWith(`turn:${round.n}:${index}:`)).length
+    const asked = this.#checkAsks.get(ask) ?? { turn, inTurn: 0, total: 0 }
+    const inTurn = asked.turn === turn ? asked.inTurn : 0
+    if (asked.total >= RUN_CHECK_PER_CARD) {
+      return `Refused: card #${card} has used all ${RUN_CHECK_PER_CARD} of its run_check runs; rely on what they printed and on the check evidence on the board.`
     }
+    if (inTurn >= RUN_CHECK_PER_TURN) {
+      return `Refused: card #${card} has used its ${RUN_CHECK_PER_TURN} run_check runs for this turn; rely on what they printed.`
+    }
+    if (!this.#port.checkoutAt) return 'Refused: this desk cannot cut a checkout to run a check in.'
+    this.#checkAsks.set(ask, { turn, inTurn: inTurn + 1, total: asked.total + 1 })
+    this.#checkAsking.add(ask)
     const controller = new AbortController()
     const running = this.#checks.get(goal) ?? new Set<AbortController>()
     this.#checks.set(goal, running.add(controller))
+    const check = chosen.check
     let outcome: Awaited<ReturnType<FlowExecutionPort['runCheck']>>
     try {
-      const context = this.#checkContext(run, round.n, [{ card, round: round.n, checkout: { cwd, branch: seat.checkout.branch }, at: head.at }])
-      outcome = await this.#port.runCheck(check.run, { cwd, timeoutSec: check.timeout, flowContext: context, signal: controller.signal }, { goal, card, name: chosen.name, round: round.n })
+      const checkout = await this.#port.checkoutAt(seat.checkout.cwd, at)
+      try {
+        let where = checkout.cwd
+        if (check.cwd) {
+          if (isAbsolute(check.cwd)) return `Refused: ${CHECK_CWD_OUTSIDE}`
+          try {
+            where = await (await ConfinedTree.open(checkout.cwd)).resolveDir(insideRelative(check.cwd))
+          } catch {
+            return `Refused: ${CHECK_CWD_OUTSIDE}`
+          }
+        }
+        const context = this.#checkContext(run, round.n, [{ card, round: round.n, checkout: { cwd: where, branch: null }, at }])
+        outcome = await this.#port.runCheck(
+          check.run,
+          { cwd: where, timeoutSec: check.timeout, flowContext: context, signal: controller.signal },
+          { goal, card, name: chosen.name, round: round.n, advisory: true },
+        )
+      } finally {
+        await checkout.remove().catch((error: unknown) => {
+          this.#port.log("a run_check's checkout could not be removed", { goal, card, error: error instanceof Error ? error.message : String(error) })
+        })
+      }
+    } catch (error) {
+      return `Refused: the desk could not cut a checkout at ${at.slice(0, 12)} to run ${chosen.name} in: ${error instanceof Error ? error.message : String(error)}`
     } finally {
       running.delete(controller)
       if (running.size === 0) this.#checks.delete(goal)
-      release()
+      this.#checkAsking.delete(ask)
     }
     const { exit, timedOut, tail } = outcome.result
     const said = check.exits[String(exit)] ?? check.otherwise
@@ -1672,32 +1739,13 @@ export class FlowExecutions {
         : exit === null
           ? `${chosen.name} did not run to an exit`
           : `${chosen.name} ${exit === 0 ? 'passed' : 'failed'} (exit ${exit})`
-    const recorded = outcome.problem ?? (outcome.evidence ? 'It is recorded as this card’s check evidence.' : 'Nothing was recorded.')
+    const recorded = outcome.problem ?? (outcome.evidence
+      ? 'It is recorded on this card as advisory check evidence, which no rule counts.'
+      : 'Nothing was recorded.')
     return [
-      `${verdict}, which the flow reads as “${said}”. It ran \`${check.run}\` in ${cwd} at ${head.at.slice(0, 12)}. ${recorded}`,
+      `${verdict}, which the flow's check would read as “${said}”. It ran \`${check.run}\` on commit ${at} — the committed change, not anyone's uncommitted edits — in a checkout of its own, now removed. ${recorded}`,
       ...(tail ? ['What it printed last:', tail] : []),
     ].join('\n\n')
-  }
-
-  /**
-   * Holds one declared check in one checkout — by real path, so a folder
-   * named through a link is still one folder — for as long as it runs: two
-   * runs of the same command in the same tree would race each other's files
-   * and ports. `wait` queues behind a run already there (a check card); without
-   * it a run already there answers null (`run_check`, which refuses).
-   */
-  async #holdCheck(cwd: string, name: string, wait: boolean): Promise<(() => void) | null> {
-    const key = `${await realPathOf(cwd)}\0${name}`
-    for (let busy = this.#checksHeld.get(key); busy; busy = this.#checksHeld.get(key)) {
-      if (!wait) return null
-      await busy
-    }
-    let release!: () => void
-    this.#checksHeld.set(key, new Promise<void>((resolve) => { release = resolve }))
-    return () => {
-      this.#checksHeld.delete(key)
-      release()
-    }
   }
 
   /**
@@ -3059,28 +3107,16 @@ export class FlowExecutions {
         return false
       }
     }
-    // A Seat's `run_check` of this same check in this same checkout finishes first (#1082).
-    const release = (await this.#holdCheck(target.cwd, round.role, true))!
-    // A pause or a stop that landed while it waited reaches this check too.
-    const now = this.#get(id)
-    if (now.state !== 'running' || now.intake?.dispatchHeld) {
-      release()
-      return false
-    }
+    run = await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'started', card, seat: null }))
     const controller = new AbortController()
+    const running = this.#checks.get(run.goal) ?? new Set<AbortController>()
+    this.#checks.set(run.goal, running.add(controller))
     let outcome: Awaited<ReturnType<FlowExecutionPort['runCheck']>>
     try {
-      run = await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'started', card, seat: null }))
-      const running = this.#checks.get(run.goal) ?? new Set<AbortController>()
-      this.#checks.set(run.goal, running.add(controller))
-      try {
-        outcome = await this.#port.runCheck(check.run, { cwd: target.cwd, timeoutSec: check.timeout, flowContext, signal: controller.signal }, { goal: run.goal, card, name: round.role, round: round.n })
-      } finally {
-        running.delete(controller)
-        if (running.size === 0) this.#checks.delete(run.goal)
-      }
+      outcome = await this.#port.runCheck(check.run, { cwd: target.cwd, timeoutSec: check.timeout, flowContext, signal: controller.signal }, { goal: run.goal, card, name: round.role, round: round.n })
     } finally {
-      release()
+      running.delete(controller)
+      if (running.size === 0) this.#checks.delete(run.goal)
     }
     if (controller.signal.aborted) {
       /* Stopped part-way by a pause or a stop: whatever it did is its own, and

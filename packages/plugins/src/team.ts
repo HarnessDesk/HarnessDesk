@@ -316,17 +316,25 @@ export const teamPlugin: HarnessPlugin = {
       ctx.tools.register({
         name: 'run_check',
         description:
-          'Run one of your card’s flow’s declared checks — its test suite, say — by name, in your card’s checkout at its current commit, exactly as the flow’s own check runs it: the desk runs it, outside your environment, so it can start servers and bind ports your environment may refuse. It answers passed or failed with the last of what it printed, and records the result on your card as check evidence. Only a check the flow declares can run; you cannot pass a command.',
+          'For a Seat that only reads — a reviewer, a tester, an acceptance check: run one of your card’s flow’s declared checks, its test suite say, by name, on the committed change your card was handed. The desk runs it outside your environment, in a fresh checkout of that commit, so it can start servers and bind ports your environment may refuse; your own uncommitted edits are not in it. It answers passed or failed with the last of what it printed, and notes the result on your card as advisory evidence, which no rule counts. Only a check the flow declares can run; you cannot pass a command. A few runs a turn.',
         inputSchema: {
           type: 'object',
           properties: {
             intent: { type: 'number', description: 'The card you hold.' },
             name: { type: 'string', description: 'The declared check to run. May be left out when the flow declares only one; a refusal names the ones it declares.' },
+            commit: { type: 'string', description: 'Only when your card was handed several commits: which one to check. A refusal names them.' },
           },
           required: ['intent'],
         },
-        execute: (args: { intent: number; name?: string }, scope) =>
-          ctx.team.runCheck(Number(args.intent), args.name === undefined ? undefined : String(args.name), scope),
+        execute: (args: { intent: number; name?: string; commit?: string }, scope) =>
+          ctx.team.runCheck(
+            Number(args.intent),
+            {
+              ...(args.name !== undefined ? { name: String(args.name) } : {}),
+              ...(args.commit !== undefined ? { commit: String(args.commit) } : {}),
+            },
+            scope,
+          ),
       })
 
       ctx.tools.register({

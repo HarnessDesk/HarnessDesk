@@ -344,7 +344,7 @@ export interface ChildToHostMethods {
     result: string
   }
   'team/runCheck': {
-    params: { readonly scope: TeamCallScope; readonly intent: number; readonly name?: string }
+    params: { readonly scope: TeamCallScope; readonly intent: number; readonly name?: string; readonly commit?: string }
     result: string
   }
   'team/complete': {

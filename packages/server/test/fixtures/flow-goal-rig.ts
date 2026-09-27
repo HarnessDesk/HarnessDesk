@@ -93,6 +93,8 @@ export interface GoalRig {
   /** Every message the engine's own `port.log` was called with, in order. */
   readonly logs: string[]
   /** What `runCheck` answers for a command, keyed by its exact text; unset commands "pass" (exit 0). */
+  /** Every checkout `checkoutAt` cut for a `run_check`, in order. */
+  readonly checkouts: string[]
   readonly checkOutcomes: Map<string, { readonly exit: number | null; readonly timedOut: boolean; readonly tail: string }>
   /** When true, every check's evidence append reports as failed (`problem` set, `evidence` null). */
   checkEvidenceFails: boolean
@@ -212,6 +214,7 @@ export const goalRig = async (
     headOfFails: new Set<string>(),
     commits: [] as { cwd: string; before: readonly string[]; message: string }[],
     logs: [] as string[],
+    checkouts: [] as string[],
     checkOutcomes: new Map<string, { exit: number | null; timedOut: boolean; tail: string }>(),
     checkEvidenceFails: false,
     checksRunUntilStopped: null,
@@ -382,6 +385,14 @@ export const goalRig = async (
       rig.commits.push({ cwd, before, message })
       return { commit: 'c'.repeat(40), paths: ['notes.md'] }
     },
+    // A `run_check` checkout: a folder named for the commit, whose head is that commit, gone once removed.
+    checkoutAt: async (cwd, at) => {
+      const path = `${cwd}/.check/${at.slice(0, 8)}-${rig.checkouts.length}`
+      rig.checkouts.push(path)
+      rig.heads.set(path, { at, dirty: false })
+      rig.events.push(`checkout:${at}`)
+      return { cwd: path, remove: async () => { rig.heads.delete(path); rig.events.push(`checkout-removed:${at}`) } }
+    },
     runCheck: async (command, where, card) => {
       rig.events.push(`check:${command}`)
       if (rig.checksRunUntilStopped) {
@@ -401,7 +412,10 @@ export const goalRig = async (
         if (head.at) {
           pushFact(
             card.goal,
-            { kind: 'check', name: card.name, run: command, exit: outcome.exit, timedOut: outcome.timedOut, at: head.at, dirty: head.dirty, tail: outcome.tail },
+            {
+              kind: 'check', name: card.name, run: command, exit: outcome.exit, timedOut: outcome.timedOut, at: head.at,
+              ...(card.advisory ? { counted: false, advisory: true as const } : {}), dirty: head.dirty, tail: outcome.tail,
+            },
             { card: { board: card.goal, id: card.card }, round: card.round },
           )
         }

@@ -104,6 +104,7 @@ test('every reviewing and accepting Agent runs server checks through run_check, 
     assert.ok(brief.includes('`run_check`'), `${id}'s brief names run_check`)
     assert.ok(brief.includes('`EPERM`'), `${id}'s brief names the refusal it may see`)
     assert.ok(brief.includes('never answer a failing verdict for that reason alone'), `${id}'s brief keeps its sandbox out of its verdict`)
+    assert.ok(brief.includes('on the committed change your card was handed'), `${id}'s brief says run_check checks the committed change, not its edits`)
   }
 })
 

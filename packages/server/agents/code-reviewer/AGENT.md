@@ -27,7 +27,7 @@ Sweep the whole change before reporting. Finding one blocker never ends a review
 
 ## When your environment refuses a run
 
-To verify behaviour that needs a running server or the network, on a board card use the `run_check` tool: the desk runs one of the flow's declared checks by name, in your card's checkout and outside your own environment, answers whether it passed with the last of what it printed, and records that on your card. If your own shell refuses to start a server or bind a port — "Operation not permitted", `EPERM` — that is your sandbox, not the change: say so, rely on `run_check` or the check evidence already on the board, and never answer a failing verdict for that reason alone.
+To verify behaviour that needs a running server or the network, on a board card use the `run_check` tool: the desk runs one of the flow's declared checks by name, outside your own environment, on the committed change your card was handed — never on your own uncommitted edits, which are not in it — and answers whether it passed with the last of what it printed. It is advisory: it informs your verdict, and the flow's own check still decides what its rules need. You have a few runs a turn. If your own shell refuses to start a server or bind a port — "Operation not permitted", `EPERM` — that is your sandbox, not the change: say so, rely on `run_check` or the check evidence already on the board, and never answer a failing verdict for that reason alone.
 
 ## How to report
 

@@ -5,21 +5,26 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
-import type { BoardEvidence, FlowExecution, FlowPreview, GoalView, Intent } from '@harnessdesk/protocol'
+import type { BoardEvidence, Evidence, EvidenceRecord, EvidenceView, FlowExecution, FlowPreview, GoalView, Intent } from '@harnessdesk/protocol'
 
 import { TAIL_LIMIT } from '../src/evidence/run.js'
+import { evidenceGuard } from '../src/flow-evidence.js'
+import { RUN_CHECK_PER_CARD, RUN_CHECK_PER_TURN } from '../src/flow-execution.js'
 import { Host, StateStore } from '../src/index.js'
 import { makeRepo, type Repo } from './fixtures/evidence-desk.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
+import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
 
 /*
- * Issue #1082, on the real path: a Seat's own sandbox may refuse a child
- * process a listening socket, so a reviewer could not tell "my change is
- * broken" from "my sandbox will not let me check". `run_check` asks the host
- * to run one of the flow's declared checks in the card's checkout, exactly as
- * a check card runs it. A real `Host`, a real repository; the agents are fakes.
+ * Issue #1082: a Seat's own sandbox may refuse a child process a listening
+ * socket, so a reviewer could not tell "my change is broken" from "my sandbox
+ * will not let me check". `run_check` asks the host to run one of the flow's
+ * declared checks on the committed change the card was handed, in a fresh
+ * checkout of its own — only for a Seat that cannot write, a few times a
+ * turn, and as advisory evidence no rule counts. The first tests use a real
+ * `Host` and a real repository; the caps and the pause use the goal rig.
  */
 
 /** A test that starts a real server in a child process and talks to it — what a sandbox refused. */
@@ -37,50 +42,59 @@ child.stdout.once('data', (chunk) => {
 })
 child.on('exit', (code) => { if (code) { console.log('the server could not start'); process.exit(2) } })
 `
-
+/** Prints what the checkout's value.txt says, so a test can tell which tree it ran in. */
+const VALUE = `import { readFileSync } from 'node:fs'\nconsole.log('value: ' + readFileSync('value.txt', 'utf8').trim())\n`
 const LOUD = `process.stdout.write('x'.repeat(${TAIL_LIMIT * 3}) + '\\nthe end\\n')\n`
 const SLOW = 'setTimeout(() => {}, 60_000)\n'
-/** Runs until a flag file appears in its folder: what holds a check running while a second call arrives. */
-const WAITS = `
-import { existsSync, writeFileSync } from 'node:fs'
-writeFileSync('started.flag', '')
-const tick = () => existsSync('go.flag') ? process.exit(0) : setTimeout(tick, 20)
-tick()
-`
 
-const FLOW = [
-  'version: 2', 'name: Review with checks', 'roles:',
-  '  reviewer: { kind: agent, uses: reviewer, grant: read, count: 2 }',
+const CHECKS = [
   '  listen: { kind: check, run: "node listen.mjs", exits: { "0": pass }, otherwise: fail, timeout: 60 }',
+  '  value: { kind: check, run: "node value.mjs", exits: { "0": pass }, otherwise: fail, timeout: 60 }',
   '  loud: { kind: check, run: "node loud.mjs", exits: { "0": pass }, otherwise: fail, timeout: 60 }',
   '  slow: { kind: check, run: "node slow.mjs", exits: { "0": pass }, otherwise: fail, timeout: 1 }',
-  '  waits: { kind: check, run: "node waits.mjs", exits: { "0": pass }, otherwise: fail, timeout: 60 }',
-  'seed: { role: reviewer, title: Review it }', 'rules: []', '',
+]
+
+/** A writer in a lane of its own, then a reviewer that only reads; its approval opens `merge` only on a passing `listen`. */
+const FLOW = [
+  'version: 2', 'name: Write, then review', 'roles:',
+  '  writer: { kind: agent, uses: implementer, grant: edit, isolate: true }',
+  '  reviewer: { kind: agent, uses: reviewer, grant: read }',
+  '  merge: { kind: agent, uses: reviewer, grant: read }',
+  ...CHECKS,
+  'seed: { role: writer, title: Write it }', 'rules:',
+  '  - { id: review, on: writer, when: { every: [done] }, then: { role: reviewer, title: Review it } }',
+  '  - { id: merge, on: reviewer, when: { every: [approve], evidence: [{ check: "node listen.mjs" }] }, then: { role: merge, title: Merge it } }',
+  '',
 ].join('\n')
 
 interface Desk {
   readonly host: Host
   readonly repo: Repo
   readonly goal: string
-  readonly cards: readonly Intent[]
-  readonly scopeOf: (card: Intent) => { runtime: string; sessionId: string }
+  readonly cards: () => Promise<readonly Intent[]>
+  readonly until: (what: string, ok: (cards: readonly Intent[]) => boolean) => Promise<readonly Intent[]>
 }
+
+const scopeOf = (card: Intent) => ({ runtime: card.claim!.runtime, sessionId: card.claim!.sessionId })
 
 const desk = async (t: TestContext, flow: string = FLOW): Promise<Desk> => {
   const repo = await makeRepo('hd-flow-run-check-')
   await writeFile(join(repo.dir, 'listen.mjs'), LISTEN)
+  await writeFile(join(repo.dir, 'value.mjs'), VALUE)
   await writeFile(join(repo.dir, 'loud.mjs'), LOUD)
   await writeFile(join(repo.dir, 'slow.mjs'), SLOW)
-  await writeFile(join(repo.dir, 'waits.mjs'), WAITS)
-  await writeFile(join(repo.dir, '.gitignore'), 'go.flag\nstarted.flag\n')
+  await writeFile(join(repo.dir, 'value.txt'), 'first\n')
   await repo.git('add', '.')
   await repo.git('commit', '-q', '-m', 'checks')
   const stateDir = await mkdtemp(join(tmpdir(), 'hd-flow-run-check-state-'))
   const builtinAgents = tempDir('hd-flow-run-check-builtins-')
-  await mkdir(join(stateDir, 'agents', 'reviewer'), { recursive: true })
-  await writeFile(join(stateDir, 'agents', 'reviewer', 'AGENT.md'), [
-    '---', 'name: reviewer', 'ceiling: read', 'produces: [review]', 'prefer: [fake]', '---', 'Review the work.', '',
-  ].join('\n'), 'utf8')
+  for (const [id, lines] of [
+    ['implementer', ['ceiling: edit', 'answers: [done]', 'produces: [diff]']],
+    ['reviewer', ['ceiling: read', 'answers: [approve, request-changes]']],
+  ] as const) {
+    await mkdir(join(stateDir, 'agents', id), { recursive: true })
+    await writeFile(join(stateDir, 'agents', id, 'AGENT.md'), ['---', `name: ${id}`, ...lines, 'prefer: [fake]', '---', 'Do the work.', ''].join('\n'), 'utf8')
+  }
   const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), builtinAgents, catalogRefreshMs: 0 })
   host.register(new FakeRuntime())
   t.after(async () => {
@@ -91,83 +105,191 @@ const desk = async (t: TestContext, flow: string = FLOW): Promise<Desk> => {
   await host.call('workspace/open', { path: repo.dir })
   const preview = await host.call('flow/preview', { root: repo.dir, source: flow }) as FlowPreview
   assert.ok(preview.token, `the flow previews clean: ${JSON.stringify(preview.problems)}`)
-  const started = await host.call('flow/start-goal', { root: repo.dir, source: flow, token: preview.token!, sentence: 'Review it' }) as FlowExecution
+  const started = await host.call('flow/start-goal', { root: repo.dir, source: flow, token: preview.token!, sentence: 'Do it' }) as FlowExecution
   const goal = started.goal
-  const deadline = Date.now() + 15_000
-  let cards = (await host.call('goal/read', { goal }) as GoalView).board.intents
-  while (cards.length !== 2 || cards.some((one) => one.state !== 'claimed')) {
-    if (Date.now() > deadline) throw new Error(`the cards never claimed: ${JSON.stringify(cards)}`)
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    cards = (await host.call('goal/read', { goal }) as GoalView).board.intents
+  const cards = async () => (await host.call('goal/read', { goal }) as GoalView).board.intents
+  const until = async (what: string, ok: (cards: readonly Intent[]) => boolean) => {
+    const deadline = Date.now() + 15_000
+    for (let now = await cards(); ; now = await cards()) {
+      if (ok(now)) return now
+      if (Date.now() > deadline) throw new Error(`${what} never happened: ${JSON.stringify(now)}`)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
   }
-  return { host, repo, goal, cards, scopeOf: (card) => ({ runtime: card.claim!.runtime, sessionId: card.claim!.sessionId }) }
+  return { host, repo, goal, cards, until }
 }
 
-test('a declared check that starts a real server passes through run_check, host-side, and is recorded as the card’s check evidence', async (t) => {
-  const { host, repo, goal, cards, scopeOf } = await desk(t)
-  const card = cards[0]!
-  const answer = await host.teamPlane.runCheck(card.id, 'listen', scopeOf(card))
-  assert.match(answer, /^listen passed \(exit 0\)/, answer)
-  assert.match(answer, /answered pong on a real port/, 'with what it printed')
+/** The writer commits `value.txt` in its lane and finishes; answers the reviewer's card once it is claimed. */
+const toReview = async ({ host, repo, goal, until }: Desk): Promise<{ writer: Intent; reviewer: Intent; lanes: string[] }> => {
+  const [writer] = await until('the writer claiming', (all) => all[0]?.state === 'claimed')
+  const lanes = (await repo.git('worktree', 'list', '--porcelain'))
+    .split('\n').filter((line) => line.startsWith('worktree ')).map((line) => line.slice('worktree '.length)).slice(1)
+  assert.equal(lanes.length, 1, 'the writer works in a lane of its own')
+  await writeFile(join(lanes[0]!, 'value.txt'), 'committed\n')
+  assert.match(await host.teamPlane.commitWork(writer!.id, 'The value', scopeOf(writer!)), /^Committed 1 file/)
+  // A Seat that can write never has the host run a check for it.
+  assert.equal(
+    await host.teamPlane.runCheck(writer!.id, { name: 'value' }, scopeOf(writer!)),
+    'Refused: run_check is for Seats that only read; a Seat that can write has its work checked by the flow’s own check card.',
+  )
+  await host.teamPlane.complete(writer!.id, { outcome: 'done' }, scopeOf(writer!))
+  const all = await until('the reviewer claiming', (now) => now.some((one) => one.role === 'reviewer' && one.state === 'claimed'))
+  const reviewer = all.find((one) => one.role === 'reviewer')!
+  // Handed over only once its Seat is journaled, as a real Seat is: before then its card names no Seat yet.
+  const deadline = Date.now() + 15_000
+  const seated = () => host.flowsPlane.executionsFor(goal)[0]?.operations.some((one) => one.kind === 'seat' && one.card === reviewer.id && one.seat !== null)
+  while (!seated()) {
+    if (Date.now() > deadline) throw new Error('the reviewer’s Seat was never journaled')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  const every = (await repo.git('worktree', 'list', '--porcelain'))
+    .split('\n').filter((line) => line.startsWith('worktree ')).map((line) => line.slice('worktree '.length))
+  return { writer: writer!, reviewer, lanes: every }
+}
+
+const checkFacts = async (host: Host, goal: string, card: number): Promise<Extract<Evidence, { kind: 'check' }>[]> => {
   const board = await host.call('evidence/board', { room: goal }) as BoardEvidence
-  const facts = board.cards.find((one) => one.card === card.id)?.facts ?? []
-  const check = facts.map((one) => one.record.fact).find((fact) => fact.kind === 'check')
-  assert.ok(check && check.kind === 'check', `a check fact on #${card.id}: ${JSON.stringify(facts)}`)
-  assert.equal(check.name, 'listen')
-  assert.equal(check.run, 'node listen.mjs', 'the declared command, verbatim')
-  assert.equal(check.exit, 0)
-  assert.equal(check.at, await repo.git('rev-parse', 'HEAD'), 'bound to the checkout’s commit')
+  return (board.cards.find((one) => one.card === card)?.facts ?? [])
+    .map((one) => one.record.fact)
+    .filter((fact): fact is Extract<Evidence, { kind: 'check' }> => fact.kind === 'check')
+}
+
+test('a read Seat’s run_check runs the committed change — a real server on 127.0.0.1:0 included — in a checkout of its own that is removed after, and records it as advisory', async (t) => {
+  const d = await desk(t)
+  const { reviewer, lanes } = await toReview(d)
+  // Uncommitted edits everywhere: the author's lane, the reviewer's own checkout, the main checkout.
+  for (const lane of lanes) await writeFile(join(lane, 'value.txt'), 'dirty\n')
+  const before = await d.repo.git('worktree', 'list')
+
+  const value = await d.host.teamPlane.runCheck(reviewer.id, { name: 'value' }, scopeOf(reviewer))
+  assert.match(value, /^value passed \(exit 0\)/, value)
+  assert.match(value, /value: committed/, 'it ran the committed change')
+  assert.doesNotMatch(value, /value: dirty/, 'never anybody’s uncommitted edits')
+
+  const listen = await d.host.teamPlane.runCheck(reviewer.id, { name: 'listen' }, scopeOf(reviewer))
+  assert.match(listen, /^listen passed \(exit 0\)/, listen)
+  assert.match(listen, /answered pong on a real port/)
+
+  assert.equal(await d.repo.git('worktree', 'list'), before, 'every checkout it cut is gone')
+  const facts = await checkFacts(d.host, d.goal, reviewer.id)
+  assert.deepEqual(facts.map((one) => [one.name, one.exit, one.counted, one.advisory]).sort(), [['listen', 0, false, true], ['value', 0, false, true]])
+  const board = await d.host.call('evidence/board', { room: d.goal }) as BoardEvidence
+  for (const view of board.cards.find((one) => one.card === reviewer.id)!.facts.filter((one) => one.record.fact.kind === 'check')) {
+    assert.equal(existsSync(view.record.checkout!.cwd), false, 'the folder it ran in was removed')
+    assert.equal(view.freshness.state, 'unknown', 'shown apart from counted evidence')
+  }
+
+  const refused = await d.host.teamPlane.runCheck(reviewer.id, { name: 'rm -rf .' }, scopeOf(reviewer))
+  assert.equal(refused, 'Refused: this card’s flow declares no check named “rm -rf .”; it declares: listen, value, loud, slow.')
 })
 
-test('run_check refuses a name the flow does not declare, and names the ones it does', async (t) => {
-  const { host, cards, scopeOf } = await desk(t)
-  const answer = await host.teamPlane.runCheck(cards[0]!.id, 'rm -rf .', scopeOf(cards[0]!))
-  assert.match(answer, /^Refused: /)
-  assert.match(answer, /listen, loud, slow, waits/, answer)
-  const unnamed = await host.teamPlane.runCheck(cards[0]!.id, undefined, scopeOf(cards[0]!))
-  assert.match(unnamed, /^Refused: .*name one/, 'several checks and no name is refused, not guessed')
+test('a passing run_check never opens a rule guarded on that check', async (t) => {
+  const d = await desk(t)
+  const { reviewer } = await toReview(d)
+  assert.match(await d.host.teamPlane.runCheck(reviewer.id, { name: 'listen' }, scopeOf(reviewer)), /^listen passed/)
+  const finished = await d.host.teamPlane.complete(reviewer.id, { outcome: 'approve' }, scopeOf(reviewer))
+  assert.doesNotMatch(finished, /Refused|refused|cannot|needs/, finished)
+  await d.until('the review finishing', (all) => all.find((one) => one.id === reviewer.id)?.state === 'done')
+  const deadline = Date.now() + 15_000
+  let run = d.host.flowsPlane.executionsFor(d.goal)[0]!
+  while (run.rounds.find((one) => one.role === 'reviewer')?.state === 'running') {
+    if (Date.now() > deadline) throw new Error(`the review round never settled: ${JSON.stringify(run.rounds)}`)
+    await d.host.flowsPlane.flush()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    run = d.host.flowsPlane.executionsFor(d.goal)[0]!
+  }
+  assert.equal(run.rounds.find((one) => one.role === 'reviewer')?.state, 'waiting-evidence', 'the rule still waits for a counted check')
+  assert.equal(run.rounds.some((one) => one.role === 'merge'), false, 'and merge never opened')
+  assert.equal((await d.cards()).some((one) => one.role === 'merge'), false)
 })
 
-test('run_check refuses a caller that does not hold the card', async (t) => {
-  const { host, cards, scopeOf } = await desk(t)
-  const answer = await host.teamPlane.runCheck(cards[0]!.id, 'listen', scopeOf(cards[1]!))
-  assert.equal(answer, `Refused: you do not hold #${cards[0]!.id}, so you cannot run a check for it.`)
+test('run_check holds a check to its declared timeout and its output to the evidence cap, and refuses a caller that does not hold the card', async (t) => {
+  const d = await desk(t)
+  const { writer, reviewer } = await toReview(d)
+  const slow = await d.host.teamPlane.runCheck(reviewer.id, { name: 'slow' }, scopeOf(reviewer))
+  assert.match(slow, /^slow ran over its 1 s limit and was stopped/, slow)
+  const loud = await d.host.teamPlane.runCheck(reviewer.id, { name: 'loud' }, scopeOf(reviewer))
+  assert.match(loud, /^loud passed \(exit 0\)/, loud)
+  assert.match(loud, /the end/, 'the last of what it printed')
+  assert.ok(loud.length < TAIL_LIMIT + 600, `bounded output: ${loud.length} characters`)
+  const notHeld = await d.host.teamPlane.runCheck(writer.id, { name: 'listen' }, scopeOf(reviewer))
+  assert.equal(notHeld, `Refused: you do not hold #${writer.id}, so you cannot run a check for it.`)
 })
 
 test('run_check refuses in one sentence when the flow declares no check', async (t) => {
-  const flow = [
-    'version: 2', 'name: Review only', 'roles:',
-    '  reviewer: { kind: agent, uses: reviewer, grant: read, count: 2 }',
-    'seed: { role: reviewer, title: Review it }', 'rules: []', '',
-  ].join('\n')
-  const { host, cards, scopeOf } = await desk(t, flow)
-  const answer = await host.teamPlane.runCheck(cards[0]!.id, 'listen', scopeOf(cards[0]!))
-  assert.equal(answer, 'Refused: this card’s flow declares no check, so there is nothing to run.')
+  const flow = ['version: 2', 'name: Review only', 'roles:', '  reviewer: { kind: agent, uses: reviewer, grant: read }', 'seed: { role: reviewer, title: Review it }', 'rules: []', ''].join('\n')
+  const d = await desk(t, flow)
+  const [card] = await d.until('the reviewer claiming', (all) => all[0]?.state === 'claimed')
+  assert.equal(await d.host.teamPlane.runCheck(card!.id, { name: 'listen' }, scopeOf(card!)), 'Refused: this card’s flow declares no check, so there is nothing to run.')
 })
 
-test('run_check holds a check to its declared timeout and its output to the evidence cap', async (t) => {
-  const { host, cards, scopeOf } = await desk(t)
-  const card = cards[0]!
-  const slow = await host.teamPlane.runCheck(card.id, 'slow', scopeOf(card))
-  assert.match(slow, /^slow ran over its 1 s limit and was stopped/, slow)
-  const loud = await host.teamPlane.runCheck(card.id, 'loud', scopeOf(card))
-  assert.match(loud, /^loud passed \(exit 0\)/, loud)
-  assert.match(loud, /the end/, 'the last of what it printed')
-  assert.ok(loud.length < TAIL_LIMIT + 400, `bounded output: ${loud.length} characters`)
-})
+// ---------------------------------------------------------------- the rig
 
-test('run_check never runs the same check twice at once in one checkout', async (t) => {
-  const { host, repo, cards, scopeOf } = await desk(t)
-  const first = host.teamPlane.runCheck(cards[0]!.id, 'waits', scopeOf(cards[0]!))
-  // The first has started once its command has written its flag, and holds until go.flag exists.
-  const deadline = Date.now() + 15_000
-  while (!existsSync(join(repo.dir, 'started.flag'))) {
-    if (Date.now() > deadline) throw new Error('the first run never started')
-    await new Promise((resolve) => setTimeout(resolve, 10))
+const REVIEW = `
+version: 2
+name: Review a change
+roles:
+  reviewer: { kind: agent, uses: reviewer, grant: read }
+  gate: { kind: check, run: "pnpm test", exits: { "0": pass }, otherwise: fail, timeout: 30 }
+seed: { role: reviewer, title: Review it }
+rules: []
+`
+
+test('run_check allows a few runs a turn and a few more a card, then refuses plainly', async (t) => {
+  const rig = await goalRig(t)
+  rig.heads.set('/repo', { at: 'a'.repeat(40), dirty: false })
+  const run = await rig.start(REVIEW, [agent('reviewer', ['approve'])])
+  await rig.flows.flush()
+  const session = rig.sessionOf('seat-1')
+  const ask = () => rig.team.runCheck(1, { name: 'gate' }, session)
+  let ran = 0
+  for (let turn = 0; ran < RUN_CHECK_PER_CARD; turn += 1) {
+    for (let one = 0; one < RUN_CHECK_PER_TURN && ran < RUN_CHECK_PER_CARD; one += 1, ran += 1) {
+      assert.match(await ask(), /^gate passed \(exit 0\)/, `run ${ran + 1}, turn ${turn + 1}`)
+    }
+    if (ran % RUN_CHECK_PER_TURN === 0 && ran < RUN_CHECK_PER_CARD) {
+      assert.equal(await ask(), `Refused: card #1 has used its ${RUN_CHECK_PER_TURN} run_check runs for this turn; rely on what they printed.`)
+      await rig.flows.reArm(session.runtime, session.sessionId)
+      await rig.flows.flush()
+    }
   }
-  const second = await host.teamPlane.runCheck(cards[1]!.id, 'waits', scopeOf(cards[1]!))
-  assert.equal(second, 'Refused: waits is already running in this checkout; wait for it, then read its result on the card or run it again.')
-  await writeFile(join(repo.dir, 'go.flag'), '')
-  assert.match(await first, /^waits passed/)
-  assert.match(await host.teamPlane.runCheck(cards[1]!.id, 'waits', scopeOf(cards[1]!)), /^waits passed/, 'and runs once the first is done')
+  assert.equal(await ask(), `Refused: card #1 has used all ${RUN_CHECK_PER_CARD} of its run_check runs; rely on what they printed and on the check evidence on the board.`)
+  assert.equal(rig.events.filter((one) => one === 'check:pnpm test').length, RUN_CHECK_PER_CARD, 'nothing refused ever ran')
+  assert.equal(rig.events.filter((one) => one.startsWith('checkout:')).length, rig.events.filter((one) => one.startsWith('checkout-removed:')).length, 'every checkout was removed')
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'running')
+})
+
+test('run_check refuses while its run is paused', async (t) => {
+  const rig = await goalRig(t)
+  rig.heads.set('/repo', { at: 'a'.repeat(40), dirty: false })
+  const run = await rig.startTriggered(REVIEW, [agent('reviewer', ['approve'])])
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  rig.triggerGate = () => ({ reason: 'Every trigger is paused. Resume triggers to continue.', transient: true })
+  const session = rig.sessionOf('seat-1')
+  await rig.flows.reArm(session.runtime, session.sessionId)
+  await rig.flows.flush()
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.intake?.dispatchHeld, true)
+  assert.equal(await rig.team.runCheck(1, { name: 'gate' }, session), 'Refused: this card’s flow run is paused or not running, so no check runs for it now.')
+  assert.equal(rig.events.some((one) => one.startsWith('check:') || one.startsWith('checkout:')), false, 'nothing ran')
+})
+
+test('an advisory check fact neither satisfies nor overturns a rule’s check guard', () => {
+  const at = 'b'.repeat(40)
+  const subject = { card: 1, round: 1, checkout: { cwd: '/repo', branch: null }, at }
+  const fact = (id: string, exit: number, advisory: boolean): EvidenceView => ({
+    record: {
+      id, card: { board: 'g', id: 2 }, checkout: { cwd: '/repo/.check/x', branch: null }, seat: null, round: 2, observedAt: 1, posted: null,
+      fact: { kind: 'check', name: 'gate', run: 'pnpm test', exit, timedOut: false, at, dirty: false, tail: '', ...(advisory ? { counted: false, advisory: true as const } : {}) },
+    } as EvidenceRecord,
+    freshness: { state: 'fresh' },
+    by: null,
+  })
+  const judge = (facts: readonly EvidenceView[]) => evidenceGuard([{ check: 'pnpm test' }], {
+    goal: 'g', finished: { n: 2, role: 'reviewer', cards: [2], seats: [], evidence: [], state: 'running', cause: 'c' },
+    subjects: [subject], unsettled: [], cards: [1, 2], reviewers: [], facts, outcomes: ['approve'],
+  }).state
+  assert.equal(judge([fact('counted-pass', 0, false)]), 'matched', 'the same fact, counted, would open the rule')
+  assert.equal(judge([fact('advisory-pass', 0, true)]), 'waiting', 'a passing advisory run never opens it')
+  assert.equal(judge([fact('counted-pass', 0, false), fact('advisory-fail', 1, true)]), 'matched', 'nor does a failing one overturn a counted pass')
 })

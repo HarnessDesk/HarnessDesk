@@ -11,17 +11,19 @@ move is real work and is not news to a person weighing an upgrade.
   change for it.** Codex's sandbox refuses a child process a listening socket,
   so every test that started a real server failed inside a Codex-seated review
   or acceptance turn while passing on the desk's own check — and one
-  acceptance card answered not-met for that alone. Agents on a flow card now
-  have a `run_check` tool: the desk runs one of the flow's declared checks, by
-  name, in the card's checkout at its current commit, exactly as the flow's
-  check card runs it — same timeout, same output cap — and answers passed or
-  failed with the last of its output, recording it on the card as check
-  evidence. It never runs a command the agent writes, refuses a second run of
-  the same check in the same checkout, and any grant may call it, since it
-  changes nothing a check card would not. The sandbox is not widened. The
-  shipped reviewers and the Requirements analyst now use the tool for anything
-  that needs a running server, and say that a refusal from their own sandbox
-  is not a failing verdict.
+  acceptance card answered not-met for that alone. A Seat that only reads now
+  has a `run_check` tool: the desk runs one of the flow's declared checks, by
+  name, on the committed change the card was handed, in a fresh checkout it
+  cuts for that one run and removes after, with the check's own timeout and
+  output cap, and answers passed or failed with the last of its output. It
+  never runs a command the agent writes or anybody's uncommitted edits; a Seat
+  that can write is refused and pointed to the flow's own check card; it
+  allows three runs a turn and ten a card, and none while the run is paused.
+  Its result shows on the card as advisory evidence, which no rule's check
+  guard counts, for or against. The sandbox is not widened. The shipped
+  reviewers and the Requirements analyst use the tool for anything that needs
+  a running server, and say that a refusal from their own sandbox is not a
+  failing verdict.
 
 - **A Seat that may edit can commit its card's work even where its sandbox
   keeps `.git` read-only.** Codex's workspace sandbox refuses writes to a

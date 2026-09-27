@@ -438,7 +438,7 @@ export interface TeamFlows {
   /** `commit_work`: the host commits this card's own work for its Seat — the answer, or null when no flow run bound the card. */
   commitWork?(room: string, intent: Intent, message: string): Promise<string | null>
   /** `run_check`: the host runs one of this card's flow's declared checks in its checkout — the answer, or null when no flow run bound the card. */
-  runCheck?(room: string, intent: Intent, name: string | null): Promise<string | null>
+  runCheck?(room: string, intent: Intent, name: string | null, commit: string | null): Promise<string | null>
   /**
    * The review rounds on this board still open and blind: several reviewers
    * judging at once, none of whom may read another's card, context or
@@ -2595,13 +2595,15 @@ export class Team {
 
   /**
    * `run_check` (#1082): the host runs one of the flow's declared checks, by
-   * name, in the caller's card's checkout, exactly as a check card runs it,
-   * and answers pass or fail with the last of its output. A Seat's own
+   * name, on the commit the caller's card was handed, in a checkout of its
+   * own, and answers pass or fail with the last of its output. A Seat's own
    * sandbox may refuse what a check needs — a child process's listening
-   * socket — and the host's does not. Only the card's holder may ask, and
-   * only for a card a flow run bound (`FlowExecutions.runCheckFor`).
+   * socket — and the host's does not. Only the card's holder may ask, only a
+   * Seat that cannot write, and only for a card a flow run bound
+   * (`FlowExecutions.runCheckFor`, which says why each limit is there).
    */
-  async runCheck(intentId: number, name: string | undefined, scope: TeamCallScope): Promise<string> {
+  async runCheck(intentId: number, args: { readonly name?: string; readonly commit?: string }, scope: TeamCallScope): Promise<string> {
+    const { name, commit } = args
     const caller = this.#caller(scope)
     const board = await this.#boardOf(caller)
     const intent = board.intents.find((entry) => entry.id === intentId)
@@ -2614,7 +2616,7 @@ export class Team {
     ) {
       return `Refused: you do not hold #${intentId}, so you cannot run a check for it.`
     }
-    const answer = (await this.#flows?.runCheck?.(board.id, intent, name?.trim() ? name.trim() : null)) ?? null
+    const answer = (await this.#flows?.runCheck?.(board.id, intent, name?.trim() ? name.trim() : null, commit?.trim() ? commit.trim() : null)) ?? null
     return answer ?? `Refused: #${intentId} is not a flow card, so it has no declared checks to run.`
   }
 

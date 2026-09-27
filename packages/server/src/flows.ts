@@ -657,8 +657,8 @@ export class Flows implements TeamFlows {
   }
 
   /** `run_check` for a card a v2 run bound, or null when none did. See `FlowExecutions.runCheckFor`. */
-  async runCheck(room: string, intent: Intent, name: string | null): Promise<string | null> {
-    return (await this.#executions?.runCheckFor(room, intent.id, name)) ?? null
+  async runCheck(room: string, intent: Intent, name: string | null, commit: string | null): Promise<string | null> {
+    return (await this.#executions?.runCheckFor(room, intent.id, name, commit)) ?? null
   }
 
   /**

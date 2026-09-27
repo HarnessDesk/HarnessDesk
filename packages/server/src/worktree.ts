@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { mkdir, realpath, rm } from 'node:fs/promises'
 import { basename, join, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
@@ -329,6 +329,27 @@ export const create = async (
   const branch = `harnessdesk/${slug}`
   await git(main, ['worktree', 'add', '-b', branch, path, options.base ?? 'HEAD'])
   return { path, branch, head: (await git(path, ['rev-parse', 'HEAD'])).trim(), isMain: false, managed: true }
+}
+
+/**
+ * A detached checkout of the repository at commit `at`, under HarnessDesk's
+ * own worktree folder, cut with the hardened floor — no hook the repository
+ * configures runs — for one run of a declared check a Seat asked for
+ * (`run_check`, #1082). No branch is made; `remove` with `force` takes it
+ * away after.
+ */
+export const createDetached = async (
+  repoPath: string,
+  options: { readonly name: string; readonly at: string; readonly stateDir: string },
+): Promise<string> => {
+  if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(options.at)) throw new Error(`${options.at} is not a full commit id.`)
+  const main = await repositoryRoot(repoPath)
+  if (!main) throw new Error(`${repoPath} is not inside a git repository.`)
+  const home = await worktreeHome(main, options.stateDir)
+  await mkdir(home, { recursive: true })
+  const path = join(home, `${slugify(options.name)}-${randomBytes(4).toString('hex')}`)
+  await git(main, ['worktree', 'add', '--detach', path, options.at])
+  return path
 }
 
 /** What would be lost if this worktree were removed right now. */
