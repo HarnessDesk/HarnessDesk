@@ -29,6 +29,7 @@ import {
   type ProjectChecks,
   type ModelInfo,
   type OptionValue,
+  type RuntimeId,
   type RuntimeInfo,
   type SeatRecord,
   type SeatCeiling,
@@ -1544,7 +1545,7 @@ class PreviewStore {
     const entry = PREVIEW_AGENTS.find((one) => one.id === target.id)
     if (!entry?.definition) throw new Error('The preview desk has no such file.')
     const before = agentSource(entry)
-    return { token: 'preview-authoring-token', edits: [{ path: entry.path, before, after: applyAgentFieldEdit(before, edit) }], issues: [], resuming: false }
+    return { token: 'preview-authoring-token', edits: [{ path: entry.path, before, after: applyAgentFieldEdit(before, edit) }], issues: [], resuming: false } // hd-secrets-ok: a fixture save token, never a credential
   }
   /**
    * `ShapeSave`'s own dry run: `preview !== null && preview.token !== null`
@@ -1850,6 +1851,20 @@ export const previewStore = (seed: Partial<AppSnapshot> = {}): AppStore => new P
 }) as unknown as AppStore
 
 export const store = previewStore()
+
+/**
+ * `LIBRARY.runtimes`, as columns — each named from the shared store's own
+ * `RuntimeInfo.presentation`, never a literal brand string (rule 8: the UI
+ * never names a runtime; every string about an agent comes from
+ * `RuntimeInfo.presentation`, which `pnpm layering` enforces even inside this
+ * fixture). The main store presents its runtimes as Alpha/Beta/Gamma for
+ * exactly this reason, so a column reads the same way.
+ */
+export const libraryColumnsFor = (ids: readonly RuntimeId[]): readonly { readonly id: RuntimeId; readonly label: string }[] =>
+  ids.map((id) => {
+    const info = store.getSnapshot().runtimes.find((one) => one.id === id)
+    return { id, label: info?.presentation.name ?? id }
+  })
 
 /**
  * Mount a production screen: the store under it, the app's window mode around

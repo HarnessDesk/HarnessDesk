@@ -13,7 +13,7 @@ import { MountProvider } from '../panels/mount'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { Frame } from './main'
 import { PREVIEW_ROOT, previewSession } from './sidebar-fixture'
-import { PREVIEW_SESSION_KEY, previewStore, TEAM } from './harness'
+import { libraryColumnsFor, PREVIEW_SESSION_KEY, previewStore, TEAM } from './harness'
 import { PREVIEW_GOALS } from './goal-fixture'
 
 /**
@@ -47,10 +47,7 @@ const taskPanelStore = previewStore({
 /** The one Goal fixture with a real `waitingOn` — `GoalHeader` draws nothing for a Goal that names neither a dependency nor a reason it cannot wrap, which every other Goal fixture on this page is. */
 const GOAL_WAITING = PREVIEW_GOALS.find((one) => one.goal.id === 'goal-waiting')!
 
-const LIBRARY_COLUMNS = [
-  { id: 'codex' as never, label: 'Codex' },
-  { id: 'claude' as never, label: 'Claude Code' },
-]
+const LIBRARY_COLUMNS = libraryColumnsFor([runtimeId('codex'), runtimeId('claude')])
 
 /**
  * The tool panes and a few of the transcript's own header parts, each of

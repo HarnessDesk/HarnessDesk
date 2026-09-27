@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import type { AgentEntry } from '@harnessdesk/protocol'
+import { runtimeId, type AgentEntry } from '@harnessdesk/protocol'
 
 import { AgentNew } from '../components/AgentNew'
 import { ArchiveSection } from '../components/Archive'
@@ -12,9 +12,8 @@ import { PluginsSection } from '../components/PluginsSection'
 import { SchemaForm } from '../components/SchemaForm'
 import { SetupDesk } from '../components/SetupDesk'
 import { SkillSheet } from '../components/SkillSheet'
-import type { LibraryColumn } from '../components/LibraryActions'
 import { Dial, Frame } from './main'
-import { LIBRARY } from './harness'
+import { libraryColumnsFor, LIBRARY } from './harness'
 import { PREVIEW_ROOT } from './sidebar-fixture'
 
 /** Its own front matter names a legacy `permission:` line, so `CeilingUpdate`'s update flow has a real Agent to offer choices for — every other fixture Agent already writes a plain `ceiling:` and has nothing for this dialog to update. */
@@ -40,11 +39,7 @@ const LEGACY_PERMISSION_AGENT: AgentEntry = {
   },
 }
 
-const LIBRARY_COLUMNS: readonly LibraryColumn[] = [
-  { id: 'codex' as never, label: 'Codex' },
-  { id: 'claude' as never, label: 'Claude Code' },
-  { id: 'cursor' as never, label: 'Cursor' },
-]
+const LIBRARY_COLUMNS = libraryColumnsFor([runtimeId('codex'), runtimeId('claude'), runtimeId('cursor')])
 
 const SCHEMA_FIXTURE = {
   type: 'object',
