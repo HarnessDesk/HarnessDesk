@@ -125,7 +125,7 @@ export const freshnessReader = (project: string): ((record: EvidenceRecord) => P
     const at = boundTo(record)
     if (at === null) return Promise.resolve({ state: 'fresh' })
     if (!record.checkout) return Promise.resolve({ state: 'unknown', why: 'where it was observed is not recorded' })
-    const dirty = record.fact.kind === 'check' && record.fact.dirty
+    const dirty = (record.fact.kind === 'check' && record.fact.dirty) || (record.fact.kind === 'diff' && record.fact.dirty === true)
     const merged = record.fact.kind === 'pr' && record.fact.state === 'merged'
     const key = JSON.stringify([record.checkout.cwd, record.checkout.branch, at, dirty, merged])
     const known = standing.get(key)

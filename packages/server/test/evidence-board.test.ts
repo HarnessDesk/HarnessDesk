@@ -106,6 +106,35 @@ test('a card carries the latest fact of each kind, each named check apart, and h
   )
 })
 
+/*
+ * Issue #1049. A person's hand finish is never refused for a dirty checkout,
+ * but the board still has to show it: a diff fact recorded while the
+ * checkout still held changes never committed reads stale, exactly like a
+ * check that ran the same way (`freshnessReader`, `board.ts`).
+ */
+test('a diff fact recorded while its checkout was dirty is stale, like a check that ran the same way', async () => {
+  const repo = await makeRepo()
+  const project = await canonical(repo.dir)
+  const at = await repo.git('rev-parse', 'HEAD')
+  const diff = (dirty: boolean | undefined): EvidenceRecord => ({
+    id: `diff-${String(dirty)}`,
+    fact: { kind: 'diff', files: 1, added: 1, removed: 0, from: at, to: at, ...(dirty === undefined ? {} : { dirty }) },
+    card: { board: 'room-1', id: 9 },
+    checkout: { cwd: repo.dir, branch: 'main' },
+    seat: null,
+    round: null,
+    observedAt: 1,
+    posted: null,
+  })
+  const read = (records: readonly EvidenceRecord[]): Promise<BoardEvidence> =>
+    boardEvidence({ room: 'room-1', stamp: 1, project, records, checks: [], refused: [], unreadable: null, running: [], seatWords: () => null })
+
+  assert.deepEqual((await read([diff(false)])).cards[0]?.facts[0]?.freshness, { state: 'fresh' })
+  assert.deepEqual((await read([diff(true)])).cards[0]?.facts[0]?.freshness, { state: 'uncommitted' })
+  // A record written before this field existed reads the same as a clean one.
+  assert.deepEqual((await read([diff(undefined)])).cards[0]?.facts[0]?.freshness, { state: 'fresh' })
+})
+
 test('a fact with nowhere recorded is unknown, and a check running for a card is listed even before it has a fact', async () => {
   const repo = await makeRepo()
   const at = await repo.git('rev-parse', 'HEAD')

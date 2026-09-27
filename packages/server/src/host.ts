@@ -1202,7 +1202,7 @@ export class Host {
       log: (message, details) => this.#logger.warn(message, details ?? {}),
       headOf: async (cwd) => {
         const revision = await revisionOf(cwd)
-        return revision ? { at: revision.head, dirty: revision.dirty } : { at: null, dirty: false }
+        return revision ? { at: revision.head, dirty: revision.dirty, dirtyFiles: revision.dirtyFiles } : { at: null, dirty: false, dirtyFiles: null }
       },
       runCheck: (command, where, card) => this.#evidence.runFlowCheck(command, where, card),
     }, {

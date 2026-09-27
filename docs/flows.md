@@ -801,6 +801,23 @@ may name what authorized it — `{{evidence.review.at}}`, say — and a field
 the facts do not settle to one value stops the run before any card is
 added.
 
+**Finishing dirty is refused, not a zero diff.** A round whose role produces
+no diff at all is not the defect — UC5's `proposal` round runs the
+implementer Agent and the right answer there is words, so `complete_claim` on
+an empty diff is left alone. What is refused is finishing *dirty*:
+`complete_claim`, and a review that finishes a card the same way, checks a
+committing Seat's own checkout — `edit` and above, the same ceiling the
+shared-tree rule above reads — and refuses the finish while it still holds
+changes never committed, tracked or untracked, naming how many files. A Seat
+that may only read is never checked; it could not have committed anything, so
+reading it as dirty would be a dead end. The read is the same one the desk's
+own evidence observer already takes of a checkout (`headOf`, never a second
+git probe), bounded and fail-open: a read that cannot answer never blocks the
+finish, only logs. A person finishing a card by hand through the board is not
+refused this way — they may have decided the leftovers do not matter — but the
+board still shows it: a diff fact recorded while its checkout was dirty draws
+stale, the same way a check that ran on uncommitted changes always has.
+
 **The catalogue** a project's Flows section and `/race` both read is layered
 — a project's own `.harnessdesk/flows`, then this Mac's, then the ones that
 ship — the nearer file always winning, broken or not, with what it shadows

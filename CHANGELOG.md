@@ -7,6 +7,21 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A card whose role can commit can no longer finish with uncommitted work
+  left behind.** A flow card whose Agent may commit (`edit` and above) used
+  to be able to call `complete_claim` while its own checkout still held
+  changes never committed — tracked or untracked — and the round closed as a
+  success anyway. The work stayed outside every branch and outside the
+  evidence ledger, with nothing telling the person; only reading the raw
+  evidence record showed a zero diff. `complete_claim`, and a review that
+  finishes a card the same way, now refuse that finish and say how many files
+  are uncommitted; a card whose role cannot commit at all is never checked,
+  and neither is a person's own hand finish, who may have decided the
+  leftovers do not matter. A prose-only round — one whose role produces no
+  diff at all — is untouched: that is legitimate, not the defect. Read what
+  the desk observed on the card and its diff is drawn stale when it was left
+  dirty, even after a person finishes it by hand. (#1049)
+
 - **A step after an isolated one now works on that step's actual commit.** A
   flow step that depends on an isolated step's finished work — a tester after
   a developer working in its own worktree, say — used to open in the project's

@@ -428,6 +428,8 @@ export interface TeamFlows {
   recordReview?(input: ReviewInput, scope: TeamCallScope): Promise<EvidenceRecord>
   /** Why this card cannot complete yet — its role declares `produces: review` and none is recorded — or null. */
   refuseCompletion?(room: string, intent: Intent, caller: TeamCallScope): Promise<string | null>
+  /** Why this card cannot complete yet — its role's grant can commit and its checkout is still dirty — or null. */
+  refuseDirty?(room: string, intent: Intent): Promise<string | null>
   /**
    * The review rounds on this board still open and blind: several reviewers
    * judging at once, none of whom may read another's card, context or
@@ -2574,6 +2576,12 @@ export class Team {
        judgment a merge step's evidence guard actually reads. */
     const missingReview = (await this.#flows?.refuseCompletion?.(board.id, first.intent, caller)) ?? null
     if (missingReview) return missingReview
+    /* A role whose grant can commit finishing with its checkout still dirty
+       leaves work outside every branch and outside the evidence ledger, and
+       nothing else catches it (#1049). A person's own hand finish goes
+       through `intentAction`, never here, so this never refuses them. */
+    const dirty = (await this.#flows?.refuseDirty?.(board.id, first.intent)) ?? null
+    if (dirty) return dirty
     this.#assertMutable(board)
     const still = held(first.intent.claim!.at)
     if ('refused' in still) return still.refused

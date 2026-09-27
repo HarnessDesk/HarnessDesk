@@ -19,9 +19,11 @@ const run = promisify(execFile)
 test('a revision is the commit, the branch, and whether the tree holds changes not committed', async () => {
   const { dir, git } = await makeRepo()
   const head = await git('rev-parse', 'HEAD')
-  assert.deepEqual(await revisionOf(dir), { head, branch: 'main', dirty: false })
+  assert.deepEqual(await revisionOf(dir), { head, branch: 'main', dirty: false, dirtyFiles: 0 })
   await writeFile(join(dir, 'new.txt'), 'x\n')
-  assert.deepEqual(await revisionOf(dir), { head, branch: 'main', dirty: true })
+  assert.deepEqual(await revisionOf(dir), { head, branch: 'main', dirty: true, dirtyFiles: 1 })
+  await writeFile(join(dir, 'second.txt'), 'y\n')
+  assert.equal((await revisionOf(dir))?.dirtyFiles, 2, 'each untracked file counts')
   await git('checkout', '-q', '--detach')
   assert.equal((await revisionOf(dir))?.branch, null)
   // No commit to bind anything to: outside a repository, or before its first commit.

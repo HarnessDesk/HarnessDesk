@@ -226,7 +226,7 @@ test('a card that finished with no commits keeps an empty diff after a later car
   // Card 1 finishes right away, having made no commits: the desk looks once,
   // unbounded — HEAD has not moved from `since` yet.
   await observer.observe({ room: 'room-1', card: 1, project, cwd: repo.dir, seat: null, since })
-  assert.deepEqual(await diffsOf(store, project, 1), [{ kind: 'diff', files: 0, added: 0, removed: 0, from: since, to: since }])
+  assert.deepEqual(await diffsOf(store, project, 1), [{ kind: 'diff', files: 0, added: 0, removed: 0, from: since, to: since, dirty: false }])
 
   // Card 2 now commits on the very same checkout.
   await writeFile(join(repo.dir, 'work.txt'), 'x\n')
@@ -239,7 +239,7 @@ test('a card that finished with no commits keeps an empty diff after a later car
   assert.ok(stopped)
   const changed = await observer.observe({ room: 'room-1', card: 1, project, cwd: repo.dir, seat: null, since: stopped.from, until: stopped.to })
   assert.equal(changed, false, 'bounded to where it stopped, so nothing changed')
-  assert.deepEqual(await diffsOf(store, project, 1), [{ kind: 'diff', files: 0, added: 0, removed: 0, from: since, to: since }])
+  assert.deepEqual(await diffsOf(store, project, 1), [{ kind: 'diff', files: 0, added: 0, removed: 0, from: since, to: since, dirty: false }])
 })
 
 test('each of two cards finishing in turn on one shared checkout keeps only its own commit', async () => {
@@ -267,8 +267,8 @@ test('each of two cards finishing in turn on one shared checkout keeps only its 
   assert.ok(diff1)
   await observer.observe({ room: 'room-1', card: 1, project, cwd: repo.dir, seat: null, since: diff1.from, until: diff1.to })
 
-  assert.deepEqual(await diffsOf(store, project, 1), [{ kind: 'diff', files: 1, added: 1, removed: 0, from: base, to: afterCard1 }])
-  assert.deepEqual(await diffsOf(store, project, 2), [{ kind: 'diff', files: 1, added: 1, removed: 0, from: afterCard1, to: afterCard2 }])
+  assert.deepEqual(await diffsOf(store, project, 1), [{ kind: 'diff', files: 1, added: 1, removed: 0, from: base, to: afterCard1, dirty: false }])
+  assert.deepEqual(await diffsOf(store, project, 2), [{ kind: 'diff', files: 1, added: 1, removed: 0, from: afterCard1, to: afterCard2, dirty: false }])
 })
 
 test('a card still held keeps diffing all the way to HEAD as its checkout moves', async () => {
@@ -285,7 +285,7 @@ test('a card still held keeps diffing all the way to HEAD as its checkout moves'
   const head1 = await repo.git('rev-parse', 'HEAD')
   // Still held: no `until` is given.
   await observer.observe({ room: 'room-1', card: 1, project, cwd: repo.dir, seat: null, since })
-  assert.deepEqual((await diffsOf(store, project, 1)).at(-1), { kind: 'diff', files: 1, added: 1, removed: 0, from: since, to: head1 })
+  assert.deepEqual((await diffsOf(store, project, 1)).at(-1), { kind: 'diff', files: 1, added: 1, removed: 0, from: since, to: head1, dirty: false })
 
   await writeFile(join(repo.dir, 'b.txt'), 'b\n')
   await repo.git('add', '.')
@@ -294,7 +294,7 @@ test('a card still held keeps diffing all the way to HEAD as its checkout moves'
   await observer.observe({ room: 'room-1', card: 1, project, cwd: repo.dir, seat: null, since })
   assert.deepEqual(
     (await diffsOf(store, project, 1)).at(-1),
-    { kind: 'diff', files: 2, added: 2, removed: 0, from: since, to: head2 },
+    { kind: 'diff', files: 2, added: 2, removed: 0, from: since, to: head2, dirty: false },
     'a live card keeps tracking its checkout all the way to HEAD',
   )
 })
@@ -440,7 +440,7 @@ test('isolated lanes keep working unchanged: two cards in their own checkouts ea
 
   await plane.settledFor('room-1')
 
-  assert.deepEqual(await diffsOf(plane.store, project, 1), [{ kind: 'diff', files: 1, added: 1, removed: 0, from: sinceA, to: afterA }])
-  assert.deepEqual(await diffsOf(plane.store, project, 2), [{ kind: 'diff', files: 1, added: 1, removed: 0, from: sinceB, to: afterB }])
+  assert.deepEqual(await diffsOf(plane.store, project, 1), [{ kind: 'diff', files: 1, added: 1, removed: 0, from: sinceA, to: afterA, dirty: false }])
+  assert.deepEqual(await diffsOf(plane.store, project, 2), [{ kind: 'diff', files: 1, added: 1, removed: 0, from: sinceB, to: afterB, dirty: false }])
   await plane.close()
 })

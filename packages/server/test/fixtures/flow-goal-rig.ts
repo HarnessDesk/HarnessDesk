@@ -75,8 +75,17 @@ export interface GoalRig {
   /** Runtimes with a provider reader configured at all; unset reads as false, the same conservative default `Host` uses. */
   readonly readableProviders: Set<string>
   readonly goals: Map<string, string>
-  /** What `headOf` answers for a checkout's `cwd`, keyed by that path; unset cwds read as no repository. */
-  readonly heads: Map<string, { readonly at: string | null; readonly dirty: boolean }>
+  /**
+   * What `headOf` answers for a checkout's `cwd`, keyed by that path; unset
+   * cwds read as no repository. `dirtyFiles` defaults to `1` when `dirty` is
+   * true and no count was given, `0` otherwise — a test names an exact count
+   * only when that count itself is what it is proving.
+   */
+  readonly heads: Map<string, { readonly at: string | null; readonly dirty: boolean; readonly dirtyFiles?: number | null }>
+  /** Checkouts whose `headOf` throws instead of answering — a git read that failed outright. */
+  readonly headOfFails: Set<string>
+  /** Every message the engine's own `port.log` was called with, in order. */
+  readonly logs: string[]
   /** What `runCheck` answers for a command, keyed by its exact text; unset commands "pass" (exit 0). */
   readonly checkOutcomes: Map<string, { readonly exit: number | null; readonly timedOut: boolean; readonly tail: string }>
   /** When true, every check's evidence append reports as failed (`problem` set, `evidence` null). */
@@ -181,7 +190,9 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     team, dir, peers, events: [] as string[], seats: new Map<string, SeatRecord>(), lanes: new Map<string, Lane>(),
     digests: new Map<string, string>(), providers: new Map<string, string>(), presentations: new Map<string, string>(),
     readableProviders: new Set<string>(), goals: new Map<string, string>(),
-    heads: new Map<string, { at: string | null; dirty: boolean }>(),
+    heads: new Map<string, { at: string | null; dirty: boolean; dirtyFiles?: number | null }>(),
+    headOfFails: new Set<string>(),
+    logs: [] as string[],
     checkOutcomes: new Map<string, { exit: number | null; timedOut: boolean; tail: string }>(),
     checkEvidenceFails: false,
     checksRunUntilStopped: null,
@@ -315,8 +326,13 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     laneOf: (seat) => rig.lanes.get(String(seat.id)) ?? null,
     reseat: async (seat) => { rig.onReseat?.(seat); return rig.comesBackAs ?? seat.seatLabel },
     changed: () => {},
-    log: () => {},
-    headOf: async (cwd) => rig.heads.get(cwd) ?? { at: null, dirty: false },
+    log: (message) => rig.logs.push(message),
+    headOf: async (cwd) => {
+      if (rig.headOfFails.has(cwd)) throw new Error('simulated git failure')
+      const found = rig.heads.get(cwd) ?? { at: null, dirty: false }
+      const dirtyFiles = found.dirtyFiles !== undefined ? found.dirtyFiles : found.dirty ? 1 : 0
+      return { ...found, dirtyFiles }
+    },
     runCheck: async (command, where, card) => {
       rig.events.push(`check:${command}`)
       if (rig.checksRunUntilStopped) {

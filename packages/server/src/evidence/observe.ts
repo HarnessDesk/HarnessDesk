@@ -121,7 +121,10 @@ export class Observer {
       ...(look.upstream !== undefined ? { upstream: look.upstream } : {}),
       ...(look.until !== undefined ? { until: look.until } : {}),
     })
-    if (diff) facts.push({ kind: 'diff', ...diff })
+    // Whether the checkout still held changes not committed at this same look,
+    // from the read this look already made — never a second probe. A hand
+    // finish left dirty is not refused (#1049), but its diff is drawn stale.
+    if (diff) facts.push({ kind: 'diff', ...diff, dirty: revision.dirty })
     const forge = await readPullRequest(look.cwd, this.#gh)
     if (forge.kind === 'unreachable') {
       this.#log('the forge could not be read for a card', { room: look.room, card: look.card, why: forge.why })

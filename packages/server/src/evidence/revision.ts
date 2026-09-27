@@ -43,6 +43,14 @@ export interface Revision {
   readonly head: Sha
   readonly branch: string | null
   readonly dirty: boolean
+  /**
+   * Tracked or untracked files not committed, never ignored — `git status`
+   * omits those by default — counted from the same read `dirty` comes from.
+   * Null when that read itself failed (git could not answer): unknown,
+   * never zero, so a caller that needs a real count never treats a failed
+   * read as a clean checkout.
+   */
+  readonly dirtyFiles: number | null
 }
 
 /**
@@ -88,7 +96,8 @@ export const headOf = async (cwd: string): Promise<Sha | null> => {
 export const revisionAt = async (cwd: string, head: Sha): Promise<Revision> => {
   const branch = (await gitOr(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD']))?.trim() || null
   const status = await gitOr(cwd, ['status', '--porcelain=v1', '--untracked-files=normal'])
-  return { head, branch, dirty: status === null || status.trim() !== '' }
+  const dirtyFiles = status === null ? null : status.split('\n').filter((line) => line.trim() !== '').length
+  return { head, branch, dirty: dirtyFiles === null || dirtyFiles > 0, dirtyFiles }
 }
 
 /** Null outside a repository, or in one with no commit yet: there is no revision to bind a fact to. */

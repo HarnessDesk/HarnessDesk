@@ -39,7 +39,7 @@ import {
 } from './flow-evidence.js'
 import { decideLoop, QUESTION_STOP } from './findings/rounds.js'
 import { handedCheckout, writes } from './flow-handed.js'
-import { reviewsIn } from './flow-policy.js'
+import { mayCommit, reviewsIn } from './flow-policy.js'
 import type { FindingJournal, FindingJournalEntry } from './findings/journal.js'
 import type { PublicationEntry, PublicationJournal, StoredPublication } from './findings/publication.js'
 import type { TriggerClosure } from './intake/consent.js'
@@ -267,9 +267,12 @@ export interface FlowExecutionPort {
   /**
    * A checkout's live branch head and whether it holds uncommitted changes,
    * read fresh — never the stale head a Seat was opened with. Null head
-   * outside a repository or before its first commit.
+   * outside a repository or before its first commit. `dirtyFiles` is the
+   * count behind `dirty`, for a refusal that has to name it; null when that
+   * count itself could not be read, which a caller that needs a real number
+   * must never take for zero.
    */
-  headOf(cwd: string, branch: string | null): Promise<{ readonly at: string | null; readonly dirty: boolean }>
+  headOf(cwd: string, branch: string | null): Promise<{ readonly at: string | null; readonly dirty: boolean; readonly dirtyFiles?: number | null }>
   /**
    * Runs a flow's check command through the bounded runner, and records its
    * result as that card's check evidence, awaited before this resolves — a
@@ -1368,6 +1371,47 @@ export class FlowExecutions {
     const index = round!.cards.indexOf(card)
     const binding = bindingsFor(run, role.id)[index]
     return binding ? reviewsIn(binding) : false
+  }
+
+  /**
+   * Why `complete_claim` (or a review that finishes a card the same way) may
+   * not finish this card yet: its Seat may commit (`mayCommit` — the grant
+   * capped by the Agent's own ceiling reaches `edit`) and its own checkout
+   * still holds changes never committed, tracked or untracked. `null`
+   * finishes it as before.
+   *
+   * Checked only where a grant could ever have produced the work in the
+   * first place: `null` for a card no v2 run bound, and for one whose Seat
+   * cannot commit at all — a read-only role could not have left anything
+   * uncommitted, so reading it as dirty would only ever be a dead end. Reads
+   * the checkout the same way a subject's own freshness does (`#heads`,
+   * `headOf`) — never a fresh git probe of its own — and a read that fails,
+   * or answers no count, never blocks a finish it cannot confirm is wrong:
+   * `null`, logged (issue #1049).
+   */
+  async refuseDirty(goal: string, card: number): Promise<string | null> {
+    const run = this.#runOfCard(goal, card)
+    if (!run || run.document.format !== 'agents') return null
+    const round = run.rounds.find((one) => one.cards.includes(card))
+    const role = run.document.flow.roles.find((one) => one.id === round?.role)
+    if (role?.kind !== 'agent') return null
+    const index = round!.cards.indexOf(card)
+    const binding = bindingsFor(run, role.id)[index]
+    if (!binding || !mayCommit(binding.agent, binding.grant)) return null
+    const { seat } = this.#seatForCard(run, card)
+    if (!seat) return null
+    let head: { readonly at: string | null; readonly dirty: boolean; readonly dirtyFiles?: number | null }
+    try {
+      head = await this.#port.headOf(seat.checkout.cwd, seat.checkout.branch)
+    } catch (error) {
+      this.#port.log('a card’s checkout could not be read at its finish, so the dirty check was skipped', {
+        goal, card, error: error instanceof Error ? error.message : String(error),
+      })
+      return null
+    }
+    const files = head.dirtyFiles ?? null
+    if (files === null || files === 0) return null
+    return `Your checkout has uncommitted changes (${files} file${files === 1 ? '' : 's'}). Commit them, or remove them if they aren't part of this work, then finish again.`
   }
 
   /**
