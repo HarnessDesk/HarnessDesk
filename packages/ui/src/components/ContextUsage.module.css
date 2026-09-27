@@ -14,8 +14,10 @@
 
 .rowReading {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--hd-space-2);
+  justify-content: space-between;
+  column-gap: var(--hd-space-2);
 }
 
 .window {
