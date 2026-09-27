@@ -7,6 +7,17 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **"Authorise another round" in Findings now takes a count, so a converging
+  loop no longer needs a click per round.** The action used to let exactly one
+  round past a stop, so a run against a round budget of 20 could need about
+  fifteen presses in a row to keep going, each one reopening the same dialog.
+  The dialog now has a small number field next to the button, 1 to 20, that
+  relabels it ("Authorise 3 more rounds") and widens the round ceiling by that
+  many at once; the run still stops at the new limit, and the stop still names
+  the way forward. Leaving the field at its default authorises one round,
+  exactly as before, and the authorization survives a restart the same way a
+  single round's did. (#1083)
+
 - **A reviewer whose sandbox will not let a server start no longer fails the
   change for it.** Codex's sandbox refuses a child process a listening socket,
   so every test that started a real server failed inside a Codex-seated review

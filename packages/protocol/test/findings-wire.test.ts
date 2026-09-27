@@ -73,6 +73,20 @@ test('a request cannot forge the stamp finding/run and finding/decide read back'
   }
 })
 
+test('"another-round" takes an optional round count, a whole number from 1 to 20', () => {
+  const decide = { goal: 'g1', run: 'run-1', round: 1, stamp: STAMP, reason: 'let a converging loop run' }
+  assert.doesNotThrow(() => request('finding/decide', { ...decide, action: { kind: 'another-round' } }), 'omitted means one, as before')
+  assert.doesNotThrow(() => request('finding/decide', { ...decide, action: { kind: 'another-round', rounds: 1 } }))
+  assert.doesNotThrow(() => request('finding/decide', { ...decide, action: { kind: 'another-round', rounds: 20 } }))
+  assert.throws(() => request('finding/decide', { ...decide, action: { kind: 'another-round', rounds: 0 } }), ValidationError)
+  assert.throws(() => request('finding/decide', { ...decide, action: { kind: 'another-round', rounds: 21 } }), ValidationError)
+  assert.throws(() => request('finding/decide', { ...decide, action: { kind: 'another-round', rounds: 1.5 } }), ValidationError)
+  assert.throws(() => request('finding/decide', { ...decide, action: { kind: 'another-round', rounds: '3' } }), ValidationError)
+  assert.throws(() => request('finding/decide', { ...decide, action: { kind: 'another-round', rounds: -1 } }), ValidationError)
+  // A round count on any other action is a forged field, refused like any other.
+  assert.throws(() => request('finding/decide', { ...decide, action: { kind: 'drop', rounds: 3 } }), ValidationError)
+})
+
 test('a person’s posting actions name one journaled operation or one previewed backfill, and nothing a request may not carry', () => {
   const KEY = `pub-${'a'.repeat(48)}`
   assert.doesNotThrow(() => request('finding/publications', { goal: 'g1', run: 'run-1' }))

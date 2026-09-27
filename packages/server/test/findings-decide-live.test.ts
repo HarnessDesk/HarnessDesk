@@ -50,6 +50,21 @@ test('two submissions of one read, decided at once, apply exactly one decision',
   assert.notEqual(extra, dropped, 'the run was either given its round or dropped, never both')
 })
 
+test('a stop that is not the round ceiling reads as such on the view, and refuses more than one round at a time', async (t) => {
+  const { f, view } = await stoppedRun(t)
+  assert.equal(view.ceilingStop, false, 'a pending security finding is not a round-ceiling stop')
+  await assert.rejects(
+    f.plane.decideRun({ ...input(f, view), action: { kind: 'another-round', rounds: 3 }, reason: 'let a few rounds through' }),
+    /Only a round-ceiling stop can be answered with more than one round at a time/,
+  )
+  await f.rig.flows.flush()
+  assert.equal(f.rig.executions.stored(f.run)!.findings!.extraRound, null, 'the refused request authorized nothing')
+  // The smallest step is still there for this same stop.
+  await f.plane.decideRun({ ...input(f, view), action: { kind: 'another-round' }, reason: 'the one round it can answer' })
+  await f.rig.flows.flush()
+  assert.equal(f.rig.executions.stored(f.run)!.findings!.extraRound?.count, 1)
+})
+
 test('the same submission sent twice at once applies once and answers both the same', async (t) => {
   const { f, view } = await stoppedRun(t)
   const decision = { ...input(f, view), action: { kind: 'another-round' as const }, reason: 'once more' }

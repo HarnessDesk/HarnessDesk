@@ -381,8 +381,13 @@ const findingIds: Validator<string[]> = (value, path = '') => {
   return ids
 }
 const findingReason: Validator<string> = (value, path = '') => atMost(4096, isFilled)(value, path)
+const findingRoundCount: Validator<number> = (value, path = '') => {
+  const number = isNumber(value, path)
+  if (!Number.isSafeInteger(number) || number < 1 || number > 20) throw new ValidationError(path, 'expected a whole number of rounds from 1 to 20')
+  return number
+}
 const findingDecisionAction = taggedUnion<FindingDecisionAction, 'kind'>('kind', {
-  'another-round': goalShape({ kind: literalUnion('another-round') }),
+  'another-round': goalShape({ kind: literalUnion('another-round'), rounds: optional(findingRoundCount) }),
   'merge-anyway': goalShape({ kind: literalUnion('merge-anyway') }),
   drop: goalShape({ kind: literalUnion('drop') }),
   'admit-exceptions': goalShape({ kind: literalUnion('admit-exceptions'), findings: findingIds }),

@@ -323,7 +323,7 @@ export interface FlowExecutionPort {
 
 /** A person decision's actions on one run, each run inside the run's queue a `withDecision` step already holds. */
 export interface RunDecisionOps {
-  authorizeExtraRound(round: number, reason: string): Promise<void>
+  authorizeExtraRound(round: number, reason: string, count?: number): Promise<void>
   recordExceptionDecision(findings: readonly FindingId[], admit: boolean): Promise<void>
   recordOverride(override: FindingOverride): Promise<void>
   recordDecisionStamp(stamp: string, key: string): Promise<void>
@@ -902,34 +902,41 @@ export class FlowExecutions {
   }
 
   /**
-   * A person's "Another round": authorizes exactly one further round past a
-   * stop this run's findings recorded, then resumes dispatch. `after` is the
-   * round the stop named — the same one `#advance`'s stall check compares —
-   * so the very next transition it would otherwise block is let through once.
-   * Idempotent while that transition has not happened yet: a duplicate press,
-   * or a crash before the round actually opens, replays the same one round
-   * rather than spending a second.
+   * A person's "Another round": authorizes `count` further rounds (1 to 20,
+   * default 1) past a stop this run's findings recorded, then resumes
+   * dispatch. `after` is the round the stop named — the same one
+   * `#advance`'s stall check compares — so the very next transition it would
+   * otherwise block is let through; `count` then widens the round ceiling
+   * (`after + count`) so the run does not stop again until that many further
+   * rounds have closed. Idempotent while the first of those transitions has
+   * not happened yet: a duplicate press with the same count, or a crash
+   * before the round actually opens, replays the same authorization rather
+   * than spending a second.
    */
-  async authorizeExtraRound(id: string, round: number, reason: string): Promise<FlowExecution> {
+  async authorizeExtraRound(id: string, round: number, reason: string, count = 1): Promise<FlowExecution> {
     return this.#queue.within(id, async () => {
-      await this.#authorizeExtraRound(id, round, reason)
+      await this.#authorizeExtraRound(id, round, reason, count)
       return this.#projectExecution(this.#get(id))
     })
   }
 
-  async #authorizeExtraRound(id: string, round: number, reason: string): Promise<void> {
+  async #authorizeExtraRound(id: string, round: number, reason: string, count = 1): Promise<void> {
     let run = this.#get(id)
     if (!run.findings) throw new Error('This run keeps no findings bookkeeping to authorize a round on.')
     if (run.state !== 'running' && run.state !== 'stalled') throw new Error(run.reason ?? 'This flow run is not running.')
     const already = run.findings.extraRound
     // The same authorization again — a retry, or a crash before its round opened — replays it; it spends nothing more.
-    const replay = run.findings.stopped === null && already?.after === round && already.reason === reason
+    // `already.count` is absent on a run authorized before this field existed, which meant one.
+    const replay = run.findings.stopped === null && already?.after === round && already.reason === reason && (already.count ?? 1) === count
     if (!replay && (!run.findings.stopped || run.findings.stopped.round !== round)) {
       throw new Error('This run is not stopped at that round any more. Read its status again.')
     }
     if (!replay) {
-      // The stop is answered: cleared, so nothing says the run is waiting for a person while its authorized round runs.
-      run = await this.#put({ ...run, findings: { ...run.findings, stopped: null, extraRound: { after: round, reason } } })
+      if (count > 1 && !run.findings.stopped!.ceiling) {
+        throw new Error('Only a round-ceiling stop can be answered with more than one round at a time.')
+      }
+      // The stop is answered: cleared, so nothing says the run is waiting for a person while its authorized rounds run.
+      run = await this.#put({ ...run, findings: { ...run.findings, stopped: null, extraRound: { after: round, reason, count } } })
     }
     run = await this.#put({ ...run, state: 'running', reason: null })
     await this.#advance(id)
@@ -1022,7 +1029,7 @@ export class FlowExecutions {
   withDecision<T>(id: string, step: (ops: RunDecisionOps) => Promise<T>): Promise<T> {
     if (!this.#runs.has(id)) return Promise.reject(new Error(`There is no flow run ${id}.`))
     return this.#queue.within(id, () => step({
-      authorizeExtraRound: (round, reason) => this.#authorizeExtraRound(id, round, reason),
+      authorizeExtraRound: (round, reason, count) => this.#authorizeExtraRound(id, round, reason, count),
       recordExceptionDecision: (findings, admit) => this.#recordExceptionDecision(id, findings, admit),
       recordOverride: (override) => this.#recordOverride(id, override),
       recordDecisionStamp: (stamp, key) => this.#recordDecisionStamp(id, stamp, key),
@@ -1051,7 +1058,7 @@ export class FlowExecutions {
     const state = run.findings!
     if (state.closedRounds.includes(round)) return
     const closed = state.closedRounds.length + 1
-    const limit = Math.max(state.budget.rounds, state.extraRound ? state.extraRound.after + 1 : 0)
+    const limit = Math.max(state.budget.rounds, state.extraRound ? state.extraRound.after + (state.extraRound.count ?? 1) : 0)
     const decision = decideLoop({
       closed, limit, idle: state.idleRounds, idleLimit: state.budget.withoutProgress, newProgress: true,
       unresolvedRepairs: [], unresolved: 0, reviewComplete: false, freshGuards: false, pendingException: false,
@@ -1059,7 +1066,7 @@ export class FlowExecutions {
     })
     await this.#put(this.#operation({
       ...run,
-      findings: { ...state, closedRounds: [...state.closedRounds, round], idleRounds: decision.idle, stopped: decision.next === 'person' ? { round, reason: decision.reason! } : null },
+      findings: { ...state, closedRounds: [...state.closedRounds, round], idleRounds: decision.idle, stopped: decision.next === 'person' ? { round, reason: decision.reason!, ceiling: decision.ceiling } : null },
     }, `close:${round}`, { kind: 'round', state: 'finished', card: null, seat: null }))
   }
 

@@ -284,10 +284,16 @@ export interface FindingRunState {
   /** Every progress key this run has seen, so repeated evidence never counts twice. */
   readonly progress: readonly string[]
   readonly series: readonly FindingSeries[]
-  /** Why the run stopped for a person, and after which round; null while it may go on. */
-  readonly stopped: { readonly round: number; readonly reason: string } | null
-  /** One more round a person authorized after a stop. */
-  readonly extraRound: { readonly after: number; readonly reason: string } | null
+  /**
+   * Why the run stopped for a person, and after which round; null while it
+   * may go on. `ceiling` is true only for the round-budget stop — the one a
+   * count past one may buy several rounds against; every other stop (a
+   * design problem, a pending exception, an unreadable ledger, rounds
+   * without progress) may only ever be answered one round at a time.
+   */
+  readonly stopped: { readonly round: number; readonly reason: string; readonly ceiling: boolean } | null
+  /** How many further rounds a person authorized after a stop; absent on a run authorized before this field existed, which means one. */
+  readonly extraRound: { readonly after: number; readonly reason: string; readonly count: number } | null
   readonly overrides: readonly FindingOverride[]
   /**
    * The last `finding/decide` this run actually applied: its one-use stamp,
@@ -342,7 +348,7 @@ export interface RepairLead {
  * itself.
  */
 export type FindingDecisionAction =
-  | { readonly kind: 'another-round' }
+  | { readonly kind: 'another-round'; readonly rounds?: number }
   | { readonly kind: 'merge-anyway' }
   | { readonly kind: 'drop' }
   | { readonly kind: 'admit-exceptions'; readonly findings: readonly FindingId[] }
@@ -364,6 +370,8 @@ export interface FindingRunView {
   readonly open: number
   readonly blocking: number
   readonly reason: string | null
+  /** True only when `reason` is the round-ceiling stop — the one "Authorise another round" may answer with more than one round at once. */
+  readonly ceilingStop: boolean
   readonly stamp: string
   readonly publication: 'local' | 'pending' | 'posted' | 'partial' | 'uncertain'
   /**

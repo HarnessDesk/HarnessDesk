@@ -40,7 +40,7 @@ const raise = (n: number, over: Partial<EvidenceRecord['finding']> = {}): Eviden
 const startingFindings = (over: Partial<FindingRunState> = {}): FindingRunState => ({
   version: 1, budget: { rounds: 3, withoutProgress: 2 }, closedRounds: [1], idleRounds: 0, progress: [],
   series: [{ id: `reviewer@${ROOT}`, role: 'reviewer', checkout: { cwd: ROOT, branch: 'fix' }, reviewedAt: A, reviewRounds: [1], initial: ['finding-0001'], exceptions: [], pending: [] }],
-  stopped: { round: 1, reason: 'Round 1 ended with 1 open findings.' }, extraRound: null, overrides: [], lastDecision: null,
+  stopped: { round: 1, reason: 'Round 1 ended with 1 open findings.', ceiling: true }, extraRound: null, overrides: [], lastDecision: null,
   ...over,
 })
 
@@ -51,7 +51,7 @@ interface Rig {
   headAt: string
   snapshot: FindingRunSnapshot
   readonly calls: {
-    authorizeExtraRound: { run: string; round: number; reason: string }[]
+    authorizeExtraRound: { run: string; round: number; reason: string; count: number }[]
     recordExceptionDecision: { run: string; findings: readonly string[]; admit: boolean }[]
     recordOverride: { run: string; override: FindingOverride }[]
     stopRun: { run: string; reason: string }[]
@@ -65,7 +65,7 @@ const execution = (snapshot: FindingRunSnapshot): FlowExecution => ({
 
 /** A fake run's decision actions, as `FlowExecutions.withDecision` hands them: its own queued methods, called in order. */
 const opsOf = (flows: FindingsPort['flows'], run: string): RunDecisionOps => ({
-  authorizeExtraRound: async (round, reason) => { await flows.authorizeExtraRound!(run, round, reason) },
+  authorizeExtraRound: async (round, reason, count) => { await flows.authorizeExtraRound!(run, round, reason, count) },
   recordExceptionDecision: async (findings, admit) => { await flows.recordExceptionDecision!(run, findings, admit) },
   recordOverride: async (override) => { await flows.recordOverride!(run, override) },
   recordDecisionStamp: async (stamp, key) => { await flows.recordDecisionStamp!(run, stamp, key) },
@@ -94,9 +94,9 @@ const rig = async (findingsOver: Partial<FindingRunState> = {}): Promise<Rig> =>
       run: (run) => (run === RUN ? out.snapshot : null),
       seriesOfGoal: () => out.snapshot.findings?.series ?? [],
       facts: async () => [],
-      authorizeExtraRound: async (run, round, reason) => {
-        out.calls.authorizeExtraRound.push({ run, round, reason })
-        out.snapshot = { ...out.snapshot, findings: { ...out.snapshot.findings!, extraRound: { after: round, reason } } }
+      authorizeExtraRound: async (run, round, reason, count = 1) => {
+        out.calls.authorizeExtraRound.push({ run, round, reason, count })
+        out.snapshot = { ...out.snapshot, findings: { ...out.snapshot.findings!, extraRound: { after: round, reason, count } } }
         return execution(out.snapshot)
       },
       recordExceptionDecision: async (run, findings, admit) => {
@@ -186,6 +186,24 @@ test('one additional round is one durable allowance: a duplicate press replays i
   await state.plane.decideRun({ ...input, stamp: again.stamp })
   assert.equal(state.calls.authorizeExtraRound.length, 2, 'asked again, but at the same round — no budget was reset')
   assert.equal(state.calls.authorizeExtraRound[1]!.round, 1)
+})
+
+test('an action naming its own round count passes it to the engine, and a bare "another-round" still means one', async () => {
+  const state = await rig()
+  const view = await currentView(state)
+  await state.plane.decideRun({
+    goal: GOAL, run: RUN, round: 1, stamp: view.stamp,
+    action: { kind: 'another-round', rounds: 5 }, reason: 'let a converging loop run',
+  })
+  assert.equal(state.calls.authorizeExtraRound.length, 1)
+  assert.equal(state.calls.authorizeExtraRound[0]!.count, 5, 'the requested count reaches the engine')
+
+  const again = await currentView(state)
+  await state.plane.decideRun({
+    goal: GOAL, run: RUN, round: 1, stamp: again.stamp,
+    action: { kind: 'another-round' }, reason: 'the smallest step is still there',
+  })
+  assert.equal(state.calls.authorizeExtraRound[1]!.count, 1, 'omitting rounds still authorizes exactly one')
 })
 
 test('a merge-anyway override records disagreement without clearing any fact', async () => {
