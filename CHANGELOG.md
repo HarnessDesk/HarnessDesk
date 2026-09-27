@@ -7,24 +7,23 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
-- **A Seat still busy when a flow round fails, or a run stops, is no longer
-  left holding its card forever, and it never sits there silently either.**
-  Releasing a Seat interrupts its live turn; a Seat still found busy — or
-  refused because a new turn started right as it was called — used to have
-  that refusal only logged, leaving it claimed on its card and its paths with
-  nothing on screen to explain why. The release now waits on the same signal
-  the desk already uses to notice a turn ended, and goes through the moment
-  it does, however long that takes — never a poll, and never abandoned. While
-  a stopped or failed run's release waits, and for a minute past that if the
-  signal still has not come, that run's own reason keeps saying why it
-  stopped and adds which card is still held and which Seat it is waiting on
-  — never replacing why it stopped, and reading with nothing added once the
-  release goes through. A Seat handed new work while its old release still
-  waits is never released out from under it, nor is one a person has since
-  handed a different card of their own by hand. A Seat a stopped or settled
-  run left claimed when the desk last quit is found and released the next
-  time it starts — a run only waiting on a person's answer, or one already
-  stalled on its own reason, is left exactly as it was. (#1027)
+- **A Seat still busy when a flow round fails, or a run stops, is no longer left
+  holding its card forever, and it never sits there silently either.** Releasing
+  a Seat interrupts its live turn; a Seat still found busy — or refused because
+  a new turn started right as it was called — used to have that refusal only
+  logged, leaving it claimed on its card and its paths with nothing on screen to
+  explain why. The release now waits on the same signal the desk already uses to
+  notice a turn ended, and goes through the moment it does, however long that
+  takes — never a poll, and never abandoned. While a release waits, and for a
+  minute past that if the signal still has not come, the room's own live line
+  names which card is still held and which Seat it is waiting on, on a line of
+  its own — never in place of why the run itself stopped or settled, and gone
+  once the release goes through. A Seat handed new work while its old release
+  still waits is never released out from under it, nor is one a person has since
+  handed a different card of their own by hand. A Seat a stopped or settled run
+  left claimed when the desk last quit is found and released the next time it
+  starts — a run only waiting on a person's answer, or one already stalled on
+  its own reason, is left exactly as it was. (#1027)
 
 - **A finished card's diff no longer keeps changing after it's done.** On a
   shared, non-isolated checkout, `Observer.observe` re-diffed a card from
