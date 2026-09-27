@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { runtimeId, type AgentRuntime, type RuntimeId, type SpendSummary, type UsageReport } from '@harnessdesk/protocol'
 
 import { UsageService } from '../src/usage/service.js'
-import type { MeterReading, UsageMeter } from '../src/usage/meter.js'
+import { MeterAuthError, type MeterReading, type UsageMeter } from '../src/usage/meter.js'
 
 /**
  * What the service does when the ledger finishes after the screen is open.
@@ -125,12 +125,13 @@ test('a source that fails keeps the last good reading, with the failure beside i
 })
 
 /** A meter that answers from a script, one step per read, and throws on a string. */
-const scriptedMeter = (steps: (MeterReading | string | null)[]): UsageMeter => ({
+const scriptedMeter = (steps: (MeterReading | string | Error | null)[]): UsageMeter => ({
   id: 'scripted',
   source: { kind: 'api', label: 'from a script' },
   read: async () => {
     const step = steps.shift()
     if (typeof step === 'string') throw new Error(step)
+    if (step instanceof Error) throw step
     return step ?? null
   },
   watchPaths: () => [],
@@ -174,6 +175,36 @@ test('a meter that fails before it has ever answered is still no card', async ()
   })
   assert.deepEqual(await usage.refresh(METERED), [])
   assert.deepEqual(logged, ['a usage meter failed'])
+  usage.dispose()
+})
+
+test('a meter that has never answered but says the key itself is wrong is a card, not silence', async () => {
+  // Unlike a plain outage above: a 401 means "sign in / check key", which is
+  // worth a card even with nothing earlier to keep it company.
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, scriptedMeter([new MeterAuthError('sign in, or check the API key')])]]),
+    onReport: () => undefined,
+  })
+  const [report] = await usage.refresh(METERED)
+  assert.ok(report, 'a card, even with no prior reading')
+  assert.deepEqual(report?.lanes, [])
+  assert.equal(report?.error?.needsSignIn, true)
+  assert.equal(report?.error?.message, 'sign in, or check the API key')
+  usage.dispose()
+})
+
+test('a meter with a good reading that later says the key is wrong keeps the reading, with needsSignIn on the failure', async () => {
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, scriptedMeter([weekly(30, 1_000), new MeterAuthError('sign in, or check the API key')])]]),
+    onReport: () => undefined,
+  })
+  const good = (await usage.refresh(METERED))[0]
+  assert.equal(good?.lanes[0]?.usedPercent, 30)
+  const after = (await usage.refresh(METERED))[0]
+  assert.equal(after?.lanes[0]?.usedPercent, 30, 'the last good reading stands')
+  assert.equal(after?.error?.needsSignIn, true)
   usage.dispose()
 })
 

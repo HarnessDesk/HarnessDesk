@@ -112,7 +112,7 @@ it; `check-layering.mjs` only forbids it above.
 | --- | --- | --- | --- |
 | 1 | Runtime adapter queries | Codex, live, already wired | free |
 | 2 | A declared local file the agent already writes | Claude Code: `~/.claude.json → cachedUsageUtilization` — session, weekly, model-scoped lanes, plan, identity, `severity` | free, and watched on disk |
-| 3 | A declared credential plus one HTTP call | Cursor (`state.vscdb` → `cursor.com/api/usage-summary`, plus `api/auth/me` and the legacy `api/usage` on a request-based plan only), Gemini (`~/.gemini/oauth_creds.json` → Cloud Code quota API), Copilot (device token in `~/.config/github-copilot/` → `copilot_internal/user`), Cline (`~/.cline/data/settings/providers.json` → `api.cline.bot` balance) | one request, cached (two more for a request-based Cursor plan) |
+| 3 | A declared credential plus one HTTP call | Cursor (`state.vscdb` → `cursor.com/api/usage-summary`, plus `api/auth/me` and the legacy `api/usage` on a request-based plan only), Gemini (`~/.gemini/oauth_creds.json` → Cloud Code quota API), Copilot (device token in `~/.config/github-copilot/` → `copilot_internal/user`), Cline (`~/.cline/data/settings/providers.json` → `api.cline.bot` balance), DeepSeek Harness (`DEEPSEEK_API_KEY`, in the row's own environment or `${DSH_HOME:-~/.dsh}/.credentials.yaml` → `api.deepseek.com/user/balance`), OpenRouter (`OPENROUTER_API_KEY` in any agent's own environment → `openrouter.ai/api/v1/key` and `/credits`) | one request, cached (two more for a request-based Cursor plan; two for OpenRouter's pair of endpoints) |
 | 3′ | The agent vendor's own CLI, asked for its own report | Antigravity (`agy --print /usage --output-format json` → Google's `retrieveUserQuotaSummary`, a weekly limit per group of models), Amp (`amp usage` → the credit balance) | one process start and one request, at most once a minute (Amp: every five) |
 | 4 | The local ledger — the agent's own records | tokens and cost per day, model and project: `~/.codex/sessions/**.jsonl`, `~/.claude/projects/**.jsonl`, Gemini CLI's `~/.gemini/tmp/*/chats/*.jsonl`, Qwen Code's `~/.qwen/projects/*/chats/*.jsonl` (list price); OpenCode's `opencode.db` and Cline's `sessions.db` (the cost the agent recorded) | one incremental scan |
 
@@ -254,6 +254,56 @@ ones. A prepaid balance counts as usage reported in the line above the cards,
 so an overdrawn Cline reads "Cline is out of credits." rather than "No agent
 here reports plan usage."; its card says the balance waits for a top-up, not
 a reset; and the Accounts rail shows the balance where a percentage would go.
+
+**DeepSeek and OpenRouter, added 2026-09-26.** Two more sources that were
+"doesn't report usage" until now, and the two shapes above (Balance, Metered
+key) rather than a new one:
+
+- **DeepSeek Harness** authenticates with a provider key, never a browser
+  sign-in (`agent-registry.ts`'s `dsh` entry), so it is bound by runtime —
+  the same way `agy_acp_server` is bound to Antigravity's CLI, above — never
+  by a base URL check. `GET api.deepseek.com/user/balance`
+  (https://api-docs.deepseek.com/api/get-user-balance) answers `{
+  is_available, balance_infos: [{ currency, total_balance, … }] }`; a
+  prepaid balance, so it is `credits`, never a lane, `billing.kinds:
+  ['balance']`. An account can have more than one currency funded at once
+  (CNY and USD both topped up) — those are never summed into one figure,
+  since they are not fungible; the meter reports the one currency this
+  screen can show (USD when it is funded, otherwise the first the response
+  lists) rather than inventing a combined number. `is_available: false`
+  reads as out, the same as a balance at zero. The key itself is read from
+  wherever DSH's own process would read it — the desk's own stored copy
+  first, then `DEEPSEEK_API_KEY` in the row's environment, then DSH's own
+  store (`${DSH_HOME:-~/.dsh}/.credentials.yaml`, the file its "Models" page
+  writes, or a `.env` beside it) — the same two files and the same order
+  `whereSecretLives`/`readsKey` in `@harnessdesk/adapter-acp` already check
+  for *presence*; this is the one place the *value* is read, and only to put
+  it in a request header — never logged, stored beyond that read, or shown
+  past its last four characters.
+- **OpenRouter** is not an agent at all, so it is never bound by runtime: any
+  agent this desk starts with `OPENROUTER_API_KEY` in its own environment
+  gets this meter, filling the gap only where nothing stronger already
+  answered (Cline's own balance stays Cline's, whatever key its model calls
+  also carry). `GET openrouter.ai/api/v1/key`
+  (https://openrouter.ai/docs/api-reference/limits) gives the key's own
+  `limit`, `limit_reset` and `usage`; a key with a limit is a metered
+  allowance — `unit: 'usd'`, `used`, `limit`, `layer: 'plan'`,
+  `billing.kinds: ['metered']`, reset per `limit_reset`'s own period
+  ("daily" | "weekly" | "monthly"), carried as `resetText` since it names a
+  period, never a date. A key with no limit gets no lane at all: nothing
+  invents a ceiling that key does not have. `GET
+  openrouter.ai/api/v1/credits` (https://openrouter.ai/docs/api-reference/credits)
+  gives `total_credits` and `total_usage`; the account-wide balance is
+  `total_credits - total_usage`, `billing.kinds` gains `'balance'`. The
+  account label this meter reports is its own key's last four characters,
+  never OpenRouter's own `label` field, which can itself be shaped like the
+  key it names.
+
+Both meters treat a 401 from their vendor as the key or sign-in being wrong,
+not a crash: `MeterAuthError` carries that through as `UsageError.needsSignIn`
+— worth a card that says "sign in / check key" even with no earlier reading
+to fall back on, unlike a plain outage, which stays silent until something
+has answered once.
 
 **Read-only, always.** HarnessDesk never writes to another application's
 credential file, config or cache. It reads to answer one question and keeps
@@ -673,28 +723,57 @@ the account menu, the menu-bar item and the window's own title all use. *Usage*
 stays the word for the figures themselves: an agent's usage section in
 Settings, the usage-source preference. The screen is wider than that, which is
 why it is not called it. Reached from the sidebar, from ⌘K (⌘U), and from any
-of the smaller surfaces below. Three bands in one scrolling column, and a rail
-down the left that lists the **accounts** — clicking one scopes every band to
-it.
+of the smaller surfaces below, landing on **Overview**. The window is the same
+shell as Settings — a rail of rows down the left, each a real page — and the
+rail lists **views**, not accounts:
+
+1. **Overview** — the whole story on one screen: an accounts summary limited
+   to what needs looking at first, a bento of what it cost beside where it
+   went, and when it ran.
+2. **Plans** — every account's own card, whether it will last, the accounts
+   not being tracked, and the agents that report nothing.
+3. **Spend** — what it cost and where it went, full width, over 7, 30 or 90
+   days.
+4. **Activity** — when it ran, full width.
+5. **Projects** — project usage, by Goal or by Agent.
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="images/app/dashboard-dark.png" />
-    <img src="images/app/dashboard-light.png" alt="The dashboard: an accounts rail down the left with a meter per account, and a grid of account cards showing what is left of each plan, when each window resets, which lane is spent, and what the work cost." />
+    <img src="images/app/dashboard-light.png" alt="The dashboard: a rail of views down the left, an account scope in the header beside the view title, and Overview's accounts summary, spend-and-split bento, and activity heatmap below it." />
   </picture>
 </p>
 
-**Why the rail lists accounts.** It listed the three band names for a while,
-which produced three rows that looked like tabs and only scrolled a page that
-mostly does not scroll — and the thing you actually come here to do, look at
-one account, was a segmented control wedged into the first band's header. The
-rail is now the scope: one row per account, each carrying its own figure and a
-3px meter, so the rail answers "is anything low" before you have read a card,
-and clicking a row narrows the whole page — cards, money and history alike.
-The band names take over the "where am I" job by sticking to the top of the
-page as you pass them. The accounts you have switched off sit under **Not
-tracked** at the bottom of the same rail, each offering to be tracked again;
-that is where the strip of chips under the cards went.
+**Why the rail lists views, not accounts.** It listed one row per account for
+a while, and that rail was carrying four jobs a plain list does none of well.
+It **duplicated a list already a click away** — every account it named also
+had its own card on the page, so the rail and the body said the same thing
+twice. **Half its rows said nothing**: an account that had switched off
+tracking, or had never answered who was signed in, sat in the rail wearing a
+dash where a figure goes, next to rows that had a real percentage to show.
+**Its one figure mixed units** — a plan's remaining share, a prepaid balance in
+whatever currency the vendor kept it in, an em dash for "not metered" — three
+different kinds of fact reading as one column, which is what a rail's "is
+anything low" promise actually needs to be one thing to keep. And the rail's
+meter was a **ragged second line**: present under a metered account, absent
+under a balance or a dash, so the rail's own rows did not line up with each
+other. Worst of all, the rail was **a filter dressed as navigation** — clicking
+a row did not go anywhere, it narrowed the one page underneath it, which is
+what a header control does, not what a rail does.
+
+A rail of views has none of these problems: five rows, five real pages, an
+icon and — on Plans alone, because it alone earns one — a count. **Scope moved
+to the header** instead: an "All accounts ▾" control beside every view's own
+title, built on the same `Popover` + `Menu` a card's own "…" already draws —
+not a new select, which would be a second thing to learn — and lists one row
+per runtime (scope is by runtime, not by account) alongside "All accounts".
+Picking one scopes whichever view is open exactly as clicking that account in
+the old rail did, and — unlike the old rail — the choice now survives a switch
+between views, because it is one piece of state the window remembers rather
+than five copies of "which page is this."
+The accounts you have switched off sit at the bottom of **Plans**, each
+offering to be tracked again; that is where the rail's own "Not tracked" group
+went.
 
 **Why cards and not a table.** A table sorts well and reads badly: the binding
 number, its reset, its pace and its bar are one thought, and splitting them

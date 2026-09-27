@@ -1354,7 +1354,8 @@ export class AppStore {
    * as the window is open — and never one that is unavailable: its health
    * coming back up is what re-reads it.
    */
-  #accountFailed = new Set<RuntimeId>()
+  /** Each failing agent, with the number of the read that failed. */
+  #accountFailed = new Map<RuntimeId, number>()
   #accountRetry: ReturnType<typeof setTimeout> | null = null
   #accountRetryDelay = ACCOUNT_RETRY_FIRST_MS
 
@@ -1390,7 +1391,7 @@ export class AppStore {
       if (answer.failed) {
         // A failed read says nothing new about who is signed in, so the
         // last answer stands rather than being thrown away for no answer.
-        this.#accountFailed.add(id)
+        this.#accountFailed.set(id, read)
         continue
       }
       this.#accountFailed.delete(id)
@@ -1401,20 +1402,26 @@ export class AppStore {
     this.#scheduleAccountRetry()
   }
 
-  /** The agents still worth asking again: failed, still here, and not known to be down. */
+  /**
+   * The agents still worth asking again: failed, still here, not known to be
+   * down, and with no newer read of their own already out — that read will
+   * say, and asking again beside it only throws one answer away.
+   */
   #accountsToRetry(): RuntimeId[] {
     const roster = new Set(this.#snapshot.runtimes.map((runtime) => runtime.id))
-    for (const id of this.#accountFailed) {
+    for (const id of this.#accountFailed.keys()) {
       if (!roster.has(id) || this.#snapshot.healthByRuntime[id]?.state === 'unavailable') this.#accountFailed.delete(id)
     }
-    return [...this.#accountFailed]
+    return [...this.#accountFailed].filter(([id, read]) => this.#accountReads.get(id) === read).map(([id]) => id)
   }
 
   #scheduleAccountRetry(): void {
     if (this.#accountsToRetry().length === 0) {
       if (this.#accountRetry) clearTimeout(this.#accountRetry)
       this.#accountRetry = null
-      this.#accountRetryDelay = ACCOUNT_RETRY_FIRST_MS
+      // The wait starts over only once nothing is failing: a read still out
+      // for a failing agent is not a recovery.
+      if (this.#accountFailed.size === 0) this.#accountRetryDelay = ACCOUNT_RETRY_FIRST_MS
       return
     }
     // One re-ask at a time, kept once set: another failure landing meanwhile
@@ -1426,7 +1433,7 @@ export class AppStore {
       this.#accountRetry = null
       const ids = this.#accountsToRetry()
       if (ids.length === 0) {
-        this.#accountRetryDelay = ACCOUNT_RETRY_FIRST_MS
+        if (this.#accountFailed.size === 0) this.#accountRetryDelay = ACCOUNT_RETRY_FIRST_MS
         return
       }
       void this.#askAccounts(ids)

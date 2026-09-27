@@ -33,6 +33,29 @@ move is real work and is not news to a person weighing an upgrade.
   result shows, so a shared checkout's own file names never reach a
   renderer. (#1049)
 
+- **The Dashboard's rail lists views, and the account you're looking at is a
+  choice in the header.** The rail used to hold one row per account, which
+  duplicated the card list a click away, mixed a plan's percentage with a
+  prepaid balance and a bare dash in one column, and answered "look at one
+  account" — a filter — with what read as navigation. It now holds five real
+  pages — Overview, Plans, Spend, Activity, Projects — each a click from ⌘U,
+  the sidebar's Dashboard row, ⌘K or the menu bar item (all landing on
+  Overview); an account's own "Usage" opens Plans, scoped to it, the way
+  clicking that account in the old rail used to. Picking an account from the
+  new "All accounts ▾" header control scopes whichever view is open, and the
+  choice survives a switch between them.
+
+- **A run stopped at its round budget now says how to let it continue.** The
+  control already existed — the Findings tab's "Decide this run" opens
+  "Authorise another round" for exactly this stop — but nothing on the stall
+  itself pointed there, so a person reading "This run reached its limit of N
+  rounds." or "Round N ended with M open findings." had no way to find it.
+  Both messages now end with "To let it continue, open Findings and choose
+  Authorise another round.", in the button's own words, and only for the
+  stops that action actually answers — never a design problem or a pending
+  regression or security claim, which need a person's judgment first, not
+  another round. (#1051)
+
 - **A step after an isolated one now works on that step's actual commit.** A
   flow step that depends on an isolated step's finished work — a tester after
   a developer working in its own worktree, say — used to open in the project's
@@ -47,6 +70,16 @@ move is real work and is not news to a person weighing an upgrade.
   step that will get a worktree this way, and a reading step's worktree lets
   its ports and browser profile go as soon as that step's conversation
   closes. (#1053)
+
+- **DeepSeek Harness and OpenRouter no longer read "doesn't report usage" on
+  the Dashboard.** DeepSeek's prepaid balance (`api.deepseek.com/user/balance`)
+  shows as a credit balance, the same shape Cline's and Amp's already do.
+  OpenRouter's key limit and account credit balance
+  (`openrouter.ai/api/v1/key` and `/credits`) show for any agent that has an
+  `OPENROUTER_API_KEY` of its own, whichever CLI that row runs. Both read the
+  key from wherever the agent itself already keeps it — never a new field to
+  fill in — and a 401 now reads as "sign in / check key" instead of either
+  crashing or going silent. (docs/usage-dashboard.md)
 
 - **An effort mismatch found only once a conversation opened is worded
   truthfully, and one runtime's levels are no longer copied onto another
@@ -195,9 +228,9 @@ move is real work and is not news to a person weighing an upgrade.
   whole-desk survey (the empty pane's "now what?") says so instead of a
   tagline or a bare "Ready." An agent's own page says it has not answered
   yet rather than "Not signed in", says a session would not start only once
-  every one of its accounts has answered, and asks before removing an
-  account that has not; an extra account that could not start says
-  "Unavailable" there, as the list does (#1038). A read that fails no
+  every one of its accounts that can answer has answered, and asks before
+  removing an account that has not; an extra account that could not start
+  says "Unavailable" there, as the list does (#1038). A read that fails no
   longer forgets the last answer, and is asked again on its own, soon at
   first and then less often, so an agent never sits at "Not answered yet"
   with nothing asking (#1021). (#986)

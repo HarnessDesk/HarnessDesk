@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { runtimeId, type LedgerReport } from '@harnessdesk/protocol'
 
 import { Ranked } from './Usage'
-import styles from './Usage.module.css'
+import styles from './usage/usage.module.css'
 
 /**
  * "Where it went"'s change chip is by-agent only, and only real for an agent
