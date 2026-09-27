@@ -9,6 +9,7 @@ import { ExecutionFiles, FlowExecutions, sourceDigest, type FlowExecutionPort, t
 import { compileFlowPolicy, parseFlowPolicy } from '../../src/flow-policy.js'
 import { Flows, type FlowPort } from '../../src/flows.js'
 import { Serial } from '../../src/goals/assignments.js'
+import { SeatBusyRefusal } from '../../src/goals/plane.js'
 import { Team, type TeamPeer, type TeamPort } from '../../src/team.js'
 
 /**
@@ -139,11 +140,20 @@ export interface GoalRig {
   /** Seats inside a turn now — their brief's, say — which an order would be refused by. */
   busySeats: Set<string>
   /**
+   * Seats whose very next `release` call is refused as busy exactly once,
+   * however `busySeats` reads at that moment — the race a Seat's own busy
+   * check cannot always catch: a turn that starts between that check and the
+   * call to `release` itself (#1027).
+   */
+  readonly raceReleaseOnce: Set<string>
+  /**
    * A turn an interrupt asks to stop ends a moment later, as a real agent's
    * does, and a release refuses a Seat still inside its turn — as the host's
    * Goal plane refuses it.
    */
   turnsEndLater: boolean
+  /** How much later a turn ends once interrupted, when `turnsEndLater` is set. */
+  turnEndDelayMs: number
   /** Called once an order is accepted — where a test says a turn has started. */
   onOrder: ((seat: SeatRecord) => void) | null
   /** Called as a Seat is put back on its picks — where a test says a person started a turn meanwhile. */
@@ -175,7 +185,10 @@ export interface GoalRig {
   kill(seat: string): void
 }
 
-export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Promise<GoalRig> => {
+export const goalRig = async (
+  t: { after(fn: () => Promise<void>): void },
+  options: { readonly releaseStallMs?: number } = {},
+): Promise<GoalRig> => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-flow-goal-'))
   const peers: TeamPeer[] = []
   const teamPort: TeamPort = {
@@ -205,7 +218,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     facts: new Map<string, EvidenceRecord[]>(),
     staleFacts: new Set<string>(),
     goalSerial: new Serial(), seatAsked: null, strictAsks: [] as boolean[], holdsCeilings: true, reserve: null,
-    beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, turnsEndLater: false, comesBackAs: null, busySeats: new Set<string>(), onOrder: null, onReseat: null,
+    beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, turnsEndLater: false, turnEndDelayMs: 120, comesBackAs: null, busySeats: new Set<string>(), raceReleaseOnce: new Set<string>(), onOrder: null, onReseat: null,
     orderTexts: new Map<string, string[]>(),
     origins: new Map<string, GoalOrigin>(),
     triggerGate: null,
@@ -285,9 +298,14 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     return record
   }
   const release = async (_goal: string, id: string): Promise<void> => {
+    if (rig.raceReleaseOnce.has(id)) {
+      rig.raceReleaseOnce.delete(id)
+      rig.events.push(`refused:${id}`)
+      throw new SeatBusyRefusal()
+    }
     if (rig.turnsEndLater && rig.busySeats.has(id)) {
       rig.events.push(`refused:${id}`)
-      throw new Error("Stop this Seat's current turn before releasing it")
+      throw new SeatBusyRefusal()
     }
     rig.events.push(`release:${id}`)
     const record = rig.seats.get(id)
@@ -335,7 +353,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     busy: (seat) => rig.busySeats.has(String(seat.id)),
     interrupt: async (seat) => {
       rig.events.push(`interrupt:${seat.id}`)
-      if (rig.turnsEndLater) setTimeout(() => rig.busySeats.delete(String(seat.id)), 120)
+      if (rig.turnsEndLater) setTimeout(() => rig.busySeats.delete(String(seat.id)), rig.turnEndDelayMs)
       else rig.busySeats.delete(String(seat.id))
     },
     laneOf: (seat) => rig.lanes.get(String(seat.id)) ?? null,
@@ -423,6 +441,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
   const build = () => {
     const files = new FaultyFiles(join(dir, 'flows-v2'))
     const executions: FlowExecutions = new FlowExecutions(files, team, port, {
+      ...(options.releaseStallMs !== undefined ? { releaseStallMs: options.releaseStallMs } : {}),
       facts: async (goal) => viewsFor(goal),
       triggered: {
         freeze: async () => {

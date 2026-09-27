@@ -192,7 +192,7 @@ const FLOW_EXECUTION = (over: Partial<FlowExecution> = {}): FlowExecution => ({
   ...over,
 })
 
-export const FLOW_EXECUTION_SCENES = ['pinned', 'stopped', 'question', 'seat-refused', 'diff', 'working-diff'] as const
+export const FLOW_EXECUTION_SCENES = ['pinned', 'stopped', 'question', 'seat-refused', 'pending-release', 'diff', 'working-diff'] as const
 export type FlowExecutionScene = (typeof FLOW_EXECUTION_SCENES)[number]
 
 /** `seatRefused`'s own words for card #1 of two, around a seating refusal as `agent-seating.ts` writes one. */
@@ -201,6 +201,10 @@ export const SEAT_REFUSED_REASON =
   '  worker=large — worker could not open a conversation: the agent is not running\n' +
   'A round’s cards start together, so card #2 was not started either.\n' +
   'Next: wrap this Goal, which stops this run, then fix what stopped card #1 and start the flow again in a new Goal.'
+
+/** `FlowExecutions`'s own overdue sentence (`#sentenceFor`, flow-execution.ts), for a release still waiting on a Seat's turn to end past the bound. */
+export const PENDING_RELEASE_NOTE =
+  'Card #1 is still claimed by Alpha, whose turn has not ended, so it could not be released. Stop that Seat’s turn, or release card #1 by hand.'
 
 /** What the "flow scene" Dial in the preview harness stages for `goal-flow`'s own reserved run. */
 export const sceneFlowExecution = (scene: FlowExecutionScene): FlowExecution => {
@@ -220,6 +224,18 @@ export const sceneFlowExecution = (scene: FlowExecutionScene): FlowExecution => 
       state: 'stalled',
       rounds: [{ n: 1, role: 'fixer', cards: [1, 2], seats: [], evidence: [], state: 'running', cause: 'seed' }],
       reason: SEAT_REFUSED_REASON,
+    })
+  }
+  // Stopped on its time budget while its Seat was still busy: the card stays
+  // claimed, and the release waiting on that Seat's turn to end is a field
+  // of its own (`pendingReleaseNote`), never the reason a run stopped or
+  // settled for (#1027).
+  if (scene === 'pending-release') {
+    return FLOW_EXECUTION({
+      target: FLOW_TARGETS.branch,
+      state: 'stopped',
+      reason: 'Timed out: this Goal reached its time budget.',
+      pendingReleaseNote: PENDING_RELEASE_NOTE,
     })
   }
   // A person's own stop, never a service's: the host's exact default
