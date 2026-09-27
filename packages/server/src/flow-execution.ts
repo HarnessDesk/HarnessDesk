@@ -155,12 +155,12 @@ export class TriggerRefusal extends Error {
 /**
  * How long a release waits on a still-busy Seat's own turn-ended signal
  * before it stops being silent about it: past this, a still-running run
- * stalls with a sentence naming the card and the Seat, and a run already
- * stopped or settled grows that same sentence on its own `reason`, appended
- * fresh at every read rather than written into the stored one (#1027,
- * `FlowExecutions.#projectExecution`). The wait itself is not
- * bounded by this — a Seat's turn ending later still releases it — only the
- * point where a person is told stops being that far off.
+ * stalls with a sentence naming the card and the Seat, and any run with the
+ * release still pending carries that same sentence in `pendingReleaseNote`
+ * instead — a field computed fresh at every read, never written to the
+ * stored run at all (#1027, `FlowExecutions.#projectExecution`). The wait
+ * itself is not bounded by this — a Seat's turn ending later still releases
+ * it — only the point where a person is told stops being that far off.
  */
 export const RELEASE_STALL_MS = 60_000
 export const CHECK_INTERRUPTED = 'This check was stopped part-way when unattended work was paused or stopped. Inspect its effects, then choose Run again.'
@@ -1779,11 +1779,11 @@ export class FlowExecutions {
    * the Seat: the plain waiting line before `RELEASE_STALL_MS`, or the
    * overdue one after it, `overdue` telling which. Shared by
    * `#onReleaseOverdue` (which uses it once, to stall a still-running run)
-   * and `#projectExecution` (which asks for it fresh on every read of a
-   * stopped or settled one, `overdue` recomputed each time from
+   * and `#projectExecution` (which asks for it fresh on every read, as
+   * `pendingReleaseNote`, `overdue` recomputed each time from
    * `pending.startedAt` — never written down anywhere, so a restart losing
    * every in-memory pending entry never leaves a stale sentence behind:
-   * review #1050 finding 3, round 2).
+   * review #1050 finding 3).
    */
   #sentenceFor(seatId: string, pending: PendingRelease, overdue: boolean): string {
     const record = this.#port.seatOf(seatId)
@@ -1800,10 +1800,10 @@ export class FlowExecutions {
   /**
    * Past `RELEASE_STALL_MS` with no turn-ended signal: the wait itself does
    * not stop, but a still-running run stalls with the overdue sentence, so a
-   * person reads it wherever they are looking (#1027). A run already stopped
-   * or settled needs no write here at all — its own read already grows the
-   * same sentence the moment `#sentenceFor` is next asked for it, purely
-   * from `pending.startedAt` — but is still told its read now differs, since
+   * person reads it wherever they are looking (#1027). Any other run needs
+   * no write here at all — its own read already grows `pendingReleaseNote`
+   * the moment `#sentenceFor` is next asked for it, purely from
+   * `pending.startedAt` — but is still told its read now differs, since
    * nothing else would say so. Fired from its own timer, so — like
    * `retryRelease` — it holds no queue of its own and takes the run's here.
    */
@@ -1820,28 +1820,29 @@ export class FlowExecutions {
   }
 
   /**
-   * A stopped or settled run's own `reason` is never overwritten: a pending
-   * release's note is appended to it only here, at the wire projection, from
-   * whatever is still in `#pendingReleases` right now — nothing about it is
-   * ever stored, so a restart that drops every pending entry (because the
-   * process holding them is gone) never leaves a note behind with no way
-   * back to the real reason it replaced (review #1050 finding 3, round 2: a
-   * restart that then swept and released the Seat before anything ever read
-   * this run again used to find nothing to clear, and the sentence stuck for
-   * good). A still-running or already-stalled run is projected exactly as
-   * stored — the first grows its own reason directly once a wait goes
-   * overdue (`#onReleaseOverdue`), and a question- or overdue-stalled run
-   * holds no pending release at all (finding 1: neither is ever swept).
+   * `reason` is never touched by a pending release — it stays exactly the
+   * stored value, so any surface reading only `reason` always sees what
+   * actually stopped or settled the run. A pending release's own sentence is
+   * instead projected as `pendingReleaseNote`, a separate field computed
+   * fresh on every read from whatever is still in `#pendingReleases` right
+   * now: nothing about it is ever stored, so a restart that drops every
+   * pending entry (because the process holding them is gone) never leaves a
+   * stale sentence behind with no real reason to fall back to (review #1050
+   * finding 3, rounds 2 and 3 — round 2 appended it to `reason` itself,
+   * which then never reached a room's live line for a `settled` or a
+   * trigger-stopped run, since neither reads `flowExecution.reason` for its
+   * own stop text). Present whatever `state` reads: a question-stalled run
+   * never has a pending release to begin with (finding 1), so this is never
+   * fabricated for one, but a run stalled by `#onReleaseOverdue` itself keeps
+   * showing it — the release really is still pending on it.
    */
   #projectExecution(run: StoredFlowExecution): FlowExecution {
     const base = projectExecution(run)
-    if (base.state !== 'stopped' && base.state !== 'settled') return base
     const note = [...this.#pendingReleases.entries()]
       .filter(([, pending]) => pending.run === run.id)
       .map(([seatId, pending]) => this.#sentenceFor(seatId, pending, this.#now() - pending.startedAt >= this.#releaseStallMs))
       .join(' ')
-    if (!note) return base
-    return { ...base, reason: base.reason ? `${base.reason} ${note}` : note }
+    return note ? { ...base, pendingReleaseNote: note } : base
   }
 
   // ---------------------------------------------------------------- start

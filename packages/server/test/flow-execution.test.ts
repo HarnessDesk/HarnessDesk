@@ -780,7 +780,7 @@ test('a Seat handed new work while its release still waits is not released out f
 
 const STOP_WHY = 'Timed out: this Goal reached its time budget.'
 
-test('a stopped run’s pending release names the card and the Seat in its own reason, then the overdue sentence, then its normal reason back once released (#1027 finding 3)', async (t) => {
+test('a stopped run’s pending release names the card and the Seat in its own field, then the overdue sentence, then nothing once released — and its reason is never touched (#1027 finding 3, round 3)', async (t) => {
   const rig = await goalRig(t, { releaseStallMs: 30 })
   rig.turnsEndLater = true
   const run = await rig.startTriggered(TWO_REVIEWERS, TWO_AGENTS)
@@ -792,27 +792,31 @@ test('a stopped run’s pending release names the card and the Seat in its own r
   assert.ok(!rig.events.includes('release:seat-1'))
   const before = rig.flows.executionsFor(run.goal)[0]!
   assert.equal(before.state, 'stopped')
-  // Deferred, and already visible in the run's own reason — a plain "waiting" line, never silence — but not yet the overdue sentence.
-  assert.match(before.reason ?? '', /Waiting for/)
-  assert.doesNotMatch(before.reason ?? '', /turn has not ended/, 'not overdue yet: the sentence is not this soon')
+  assert.equal(before.reason, STOP_WHY, 'the run’s own reason is never touched by a pending release')
+  // Deferred, and already visible on its own field — a plain "waiting" line, never silence — but not yet the overdue sentence.
+  assert.match(before.pendingReleaseNote ?? '', /Waiting for/)
+  assert.doesNotMatch(before.pendingReleaseNote ?? '', /turn has not ended/, 'not overdue yet: the sentence is not this soon')
   // Past the (tiny, injected) bound, with the signal never having answered.
   const deadline = Date.now() + 2_000
   let after = before
-  while (!(after.reason ?? '').includes('turn has not ended') && Date.now() < deadline) {
+  while (!(after.pendingReleaseNote ?? '').includes('turn has not ended') && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 10))
     after = rig.flows.executionsFor(run.goal)[0]!
   }
-  assert.match(after.reason ?? '', /card #1/)
-  assert.match(after.reason ?? '', /turn has not ended/)
-  assert.equal(after.state, 'stopped', 'a stopped run stays stopped — the overdue sentence is carried in its reason, never a state change')
+  assert.match(after.pendingReleaseNote ?? '', /card #1/)
+  assert.match(after.pendingReleaseNote ?? '', /turn has not ended/)
+  assert.equal(after.state, 'stopped', 'a stopped run stays stopped — the overdue sentence lives on its own field, never a state change')
+  assert.equal(after.reason, STOP_WHY, 'still untouched, even past the bound')
   assert.ok(!rig.events.includes('release:seat-1'), 'still not released — the bound only ends the silence, never the wait itself')
-  // The signal finally answers; the reason goes back to what it would otherwise be, and the Seat is released.
+  // The signal finally answers; the field disappears, and the Seat is released.
   rig.busySeats.delete('seat-1')
   const session = rig.sessionOf('seat-1')
   rig.flows.retryRelease(session.runtime, session.sessionId)
   await rig.flows.flush()
   assert.ok(rig.events.includes('release:seat-1'))
-  assert.equal(rig.flows.executionsFor(run.goal)[0]!.reason, STOP_WHY, 'the run’s own reason is restored once nothing is pending any more')
+  const released = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(released.pendingReleaseNote, undefined, 'the field is gone once nothing is pending any more')
+  assert.equal(released.reason, STOP_WHY, 'and the reason was never anything else')
 })
 
 test('dispose cancels a pending release’s bound timer and writes nothing after (#1027)', async (t) => {
@@ -830,20 +834,22 @@ test('dispose cancels a pending release’s bound timer and writes nothing after
   await rig.flows.stopRun(run.id, STOP_WHY)
   await rig.flows.flush()
   assert.ok(!rig.events.includes('release:seat-1'))
-  const noteBefore = rig.flows.executionsFor(run.goal)[0]!.reason
-  assert.match(noteBefore ?? '', /Waiting for/, 'deferred, with the plain waiting line already up, in the run’s own reason')
+  const noteBefore = rig.flows.executionsFor(run.goal)[0]!.pendingReleaseNote
+  assert.match(noteBefore ?? '', /Waiting for/, 'deferred, with the plain waiting line already up, on its own field')
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.reason, STOP_WHY, 'the run’s own reason is never touched by it')
   const savesBefore = rig.files.saves
   rig.flows.dispose()
-  // dispose() clears every pending release outright: its note is gone from the very next read, not merely frozen where it stood.
-  assert.equal(rig.flows.executionsFor(run.goal)[0]!.reason, STOP_WHY, 'nothing is pending any more, so the run’s own reason reads plain again')
+  // dispose() clears every pending release outright: its field is gone from the very next read, not merely frozen where it stood.
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.pendingReleaseNote, undefined, 'nothing is pending any more')
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.reason, STOP_WHY, 'still exactly the run’s own reason')
   // Well past the (still virtual) bound — nothing here waits on, or races, the real wall clock.
   t.mock.timers.tick(10_000)
   await Promise.resolve()
   assert.equal(rig.files.saves, savesBefore, 'no write happened after dispose — the overdue timer never fired')
   assert.equal(
-    rig.flows.executionsFor(run.goal)[0]!.reason,
-    STOP_WHY,
-    'still plain past the bound: the cleared timer never turned it into the overdue sentence',
+    rig.flows.executionsFor(run.goal)[0]!.pendingReleaseNote,
+    undefined,
+    'still absent past the bound: the cleared timer never brought the overdue sentence back',
   )
   // Nor does the signal do anything once disposed, even once the turn genuinely ends.
   rig.busySeats.delete('seat-1')
@@ -863,16 +869,20 @@ test('a restart finds a Seat a stopped run left claimed, still open, and release
   await rig.flows.stopRun(run.id, STOP_WHY)
   await rig.flows.flush()
   assert.ok(!rig.events.includes('release:seat-1'), 'deferred: the desk goes down before this Seat’s turn ends')
-  assert.match(rig.flows.executionsFor(run.goal)[0]!.reason ?? '', /Waiting for/, 'the pending release already shows on the old process’s own read')
+  const before = rig.flows.executionsFor(run.goal)[0]!
+  assert.match(before.pendingReleaseNote ?? '', /Waiting for/, 'the pending release already shows on the old process’s own read')
+  assert.equal(before.reason, STOP_WHY, 'never touched by it')
   // By the time the desk comes back, the turn has actually ended — nothing here was ever told so directly, though.
   rig.busySeats.delete('seat-1')
   await rig.restart()
   assert.ok(rig.events.includes('release:seat-1'), 'swept and released on the very next start-up, without waiting for another signal')
+  const after = rig.flows.executionsFor(run.goal)[0]!
   assert.equal(
-    rig.flows.executionsFor(run.goal)[0]!.reason,
+    after.reason,
     STOP_WHY,
-    'the projected reason is the original one — the waiting line the old process’s read carried was never stored, so the new process never inherits it, and the sweep’s own release leaves nothing pending to clear it anyway',
+    'the reason is the original one — never touched to begin with, so the new process has nothing to inherit',
   )
+  assert.equal(after.pendingReleaseNote, undefined, 'and nothing is pending on the new process’s own, empty table')
 })
 
 test('a restart never sweeps a question-stalled run: its Seat keeps holding its card, for the answer still coming (#1027 finding 1)', async (t) => {
