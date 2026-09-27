@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { ExtensionKernel, type TeamEngine } from '@harnessdesk/cordis-host'
-import type { ContributionId, FindingView, RuntimeId, SessionId } from '@harnessdesk/protocol'
+import type { ContributionId, FindingSeatRow, FindingView, RuntimeId, SessionId } from '@harnessdesk/protocol'
 
 import { SupervisedExtensionHost } from '../src/index.js'
 
@@ -39,7 +39,7 @@ test('tool bridge attributes and bounds each command', async () => {
       return found
     },
     repairFinding: refused, decideFinding: refused,
-    listFindings: async (input, scope) => { calls.push({ verb: 'list', input, scope }); return [found] },
+    listFindings: async (input, scope) => { calls.push({ verb: 'list', input, scope }); return [{ ...found, raisedByYou: false, decidableNow: false } satisfies FindingSeatRow] },
   }
   const dir = await mkdtemp(join(tmpdir(), 'hd-exthost-'))
   const store = join(dir, 'plugins')

@@ -31,6 +31,10 @@ A problem outside this lens that you happen to see goes under **Also noticed**, 
 
 Sweep the whole change before reporting. Finding one blocker never ends a review: the author fixes everything you report in one pass, and a finding you held back costs them another round.
 
+## Findings you raised before
+
+`list_findings` marks which findings on this Goal are yours, and which of those you may decide right now. A finding is decided only by a later, fresh Seat of the Agent that raised it — never the Seat that raised it, and never a different Agent, however sure you are it is fixed. Once you hold such a card, decide each one with `decide_finding`, against a candidate `review_candidates` gives you: `repaired`, `open`, or `withdrawn`. Do this before you finish the card. A finding of yours from an earlier run on this Goal is marked for a person: leave it to them. Saying it is fixed in your prose is not enough: the ledger reads your tool call, never your words.
+
 ## When your environment refuses a run
 
 To verify behaviour that needs a running server or the network, on a board card use the `run_check` tool: the desk runs one of the flow's declared checks by name, outside your own environment, on the committed change your card was handed — never on your own uncommitted edits, which are not in it — and answers whether it passed with the last of what it printed. Its checkout is clean: nothing the repository ignores, such as installed dependencies, is in it, so a failure there may come from that rather than the change — say so rather than blame the change for it. It is advisory: it informs your verdict, and the flow's own check still decides what its rules need. You have a few runs a turn. If your own shell refuses to start a server or bind a port — "Operation not permitted", `EPERM` — that is your sandbox, not the change: say so, rely on `run_check` or the check evidence already on the board, and never answer a failing verdict for that reason alone.

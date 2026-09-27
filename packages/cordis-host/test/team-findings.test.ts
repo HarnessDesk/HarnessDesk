@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { FindingView } from '@harnessdesk/protocol'
+import type { FindingSeatRow, FindingView } from '@harnessdesk/protocol'
 
 import { ExtensionKernel, setTeamEngine, type TeamEngine } from '../src/index.js'
 
@@ -30,7 +30,7 @@ test('tool bridge attributes and bounds each command', async (t) => {
     raiseFinding: async (input, scope) => { calls.push({ verb: 'raise', input, scope }); return found },
     repairFinding: async (input, scope) => { calls.push({ verb: 'repair', input, scope }); return found },
     decideFinding: async (input, scope) => { calls.push({ verb: 'decide', input, scope }); return found },
-    listFindings: async (input, scope) => { calls.push({ verb: 'list', input, scope }); return [found] },
+    listFindings: async (input, scope) => { calls.push({ verb: 'list', input, scope }); return [{ ...found, raisedByYou: false, decidableNow: false } satisfies FindingSeatRow] },
   }
   setTeamEngine(engine)
   t.after(() => setTeamEngine(null))

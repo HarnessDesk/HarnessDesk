@@ -109,6 +109,34 @@ test('every reviewing and accepting Agent runs server checks through run_check, 
   }
 })
 
+/**
+ * Issue #1089/#1090: a finding raised in one round and confirmed fixed in a
+ * later reviewer's prose still sat Open, because no brief told the raising
+ * Agent to decide it with a tool once it held a later card — only to
+ * "report" it, which the ledger never reads. Every Agent that raises
+ * findings against a review candidate is told plainly: `list_findings`
+ * marks its own, a fresh later Seat of itself (never the raising Seat, never
+ * another Agent) decides them, a candidate from `review_candidates` is
+ * required, and the three lifecycle words `decide_finding` accepts.
+ */
+test('every finding-raising Agent is told to decide its own earlier findings by tool, from a later fresh Seat, with a candidate', async () => {
+  const agents = new Agents({ user: tempDir('hd-shipped-user-'), builtin: builtinAgentRoot() })
+  for (const id of ['api-reviewer', 'code-reviewer', 'performance-reviewer', 'security-reviewer', 'test-reviewer']) {
+    const brief = (await agents.read(id))?.definition?.brief ?? ''
+    assert.ok(brief.includes('`list_findings` marks which findings'), `${id}'s brief says list_findings marks its own findings`)
+    assert.ok(brief.includes('a later, fresh Seat of the Agent that raised it'), `${id}'s brief says who decides a finding`)
+    assert.ok(brief.includes('never the Seat that raised it'), `${id}'s brief excludes the raising Seat itself`)
+    assert.ok(brief.includes('never a different Agent'), `${id}'s brief excludes a different Agent`)
+    assert.ok(brief.includes('`decide_finding`'), `${id}'s brief names decide_finding`)
+    assert.ok(brief.includes('a candidate `review_candidates` gives you'), `${id}'s brief says deciding needs a candidate`)
+    assert.ok(brief.includes('`repaired`, `open`, or `withdrawn`'), `${id}'s brief names the three lifecycle words`)
+    assert.ok(
+      brief.includes('Saying it is fixed in your prose is not enough'),
+      `${id}'s brief says prose alone never closes a finding`,
+    )
+  }
+})
+
 /** A desk with the three runtimes the shipped Agents name, each a fake registered under its real id. */
 const desk = async (t: TestContext, ids: readonly string[] = ['claude-code', 'codex', 'cursor']) => {
   const harness = await start()
