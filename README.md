@@ -113,7 +113,7 @@ rates.
   <a href="docs/images/app/dashboard-light.png">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/dashboard-dark.png" />
-      <img src="docs/images/app/dashboard-light.png" width="900" alt="The usage dashboard: a card per account showing what is left of each plan, which windows reset when, which lane is spent, and what the work has cost." />
+      <img src="docs/images/app/dashboard-light.png" width="900" alt="The Dashboard's Overview: a rail of views — Overview, Plans, Spend, Activity, Projects — an All accounts scope in the header, a Paid/Value/Turns/Tokens strip, the accounts that need attention, and what it cost beside where it went." />
     </picture>
   </a>
 </p>
