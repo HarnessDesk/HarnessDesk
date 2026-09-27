@@ -820,6 +820,30 @@ test('a model declared only through configOptions updates settings after selecti
   }
 })
 
+test('a model-select choice with no levels of its own is not handed another choice\'s levels unmarked (#1023)', async () => {
+  const runtime = make({ FAKE_ACP_CONFIG_MODEL_ONLY: '1', FAKE_ACP_CONFIG_MODEL_EFFORT: '1' })
+  await runtime.start()
+  try {
+    const models = await runtime.listModels()
+    const small = models.find((model) => model.id === 'small')
+    const large = models.find((model) => model.id === 'large')
+    // `large` names its own levels on its own choice — never shared.
+    assert.deepEqual(large?.reasoningLevels, [
+      { id: 'brief', label: 'Brief' },
+      { id: 'long', label: 'Long' },
+      { id: 'eternal', label: 'Eternal' },
+    ])
+    assert.equal(large?.reasoningLevelsShared, undefined)
+    // `small` names nothing of its own. Before the fix, `levelsOfModelOption`
+    // handed it `large`'s levels as if they were its own — same list, but
+    // unmarked, so a caller could wrongly refuse an effort against them.
+    assert.notDeepEqual(small?.reasoningLevels, large?.reasoningLevels)
+    assert.equal(small?.reasoningLevelsShared, true)
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('pluginTools is false for an agent that declares no tool server', async () => {
   const runtime = make()
   await runtime.start()

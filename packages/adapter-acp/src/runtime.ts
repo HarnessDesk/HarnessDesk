@@ -570,16 +570,22 @@ const levelsOfModel = (
   return levels ? levels.map(levelOf) : null
 }
 
+/**
+ * The reasoning levels declared on this model's own choice in a `model`
+ * select control — the fallback for an agent that names its models only
+ * through `configOptions`, never `session/new`'s `models`. Matched by id: a
+ * choice's `_meta` speaks for that choice alone, never for a sibling that
+ * said nothing (#1023 — a session with levels on `large` and none on `small`
+ * must not hand `small` a copy of `large`'s).
+ */
 const levelsOfModelOption = (
   option: AcpConfigOption,
+  modelId: string,
 ): readonly { readonly id: string; readonly label: string }[] | null => {
   if (option.id !== 'model' || option.type !== 'select' || !Array.isArray(option.options)) return null
-  const levels = option.options
-    .map((choice) => (choice._meta?.['harnessdesk'] as { effortLevels?: unknown } | undefined)?.effortLevels)
-    .find((value): value is readonly { id: string; label?: string | null }[] => Array.isArray(value))
-  return levels
-    ? levels.map(levelOf)
-    : null
+  const choice = option.options.find((candidate) => candidate.value === modelId)
+  const levels = (choice?._meta?.['harnessdesk'] as { effortLevels?: unknown } | undefined)?.effortLevels
+  return Array.isArray(levels) ? levels.map(levelOf) : null
 }
 
 /**
@@ -1541,7 +1547,7 @@ export class AcpRuntime implements AgentRuntime {
     const isDefault = (modelId: string): boolean =>
       this.#catalogDefault === null ? modelId === currentModelId : modelId === this.#catalogDefault
     const catalog = models.map((model): ModelInfo => {
-      const own = levelsOfModel(model) ?? levelsOfModelOption(modelOption ?? ({} as AcpConfigOption))
+      const own = levelsOfModel(model) ?? levelsOfModelOption(modelOption ?? ({} as AcpConfigOption), model.modelId)
       return {
         id: model.modelId,
         displayName: model.name,

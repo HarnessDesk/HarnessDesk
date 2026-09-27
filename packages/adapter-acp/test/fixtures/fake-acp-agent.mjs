@@ -61,6 +61,11 @@ const recordOpen = (method, sessionId, cwd, meta) => {
   }
 }
 const CONFIG_MODEL_ONLY = process.env.FAKE_ACP_CONFIG_MODEL_ONLY === '1'
+// FAKE_ACP_CONFIG_MODEL_EFFORT=1, with FAKE_ACP_CONFIG_MODEL_ONLY=1, plays an
+// agent whose model control declares levels for `large` alone, in the
+// choice's own `_meta` — the shape #1023 found: a real per-model declaration
+// on one choice, nothing on the other.
+const CONFIG_MODEL_EFFORT = process.env.FAKE_ACP_CONFIG_MODEL_EFFORT === '1'
 // FAKE_ACP_GROUPED_MODELS offers the model control the way DeepSeek Harness's
 // own ACP server does: choices grouped by provider, each value an opaque
 // JSON-encoded [provider, model] pair rather than a readable id.
@@ -147,7 +152,23 @@ const configOptionsOf = (state) => [
     currentValue: state.modelId,
     options: [
       { value: 'small', name: 'Small' },
-      { value: 'large', name: 'Large' },
+      {
+        value: 'large',
+        name: 'Large',
+        ...(CONFIG_MODEL_EFFORT
+          ? {
+              _meta: {
+                harnessdesk: {
+                  effortLevels: [
+                    { id: 'brief', label: 'Brief' },
+                    { id: 'long', label: 'Long' },
+                    { id: 'eternal', label: 'Eternal' },
+                  ],
+                },
+              },
+            }
+          : {}),
+      },
     ],
   }] : []),
   {

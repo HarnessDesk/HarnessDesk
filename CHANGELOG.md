@@ -7,6 +7,23 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **An effort mismatch found only once a conversation opened is worded
+  truthfully, and one runtime's levels are no longer copied onto another
+  model's own.** Two small fixes to seating an Agent's effort. First, an ACP
+  agent that names its models only through its session's own controls — never
+  `session/new`'s per-model list — had every model handed whatever levels the
+  first model choice with any happened to declare, silently, as though they
+  were that model's own; a model with none of its own now falls through to
+  the session-wide levels instead, correctly marked as a shared fallback a
+  refusal must never be built from. Second, when a Seat opens and the only
+  difference from what was asked is the effort it reads back — a runtime that
+  settled on a different level under its own name, or answered a concrete
+  level for a `default` ask — the refusal used to say the runtime "does not
+  offer" the effort, which was false: it opened, and is running one, just not
+  the one asked for. That line now says what actually runs, still stopping
+  the seating there rather than trying another runtime in silence; "does not
+  offer" is kept for a runtime that refuses an effort outright. (#1023)
+
 - **A finished card's diff no longer keeps changing after it's done.** On a
   shared, non-isolated checkout, `Observer.observe` re-diffed a card from
   where its own work began all the way to the checkout's HEAD *as it stands

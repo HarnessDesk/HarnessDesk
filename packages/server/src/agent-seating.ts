@@ -169,14 +169,18 @@ export interface PassedOver {
    */
   readonly left?: SeatLeft | null
   /**
-   * The runtime itself refused the effort this candidate named outright,
-   * while trying to open it — never a guess from some broader failure, and
-   * never true for a reason a pre-check found before anything was tried
-   * (`reasonAgainst` never sets it). An effort is a person's own instruction,
-   * not a transient condition worth quietly routing around: set, this stops
-   * the whole seating right here, on this candidate's own line, rather than
-   * letting a later candidate seat a different runtime with nothing said
-   * about why the one that was asked for did not run (#1013).
+   * The runtime itself refused the effort this candidate named outright while
+   * trying to open it, or opened and read back running a different one —
+   * never a guess from some broader failure, and never true for a reason a
+   * pre-check found before anything was tried (`reasonAgainst` never sets
+   * it). An effort is a person's own instruction, not a transient condition
+   * worth quietly routing around: set, this stops the whole seating right
+   * here, on this candidate's own line, rather than letting a later candidate
+   * seat a different runtime with nothing said about why the one that was
+   * asked for did not run (#1013, and the read-back case in #1023). The two
+   * causes are worded apart — "does not offer" only for the outright refusal,
+   * the difference sentence for what was read back — because only the first
+   * one is a runtime naming nothing to run instead.
    */
   readonly fatal?: true
 }
