@@ -5,6 +5,7 @@ import conversationTsx from './Conversation.tsx?raw'
 import itemsCss from './Items.module.css?raw'
 import itemsTsx from './Items.tsx?raw'
 import stepGroupTsx from './StepGroup.tsx?raw'
+import skillSheetTsx from './SkillSheet.tsx?raw'
 import baseCss from '../styles/base.css?raw'
 
 it('keeps transcript animations bound to shared global keyframes', () => {
@@ -58,4 +59,11 @@ it('draws every attached image through one picture part: a lone one capped, seve
   expect(itemsTsx).toContain('variant="picture"')
   expect(itemsTsx).toContain('fill={!singleImage}')
   expect(itemsTsx).not.toContain('imageThumb')
+})
+
+it('a skill\'s reach reads On untoned, like Off: health takes no tone (#838)', () => {
+  // The sheet has no render rig of its own and the preview does not mount it,
+  // so the rendered rules spec cannot see this word; the source can.
+  expect(skillSheetTsx).toContain("<Text role=\"meta\">{reach.state === 'reaches' ? 'On' : 'Off'}</Text>")
+  expect(skillSheetTsx).not.toMatch(/reaches' \? \{ tone: 'success'/)
 })
