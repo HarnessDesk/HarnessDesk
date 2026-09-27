@@ -13,8 +13,7 @@ import { MountProvider } from '../panels/mount'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { Frame } from './main'
 import { PREVIEW_ROOT, previewSession } from './sidebar-fixture'
-import { PREVIEW_SESSION_KEY, previewStore } from './harness'
-import { TEAM } from './harness'
+import { PREVIEW_SESSION_KEY, previewStore, TEAM } from './harness'
 import { PREVIEW_GOALS } from './goal-fixture'
 
 /**
@@ -42,8 +41,8 @@ const taskPanelStore = previewStore({
         ],
       },
     ],
-  ]),
-} as never)
+  ]) as never,
+})
 
 /** The one Goal fixture with a real `waitingOn` — `GoalHeader` draws nothing for a Goal that names neither a dependency nor a reason it cannot wrap, which every other Goal fixture on this page is. */
 const GOAL_WAITING = PREVIEW_GOALS.find((one) => one.goal.id === 'goal-waiting')!

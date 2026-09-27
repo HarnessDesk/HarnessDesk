@@ -22,7 +22,9 @@ import { expect, test, type Page } from '@playwright/test'
  * dialogs, reached from the first) still counts as covered, because the
  * import graph proves the other three are reachable from something that did
  * render. `EXEMPT` is the last resort for a file that genuinely cannot be
- * mounted here — a native OS surface, chiefly — and every entry says why.
+ * mounted here — a hook or a helper with no component to find, chiefly, and
+ * the panel system's own chassis, which composes correctly only inside the
+ * full window shell — and every entry says why.
  */
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
