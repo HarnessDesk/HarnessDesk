@@ -1300,13 +1300,22 @@ test('only a few cursor-agents boot at once; the rest wait for a seat', async ()
     const second = await runtime.createSession({ cwd: WORKDIR })
     await first.send([{ type: 'text', text: 'hold-start one' }])
     await second.send([{ type: 'text', text: 'hold-start two' }])
-    await pause(1200)
+    // Waited for rather than slept on: on a loaded machine the first spawn
+    // can take longer than any fixed pause, and a count read too early is 0
+    // (#972). Once it is logged, a further moment with no second spawn is
+    // what "waiting" means — long enough that a wrong one, slowed by load,
+    // would be seen.
+    const spawnedBy = Date.now() + 15_000
+    while (spawnsIn(log).length < 1 && Date.now() < spawnedBy) await pause(25)
+    await pause(1000)
     assert.equal(spawnsIn(log).length, 1, 'the second waits while the first is still booting')
     writeFileSync(hold, 'go')
     // Distinct sessions, not evaluations: the predicate runs once per poll
     // over the same tape, so a counter would fire on one turn read twice.
+    // Two turns, one spawned only after the other speaks: 15 s rather than
+    // the tape's 5 s default, which measured the machine's load.
     const ended = new Set<string>()
-    await tape.until((event) => event.type === 'turn/completed' && ended.add(String(event.sessionId)).size === 2)
+    await tape.until((event) => event.type === 'turn/completed' && ended.add(String(event.sessionId)).size === 2, 15_000)
     assert.equal(spawnsIn(log).length, 2, 'the seat was handed on once the first spoke')
   } finally {
     await runtime.dispose()
