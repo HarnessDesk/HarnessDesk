@@ -419,15 +419,18 @@ a card can be built without naming the vendor behind it.
 - **Money, Value** — tokens priced at public API rates, a *list-price
   equivalent* and never an invoice — the whole of "What honest costs money to
   say" above.
-- **Turns** — a plain count, for a plan that bills by request and gives no
-  ceiling to measure it against, so no percentage is possible at all:
-  `UsageReport.turns`, `{ count, unitsPerTurn, since }`. `unitsPerTurn` is
-  null where the source does not say what a turn is worth against its own
-  unit, and `since` bounds what the count covers — never assumed to be the
-  plan's whole lifetime. A request-based plan that *does* give a ceiling —
-  Cursor's legacy tier, `numRequests` of `maxRequestUsage` — is a **Capacity**
-  lane instead (`unit: 'requests'`), because a real percentage exists to show;
-  `turns` is for the plan that has no such ceiling to report.
+- **Turns** — a plain count of person-or-agent prompts answered, never a
+  percentage: `UsageReport.turns`, `{ count, unitsPerTurn, since }`. It was
+  once framed only for a plan with no ceiling to show a ratio against — a
+  request-based plan that *does* give one, Cursor's legacy tier
+  (`numRequests` of `maxRequestUsage`), is still a **Capacity** lane instead
+  (`unit: 'requests'`), because a real percentage exists to show — but the
+  ledger's own turn count (below, "Turns") is independent of whether a lane
+  exists at all, so it is now filled wherever the ledger knows it, lanes or
+  not. `unitsPerTurn` is null where the source does not say what a turn is
+  worth against its own unit — see "Turns" for the three cases — and `since`
+  bounds what the count covers — never assumed to be the plan's whole
+  lifetime.
 - **Tokens** — the ledger's own count, split into what a model is actually
   billed for: `LedgerRow`/`LedgerDay`'s `input`, `output`, `cacheRead`,
   `cacheWrite`, `reasoning` and `requests`, and `LedgerReport.totals` for the
@@ -481,6 +484,90 @@ whose whole session lands on the day it was last touched, a gap is not proof
 the agent was idle throughout). `daysCovered` answers "how much of the window
 I asked for came back"; `earliestDay` answers "how far back does this
 agent's history go at all," and the two are read for different questions.
+
+## Turns
+
+A **turn** is one person-or-agent prompt answered by the agent: one user
+message and the work until the agent's reply ends. It is not an API request —
+one turn is routinely several requests, a tool call and its retries included —
+and it is not a tool call. The ledger keeps this count beside tokens because
+the two answer different questions: tokens say what a window cost, turns say
+how much was actually asked of it, and a plan that bills by the turn (or that
+gives no other honest denominator) needs the second number on its own.
+
+**Where a count comes from, per runtime.** Two sources, never both for the
+same agent:
+
+- **The agent's own transcript, where a turn boundary is readable in it.**
+  Four of the six scanners in `ledger/scan.ts` have one:
+  - **Codex** — a `turn_context` record, written once per turn ahead of the
+    exchange it introduces, and distinct from `session_meta` (once per
+    session, never itself a turn). It carries that turn's own model, so the
+    count lands on the same row its tokens will, with no lag.
+  - **Claude Code** — a `type: 'user'` line whose content is not entirely
+    `tool_result` parts. A tool call's result is written back as a
+    `user`-role message too, the same shape a real prompt takes, so a line
+    that is nothing but tool results is the model's own machinery, never a
+    person's or an agent's turn. Filed under the model of the *next* reply
+    this scan pass sees — the one that actually answers it — not the one
+    before it.
+  - **Gemini CLI and Qwen Code** — a `type: 'user'` (Gemini) or `type:
+    'user'` (Qwen) record, the same rule and the same "next reply" filing as
+    Claude's, since both formats write the person's prompt and the model's
+    answer as separate records in one ordered log.
+
+  OpenCode's and Cline's databases keep only session totals — one row per
+  session, not per message — with no message table read here, so neither has
+  a turn boundary yet; their rows carry no `turns` at all rather than a
+  guessed one. Reading a real message table, if one is confirmed in either
+  agent's own store, is future work, not a guess made now.
+- **The desk's own transcript, only where the agent's own history is
+  unreadable at all** — `ledger/desk-turns.ts`. Today that means Cursor
+  (rule 3, AGENTS.md: it keeps no local transcript of its own) and any ACP
+  agent this desk has no scanner for at all. A stored session's own `turns`
+  array already *is* the host's own segmentation of the conversation into
+  turns, so this counts that array's length, one row per local day and
+  project, with no tokens or cost — the desk did not watch what anything
+  cost, only that a turn happened.
+
+  **The no-double-count rule** is decided once, at wiring time, never
+  detected per session: `bootstrap.ts`'s `localUsageFor` hands a runtime
+  *either* a corpus from the list above *or* `deskTurns: true`, never both,
+  and `host.ts`'s `bindUsage` only ever registers the desk-transcript source
+  when the runtime has no corpus at all. There is exactly one place that
+  decides which source counts a given runtime's turns, so there is no path
+  by which both could run for the same one. `bootstrap-turns.test.ts` checks
+  the invariant holds for every named CLI, not only the ones tested by hand.
+
+A runtime neither of these covers has `turns: undefined` everywhere it could
+appear — `LedgerRow`, `LedgerDay`, `LedgerReport.totals`, `UsageReport.turns`
+— read as "unknown", never as zero. `SpendCoverage.turnsKnownFor` lists which
+runtimes in a given window are known at all, so a caller can say "turns known
+for N of M agents" instead of drawing a silent zero for the rest.
+`LedgerRow.turns` and `LedgerReport.totals.turns` go further: a row or a total
+that mixes a turn-known runtime with one that is not is *also* left
+`undefined`, because a partial count dressed as a whole one is the same lie a
+missing runtime reading as zero would be — see `Ledger.#turnsIfKnown`.
+
+**`UsageReport.turns.unitsPerTurn` prices one turn in the lane's own unit**,
+computed in `usage/service.ts`, and needs at least ten turns in the window
+before it says a rate at all — fewer is too thin a sample, and the count is
+still reported with `unitsPerTurn: null`:
+
+- **An allowance lane in requests** (Cursor) — ledger requests, over the same
+  window the turn count covers, divided by turns.
+- **A balance or a metered key** — Value (the agent's own vendor cost where
+  the ledger has it, list price otherwise — `SpendSummary.windowCost` over
+  that same window) divided by turns, in the report's own currency.
+- **A plain percent window** (Codex, Claude Code's plan lanes) — `null`. This
+  needs a history of lane snapshots — how full the window was at two points
+  in time — to say what one turn is worth against a percentage, and the host
+  does not keep that history yet. The turn count itself is still real; only
+  the rate is withheld.
+
+`since` is the current billing cycle when the binding lane's own reset says
+one (`resetsAt` minus `windowMinutes`), else the last 14 days — never assumed
+to be the plan's whole lifetime.
 
 ## The screen
 
