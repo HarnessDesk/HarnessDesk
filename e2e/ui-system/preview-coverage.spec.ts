@@ -1,7 +1,3 @@
-import { readFileSync, readdirSync } from 'node:fs'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-
 import { expect, test, type Page } from '@playwright/test'
 
 /**
@@ -13,9 +9,9 @@ import { expect, test, type Page } from '@playwright/test'
  * ships in `components/` or `panels/` should turn up in at least one of
  * them — a file that never renders is a file nobody looking at these two
  * pages can see broke, restyled, or removed by accident. This walks both
- * pages, collects every component name React actually mounted (the same
- * fiber walk the measuring script this suite grew from used), and fails by
- * naming the file whose every export came back unseen.
+ * pages, collects every component *reference* React actually mounted as a
+ * fiber's own `type`, and fails by naming the file whose every export came
+ * back unmatched.
  *
  * Coverage is per *file*, not per export: a file with four exports where
  * only one is ever mounted directly (the other three are its own internal
@@ -25,10 +21,17 @@ import { expect, test, type Page } from '@playwright/test'
  * mounted here — a hook or a helper with no component to find, chiefly, and
  * the panel system's own chassis, which composes correctly only inside the
  * full window shell — and every entry says why.
+ *
+ * The match is by *reference*, not by name (`packages/ui/src/preview/
+ * coverage-registry.ts`, built from `import.meta.glob`). A name collides the
+ * moment two files export the same identifier for different reasons —
+ * `GitDialogs.tsx`'s own local `ConfirmDialog` beside the design system's
+ * `ConfirmDialog`, or `ToolPaneHeader`, `ActivityView`, `AgentRow`,
+ * `CodeEditor`, each defined twice — and a name match cannot tell which one a
+ * screen actually rendered; a reference can, because `import()`ing a file
+ * from inside the same page resolves to the very module instance already in
+ * that page's fiber tree.
  */
-
-const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
-const uiSrc = path.join(repoRoot, 'packages/ui/src')
 
 /**
  * A file this spec cannot cover, and the reason — read once, reported once.
@@ -38,58 +41,66 @@ const uiSrc = path.join(repoRoot, 'packages/ui/src')
  * method — `useImportOffer`, `useOptionConfirm` and `useTabStrip` (with its
  * sibling helper `stripEdges`) are each a file's *only* non-icon export, and
  * `Icons.tsx`'s one export that is not itself an icon, `copyIconMarkup`,
- * returns a markup string rather than JSX. Three more are the panel system's
- * own chassis — `Workbench`, its `PanelActions` strip (real only once a view
- * is actually docked, `chrome === 'own'`) and `views.tsx`'s `ViewHost` —
- * which compose correctly only inside the full window shell `preview.html`
+ * returns a markup string rather than JSX. One more is the panel system's
+ * own chassis — `Workbench`, the window's sidebar/dock/resize/drag wiring —
+ * which composes correctly only inside the full window shell `preview.html`
  * deliberately never mounts a second copy of (see this file's own header
  * comment and `main.tsx`'s "real screens... never the app shell").
+ *
+ * `panels/PanelActions.tsx` and `panels/views.tsx` are deliberately *not*
+ * here: both render once `Panes` mounts a docked view (`frames-panels.tsx`'s
+ * "split tree" option), and the check below fails loudly if either turns up
+ * actually uncovered — the old exemption for them predated that dial option
+ * and the reference-based match that can now tell their real components from
+ * a same-named one elsewhere.
  */
 const EXEMPT: Readonly<Record<string, string>> = {
   'components/Icons.tsx': 'Its one non-icon export, copyIconMarkup, returns a markup string, never JSX — it cannot appear as a fiber type.',
   'components/ImportOffer.tsx': 'Exports only the hook useImportOffer; a hook is never a fiber type.',
   'components/OptionConfirm.tsx': 'Exports only the hook useOptionConfirm; a hook is never a fiber type.',
   'components/TabStrip.tsx': 'Exports only the hook useTabStrip and the plain helper stripEdges; neither is a fiber type.',
-  'panels/PanelActions.tsx': 'Reads a real dock/panel mount (usePanelControls) that exists only inside the full Workbench shell, which preview.html deliberately never mounts (individual screens only).',
   'panels/Workbench.tsx': "The window's own chassis — sidebar, docks, resize and drag wiring — not a screen; already exercised by the real app and packages/desktop.",
-  'panels/views.tsx': "ViewHost and ShellProvider are the panel registry's own glue, composed only inside the full Workbench shell above.",
 }
 
 /** Icon components are a flat façade over lucide (rule 11): drawing every one somewhere is not what this gate is for. */
 const isIconName = (name: string): boolean => name.endsWith('Icon') || name.endsWith('Icons')
 
 /**
- * Every top-level `export const Name = …` or `export function Name(` in one
- * file's text — a light parse, not a compiler: it is looking for a name to
- * search the rendered set for, not validating the file. Namespaced or
- * destructured exports (`export const { a, b } = …`) do not match, which is
- * correct here: nothing in `components/` or `panels/` uses that form for a
- * component.
+ * Runs inside the page. Imports `coverage-registry.ts` fresh (this page's own
+ * module graph, so every reference it holds is `===` to whatever that same
+ * page mounted), builds a reference → file(s) map from every non-icon export,
+ * then walks every element's fiber chain — the same walk `rendered2.mjs`
+ * uses — matching each ancestor's `type` (and a forwardRef's `.render`, and a
+ * memo's `.type`, the two wrapper shapes a plain name/reference check would
+ * otherwise miss) against that map. Returns the full file list once (it does
+ * not change page to page) and the set of files this page load covered.
  */
-const exportedNames = (source: string): readonly string[] => {
-  const names = new Set<string>()
-  for (const match of source.matchAll(/^export\s+(?:const|function)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm)) {
-    const name = match[1]!
-    if (!isIconName(name)) names.add(name)
-  }
-  return [...names]
-}
+const collectCoverage = (page: Page): Promise<{ allFiles: readonly string[]; covered: readonly string[] }> =>
+  page.evaluate(async () => {
+    const isIconName = (name: string): boolean => name.endsWith('Icon') || name.endsWith('Icons')
+    const mod = (await import('/src/preview/coverage-registry.ts')) as {
+      coverageRegistry: readonly { file: string; exports: Readonly<Record<string, unknown>> }[]
+    }
+    const refToFiles = new Map<unknown, string[]>()
+    const allFiles: string[] = []
+    for (const entry of mod.coverageRegistry) {
+      const names = Object.keys(entry.exports).filter((name) => !isIconName(name))
+      if (names.length === 0) continue
+      allFiles.push(entry.file)
+      for (const name of names) {
+        const value = entry.exports[name]
+        if (value === null || (typeof value !== 'function' && typeof value !== 'object')) continue
+        const list = refToFiles.get(value)
+        if (list) list.push(entry.file)
+        else refToFiles.set(value, [entry.file])
+      }
+    }
 
-/** Every `.tsx` file directly under `dir` whose own exports this gate should look for — tests and style modules are not components. */
-const componentFiles = (dir: string): readonly { readonly file: string; readonly names: readonly string[] }[] =>
-  readdirSync(dir)
-    .filter((entry) => entry.endsWith('.tsx') && !entry.includes('.test.'))
-    .map((entry) => ({ file: entry, names: exportedNames(readFileSync(path.join(dir, entry), 'utf8')) }))
-    .filter((one) => one.names.length > 0)
-
-/**
- * The fiber walk `rendered2.mjs` uses: every element on the page, its own
- * fiber, and every ancestor's function/class name up to the root. Run
- * in-page so a whole sweep costs one round trip, not one per element.
- */
-const collectRendered = (page: Page): Promise<readonly string[]> =>
-  page.evaluate(() => {
-    const out = new Set<string>()
+    const covered = new Set<string>()
+    const credit = (candidate: unknown): void => {
+      const files = refToFiles.get(candidate)
+      if (files) for (const file of files) covered.add(file)
+    }
     for (const el of document.querySelectorAll('*')) {
       const key = Object.keys(el).find((k) => k.startsWith('__reactFiber$'))
       if (!key) continue
@@ -97,36 +108,52 @@ const collectRendered = (page: Page): Promise<readonly string[]> =>
       let fiber: any = (el as unknown as Record<string, unknown>)[key]
       while (fiber) {
         const type = fiber.type
-        if (typeof type === 'function' || (type && typeof type === 'object')) {
-          const name = type.displayName || type.name || type.render?.name || type.type?.name
-          if (name) out.add(name)
+        credit(type)
+        if (type && typeof type === 'object') {
+          credit(type.render) // forwardRef
+          credit(type.type) // memo
         }
         fiber = fiber.return
       }
     }
-    return [...out]
+    return { allFiles, covered: [...covered] }
   })
 
 /**
- * Every `<select>` on the page, cycled through every one of its own option
- * values and back to the first ("off", for a dialog dial), collecting the
- * fiber names rendered after each — all inside one `page.evaluate`, so the
- * whole sweep costs one round trip rather than hundreds. Hundreds of
- * `locator.evaluate()`/`waitForTimeout()` calls each carry their own
- * protocol round trip; at ~150ms apiece that alone blew this suite's
- * ~60s budget before design.html was even reached.
+ * The same reference-matching pass as `collectCoverage`, but run once after
+ * every value of every `<select>` on the page (a dial's own dropdown) —
+ * inlined into a single `page.evaluate` so the whole sweep costs one round
+ * trip rather than hundreds. Hundreds of `locator.evaluate()`/
+ * `waitForTimeout()` calls each carry their own protocol round trip; at
+ * ~150ms apiece that alone blew this suite's ~60s budget before design.html
+ * was even reached.
  *
- * Values are set the way a person's own choice reaches React — set
- * `.value`, dispatch `change` — never `selectOption()`: a dial that opens a
- * full-page dialog moves the whole document (the dialog sits after every
- * frame in the DOM, and opening one scrolls the page to it), and
- * `selectOption`'s own actionability-then-verify loop never resolves
- * against a `<select>` that just became unreachable that way.
+ * Values are set the way a person's own choice reaches React — set `.value`,
+ * dispatch `change` — never `selectOption()`: a dial that opens a full-page
+ * dialog moves the whole document (the dialog sits after every frame in the
+ * DOM, and opening one scrolls the page to it), and `selectOption`'s own
+ * actionability-then-verify loop never resolves against a `<select>` that
+ * just became unreachable that way.
  */
-const sweepSelects = (page: Page, settleMs: number): Promise<readonly string[]> =>
+const sweepSelectsForCoverage = (page: Page, settleMs: number): Promise<readonly string[]> =>
   page.evaluate(async (delay) => {
-    const collect = (): string[] => {
-      const out = new Set<string>()
+    const isIconName = (name: string): boolean => name.endsWith('Icon') || name.endsWith('Icons')
+    const mod = (await import('/src/preview/coverage-registry.ts')) as {
+      coverageRegistry: readonly { file: string; exports: Readonly<Record<string, unknown>> }[]
+    }
+    const refToFiles = new Map<unknown, string[]>()
+    for (const entry of mod.coverageRegistry) {
+      for (const name of Object.keys(entry.exports)) {
+        if (isIconName(name)) continue
+        const value = entry.exports[name]
+        if (value === null || (typeof value !== 'function' && typeof value !== 'object')) continue
+        const list = refToFiles.get(value)
+        if (list) list.push(entry.file)
+        else refToFiles.set(value, [entry.file])
+      }
+    }
+    const covered = new Set<string>()
+    const collect = (): void => {
       for (const el of document.querySelectorAll('*')) {
         const key = Object.keys(el).find((k) => k.startsWith('__reactFiber$'))
         if (!key) continue
@@ -134,14 +161,18 @@ const sweepSelects = (page: Page, settleMs: number): Promise<readonly string[]> 
         let fiber: any = (el as unknown as Record<string, unknown>)[key]
         while (fiber) {
           const type = fiber.type
-          if (typeof type === 'function' || (type && typeof type === 'object')) {
-            const name = type.displayName || type.name || type.render?.name || type.type?.name
-            if (name) out.add(name)
+          const credit = (candidate: unknown): void => {
+            const files = refToFiles.get(candidate)
+            if (files) for (const file of files) covered.add(file)
+          }
+          credit(type)
+          if (type && typeof type === 'object') {
+            credit(type.render)
+            credit(type.type)
           }
           fiber = fiber.return
         }
       }
-      return [...out]
     }
     const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
     const setValue = (select: HTMLSelectElement, value: string): void => {
@@ -149,28 +180,28 @@ const sweepSelects = (page: Page, settleMs: number): Promise<readonly string[]> 
       setter.call(select, value)
       select.dispatchEvent(new Event('change', { bubbles: true }))
     }
-    const rendered = new Set<string>()
-    for (const name of collect()) rendered.add(name)
+    collect()
     for (const select of [...document.querySelectorAll('select')]) {
       const values = [...select.options].map((option) => option.value)
       const neutral = values[0]
       for (const value of values) {
         setValue(select, value)
         await wait(delay)
-        for (const name of collect()) rendered.add(name)
+        collect()
         if (value !== neutral && neutral !== undefined) {
           setValue(select, neutral)
           await wait(20)
         }
       }
     }
-    return [...rendered]
+    return [...covered]
   }, settleMs)
 
 test.describe('preview coverage', () => {
   test('every components/ and panels/ file renders in preview.html or design.html', async ({ page }) => {
     test.setTimeout(90_000)
-    const rendered = new Set<string>()
+    const covered = new Set<string>()
+    let allFiles: readonly string[] = []
 
     // -- preview.html: the page's own frames, then every dial's every option.
     // `?composer` and `?empty` gate two more frames the plain page never
@@ -179,36 +210,40 @@ test.describe('preview coverage', () => {
     for (const query of ['', '?composer', '?empty']) {
       await page.goto(`/preview.html${query}`)
       await page.waitForTimeout(1200)
-      for (const name of await collectRendered(page)) rendered.add(name)
+      const result = await collectCoverage(page)
+      allFiles = result.allFiles
+      for (const file of result.covered) covered.add(file)
     }
 
-    for (const name of await sweepSelects(page, 60)) rendered.add(name)
+    for (const file of await sweepSelectsForCoverage(page, 60)) covered.add(file)
 
     // -- design.html: every board the nav rail lists.
     await page.goto('/design.html')
     await page.waitForTimeout(800)
-    for (const name of await collectRendered(page)) rendered.add(name)
+    {
+      const result = await collectCoverage(page)
+      for (const file of result.covered) covered.add(file)
+    }
     const boardLabels = [...new Set(await page.locator('aside button, nav button').allTextContents())]
       .map((label) => label.trim())
       .filter(Boolean)
     for (const label of boardLabels) {
       await page.getByRole('button', { name: label, exact: true }).first().click().catch(() => {})
       await page.waitForTimeout(150)
-      for (const name of await collectRendered(page)) rendered.add(name)
+      const result = await collectCoverage(page)
+      for (const file of result.covered) covered.add(file)
     }
 
-    // -- what should have shown up.
-    const files = [
-      ...componentFiles(path.join(uiSrc, 'components')).map((one) => ({ ...one, dir: 'components' })),
-      ...componentFiles(path.join(uiSrc, 'panels')).map((one) => ({ ...one, dir: 'panels' })),
-    ]
-
-    const uncovered = files
-      .filter((one) => !one.names.some((name) => rendered.has(name)))
-      .map((one) => `${one.dir}/${one.file}`)
-      .filter((path) => !(path in EXEMPT))
+    const uncovered = allFiles.filter((file) => !covered.has(file) && !(file in EXEMPT))
 
     expect(uncovered, `Uncovered files (add a frame/dial in packages/ui/src/preview, or an EXEMPT entry): ${uncovered.join(', ')}`).toEqual([])
+
+    // The guard on the guard: an EXEMPT entry that has since become reachable
+    // is a stale claim, not a harmless one — it hides the day a fix or a new
+    // dial actually covered the file, and the next person to read EXEMPT
+    // trusts a reason that no longer holds.
+    const staleExemptions = Object.keys(EXEMPT).filter((file) => covered.has(file))
+    expect(staleExemptions, `EXEMPT entries that now render (remove them from EXEMPT): ${staleExemptions.join(', ')}`).toEqual([])
   })
 
   /**
