@@ -80,7 +80,10 @@ const remember = (state) => {
   store[state.id] = {
     sessionId: state.id,
     cwd: state.cwd,
-    title: `${NAME} conversation`,
+    // Named from the first thing asked, as a real agent names a session;
+    // a placeholder here ("Claude conversation") was a name no agent gives,
+    // and the sidebar showed it beside a header that read the prompt.
+    title: state.title ?? null,
     updatedAt: new Date().toISOString(),
     turns: [],
   }
@@ -108,7 +111,12 @@ const tool = async (id, { toolCallId, title, kind, input, output, ms = 420 }) =>
     sessionUpdate: 'tool_call_update',
     toolCallId,
     status: 'completed',
-    ...(output ? { rawOutput: output } : {}),
+    // The result as content text, the way an agent that reports its output
+    // for a reader sends it (DeepSeek Harness's server sends nothing else).
+    // A bare `rawOutput: { text }` left the app only a JSON object to show,
+    // and a photograph of `{ "text": "42 lines" }` is a picture of this
+    // fixture, not of anything a person would see from a real agent.
+    ...(output?.text ? { content: [{ type: 'content', content: { type: 'text', text: output.text } }] } : {}),
   })
 }
 
@@ -312,6 +320,12 @@ const handlers = {
     }
     const sessionId = params.sessionId
     cancelled.delete(sessionId)
+    const state = sessions.get(sessionId)
+    const asked = (params.prompt ?? []).find((block) => block?.type === 'text')?.text?.split('\n').find((line) => line.trim())
+    if (state && !state.title && asked) {
+      state.title = asked.trim()
+      remember(state)
+    }
     const stopReason = await playTurn(sessionId)
     reply(id, { stopReason })
   },

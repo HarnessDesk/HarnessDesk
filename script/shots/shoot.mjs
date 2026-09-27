@@ -237,7 +237,9 @@ try {
     // notices alone, because an error is evidence that a scene is not ready.
     await cdp.eval(`${STORE}.dismissStanding({ key: 'import:offer', kind: 'import:offer', lifetime: 'once' }); true`)
     await waitForSnapshot(
-      () => cdp.eval(`document.body.innerText.includes('Your other agents have skills and servers this machine could share')`),
+      // The offer's own title, not its sentence: the sentence names what was
+      // found, and a wait keyed to an older wording saw nothing and passed.
+      () => cdp.eval(`document.body.innerText.includes('Skills and servers to share')`),
       shown => !shown,
     )
     await verify?.()
@@ -732,8 +734,15 @@ rules:
          is the right default for somebody scrolling a day's work and the wrong
          one for a photograph — folded, this pane is two paragraphs and a great
          deal of white. Open, it shows the reasoning and the tool calls, which
-         is the part that is worth looking at. */
-      await click('Worked for')
+         is the part that is worth looking at. The fold is a toggle, and a
+         turn caught while it is still landing is already open, so it is
+         opened only when it reads closed — a blind click closed it again. */
+      const folded = await cdp.json(`(() => {
+        const head = [...document.querySelectorAll('button[aria-expanded]')].find((e) => (e.textContent ?? '').trim().startsWith('Worked for'))
+        return head ? head.getAttribute('aria-expanded') === 'false' : null
+      })()`)
+      if (folded === null) throw new Error('no "Worked for" fold on the turn')
+      if (folded) await click('Worked for')
     } },
 
     /** What every agent has left, and what it has cost. */
