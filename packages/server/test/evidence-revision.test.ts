@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
-import { diffOf, freshnessOf, projectOf, revisionOf, tipOf, upstreamTipOf } from '../src/evidence/revision.js'
+import { DIRTY_PATHS_CAP, diffOf, freshnessOf, projectOf, revisionOf, tipOf, upstreamTipOf } from '../src/evidence/revision.js'
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
 
@@ -19,9 +19,13 @@ const run = promisify(execFile)
 test('a revision is the commit, the branch, and whether the tree holds changes not committed', async () => {
   const { dir, git } = await makeRepo()
   const head = await git('rev-parse', 'HEAD')
-  assert.deepEqual(await revisionOf(dir), { head, branch: 'main', dirty: false })
+  assert.deepEqual(await revisionOf(dir), { head, branch: 'main', dirty: false, dirtyFiles: 0, dirtyPaths: [] })
   await writeFile(join(dir, 'new.txt'), 'x\n')
-  assert.deepEqual(await revisionOf(dir), { head, branch: 'main', dirty: true })
+  assert.deepEqual(await revisionOf(dir), { head, branch: 'main', dirty: true, dirtyFiles: 1, dirtyPaths: ['new.txt'] })
+  await writeFile(join(dir, 'second.txt'), 'y\n')
+  const both = await revisionOf(dir)
+  assert.equal(both?.dirtyFiles, 2, 'each untracked file counts')
+  assert.deepEqual([...(both?.dirtyPaths ?? [])].sort(), ['new.txt', 'second.txt'], 'named, not just counted')
   await git('checkout', '-q', '--detach')
   assert.equal((await revisionOf(dir))?.branch, null)
   // No commit to bind anything to: outside a repository, or before its first commit.
@@ -29,6 +33,16 @@ test('a revision is the commit, the branch, and whether the tree holds changes n
   const empty = tempDir('hd-evidence-empty-')
   await run('git', ['-C', empty, 'init', '-q'])
   assert.equal(await revisionOf(empty), null)
+})
+
+test('past the dirty-paths cap the list is dropped to null, but the real count and dirty flag still tell the truth', async () => {
+  const { dir } = await makeRepo()
+  const over = DIRTY_PATHS_CAP + 1
+  await Promise.all(Array.from({ length: over }, (_, i) => writeFile(join(dir, `f${i}.txt`), 'x\n')))
+  const revision = await revisionOf(dir)
+  assert.equal(revision?.dirty, true)
+  assert.equal(revision?.dirtyFiles, over, 'the count is real even past the cap')
+  assert.equal(revision?.dirtyPaths, null, 'the list itself is dropped past the cap, never carried in full')
 })
 
 test('a fact is fresh at its branch tip, behind by the commits since, and moved when rewritten', async () => {

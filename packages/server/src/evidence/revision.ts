@@ -43,6 +43,67 @@ export interface Revision {
   readonly head: Sha
   readonly branch: string | null
   readonly dirty: boolean
+  /**
+   * Tracked or untracked files not committed, never ignored — `git status`
+   * omits those by default — counted from the same read `dirty` comes from.
+   * Null when that read itself failed (git could not answer): unknown,
+   * never zero, so a caller that needs a real count never treats a failed
+   * read as a clean checkout. Real even past `DIRTY_PATHS_CAP`, where
+   * `dirtyPaths` itself is dropped — the count is one number, never the
+   * tens-of-thousands-of-lines problem the list itself can become.
+   */
+  readonly dirtyFiles: number | null
+  /**
+   * The same files, named, from the one `git status` read `dirty` and
+   * `dirtyFiles` already come from — never a second probe. What lets a
+   * caller tell a checkout's own pre-existing dirt apart from what a card's
+   * own work added since a snapshot of this same list was taken at claim
+   * (`pathsAddedSince`, `IntentClaim.dirtyPaths`). Null when the read itself
+   * failed (`dirtyFiles` is null too then), and also past
+   * `DIRTY_PATHS_CAP` — a checkout that never learned to ignore something
+   * like `node_modules` can turn this into tens of thousands of strings, so
+   * the list is dropped rather than carried in full; `dirtyFiles` still
+   * names the real count. Either way, a caller that finds this null has
+   * nothing to diff against and must never refuse on its account.
+   */
+  readonly dirtyPaths: readonly string[] | null
+}
+
+/**
+ * Past this many dirty paths, `revisionAt` drops the list to `null` rather
+ * than building and carrying it in full. A repository with no `.gitignore`
+ * entry for `node_modules`, or one with a large generated-output folder, can
+ * turn one `git status` into tens of thousands of lines; every claim keeps
+ * its own copy of this list for the life of the card (`IntentClaim.
+ * dirtyPaths`), so an uncapped snapshot is a standing cost on every claim in
+ * that checkout, not a one-time read. A `null` snapshot is read the same way
+ * a failed read already is: never refused against (#1049).
+ */
+export const DIRTY_PATHS_CAP = 500
+
+/**
+ * One `git status --porcelain=v1` line's path — the part after its two
+ * status letters and the space, and after a rename's ` -> ` when there is
+ * one, since a rename's own new name is the path this checkout now holds.
+ */
+const pathOfStatusLine = (line: string): string => {
+  const rest = line.slice(3)
+  const arrow = rest.indexOf(' -> ')
+  return arrow === -1 ? rest : rest.slice(arrow + 4)
+}
+
+/**
+ * Paths dirty now that were not already dirty in an earlier snapshot of the
+ * same checkout — the comparison a completion gate and the board's own
+ * staleness reading both need, so a shared checkout's own pre-existing dirt
+ * is never blamed on a card that did not make it. A path already dirty in
+ * `before` stays uncounted even if this card's own work touched it again:
+ * the two reads cannot tell that apart, and this is that limit, stated
+ * rather than hidden.
+ */
+export const pathsAddedSince = (now: readonly string[], before: readonly string[]): readonly string[] => {
+  const seen = new Set(before)
+  return now.filter((path) => !seen.has(path))
 }
 
 /**
@@ -88,7 +149,15 @@ export const headOf = async (cwd: string): Promise<Sha | null> => {
 export const revisionAt = async (cwd: string, head: Sha): Promise<Revision> => {
   const branch = (await gitOr(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD']))?.trim() || null
   const status = await gitOr(cwd, ['status', '--porcelain=v1', '--untracked-files=normal'])
-  return { head, branch, dirty: status === null || status.trim() !== '' }
+  const paths = status === null ? null : status.split('\n').filter((line) => line.trim() !== '').map(pathOfStatusLine)
+  return {
+    head,
+    branch,
+    dirty: paths === null || paths.length > 0,
+    dirtyFiles: paths?.length ?? null,
+    // Past the cap, the count above stays real; only the list itself is dropped (DIRTY_PATHS_CAP).
+    dirtyPaths: paths === null || paths.length > DIRTY_PATHS_CAP ? null : paths,
+  }
 }
 
 /** Null outside a repository, or in one with no commit yet: there is no revision to bind a fact to. */

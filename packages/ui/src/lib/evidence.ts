@@ -38,7 +38,7 @@ export const standingWords = (freshness: Freshness): string => {
     case 'moved':
       return 'Stale: its branch was rewritten since, and this commit is no longer on it.'
     case 'uncommitted':
-      return 'Stale: it ran on changes that were never committed.'
+      return 'Stale: it stood on changes that were never committed.'
     case 'unknown':
       return `Unknown: ${freshness.why}.`
   }

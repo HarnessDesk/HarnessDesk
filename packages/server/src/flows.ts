@@ -635,6 +635,11 @@ export class Flows implements TeamFlows {
     return owed ? 'This card needs a structured review before it can complete. Ask for review candidates and record one first.' : null
   }
 
+  /** Why this card cannot complete yet — its role's grant can commit and its checkout is still dirty — or null. See `FlowExecutions.refuseDirty`. */
+  async refuseDirty(room: string, intent: Intent): Promise<string | null> {
+    return (await this.#executions?.refuseDirty(room, intent.id)) ?? null
+  }
+
   /**
    * An old run held because its check may already have run: the person has
    * looked, and asks for it to run. The only way such a check runs again.

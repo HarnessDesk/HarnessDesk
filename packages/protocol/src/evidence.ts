@@ -189,6 +189,13 @@ export type Evidence =
       readonly removed: number
       readonly from: Sha
       readonly to: Sha
+      /**
+       * The checkout held changes not committed the moment this was
+       * observed — a hand finish is not refused for it (#1049), but a diff
+       * this stale is drawn that way too: absent on every record written
+       * before this field existed, read the same as false.
+       */
+      readonly dirty?: boolean
     }
   | { readonly kind: 'finding'; readonly id: string; readonly state: 'open' | 'repaired' | 'withdrawn'; readonly at: Sha }
   | {
