@@ -30,12 +30,16 @@ export const stripChartMetric = (metric: StripMetric): ChartMetric => (metric ==
  * already loaded for the money band; nothing on this component issues a
  * query of its own.
  *
- * `size="pattern"` on every `Button` here is deliberate: that size carries
- * none of the primitive's own box (height, padding, radius — see
- * `design/ui/button.tsx`'s own comment on it), so this cell's shape is
- * exactly the same flex column every other cell uses, laid out with the
- * design system's layout utilities rather than a second box the button
- * would otherwise impose.
+ * The three cells are `size="panel"` — `h-auto w-full p-4 whitespace-normal`,
+ * a named `Button` size meant for exactly this shape (a bigger, auto-height
+ * tile), not the `pattern` escape hatch: `pattern` leaves a control's whole
+ * box to a design-system pattern's own stylesheet, which
+ * `script/ui-architecture.mjs`'s `screen-pattern-button` rule refuses from a
+ * screen for precisely that reason — a screen picks a named size, or
+ * composes an existing pattern, but never reaches for the size that assumes
+ * it *is* one. The caption's own inline link is `size="content"` instead
+ * (`h-auto p-0 whitespace-normal`), the named size for a button with no box
+ * of its own at all.
  */
 export const OverviewStrip = ({
   reports,
@@ -149,7 +153,7 @@ export const OverviewStrip = ({
         <Separator orientation="vertical" className={`h-auto! self-stretch ${styles.stripDivider}`} />
 
         <Button
-          size="pattern"
+          size="panel"
           variant="quiet"
           className={styles.stripCell}
           aria-pressed={metric === 'value'}
@@ -175,7 +179,7 @@ export const OverviewStrip = ({
         <Separator orientation="vertical" className={`h-auto! self-stretch ${styles.stripDivider}`} />
 
         <Button
-          size="pattern"
+          size="panel"
           variant="quiet"
           className={styles.stripCell}
           aria-pressed={metric === 'turns'}
@@ -199,7 +203,7 @@ export const OverviewStrip = ({
         <Separator orientation="vertical" className={`h-auto! self-stretch ${styles.stripDivider}`} />
 
         <Button
-          size="pattern"
+          size="panel"
           variant="quiet"
           className={styles.stripCell}
           aria-pressed={metric === 'tokens'}
@@ -230,7 +234,7 @@ export const OverviewStrip = ({
 /** A caption's own actionable half — plain text everywhere else, an inline link only where it does something. */
 const CaptionLink = ({ onClick, children }: { onClick?: () => void; children: ReactNode }) =>
   onClick ? (
-    <Button variant="link" size="pattern" onClick={onClick}>
+    <Button variant="link" size="content" onClick={onClick}>
       {children}
     </Button>
   ) : (
