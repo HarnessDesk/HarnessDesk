@@ -77,15 +77,20 @@ const newSession = (id, cwd) => {
 const remember = (state) => {
   if (!STORE) return
   const store = readStore()
+  const kept = store[state.id]
   store[state.id] = {
     sessionId: state.id,
     cwd: state.cwd,
-    // Named from the first thing asked, as a real agent names a session;
-    // a placeholder here ("Claude conversation") was a name no agent gives,
-    // and the sidebar showed it beside a header that read the prompt.
-    title: state.title ?? null,
+    // Named from the first thing asked, as a real agent names a session —
+    // a seat's brief included, since an agent cannot tell a brief from a
+    // person's prompt either. A placeholder here ("Claude conversation") was
+    // a name no agent gives, and the sidebar showed it beside a header that
+    // read the prompt.
+    title: state.title ?? kept?.title ?? null,
     updatedAt: new Date().toISOString(),
-    turns: [],
+    // A seeded conversation keeps its stored turns: renaming or touching it
+    // never erases what `session/load` replays.
+    turns: kept?.turns ?? [],
   }
   writeFileSync(STORE, `${JSON.stringify(store, null, 2)}\n`)
 }
@@ -287,6 +292,9 @@ const handlers = {
     const entry = store[params.sessionId]
     if (!entry) return fail(id, `no stored session ${params.sessionId}`)
     const state = newSession(entry.sessionId, entry.cwd)
+    // Reopened under the name it was stored with, so a first prompt here does
+    // not rename a seeded conversation after itself.
+    if (entry.title) state.title = entry.title
     /* Replay ask and answer as the stored pair, so a reopened conversation
        reads like one that happened rather than like a prompt with no reply. */
     for (const turn of entry.turns ?? []) {
