@@ -146,10 +146,14 @@ test('a round-ceiling stall, clean of any finding, is answered through finding/d
   await f.finishFixer()
   await f.finishReviews('request-changes')
   const stopped = f.rig.executions.stored(f.run)!.findings!.stopped
-  assert.deepEqual(stopped, { round: 2, reason: 'Round 2 ended with 0 open findings.' }, 'the round budget stops the run, not a finding it raised')
+  assert.deepEqual(
+    stopped,
+    { round: 2, reason: 'Round 2 ended with 0 open findings. To let it continue, open Findings and choose Authorise another round.' },
+    'the round budget stops the run, not a finding it raised, and names the exact way past it',
+  )
   assert.equal(f.cards('fixer').filter((one) => one.state === 'claimed').length, 0, 'the repair round the reviewer asked for did not open past the budget')
   const view = await f.plane.runView(f.run)
-  assert.equal(view.reason, stopped!.reason, 'the run view carries the same ceiling reason a person reads')
+  assert.equal(view.reason, stopped!.reason, 'the run view carries the same ceiling reason, and the same way forward, a person reads')
   await f.plane.decideRun({ goal: f.goal, run: f.run, round: stopped!.round, stamp: view.stamp, action: { kind: 'another-round' }, reason: 'let it reach acceptance' })
   await f.rig.flows.flush()
   const after = f.rig.executions.stored(f.run)!
