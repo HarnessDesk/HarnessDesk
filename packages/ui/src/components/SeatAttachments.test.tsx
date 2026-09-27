@@ -84,6 +84,11 @@ it('a loaded skill and an unsupported server are shown distinctly, each with its
   const tones = [...container.querySelectorAll('[data-tone]')].map((node) => node.textContent)
   expect(tones).toContain('Loaded')
   expect(tones).toContain('Not loaded')
+  // Health takes no tone: loaded is the resting state and reads untoned, so
+  // "Not loaded" is the one that stands out.
+  const toneOf = (word: string) => [...container.querySelectorAll<HTMLElement>('[data-tone]')].find((node) => node.textContent === word)?.dataset.tone
+  expect(toneOf('Loaded')).toBe('neutral')
+  expect(toneOf('Not loaded')).toBe('warning')
 })
 
 it('a restored epoch never says currently loaded, whatever historical says', async () => {

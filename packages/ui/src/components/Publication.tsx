@@ -67,7 +67,6 @@ export const PublicationCard = ({ reference }: { reference: ForgeReference }) =>
             <Text
               as="span"
               role="row"
-              weight="semibold"
               title={reference.title}
               className="mt-0.5 block line-clamp-2"
             >
