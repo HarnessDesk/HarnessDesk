@@ -31,6 +31,18 @@ export interface CoverageEntry {
   readonly exports: ModuleNamespace
 }
 
+/** Icon components are a flat façade over lucide (rule 11): drawing every one somewhere is not what this gate is for. */
+const isIconName = (name: string): boolean => name.endsWith('Icon') || name.endsWith('Icons')
+
+/** The inventory's rule for an export that renders a visible component. */
+export const isVisualComponentExport = (name: string, value: unknown): boolean => {
+  if (isIconName(name) || !/^[A-Z]/.test(name)) return false
+  if (typeof value === 'function') return true
+  // `memo` and `forwardRef` exports are React component objects. Other
+  // uppercase exports (SLOTS, PIVOTS, RANGES) are fixture/data constants.
+  return typeof value === 'object' && value !== null && '$$typeof' in value
+}
+
 const relativeFile = (fullPath: string, dir: string): string => {
   const marker = `/${dir}/`
   const at = fullPath.lastIndexOf(marker)

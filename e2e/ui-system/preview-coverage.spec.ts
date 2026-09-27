@@ -43,16 +43,6 @@ const EXEMPT: Readonly<Record<string, string>> = {
   'components/Notices.tsx#Notices': 'The toast and inbox coordinator returns no DOM of its own; its visible outlets are covered separately by NoticeStripOutlet and SidebarNotices.',
 }
 
-/** Icon components are a flat façade over lucide (rule 11): drawing every one somewhere is not what this gate is for. */
-const isIconName = (name: string): boolean => name.endsWith('Icon') || name.endsWith('Icons')
-const isVisualComponentExport = (name: string, value: unknown): boolean => {
-  if (isIconName(name) || !/^[A-Z]/.test(name)) return false
-  if (typeof value === 'function') return true
-  // `memo` and `forwardRef` exports are React component objects. Other
-  // uppercase exports (SLOTS, PIVOTS, RANGES) are fixture/data constants.
-  return typeof value === 'object' && value !== null && '$$typeof' in value
-}
-
 /**
  * A product surface is code-split under Explorer's Suspense boundary. The nav
  * selection updates before its lazy tree mounts, so the title alone is not a
@@ -79,20 +69,15 @@ const waitForLazyBoardToSettle = (page: Page, title: string): Promise<unknown> =
  */
 const collectCoverage = (page: Page): Promise<{ allComponents: readonly string[]; covered: readonly string[] }> =>
   page.evaluate(async () => {
-    const isIconName = (name: string): boolean => name.endsWith('Icon') || name.endsWith('Icons')
-    const isVisualComponentExport = (name: string, value: unknown): boolean => {
-      if (isIconName(name) || !/^[A-Z]/.test(name)) return false
-      if (typeof value === 'function') return true
-      return typeof value === 'object' && value !== null && '$$typeof' in value
-    }
     const mod = (await import('/src/preview/coverage-registry.ts')) as {
       coverageRegistry: readonly { file: string; exports: Readonly<Record<string, unknown>> }[]
+      isVisualComponentExport: (name: string, value: unknown) => boolean
     }
     const refToComponents = new Map<unknown, string[]>()
     const allComponents: string[] = []
     for (const entry of mod.coverageRegistry) {
       for (const [name, value] of Object.entries(entry.exports)) {
-        if (!isVisualComponentExport(name, value)) continue
+        if (!mod.isVisualComponentExport(name, value)) continue
         const component = `${entry.file}#${name}`
         allComponents.push(component)
         const list = refToComponents.get(value)
@@ -155,21 +140,19 @@ const collectCoverage = (page: Page): Promise<{ allComponents: readonly string[]
  * actionability-then-verify loop never resolves against a `<select>` that
  * just became unreachable that way.
  */
-const sweepSelectsForCoverage = (page: Page): Promise<readonly string[]> =>
-  page.evaluate(async () => {
-    const isIconName = (name: string): boolean => name.endsWith('Icon') || name.endsWith('Icons')
-    const isVisualComponentExport = (name: string, value: unknown): boolean => {
-      if (isIconName(name) || !/^[A-Z]/.test(name)) return false
-      if (typeof value === 'function') return true
-      return typeof value === 'object' && value !== null && '$$typeof' in value
-    }
+const sweepSelectsForCoverage = (
+  page: Page,
+  { delayedRevealProbe = false }: { delayedRevealProbe?: boolean } = {},
+): Promise<{ covered: readonly string[]; delayedReveal: boolean | null }> =>
+  page.evaluate(async ({ delayedRevealProbe }) => {
     const mod = (await import('/src/preview/coverage-registry.ts')) as {
       coverageRegistry: readonly { file: string; exports: Readonly<Record<string, unknown>> }[]
+      isVisualComponentExport: (name: string, value: unknown) => boolean
     }
     const refToComponents = new Map<unknown, string[]>()
     for (const entry of mod.coverageRegistry) {
       for (const [name, value] of Object.entries(entry.exports)) {
-        if (!isVisualComponentExport(name, value)) continue
+        if (!mod.isVisualComponentExport(name, value)) continue
         const component = `${entry.file}#${name}`
         const list = refToComponents.get(value)
         if (list) list.push(component)
@@ -220,8 +203,25 @@ const sweepSelectsForCoverage = (page: Page): Promise<readonly string[]> =>
       setter.call(select, value)
       select.dispatchEvent(new Event('change', { bubbles: true }))
     }
+    const probe = delayedRevealProbe ? (() => {
+      const select = document.createElement('select')
+      select.add(new Option('off', 'off'), undefined)
+      select.add(new Option('on', 'on'), undefined)
+      const reveal = document.createElement('span')
+      reveal.hidden = true
+      select.addEventListener('change', () => {
+        if (select.value === 'on') {
+          // A chosen state commits first; its effect reveals dependent content
+          // on the next frame, as a React effect can do.
+          queueMicrotask(() => requestAnimationFrame(() => requestAnimationFrame(() => { reveal.hidden = false })))
+        }
+      })
+      document.body.append(select, reveal)
+      return { select, reveal }
+    })() : null
     collect()
-    for (const select of [...document.querySelectorAll('select')]) {
+    const selects = probe ? [probe.select] : [...document.querySelectorAll('select')]
+    for (const select of selects) {
       const values = [...select.options].map((option) => option.value)
       const neutral = values[0]
       for (const value of values) {
@@ -234,42 +234,26 @@ const sweepSelectsForCoverage = (page: Page): Promise<readonly string[]> =>
         }
       }
     }
-    return [...covered]
-  })
+    const delayedReveal = probe ? !probe.reveal.hidden : null
+    probe?.select.remove()
+    probe?.reveal.remove()
+    return { covered: [...covered], delayedReveal }
+  }, { delayedRevealProbe })
 
 test.describe('preview coverage', () => {
-  test('the inventory keeps an acronym-led React component', () => {
-    const URLPane = (): null => null
-    expect(isVisualComponentExport('URLPane', URLPane)).toBe(true)
+  test('the in-page inventory keeps an acronym-led React component', async ({ page }) => {
+    await page.goto('/preview.html')
+    const included = await page.evaluate(async () => {
+      const { isVisualComponentExport } = await import('/src/preview/coverage-registry.ts')
+      return isVisualComponentExport('URLPane', () => null)
+    })
+    expect(included).toBe(true)
   })
 
-  test('two frames settle a dial whose visible content follows an effect', async ({ page }) => {
+  test('the coverage sweep settles a dial whose visible content follows an effect', async ({ page }) => {
     await page.goto('/preview.html')
-    const revealed = await page.evaluate(async () => {
-      const settle = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-      const select = document.createElement('select')
-      const off = new Option('off', 'off')
-      const on = new Option('on', 'on')
-      const reveal = document.createElement('span')
-      reveal.hidden = true
-      select.add(off, undefined)
-      select.add(on, undefined)
-      select.addEventListener('change', () => {
-        // A chosen state commits first; its effect reveals the dependent
-        // content on the next frame, as a React effect can do.
-        queueMicrotask(() => requestAnimationFrame(() => { reveal.hidden = false }))
-      })
-      document.body.append(select, reveal)
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')!.set!
-      setter.call(select, 'on')
-      select.dispatchEvent(new Event('change', { bubbles: true }))
-      await settle()
-      const result = !reveal.hidden
-      select.remove()
-      reveal.remove()
-      return result
-    })
-    expect(revealed).toBe(true)
+    const result = await sweepSelectsForCoverage(page, { delayedRevealProbe: true })
+    expect(result.delayedReveal).toBe(true)
   })
 
   test('a hidden or transparent preview wrapper earns no component coverage', async ({ page }) => {
@@ -314,7 +298,7 @@ test.describe('preview coverage', () => {
     for (const query of ['', '?composer']) {
       await page.goto(`/preview.html${query}`)
       await page.waitForTimeout(1200)
-      for (const component of await sweepSelectsForCoverage(page)) covered.add(component)
+      for (const component of (await sweepSelectsForCoverage(page)).covered) covered.add(component)
     }
 
     // -- design.html: every board the nav rail lists.
