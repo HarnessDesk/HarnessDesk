@@ -306,6 +306,7 @@
 
 .strip {
   width: 100%;
+  container: hd-overview-strip / inline-size;
 }
 
 .stripRow {
@@ -348,6 +349,31 @@
 
   /* A hairline that no longer sits between two cells once they wrap onto
      their own rows is a stray mark, not a divider. */
+  .stripDivider {
+    display: none;
+  }
+}
+
+/* Two-up still crowds a caption like "Metered and list-price" or "fee not
+   set for 3" into too few characters per line — one cell per row gives each
+   caption the width to wrap at a word boundary instead of breaking mid-word
+   or running to four lines. A container query, not another `@media` step:
+   the strip can be this narrow inside a wide window (a split pane, the
+   inspector open beside it), which the viewport alone cannot see — and
+   `flex-wrap` has to be repeated here rather than assumed from the `@media`
+   step above: that step reads the *viewport*, so a wide window with a
+   narrow container would set `flex-basis: 100%` on a row that was never
+   told to wrap at all, which only shrinks four cells onto one crowded line
+   instead of stacking them. */
+@container hd-overview-strip (max-width: 360px) {
+  .stripRow {
+    flex-wrap: wrap;
+  }
+
+  .stripCell {
+    flex-basis: 100%;
+  }
+
   .stripDivider {
     display: none;
   }

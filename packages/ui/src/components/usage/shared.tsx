@@ -5,6 +5,7 @@ import type { AccountStatus, LedgerReport, LedgerRow, RuntimeId, RuntimeInfo, Us
 import { burnWord } from '../../lib/burn'
 import { prefsForUsage, type AccountPrefs, type AccountPrefsMap } from '../../lib/accounts'
 import { formatTokens } from '../../lib/context-usage'
+import { agentCoverage, ledgerRuntimeIds } from '../../lib/overview-strip'
 import {
   alignGhost,
   axisTicks as axisTicksFor,
@@ -878,12 +879,20 @@ export const Spend = ({
   const words = METRIC_WORDS[metric]
   const format = metric === 'cost' ? money : metric === 'tokens' ? formatTokens : (value: number) => Math.round(value).toLocaleString()
 
+  // A window that mixes a turn-known runtime with one that is not has no
+  // honest sum at all (`LedgerReport.totals.turns` is `undefined` in exactly
+  // that case) — the headline reads "—", the same word every other unknown
+  // figure on this page uses, rather than a number that is quietly only
+  // part of the truth.
+  const turnsPartial = metric === 'turns' && ledger !== null && ledger.totals?.turns === undefined
   const headline =
     ledger === null
       ? '—'
       : metric === 'cost' && ledger.totalCost === null
         ? 'unpriced'
-        : format(series.total)
+        : turnsPartial
+          ? '—'
+          : format(series.total)
 
   const previous = useMemo(
     () => previousPeriod(wideSeries, range, series.total),
@@ -903,14 +912,23 @@ export const Spend = ({
     [series],
   )
 
+  const turnsKnownSet = useMemo(() => new Set(ledger?.coverage?.turnsKnownFor ?? []), [ledger])
   const runtimes = useMemo(
     () =>
       series.keys.map((runtime) => ({
         key: String(runtime),
+        runtime,
         label: byId.get(runtime)?.presentation.name ?? String(runtime),
         tint: tintOf(String(runtime)),
       })),
     [series.keys, byId, tintOf],
+  )
+  // The legend explains a series' colour; a turns-unknown runtime draws no
+  // segment on a turns chart (`stackDailyMetric` zeroes its contribution), so
+  // naming it in the legend would explain a colour that is not on the chart.
+  const legendRuntimes = useMemo(
+    () => (metric === 'turns' ? runtimes.filter((entry) => turnsKnownSet.has(entry.runtime)) : runtimes),
+    [runtimes, metric, turnsKnownSet],
   )
 
   const buckets = useMemo(
@@ -953,11 +971,12 @@ export const Spend = ({
                   : `Last ${ledger?.days ?? range} days`}
               </ChartHint>
             </div>
-            {previous.change !== null && (
+            {!turnsPartial && previous.change !== null && (
               <Delta
                 value={Math.round(previous.change)}
                 better="down"
                 caption={`vs the ${range} days before`}
+                tone={metric === 'cost' ? undefined : 'neutral'}
               />
             )}
           </ChartHead>
@@ -969,11 +988,13 @@ export const Spend = ({
                 {period.partial ? (
                   <Text role="meta">so far</Text>
                 ) : (
+                  !turnsPartial &&
                   period.change !== null && (
                     <Delta
                       value={Math.round(period.change)}
                       better="down"
                       caption={`vs the ${period.days} days before`}
+                      tone={metric === 'cost' ? undefined : 'neutral'}
                     />
                   )
                 )}
@@ -1001,9 +1022,9 @@ export const Spend = ({
                 start={dayLabel(series.days[0]?.day ?? now)}
                 end={dayLabel(series.days[series.days.length - 1]?.day ?? now)}
               />
-              {mode === 'bars' && runtimes.length > 1 && (
+              {mode === 'bars' && legendRuntimes.length > 1 && (
                 <ChartKeys>
-                  {runtimes.map((entry) => (
+                  {legendRuntimes.map((entry) => (
                     <ChartKey key={entry.key} tint={entry.tint} label={entry.label} />
                   ))}
                 </ChartKeys>
@@ -1026,7 +1047,7 @@ export const Spend = ({
         </ChartCard>
 
         <ChartFoot>
-          <Text role="meta" className={styles.costWord}>{coverageSentence(ledger)}</Text>
+          <Text role="meta" className={styles.costWord}>{coverageSentence(ledger, metric)}</Text>
           <span className={styles.fill} />
           <Button size="sm" variant="ghost" disabled={scan?.running} onClick={onScan}>
             {scan?.running ? `Scanning ${scan.filesDone}/${scan.filesTotal}` : 'Rescan'}
@@ -1037,8 +1058,28 @@ export const Spend = ({
   )
 }
 
-const coverageSentence = (ledger: LedgerReport | null): string => {
+/**
+ * The chart foot's own sentence — worded for whichever metric is on screen,
+ * because "Metered and list-price · 44 of 30,096 calls carry no public
+ * price" is a claim about cost, and sitting it under a turns or tokens chart
+ * qualifies a number the chart is not drawing. "Days scanned" is the one
+ * clause true of every metric, so it is the only one every branch keeps.
+ */
+const coverageSentence = (ledger: LedgerReport | null, metric: ChartMetric): string => {
   if (!ledger) return 'Nothing has been scanned yet.'
+  const covered = coverageLabel(ledger)
+  if (metric === 'tokens') {
+    const parts: string[] = []
+    if (ledger.totalTokens !== null) parts.push(`${formatTokens(ledger.totalTokens)} tokens`)
+    if (covered) parts.push(covered)
+    return parts.join(' · ')
+  }
+  if (metric === 'turns') {
+    const coverage = agentCoverage(ledger.coverage, ledgerRuntimeIds(ledger))
+    const parts: string[] = [`turns known for ${coverage.known} of ${coverage.total} agents`]
+    if (covered) parts.push(covered)
+    return parts.join(' · ')
+  }
   const parts: string[] = [provenanceLabel(ledger)]
   if (ledger.totalTokens !== null) parts.push(`${formatTokens(ledger.totalTokens)} tokens`)
   const { priced, unpriced } = ledger.coverage
@@ -1047,7 +1088,6 @@ const coverageSentence = (ledger: LedgerReport | null): string => {
       `${unpriced.toLocaleString()} of ${(priced + unpriced).toLocaleString()} calls carry no public price`,
     )
   }
-  const covered = coverageLabel(ledger)
   if (covered) parts.push(covered)
   return parts.join(' · ')
 }

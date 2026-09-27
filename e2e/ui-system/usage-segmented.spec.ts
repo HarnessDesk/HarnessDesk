@@ -277,8 +277,16 @@ for (const [look, theme] of [
     // that cover above itself instead (its ::before).
     expect.soft(measurement.blurbToFirst).toBeGreaterThanOrEqual(20)
     expect.soft(measurement.blurbToFirst).toBeLessThanOrEqual(34)
-    // And the strip itself does not run into the heading below it.
-    if (measurement.stripToHeading !== null) expect(measurement.stripToHeading).toBeGreaterThan(0)
+    // And the strip itself sits in the same band rhythm above the heading —
+    // not merely "some positive gap", which a 1px collision would still
+    // pass. The same band the blurb-to-first check keeps, widened by the
+    // couple of pixels Studio's own page padding adds over Desk's (measured:
+    // Desk 20–34px, Studio 35px) — still a tight band, and still soft like
+    // its neighbours.
+    if (measurement.stripToHeading !== null) {
+      expect.soft(measurement.stripToHeading).toBeGreaterThanOrEqual(20)
+      expect.soft(measurement.stripToHeading).toBeLessThanOrEqual(36)
+    }
     expect(measurement.headingToCard).toBeGreaterThan(0)
 
     const sticky = await firstBand.evaluate(async node => {

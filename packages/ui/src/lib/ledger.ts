@@ -132,7 +132,17 @@ export const stackDailyMetric = (
     const dayTotal = parts.reduce((sum, part) => sum + part, 0)
     if (dayTotal > peak) peak = dayTotal
     total += dayTotal
-    const unknown = !bucket && earliest !== undefined && (earliest === null || day < earliest)
+    let unknown = !bucket && earliest !== undefined && (earliest === null || day < earliest)
+    // A turns day whose every runtime that actually spent that day is
+    // turn-unknown has no honest total at all — not "0 turns", which a
+    // turn-known day with genuinely nothing done would also read as. Only
+    // when the bucket is *entirely* turn-unknown runtimes: a mixed day still
+    // draws its (partial) bar, since the known share is a real reading —
+    // see this function's own doc comment above.
+    if (!unknown && metric === 'turns' && bucket && bucket.size > 0) {
+      const allTurnUnknown = [...bucket.keys()].every((runtime) => !turnsKnownFor.has(runtime))
+      if (allTurnUnknown) unknown = true
+    }
     days.push({ day, total: dayTotal, tokens: tokensByDay.get(day) ?? 0, parts, unknown })
   }
   return { days, keys, peak, total }

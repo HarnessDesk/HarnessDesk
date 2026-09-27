@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { runtimeId, type LedgerDay, type LedgerReport, type PlanSuggestion, type RuntimeId, type UsageBilling, type UsageReport } from '@harnessdesk/protocol'
+import { runtimeId, type LedgerDay, type LedgerReport, type LedgerRow, type PlanSuggestion, type RuntimeId, type UsageBilling, type UsageReport } from '@harnessdesk/protocol'
 import { OverviewStrip, type StripMetric } from '../../components/usage/OverviewStrip'
 
 import {
@@ -1491,6 +1491,22 @@ const stripLedger = ({
   }
   const sum = (pick: (entry: LedgerDay) => number | undefined): number =>
     daily.reduce((total, entry) => total + (pick(entry) ?? 0), 0)
+  const sumFor = (runtime: RuntimeId, pick: (entry: LedgerDay) => number | undefined): number =>
+    daily
+      .filter((entry) => entry.runtime === runtime)
+      .reduce((total, entry) => total + (pick(entry) ?? 0), 0)
+  // One row per runtime — real ledger rows, not `[]`, so `ledgerRuntimeIds`
+  // (`lib/overview-strip.ts`) has something to name: the Turns and Tokens
+  // captions both read the runtimes the ledger has *rows* for, not the
+  // accounts in scope.
+  const rows: LedgerRow[] = [STRIP_CLAUDE, STRIP_CODEX].map((runtime) => ({
+    key: String(runtime),
+    label: String(runtime),
+    runtime,
+    tokens: sumFor(runtime, (entry) => entry.tokens),
+    cost: sumFor(runtime, (entry) => entry.cost),
+    hasUnpriced: false,
+  }))
   return {
     days: range,
     currency: 'USD',
@@ -1507,7 +1523,7 @@ const stripLedger = ({
       earliestDay: midnight.getTime() - (range + 60) * 86_400_000,
       turnsKnownFor: turnsPartial ? [STRIP_CLAUDE] : [STRIP_CLAUDE, STRIP_CODEX],
     },
-    rows: [],
+    rows,
     daily,
     scannedAt: STRIP_NOW,
     totals: {
@@ -1630,14 +1646,44 @@ const OverviewStripBoard = () => (
         />
       </Case>
     </div>
+    <div className={styles.matrix}>
+      <Case label="Value costs less than Paid — the ×paid chip is amber, never green">
+        <StripCase
+          reports={[
+            stripReport(STRIP_CLAUDE, 'work', MONTHLY_FEE(260)),
+            stripReport(STRIP_CODEX, 'work', MONTHLY_FEE(260)),
+          ]}
+          ledger={stripLedger({ range: 30 })}
+        />
+      </Case>
+      <Case label="overage spent this cycle, shown beside Paid rather than folded in">
+        <StripCase
+          reports={[
+            stripReport(STRIP_CLAUDE, 'work', {
+              ...MONTHLY_FEE(20),
+              overage: { enabled: true, spent: 50, currency: 'USD' },
+            }),
+            stripReport(STRIP_CODEX, 'work', MONTHLY_FEE(20)),
+          ]}
+          ledger={stripLedger({ range: 30 })}
+        />
+      </Case>
+    </div>
     <Rule>
       Every figure here comes from the real <code>OverviewStrip</code>, fed the same
       <code>LedgerReport</code>/<code>UsageReport</code> shapes <code>Usage.tsx</code> loads — nothing on this board
       is redrawn by hand. Paid is never $0 for an account with no fee set: it is left out of the sum and
       counted in the caption instead (&ldquo;fee not set for N&rdquo;, linking to that account's own Plan
-      card), and the figure itself reads &ldquo;—&rdquo; only when <em>no</em> account in scope has one.
-      Value, Turns and Tokens are also a <code>ToggleGroup</code>: clicking one switches the Spend chart
-      below between cost, turns and tokens per day (<code>lib/ledger.ts</code>'s <code>stackDailyMetric</code>).
+      card), and the figure itself reads &ldquo;—&rdquo; only when <em>no</em> account in scope has one. Paid
+      carries no delta of its own — there is no billing history yet to compare a past Paid against — and
+      overage spent this cycle is folded into the figure only when its own cycle started at or after the
+      window opened; otherwise it is named beside the figure (&ldquo;+ $50 overage this cycle&rdquo;),
+      never dropped. Value's ratio and Turns' per-turn price against Paid only appear when every account
+      in scope has a fee, in one currency, matching the ledger's own — otherwise Value falls back to a
+      plain per-day average and Turns to its own coverage caption, and the ratio chip is neutral at 1× or
+      above and amber below it, never green (there is no state this figure calls good news). Value, Turns
+      and Tokens are also a <code>ToggleGroup</code>: clicking one switches the Spend chart below between
+      cost, turns and tokens per day (<code>lib/ledger.ts</code>'s <code>stackDailyMetric</code>).
     </Rule>
   </>
 )

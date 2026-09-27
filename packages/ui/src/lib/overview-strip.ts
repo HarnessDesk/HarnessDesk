@@ -6,9 +6,16 @@ import type { LedgerReport, RuntimeId } from '@harnessdesk/protocol'
  * Design: `docs/usage-dashboard.md`, "The Overview strip". Paid's own
  * arithmetic — proration, overage, currency — lives in `lib/paid.ts`; this is
  * everything else: the delta each cell's chip reads, the cache-hit rate on
- * the Tokens figure, and the two captions ("known for N of M agents",
- * "68% input · 32% output") that read off `LedgerReport.totals` and
- * `SpendCoverage.turnsKnownFor`.
+ * the Tokens figure, and the captions ("known for N of M agents",
+ * "68% input · 32% output · N% cache") that read off `LedgerReport.totals`,
+ * `SpendCoverage.turnsKnownFor` and `LedgerReport.rows`.
+ *
+ * Turns coverage and Tokens coverage are two different questions answered
+ * from two different sources, on purpose (they do not "travel together" —
+ * see `tokenCoverage`'s own comment): Turns asks `SpendCoverage.turnsKnownFor`,
+ * which of the runtimes this window covers has a readable turn boundary at
+ * all; Tokens asks the ledger's own rows whether any of them actually
+ * carries a null token count.
  */
 
 /** Which day-series the strip's chart toggle is showing. `'value'` plots cost. */
@@ -43,21 +50,30 @@ export const cacheHitRate = (
 }
 
 /**
- * "68% input · 32% output" — the Tokens cell's caption when every agent in
- * scope is turns-known (see `turnsCoverage`, whose "known" list this reuses:
- * the two counts travel together in this ledger, since a scanner that can
- * read a turn boundary is the same one that reads the fuller token split).
- * Reasoning stays folded into output, the same rule `LedgerRow.input`'s doc
- * comment keeps — this is a split of `tokens`, not a third bucket next to it.
+ * "68% input · 27% output · 5% cache" — the Tokens cell's split caption,
+ * covering the same `tokens` total the figure shows: `input + output +
+ * cacheRead + cacheWrite`. Cache is folded in explicitly — as its own
+ * share, not silently absorbed into "input" or left out of the percentages —
+ * because `tokens` already includes it (`LedgerRow.tokens`'s own doc
+ * comment): a caption that only splits input and output describes a smaller
+ * number than the one beside it. Reasoning stays folded into output, the
+ * same rule keeps.
  */
 export const tokenSplitCaption = (
-  totals: { readonly input: number; readonly output: number } | undefined,
+  totals:
+    | { readonly input: number; readonly output: number; readonly cacheRead?: number; readonly cacheWrite?: number }
+    | undefined,
 ): string | null => {
   if (!totals) return null
-  const whole = totals.input + totals.output
+  const cache = (totals.cacheRead ?? 0) + (totals.cacheWrite ?? 0)
+  const whole = totals.input + totals.output + cache
   if (whole <= 0) return null
   const inputPct = Math.round((totals.input / whole) * 100)
-  return `${inputPct}% input · ${100 - inputPct}% output`
+  const outputPct = Math.round((totals.output / whole) * 100)
+  const cachePct = 100 - inputPct - outputPct
+  return cache > 0
+    ? `${inputPct}% input · ${outputPct}% output · ${cachePct}% cache`
+    : `${inputPct}% input · ${100 - inputPct}% output`
 }
 
 export interface AgentCoverage {
@@ -67,13 +83,26 @@ export interface AgentCoverage {
 }
 
 /**
+ * Every distinct runtime the ledger actually has a row for — the Turns
+ * denominator, and the pool `tokenCoverage` groups by. Not `reports.map(r =>
+ * r.runtime)`: an account in scope with no rows in this window is a runtime
+ * this window says nothing about, not a runtime it can call known or
+ * unknown either way. A folded/project row with no single runtime
+ * attribution (`LedgerRow.runtime === null`) names none and is skipped.
+ */
+export const ledgerRuntimeIds = (ledger: LedgerReport | null | undefined): readonly RuntimeId[] => {
+  if (!ledger) return []
+  const seen = new Set<RuntimeId>()
+  for (const row of ledger.rows) if (row.runtime !== null) seen.add(row.runtime)
+  return [...seen]
+}
+
+/**
  * "Known for N of M agents" — how many of the distinct runtimes actually in
- * scope are ones `SpendCoverage.turnsKnownFor` names. Reused for the Tokens
- * cell's own partial caption: this ledger has no separate coverage field for
- * "does this agent report the fuller token split", and in practice the two
- * travel together (every scanner that reads a turn boundary reads the same
- * transcript's token split), so the turns list is the one honest source
- * either caption has to point to.
+ * scope are ones `SpendCoverage.turnsKnownFor` names. `runtimes` should be
+ * `ledgerRuntimeIds(ledger)` — the runtimes this window has rows for — not
+ * every account in scope, so an account with nothing recorded this window
+ * is neither known nor unknown; it just is not counted.
  */
 export const agentCoverage = (
   coverage: LedgerReport['coverage'] | null | undefined,
@@ -84,6 +113,51 @@ export const agentCoverage = (
   const known = distinct.filter((runtime) => knownSet.has(runtime)).length
   return { known, total: distinct.length, partial: distinct.length > 0 && known < distinct.length }
 }
+
+/**
+ * The Tokens cell's own coverage — deliberately not `agentCoverage` again.
+ * Every scanner reports *some* token figure for every row it writes, but not
+ * always a real one: a runtime can log a call with `tokens: null` when it
+ * has no readable count for it (`LedgerRow.tokens`), and that is a fact
+ * `SpendCoverage.turnsKnownFor` — a *turn*-boundary signal — cannot answer.
+ * A runtime counts as tokens-known here only when *none* of its rows in this
+ * window carries a null token count; one null row is enough to call the
+ * whole runtime unknown for tokens, the same "any gap taints it" rule
+ * `LedgerRow.turns` keeps for a row that mixes a turn-known runtime with one
+ * that is not.
+ */
+export const tokenCoverage = (ledger: LedgerReport | null | undefined): AgentCoverage => {
+  if (!ledger) return { known: 0, total: 0, partial: false }
+  const hasNullRow = new Map<RuntimeId, boolean>()
+  for (const row of ledger.rows) {
+    if (row.runtime === null) continue
+    hasNullRow.set(row.runtime, (hasNullRow.get(row.runtime) ?? false) || row.tokens === null)
+  }
+  const total = hasNullRow.size
+  const known = [...hasNullRow.values()].filter((tainted) => !tainted).length
+  return { known, total, partial: total > 0 && known < total }
+}
+
+/**
+ * Whether Value's ratio against Paid ("{ratio}× paid") and Turns' price
+ * against Paid ("{amount} paid a turn") mean what they claim: both divide a
+ * figure covering *every* account and runtime in scope by one covering only
+ * the accounts with a fee set, in one currency. Dividing anyway when scope
+ * does not match inflates the ratio with fee-less accounts' Value and
+ * understates the per-turn price the same way — the fix is never showing
+ * either at all until every account in scope has a fee, in the same
+ * currency the ledger itself is in.
+ */
+export const paidScopeMatchesLedger = (
+  paid: { readonly missingFeeCount: number; readonly otherCurrencies: boolean; readonly currency: string | null },
+  ledgerCurrency: string | null | undefined,
+): boolean =>
+  paid.missingFeeCount === 0 &&
+  !paid.otherCurrencies &&
+  paid.currency !== null &&
+  ledgerCurrency !== null &&
+  ledgerCurrency !== undefined &&
+  paid.currency === ledgerCurrency
 
 /** Value ÷ Paid, rounded to one decimal — `null` when Paid is not known or is zero. */
 export const paidRatio = (value: number | null, paid: number | null): number | null => {
