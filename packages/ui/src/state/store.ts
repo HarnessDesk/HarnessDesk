@@ -43,6 +43,7 @@ import {
   type LedgerReport,
   type PlanEntry,
   type PlanRead,
+  type PlanReadParams,
   type PlanSetInput,
   type RateLimits,
   type UsageReport,
@@ -1690,9 +1691,17 @@ export class AppStore {
     }
   }
 
-  /** What a person has set for each account's plan fee/budget, plus the suggested public prices. */
-  async readPlans(): Promise<PlanRead> {
-    return this.transport.request('usage/plan/read', {}).catch(() => ({ entries: [], suggestions: [] }))
+  /**
+   * One account's own stored plan fee/budget and its matching suggestion —
+   * never every account's, so a card can never be handed a report or entry
+   * that belongs to a sibling account on the same runtime (BLOCKING 3). A
+   * transport failure (the socket itself, not a `plans.json` read — that
+   * comes back as `refusal`) answers as nothing rather than throwing.
+   */
+  async readPlan(params: PlanReadParams): Promise<PlanRead> {
+    return this.transport
+      .request('usage/plan/read', params)
+      .catch(() => ({ entry: null, suggestion: null, refusal: null }))
   }
 
   /** Sets — or, given `null`, clears — one account's fee and/or budget, then re-asks for reports so the change shows. */

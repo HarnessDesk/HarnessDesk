@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import type {
   Account,
@@ -15,7 +15,6 @@ import type {
   UsageReport,
   UsageWindow,
 } from '@harnessdesk/protocol'
-import { matchPlanSuggestion } from '@harnessdesk/protocol'
 
 import {
   accountIdentity,
@@ -72,6 +71,7 @@ import {
   NativeSelect,
   Textarea,
   PageHead,
+  PlanCard,
   Progress,
   Row,
   RowButton,
@@ -284,25 +284,15 @@ export const UsageMeter = ({ window }: { window: UsageWindow }) => {
   )
 }
 
-/** `en-US`'s two-decimal reading — the currency this file's own suggestions carry. */
-const money = (amount: number, currency: string): string =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: amount % 1 === 0 ? 0 : 2 }).format(amount)
-
-const domainOf = (url: string): string => {
-  try {
-    return new URL(url).hostname.replace(/^www\./, '')
-  } catch {
-    return url
-  }
-}
-
 /**
- * A plan's fee and a key or metered account's budget: what a person set,
- * once, from a suggested public price confirmed in one click — never applied
- * on its own (rule: `docs/usage-dashboard.md`'s pricing paragraph). `report`
- * is the same `UsageReport` `AccountDetail` already found for this account;
- * its `billing.fee`/`billing.budget` are drawn straight from
- * `usage/reports`, which already carries whatever this section just set.
+ * The store wiring around `PlanCard` (`design/patterns/PlanCard.tsx`): asks
+ * the host for this account's own stored entry and matching suggestion
+ * (`usage/plan/read`, keyed on `{ runtime, account }` — never a runtime's
+ * single cached report, which only ever remembers one account, BLOCKING 3),
+ * writes through `store.setPlan`, and re-asks after every write since
+ * `usage/plan/read` has no push of its own. `report` is only this account's
+ * own plan string, when this exact account produced a report — used to pick
+ * the matching suggestion server-side, never to read `billing` (BLOCKING 3).
  */
 export const PlanSection = ({
   runtime,
@@ -316,216 +306,53 @@ export const PlanSection = ({
   isKey: boolean
 }) => {
   const store = useStore()
-  const [planRead, setPlanRead] = useState<PlanRead | null>(null)
-  const [editing, setEditing] = useState<'fee' | 'budget' | null>(null)
+  const [state, setState] = useState<PlanRead | null>(null)
+
+  const load = useCallback(async (): Promise<void> => {
+    const read = await store.readPlan({ runtime, account, plan: report?.plan ?? null })
+    setState(read)
+  }, [store, runtime, account, report?.plan])
 
   useEffect(() => {
     let cancelled = false
-    void store.readPlans().then((read) => {
-      if (!cancelled) setPlanRead(read)
-    })
+    void load().catch(() => undefined)
     return () => {
       cancelled = true
     }
-  }, [store, runtime, account])
+    // `cancelled` guards nothing here (there is nothing async to race after
+    // unmount besides the `setState` above, which React already tolerates),
+    // kept for parity with every other effect in this file that fetches.
+    void cancelled
+  }, [load])
 
   if (!account) return null
 
-  const billing = report?.billing
-  const fee = billing?.fee ?? null
-  const budget = billing?.budget ?? null
-  const showBudget = isKey || (billing?.kinds.includes('metered') && !fee)
-  const suggestion = fee ? null : matchPlanSuggestion(planRead?.suggestions ?? [], runtime, report?.plan ?? null)
-
-  /**
-   * `store.setPlan` already wrote the entry; what is shown here reads off
-   * `report.billing`, which lives in `snapshot.usage` — so the only thing
-   * left to do is have the store re-ask for reports, and the parent's next
-   * render hands this component the fee/budget it just set.
-   */
-  const refresh = async (): Promise<void> => {
-    await store.loadUsage()
-  }
+  const budget = state?.entry?.budget ?? null
+  const showBudget = isKey || (report?.billing?.kinds.includes('metered') ?? false) || budget !== null
 
   return (
-    <>
-      <SectionHead name="Plan" />
-      <Rows>
-        <Row
-          title="Plan price"
-          {...(fee
-            ? { desc: fee.source === 'user' ? 'you set this' : undefined }
-            : suggestion
-              ? {}
-              : { desc: 'No suggested price for this plan — enter one yourself.' })}
-          control={
-            fee ? (
-              <span className="inline-flex items-center gap-x-(--hd-space-2)">
-                <Text numeric>{money(fee.amount, fee.currency)} a {fee.period === 'year' ? 'year' : 'month'}</Text>
-                <Button variant="secondary" size="sm" onClick={() => setEditing('fee')}>Edit</Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => void store.setPlan({ runtime, account, fee: null }).then(refresh)}
-                >
-                  Clear
-                </Button>
-              </span>
-            ) : suggestion ? (
-              <span className="inline-flex items-center gap-x-(--hd-space-2)">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() =>
-                    void store
-                      .setPlan({
-                        runtime,
-                        account,
-                        fee: { amount: suggestion.amount, currency: suggestion.currency, period: suggestion.period },
-                      })
-                      .then(refresh)
-                  }
-                >
-                  Use {money(suggestion.amount, suggestion.currency)}/mo — {suggestion.planMatch}, from {domainOf(suggestion.sourceUrl)}, checked {suggestion.checkedAt}
-                </Button>
-                <Button variant="secondary" size="sm" onClick={() => setEditing('fee')}>Other amount…</Button>
-              </span>
-            ) : (
-              <Button variant="secondary" size="sm" onClick={() => setEditing('fee')}>Set price…</Button>
-            )
-          }
-        />
-        {showBudget && (
-          <Row
-            title="Monthly budget"
-            desc="Your own spending cap for this account, separate from any plan limit."
-            control={
-              budget ? (
-                <span className="inline-flex items-center gap-x-(--hd-space-2)">
-                  <Text numeric>{money(budget.amount, budget.currency)} a month</Text>
-                  <Button variant="secondary" size="sm" onClick={() => setEditing('budget')}>Edit</Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => void store.setPlan({ runtime, account, budget: null }).then(refresh)}
-                  >
-                    Clear
-                  </Button>
-                </span>
-              ) : (
-                <Button variant="secondary" size="sm" onClick={() => setEditing('budget')}>Set budget…</Button>
-              )
-            }
-          />
-        )}
-      </Rows>
-      {editing && (
-        <PlanAmountDialog
-          kind={editing}
-          initial={editing === 'fee' ? fee : budget}
-          onClose={() => setEditing(null)}
-          onSave={async (amount, currency, period) => {
-            if (editing === 'fee') await store.setPlan({ runtime, account, fee: { amount, currency, period } })
-            else await store.setPlan({ runtime, account, budget: { amount, currency } })
-            await refresh()
-            setEditing(null)
-          }}
-        />
-      )}
-    </>
-  )
-}
-
-/**
- * The one dialog both plan rows edit through: an amount and a currency, plus
- * a month/year choice for the fee alone — a budget is always monthly.
- */
-const PlanAmountDialog = ({
-  kind,
-  initial,
-  onClose,
-  onSave,
-}: {
-  kind: 'fee' | 'budget'
-  initial: { amount: number; currency: string; period?: 'month' | 'year' } | null
-  onClose: () => void
-  onSave: (amount: number, currency: string, period: 'month' | 'year') => Promise<void>
-}) => {
-  const [amount, setAmount] = useState(initial ? String(initial.amount) : '')
-  const [currency, setCurrency] = useState(initial?.currency ?? 'USD')
-  const [period, setPeriod] = useState<'month' | 'year'>(initial?.period ?? 'month')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const parsed = Number(amount)
-  const ready = amount.trim() !== '' && Number.isFinite(parsed) && parsed > 0 && /^[A-Za-z]{3}$/.test(currency)
-
-  const save = async (): Promise<void> => {
-    if (!ready) return
-    setBusy(true)
-    setError(null)
-    try {
-      await onSave(parsed, currency.toUpperCase(), period)
-    } catch (thrown) {
-      setError(thrown instanceof Error ? thrown.message : String(thrown))
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Dialog
-      title={kind === 'fee' ? 'Set the plan price' : 'Set a monthly budget'}
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="default" disabled={busy || !ready} onClick={() => void save()}>
-            {busy ? 'Saving…' : 'Save'}
-          </Button>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        </>
-      }
-    >
-      <FormStack>
-        <Field label="Amount">
-          {(control) => (
-            <Input
-              {...control}
-              type="number"
-              min="0"
-              step="0.01"
-              value={amount}
-              autoFocus
-              onChange={(event) => setAmount(event.target.value)}
-            />
-          )}
-        </Field>
-        <Field label="Currency">
-          {(control) => (
-            <Input
-              {...control}
-              value={currency}
-              maxLength={3}
-              onChange={(event) => setCurrency(event.target.value.toUpperCase())}
-            />
-          )}
-        </Field>
-        {kind === 'fee' && (
-          <Field label="Billed">
-            {(control) => (
-              <NativeSelect
-                {...control}
-                value={period}
-                onChange={(event) => setPeriod(event.target.value as 'month' | 'year')}
-              >
-                <option value="month">Monthly</option>
-                <option value="year">Yearly</option>
-              </NativeSelect>
-            )}
-          </Field>
-        )}
-      </FormStack>
-      {error && <Note tone="bad">{error}</Note>}
-    </Dialog>
+    <PlanCard
+      entry={state?.entry ?? null}
+      suggestion={state?.suggestion ?? null}
+      refusal={state?.refusal ?? null}
+      showBudget={showBudget}
+      onSetFee={async (amount, currency, period) => {
+        await store.setPlan({ runtime, account, fee: { amount, currency, period } })
+        await load()
+      }}
+      onClearFee={async () => {
+        await store.setPlan({ runtime, account, fee: null })
+        await load()
+      }}
+      onSetBudget={async (amount, currency) => {
+        await store.setPlan({ runtime, account, budget: { amount, currency } })
+        await load()
+      }}
+      onClearBudget={async () => {
+        await store.setPlan({ runtime, account, budget: null })
+        await load()
+      }}
+    />
   )
 }
 
@@ -1528,9 +1355,11 @@ const AccountDetail = ({
   const [name, setName] = useState(prefs?.nickname ?? '')
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
   const [limits, setLimits] = useState<RateLimits | null>(null)
-  const report = snapshot.usage.find(
-    (entry) => entry.runtime === info.id && (usageAccount(entry) === account.label.trim() || usageAccount(entry) === ''),
-  )
+  // Strictly this account's own report — never a sibling account's, and
+  // never the account-less fallback that used to hand every account on a
+  // runtime the same single report (BLOCKING 3). The Plan card below never
+  // reads `report.billing` at all; it reads its own stored entry.
+  const report = snapshot.usage.find((entry) => entry.runtime === info.id && usageAccount(entry) === account.label.trim())
   const state: Readiness = report && isBlocked(report) ? 'limit' : 'ready'
   const accountWide = report?.lanes.some((lane) => lane.placeholder !== true && !lane.scope) ?? false
   const usageOptions = [
