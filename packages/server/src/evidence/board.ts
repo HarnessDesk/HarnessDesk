@@ -29,6 +29,9 @@ export const RESTORED_WHY = 'it came from a backup, and this desk has not observ
 /** Why a check whose run crossed a HEAD move can never be a passing fact. */
 export const MOVED_CHECK_WHY = 'HEAD moved while this check ran, so its result is not counted for either revision.'
 
+/** Why a Seat's `run_check` result stands apart: it is advisory, never a rule's evidence (#1082). */
+export const ADVISORY_CHECK_WHY = 'A Seat ran this declared check on the committed change in a checkout of its own. It informs a review; no rule counts it.'
+
 /**
  * The named check running on each card now. One at a time on a card, whatever
  * its name: two checks in one checkout at once would each be measuring the
@@ -120,7 +123,7 @@ export const freshnessReader = (project: string): ((record: EvidenceRecord) => P
   return (record: EvidenceRecord): Promise<Freshness> => {
     if (record.restored) return Promise.resolve({ state: 'unknown', why: RESTORED_WHY })
     if (record.fact.kind === 'check' && record.fact.counted === false) {
-      return Promise.resolve({ state: 'unknown', why: MOVED_CHECK_WHY })
+      return Promise.resolve({ state: 'unknown', why: record.fact.advisory ? ADVISORY_CHECK_WHY : MOVED_CHECK_WHY })
     }
     const at = boundTo(record)
     if (at === null) return Promise.resolve({ state: 'fresh' })

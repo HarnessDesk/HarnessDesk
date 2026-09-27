@@ -218,6 +218,13 @@ export interface HarnessContext {
      * write access to `.git` to commit (#1074). Answers the commit, or why not.
      */
     commitWork(intent: number, message: string, scope?: ScopeQuery): Promise<string>
+    /**
+     * The host runs one of the caller's card's flow's declared checks, by
+     * name, on the commit the card was handed, in a checkout of its own
+     * (#1082). Only a Seat that cannot write. Answers pass or fail with the
+     * last of its output, or why not.
+     */
+    runCheck(intent: number, args: { readonly name?: string; readonly commit?: string }, scope?: ScopeQuery): Promise<string>
     release(
       intent: number,
       args: { readonly reason?: string; readonly blocked?: boolean },

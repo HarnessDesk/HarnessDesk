@@ -7,6 +7,28 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A reviewer whose sandbox will not let a server start no longer fails the
+  change for it.** Codex's sandbox refuses a child process a listening socket,
+  so every test that started a real server failed inside a Codex-seated review
+  or acceptance turn while passing on the desk's own check — and one
+  acceptance card answered not-met for that alone. A Seat that only reads now
+  has a `run_check` tool: the desk runs one of the flow's declared checks, by
+  name, on the committed change the card was handed, in a fresh checkout it
+  cuts for that one run and removes after, with the check's own timeout and
+  output cap, and answers passed or failed with the last of its output; a
+  failure there says the checkout is clean, without ignored files such as
+  installed dependencies, so it may come from that rather than the change. The
+  commit is the one the card was handed or, failing that, the one recorded
+  when it was claimed, never wherever the checkout is now. A check checkout a
+  crash left behind is removed the next time the app starts. It never runs a
+  command the agent writes or anybody's uncommitted edits; a Seat that can
+  write is refused and pointed to the flow's own check card; it allows three
+  runs a turn and ten a card, and none while the run is paused. Its result
+  shows on the card as advisory evidence, which no rule's check guard counts,
+  for or against. The sandbox is not widened. The shipped reviewers and the
+  Requirements analyst use the tool for anything that needs a running server,
+  and say that a refusal from their own sandbox is not a failing verdict.
+
 - **A Seat that may edit can commit its card's work even where its sandbox
   keeps `.git` read-only.** Codex's workspace sandbox refuses writes to a
   checkout's `.git`, so a Seat held at `edit` wrote its files and then had

@@ -59,6 +59,8 @@ export interface TeamEngine {
   ): Promise<string>
   /** The host commits the caller's card's own work in its checkout, with this message (#1074). */
   commitWork(intent: number, message: string, scope: TeamScope): Promise<string>
+  /** The host runs one of the caller's card's flow's declared checks on the commit it was handed (#1082). */
+  runCheck(intent: number, args: { readonly name?: string; readonly commit?: string }, scope: TeamScope): Promise<string>
   release(
     intent: number,
     args: { readonly reason?: string; readonly blocked?: boolean },
@@ -229,6 +231,11 @@ export class TeamService extends Service {
   async commitWork(intent: number, message: string, scope?: ScopeQuery): Promise<string> {
     const plugin = this.gate()
     return engine().commitWork(intent, message, asTeamScope(scope, plugin))
+  }
+
+  async runCheck(intent: number, args: { readonly name?: string; readonly commit?: string }, scope?: ScopeQuery): Promise<string> {
+    const plugin = this.gate()
+    return engine().runCheck(intent, args, asTeamScope(scope, plugin))
   }
 
   async release(

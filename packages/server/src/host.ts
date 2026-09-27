@@ -124,7 +124,7 @@ import { CredentialBroker, plainCipher, type CredentialCipher } from './credenti
 import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
 import { canonicalDestination } from './git-worktree.js'
-import { Worktrees, openRepositoryRoot, repositoryOf } from './worktree.js'
+import { Worktrees, createDetached, openRepositoryRoot, remove as removeWorktree, removeCheckoutsLeftBehind, repositoryOf } from './worktree.js'
 import { commitCardWork } from './card-commit.js'
 import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 import { LibraryUsageReader } from './library-usage.js'
@@ -1211,6 +1211,12 @@ export class Host {
       // The host commits a card's own work for its Seat, git hardened (`commit_work`, #1074).
       commitWork: (cwd, before, message) => commitCardWork(cwd, before, message),
       runCheck: (command, where, card) => this.#evidence.runFlowCheck(command, where, card),
+      // A fresh detached checkout for one `run_check`, git hardened, removed after (#1082).
+      checkoutAt: async (cwd, at) => {
+        const stateDir = this.#state.directory
+        const path = await createDetached(cwd, { name: `check-${at.slice(0, 12)}`, at, stateDir })
+        return { cwd: path, remove: async () => { await removeWorktree(path, { force: true, stateDir }) } }
+      },
     }, {
       /**
        * What every evidence guard reads: this Goal's own facts in append
@@ -2071,6 +2077,12 @@ export class Host {
     await this.#applyPluginSettings()
     await this.#evidence.load().catch((error: unknown) => {
       this.#logger.error('the Seat records this desk keeps could not be read', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
+    // A `run_check` checkout a crash left behind goes now: nothing of this launch can be using one yet (#1082).
+    await removeCheckoutsLeftBehind(this.#state.directory).catch((error: unknown) => {
+      this.#logger.warn('a run_check checkout left behind could not be removed', {
         error: error instanceof Error ? error.message : String(error),
       })
     })

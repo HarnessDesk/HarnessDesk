@@ -37,6 +37,10 @@ export const DESK_TOOLS: Readonly<Record<string, Readonly<Record<string, Ceiling
     /* Writes a commit — the host does it, not the agent, but it is a change
        to the repository all the same, so it needs a ceiling that edits. */
     commit_work: 'edit',
+    /* Runs a check the flow already declares — the same command the check
+       card runs, never one the agent writes — so it is read-level: a
+       read-only reviewer is exactly who needs it (#1082). */
+    run_check: 'read',
     release_claim: 'read',
     get_context: 'read',
     get_team_status: 'read',
