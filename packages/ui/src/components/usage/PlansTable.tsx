@@ -77,8 +77,11 @@ export const ShapeFilters = ({
   />
 )
 
+// A not-reporting row has no shape to name — its own status chip already
+// says "Not reporting"; this cell reads "—" rather than the same word twice
+// beside it.
 const ShapeChip = ({ shape }: { shape: RowShape }) =>
-  shape === 'none' ? null : <Chip variant="outline" tone="neutral" label={SHAPE_LABEL[shape]} />
+  shape === 'none' ? <Text role="muted">—</Text> : <Chip variant="outline" tone="neutral" label={SHAPE_LABEL[shape]} />
 
 export const PlansTable = ({
   rows,
@@ -232,13 +235,23 @@ const TableRowGroup = ({
         <Chip tone={paletteTone(STATUS_TONE[row.status])} label={STATUS_LABEL[row.status]} />
       </TableCell>
       <TableCell className={styles.colLeft}>
-        <SegmentMeter
-          className={styles.plansBar}
-          percent={row.left.percent}
-          tone={paletteTone(STATUS_TONE[row.status])}
-          segments={16}
-          label={`${row.report.account ?? name} — what is left`}
-        />
+        {/* No limit is "never full, never empty" — an empty (hollow-segment)
+            track reads as "nothing left," which Free, a budgetless Key and a
+            not-reporting row are not saying. Only a row with an actual
+            percent to plot draws a meter at all; the rest is the cell's own
+            "—", never a bar. A spent account (`leftOf`'s own 0, not null)
+            still draws its track — that zero is real. */}
+        {row.left.percent === null ? (
+          <Text role="muted">—</Text>
+        ) : (
+          <SegmentMeter
+            className={styles.plansBar}
+            percent={row.left.percent}
+            tone={paletteTone(STATUS_TONE[row.status])}
+            segments={16}
+            label={`${row.report.account ?? name} — what is left`}
+          />
+        )}
       </TableCell>
       <TableCell className={styles.colPercent} align="end">
         <Text role="value" numeric tone={usageReadingTone(STATUS_TONE[row.status])}>

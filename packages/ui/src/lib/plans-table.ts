@@ -148,6 +148,11 @@ export const leftOf = (shape: RowShape, report: UsageReport, view: ReportView): 
     case 'allowance':
       return { percent: view.hero?.remainingPercent ?? null }
     case 'balance': {
+      // A spent balance is a real zero — the meter's own empty track in the
+      // danger tone — never "nothing to report," whether or not a draw rate
+      // happens to be on file yet to compute a runway from.
+      const balance = balanceOf(report.credits)?.remaining ?? null
+      if (balance !== null && balance <= 0) return { percent: 0 }
       const days = runwayDaysOf(report)
       return { percent: days === null ? null : clamp((days / 30) * 100, 0, 100) }
     }
@@ -159,7 +164,7 @@ export const leftOf = (shape: RowShape, report: UsageReport, view: ReportView): 
   }
 }
 
-export type RowStatus = 'ready' | 'low' | 'out' | 'overage' | 'unlimited'
+export type RowStatus = 'ready' | 'low' | 'out' | 'overage' | 'unlimited' | 'notReporting'
 
 export const STATUS_LABEL: Readonly<Record<RowStatus, string>> = {
   ready: 'Ready',
@@ -167,6 +172,7 @@ export const STATUS_LABEL: Readonly<Record<RowStatus, string>> = {
   out: 'Out',
   overage: 'On overage',
   unlimited: 'No limit',
+  notReporting: 'Not reporting',
 }
 
 export const STATUS_TONE: Readonly<Record<RowStatus, Tone>> = {
@@ -175,6 +181,7 @@ export const STATUS_TONE: Readonly<Record<RowStatus, Tone>> = {
   out: 'bad',
   overage: 'warn',
   unlimited: 'good',
+  notReporting: 'good',
 }
 
 /**
@@ -202,20 +209,27 @@ export const statusOf = (
   if (view.blocked || (balance !== null && balance <= 0)) return 'out'
   const overage = raw.billing?.overage
   if (overage?.enabled && (overage.spent ?? 0) > 0) return 'overage'
+  if (shape === 'none') return 'notReporting'
   if (reportNeedsAttention(raw, now, preference)) return 'low'
   if (shape === 'free') return 'unlimited'
   if (shape === 'metered' && !raw.billing?.budget) return 'unlimited'
-  if (shape === 'none') return 'unlimited'
   return 'ready'
 }
 
-/** "312 of 500 requests", "$0.88 balance" — the vendor's own unit, spelled out. */
+/**
+ * "312 of 500 requests", "$0.88 balance" — the vendor's own unit, spelled
+ * out. Never a usedPercent beside the table's own % column, which already
+ * carries "29% left": the meter-direction rule (docs/usage-dashboard.md,
+ * "one scale per card") holds for this column too, so a percent-shaped
+ * lane's own reading here is its label alone — "Session", "5-hour",
+ * "Weekly · Opus" (`hero.title`, the label plus its scope) — never a second
+ * figure on the other scale.
+ */
 export const ownUnitOf = (shape: RowShape, report: UsageReport, view: ReportView): string => {
   switch (shape) {
     case 'windows': {
       const hero = view.hero
-      if (!hero || hero.usedPercent === null) return '—'
-      return `${hero.usedPercent}% ${hero.label.toLowerCase()}`
+      return hero ? hero.title : '—'
     }
     case 'allowance': {
       const lane = bindingLane(report.lanes)
@@ -224,7 +238,7 @@ export const ownUnitOf = (shape: RowShape, report: UsageReport, view: ReportView
         return `${lane.used.toLocaleString()} of ${lane.limit.toLocaleString()} ${lane.unit}`
       }
       const hero = view.hero
-      return hero && hero.remainingPercent !== null ? `${hero.remainingPercent}% left` : '—'
+      return hero ? hero.title : '—'
     }
     case 'balance': {
       const balance = balanceOf(report.credits)?.remaining ?? null
@@ -385,7 +399,7 @@ const rankOf = (row: PlanRow): number => {
   return row.shape === 'none' ? 1_001 : 1_000
 }
 
-const SEVERITY_RANK: Readonly<Record<RowStatus, number>> = { out: 0, low: 1, overage: 2, ready: 3, unlimited: 4 }
+const SEVERITY_RANK: Readonly<Record<RowStatus, number>> = { out: 0, low: 1, overage: 2, ready: 3, unlimited: 4, notReporting: 5 }
 
 const tiebreak = (a: PlanRow, b: PlanRow): number =>
   SEVERITY_RANK[a.status] - SEVERITY_RANK[b.status] ||

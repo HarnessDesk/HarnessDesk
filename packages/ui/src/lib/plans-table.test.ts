@@ -140,6 +140,17 @@ describe('leftOf', () => {
     expect(leftOf('balance', subject, view).percent).toBeNull()
   })
 
+  // A spent balance is a real zero, not "nothing to report" — it draws the
+  // meter's own empty track in the danger tone rather than no meter at all,
+  // even with no draw rate on file yet to compute a runway from.
+  it('balance: a spent balance is 0% left, never null, whether or not a draw rate is known', () => {
+    const subject = report({ billing: billing(['balance']), credits: { remaining: 0, unit: 'USD' } })
+    expect(leftOf('balance', subject, describeReport(subject, { now: NOON })).percent).toBe(0)
+
+    const negative = report({ billing: billing(['balance']), credits: { remaining: -2.15, unit: 'USD' } })
+    expect(leftOf('balance', negative, describeReport(negative, { now: NOON })).percent).toBe(0)
+  })
+
   it('metered (Key): budget left, or no bar without one', () => {
     const withBudget = report({
       billing: billing(['metered'], { budget: { amount: 50, currency: 'USD', period: 'month' } }),
@@ -243,9 +254,27 @@ describe('budgetLeftPercentOf', () => {
 })
 
 describe('ownUnitOf', () => {
-  it('windows: "N% weekly"', () => {
+  // The table's own % column already carries "29% left" — a "71% session" or
+  // "22% 5-hour" beside it read as USED, a second scale the meter-direction
+  // rule (docs/usage-dashboard.md, "one scale per card") does not allow.
+  // Never a usedPercent next to a % column: the lane's own label, alone
+  // (`hero.title` — the label plus its scope, "Weekly · Opus" when one
+  // applies), is the one reading that cannot be misread as the other scale.
+  it('windows: the lane\'s own label — never a repeated used% beside the % column', () => {
     const subject = report({ billing: billing(['windows']), lanes: [lane({ id: 'weekly', label: 'Weekly', usedPercent: 71 })] })
-    expect(ownUnitOf('windows', subject, describeReport(subject, { now: NOON }))).toBe('71% weekly')
+    expect(ownUnitOf('windows', subject, describeReport(subject, { now: NOON }))).toBe('Weekly')
+  })
+
+  it('windows: the label plus its scope, when the lane has one', () => {
+    const subject = report({
+      billing: billing(['windows']),
+      lanes: [lane({ id: 'weekly:opus', label: 'Weekly', usedPercent: 55, scope: 'Opus' })],
+    })
+    expect(ownUnitOf('windows', subject, describeReport(subject, { now: NOON }))).toBe('Weekly · Opus')
+  })
+
+  it('windows: an em dash with no hero lane at all', () => {
+    expect(ownUnitOf('windows', report({}), describeReport(report({}), { now: NOON }))).toBe('—')
   })
 
   it('allowance: "312 of 500 requests"', () => {
@@ -254,6 +283,14 @@ describe('ownUnitOf', () => {
       lanes: [lane({ id: 'monthly', usedPercent: 62.4, unit: 'requests', used: 312, limit: 500 })],
     })
     expect(ownUnitOf('allowance', subject, describeReport(subject, { now: NOON }))).toBe('312 of 500 requests')
+  })
+
+  // Cursor's own request-summary source: a lane with a percent and nothing
+  // else. The same rule as Windows — the label alone, never "91% left"
+  // beside a % column that already says 91.
+  it('allowance with no used/limit to report: the lane\'s own label, not a repeated percent', () => {
+    const subject = report({ billing: billing(['allowance']), lanes: [lane({ id: 'plan', label: 'Plan', usedPercent: 9 })] })
+    expect(ownUnitOf('allowance', subject, describeReport(subject, { now: NOON }))).toBe('Plan')
   })
 
   it('allowance in dollars: "$12.40 of $20" — formatMoney\'s own rounding, the one money formatter every card uses', () => {
@@ -447,6 +484,15 @@ describe('statusOf', () => {
     ).toBe('unlimited')
     const key = report({ billing: billing(['metered']) })
     expect(statusOf(key, 'metered', describeReport(key, { now: NOON }), NOON)).toBe('unlimited')
+  })
+
+  // A report with no billing shape, no lanes and no balance at all is not
+  // "no limit" — there is no limit to have an opinion about because nothing
+  // came back. It reads its own status, distinct from Free/Key's "no limit
+  // by design" (docs/usage-dashboard.md, "Not reporting").
+  it('is "not reporting" for a shape-less report — never "no limit"', () => {
+    const subject = report({})
+    expect(statusOf(subject, 'none', describeReport(subject, { now: NOON }), NOON)).toBe('notReporting')
   })
 
   it('otherwise reads "ready"', () => {
@@ -659,7 +705,7 @@ describe('describeRow', () => {
     const row = describeRow(subject, NOON)
     expect(row.shape).toBe('windows')
     expect(row.left.percent).toBe(29)
-    expect(row.ownUnit).toBe('71% weekly')
+    expect(row.ownUnit).toBe('Weekly')
     expect(row.key).toBe(`${subject.runtime}:`)
   })
 

@@ -238,6 +238,92 @@ describe('PlansTable', () => {
     expect(freeFrame?.querySelector('[role="progressbar"]')).toBeNull()
   })
 
+  // No limit is "never full, never empty" (docs/usage-dashboard.md) — Free, a
+  // Key with no budget, and a shape-less "not reporting" row all leave
+  // `leftOf`'s own percent null, and the table's Left cell must draw no
+  // meter at all for any of them, not the hollow/dashed track `SegmentMeter`
+  // itself draws for an unknown figure elsewhere.
+  it('draws no meter in the Left cell for a row with nothing to measure against', () => {
+    const free = info('free-agent', 'Free Agent')
+    const keyNoBudget = info('key-agent', 'Key Agent')
+    const reports = [
+      report({ runtime: free.id, account: 'free@example.com', billing: billing(['free']) }),
+      report({ runtime: keyNoBudget.id, account: 'nobudget@example.com', billing: billing(['metered']) }),
+    ]
+    mount(
+      <PlansTable
+        rows={rowsFor(reports)}
+        byId={byIdOf(free, keyNoBudget)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+      />,
+    )
+    for (const account of ['free@example.com', 'nobudget@example.com']) {
+      const cells = rowFor(account).closest('tr')?.querySelectorAll('td') ?? []
+      const leftCell = cells[3]
+      expect(leftCell?.querySelector('[data-slot="segment-meter"]')).toBeNull()
+      expect(leftCell?.textContent).toBe('—')
+    }
+  })
+
+  // A spent balance is a real zero, not "nothing to report" — its track
+  // still draws, in the danger tone, unlike Free/Key-no-budget above.
+  it('still draws the meter, at zero, for a spent Balance row', () => {
+    const balance = info('balance-agent', 'Balance Agent')
+    const reports = [report({ runtime: balance.id, account: 'spent@example.com', billing: billing(['balance']), credits: { remaining: 0, unit: 'USD' } })]
+    mount(
+      <PlansTable
+        rows={rowsFor(reports)}
+        byId={byIdOf(balance)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+      />,
+    )
+    const cells = rowFor('spent@example.com').closest('tr')?.querySelectorAll('td') ?? []
+    expect(cells[3]?.querySelector('[data-slot="segment-meter"]')).not.toBeNull()
+    expect(cells[4]?.textContent).toBe('0%')
+  })
+
+  // A not-reporting row (`primaryShapeOf` is `'none'`) reads its own status —
+  // never Free/Key's "No limit," which means "no limit by design" rather
+  // than "nothing came back" — and every other cell it cannot fill reads
+  // "—", agreeing with the shape filter's own "Not reporting" count.
+  it('reads "Not reporting," never "No limit," for a shape-less row', () => {
+    const silent = info('silent-agent', 'Silent Agent')
+    const reports = [report({ runtime: silent.id, account: 'nothing@example.com' })]
+    mount(
+      <PlansTable
+        rows={rowsFor(reports)}
+        byId={byIdOf(silent)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+      />,
+    )
+    const cells = rowFor('nothing@example.com').closest('tr')?.querySelectorAll('td') ?? []
+    const [, shapeCell, statusCell, leftCell, percentCell, amountCell, , resetsCell] = cells
+    expect(statusCell?.textContent).toBe('Not reporting')
+    expect(shapeCell?.textContent).toBe('—')
+    expect(leftCell?.textContent).toBe('—')
+    expect(percentCell?.textContent).toBe('—')
+    expect(amountCell?.textContent).toBe('—')
+    expect(resetsCell?.textContent).toBe('—')
+
+    const counts = shapeCountsOf(rowsFor(reports).map((row) => row.shape))
+    expect(counts.none).toBe(1)
+  })
+
   it('builds real table semantics — column headers, and a row whose first cell holds the disclosure', () => {
     const codex = info('codex', 'OpenAI Codex')
     const reports = [report({ runtime: codex.id, account: 'me@example.com', lanes: [lane({ id: 'weekly', usedPercent: 40 })], billing: billing(['windows']) })]

@@ -2354,6 +2354,14 @@ const PLANS_CASES = {
     credits: { remaining: 15, unit: 'USD' },
     billing: { kinds: ['balance'] },
   }),
+  // A report the table has a row for — an agent that answered but whose own
+  // `primaryShapeOf` is `'none'` (no billing, no lanes, no balance) — distinct
+  // from `PLANS_NOT_REPORTING_AGENT` below, which never sent one at all.
+  // "Not reporting" reads on the row itself now, never "No limit".
+  'not-reporting-row': plansReport({
+    runtime: PLANS_GEMINI.id,
+    account: 'not-reporting-row@harnessdesk.app',
+  }),
 } satisfies Readonly<Record<string, UsageReport>>
 
 type PlansCaseKey = keyof typeof PLANS_CASES
@@ -2408,7 +2416,7 @@ const PlansTableBoard = () => {
       >
         <div
           className={styles.stack}
-          data-catalog-states="windows allowance balance key free not-reporting low out overage key-no-budget balance-negative balance-no-draw filter-applied row-expanded"
+          data-catalog-states="windows allowance balance key free not-reporting not-reporting-row low out overage key-no-budget balance-negative balance-no-draw filter-applied row-expanded"
         >
           <PlansCase label="Windows — a plan lane">
             <div data-catalog-case="windows">{oneUp('windows')}</div>
@@ -2429,6 +2437,9 @@ const PlansTableBoard = () => {
             <div data-catalog-case="not-reporting">
               <NotReportingList entries={entriesFromSilent([PLANS_NOT_REPORTING_AGENT])} />
             </div>
+          </PlansCase>
+          <PlansCase label='Not reporting — a report with no shape at all, its own row reads "Not reporting," never "No limit"'>
+            <div data-catalog-case="not-reporting-row">{oneUp('not-reporting-row')}</div>
           </PlansCase>
           <PlansCase label="Low — an amber row">
             <div data-catalog-case="low">{oneUp('low')}</div>

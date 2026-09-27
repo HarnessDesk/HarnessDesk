@@ -4,7 +4,6 @@ import { bindingLane } from '@harnessdesk/protocol'
 import {
   feePerUnitOf,
   moneyRowOf,
-  ownUnitOf,
   runwayDaysOf,
   SHAPE_LABEL,
   type PlanRow,
@@ -61,13 +60,22 @@ export const AllowanceBody = ({
         <Text role="figure">
           {lane && lane.limit != null && lane.used != null
             ? laneAmount(Math.max(0, lane.limit - lane.used), lane.unit)
-            : ownUnitOf(row.shape, report, row.view)}
+            : // No limit/used to report — a plain percent lane, Cursor's own
+              // request-summary shape among them. This headline is the only
+              // place this account's own figure appears at all (unlike the
+              // table's Amount column, which sits beside its own % column and
+              // reads the lane's label instead, `ownUnitOf`'s own rule) so it
+              // keeps the number, in the vocabulary this card's headline
+              // always uses: "left".
+              row.left.percent !== null
+              ? `${row.left.percent}% left`
+              : '—'}
         </Text>
         {/* Only when the figure is a bare amount ("312") does the subtitle
-            say what it is a remainder of ("of 500 left") — the fallback
-            figure (`ownUnitOf`'s own "91% left") already says "left" itself,
-            so a second, unconditional "left" here repeated the word on the
-            same line for exactly the lanes with no `limit`/`used` to report
+            say what it is a remainder of ("of 500 left") — the headline
+            above already says "left" itself for a plain percent lane, so a
+            second, unconditional "left" here repeated the word on the same
+            line for exactly the lanes with no `limit`/`used` to report
             (review of #1069, N6, round 2). */}
         <Text role="muted">
           {lane && lane.limit != null && lane.used != null ? `of ${laneAmount(lane.limit, lane.unit)} left` : ''}
