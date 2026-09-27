@@ -40,7 +40,7 @@ const raise = (n: number, over: Partial<EvidenceRecord['finding']> = {}): Eviden
 const startingFindings = (over: Partial<FindingRunState> = {}): FindingRunState => ({
   version: 1, budget: { rounds: 3, withoutProgress: 2 }, closedRounds: [1], idleRounds: 0, progress: [],
   series: [{ id: `reviewer@${ROOT}`, role: 'reviewer', checkout: { cwd: ROOT, branch: 'fix' }, reviewedAt: A, reviewRounds: [1], initial: ['finding-0001'], exceptions: [], pending: [] }],
-  stopped: { round: 1, reason: 'Round 1 ended with 1 open findings.' }, extraRound: null, overrides: [], lastDecision: null,
+  stopped: { round: 1, reason: 'Round 1 ended with 1 open findings.', ceiling: true }, extraRound: null, overrides: [], lastDecision: null,
   ...over,
 })
 

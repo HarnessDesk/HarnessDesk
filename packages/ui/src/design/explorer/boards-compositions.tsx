@@ -2398,23 +2398,37 @@ const PlansCase = ({ label, children }: { label: string; children: React.ReactNo
 /* No fake `AppStore`: this dialog's own actions are never taken from the board, only opened and read. */
 const findingDecisionSnapshot = emptySnapshot()
 const findingDecisionStore = { subscribe: () => () => {}, getSnapshot: () => findingDecisionSnapshot } as unknown as AppStore
-const FINDING_DECISION_VIEW: FindingRunView = {
+const FINDING_DECISION_CEILING_VIEW: FindingRunView = {
   run: 'run-catalogue', goal: 'goal-catalogue', round: 4, finished: 3, total: 4, embargoed: false, open: 0, blocking: 0,
   reason: 'Round 4 ended with 0 open findings. To let it continue, open Findings and choose Authorise another round.',
-  stamp: 'catalogue-stamp', publication: 'posted',
+  ceilingStop: true, stamp: 'catalogue-stamp-ceiling', publication: 'posted',
   reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null,
   boundPr: { repo: 'acme/widgets', pr: 42 }, unbound: null, undecidable: null,
 }
+/* A pending security finding — never the round ceiling, so a count past one round buys nothing here (#1083). */
+const FINDING_DECISION_EXCEPTION_VIEW: FindingRunView = {
+  ...FINDING_DECISION_CEILING_VIEW,
+  round: 3, reason: 'Review the new regression or security finding before continuing.',
+  ceilingStop: false, stamp: 'catalogue-stamp-exception', pendingExceptions: ['finding-0007'],
+}
 
 const FindingDecisionBoard = () => {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState<'ceiling' | 'exception' | null>(null)
   return (
     <div className={styles.matrix}>
       <Case label="stopped at its round ceiling — the number beside the button chooses how many rounds it authorizes">
-        <Button variant="secondary" onClick={() => setOpen(true)}>Decide this run</Button>
-        {open && (
+        <Button variant="secondary" onClick={() => setOpen('ceiling')}>Decide this run</Button>
+        {open === 'ceiling' && (
           <StoreProvider store={findingDecisionStore}>
-            <FindingDecision goal={FINDING_DECISION_VIEW.goal} view={FINDING_DECISION_VIEW} onClose={() => setOpen(false)} />
+            <FindingDecision goal={FINDING_DECISION_CEILING_VIEW.goal} view={FINDING_DECISION_CEILING_VIEW} onClose={() => setOpen(null)} />
+          </StoreProvider>
+        )}
+      </Case>
+      <Case label="stopped on a pending exception — not the ceiling, so the count field never shows">
+        <Button variant="secondary" onClick={() => setOpen('exception')}>Decide this run</Button>
+        {open === 'exception' && (
+          <StoreProvider store={findingDecisionStore}>
+            <FindingDecision goal={FINDING_DECISION_EXCEPTION_VIEW.goal} view={FINDING_DECISION_EXCEPTION_VIEW} onClose={() => setOpen(null)} />
           </StoreProvider>
         )}
       </Case>
@@ -2659,7 +2673,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   {
     id: 'finding-decision',
     title: 'FindingDecision · Decide this run',
-    about: 'The real dialog a round-ceiling stop opens (#1083): "Authorise another round" next to a 1-to-20 count that relabels the button and is the count the wire sends.',
+    about: 'The real dialog, in both states (#1083): a round-ceiling stop shows a 1-to-20 count next to "Authorise another round" that relabels the button and is the count the wire sends; every other stop keeps the plain single button, with no count field at all.',
     render: FindingDecisionBoard,
   },
 ]

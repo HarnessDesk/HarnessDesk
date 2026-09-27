@@ -1149,6 +1149,7 @@ export class FindingsPlane {
       open: owned.filter((one) => !isResolved(one)).length,
       blocking: owned.filter((one) => (admitted.has(one.id) && !isResolved(one)) || one.problem !== null).length,
       reason: snapshot.findings?.stopped?.reason ?? publication.reason,
+      ceilingStop: snapshot.findings?.stopped?.ceiling ?? false,
       publication: publication.publication,
       reviewersFinished, reviewersTotal,
       pendingExceptions: [...pendingOf(series)],
@@ -1467,7 +1468,9 @@ export function closeRound(input: {
     idleRounds: decision.idle,
     progress: progress.progress,
     series,
-    stopped: reason !== null && (unreadable !== null || decision.next === 'person') ? { round: round.n, reason } : null,
+    stopped: reason !== null && (unreadable !== null || decision.next === 'person')
+      ? { round: round.n, reason, ceiling: unreadable === null && decision.ceiling }
+      : null,
   }
 }
 

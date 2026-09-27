@@ -27,7 +27,8 @@ const MIN_ROUNDS = 1
 const MAX_ROUNDS = 20
 
 // The count is the label's own word, not a fact beside it (rule 9): one round reads as it always has.
-const anotherRoundLabel = (rounds: number): string => (rounds > 1 ? `Authorise ${rounds} more rounds` : 'Authorise another round')
+// "from here" says a fresh authorization replaces any rounds left over from an earlier one, past this same stop.
+const anotherRoundLabel = (rounds: number): string => (rounds > 1 ? `Authorise ${rounds} more rounds from here` : 'Authorise another round')
 
 export const FindingDecision = ({ goal, view, onClose }: FindingDecisionProps) => {
   const store = useStore()
@@ -62,8 +63,10 @@ export const FindingDecision = ({ goal, view, onClose }: FindingDecisionProps) =
   }
 
   const act = (kind: 'merge-anyway' | 'drop'): Promise<void> => decide(kind, { kind })
-  // Omitting `rounds` when it is the smallest step keeps the wire payload exactly what it always sent.
-  const authoriseRounds = (): Promise<void> => decide('another-round', rounds > 1 ? { kind: 'another-round', rounds } : { kind: 'another-round' })
+  // A count past one only ever means anything at a round-ceiling stop (the server refuses it on any other), and the
+  // field is not even shown otherwise — so `rounds` is never sent outside that case, and never at the smallest step.
+  const authoriseRounds = (): Promise<void> =>
+    decide('another-round', view.ceilingStop && rounds > 1 ? { kind: 'another-round', rounds } : { kind: 'another-round' })
 
   const actOnExceptions = (admit: boolean): Promise<void> => {
     const findings = [...selected]
@@ -144,22 +147,25 @@ export const FindingDecision = ({ goal, view, onClose }: FindingDecisionProps) =
               title={closed ?? undefined}
               onClick={() => void authoriseRounds()}
             >
-              {pending === 'another-round' ? 'Working…' : anotherRoundLabel(rounds)}
+              {pending === 'another-round' ? 'Working…' : anotherRoundLabel(view.ceilingStop ? rounds : MIN_ROUNDS)}
             </Button>
-            <Input
-              type="number"
-              controlSize="compact"
-              className="w-16"
-              aria-label="Number of rounds to authorise"
-              min={MIN_ROUNDS}
-              max={MAX_ROUNDS}
-              value={rounds}
-              disabled={pending !== null || closed !== null}
-              onChange={(event) => {
-                const parsed = Math.trunc(Number(event.target.value))
-                setRounds(Number.isFinite(parsed) ? Math.min(MAX_ROUNDS, Math.max(MIN_ROUNDS, parsed)) : MIN_ROUNDS)
-              }}
-            />
+            {/* Only a round-ceiling stop may be answered with more than one round; every other stop keeps the single button. */}
+            {view.ceilingStop && (
+              <Input
+                type="number"
+                controlSize="compact"
+                className="w-16"
+                aria-label="Number of rounds to authorise"
+                min={MIN_ROUNDS}
+                max={MAX_ROUNDS}
+                value={rounds}
+                disabled={pending !== null || closed !== null}
+                onChange={(event) => {
+                  const parsed = Math.trunc(Number(event.target.value))
+                  setRounds(Number.isFinite(parsed) ? Math.min(MAX_ROUNDS, Math.max(MIN_ROUNDS, parsed)) : MIN_ROUNDS)
+                }}
+              />
+            )}
           </div>
           {OTHER_ACTIONS.map((action) => (
             <Button

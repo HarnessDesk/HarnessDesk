@@ -909,11 +909,15 @@ export class FlowExecutions {
     if (run.state !== 'running' && run.state !== 'stalled') throw new Error(run.reason ?? 'This flow run is not running.')
     const already = run.findings.extraRound
     // The same authorization again — a retry, or a crash before its round opened — replays it; it spends nothing more.
-    const replay = run.findings.stopped === null && already?.after === round && already.reason === reason && already.count === count
+    // `already.count` is absent on a run authorized before this field existed, which meant one.
+    const replay = run.findings.stopped === null && already?.after === round && already.reason === reason && (already.count ?? 1) === count
     if (!replay && (!run.findings.stopped || run.findings.stopped.round !== round)) {
       throw new Error('This run is not stopped at that round any more. Read its status again.')
     }
     if (!replay) {
+      if (count > 1 && !run.findings.stopped!.ceiling) {
+        throw new Error('Only a round-ceiling stop can be answered with more than one round at a time.')
+      }
       // The stop is answered: cleared, so nothing says the run is waiting for a person while its authorized rounds run.
       run = await this.#put({ ...run, findings: { ...run.findings, stopped: null, extraRound: { after: round, reason, count } } })
     }
@@ -1045,7 +1049,7 @@ export class FlowExecutions {
     })
     await this.#put(this.#operation({
       ...run,
-      findings: { ...state, closedRounds: [...state.closedRounds, round], idleRounds: decision.idle, stopped: decision.next === 'person' ? { round, reason: decision.reason! } : null },
+      findings: { ...state, closedRounds: [...state.closedRounds, round], idleRounds: decision.idle, stopped: decision.next === 'person' ? { round, reason: decision.reason!, ceiling: decision.ceiling } : null },
     }, `close:${round}`, { kind: 'round', state: 'finished', card: null, seat: null }))
   }
 
