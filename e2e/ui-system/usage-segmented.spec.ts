@@ -249,8 +249,17 @@ for (const [look, theme] of [
       const headingStyle = getComputedStyle(node)
       const figures = [...dialog.querySelectorAll<HTMLElement>('[data-role="figure"]')]
         .map(figure => ({ reading: figure.textContent, color: getComputedStyle(figure).color }))
+      // Overview's own strip (Paid/Value/Turns/Tokens, `OverviewStrip.tsx`)
+      // now sits between the blurb and "What is left" — the first thing
+      // under the blurb's own rhythm gap is the strip, not the heading,
+      // whenever it is on the page (every Overview render; not Plans/Spend/
+      // Activity/Projects, which this same heading text also matches, so an
+      // absent strip there falls back to the heading itself).
+      const strip = dialog.querySelector<HTMLElement>('[aria-label="What it cost, in brief"]')
+      const firstUnderBlurb = strip ?? node
       return {
-        blurbToHeading: textBox.top - blurb.getBoundingClientRect().bottom,
+        blurbToFirst: firstUnderBlurb.getBoundingClientRect().top - blurb.getBoundingClientRect().bottom,
+        stripToHeading: strip ? textBox.top - strip.getBoundingClientRect().bottom : null,
         headingToCard: card.getBoundingClientRect().top - textBox.top,
         foreground: getComputedStyle(pageTitle).color,
         danger: headingStyle.getPropertyValue('--hd-danger-ink').trim(),
@@ -261,12 +270,15 @@ for (const [look, theme] of [
     })
     await testInfo.attach('dashboard-reading-layout', { body: JSON.stringify(measurement, null, 2), contentType: 'application/json' })
 
-    // At rest the first band sits in the page's rhythm under the blurb. It
-    // used to stand 55px down, behind a strip-high padding the sticky head
-    // carried to cover the title strip once stuck — empty space at rest. The
-    // head now paints that cover above itself instead (its ::before).
-    expect.soft(measurement.blurbToHeading).toBeGreaterThanOrEqual(20)
-    expect.soft(measurement.blurbToHeading).toBeLessThanOrEqual(34)
+    // At rest the first thing under the blurb sits in the page's rhythm —
+    // the strip now, the heading before it existed. It used to stand 55px
+    // down, behind a strip-high padding the sticky head carried to cover the
+    // title strip once stuck — empty space at rest. The head now paints
+    // that cover above itself instead (its ::before).
+    expect.soft(measurement.blurbToFirst).toBeGreaterThanOrEqual(20)
+    expect.soft(measurement.blurbToFirst).toBeLessThanOrEqual(34)
+    // And the strip itself does not run into the heading below it.
+    if (measurement.stripToHeading !== null) expect(measurement.stripToHeading).toBeGreaterThan(0)
     expect(measurement.headingToCard).toBeGreaterThan(0)
 
     const sticky = await firstBand.evaluate(async node => {
