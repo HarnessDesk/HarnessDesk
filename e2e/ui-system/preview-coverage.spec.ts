@@ -210,4 +210,38 @@ test.describe('preview coverage', () => {
 
     expect(uncovered, `Uncovered files (add a frame/dial in packages/ui/src/preview, or an EXEMPT entry): ${uncovered.join(', ')}`).toEqual([])
   })
+
+  /**
+   * A dial's own dialog is `position: fixed`, so mounting one unconditionally
+   * — the mistake `ShapeEditor` and `AuthorDialog` ("Library — writing a
+   * skill") both made — does not merely sit in its own frame the way an
+   * inline component would: it stays pinned to the viewport as the page
+   * scrolls, so every screenshot of the page shows it sitting over whatever
+   * else is on screen. Three screens (Settings, Agents, the Dashboard) are
+   * the documented, deliberate exception: each is wrapped in a
+   * `transform`-bearing div that becomes that `position: fixed` dialog's own
+   * containing block, which is what keeps it inside that one frame instead
+   * of following the page (see `main.tsx`'s "Settings — the sheet" comment).
+   * So the real invariant a fresh load must hold is not "no dialog at all" —
+   * it is "no dialog that would follow the page": every `[role="dialog"]`
+   * open before anything is clicked must sit under such a confining
+   * ancestor. Every dialog reached from a dial defaults to `off`, so this
+   * also stands as the fresh-load half of "the dial's default is off".
+   */
+  test('a fresh load opens no dialog that is not confined to its own frame', async ({ page }) => {
+    await page.goto('/preview.html')
+    await page.waitForTimeout(1200)
+    const unconfined = await page.evaluate(() => {
+      const isConfined = (node: Element | null): boolean => {
+        for (let el = node; el && el !== document.body; el = el.parentElement) {
+          if (el instanceof HTMLElement && el.style.transform) return true
+        }
+        return false
+      }
+      return [...document.querySelectorAll('[role="dialog"], [role="alertdialog"]')]
+        .filter((node) => !isConfined(node))
+        .map((node) => node.getAttribute('aria-label') ?? node.querySelector('h1,h2,[data-slot="dialog-title"]')?.textContent ?? '(untitled)')
+    })
+    expect(unconfined, `Dialog(s) open on a fresh load, uncontained, that would cover the page as it scrolls: ${unconfined.join(', ')}`).toEqual([])
+  })
 })

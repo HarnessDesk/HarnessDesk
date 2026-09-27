@@ -22,13 +22,15 @@ import { ShapeEditor } from '../components/ShapeEditor'
 import { ShapeGraph } from '../components/ShapeGraph'
 import { ShapeRule } from '../components/ShapeRule'
 import { ShapeSave } from '../components/ShapeSave'
+import { ShapeStep } from '../components/ShapeStep'
 import { TriggerCreate } from '../components/TriggerCreate'
 import { TriggerMenu } from '../components/TriggerMenu'
-import { defaultRule, emptyShapePolicy } from '../lib/shapes'
+import { defaultAgentRole, defaultRule } from '../lib/shapes'
 import { Dial, Frame } from './main'
 import { PREVIEW_FLOW_SOURCE } from './flow-fixture'
 import { PREVIEW_FINDINGS, findingDetail } from './findings-fixture'
 import { PREVIEW_GOAL, PREVIEW_GOALS } from './goal-fixture'
+import { insightReportFor, PREVIEW_AGENTS } from './harness'
 import { PREVIEW_ROOT } from './sidebar-fixture'
 
 /** `goal-wrapped`'s own receipt, given the one thing it does not otherwise carry: unresolved findings for `FindingCarry` to offer forward. */
@@ -76,26 +78,49 @@ const TRIGGER_MENU_ITEMS = [
   { id: 'active', name: 'Alpha', badge: 'in this turn', badgeTone: 'live' as const },
 ]
 
+/**
+ * Two real steps and a rule between them — an Agent step that names an
+ * actual Agent from the roster, a Person step it hands off to, and a rule
+ * with an evidence guard and an answer it watches — so `ShapeGraph` draws an
+ * edge worth looking at and `ShapeRule` shows a filled form, not an empty one.
+ */
+const SHAPE_STEP_ROLE = { ...defaultAgentRole('implement'), uses: [PREVIEW_AGENTS[0]!.id] }
 const SHAPE_POLICY_WITH_RULE = (() => {
-  const policy = emptyShapePolicy()
-  const rule = defaultRule('rule-1', 'review', 'review')
-  return { policy: { ...policy, rules: [rule] }, rule }
+  const rule = { ...defaultRule('to-review', 'implement', 'review'), when: { any: ['done'], evidence: [{ check: 'tests' } as const] } }
+  return {
+    policy: {
+      version: 2 as const,
+      name: 'Fix and review',
+      inputs: [{ id: 'task', label: 'Task' }],
+      roles: [SHAPE_STEP_ROLE, { id: 'review', kind: 'person' as const, outcomes: ['approve', 'changes'] }],
+      rules: [rule],
+      seed: { role: 'implement', title: '{{task}}' },
+      messaging: 'board-only' as const,
+      wait: 240,
+    },
+    rule,
+  }
 })()
+
+const INSIGHT_REPORT = insightReportFor(PREVIEW_GOAL.goal.id)
 
 const DIALOG_OPTIONS = [
   'off', 'goal create', 'goal assign', 'goal wrap', 'finding carry', 'finding decision',
-  'finding detail', 'finding publications', 'add member', 'add work', 'hand out', 'shape save', 'front door',
+  'finding detail', 'finding publications', 'add member', 'add work', 'hand out', 'shape save',
+  'shape editor', 'trigger create', 'front door',
 ] as const
 type DialogOption = (typeof DIALOG_OPTIONS)[number]
 
 /**
- * Goals, findings and shapes: a "goals dialog" dial for the sheets that cover
- * the page (create, assign, wrap, carry, decide, publish, add a member, add
- * work, hand work out, save a shape, the front door), and plain frames below
- * it for the parts a Goal's own page or rail already draws inline — the
- * findings rail, a round's status, a receipt as it reads once wrapped, its
- * accounting, the shape editor's steps and graph, one of its rules, and the
- * `/`-menu every composer opens.
+ * Goals, findings and shapes: a "goals dialog" dial for every sheet that
+ * covers the page — create, assign, wrap, carry, decide, publish, add a
+ * member, add work, hand work out, save a shape, the shape editor itself
+ * (a `Dialog`), every time (`TriggerCreate`, also a `Dialog`), the front
+ * door — off by default, one option each. Plain frames below it show the
+ * parts a Goal's own page or rail already draws inline: the findings rail, a
+ * round's status, a receipt as it reads once wrapped and its accounting
+ * (loading and loaded), one shape step, one rule and the graph they compose,
+ * and the `/`-menu every composer opens.
  */
 export const GoalFrames = () => {
   const [dialog, setDialog] = useState<DialogOption>('off')
@@ -119,6 +144,18 @@ export const GoalFrames = () => {
         <HandOut room={PREVIEW_GOAL.goal.id} intents={PREVIEW_INTENTS} peers={[]} onClose={() => setDialog('off')} onTrouble={() => {}} />
       )}
       {dialog === 'shape save' && <ShapeSave input={SHAPE_SAVE_INPUT} onSaved={() => setDialog('off')} onClose={() => setDialog('off')} />}
+      {dialog === 'shape editor' && (
+        <ShapeEditor
+          root={PREVIEW_ROOT}
+          context={{ kind: 'project', root: PREVIEW_ROOT }}
+          initialSource={PREVIEW_FLOW_SOURCE['fix']}
+          onClose={() => setDialog('off')}
+          onStarted={() => setDialog('off')}
+        />
+      )}
+      {dialog === 'trigger create' && (
+        <TriggerCreate root={PREVIEW_ROOT} opens={{ agent: 'code-reviewer' }} onSaved={() => setDialog('off')} onClose={() => setDialog('off')} />
+      )}
       {dialog === 'front door' && (
         <FrontDoor context={{ kind: 'project', root: PREVIEW_ROOT }} onClose={() => setDialog('off')} onStarted={() => setDialog('off')} />
       )}
@@ -143,24 +180,22 @@ export const GoalFrames = () => {
           <GoalReceiptCost receipt={WRAPPED_WITH_FINDINGS.receipt!} />
         </div>
       </Frame>
+      <Frame title="Insight — recorded usage, loaded">
+        <div className="p-4">
+          <InsightCost report={INSIGHT_REPORT} loading={false} problem={null} onRefresh={() => {}} />
+        </div>
+      </Frame>
       <Frame title="Insight — recorded usage, loading">
         <div className="p-4">
           <InsightCost report={null} loading problem={null} onRefresh={() => {}} />
         </div>
       </Frame>
-      {/* The editor opens on its own "steps" tab (`ShapeStep`, one row per
-          role); its own Graph and Source tabs, real buttons drawn by
-          `ShapeEditor` itself, reach `ShapeGraph` the same way a person's own
-          click would — nothing here needs to duplicate that switch. */}
-      <Frame title="Your own shape — steps, graph and source">
-        <div className="h-[720px]">
-          <ShapeEditor
-            root={PREVIEW_ROOT}
-            context={{ kind: 'project', root: PREVIEW_ROOT }}
-            initialSource={PREVIEW_FLOW_SOURCE['fix']}
-            onClose={() => {}}
-            onStarted={() => {}}
-          />
+      {/* `ShapeEditor` (a `Dialog`, chosen from the dial above) opens on its
+          own "steps" tab, `ShapeStep` once per role; mounted directly too, so
+          the step form is on the page whether or not that dialog is open. */}
+      <Frame title="Shape — one step's own form">
+        <div className="max-w-[520px] p-4">
+          <ShapeStep role={SHAPE_STEP_ROLE} agents={PREVIEW_AGENTS} runtimes={[]} onChange={() => {}} />
         </div>
       </Frame>
       <Frame title="Shape — one rule's own form">
@@ -170,14 +205,12 @@ export const GoalFrames = () => {
       </Frame>
       {/* `ShapeEditor`'s own Graph tab reaches this same component from a real
           click; mounted directly too, so the graph is on the page whether or
-          not that click happened. */}
+          not that dialog is open. Two roles and the rule between them, so
+          this draws an edge rather than one bare node. */}
       <Frame title="Shape — the graph">
         <div className="h-[420px] p-4">
           <ShapeGraph policy={SHAPE_POLICY_WITH_RULE.policy} selected={null} onSelect={() => {}} onPositions={() => {}} onEditRule={() => {}} />
         </div>
-      </Frame>
-      <Frame title="Every time — a trigger, from a shape or an Agent">
-        <TriggerCreate root={PREVIEW_ROOT} opens={{ agent: 'code-reviewer' }} onSaved={() => {}} onClose={() => {}} />
       </Frame>
       <Frame title="The `/` and `@` menu">
         <div className="w-[320px] p-4">

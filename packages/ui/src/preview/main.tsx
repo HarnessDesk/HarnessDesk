@@ -96,6 +96,61 @@ previewMutable.patch({
     },
   ],
 })
+/* One finished, one running: `BackgroundTasksView`'s own empty return is
+   "Background tasks" and nothing under it, which is the ordinary case for a
+   session that has run none — but the frame that shows this panel exists to
+   show the populated state. */
+previewMutable.patch({
+  tasks: new Map([
+    [
+      PREVIEW_SESSION_KEY,
+      [
+        {
+          id: 'task-preview-1',
+          label: 'pnpm test',
+          kind: 'command',
+          state: 'completed',
+          command: 'pnpm test',
+          cwd: PREVIEW_ROOT,
+          startedAt: Date.now() - 90_000,
+          endedAt: Date.now() - 60_000,
+          summary: 'Passed, 214 tests.',
+        },
+        {
+          id: 'task-preview-2',
+          label: 'pnpm build',
+          kind: 'command',
+          state: 'running',
+          command: 'pnpm build',
+          cwd: PREVIEW_ROOT,
+          startedAt: Date.now() - 20_000,
+        },
+      ],
+    ],
+  ]) as never,
+})
+/* `Panes`'s own default layout — the one `emptySnapshot()` gives every store
+   until something opens a session into it — is one pane showing the empty
+   pitch, "What should we build?", which is a thin thing for a frame whose
+   whole point is showing the split tree itself. A real split, the preview
+   conversation beside a file, is what that frame exists to draw. Nothing
+   else on this page reads `snapshot.layout` — `Conversation` and its
+   siblings are all scoped by their own explicit `PaneProvider`, never by
+   this one — so overriding it here cannot narrow any other frame. */
+previewMutable.patch({
+  layout: {
+    root: {
+      kind: 'split',
+      id: 'split-preview',
+      direction: 'row',
+      ratio: 0.55,
+      first: { kind: 'pane', id: 'pane-preview-conversation', view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } },
+      second: { kind: 'pane', id: 'pane-preview-file', view: { kind: 'file', path: '/work/project/lib/brands.ts', runtime: runtimeId('codex') } },
+    },
+    focused: 'pane-preview-conversation',
+    expanded: null,
+  } as never,
+})
 if (SHOW_DENSE) {
   const key = sessionKey(runtimeId('codex'), 's1' as never)
   const session = store.getSnapshot().sessions.get(key)
@@ -858,19 +913,23 @@ const Preview = () => {
             <TeamRoomPane key={flowScene} room={PREVIEW_FLOW_GOAL.goal.id} />
           </div>
         </Frame>
-        <div className="flex min-w-0 flex-col gap-4">
-          <Frame title="Settings › Library">
-            <div className="max-h-[540px] overflow-y-auto p-4">
-              <LibrarySection />
-            </div>
-          </Frame>
-          <Frame title="Settings › Appearance">
-            <div className="p-4">
-              <AppearanceSection />
-            </div>
-          </Frame>
-        </div>
       </div>
+
+      {/* Full width, like every other Settings frame on this page — the same
+          two-column grid above has exactly four cells (2×2) for its sidebar
+          and three Goal frames; a fifth item auto-placed into it lands back
+          in the 380px sidebar column, not the wide one, which is what
+          crushed this frame's own text to one word a line. */}
+      <Frame title="Settings › Library">
+        <div className="max-h-[540px] overflow-y-auto p-4">
+          <LibrarySection />
+        </div>
+      </Frame>
+      <Frame title="Settings › Appearance">
+        <div className="p-4">
+          <AppearanceSection />
+        </div>
+      </Frame>
 
       <SettingsFrames />
       <GoalFrames />

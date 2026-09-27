@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import { runtimeId } from '@harnessdesk/protocol'
 
 import { AuthorDialog } from '../components/LibraryActions'
@@ -9,9 +11,17 @@ import { GoalHeader } from '../components/GoalHeader'
 import { Panes } from '../components/Panes'
 import { TaskPanel } from '../components/TaskPanel'
 import { TerminalSurface } from '../components/TerminalPane'
+/* `Panes`'s own `ViewHost` resolves a pane's view kind ('conversation',
+   'file', …) through the registry `panels/builtins.tsx` fills by
+   `registerView`, side-effect-only — normally imported once by
+   `panels/Workbench.tsx`, which a screen preview never mounts. Without it
+   the registry is empty and every pane in a split renders as an unknown,
+   chromeless nothing; `TeamRoomPane.test.tsx` and its neighbours import this
+   same file for the identical reason. */
+import '../panels/builtins'
 import { MountProvider } from '../panels/mount'
 import { PaneProvider, StoreProvider } from '../state/context'
-import { Frame } from './main'
+import { Dial, Frame } from './main'
 import { PREVIEW_ROOT, previewSession } from './sidebar-fixture'
 import { libraryColumnsFor, PREVIEW_SESSION_KEY, previewStore, TEAM } from './harness'
 import { PREVIEW_GOALS } from './goal-fixture'
@@ -54,84 +64,91 @@ const LIBRARY_COLUMNS = libraryColumnsFor([runtimeId('codex'), runtimeId('claude
  * which reads its state from a `MountProvider` scope the same way the panel
  * system's own dock gives it one — this is one pane's worth of that scope,
  * not the dock itself, which `panels/Workbench.tsx` owns and a screen
- * preview never mounts (see the EXEMPT map in the coverage spec).
+ * preview never mounts (see the EXEMPT map in the coverage spec). A
+ * "panel dialog" dial holds the one sheet among them, `AuthorDialog` — a
+ * `Dialog`, off by default like every other one on the page.
  */
-export const PanelFrames = () => (
-  <>
-    <Frame title="Tools — a file">
-      <div className="h-[420px]">
-        <MountProvider scope={{ area: 'main', id: 'panel-file', view: { kind: 'file', path: '/work/project/lib/brands.ts', runtime: runtimeId('codex') } }}>
-          <FilePane />
-        </MountProvider>
+const PANEL_DIALOG_OPTIONS = ['off', 'write a skill'] as const
+type PanelDialogOption = (typeof PANEL_DIALOG_OPTIONS)[number]
+
+export const PanelFrames = () => {
+  const [dialog, setDialog] = useState<PanelDialogOption>('off')
+  return (
+    <>
+      <div className="my-4 flex flex-wrap items-center gap-3">
+        <Dial label="panel dialog" value={dialog} options={PANEL_DIALOG_OPTIONS} onChange={setDialog} />
       </div>
-    </Frame>
-    <Frame title="Tools — Git">
-      <div className="h-[420px]">
-        <MountProvider scope={{ area: 'main', id: 'panel-git', view: { kind: 'git', root: PREVIEW_ROOT } }}>
-          <GitPane />
-        </MountProvider>
-      </div>
-    </Frame>
-    <Frame title="Tools — the browser">
-      <div className="h-[420px]">
-        <MountProvider
-          scope={{
-            area: 'main',
-            id: 'panel-browser',
-            view: { kind: 'browser', tabs: [{ id: 'tab-1', url: 'https://harnessdesk.app' }], active: 'tab-1', driven: 'tab-1' },
-          }}
-        >
-          <BrowserPane />
-        </MountProvider>
-      </div>
-    </Frame>
-    <Frame title="Tools — the terminal">
-      <div className="h-[320px]">
-        <MountProvider
-          scope={{
-            area: 'main',
-            id: 'panel-terminal',
-            view: { kind: 'terminal', terminalId: 't-preview', runtime: runtimeId('codex'), cwd: PREVIEW_ROOT },
-          }}
-        >
-          <TerminalSurface />
-        </MountProvider>
-      </div>
-    </Frame>
-    <Frame title="Goal — its header row">
-      <div className="p-4">
-        <GoalHeader view={GOAL_WAITING} />
-      </div>
-    </Frame>
-    <Frame title="Room — the channel's own grouping">
-      <div className="max-h-[420px] overflow-y-auto p-4">
-        <ChannelStream entries={TEAM.channel} room={TEAM.id} onTrouble={() => {}} />
-      </div>
-    </Frame>
-    <Frame title="Tasks — a session's own plan">
-      <div className="max-w-[420px] p-4">
-        <StoreProvider store={taskPanelStore}>
-          <PaneProvider scope={{ paneId: 'preview-tasks' as never, view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never, sessionKey: PREVIEW_SESSION_KEY }}>
-            <TaskPanel />
-          </PaneProvider>
-        </StoreProvider>
-      </div>
-    </Frame>
-    {/* The split tree itself, on the page's own shared store — whatever it
-        opened on (the preview conversation), rendered through the same
-        `Panes`/`panels/views.tsx` glue the real window's main area uses.
-        Not the whole `Workbench` shell around it (no sidebar, no docks,
-        no drag/resize wiring) — that is `panels/Workbench.tsx`'s job, and a
-        screen preview mounts individual screens, never the app's chassis. */}
-    <Frame title="Panes — the split tree">
-      <div className="relative h-[420px]">
-        <Panes />
-      </div>
-    </Frame>
-    <Frame title="Library — writing a skill">
-      <div className="max-w-[560px]">
-        <AuthorDialog columns={LIBRARY_COLUMNS} onClose={() => {}} onPlan={() => {}} />
-      </div>
-    </Frame>
-  </>
-)
+      {dialog === 'write a skill' && <AuthorDialog columns={LIBRARY_COLUMNS} onClose={() => setDialog('off')} onPlan={() => setDialog('off')} />}
+      <Frame title="Tools — a file">
+        <div className="h-[420px]">
+          <MountProvider scope={{ area: 'main', id: 'panel-file', view: { kind: 'file', path: '/work/project/lib/brands.ts', runtime: runtimeId('codex') } }}>
+            <FilePane />
+          </MountProvider>
+        </div>
+      </Frame>
+      <Frame title="Tools — Git">
+        <div className="h-[420px]">
+          <MountProvider scope={{ area: 'main', id: 'panel-git', view: { kind: 'git', root: PREVIEW_ROOT } }}>
+            <GitPane />
+          </MountProvider>
+        </div>
+      </Frame>
+      <Frame title="Tools — the browser">
+        <div className="h-[420px]">
+          <MountProvider
+            scope={{
+              area: 'main',
+              id: 'panel-browser',
+              view: { kind: 'browser', tabs: [{ id: 'tab-1', url: 'https://harnessdesk.app' }], active: 'tab-1', driven: 'tab-1' },
+            }}
+          >
+            <BrowserPane />
+          </MountProvider>
+        </div>
+      </Frame>
+      <Frame title="Tools — the terminal">
+        <div className="h-[320px]">
+          <MountProvider
+            scope={{
+              area: 'main',
+              id: 'panel-terminal',
+              view: { kind: 'terminal', terminalId: 't-preview', runtime: runtimeId('codex'), cwd: PREVIEW_ROOT },
+            }}
+          >
+            <TerminalSurface />
+          </MountProvider>
+        </div>
+      </Frame>
+      <Frame title="Goal — its header row">
+        <div className="p-4">
+          <GoalHeader view={GOAL_WAITING} />
+        </div>
+      </Frame>
+      <Frame title="Room — the channel's own grouping">
+        <div className="max-h-[420px] overflow-y-auto p-4">
+          <ChannelStream entries={TEAM.channel} room={TEAM.id} onTrouble={() => {}} />
+        </div>
+      </Frame>
+      <Frame title="Tasks — a session's own plan">
+        <div className="max-w-[420px] p-4">
+          <StoreProvider store={taskPanelStore}>
+            <PaneProvider scope={{ paneId: 'preview-tasks' as never, view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never, sessionKey: PREVIEW_SESSION_KEY }}>
+              <TaskPanel />
+            </PaneProvider>
+          </StoreProvider>
+        </div>
+      </Frame>
+      {/* The split tree itself, on the page's own shared store — whatever it
+          opened on (the preview conversation), rendered through the same
+          `Panes`/`panels/views.tsx` glue the real window's main area uses.
+          Not the whole `Workbench` shell around it (no sidebar, no docks,
+          no drag/resize wiring) — that is `panels/Workbench.tsx`'s job, and a
+          screen preview mounts individual screens, never the app's chassis. */}
+      <Frame title="Panes — the split tree">
+        <div className="relative h-[420px]">
+          <Panes />
+        </div>
+      </Frame>
+    </>
+  )
+}

@@ -680,7 +680,7 @@ const agentEntry = (
   },
 })
 
-const PREVIEW_AGENTS: readonly AgentEntry[] = [
+export const PREVIEW_AGENTS: readonly AgentEntry[] = [
   agentEntry('code-reviewer', 'Code reviewer', 'project', 'The storefront team’s reviewer: reads the diff against our checkout rules.', 'read', [
     { origin: 'builtin', path: '/app/agents/code-reviewer/AGENT.md' },
   ]),
@@ -736,6 +736,48 @@ const applyAgentFieldEdit = (source: string, edit: AgentFieldEdit): string => {
   }
   // `prefer` has no line of its own in this fixture's source — the diff shows the file unchanged but for a trailing note, which is enough to demonstrate the dialog without inventing YAML this fixture does not otherwise carry.
   return `${source}# prefer: ${edit.key === 'prefer' ? edit.value.map((seat) => seat.runtime).join(', ') : ''}\n`
+}
+
+/**
+ * One Goal's recorded usage, real enough for `InsightCost` (and
+ * `GoalReceiptCost`, which mounts it) to draw a populated cost section
+ * rather than its own "no report yet" empty return. Exported so the preview
+ * page can show the loaded state directly, beside the loading one — the
+ * store's own `readGoalInsight` returns the identical shape.
+ */
+export const insightReportFor = (goal: string): import('@harnessdesk/protocol').InsightReport => {
+  const metric = (value: number): import('@harnessdesk/protocol').InsightMetric => ({
+    value, quality: 'exact', unit: 'usd', basis: 'vendorMetered', sourceIds: ['src-preview'], coverage: 'complete', missing: [],
+  })
+  const amounts = (usd: number): import('@harnessdesk/protocol').InsightAmounts => ({
+    usd: metric(usd),
+    tokens: { ...metric(usd), unit: 'tokens', value: usd * 10_000 },
+    activeMs: { ...metric(usd), unit: 'milliseconds', value: usd * 60_000 },
+    turns: { ...metric(usd), unit: 'count', value: 3 },
+  })
+  return {
+    id: 'insight-preview',
+    generatedAt: now,
+    query: { root: PREVIEW_ROOT, from: now - 86_400_000, to: now },
+    goals: [],
+    seats: [],
+    goal,
+    receipt: null,
+    totals: amounts(4.82),
+    elapsedMs: metric(180_000),
+    breakdowns: [
+      {
+        dimension: 'seat',
+        rows: [{ key: 'seat-preview-reviewer', label: 'Alpha · careful', amounts: amounts(4.82), seat: 'seat-preview-reviewer', goal, session: null, message: null, note: null, elapsedMs: metric(180_000) }],
+        unattributed: amounts(0),
+        reason: null,
+      },
+    ],
+    sources: [{ id: 'src-preview', kind: 'evidence', label: 'This desk’s own record', observedAt: now, checkedAt: now, stale: false, problem: null }],
+    recordedSpend: [],
+    provenance: { state: 'available', note: 'Recorded on this desk.' },
+    gaps: [],
+  }
 }
 
 const takenOn = (
@@ -1665,40 +1707,7 @@ class PreviewStore {
    * is why they were never found by a fiber walk that starts from the DOM.
    * One breakdown, one row, is enough to draw the real thing.
    */
-  readGoalInsight = async (goal: string): Promise<import('@harnessdesk/protocol').InsightReport> => {
-    const metric = (value: number): import('@harnessdesk/protocol').InsightMetric => ({
-      value, quality: 'exact', unit: 'usd', basis: 'vendorMetered', sourceIds: ['src-preview'], coverage: 'complete', missing: [],
-    })
-    const amounts = (usd: number): import('@harnessdesk/protocol').InsightAmounts => ({
-      usd: metric(usd),
-      tokens: { ...metric(usd), unit: 'tokens', value: usd * 10_000 },
-      activeMs: { ...metric(usd), unit: 'milliseconds', value: usd * 60_000 },
-      turns: { ...metric(usd), unit: 'count', value: 3 },
-    })
-    return {
-      id: 'insight-preview',
-      generatedAt: now,
-      query: { root: PREVIEW_ROOT, from: now - 86_400_000, to: now },
-      goals: [],
-      seats: [],
-      goal,
-      receipt: null,
-      totals: amounts(4.82),
-      elapsedMs: metric(180_000),
-      breakdowns: [
-        {
-          dimension: 'seat',
-          rows: [{ key: 'seat-preview-reviewer', label: 'Alpha · careful', amounts: amounts(4.82), seat: 'seat-preview-reviewer', goal, session: null, message: null, note: null, elapsedMs: metric(180_000) }],
-          unattributed: amounts(0),
-          reason: null,
-        },
-      ],
-      sources: [{ id: 'src-preview', kind: 'evidence', label: 'This desk’s own record', observedAt: now, checkedAt: now, stale: false, problem: null }],
-      recordedSpend: [],
-      provenance: { state: 'available', note: 'Recorded on this desk.' },
-      gaps: [],
-    }
-  }
+  readGoalInsight = async (goal: string): Promise<import('@harnessdesk/protocol').InsightReport> => insightReportFor(goal)
 
   carryFindings = async (_input: CarryFindingsInput): Promise<readonly FindingView[]> => []
 
