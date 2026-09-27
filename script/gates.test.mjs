@@ -31,8 +31,10 @@ import {
   patternExportAppearanceOf,
   resolveFamilies,
   resolvedConsumersOf,
+  SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS,
   screenAppearanceOf,
   screenAreaOf,
+  staleScreenAppearanceExemptions,
   singleScreenAreaOf,
   screenInlineStyleAppearanceOf,
   patternSourceAppearanceOf,
@@ -1537,7 +1539,7 @@ test('compareBaseline requires a complete numeric zero baseline and zero current
 test('each burn-down category is gated on a ceiling that may only fall', () => {
   const clean = zeroes()
 
-  for (const key of ['patternClass', 'screenAppearance']) {
+  for (const key of ['patternClass', 'singleAreaPrimitive']) {
     const ceiling = { ...clean, [key]: 126 }
 
     // At the ceiling: the debt is recorded, so the gate is quiet.
@@ -1556,7 +1558,7 @@ test('each burn-down category is gated on a ceiling that may only fall', () => {
     assert.ok(paid.problems.some((p) => p.message.includes('Tighten the ceiling')))
   }
 
-  const ceiling = { ...clean, patternClass: 126, screenAppearance: 126 }
+  const ceiling = { ...clean, patternClass: 126, singleAreaPrimitive: 126 }
 
   // A non-zero ceiling is still refused for every other category.
   const smuggled = compareBaseline(clean, { ...ceiling, offGrid: 5 })
@@ -1566,9 +1568,67 @@ test('each burn-down category is gated on a ceiling that may only fall', () => {
   // And a category that has burned down to nothing leaves the ratchet: type
   // sizes reached zero, so a single literal coming back is refused outright
   // rather than measured against a ceiling of nought.
-  const returned = compareBaseline({ ...clean, rawType: 1, patternClass: 126, screenAppearance: 126 }, ceiling)
+  const returned = compareBaseline({ ...clean, rawType: 1, patternClass: 126, singleAreaPrimitive: 126 }, ceiling)
   assert.equal(returned.worse, true)
   assert.ok(returned.problems.some((p) => p.key === 'rawType'))
+})
+
+test('screen appearance is a hard zero: one finding fails, and no ceiling can be recorded for it (#838)', () => {
+  const clean = zeroes()
+  assert.equal(compareBaseline(clean, clean).worse, false)
+
+  // A screen drawing one piece of a role for itself fails outright.
+  const drawn = compareBaseline({ ...clean, screenAppearance: 1 }, clean)
+  assert.equal(drawn.worse, true)
+  assert.ok(drawn.problems.some((p) => p.key === 'screenAppearance' && p.message.includes('requires zero')))
+
+  // And the old way back — a ceiling in the baseline — is refused too.
+  const ceiling = compareBaseline({ ...clean, screenAppearance: 3 }, { ...clean, screenAppearance: 3 })
+  assert.equal(ceiling.worse, true)
+  assert.ok(ceiling.problems.some((p) => p.key === 'screenAppearance' && p.message.includes('must be zero')))
+})
+
+test('the Git pane\'s named exemptions cover exactly their own declarations, never the sheet (#838)', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-screen-appearance-named-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const file = path.join(root, 'packages/ui/src/components/GitPane.module.css')
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const named = SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS
+    .map(({ selector, property, value }) => `${selector} { ${property}: ${value}; }`)
+    .join('\n')
+  assert.equal(SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS.length, 3)
+  for (const entry of SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS) assert.ok(entry.reason.length > 40, `${entry.selector} ${entry.property} carries its reason`)
+
+  // The three, exactly as named: nothing to find.
+  assert.deepEqual(screenAppearanceOf(file, named), [])
+  // A new appearance declaration in the same sheet is a finding.
+  assert.deepEqual(screenAppearanceOf(file, `${named}\n.tableHead { color: var(--hd-muted-foreground); }`), [
+    { property: 'color', value: 'var(--hd-muted-foreground)' },
+  ])
+  // So is a named one under another selector, or with another value.
+  assert.equal(screenAppearanceOf(file, '.rowHead { height: var(--hd-control-h-sm); }').length, 1)
+  assert.equal(screenAppearanceOf(file, '.tableHead { height: var(--hd-control-h); }').length, 1)
+  // The same declaration under an at-rule or a parent is another rule, not
+  // the one named — it styles something else, or under another condition.
+  assert.equal(screenAppearanceOf(file, `${named}\n@media (width < 600px) { .tableHead { height: var(--hd-control-h-sm); } }`).length, 1)
+  assert.equal(screenAppearanceOf(file, `${named}\n@container hd-git-tools (width < 40rem) { .detail { min-height: var(--hd-history-detail-min-h); } }`).length, 1)
+  assert.equal(screenAppearanceOf(file, `${named}\n.row { .tableHead { padding-right: var(--hd-space-3); } }`).length, 1)
+  // And the same declaration in another screen's sheet is not exempt.
+  const other = path.join(root, 'packages/ui/src/components/Other.module.css')
+  assert.equal(screenAppearanceOf(other, named).length, 3)
+})
+
+test('a named exemption that matches nothing is reported, so the list cannot outlive what it names (#838)', () => {
+  const named = SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS
+    .map(({ selector, property, value }) => `${selector} { ${property}: ${value}; }`)
+    .join('\n')
+  assert.deepEqual(staleScreenAppearanceExemptions(() => named), [])
+  const [first] = SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS
+  const without = named.replace(`${first.selector} { ${first.property}: ${first.value}; }`, '')
+  assert.deepEqual(staleScreenAppearanceExemptions(() => without), [first])
+  // Moved under an at-rule, it no longer names that rule: stale.
+  assert.deepEqual(staleScreenAppearanceExemptions(() => `${without}\n@media print { ${first.selector} { ${first.property}: ${first.value}; } }`), [first])
+  assert.equal(staleScreenAppearanceExemptions(() => null).length, 3)
 })
 
 test('screen property families have one explicit appearance or layout boundary', (t) => {
