@@ -207,15 +207,16 @@ export const USAGE = REPORTS.filter((one) => known.has(one.runtime)).map(one => 
  * nothing walks the real corpus while the camera is up.
  */
 const LEDGER_ROWS = [
-  { key: 'claude-code', label: 'Claude', runtime: 'claude-code', tokens: 3_940_000, cost: 96.2, hasUnpriced: false },
-  { key: 'codex', label: 'Codex', runtime: 'codex', tokens: 1_710_000, cost: 41.7, hasUnpriced: false },
-  { key: 'cursor', label: 'Cursor', runtime: 'cursor', tokens: 820_000, cost: 18.4, hasUnpriced: false },
-  { key: 'gemini-cli', label: 'Gemini', runtime: 'gemini-cli', tokens: 410_000, cost: 0, hasUnpriced: true },
-  { key: 'amp', label: 'Amp', runtime: 'amp', tokens: 96_000, cost: 3.1, hasUnpriced: false },
+  { key: 'claude-code', label: 'Claude', runtime: 'claude-code', tokens: 3_940_000, cost: 96.2, hasUnpriced: false, turns: 812 },
+  { key: 'codex', label: 'Codex', runtime: 'codex', tokens: 1_710_000, cost: 41.7, hasUnpriced: false, turns: 356 },
+  { key: 'cursor', label: 'Cursor', runtime: 'cursor', tokens: 820_000, cost: 18.4, hasUnpriced: false, turns: 190 },
+  { key: 'gemini-cli', label: 'Gemini', runtime: 'gemini-cli', tokens: 410_000, cost: 0, hasUnpriced: true, turns: 88 },
+  { key: 'amp', label: 'Amp', runtime: 'amp', tokens: 96_000, cost: 3.1, hasUnpriced: false, turns: 21 },
 ]
 
 const TOTAL_COST = LEDGER_ROWS.reduce((sum, row) => sum + (row.cost ?? 0), 0)
 const TOTAL_TOKENS = LEDGER_ROWS.reduce((sum, row) => sum + (row.tokens ?? 0), 0)
+const TOTAL_TURNS = LEDGER_ROWS.reduce((sum, row) => sum + (row.turns ?? 0), 0)
 
 /** Seven days of stacked daily cost, split across the three priced agents. */
 const DAILY = [6, 5, 4, 3, 2, 1, 0].flatMap((back, i) =>
@@ -224,6 +225,7 @@ const DAILY = [6, 5, 4, 3, 2, 1, 0].flatMap((back, i) =>
     runtime,
     cost: Number(((3.2 - r * 0.9) * (0.5 + i * 0.12)).toFixed(2)),
     tokens: Math.round((132_000 - r * 38_000) * (0.5 + i * 0.12)),
+    turns: Math.round((27 - r * 8) * (0.5 + i * 0.12)),
   })),
 )
 
@@ -233,10 +235,30 @@ export const LEDGER = {
   totalCost: Number(TOTAL_COST.toFixed(2)),
   totalTokens: TOTAL_TOKENS,
   provenance: 'priced',
-  coverage: { priced: 118, unpriced: 6, unmetered: 0, estimated: 9, daysCovered: 30, daysRequested: 30 },
+  coverage: {
+    priced: 118,
+    unpriced: 6,
+    unmetered: 0,
+    estimated: 9,
+    daysCovered: 30,
+    daysRequested: 30,
+    // Every runtime this stub carries a row for has a real turn boundary —
+    // the Overview strip's "Turns" cell reads this to say "known for N of M
+    // agents" rather than leaving every card unattributed (aa4a38fbf, #1068).
+    turnsKnownFor: LEDGER_ROWS.map(row => rigRuntimeId(row.runtime)),
+  },
   rows: LEDGER_ROWS.map(row => ({ ...row, key: rigRuntimeId(row.key), runtime: rigRuntimeId(row.runtime) })),
   daily: DAILY.map(row => ({ ...row, runtime: rigRuntimeId(row.runtime) })),
   scannedAt: Date.now() - 12 * MINUTE,
+  totals: {
+    input: Math.round(TOTAL_TOKENS * 0.58),
+    output: Math.round(TOTAL_TOKENS * 0.34),
+    cacheRead: Math.round(TOTAL_TOKENS * 0.06),
+    cacheWrite: Math.round(TOTAL_TOKENS * 0.02),
+    reasoning: 0,
+    requests: TOTAL_TURNS,
+    turns: TOTAL_TURNS,
+  },
 }
 
 /** A scan that is already over, so none is ever started against the real corpus. */
