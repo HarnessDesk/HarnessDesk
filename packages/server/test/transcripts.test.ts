@@ -716,6 +716,17 @@ test('importOne refuses malformed transcript turns that lack items array (#500)'
   })
 })
 
+test('exportRuntime reads only the selected runtime folder', async () => {
+  await withStore(async (store) => {
+    store.record(talk('codex', 'a', [['userMessage', 'first']]), { now: true })
+    store.record(talk('cursor', 'b', [['userMessage', 'second']]), { now: true })
+    await store.flush()
+
+    const exported = await store.exportRuntime(runtimeId('codex'))
+    assert.deepEqual(exported.map((entry) => [entry.runtime, entry.id]), [['codex', 'a']])
+  })
+})
+
 /*
  * A folder that cannot be opened is not a store with nothing in it.
  *

@@ -10,6 +10,8 @@ import type { UsageRow } from './store.js'
 export interface RemoteEventsSource {
   /** The runtime these rows are filed under. */
   readonly runtime: string
+  /** Local sources may opt out of the hourly interval used for network sources. */
+  readonly syncEveryScan?: boolean
   /**
    * The row key this source's *account* resolves to right now, or `null`
    * when it cannot — signed out, or the local credential is unreadable.

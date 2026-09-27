@@ -577,6 +577,36 @@ export class TranscriptStore {
     return out
   }
 
+  /** Every stored transcript for one runtime, for local readers of its history. */
+  async exportRuntime(runtime: string): Promise<readonly { runtime: string; id: string; data: unknown }[]> {
+    const folder = join(this.directory, encodeURIComponent(runtime))
+    let names: string[]
+    try {
+      names = await readdir(folder)
+    } catch (error) {
+      if (NOTHING_HERE.has(errnoOf(error))) return []
+      throw unexported(error)
+    }
+    const out: { runtime: string; id: string; data: unknown }[] = []
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue
+      try {
+        const data = JSON.parse(await readFile(join(folder, name), 'utf8')) as Partial<Stored>
+        if (
+          data.version !== FORMAT ||
+          !Array.isArray(data.turns) ||
+          data.turns.some((turn) => typeof turn !== 'object' || turn === null || !Array.isArray(turn.items))
+        ) {
+          continue
+        }
+        out.push({ runtime, id: String(data.id), data })
+      } catch {
+        continue
+      }
+    }
+    return out
+  }
+
   /**
    * Puts one transcript from a backup into the store, additively and
    * verified. `skipped` when the local copy is at least as new — a restore

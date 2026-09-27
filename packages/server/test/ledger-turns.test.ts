@@ -212,6 +212,22 @@ test("a Claude turn is filed under the reply that actually answers it, not the o
   assert.equal(row?.model, 'model-a', 'the turn is filed under the model that answers it, never "unknown"')
 })
 
+test('a Claude turn whose reply arrives in the next scan keeps waiting for its model', async () => {
+  const dir = scratch()
+  const path = join(dir, 'session.jsonl')
+  const userTurn = line({ type: 'user', timestamp: at, cwd: '/p', message: { role: 'user', content: 'go' } })
+  const reply = line({ type: 'assistant', timestamp: at, cwd: '/p', message: { id: 'm1', model: 'model-a', usage: { input_tokens: 1, output_tokens: 1 } } })
+  writeFileSync(path, userTurn)
+  const first = await scanClaudeTranscript({ runtime: 'claude-code', kind: 'claude', path, size: 0, mtime: 0 }, 0, [])
+  assert.equal(first.rows.reduce((sum, row) => sum + (row.turns ?? 0), 0), 0, 'an unanswered turn is not filed as unknown')
+
+  writeFileSync(path, userTurn + reply)
+  const next = await scanClaudeTranscript({ runtime: 'claude-code', kind: 'claude', path, size: 0, mtime: 0 }, first.offset, first.tail)
+  const row = next.rows.find((entry) => (entry.turns ?? 0) > 0)
+  assert.equal(row?.model, 'model-a')
+  assert.equal(row?.turns, 1)
+})
+
 // ---------------------------------------------------------------- Gemini CLI
 
 test('a Gemini CLI chat counts a user prompt once, filed under the reply that answers it', async () => {
@@ -271,6 +287,26 @@ test('a Qwen Code transcript counts the person’s own prompt, not the assistant
   assert.equal(result.rows.length, 1)
   assert.equal(result.rows[0]?.turns, 1)
   assert.equal(result.rows[0]?.requests, 1)
+})
+
+test('a Qwen Code turn whose reply arrives in the next scan keeps waiting for its model', async () => {
+  const dir = scratch()
+  const path = join(dir, 'projects', 'p1', 'chats', 'session.jsonl')
+  mkdirSync(join(dir, 'projects', 'p1', 'chats'), { recursive: true })
+  const prompt = line({ uuid: 'u1', type: 'user', timestamp: at, cwd: '/work/qwen-project' })
+  const reply = line({
+    uuid: 'c1', type: 'assistant', timestamp: at, cwd: '/work/qwen-project', model: 'qwen3-coder-plus',
+    usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 10 },
+  })
+  writeFileSync(path, prompt)
+  const first = await scanQwenTranscript({ runtime: 'qwen-code', kind: 'qwen', path, size: 0, mtime: 0 }, 0, [])
+  assert.equal(first.rows.reduce((sum, row) => sum + (row.turns ?? 0), 0), 0, 'an unanswered turn is not filed as unknown')
+
+  writeFileSync(path, prompt + reply)
+  const next = await scanQwenTranscript({ runtime: 'qwen-code', kind: 'qwen', path, size: 0, mtime: 0 }, first.offset, first.tail)
+  const row = next.rows.find((entry) => (entry.turns ?? 0) > 0)
+  assert.equal(row?.model, 'qwen3-coder-plus')
+  assert.equal(row?.turns, 1)
 })
 
 // ---------------------------------------------------------------- migration
@@ -419,7 +455,7 @@ test('turns are honest across the ledger: known per runtime, withheld the moment
 test('the desk’s own transcript counts a stored session’s turns for a runtime with no scanner of its own', async () => {
   const dir = scratch()
   const reader = {
-    exportAll: async () => [
+    exportRuntime: async (runtime: string) => [
       {
         runtime: 'cursor',
         id: 'session-1',
@@ -433,7 +469,7 @@ test('the desk’s own transcript counts a stored session’s turns for a runtim
       },
       // A different runtime's session must never be counted here.
       { runtime: 'claude-code', id: 'x', data: { cwd: '/work/proj', turns: [{ startedAt: NOON, status: 'completed', items: [{ type: 'userMessage', content: [] }] }] } },
-    ],
+    ].filter((entry) => entry.runtime === runtime),
   }
   const source = new DeskTranscriptTurnsSource('cursor', reader)
   const file = await source.resolveFile()
@@ -466,7 +502,7 @@ test('the desk’s own transcript counts a stored session’s turns for a runtim
 test('the desk’s own transcript skips a turn nobody asked for: a bare notice with no reply, never a userMessage or an answered notice', async () => {
   const dir = scratch()
   const reader = {
-    exportAll: async () => [
+    exportRuntime: async (runtime: string) => [
       {
         runtime: 'cursor',
         id: 'session-1',
@@ -486,11 +522,53 @@ test('the desk’s own transcript skips a turn nobody asked for: a bare notice w
           ],
         },
       },
-    ],
+    ].filter((entry) => entry.runtime === runtime),
   }
   const source = new DeskTranscriptTurnsSource('cursor', reader)
   const result = await source.sync({ from: NOON - 86_400_000, to: NOON + 1 }, 'desk-transcript:cursor')
   assert.equal(result?.rows[0]?.turns, 2, 'the real prompt and the answered notice count; the bare, unanswered notice does not')
+})
+
+test('desk transcript turn counts sync again on the next scan inside the remote hourly window', async () => {
+  const dir = scratch()
+  let now = NOON
+  let exports = 0
+  const reader = {
+    exportRuntime: async (runtime: string) => {
+      exports += 1
+      return [{
+        runtime: 'cursor',
+        id: 'session-1',
+        data: {
+          cwd: '/work/proj',
+          turns: Array.from({ length: exports }, (_, index) => ({
+            startedAt: NOON + index * 1000,
+            status: 'completed',
+            items: [{ type: 'userMessage' }],
+          })),
+        },
+      }].filter((entry) => entry.runtime === runtime)
+    },
+  }
+  const source = new DeskTranscriptTurnsSource('cursor', reader)
+  const ledger = new Ledger({
+    stateDir: dir,
+    databasePath: join(dir, 'usage.sqlite'),
+    corpora: [],
+    remoteSources: [source],
+    turnRuntimes: new Set([runtimeId('cursor')]),
+    deskTurnRuntimes: new Set([runtimeId('cursor')]),
+    pricing: await pricingIn(dir),
+    now: () => now,
+  })
+
+  await ledger.scan()
+  assert.equal(exports, 1)
+  now += 60_000
+  await ledger.scan()
+  assert.equal(exports, 2, 'a local transcript is not held to the hourly remote-source interval')
+  assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 86_400_000)?.count, 2)
+  ledger.close()
 })
 
 // ---------------------------------------------------------------- readiness

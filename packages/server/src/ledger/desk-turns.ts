@@ -33,7 +33,7 @@ export interface DeskTranscriptExport {
 
 /** The one thing this source needs from `TranscriptStore` — its own export. */
 export interface DeskTranscriptReader {
-  exportAll(): Promise<readonly DeskTranscriptExport[]>
+  exportRuntime(runtime: string): Promise<readonly DeskTranscriptExport[]>
 }
 
 const startOfLocalDay = (at: number): number => {
@@ -78,6 +78,8 @@ const countsAsPrompt = (turn: unknown): boolean => {
 
 export class DeskTranscriptTurnsSource implements RemoteEventsSource {
   readonly runtime: string
+  /** Local transcript data changes with turns, so it is read on every ledger scan. */
+  readonly syncEveryScan = true
   readonly #transcripts: DeskTranscriptReader
 
   constructor(runtime: string, transcripts: DeskTranscriptReader) {
@@ -96,7 +98,7 @@ export class DeskTranscriptTurnsSource implements RemoteEventsSource {
   ): Promise<{ readonly rows: readonly UsageRow[] } | null> {
     let entries: readonly DeskTranscriptExport[]
     try {
-      entries = await this.#transcripts.exportAll()
+      entries = await this.#transcripts.exportRuntime(this.runtime)
     } catch {
       return null
     }

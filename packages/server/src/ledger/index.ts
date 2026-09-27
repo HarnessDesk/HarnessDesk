@@ -399,7 +399,7 @@ export class Ledger {
       const now = this.#now()
       const syncedKey = `remote:${file}:syncedAt`
       const lastSyncedAt = Number(this.#store.meta(syncedKey) ?? '')
-      if (Number.isFinite(lastSyncedAt) && now - lastSyncedAt < HOUR) continue
+      if (source.syncEveryScan !== true && Number.isFinite(lastSyncedAt) && now - lastSyncedAt < HOUR) continue
 
       const dayKey = `remote:${file}:day`
       const lastDay = Number(this.#store.meta(dayKey) ?? '')
