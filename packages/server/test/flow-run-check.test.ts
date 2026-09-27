@@ -80,6 +80,9 @@ const scopeOf = (card: Intent) => ({ runtime: card.claim!.runtime, sessionId: ca
 
 const desk = async (t: TestContext, flow: string = FLOW): Promise<Desk> => {
   const repo = await makeRepo('hd-flow-run-check-')
+  // commit_work reads the checkout's own author, never the machine's; a CI runner has none.
+  await repo.git('config', 'user.name', 'Jane Doe')
+  await repo.git('config', 'user.email', 'dev@example.com')
   await writeFile(join(repo.dir, 'listen.mjs'), LISTEN)
   await writeFile(join(repo.dir, 'value.mjs'), VALUE)
   await writeFile(join(repo.dir, 'loud.mjs'), LOUD)
