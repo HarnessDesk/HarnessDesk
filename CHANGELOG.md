@@ -154,9 +154,9 @@ move is real work and is not news to a person weighing an upgrade.
   whole-desk survey (the empty pane's "now what?") says so instead of a
   tagline or a bare "Ready." An agent's own page says it has not answered
   yet rather than "Not signed in", says a session would not start only once
-  every one of its accounts has answered, and asks before removing an
-  account that has not; an extra account that could not start says
-  "Unavailable" there, as the list does (#1038). A read that fails no
+  every one of its accounts that can answer has answered, and asks before
+  removing an account that has not; an extra account that could not start
+  says "Unavailable" there, as the list does (#1038). A read that fails no
   longer forgets the last answer, and is asked again on its own, soon at
   first and then less often, so an agent never sits at "Not answered yet"
   with nothing asking (#1021). (#986)
