@@ -110,6 +110,9 @@ import { CatalogRefresher } from './catalog-refresher.js'
 import { Ledger, defaultCorpora, type CorpusSpec, type RemoteEventsSource } from './ledger/index.js'
 import type { UsageMeter } from './usage/meter.js'
 import { UsageService } from './usage/service.js'
+import { PlanStore } from './usage/plan-store.js'
+import { suggestionFor } from './usage/plan-prices.js'
+import { planOverlay } from './usage/plan-merge.js'
 import { CredentialBroker, plainCipher, type CredentialCipher } from './credentials.js'
 import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
@@ -741,6 +744,7 @@ export class Host {
   readonly #remoteSources: RemoteEventsSource[] = []
   #usage: UsageService | null = null
   #ledger: Ledger | null = null
+  #plans: PlanStore | null = null
   /** What the wire methods may reach; see `HostContext`. Built once the fields above exist. */
   readonly #context: HostContext
 
@@ -1960,8 +1964,35 @@ export class Host {
       spend: { spendFor: (runtime) => this.#ledgerService.spendFor(runtime) },
       onReport: (report) => this.#push({ method: 'usage/updated', params: { report } }),
       log: (message, details) => this.#logger.warn(message, details),
+      // Every report — cached, returned or pushed as `usage/updated` — folds
+      // a stored plan fee/budget in right here, the one seam `UsageService`
+      // funnels all three through. A `plans.json` that fails to read is
+      // logged and the report passes through unmerged (BLOCKING 1, 2).
+      overlay: planOverlay(this.#planStore, (message, details) => this.#logger.warn(message, details)),
     })
     return this.#usage
+  }
+
+  get #planStore(): PlanStore {
+    this.#plans ??= new PlanStore(join(this.#state.directory, 'plans.json'))
+    return this.#plans
+  }
+
+  /**
+   * One account's own stored plan and its matching suggestion — never a
+   * runtime's single cached report, which only ever remembers one account
+   * (BLOCKING 3). A `plans.json` that fails to read comes back as `refusal`
+   * (where and why) rather than rejecting the call, so the card can show it
+   * instead of going blank (BLOCKING 2).
+   */
+  async #readPlan(params: import('@harnessdesk/protocol').PlanReadParams): Promise<import('@harnessdesk/protocol').PlanRead> {
+    try {
+      const entry = await this.#planStore.entryFor(params.runtime, params.account)
+      const suggestion = suggestionFor(params.runtime, params.plan ?? null)
+      return { entry, suggestion, refusal: null }
+    } catch (error) {
+      return { entry: null, suggestion: null, refusal: error instanceof Error ? error.message : String(error) }
+    }
   }
 
   async start(): Promise<void> {
@@ -3118,6 +3149,11 @@ export class Host {
       catalogs: this.#catalogs,
       usage: () => this.#usageService,
       ledger: () => this.#ledgerService,
+      plans: {
+        read: (params) => this.#readPlan(params),
+        set: (input) => this.#planStore.set(input),
+        entryFor: (runtime, account) => this.#planStore.entryFor(runtime, account),
+      },
       insight: this.#insight,
       intake: this.#intake,
       libraryUsage: () => {

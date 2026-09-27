@@ -47,6 +47,18 @@ move is real work and is not news to a person weighing an upgrade.
   releasing a card can now wait up to 10 s for a slow git to report where the
   card stopped. (#1035, #1042)
 
+- **What a plan costs is now something you set, once, from a suggested public
+  price.** The Dashboard's "Paid" figure has always needed a fee nobody could
+  read off any API — Anthropic, OpenAI, Cursor and Copilot never say what
+  their own seat costs — so it stayed absent. Settings › Agents now offers a
+  one-click suggestion where a vendor's own pricing page gives an unambiguous
+  number (dated and linked back to it), or a plain amount and currency
+  otherwise; either way it is your own click that sets it, marked "you set
+  this", and it stays until you edit or clear it. A key or metered account can
+  also carry an optional monthly budget, unrelated to any vendor limit. No
+  rate is bundled or guessed — the same rule the model-price overlay already
+  keeps.
+
 - **"What it cost" draws a line as well as bars, against its own past.** A
   Bars/Line toggle beside the range control is remembered per user. Either
   view now carries a dashed line for the previous period of the same length,
