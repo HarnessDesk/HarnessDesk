@@ -16,8 +16,9 @@ move is real work and is not news to a person weighing an upgrade.
   the desk already uses to notice a turn ended, and goes through the moment
   it does, however long that takes — never a poll, and never abandoned. While
   a stopped or failed run's release waits, and for a minute past that if the
-  signal still has not come, that run's own reason names which card is still
-  held and which Seat it is waiting on, and reads normally again once the
+  signal still has not come, that run's own reason keeps saying why it
+  stopped and adds which card is still held and which Seat it is waiting on
+  — never replacing why it stopped, and reading with nothing added once the
   release goes through. A Seat handed new work while its old release still
   waits is never released out from under it, nor is one a person has since
   handed a different card of their own by hand. A Seat a stopped or settled
