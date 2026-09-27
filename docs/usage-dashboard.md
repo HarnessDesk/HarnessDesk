@@ -992,9 +992,10 @@ and any others are included in the `+N more` count. The reason is that a spent
 model is not a spent account: Claude Code's Fable window can sit at 0% all week
 while every other model answers normally, and a card headlined
 `0% left` would send you to another agent you do not need. The scoped fact
-still gets said, in one line under the bar — *Fable is spent — other models
-still work* — and only an account-wide limit turns the card red, raises the
-banner, or counts as an exhausted agent in the line at the top.
+is called out in one line under the bar when the source reports a reached
+scoped lane — *Fable is spent — other models still work*. Only an account-wide
+limit turns the card red, raises the banner, or counts as an exhausted agent
+in the line at the top.
 
 Among live account-wide windows, automatic selection leads with the shortest
 window, not the smallest remaining percentage. The choice from #715 gives the
@@ -1008,12 +1009,12 @@ regardless of the shorter window or the pin.
 **With no account-wide lane, the scopes are alternatives.** Antigravity
 reports a weekly limit for its Gemini models and another for its Claude and
 GPT ones, and nothing for the account; Gemini CLI reports one per model. Same
-rule, other shape: a spent scope is stepped around while any other still has
-room, so the headline is a scope that can still run a turn, and the spent one
-spent lane is shown in red with its reset when it fits among the visible rows;
-otherwise it is included in the `+N more` count. Only when every scope is spent
-is the account out, and then the scope that comes back first is the headline,
-because when is the only question left. (Until 2026-09-17 such a report was
+rule, other shape: spent scopes are stepped around while any scope is not known
+to be spent, and one of those alternatives becomes the headline. A spent lane
+is shown in red with its reset when it fits among the visible rows; otherwise
+it is included in the `+N more` count. Only when every scope is spent is the
+account out, and then the scope that comes back first is the headline, because
+when is the only question left. (Until 2026-09-17 such a report was
 treated as blocked by its tightest scope, on the stated assumption that no
 source had this shape; Gemini CLI already did.) Seating an Agent asks the same
 question, plus one: a candidate whose model has a spent lane of its own is
