@@ -799,10 +799,12 @@ export class Host {
       list: () => this.#laneStore.list(),
       save: (lane) => this.#laneStore.save(lane),
       available: availablePorts,
-      create: async (id, goal) => {
+      create: async (id, goal, base) => {
         const document = this.#goalStore.read(goal)
-        // A Goal pinned to a commit cuts every lane from that commit, never from whatever the project has checked out.
-        const checkout = await this.#worktrees.create(document.goal.cwd, { name: `lane-${id}`, ...(document.goal.at ? { base: document.goal.at } : {}) })
+        /* A Goal pinned to a commit cuts every lane from that commit, never from whatever the project has checked out;
+           a card handed one predecessor's finished work cuts its lane from that work's commit instead (#1053). */
+        const from = base ?? document.goal.at
+        const checkout = await this.#worktrees.create(document.goal.cwd, { name: `lane-${id}`, ...(from ? { base: from } : {}) })
         if (!checkout.branch) throw new Error('The lane checkout has no branch. Its reservation was kept.')
         return { cwd: checkout.path, branch: checkout.branch }
       },
@@ -1646,6 +1648,20 @@ export class Host {
       retainLane: async (seat: SeatId) => {
         const lane = this.#lanes.forSeat(seat)
         if (lane) await this.#lanes.retain(lane.id)
+      },
+      /* A lane opened only so a reading Seat had the commit it was handed
+         goes when that Seat does: its ports and browser profile are freed.
+         Its folder stays, since the card's recorded stop is read against it.
+         A port still in use leaves it retained, for a person to release. */
+      releaseReadingLane: async (seat: SeatId) => {
+        const lane = this.#lanes.forSeat(seat)
+        if (!lane?.reading || lane.state === 'released') return
+        try {
+          await this.#lanes.release(lane.id)
+        } catch (error) {
+          this.#logger.warn('a reading lane could not be let go; it stays retained', { lane: lane.id, error: error instanceof Error ? error.message : String(error) })
+          await this.#lanes.retain(lane.id)
+        }
       },
       wake: (goal: string) => this.#team.nudgeRoom(goal),
       stopFlows: (goal: string) => this.#flows.stopGoal(goal),

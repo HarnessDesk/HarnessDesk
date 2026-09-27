@@ -38,6 +38,7 @@ import {
   evidenceValues, namesEvidence, readyGuard, renderCardTemplate, type FindingsGate, type FlowEvidenceContext, type FlowSubject,
 } from './flow-evidence.js'
 import { decideLoop, QUESTION_STOP } from './findings/rounds.js'
+import { handedCheckout, writes } from './flow-handed.js'
 import { reviewsIn } from './flow-policy.js'
 import type { FindingJournal, FindingJournalEntry } from './findings/journal.js'
 import type { PublicationEntry, PublicationJournal, StoredPublication } from './findings/publication.js'
@@ -74,6 +75,8 @@ export type StoredFlowExecution = FlowExecution & {
   operationTimes: Readonly<Record<string, { preparedAt: number; startedAt: number | null; finishedAt: number | null }>>
   /** Each check round's plan, by round number, written when the round's cards were: see `CheckPlan`. */
   checkPlans?: Readonly<Record<string, CheckPlan>>
+  /** Each agent round's seating against the work it is handed, by round number, written before any of its Seats opens: see `SeatPlan`. */
+  seatPlans?: Readonly<Record<string, SeatPlan>>
   /** Each finding command a Seat of this run made, by operation key, journaled before its record is appended. */
   findingOps?: Readonly<Record<string, FindingJournalEntry>>
   /** A later review round's package, by round number: pinned before its Seats open, handed to each in its order. */
@@ -105,6 +108,33 @@ export interface CheckPlan {
   /** Why no card of this round may run at all (its `cwd` is outside the project), or null. */
   readonly refused: string | null
 }
+
+/**
+ * Where an agent round's cards open, against the predecessor work they are
+ * handed (#1053), decided once before any of its Seats opens and journaled
+ * beside its cards, so a retry seats and briefs exactly as the first attempt
+ * did. A card whose work is one commit written in some other checkout opens
+ * in a lane of its own cut from that commit (`base`); a card handed several
+ * commits keeps the checkout its role gives it and is told, in its order,
+ * where each one is (`handed`). A round that shares its one predecessor's
+ * own tree needs neither.
+ */
+export interface SeatPlan {
+  /** The one predecessor commit each card's own lane is cut from, or null. */
+  readonly base: string | null
+  /** The predecessor work named in each card's order: empty when the round shares its predecessor's tree. */
+  readonly handed: readonly { readonly card: number; readonly at: string; readonly branch: string | null; readonly cwd: string }[]
+}
+
+/** Why a round was not seated: the predecessor work its cards are handed cannot be given to them in any checkout. */
+export const UNREACHABLE = (cards: readonly number[], predecessor: number, why: string): string =>
+  `${cards.length === 1 ? `Card #${cards[0]} was` : `Cards ${cards.map((one) => `#${one}`).join(', ')} were`} not opened: ` +
+  `the work ${cards.length === 1 ? 'it is' : 'they are'} handed, card #${predecessor}'s, cannot be reached, because ${why}. ` +
+  `No Seat was opened on stale code; start a new run once card #${predecessor}'s work is committed in a checkout that exists.`
+
+/** Why a Seat was given no work: it did not open at the predecessor commit its lane was cut from. */
+export const NOT_AT_BASE = (card: number, base: string): string =>
+  `The Seat for card #${card} did not open at ${base.slice(0, 12)}, the commit the work it is handed was finished at, so it was given no work. Start a new run.`
 
 /** What `startGoal` is handed: a compiled, authorized policy. Preview and its token are a later step's. */
 export interface FlowStartRequest {
@@ -189,7 +219,7 @@ export interface FlowExecutionPort {
    */
   canReadProvider?(runtime: string): boolean
   /** GoalPlane.seat: resolves the Agent, opens and records the Seat, hands over its brief, claims `card`. */
-  openSeat(input: GoalSeatRequest): Promise<SeatRecord>
+  openSeat(input: GoalSeatRequest & { readonly base?: string; readonly reading?: true }): Promise<SeatRecord>
   release(goal: string, seat: string): Promise<void>
   canDispatch(goal: string): { ok: true } | { ok: false; reason: string }
   /** `at`, host-only: the commit every Seat of the new Goal works at, each in a checkout of its own cut from it. */
@@ -1249,7 +1279,7 @@ export class FlowExecutions {
     // A card that judges is never judged: a reviewer's own checkout is not a
     // subject whatever its grant, exactly as `reviewBinding` offers it only
     // what it depends on.
-    return binding !== undefined && binding.grant !== 'read' && !reviewsIn(binding)
+    return binding !== undefined && writes(binding)
   }
 
   /**
@@ -2076,7 +2106,21 @@ export class FlowExecutions {
       }
     }
     if (role.kind === 'agent') {
-      const opened = await this.#seatRound(id, round, bindings, role.isolate, role.independentOf)
+      /* Where each card opens against the work it is handed, decided once
+         before any Seat opens: work that cannot be reached stops the round
+         here, naming its cards, rather than seating them on stale code. */
+      let seating = this.#get(id).seatPlans?.[String(round.n)]
+      if (!seating) {
+        const planned = await this.#planSeats(this.#get(id), round, role.isolate, dependsOn)
+        if (typeof planned === 'string') {
+          await this.#stall(id, planned)
+          return this.#get(id).rounds.find((one) => one.n === round.n)!
+        }
+        const current = this.#get(id)
+        await this.#put({ ...current, seatPlans: { ...current.seatPlans, [String(round.n)]: planned } })
+        seating = planned
+      }
+      const opened = await this.#seatRound(id, round, bindings, role.isolate, role.independentOf, seating.base)
       if (!opened) return this.#get(id).rounds.find((one) => one.n === round.n)!
     }
     if (role.kind === 'check') {
@@ -2153,7 +2197,37 @@ export class FlowExecutions {
    * sends each its card. False when the round could not be seated; the run
    * is stalled with the reason and only this round's new openings released.
    */
-  async #seatRound(id: string, round: FlowRoundState, bindings: readonly FlowBinding[], isolate: boolean, independentOf: readonly string[]): Promise<boolean> {
+  /**
+   * The rule of #1053: a card's checkout holds every commit its order hands
+   * it as the work to act on. Read from the same dependency walk every
+   * evidence question starts from. A card that shares its predecessor's own
+   * tree — not isolated, and that work written in the Goal's own checkout —
+   * already holds it. Otherwise one commit is a lane cut from it, several are
+   * named in the order (each is in this repository, so any checkout reaches
+   * it by its id), and work with no clean commit to cut from, or no Seat to
+   * read it through, stops the round.
+   */
+  async #planSeats(run: StoredFlowExecution, round: FlowRoundState, isolate: boolean, dependsOn: readonly number[]): Promise<SeatPlan | string> {
+    if (dependsOn.length === 0) return { base: null, handed: [] }
+    const closure = await this.#closure(run, dependsOn)
+    const board = this.#team.stateFor(run.goal)
+    const shared = board.cwd ?? board.root
+    const apart = (cwd: string): boolean => isolate || cwd !== shared
+    // Work no checkout can be given stops the round, unless the card shares that work's own tree.
+    for (const one of closure.unsettled) {
+      const seat = this.#seatForCard(run, one.card).seat
+      if (!seat || apart(seat.checkout.cwd)) return UNREACHABLE(round.cards, one.card, one.why)
+    }
+    const handed = closure.subjects.map((one) => ({ card: one.card, at: one.at, branch: one.checkout.branch, cwd: one.checkout.cwd }))
+    // The one rule a dry run states too (`rolesAtPredecessor`), so what it said is what runs.
+    const where = handedCheckout(isolate, handed.map((one) => ({ apart: one.cwd !== shared })))
+    if (where === 'own') return { base: null, handed: [] }
+    return { base: where === 'lane' ? handed[0]!.at : null, handed }
+  }
+
+  async #seatRound(
+    id: string, round: FlowRoundState, bindings: readonly FlowBinding[], isolate: boolean, independentOf: readonly string[], base: string | null = null,
+  ): Promise<boolean> {
     const openedNow: string[] = []
     const fail = async (reason: string): Promise<false> => {
       const run = this.#get(id)
@@ -2232,7 +2306,10 @@ export class FlowExecutions {
         record = await this.#port.openSeat({
           goal: run.goal, agent: binding.agent.id,
           ...(candidates.length ? { seats: candidates } : {}),
-          grant: { kind: 'ceiling', level: binding.grant }, card, isolate,
+          grant: { kind: 'ceiling', level: binding.grant }, card, isolate: isolate || base !== null,
+          /* A lane the file did not ask for, for a Seat that only reads, is
+             let go — ports and browser profile — when that Seat closes. */
+          ...(base !== null ? { base, ...(!isolate && binding.grant === 'read' ? { reading: true as const } : {}) } : {}),
           // The run's own frozen policy, read from its record every time — never the request that started it.
           ...(run.requireHeld === true ? { requireHeld: true as const } : {}),
         })
@@ -2248,15 +2325,19 @@ export class FlowExecutions {
         const actual = await this.#port.providerOf(record.session.runtime, record.checkout.cwd)
         if (actual === null || writers.has(actual)) return fail(INDEPENDENT)
       }
-      if (isolate) {
+      if (isolate || base !== null) {
         const lane = this.#port.laneOf(record)
         if (!lane || lane.cwd !== record.checkout.cwd || lane.ports.end < lane.ports.start || !lane.browserProfile) return fail(LANE_REFUSED)
       }
-      /* A run that works on one commit hands work only to a Seat whose own
-         checkout is at that commit, read fresh from git — never to one that
-         opened on whatever the project had checked out. */
+      /* A card handed one predecessor's work is given it only in a checkout
+         at that commit, read fresh from git. Otherwise a run that works on
+         one commit hands work only to a Seat whose own checkout is at that
+         commit — never to one that opened on whatever the project had
+         checked out. */
       const pinned = this.#get(id).target?.head ?? null
-      if (pinned !== null && (await this.#port.headOf(record.checkout.cwd, null)).at !== pinned) return fail(NOT_AT_TARGET(card))
+      if (base !== null) {
+        if ((await this.#port.headOf(record.checkout.cwd, null)).at !== base) return fail(NOT_AT_BASE(card, base))
+      } else if (pinned !== null && (await this.#port.headOf(record.checkout.cwd, null)).at !== pinned) return fail(NOT_AT_TARGET(card))
       try {
         this.#team.setRole(run.goal, record.session.runtime, record.session.sessionId, round.role)
       } catch (error) {
@@ -2327,6 +2408,14 @@ export class FlowExecutions {
     const answers = roleAnswers(policyOf(run), binding.role, binding.agent.answers)
     const round = card ? run.rounds.find((one) => one.cards.includes(card.id)) : undefined
     const packet = round ? run.reviewPackets?.[String(round.n)]?.text ?? null : null
+    const seating = round ? run.seatPlans?.[String(round.n)] : undefined
+    const handed = !seating || seating.handed.length === 0 ? null : seating.base !== null
+      ? `Your checkout was cut at ${seating.base}, the commit ${seating.handed.map((one) => `card #${one.card}`).join(' and ')} finished at, so the work you are handed is already in it.`
+      : [
+        'The work you are handed is on more than one line, and every one of these commits is in this repository, so your own checkout reaches each by its id (git show <commit>:<path>, git diff <commit> <commit>):',
+        ...seating.handed.map((one) => `- card #${one.card}: ${one.at}${one.branch ? ` on ${one.branch}` : ''}, written in ${one.cwd}`),
+        'Read those folders if you need to; never write in one.',
+      ].join('\n')
     return [
       `Card #${card?.id ?? '?'} on this Goal is yours: ${card?.title ?? ''}`,
       card?.detail ?? null,
@@ -2334,6 +2423,7 @@ export class FlowExecutions {
       answers.length > 0
         ? `When it is done, call complete_claim for #${card?.id} with an outcome of exactly one of: ${answers.join(', ')}.`
         : `When it is done, call complete_claim for #${card?.id}.`,
+      handed,
       packet,
       `Flow run ${run.id}.`,
     ].filter((one): one is string => Boolean(one)).join('\n\n')
