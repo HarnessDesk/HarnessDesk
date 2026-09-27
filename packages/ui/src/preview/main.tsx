@@ -1,7 +1,7 @@
 import { StrictMode, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 
-import { runtimeId, sessionKey, type Worktree, type WorktreeChanges } from '@harnessdesk/protocol'
+import { runtimeId, sessionKey, type RuntimeId, type Worktree, type WorktreeChanges } from '@harnessdesk/protocol'
 
 import { BringHome } from '../components/BringHome'
 import { Conversation } from '../components/Conversation'
@@ -24,7 +24,7 @@ import { NewSessionChoice } from '../components/NewSessionChoice'
 import { SeatSheet } from '../components/SeatSheet'
 import { SaveAsAgentDialog } from '../components/SaveAsAgent'
 import { Settings, WorkspacesSection, type Section } from '../components/Settings'
-import { Usage } from '../components/Usage'
+import { Usage, type DashboardView } from '../components/Usage'
 import { SignIn } from '../components/SignIn'
 import { RuntimesSection } from '../components/SettingsAgents'
 import { SIGN_IN_SCENES, SIGN_IN_SELECTED, runtimesSeed, signInSeed, type SignInScene } from './signin-fixture'
@@ -75,6 +75,10 @@ const SHOW_EMPTY = new URLSearchParams(window.location.search).has('empty')
    reads differently with dozens of turns instead of one, and every other
    fixture on this screen still wants the ordinary short exchange. */
 const SHOW_DENSE = new URLSearchParams(window.location.search).has('dense')
+/* Which of the Dashboard's five rail rows the preview frame opens on — the
+   rig's own way to shoot each view without clicking through the rail by
+   hand: `preview.html?view=spend`. Falls back to the dial beside the frame. */
+const DASHBOARD_VIEW_PARAM = new URLSearchParams(window.location.search).get('view')
 /* Painted only when asked for: the fixture draws its two pictures at load. */
 const composerWaiting = SHOW_COMPOSER ? composerStore(store.getSnapshot()) : store
 const composerPaused = SHOW_COMPOSER ? composerStore(store.getSnapshot(), true) : store
@@ -456,6 +460,10 @@ const Preview = () => {
   const [flowScene, setFlowScene] = useState<FlowExecutionScene>('pinned')
   // The Agents window's own rail selection: the overview, or one Agent's own page.
   const [agentsFocus, setAgentsFocus] = useState<string>('overview')
+  const [dashboardView, setDashboardView] = useState<DashboardView>(
+    (DASHBOARD_VIEW_PARAM as DashboardView | null) ?? 'overview',
+  )
+  const [dashboardScope, setDashboardScope] = useState<RuntimeId | null>(null)
   return (
     <div className="min-h-full bg-background p-4 text-foreground">
       <section aria-label="Provenance preview">
@@ -668,9 +676,11 @@ const Preview = () => {
           <WorkspacesSection />
         </div>
       </Frame>
-      {/* The Dashboard, at the width the window really opens it at. Its own
-          rail scopes the page, so clicking an account in here shows the
-          burn-down band the way the app does.
+      {/* The Dashboard, at the width the window really opens it at. Its rail
+          is now five views rather than one row per account; the header's own
+          "All accounts ▾" scopes whichever view is open, so picking an
+          account in here shows the burn-down band on Plans the way the app
+          does.
 
           It needs the same `transform` the Settings frame above does, and for
           the same reason: `Usage` is an `AppWindow`, which is
@@ -681,9 +691,24 @@ const Preview = () => {
           four frames up. */}
       <Frame title="Dashboard — what is left, what it cost, where it went">
         <div className="relative h-[900px]" style={{ transform: 'translateZ(0)' }}>
-          <Usage onClose={() => {}} onSignIn={() => {}} />
+          <Usage
+            view={dashboardView}
+            scope={dashboardScope}
+            onView={setDashboardView}
+            onScope={setDashboardScope}
+            onClose={() => {}}
+            onSignIn={() => {}}
+          />
         </div>
       </Frame>
+      <div className="my-4 flex flex-wrap items-center gap-3">
+        <Dial
+          label="dashboard view"
+          value={dashboardView}
+          options={['overview', 'plans', 'spend', 'activity', 'projects'] as const}
+          onChange={setDashboardView}
+        />
+      </div>
 
       {/* The conversation, which is the app. It is scoped by a `PaneProvider`
           exactly the way the workbench scopes it, so this is the same

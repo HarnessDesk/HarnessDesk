@@ -47,9 +47,12 @@ export function decideLoop(sample: LoopSample): LoopDecision {
   } else if (sample.pendingException) {
     reason = 'Review the new regression or security finding before continuing.'
   } else if (sample.closed >= sample.limit) {
+    // The one stop a person can always answer by spending a round: named here, in the reason itself,
+    // in the button's own words, so the way forward is where the stop is read, not a fact to already know.
+    const forward = 'To let it continue, open Findings and choose Authorise another round.'
     reason = sample.plain
-      ? `This run reached its limit of ${sample.limit} round${sample.limit === 1 ? '' : 's'}.`
-      : `Round ${sample.closed} ended with ${sample.unresolved} open findings.`
+      ? `This run reached its limit of ${sample.limit} round${sample.limit === 1 ? '' : 's'}. ${forward}`
+      : `Round ${sample.closed} ended with ${sample.unresolved} open findings. ${forward}`
   } else if (idle >= sample.idleLimit) {
     reason = `${idle} rounds ended without new evidence.`
   }

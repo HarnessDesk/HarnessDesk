@@ -50,6 +50,17 @@ import type { Measure } from '@harnessdesk/protocol'
 export type CorpusKind = 'codex' | 'claude' | 'gemini' | 'qwen' | 'opencode' | 'cline'
 
 /**
+ * Corpora whose scanner can tell a genuine turn boundary from everything
+ * else in the file — see each scanner's own comment for what the boundary is.
+ * OpenCode's and Cline's databases keep only session totals, with no message
+ * table read here, so neither has one yet: their rows carry no `turns` at
+ * all, which `Ledger` reads as "unknown", never as zero. A runtime whose
+ * corpus kind is in this set is turn-known for exactly that reason — the
+ * rule the host's own bootstrap wiring uses to fill `LedgerOptions.turnRuntimes`.
+ */
+export const TURN_CAPABLE_KINDS: ReadonlySet<CorpusKind> = new Set(['codex', 'claude', 'gemini', 'qwen'])
+
+/**
  * Formats an agent rewrites rather than appends to. Each changed file is read
  * from its start and its rows replaced, which the file-keyed rows make safe.
  */
@@ -198,6 +209,51 @@ const add = (
 /** Null only when neither side was priced by the agent. */
 export const sumCost = (a: number | null, b: number | null): number | null =>
   a === null && b === null ? null : (a ?? 0) + (b ?? 0)
+
+/**
+ * One turn — a person-or-agent prompt answered by the agent, never an API
+ * request or a tool call ("Turns", `docs/usage-dashboard.md`) — folded into
+ * the same row a token-bearing call for that day, model and project would
+ * land in (`vendored: 0`, the untagged bucket every scanner here writes to).
+ * A turn recorded before its answer's tokens are read, or one whose model is
+ * only an approximation carried from the turn before it, still lands on the
+ * row its tokens will join once they arrive — the accumulator is a plain
+ * `Map`, so whichever call reaches a key first, the other's fields survive
+ * the merge untouched (`add`'s own `{ ...existing, ... }` spread). It never
+ * touches `requests`: a turn is not a call, and counting it as one would
+ * inflate `SpendCoverage.unpriced` for a row a real call never priced.
+ */
+const addTurn = (
+  into: Accumulator,
+  file: string,
+  runtime: string,
+  at: number,
+  model: string,
+  project: string,
+): void => {
+  const day = startOfDay(at)
+  const key = `${day}\u0000${model}\u0000${project}\u00000`
+  const existing = into.rows.get(key)
+  if (existing) {
+    into.rows.set(key, { ...existing, turns: (existing.turns ?? 0) + 1 })
+    return
+  }
+  into.rows.set(key, {
+    file,
+    day,
+    runtime,
+    model,
+    project,
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    reasoning: 0,
+    requests: 0,
+    turns: 1,
+    vendorCost: null,
+  })
+}
 
 const positive = (value: unknown): number =>
   typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : 0
@@ -418,9 +474,36 @@ export const scanCodexRollout = async (
   const context = contextFrom(tail) ?? (offset > 0 ? await contextBefore(target.path, offset) : unknownContext())
   const { offset: consumed, bytesRead } = await readLines(target.path, offset, (raw) => {
     const record = raw as CodexRecord
+    // A manual or automatic `/compact` writes `turn_context` again right
+    // after `compacted`, inside the very same turn -- compaction is not a
+    // new prompt, so that one `turn_context` must not add a second turn for
+    // the exchange the compaction interrupted. The flag survives past the
+    // record that set it and is cleared by the very next `turn_context`,
+    // whether or not this pass ever sees `compacted` itself (a scan that
+    // resumes mid-file gets the flag from `contextBefore`, in its own tail).
+    if (record.type === 'compacted') {
+      context.followsCompaction = true
+      return
+    }
     const payload = record.payload
     if (!payload) return
-    if (noteContext(record, context)) return
+    // `turn_context` is written once per turn, ahead of the exchange it
+    // introduces — Codex's own turn boundary, distinct from `session_meta`
+    // (once per session, not itself a turn). It carries this turn's own
+    // model, so the count lands on exactly the row its tokens will, with no
+    // lag the way a boundary discovered only in the reply would have.
+    const isTurnStart = record.type === 'turn_context'
+    if (noteContext(record, context)) {
+      if (isTurnStart) {
+        const afterCompaction = context.followsCompaction
+        context.followsCompaction = false
+        if (!afterCompaction) {
+          const turnAt = parseTime(record.timestamp)
+          if (turnAt !== null) addTurn(into, target.path, target.runtime, turnAt, context.model, context.project)
+        }
+      }
+      return
+    }
     if (record.type !== 'event_msg' || payload.type !== 'token_count') return
     const last = payload.info?.last_token_usage
     if (!last) return
@@ -450,9 +533,11 @@ interface CodexContext {
   model: string
   project: string
   sessionId?: string
+  /** Whether the last significant record seen was a `compacted` one not yet followed by its own `turn_context`. */
+  followsCompaction: boolean
 }
 
-const unknownContext = (): CodexContext => ({ model: 'unknown', project: '' })
+const unknownContext = (): CodexContext => ({ model: 'unknown', project: '', followsCompaction: false })
 
 /** Notes what a `session_meta` or `turn_context` record says of the model and project; false for any other record. */
 const noteContext = (record: CodexRecord, context: CodexContext): boolean => {
@@ -469,10 +554,11 @@ const contextFrom = (tail: readonly string[]): CodexContext | null => {
   try {
     const parsed: unknown = JSON.parse(tail[0] ?? '')
     if (parsed !== null && typeof parsed === 'object') {
-      const { model, project, sessionId } = parsed as Record<string, unknown>
+      const { model, project, sessionId, followsCompaction } = parsed as Record<string, unknown>
       const context: CodexContext = {
         model: typeof model === 'string' && model !== '' ? model : 'unknown',
         project: typeof project === 'string' ? project : '',
+        followsCompaction: followsCompaction === true,
       }
       if (typeof sessionId === 'string' && sessionId !== '') context.sessionId = sessionId
       return context
@@ -485,19 +571,28 @@ const contextFrom = (tail: readonly string[]): CodexContext | null => {
 
 /**
  * What a rollout had said of its model and project before `offset`, for a
- * cursor that carried neither. Only the lines that can say so are parsed.
+ * cursor that carried neither. Only the lines that can say so are parsed --
+ * `compacted` among them, so a scan resuming right after one still knows the
+ * `turn_context` it is about to read is the compaction's own, not a new turn.
  */
 const contextBefore = async (path: string, offset: number): Promise<CodexContext> => {
   const context = unknownContext()
   const stream = nodeFs.createReadStream(path, { start: 0, end: offset - 1 })
   try {
     for await (const line of createInterface({ input: stream, crlfDelay: Infinity })) {
-      if (!line.includes('"session_meta"') && !line.includes('"turn_context"')) continue
+      if (!line.includes('"session_meta"') && !line.includes('"turn_context"') && !line.includes('"compacted"')) continue
+      let record: CodexRecord
       try {
-        noteContext(JSON.parse(line) as CodexRecord, context)
+        record = JSON.parse(line) as CodexRecord
       } catch {
         // A line that is not JSON says nothing.
+        continue
       }
+      if (record.type === 'compacted') {
+        context.followsCompaction = true
+        continue
+      }
+      if (noteContext(record, context) && record.type === 'turn_context') context.followsCompaction = false
     }
   } catch {
     // Unreadable now: nothing is known, as before.
@@ -507,14 +602,26 @@ const contextBefore = async (path: string, offset: number): Promise<CodexContext
   return context
 }
 
+interface ClaudeContentPart {
+  readonly type?: string
+  readonly text?: string
+}
+
 interface ClaudeRecord {
   readonly type?: string
   readonly timestamp?: string
   readonly cwd?: string
   readonly requestId?: string
+  /** A subagent's own line -- `Task`'s transcript, in `subagents/*.jsonl` and inline alike -- never the person's turn. */
+  readonly isSidechain?: boolean
+  /** Hook context, a caveat, or a slash command's own expansion -- plumbing the model reads, never a prompt someone typed. */
+  readonly isMeta?: boolean
+  /** "This session is being continued from a previous conversation..." -- a summary the session wrote to itself. */
+  readonly isCompactSummary?: boolean
   readonly message?: {
     readonly id?: string
     readonly model?: string
+    readonly content?: string | readonly ClaudeContentPart[]
     readonly usage?: {
       readonly input_tokens?: number
       readonly output_tokens?: number
@@ -522,6 +629,60 @@ interface ClaudeRecord {
       readonly cache_creation_input_tokens?: number
     }
   }
+}
+
+/**
+ * The text a `type: 'user'` record actually carries, concatenating every
+ * `text` content part the array shape can hold. Used only to test for the
+ * plumbing markers below -- never persisted, never counted as a token.
+ */
+const claudeUserText = (content: string | readonly ClaudeContentPart[] | undefined): string => {
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) return content.map((part) => (part?.type === 'text' ? (part.text ?? '') : '')).join('')
+  return ''
+}
+
+/**
+ * Claude Code's own turn boundary: a `type: 'user'` line whose content is not
+ * entirely tool results fed back to the model, and not one of the several
+ * other shapes Claude Code itself writes to a `user`-role line that a person
+ * or another agent never typed:
+ *
+ * - `isSidechain: true` -- a subagent's own transcript line (`Task`'s own
+ *   exchange, whether inline or under `subagents/*.jsonl`); every line a
+ *   subagent transcript writes carries this, so no separate file-level
+ *   filter is needed to keep a subagent's turns out of the person's count --
+ *   its tokens still count, since nothing here skips the file, only this
+ *   predicate.
+ * - `isMeta: true` -- hook context, a caveat, or a slash command's expanded
+ *   body, none of which anyone asked for on their own.
+ * - `isCompactSummary: true` -- the session's own note to itself that it was
+ *   continued from a compaction, not a prompt.
+ * - text starting with `[Request interrupted` -- Claude Code's own marker for
+ *   a turn nobody finished, replayed as a notice, never counted as one.
+ * - text containing `<local-command-stdout>`, `<local-command-stderr>`,
+ *   `<local-command-caveat>` or `<task-notification>` -- a local command's own
+ *   echo or a background task's report, answered by the model but asked by
+ *   nobody.
+ *
+ * This mirrors the replay sieve's own boundary -- `classifyReplayed` in
+ * `packages/claude-acp/src/bridge.ts` -- which already treats every one of
+ * these as a notice or drops it outright; the two are kept in step by
+ * hand, since the server does not import `claude-acp`.
+ */
+const CLAUDE_PLUMBING_MARKERS = ['<local-command-stdout>', '<local-command-stderr>', '<local-command-caveat>', '<task-notification>']
+
+const isClaudeUserTurn = (record: ClaudeRecord): boolean => {
+  if (record.type !== 'user') return false
+  if (record.isSidechain === true || record.isMeta === true || record.isCompactSummary === true) return false
+  const content = record.message?.content
+  const hasRealContent =
+    typeof content === 'string' ? content.trim() !== '' : Array.isArray(content) ? content.some((part) => part?.type !== 'tool_result') : false
+  if (!hasRealContent) return false
+  const text = claudeUserText(content).trim()
+  if (text.startsWith('[Request interrupted')) return false
+  if (CLAUDE_PLUMBING_MARKERS.some((marker) => text.includes(marker))) return false
+  return true
 }
 
 export const scanClaudeTranscript = async (
@@ -536,8 +697,20 @@ export const scanClaudeTranscript = async (
   // boundary so a message split by two scans is still counted once.
   const seen = new Set<string>(tail)
   const order: string[] = [...tail]
+  // A turn line arrives before its own reply, so which model answers it is
+  // only known once that reply is read. Buffered in document order and
+  // resolved after the read, against the *next* assistant model this same
+  // pass sees — the model that actually answers it, never an approximation —
+  // and only falls back to 'unknown' for a turn whose reply has not arrived
+  // within this scan pass at all (the last line of a chunk mid-conversation),
+  // which the next scan's own rows do not retroactively correct.
+  const pending: ({ readonly kind: 'turn'; readonly at: number; readonly project: string } | { readonly kind: 'model'; readonly model: string })[] = []
   const { offset: consumed, bytesRead } = await readLines(target.path, offset, (raw) => {
     const record = raw as ClaudeRecord
+    if (isClaudeUserTurn(record)) {
+      const at = parseTime(record.timestamp)
+      if (at !== null) pending.push({ kind: 'turn', at, project: projectRootOf(record.cwd ?? '') })
+    }
     const usage = record.message?.usage
     if (!usage) return
     const id = record.message?.id ?? record.requestId
@@ -550,6 +723,7 @@ export const scanClaudeTranscript = async (
     if (at === null) return
     const model = record.message?.model
     if (typeof model !== 'string' || model === '') return
+    pending.push({ kind: 'model', model })
     const project = projectRootOf(record.cwd ?? '')
     const tokens = {
       input: positive(usage.input_tokens),
@@ -563,6 +737,26 @@ export const scanClaudeTranscript = async (
       input: usage.input_tokens, output: usage.output_tokens, cacheRead: usage.cache_read_input_tokens, cacheWrite: usage.cache_creation_input_tokens,
     }, 'call')
   }, insight?.byteLimit)
+  // Consecutive turn candidates with no model call between them are one
+  // turn, not several: a slash command's own line and its real prompt both
+  // survive `isClaudeUserTurn`, and a local command's line does too when it
+  // carries no plumbing marker of its own. Only the candidate immediately
+  // before the next model call (or the last one in this pass, unresolved
+  // until the next) is counted -- the one actually closest to being
+  // answered -- so a run of several collapses to the single turn that run
+  // represents, and a local command's line simply merges into the real
+  // prompt that follows it.
+  let nextModel = 'unknown'
+  for (let index = pending.length - 1; index >= 0; index -= 1) {
+    const entry = pending[index]!
+    if (entry.kind === 'model') {
+      nextModel = entry.model
+      continue
+    }
+    const after = pending[index + 1]
+    if (after !== undefined && after.kind !== 'model') continue
+    addTurn(into, target.path, target.runtime, entry.at, nextModel, entry.project)
+  }
   return { rows: [...into.rows.values()], offset: consumed, tail: order.slice(-TAIL), bytesRead }
 }
 
@@ -620,8 +814,21 @@ export const scanQwenTranscript = async (
   const into: Accumulator = { rows: new Map() }
   const seen = new Set<string>(tail)
   const order: string[] = [...tail]
+  // A 'user' line is the person's own prompt (Qwen writes one record per
+  // call, never a synthetic tool-result line under this type — unlike
+  // Claude's transcript, a Qwen function response rides inside the next
+  // 'assistant' record rather than a line of its own). Buffered and resolved
+  // the same way Claude's scanner does — against the *next* assistant model
+  // this pass sees, never the previous one — with the same 'unknown'
+  // fallback for a turn whose reply has not arrived within this pass.
+  const pending: ({ readonly kind: 'turn'; readonly at: number; readonly project: string } | { readonly kind: 'model'; readonly model: string })[] = []
   const { offset: consumed, bytesRead } = await readLines(target.path, offset, (raw) => {
     const record = raw as QwenRecord
+    if (record.type === 'user') {
+      const at = parseTime(record.timestamp)
+      if (at !== null) pending.push({ kind: 'turn', at, project: projectRootOf(record.cwd ?? '') })
+      return
+    }
     if (record.type !== 'assistant') return
     const usage = record.usageMetadata
     if (!usage) return
@@ -638,6 +845,7 @@ export const scanQwenTranscript = async (
     if (at === null) return
     const model = record.model
     if (typeof model !== 'string' || model === '') return
+    pending.push({ kind: 'model', model })
     const project = projectRootOf(record.cwd ?? '')
     const tokens = fromGeminiCounts({
         prompt: observedCount(usage.promptTokenCount),
@@ -655,6 +863,15 @@ export const scanQwenTranscript = async (
     add(into, target.path, target.runtime, at, model, project, aggregateTokens(aggregate))
     emit(insight, target, id ?? JSON.stringify(raw), at, model, project || null, tokens, 'call')
   }, insight?.byteLimit)
+  let nextModel = 'unknown'
+  for (let index = pending.length - 1; index >= 0; index -= 1) {
+    const entry = pending[index]!
+    if (entry.kind === 'model') {
+      nextModel = entry.model
+      continue
+    }
+    addTurn(into, target.path, target.runtime, entry.at, nextModel, entry.project)
+  }
   return { rows: [...into.rows.values()], offset: consumed, tail: order.slice(-TAIL), bytesRead }
 }
 
@@ -663,6 +880,8 @@ interface GeminiMessage {
   readonly type?: string
   readonly timestamp?: string
   readonly model?: string
+  /** Only read to tell a real prompt from a tool result fed back as a `type: 'user'` record -- see `isGeminiFunctionResponseOnly`. */
+  readonly content?: readonly unknown[]
   readonly tokens?: {
     readonly input?: number
     readonly output?: number
@@ -671,6 +890,16 @@ interface GeminiMessage {
     readonly tool?: number
   }
 }
+
+/**
+ * A Gemini CLI `type: 'user'` record whose `content` is entirely
+ * `functionResponse` parts is a tool result handed back to the model, the
+ * same thing `tool_result` is for Claude's transcript -- never a person's or
+ * an agent's own prompt, even though Gemini CLI files it under the same
+ * type a real prompt uses.
+ */
+const isGeminiFunctionResponseOnly = (content: readonly unknown[] | undefined): boolean =>
+  Array.isArray(content) && content.length > 0 && content.every((part) => isRecord(part) && 'functionResponse' in part)
 
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object'
 
@@ -780,12 +1009,32 @@ const readWholeFileWithinBudget = async (
 export const scanGeminiChat = async (target: ScanTarget, insight?: InsightScanOptions): Promise<ScanResult> => {
   const { text, size } = await readWholeFileWithinBudget(target, insight)
   const calls = new Map<string, GeminiMessage>()
+  // A `type: 'user'` entry is the chat's own turn boundary — the person's
+  // prompt, written once, never replayed the way a `gemini` reply is. Which
+  // model answers it is resolved the same way the incremental scanners do —
+  // against the *next* `gemini` entry in document order, the reply that
+  // actually answers it — buffered in the order the file's own replay order
+  // (`$set.messages`, a rewind) already has to be read in, and matched once
+  // the whole file has been read, since a whole-file read has no forward
+  // model to know yet while it is still reading.
+  const turns = new Map<string, number>()
+  const events: ({ readonly kind: 'turn'; readonly id: string; readonly at: number } | { readonly kind: 'model'; readonly model: string })[] = []
   const note = (message: unknown): void => {
     if (!isRecord(message)) return
     const candidate = message as GeminiMessage
+    if (candidate.type === 'user') {
+      if (typeof candidate.id !== 'string' || candidate.id === '' || turns.has(candidate.id)) return
+      if (isGeminiFunctionResponseOnly(candidate.content)) return
+      const at = parseTime(candidate.timestamp)
+      if (at === null) return
+      turns.set(candidate.id, at)
+      events.push({ kind: 'turn', id: candidate.id, at })
+      return
+    }
     if (candidate.type !== 'gemini' || !isRecord(candidate.tokens)) return
     if (typeof candidate.id !== 'string' || candidate.id === '') return
     calls.set(candidate.id, candidate)
+    if (typeof candidate.model === 'string' && candidate.model !== '') events.push({ kind: 'model', model: candidate.model })
   }
   for (const line of text.split('\n')) {
     const trimmed = line.trim()
@@ -807,6 +1056,15 @@ export const scanGeminiChat = async (target: ScanTarget, insight?: InsightScanOp
   }
   const into: Accumulator = { rows: new Map() }
   const project = geminiProjectOf(target.path)
+  let nextModel = 'unknown'
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]!
+    if (event.kind === 'model') {
+      nextModel = event.model
+      continue
+    }
+    addTurn(into, target.path, target.runtime, event.at, nextModel, project)
+  }
   for (const call of calls.values()) {
     const at = parseTime(call.timestamp)
     if (at === null) continue

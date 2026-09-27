@@ -273,6 +273,7 @@ const ListRowDetail = ({
   className,
   inset = false,
   within = 'row',
+  holds = 'plate',
   ...props
 }: React.ComponentProps<'div'> & {
   inset?: boolean | 'title'
@@ -282,6 +283,13 @@ const ListRowDetail = ({
    * inner edge for every body alike, plate or prose.
    */
   within?: 'row' | 'card'
+  /**
+   * What a title-hung body holds. A plate (a code block, a diff) carries its
+   * own visible edge right under the header, so the body keeps a tight step;
+   * text has no edge of its own, so it takes a wider one and a gap between
+   * the parts it stacks.
+   */
+  holds?: 'plate' | 'text'
 }) => (
   <div
     data-slot="list-row-detail"
@@ -290,7 +298,13 @@ const ListRowDetail = ({
     {...(inset === 'title' && within === 'card' ? { 'data-within': 'card' } : {})}
     className={cn(
       inset === 'title'
-        ? cn('pt-(--hd-space-0-5) pb-(--hd-space-1-5) ps-(--hd-space-6)', within === 'card' && 'pe-(--hd-space-3)')
+        ? cn(
+            holds === 'text'
+              ? 'grid gap-(--hd-space-2) pt-(--hd-space-2) pb-(--hd-space-3)'
+              : 'pt-(--hd-space-0-5) pb-(--hd-space-1-5)',
+            'ps-(--hd-space-6)',
+            within === 'card' && 'pe-(--hd-space-3)',
+          )
         : cn('pt-1', inset ? 'px-3 pb-3' : 'pb-2'),
       className,
     )}

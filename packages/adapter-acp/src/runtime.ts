@@ -570,16 +570,22 @@ const levelsOfModel = (
   return levels ? levels.map(levelOf) : null
 }
 
+/**
+ * The reasoning levels declared on this model's own choice in a `model`
+ * select control — the fallback for an agent that names its models only
+ * through `configOptions`, never `session/new`'s `models`. Matched by id: a
+ * choice's `_meta` speaks for that choice alone, never for a sibling that
+ * said nothing (#1023 — a session with levels on `large` and none on `small`
+ * must not hand `small` a copy of `large`'s).
+ */
 const levelsOfModelOption = (
   option: AcpConfigOption,
+  modelId: string,
 ): readonly { readonly id: string; readonly label: string }[] | null => {
   if (option.id !== 'model' || option.type !== 'select' || !Array.isArray(option.options)) return null
-  const levels = option.options
-    .map((choice) => (choice._meta?.['harnessdesk'] as { effortLevels?: unknown } | undefined)?.effortLevels)
-    .find((value): value is readonly { id: string; label?: string | null }[] => Array.isArray(value))
-  return levels
-    ? levels.map(levelOf)
-    : null
+  const choice = option.options.find((candidate) => candidate.value === modelId)
+  const levels = (choice?._meta?.['harnessdesk'] as { effortLevels?: unknown } | undefined)?.effortLevels
+  return Array.isArray(levels) ? levels.map(levelOf) : null
 }
 
 /**
@@ -625,23 +631,45 @@ export const whereSecretLives = (
   return null
 }
 
-/** True when the file names this key with a non-empty value. Reads no value out. */
-const readsKey = (source: AcpSecretSource, key: string, agentEnv?: Readonly<Record<string, string>>): boolean => {
-  // `${NAME:-fallback}` at the start of a path is the agent's own home
-  // variable — DSH keeps its store under $DSH_HOME when that is set — read
-  // from the agent's configured environment, then from the one it inherits.
+/**
+ * Where a declared secret source resolves to on disk — the one place `~` and
+ * `${NAME:-fallback}` are expanded, so a path this reads and a path this
+ * reports finding are never two different files.
+ *
+ * `${NAME:-fallback}` at the start of a path is the agent's own home
+ * variable — DSH keeps its store under `$DSH_HOME` when that is set — read
+ * from the agent's configured environment, then from the one it inherits.
+ * `~` is always the machine's own home directory, never a row's own `HOME`
+ * override: this mirrors what the agent's own process would resolve `~` to,
+ * since it is the agent's own file this reads, not a sandboxed copy of it.
+ */
+export const secretSourcePath = (source: AcpSecretSource, agentEnv?: Readonly<Record<string, string | undefined>>): string => {
   const expanded = source.path.replace(/^\$\{([A-Z_][A-Z0-9_]*):-([^}]*)\}/, (_whole, name: string, fallback: string) => {
     const set = agentEnv?.[name] ?? process.env[name]
     return set !== undefined && set !== '' ? set : fallback
   })
-  const path = expanded.startsWith('~')
-    ? join(homedir(), expanded.slice(1))
-    : expanded
+  return expanded.startsWith('~') ? join(homedir(), expanded.slice(1)) : expanded
+}
+
+/**
+ * A key's value out of one of an agent's declared file sources, or `null`
+ * when the file is absent or does not name the key. The one reader for this
+ * shape — `readsKey` below (presence only) and every meter that needs the
+ * value itself (DeepSeek Harness's balance meter, `usage/deepseek.ts`) call
+ * this rather than keeping a second copy that can disagree with it on what
+ * a path or a value even is.
+ */
+export const readKeyValue = (
+  source: AcpSecretSource,
+  key: string,
+  agentEnv?: Readonly<Record<string, string | undefined>>,
+): string | null => {
+  const path = secretSourcePath(source, agentEnv)
   let text: string
   try {
     text = readFileSync(path, 'utf8')
   } catch {
-    return false
+    return null
   }
   // YAML is matched in both styles the store is written in: a block mapping
   // per line, and the one-line flow mapping DSH's own writer produces
@@ -651,10 +679,14 @@ const readsKey = (source: AcpSecretSource, key: string, agentEnv?: Readonly<Reco
     source.format === 'yaml'
       ? new RegExp(`(?:^|[{,])\\s*${key}\\s*:\\s*([^,}\\n]*)`, 'm').exec(text)
       : new RegExp(`^\\s*(?:export\\s+)?${key}\\s*=\\s*(.*)$`, 'm').exec(text)
-  if (!found) return false
+  if (!found) return null
   const value = found[1]!.trim().replace(/^['"]|['"]$/g, '').trim()
-  return value.length > 0 && !value.startsWith('#')
+  return value.length > 0 && !value.startsWith('#') ? value : null
 }
+
+/** True when the file names this key with a non-empty value. Reads no value out. */
+const readsKey = (source: AcpSecretSource, key: string, agentEnv?: Readonly<Record<string, string | undefined>>): boolean =>
+  readKeyValue(source, key, agentEnv) !== null
 
 /**
  * A select's choices as one flat list.
@@ -1541,7 +1573,7 @@ export class AcpRuntime implements AgentRuntime {
     const isDefault = (modelId: string): boolean =>
       this.#catalogDefault === null ? modelId === currentModelId : modelId === this.#catalogDefault
     const catalog = models.map((model): ModelInfo => {
-      const own = levelsOfModel(model) ?? levelsOfModelOption(modelOption ?? ({} as AcpConfigOption))
+      const own = levelsOfModel(model) ?? levelsOfModelOption(modelOption ?? ({} as AcpConfigOption), model.modelId)
       return {
         id: model.modelId,
         displayName: model.name,
@@ -3670,7 +3702,8 @@ class AcpSession implements AgentSession {
                 update.content,
               ),
         ],
-        startedAt: Date.now(),
+        // Always inside the `this.#replaying` guard above -- see MutableTurn's own comment.
+        startedAt: null,
       }
       return
     }
@@ -4210,7 +4243,11 @@ class AcpSession implements AgentSession {
         : {}),
       startedAt: turn.startedAt,
       completedAt: Date.now(),
-      durationMs: Date.now() - turn.startedAt,
+      // Never actually null here -- `#finishTurn` only ever closes a live
+      // turn (`send`'s own `Date.now()`), replay never reaches it -- but the
+      // type is shared with a replayed turn's, so the arithmetic still has
+      // to allow for it.
+      durationMs: turn.startedAt === null ? null : Date.now() - turn.startedAt,
     }
     this.#currentTurn = null
     this.#turns.push(finished)
@@ -4246,5 +4283,13 @@ const OPEN_TURN = -1
 interface MutableTurn {
   readonly id: TurnId
   items: AgentItem[]
-  readonly startedAt: number
+  /**
+   * `null` only for a turn opened while replaying stored history
+   * (`#replaying`): the desk already knows when it really started, and
+   * stamping `Date.now()` here would re-date it to the moment of replay
+   * every time the session is reopened -- and double-count it, since desk
+   * turn counting buckets by day (#1047 review). A live turn (`send`) is
+   * always a real timestamp.
+   */
+  readonly startedAt: number | null
 }

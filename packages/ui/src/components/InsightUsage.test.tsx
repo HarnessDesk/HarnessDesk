@@ -23,12 +23,12 @@ const report = (): InsightReport => ({
   sources: [{ id: 'source', kind: 'corpus', label: 'Transcript', observedAt: 0, checkedAt: 10, stale: false, problem: null }], recordedSpend: [], provenance: { state: 'available', note: '' }, gaps: [],
 })
 
-it('loads By Goal on the Usage window’s initial view', async () => {
+it('loads By Goal on the Dashboard’s Projects view', async () => {
   const readUsageInsight = vi.fn(async () => report())
   const openGoal = vi.fn()
   const snapshot = { ...emptySnapshot(), workspace: { path: '/repo', name: 'repo', lastOpenedAt: 0, repo: { root: '/repo' } } }
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, loadUsage: vi.fn(async () => {}), refreshUsage: vi.fn(async () => {}), ledger: vi.fn(async () => null), readUsageInsight, openGoal } as unknown as AppStore
-  await act(async () => { root.render(<StoreProvider store={store}><Usage onClose={() => {}} /></StoreProvider>); await Promise.resolve() })
+  await act(async () => { root.render(<StoreProvider store={store}><Usage view="projects" onClose={() => {}} /></StoreProvider>); await Promise.resolve() })
   expect(readUsageInsight).toHaveBeenCalledOnce()
   expect(container.textContent).toContain('One Goal')
   const goal = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('One Goal'))

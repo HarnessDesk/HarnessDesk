@@ -38,6 +38,17 @@ export interface UsageRow {
    * the cost is ours to work out from the tokens.
    */
   readonly vendorCost?: number | null
+  /**
+   * One person-or-agent prompt answered by the agent — never an API request
+   * or a tool call, and never this row's own `requests`. Optional, and
+   * `null` in the store proper is not the same 0 a scanner actually counted:
+   * a row a turn-capable scanner wrote always carries a real integer (0 or
+   * more); `null` is what a row from before turns existed reads as, until
+   * the file it came from is scanned again — see the store's own migration
+   * comment, and `SpendCoverage.turnsKnownFor`, which is what tells a real
+   * zero apart from "never counted".
+   */
+  readonly turns?: number | null
 }
 
 export interface FileCursor {
@@ -76,6 +87,10 @@ CREATE TABLE IF NOT EXISTS usage (
   cacheWrite INTEGER NOT NULL DEFAULT 0,
   reasoning INTEGER NOT NULL DEFAULT 0,
   requests INTEGER NOT NULL DEFAULT 0,
+  -- NULL until a scanner with a real turn boundary has actually counted this
+  -- row's turns -- never a default 0, which would read as a known real zero
+  -- rather than "never scanned for this". See UsageRow.turns above.
+  turns INTEGER,
   vendorCost REAL,
   -- 1 when the agent priced these requests. Part of the key, because a row is a
   -- sum, and a sum of requests the agent priced and requests it did not has no
@@ -99,36 +114,96 @@ export class LedgerStore {
     this.#migrate()
   }
 
+  #columns(): Set<unknown> {
+    return new Set(
+      (this.#db.prepare('PRAGMA table_info(usage)').all() as { name?: unknown }[]).map((column) => column.name),
+    )
+  }
+
   /**
    * A ledger written before rows could carry an agent's own cost has no
    * `vendorCost`, and one written before that cost was part of the key has a key
    * too narrow to keep priced and unpriced requests apart. Either is rebuilt in
    * place with its rows: empty where the column is new, which is what those
    * rows meant, and unvendored unless they carry a cost.
+   *
+   * A ledger written before turns were counted at all simply has no `turns`
+   * column, and that one is a plain additive column — no key changes, no row
+   * ever needs a different one — so it is added in place rather than rebuilt.
+   * It is added nullable, with no default: an existing row never counted a
+   * turn, and 0 would say it did, when the honest answer is "unknown until
+   * this file is read again". So the same migration also resets every local
+   * corpus's file cursor and deletes the rows those cursors cover — the ones
+   * `commit()` writes, keyed to a file this machine can still read — which
+   * is what turns the very next scan into a full one for exactly the rows
+   * that need it, without disturbing a remote source's own rows (Cursor's
+   * events, the desk's own transcript fallback), which were never tracked by
+   * a file cursor and already re-cover their own window on their own
+   * schedule. `turns:ready` starts cleared by the same migration, and
+   * `Ledger` marks it once a scan actually completes — see `LedgerStore.
+   * turnsReady`/`markTurnsReady` — so a coverage read between the migration
+   * and that first scan says "unknown", never a stale, too-low real count.
    */
   #migrate(): void {
-    const columns = new Set(
-      (this.#db.prepare('PRAGMA table_info(usage)').all() as { name?: unknown }[]).map((column) => column.name),
-    )
-    if (columns.has('vendored')) return
-    const carried = columns.has('vendorCost')
-    this.#db.exec('BEGIN IMMEDIATE')
-    try {
-      this.#db.exec('DROP INDEX IF EXISTS usage_day; DROP INDEX IF EXISTS usage_runtime_day')
-      this.#db.exec('ALTER TABLE usage RENAME TO usage_old')
-      this.#db.exec(SCHEMA)
-      this.#db.exec(`
-        INSERT INTO usage (file, day, runtime, model, project, input, output, cacheRead, cacheWrite, reasoning, requests, vendorCost, vendored)
-        SELECT file, day, runtime, model, project, input, output, cacheRead, cacheWrite, reasoning, requests,
-          ${carried ? 'vendorCost' : 'NULL'}, ${carried ? 'CASE WHEN vendorCost IS NULL THEN 0 ELSE 1 END' : '0'}
-        FROM usage_old
-      `)
-      this.#db.exec('DROP TABLE usage_old')
-      this.#db.exec('COMMIT')
-    } catch (error) {
-      this.#db.exec('ROLLBACK')
-      throw error
+    if (!this.#columns().has('vendored')) {
+      const carried = this.#columns().has('vendorCost')
+      this.#db.exec('BEGIN IMMEDIATE')
+      try {
+        this.#db.exec('DROP INDEX IF EXISTS usage_day; DROP INDEX IF EXISTS usage_runtime_day')
+        this.#db.exec('ALTER TABLE usage RENAME TO usage_old')
+        this.#db.exec(SCHEMA)
+        this.#db.exec(`
+          INSERT INTO usage (file, day, runtime, model, project, input, output, cacheRead, cacheWrite, reasoning, requests, vendorCost, vendored)
+          SELECT file, day, runtime, model, project, input, output, cacheRead, cacheWrite, reasoning, requests,
+            ${carried ? 'vendorCost' : 'NULL'}, ${carried ? 'CASE WHEN vendorCost IS NULL THEN 0 ELSE 1 END' : '0'}
+          FROM usage_old
+        `)
+        this.#db.exec('DROP TABLE usage_old')
+        this.#db.exec('COMMIT')
+      } catch (error) {
+        this.#db.exec('ROLLBACK')
+        throw error
+      }
     }
+    if (!this.#columns().has('turns')) {
+      this.#db.exec('BEGIN IMMEDIATE')
+      try {
+        this.#db.exec('ALTER TABLE usage ADD COLUMN turns INTEGER')
+        // Every row `commit()` ever wrote is keyed to a file this machine
+        // still has a cursor for; deleting those rows and their cursors
+        // together is what makes the next scan of that file a full one —
+        // `Ledger`'s own scan loop reads `from = 0` the moment a target's
+        // cursor is gone. A remote source's rows are never in `files` at
+        // all (see `replaceWindow`), so they are untouched here and simply
+        // keep whatever their own next sync gives them.
+        this.#db.exec('DELETE FROM usage WHERE file IN (SELECT path FROM files)')
+        this.#db.exec('DELETE FROM files')
+        this.#db
+          .prepare("INSERT INTO meta (key, value) VALUES ('turns:ready', '0') ON CONFLICT(key) DO UPDATE SET value = '0'")
+          .run()
+        this.#db.exec('COMMIT')
+      } catch (error) {
+        this.#db.exec('ROLLBACK')
+        throw error
+      }
+    }
+  }
+
+  /**
+   * Whether this ledger's turn counts can be trusted at all: `true` for a
+   * database that always had the `turns` column (nothing to distrust), and
+   * for one that did not until a scan has actually completed since — see
+   * the migration's own comment. `false` for the gap in between, which
+   * `Ledger` reads as "unknown", the same as a runtime it was never told
+   * about.
+   */
+  turnsReady(): boolean {
+    return this.meta('turns:ready') !== '0'
+  }
+
+  /** Called once a scan completes; a no-op once the ledger is already ready. */
+  markTurnsReady(): void {
+    if (this.meta('turns:ready') === '0') this.setMeta('turns:ready', '1')
   }
 
   close(): void {
@@ -165,8 +240,8 @@ export class LedgerStore {
 
   #insertRowStatement(): StatementSync {
     return this.#db.prepare(`
-      INSERT INTO usage (file, day, runtime, model, project, input, output, cacheRead, cacheWrite, reasoning, requests, vendorCost, vendored)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO usage (file, day, runtime, model, project, input, output, cacheRead, cacheWrite, reasoning, requests, turns, vendorCost, vendored)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(file, day, runtime, model, project, vendored) DO UPDATE SET
         input = input + excluded.input,
         output = output + excluded.output,
@@ -174,6 +249,10 @@ export class LedgerStore {
         cacheWrite = cacheWrite + excluded.cacheWrite,
         reasoning = reasoning + excluded.reasoning,
         requests = requests + excluded.requests,
+        turns = CASE
+          WHEN turns IS NULL AND excluded.turns IS NULL THEN NULL
+          ELSE COALESCE(turns, 0) + COALESCE(excluded.turns, 0)
+        END,
         vendorCost = CASE
           WHEN vendorCost IS NULL AND excluded.vendorCost IS NULL THEN NULL
           ELSE COALESCE(vendorCost, 0) + COALESCE(excluded.vendorCost, 0)
@@ -194,6 +273,7 @@ export class LedgerStore {
       row.cacheWrite,
       row.reasoning,
       row.requests,
+      row.turns ?? 0,
       row.vendorCost ?? null,
       row.vendorCost === null || row.vendorCost === undefined ? 0 : 1,
     )

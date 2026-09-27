@@ -577,9 +577,10 @@ export const SkillSheet = ({
                       </span>
                       {switchable ? (
                         <span className="flex min-w-0 flex-1 items-center justify-end gap-1.5">
-                          <Text role="meta" {...(reach.state === 'reaches' ? { tone: 'success' as const } : {})}>
-                            {reach.state === 'reaches' ? 'On' : 'Off'}
-                          </Text>
+                          {/* On is the resting, working state a switchable
+                              reach is meant to be in — health takes no
+                              tone, so it reads untoned like Off. */}
+                          <Text role="meta">{reach.state === 'reaches' ? 'On' : 'Off'}</Text>
                           <Switch
                             checked={reach.state === 'reaches'}
                             disabled={busy === reach.runtime}

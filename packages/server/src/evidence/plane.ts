@@ -396,8 +396,13 @@ export class EvidencePlane {
     const seat = kept?.id ?? null
     const since = cardStart(intent.claim.head, null, kept?.checkout.head)
     const upstream = intent.claim.upstream
+    const sinceDirtyPaths = intent.claim.dirtyPaths
     const work = (async () => {
-      const look: Look = { room, card: intent.id, project: await projectOf(board.cwd ?? board.root), cwd, seat, since, ...(upstream !== undefined ? { upstream } : {}) }
+      const look: Look = {
+        room, card: intent.id, project: await projectOf(board.cwd ?? board.root), cwd, seat, since,
+        ...(upstream !== undefined ? { upstream } : {}),
+        ...(sinceDirtyPaths !== undefined ? { sinceDirtyPaths } : {}),
+      }
       if (await this.observer.observe(look)) this.announce(room)
     })()
     let pending = this.#settling.get(room)

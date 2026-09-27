@@ -180,7 +180,11 @@ Navigate to **Settings › Runtimes › [runtime]** to view its **Install** sect
 - **Roster view:** The runtime list groups runtimes under "Needs attention",
   "Not answered yet" and "Ready", shows account counts when present, and
   names a state on the row only where its group does not already say it.
-  Runtimes needing no accounts omit redundant status text.
+  Runtimes needing no accounts omit redundant status text. A failed account
+  read keeps the last answer, and only the runtimes still failing are asked
+  again on their own, on one shared wait that starts at 2 s and doubles up
+  to once a minute until every one of them has answered; one that is
+  unavailable is re-read when it comes back up instead.
 - **Startup failures:** When a runtime fails preflight or daemon checks, the
   interface presents the runtime's raw stderr findings in a scrolling pane
   alongside actionable remediation commands formatted as code blocks.

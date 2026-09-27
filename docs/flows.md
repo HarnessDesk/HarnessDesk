@@ -570,6 +570,18 @@ naming the role and the two ways out: isolate it, or lower its grant to
 safely, so one writer beside reviewers that only read is fine, and a round
 opens exactly one role, so no two roles run at once.
 
+One lane the file does not spell out is taken on purpose: a card handed one
+earlier step's commit that was written in another checkout opens in a
+worktree of its own cut from that commit (see *A card's checkout holds the
+work it is handed* below). The dry run marks each such Seat with an "Own
+worktree" chip on its line, the full sentence on hover, so the start screen
+still says what runs. A reading Seat's lane of this kind lets its ports and browser profile go
+as soon as that Seat closes; its folder stays, since the card's recorded stop
+is read against it. A committing card seated this way — not isolated, after an
+isolated writer — commits on that lane's own `harnessdesk/lane-…` branch, a
+branch the file never named. Nothing is stranded: the next card is handed
+that commit the same way, and a person merges it like any lane's branch.
+
 **Files and splits.** A rule's `then` may name the paths its card owns while
 claimed, `files: [src/api/**]`, and claiming a card claims them: the board
 refuses a claim — an agent's, the host's own for an opening Seat, or a
@@ -726,6 +738,24 @@ when its round opens; a retry runs there or, if that checkout's head has
 moved since, stalls and says so. A writer whose checkout has uncommitted
 changes stops the round before any command runs.
 
+**A card's checkout holds the work it is handed.** An agent card is handed
+its predecessors' work through the same walk: the nearest cards back along
+its dependencies that may change files. When that work was written somewhere
+other than where the card would sit — an isolated predecessor, or an isolated
+card after a shared one — the desk decides where the card opens before any
+Seat does, and journals it beside the round. One commit handed means a lane of
+the card's own, cut from that commit on a branch of its own, whatever the
+role's `isolate` says: UC1's tester runs the tests on the dev's commit, never
+on the commit the run began at. Several different commits (a debate round
+reading both analysts' positions, a judge comparing competitors) keep the
+checkout the role gives the card, and its order names each one — card,
+commit, branch and the folder it was written in — which any checkout of the
+project reaches by id. A card that shares its one predecessor's own tree
+already has it and is left as it was. Work that cannot be reached — its Seat
+cannot be read, its checkout is gone or has no commit, or it was left
+uncommitted — stops the round before its card opens, naming the card and the
+predecessor. The person's own checkout is never moved.
+
 **Evidence guards** read what the desk already observed, never a message or
 an agent's own claim. A guard judges *subjects*: the revisions of the
 nearest cards back along the finished round's dependencies whose grant lets
@@ -770,6 +800,52 @@ being left out. A card
 may name what authorized it — `{{evidence.review.at}}`, say — and a field
 the facts do not settle to one value stops the run before any card is
 added.
+
+**Finishing dirty is refused, not a zero diff.** A round whose role produces
+no diff at all is not the defect — UC5's `proposal` round runs the
+implementer Agent and the right answer there is words, so `complete_claim` on
+an empty diff is left alone. What is refused is finishing *dirty*:
+`complete_claim`, and a review that finishes a card the same way, checks a
+committing Seat's own checkout — `edit` and above, the same ceiling the
+shared-tree rule above reads. A Seat that may only read is never checked; it
+could not have committed anything, so reading it as dirty would be a dead
+end.
+
+A Goal's checkout is shared by default, and most shipped flows are not
+isolated, so the check is never "is the whole tree clean" — a person's own
+untracked file, a half-finished edit sitting there from before the card was
+even claimed, or unignored build output would refuse every finish on that
+checkout for dirt nobody on the card made. Instead, the moment a card is
+claimed, the desk takes a snapshot of every path `git status` already shows
+changed or untracked in that checkout (`IntentClaim.dirtyPaths`, read the same
+way `head` and `upstream` already are). Finishing compares the checkout now
+against that snapshot and refuses only for a path dirty now that was not
+dirty then, naming how many. A path already dirty at claim is never counted
+even if the card's own work touched it again — the two reads cannot tell that
+apart, and that is a stated limit, not a hidden one. The same blind spot hides
+a new file inside a folder that was already untracked at claim: `git status`
+names the folder (`dir/`), not what is later added inside it, so nothing
+about that file is ever new either. A claim with no snapshot — written before
+this existed, one whose read failed at claim time, or one past 500 dirty
+paths (a checkout that never learned to ignore something like
+`node_modules` turns a snapshot into tens of thousands of strings, so the
+list is dropped to `null` rather than carried in full) — is never refused for
+dirt it cannot attribute: it fails open. The live read at finish is the same
+one the desk's own evidence observer already takes of a checkout (`headOf`,
+never a second probe beyond the one already needed for the snapshot),
+bounded and fail-open there too: a read that cannot answer never blocks the
+finish, only logs. A person finishing a card by hand through the board is not
+refused this way at all — they may have decided the leftovers do not matter
+— but the board still shows it: a diff fact recorded while the checkout held
+a path dirty since the claim draws stale, the same way a check that ran on
+uncommitted changes always has; pre-existing dirt from before the claim never
+draws it stale on its own.
+
+The snapshot itself is host-only: it is stored with the claim so it survives
+a restart, but a shared checkout's own file names — a `.env`, anything else
+`git status` would name — are never a value a board or a `goal/read` result
+shows. Every renderer-facing card list has it stripped before it leaves the
+host.
 
 **The catalogue** a project's Flows section and `/race` both read is layered
 — a project's own `.harnessdesk/flows`, then this Mac's, then the ones that

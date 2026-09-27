@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { runtimeId, type AgentRuntime, type RuntimeId, type SpendSummary, type UsageReport } from '@harnessdesk/protocol'
 
 import { UsageService } from '../src/usage/service.js'
-import type { MeterReading, UsageMeter } from '../src/usage/meter.js'
+import { MeterAuthError, type MeterReading, type UsageMeter } from '../src/usage/meter.js'
 
 /**
  * What the service does when the ledger finishes after the screen is open.
@@ -125,12 +125,13 @@ test('a source that fails keeps the last good reading, with the failure beside i
 })
 
 /** A meter that answers from a script, one step per read, and throws on a string. */
-const scriptedMeter = (steps: (MeterReading | string | null)[]): UsageMeter => ({
+const scriptedMeter = (steps: (MeterReading | string | Error | null)[]): UsageMeter => ({
   id: 'scripted',
   source: { kind: 'api', label: 'from a script' },
   read: async () => {
     const step = steps.shift()
     if (typeof step === 'string') throw new Error(step)
+    if (step instanceof Error) throw step
     return step ?? null
   },
   watchPaths: () => [],
@@ -177,6 +178,36 @@ test('a meter that fails before it has ever answered is still no card', async ()
   usage.dispose()
 })
 
+test('a meter that has never answered but says the key itself is wrong is a card, not silence', async () => {
+  // Unlike a plain outage above: a 401 means "sign in / check key", which is
+  // worth a card even with nothing earlier to keep it company.
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, scriptedMeter([new MeterAuthError('sign in, or check the API key')])]]),
+    onReport: () => undefined,
+  })
+  const [report] = await usage.refresh(METERED)
+  assert.ok(report, 'a card, even with no prior reading')
+  assert.deepEqual(report?.lanes, [])
+  assert.equal(report?.error?.needsSignIn, true)
+  assert.equal(report?.error?.message, 'sign in, or check the API key')
+  usage.dispose()
+})
+
+test('a meter with a good reading that later says the key is wrong keeps the reading, with needsSignIn on the failure', async () => {
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, scriptedMeter([weekly(30, 1_000), new MeterAuthError('sign in, or check the API key')])]]),
+    onReport: () => undefined,
+  })
+  const good = (await usage.refresh(METERED))[0]
+  assert.equal(good?.lanes[0]?.usedPercent, 30)
+  const after = (await usage.refresh(METERED))[0]
+  assert.equal(after?.lanes[0]?.usedPercent, 30, 'the last good reading stands')
+  assert.equal(after?.error?.needsSignIn, true)
+  usage.dispose()
+})
+
 test("another sign-in's figures are drawn beside the report and never read as the agent's own", async () => {
   // Antigravity's: the `agy` CLI signs in apart from the ACP server, so its
   // quota may be another Google account's. Readiness, the strip and the tray
@@ -213,5 +244,32 @@ test("another sign-in's figures are drawn beside the report and never read as th
   assert.equal(after?.unverified?.fetchedAt, 2_000, 'still dated when they were read')
   assert.equal(after?.unverified?.error?.message, 'agy /usage failed: HTTP 503')
   assert.equal(after?.error, null)
+  usage.dispose()
+})
+
+/**
+ * BLOCKING 1: a stored plan fee has to reach `usage/updated` — the push
+ * `onReport` sends on every report, not only the two request paths — or a
+ * fresh push wipes it off the card the moment it lands. `UsageService`'s
+ * `overlay` option is the one seam every exit (`reports()`, `refresh()`,
+ * the "kept" branches, `settleSpend()`) funnels through, so this proves the
+ * merge happens without going anywhere near `host.ts`'s real `PlanStore`.
+ */
+test('a stored plan folds into every report the overlay sees, including the onReport push behind usage/updated', async () => {
+  const pushed: UsageReport[] = []
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, meter]]),
+    onReport: (report) => pushed.push(report),
+    overlay: async (report) => ({
+      ...report,
+      billing: { kinds: report.billing?.kinds ?? [], fee: { amount: 20, currency: 'USD', period: 'month', source: 'user' } },
+    }),
+  })
+
+  const [first] = await usage.reports()
+  assert.deepEqual(first?.billing?.fee, { amount: 20, currency: 'USD', period: 'month', source: 'user' })
+  assert.deepEqual(pushed.at(-1)?.billing?.fee, { amount: 20, currency: 'USD', period: 'month', source: 'user' }, 'the push carries the stored fee too')
+  assert.deepEqual(usage.cached(METERED)?.billing?.fee, { amount: 20, currency: 'USD', period: 'month', source: 'user' }, 'and so does the cache reports()/refresh() read from next time')
   usage.dispose()
 })

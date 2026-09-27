@@ -141,6 +141,20 @@ const atMost = (limit: number, read: Validator<string> = isString): Validator<st
   }
 
 /**
+ * A runtime id never carries a `:` — `plan-store.ts`'s row key is
+ * `${runtime}:${accountKeyFor(account)}`, and a runtime string that could
+ * contain its own separator would let an account key collide with another
+ * runtime's row.
+ */
+const noColonRuntime: Validator<string> = (value, path = '') => {
+  const text = isFilled(value, path)
+  if (text.includes(':')) throw new ValidationError(path, `must not contain ":", got ${JSON.stringify(text)}`)
+  return text
+}
+const planRuntime = atMost(200, noColonRuntime)
+const planAccount = atMost(256, isFilled)
+
+/**
  * A seat as a map — `{ runtime, model, effort, thinking }` — the shape a seat
  * spec parses to. Checked field by field because it is handed to the seating
  * as it arrives, and a seat's runtime is what names the conversation opened.
@@ -851,6 +865,16 @@ const provenanceSeat: Validator<string> = (value, path = '') => {
   return text
 }
 
+const planFeeInputValidator = shape({
+  amount: isNumber,
+  currency: isString,
+  period: literalUnion('month', 'year'),
+})
+const planBudgetInputValidator = shape({
+  amount: isNumber,
+  currency: isString,
+})
+
 const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'provenance/commits': shape({ root: provenanceRoot, shas: provenanceShas }),
   'provenance/status': shape({ root: provenanceOptionalRoot }),
@@ -886,6 +910,13 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     groupBy: literalUnion('runtime', 'model', 'project'),
   }),
   'usage/scan': shape({ full: optional(isBoolean) }),
+  'usage/plan/read': shape({ runtime: planRuntime, account: planAccount, plan: optional(nullableString) }),
+  'usage/plan/set': shape({
+    runtime: planRuntime,
+    account: planAccount,
+    fee: optional((value: unknown, path = '') => (value === null ? null : planFeeInputValidator(value, path))),
+    budget: optional((value: unknown, path = '') => (value === null ? null : planBudgetInputValidator(value, path))),
+  }),
   'runtime/options': shape({ runtime: isString }),
   'runtime/refreshCatalog': shape({ runtime: isString }),
   'runtime/sessionDefaults': shape({

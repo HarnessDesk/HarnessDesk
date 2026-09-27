@@ -54,7 +54,11 @@ it('default-on capture displays the host reason and next step', async () => {
   expect(toggle()?.getAttribute('aria-checked')).toBe('true')
   expect(host.textContent).toContain(captureHealth().reason)
   expect(host.textContent).toContain(captureHealth().nextStep)
-  expect(host.querySelector('[data-tone="success"]')).not.toBeNull()
+  // Health takes no tone: a healthy capture is the normal state, so it reads
+  // untoned and a degraded one is what stands out.
+  const healthy = [...host.querySelectorAll<HTMLElement>('[data-slot="chip"]')].find((chip) => chip.textContent?.includes('Healthy'))
+  expect(healthy?.dataset.tone).toBe('neutral')
+  expect(host.querySelector('[data-tone="success"]')).toBeNull()
 })
 
 it('a pending preference write keeps the saved value visible and disables both actions', async () => {

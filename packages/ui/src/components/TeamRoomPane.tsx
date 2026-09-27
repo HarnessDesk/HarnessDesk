@@ -1876,116 +1876,143 @@ const RoomLiveLine = ({
   readonly room: string
 }) => {
   const store = useStore()
-  /* Every member with a question for you now, roster order — not only the
-     first. One is shown; the rest are counted on it and named in full on
-     hover, the same rule the run's other waits already keep below. */
-  const allWaiting = members.filter((one) => snapshot.approvals.some((entry) => entry.key === one.key))
-  const waiting = allWaiting[0]
-  /* The order a person needs them in: a member holding a question for you
-     now; what else the run is waiting on, a person first; why the run
-     stopped; and only then who is merely working. One line — the rest of the
-     run's waits are counted on it, and named in full on its hover. */
-  const waits = openTriggerWaits(triggerStatus)
-  /* A stop reason from either source, said once: the host's own `detail` is
-     already a full sentence (`Out of budget: …`, `Timed out: …`) with the
-     label baked in, so it is shown alone rather than after
-     `intakeStopWords`'s own label — which is only a fallback for a stop with
-     no detail to give. A flow a person started carries no `TriggerGoalStatus`
-     at all, so its own `reason` is read directly once there is no trigger
-     stop to prefer. */
-  const stopText = triggerStatus?.budget?.stop
-    ? triggerStatus.budget.stop.detail || intakeStopWords(triggerStatus.budget.stop.reason)
-    : flowExecution?.state === 'stopped' && flowExecution.reason
-      ? sentence(flowExecution.reason)
-      : null
-  /* The header's own chip (`runState`, above) answers "Needs you" before
-     "Stopped" — a person wait, the Goal's own activity or a stalled run all
-     outrank a stop the run has already settled into, because each is the
-     more urgent fact. `needsYou` is that exact same rule, computed once by
-     `TeamRoomPane` and handed down here, so the live line skips the stop
-     line under precisely the conditions that moved the header off "Stopped"
-     — never a narrower or wider one — and the two surfaces cannot disagree
-     about the same run. */
-  if (!waiting && stopText && !needsYou) {
-    return (
-      <TurnWorkLive settled data-slot="room-live-line" data-kind="stop">
-        {stopText}
-      </TurnWorkLive>
-    )
-  }
-  if (!waiting && waits.length > 0) {
-    const wait = waits[0]!
-    const open = wait.action === 'open-usage' || wait.action === 'open-trigger'
-      ? () => store.askSettings('workspaces', wait.action === 'open-trigger' ? triggerRootOf(snapshot, room) : 'triggers')
-      : wait.action === 'open-permissions'
-        ? () => store.askSettings('permissions', 'ceilings')
+  /*
+   * The primary line, exactly as before, wrapped so a pending release's own
+   * sentence — computed below, independent of which branch here fired — can
+   * follow it rather than compete with it for the same line (review #1050
+   * finding 3, round 3: the sentence must reach the screen whatever this run's
+   * state is, and every branch below answers a different state).
+   */
+  const primary = (() => {
+    /* Every member with a question for you now, roster order — not only the
+       first. One is shown; the rest are counted on it and named in full on
+       hover, the same rule the run's other waits already keep below. */
+    const allWaiting = members.filter((one) => snapshot.approvals.some((entry) => entry.key === one.key))
+    const waiting = allWaiting[0]
+    /* The order a person needs them in: a member holding a question for you
+       now; what else the run is waiting on, a person first; why the run
+       stopped; and only then who is merely working. One line — the rest of the
+       run's waits are counted on it, and named in full on its hover. */
+    const waits = openTriggerWaits(triggerStatus)
+    /* A stop reason from either source, said once: the host's own `detail` is
+       already a full sentence (`Out of budget: …`, `Timed out: …`) with the
+       label baked in, so it is shown alone rather than after
+       `intakeStopWords`'s own label — which is only a fallback for a stop with
+       no detail to give. A flow a person started carries no `TriggerGoalStatus`
+       at all, so its own `reason` is read directly once there is no trigger
+       stop to prefer. */
+    const stopText = triggerStatus?.budget?.stop
+      ? triggerStatus.budget.stop.detail || intakeStopWords(triggerStatus.budget.stop.reason)
+      : flowExecution?.state === 'stopped' && flowExecution.reason
+        ? sentence(flowExecution.reason)
         : null
+    /* The header's own chip (`runState`, above) answers "Needs you" before
+       "Stopped" — a person wait, the Goal's own activity or a stalled run all
+       outrank a stop the run has already settled into, because each is the
+       more urgent fact. `needsYou` is that exact same rule, computed once by
+       `TeamRoomPane` and handed down here, so the live line skips the stop
+       line under precisely the conditions that moved the header off "Stopped"
+       — never a narrower or wider one — and the two surfaces cannot disagree
+       about the same run. */
+    if (!waiting && stopText && !needsYou) {
+      return (
+        <TurnWorkLive settled data-slot="room-live-line" data-kind="stop">
+          {stopText}
+        </TurnWorkLive>
+      )
+    }
+    if (!waiting && waits.length > 0) {
+      const wait = waits[0]!
+      const open = wait.action === 'open-usage' || wait.action === 'open-trigger'
+        ? () => store.askSettings('workspaces', wait.action === 'open-trigger' ? triggerRootOf(snapshot, room) : 'triggers')
+        : wait.action === 'open-permissions'
+          ? () => store.askSettings('permissions', 'ceilings')
+          : null
+      return (
+        <TurnWorkLive
+          settled
+          data-slot="room-live-line"
+          data-kind="wait"
+          title={waits.length > 1 ? waits.map((one) => one.sentence).join('\n') : undefined}
+          /* The way to act on it sits beside the words, outside the region: a
+             control is not news. */
+          {...(open ? { trail: <Button variant="link" size="inline" onClick={open}>Open</Button> } : {})}
+        >
+          {wait.waitingOn.kind === 'person' && <Dot state="limit" pulse />}
+          <span>
+            {wait.sentence}
+            {waits.length > 1 && ` · ${waits.length - 1} more`}
+          </span>
+        </TurnWorkLive>
+      )
+    }
+    /* A stalled run waits on a person as surely as a question does, and its
+       reason is the only place that says why and what to do next — a Seat that
+       would not open, the siblings its round held back with it. The header
+       said "Needs you" and nothing here said for what, so the one visible way
+       on was a card's own "Give this to…". Its lines are kept as written. */
+    if (!waiting && flowExecution?.state === 'stalled' && flowExecution.reason) {
+      return (
+        <TurnWorkLive settled data-slot="room-live-line" data-kind="stall">
+          <Dot state="limit" pulse />
+          <span className="whitespace-pre-line">{sentence(flowExecution.reason)}</span>
+        </TurnWorkLive>
+      )
+    }
+    const busy = waiting ? null : members.find((one) => one.busy) ?? null
+    const subject = waiting ?? busy
+    if (!subject) return null
+    const session = snapshot.sessions.get(subject.key)
+    const turn = session ? currentTurn(session) : undefined
+    const elapsed = !waiting && turn ? elapsedSince(turn.startedAt, now) : null
+    /* One voice for the tail: every line is the transcript's own live line,
+       at its size and in its ink. Working is motion, so its words shimmer, and
+       its clock ticks beside them, outside the live region — a screen reader
+       hears who is working when that changes, never the seconds. A line that
+       waits on a person is a state, not motion, and leads with the one light
+       the tail has, the pulsing one the header's "Needs you" chip wears: a
+       leading light here always means you are needed. */
+    if (!waiting) {
+      return (
+        <TurnWorkLive
+          data-slot="room-live-line"
+          {...(elapsed !== null ? { trail: ` · ${formatDuration(elapsed)}` } : {})}
+        >
+          {subject.peer.nickname} is working
+        </TurnWorkLive>
+      )
+    }
     return (
       <TurnWorkLive
         settled
         data-slot="room-live-line"
-        data-kind="wait"
-        title={waits.length > 1 ? waits.map((one) => one.sentence).join('\n') : undefined}
-        /* The way to act on it sits beside the words, outside the region: a
-           control is not news. */
-        {...(open ? { trail: <Button variant="link" size="inline" onClick={open}>Open</Button> } : {})}
+        title={allWaiting.length > 1 ? allWaiting.map((one) => one.peer.nickname).join('\n') : undefined}
       >
-        {wait.waitingOn.kind === 'person' && <Dot state="limit" pulse />}
+        <Dot state="limit" pulse />
         <span>
-          {wait.sentence}
-          {waits.length > 1 && ` · ${waits.length - 1} more`}
+          {subject.peer.nickname} is waiting for your approval
+          {allWaiting.length > 1 && ` · ${allWaiting.length - 1} more`}
         </span>
       </TurnWorkLive>
     )
-  }
-  /* A stalled run waits on a person as surely as a question does, and its
-     reason is the only place that says why and what to do next — a Seat that
-     would not open, the siblings its round held back with it. The header
-     said "Needs you" and nothing here said for what, so the one visible way
-     on was a card's own "Give this to…". Its lines are kept as written. */
-  if (!waiting && flowExecution?.state === 'stalled' && flowExecution.reason) {
-    return (
-      <TurnWorkLive settled data-slot="room-live-line" data-kind="stall">
-        <Dot state="limit" pulse />
-        <span className="whitespace-pre-line">{sentence(flowExecution.reason)}</span>
-      </TurnWorkLive>
-    )
-  }
-  const busy = waiting ? null : members.find((one) => one.busy) ?? null
-  const subject = waiting ?? busy
-  if (!subject) return null
-  const session = snapshot.sessions.get(subject.key)
-  const turn = session ? currentTurn(session) : undefined
-  const elapsed = !waiting && turn ? elapsedSince(turn.startedAt, now) : null
-  /* One voice for the tail: every line is the transcript's own live line,
-     at its size and in its ink. Working is motion, so its words shimmer, and
-     its clock ticks beside them, outside the live region — a screen reader
-     hears who is working when that changes, never the seconds. A line that
-     waits on a person is a state, not motion, and leads with the one light
-     the tail has, the pulsing one the header's "Needs you" chip wears: a
-     leading light here always means you are needed. */
-  if (!waiting) {
-    return (
-      <TurnWorkLive
-        data-slot="room-live-line"
-        {...(elapsed !== null ? { trail: ` · ${formatDuration(elapsed)}` } : {})}
-      >
-        {subject.peer.nickname} is working
-      </TurnWorkLive>
-    )
-  }
+  })()
+  /*
+   * A release waiting on a Seat's turn to end says so on a line of its own,
+   * whatever the run above it is doing — stopped, settled, stalled, or a
+   * trigger's own stop — because none of those branches above ever reads
+   * this field, and a stopped run started by a trigger shows the trigger's
+   * own stop line in `stopText`, never this run's `reason` (review #1050
+   * finding 3, round 3).
+   */
+  const pendingNote = flowExecution?.pendingReleaseNote ?? null
+  if (!pendingNote) return primary
   return (
-    <TurnWorkLive
-      settled
-      data-slot="room-live-line"
-      title={allWaiting.length > 1 ? allWaiting.map((one) => one.peer.nickname).join('\n') : undefined}
-    >
-      <Dot state="limit" pulse />
-      <span>
-        {subject.peer.nickname} is waiting for your approval
-        {allWaiting.length > 1 && ` · ${allWaiting.length - 1} more`}
-      </span>
-    </TurnWorkLive>
+    <>
+      {primary}
+      <TurnWorkLive settled data-slot="room-pending-release-line" data-kind="pending-release">
+        <span className="whitespace-pre-line">{sentence(pendingNote)}</span>
+      </TurnWorkLive>
+    </>
   )
 }
 

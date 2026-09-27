@@ -322,7 +322,12 @@ export interface TeamPort {
    * work began: its commit, and the remote's copy of its branch; null
    * outside a repository. Absent, claims record neither.
    */
-  startOf?(cwd: string): Promise<{ readonly head: string | null; readonly upstream: string | null } | null>
+  startOf?(cwd: string): Promise<{
+    readonly head: string | null
+    readonly upstream: string | null
+    /** Paths already dirty in this checkout the moment a claim reads it — `IntentClaim.dirtyPaths`'s source. Null when that read failed. */
+    readonly dirtyPaths?: readonly string[] | null
+  } | null>
   /**
    * The folder a session works in now, read straight off the registry rather
    * than through any board: where a card's claim just ended looks for its
@@ -428,6 +433,8 @@ export interface TeamFlows {
   recordReview?(input: ReviewInput, scope: TeamCallScope): Promise<EvidenceRecord>
   /** Why this card cannot complete yet — its role declares `produces: review` and none is recorded — or null. */
   refuseCompletion?(room: string, intent: Intent, caller: TeamCallScope): Promise<string | null>
+  /** Why this card cannot complete yet — its role's grant can commit and its checkout is still dirty — or null. */
+  refuseDirty?(room: string, intent: Intent): Promise<string | null>
   /**
    * The review rounds on this board still open and blind: several reviewers
    * judging at once, none of whom may read another's card, context or
@@ -822,6 +829,25 @@ export const DEFAULT_TEAM_SETTINGS: TeamSettings = {
   messageChars: MESSAGE_CHAR_LIMIT,
 }
 
+/**
+ * A card list as a renderer may see it: every claim's `dirtyPaths` gone.
+ *
+ * `IntentClaim.dirtyPaths` exists only so `FlowExecutions.refuseDirty` can
+ * diff a checkout's dirt now against a shared checkout's dirt at claim time —
+ * a shared checkout's own file names (a `.env`, anything else `git status`
+ * would name), never anything a person opening a board has a use for. This
+ * is the one seam between what a claim stores (kept, so it survives a
+ * restart) and what leaves the host: `Team`'s own projection (`#stateOf`)
+ * and `GoalPlane.view`'s board both run their card list through this before
+ * either becomes a wire result.
+ */
+export const cardsForWire = (intents: readonly Intent[]): readonly Intent[] =>
+  intents.map((intent) => {
+    if (!intent.claim || intent.claim.dirtyPaths === undefined) return intent
+    const { dirtyPaths: _dirtyPaths, ...claim } = intent.claim
+    return { ...intent, claim }
+  })
+
 export class Team {
   readonly #dir: string
   readonly #port: TeamPort
@@ -1175,7 +1201,7 @@ export class Team {
    * `roomsFor`, and simply vanished from the tree at the next launch.
    */
   states(): TeamState[] {
-    return [...this.#boards.values()].map((board) => this.#stateOf(board))
+    return [...this.#boards.values()].map((board) => this.#wireStateOf(board))
   }
 
   hasRoom(id: string): boolean {
@@ -1185,7 +1211,7 @@ export class Team {
   stateFor(id: string): TeamState {
     const board = this.#boards.get(id)
     return board
-      ? this.#stateOf(board)
+      ? this.#wireStateOf(board)
       : {
           id,
           name: '',
@@ -1197,6 +1223,19 @@ export class Team {
           messaging: true,
           problem: this.#problem,
         }
+  }
+
+  /**
+   * A claimed card's own dirty-paths snapshot, straight off the stored
+   * claim — never through `stateFor`, which strips it (`cardsForWire`)
+   * before a board becomes a wire result. The one caller is
+   * `FlowExecutions.refuseDirty`, which needs the raw snapshot to diff a
+   * checkout's dirt now against dirt at claim time. `undefined` for a claim
+   * written before this existed, exactly as `stateFor` would have answered
+   * for the same card before this method existed.
+   */
+  dirtyPathsOf(room: string, card: number): readonly string[] | null | undefined {
+    return this.#boards.get(room)?.intents.find((intent) => intent.id === card)?.claim?.dirtyPaths
   }
 
   /** Historical display data copied into a Goal document; never a membership source. */
@@ -1555,7 +1594,7 @@ export class Team {
        until something unrelated made it ask again. */
     const key = keyOf(runtime, sessionId)
     for (const board of this.#boards.values()) {
-      if (board.members.includes(key)) this.#port.changed(this.#stateOf(board))
+      if (board.members.includes(key)) this.#notify(this.#stateOf(board))
     }
   }
 
@@ -2420,7 +2459,7 @@ export class Team {
         sessionId: caller.sessionId,
         at: Date.now(),
         leaseUntil: Date.now() + LEASE_MS,
-        ...(start ? { head: start.head, upstream: start.upstream } : {}),
+        ...(start ? { head: start.head, upstream: start.upstream, dirtyPaths: start.dirtyPaths ?? null } : {}),
       },
       blockedReason: null,
       blockedBy: null,
@@ -2574,6 +2613,12 @@ export class Team {
        judgment a merge step's evidence guard actually reads. */
     const missingReview = (await this.#flows?.refuseCompletion?.(board.id, first.intent, caller)) ?? null
     if (missingReview) return missingReview
+    /* A role whose grant can commit finishing with its checkout still dirty
+       leaves work outside every branch and outside the evidence ledger, and
+       nothing else catches it (#1049). A person's own hand finish goes
+       through `intentAction`, never here, so this never refuses them. */
+    const dirty = (await this.#flows?.refuseDirty?.(board.id, first.intent)) ?? null
+    if (dirty) return dirty
     this.#assertMutable(board)
     const still = held(first.intent.claim!.at)
     if ('refused' in still) return still.refused
@@ -3358,6 +3403,14 @@ export class Team {
 
   // ------------------------------------------------------------------ innards
 
+  /**
+   * The raw projection: every claim's `dirtyPaths` intact. This is what a
+   * save carries — `#commit` and `goalPlaneWrite` both build the document a
+   * Goal persists from this, and a restart must read the same snapshot back
+   * (#1049) — so it must never run through `cardsForWire`. A caller handing
+   * this to a renderer strips it itself: `stateFor`, `states`, `roomsFor`
+   * do, and `#notify` does for every `team/changed` push.
+   */
   #stateOf(board: Board): TeamState {
     return {
       id: board.id,
@@ -3378,6 +3431,23 @@ export class Team {
       plans: [...board.plans],
       problem: this.#problem,
     }
+  }
+
+  /** `#stateOf`, wire-safe: every claim's `dirtyPaths` gone (`cardsForWire`). */
+  #wireStateOf(board: Board): TeamState {
+    const state = this.#stateOf(board)
+    return { ...state, intents: cardsForWire(state.intents) }
+  }
+
+  /**
+   * Every `team/changed` push goes through here, never `this.#port.changed`
+   * directly: the state a save just built (`#commit`, `goalPlaneWrite`) is
+   * the raw projection, kept whole so the document on disk matches what a
+   * restart reads back, and this is the one seam where that same object is
+   * made wire-safe before a renderer ever sees it.
+   */
+  #notify(state: TeamState): void {
+    this.#port.changed({ ...state, intents: cardsForWire(state.intents) })
   }
 
   /** A room by its id, or nothing. Rooms are made on purpose, never on sight. */
@@ -3486,7 +3556,7 @@ export class Team {
   roomsFor(root: string): readonly TeamState[] {
     return [...this.#boards.values()]
       .filter((board) => board.root === root)
-      .map((board) => this.#stateOf(board))
+      .map((board) => this.#wireStateOf(board))
       .sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
@@ -4830,7 +4900,7 @@ export class Team {
         if (this.#queuedSave.get(board.id) === entry) this.#queuedSave.delete(board.id)
         if (!this.#settleSave(entry, error)) return
         this.#problem = error.message
-        this.#port.changed(this.#stateOf(this.#boards.get(board.id) ?? board))
+        this.#notify(this.#stateOf(this.#boards.get(board.id) ?? board))
       }
       this.#writes = this.#writes
         .then(() => this.#port.mutate!(begin, refused))
@@ -4840,14 +4910,14 @@ export class Team {
             this.#settleSave(entry, null)
             this.#problem = null
             const now = this.#boards.get(board.id) ?? board
-            this.#port.changed(saved ?? this.#stateOf(now))
+            this.#notify(saved ?? this.#stateOf(now))
             this.#wake(now)
           },
           (error: unknown) => refused(error instanceof Error ? error : new Error(String(error))),
         )
       return entry.outcome
     }
-    this.#port.changed(state)
+    this.#notify(state)
     /* Every card that becomes claimable becomes claimable here. Waking from
        the commit is what makes a wait free: nobody polls, and a seat is in
        its claim within a tick of the write that opened its card. */
@@ -4946,7 +5016,7 @@ export class Team {
     } catch (error) {
       undo()
       if (carried && !carried.settled && !this.#queuedSave.has(goal)) this.#queuedSave.set(goal, carried)
-      this.#port.changed(this.#stateOf(this.#boards.get(goal) ?? board))
+      this.#notify(this.#stateOf(this.#boards.get(goal) ?? board))
       throw error
     }
     if (carried) this.#settleSave(carried, null)
@@ -4962,7 +5032,7 @@ export class Team {
        2 on #1042). The caller records `until` itself, in the same patch this
        write already carries, before it ever reaches this queue. */
     const now = this.#boards.get(goal) ?? board
-    this.#port.changed(this.#stateOf(now))
+    this.#notify(this.#stateOf(now))
     this.#wake(now)
     return true
   }
@@ -5080,7 +5150,7 @@ export class Team {
   #pushStates(root: string | null): void {
     const boards = root !== null ? [this.#boards.get(root)].filter(Boolean) : [...this.#boards.values()]
     for (const board of boards) {
-      if (board) this.#port.changed(this.#stateOf(board))
+      if (board) this.#notify(this.#stateOf(board))
     }
   }
 }

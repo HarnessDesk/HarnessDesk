@@ -154,6 +154,19 @@ export interface TriggerGoalRequest {
 /** A Goal id a trigger reserves: the same shape `create` mints. */
 export const TRIGGER_GOAL_ID = /^goal-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
+/**
+ * `release` refused because the Seat is inside a turn right now — typed so a
+ * caller that wants to wait it out (a v2 release still watching for the
+ * turn-ended signal, #1027) can tell this apart from every other reason
+ * `release` refuses, none of which lift on their own.
+ */
+export class SeatBusyRefusal extends Error {
+  constructor() {
+    super("Stop this Seat's current turn before releasing it")
+    this.name = 'SeatBusyRefusal'
+  }
+}
+
 /** Goals coordinate transactions; Team owns card and channel rules. */
 export class GoalPlane {
   readonly #assignments: Assignments
@@ -238,6 +251,18 @@ export class GoalPlane {
       .map((one) => this.view(one.goal.id)))
   }
 
+  /**
+   * Raw, deliberately: `board.intents` here still carries every claim's
+   * `dirtyPaths`. This method is not only how a `goal/*` wire method answers
+   * — `changed` (host.ts) reads this same `view.board` to re-sync `Team`'s
+   * own copy of the board (`installProjection`), and `Team`'s copy is what a
+   * restart reloads from and what `FlowExecutions.refuseDirty` compares
+   * against (`Team.dirtyPathsOf`). Stripping it here once cost a Goal-backed
+   * card its snapshot on every restart, the same way an unstripped
+   * `Team#stateOf` once cost every board a save. The strip for an actual
+   * client belongs one layer up, in `methods/goals.ts`, on the value a
+   * `goal/*` method actually returns — never here.
+   */
   async view(id: string): Promise<GoalView> {
     const document = this.store.read(id)
     const members = goalMembers(document, this.port.seats.all())
@@ -533,7 +558,7 @@ export class GoalPlane {
       const record = this.port.seats.byId(id)
       if (!record || record.board !== goal || record.restored) throw new Error('That Seat is not kept on this Goal.')
       if (record.closed) return
-      if (this.port.busy(record.session)) throw new Error("Stop this Seat's current turn before releasing it")
+      if (this.port.busy(record.session)) throw new SeatBusyRefusal()
       /* Read before `#complete` ever closes this Seat: once it does, its
          session may no longer be live, and there is nothing left to ask
          (review round 2 on #1042). Bounded the same way every other stop
@@ -817,15 +842,23 @@ export class GoalPlane {
     }, document.goal.revision)
   }
 
-  seat(input: GoalSeatRequest): Promise<SeatRecord> {
+  /**
+   * `base`, host-only like `requireHeld`: the commit this Seat's own lane is
+   * cut from, because its card is handed exactly that predecessor's work
+   * (#1053). A base always isolates: the project's own checkout is never
+   * moved to it.
+   */
+  seat(input: GoalSeatRequest & { readonly base?: string; readonly reading?: true }): Promise<SeatRecord> {
     return this.serial.run(async () => {
       this.#dispatch(input.goal)
       const goal = this.store.read(input.goal).goal
       // Unattended from the Goal's own origin; held-only from the run that asked, which read it from its own stored policy.
       const policy = { unattended: goal.origin.kind === 'trigger', ...(input.requireHeld === true ? { requireHeld: true as const } : {}) }
       // A Goal pinned to a commit seats nobody in the project's own checkout: each Seat gets its own, cut from that commit.
-      const isolate = goal.at !== undefined || (input.isolate ?? goal.checkout === 'isolated')
-      const record = await this.#withLane(goal, isolate, (where) => this.port.seatAgent(input, where, policy))
+      const isolate = input.base !== undefined || goal.at !== undefined || (input.isolate ?? goal.checkout === 'isolated')
+      const record = await this.#withLane(goal, isolate, (where) => this.port.seatAgent(input, where, policy), {
+        ...(input.base !== undefined ? { base: input.base } : {}), ...(input.base !== undefined && input.reading ? { reading: true as const } : {}),
+      })
       if (input.card !== undefined) {
         try {
           await this.port.claim(input.goal, input.card, record)
@@ -1149,10 +1182,10 @@ export class GoalPlane {
     await this.port.finishWrap(operation)
   }
 
-  async #withLane(goal: Goal, isolate: boolean, open: (where: Goal) => Promise<SeatRecord>): Promise<SeatRecord> {
+  async #withLane(goal: Goal, isolate: boolean, open: (where: Goal) => Promise<SeatRecord>, cut: { readonly base?: string; readonly reading?: true } = {}): Promise<SeatRecord> {
     if (!isolate) return open(goal)
     if (!this.#lanes || !this.#lanePreferences) throw new Error('Read the lane settings before seating this Goal.')
-    const lane = await this.#lanes.allocate(goal.id, randomUUID(), this.#lanePreferences())
+    const lane = await this.#lanes.allocate(goal.id, randomUUID(), this.#lanePreferences(), cut)
     try {
       const seat = await open({ ...goal, cwd: lane.cwd })
       if (seat.board !== goal.id || seat.checkout.cwd !== lane.cwd) throw new Error('The recorded Seat did not use its allocated checkout. Finish recovery before dispatching work.')

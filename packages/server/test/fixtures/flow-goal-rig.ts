@@ -9,6 +9,7 @@ import { ExecutionFiles, FlowExecutions, sourceDigest, type FlowExecutionPort, t
 import { compileFlowPolicy, parseFlowPolicy } from '../../src/flow-policy.js'
 import { Flows, type FlowPort } from '../../src/flows.js'
 import { Serial } from '../../src/goals/assignments.js'
+import { SeatBusyRefusal } from '../../src/goals/plane.js'
 import { Team, type TeamPeer, type TeamPort } from '../../src/team.js'
 
 /**
@@ -75,8 +76,20 @@ export interface GoalRig {
   /** Runtimes with a provider reader configured at all; unset reads as false, the same conservative default `Host` uses. */
   readonly readableProviders: Set<string>
   readonly goals: Map<string, string>
-  /** What `headOf` answers for a checkout's `cwd`, keyed by that path; unset cwds read as no repository. */
-  readonly heads: Map<string, { readonly at: string | null; readonly dirty: boolean }>
+  /**
+   * What `headOf` answers for a checkout's `cwd`, keyed by that path; unset
+   * cwds read as no repository, and no dirt. `dirtyPaths` names the exact
+   * paths `git status` would show; a test that only says `dirty: true` gets
+   * one unspecified path (`dirtyOf`). This same read is what a claim's own
+   * snapshot (`IntentClaim.dirtyPaths`) is taken from, at the moment a card
+   * is claimed — so setting `heads` before a claim is what a test uses to
+   * shape that snapshot, and setting it again afterward is new dirt since.
+   */
+  readonly heads: Map<string, { readonly at: string | null; readonly dirty: boolean; readonly dirtyFiles?: number | null; readonly dirtyPaths?: readonly string[] | null }>
+  /** Checkouts whose `headOf` throws instead of answering — a git read that failed outright. */
+  readonly headOfFails: Set<string>
+  /** Every message the engine's own `port.log` was called with, in order. */
+  readonly logs: string[]
   /** What `runCheck` answers for a command, keyed by its exact text; unset commands "pass" (exit 0). */
   readonly checkOutcomes: Map<string, { readonly exit: number | null; readonly timedOut: boolean; readonly tail: string }>
   /** When true, every check's evidence append reports as failed (`problem` set, `evidence` null). */
@@ -127,11 +140,20 @@ export interface GoalRig {
   /** Seats inside a turn now — their brief's, say — which an order would be refused by. */
   busySeats: Set<string>
   /**
+   * Seats whose very next `release` call is refused as busy exactly once,
+   * however `busySeats` reads at that moment — the race a Seat's own busy
+   * check cannot always catch: a turn that starts between that check and the
+   * call to `release` itself (#1027).
+   */
+  readonly raceReleaseOnce: Set<string>
+  /**
    * A turn an interrupt asks to stop ends a moment later, as a real agent's
    * does, and a release refuses a Seat still inside its turn — as the host's
    * Goal plane refuses it.
    */
   turnsEndLater: boolean
+  /** How much later a turn ends once interrupted, when `turnsEndLater` is set. */
+  turnEndDelayMs: number
   /** Called once an order is accepted — where a test says a turn has started. */
   onOrder: ((seat: SeatRecord) => void) | null
   /** Called as a Seat is put back on its picks — where a test says a person started a turn meanwhile. */
@@ -163,7 +185,10 @@ export interface GoalRig {
   kill(seat: string): void
 }
 
-export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Promise<GoalRig> => {
+export const goalRig = async (
+  t: { after(fn: () => Promise<void>): void },
+  options: { readonly releaseStallMs?: number } = {},
+): Promise<GoalRig> => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-flow-goal-'))
   const peers: TeamPeer[] = []
   const teamPort: TeamPort = {
@@ -181,7 +206,9 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     team, dir, peers, events: [] as string[], seats: new Map<string, SeatRecord>(), lanes: new Map<string, Lane>(),
     digests: new Map<string, string>(), providers: new Map<string, string>(), presentations: new Map<string, string>(),
     readableProviders: new Set<string>(), goals: new Map<string, string>(),
-    heads: new Map<string, { at: string | null; dirty: boolean }>(),
+    heads: new Map<string, { at: string | null; dirty: boolean; dirtyFiles?: number | null; dirtyPaths?: readonly string[] | null }>(),
+    headOfFails: new Set<string>(),
+    logs: [] as string[],
     checkOutcomes: new Map<string, { exit: number | null; timedOut: boolean; tail: string }>(),
     checkEvidenceFails: false,
     checksRunUntilStopped: null,
@@ -191,7 +218,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     facts: new Map<string, EvidenceRecord[]>(),
     staleFacts: new Set<string>(),
     goalSerial: new Serial(), seatAsked: null, strictAsks: [] as boolean[], holdsCeilings: true, reserve: null,
-    beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, turnsEndLater: false, comesBackAs: null, busySeats: new Set<string>(), onOrder: null, onReseat: null,
+    beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, turnsEndLater: false, turnEndDelayMs: 120, comesBackAs: null, busySeats: new Set<string>(), raceReleaseOnce: new Set<string>(), onOrder: null, onReseat: null,
     orderTexts: new Map<string, string[]>(),
     origins: new Map<string, GoalOrigin>(),
     triggerGate: null,
@@ -214,6 +241,18 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     const record: EvidenceRecord = { id: `fact-${factSeq}`, fact, observedAt: Date.now(), ...extra }
     rig.facts.set(goal, [...(rig.facts.get(goal) ?? []), record])
     return record
+  }
+  /**
+   * A checkout's dirty paths, as `git status` would answer it: `rig.heads`'s
+   * own `dirtyPaths` when a test named them, else one unspecified path when
+   * it only said `dirty: true` — a test that cares which paths counts them
+   * by name instead. Read at claim time (the snapshot `IntentClaim` keeps)
+   * and at `headOf` (a finish's live read) alike, so both agree with
+   * whatever one `rig.heads` entry says a checkout holds right now.
+   */
+  const dirtyOf = (cwd: string): readonly string[] => {
+    const found = rig.heads.get(cwd)
+    return found?.dirtyPaths ?? (found?.dirty ? ['(unspecified)'] : [])
   }
   /* Inside the Goal queue, as `GoalPlane.seat` and `GoalPlane.release` run: the host's own order. */
   const openSeat = async (input: Parameters<FlowExecutionPort['openSeat']>[0]): Promise<SeatRecord> => {
@@ -252,16 +291,21 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
       team.installProjection({
         ...state,
         intents: state.intents.map((card) => card.id === input.card
-          ? { ...card, state: 'claimed', claim: { runtime: runtime as RuntimeId, sessionId, at: Date.now() } }
+          ? { ...card, state: 'claimed', claim: { runtime: runtime as RuntimeId, sessionId, at: Date.now(), dirtyPaths: dirtyOf(cwd) } }
           : card),
       })
     }
     return record
   }
   const release = async (_goal: string, id: string): Promise<void> => {
+    if (rig.raceReleaseOnce.has(id)) {
+      rig.raceReleaseOnce.delete(id)
+      rig.events.push(`refused:${id}`)
+      throw new SeatBusyRefusal()
+    }
     if (rig.turnsEndLater && rig.busySeats.has(id)) {
       rig.events.push(`refused:${id}`)
-      throw new Error("Stop this Seat's current turn before releasing it")
+      throw new SeatBusyRefusal()
     }
     rig.events.push(`release:${id}`)
     const record = rig.seats.get(id)
@@ -309,14 +353,19 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     busy: (seat) => rig.busySeats.has(String(seat.id)),
     interrupt: async (seat) => {
       rig.events.push(`interrupt:${seat.id}`)
-      if (rig.turnsEndLater) setTimeout(() => rig.busySeats.delete(String(seat.id)), 120)
+      if (rig.turnsEndLater) setTimeout(() => rig.busySeats.delete(String(seat.id)), rig.turnEndDelayMs)
       else rig.busySeats.delete(String(seat.id))
     },
     laneOf: (seat) => rig.lanes.get(String(seat.id)) ?? null,
     reseat: async (seat) => { rig.onReseat?.(seat); return rig.comesBackAs ?? seat.seatLabel },
     changed: () => {},
-    log: () => {},
-    headOf: async (cwd) => rig.heads.get(cwd) ?? { at: null, dirty: false },
+    log: (message) => rig.logs.push(message),
+    headOf: async (cwd) => {
+      if (rig.headOfFails.has(cwd)) throw new Error('simulated git failure')
+      const found = rig.heads.get(cwd) ?? { at: null, dirty: false }
+      const dirtyPaths = dirtyOf(cwd)
+      return { ...found, dirtyFiles: dirtyPaths.length, dirtyPaths }
+    },
     runCheck: async (command, where, card) => {
       rig.events.push(`check:${command}`)
       if (rig.checksRunUntilStopped) {
@@ -392,6 +441,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
   const build = () => {
     const files = new FaultyFiles(join(dir, 'flows-v2'))
     const executions: FlowExecutions = new FlowExecutions(files, team, port, {
+      ...(options.releaseStallMs !== undefined ? { releaseStallMs: options.releaseStallMs } : {}),
       facts: async (goal) => viewsFor(goal),
       triggered: {
         freeze: async () => {

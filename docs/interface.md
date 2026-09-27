@@ -272,8 +272,8 @@ item still lists it, because there the row is itself the way to sign in.
 **Usage remaining** appears only where something is metered — its windows and
 when each resets, nothing else — and then come Settings and signing out of the
 default agent. Dashboard is not in this menu: it is in the sidebar's nav, on
-everything, and the Usage verb on an account's card opens it on that one
-agent.
+everything, and the Usage verb on an account's card opens its Plans view,
+scoped to that one agent.
 
 **Your profile is a name and a face, and nothing else, because nothing else is
 shown.** Settings opens on it — your face and name head the rail, above every

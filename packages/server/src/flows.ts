@@ -316,6 +316,17 @@ export class Flows implements TeamFlows {
     await this.#executions?.idle()
   }
 
+  /**
+   * Terminal (`FlowExecutions.dispose`'s own doc has the property this
+   * gives): the host calls this once, in its own `dispose()`, before it
+   * flushes what is left of this class's write chain — a pending release's
+   * one timer must be gone before the process is, whether or not its Seat's
+   * turn ever ends.
+   */
+  dispose(): void {
+    this.#executions?.dispose()
+  }
+
   // ------------------------------------------------------------ runs on Goals
 
   /** A new run on a new Goal. The legacy `start({ room })` route stays for old callers only. */
@@ -633,6 +644,11 @@ export class Flows implements TeamFlows {
     }
     const owed = await this.#review.owed(intent.id, { runtime: caller.runtime, sessionId: caller.sessionId })
     return owed ? 'This card needs a structured review before it can complete. Ask for review candidates and record one first.' : null
+  }
+
+  /** Why this card cannot complete yet — its role's grant can commit and its checkout is still dirty — or null. See `FlowExecutions.refuseDirty`. */
+  async refuseDirty(room: string, intent: Intent): Promise<string | null> {
+    return (await this.#executions?.refuseDirty(room, intent.id)) ?? null
   }
 
   /**
@@ -1177,6 +1193,15 @@ export class Flows implements TeamFlows {
       })
     }
     this.#save(run.id)
+  }
+
+  /**
+   * The same host signal `reArm` answers, for a v2 release waiting on this
+   * Seat's turn to end instead: legacy runs have no such wait, so this is
+   * only ever a pass-through to `FlowExecutions` (#1027).
+   */
+  retryRelease(runtime: string, sessionId: string): void {
+    this.#executions?.retryRelease(runtime, sessionId)
   }
 
   /**

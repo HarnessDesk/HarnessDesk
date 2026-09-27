@@ -7,6 +7,115 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A Seat still busy when a flow round fails, or a run stops, is no longer left
+  holding its card forever, and it never sits there silently either.** Releasing
+  a Seat interrupts its live turn; a Seat still found busy — or refused because
+  a new turn started right as it was called — used to have that refusal only
+  logged, leaving it claimed on its card and its paths with nothing on screen to
+  explain why. The release now waits on the same signal the desk already uses to
+  notice a turn ended, and goes through the moment it does, however long that
+  takes — never a poll, and never abandoned. While a release waits, and for a
+  minute past that if the signal still has not come, the room's own live line
+  names which card is still held and which Seat it is waiting on, on a line of
+  its own — never in place of why the run itself stopped or settled, and gone
+  once the release goes through. A Seat handed new work while its old release
+  still waits is never released out from under it, nor is one a person has since
+  handed a different card of their own by hand. A Seat a stopped or settled run
+  left claimed when the desk last quit is found and released the next time it
+  starts — a run only waiting on a person's answer, or one already stalled on
+  its own reason, is left exactly as it was. (#1027)
+
+- **A card whose role can commit can no longer finish with uncommitted work
+  of its own left behind.** A flow card whose Agent may commit (`edit` and
+  above) used to be able to call `complete_claim` while its own checkout
+  still held changes never committed — tracked or untracked — and the round
+  closed as a success anyway. The work stayed outside every branch and
+  outside the evidence ledger, with nothing telling the person; only reading
+  the raw evidence record showed a zero diff. `complete_claim`, and a review
+  that finishes a card the same way, now refuse that finish and say how many
+  files are uncommitted — but a Goal's checkout is shared by default, so the
+  check compares the checkout now against a snapshot taken the moment the
+  card was claimed and counts only a path dirty since: a person's own
+  untracked file, or another card's leftover work on the same shared
+  checkout, is never held against a card that never touched it. A card whose
+  role cannot commit at all is never checked, a claim with no snapshot (from
+  before this shipped, a failed read, or a checkout with more than 500 dirty
+  paths, which is dropped rather than carried in full) is never refused for
+  dirt it cannot attribute, and a person's own hand finish is untouched,
+  since they may have decided the leftovers do not matter. A prose-only round
+  — one whose role produces no diff at all — is untouched too: that is
+  legitimate, not the defect. Read what the desk observed on the card, and
+  its diff is drawn stale when new dirt was left behind, even after a person
+  finishes it by hand. The snapshot itself is host-only — stored with the
+  claim so it survives a restart, but never a value any board or `goal/read`
+  result shows, so a shared checkout's own file names never reach a
+  renderer. (#1049)
+
+- **The Dashboard's rail lists views, and the account you're looking at is a
+  choice in the header.** The rail used to hold one row per account, which
+  duplicated the card list a click away, mixed a plan's percentage with a
+  prepaid balance and a bare dash in one column, and answered "look at one
+  account" — a filter — with what read as navigation. It now holds five real
+  pages — Overview, Plans, Spend, Activity, Projects — each a click from ⌘U,
+  the sidebar's Dashboard row, ⌘K or the menu bar item (all landing on
+  Overview); an account's own "Usage" opens Plans, scoped to it, the way
+  clicking that account in the old rail used to. Picking an account from the
+  new "All accounts ▾" header control scopes whichever view is open, and the
+  choice survives a switch between them.
+
+- **A run stopped at its round budget now says how to let it continue.** The
+  control already existed — the Findings tab's "Decide this run" opens
+  "Authorise another round" for exactly this stop — but nothing on the stall
+  itself pointed there, so a person reading "This run reached its limit of N
+  rounds." or "Round N ended with M open findings." had no way to find it.
+  Both messages now end with "To let it continue, open Findings and choose
+  Authorise another round.", in the button's own words, and only for the
+  stops that action actually answers — never a design problem or a pending
+  regression or security claim, which need a person's judgment first, not
+  another round. (#1051)
+
+- **A step after an isolated one now works on that step's actual commit.** A
+  flow step that depends on an isolated step's finished work — a tester after
+  a developer working in its own worktree, say — used to open in the project's
+  own checkout, still at the commit the run started from. It ran the tests
+  there and reported problems with code it never had, round after round. Such
+  a step now opens in a worktree of its own, cut from that commit, and the
+  project's own checkout is never moved. A step handed several different
+  commits (a debate round reading both positions, a judge comparing attempts)
+  is told each one's commit, branch and folder. If that work cannot be
+  reached — its worktree is gone, or it was never committed — the run stops
+  before the step opens and says which step and why. The dry run marks each
+  step that will get a worktree this way, and a reading step's worktree lets
+  its ports and browser profile go as soon as that step's conversation
+  closes. (#1053)
+
+- **DeepSeek Harness and OpenRouter no longer read "doesn't report usage" on
+  the Dashboard.** DeepSeek's prepaid balance (`api.deepseek.com/user/balance`)
+  shows as a credit balance, the same shape Cline's and Amp's already do.
+  OpenRouter's key limit and account credit balance
+  (`openrouter.ai/api/v1/key` and `/credits`) show for any agent that has an
+  `OPENROUTER_API_KEY` of its own, whichever CLI that row runs. Both read the
+  key from wherever the agent itself already keeps it — never a new field to
+  fill in — and a 401 now reads as "sign in / check key" instead of either
+  crashing or going silent. (docs/usage-dashboard.md)
+
+- **An effort mismatch found only once a conversation opened is worded
+  truthfully, and one runtime's levels are no longer copied onto another
+  model's own.** Two small fixes to seating an Agent's effort. First, an ACP
+  agent that names its models only through its session's own controls — never
+  `session/new`'s per-model list — had every model handed whatever levels the
+  first model choice with any happened to declare, silently, as though they
+  were that model's own; a model with none of its own now falls through to
+  the session-wide levels instead, correctly marked as a shared fallback a
+  refusal must never be built from. Second, when a Seat opens and the only
+  difference from what was asked is the effort it reads back — a runtime that
+  settled on a different level under its own name, or answered a concrete
+  level for a `default` ask — the refusal used to say the runtime "does not
+  offer" the effort, which was false: it opened, and is running one, just not
+  the one asked for. That line now says what actually runs, still stopping
+  the seating there rather than trying another runtime in silence; "does not
+  offer" is kept for a runtime that refuses an effort outright. (#1023)
+
 - **A finished card's diff no longer keeps changing after it's done.** On a
   shared, non-isolated checkout, `Observer.observe` re-diffed a card from
   where its own work began all the way to the checkout's HEAD *as it stands
@@ -29,6 +138,18 @@ move is real work and is not news to a person weighing an upgrade.
   measured against a branch that has since moved on. Abandoning, finishing or
   releasing a card can now wait up to 10 s for a slow git to report where the
   card stopped. (#1035, #1042)
+
+- **What a plan costs is now something you set, once, from a suggested public
+  price.** The Dashboard's "Paid" figure has always needed a fee nobody could
+  read off any API — Anthropic, OpenAI, Cursor and Copilot never say what
+  their own seat costs — so it stayed absent. Settings › Agents now offers a
+  one-click suggestion where a vendor's own pricing page gives an unambiguous
+  number (dated and linked back to it), or a plain amount and currency
+  otherwise; either way it is your own click that sets it, marked "you set
+  this", and it stays until you edit or clear it. A key or metered account can
+  also carry an optional monthly budget, unrelated to any vendor limit. No
+  rate is bundled or guessed — the same rule the model-price overlay already
+  keeps.
 
 - **"What it cost" draws a line as well as bars, against its own past.** A
   Bars/Line toggle beside the range control is remembered per user. Either
@@ -115,18 +236,22 @@ move is real work and is not news to a person weighing an upgrade.
   menu bar and the header strip claimed a sign-in was needed for however
   long that took, even though the footer and the seat menu already stayed
   neutral about the same agent. Readiness now has a state for not knowing
-  yet, and every surface draws it the same quiet way: the menu bar's row
-  says "Not answered yet" rather than offering a sign-in it cannot back up,
-  the header strip stops naming it in its "needs sign-in" count, the
-  Dashboard's "has nothing to report" card no longer appears for it,
-  Settings › Runtimes lists it under a "Not answered yet" heading of its own
-  — neither "Needs attention" nor a "Ready" it has not earned — its own
-  page says it has not answered yet rather than "Not signed in", no longer
-  says a session would not start while one of its accounts is still
-  answering, and asks before removing an account that has not answered, the
-  Runtimes row in the Settings window's own nav no longer lights for it, and
-  the whole-desk survey (the empty pane's "now what?") says so instead of a
-  tagline or a bare "Ready." (#986)
+  yet, and every surface draws it the same quiet way. The menu bar's row
+  says "Not answered yet" rather than offering a sign-in it cannot back up;
+  the header strip stops naming it in its "needs sign-in" count; the
+  Dashboard's "has nothing to report" card no longer appears for it;
+  Settings › Runtimes lists it under a "Not answered yet" heading of its own,
+  neither "Needs attention" nor a "Ready" it has not earned; the Runtimes
+  row in the Settings window's own nav no longer lights for it; and the
+  whole-desk survey (the empty pane's "now what?") says so instead of a
+  tagline or a bare "Ready." An agent's own page says it has not answered
+  yet rather than "Not signed in", says a session would not start only once
+  every one of its accounts that can answer has answered, and asks before
+  removing an account that has not; an extra account that could not start
+  says "Unavailable" there, as the list does (#1038). A read that fails no
+  longer forgets the last answer, and is asked again on its own, soon at
+  first and then less often, so an agent never sits at "Not answered yet"
+  with nothing asking (#1021). (#986)
 
 - **A role `independentOf` a DeepSeek or Cursor competitor could never seat.**
   The desk could only read the vendor behind Claude Code, Gemini CLI and

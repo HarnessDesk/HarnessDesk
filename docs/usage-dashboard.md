@@ -112,7 +112,7 @@ it; `check-layering.mjs` only forbids it above.
 | --- | --- | --- | --- |
 | 1 | Runtime adapter queries | Codex, live, already wired | free |
 | 2 | A declared local file the agent already writes | Claude Code: `~/.claude.json → cachedUsageUtilization` — session, weekly, model-scoped lanes, plan, identity, `severity` | free, and watched on disk |
-| 3 | A declared credential plus one HTTP call | Cursor (`state.vscdb` → `cursor.com/api/usage-summary`, plus `api/auth/me` and the legacy `api/usage` on a request-based plan only), Gemini (`~/.gemini/oauth_creds.json` → Cloud Code quota API), Copilot (device token in `~/.config/github-copilot/` → `copilot_internal/user`), Cline (`~/.cline/data/settings/providers.json` → `api.cline.bot` balance) | one request, cached (two more for a request-based Cursor plan) |
+| 3 | A declared credential plus one HTTP call | Cursor (`state.vscdb` → `cursor.com/api/usage-summary`, plus `api/auth/me` and the legacy `api/usage` on a request-based plan only), Gemini (`~/.gemini/oauth_creds.json` → Cloud Code quota API), Copilot (device token in `~/.config/github-copilot/` → `copilot_internal/user`), Cline (`~/.cline/data/settings/providers.json` → `api.cline.bot` balance), DeepSeek Harness (`DEEPSEEK_API_KEY`, in the row's own environment or `${DSH_HOME:-~/.dsh}/.credentials.yaml` → `api.deepseek.com/user/balance`), OpenRouter (`OPENROUTER_API_KEY` in any agent's own environment → `openrouter.ai/api/v1/key` and `/credits`) | one request, cached (two more for a request-based Cursor plan; two for OpenRouter's pair of endpoints) |
 | 3′ | The agent vendor's own CLI, asked for its own report | Antigravity (`agy --print /usage --output-format json` → Google's `retrieveUserQuotaSummary`, a weekly limit per group of models), Amp (`amp usage` → the credit balance) | one process start and one request, at most once a minute (Amp: every five) |
 | 4 | The local ledger — the agent's own records | tokens and cost per day, model and project: `~/.codex/sessions/**.jsonl`, `~/.claude/projects/**.jsonl`, Gemini CLI's `~/.gemini/tmp/*/chats/*.jsonl`, Qwen Code's `~/.qwen/projects/*/chats/*.jsonl` (list price); OpenCode's `opencode.db` and Cline's `sessions.db` (the cost the agent recorded) | one incremental scan |
 
@@ -254,6 +254,56 @@ ones. A prepaid balance counts as usage reported in the line above the cards,
 so an overdrawn Cline reads "Cline is out of credits." rather than "No agent
 here reports plan usage."; its card says the balance waits for a top-up, not
 a reset; and the Accounts rail shows the balance where a percentage would go.
+
+**DeepSeek and OpenRouter, added 2026-09-26.** Two more sources that were
+"doesn't report usage" until now, and the two shapes above (Balance, Metered
+key) rather than a new one:
+
+- **DeepSeek Harness** authenticates with a provider key, never a browser
+  sign-in (`agent-registry.ts`'s `dsh` entry), so it is bound by runtime —
+  the same way `agy_acp_server` is bound to Antigravity's CLI, above — never
+  by a base URL check. `GET api.deepseek.com/user/balance`
+  (https://api-docs.deepseek.com/api/get-user-balance) answers `{
+  is_available, balance_infos: [{ currency, total_balance, … }] }`; a
+  prepaid balance, so it is `credits`, never a lane, `billing.kinds:
+  ['balance']`. An account can have more than one currency funded at once
+  (CNY and USD both topped up) — those are never summed into one figure,
+  since they are not fungible; the meter reports the one currency this
+  screen can show (USD when it is funded, otherwise the first the response
+  lists) rather than inventing a combined number. `is_available: false`
+  reads as out, the same as a balance at zero. The key itself is read from
+  wherever DSH's own process would read it — the desk's own stored copy
+  first, then `DEEPSEEK_API_KEY` in the row's environment, then DSH's own
+  store (`${DSH_HOME:-~/.dsh}/.credentials.yaml`, the file its "Models" page
+  writes, or a `.env` beside it) — the same two files and the same order
+  `whereSecretLives`/`readsKey` in `@harnessdesk/adapter-acp` already check
+  for *presence*; this is the one place the *value* is read, and only to put
+  it in a request header — never logged, stored beyond that read, or shown
+  past its last four characters.
+- **OpenRouter** is not an agent at all, so it is never bound by runtime: any
+  agent this desk starts with `OPENROUTER_API_KEY` in its own environment
+  gets this meter, filling the gap only where nothing stronger already
+  answered (Cline's own balance stays Cline's, whatever key its model calls
+  also carry). `GET openrouter.ai/api/v1/key`
+  (https://openrouter.ai/docs/api-reference/limits) gives the key's own
+  `limit`, `limit_reset` and `usage`; a key with a limit is a metered
+  allowance — `unit: 'usd'`, `used`, `limit`, `layer: 'plan'`,
+  `billing.kinds: ['metered']`, reset per `limit_reset`'s own period
+  ("daily" | "weekly" | "monthly"), carried as `resetText` since it names a
+  period, never a date. A key with no limit gets no lane at all: nothing
+  invents a ceiling that key does not have. `GET
+  openrouter.ai/api/v1/credits` (https://openrouter.ai/docs/api-reference/credits)
+  gives `total_credits` and `total_usage`; the account-wide balance is
+  `total_credits - total_usage`, `billing.kinds` gains `'balance'`. The
+  account label this meter reports is its own key's last four characters,
+  never OpenRouter's own `label` field, which can itself be shaped like the
+  key it names.
+
+Both meters treat a 401 from their vendor as the key or sign-in being wrong,
+not a crash: `MeterAuthError` carries that through as `UsageError.needsSignIn`
+— worth a card that says "sign in / check key" even with no earlier reading
+to fall back on, unlike a plain outage, which stays silent until something
+has answered once.
 
 **Read-only, always.** HarnessDesk never writes to another application's
 credential file, config or cache. It reads to answer one question and keeps
@@ -419,15 +469,18 @@ a card can be built without naming the vendor behind it.
 - **Money, Value** — tokens priced at public API rates, a *list-price
   equivalent* and never an invoice — the whole of "What honest costs money to
   say" above.
-- **Turns** — a plain count, for a plan that bills by request and gives no
-  ceiling to measure it against, so no percentage is possible at all:
-  `UsageReport.turns`, `{ count, unitsPerTurn, since }`. `unitsPerTurn` is
-  null where the source does not say what a turn is worth against its own
-  unit, and `since` bounds what the count covers — never assumed to be the
-  plan's whole lifetime. A request-based plan that *does* give a ceiling —
-  Cursor's legacy tier, `numRequests` of `maxRequestUsage` — is a **Capacity**
-  lane instead (`unit: 'requests'`), because a real percentage exists to show;
-  `turns` is for the plan that has no such ceiling to report.
+- **Turns** — a plain count of person-or-agent prompts answered, never a
+  percentage: `UsageReport.turns`, `{ count, unitsPerTurn, since }`. It was
+  once framed only for a plan with no ceiling to show a ratio against — a
+  request-based plan that *does* give one, Cursor's legacy tier
+  (`numRequests` of `maxRequestUsage`), is still a **Capacity** lane instead
+  (`unit: 'requests'`), because a real percentage exists to show — but the
+  ledger's own turn count (below, "Turns") is independent of whether a lane
+  exists at all, so it is now filled wherever the ledger knows it, lanes or
+  not. `unitsPerTurn` is null where the source does not say what a turn is
+  worth against its own unit — see "Turns" for the three cases — and `since`
+  bounds what the count covers — never assumed to be the plan's whole
+  lifetime.
 - **Tokens** — the ledger's own count, split into what a model is actually
   billed for: `LedgerRow`/`LedgerDay`'s `input`, `output`, `cacheRead`,
   `cacheWrite`, `reasoning` and `requests`, and `LedgerReport.totals` for the
@@ -482,6 +535,187 @@ the agent was idle throughout). `daysCovered` answers "how much of the window
 I asked for came back"; `earliestDay` answers "how far back does this
 agent's history go at all," and the two are read for different questions.
 
+## Turns
+
+A **turn** is one prompt — a person's, or another agent's — answered by the
+agent: one user message and the work until the agent's reply ends. It is not
+an API request — one turn is routinely several requests, a tool call and its
+retries included — and it is not a tool call. It is also not a report a
+background task hands back on its own, with nobody having asked it anything
+just now: Claude Code's own `<task-notification>` lines, a subagent's inline
+report, and their equivalents on every other runtime are excluded on purpose
+(owner decision, 2026-09-26) — the model may well answer one, but nobody
+prompted it, so it is not the number a plan's per-turn rate is priced against.
+The ledger keeps the count beside tokens because the two answer different
+questions: tokens say what a window cost, turns say how much was actually
+asked of it, and a plan that bills by the turn (or that gives no other honest
+denominator) needs the second number on its own.
+
+**Where a count comes from, per runtime.** Two sources, never both for the
+same agent:
+
+- **The agent's own transcript, where a turn boundary is readable in it.**
+  Four of the six scanners in `ledger/scan.ts` have one:
+  - **Codex** — a `turn_context` record, written once per turn ahead of the
+    exchange it introduces, and distinct from `session_meta` (once per
+    session, never itself a turn). It carries that turn's own model, so the
+    count lands on the same row its tokens will, with no lag. A `turn_context`
+    written directly after a `compacted` record is compaction settling back
+    in, not a new prompt, and does not count — a flag set on `compacted` and
+    cleared on the next `turn_context` carries this across an incremental
+    scan's own resume boundary (`contextBefore`), so a scan that picks up
+    mid-file right after a compaction still knows it.
+  - **Claude Code** — a `type: 'user'` line whose content is not entirely
+    `tool_result` parts, and not one of several other shapes Claude Code
+    itself writes to a `user`-role line that nobody actually typed:
+    `isSidechain: true` (a subagent's own transcript line — every line under
+    `subagents/*.jsonl` carries this, so a subagent's turns are excluded with
+    no separate file-level filter, while its tokens still count), `isMeta:
+    true` (hook context, a caveat, a slash command's own expansion), `isCompactSummary:
+    true` (the session's own note that it continued from a compaction), text
+    starting with `[Request interrupted` (a turn nobody finished), and text
+    containing `<local-command-stdout>`, `<local-command-stderr>`,
+    `<local-command-caveat>` or `<task-notification>` (a local command's own
+    echo, or a background task's report). This mirrors the replay sieve's own
+    boundary — `classifyReplayed` in `packages/claude-acp/src/bridge.ts` —
+    which already treats every one of these as a notice or drops it outright;
+    the predicate is kept in step with it by hand, since the server does not
+    import `claude-acp`. Consecutive surviving lines with no model call
+    between them are one turn, not several, so a slash command's own line and
+    its expansion count once, and a local command's line simply merges into
+    the real prompt that follows it. Filed under the model of the *next*
+    reply this scan pass sees — the one that actually answers it — not the
+    one before it.
+  - **Gemini CLI and Qwen Code** — a `type: 'user'` record, the same "next
+    reply" filing as Claude's. Gemini CLI additionally excludes a `type:
+    'user'` record whose content is entirely `functionResponse` parts — a
+    tool result handed back to the model, the same thing `tool_result` is for
+    Claude's transcript. Qwen Code never writes that shape under `type:
+    'user'` at all, so it needs no equivalent exclusion.
+
+  OpenCode's and Cline's databases keep only session totals — one row per
+  session, not per message — with no message table read here, so neither has
+  a turn boundary yet; their rows carry no `turns` at all rather than a
+  guessed one. Reading a real message table, if one is confirmed in either
+  agent's own store, is future work, not a guess made now.
+- **The desk's own transcript, only where the agent's own history is
+  unreadable at all** — `ledger/desk-turns.ts`. Today that means Cursor
+  (rule 3, AGENTS.md: it keeps no local transcript of its own) and any ACP
+  agent this desk has no scanner for at all. A stored session's own `turns`
+  array already *is* the host's own segmentation of the conversation into
+  turns, so this counts that array's length, one row per local day and
+  project, with no tokens or cost — the desk did not watch what anything
+  cost, only that a turn happened. Only a turn a prompt actually opened
+  counts: one whose first item is a `userMessage`, or a `notice` that both
+  opened a live prompt and was answered (`AgentSession.send(recordAs:
+  'notice')` — a real prompt recorded as a notice so it never shows as the
+  person's own words, still a turn under the definition above). A bare notice
+  with nothing after it — a replay's own reconstruction of housekeeping, an
+  interrupted turn nobody answered — is not a prompt anyone sent, and a
+  message queued but never run has no stored `Turn` at all, so neither is
+  counted. A turn a session reopen can only date *approximately* — the ACP
+  adapter's own replay has no reliable `startedAt` for history it is
+  reconstructing rather than living through, so it opens those turns with
+  `startedAt: null` — is skipped outright rather than dated to the moment of
+  the replay: `TranscriptStore.enrich` keeps the host's own previously stored
+  `startedAt`/`completedAt` for a turn that pairs across a reopen, so a
+  session recorded once, then reopened and synced again on a different day,
+  never re-dates that turn to today and never counts it twice.
+
+  **The no-double-count rule** is decided once, at wiring time, never
+  detected per session: `bootstrap.ts`'s `localUsageFor` hands a runtime
+  *either* a corpus from the list above *or* `deskTurns: true`, never both,
+  and `host.ts`'s `bindUsage` only ever registers the desk-transcript source
+  when the runtime has no corpus at all. There is exactly one place that
+  decides which source counts a given runtime's turns, so there is no path
+  by which both could run for the same one. `bootstrap-turns.test.ts` checks
+  the invariant holds for every named CLI, not only the ones tested by hand.
+  An agent this table has no entry for still gets `{ deskTurns: true }` from
+  `localUsageFor`'s own default, so every unrecognised ACP agent is bound to
+  the desk fallback rather than left with no usage source at all.
+
+A runtime neither of these covers has `turns: undefined` everywhere it could
+appear — `LedgerRow`, `LedgerDay`, `LedgerReport.totals`, `UsageReport.turns`
+— read as "unknown", never as zero. `SpendCoverage.turnsKnownFor` lists which
+runtimes in a given window are known at all, so a caller can say "turns known
+for N of M agents" instead of drawing a silent zero for the rest.
+`LedgerRow.turns` and `LedgerReport.totals.turns` go further: a row or a total
+that mixes a turn-known runtime with one that is not is *also* left
+`undefined`, because a partial count dressed as a whole one is the same lie a
+missing runtime reading as zero would be — see `Ledger.#turnsIfKnown`.
+
+**NULL is not a stale zero.** The `turns` column in the ledger's own SQLite
+store is nullable, with no default. A row a turn-capable scanner actually
+counted always carries a real integer (0 or more); a row from before turns
+existed carries `NULL` instead, which the store's `since()` and every reader
+above it treat as "never counted", not as a real zero — summing `row.turns ??
+0` only ever applies to a row that is genuinely known. The migration that adds
+the column resets every local corpus file's own cursor and deletes the rows
+those cursors cover (never a remote source's own rows, which are never
+tracked by a file cursor and simply re-cover their own window on their own
+schedule), so the very next scan reads those files from byte zero and refills
+both their tokens and their turns honestly, rather than leaving a rescanned
+total that quietly excludes whatever came before the upgrade. Between the
+migration and that first scan finishing, `LedgerStore.turnsReady()` is false,
+and a turn-capable runtime reads exactly as unknown as one this ledger was
+never told about at all — never a real but too-low count read while the
+rescan is still in flight.
+
+**`UsageReport.turns.unitsPerTurn` prices one turn in the lane's own unit**,
+computed in `usage/service.ts`, and needs at least ten turns in the window
+before it says a rate at all — fewer is too thin a sample, and the count is
+still reported with `unitsPerTurn: null`. `Ledger.turnsFor` also returns
+`source: 'agent' | 'desk'`, and the rate is **exact, or not reported at all —
+never an approximation** (owner decision, 2026-09-26):
+
+- **`source: 'agent'`** (Codex, Claude Code, Gemini CLI, Qwen Code) — both
+  sides of the rate come from the same transcript, which covers standalone
+  use exactly as well as use through this desk, so dividing one by the other
+  is always apples to apples:
+  - **An allowance lane in requests** (none of these today, but the rule is
+    general) — ledger requests over the same window the turn count covers,
+    divided by turns.
+  - **A balance or a metered key** — `Ledger.valueFor`, the same window
+    `turnsFor` and `requestsFor` count (never `spendFor`'s own day-rounded
+    window, which can cover a different number of days for the same
+    `since`), divided by turns, in the report's own currency.
+  - **A plain percent window** (Codex, Claude Code's plan lanes) — `null`.
+    This needs a history of lane snapshots — how full the window was at two
+    points in time — to say what one turn is worth against a percentage, and
+    the host does not keep that history yet. The turn count itself is still
+    real; only the rate is withheld.
+- **`source: 'desk'`** (Cursor, and any unrecognised ACP agent) —
+  `unitsPerTurn` is **always `null`**. The turn count is desk-only — exactly
+  what ran through this session, on this machine — while everything else a
+  meter has for the same runtime (Cursor's own request quota, its balance) is
+  account-wide: another machine signed in to the same account, or the agent
+  used standalone outside this desk at all, adds requests and Value the turn
+  count never saw. Dividing one by the other is not a smaller-sample
+  estimate, it is a number with no real relationship to the one being
+  reported. Exact per-conversation attribution — matching Cursor's own usage
+  events to a desk session by a shared conversation id, so both the numerator
+  and the denominator are scoped to the same sessions, and dividing the
+  matched requests (or Value) by the matched desk turns — was investigated
+  for this change and is not done: the desk's Cursor ACP adapter keeps only
+  its own local `chatId` (`packages/cursor-acp/src/store.ts`, minted by
+  `cursor-agent create-chat`), and Cursor's usage-events endpoint
+  (`usage/cursor-events.ts`) carries no session or conversation identifier at
+  all in what this codebase reads from it today — there is nothing to match
+  the two on. If that identifier is ever confirmed and read, the rate for a
+  desk-sourced runtime should be computed only from the matched events and
+  the matched desk turns, `unitsPerTurn: null` whenever the desk does not
+  know the conversation id for a given event or none match — never a
+  division of the full account-wide figure by this desk's own turns, which is
+  the mistake this rule exists to rule out.
+
+`since` is the current billing cycle when the binding lane's own reset says
+one (`resetsAt` minus `windowMinutes`), else the last 14 days — never assumed
+to be the plan's whole lifetime, and never a window shorter than a day, since
+the ledger's own grain is a day; `Ledger.turnsFor` rounds `since` itself to
+local midnight before counting, and returns that rounded value rather than
+the raw one it was asked for, so a caller cannot end up reading a window that
+starts earlier than what was actually counted.
+
 ## The screen
 
 One full-window surface called **Dashboard** — the name the sidebar row, ⌘K,
@@ -489,28 +723,57 @@ the account menu, the menu-bar item and the window's own title all use. *Usage*
 stays the word for the figures themselves: an agent's usage section in
 Settings, the usage-source preference. The screen is wider than that, which is
 why it is not called it. Reached from the sidebar, from ⌘K (⌘U), and from any
-of the smaller surfaces below. Three bands in one scrolling column, and a rail
-down the left that lists the **accounts** — clicking one scopes every band to
-it.
+of the smaller surfaces below, landing on **Overview**. The window is the same
+shell as Settings — a rail of rows down the left, each a real page — and the
+rail lists **views**, not accounts:
+
+1. **Overview** — the whole story on one screen: an accounts summary limited
+   to what needs looking at first, a bento of what it cost beside where it
+   went, and when it ran.
+2. **Plans** — every account's own card, whether it will last, the accounts
+   not being tracked, and the agents that report nothing.
+3. **Spend** — what it cost and where it went, full width, over 7, 30 or 90
+   days.
+4. **Activity** — when it ran, full width.
+5. **Projects** — project usage, by Goal or by Agent.
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="images/app/dashboard-dark.png" />
-    <img src="images/app/dashboard-light.png" alt="The dashboard: an accounts rail down the left with a meter per account, and a grid of account cards showing what is left of each plan, when each window resets, which lane is spent, and what the work cost." />
+    <img src="images/app/dashboard-light.png" alt="The dashboard: a rail of views down the left, an account scope in the header beside the view title, and Overview's accounts summary, spend-and-split bento, and activity heatmap below it." />
   </picture>
 </p>
 
-**Why the rail lists accounts.** It listed the three band names for a while,
-which produced three rows that looked like tabs and only scrolled a page that
-mostly does not scroll — and the thing you actually come here to do, look at
-one account, was a segmented control wedged into the first band's header. The
-rail is now the scope: one row per account, each carrying its own figure and a
-3px meter, so the rail answers "is anything low" before you have read a card,
-and clicking a row narrows the whole page — cards, money and history alike.
-The band names take over the "where am I" job by sticking to the top of the
-page as you pass them. The accounts you have switched off sit under **Not
-tracked** at the bottom of the same rail, each offering to be tracked again;
-that is where the strip of chips under the cards went.
+**Why the rail lists views, not accounts.** It listed one row per account for
+a while, and that rail was carrying four jobs a plain list does none of well.
+It **duplicated a list already a click away** — every account it named also
+had its own card on the page, so the rail and the body said the same thing
+twice. **Half its rows said nothing**: an account that had switched off
+tracking, or had never answered who was signed in, sat in the rail wearing a
+dash where a figure goes, next to rows that had a real percentage to show.
+**Its one figure mixed units** — a plan's remaining share, a prepaid balance in
+whatever currency the vendor kept it in, an em dash for "not metered" — three
+different kinds of fact reading as one column, which is what a rail's "is
+anything low" promise actually needs to be one thing to keep. And the rail's
+meter was a **ragged second line**: present under a metered account, absent
+under a balance or a dash, so the rail's own rows did not line up with each
+other. Worst of all, the rail was **a filter dressed as navigation** — clicking
+a row did not go anywhere, it narrowed the one page underneath it, which is
+what a header control does, not what a rail does.
+
+A rail of views has none of these problems: five rows, five real pages, an
+icon and — on Plans alone, because it alone earns one — a count. **Scope moved
+to the header** instead: an "All accounts ▾" control beside every view's own
+title, built on the same `Popover` + `Menu` a card's own "…" already draws —
+not a new select, which would be a second thing to learn — and lists one row
+per runtime (scope is by runtime, not by account) alongside "All accounts".
+Picking one scopes whichever view is open exactly as clicking that account in
+the old rail did, and — unlike the old rail — the choice now survives a switch
+between views, because it is one piece of state the window remembers rather
+than five copies of "which page is this."
+The accounts you have switched off sit at the bottom of **Plans**, each
+offering to be tracked again; that is where the rail's own "Not tracked" group
+went.
 
 **Why cards and not a table.** A table sorts well and reads badly: the binding
 number, its reset, its pace and its bar are one thought, and splitting them

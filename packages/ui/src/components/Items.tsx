@@ -34,6 +34,7 @@ import type {
 import { stripAnsi } from '../lib/ansi'
 import {
   ActionError,
+  AttachmentMedia,
   Bubble,
   BubbleContent,
   Button,
@@ -306,7 +307,7 @@ const Row = ({
         <ListRowDetail
           inset="title"
           within={register === 'light' ? 'row' : 'card'}
-          className={bareBody ? undefined : 'grid gap-(--hd-space-2) pt-(--hd-space-2) pb-(--hd-space-3)'}
+          holds={bareBody ? 'plate' : 'text'}
         >
           {children}
         </ListRowDetail>
@@ -524,7 +525,14 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
               aria-label={`View ${image.name}`}
               onClick={() => setPreview(position)}
             >
-              <img className={`${styles.imageThumb} ${singleImage ? 'h-auto max-h-[280px]' : 'h-full'}`} src={image.url} alt={image.name} loading="lazy" draggable={false} />
+              <AttachmentMedia
+                variant="picture"
+                fill={!singleImage}
+                src={image.url}
+                alt={image.name}
+                loading="lazy"
+                draggable={false}
+              />
             </Button>
           ))}
         </div>

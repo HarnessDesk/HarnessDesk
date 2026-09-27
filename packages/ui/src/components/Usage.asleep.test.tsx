@@ -70,7 +70,8 @@ const render = async (accountsByRuntime: AppSnapshot['accountsByRuntime']): Prom
   await act(async () =>
     root.render(
       <StoreProvider store={storeWith(accountsByRuntime)}>
-        <Usage onClose={() => {}} onSignIn={() => {}} />
+        {/* The full "has nothing to report" callout lives on Plans now — Overview only counts it. */}
+        <Usage view="plans" onClose={() => {}} onSignIn={() => {}} />
       </StoreProvider>,
     ),
   )

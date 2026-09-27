@@ -1,13 +1,18 @@
+import type { GoalView } from '@harnessdesk/protocol'
+
+import { goalViewForWire } from '../goals/wire.js'
 import type { MethodsUnder } from './context.js'
 
+export { goalViewForWire }
+
 export const goalMethods = {
-  'goal/list': (ctx, params) => ctx.goals.list(params.root),
-  'goal/read': (ctx, params) => ctx.goals.view(params.goal),
-  'goal/create': (ctx, params) => ctx.goals.create(params),
-  'goal/update': (ctx, params) => ctx.goals.update(params.goal, params.revision, {
+  'goal/list': async (ctx, params) => (await ctx.goals.list(params.root)).map(goalViewForWire),
+  'goal/read': async (ctx, params) => goalViewForWire(await ctx.goals.view(params.goal)),
+  'goal/create': async (ctx, params) => goalViewForWire(await ctx.goals.create(params)),
+  'goal/update': async (ctx, params) => goalViewForWire(await ctx.goals.update(params.goal, params.revision, {
     ...(params.sentence === undefined ? {} : { sentence: params.sentence }),
     ...(params.dependsOn === undefined ? {} : { dependsOn: params.dependsOn }),
-  }),
+  })),
   'goal/seat': (ctx, params) => ctx.goals.seat(params),
   'goal/assign': (ctx, params) => ctx.goals.assign(params.goal, params.card, params.session),
   'goal/release': async (ctx, params) => {

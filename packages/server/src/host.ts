@@ -107,9 +107,19 @@ import { holdCeiling, type SeatHold } from './ceilings/hold.js'
 import type { InstallService } from './installs/service.js'
 import { AuditLog } from './audit.js'
 import { CatalogRefresher } from './catalog-refresher.js'
-import { Ledger, defaultCorpora, type CorpusSpec, type RemoteEventsSource } from './ledger/index.js'
+import {
+  Ledger,
+  defaultCorpora,
+  DeskTranscriptTurnsSource,
+  TURN_CAPABLE_KINDS,
+  type CorpusSpec,
+  type RemoteEventsSource,
+} from './ledger/index.js'
 import type { UsageMeter } from './usage/meter.js'
 import { UsageService } from './usage/service.js'
+import { PlanStore } from './usage/plan-store.js'
+import { suggestionFor } from './usage/plan-prices.js'
+import { planOverlay } from './usage/plan-merge.js'
 import { CredentialBroker, plainCipher, type CredentialCipher } from './credentials.js'
 import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
@@ -142,6 +152,7 @@ import { SessionNames } from './names.js'
 import { redactorFor, redactLog } from './diagnostics.js'
 import { waitFor } from './flow.js'
 import { Flows, runCheck } from './flows.js'
+import { goalViewForWire } from './goals/wire.js'
 import { dispatchAfter, Serial } from './goals/assignments.js'
 import { goalMembers } from './goals/members.js'
 import { GoalPlane, type GoalPlanePort } from './goals/plane.js'
@@ -739,8 +750,13 @@ export class Host {
   readonly #meters = new Map<RuntimeId, UsageMeter>()
   readonly #corpora: CorpusSpec[] = []
   readonly #remoteSources: RemoteEventsSource[] = []
+  /** Runtimes with a real turn count behind them — see `ledger/desk-turns.ts`. */
+  readonly #turnRuntimes = new Set<RuntimeId>()
+  /** The subset of `#turnRuntimes` whose count comes from the desk's own transcript rather than the agent's own records — see `Ledger.turnsFor`'s `source`. */
+  readonly #deskTurnRuntimes = new Set<RuntimeId>()
   #usage: UsageService | null = null
   #ledger: Ledger | null = null
+  #plans: PlanStore | null = null
   /** What the wire methods may reach; see `HostContext`. Built once the fields above exist. */
   readonly #context: HostContext
 
@@ -784,10 +800,12 @@ export class Host {
       list: () => this.#laneStore.list(),
       save: (lane) => this.#laneStore.save(lane),
       available: availablePorts,
-      create: async (id, goal) => {
+      create: async (id, goal, base) => {
         const document = this.#goalStore.read(goal)
-        // A Goal pinned to a commit cuts every lane from that commit, never from whatever the project has checked out.
-        const checkout = await this.#worktrees.create(document.goal.cwd, { name: `lane-${id}`, ...(document.goal.at ? { base: document.goal.at } : {}) })
+        /* A Goal pinned to a commit cuts every lane from that commit, never from whatever the project has checked out;
+           a card handed one predecessor's finished work cuts its lane from that work's commit instead (#1053). */
+        const from = base ?? document.goal.at
+        const checkout = await this.#worktrees.create(document.goal.cwd, { name: `lane-${id}`, ...(from ? { base: from } : {}) })
         if (!checkout.branch) throw new Error('The lane checkout has no branch. Its reservation was kept.')
         return { cwd: checkout.path, branch: checkout.branch }
       },
@@ -1020,7 +1038,7 @@ export class Host {
       // Built inside the Goal's queue, from the Team's copy as it is when the save runs.
       startOf: async (cwd) => {
         const [revision, upstream] = await Promise.all([revisionOf(cwd), upstreamTipOf(cwd)])
-        return revision ? { head: revision.head, upstream } : null
+        return revision ? { head: revision.head, upstream, dirtyPaths: revision.dirtyPaths } : null
       },
       cwdOf: (runtime, sessionId) => this.#sessionCwd(runtime, sessionId),
       // A refused save is put back before the Goal's queue runs anything else.
@@ -1185,7 +1203,9 @@ export class Host {
       log: (message, details) => this.#logger.warn(message, details ?? {}),
       headOf: async (cwd) => {
         const revision = await revisionOf(cwd)
-        return revision ? { at: revision.head, dirty: revision.dirty } : { at: null, dirty: false }
+        return revision
+          ? { at: revision.head, dirty: revision.dirty, dirtyFiles: revision.dirtyFiles, dirtyPaths: revision.dirtyPaths }
+          : { at: null, dirty: false, dirtyFiles: null, dirtyPaths: null }
       },
       runCheck: (command, where, card) => this.#evidence.runFlowCheck(command, where, card),
     }, {
@@ -1552,7 +1572,7 @@ export class Host {
         if (options?.install !== false && !this.#publishingTeamProjection) {
           this.#team.installProjection(view.board, this.#goalStore.read(view.goal.id).legacy?.roster, { final: this.#goalFinal(view.goal.id) })
         }
-        this.#push({ method: 'goal/changed', params: { view } })
+        this.#push({ method: 'goal/changed', params: { view: goalViewForWire(view) } })
       },
       activity: (goal, previous, activity, sentence) => this.#push({
         method: 'goal/activity', params: { goal, previous, activity, sentence },
@@ -1631,6 +1651,20 @@ export class Host {
       retainLane: async (seat: SeatId) => {
         const lane = this.#lanes.forSeat(seat)
         if (lane) await this.#lanes.retain(lane.id)
+      },
+      /* A lane opened only so a reading Seat had the commit it was handed
+         goes when that Seat does: its ports and browser profile are freed.
+         Its folder stays, since the card's recorded stop is read against it.
+         A port still in use leaves it retained, for a person to release. */
+      releaseReadingLane: async (seat: SeatId) => {
+        const lane = this.#lanes.forSeat(seat)
+        if (!lane?.reading || lane.state === 'released') return
+        try {
+          await this.#lanes.release(lane.id)
+        } catch (error) {
+          this.#logger.warn('a reading lane could not be let go; it stays retained', { lane: lane.id, error: error instanceof Error ? error.message : String(error) })
+          await this.#lanes.retain(lane.id)
+        }
       },
       wake: (goal: string) => this.#team.nudgeRoom(goal),
       stopFlows: (goal: string) => this.#flows.stopGoal(goal),
@@ -1903,12 +1937,25 @@ export class Host {
    * for what it has left, a transcript corpus for what it cost. Both are
    * optional, and an agent with neither simply has less to show.
    *
+   * `deskTurns` asks for the one fallback left when neither the corpus nor
+   * anything else here can count a turn: the desk's own transcript
+   * (`ledger/desk-turns.ts`). It is the caller's decision, made once here —
+   * never both a turn-capable corpus and `deskTurns` for the same runtime, so
+   * nothing downstream can double count a session both sides already know
+   * about (see that file's own comment for why this is the whole rule).
+   *
    * Called by the wiring, which is the only place that knows which agent is
    * which; nothing above the host ever names one.
    */
   bindUsage(
     runtime: RuntimeId,
-    binding: { meter?: UsageMeter; corpus?: CorpusSpec['kind']; root?: string; remote?: RemoteEventsSource },
+    binding: {
+      meter?: UsageMeter
+      corpus?: CorpusSpec['kind']
+      root?: string
+      remote?: RemoteEventsSource
+      deskTurns?: boolean
+    },
   ): void {
     if (binding.meter) this.#meters.set(runtime, binding.meter)
     if (binding.corpus) {
@@ -1916,10 +1963,16 @@ export class Host {
         ? [{ runtime, kind: binding.corpus, root: binding.root }]
         : defaultCorpora([{ id: runtime, kind: binding.corpus }])
       if (spec) this.#corpora.push(spec)
+      if (TURN_CAPABLE_KINDS.has(binding.corpus)) this.#turnRuntimes.add(runtime)
     }
     // Cursor's own transcript-free corpus: rows a network call fetches
     // rather than a file this machine already has. See `usage/cursor-events.ts`.
     if (binding.remote) this.#remoteSources.push(binding.remote)
+    if (binding.deskTurns && !binding.corpus) {
+      this.#remoteSources.push(new DeskTranscriptTurnsSource(runtime, this.#transcripts))
+      this.#turnRuntimes.add(runtime)
+      this.#deskTurnRuntimes.add(runtime)
+    }
   }
 
   get #ledgerService(): Ledger {
@@ -1927,6 +1980,12 @@ export class Host {
       stateDir: this.#state.directory,
       corpora: this.#corpora,
       remoteSources: this.#remoteSources,
+      // The live sets themselves, never a copy: an agent bound after this
+      // getter first builds the ledger (`bindUsage`, called any time an
+      // agent is added, `methods/accounts.ts` and the adopt path alike) must
+      // be turn-known immediately, not only after a restart (#1047 review).
+      turnRuntimes: this.#turnRuntimes,
+      deskTurnRuntimes: this.#deskTurnRuntimes,
       log: (message, details) => this.#logger.warn(message, details),
       onProgress: (progress) => {
         this.#push({ method: 'usage/scanProgress', params: { progress } })
@@ -1957,11 +2016,43 @@ export class Host {
     this.#usage ??= new UsageService({
       runtimes: () => this.#meteredRuntimes(),
       meters: this.#meters,
-      spend: { spendFor: (runtime) => this.#ledgerService.spendFor(runtime) },
+      spend: {
+        spendFor: (runtime, days) => this.#ledgerService.spendFor(runtime, days),
+        turnsFor: (runtime, sinceMs) => this.#ledgerService.turnsFor(runtime, sinceMs),
+        requestsFor: (runtime, sinceMs) => this.#ledgerService.requestsFor(runtime, sinceMs),
+        valueFor: (runtime, sinceMs) => this.#ledgerService.valueFor(runtime, sinceMs),
+      },
       onReport: (report) => this.#push({ method: 'usage/updated', params: { report } }),
       log: (message, details) => this.#logger.warn(message, details),
+      // Every report — cached, returned or pushed as `usage/updated` — folds
+      // a stored plan fee/budget in right here, the one seam `UsageService`
+      // funnels all three through. A `plans.json` that fails to read is
+      // logged and the report passes through unmerged (BLOCKING 1, 2).
+      overlay: planOverlay(this.#planStore, (message, details) => this.#logger.warn(message, details)),
     })
     return this.#usage
+  }
+
+  get #planStore(): PlanStore {
+    this.#plans ??= new PlanStore(join(this.#state.directory, 'plans.json'))
+    return this.#plans
+  }
+
+  /**
+   * One account's own stored plan and its matching suggestion — never a
+   * runtime's single cached report, which only ever remembers one account
+   * (BLOCKING 3). A `plans.json` that fails to read comes back as `refusal`
+   * (where and why) rather than rejecting the call, so the card can show it
+   * instead of going blank (BLOCKING 2).
+   */
+  async #readPlan(params: import('@harnessdesk/protocol').PlanReadParams): Promise<import('@harnessdesk/protocol').PlanRead> {
+    try {
+      const entry = await this.#planStore.entryFor(params.runtime, params.account)
+      const suggestion = suggestionFor(params.runtime, params.plan ?? null)
+      return { entry, suggestion, refusal: null }
+    } catch (error) {
+      return { entry: null, suggestion: null, refusal: error instanceof Error ? error.message : String(error) }
+    }
   }
 
   async start(): Promise<void> {
@@ -2179,6 +2270,9 @@ export class Host {
     this.#attachmentAbort.abort()
     this.#catalogs.stop()
     this.#agentWatch?.dispose()
+    // Cancels every v2 release still waiting on a Seat's turn to end: no
+    // timer of this class's own outlives the process (#1027).
+    this.#flows.dispose()
     // No save preview survives the host: an apply from here on refuses, and one in flight finishes on its queue.
     this.#authoring.close()
     /* Triggers stop first: no new admission, no poll, no budget sweep and no
@@ -2719,7 +2813,17 @@ export class Host {
 
   async #claimGoalCard(goal: string, card: number, opening: SeatOpening): Promise<void> {
     const { runtime, sessionId } = opening.session
-    const upstream = await upstreamTipOf(opening.checkout.cwd).catch(() => null)
+    /* Read fresh at the moment of claiming, same as `upstream` — a shared
+       checkout may have moved since its Seat opened. This snapshot is what a
+       finish later compares against (`IntentClaim.dirtyPaths`,
+       `FlowExecutions.refuseDirty`) to tell a card's own leftover work apart
+       from a checkout's pre-existing dirt; a failed read leaves it null,
+       which is a finish's own signal to never refuse for dirt it cannot
+       attribute (#1049). */
+    const [upstream, dirtyPaths] = await Promise.all([
+      upstreamTipOf(opening.checkout.cwd).catch(() => null),
+      revisionOf(opening.checkout.cwd).then((revision) => revision?.dirtyPaths ?? null).catch(() => null),
+    ])
     await this.#goalPlaneWrite(goal, (intents) => {
       const current = intents.find((one) => one.id === card)
       if (!current) throw new Error('Choose an existing card.')
@@ -2736,7 +2840,7 @@ export class Host {
         ...intent,
         state: 'claimed' as const,
         // Where the Seat's checkout stood as it took the card: the start of this card's work.
-        claim: { runtime: runtime as RuntimeId, sessionId, at, head: opening.checkout.head, upstream },
+        claim: { runtime: runtime as RuntimeId, sessionId, at, head: opening.checkout.head, upstream, dirtyPaths },
         // A live claim measures to HEAD, not to wherever it last stopped.
         until: null,
         updatedAt: at,
@@ -2890,7 +2994,7 @@ export class Host {
     try {
       const view = await this.#goals.view(operation.goal)
       this.#team.installProjection(view.board, this.#goalStore.read(operation.goal).legacy?.roster, { final: true })
-      this.#push({ method: 'goal/changed', params: { view } })
+      this.#push({ method: 'goal/changed', params: { view: goalViewForWire(view) } })
     } catch (error) {
       this.#logger.warn('a wrapped Goal could not be announced after its receipt was stored', {
         goal: operation.goal,
@@ -3118,6 +3222,11 @@ export class Host {
       catalogs: this.#catalogs,
       usage: () => this.#usageService,
       ledger: () => this.#ledgerService,
+      plans: {
+        read: (params) => this.#readPlan(params),
+        set: (input) => this.#planStore.set(input),
+        entryFor: (runtime, account) => this.#planStore.entryFor(runtime, account),
+      },
       insight: this.#insight,
       intake: this.#intake,
       libraryUsage: () => {
@@ -3655,7 +3764,7 @@ export class Host {
         if (outcome === 'restored') {
           const view = await this.#goals.view(document.goal.id)
           this.#team.installProjection(view.board, undefined, { final: true })
-          this.#push({ method: 'goal/changed', params: { view } })
+          this.#push({ method: 'goal/changed', params: { view: goalViewForWire(view) } })
         }
       }
       for (const lane of goalLanes) {
@@ -5715,6 +5824,9 @@ export class Host {
          handed its order again. Budgeted, because a seat that cannot start is
          a seat that would otherwise be re-armed forever. */
       void this.#flows.reArm(runtime, String(event.sessionId))
+      // The same turn-ended signal answers a v2 release still waiting on this
+      // Seat, rather than a poll of its own guessing when to ask again (#1027).
+      this.#flows.retryRelease(runtime, String(event.sessionId))
     }
     if (event.type === 'session/closed') {
       this.#team.onSessionClosed(runtime, String(event.sessionId))

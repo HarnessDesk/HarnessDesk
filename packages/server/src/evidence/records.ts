@@ -219,7 +219,8 @@ export const factOf = (value: unknown): Evidence | null => {
           isCount(value['added']) &&
           isCount(value['removed']) &&
           isSha(value['from']) &&
-          isSha(value['to'])
+          isSha(value['to']) &&
+          (value['dirty'] === undefined || typeof value['dirty'] === 'boolean')
         )
       case 'finding':
         return (

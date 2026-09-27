@@ -31,8 +31,10 @@ import {
   patternExportAppearanceOf,
   resolveFamilies,
   resolvedConsumersOf,
+  SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS,
   screenAppearanceOf,
   screenAreaOf,
+  staleScreenAppearanceExemptions,
   singleScreenAreaOf,
   screenInlineStyleAppearanceOf,
   patternSourceAppearanceOf,
@@ -1537,7 +1539,7 @@ test('compareBaseline requires a complete numeric zero baseline and zero current
 test('each burn-down category is gated on a ceiling that may only fall', () => {
   const clean = zeroes()
 
-  for (const key of ['patternClass', 'screenAppearance']) {
+  for (const key of ['patternClass', 'singleAreaPrimitive']) {
     const ceiling = { ...clean, [key]: 126 }
 
     // At the ceiling: the debt is recorded, so the gate is quiet.
@@ -1556,7 +1558,7 @@ test('each burn-down category is gated on a ceiling that may only fall', () => {
     assert.ok(paid.problems.some((p) => p.message.includes('Tighten the ceiling')))
   }
 
-  const ceiling = { ...clean, patternClass: 126, screenAppearance: 126 }
+  const ceiling = { ...clean, patternClass: 126, singleAreaPrimitive: 126 }
 
   // A non-zero ceiling is still refused for every other category.
   const smuggled = compareBaseline(clean, { ...ceiling, offGrid: 5 })
@@ -1566,9 +1568,67 @@ test('each burn-down category is gated on a ceiling that may only fall', () => {
   // And a category that has burned down to nothing leaves the ratchet: type
   // sizes reached zero, so a single literal coming back is refused outright
   // rather than measured against a ceiling of nought.
-  const returned = compareBaseline({ ...clean, rawType: 1, patternClass: 126, screenAppearance: 126 }, ceiling)
+  const returned = compareBaseline({ ...clean, rawType: 1, patternClass: 126, singleAreaPrimitive: 126 }, ceiling)
   assert.equal(returned.worse, true)
   assert.ok(returned.problems.some((p) => p.key === 'rawType'))
+})
+
+test('screen appearance is a hard zero: one finding fails, and no ceiling can be recorded for it (#838)', () => {
+  const clean = zeroes()
+  assert.equal(compareBaseline(clean, clean).worse, false)
+
+  // A screen drawing one piece of a role for itself fails outright.
+  const drawn = compareBaseline({ ...clean, screenAppearance: 1 }, clean)
+  assert.equal(drawn.worse, true)
+  assert.ok(drawn.problems.some((p) => p.key === 'screenAppearance' && p.message.includes('requires zero')))
+
+  // And the old way back — a ceiling in the baseline — is refused too.
+  const ceiling = compareBaseline({ ...clean, screenAppearance: 3 }, { ...clean, screenAppearance: 3 })
+  assert.equal(ceiling.worse, true)
+  assert.ok(ceiling.problems.some((p) => p.key === 'screenAppearance' && p.message.includes('must be zero')))
+})
+
+test('the Git pane\'s named exemptions cover exactly their own declarations, never the sheet (#838)', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-screen-appearance-named-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const file = path.join(root, 'packages/ui/src/components/GitPane.module.css')
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const named = SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS
+    .map(({ selector, property, value }) => `${selector} { ${property}: ${value}; }`)
+    .join('\n')
+  assert.equal(SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS.length, 3)
+  for (const entry of SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS) assert.ok(entry.reason.length > 40, `${entry.selector} ${entry.property} carries its reason`)
+
+  // The three, exactly as named: nothing to find.
+  assert.deepEqual(screenAppearanceOf(file, named), [])
+  // A new appearance declaration in the same sheet is a finding.
+  assert.deepEqual(screenAppearanceOf(file, `${named}\n.tableHead { color: var(--hd-muted-foreground); }`), [
+    { property: 'color', value: 'var(--hd-muted-foreground)' },
+  ])
+  // So is a named one under another selector, or with another value.
+  assert.equal(screenAppearanceOf(file, '.rowHead { height: var(--hd-control-h-sm); }').length, 1)
+  assert.equal(screenAppearanceOf(file, '.tableHead { height: var(--hd-control-h); }').length, 1)
+  // The same declaration under an at-rule or a parent is another rule, not
+  // the one named — it styles something else, or under another condition.
+  assert.equal(screenAppearanceOf(file, `${named}\n@media (width < 600px) { .tableHead { height: var(--hd-control-h-sm); } }`).length, 1)
+  assert.equal(screenAppearanceOf(file, `${named}\n@container hd-git-tools (width < 40rem) { .detail { min-height: var(--hd-history-detail-min-h); } }`).length, 1)
+  assert.equal(screenAppearanceOf(file, `${named}\n.row { .tableHead { padding-right: var(--hd-space-3); } }`).length, 1)
+  // And the same declaration in another screen's sheet is not exempt.
+  const other = path.join(root, 'packages/ui/src/components/Other.module.css')
+  assert.equal(screenAppearanceOf(other, named).length, 3)
+})
+
+test('a named exemption that matches nothing is reported, so the list cannot outlive what it names (#838)', () => {
+  const named = SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS
+    .map(({ selector, property, value }) => `${selector} { ${property}: ${value}; }`)
+    .join('\n')
+  assert.deepEqual(staleScreenAppearanceExemptions(() => named), [])
+  const [first] = SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS
+  const without = named.replace(`${first.selector} { ${first.property}: ${first.value}; }`, '')
+  assert.deepEqual(staleScreenAppearanceExemptions(() => without), [first])
+  // Moved under an at-rule, it no longer names that rule: stale.
+  assert.deepEqual(staleScreenAppearanceExemptions(() => `${without}\n@media print { ${first.selector} { ${first.property}: ${first.value}; } }`), [first])
+  assert.equal(staleScreenAppearanceExemptions(() => null).length, 3)
 })
 
 test('screen property families have one explicit appearance or layout boundary', (t) => {
@@ -2840,6 +2900,9 @@ test('a method name held in a variable is not a caller either', () => {
   )
 })
 
+/** The server's test files that run in invocations of their own, at a wider cap (#1000, #1003). */
+const CARVED_OUT = ['flow-host-evidence-*.test.js', 'intake-*.test.js']
+
 test('the test glob is written one way everywhere it is run (#256)', () => {
   // Five encodings of one glob: the two runners, the two workflows, and prune-dist's own reading of dist.
   const repo = repoRoot
@@ -2860,21 +2923,66 @@ test('the test glob is written one way everywhere it is run (#256)', () => {
   // the other still fails here rather than silently narrowing what runs.
   const { top, dist, tests } = distSegments(TEST_GLOB)
   const shape = `${top}/*/${dist}/${tests}`
-  // The one package these four files live under, literally — not `*` — so
-  // this is specific to the carved-out sub-glob and cannot be satisfied by
-  // the exclusion clause alone, which names the same files without that
-  // prefix (`! -name 'flow-host-evidence-*.test.js'`, no directory in it).
-  const carveOut = `${top}/server/${dist}/${tests}/flow-host-evidence-*.test.js`
-  for (const file of ['script/verify.mjs', '.github/workflows/ci.yml']) {
-    const text = fs.readFileSync(path.join(repo, file), 'utf8')
-    assert.ok(text.includes(shape), `${file} reads dist by the same directory shape prune-dist.mjs writes (${shape})`)
-    assert.ok(
-      text.includes(carveOut),
-      `${file} runs the files it splits out of the glob prune-dist.mjs writes by that exact sub-glob (${carveOut})`,
-    )
-    assert.ok(
-      text.includes("! -name 'flow-host-evidence-*.test.js'") || text.includes('! -name "flow-host-evidence-*.test.js"'),
-      `${file} excludes those same files from the rest by name, so nothing here runs them twice`,
+  // The one package these files live under, literally — not `*`. The
+  // server's intake test files were split out the same way (#1003).
+  for (const name of CARVED_OUT) {
+    const carveOut = `${top}/server/${dist}/${tests}/${name}`
+    for (const file of ['script/verify.mjs', '.github/workflows/ci.yml']) {
+      const text = fs.readFileSync(path.join(repo, file), 'utf8')
+      assert.ok(text.includes(shape), `${file} reads dist by the same directory shape prune-dist.mjs writes (${shape})`)
+      // Read with the exclusion taken out: the exclusion now spells the same
+      // path, and on its own it satisfied this check, so a separate run whose
+      // glob matched nothing passed here — and `node --test` exits 0 on a
+      // glob that matches nothing (#1052's review, round 2).
+      // Comments are taken out too: one quoting the path is not a run of it
+      // (#1052's review, round 3).
+      const runs = text
+        .split('\n')
+        .filter((line) => !/^\s*(\/\/|#)/.test(line))
+        .join('\n')
+        .split(`! -path '${carveOut}'`)
+        .join('')
+        .split(`! -path "${carveOut}"`)
+        .join('')
+      assert.ok(
+        runs.includes(carveOut),
+        `${file} runs the files it splits out of the glob prune-dist.mjs writes by that exact sub-glob (${carveOut})`,
+      )
+      // By the same path glob, not by name: a bare `-name` exclusion also
+      // drops a same-named file in another package, which the server-only
+      // run never picks up, so it ran nowhere (#1052's review, round 1 —
+      // `packages/protocol`'s intake-wire.test.js).
+      assert.ok(
+        text.includes(`! -path '${carveOut}'`) || text.includes(`! -path "${carveOut}"`),
+        `${file} excludes from the rest exactly the files the separate run is given (${carveOut}), so each runs once and none is dropped`,
+      )
+      assert.ok(!text.includes(`! -name '${name}'`) && !text.includes(`! -name "${name}"`), `${file} does not exclude ${name} by bare name`)
+    }
+  }
+})
+
+test('each carved-out run is given files, and only files (#1003)', (t) => {
+  // What the carve-outs match on disk. Only once something is built: a
+  // fresh checkout has no dist to read, and this gate runs after the build.
+  const { top, dist, tests } = distSegments(TEST_GLOB)
+  const dir = path.join(repoRoot, top, 'server', dist, tests)
+  if (!fs.existsSync(dir)) {
+    t.skip('packages/server has not been built')
+    return
+  }
+  const entries = fs.readdirSync(dir, { withFileTypes: true })
+  for (const name of CARVED_OUT) {
+    const [prefix, suffix] = name.split('*')
+    const files = entries.filter((one) => one.isFile() && one.name.startsWith(prefix) && one.name.endsWith(suffix))
+    assert.ok(files.length > 0, `${name} matches at least one built test file, so its run is not empty`)
+    // `find -path` lets `*` cross a `/`, and node's glob does not: a test
+    // under a directory that starts with this prefix, whatever it ends in,
+    // would be excluded from the main run and never picked up by the
+    // separate one (#1052's review, round 3 — `intake-sub/probe.test.js`).
+    assert.deepEqual(
+      entries.filter((one) => one.isDirectory() && one.name.startsWith(prefix)).map((one) => one.name),
+      [],
+      `no directory under ${top}/server/${dist}/${tests} starts with ${prefix}`,
     )
   }
 })

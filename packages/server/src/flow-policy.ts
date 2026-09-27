@@ -451,7 +451,7 @@ export const parseFlowPolicy = (source: string): { document: FlowDocument | null
  * capped by the Agent's own ceiling, and `edit` is the first level that
  * commits (`read` changes nothing).
  */
-const mayCommit = (agent: AgentDefinition, grant: CeilingLevel): boolean => ceilingReaches(narrower(agent.ceiling, grant), 'edit')
+export const mayCommit = (agent: AgentDefinition, grant: CeilingLevel): boolean => ceilingReaches(narrower(agent.ceiling, grant), 'edit')
 
 /**
  * Whether a Seat of this binding is there to review — what makes its round a

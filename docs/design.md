@@ -748,6 +748,226 @@ inside a `Section` is an h3. A detail head's
 owner is either text — a place, a path — that gives way at its end, or a mark
 such as a status chip that stays whole while the name wraps.
 
+## The rules
+
+The UI consistency programme (#831) decided nine rules. Each used to be
+enforced only by reading, by a unit test of one component, or by an audit
+category that counts a declaration in source — none of which fails when a
+component edit changes what the browser actually renders. `e2e/ui-system/
+rules.spec.ts` asks the running catalogue and `/preview.html`'s real screens
+these nine questions directly, in every theme and interface, and mutates the
+page under test to prove each check is not vacuous. Where the rendered app
+disagreed with a rule, the app was fixed, or the rule was scoped where the
+difference is a deliberate interface choice; the sections below say which.
+
+### Names
+
+Every element wearing a name role — `Text role=…` (`design/patterns/
+Settings.tsx`) or `PageHead`'s own title — computes one of the pairs the
+"Named text roles" table above states: wordmark and page at 20/600, subject
+at 14/500, row at 13/500, navigation and muted at 13/400. Nothing is 16px,
+and nothing outside the wordmark and the page title is semibold — both
+already said above, under "Named text roles" and "Weight". The dashboard
+readouts `Text` also draws (`meta`, `figure`, `metric`, `value`, `prose`) are
+not names and sit outside the rule; `figure`/`metric` are deliberately
+semibold.
+
+Enforced by `rules.spec.ts` ("rule: names"), reading `data-role` and
+`data-slot="page-title"` across every mounted screen. The spec found one
+name out of rule: the pull-request card's title (`components/Publication.tsx`)
+wore `weight="semibold"`, the weight `weight` exists for lifting a search
+match inside a line. It now takes its row role's own 13/500.
+
+The check covers a name drawn through `Text`/`PageHead` only. A name drawn
+some other way — `EmptyState`'s own heading, a `Notices` title, `AgentCard`'s
+name — is out of this rule's reach for now and tracked separately (#1072),
+not silently passed by this one.
+
+### Group labels
+
+`GroupLabel`'s computed `text-transform` is never `uppercase`, in every
+group-label role — see "One title, one group label" above, where the design
+audit's `uppercaseLabel` already refuses the capitals in source. Its weight is
+the interface's label weight, `--hd-label-weight`: regular in Desk, and
+medium in Studio, which varies only the weight and the air above a rail's
+group, on purpose. Size, ink and case are the same in both.
+
+Enforced by `rules.spec.ts` ("rule: group labels"), which asserts the
+rendered result in both interfaces and both themes, with a mutation each for
+capitals and for a heavier weight.
+
+### Destination rows
+
+A navigation row is at least `--hd-nav-h` tall wherever it appears, and
+every row of one kind stands at one height. There are three kinds:
+
+- the sidebar's session row (`components/SessionTree.tsx`);
+- the settings and usage rail row (`AppWindow.tsx`'s `WindowNavItem` and `WindowNavIdentity`);
+- a dropdown menu item (`design/ui/dropdown-menu.tsx`).
+
+All three are `Button size="navigation"` or the menu's own row, floored at
+`--hd-nav-h`.
+
+In Studio the kinds also agree with each other: `--hd-nav-h` is a literal
+34px, and `design/foundation/tokens.css` gives Studio "one height for every row in
+a navigation column". Desk does not promise that:
+
+- the sidebar's session rows and a menu item are 30px, because their 20px line, 4+4px block padding and 1+1px border add up past the 29px floor;
+- the rail's rows have no block padding and sit on the 29px floor.
+
+Whether Desk should converge is #1073.
+
+The settings rail's identity row was the one row out of step with its own
+kind. Its 28px face in a 29px row with 1px borders pushed it to 30px. It
+now draws the seat's 24px face, the size the sidebar's seat row uses.
+
+Enforced by `rules.spec.ts` ("rule: destination rows"), on every visible row
+of every kind, in both themes and interfaces. Mutations cover a row shrunk
+under the floor and one row taller than its siblings.
+
+### Fields
+
+A default-size text field (`Input`, and `Search`'s inner input) is 30px tall
+at 14px — matching the programme's own number — **including** inside
+`[data-hd-density="comfortable"]` (the settings and usage windows) under
+Desk: the universal `[data-hd-density="comfortable"]` block only restates
+`--hd-control-h` ("Controls and buttons" above), never `--hd-btn-h` or
+`--hd-field-h`. `design/foundation/tokens.css`'s own comment records the regression
+that happens when it does — every labelled control in the settings and
+usage windows quietly dropped to 26px, because a derived token like
+`--hd-field-h: var(--hd-btn-h)` freezes to a number where it is declared,
+so restating `--hd-btn-h` in the wrong scope silently moved every consumer
+that had already frozen a copy of it. Only inside
+`body[data-hd-interface="studio"] [data-hd-density="comfortable"]` does
+`--hd-field-h` become `--hd-control-h-lg`, 36px — a second, intentional
+density rung, not a second field system, checked as its own number rather
+than excluded. `Search`'s `compact` size (the sidebar's own filter) is a
+third, deliberate rung of the same pattern — 24px tall, at the same 14px —
+not a second Search: every filter field in the app renders through the one
+`Search` component.
+
+Enforced by `rules.spec.ts` ("rule: fields"), which asserts 30px/14px
+everywhere except Studio's comfortable scope, 36px/14px inside it, that the
+compact and default rungs agree on font size, and that every input whose
+placeholder reads as a filter sits under `[data-slot="search"]`.
+
+### Selection
+
+A chosen row keeps its resting neighbour's weight and gains a fill the
+neighbour lacks — never the other way round; see "Weight" above ("Selection
+is marked by a filled pill and a check, never by making one row heavier than
+its neighbours"). `visual-contracts.spec.ts`'s "every chosen row, destination
+and option is filled, and none changes weight" test already proves this,
+pairwise, on the `view=propagation` catalogue rig. `rules.spec.ts` ("rule:
+selection") does not repeat that comparison; it wraps the identical read in
+a checker function and mutates the page (`page.addStyleTag`, removing a
+chosen row's fill) to prove the check is not vacuous, which the existing
+spec does not do. A second check reads two real destinations `/preview.html`
+selects by default — the sidebar's active session row and the settings
+rail's current page — against an unselected sibling of the same kind, in
+every theme and interface: the catalogue rig proves the contract in the
+abstract, this proves it on the app.
+
+### Tertiary ink
+
+The tertiary label tier clears 4.5:1, rendered, on the page, card, plate,
+popover and sidebar grounds — the same bar "Ink levels" above sets, and the
+same three-tier separation that section measures at the token level.
+`tokens.contrast.test.ts` covers the tokens on `--hd-background`, `--hd-card`,
+`--hd-sidebar` and `--hd-popover`; `rules.spec.ts` ("rule: tertiary ink")
+mounts a real `Text role="meta"` on each real ground — the real `Card`
+component for the card ground, and, since a plate has no bare ground of its
+own to mount into any more than a popover or the sidebar do, the raw
+`--hd-card-fill` token applied directly for the plate — and measures what
+the browser actually composites, including the plate ground
+`tokens.contrast.test.ts` does not cover. Holds today, measured in every
+theme and interface, and the checker now asserts all five grounds were
+actually read: an earlier version of the walk started at the ground
+container and climbed *up* looking for a background, which finds the page's
+own ground behind the card rather than the card's, since the card's painted
+background is a child of that container, not an ancestor of it — a bug that
+had the card ground silently reporting the page's contrast as its own.
+
+### Focus ring
+
+A focused button and a focused field each draw exactly one ring, and no
+wrapper repeats it — the other half of the claim "Dialog forms" above
+already makes about a popup surface drawing none of its own; the control
+inside is where the one ring belongs. `surface-focus.spec.ts` proves the
+surface half; `rules.spec.ts` ("rule: focus ring") proves the control half,
+on a fixture nested two wrapper divs deep, and mutates a wrapper's own
+`:focus-within` rule to prove a repeated ring is caught.
+
+Measured rather than assumed: a button's ring is the document-level native
+`outline` (`styles/app.css`) — 2px solid, 2px clear at Desk, matching the
+programme's number, and 3px solid with no clearance at Studio (an
+owner-decided interface difference, `--hd-ring-width`/`--hd-ring-offset`). A
+field instead rings by `box-shadow` (`--hd-focus-ring`, `0 0 0
+var(--hd-ring-width) …`) — the same width, but flush against the field's own
+border with no gap to spend, because a box-shadow ring has no offset
+property. The rule's "2px clearance" is the button's number; the field's
+ring is one ring with a different, and equally real, shape.
+
+A field's *resting* `box-shadow` (`--hd-input-shadow`) is not nothing under
+Studio ("Dialog forms" above: "a transparent field with a hairline on a
+white page is a rectangle drawn on paper"), so the check reads the field
+before and after focusing it and asks whether focus *added* something,
+rather than asking whether `box-shadow` is merely not `'none'` — the second
+question is true at rest on that interface, and would have passed a field
+whose focus drew no ring at all. The same before/after read is how a
+wrapper's repeat is caught: not a copy of the control's own ring, but any
+outline or box-shadow that appears on an ancestor once the control is
+focused that was not there at rest.
+
+### Monospace
+
+Only a code-role element computes the monospace family — see "The code face"
+above. `rules.spec.ts` ("rule: monospace") scopes the rendered check to
+`[data-slot="text"][data-role]`, the closed set every name and label in the
+app passes through, rather than the whole DOM: a DOM-wide scan would have to
+know every legitimate monospace surface (a terminal's screen buffer, a
+diff's line numbers) to avoid false positives, where the named-role set is
+exhaustive by construction. A positive control on the code catalogue
+(`view=code`) confirms real code elements do compute the family, so the
+probe is proven meaningful. Holds today.
+
+### Health takes no tone
+
+A reading that says nothing is wrong is not painted the success colour —
+`Chip`'s own doc comment already says this ("A default or normal state is
+`neutral` or has no chip at all… Colour on every row is noise that hides the
+one row that needs someone"); this rule extends it to `Progress` and `Text`
+readings generally. `rules.spec.ts` ("rule: health takes no tone") looks for
+the app's own words for a resting, nothing-to-report state — "Healthy",
+"Armed", "On", "Loaded" — rendered in the resolved `--hd-success-ink`, or
+sitting on a fill of `--hd-success-dim`/`--hd-success`. A verdict or a
+recorded fact — "Open", "Merged", "Passed", a `+120` diff count — is not
+this rule's target and was left out of the word list on purpose: those name
+what happened, not a normal condition that persists until something changes.
+
+Widening past "Healthy" alone found three more, all fixed the same way —
+the resting half of a pair goes untoned, the half that means something is
+wrong keeps its own:
+
+- `lib/provenance.ts`'s `captureWords`: a healthy capture read "Healthy" in
+  the success tone.
+- `components/ProjectTriggers.tsx`'s `STATE_WORDS.armed`: an armed trigger
+  read "Armed" in the success tone — the one state in that table that was
+  toned at all; `off` was already neutral.
+- `components/SkillSheet.tsx`'s runtime-reach row: a skill a runtime reaches
+  read "On" in the success tone; "Off" already had none.
+- `components/SeatAttachments.tsx`: a loaded attachment read "Loaded" in the
+  success tone; "Not loaded" keeps its warning, which is a verdict rather
+  than a resting state.
+
+A budget meter (`AgentCard`'s `meter`, the context or plan reading
+`components/AgentCards.tsx` builds) is deliberately not in this rule's word
+list and not fixed here. Its fill is a verdict on how much is left, not a
+named resting state, and green there is documented as "plenty left" — a
+different claim from "nothing is wrong". Whether a budget with plenty left
+should also be untoned is an open question for the owner (#1061); narrowing
+this rule to leave it out is that decision waiting, not an oversight.
+
 ## Adding to the app
 
 When adding a control, row or surface to HarnessDesk:
@@ -863,10 +1083,13 @@ a confirm from the catalogue, and fails on four of them:
 
 ### What the audit refuses
 
-`pnpm design:audit --strict` holds nineteen categories at a baseline.
-Eighteen are at zero; `screenAppearance` sits at 656 declarations —
-appearance a screen still draws for itself instead of composing it, in
-whichever of three spellings it chose.
+`pnpm design:audit --strict` holds every category at zero, except three
+burn-down ceilings that may only fall: `patternClass`, `uppercaseLabel` and
+`singleAreaPrimitive` (the first two are already at zero). `screenAppearance`
+— appearance a screen draws for itself instead of composing it, in whichever
+of three spellings it chose — is a hard zero since #838. It began at 895. The
+Git pane's three own declarations are named exemptions, each with its reason,
+rather than a ceiling of three (see below).
 
 Every ordinary property has to match one of two explicit tables after its
 vendor prefix is stripped, wherever it is spelled. `APPEARANCE_PROPERTIES`
@@ -897,6 +1120,20 @@ table header or a card heading, which is why `patternClass` could safely keep
 only `empty`; the declaration says what the screen actually owns. Markdown's
 prose ratio ladder and the diff viewer remain named specialized-renderer
 exemptions, in both the stylesheet and the `.tsx` that renders each.
+
+Three single declarations are exempt by name, in
+`SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS`. Each is `GitPane.module.css`'s own:
+
+- the commit table's head height (`--hd-control-h-sm`);
+- the same head's end inset, which is the rows' own, so the columns line up;
+- the opened commit's floor (`--hd-history-detail-min-h`).
+
+Each has no second screen to share a part with, so a part made for it would
+be a one-screen part. The exemption is the exact declaration: sheet, selector,
+property and value. A new appearance declaration in that sheet is a finding,
+and so is one of these three taking another value. A named exemption that
+matches nothing is a finding of its own, so the list cannot outlive what it
+names.
 
 The same boundary reaches into `design/patterns/` — typed, product-specific
 composition contracts — but not into `design/ui/`, the shadcn-registry
@@ -1102,6 +1339,13 @@ simply unable to see:
   `screenAppearance` settled at 656 after also merging main past #920
   (Agents and Goals brought onto shared design parts, which changed several
   unrelated screen-appearance findings of its own).
+- From 656 the count fell by composition, never by moving declarations:
+  - the three families: column inset, message rhythm and status dot (#1016);
+  - the image cap, the loading row, the rename box and the ticking digits (#1046);
+  - many smaller conversions in between.
+
+  At 3, all of them the Git pane's own, the owner chose named exemptions over
+  a ceiling, and `screenAppearance` left the burn-down set: a hard zero (#838).
 
 All four have the same shape as the line-height ratios before them: name the
 spellings you happen to remember, and everything else is invisible —

@@ -62,11 +62,11 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
   bar: 'packages/ui/src/components/Sidebar.tsx',
   bubble: 'packages/ui/src/components/Items.tsx',
   button: 'packages/ui/src/components/SignIn.tsx',
-  chart: 'packages/ui/src/components/Usage.tsx',
+  chart: 'packages/ui/src/components/usage/shared.tsx',
   composer: 'packages/ui/src/components/RoomComposer.tsx',
   checkbox: 'packages/ui/src/components/AddWork.tsx',
   dialog: 'packages/ui/src/components/Composer.tsx',
-  delta: 'packages/ui/src/components/Usage.tsx',
+  delta: 'packages/ui/src/components/usage/shared.tsx',
   'disclosure-chevron': 'packages/ui/src/components/TurnWork.tsx',
   'dropdown-menu': 'packages/ui/src/components/TeamBoardPane.tsx',
   'empty-state': 'packages/ui/src/components/Library.tsx',
@@ -91,7 +91,7 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
   toast: 'packages/ui/src/app/App.tsx',
   'toggle-group': 'packages/ui/src/components/Library.tsx',
   'tool-pane': 'packages/ui/src/components/BrowserPane.tsx',
-  tone: 'packages/ui/src/components/Usage.tsx',
+  tone: 'packages/ui/src/components/usage/shared.tsx',
   tooltip: 'packages/ui/src/components/Sidebar.tsx',
 }
 
@@ -136,7 +136,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'AppWindow', 'Change', 'RefusedAction',
   'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist',
-  'heat-grid',
+  'heat-grid', 'PlanCard',
 ])
 
 const compoundCoverageExemption = (name: string, exampleId: string): string | undefined =>
@@ -227,6 +227,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   Checklist: ['default'],
   'heat-grid': ['default'],
   PaneColumn: ['default'],
+  PlanCard: ['default'],
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
@@ -312,6 +313,10 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   Checklist: ['default', 'active', 'inactive', 'success', 'empty'],
   'heat-grid': ['default', 'empty', 'populated'],
   PaneColumn: ['default'],
+  // empty: no fee set, nothing suggested. derived: a suggestion offered.
+  // populated: a fee is set. warning: a key/metered account's budget row.
+  // error: plans.json's own refusal, shown as a Note.
+  PlanCard: ['empty', 'derived', 'populated', 'warning', 'error'],
 }
 
 const DEFAULT_SIZE = ['default'] as const
@@ -321,7 +326,7 @@ const SIZES: Record<string, readonly CatalogSize[]> = Object.fromEntries(
 Object.assign(SIZES, {
   button: ['default', 'xs', 'sm', 'icon', 'icon-xs', 'icon-sm', 'content', 'table-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'],
   card: ['default', 'compact'],
-  input: ['default', 'compact', 'bare'],
+  input: ['default', 'compact', 'bare', 'row'],
   attachment: ['sm', 'default', 'lg'],
   'icon-tile': ['xs', 'sm', 'default', 'lg'],
   'disclosure-chevron': ['xs', 'sm', 'default', 'lg'],
@@ -356,6 +361,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   Notices: 'packages/ui/src/components/Notices.tsx',
   Checklist: 'packages/ui/src/components/TaskPanel.tsx',
   PaneColumn: 'packages/ui/src/components/Conversation.tsx',
+  PlanCard: 'packages/ui/src/components/SettingsAgents.tsx',
 }
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
@@ -383,6 +389,7 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   ConversationEmptyState: 'packages/ui/src/components/Conversation.tsx',
   TurnWork: 'packages/ui/src/components/TurnWork.tsx',
   PaneColumn: 'packages/ui/src/design/explorer/boards.tsx',
+  PlanCard: 'packages/ui/src/design/explorer/boards-compositions.tsx',
 }
 
 const variantsFor = (name: string): readonly CatalogVariant[] => {
@@ -515,6 +522,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['Notices', 'notices', 'Message surfaces: sidebar card, composer notice, strip, inbox and toast'],
   ['Checklist', 'checklist', 'An agent plan: steps to do, under way and done'],
   ['PaneColumn', 'conversation', 'The reading column\'s inset, shared by the transcript and the room stream, plus the bars strip, the jobs strip and the rail'],
+  ['PlanCard', 'plan-card', 'A plan\'s price and a key or metered account\'s monthly budget, set once from a suggested price'],
 ] as const satisfies readonly ModuleSeed[]
 
 /**

@@ -39,6 +39,24 @@ export interface LedgerOptions {
   readonly corpora: readonly CorpusSpec[]
   /** Sources that live on a server rather than in a file — see `remote.ts`. */
   readonly remoteSources?: readonly RemoteEventsSource[]
+  /**
+   * Which runtimes have a real turn count behind them — see "Turns",
+   * `docs/usage-dashboard.md`, and `TURN_CAPABLE_KINDS` (`scan.ts`) for the
+   * scanners that can tell. Explicit rather than inferred from `corpora`'s
+   * kinds alone, because the desk's own transcript (`desk-turns.ts`) also
+   * earns a runtime a place here without a `CorpusSpec` at all — the host's
+   * wiring computes the whole list once, for every source it registered.
+   */
+  readonly turnRuntimes?: ReadonlySet<RuntimeId>
+  /**
+   * Which of `turnRuntimes` earn their turn count from the desk's own
+   * transcript (`ledger/desk-turns.ts`) rather than the agent's own records
+   * -- Cursor today, and any unrecognised ACP agent. `Ledger.turnsFor`'s
+   * `source` reads this, because a desk-sourced runtime's turns cover only
+   * what ran through this desk, never standalone use the way an agent's own
+   * transcript does -- see "Turns", `docs/usage-dashboard.md`.
+   */
+  readonly deskTurnRuntimes?: ReadonlySet<RuntimeId>
   readonly databasePath?: string
   readonly onProgress?: (progress: ScanProgress) => void
   readonly log?: (message: string, details?: Record<string, unknown>) => void
@@ -130,6 +148,8 @@ export class Ledger {
   readonly #store: LedgerStore
   readonly #pricing: Pricing
   readonly #insightByteLimit: number
+  readonly #turnRuntimes: ReadonlySet<string>
+  readonly #deskTurnRuntimes: ReadonlySet<string>
   #progress: ScanProgress = IDLE
   #scanning: Promise<void> | null = null
   #warmed: Promise<void> | null = null
@@ -137,6 +157,12 @@ export class Ledger {
   constructor(options: LedgerOptions) {
     this.#options = options
     this.#insightByteLimit = options.insightByteLimit ?? INSIGHT_BYTE_LIMIT
+    // The live set itself, never a copy: a runtime bound after this ledger
+    // was built (`host.ts`'s `bindUsage`, called any time an agent is added)
+    // must be turn-known the moment it is added, not only after a restart
+    // that rebuilds a fresh copy from what existed at construction time.
+    this.#turnRuntimes = options.turnRuntimes ?? new Set()
+    this.#deskTurnRuntimes = options.deskTurnRuntimes ?? new Set()
     this.#store = new LedgerStore(options.databasePath ?? join(options.stateDir, 'usage.sqlite'))
     const paths = defaultPricingPaths(options.stateDir)
     this.#pricing =
@@ -494,6 +520,11 @@ export class Ledger {
 
     await remoteSync
     this.#store.setMeta('scannedAt', String(this.#now()))
+    // A scan just reached its own end, having read every pending target this
+    // pass found (a fresh cursor for every file the migration's reset left
+    // without one, among them) -- from here on, a turn-capable runtime's
+    // count is trustworthy. See `LedgerStore.turnsReady`.
+    this.#store.markTurnsReady()
     this.#report({
       running: false,
       filesDone,
@@ -509,6 +540,77 @@ export class Ledger {
   #report(progress: ScanProgress): void {
     this.#progress = progress
     this.#options.onProgress?.(progress)
+  }
+
+  /**
+   * `sum` when every runtime in `runtimes` is one this ledger was told has a
+   * real turn count (`#turnRuntimes`); `undefined` otherwise — never a
+   * partial number passed off as a whole one. `runtimes` empty (no row
+   * contributed at all) is also undefined: there is nothing to know.
+   */
+  /**
+   * Whether one runtime's turn count can be trusted at all: it has to be a
+   * runtime this ledger was told has a real turn boundary, and the store
+   * itself has to be past the gap a fresh `turns` column leaves — see
+   * `LedgerStore.turnsReady`. A runtime that is turn-capable but asked for
+   * before the first post-migration scan finishes is exactly as unknown as
+   * one never configured at all, never a stale, too-low real count.
+   */
+  #turnKnown(runtime: string): boolean {
+    return this.#turnRuntimes.has(runtime) && this.#store.turnsReady()
+  }
+
+  #turnsIfKnown(runtimes: ReadonlySet<string>, sum: number): number | undefined {
+    if (runtimes.size === 0) return undefined
+    for (const runtime of runtimes) {
+      if (!this.#turnKnown(runtime)) return undefined
+    }
+    return sum
+  }
+
+  /**
+   * How many turns one runtime ran since `sinceMs` — `null` when this ledger
+   * was never told it has a real turn count at all (`LedgerOptions.turnRuntimes`),
+   * or when the store has not finished a scan since the `turns` column was
+   * added (`LedgerStore.turnsReady`) — both of which `UsageService` reads as
+   * "unknown", never as zero. `since` is always local midnight of `sinceMs`,
+   * the same rounding `#store.since` itself applies, so a caller cannot read
+   * a window that starts earlier than what was actually counted.
+   *
+   * `source` says where the count came from: `'agent'` for a runtime whose
+   * own transcript is the turn boundary (Codex, Claude Code, Gemini CLI,
+   * Qwen Code — covering standalone use exactly as well as desk use),
+   * `'desk'` for one that has no scanner of its own and is counted only from
+   * what this desk itself recorded (Cursor, and any unrecognised ACP agent,
+   * `ledger/desk-turns.ts`). The distinction matters because a desk-sourced
+   * runtime's turns are desk-only while everything else a meter might report
+   * about it is account-wide — see the owner's decision, "Turns",
+   * `docs/usage-dashboard.md`.
+   */
+  turnsFor(runtime: RuntimeId, sinceMs: number): { readonly count: number; readonly since: number; readonly source: 'agent' | 'desk' } | null {
+    if (!this.#turnKnown(runtime)) return null
+    const since = startOfDay(sinceMs)
+    const rows = this.#store.since(since, runtime)
+    const count = rows.reduce((sum, row) => sum + (row.turns ?? 0), 0)
+    return { count, since, source: this.#deskTurnRuntimes.has(runtime) ? 'desk' : 'agent' }
+  }
+
+  /** How many ledger requests (priced or not) one runtime logged since `sinceMs` — the same window `turnsFor` counted, for a per-turn rate. */
+  requestsFor(runtime: RuntimeId, sinceMs: number): number {
+    const rows = this.#store.since(startOfDay(sinceMs), runtime)
+    return rows.reduce((sum, row) => sum + row.requests, 0)
+  }
+
+  /**
+   * How much this runtime's ledger rows are worth since `sinceMs` — vendor
+   * cost where a row carries one, list price otherwise, the same split
+   * `#price` always applies — over exactly the window `requestsFor` and
+   * `turnsFor` count, never `spendFor`'s own day-rounded window, which can
+   * cover a different number of days for the same `sinceMs` (#1047 review).
+   */
+  valueFor(runtime: RuntimeId, sinceMs: number): number {
+    const rows = this.#store.since(startOfDay(sinceMs), runtime)
+    return rows.reduce((sum, row) => sum + this.#price(row).cost, 0)
   }
 
   #price(row: UsageRow): Priced {
@@ -579,6 +681,7 @@ export class Ledger {
         daysCovered: this.#store.daysCovered(from, runtime),
         daysRequested: days,
         earliestDay: this.#store.earliestDay(runtime),
+        turnsKnownFor: this.#turnKnown(runtime) ? [runtimeId(runtime)] : [],
       },
       daily: [...byDay.entries()]
         .sort(([a], [b]) => a - b)
@@ -600,7 +703,11 @@ export class Ledger {
     // The split behind `totalTokens`, summed alongside it — never a second
     // pass over `rows`, and never a number that could disagree with the total
     // it is part of.
-    const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, requests: 0 }
+    const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, requests: 0, turns: 0 }
+    // Every runtime any row in this window belongs to, so `totals.turns` can
+    // be withheld the same way a mixed group's is — a window scanning one
+    // turn-known agent and one that is not must not read as a real total.
+    const allRuntimes = new Set<string>()
     interface Group {
       label: string
       /** Distinct paths behind one basename, so a collision can be told apart. */
@@ -615,6 +722,7 @@ export class Ledger {
       cacheWrite: number
       reasoning: number
       requests: number
+      turns: number
     }
     const groups = new Map<string, Group>()
     const daily = new Map<string, LedgerDay>()
@@ -632,6 +740,8 @@ export class Ledger {
       totals.cacheWrite += row.cacheWrite
       totals.reasoning += row.reasoning
       totals.requests += row.requests
+      totals.turns += row.turns ?? 0
+      allRuntimes.add(row.runtime)
 
       // A model or a project is one thing however many agents touched it —
       // "what did this project cost" is the question the pivot is named for,
@@ -656,6 +766,7 @@ export class Ledger {
         cacheWrite: 0,
         reasoning: 0,
         requests: 0,
+        turns: 0,
       }
       group.cost += cost.cost
       group.tokens += cost.tokens
@@ -667,6 +778,7 @@ export class Ledger {
       group.cacheWrite += row.cacheWrite
       group.reasoning += row.reasoning
       group.requests += row.requests
+      group.turns += row.turns ?? 0
       groups.set(key, group)
 
       const dayKey = `${row.day}:${row.runtime}`
@@ -681,7 +793,9 @@ export class Ledger {
         cacheWrite: 0,
         reasoning: 0,
         requests: 0,
+        turns: 0,
       }
+      const dayTurns = (bucket.turns ?? 0) + (row.turns ?? 0)
       daily.set(dayKey, {
         day: row.day,
         runtime: runtimeId(row.runtime),
@@ -693,6 +807,7 @@ export class Ledger {
         cacheWrite: (bucket.cacheWrite ?? 0) + row.cacheWrite,
         reasoning: (bucket.reasoning ?? 0) + row.reasoning,
         requests: (bucket.requests ?? 0) + row.requests,
+        ...(this.#turnKnown(row.runtime) ? { turns: dayTurns } : {}),
       })
     }
 
@@ -721,31 +836,40 @@ export class Ledger {
       daysCovered: this.#store.daysCovered(from, request.runtime),
       daysRequested: days,
       earliestDay: this.#store.earliestDay(request.runtime),
+      turnsKnownFor: [...allRuntimes]
+        .filter((runtime) => this.#turnKnown(runtime))
+        .sort()
+        .map((runtime) => runtimeId(runtime)),
     }
     const ordered: LedgerRow[] = [...groups.entries()]
-      .map(([key, group]) => ({
-        key,
-        label: group.label,
-        // Named only when one agent owns the row; a shared project belongs to
-        // no single mark, and showing one of them would be a lie.
-        runtime:
-          request.groupBy === 'runtime'
-            ? null
-            : group.runtimes.size === 1
-              ? runtimeId([...group.runtimes][0] as string)
-              : null,
-        tokens: group.tokens,
-        cost: anyPriced ? group.cost : null,
-        hasUnpriced: group.unpriced,
-        input: group.input,
-        output: group.output,
-        cacheRead: group.cacheRead,
-        cacheWrite: group.cacheWrite,
-        reasoning: group.reasoning,
-        requests: group.requests,
-      }))
+      .map(([key, group]) => {
+        const turnsKnown = this.#turnsIfKnown(group.runtimes, group.turns)
+        return {
+          key,
+          label: group.label,
+          // Named only when one agent owns the row; a shared project belongs
+          // to no single mark, and showing one of them would be a lie.
+          runtime:
+            request.groupBy === 'runtime'
+              ? null
+              : group.runtimes.size === 1
+                ? runtimeId([...group.runtimes][0] as string)
+                : null,
+          tokens: group.tokens,
+          cost: anyPriced ? group.cost : null,
+          hasUnpriced: group.unpriced,
+          input: group.input,
+          output: group.output,
+          cacheRead: group.cacheRead,
+          cacheWrite: group.cacheWrite,
+          reasoning: group.reasoning,
+          requests: group.requests,
+          ...(turnsKnown !== undefined ? { turns: turnsKnown } : {}),
+        }
+      })
       .sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0) || (b.tokens ?? 0) - (a.tokens ?? 0))
 
+    const totalTurnsKnown = this.#turnsIfKnown(allRuntimes, totals.turns)
     const scannedAt = Number(this.#store.meta('scannedAt') ?? '')
     return {
       days,
@@ -760,7 +884,15 @@ export class Ledger {
       rows: ordered,
       daily: [...daily.values()].sort((a, b) => a.day - b.day),
       scannedAt: Number.isFinite(scannedAt) && scannedAt > 0 ? scannedAt : null,
-      totals,
+      totals: {
+        input: totals.input,
+        output: totals.output,
+        cacheRead: totals.cacheRead,
+        cacheWrite: totals.cacheWrite,
+        reasoning: totals.reasoning,
+        requests: totals.requests,
+        ...(totalTurnsKnown !== undefined ? { turns: totalTurnsKnown } : {}),
+      },
     }
   }
 }
@@ -781,5 +913,6 @@ const projectPath = (path: string): string => {
 
 export { Pricing } from './pricing.js'
 export type { RemoteEventsSource } from './remote.js'
-export { corpusRoot, defaultCorpora, type CorpusKind, type CorpusSpec } from './scan.js'
+export { corpusRoot, defaultCorpora, TURN_CAPABLE_KINDS, type CorpusKind, type CorpusSpec } from './scan.js'
 export { LedgerStore } from './store.js'
+export { DeskTranscriptTurnsSource, type DeskTranscriptExport, type DeskTranscriptReader } from './desk-turns.js'

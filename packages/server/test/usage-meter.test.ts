@@ -149,3 +149,21 @@ test('a lane with no percentage is skipped rather than reported as zero', async 
   const reading = await new ClaudeFileMeter(path).read()
   assert.equal(reading?.lanes.length, 1)
 })
+
+/**
+ * `plan-prices.ts`'s Claude Code "Pro" suggestion row is pinned to exactly
+ * this: a `default_claude_pro` tier — the same `default_<tier>` shape the
+ * fixture above already uses for Max 20x — reads back as `'Pro'`, never a
+ * guess at what the vendor page calls it.
+ */
+test('a "default_claude_pro" tier reads back as "Pro"', async () => {
+  const path = file({
+    cachedUsageUtilization: {
+      fetchedAtMs: 1,
+      utilization: { limits: [{ kind: 'session', group: 'session', percent: 10, severity: 'normal', resets_at: RESET }] },
+    },
+    oauthAccount: { emailAddress: 'someone@example.com', organizationRateLimitTier: 'default_claude_pro' },
+  })
+  const reading = await new ClaudeFileMeter(path).read()
+  assert.equal(reading?.plan, 'Pro')
+})

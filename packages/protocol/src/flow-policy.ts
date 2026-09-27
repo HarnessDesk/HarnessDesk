@@ -178,6 +178,20 @@ export interface FlowExecution {
    * resolved it when the preview was taken and the token bound it.
    */
   readonly target?: FlowStartTarget
+  /**
+   * A plain-word sentence naming a card and the Seat still holding it, while
+   * a release on this run is waiting on that Seat's turn to end — present
+   * whenever one is, whatever `state` reads (`running`, `stalled`, `stopped`
+   * or `settled`), and absent the moment nothing is pending any more. A
+   * result field, computed fresh on every read from the in-memory pending
+   * release itself and never stored: a restart drops it along with the
+   * pending release it names, never leaving a stale sentence with no real
+   * reason left to fall back to (#1027; review #1050 finding 3, round 3 —
+   * `reason` itself is never touched by a pending release, so a surface
+   * reading only `reason` still sees exactly what stopped or settled the
+   * run).
+   */
+  readonly pendingReleaseNote?: string
 }
 
 /**
@@ -272,6 +286,12 @@ export interface FlowPreviewSeat {
   readonly agent: string | null
   readonly plan: SeatPlan
   readonly isolate: boolean
+  /**
+   * Whether a run may open this Seat in a worktree of its own, cut from the
+   * one earlier step's commit it is handed, though its role does not say
+   * `isolate` (#1053): the same rule the run seats by, read from the file.
+   */
+  readonly atPredecessor?: true
   /** Whether this Seat is there to review, as the server decides it (`reviewsIn`): its round is a review series's round. */
   readonly reviews: boolean
 }
