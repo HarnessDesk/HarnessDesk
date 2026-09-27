@@ -594,7 +594,7 @@ export async function seatAgent(
       // own line, rather than seating a different runtime in silence (#1013).
       if (opened.fatal) {
         const untried = rest.length > 0
-          ? ` ${rest.length === 1 ? 'One more candidate was' : `${rest.length} more candidates were`} not tried: an effort a runtime refuses outright is its own seat's preference to fix, not a reason to try another agent.`
+          ? ` ${rest.length === 1 ? 'One more candidate was' : `${rest.length} more candidates were`} not tried: the effort asked for is this seat's to fix, not a reason to try another agent.`
           : ''
         throw new SeatRefusedError(explainRefusal(passed) + untried, { candidates: said(passed) })
       }

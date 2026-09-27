@@ -1126,7 +1126,7 @@ test('a runtime that outright refuses an asked-for effort is never quietly passe
         error.message,
         'No seat could be opened for this Agent:\n' +
           '  cursor=gpt-5/xhigh — cursor does not offer Extra high effort.' +
-          ' One more candidate was not tried: an effort a runtime refuses outright is its own seat\'s preference to fix, not a reason to try another agent.',
+          ' One more candidate was not tried: the effort asked for is this seat\'s to fix, not a reason to try another agent.',
       )
       return true
     },
@@ -2031,7 +2031,7 @@ test('a seat that runs another effort than asked is closed, and no later candida
         error.message,
         'No seat could be opened for this Agent:\n' +
           '  claude=opus-5/high — claude runs it at medium effort, not high.' +
-          ' One more candidate was not tried: an effort a runtime refuses outright is its own seat\'s preference to fix, not a reason to try another agent.',
+          ' One more candidate was not tried: the effort asked for is this seat\'s to fix, not a reason to try another agent.',
       )
       return true
     },
@@ -2396,7 +2396,7 @@ for (const [order, how] of [
         error.message,
         'No seat could be opened for this Agent:\n' +
           '  codex=gpt-5.5/high — codex runs it at low effort, not high.' +
-          ' One more candidate was not tried: an effort a runtime refuses outright is its own seat\'s preference to fix, not a reason to try another agent.',
+          ' One more candidate was not tried: the effort asked for is this seat\'s to fix, not a reason to try another agent.',
       )
       return true
     })
