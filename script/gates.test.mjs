@@ -2982,7 +2982,12 @@ const ciStepsInVerifyJob = (source) => {
     const item = line.match(/^      -\s*(.*?)\s*$/)
     if (item) {
       const inlineName = item[1].match(/^name:\s*(.*?)\s*$/)
-      current = { name: inlineName?.[1]?.replace(/^(['"])(.*)\1$/, '$2'), run: undefined, condition: undefined }
+      const inlineCondition = item[1].match(/^if:\s*(.*?)\s*$/)
+      current = {
+        name: inlineName?.[1]?.replace(/^(['"])(.*)\1$/, '$2'),
+        run: undefined,
+        condition: inlineCondition?.[1],
+      }
       steps.push(current)
       continue
     }
@@ -3082,6 +3087,8 @@ test('carved-out run detection ignores comments and unrelated strings (#1063)', 
   assert.equal(hasActiveCIStepRun(active, 'Node tests', expectedCICommand), true)
   const disabledAfterSteps = `jobs:\n  verify:\n    steps:\n      - name: Node tests\n        run: ${expectedCICommand}\n    if: false`
   assert.equal(hasActiveCIStepRun(disabledAfterSteps, 'Node tests', expectedCICommand), false)
+  const disabledInline = `jobs:\n  verify:\n    steps:\n      - if: false\n        name: Node tests\n        run: ${expectedCICommand}`
+  assert.equal(hasActiveCIStepRun(disabledInline, 'Node tests', expectedCICommand), false)
   const scalarDecoy = `name: |2-\n  verify:\n    steps:\n      - name: Node tests\n        run: ${expectedCICommand}\njobs:\n  verify:\n    steps: []`
   assert.equal(hasActiveCIStepRun(scalarDecoy, 'Node tests', expectedCICommand), false)
 })
