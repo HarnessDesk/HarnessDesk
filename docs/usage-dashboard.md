@@ -1015,13 +1015,14 @@ reports a weekly limit for its Gemini models and another for its Claude and
 GPT ones, and nothing for the account; Gemini CLI reports one per model. Same
 rule, other shape: spent scopes are stepped around while any scope is not known
 to be spent, and one of those alternatives becomes the headline. A spent lane
-is shown in red with its reset when it fits among the visible rows; otherwise
-it is included in the `+N more` count. The account is normally out only when
-every scope is spent; an unresolved source-reported `reached` lane is also
-treated as blocked. When every scope is spent, the scope that comes back first
-is the headline, because when is the only question left. (Until 2026-09-17 such
-a report was treated as blocked by its tightest scope, on the stated assumption
-that no source had this shape; Gemini CLI already did.) Seating an Agent asks
+is shown in red with its reported reset, if any, when it fits among the visible
+rows; otherwise it is included in the `+N more` count. The account is normally
+out only when every scope is spent; an unresolved source-reported `reached`
+lane is also treated as blocked. When every scope is spent, the scope with the
+earliest reported reset time is the headline; scopes without one come last,
+with source order breaking ties. (Until 2026-09-17 such a report was treated as
+blocked by its tightest scope, on the stated assumption that no source had this
+shape; Gemini CLI already did.) Seating an Agent asks
 the same question, plus one: a candidate whose model has a spent lane of its
 own is passed over for another (#778). A lane counts as the model's own when
 its scope is exactly the model id, as Gemini CLI reports it; a scope that names

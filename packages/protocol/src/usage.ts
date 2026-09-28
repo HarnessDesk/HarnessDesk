@@ -445,17 +445,18 @@ export const remainingOf = (lane: UsageLane): number | null =>
  * reports a weekly limit for the account and a second one for Fable alone;
  * with Fable spent and the account at 21%, "0% left" is false about the
  * account and true only about a model you can stop using. The account-wide
- * lanes decide the headline, and a scoped lane is considered only when there
- * is nothing else to go on. It still appears in the list, still turns red,
- * and still says when it comes back.
+ * lanes decide the headline; scoped lanes do not replace them. A spent scope
+ * does not spend the account. Its lane remains in the report, and a
+ * source-reported reached scope can be identified separately.
  *
  * **With no account-wide lane, the scopes are alternatives.** Antigravity
  * reports a weekly limit for its Gemini models and another for its Claude and
  * GPT ones, and nothing for the account; Gemini CLI reports one per model.
  * Spend one scope and the agent still works on another, which is the rule
  * above in a different shape — so a spent scope is stepped around while any
- * other still has room, and only when every one is spent does the account
- * wait, for whichever comes back first.
+ * other is not known to be spent. When every scope is spent, the account waits
+ * for the one with the earliest reported reset; scopes with no reported reset
+ * sort last, with source order breaking ties.
  */
 export const bindingLane = (
   lanes: readonly UsageLane[],
