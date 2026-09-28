@@ -71,6 +71,9 @@ export const ContextUsage = () => {
                   {fill ? `${fill.percent}% full` : 'Context window unknown'}
                 </Text>
               }
+              // Without a window the line is a sentence, and an earned
+              // sentence wraps whole rather than ending in an ellipsis.
+              wrapSubtitle={!fill}
               subtitle={
                 fill
                   ? `${formatTokens(fill.used)} of ${formatTokens(fill.size)} tokens in context`
@@ -217,8 +220,13 @@ const Row = ({
 }) => (
   <KeyValue className={styles.row}>
     <KeyValueRow label={label} numeric>
-      <Text role="value" tone={tone} className={styles.rowReading}>{value}</Text>
-      {hint != null && hint !== '' && <Text role="meta" align="end">{hint}</Text>}
+      {/* The value and its note share one line — "54K · 74% cached" — the
+          note pushed to the row's end, so a short reading never stacks its
+          qualifier under itself in a panel with room to spare. */}
+      <span className={styles.rowReading}>
+        <Text role="value" tone={tone}>{value}</Text>
+        {hint != null && hint !== '' && <Text role="meta" align="end">{hint}</Text>}
+      </span>
     </KeyValueRow>
   </KeyValue>
 )
