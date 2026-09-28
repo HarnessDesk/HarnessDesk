@@ -252,6 +252,21 @@ test('a collapsed Claude prompt run can cross a scan boundary before its reply',
   assert.equal(rows[0]?.turns, 1, 'a run of prompts remains one answered turn across the cursor boundary')
 })
 
+test('a long unanswered Claude prompt run keeps only the candidate the next reply can answer', async () => {
+  const dir = scratch()
+  const path = join(dir, 'session.jsonl')
+  const prompts = Array.from({ length: 500 }, (_, index) =>
+    line({ type: 'user', timestamp: at, cwd: '/p', message: { role: 'user', content: `prompt ${index}` } }),
+  ).join('')
+  writeFileSync(path, prompts)
+  const first = await scanClaudeTranscript({ runtime: 'claude-code', kind: 'claude', path, size: 0, mtime: 0 }, 0, [])
+  assert.ok(JSON.stringify(first.tail).length < 500, 'the cursor keeps one candidate instead of the full prompt run')
+  const reply = line({ type: 'assistant', timestamp: at, cwd: '/p', message: { id: 'm1', model: 'model-a', usage: { input_tokens: 1, output_tokens: 1 } } })
+  writeFileSync(path, prompts + reply)
+  const next = await scanClaudeTranscript({ runtime: 'claude-code', kind: 'claude', path, size: 0, mtime: 0 }, first.offset, first.tail)
+  assert.equal(next.rows.reduce((sum, row) => sum + (row.turns ?? 0), 0), 1)
+})
+
 test('a full Claude rescan after a rewrite drops the old pending prompt', async () => {
   const dir = scratch()
   const path = join(dir, 'session.jsonl')
@@ -378,6 +393,42 @@ test('a Qwen Code turn whose reply arrives in the next scan keeps waiting for it
   const row = next.rows.find((entry) => (entry.turns ?? 0) > 0)
   assert.equal(row?.model, 'qwen3-coder-plus')
   assert.equal(row?.turns, 1)
+})
+
+test('a long unanswered Qwen run stores per-day counts without losing projects or reply model', async () => {
+  const dir = scratch()
+  const path = join(dir, 'session.jsonl')
+  const nextDay = new Date(NOON + 86_400_000).toISOString()
+  const prompts = Array.from({ length: 500 }, (_, index) =>
+    line({ uuid: `u${index}`, type: 'user', timestamp: index < 250 ? at : nextDay, cwd: index % 2 === 0 ? '/work/one' : '/work/two' }),
+  ).join('')
+  writeFileSync(path, prompts)
+  const first = await scanQwenTranscript({ runtime: 'qwen-code', kind: 'qwen', path, size: 0, mtime: 0 }, 0, [])
+  assert.ok(JSON.stringify(first.tail).length < 1000, 'the cursor keeps daily project counts instead of every prompt')
+  const morePrompts = line({ uuid: 'u500', type: 'user', timestamp: nextDay, cwd: '/work/one' }) +
+    line({ uuid: 'u501', type: 'user', timestamp: nextDay, cwd: '/work/two' })
+  writeFileSync(path, prompts + morePrompts)
+  const second = await scanQwenTranscript({ runtime: 'qwen-code', kind: 'qwen', path, size: 0, mtime: 0 }, first.offset, first.tail)
+  assert.ok(JSON.stringify(second.tail).length < 1000, 'another unanswered scan keeps the compact state')
+  const reply = line({ uuid: 'c1', type: 'assistant', timestamp: nextDay, cwd: '/work/one', model: 'model-a', usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 } })
+  writeFileSync(path, prompts + morePrompts + reply)
+  const next = await scanQwenTranscript({ runtime: 'qwen-code', kind: 'qwen', path, size: 0, mtime: 0 }, second.offset, second.tail)
+  assert.equal(next.rows.reduce((sum, row) => sum + (row.turns ?? 0), 0), 502)
+  assert.equal(next.rows.filter((row) => row.turns).length, 4)
+  assert.ok(next.rows.every((row) => row.model === 'model-a'))
+})
+
+test('a Qwen cursor written before pending-count compaction still resumes every turn', async () => {
+  const dir = scratch()
+  const path = join(dir, 'session.jsonl')
+  writeFileSync(path, line({ uuid: 'c1', type: 'assistant', timestamp: at, cwd: '/work/one', model: 'model-a', usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 } }))
+  const legacyTail = [`\u0000pending-turns:${JSON.stringify([
+    { kind: 'turn', at: NOON, project: '/work/one' },
+    { kind: 'turn', at: NOON, project: '/work/one' },
+  ])}`]
+  const resumed = await scanQwenTranscript({ runtime: 'qwen-code', kind: 'qwen', path, size: 0, mtime: 0 }, 0, legacyTail)
+  assert.equal(resumed.rows.reduce((sum, row) => sum + (row.turns ?? 0), 0), 2)
+  assert.equal(resumed.rows.find((row) => row.turns)?.model, 'model-a')
 })
 
 // ---------------------------------------------------------------- migration

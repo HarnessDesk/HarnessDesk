@@ -96,7 +96,7 @@ export interface ScanResult {
 const TAIL = 64
 const PENDING_TURNS_TAIL = '\u0000pending-turns:'
 
-type PendingTurn = { readonly kind: 'turn'; readonly at: number; readonly project: string }
+type PendingTurn = { readonly kind: 'turn'; readonly at: number; readonly project: string; readonly count?: number }
 type PendingEntry = PendingTurn | { readonly kind: 'model'; readonly model: string }
 
 const pendingTurnsFrom = (tail: readonly string[]): PendingTurn[] => {
@@ -106,7 +106,8 @@ const pendingTurnsFrom = (tail: readonly string[]): PendingTurn[] => {
     const parsed: unknown = JSON.parse(encoded.slice(PENDING_TURNS_TAIL.length))
     return Array.isArray(parsed)
       ? parsed.filter((entry): entry is PendingTurn =>
-          isRecord(entry) && entry.kind === 'turn' && typeof entry.at === 'number' && Number.isFinite(entry.at) && typeof entry.project === 'string',
+          isRecord(entry) && entry.kind === 'turn' && typeof entry.at === 'number' && Number.isFinite(entry.at) && typeof entry.project === 'string' &&
+          (entry.count === undefined || (typeof entry.count === 'number' && Number.isSafeInteger(entry.count) && entry.count > 0)),
         )
       : []
   } catch {
@@ -120,6 +121,18 @@ const scannerTail = (ids: readonly string[], pendingTurns: readonly PendingTurn[
   ...ids.slice(-TAIL),
   ...(pendingTurns.length > 0 ? [`${PENDING_TURNS_TAIL}${JSON.stringify(pendingTurns)}`] : []),
 ]
+
+/** Qwen counts every user record; only its day and project matter until the next model arrives. */
+const compactPendingTurns = (turns: readonly PendingTurn[]): PendingTurn[] => {
+  const byDayAndProject = new Map<string, PendingTurn>()
+  for (const turn of turns) {
+    const day = startOfDay(turn.at)
+    const key = `${day}\u0000${turn.project}`
+    const prior = byDayAndProject.get(key)
+    byDayAndProject.set(key, { kind: 'turn', at: day, project: turn.project, count: (prior?.count ?? 0) + (turn.count ?? 1) })
+  }
+  return [...byDayAndProject.values()]
+}
 
 /**
  * Turns a working directory into the project it belongs to.
@@ -256,12 +269,13 @@ const addTurn = (
   at: number,
   model: string,
   project: string,
+  count = 1,
 ): void => {
   const day = startOfDay(at)
   const key = `${day}\u0000${model}\u0000${project}\u00000`
   const existing = into.rows.get(key)
   if (existing) {
-    into.rows.set(key, { ...existing, turns: (existing.turns ?? 0) + 1 })
+    into.rows.set(key, { ...existing, turns: (existing.turns ?? 0) + count })
     return
   }
   into.rows.set(key, {
@@ -276,7 +290,7 @@ const addTurn = (
     cacheWrite: 0,
     reasoning: 0,
     requests: 0,
-    turns: 1,
+    turns: count,
     vendorCost: null,
   })
 }
@@ -789,7 +803,9 @@ export const scanClaudeTranscript = async (
     if (after !== undefined && after.kind !== 'model') continue
     addTurn(into, target.path, target.runtime, entry.at, nextModel, entry.project)
   }
-  return { rows: [...into.rows.values()], offset: consumed, tail: scannerTail(order, unresolved), bytesRead }
+  // Claude's consecutive candidates collapse to the last one before a model;
+  // keeping earlier unanswered candidates cannot change a later result.
+  return { rows: [...into.rows.values()], offset: consumed, tail: scannerTail(order, unresolved.slice(-1)), bytesRead }
 }
 
 /** The Gemini API's own counts, which Qwen Code records as it received them. */
@@ -910,9 +926,9 @@ export const scanQwenTranscript = async (
       nextModel = entry.model
       continue
     }
-    addTurn(into, target.path, target.runtime, entry.at, nextModel, entry.project)
+    addTurn(into, target.path, target.runtime, entry.at, nextModel, entry.project, entry.count ?? 1)
   }
-  return { rows: [...into.rows.values()], offset: consumed, tail: scannerTail(order, unresolved), bytesRead }
+  return { rows: [...into.rows.values()], offset: consumed, tail: scannerTail(order, compactPendingTurns(unresolved)), bytesRead }
 }
 
 interface GeminiMessage {
