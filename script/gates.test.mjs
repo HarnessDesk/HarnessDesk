@@ -3009,7 +3009,9 @@ const hasExactBashScript = (runs, expectedScript) => runs.some(({ command, args 
 )
 
 const hasActiveCIStepRun = (source, stepName, expectedCommand) =>
-  ciStepsInVerifyJob(source).some((step) => step.name === stepName && step.run === expectedCommand && !step.condition && !step.jobIf)
+  ciStepsInVerifyJob(source).some((step) =>
+    step.name === stepName && step.run === expectedCommand && step.condition === undefined && step.jobIf === undefined,
+  )
 
 const mainTestScript = (shape, carveOuts) =>
   `node --test --test-timeout=120000 $(find ${shape} -name '*.test.js' ${carveOuts.map((path) => `! -path '${path}'`).join(' ')})`
@@ -3089,6 +3091,10 @@ test('carved-out run detection ignores comments and unrelated strings (#1063)', 
   assert.equal(hasActiveCIStepRun(disabledAfterSteps, 'Node tests', expectedCICommand), false)
   const disabledInline = `jobs:\n  verify:\n    steps:\n      - if: false\n        name: Node tests\n        run: ${expectedCICommand}`
   assert.equal(hasActiveCIStepRun(disabledInline, 'Node tests', expectedCICommand), false)
+  const disabledMultilineStep = `jobs:\n  verify:\n    steps:\n      - name: Node tests\n        if:\n          false\n        run: ${expectedCICommand}`
+  assert.equal(hasActiveCIStepRun(disabledMultilineStep, 'Node tests', expectedCICommand), false)
+  const disabledMultilineJob = `jobs:\n  verify:\n    if:\n      false\n    steps:\n      - name: Node tests\n        run: ${expectedCICommand}`
+  assert.equal(hasActiveCIStepRun(disabledMultilineJob, 'Node tests', expectedCICommand), false)
   const scalarDecoy = `name: |2-\n  verify:\n    steps:\n      - name: Node tests\n        run: ${expectedCICommand}\njobs:\n  verify:\n    steps: []`
   assert.equal(hasActiveCIStepRun(scalarDecoy, 'Node tests', expectedCICommand), false)
 })

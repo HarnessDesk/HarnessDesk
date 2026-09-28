@@ -239,6 +239,61 @@ describe('an account read that fails (#1021)', () => {
     expect(reads).toBe(2)
   })
 
+  it('does not send a timed-out queued account read when the socket opens', async () => {
+    class MockWebSocket {
+      static OPEN = 1
+      static instances: MockWebSocket[] = []
+      readyState = 0
+      sent: string[] = []
+      listeners = new Map<string, ((event: unknown) => void)[]>()
+
+      constructor() { MockWebSocket.instances.push(this) }
+
+      addEventListener(type: string, listener: (event: unknown) => void) {
+        this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener])
+      }
+
+      send(frame: string) { this.sent.push(frame) }
+      close() { this.readyState = 3 }
+      open() {
+        this.readyState = MockWebSocket.OPEN
+        for (const listener of this.listeners.get('open') ?? []) listener({})
+      }
+    }
+
+    const originalWebSocket = globalThis.WebSocket
+    globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket
+    vi.mocked(store.transport.request).mockRestore()
+    const request = vi.spyOn(store.transport, 'request')
+    try {
+      roster(ADDED)
+      store.transport.connect()
+      const socket = MockWebSocket.instances[0]
+      if (!socket) throw new Error('socket undefined')
+      const accountFrames = () => socket.sent.filter((frame) => (JSON.parse(frame) as { method: string }).method === 'runtime/account')
+      // The real transport queues the store's account read while connecting.
+      const loading = store.loadAccounts()
+      expect(request).toHaveBeenCalledWith('runtime/account', { runtime: ADDED }, { signal: expect.any(AbortSignal) })
+
+      await vi.advanceTimersByTimeAsync(10_000)
+      await loading
+      expect(store.getSnapshot().accountsByRuntime[ADDED]).toBeUndefined()
+      socket.open()
+      expect(accountFrames()).toEqual([])
+
+      // An active request still sends on this socket; the empty flush above
+      // is the canceled account read, not an inert fake connection.
+      const controller = new AbortController()
+      const live = store.transport.request('runtime/account', { runtime: ADDED }, { signal: controller.signal })
+      expect(accountFrames()).toHaveLength(1)
+      controller.abort()
+      await expect(live).rejects.toMatchObject({ name: 'AbortError' })
+    } finally {
+      store.transport.close()
+      globalThis.WebSocket = originalWebSocket
+    }
+  })
+
   it('reports a timed-out account read during sign-in discovery', async () => {
     let reads = 0
     vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
