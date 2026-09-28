@@ -766,6 +766,38 @@ test('desk transcript turn counts sync again on the next scan inside the remote 
   ledger.close()
 })
 
+test('a desk scan replaces yesterday after a late overnight turn becomes countable', async () => {
+  const dir = scratch()
+  const midnight = new Date(NOON)
+  midnight.setHours(0, 0, 0, 0)
+  const yesterday = midnight.getTime() - 3_600_000
+  let turns: { startedAt: number; status: string; items: { type: string }[] }[] = []
+  const reader = {
+    exportRuntime: async () => [{ runtime: 'cursor', id: 'session-1', data: { cwd: '/work/proj', turns } }],
+  }
+  const ledger = new Ledger({
+    stateDir: dir,
+    databasePath: join(dir, 'usage.sqlite'),
+    corpora: [],
+    remoteSources: [new DeskTranscriptTurnsSource('cursor', reader)],
+    turnRuntimes: new Set([runtimeId('cursor')]),
+    deskTurnRuntimes: new Set([runtimeId('cursor')]),
+    pricing: await pricingIn(dir),
+    now: () => NOON,
+  })
+  await ledger.scan()
+  assert.equal(ledger.turnsFor(runtimeId('cursor'), yesterday - 1)?.count, 0)
+
+  turns = [{ startedAt: yesterday, status: 'completed', items: [{ type: 'userMessage' }] }]
+  await ledger.scan()
+  assert.equal(ledger.turnsFor(runtimeId('cursor'), yesterday - 1)?.count, 1, 'a turn that completes after the first scan belongs to its start day')
+
+  turns = []
+  await ledger.scan()
+  assert.equal(ledger.turnsFor(runtimeId('cursor'), yesterday - 1)?.count, 0, 'a corrected transcript replaces the same prior-day window')
+  ledger.close()
+})
+
 test('a broken transcript store preserves the previous desk turn count', async () => {
   const dir = scratch()
   const transcriptsDir = join(dir, 'transcripts')
@@ -805,6 +837,41 @@ test('a broken transcript store preserves the previous desk turn count', async (
   await ledger.scan()
 
   assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 86_400_000)?.count, 1)
+  ledger.close()
+})
+
+test('an unreadable or malformed transcript file preserves all prior desk rows in the replacement window', async () => {
+  const dir = scratch()
+  const transcriptsDir = join(dir, 'transcripts')
+  const runtimeDir = join(transcriptsDir, 'cursor')
+  mkdirSync(runtimeDir, { recursive: true })
+  for (const id of ['session-1', 'session-2']) {
+    writeFileSync(join(runtimeDir, `${id}.json`), JSON.stringify({
+      version: 1, runtime: 'cursor', id, savedAt: NOON, cwd: '/work/proj',
+      turns: [{ id: `${id}-turn`, startedAt: NOON, status: 'completed', items: [{ type: 'userMessage' }] }],
+    }))
+  }
+  const ledger = new Ledger({
+    stateDir: dir, databasePath: join(dir, 'usage.sqlite'), corpora: [],
+    remoteSources: [new DeskTranscriptTurnsSource('cursor', new TranscriptStore(transcriptsDir))],
+    turnRuntimes: new Set([runtimeId('cursor')]), deskTurnRuntimes: new Set([runtimeId('cursor')]),
+    pricing: await pricingIn(dir), now: () => NOON,
+  })
+  await ledger.scan()
+  assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 1)?.count, 2)
+
+  writeFileSync(join(runtimeDir, 'session-2.json'), '{')
+  await ledger.scan()
+  assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 1)?.count, 2, 'a malformed file cannot erase the last good count')
+
+  writeFileSync(join(runtimeDir, 'session-2.json'), JSON.stringify({ version: 1, turns: 'invalid' }))
+  await ledger.scan()
+  assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 1)?.count, 2, 'an invalid transcript shape cannot erase the last good count')
+
+  rmSync(join(runtimeDir, 'session-2.json'))
+  mkdirSync(join(runtimeDir, 'session-2.json'))
+  await ledger.scan()
+  assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 1)?.count, 2, 'a partial export cannot erase the last good count')
   ledger.close()
 })
 

@@ -88,8 +88,8 @@ const stepDay = (day: number, days: number): number => {
 }
 
 /**
- * How far back a remote source's *first* sync reaches, absent any earlier
- * one to resume from. Ninety days rather than the account's own billing
+ * How far back a remote source's first sync reaches, or how much of a local
+ * source is replaced on each scan. Ninety days rather than the account's billing
  * cycle: the cycle boundary is a second network call away and this ledger
  * already bounds an Insight read to the same ninety days
  * (`INSIGHT_BYTE_LIMIT`'s sibling rule, `Ledger.readInsight`), so a remote
@@ -404,7 +404,12 @@ export class Ledger {
       const dayKey = `remote:${file}:day`
       const lastDay = Number(this.#store.meta(dayKey) ?? '')
       const to = stepDay(startOfDay(now), 1) // tomorrow's local midnight: today is included, in progress or not
-      const from = Number.isFinite(lastDay) && lastDay > 0 ? stepDay(lastDay, -1) : stepDay(startOfDay(now), -REMOTE_INITIAL_DAYS)
+      // A local source can revise yesterday (an overnight turn may finish
+      // after today's first scan), so each successful scan must replace the
+      // whole recent window. Network sources keep their advancing cursor.
+      const from = source.syncEveryScan === true || !Number.isFinite(lastDay) || lastDay <= 0
+        ? stepDay(startOfDay(now), -REMOTE_INITIAL_DAYS)
+        : stepDay(lastDay, -1)
 
       try {
         const result = await source.sync({ from, to }, file)

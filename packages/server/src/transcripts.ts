@@ -577,7 +577,7 @@ export class TranscriptStore {
     return out
   }
 
-  /** Every stored transcript for one runtime, for local readers of its history. */
+  /** Every stored transcript for one runtime. An unreadable or invalid file aborts the export so a ledger replacement cannot publish a partial count. */
   async exportRuntime(runtime: string): Promise<readonly { runtime: string; id: string; data: unknown }[]> {
     const folder = join(this.directory, encodeURIComponent(runtime))
     let names: string[]
@@ -590,19 +590,18 @@ export class TranscriptStore {
     const out: { runtime: string; id: string; data: unknown }[] = []
     for (const name of names) {
       if (!name.endsWith('.json')) continue
-      try {
-        const data = JSON.parse(await readFile(join(folder, name), 'utf8')) as Partial<Stored>
-        if (
-          data.version !== FORMAT ||
-          !Array.isArray(data.turns) ||
-          data.turns.some((turn) => typeof turn !== 'object' || turn === null || !Array.isArray(turn.items))
-        ) {
-          continue
-        }
-        out.push({ runtime, id: String(data.id), data })
-      } catch {
-        continue
-      }
+      // Unlike backup export, this result replaces already-counted ledger
+      // rows. A failed read or invalid file must reject the whole batch, not
+      // silently erase that file's prior turns as a partial export would.
+      const text = await readFile(join(folder, name), 'utf8')
+      const data = JSON.parse(text) as Partial<Stored> | null
+      if (
+        data === null || typeof data !== 'object' ||
+        data.version !== FORMAT ||
+        !Array.isArray(data.turns) ||
+        data.turns.some((turn) => typeof turn !== 'object' || turn === null || !Array.isArray(turn.items))
+      ) throw new Error('A stored transcript is invalid; its runtime export cannot replace the ledger window')
+      out.push({ runtime, id: String(data.id), data })
     }
     return out
   }
