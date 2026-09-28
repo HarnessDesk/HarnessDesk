@@ -5,7 +5,7 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
-## 0.3.0 — 2026-09-27
+## 0.3.1 — 2026-09-27
 
 HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
 
@@ -23,6 +23,14 @@ HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — 
   own packet now names the raising Agent beside each finding still in
   question, since more than one Agent can hold the same role across a Goal's
   rounds. (Refs #1089, #1090)
+
+- **Context usage keeps each reading with its note** — a cache verdict stays
+  beside its token count when it fits, and wraps together at the row's edge
+  when the panel is narrow.
+
+- **Folder breadcrumbs now render and navigate correctly** — choosing a
+  parent path in the folder picker no longer relies on invalid nested list
+  markup.
 
 - **"Decide it yourself" in Findings hardened against ever losing a typed
   reason, and against ever sending one to the wrong finding.** The person's
