@@ -267,6 +267,36 @@ test('a full Claude rescan after a rewrite drops the old pending prompt', async 
   assert.equal(rewritten.rows.reduce((sum, row) => sum + (row.turns ?? 0), 0), 0, 'a rewrite starts from the new file and cannot answer a removed prompt')
 })
 
+test('the ledger shrink reset drops a pending Claude prompt before a rewritten reply', async () => {
+  const dir = scratch()
+  const corpus = join(dir, 'claude')
+  mkdirSync(corpus, { recursive: true })
+  const path = join(corpus, 'session.jsonl')
+  const prompt = line({ type: 'user', timestamp: at, cwd: '/p', message: { role: 'user', content: 'x'.repeat(400) } })
+  const reply = line({
+    type: 'assistant', timestamp: at, cwd: '/p', message: { id: 'm1', model: 'model-a', usage: { input_tokens: 1, output_tokens: 1 } },
+  })
+  writeFileSync(path, prompt)
+  const ledger = new Ledger({
+    stateDir: dir,
+    databasePath: join(dir, 'usage.sqlite'),
+    corpora: [{ runtime: 'claude-code', kind: 'claude', root: corpus }],
+    turnRuntimes: new Set([runtimeId('claude-code')]),
+    pricing: await pricingIn(dir),
+    now: () => NOON,
+  })
+
+  await ledger.scan()
+  assert.equal(ledger.turnsFor(runtimeId('claude-code'), NOON - 86_400_000)?.count, 0)
+
+  // The reply is shorter than the previous cursor offset, so the next scan
+  // must take Ledger.#doScan's rewrite path and discard its pending prompt.
+  writeFileSync(path, reply)
+  await ledger.scan()
+  assert.equal(ledger.turnsFor(runtimeId('claude-code'), NOON - 86_400_000)?.count, 0)
+  ledger.close()
+})
+
 // ---------------------------------------------------------------- Gemini CLI
 
 test('a Gemini CLI chat counts a user prompt once, filed under the reply that answers it', async () => {
