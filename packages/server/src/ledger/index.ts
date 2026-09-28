@@ -417,6 +417,10 @@ export class Ledger {
           this.#log('a remote usage source could not be read; its rows stand as they were', { source: source.runtime })
           continue
         }
+        if (result.missing) {
+          if (lastSyncedAt > 0) this.#log('a transcript runtime directory disappeared; its rows stand as they were', { source: source.runtime })
+          continue
+        }
         this.#store.replaceWindow(file, from, to, result.rows)
         this.#store.setMeta(dayKey, String(to))
         this.#store.setMeta(syncedKey, String(now))

@@ -1,4 +1,5 @@
 import { projectRootOf } from './scan.js'
+import { MissingTranscriptRuntimeError } from '../transcripts.js'
 import type { RemoteEventsSource } from './remote.js'
 import type { UsageRow } from './store.js'
 
@@ -95,11 +96,12 @@ export class DeskTranscriptTurnsSource implements RemoteEventsSource {
   async sync(
     range: { readonly from: number; readonly to: number },
     file: string,
-  ): Promise<{ readonly rows: readonly UsageRow[] } | null> {
+  ): Promise<{ readonly rows: readonly UsageRow[]; readonly missing?: boolean } | null> {
     let entries: readonly DeskTranscriptExport[]
     try {
       entries = await this.#transcripts.exportRuntime(this.runtime)
-    } catch {
+    } catch (error) {
+      if (error instanceof MissingTranscriptRuntimeError) return { rows: [], missing: true }
       return null
     }
     const rows = new Map<string, UsageRow>()

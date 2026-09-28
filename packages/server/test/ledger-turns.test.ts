@@ -875,6 +875,41 @@ test('an unreadable or malformed transcript file preserves all prior desk rows i
   ledger.close()
 })
 
+test('a missing runtime folder preserves prior desk rows but a present empty folder clears them', async () => {
+  const dir = scratch()
+  const transcriptsDir = join(dir, 'transcripts')
+  const runtimeDir = join(transcriptsDir, 'cursor')
+  const warnings: string[] = []
+  const ledger = new Ledger({
+    stateDir: dir, databasePath: join(dir, 'usage.sqlite'), corpora: [],
+    remoteSources: [new DeskTranscriptTurnsSource('cursor', new TranscriptStore(transcriptsDir))],
+    turnRuntimes: new Set([runtimeId('cursor')]), deskTurnRuntimes: new Set([runtimeId('cursor')]),
+    pricing: await pricingIn(dir), now: () => NOON,
+    log: (message) => warnings.push(message),
+  })
+  await ledger.scan()
+  assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 1)?.count, 0, 'a runtime with no store begins at zero')
+  assert.deepEqual(warnings, [], 'a runtime with no saved conversation yet is normal, not a read warning')
+
+  mkdirSync(runtimeDir, { recursive: true })
+  writeFileSync(join(runtimeDir, 'session-1.json'), JSON.stringify({
+    version: 1, runtime: 'cursor', id: 'session-1', savedAt: NOON, cwd: '/work/proj',
+    turns: [{ id: 'turn-1', startedAt: NOON, status: 'completed', items: [{ type: 'userMessage' }] }],
+  }))
+  await ledger.scan()
+  assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 1)?.count, 1)
+
+  rmSync(runtimeDir, { recursive: true })
+  await ledger.scan()
+  assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 1)?.count, 1, 'an absent folder is not a successful empty export')
+  assert.equal(warnings.length, 1, 'a folder lost after a successful sync is reported')
+
+  mkdirSync(runtimeDir)
+  await ledger.scan()
+  assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 1)?.count, 0, 'a present empty folder intentionally replaces the window')
+  ledger.close()
+})
+
 // ---------------------------------------------------------------- readiness
 
 test('a turn-capable runtime reads as unknown between the migration and the first scan that follows it, never a stale low count', async () => {

@@ -28,5 +28,5 @@ export interface RemoteEventsSource {
    * make sense of — and the rows already stored for this window are left
    * exactly as they were rather than replaced with a partial reading.
    */
-  sync(range: { readonly from: number; readonly to: number }, file: string): Promise<{ readonly rows: readonly UsageRow[] } | null>
+  sync(range: { readonly from: number; readonly to: number }, file: string): Promise<{ readonly rows: readonly UsageRow[]; readonly missing?: boolean } | null>
 }

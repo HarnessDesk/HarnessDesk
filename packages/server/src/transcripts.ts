@@ -17,6 +17,9 @@ import { openingOf, preserveNoticeItems } from '@harnessdesk/protocol'
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
 import { publicationsIn, withPublications } from './publications.js'
 
+/** The runtime has no transcript directory yet (or it disappeared). */
+export class MissingTranscriptRuntimeError extends Error {}
+
 /**
  * The transcript the host watched, kept.
  *
@@ -577,14 +580,16 @@ export class TranscriptStore {
     return out
   }
 
-  /** Every stored transcript for one runtime. An unreadable or invalid file aborts the export so a ledger replacement cannot publish a partial count. */
+  /** Every stored transcript for one runtime. A missing folder or invalid file aborts the export so a ledger replacement cannot publish a partial count. */
   async exportRuntime(runtime: string): Promise<readonly { runtime: string; id: string; data: unknown }[]> {
     const folder = join(this.directory, encodeURIComponent(runtime))
     let names: string[]
     try {
       names = await readdir(folder)
     } catch (error) {
-      if (NOTHING_YET.has(errnoOf(error))) return []
+      // A missing runtime folder is different from a present empty folder:
+      // this may be a transient move of conversations counted earlier.
+      if (NOTHING_YET.has(errnoOf(error))) throw new MissingTranscriptRuntimeError('Transcript runtime directory is absent', { cause: error })
       throw unexported(error)
     }
     const out: { runtime: string; id: string; data: unknown }[] = []

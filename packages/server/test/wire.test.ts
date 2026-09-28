@@ -1681,6 +1681,30 @@ test('a completed desk scan pushes the fresh turn count through the host', async
   assert.equal(reads, readsBeforeScan, 'the scan settlement reuses the cached meter reading')
 })
 
+test('a desk turn without a meter still creates a pushed and queryable usage report', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  harness.host.bindUsage(FAKE_RUNTIME_ID, { deskTurns: true })
+  assert.deepEqual(await client.call('usage/reports', {}), [], 'no meter and no recorded turn starts without a card')
+
+  const runtimeDir = join(harness.stateDir, 'transcripts', encodeURIComponent(FAKE_RUNTIME_ID))
+  await mkdir(runtimeDir, { recursive: true })
+  await writeFile(join(runtimeDir, 'session-1.json'), JSON.stringify({
+    version: 1, runtime: FAKE_RUNTIME_ID, id: 'session-1', savedAt: Date.now(), cwd: harness.stateDir,
+    turns: [{ id: 'turn-1', startedAt: Date.now(), status: 'completed', items: [{ type: 'userMessage', content: [] }] }],
+  }))
+  const before = client.notifications.length
+  await client.call('usage/scan', {})
+  await client.until(() => client.notifications.slice(before).some((message) =>
+    'method' in message && message.method === 'usage/updated' &&
+    message.params.report.runtime === FAKE_RUNTIME_ID && message.params.report.turns?.count === 1,
+  ), 5_000, 'the turns-only usage report')
+  const reports = (await client.call('usage/reports', {})) as { runtime: string; turns?: { count: number } }[]
+  assert.equal(reports.find((report) => report.runtime === FAKE_RUNTIME_ID)?.turns?.count, 1)
+})
+
 // ------------------------------------------------------------- git RPC roots
 
 const gitIn = async (cwd: string, ...args: string[]): Promise<string> =>
