@@ -102,7 +102,7 @@ export const SetupDesk = ({
       </Card>
       <Text as="p" role="muted">
         Another agent program on this Mac?{' '}
-        <Button variant="link" size="content" onClick={onOpenRuntimes}>
+        <Button variant="link" size="inline-link" onClick={onOpenRuntimes}>
           Add a runtime…
         </Button>
       </Text>

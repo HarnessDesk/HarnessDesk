@@ -7,7 +7,7 @@ import { BringHome } from '../components/BringHome'
 import { Conversation } from '../components/Conversation'
 import { CommitProvenance, CommitSeatLabels } from '../components/CommitProvenance'
 import { ProjectProvenance } from '../components/ProjectProvenance'
-import { AgentsView, ChangesView, TrajectoryView } from '../components/Details'
+import { ActivityView, AgentsView, ChangesView, TrajectoryView } from '../components/Details'
 import { ObservedDialog } from '../components/EvidenceChips'
 import { RunCheck } from '../components/RunCheck'
 import { ProjectChecks } from '../components/ProjectChecks'
@@ -58,6 +58,11 @@ import { GOAL_INTAKE_SCENES, sceneArmPreview, sceneGoalStatus, triggerFiring, tr
 import { FLOW_EXECUTION_SCENES, sceneFlowExecution, type FlowExecutionScene } from './flow-fixture'
 import { COMPOSER_SESSION_KEY, composerStore } from './composer-fixture'
 import { MessageQueue } from '../components/MessageQueue'
+import { GoalFrames } from './frames-goals'
+import { PanelFrames } from './frames-panels'
+import { CoverageFrames } from './frames-coverage'
+import { SettingsFrames } from './frames-settings'
+import { TranscriptFrames } from './frames-transcript'
 import '../styles/app.css'
 
 const SHOW_COMPOSER = new URLSearchParams(window.location.search).has('composer')
@@ -82,6 +87,42 @@ const composerPaused = SHOW_COMPOSER ? composerStore(store.getSnapshot(), true) 
 const previewProvenance = commitProvenance({ seats: [{ ...provenanceSeat(7), runtime: 'codex', session: { runtime: 'codex', sessionId: 'conversation-7' } }] })
 const previewMutable = store as unknown as { patch(partial: Partial<AppSnapshot>): void }
 previewMutable.patch({ captureHealth: new Map([[PROVENANCE_ROOT, captureHealth()]]) })
+/* One Agent notice, addressed to the preview conversation, so `ComposerNotices` — mounted inside it — has something real to draw rather than its own "nothing asking" empty return. */
+previewMutable.patch({
+  agentNotices: [
+    {
+      id: 'notice-preview-1',
+      where: 'composer',
+      title: 'Found a second place this same check runs',
+      body: 'Worth folding into one — want me to open a follow-up?',
+      task: 'Fold the duplicate check into one',
+      from: { runtime: 'codex', sessionId: 's1', name: 'Alpha' },
+      at: Date.now(),
+    },
+  ],
+})
+/* `Panes`'s own default layout — the one `emptySnapshot()` gives every store
+   until something opens a session into it — is one pane showing the empty
+   pitch, "What should we build?", which is a thin thing for a frame whose
+   whole point is showing the split tree itself. A real split, the preview
+   conversation beside a file, is what that frame exists to draw. Nothing
+   else on this page reads `snapshot.layout` — `Conversation` and its
+   siblings are all scoped by their own explicit `PaneProvider`, never by
+   this one — so overriding it here cannot narrow any other frame. */
+previewMutable.patch({
+  layout: {
+    root: {
+      kind: 'split',
+      id: 'split-preview',
+      direction: 'row',
+      ratio: 0.55,
+      first: { kind: 'pane', id: 'pane-preview-conversation', view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } },
+      second: { kind: 'pane', id: 'pane-preview-file', view: { kind: 'file', path: '/work/project/lib/brands.ts', runtime: runtimeId('codex') } },
+    },
+    focused: 'pane-preview-conversation',
+    expanded: null,
+  } as never,
+})
 if (SHOW_DENSE) {
   const key = sessionKey(runtimeId('codex'), 's1' as never)
   const session = store.getSnapshot().sessions.get(key)
@@ -220,7 +261,7 @@ Object.assign(store as unknown as Record<string, unknown>, {
  */
 
 /** A stand-in pane, so the frame's own edges are what the frame shows. */
-const Frame = ({ title, children }: { title: string; children: ReactNode }) => (
+export const Frame = ({ title, children }: { title: string; children: ReactNode }) => (
   <section className="min-w-0">
     <h2 className="mb-2 text-sm font-semibold text-muted-foreground">{title}</h2>
     <div className="overflow-hidden rounded-lg border bg-background">
@@ -319,7 +360,7 @@ const RuntimesPreview = () => {
   )
 }
 
-const Dial = <T extends string>({
+export const Dial = <T extends string>({
   label,
   value,
   options,
@@ -796,6 +837,19 @@ const Preview = () => {
             </PaneProvider>
           </div>
         </Frame>
+        <Frame title="Side panel — Activity, this week's audit">
+          <div className="h-[420px]">
+            <PaneProvider
+              scope={{
+                paneId: 'preview' as never,
+                view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+                sessionKey: PREVIEW_SESSION_KEY,
+              }}
+            >
+              <ActivityView />
+            </PaneProvider>
+          </div>
+        </Frame>
         <Frame title="Project — its flows">
           <div className="p-4">
             <ProjectFlows root={PREVIEW_ROOT} current />
@@ -865,19 +919,29 @@ const Preview = () => {
             <TeamRoomPane key={flowScene} room={PREVIEW_FLOW_GOAL.goal.id} />
           </div>
         </Frame>
-        <div className="flex min-w-0 flex-col gap-4">
-          <Frame title="Settings › Library">
-            <div className="max-h-[540px] overflow-y-auto p-4">
-              <LibrarySection />
-            </div>
-          </Frame>
-          <Frame title="Settings › Appearance">
-            <div className="p-4">
-              <AppearanceSection />
-            </div>
-          </Frame>
-        </div>
       </div>
+
+      {/* Full width, like every other Settings frame on this page — the same
+          two-column grid above has exactly four cells (2×2) for its sidebar
+          and three Goal frames; a fifth item auto-placed into it lands back
+          in the 380px sidebar column, not the wide one, which is what
+          crushed this frame's own text to one word a line. */}
+      <Frame title="Settings › Library">
+        <div className="max-h-[540px] overflow-y-auto p-4">
+          <LibrarySection />
+        </div>
+      </Frame>
+      <Frame title="Settings › Appearance">
+        <div className="p-4">
+          <AppearanceSection />
+        </div>
+      </Frame>
+
+      <SettingsFrames />
+      <GoalFrames />
+      <TranscriptFrames />
+      <PanelFrames />
+      <CoverageFrames />
     </div>
   )
 }

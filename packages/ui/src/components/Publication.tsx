@@ -157,6 +157,7 @@ export const Publication = ({ item, root }: { item: PublicationItem; root?: stri
           variant="outline"
           size="chip"
           render={<a href={reference.url} />}
+          nativeButton={false}
           onClick={(event) => {
             event.preventDefault()
             openExternal(reference.url)

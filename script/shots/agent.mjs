@@ -37,6 +37,21 @@ const MODELS = (process.env['SHOT_MODELS'] ?? 'sonnet:Sonnet,opus:Opus')
   .map((one) => one.split(':'))
   .map(([modelId, name]) => ({ modelId, name }))
 
+/**
+ * Real ACP usage, for the seat this process plays.
+ *
+ * Nothing above this line ever reported a token: this fixture was written
+ * for a room's transcript, not for the composer's context ring. `SHOT_USAGE`
+ * is a JSON `{ last, used?, size?, cost? }` — `last` in ACP's own usage
+ * shape (`totalTokens`, `inputTokens`, `outputTokens`, `cachedReadTokens`,
+ * `cachedWriteTokens`), `used`/`size` the window a `usage_update` reports
+ * (left out, the ring stays dashed, the way Cursor's real CLI never sends
+ * one), and `cost` its `{ amount, currency }`. Read once, replayed on every
+ * turn this seat plays, because a ring photograph wants one true answer, not
+ * one that grows.
+ */
+const USAGE = process.env['SHOT_USAGE'] ? JSON.parse(process.env['SHOT_USAGE']) : null
+
 const readStore = () => {
   if (!STORE) return {}
   try {
@@ -335,7 +350,19 @@ const handlers = {
       remember(state)
     }
     const stopReason = await playTurn(sessionId)
-    reply(id, { stopReason })
+    // A window only when the seat's usage names one — an agent that never
+    // sends a size, like the real Cursor CLI, must not gain one by being
+    // asked twice. A composition (`breakdown`) travels on the same update,
+    // in the extension slot the real DeepSeek Harness bridge uses.
+    if (USAGE && (USAGE.size != null || USAGE.breakdown)) {
+      update(sessionId, {
+        sessionUpdate: 'usage_update',
+        ...(USAGE.size != null ? { used: USAGE.used, size: USAGE.size } : {}),
+        ...(USAGE.cost ? { cost: USAGE.cost } : {}),
+        ...(USAGE.breakdown ? { _meta: { harnessdesk: { contextBreakdown: USAGE.breakdown } } } : {}),
+      })
+    }
+    reply(id, { stopReason, ...(USAGE?.last ? { usage: USAGE.last } : {}) })
   },
 
   'session/cancel': (_id, params) => {

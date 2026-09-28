@@ -212,7 +212,7 @@ export class RefObserver {
     const { git, journal } = this.#options
     const now = this.#options.now ?? Date.now
     const prior = this.#checkpoint
-    const read = await journal.read()
+    const read = await journal.read({ copy: 'shallow' })
     if (read.broken) throw new Error('provenance-journal-damaged')
     const commits = new Map(values<CommitObservation>(read.entries, 'commit').map((entry) => [entry.sha, entry]))
     const acknowledged = [...read.entries].reverse().find((entry) => entry.kind === 'cursor' &&
@@ -312,7 +312,7 @@ export class RefObserver {
       baseline, rangeKeys: prior.rangeKeys, rangePending: prior.rangePending,
     }
     if (this.#options.reconcile) {
-      const ranges = await this.#options.reconcile((await journal.read()).entries, next, signal)
+      const ranges = await this.#options.reconcile((await journal.read({ copy: 'shallow' })).entries, next, signal)
       next = { ...next, ...ranges }
     }
     signal.throwIfAborted()

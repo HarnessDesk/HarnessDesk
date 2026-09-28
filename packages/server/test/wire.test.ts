@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
@@ -1619,6 +1620,89 @@ test('an agent switched off is not asked about its usage, and comes back when it
     [FAKE_RUNTIME_ID],
     'switching it on again needs no restart',
   )
+})
+
+test('a completed desk scan pushes the fresh turn count through the host', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  let reads = 0
+  harness.host.bindUsage(FAKE_RUNTIME_ID, {
+    deskTurns: true,
+    meter: {
+      id: 'test-meter', source: { kind: 'file', label: 'synthetic reading' }, watchPaths: () => [],
+      read: async () => {
+        reads += 1
+        return {
+          account: 'dev@example.com', plan: 'Demo',
+          lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 40, windowMinutes: 10_080, resetsAt: null }],
+          credits: null, reached: null, fetchedAt: Date.now(), staleAfterMs: 60_000,
+        }
+      },
+    },
+  })
+  const initial = (await client.call('usage/reports', {})) as { turns?: { count: number } }[]
+  assert.equal(initial[0]?.turns, undefined)
+
+  const session = (await client.call('session/create', {
+    runtime: FAKE_RUNTIME_ID, options: { cwd: harness.stateDir },
+  })) as Session
+  await client.call('turn/send', { runtime: FAKE_RUNTIME_ID, sessionId: session.id, input: [{ type: 'text', text: 'hello' }] })
+  const live = harness.runtime.sessions.get(session.id) as FakeSession
+  const updatesBeforeTurn = client.notifications.length
+  live.finish()
+  await client.until(() => client.events.some((event) => event.type === 'turn/completed'))
+  const transcriptPath = join(harness.stateDir, 'transcripts', encodeURIComponent(FAKE_RUNTIME_ID), `${encodeURIComponent(session.id)}.json`)
+  await client.until(() => {
+    if (!existsSync(transcriptPath)) return false
+    try {
+      const saved = JSON.parse(readFileSync(transcriptPath, 'utf8')) as { turns?: { status: string }[] }
+      return saved.turns?.some((turn) => turn.status === 'completed') ?? false
+    } catch {
+      return false
+    }
+  }, 5_000, 'the completed synthetic transcript')
+  // The fake runtime omits wall-clock metadata. Give its synthetic stored
+  // turn a start time so the ledger can place it in today's scan window.
+  const saved = JSON.parse(readFileSync(transcriptPath, 'utf8')) as { turns: { startedAt?: number; status: string }[] }
+  assert.ok(saved.turns[0])
+  saved.turns[0].startedAt = Date.now()
+  await writeFile(transcriptPath, JSON.stringify(saved))
+  await client.until(() => client.notifications.slice(updatesBeforeTurn).some((message) =>
+    'method' in message && message.method === 'usage/updated' && message.params.report.runtime === FAKE_RUNTIME_ID && !message.params.report.turns,
+  ), 5_000, 'the turn-completion meter refresh')
+  const readsBeforeScan = reads
+  const before = client.notifications.length
+  await client.call('usage/scan', {})
+  await client.until(() => client.notifications.slice(before).some((message) =>
+    'method' in message && message.method === 'usage/updated' && message.params.report.runtime === FAKE_RUNTIME_ID && message.params.report.turns?.count === 1,
+  ), 5_000, 'the host-pushed desk turn')
+  assert.equal(reads, readsBeforeScan, 'the scan settlement reuses the cached meter reading')
+})
+
+test('a desk turn without a meter still creates a pushed and queryable usage report', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  harness.host.bindUsage(FAKE_RUNTIME_ID, { deskTurns: true })
+  assert.deepEqual(await client.call('usage/reports', {}), [], 'no meter and no recorded turn starts without a card')
+
+  const runtimeDir = join(harness.stateDir, 'transcripts', encodeURIComponent(FAKE_RUNTIME_ID))
+  await mkdir(runtimeDir, { recursive: true })
+  await writeFile(join(runtimeDir, 'session-1.json'), JSON.stringify({
+    version: 1, runtime: FAKE_RUNTIME_ID, id: 'session-1', savedAt: Date.now(), cwd: harness.stateDir,
+    turns: [{ id: 'turn-1', startedAt: Date.now(), status: 'completed', items: [{ type: 'userMessage', content: [] }] }],
+  }))
+  const before = client.notifications.length
+  await client.call('usage/scan', {})
+  await client.until(() => client.notifications.slice(before).some((message) =>
+    'method' in message && message.method === 'usage/updated' &&
+    message.params.report.runtime === FAKE_RUNTIME_ID && message.params.report.turns?.count === 1,
+  ), 5_000, 'the turns-only usage report')
+  const reports = (await client.call('usage/reports', {})) as { runtime: string; turns?: { count: number } }[]
+  assert.equal(reports.find((report) => report.runtime === FAKE_RUNTIME_ID)?.turns?.count, 1)
 })
 
 // ------------------------------------------------------------- git RPC roots
