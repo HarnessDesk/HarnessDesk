@@ -90,6 +90,11 @@
 
 .groupLabel {
   font-size: var(--hd-text-sm);
+  /* The one weight rule every group label follows (`design/ui/group-label.tsx`):
+     regular in Desk, the medium `--hd-label-weight` sets on purpose in
+     Studio. Missing here, this fell back to the browser's own default —
+     always regular, in either interface. */
+  font-weight: var(--hd-label-weight, var(--hd-weight-normal));
   color: var(--hd-secondary-foreground);
 }
 

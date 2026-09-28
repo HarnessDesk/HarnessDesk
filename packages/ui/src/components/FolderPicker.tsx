@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 
 import {
   Breadcrumb,
@@ -85,16 +85,24 @@ export const FolderPicker = ({ onClose }: { onClose: () => void }) => {
           <BreadcrumbList className={styles.crumbs}>
           {listing ? (
             crumbsOf(listing.path).map((crumb, index, all) => (
-              <BreadcrumbItem key={crumb.path}>
+              // A separator is its own `<li>`, a sibling of the crumb's — the
+              // same shape every other Breadcrumb caller uses (see
+              // `boards-compositions.tsx`). Nested inside the crumb's `<li>`
+              // it was an `<li>` inside an `<li>`, which React and the DOM
+              // both refuse; this component had never been mounted anywhere
+              // to catch it.
+              <Fragment key={crumb.path}>
                 {index > 1 && <BreadcrumbSeparator>/</BreadcrumbSeparator>}
-                {index === all.length - 1 ? (
-                  <BreadcrumbPage>{crumb.name}</BreadcrumbPage>
-                ) : (
-                  <Button type="button" variant="row" size="row" onClick={() => browse(crumb.path)}>
-                    {crumb.name}
-                  </Button>
-                )}
-              </BreadcrumbItem>
+                <BreadcrumbItem>
+                  {index === all.length - 1 ? (
+                    <BreadcrumbPage>{crumb.name}</BreadcrumbPage>
+                  ) : (
+                    <Button type="button" variant="row" size="row" onClick={() => browse(crumb.path)}>
+                      {crumb.name}
+                    </Button>
+                  )}
+                </BreadcrumbItem>
+              </Fragment>
             ))
           ) : (
             <BreadcrumbItem><BreadcrumbPage>…</BreadcrumbPage></BreadcrumbItem>
