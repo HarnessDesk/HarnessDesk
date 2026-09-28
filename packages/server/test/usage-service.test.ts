@@ -257,9 +257,12 @@ test("another sign-in's figures are drawn beside the report and never read as th
  */
 test('a stored plan folds into every report the overlay sees, including the onReport push behind usage/updated', async () => {
   const pushed: UsageReport[] = []
+  let spend: SpendSummary | null = null
+  let turns: { readonly count: number; readonly since: number; readonly source: 'agent' | 'desk' } | null = null
   const usage = new UsageService({
     runtimes: () => [runtime(METERED)],
     meters: new Map([[METERED, meter]]),
+    spend: { spendFor: () => spend, turnsFor: () => turns },
     onReport: (report) => pushed.push(report),
     overlay: async (report) => ({
       ...report,
@@ -271,5 +274,15 @@ test('a stored plan folds into every report the overlay sees, including the onRe
   assert.deepEqual(first?.billing?.fee, { amount: 20, currency: 'USD', period: 'month', source: 'user' })
   assert.deepEqual(pushed.at(-1)?.billing?.fee, { amount: 20, currency: 'USD', period: 'month', source: 'user' }, 'the push carries the stored fee too')
   assert.deepEqual(usage.cached(METERED)?.billing?.fee, { amount: 20, currency: 'USD', period: 'month', source: 'user' }, 'and so does the cache reports()/refresh() read from next time')
+
+  spend = money(12.5)
+  turns = { count: 12, since: 1, source: 'agent' }
+  await usage.settleLedger()
+  const settled = pushed.at(-1)
+  assert.deepEqual(settled?.billing?.fee, { amount: 20, currency: 'USD', period: 'month', source: 'user' }, 'settlement preserves the stored plan overlay')
+  assert.equal(settled?.turns?.count, 12)
+  assert.equal(settled?.spend?.windowCost, 12.5)
+  assert.equal(settled?.fetchedAt, first?.fetchedAt, 'settlement keeps the original meter reading')
+  assert.deepEqual(usage.cached(METERED), settled, 'the cache and emitted report stay aligned')
   usage.dispose()
 })
