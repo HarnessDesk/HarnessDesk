@@ -288,15 +288,14 @@ test('start() does not wait on a slow answer to whether a remembered folder is a
     'method' in one &&
     (one as { method: unknown }).method === 'agent/changed' &&
     (one as { params?: { project?: unknown } }).params?.project === project
-  const end = Date.now() + 8_000
   let n = 0
-  for (;;) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
     await writeFile(join(project, '.harnessdesk', 'agents', 'scout', 'AGENT.md'), `---\nname: Scout\n---\nAgain ${n++}.\n`)
-    const attemptEnd = Math.min(Date.now() + 800, end)
-    while (!pushed.some(isProjectChanged) && Date.now() <= attemptEnd) {
+    for (let poll = 0; poll < 40; poll += 1) {
+      if (pushed.some(isProjectChanged)) break
       await new Promise((resolve) => setTimeout(resolve, 20))
     }
     if (pushed.some(isProjectChanged)) break
-    if (Date.now() > end) throw new Error('timed out waiting for the roster watch to catch up on its own, in the background')
   }
+  assert.ok(pushed.some(isProjectChanged), 'the roster watch catches up on its own, in the background')
 })

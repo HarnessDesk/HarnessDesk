@@ -30,6 +30,13 @@ export interface TransportEvents {
 interface Pending {
   resolve(value: unknown): void
   reject(error: Error): void
+  signal?: AbortSignal
+  abort?: () => void
+}
+
+interface QueuedRequest {
+  id: number
+  frame: string
 }
 
 const MAX_BACKOFF_MS = 10_000
@@ -39,7 +46,7 @@ export class Transport {
   #socket: WebSocket | null = null
   #nextId = 0
   #pending = new Map<number, Pending>()
-  #queue: string[] = []
+  #queue: QueuedRequest[] = []
   #status: ConnectionStatus = 'closed'
   #attempt = 0
   #closed = false
@@ -68,26 +75,46 @@ export class Transport {
     const pending = [...this.#pending.values()]
     this.#pending.clear()
     for (const entry of pending) {
+      this.#removeAbortListener(entry)
       entry.reject(new Error('The connection to HarnessDesk was lost.'))
     }
     this.#setStatus('closed')
   }
 
-  request<M extends HostMethodName>(method: M, params: HostParams<M>): Promise<HostResult<M>> {
+  request<M extends HostMethodName>(
+    method: M,
+    params: HostParams<M>,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<HostResult<M>> {
     const id = ++this.#nextId
     const frame = JSON.stringify({ id, method, params })
     return new Promise<HostResult<M>>((resolve, reject) => {
-      this.#pending.set(id, { resolve: resolve as (value: unknown) => void, reject })
+      const pending: Pending = { resolve: resolve as (value: unknown) => void, reject, signal: options.signal }
+      const abort = () => {
+        if (this.#pending.get(id) !== pending) return
+        this.#pending.delete(id)
+        this.#queue = this.#queue.filter((entry) => entry.id !== id)
+        this.#removeAbortListener(pending)
+        reject(Object.assign(new Error('The request was aborted.'), { name: 'AbortError' }))
+      }
+      pending.abort = abort
+      if (options.signal?.aborted) {
+        reject(Object.assign(new Error('The request was aborted.'), { name: 'AbortError' }))
+        return
+      }
+      this.#pending.set(id, pending)
+      options.signal?.addEventListener('abort', abort, { once: true })
       if (this.#socket?.readyState === WebSocket.OPEN) {
         this.#socket.send(frame)
         return
       }
       if (this.#queue.length >= QUEUE_LIMIT) {
         this.#pending.delete(id)
+        this.#removeAbortListener(pending)
         reject(new Error('Too many requests are queued while the host is unreachable.'))
         return
       }
-      this.#queue.push(frame)
+      this.#queue.push({ id, frame })
     })
   }
 
@@ -101,7 +128,7 @@ export class Transport {
       this.#setStatus('open')
       const queued = this.#queue
       this.#queue = []
-      for (const frame of queued) socket.send(frame)
+      for (const entry of queued) socket.send(entry.frame)
     })
 
     socket.addEventListener('message', (event) => {
@@ -119,6 +146,7 @@ export class Transport {
       const pending = this.#pending.get(message.id)
       if (!pending) return
       this.#pending.delete(message.id)
+      this.#removeAbortListener(pending)
       if (message.ok) {
         pending.resolve(message.result)
       } else {
@@ -143,6 +171,7 @@ export class Transport {
       this.#pending.clear()
       this.#queue = []
       for (const entry of pending) {
+        this.#removeAbortListener(entry)
         entry.reject(new Error('The connection to HarnessDesk was lost.'))
       }
       this.#scheduleReconnect()
@@ -156,6 +185,10 @@ export class Transport {
     const backoff = Math.min(300 * 2 ** (this.#attempt - 1), MAX_BACKOFF_MS)
     this.#setStatus('reconnecting')
     this.#reconnectTimer = window.setTimeout(() => this.#open(), backoff)
+  }
+
+  #removeAbortListener(pending: Pending): void {
+    if (pending.signal && pending.abort) pending.signal.removeEventListener('abort', pending.abort)
   }
 
   #setStatus(status: ConnectionStatus): void {

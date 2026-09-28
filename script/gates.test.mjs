@@ -61,6 +61,7 @@ import { offendersIn } from './check-secrets.mjs'
 import { methodsIn, reachedBy } from './check-reachable.mjs'
 import { DOCUMENTATION } from './check-layering.mjs'
 import { TEST_GLOB, distSegments, globToRegExp } from './prune-dist.mjs'
+import ts from 'typescript'
 
 /**
  * A clean scan, derived rather than listed.
@@ -2903,6 +2904,118 @@ test('a method name held in a variable is not a caller either', () => {
 /** The server's test files that run in invocations of their own, at a wider cap (#1000, #1003). */
 const CARVED_OUT = ['flow-host-evidence-*.test.js', 'intake-*.test.js']
 
+const stringValue = (node) => node && ts.isStringLiteral(node) ? node.text : null
+
+/** Read actual `step(name, () => run(command, args))` calls, not matching text nearby. */
+const runsInStep = (source, stepName) => {
+  const file = ts.createSourceFile('verify.mjs', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS)
+  const runs = []
+  for (const statement of file.statements) {
+    if (!ts.isExpressionStatement(statement) || !ts.isCallExpression(statement.expression)) continue
+    const step = statement.expression
+    if (!ts.isIdentifier(step.expression) || step.expression.text !== 'step' || stringValue(step.arguments[0]) !== stepName) continue
+    const callback = step.arguments[1]
+    if (!callback || (!ts.isArrowFunction(callback) && !ts.isFunctionExpression(callback))) continue
+    // In verify.mjs these steps return the run(...) call directly. A nested
+    // call could be conditional or otherwise unreachable while still being
+    // present in the AST, so only accept that executable shape.
+    const run = callback.body
+    if (!ts.isCallExpression(run) || !ts.isIdentifier(run.expression) || run.expression.text !== 'run') continue
+    const args = run.arguments[1]
+    runs.push({ command: stringValue(run.arguments[0]), args: args && ts.isArrayLiteralExpression(args) ? args.elements.map(stringValue) : [] })
+  }
+  return runs
+}
+
+/** Read named steps only from the verification job's direct `steps` list. */
+const ciStepsInVerifyJob = (source) => {
+  const steps = []
+  let inVerifyJob = false
+  let inSteps = false
+  let jobIf
+  let current
+  let scalar = null
+  const startScalar = (line) => {
+    const mappingScalar = line.match(/^ *(?:-\s+)?[^#:\s][^:]*:\s*[|>]((?:[1-9][+-]?|[+-][1-9])?)\s*(?:#.*)?$/)
+    const sequenceScalar = line.match(/^ *-\s*[|>]((?:[1-9][+-]?|[+-][1-9])?)\s*(?:#.*)?$/)
+    const header = mappingScalar ?? sequenceScalar
+    if (!header) return
+    const baseIndent = line.match(/^ */)[0].length
+    scalar = {
+      baseIndent,
+      explicitIndent: /\d/.test(header[1]) ? Number(header[1].match(/\d/)[0]) : null,
+      contentIndent: null,
+    }
+  }
+  const lines = source.split('\n')
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (scalar) {
+      if (line.trim() === '') continue
+      const indent = line.match(/^ */)[0].length
+      if (scalar.contentIndent === null) {
+        if (indent <= scalar.baseIndent) scalar = null
+        else scalar.contentIndent = scalar.explicitIndent === null ? indent : scalar.baseIndent + scalar.explicitIndent
+      } else if (indent >= scalar.contentIndent) {
+        continue
+      } else {
+        scalar = null
+      }
+      if (scalar) continue
+    }
+    if (line === '  verify:') {
+      inVerifyJob = true
+      continue
+    }
+    if (inVerifyJob && /^  [^\s#][^:]*:\s*$/.test(line)) break
+    if (!inVerifyJob) {
+      startScalar(line)
+      continue
+    }
+    const jobCondition = line.match(/^    if:\s*(.*?)\s*$/)
+    if (jobCondition) jobIf = jobCondition[1]
+    if (line === '    steps:') {
+      inSteps = true
+      continue
+    }
+    if (!inSteps) continue
+    const item = line.match(/^      -\s*(.*?)\s*$/)
+    if (item) {
+      const inlineName = item[1].match(/^name:\s*(.*?)\s*$/)
+      const inlineCondition = item[1].match(/^if:\s*(.*?)\s*$/)
+      current = {
+        name: inlineName?.[1]?.replace(/^(['"])(.*)\1$/, '$2'),
+        run: undefined,
+        condition: inlineCondition?.[1],
+      }
+      steps.push(current)
+      continue
+    }
+    if (!current) continue
+    const name = line.match(/^        name:\s*(.*?)\s*$/)
+    const run = line.match(/^        run:\s*(.*?)\s*$/)
+    const condition = line.match(/^        if:\s*(.*?)\s*$/)
+    if (name) current.name = name[1].replace(/^(['"])(.*)\1$/, '$2')
+    if (run) current.run = run[1]
+    if (condition) current.condition = condition[1]
+
+    startScalar(line)
+  }
+  return steps.map((step) => ({ ...step, jobIf }))
+}
+
+const hasExactBashScript = (runs, expectedScript) => runs.some(({ command, args }) =>
+  command === 'bash' && args.length === 2 && args[0] === '-c' && args[1] === expectedScript,
+)
+
+const hasActiveCIStepRun = (source, stepName, expectedCommand) =>
+  ciStepsInVerifyJob(source).some((step) =>
+    step.name === stepName && step.run === expectedCommand && step.condition === undefined && step.jobIf === undefined,
+  )
+
+const mainTestScript = (shape, carveOuts) =>
+  `node --test --test-timeout=120000 $(find ${shape} -name '*.test.js' ${carveOuts.map((path) => `! -path '${path}'`).join(' ')})`
+
 test('the test glob is written one way everywhere it is run (#256)', () => {
   // Five encodings of one glob: the two runners, the two workflows, and prune-dist's own reading of dist.
   const repo = repoRoot
@@ -2929,36 +3042,61 @@ test('the test glob is written one way everywhere it is run (#256)', () => {
     const carveOut = `${top}/server/${dist}/${tests}/${name}`
     for (const file of ['script/verify.mjs', '.github/workflows/ci.yml']) {
       const text = fs.readFileSync(path.join(repo, file), 'utf8')
-      assert.ok(text.includes(shape), `${file} reads dist by the same directory shape prune-dist.mjs writes (${shape})`)
-      // Read with the exclusion taken out: the exclusion now spells the same
-      // path, and on its own it satisfied this check, so a separate run whose
-      // glob matched nothing passed here — and `node --test` exits 0 on a
-      // glob that matches nothing (#1052's review, round 2).
-      // Comments are taken out too: one quoting the path is not a run of it
-      // (#1052's review, round 3).
-      const runs = text
-        .split('\n')
-        .filter((line) => !/^\s*(\/\/|#)/.test(line))
-        .join('\n')
-        .split(`! -path '${carveOut}'`)
-        .join('')
-        .split(`! -path "${carveOut}"`)
-        .join('')
-      assert.ok(
-        runs.includes(carveOut),
-        `${file} runs the files it splits out of the glob prune-dist.mjs writes by that exact sub-glob (${carveOut})`,
-      )
-      // By the same path glob, not by name: a bare `-name` exclusion also
-      // drops a same-named file in another package, which the server-only
-      // run never picks up, so it ran nowhere (#1052's review, round 1 —
-      // `packages/protocol`'s intake-wire.test.js).
-      assert.ok(
-        text.includes(`! -path '${carveOut}'`) || text.includes(`! -path "${carveOut}"`),
-        `${file} excludes from the rest exactly the files the separate run is given (${carveOut}), so each runs once and none is dropped`,
-      )
-      assert.ok(!text.includes(`! -name '${name}'`) && !text.includes(`! -name "${name}"`), `${file} does not exclude ${name} by bare name`)
+      const stepName = name.startsWith('intake-') ? 'intake tests' : 'flow-host-evidence tests'
+      const carveOuts = CARVED_OUT.map((carveName) => `${top}/server/${dist}/${tests}/${carveName}`)
+      const expectedMainScript = mainTestScript(shape, carveOuts)
+      if (file.endsWith('.mjs')) {
+        const dedicated = runsInStep(text, stepName)
+        assert.ok(dedicated.some(({ command, args }) => command === 'node' && args.length === 3 && args[0] === '--test' && args[1] === '--test-timeout=600000' && args[2] === carveOut),
+          `${file} passes the exact carved-out glob as an argument to node --test (${carveOut})`)
+
+        const main = runsInStep(text, 'node tests')
+        assert.ok(hasExactBashScript(main, expectedMainScript),
+          `${file} passes the exact main test invocation as bash -c's script argument`)
+      } else {
+        const ciStepName = name.startsWith('intake-') ? 'Intake tests' : 'Flow-host-evidence tests'
+        const dedicatedCommand = `node --test --test-timeout=600000 "${carveOut}"`
+        assert.ok(hasActiveCIStepRun(text, ciStepName, dedicatedCommand),
+          `${file} runs the carved-out files with its test command and exact sub-glob (${carveOut})`)
+        const expectedCICommand = `bash -c "${expectedMainScript.replaceAll('$', '\\$')}"`
+        assert.ok(hasActiveCIStepRun(text, 'Node tests', expectedCICommand),
+          `${file} uses the exact main test invocation in the active Node tests step`)
+      }
     }
   }
+})
+
+test('carved-out run detection ignores comments and unrelated strings (#1063)', () => {
+  const decoys = `/* step('flow-host-evidence tests', () => run('node', ['--test', 'packages/server/dist/test/flow-host-evidence-*.test.js'])) */\nconst note = \`step('flow-host-evidence tests', () => run('node', ['--test', 'packages/server/dist/test/flow-host-evidence-*.test.js']))\`;`
+  assert.deepEqual(runsInStep(decoys, 'flow-host-evidence tests'), [])
+  const unreachable = `if (false) { step('node tests', () => run('bash', ['-c', 'node --test'])); }`
+  assert.deepEqual(runsInStep(unreachable, 'node tests'), [])
+  assert.deepEqual(runsInStep(`step('node tests', () => { if (false) run('bash', ['-c', 'node --test']); });`, 'node tests'), [])
+
+  const shape = 'packages/*/dist/test'
+  const carveOuts = CARVED_OUT.map((name) => `packages/server/dist/test/${name}`)
+  const expected = mainTestScript(shape, carveOuts)
+  assert.equal(hasExactBashScript([{ command: 'bash', args: ['-c', 'true', expected] }], expected), false)
+  assert.equal(hasExactBashScript([{ command: 'bash', args: ['-c', `echo '${expected}'`] }], expected), false)
+  assert.equal(hasExactBashScript([{ command: 'bash', args: ['-c', expected] }], expected), true)
+
+  const expectedCICommand = `bash -c "${expected.replaceAll('$', '\\$')}"`
+  const disabledAndMisplaced = `jobs:\n  unrelated:\n    steps:\n      - name: Node tests\n        run: ${expectedCICommand}\n  verify:\n    if: false\n    steps:\n      - name: Other step\n        run: ${expectedCICommand}\n      - name: Node tests\n        run: ${expectedCICommand}`
+  assert.equal(hasActiveCIStepRun(disabledAndMisplaced, 'Node tests', expectedCICommand), false)
+  const shellDecoy = `jobs:\n  verify:\n    steps:\n      - name: Node tests\n        run: bash -c "echo 'node --test ${shape}'; # ${carveOuts.join(' ')}"`
+  assert.equal(hasActiveCIStepRun(shellDecoy, 'Node tests', expectedCICommand), false)
+  const active = `jobs:\n  verify:\n    steps:\n      - name: Node tests\n        run: ${expectedCICommand}`
+  assert.equal(hasActiveCIStepRun(active, 'Node tests', expectedCICommand), true)
+  const disabledAfterSteps = `jobs:\n  verify:\n    steps:\n      - name: Node tests\n        run: ${expectedCICommand}\n    if: false`
+  assert.equal(hasActiveCIStepRun(disabledAfterSteps, 'Node tests', expectedCICommand), false)
+  const disabledInline = `jobs:\n  verify:\n    steps:\n      - if: false\n        name: Node tests\n        run: ${expectedCICommand}`
+  assert.equal(hasActiveCIStepRun(disabledInline, 'Node tests', expectedCICommand), false)
+  const disabledMultilineStep = `jobs:\n  verify:\n    steps:\n      - name: Node tests\n        if:\n          false\n        run: ${expectedCICommand}`
+  assert.equal(hasActiveCIStepRun(disabledMultilineStep, 'Node tests', expectedCICommand), false)
+  const disabledMultilineJob = `jobs:\n  verify:\n    if:\n      false\n    steps:\n      - name: Node tests\n        run: ${expectedCICommand}`
+  assert.equal(hasActiveCIStepRun(disabledMultilineJob, 'Node tests', expectedCICommand), false)
+  const scalarDecoy = `name: |2-\n  verify:\n    steps:\n      - name: Node tests\n        run: ${expectedCICommand}\njobs:\n  verify:\n    steps: []`
+  assert.equal(hasActiveCIStepRun(scalarDecoy, 'Node tests', expectedCICommand), false)
 })
 
 test('each carved-out run is given files, and only files (#1003)', (t) => {

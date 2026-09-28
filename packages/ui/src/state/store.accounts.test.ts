@@ -216,6 +216,120 @@ describe('an account read that fails (#1021)', () => {
     expect(readsOf(ADDED)).toBe(first + 3)
   })
 
+  it('lets an account read time out so a host that never answers can be re-asked', async () => {
+    roster(ADDED)
+    let reads = 0
+    let readSignal: AbortSignal | undefined
+    vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, _params: unknown, options?: { signal?: AbortSignal }) => {
+      if (method !== 'runtime/account') return null
+      reads += 1
+      readSignal = options?.signal
+      return new Promise(() => {})
+    }) as never)
+
+    const loading = store.loadAccounts()
+    await vi.advanceTimersByTimeAsync(10_000)
+    await loading
+    expect(store.getSnapshot().accountsByRuntime[ADDED]).toBeUndefined()
+    expect(readSignal?.aborted).toBe(true)
+
+    // The timed-out read enters the ordinary retry path instead of holding
+    // the account pass forever.
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(reads).toBe(2)
+  })
+
+  it('drops timed-out queued and in-flight account reads', async () => {
+    class MockWebSocket {
+      static OPEN = 1
+      static instances: MockWebSocket[] = []
+      readyState = 0
+      sent: string[] = []
+      listeners = new Map<string, ((event: unknown) => void)[]>()
+
+      constructor() { MockWebSocket.instances.push(this) }
+
+      addEventListener(type: string, listener: (event: unknown) => void) {
+        this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener])
+      }
+
+      send(frame: string) { this.sent.push(frame) }
+      close() { this.readyState = 3 }
+      open() {
+        this.readyState = MockWebSocket.OPEN
+        for (const listener of this.listeners.get('open') ?? []) listener({})
+      }
+      message(frame: string) {
+        for (const listener of this.listeners.get('message') ?? []) listener({ data: frame })
+      }
+    }
+
+    const originalWebSocket = globalThis.WebSocket
+    globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket
+    vi.mocked(store.transport.request).mockRestore()
+    const request = vi.spyOn(store.transport, 'request')
+    try {
+      roster(ADDED)
+      store.transport.connect()
+      const socket = MockWebSocket.instances[0]
+      if (!socket) throw new Error('socket undefined')
+      const accountFrames = () => socket.sent.filter((frame) => (JSON.parse(frame) as { method: string }).method === 'runtime/account')
+      // The real transport queues the store's account read while connecting.
+      const loading = store.loadAccounts()
+      expect(request).toHaveBeenCalledWith('runtime/account', { runtime: ADDED }, { signal: expect.any(AbortSignal) })
+
+      await vi.advanceTimersByTimeAsync(10_000)
+      await loading
+      expect(store.getSnapshot().accountsByRuntime[ADDED]).toBeUndefined()
+      socket.open()
+      expect(accountFrames()).toEqual([])
+
+      // An active request still sends on this socket; the empty flush above
+      // is the canceled account read, not an inert fake connection.
+      const controller = new AbortController()
+      const live = store.transport.request('runtime/account', { runtime: ADDED }, { signal: controller.signal })
+      expect(accountFrames()).toHaveLength(1)
+      controller.abort()
+      await expect(live).rejects.toMatchObject({ name: 'AbortError' })
+
+      // This read reaches the host before its deadline. Its transport promise
+      // must be canceled too; a reply that arrives afterward cannot revive
+      // the account status the timed-out pass left unchanged.
+      const inFlight = store.loadAccounts()
+      const frame = JSON.parse(accountFrames().at(-1)!) as { id: number }
+      const requestPromise = request.mock.results.at(-1)?.value as Promise<unknown>
+      await vi.advanceTimersByTimeAsync(10_000)
+      await inFlight
+      await expect(requestPromise).rejects.toMatchObject({ name: 'AbortError' })
+      socket.message(JSON.stringify({
+        id: frame.id,
+        ok: true,
+        result: { accounts: [{ kind: 'chatgpt', label: 'dev@example.com' }], signInMethods: [] },
+      }))
+      expect(store.getSnapshot().accountsByRuntime[ADDED]).toBeUndefined()
+    } finally {
+      store.transport.close()
+      globalThis.WebSocket = originalWebSocket
+    }
+  })
+
+  it('reports a timed-out account read during sign-in discovery', async () => {
+    let reads = 0
+    vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+      if (method !== 'runtime/account') return null
+      reads += 1
+      return new Promise(() => {})
+    }) as never)
+
+    const signing = store.signInAgent(ADDED)
+    await vi.advanceTimersByTimeAsync(10_000)
+    await signing
+
+    expect(reads).toBe(1)
+    expect(store.getSnapshot().notices.at(-1)?.message).toContain('timed out after 10000ms')
+    expect(asked).not.toContain('runtime/login')
+  })
+
   it('asks again only the agent that failed, and keeps the others as they answered', async () => {
     roster(ADDED, OTHER)
     per[ADDED] = 'fail'
@@ -341,6 +455,55 @@ describe('an account read that fails (#1021)', () => {
     await vi.advanceTimersByTimeAsync(120_000)
     expect(readsOf(ADDED)).toBe(first + 1)
     expect(store.getSnapshot().accountsByRuntime[ADDED]).toEqual({ accounts: [], signInMethods: [] })
+  })
+
+  it("keeps the doubled wait when a newer failing read skips the timer's re-ask", async () => {
+    roster(ADDED)
+    per[ADDED] = 'fail'
+    await store.loadAccounts()
+    const first = readsOf(ADDED)
+
+    const added = hold(ADDED)
+    const refresh = store.refreshRuntime()
+    await vi.advanceTimersByTimeAsync(2_000)
+    // The retry timer fired, but the newer read was already out, so it did not
+    // issue a redundant account request.
+    expect(readsOf(ADDED)).toBe(first + 1)
+
+    added[0]!(Promise.reject(new Error('The agent is not running.')))
+    await refresh
+    await vi.advanceTimersByTimeAsync(3_999)
+    expect(readsOf(ADDED)).toBe(first + 1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(readsOf(ADDED)).toBe(first + 2)
+  })
+
+  it('does not consume a retry wait when a stale pass clears its timer before it fires', async () => {
+    roster(ADDED, OTHER)
+    const stale: Array<(value: unknown) => void> = []
+    per[ADDED] = () => new Promise((resolve) => stale.push(resolve))
+    per[OTHER] = { accounts: [], signInMethods: [] }
+    const oldPass = store.loadAccounts()
+
+    per[ADDED] = 'fail'
+    await store.loadAccounts()
+    const afterFailure = readsOf(ADDED)
+
+    const newer: Array<(value: unknown) => void> = []
+    per[ADDED] = () => new Promise((resolve) => newer.push(resolve))
+    const newPass = store.loadAccounts()
+    stale[0]!({ accounts: [], signInMethods: [] })
+    await oldPass
+    // The stale pass cannot answer for this agent, but applying its sibling's
+    // answer clears the now-obsolete timer while the newer read is still out.
+    expect(readsOf(ADDED)).toBe(afterFailure + 1)
+
+    newer[0]!(Promise.reject(new Error('The agent is not running.')))
+    await newPass
+    await vi.advanceTimersByTimeAsync(1_999)
+    expect(readsOf(ADDED)).toBe(afterFailure + 1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(readsOf(ADDED)).toBe(afterFailure + 2)
   })
 
   it('starts the wait over once everything has answered', async () => {
