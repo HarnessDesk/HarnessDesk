@@ -14,8 +14,20 @@
 
 .rowReading {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--hd-space-2);
+  justify-content: space-between;
+  column-gap: var(--hd-space-2);
+}
+
+/* A note that does not fit beside its reading drops to the next line whole -
+   "resets Tue 11:47 PM" as one piece, never split at its own inner space -
+   and stays at the row's end even alone on that second line: `space-between`
+   only distributes space *between* items, so a lone wrapped item is flush
+   start without a margin of its own pushing it back to the far edge. */
+.rowReading > [data-role='meta'] {
+  white-space: nowrap;
+  margin-inline-start: auto;
 }
 
 .window {
