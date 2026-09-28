@@ -584,7 +584,7 @@ export class TranscriptStore {
     try {
       names = await readdir(folder)
     } catch (error) {
-      if (NOTHING_HERE.has(errnoOf(error))) return []
+      if (NOTHING_YET.has(errnoOf(error))) return []
       throw unexported(error)
     }
     const out: { runtime: string; id: string; data: unknown }[] = []

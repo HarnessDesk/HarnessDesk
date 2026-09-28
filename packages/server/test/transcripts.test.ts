@@ -727,6 +727,15 @@ test('exportRuntime reads only the selected runtime folder', async () => {
   })
 })
 
+test('exportRuntime rejects a store root that is a file instead of treating it as an empty runtime', async () => {
+  await withStore(async (store, dir) => {
+    await rm(dir, { recursive: true, force: true })
+    await writeFile(dir, 'not a transcript folder')
+
+    await assert.rejects(store.exportRuntime(runtimeId('cursor')), errno('ENOTDIR'))
+  })
+})
+
 /*
  * A folder that cannot be opened is not a store with nothing in it.
  *

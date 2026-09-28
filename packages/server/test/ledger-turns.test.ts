@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { test } from 'node:test'
@@ -13,6 +13,7 @@ import { Ledger } from '../src/ledger/index.js'
 import { Pricing } from '../src/ledger/pricing.js'
 import { scanClaudeTranscript, scanCodexRollout, scanGeminiChat, scanQwenTranscript } from '../src/ledger/scan.js'
 import { LedgerStore } from '../src/ledger/store.js'
+import { TranscriptStore } from '../src/transcripts.js'
 
 /**
  * Turns: one person-or-agent prompt answered by the agent, never an API
@@ -226,6 +227,44 @@ test('a Claude turn whose reply arrives in the next scan keeps waiting for its m
   const row = next.rows.find((entry) => (entry.turns ?? 0) > 0)
   assert.equal(row?.model, 'model-a')
   assert.equal(row?.turns, 1)
+})
+
+test('a collapsed Claude prompt run can cross a scan boundary before its reply', async () => {
+  const dir = scratch()
+  const path = join(dir, 'session.jsonl')
+  const prompt = (content: string): string =>
+    line({ type: 'user', timestamp: at, cwd: '/p', message: { role: 'user', content } })
+  const reply = line({
+    type: 'assistant', timestamp: at, cwd: '/p', message: { id: 'm1', model: 'model-a', usage: { input_tokens: 1, output_tokens: 1 } },
+  })
+  writeFileSync(path, prompt('/model') + prompt('do the task'))
+
+  const first = await scanClaudeTranscript({ runtime: 'claude-code', kind: 'claude', path, size: 0, mtime: 0 }, 0, [])
+  assert.equal(first.rows.reduce((sum, row) => sum + (row.turns ?? 0), 0), 0)
+
+  writeFileSync(path, prompt('/model') + prompt('do the task') + reply)
+  const next = await scanClaudeTranscript({ runtime: 'claude-code', kind: 'claude', path, size: 0, mtime: 0 }, first.offset, first.tail)
+  const rows = next.rows.filter((row) => (row.turns ?? 0) > 0)
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0]?.model, 'model-a')
+  assert.equal(rows[0]?.turns, 1, 'a run of prompts remains one answered turn across the cursor boundary')
+})
+
+test('a full Claude rescan after a rewrite drops the old pending prompt', async () => {
+  const dir = scratch()
+  const path = join(dir, 'session.jsonl')
+  const prompt = line({ type: 'user', timestamp: at, cwd: '/p', message: { role: 'user', content: 'x'.repeat(400) } })
+  const reply = line({
+    type: 'assistant', timestamp: at, cwd: '/p', message: { id: 'm1', model: 'model-a', usage: { input_tokens: 1, output_tokens: 1 } },
+  })
+  writeFileSync(path, prompt)
+  const first = await scanClaudeTranscript({ runtime: 'claude-code', kind: 'claude', path, size: 0, mtime: 0 }, 0, [])
+  assert.equal(first.rows.reduce((sum, row) => sum + (row.turns ?? 0), 0), 0)
+  assert.ok(first.offset > reply.length, 'the rewritten file is shorter than the old cursor')
+
+  writeFileSync(path, reply)
+  const rewritten = await scanClaudeTranscript({ runtime: 'claude-code', kind: 'claude', path, size: 0, mtime: 0 }, 0, [])
+  assert.equal(rewritten.rows.reduce((sum, row) => sum + (row.turns ?? 0), 0), 0, 'a rewrite starts from the new file and cannot answer a removed prompt')
 })
 
 // ---------------------------------------------------------------- Gemini CLI
@@ -568,6 +607,48 @@ test('desk transcript turn counts sync again on the next scan inside the remote 
   await ledger.scan()
   assert.equal(exports, 2, 'a local transcript is not held to the hourly remote-source interval')
   assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 86_400_000)?.count, 2)
+  ledger.close()
+})
+
+test('a broken transcript store preserves the previous desk turn count', async () => {
+  const dir = scratch()
+  const transcriptsDir = join(dir, 'transcripts')
+  const runtimeDir = join(transcriptsDir, 'cursor')
+  mkdirSync(runtimeDir, { recursive: true })
+  writeFileSync(
+    join(runtimeDir, 'session-1.json'),
+    JSON.stringify({
+      version: 1,
+      runtime: 'cursor',
+      id: 'session-1',
+      savedAt: NOON,
+      updatedAt: NOON,
+      cwd: '/work/proj',
+      turns: [{ id: 'turn-1', startedAt: NOON, status: 'completed', items: [{ type: 'userMessage' }] }],
+    }),
+  )
+
+  let now = NOON
+  const ledger = new Ledger({
+    stateDir: dir,
+    databasePath: join(dir, 'usage.sqlite'),
+    corpora: [],
+    remoteSources: [new DeskTranscriptTurnsSource('cursor', new TranscriptStore(transcriptsDir))],
+    turnRuntimes: new Set([runtimeId('cursor')]),
+    deskTurnRuntimes: new Set([runtimeId('cursor')]),
+    pricing: await pricingIn(dir),
+    now: () => now,
+  })
+
+  await ledger.scan()
+  assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 86_400_000)?.count, 1)
+
+  rmSync(transcriptsDir, { recursive: true, force: true })
+  writeFileSync(transcriptsDir, 'not a folder')
+  now += 60_000
+  await ledger.scan()
+
+  assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 86_400_000)?.count, 1)
   ledger.close()
 })
 
