@@ -87,13 +87,8 @@ const collectCoverage = (page: Page): Promise<{ allComponents: readonly string[]
     }
 
     const covered = new Set<string>()
-    const isVisible = (element: Element): boolean => {
-      for (let node: Element | null = element; node; node = node.parentElement) {
-        const style = getComputedStyle(node)
-        if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse' || Number(style.opacity) === 0) return false
-      }
-      return element.getClientRects().length > 0
-    }
+    const isVisible = (element: Element): boolean =>
+      element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && element.getClientRects().length > 0
     const credit = (candidate: unknown): void => {
       const components = refToComponents.get(candidate)
       if (components) for (const component of components) covered.add(component)
@@ -160,13 +155,8 @@ const sweepSelectsForCoverage = (
       }
     }
     const covered = new Set<string>()
-    const isVisible = (element: Element): boolean => {
-      for (let node: Element | null = element; node; node = node.parentElement) {
-        const style = getComputedStyle(node)
-        if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse' || Number(style.opacity) === 0) return false
-      }
-      return element.getClientRects().length > 0
-    }
+    const isVisible = (element: Element): boolean =>
+      element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && element.getClientRects().length > 0
     const collect = (): void => {
       // Keep this set local to a collection: each dial value is a distinct
       // page state and can reveal a different mounted subtree.
@@ -228,10 +218,10 @@ const sweepSelectsForCoverage = (
         setValue(select, value)
         await settle()
         collect()
-        if (value !== neutral && neutral !== undefined) {
-          setValue(select, neutral)
-          await settle()
-        }
+      }
+      if (select.value !== neutral && neutral !== undefined) {
+        setValue(select, neutral)
+        await settle()
       }
     }
     const delayedReveal = probe ? !probe.reveal.hidden : null
