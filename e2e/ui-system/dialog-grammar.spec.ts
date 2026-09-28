@@ -139,6 +139,8 @@ test('a dialog stands 80% of the window high at most, and 720px above that', asy
     await page.setViewportSize({ width: 1440, height })
     const dialog = await open(page, 'tall')
     expect(Math.round((await dialog.boundingBox())!.height), `at ${height}px`).toBe(expected)
+    await dialog.focus()
+    await expect(dialog).toBeFocused()
     await page.keyboard.press('Escape')
     await expect(dialog).toBeHidden()
   }
