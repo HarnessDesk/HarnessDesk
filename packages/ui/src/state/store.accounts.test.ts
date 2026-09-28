@@ -239,7 +239,7 @@ describe('an account read that fails (#1021)', () => {
     expect(reads).toBe(2)
   })
 
-  it('does not send a timed-out queued account read when the socket opens', async () => {
+  it('drops timed-out queued and in-flight account reads', async () => {
     class MockWebSocket {
       static OPEN = 1
       static instances: MockWebSocket[] = []
@@ -258,6 +258,9 @@ describe('an account read that fails (#1021)', () => {
       open() {
         this.readyState = MockWebSocket.OPEN
         for (const listener of this.listeners.get('open') ?? []) listener({})
+      }
+      message(frame: string) {
+        for (const listener of this.listeners.get('message') ?? []) listener({ data: frame })
       }
     }
 
@@ -288,6 +291,22 @@ describe('an account read that fails (#1021)', () => {
       expect(accountFrames()).toHaveLength(1)
       controller.abort()
       await expect(live).rejects.toMatchObject({ name: 'AbortError' })
+
+      // This read reaches the host before its deadline. Its transport promise
+      // must be canceled too; a reply that arrives afterward cannot revive
+      // the account status the timed-out pass left unchanged.
+      const inFlight = store.loadAccounts()
+      const frame = JSON.parse(accountFrames().at(-1)!) as { id: number }
+      const requestPromise = request.mock.results.at(-1)?.value as Promise<unknown>
+      await vi.advanceTimersByTimeAsync(10_000)
+      await inFlight
+      await expect(requestPromise).rejects.toMatchObject({ name: 'AbortError' })
+      socket.message(JSON.stringify({
+        id: frame.id,
+        ok: true,
+        result: { accounts: [{ kind: 'chatgpt', label: 'dev@example.com' }], signInMethods: [] },
+      }))
+      expect(store.getSnapshot().accountsByRuntime[ADDED]).toBeUndefined()
     } finally {
       store.transport.close()
       globalThis.WebSocket = originalWebSocket
