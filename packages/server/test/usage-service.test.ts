@@ -10,8 +10,8 @@ import { MeterAuthError, type MeterReading, type UsageMeter } from '../src/usage
  * What the service does when the ledger finishes after the screen is open.
  *
  * A first scan of a machine takes tens of seconds and lands long after the
- * cards are drawn. The money has to reach them without any account being
- * asked a second time — that is the whole point of `settleSpend`.
+ * cards are drawn. Ledger-derived fields have to reach them without any
+ * account being asked a second time — that is the point of `settleLedger`.
  */
 
 const METERED = runtimeId('metered')
@@ -69,7 +69,7 @@ test('a scan that lands late restates the money without asking again', async () 
   assert.equal(first[0]?.spend, null)
 
   scanned = true
-  await usage.settleSpend()
+  await usage.settleLedger()
 
   const restated = usage.cached(METERED)
   assert.equal(restated?.spend?.windowCost, 12.5)
@@ -87,7 +87,7 @@ test('money alone earns a card for an agent that had nothing to report', async (
   assert.equal(usage.cached(SILENT), null, 'nothing to say is no card')
 
   scanned = true
-  await usage.settleSpend()
+  await usage.settleLedger()
   assert.equal(usage.cached(SILENT)?.spend?.windowCost, 3)
   assert.equal(usage.cached(SILENT)?.source.kind, 'ledger', 'a card made of money says where the money came from')
   usage.dispose()
@@ -252,7 +252,7 @@ test("another sign-in's figures are drawn beside the report and never read as th
  * `onReport` sends on every report, not only the two request paths — or a
  * fresh push wipes it off the card the moment it lands. `UsageService`'s
  * `overlay` option is the one seam every exit (`reports()`, `refresh()`,
- * the "kept" branches, `settleSpend()`) funnels through, so this proves the
+ * the "kept" branches, `settleLedger()`) funnels through, so this proves the
  * merge happens without going anywhere near `host.ts`'s real `PlanStore`.
  */
 test('a stored plan folds into every report the overlay sees, including the onReport push behind usage/updated', async () => {

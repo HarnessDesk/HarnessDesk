@@ -6,14 +6,16 @@ import { test } from 'node:test'
 
 import { tempDir } from './scratch.js'
 
-import { runtimeId } from '@harnessdesk/protocol'
+import { runtimeId, type AgentRuntime, type UsageReport } from '@harnessdesk/protocol'
 
-import { DeskTranscriptTurnsSource } from '../src/ledger/desk-turns.js'
+import { DeskTranscriptTurnsSource, type DeskTranscriptExport } from '../src/ledger/desk-turns.js'
 import { Ledger } from '../src/ledger/index.js'
 import { Pricing } from '../src/ledger/pricing.js'
 import { scanClaudeTranscript, scanCodexRollout, scanGeminiChat, scanQwenTranscript } from '../src/ledger/scan.js'
 import { LedgerStore } from '../src/ledger/store.js'
 import { TranscriptStore } from '../src/transcripts.js'
+import { UsageService } from '../src/usage/service.js'
+import type { MeterReading, UsageMeter } from '../src/usage/meter.js'
 
 /**
  * Turns: one person-or-agent prompt answered by the agent, never an API
@@ -565,6 +567,79 @@ test('the desk’s own transcript counts a stored session’s turns for a runtim
   const known = ledger.turnsFor(runtimeId('cursor'), NOON - 86_400_000)
   assert.equal(known?.count, 2)
   assert.equal(known?.source, 'desk')
+  ledger.close()
+})
+
+test('a completed desk scan restates the cached UsageReport turns and emits usage/updated data', async () => {
+  const dir = scratch()
+  const sessions: DeskTranscriptExport[] = []
+  const reader = { exportRuntime: async (runtime: string) => sessions.filter((session) => session.runtime === runtime) }
+  const source = new DeskTranscriptTurnsSource('cursor', reader)
+  const pushed: UsageReport[] = []
+  let meterReads = 0
+  let usage: UsageService | null = null
+  let settled = Promise.resolve()
+  const ledger = new Ledger({
+    stateDir: dir,
+    databasePath: join(dir, 'usage.sqlite'),
+    corpora: [],
+    remoteSources: [source],
+    turnRuntimes: new Set([runtimeId('cursor')]),
+    deskTurnRuntimes: new Set([runtimeId('cursor')]),
+    pricing: await pricingIn(dir),
+    now: () => NOON,
+    onProgress: (progress) => {
+      if (!progress.running && progress.finishedAt !== null && usage) settled = usage.settleLedger()
+    },
+  })
+  const agent = {
+    info: { id: runtimeId('cursor'), name: 'Demo agent', capabilities: { metered: true }, presentation: { name: 'Demo agent' } },
+    getRateLimits: async () => null,
+    getAccount: async () => ({ accounts: [], signInMethods: [] }),
+  } as unknown as AgentRuntime
+  const meter: UsageMeter = {
+    id: 'demo-meter',
+    source: { kind: 'file', label: 'synthesized reading' },
+    read: async (): Promise<MeterReading> => {
+      meterReads += 1
+      return {
+        lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 40, windowMinutes: 10_080, resetsAt: null }],
+        plan: 'Demo', account: 'Jane Doe', credits: null, reached: null, fetchedAt: NOON, staleAfterMs: 60_000,
+      }
+    },
+    watchPaths: () => [],
+  }
+  usage = new UsageService({
+    runtimes: () => [agent],
+    meters: new Map([[runtimeId('cursor'), meter]]),
+    spend: {
+      spendFor: (runtime) => ledger.spendFor(runtime),
+      turnsFor: (runtime, since) => ledger.turnsFor(runtime, since),
+      requestsFor: (runtime, since) => ledger.requestsFor(runtime, since),
+      valueFor: (runtime, since) => ledger.valueFor(runtime, since),
+    },
+    onReport: (report) => pushed.push(report),
+  })
+
+  const first = (await usage.reports())[0]
+  assert.equal(first?.turns, undefined, 'the cached report predates the desk transcript')
+  sessions.push({
+    runtime: 'cursor', id: 'session-1',
+    data: { cwd: '/work/proj', turns: [{ startedAt: NOON - 1000, status: 'completed', items: [{ type: 'userMessage', content: [] }] }] },
+  })
+
+  await ledger.scan()
+  await settled
+  assert.equal(ledger.turnsFor(runtimeId('cursor'), NOON - 86_400_000)?.count, 1)
+  const current = usage.cached(runtimeId('cursor'))
+  const emitted = pushed.at(-1)
+  assert.equal(current?.turns?.count, 1)
+  assert.equal(emitted?.turns?.count, 1, 'the report callback that host publishes carries the new desk count')
+  assert.deepEqual(emitted?.spend, ledger.spendFor(runtimeId('cursor')), 'the same ledger completion carries current spend')
+  assert.deepEqual(current?.lanes, first?.lanes, 'the cached lane reading remains untouched')
+  assert.equal(current?.fetchedAt, first?.fetchedAt, 'the cached meter reading keeps its timestamp')
+  assert.equal(meterReads, 1, 'the local ledger restatement does not re-read the meter')
+  usage.dispose()
   ledger.close()
 })
 
