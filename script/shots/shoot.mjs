@@ -25,10 +25,12 @@ import { execFileSync } from 'node:child_process'
  *   node script/shots/shoot.mjs --survey          # what is on screen
  *   node script/shots/shoot.mjs --scene board     # one scene, both themes
  *   node script/shots/shoot.mjs --all             # every scene, both themes
+ *   HD_SHOTS_CONTEXT=1 node script/shots/shoot.mjs --all
+ *                                                 # every context-panel ring
  *   node script/shots/shoot.mjs --scene session-hover --reduced-motion
  *                                                 # as a reader who asked for less motion sees it
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -39,6 +41,7 @@ import { TILDIFY, USER, refuseUnpublishable } from './audit.mjs'
 import { CAST, CONVERSATIONS, REPOS, rigRuntimeId } from './cast.mjs'
 import { HOME, NATIVE_CODEX, WORK, SHOT_ENV, requireSeeded } from './config.mjs'
 import { runScene } from './scene.mjs'
+import { selectScenes } from './selection.mjs'
 import { startStaticServer } from './static-server.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
 
@@ -641,6 +644,127 @@ rules:
   /** The `browser` scene's loopback server, open only while that scene runs. */
   let browserServer = null
 
+  /**
+   * Which flat colour a `ring-*` scene isolated its popover against, by scene
+   * name — `finish` reads it back to border the crop the same colour, rather
+   * than guessing one that might seam against the page underneath.
+   */
+  const ringBackgrounds = {}
+
+  /** A `context-*` seat only exists once `seed.mjs` ran with `HD_SHOTS_CONTEXT=1`. */
+  const requireContextAgent = (id) => {
+    if (!existsSync(join(HOME, 'stores', `${id}.json`))) {
+      throw new Error(`${id} is not seeded — reseed with HD_SHOTS_CONTEXT=1 (node script/shots/seed.mjs)`)
+    }
+  }
+
+  /**
+   * One seat, one message, the composer's context ring opened and everything
+   * else on screen made to disappear — the same "photographed in the app
+   * with the rest of the window hidden" `docs/context-usage.md` already
+   * describes, done by hiding every element that is not an ancestor of the
+   * popover rather than by trusting a tight crop to miss whatever is behind
+   * it. `finish` (`cropRing`) turns that into the small, bordered PNG that
+   * ships.
+   */
+  const ringScene = async (runtime) => {
+    // Cropping only ever reads the light frame (`cropRing`), and isolating
+    // the page forces a light background regardless of theme — a dark
+    // capture here would be silently wrong rather than merely unwritten, so
+    // this refuses instead of trusting the caller to remember `--theme light`.
+    if (THEMES.length !== 1 || THEMES[0] !== 'light') {
+      throw new Error(`${runtime}: ring-* scenes are light-only — pass --theme light (got ${THEMES.join(', ')})`)
+    }
+    const key = await seat(cdp, { work: REPO, runtime, picks: {} })
+    await cdp.eval(`${STORE}.send([{ type: 'text', text: 'Retry the checkout call on a 502' }], ${q(key)})`, 60_000)
+    // The native Codex adapter asks before it runs a tool; the camera fixture
+    // never does, so this is a no-op for the two `context-*` seats.
+    await sleep(1200)
+    await answerApprovals(cdp)
+    // Long enough for the scripted turn — and, for the two `context-*` seats,
+    // the usage it carries — to land.
+    await sleep(6500)
+    await answerApprovals(cdp)
+    const opened = await cdp.eval(`(() => {
+      const trigger = [...document.querySelectorAll('button[title], button[aria-label]')].find((b) => {
+        const label = b.getAttribute('title') || b.getAttribute('aria-label') || ''
+        return label.includes('Context window') || label.includes('does not report')
+      })
+      if (!trigger) return false
+      trigger.click()
+      return true
+    })()`)
+    if (!opened) throw new Error(`${runtime}: no context-ring trigger on the composer`)
+    await waitForSnapshot(() => cdp.eval(`Boolean(document.querySelector('[data-slot="popover-popup"]'))`), Boolean)
+    // Long enough that the popup's own entrance transform has settled — a
+    // capture mid-animation is a slightly smaller card, and four scenes
+    // whose content differs in height reach that rest point at slightly
+    // different times.
+    await sleep(700)
+    const bg = await cdp.eval(`(() => {
+      const popup = document.querySelector('[data-slot="popover-popup"]')
+      if (!popup) return null
+      const bg = getComputedStyle(document.documentElement).getPropertyValue('--hd-background').trim() || '#e7e7e8'
+      // Tagged rather than only styled, so \`restoreRing\` can undo exactly
+      // this and nothing a later scene in the same run did of its own.
+      document.documentElement.setAttribute('data-hd-ring-bg', '')
+      document.body.setAttribute('data-hd-ring-bg', '')
+      document.documentElement.style.setProperty('background', bg, 'important')
+      document.body.style.setProperty('background', bg, 'important')
+      const keep = new Set()
+      for (let node = popup; node; node = node.parentElement) keep.add(node)
+      // Recurse only down to the popup itself: its own children are the reading, not a sibling.
+      const hide = (node) => {
+        if (node === popup) return
+        for (const child of Array.from(node.children)) {
+          if (keep.has(child)) hide(child)
+          else {
+            child.setAttribute('data-hd-ring-hidden', '')
+            child.style.setProperty('visibility', 'hidden', 'important')
+          }
+        }
+      }
+      hide(document.body)
+      return bg
+    })()`)
+    if (!bg) throw new Error(`${runtime}: the context popover never opened`)
+    return bg
+  }
+
+  /**
+   * Undoes exactly what `ringScene` did to the live page — the forced
+   * background and every `visibility: hidden`, by the tag each carries —
+   * so a scene run after a `ring-*` one in the same `--all`/multi-scene
+   * invocation does not inherit a blank page. Cropping already happened by
+   * the time this runs, so it only ever touches the live DOM, never a file.
+   */
+  const restoreRing = () => cdp.eval(`(() => {
+    for (const node of document.querySelectorAll('[data-hd-ring-hidden]')) {
+      node.style.removeProperty('visibility')
+      node.removeAttribute('data-hd-ring-hidden')
+    }
+    for (const node of document.querySelectorAll('[data-hd-ring-bg]')) {
+      node.style.removeProperty('background')
+      node.removeAttribute('data-hd-ring-bg')
+    }
+    return true
+  })()`).catch(() => {})
+
+  /** The isolated frame, trimmed to its card and re-bordered a little margin. */
+  const cropRing = (name) => {
+    const raw = `${OUT}/${name}-light.png`
+    const dest = `${APP}/docs/images/${name}.png`
+    const bg = ringBackgrounds[name] ?? '#e7e7e8'
+    execFileSync('magick', [raw, '-trim', '+repage', '-bordercolor', bg, '-border', '40', dest])
+    rmSync(raw, { force: true })
+  }
+
+  /** Crop, then give the live page back — every ring-* scene's `finish`. */
+  const finishRing = async (name) => {
+    cropRing(name)
+    await restoreRing()
+  }
+
   const SCENES = {
     ...(PROVENANCE_SHOTS.length === 2 ? {
       'provenance-history': {
@@ -744,6 +868,41 @@ rules:
       if (folded === null) throw new Error('no "Worked for" fold on the turn')
       if (folded) await click('Worked for')
     } },
+
+    /**
+     * The composer's context ring, popped open and everything else on screen
+     * made to disappear — `docs/context-usage.md`'s own four photographs.
+     * Present in `SCENES` only under `HD_SHOTS_CONTEXT=1` (the rig's own
+     * pattern, see `PROVENANCE_SHOTS` above): the seats these need only
+     * exist once `seed.mjs` ran with that flag, and a plain `--all` must
+     * still shoot every scene that does not, rather than stopping here.
+     * `HD_SHOTS_NATIVE_CODEX=0` and multi-theme runs are not this scene's
+     * business either: `ringScene` refuses anything but `--theme light`.
+     */
+    ...(process.env['HD_SHOTS_CONTEXT'] === '1' ? {
+      'ring-codex': { leaveOverlay: true, expect: 'Reported by', run: async () => {
+        if (!NATIVE_CODEX) throw new Error('ring-codex needs the native Codex adapter (HD_SHOTS_NATIVE_CODEX unset or 1)')
+        if (process.env['FAKE_CODEX_WINDOWS'] !== '1') {
+          throw new Error('ring-codex needs FAKE_CODEX_WINDOWS=1 set before launch, for the plan-usage rows')
+        }
+        ringBackgrounds['ring-codex'] = await ringScene('codex')
+      }, finish: () => finishRing('ring-codex') },
+
+      'ring-claude-code': { leaveOverlay: true, expect: 'Reported by', run: async () => {
+        requireContextAgent('context-claude-code')
+        ringBackgrounds['ring-claude-code'] = await ringScene('context-claude-code')
+      }, finish: () => finishRing('ring-claude-code') },
+
+      'ring-cursor': { leaveOverlay: true, expect: 'does not report', run: async () => {
+        requireContextAgent('context-cursor')
+        ringBackgrounds['ring-cursor'] = await ringScene('context-cursor')
+      }, finish: () => finishRing('ring-cursor') },
+
+      'ring-dsh': { leaveOverlay: true, expect: 'Reported by', run: async () => {
+        requireContextAgent('context-dsh')
+        ringBackgrounds['ring-dsh'] = await ringScene('context-dsh')
+      }, finish: () => finishRing('ring-dsh') },
+    } : {}),
 
     /** What every agent has left, and what it has cost. */
     dashboard: { expect: 'What is left', run: async () => {
@@ -2288,7 +2447,16 @@ rules:
      three scenes, and silently shooting only one of them is the kind of miss
      you find after the app has been shut down. */
   const named = argv.flatMap((one, i) => (one === '--scene' && argv[i + 1] && !argv[i + 1].startsWith('--') ? [argv[i + 1]] : []))
-  const wanted = has('all') ? Object.keys(SCENES) : named
+  // Context seats are deliberately a ring-only rig. `--all` with that rig
+  // captures the four ring cards, leaving the ordinary 12-seat take to the
+  // normal seed; otherwise one combined run would silently republish every
+  // non-ring scene with extra newest conversations in its sidebar.
+  const wanted = selectScenes({
+    all: has('all'),
+    context: process.env['HD_SHOTS_CONTEXT'] === '1',
+    names: Object.keys(SCENES),
+    requested: named,
+  })
 
   if (has('survey')) {
     const survey = await cdp.json(`(() => {
