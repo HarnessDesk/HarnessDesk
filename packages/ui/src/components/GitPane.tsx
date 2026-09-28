@@ -1862,7 +1862,7 @@ const RefsRail = ({
             branchRow(entry.branch, entry.branch.name, false)
           ) : (
             <div key={`folder-${entry.name}`}>
-              <Button type="button" variant="quiet" size="content" className={styles.railFolder} onClick={() => toggle(`b:${entry.name}`)}>
+              <Button type="button" variant="quiet" size="content-min" className={styles.railFolder} onClick={() => toggle(`b:${entry.name}`)}>
                 <DisclosureChevron open={!closed.has(`b:${entry.name}`)} size="xs" />
                 {entry.name}
                 <Text role="meta" numeric className={styles.railCount}>{entry.branches.length}</Text>
@@ -1875,7 +1875,7 @@ const RefsRail = ({
         {remotes.size > 0 && <PopoverGroupLabel>Remotes</PopoverGroupLabel>}
         {[...remotes.entries()].map(([remote, list]) => (
           <div key={`remote-${remote}`}>
-            <Button type="button" variant="quiet" size="content" className={styles.railFolder} onClick={() => toggle(`r:${remote}`)}>
+            <Button type="button" variant="quiet" size="content-min" className={styles.railFolder} onClick={() => toggle(`r:${remote}`)}>
               <DisclosureChevron open={!closed.has(`r:${remote}`)} size="xs" />
               {remote}
               <Text role="meta" numeric className={styles.railCount}>{list.length}</Text>
