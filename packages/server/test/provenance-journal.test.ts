@@ -62,7 +62,7 @@ test('the default journal read isolates nested record values', async () => {
   assert.notStrictEqual(first.entries[0], later.entries[0])
 })
 
-test('a shallow read waits for an already queued append', async (t) => {
+test('a shallow read waits for an already queued append', { timeout: 5_000 }, async (t) => {
   const journal = new ProvenanceJournal(join(tempDir('journal-'), 'provenance.ndjson'))
   await journal.append('gap', gap('first'))
 
