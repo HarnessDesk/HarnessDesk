@@ -10,6 +10,8 @@ import type { UsageRow } from './store.js'
 export interface RemoteEventsSource {
   /** The runtime these rows are filed under. */
   readonly runtime: string
+  /** Local sources may opt out of the hourly interval used for network sources. */
+  readonly syncEveryScan?: boolean
   /**
    * The row key this source's *account* resolves to right now, or `null`
    * when it cannot — signed out, or the local credential is unreadable.
@@ -26,5 +28,5 @@ export interface RemoteEventsSource {
    * make sense of — and the rows already stored for this window are left
    * exactly as they were rather than replaced with a partial reading.
    */
-  sync(range: { readonly from: number; readonly to: number }, file: string): Promise<{ readonly rows: readonly UsageRow[] } | null>
+  sync(range: { readonly from: number; readonly to: number }, file: string): Promise<{ readonly rows: readonly UsageRow[]; readonly missing?: boolean } | null>
 }

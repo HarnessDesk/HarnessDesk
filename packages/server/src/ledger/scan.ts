@@ -94,6 +94,45 @@ export interface ScanResult {
 
 /** How many trailing ids are carried across a resume boundary. */
 const TAIL = 64
+const PENDING_TURNS_TAIL = '\u0000pending-turns:'
+
+type PendingTurn = { readonly kind: 'turn'; readonly at: number; readonly project: string; readonly count?: number }
+type PendingEntry = PendingTurn | { readonly kind: 'model'; readonly model: string }
+
+const pendingTurnsFrom = (tail: readonly string[]): PendingTurn[] => {
+  const encoded = tail.find((entry) => entry.startsWith(PENDING_TURNS_TAIL))
+  if (!encoded) return []
+  try {
+    const parsed: unknown = JSON.parse(encoded.slice(PENDING_TURNS_TAIL.length))
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is PendingTurn =>
+          isRecord(entry) && entry.kind === 'turn' && typeof entry.at === 'number' && Number.isFinite(entry.at) && typeof entry.project === 'string' &&
+          (entry.count === undefined || (typeof entry.count === 'number' && Number.isSafeInteger(entry.count) && entry.count > 0)),
+        )
+      : []
+  } catch {
+    return []
+  }
+}
+
+const scannerIdsFrom = (tail: readonly string[]): string[] => tail.filter((entry) => !entry.startsWith(PENDING_TURNS_TAIL))
+
+const scannerTail = (ids: readonly string[], pendingTurns: readonly PendingTurn[]): string[] => [
+  ...ids.slice(-TAIL),
+  ...(pendingTurns.length > 0 ? [`${PENDING_TURNS_TAIL}${JSON.stringify(pendingTurns)}`] : []),
+]
+
+/** Qwen counts every user record; only its day and project matter until the next model arrives. */
+const compactPendingTurns = (turns: readonly PendingTurn[]): PendingTurn[] => {
+  const byDayAndProject = new Map<string, PendingTurn>()
+  for (const turn of turns) {
+    const day = startOfDay(turn.at)
+    const key = `${day}\u0000${turn.project}`
+    const prior = byDayAndProject.get(key)
+    byDayAndProject.set(key, { kind: 'turn', at: day, project: turn.project, count: (prior?.count ?? 0) + (turn.count ?? 1) })
+  }
+  return [...byDayAndProject.values()]
+}
 
 /**
  * Turns a working directory into the project it belongs to.
@@ -230,12 +269,13 @@ const addTurn = (
   at: number,
   model: string,
   project: string,
+  count = 1,
 ): void => {
   const day = startOfDay(at)
   const key = `${day}\u0000${model}\u0000${project}\u00000`
   const existing = into.rows.get(key)
   if (existing) {
-    into.rows.set(key, { ...existing, turns: (existing.turns ?? 0) + 1 })
+    into.rows.set(key, { ...existing, turns: (existing.turns ?? 0) + count })
     return
   }
   into.rows.set(key, {
@@ -250,7 +290,7 @@ const addTurn = (
     cacheWrite: 0,
     reasoning: 0,
     requests: 0,
-    turns: 1,
+    turns: count,
     vendorCost: null,
   })
 }
@@ -695,16 +735,15 @@ export const scanClaudeTranscript = async (
   // The same assistant message is written on more than one line. Dedup by the
   // provider's own message id, carrying the last few across the resume
   // boundary so a message split by two scans is still counted once.
-  const seen = new Set<string>(tail)
-  const order: string[] = [...tail]
+  const seen = new Set<string>(scannerIdsFrom(tail))
+  const order: string[] = [...seen]
   // A turn line arrives before its own reply, so which model answers it is
   // only known once that reply is read. Buffered in document order and
   // resolved after the read, against the *next* assistant model this same
   // pass sees — the model that actually answers it, never an approximation —
-  // and only falls back to 'unknown' for a turn whose reply has not arrived
-  // within this scan pass at all (the last line of a chunk mid-conversation),
-  // which the next scan's own rows do not retroactively correct.
-  const pending: ({ readonly kind: 'turn'; readonly at: number; readonly project: string } | { readonly kind: 'model'; readonly model: string })[] = []
+  // while a turn at the end of the chunk stays in the cursor tail until its
+  // reply arrives on a later scan.
+  const pending: PendingEntry[] = pendingTurnsFrom(tail)
   const { offset: consumed, bytesRead } = await readLines(target.path, offset, (raw) => {
     const record = raw as ClaudeRecord
     if (isClaudeUserTurn(record)) {
@@ -741,13 +780,20 @@ export const scanClaudeTranscript = async (
   // turn, not several: a slash command's own line and its real prompt both
   // survive `isClaudeUserTurn`, and a local command's line does too when it
   // carries no plumbing marker of its own. Only the candidate immediately
-  // before the next model call (or the last one in this pass, unresolved
-  // until the next) is counted -- the one actually closest to being
-  // answered -- so a run of several collapses to the single turn that run
+  // before the next model call is counted -- the one actually closest to
+  // being answered -- so a run of several collapses to the single turn that run
   // represents, and a local command's line simply merges into the real
   // prompt that follows it.
-  let nextModel = 'unknown'
+  let lastModel = -1
   for (let index = pending.length - 1; index >= 0; index -= 1) {
+    if (pending[index]?.kind === 'model') {
+      lastModel = index
+      break
+    }
+  }
+  const unresolved = pending.slice(lastModel + 1).filter((entry): entry is PendingTurn => entry.kind === 'turn')
+  let nextModel = 'unknown'
+  for (let index = lastModel; index >= 0; index -= 1) {
     const entry = pending[index]!
     if (entry.kind === 'model') {
       nextModel = entry.model
@@ -757,7 +803,9 @@ export const scanClaudeTranscript = async (
     if (after !== undefined && after.kind !== 'model') continue
     addTurn(into, target.path, target.runtime, entry.at, nextModel, entry.project)
   }
-  return { rows: [...into.rows.values()], offset: consumed, tail: order.slice(-TAIL), bytesRead }
+  // Claude's consecutive candidates collapse to the last one before a model;
+  // keeping earlier unanswered candidates cannot change a later result.
+  return { rows: [...into.rows.values()], offset: consumed, tail: scannerTail(order, unresolved.slice(-1)), bytesRead }
 }
 
 /** The Gemini API's own counts, which Qwen Code records as it received them. */
@@ -812,16 +860,16 @@ export const scanQwenTranscript = async (
   insight?: InsightScanOptions,
 ): Promise<ScanResult> => {
   const into: Accumulator = { rows: new Map() }
-  const seen = new Set<string>(tail)
-  const order: string[] = [...tail]
+  const seen = new Set<string>(scannerIdsFrom(tail))
+  const order: string[] = [...seen]
   // A 'user' line is the person's own prompt (Qwen writes one record per
   // call, never a synthetic tool-result line under this type — unlike
   // Claude's transcript, a Qwen function response rides inside the next
   // 'assistant' record rather than a line of its own). Buffered and resolved
   // the same way Claude's scanner does — against the *next* assistant model
-  // this pass sees, never the previous one — with the same 'unknown'
-  // fallback for a turn whose reply has not arrived within this pass.
-  const pending: ({ readonly kind: 'turn'; readonly at: number; readonly project: string } | { readonly kind: 'model'; readonly model: string })[] = []
+  // this pass sees, never the previous one — while a turn at the end of the
+  // chunk stays in the cursor tail until its reply arrives on a later scan.
+  const pending: PendingEntry[] = pendingTurnsFrom(tail)
   const { offset: consumed, bytesRead } = await readLines(target.path, offset, (raw) => {
     const record = raw as QwenRecord
     if (record.type === 'user') {
@@ -863,16 +911,24 @@ export const scanQwenTranscript = async (
     add(into, target.path, target.runtime, at, model, project, aggregateTokens(aggregate))
     emit(insight, target, id ?? JSON.stringify(raw), at, model, project || null, tokens, 'call')
   }, insight?.byteLimit)
-  let nextModel = 'unknown'
+  let lastModel = -1
   for (let index = pending.length - 1; index >= 0; index -= 1) {
+    if (pending[index]?.kind === 'model') {
+      lastModel = index
+      break
+    }
+  }
+  const unresolved = pending.slice(lastModel + 1).filter((entry): entry is PendingTurn => entry.kind === 'turn')
+  let nextModel = 'unknown'
+  for (let index = lastModel; index >= 0; index -= 1) {
     const entry = pending[index]!
     if (entry.kind === 'model') {
       nextModel = entry.model
       continue
     }
-    addTurn(into, target.path, target.runtime, entry.at, nextModel, entry.project)
+    addTurn(into, target.path, target.runtime, entry.at, nextModel, entry.project, entry.count ?? 1)
   }
-  return { rows: [...into.rows.values()], offset: consumed, tail: order.slice(-TAIL), bytesRead }
+  return { rows: [...into.rows.values()], offset: consumed, tail: scannerTail(order, compactPendingTurns(unresolved)), bytesRead }
 }
 
 interface GeminiMessage {
