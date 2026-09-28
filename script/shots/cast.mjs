@@ -72,6 +72,91 @@ export const REPOS = [
 ]
 
 /**
+ * Three more seats, only for the `ring-*` scenes (`HD_SHOTS_CONTEXT=1`,
+ * `seed.mjs`): the camera fixture (`agent.mjs`) fed real ACP usage shapes
+ * through `SHOT_USAGE`, so the composer's context ring has something to
+ * photograph for `docs/context-usage.md`. Kept out of `CAST` — every other
+ * scene's desk stays the twelve agents it has always been — but listed here,
+ * not only in `seed.mjs`, so `audit.mjs`'s history check recognises them as
+ * this rig's own rather than refusing the frame as an unstaged conversation.
+ *
+ * The numbers are the real adapters' own fixtures' first-turn answers, or
+ * (DeepSeek Harness has no fake in this repository) the real bridge's own
+ * documented shape — `claude-acp`'s `fake-claude.mjs` (`input_tokens: 12,
+ * cache_creation_input_tokens: 3000, cache_read_input_tokens: 20000,
+ * output_tokens: 40`, a 200K window, spend 0.0123), `cursor-acp`'s
+ * `fake-cursor-agent.mjs` (`inputTokens: 1200, outputTokens: 80,
+ * cacheReadTokens: 900`, no window ever sent), and
+ * DeepSeek Harness's own `docs/context-usage.md` table row (`used: 4400`,
+ * `size: 32000`, a composition from `@deepseek-ai/dsh-token-meter` of a
+ * 700-token system prompt and 4.3K of 15 tool schemas) — so the panel's own
+ * arithmetic (`describeContext`, `compositionOf`, both agent-agnostic)
+ * produces the exact figures `docs/context-usage.md` already describes;
+ * only the design around them is new. Never `'a fake meter'` — the estimator
+ * name a reader sees has to be the one the real agent would give, not a test
+ * fixture's own name for itself (`adapter-acp/test/fixtures/fake-acp-agent.mjs`).
+ */
+export const CONTEXT_CAST = [
+  {
+    id: 'context-claude-code',
+    name: 'Claude',
+    brand: 'claudecode',
+    tagline: "Anthropic's coding agent.",
+    models: 'sonnet:Sonnet,opus:Opus',
+    conversation: ['Retry the checkout call on a 502', 'Only 503 and 504 were retried; 502 joins them, with a capped, jittered backoff.'],
+    usage: {
+      last: { totalTokens: 23052, inputTokens: 12, outputTokens: 40, cachedReadTokens: 20000, cachedWriteTokens: 3000 },
+      used: 23012,
+      size: 200000,
+      cost: { amount: 0.0123, currency: 'USD' },
+    },
+  },
+  {
+    id: 'context-cursor',
+    name: 'Cursor Agent',
+    brand: 'cursor',
+    tagline: "Cursor's CLI agent.",
+    models: 'composer-2:Composer 2',
+    conversation: ['Retry the checkout call on a 502', 'Added 502 to the retryable set and capped the backoff.'],
+    usage: {
+      last: { totalTokens: 1280, inputTokens: 1200, outputTokens: 80, cachedReadTokens: 900 },
+      // No `used`/`size`: Cursor never sends a window, so the ring stays dashed.
+      cost: null,
+    },
+  },
+  {
+    id: 'context-dsh',
+    // Matches the real registry's own name for this agent
+    // (packages/server/src/agent-registry.ts), not this rig's docs shorthand
+    // "DeepSeek Harness" — the footer has to read as the app's own does.
+    name: 'DeepSeek',
+    brand: 'deepseek',
+    tagline: "DeepSeek's agent harness, speaking ACP directly.",
+    models: 'deepseek-chat:DeepSeek Chat',
+    conversation: ['Retry the checkout call on a 502', 'Added 502 to the retryable set and capped the backoff.'],
+    usage: {
+      // No `last`, on purpose: `docs/context-usage.md`'s own table says the
+      // real fake "sends none" for a turn's tokens or the session total —
+      // DeepSeek Harness's ring is the composition alone.
+      used: 4400,
+      size: 32000,
+      cost: null,
+      // The real bridge's own estimator, not a fixture's name for itself —
+      // `docs/context-usage.md`'s own table: "`contextBreakdown` projection
+      // from `@deepseek-ai/dsh-token-meter`".
+      breakdown: {
+        source: '@deepseek-ai/dsh-token-meter',
+        approximate: true,
+        segments: [
+          { id: 'system', label: 'System prompt', tokens: 700 },
+          { id: 'tools', label: 'Tool schemas', tokens: 4300, count: 15 },
+        ],
+      },
+    },
+  },
+]
+
+/**
  * Seeded conversations, by agent id.
  *
  * Written as real work rather than as lorem: a reader who stops to read a

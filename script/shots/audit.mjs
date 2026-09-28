@@ -46,7 +46,7 @@ import { isAbsolute, resolve, sep } from 'node:path'
 
 import { offendersIn } from '../check-secrets.mjs'
 import { STORE } from '../lib/desk.mjs'
-import { CAST, rigRuntimeId } from './cast.mjs'
+import { CAST, CONTEXT_CAST, rigRuntimeId } from './cast.mjs'
 
 /**
  * The username this machine runs as.
@@ -416,7 +416,7 @@ export const accountReasons = (accountsByRuntime = {}, { vouched } = {}) => {
 
 /** Check the store too: a collapsed sidebar can hide history a later scene reveals. */
 export const historyReasons = (history = [], { roots = [], nativeCodex = false } = {}) => {
-  const runtimes = new Set(CAST.map(agent => rigRuntimeId(agent.id)))
+  const runtimes = new Set([...CAST.map(agent => rigRuntimeId(agent.id)), ...CONTEXT_CAST.map(agent => agent.id)])
   const allowedRoots = roots.map(root => resolve(root))
   return history.flatMap(row => {
     // These four rows are authored in fake-codex.mjs, not a machine store.
