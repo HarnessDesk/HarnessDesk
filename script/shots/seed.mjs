@@ -24,7 +24,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, wr
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { CAST, CONVERSATIONS, HISTORY, PRIMARY, REPOS, rigRuntimeId } from './cast.mjs'
+import { CAST, CONTEXT_CAST, CONVERSATIONS, HISTORY, PRIMARY, REPOS, rigRuntimeId } from './cast.mjs'
 import { HOME, NATIVE_CODEX, SHOT_ENV, WORK } from './config.mjs'
 
 const APP = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -323,27 +323,64 @@ for (const agent of CAST) {
  */
 const SIGNED_OUT = { command: 'node', args: ['-e', 'process.stdout.write(JSON.stringify({ loggedIn: false }))'] }
 
+/**
+ * Three extra seats, only for the `ring-*` scenes (`HD_SHOTS_CONTEXT=1`) —
+ * `CONTEXT_CAST` (`cast.mjs`) is the single source for who they are and what
+ * they report, so `audit.mjs`'s history check and this staging agree.
+ */
+const CONTEXT_AGENTS = process.env['HD_SHOTS_CONTEXT'] === '1' ? CONTEXT_CAST : []
+
+for (const agent of CONTEXT_AGENTS) {
+  const [title, answer] = agent.conversation
+  const id = `${agent.id}-0`
+  writeFileSync(
+    join(HOME, 'stores', `${agent.id}.json`),
+    JSON.stringify(
+      { [id]: { sessionId: id, cwd: roots.storefront, title, updatedAt: new Date().toISOString(), turns: [[title, answer]] } },
+      null,
+      1,
+    ),
+  )
+}
+
 writeFileSync(
   join(HOME, 'agents.json'),
   `${JSON.stringify(
     {
-      agents: REGISTERED_CAST.map((agent, n) => ({
-        id: rigRuntimeId(agent.id),
-        name: agent.name,
-        brand: agent.brand,
-        tagline: agent.tagline,
-        command: 'node',
-        args: [AGENT],
-        env: {
-          SHOT_AGENT_NAME: agent.name,
-          SHOT_STORE: join(HOME, 'stores', `${agent.id}.json`),
-          SHOT_MODELS: agent.models,
-          /* Which scripted turn this seat plays. The room seats the first four
-             of the cast, so 0-3 land one distinct turn on each of them. */
-          SHOT_TURN: String(n % 4),
-        },
-        ...(agent.id === 'windsurf' ? { account: { status: SIGNED_OUT } } : {}),
-      })),
+      agents: [
+        ...REGISTERED_CAST.map((agent, n) => ({
+          id: rigRuntimeId(agent.id),
+          name: agent.name,
+          brand: agent.brand,
+          tagline: agent.tagline,
+          command: 'node',
+          args: [AGENT],
+          env: {
+            SHOT_AGENT_NAME: agent.name,
+            SHOT_STORE: join(HOME, 'stores', `${agent.id}.json`),
+            SHOT_MODELS: agent.models,
+            /* Which scripted turn this seat plays. The room seats the first four
+               of the cast, so 0-3 land one distinct turn on each of them. */
+            SHOT_TURN: String(n % 4),
+          },
+          ...(agent.id === 'windsurf' ? { account: { status: SIGNED_OUT } } : {}),
+        })),
+        ...CONTEXT_AGENTS.map((agent) => ({
+          id: agent.id,
+          name: agent.name,
+          brand: agent.brand,
+          tagline: agent.tagline,
+          command: 'node',
+          args: [AGENT],
+          env: {
+            SHOT_AGENT_NAME: agent.name,
+            SHOT_STORE: join(HOME, 'stores', `${agent.id}.json`),
+            SHOT_MODELS: agent.models,
+            SHOT_TURN: '0',
+            SHOT_USAGE: JSON.stringify(agent.usage),
+          },
+        })),
+      ],
     },
     null,
     2,

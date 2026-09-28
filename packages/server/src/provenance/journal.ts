@@ -14,6 +14,14 @@ export interface JournalRead {
   readonly entries: readonly JournalEntry[]
   readonly broken: boolean
 }
+export interface JournalReadOptions {
+  /**
+   * `deep` protects callers from mutating journal-owned records. `shallow`
+   * gives read-only consumers their own stable list while sharing the
+   * immutable-by-convention records; this avoids duplicating large journals.
+   */
+  readonly copy?: 'deep' | 'shallow'
+}
 export const JOURNAL_LIMIT = 64 * 1024
 export const digest = (value: unknown): string =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex')
@@ -141,10 +149,13 @@ export class ProvenanceJournal {
     }
   }
 
-  async read(): Promise<JournalRead> {
+  async read(options: JournalReadOptions = {}): Promise<JournalRead> {
     await this.#loadOnce()
     await this.#tail
-    return { entries: structuredClone(this.#entries), broken: this.#broken }
+    return {
+      entries: options.copy === 'shallow' ? [...this.#entries] : structuredClone(this.#entries),
+      broken: this.#broken,
+    }
   }
 
   append(kind: JournalKind, value: unknown): Promise<void> {
@@ -198,7 +209,7 @@ export const writeCheckpoint = async (journal: ProvenanceJournal, value: unknown
     await journal.append('cursor', { id, type: 'part', bytes: bytes.slice(offset, offset + 12000) })
     ids.push(id)
   }
-  const entries = (await journal.read()).entries
+  const entries = (await journal.read({ copy: 'shallow' })).entries
   const parts = ids.map((id) => entries.find((entry) => entry.kind === 'cursor' &&
     (entry.value as { id: string }).id === id)!.seq)
   await journal.append('cursor', { id: digest(['checkpoint', hash]), type: 'checkpoint', parts, hash })
