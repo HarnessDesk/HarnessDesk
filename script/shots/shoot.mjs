@@ -925,6 +925,19 @@ rules:
       await sleep(1200)
     } },
 
+    /**
+     * The Activity view: the year calendar heatmap over the seeded ledger's
+     * six months of daily spend (`usage.mjs`'s `LEDGER`), several agents
+     * deep. `expect` is the band's own heading rather than a figure, since a
+     * figure would tie this scene to `usage.mjs`'s exact totals.
+     */
+    'dashboard-activity': { leaveOverlay: true, expect: 'When it ran', run: async () => {
+      if (!(await click('Dashboard'))) throw new Error('no Dashboard row in the sidebar')
+      await sleep(1600)
+      if (!(await click('Activity'))) throw new Error('no Activity row in the Dashboard nav')
+      await sleep(1600)
+    } },
+
     /** The rebuilt settings patterns, reached through the same store request features use. */
     settings: { leaveOverlay: true, expect: 'Appearance', run: async () => {
       await cdp.eval(`${STORE}.askSettings('appearance'); true`)
@@ -1026,7 +1039,19 @@ rules:
         throw new Error('no New session button in the sidebar')
       }
       await sleep(700)
-      await pressKey('Tab')
+      // The chooser opens with "Session" selected in its radiogroup
+      // (`NewSessionChoice.tsx`'s `ChoiceList`), which is "one Tab stop, and
+      // the arrows choose" (`DialogForm.tsx`'s `stepRadio`): a plain Tab
+      // leaves the group entirely, landing on the footer's own "Start"
+      // button rather than moving between answers, which silently starts a
+      // plain session and closes the dialog before the Goal form this scene
+      // wants ever opens — the "What finishes this?" field then never
+      // appears, and the snapshot wait below used to time out. One
+      // ArrowDown moves the selection from "Session" to "Goal" within the
+      // group; the capture handler on the surrounding form
+      // (`onKeyDownCapture`) then treats Enter as the dialog's one filled
+      // act and opens `GoalCreate`.
+      await pressKey('ArrowDown')
       await pressKey('Enter')
       await waitForSnapshot(() => cdp.eval(`document.querySelector('input[aria-label="What finishes this?"]') !== null`), Boolean)
       if (!(await fill('What finishes this?', 'Checkout hardening'))) throw new Error('no Goal sentence field')
@@ -1149,6 +1174,17 @@ rules:
       await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
       await sleep(1200)
       const room = await cdp.eval(`${STORE}.createGoal({ root: ${q(REPO)}, sentence: 'Checkout hardening' }).then((view) => view.goal.id)`, 60_000)
+      // `createGoal` only registers the Goal; nothing focuses it. The New
+      // Goal dialog's own submit does that itself (`store.openGoal`, see
+      // `GoalCreate.tsx`/`FlowGoalCreate` in `packages/ui/src/components`),
+      // but this scene drives the engine's verbs directly rather than the
+      // dialog, so the room this Goal opened was never the one on screen —
+      // the middle pane stayed on whatever `openWorkspace` left there (the
+      // plain "New session" composer) while `openTeamBoard` below opened only
+      // the board at the edge, leaving the room it belongs to invisible.
+      // Focusing it explicitly is what puts the room in the middle and the
+      // board beside it, the picture this scene's own comment describes.
+      await cdp.eval(`${STORE}.openGoal(${q(room)}); true`)
       const source = await cdp.eval(`${STORE}.readFlow(${q(REPO)}, '.harnessdesk/flows/fix-and-review.yml')`, 60_000)
       await cdp.eval(
         `${STORE}.startFlow(${q(room)}, ${q(source)}, { path: '.harnessdesk/flows/fix-and-review.yml', vars: { work: 'Retry the checkout call on a 502' } })`,

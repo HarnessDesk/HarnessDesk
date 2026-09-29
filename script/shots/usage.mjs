@@ -207,11 +207,11 @@ export const USAGE = REPORTS.filter((one) => known.has(one.runtime)).map(one => 
  * nothing walks the real corpus while the camera is up.
  */
 const LEDGER_ROWS = [
-  { key: 'claude-code', label: 'Claude', runtime: 'claude-code', tokens: 3_940_000, cost: 96.2, hasUnpriced: false, turns: 812 },
-  { key: 'codex', label: 'Codex', runtime: 'codex', tokens: 1_710_000, cost: 41.7, hasUnpriced: false, turns: 356 },
-  { key: 'cursor', label: 'Cursor', runtime: 'cursor', tokens: 820_000, cost: 18.4, hasUnpriced: false, turns: 190 },
-  { key: 'gemini-cli', label: 'Gemini', runtime: 'gemini-cli', tokens: 410_000, cost: 0, hasUnpriced: true, turns: 88 },
-  { key: 'amp', label: 'Amp', runtime: 'amp', tokens: 96_000, cost: 3.1, hasUnpriced: false, turns: 21 },
+  { key: 'claude-code', label: 'Claude', runtime: 'claude-code', tokens: 23_640_000, cost: 577.2, hasUnpriced: false, turns: 4_872 },
+  { key: 'codex', label: 'Codex', runtime: 'codex', tokens: 10_260_000, cost: 250.2, hasUnpriced: false, turns: 2_136 },
+  { key: 'cursor', label: 'Cursor', runtime: 'cursor', tokens: 4_920_000, cost: 110.4, hasUnpriced: false, turns: 1_140 },
+  { key: 'gemini-cli', label: 'Gemini', runtime: 'gemini-cli', tokens: 2_460_000, cost: 0, hasUnpriced: true, turns: 528 },
+  { key: 'amp', label: 'Amp', runtime: 'amp', tokens: 576_000, cost: 18.6, hasUnpriced: false, turns: 126 },
 ]
 
 const TOTAL_COST = LEDGER_ROWS.reduce((sum, row) => sum + (row.cost ?? 0), 0)
@@ -219,10 +219,19 @@ const TOTAL_TOKENS = LEDGER_ROWS.reduce((sum, row) => sum + (row.tokens ?? 0), 0
 const TOTAL_TURNS = LEDGER_ROWS.reduce((sum, row) => sum + (row.turns ?? 0), 0)
 
 /**
- * Thirty days of each agent's spend, keyed on local midnight as the Dashboard
+ * Six months of each agent's spend, keyed on local midnight as the Dashboard
  * buckets it (`stackDaily` matches `day` exactly). Each agent's days add up to
  * its row, so the chart's headline agrees with the strip's Value: a rig that
  * stamped `Date.now() - n days` matched no bucket and drew $0 beside $159.
+ *
+ * `DAYS` used to be 30 — one working month, just enough to fill the Overview
+ * chart's own window. The year heat grid (`buildYearGrid`, `lib/heat.ts`) is
+ * 53 weeks wide, and every day before the ledger's earliest row draws
+ * hatched, not empty — an honest "before this ledger started", but a grid
+ * that is 351 days of hatching and 20 days of colour reads as broken rather
+ * than as a desk that has been in use a while. 182 days (six months) fills
+ * roughly half the grid with real variation and leaves the rest hatched on
+ * purpose, which is the state a desk six months old actually shows.
  */
 const midnight = (back) => {
   const at = new Date()
@@ -230,12 +239,20 @@ const midnight = (back) => {
   at.setDate(at.getDate() - back)
   return at.getTime()
 }
-const DAYS = 30
-/** A working month's shape: weekdays heavier, a climb towards today. */
+const DAYS = 182
+/**
+ * A working half-year's shape: weekdays heavier than weekends (0.35×), a slow
+ * climb towards today, and a deterministic wobble on top of both — a sine
+ * keyed on the day index rather than `Math.random()`, so the same run always
+ * produces the same picture (every number here has to be reproducible; see
+ * `AGENTS.md`'s testing conventions) while still keeping neighbouring days
+ * from reading as a smooth, machine-drawn ramp.
+ */
 const WEIGHTS = Array.from({ length: DAYS }, (_, i) => {
   const weekday = new Date(midnight(DAYS - 1 - i)).getDay()
   const weekend = weekday === 0 || weekday === 6
-  return (weekend ? 0.35 : 1) * (0.6 + (i / DAYS) * 0.8)
+  const wobble = 1 + 0.22 * Math.sin(i * 0.89) + 0.12 * Math.sin(i * 0.37 + 1.7)
+  return (weekend ? 0.35 : 1) * (0.55 + (i / DAYS) * 0.75) * Math.max(0.15, wobble)
 })
 const WEIGHT_SUM = WEIGHTS.reduce((sum, w) => sum + w, 0)
 /** Splits `total` over the weights, rounded, with the remainder on today so the sum is exact. */
@@ -259,18 +276,18 @@ const DAILY = LEDGER_ROWS.flatMap((row) => {
 })
 
 export const LEDGER = {
-  days: 30,
+  days: DAYS,
   currency: 'USD',
   totalCost: Number(TOTAL_COST.toFixed(2)),
   totalTokens: TOTAL_TOKENS,
   provenance: 'priced',
   coverage: {
-    priced: 118,
-    unpriced: 6,
+    priced: 708,
+    unpriced: 36,
     unmetered: 0,
-    estimated: 9,
-    daysCovered: 30,
-    daysRequested: 30,
+    estimated: 54,
+    daysCovered: DAYS,
+    daysRequested: DAYS,
     // Every runtime this stub carries a row for has a real turn boundary —
     // the Overview strip's "Turns" cell reads this to say "known for N of M
     // agents" rather than leaving every card unattributed (aa4a38fbf, #1068).

@@ -98,7 +98,7 @@ what it would open.
   <a href="docs/images/app/flow-light.png">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/flow-dark.png" />
-      <img src="docs/images/app/flow-light.png" width="900" alt="Starting a room with a flow: a Flow select reading “Fix and review”, and beneath it the dry run — four agents it would open, each with its role, model and permission, and a trace of how the loop would go from fixer to reviewer to the person." />
+      <img src="docs/images/app/flow-light.png" width="900" alt="A Goal named “Checkout hardening” just created through the New session dialog, in the storefront project: an empty board and chat, “Nothing said yet”, waiting for a flow or an agent to be added to it." />
     </picture>
   </a>
 </p>
