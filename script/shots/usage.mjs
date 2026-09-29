@@ -19,7 +19,7 @@
  * with no window at all, and one plain error. A dashboard of six identical
  * healthy bars photographs as a mock-up.
  */
-import { CAST, PRIMARY, SHANE, OLIVIA, rigRuntimeId } from './cast.mjs'
+import { CAST, rigRuntimeId } from './cast.mjs'
 
 const MINUTE = 60_000
 const ago = (minutes) => Date.now() - minutes * MINUTE
@@ -40,19 +40,33 @@ const day = (n, cost, tokens) => ({ day: Date.now() - n * 24 * 60 * MINUTE, cost
 const week = (peak) =>
   [6, 5, 4, 3, 2, 1, 0].map((n, i) => day(n, Number((peak * (0.35 + i * 0.11)).toFixed(2)), Math.round(peak * (0.35 + i * 0.11) * 41_000)))
 
+/**
+ * Five agents, five distinct sign-ins, every one of them reporting.
+ *
+ * The dashboard's whole point is a full page, not a catalogue of edge cases:
+ * every account signed in, every card current, a healthy mix of what is left
+ * (mostly comfortable, one — Gemini — genuinely low, never zero), and no
+ * "signed out" or "not reporting" card sitting in the middle of it looking
+ * broken. Distinct placeholder identities (`docs/decisions.md`-adjacent
+ * `AGENTS.md` rule 13: `example.com`/`acme.dev` addresses, never a repeated
+ * `dev@example.com` standing in for four different people).
+ */
 export const REPORTS = [
   {
     runtime: 'claude-code',
-    account: SHANE.email,
+    account: 'jane@example.com',
     plan: 'Max 20x',
+    // Embedded directly on the report rather than set through `usage/plan/set`:
+    // the rig's `usage/reports` stub answers this fixed array on every ask, so
+    // a fee that verb wrote to the real `plans.json` would never be merged
+    // back into it the way the real host merges a stored fee into a vendor's
+    // own report before answering — the Overview's "Paid" cell would keep
+    // reading "—" forever no matter what was set.
+    billing: { kinds: ['windows'], fee: { amount: 200, currency: 'USD', period: 'month', source: 'vendor' } },
     lanes: [
       lane('session', 'Session', 71, 300, 42),
-      lane('weekly', 'Weekly', 88, 10_080, 3_400),
-      // Spent, and scoped to one model family: the account is fine, this lane
-      // is not, and the card has to say which.
-      lane('weekly:opus', 'Weekly', 100, 10_080, 3_400, { scope: 'Opus' }),
-      // Reset metadata, no figure. Drawn as unknown rather than as 0%.
-      lane('review', 'Code review', 0, 10_080, 3_400, { usageKnown: false }),
+      lane('weekly', 'Weekly', 62, 10_080, 3_400),
+      lane('weekly:opus', 'Weekly', 55, 10_080, 3_400, { scope: 'Opus' }),
     ],
     credits: null,
     spend: {
@@ -74,9 +88,10 @@ export const REPORTS = [
   },
   {
     runtime: 'codex',
-    account: SHANE.email,
+    account: 'dev@acme.dev',
     plan: 'Team',
-    lanes: [lane('session', '5-hour', 22, 300, 118), lane('weekly', 'Weekly', 34, 10_080, 5_020)],
+    billing: { kinds: ['windows'], fee: { amount: 60, currency: 'USD', period: 'month', source: 'vendor' } },
+    lanes: [lane('session', '5-hour', 34, 300, 118), lane('weekly', 'Weekly', 41, 10_080, 5_020)],
     credits: null,
     spend: {
       currency: 'USD',
@@ -96,27 +111,11 @@ export const REPORTS = [
     error: null,
   },
   {
-    // A second account on the same agent — a supported shape, and every
-    // surface has to say *which*, so the pair has to be on the page.
-    runtime: 'claude-code',
-    account: OLIVIA.email,
-    plan: 'Pro',
-    lanes: [lane('session', 'Session', 12, 300, 205), lane('weekly', 'Weekly', 44, 10_080, 6_100)],
-    credits: null,
-    spend: null,
-    reached: null,
-    source: { kind: 'file', label: "from Claude Code's own cache" },
-    fetchedAt: ago(2),
-    staleAfterMs: 600_000,
-    error: null,
-  },
-  {
     runtime: 'cursor',
-    account: `${PRIMARY.name}-Cursor`,
+    account: 'ops@example.com',
     plan: 'Pro',
-    // A balance and no window at all: nothing to draw a bar from, and the card
-    // must still be useful.
-    lanes: [],
+    billing: { kinds: ['windows'], fee: { amount: 20, currency: 'USD', period: 'month', source: 'vendor' } },
+    lanes: [lane('session', 'Session', 48, 300, 96), lane('weekly', 'Weekly', 57, 10_080, 4_200)],
     credits: { remaining: 118.4, used: 81.6, unit: 'USD' },
     spend: null,
     reached: null,
@@ -126,28 +125,66 @@ export const REPORTS = [
     error: null,
   },
   {
+    // The one low card — comfortably above zero, never the headline.
     runtime: 'gemini-cli',
-    account: SHANE.email,
-    plan: 'Free',
-    // Over its window. Not clamped, because being outrun carries meaning.
-    lanes: [lane('daily', 'Daily', 104, 1_440, 380)],
+    account: 'sam@acme.dev',
+    plan: 'Pro',
+    billing: { kinds: ['windows'], fee: { amount: 20, currency: 'USD', period: 'month', source: 'vendor' } },
+    lanes: [lane('daily', 'Daily', 82, 1_440, 380)],
     credits: null,
-    spend: null,
-    reached: 'Daily',
+    spend: {
+      currency: 'USD',
+      todayCost: 3.2,
+      windowCost: 19.8,
+      windowDays: 7,
+      todayTokens: 96_000,
+      windowTokens: 612_000,
+      provenance: 'priced',
+      coverage: { priced: 12, unpriced: 0, unmetered: 0, estimated: 1, daysCovered: 7, daysRequested: 7 },
+      daily: week(3.2),
+    },
+    reached: null,
     source: { kind: 'runtime', label: 'from its own API' },
     fetchedAt: ago(6),
     staleAfterMs: 600_000,
     error: null,
   },
   {
-    // Figures for another sign-in. Antigravity's quota is read through the
-    // `agy` CLI, which signs in apart from the ACP server the desk runs, so the
-    // host files it under `unverified` and never in `lanes`: the card draws it
-    // under that sign-in's name, while the chip, the rail row and every
-    // readiness surface read the agent's own, empty, lanes (#769). The shape is
-    // the one measured on agy 1.2.6 — a weekly limit per group of models, the
-    // Gemini one spent and the Claude and GPT one untouched, whose reset is no
-    // date at all because an untouched window has not started.
+    runtime: 'copilot',
+    account: 'priya@example.com',
+    plan: 'Business',
+    billing: { kinds: ['windows'], fee: { amount: 19, currency: 'USD', period: 'month', source: 'vendor' } },
+    lanes: [lane('monthly', 'Monthly', 27, 43_200, 21_000)],
+    credits: null,
+    spend: {
+      currency: 'USD',
+      todayCost: 2.4,
+      windowCost: 15.1,
+      windowDays: 7,
+      todayTokens: 71_000,
+      windowTokens: 468_000,
+      provenance: 'priced',
+      coverage: { priced: 9, unpriced: 0, unmetered: 0, estimated: 0, daysCovered: 7, daysRequested: 7 },
+      daily: week(2.4),
+    },
+    reached: null,
+    source: { kind: 'runtime', label: 'from its own API' },
+    fetchedAt: ago(11),
+    staleAfterMs: 600_000,
+    error: null,
+  },
+  {
+    // Figures for another sign-in, kept for the `dashboard-antigravity`
+    // scene: Antigravity's quota is read through the `agy` CLI, which signs
+    // in apart from the ACP server the desk runs, so the host files it under
+    // `unverified` and never in `lanes`: the card draws it under that
+    // sign-in's name, while the chip, the rail row and every readiness
+    // surface read the agent's own, empty, lanes (#769). The shape is the one
+    // measured on agy 1.2.6 — a weekly limit per group of models, the Gemini
+    // one spent and the Claude and GPT one untouched, whose reset is no date
+    // at all because an untouched window has not started. Not one of the
+    // five cards `dashboard`'s own Overview leads with — this is a distinct,
+    // deliberate state a separate scene exists to show.
     runtime: 'antigravity',
     account: 'Signed in',
     plan: null,
@@ -169,21 +206,6 @@ export const REPORTS = [
       fetchedAt: ago(3),
       staleAfterMs: 300_000,
     },
-  },
-  {
-    runtime: 'copilot',
-    account: SHANE.email,
-    plan: null,
-    lanes: [],
-    credits: null,
-    spend: null,
-    reached: null,
-    source: { kind: 'runtime', label: 'from its own API' },
-    fetchedAt: ago(31),
-    staleAfterMs: 600_000,
-    // One card in a failed state, because that is a state the page has and a
-    // page that never shows it is a page nobody has checked.
-    error: { message: 'Signed out — sign in to read quota.', needsSignIn: true },
   },
 ]
 
@@ -207,11 +229,12 @@ export const USAGE = REPORTS.filter((one) => known.has(one.runtime)).map(one => 
  * nothing walks the real corpus while the camera is up.
  */
 const LEDGER_ROWS = [
-  { key: 'claude-code', label: 'Claude', runtime: 'claude-code', tokens: 23_640_000, cost: 577.2, hasUnpriced: false, turns: 4_872 },
-  { key: 'codex', label: 'Codex', runtime: 'codex', tokens: 10_260_000, cost: 250.2, hasUnpriced: false, turns: 2_136 },
-  { key: 'cursor', label: 'Cursor', runtime: 'cursor', tokens: 4_920_000, cost: 110.4, hasUnpriced: false, turns: 1_140 },
-  { key: 'gemini-cli', label: 'Gemini', runtime: 'gemini-cli', tokens: 2_460_000, cost: 0, hasUnpriced: true, turns: 528 },
-  { key: 'amp', label: 'Amp', runtime: 'amp', tokens: 576_000, cost: 18.6, hasUnpriced: false, turns: 126 },
+  { key: 'claude-code', label: 'Claude', runtime: 'claude-code', tokens: 47_280_000, cost: 1_154.4, hasUnpriced: false, turns: 9_744 },
+  { key: 'codex', label: 'Codex', runtime: 'codex', tokens: 20_520_000, cost: 500.4, hasUnpriced: false, turns: 4_272 },
+  { key: 'cursor', label: 'Cursor', runtime: 'cursor', tokens: 9_840_000, cost: 220.8, hasUnpriced: false, turns: 2_280 },
+  { key: 'gemini-cli', label: 'Gemini', runtime: 'gemini-cli', tokens: 4_920_000, cost: 0, hasUnpriced: true, turns: 1_056 },
+  { key: 'copilot', label: 'Copilot', runtime: 'copilot', tokens: 3_680_000, cost: 92.6, hasUnpriced: false, turns: 812 },
+  { key: 'amp', label: 'Amp', runtime: 'amp', tokens: 1_152_000, cost: 37.2, hasUnpriced: false, turns: 252 },
 ]
 
 const TOTAL_COST = LEDGER_ROWS.reduce((sum, row) => sum + (row.cost ?? 0), 0)
@@ -224,14 +247,13 @@ const TOTAL_TURNS = LEDGER_ROWS.reduce((sum, row) => sum + (row.turns ?? 0), 0)
  * its row, so the chart's headline agrees with the strip's Value: a rig that
  * stamped `Date.now() - n days` matched no bucket and drew $0 beside $159.
  *
- * `DAYS` used to be 30 — one working month, just enough to fill the Overview
- * chart's own window. The year heat grid (`buildYearGrid`, `lib/heat.ts`) is
- * 53 weeks wide, and every day before the ledger's earliest row draws
- * hatched, not empty — an honest "before this ledger started", but a grid
- * that is 351 days of hatching and 20 days of colour reads as broken rather
- * than as a desk that has been in use a while. 182 days (six months) fills
- * roughly half the grid with real variation and leaves the rest hatched on
- * purpose, which is the state a desk six months old actually shows.
+ * `DAYS` used to be 30, then 182 — the year heat grid (`buildYearGrid`,
+ * `lib/heat.ts`) is 53 weeks (371 days) wide, and every day before the
+ * ledger's earliest row draws hatched, not empty — an honest "before this
+ * ledger started", but a grid mostly hatched reads as broken rather than as
+ * a desk that has been in use a while. 365 days — a full year — fills the
+ * whole grid (aside from the handful of leading days 371 - 365 leaves
+ * hatched) with real variation.
  */
 const midnight = (back) => {
   const at = new Date()
@@ -239,20 +261,22 @@ const midnight = (back) => {
   at.setDate(at.getDate() - back)
   return at.getTime()
 }
-const DAYS = 182
+const DAYS = 365
 /**
- * A working half-year's shape: weekdays heavier than weekends (0.35×), a slow
- * climb towards today, and a deterministic wobble on top of both — a sine
- * keyed on the day index rather than `Math.random()`, so the same run always
- * produces the same picture (every number here has to be reproducible; see
- * `AGENTS.md`'s testing conventions) while still keeping neighbouring days
- * from reading as a smooth, machine-drawn ramp.
+ * A working year's shape: weekdays heavier than weekends (0.35×), a gentle
+ * climb towards today — comfortably tens of a percent end to end, not the
+ * multiples a steeper ramp produces once totalled over a year of days — and
+ * a deterministic wobble on top of both — a sine keyed on the day index
+ * rather than `Math.random()`, so the same run always produces the same
+ * picture (every number here has to be reproducible; see `AGENTS.md`'s
+ * testing conventions) while still keeping neighbouring days from reading as
+ * a smooth, machine-drawn ramp.
  */
 const WEIGHTS = Array.from({ length: DAYS }, (_, i) => {
   const weekday = new Date(midnight(DAYS - 1 - i)).getDay()
   const weekend = weekday === 0 || weekday === 6
   const wobble = 1 + 0.22 * Math.sin(i * 0.89) + 0.12 * Math.sin(i * 0.37 + 1.7)
-  return (weekend ? 0.35 : 1) * (0.55 + (i / DAYS) * 0.75) * Math.max(0.15, wobble)
+  return (weekend ? 0.35 : 1) * (0.85 + (i / DAYS) * 0.3) * Math.max(0.15, wobble)
 })
 const WEIGHT_SUM = WEIGHTS.reduce((sum, w) => sum + w, 0)
 /** Splits `total` over the weights, rounded, with the remainder on today so the sum is exact. */
@@ -282,10 +306,10 @@ export const LEDGER = {
   totalTokens: TOTAL_TOKENS,
   provenance: 'priced',
   coverage: {
-    priced: 708,
-    unpriced: 36,
+    priced: 1_416,
+    unpriced: 72,
     unmetered: 0,
-    estimated: 54,
+    estimated: 108,
     daysCovered: DAYS,
     daysRequested: DAYS,
     // Every runtime this stub carries a row for has a real turn boundary —

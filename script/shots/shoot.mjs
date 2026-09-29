@@ -574,10 +574,56 @@ rules:
     const roomRuntimes = NATIVE_CODEX
       ? ['claude-code', 'gemini-cli', 'copilot', 'antigravity']
       : ['codex', 'claude-code', 'gemini-cli', 'copilot']
+    roomId = await cdp.eval(
+      `${STORE}.createGoal({ root: ${q(REPO)}, sentence: 'Checkout hardening' }).then((view) => view.goal.id)`,
+      60_000,
+    )
     for (const runtime of roomRuntimes) {
-      keys.push(await seat(cdp, { work: REPO, runtime: rigRuntimeId(runtime), picks: {} }))
+      if (runtime === 'codex') {
+        // The native Codex adapter has no `room-codex` identity Agent
+        // (`seed.mjs`) — seated the old way, a bare conversation on a card,
+        // and given its opening prompt explicitly below since nothing seats
+        // it into a turn on its own.
+        const key = await seat(cdp, { work: REPO, runtime: rigRuntimeId(runtime), picks: {} })
+        const { runtime: r, sessionId: s } = splitKey(key)
+        await cdp.eval(
+          `(async () => {
+            const card = await ${STORE}.transport.request('team/add', { room: ${q(roomId)}, title: 'Seat' })
+            await ${STORE}.assignGoal(${q(roomId)}, card.id, { runtime: ${q(r)}, sessionId: ${q(s)} })
+          })()`,
+          60_000,
+        )
+        await cdp.eval(`${STORE}.send([{ type: 'text', text: 'Retry the checkout call on a 502' }], ${q(key)})`, 60_000).catch(() => {})
+        keys.push(key)
+        continue
+      }
+      // Seated by a named identity Agent (`seed.mjs`'s `room-<id>`) rather
+      // than a bare `{runtime, sessionId}` card assignment: a bare seat's
+      // label is minted once, from nothing more than the runtime id
+      // (`host.ts`'s `opening()`, `seatLabel: previous?.seatLabel ??
+      // session.runtime`), and kept forever — which is why an ad-hoc room
+      // used to read "shots-claude-code" rather than "Claude" in its own
+      // chat. `goal/seat` with a bound Agent gives the seat an `agent.name`
+      // to read instead (`goals/members.ts`'s `memberNames`), the same path
+      // `GoalCreate`'s "Seat Agents" checkboxes use.
+      //
+      // Its standing order (`host.ts`'s `#orderSeat`) is sent as this seat's
+      // own first turn the instant it is kept, and `seed.mjs`'s `room-<id>`
+      // Agent briefs carry the room's own task ("Retry the checkout call on
+      // a 502") for exactly that reason — a *second*, separate `send` here
+      // used to race that first turn: `adapter-acp/src/runtime.ts` refuses a
+      // `send` outright while one is already running rather than queuing it,
+      // and the refusal left a standing "is still working" toast over the
+      // composer that nothing afterward — answering approvals, waiting
+      // longer, even clicking its own close button — ever reached, because
+      // it is not a live reading of state. No second send, nothing to race.
+      const key = await cdp.eval(
+        `${STORE}.seatGoal({ goal: ${q(roomId)}, agent: ${q(`room-${runtime}`)} })
+          .then((seat) => seat.session.runtime + String.fromCharCode(0) + seat.session.sessionId)`,
+        60_000,
+      )
+      keys.push(key)
     }
-    roomId = await makeRoom(cdp, { work: REPO, name: 'Checkout hardening', members: keys.map(splitKey) })
 
     /* Work on the board and words in the chat, through the host's own verbs.
        An empty room photographs as "Nothing said yet" beside "Nothing on the
@@ -586,27 +632,60 @@ rules:
        the same calls the interface makes when a person types them. */
     const ask = (method, params) => cdp.eval(`${STORE}.transport.request(${q(method)}, ${q(params)})`, 60_000).catch(() => {})
     for (const job of BOARD) await ask('team/add', { room: roomId, title: job.title, detail: job.detail })
-
-    /* The work first, then the chatter — the order it happens in, and the only
-       order that photographs as one.
-
-       An agent can be asked one thing at a time, so a post to the room and a
-       prompt into the same conversation in the same breath is two prompts in
-       flight: one is refused now, and before the adapter refused it the room
-       showed the two answers spliced into one message. Asking first and
-       talking over the work also leaves each seat's opening message as what
-       it was asked, which is the line the sidebar reads.
-
-       All four work, not two: four agents on one piece of work is the thing a
-       room is for, and two idle columns read as two agents that failed to
-       start. */
-    for (const key of keys) {
-      await cdp.eval(`${STORE}.send([{ type: 'text', text: 'Retry the checkout call on a 502' }], ${q(key)})`, 60_000).catch(() => {})
+    // A seat opened through a bound Agent (`goal/seat`, `seed.mjs`'s
+    // `room-<id>`) carries a standing order, unlike the bare `{runtime,
+    // sessionId}` card this replaced — so the fixture's edit tool calls now
+    // ask rather than running unattended, and an unanswered ask holds the
+    // turn open forever, not merely slowly: no fixed sleep, however long,
+    // reliably clears "Antigravity is still working" on its own.
+    await sleep(1500)
+    await answerApprovals(cdp)
+    // Polled to idle rather than slept a fixed amount, and between every
+    // post rather than only after the last one: `team/post` broadcasts to
+    // every member immediately, and a member still finishing the *previous*
+    // line's turn refuses that send outright (`adapter-acp/src/runtime.ts`)
+    // instead of queuing it — Antigravity's own scripted turn (`agent.mjs`'s
+    // `TURNS[3]`) runs measurably longer than the other three, so it was the
+    // one this always caught. Each of the four seats replays its scripted
+    // turn once per message it is sent, so this also bounds how long that
+    // takes before the next line goes out, rather than firing all three into
+    // a room still working through the first.
+    const settle = async () => {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await answerApprovals(cdp)
+        const busy = await cdp.eval(
+          `${STORE}.transport.request('team/peers', { room: ${q(roomId)} }).then((peers) => peers.some((peer) => peer.busy))`,
+          60_000,
+        ).catch(() => false)
+        if (!busy) return
+        await sleep(3000)
+      }
     }
     /* Queued by the room, one per member per turn: every seat is working by
        now, and the board's own queue drains each post as a turn ends. */
-    for (const line of CHATTER) await ask('team/post', { room: roomId, text: line })
-    await sleep(7000)
+    for (const line of CHATTER) {
+      await settle()
+      await ask('team/post', { room: roomId, text: line })
+    }
+    await settle()
+    // A "still working" toast the composer raised for one refused `send`
+    // earlier in this function (`adapter-acp/src/runtime.ts`'s own "one
+    // prompt at a time") outlives the race that caused it: it is not a live
+    // reading of current state, so it does not clear once the seat it named
+    // goes idle, and it is not in `snapshot.notices` either, so
+    // `dismissNotices` does not reach it — every seat above can finish every
+    // turn and this card stays exactly where it was. Dismissed here the only
+    // way it goes: its own close button, the same click a person would make.
+    await cdp.eval(`(() => {
+      const text = [...document.querySelectorAll('button, [role="status"], div')]
+        .find((node) => (node.textContent ?? '').includes('is still working on the last message'))
+      const card = text?.closest('[class*="toast" i], [class*="notice" i]') ?? text
+      const close = card?.querySelector('button')
+      close?.click()
+      return Boolean(close)
+    })()`).catch(() => {})
+    await dismissNotices(cdp)
+    await sleep(1000)
     return roomId
   }
 

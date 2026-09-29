@@ -343,12 +343,26 @@ for (const agent of CONTEXT_AGENTS) {
   )
 }
 
+/**
+ * Which scripted turn each of the room's own four seats plays —
+ * `claude-code`, `gemini-cli`, `copilot`, `antigravity` (or `codex` in
+ * `claude-code`'s place on the all-camera desk), the exact four
+ * `roomRuntimes` picks in `shoot.mjs`'s `stageRoom` — mapped by id rather
+ * than by position in `REGISTERED_CAST`. Position drifted out of sync with
+ * that list the moment `antigravity` (index 4) was added after `cursor`
+ * (index 1): `n % 4` landed turn 0 on both `claude-code` (n=0) and
+ * `antigravity` (n=4), so two of the four seats read the same scripted
+ * reply word for word. Every other seat is never in this room, so its own
+ * turn only has to be *some* index — 0 is as good as any.
+ */
+const ROOM_TURN = { codex: 0, 'claude-code': 0, 'gemini-cli': 1, copilot: 2, antigravity: 3 }
+
 writeFileSync(
   join(HOME, 'agents.json'),
   `${JSON.stringify(
     {
       agents: [
-        ...REGISTERED_CAST.map((agent, n) => ({
+        ...REGISTERED_CAST.map((agent) => ({
           id: rigRuntimeId(agent.id),
           name: agent.name,
           brand: agent.brand,
@@ -359,9 +373,7 @@ writeFileSync(
             SHOT_AGENT_NAME: agent.name,
             SHOT_STORE: join(HOME, 'stores', `${agent.id}.json`),
             SHOT_MODELS: agent.models,
-            /* Which scripted turn this seat plays. The room seats the first four
-               of the cast, so 0-3 land one distinct turn on each of them. */
-            SHOT_TURN: String(n % 4),
+            SHOT_TURN: String(ROOM_TURN[agent.id] ?? 0),
           },
           ...(agent.id === 'windsurf' ? { account: { status: SIGNED_OUT } } : {}),
         })),
@@ -429,8 +441,10 @@ writeFileSync(
  * them passed over on the way. Seats name the rig's runtimes, except the one
  * meant to be missing, so no Agent reads through to a CLI on this machine.
  */
-const agentFile = ({ name, description, prefer, brief }) =>
-  `---\nname: ${name}\ndescription: ${description}\npermission: read\nanswers: [approve, request-changes]\nproduces: [review]\nprefer: [${prefer.join(', ')}]\n---\n\n${brief}\n`
+const agentFile = ({ name, description, prefer, brief, permission = 'read', reviewer = true }) =>
+  `---\nname: ${name}\ndescription: ${description}\npermission: ${permission}\n${
+    reviewer ? 'answers: [approve, request-changes]\nproduces: [review]\n' : ''
+  }prefer: [${prefer.join(', ')}]\n---\n\n${brief}\n`
 
 const writeAgent = (dir, source) => {
   mkdirSync(dir, { recursive: true })
@@ -477,6 +491,55 @@ writeFileSync(
   join(HOME, 'seating.json'),
   `${JSON.stringify({ 'code-reviewer': [rigRuntimeId('windsurf'), `${rigRuntimeId('claude-code')}=opus`] }, null, 2)}\n`,
 )
+
+/**
+ * One identity Agent per room seat — user-scope, so no project's history
+ * gains a commit for it the way the storefront's own reviewer does.
+ *
+ * `room`/`board` used to seat a bare `{runtime, sessionId}` directly onto a
+ * Goal card (`goal/assign`), which is how a person seats a conversation that
+ * is already running as itself. A seat opened that way has no Agent behind
+ * it, so `memberNames` (`goals/members.ts`) and the channel's own attribution
+ * (`host.ts`'s `opening()`, `seatLabel: previous?.seatLabel ?? session.runtime`)
+ * both fall back to the bare runtime id — `shots-claude-code`, not "Claude" —
+ * because nothing at seat time knows to call it anything else, and a seat's
+ * label is minted once and then kept. `flow-board`'s seats read fine because
+ * a flow's own seat carries the model it chose (`seat.ts`'s `seatLabel`); a
+ * plain room join carries nothing. Binding each of the room's four runtimes
+ * to a named Agent (`goal/seat`, not `goal/assign`) is what gives the seat an
+ * `agent.name` to read instead — the same path `GoalCreate`'s own "Seat
+ * Agents" checkboxes use.
+ */
+for (const id of ['claude-code', 'gemini-cli', 'copilot', 'antigravity']) {
+  const cast = CAST.find((one) => one.id === id)
+  writeAgent(
+    join(HOME, 'agents', `room-${id}`),
+    agentFile({
+      name: cast.name,
+      description: `${cast.name}, seated as itself in a room.`,
+      prefer: [rigRuntimeId(id)],
+      // The seat's own standing order (`host.ts`'s `#orderSeat`) is sent as
+      // this seat's first turn the moment it is kept — the room's own task,
+      // not a generic brief, so that turn is the useful one rather than one
+      // this scene then has to duplicate. Sending "Retry the checkout call
+      // on a 502" again afterwards, as a second, separate `send`, raced this
+      // one: `adapter-acp/src/runtime.ts` refuses a `send` outright while a
+      // turn is already running rather than queuing it, and the refusal
+      // left a standing "is still working" toast over the composer that
+      // neither answering approvals nor a longer wait ever cleared.
+      brief: 'Retry the checkout call on a 502.',
+      // Publish, not the template's default read: an Agent's `permission:`
+      // is only ever read, publish or merge, and the room's scripted turns
+      // (`agent.mjs`) edit files as part of the story — a read ceiling held
+      // every one of those edits for an approval nobody was going to give,
+      // which read on screen as every seat stuck on "Edit · asked" and the
+      // room's composer warning that a turn was still running long after
+      // the scene's own wait should have cleared it.
+      permission: 'publish',
+      reviewer: false,
+    }),
+  )
+}
 say('agents: storefront’s Code reviewer (shadows the one that ships), Release checker (yours), seats for this Mac')
 
 say(`agents: ${REGISTERED_CAST.length} registered  (${REGISTERED_CAST.map((one) => one.name).join(', ')})`)

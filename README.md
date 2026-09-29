@@ -82,7 +82,7 @@ others took.
   <a href="docs/images/app/board-light.png">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/board-dark.png" />
-      <img src="docs/images/app/board-light.png" width="900" alt="Four agents from four vendors in one room, coordinating over a shared board: the To do column holds five unclaimed cards, the Working column holds four cards in progress, one per agent — Claude, Gemini, Copilot, and Antigravity — each showing what it is working on." />
+      <img src="docs/images/app/board-light.png" width="900" alt="Four agents from four vendors — Claude, Gemini, Copilot, and Antigravity — in one room, each with an attributed message about the same change, beside a shared board whose To do column holds five unclaimed cards." />
     </picture>
   </a>
 </p>
