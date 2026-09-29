@@ -108,7 +108,7 @@ Full positioning: [VISION.md](VISION.md).
   </a>
 </p>
 
-<p align="center"><em>A flow says who does what and what moves work between them. Dry run first: it spends nothing and shows exactly what it would open. <a href="docs/flows.md">Flows</a>.</em></p>
+<p align="center"><em>A flow says who does what and what moves work between them. Dry run first: it spends nothing and shows exactly what it would open.</em></p>
 
 ### What is left, and what it cost
 
