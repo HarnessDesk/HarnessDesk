@@ -93,8 +93,9 @@ what a person drives by hand when there is no flow at all.
   </a>
 </p>
 
-Seven shapes of that come up often enough to be worth naming. Each row below
-is a real flow file in this repository, not a hypothetical.
+Seven shapes of that come up often enough to be worth naming. Where a row
+names a file, that file ships in this repository; where it does not, the
+primitives it needs ship and the flow is yours to write.
 
 | Use case | Flow file | Roles | What decides it |
 | --- | --- | --- | --- |
@@ -151,13 +152,11 @@ The same `triggers.yml` mechanism, aimed at issues instead of pull requests —
 label one `agent-ready` and it opens its own Goal, its own branch and its own
 pull request — with `concurrency` capping how many issues are worked at once;
 that number is "how many agents," not a headcount you seat by hand. Point it
-at [`.harnessdesk/flows/fix-and-review.yml`](.harnessdesk/flows/fix-and-review.yml),
-the flow this repository's own agents ran on themselves for a day: a fixer
+at [`.harnessdesk/flows/fix-and-review.yml`](.harnessdesk/flows/fix-and-review.yml): a fixer
 publishes a pull request, three reviewers read it blind in one round, any
 `request-changes` sends it back for a fixer round that answers every finding,
 and the loop repeats until every reviewer approves in the same round — at
-which point a person merges. Nothing here auto-merges: `main` here carries no
-branch protection, so the referee step is load-bearing, not decorative. What
+which point a person merges. What
 you keep for yourself: labelling the issue, arming the trigger, and the
 merge. Evidence: a findings ledger with a stable id per blocking comment, and
 a receipt that freezes what was still open when the run ended.
