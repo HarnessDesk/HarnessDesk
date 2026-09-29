@@ -108,17 +108,7 @@ Full positioning: [VISION.md](VISION.md).
   </a>
 </p>
 
-<p align="center"><em>A flow says who does what and what moves work between them. Dry run first: it spends nothing and shows exactly what it would open.</em></p>
-
-| Use case | Runs on |
-| --- | --- |
-| Two competitors and a judge | [`comparison.yml`](packages/server/flows/comparison.yml), or `/race` |
-| Every pull request, reviewed blind | [`review-pr.yml`](packages/server/flows/review-pr.yml) |
-| An issue stream, fixed and reviewed in a loop | [`fix-and-review.yml`](.harnessdesk/flows/fix-and-review.yml) |
-| Research, a plan a person agrees, then the build | [`investigation.yml`](packages/server/flows/investigation.yml) · [`alignment.yml`](packages/server/flows/alignment.yml) |
-| Two agents' work decided by a script, not a claim | [`mechanical-contest.yml`](packages/server/flows/mechanical-contest.yml) |
-
-Or write your own — [docs/flows.md](docs/flows.md).
+<p align="center"><em>A flow says who does what and what moves work between them. Dry run first: it spends nothing and shows exactly what it would open. <a href="docs/flows.md">Flows</a>.</em></p>
 
 ### What is left, and what it cost
 
