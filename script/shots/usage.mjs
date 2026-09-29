@@ -64,7 +64,10 @@ export const REPORTS = [
     // reading "—" forever no matter what was set.
     billing: { kinds: ['windows'], fee: { amount: 200, currency: 'USD', period: 'month', source: 'vendor' } },
     lanes: [
-      lane('session', 'Session', 71, 300, 42),
+      // 35% left, more than half the 5-hour window already gone: comfortable
+      // but behind pace, so this becomes a second "What is left" card without
+      // reading as low (`toneForRemaining`'s own floor is 20%).
+      lane('session', 'Session', 65, 300, 135),
       lane('weekly', 'Weekly', 62, 10_080, 3_400),
       lane('weekly:opus', 'Weekly', 55, 10_080, 3_400, { scope: 'Opus' }),
     ],
@@ -91,7 +94,9 @@ export const REPORTS = [
     account: 'dev@acme.dev',
     plan: 'Team',
     billing: { kinds: ['windows'], fee: { amount: 60, currency: 'USD', period: 'month', source: 'vendor' } },
-    lanes: [lane('session', '5-hour', 34, 300, 118), lane('weekly', 'Weekly', 41, 10_080, 5_020)],
+    // 40% left, behind pace on the 5-hour window: the third "What is left"
+    // card, comfortable rather than low.
+    lanes: [lane('session', '5-hour', 60, 300, 135), lane('weekly', 'Weekly', 41, 10_080, 5_020)],
     credits: null,
     spend: {
       currency: 'USD',
