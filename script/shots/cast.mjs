@@ -196,12 +196,21 @@ export const CONVERSATIONS = {
 /**
  * The git history the repository pane draws.
  *
- * Shaped for the graph rather than for the log: two branches off one trunk and
- * a merge back, so the lane renderer has lanes to draw and a merge point to
- * join. A straight line of commits makes a correct graph and a dull picture.
+ * Shaped for the graph rather than for the log, and for the *expanded* graph
+ * the README's own "Repository history" still shows in particular: nine
+ * branches off `main` (ten lanes, `main` included), most merged back with
+ * `--no-ff` so the merge commit exists as an object the graph can draw a
+ * join at, two still open so a long-lived branch has something to cross a
+ * later, shorter one, and three tags so the graph has more to carry than
+ * commits and merges alone. `feat/address-extract` branches off another
+ * feature branch rather than off `main`, which is the one thing a straight
+ * "every branch forks the trunk" history never has to draw. `{ tag }` marks
+ * the ref the lane renderer reads it from — the current branch at the point
+ * the entry runs, same as a commit's own placement.
  */
 export const HISTORY = [
   { branch: 'main', message: 'storefront at 2.4.1' },
+  { tag: 'v2.4.1' },
   { branch: 'main', message: 'checkout: split the retry policy out of the client' },
   { branch: 'main', message: 'deps: vitest 3.2, and the two snapshots it moved' },
   { branch: 'feat/promo-stacking', from: 'main', message: 'pricing: allow two promos to stack' },
@@ -211,4 +220,34 @@ export const HISTORY = [
   { branch: 'fix/cart-drift', message: 'cart: the rounding test that found it' },
   { merge: 'fix/cart-drift', into: 'main', message: 'Merge: cart totals in minor units' },
   { branch: 'main', message: 'checkout: retry on 502 with a capped backoff' },
+  { branch: 'feat/webhook-v2', from: 'main', message: 'webhook: accept v2 signatures alongside v1' },
+  { branch: 'main', message: 'docs: runbook for a failed payout' },
+  { branch: 'fix/rate-limiter-clock', from: 'main', message: 'ratelimiter: take a clock instead of Date.now()' },
+  { merge: 'fix/rate-limiter-clock', into: 'main', message: "Merge: inject the rate limiter's clock" },
+  { branch: 'feat/webhook-v2', message: 'webhook: drop v1 after the grace window' },
+  // Still open at the end of this history — the long-lived branch several
+  // shorter ones (`chore/deps-bump`, `fix/webhook-retry-cap`) cross while it
+  // waits.
+  { branch: 'feat/currency-cache', from: 'main', message: 'pricing: cache the currency table for an hour' },
+  { branch: 'main', message: "checkout: log the gateway's request id on every retry" },
+  { merge: 'feat/webhook-v2', into: 'main', message: 'Merge: webhook v2 signatures' },
+  { branch: 'chore/deps-bump', from: 'main', message: 'deps: bump the SDK to 4.2' },
+  { merge: 'chore/deps-bump', into: 'main', message: 'Merge: SDK 4.2' },
+  // Forks a feature branch, not `main` — the one crossing a straight
+  // trunk-only history never has to draw.
+  { branch: 'feat/address-extract', from: 'feat/promo-stacking', message: 'checkout: extract the shared address form' },
+  { merge: 'feat/promo-stacking', into: 'main', message: 'Merge: promo stacking, capped at item price' },
+  { branch: 'feat/address-extract', message: 'checkout: validate the extracted address form' },
+  { branch: 'fix/webhook-retry-cap', from: 'main', message: 'webhook: cap the total retry budget' },
+  { merge: 'fix/webhook-retry-cap', into: 'main', message: 'Merge: cap the webhook retry budget' },
+  { branch: 'main', message: 'storefront at 2.5.0' },
+  { tag: 'v2.5.0' },
+  { merge: 'feat/address-extract', into: 'main', message: 'Merge: shared address form' },
+  // Still open — the second long-lived branch, started late and never
+  // merged in this history.
+  { branch: 'feat/promo-audit', from: 'main', message: 'pricing: audit promo expiry rules' },
+  { branch: 'main', message: 'checkout: name the 503/504 paths explicitly' },
+  { merge: 'feat/currency-cache', into: 'main', message: 'Merge: cached currency table' },
+  { branch: 'main', message: 'storefront at 2.5.1' },
+  { tag: 'v2.5.1' },
 ]

@@ -250,6 +250,10 @@ const buildRepo = (dir, blurb) => {
     current = branch
   }
   for (const entry of HISTORY) {
+    if (entry.tag) {
+      git('tag', entry.tag)
+      continue
+    }
     step += 1
     if (entry.merge) {
       goTo(entry.into)
@@ -357,6 +361,28 @@ for (const agent of CONTEXT_AGENTS) {
  */
 const ROOM_TURN = { codex: 0, 'claude-code': 0, 'gemini-cli': 1, copilot: 2, antigravity: 3 }
 
+/**
+ * The board claims two of this room's seats actually take, over a real MCP
+ * `claim_work` call (`agent.mjs`'s `playClaim`) — the `board`/`room` scenes'
+ * "Taking the retry policy itself" and "The webhook one is independent"
+ * lines (`shoot.mjs`'s `CHATTER`), turned into the "Working" cards the
+ * README's own "Board, expanded" still needs. Card ids are this room's own
+ * (`shoot.mjs`'s `BOARD`, added in order: 1 and 2 are the retry-policy pair,
+ * 4 is the webhook card) — set on the runtime's own env, so it also fires on
+ * this runtime's very first prompt in *any other* room a scene seats it
+ * into within the same take (`flow`/`front-door`'s own rooms number their
+ * own cards from 1 too). Harmless there: a card that number does not name,
+ * or does but is not open, simply refuses the claim (`agent.mjs` swallows
+ * the refusal), and a card it does name and can claim is one this same
+ * runtime already owns in that room's own story. Scoped to `--scene
+ * board`/`--scene room` alone, which is how this rig's own shots are taken,
+ * there is exactly one room to claim into.
+ */
+const ROOM_CLAIM = {
+  'claude-code': [{ intent: 1, files: ['src/checkout/retry.ts'] }, { intent: 2, files: ['src/checkout/retry.ts'] }],
+  copilot: [{ intent: 4, files: ['src/webhooks/receiver.ts'] }],
+}
+
 writeFileSync(
   join(HOME, 'agents.json'),
   `${JSON.stringify(
@@ -374,6 +400,7 @@ writeFileSync(
             SHOT_STORE: join(HOME, 'stores', `${agent.id}.json`),
             SHOT_MODELS: agent.models,
             SHOT_TURN: String(ROOM_TURN[agent.id] ?? 0),
+            ...(ROOM_CLAIM[agent.id] ? { SHOT_CLAIM: JSON.stringify(ROOM_CLAIM[agent.id]) } : {}),
           },
           ...(agent.id === 'windsurf' ? { account: { status: SIGNED_OUT } } : {}),
         })),

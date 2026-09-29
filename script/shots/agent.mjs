@@ -26,6 +26,7 @@
  *   <store>.prompt-fails `session/prompt` fails as an agent whose session another process holds does
  *   <store>.page         a number: `session/list` answers that many rows a page
  */
+import { spawn } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -36,6 +37,19 @@ const MODELS = (process.env['SHOT_MODELS'] ?? 'sonnet:Sonnet,opus:Opus')
   .split(',')
   .map((one) => one.split(':'))
   .map(([modelId, name]) => ({ modelId, name }))
+
+/**
+ * A real board claim, for the board still's "Working" cards.
+ *
+ * `SHOT_CLAIM` is `[{ intent, files }, ...]` — the intent numbers this seat
+ * takes, in order, the moment its first turn starts. Everything else in this
+ * fixture narrates a turn; this one actually plays it, over the exact bridge
+ * a real agent gets (`session/new`'s own `mcpServers`, read below) — the
+ * host's `claim_work` tool, called for real, so the card the board draws as
+ * "Working" is genuinely claimed rather than arranged to look that way. Left
+ * unset, this seat behaves exactly as it always did.
+ */
+const CLAIM = process.env['SHOT_CLAIM'] ? JSON.parse(process.env['SHOT_CLAIM']) : null
 
 /**
  * Real ACP usage, for the seat this process plays.
@@ -83,10 +97,82 @@ const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
 let seq = 0
 const sessions = new Map()
 const cancelled = new Set()
-const newSession = (id, cwd) => {
-  const state = { id, cwd, modelId: MODELS[0].modelId, modeId: 'default' }
+const newSession = (id, cwd, mcpServers) => {
+  const state = { id, cwd, modelId: MODELS[0].modelId, modeId: 'default', mcpServers: mcpServers ?? [] }
   sessions.set(id, state)
   return state
+}
+
+/**
+ * The tool bridge a real agent gets over `session/new`'s own `mcpServers` —
+ * one stdio child, speaking the same newline-delimited JSON-RPC
+ * `initialize`/`tools/call` protocol `packages/mcp-tools/src/main.ts`
+ * implements, connected once per session and kept open so a claim this
+ * process takes stays claimed for as long as the process runs (closing the
+ * bridge is indistinguishable from the agent going away, which is exactly
+ * what would strand the claim — so `board`'s own claimed cards stay
+ * "Working" only while this process is still up for its screenshot).
+ */
+const mcpClients = new Map()
+
+const mcpConnect = (state) => {
+  if (mcpClients.has(state.id)) return mcpClients.get(state.id)
+  const server = state.mcpServers?.[0]
+  if (!server) return null
+  const env = { ...process.env }
+  for (const { name, value } of server.env ?? []) env[name] = value
+  const proc = spawn(server.command, server.args ?? [], { env, stdio: ['pipe', 'pipe', 'ignore'] })
+  const client = { proc, pending: new Map(), nextId: 0, buffer: '' }
+  proc.stdout.on('data', (chunk) => {
+    client.buffer += chunk.toString()
+    for (;;) {
+      const newline = client.buffer.indexOf('\n')
+      if (newline === -1) return
+      const line = client.buffer.slice(0, newline)
+      client.buffer = client.buffer.slice(newline + 1)
+      if (!line.trim()) continue
+      let message
+      try {
+        message = JSON.parse(line)
+      } catch {
+        continue
+      }
+      const waiter = client.pending.get(message.id)
+      if (!waiter) continue
+      client.pending.delete(message.id)
+      if (message.error) waiter.reject(new Error(message.error.message ?? 'tool bridge error'))
+      else waiter.resolve(message.result)
+    }
+  })
+  mcpClients.set(state.id, client)
+  return client
+}
+
+const mcpCall = (client, method, params) =>
+  new Promise((resolve, reject) => {
+    const id = ++client.nextId
+    client.pending.set(id, { resolve, reject })
+    client.proc.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
+  })
+
+const mcpNotify = (client, method, params) => {
+  client.proc.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method, params })}\n`)
+}
+
+/** Claims every intent `SHOT_CLAIM` named for this seat, over a real MCP `claim_work` call. */
+const playClaim = async (state) => {
+  if (!CLAIM || CLAIM.length === 0) return
+  const client = mcpConnect(state)
+  if (!client) return
+  await mcpCall(client, 'initialize', {
+    protocolVersion: '2024-11-05',
+    capabilities: {},
+    clientInfo: { name: 'harnessdesk-shots-agent', version: '1.0.0' },
+  })
+  mcpNotify(client, 'notifications/initialized', {})
+  for (const { intent, files } of CLAIM) {
+    await mcpCall(client, 'tools/call', { name: 'claim_work', arguments: { intent, files: files ?? [] } }).catch(() => {})
+  }
 }
 
 const remember = (state) => {
@@ -266,7 +352,7 @@ const handlers = {
 
   'session/new': (id, params) => {
     seq += 1
-    const state = newSession(`s-${seq}`, params?.cwd ?? process.cwd())
+    const state = newSession(`s-${seq}`, params?.cwd ?? process.cwd(), params?.mcpServers)
     remember(state)
     reply(id, {
       sessionId: state.id,
@@ -348,6 +434,13 @@ const handlers = {
     if (state && !state.title && asked) {
       state.title = asked.trim()
       remember(state)
+    }
+    // Claimed once, on this seat's first turn — never repeated on a second
+    // prompt to the same session, the way a real agent would not re-claim
+    // work it already holds.
+    if (state && !state.claimed) {
+      state.claimed = true
+      await playClaim(state).catch(() => {})
     }
     const stopReason = await playTurn(sessionId)
     // A window only when the seat's usage names one — an agent that never

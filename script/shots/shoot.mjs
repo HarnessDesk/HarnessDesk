@@ -56,7 +56,10 @@ import { LEDGER, SCAN, USAGE } from './usage.mjs'
 const BOARD = [
   { title: 'Add 502 to the retryable status set', detail: 'Only 503 and 504 are listed today, so a bad gateway surfaces as a failed order.' },
   { title: 'Cap the backoff and add jitter', detail: 'Flat 200ms × 3 is three failures in 600ms against a gateway that is still restarting.' },
-  { title: 'Cover both in retry.test.ts', detail: 'A 502 that recovers on the second attempt, and one that never does.' },
+  // Depends on the two cards above (by their position in this array,
+  // resolved to real ids once each is added) — the dependency mark the
+  // README's own "Board, expanded" still names.
+  { title: 'Cover both in retry.test.ts', detail: 'A 502 that recovers on the second attempt, and one that never does.', dependsOn: [0, 1] },
   { title: 'Make the webhook receiver idempotent', detail: 'Key on the delivery id so a redelivery cannot charge twice.' },
   { title: 'Decide the alert threshold for retry storms', detail: 'Needs a number from whoever owns the on-call rota.' },
 ]
@@ -252,6 +255,18 @@ try {
     await sleep(900)
   }
   await stageAnswers()
+
+  /**
+   * A lane engineered to be behind pace (`usage.mjs`'s own comment on why —
+   * three full "What is left" cards on the dashboard scene, not one) is a
+   * lane real enough to also raise `lib/usage-alerts.ts`'s own "will run out
+   * before it refills" banner, anywhere in the app, on a poll this rig never
+   * controls the timing of — a real product behaviour, not a rig artefact,
+   * and not one any scene here is about. Muted once, the same "stop showing
+   * this" a person reaches from the notice itself (`setNoticeMuted`), so no
+   * scene's frame carries it.
+   */
+  await cdp.eval(`${STORE}.setNoticeMuted('usage:pace', true); ${STORE}.setNoticeMuted('usage:spent', true); true`).catch(() => {})
 
   /**
    * Nothing is written until this passes. See `audit.mjs` for what it asks and
@@ -474,6 +489,20 @@ try {
   }
 
   /**
+   * Gives the docked panel currently showing (board and git both mount to
+   * `right` by default, `panels/builtins.tsx`) the whole window — the same
+   * `zoomPanel(area, 'content')` its own maximise control calls
+   * (`panels/mount.tsx`'s `zoomScope`, which is `'content'` for every dock
+   * and `'window'` only for a pane inside `main`) — for the README's
+   * "expanded" board and repository-history stills, which need the full
+   * window rather than a panel sharing it with the conversation beside it.
+   */
+  const expandPaneOf = async () => {
+    await cdp.eval(`${STORE}.zoomPanel('right', 'content'); true`)
+    await sleep(500)
+  }
+
+  /**
    * Click by what it says, not by where it is — a coordinate is one build's
    * layout.
    *
@@ -621,6 +650,10 @@ rules:
   }
 
   let roomId = null
+  /** The five `BOARD` cards' real ids, in `BOARD`'s own order, once `stageRoom` has added them. */
+  let boardCardIds = []
+  /** Undoes the `board` scene's own temporary commit — see its `finish`. */
+  let boardRevert = null
   const stageRoom = async () => {
     if (roomId) return roomId
     const keys = []
@@ -636,6 +669,23 @@ rules:
       `${STORE}.createGoal({ root: ${q(REPO)}, sentence: 'Checkout hardening' }).then((view) => view.goal.id)`,
       60_000,
     )
+    // Added before any seat is kept: a kept seat's standing order is sent as
+    // its own first turn immediately (`host.ts`'s `#orderSeat`), and
+    // `agent.mjs`'s `playClaim` runs on that very first prompt — a card it
+    // is meant to claim has to already exist on the board by then, or the
+    // real `claim_work` call it makes finds nothing there yet and is
+    // refused. `dependsOn` resolves each job's own array indices to the
+    // real ids `team/add` hands back, in `BOARD`'s own order.
+    const ask = (method, params) => cdp.eval(`${STORE}.transport.request(${q(method)}, ${q(params)})`, 60_000).catch(() => {})
+    boardCardIds = []
+    for (const job of BOARD) {
+      const dependsOn = job.dependsOn?.map((i) => boardCardIds[i]).filter((id) => id !== undefined)
+      const added = await cdp.eval(
+        `${STORE}.transport.request('team/add', ${q({ room: roomId, title: job.title, detail: job.detail, ...(dependsOn?.length ? { dependsOn } : {}) })}).then((intent) => intent.id)`,
+        60_000,
+      ).catch(() => null)
+      boardCardIds.push(added)
+    }
     for (const runtime of roomRuntimes) {
       if (runtime === 'codex') {
         // The native Codex adapter has no `room-codex` identity Agent
@@ -683,13 +733,11 @@ rules:
       keys.push(key)
     }
 
-    /* Work on the board and words in the chat, through the host's own verbs.
-       An empty room photographs as "Nothing said yet" beside "Nothing on the
-       board", which is an accurate picture of a room nobody has used and a
+    /* Words in the chat, through the host's own verbs — the board itself is
+       already staged, above. An empty room photographs as "Nothing said
+       yet", which is an accurate picture of a room nobody has used and a
        useless one of the feature. `store.transport` is public, so these are
        the same calls the interface makes when a person types them. */
-    const ask = (method, params) => cdp.eval(`${STORE}.transport.request(${q(method)}, ${q(params)})`, 60_000).catch(() => {})
-    for (const job of BOARD) await ask('team/add', { room: roomId, title: job.title, detail: job.detail })
     // A seat opened through a bound Agent (`goal/seat`, `seed.mjs`'s
     // `room-<id>`) carries a standing order, unlike the bare `{runtime,
     // sessionId}` card this replaced — so the fixture's edit tool calls now
@@ -1081,10 +1129,12 @@ rules:
       await sleep(1400)
     } },
 
-    /** The repository pane: a real graph over real git objects. */
+    /** The repository pane, expanded: a real, tangled graph over real git objects. */
     git: { leaveOverlay: true, expect: 'History', run: async () => {
       await cdp.eval(`${STORE}.openGitHistory(${q(REPO)}); true`)
       await sleep(2200)
+      await expandPaneOf()
+      await sleep(400)
     } },
 
     /** CodeMirror behind the canonical editor theme bridge. */
@@ -1143,11 +1193,74 @@ rules:
       }
     } },
 
-    /** A room of agents, and the board they claim work from. */
+    /** The board, expanded to the full window: every column populated. */
+    /**
+     * The board, expanded to the full window: every column populated —
+     * two cards genuinely claimed (a real `claim_work` call, `agent.mjs`'s
+     * `playClaim`, wired from `seed.mjs`'s `ROOM_CLAIM`) for Working, the
+     * dependent third card for a dependency mark in To do, a person's own
+     * `block` for Needs you, and the webhook card's own named check, caught
+     * running, for In review — the one column nothing this board already
+     * does can produce, so this scene alone slows that check (and undoes
+     * the commit that does it in `finish`, below).
+     */
     board: { leaveOverlay: true, expect: 'Ready', run: async () => {
       await stageRoom()
+      const reviewCard = boardCardIds[3]
+      const needsCard = boardCardIds[4]
+      if (needsCard != null) {
+        await cdp.eval(
+          `${STORE}.transport.request('team/intent', ${q({ room: roomId, id: needsCard, action: 'block', reason: 'Needs a number from whoever owns the on-call rota.' })})`,
+          60_000,
+        ).catch(() => {})
+      }
+      if (reviewCard != null) {
+        await cdp.eval(
+          `${STORE}.transport.request('team/intent', ${q({ room: roomId, id: reviewCard, action: 'done' })})`,
+          60_000,
+        ).catch(() => {})
+      }
       await cdp.eval(`${STORE}.openTeamBoard(${q(roomId)}); true`)
-      await sleep(2200)
+      await sleep(1600)
+      await expandPaneOf()
+      if (reviewCard != null) {
+        const checksPath = join(REPO, '.harnessdesk', 'checks.yml')
+        const before = execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+        writeFileSync(checksPath, 'verify: { run: "node --test && sleep 8", timeout: 120 }\n')
+        execFileSync('git', ['-C', REPO, 'add', '-A'], { stdio: 'pipe' })
+        execFileSync('git', ['-C', REPO, 'commit', '-q', '-m', 'shots: slow the verify check for one frame'], { stdio: 'pipe' })
+        boardRevert = () => {
+          try {
+            execFileSync('git', ['-C', REPO, 'reset', '-q', '--hard', before], { stdio: 'pipe' })
+          } catch {
+            // best effort — the scene's own frames already exist either way
+          }
+        }
+        const menu = await press({ selector: `button[aria-label="What to do with #${reviewCard}"]` }, { wait: 600 })
+        if (menu && (await click('Run verify', '[role="menu"]'))) {
+          const armed = await waitForSnapshot(
+            () =>
+              cdp.eval(
+                `[...document.querySelectorAll('[role="alertdialog"] button')].some((one) => one.textContent?.trim() === 'Run verify' && !one.disabled)`,
+              ),
+            Boolean,
+            { attempts: 50 },
+          ).catch(() => false)
+          if (armed) await click('Run verify', '[role="alertdialog"]')
+          // Caught mid-run, well before the extra `sleep 8` completes: the
+          // only real source `board-facts.ts`'s `settled` has for "In
+          // review" is a check the board is honestly still waiting on.
+          await sleep(1800)
+        }
+      }
+      // A usage notice can land any time a seated agent's own turn runs —
+      // dismissed once already inside `stageRoom`, but the extra turns and
+      // waits above give a later one room to appear before the frame is
+      // taken.
+      await dismissNotices(cdp).catch(() => {})
+    }, finish: () => {
+      boardRevert?.()
+      boardRevert = null
     } },
 
     /** The same room, as a room: several agents' turns side by side. */
