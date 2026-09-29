@@ -17,13 +17,13 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/turn-dark.gif" />
-    <img src="docs/images/app/turn-light.gif" width="900"
-         alt="A turn arriving in HarnessDesk: the agent's reasoning appears first, then its tool calls one at a time — reading a file, grepping for a status code, editing it — while the task list in the sidebar ticks over, ending with a summary of what changed." />
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/hero-dark.gif" />
+    <img src="docs/images/app/hero-light.gif" width="900"
+         alt="Claude Code streaming a fix to the checkout retry policy — reasoning, a file read, a search, an edit, then a summary — while the browser pane pops open beside it and shows the storefront's checkout completing." />
   </picture>
 </p>
 
-<p align="center"><em>A turn, as it arrives. Reasoning, then the tool calls, then what changed.</em></p>
+<p align="center"><em>One agent's fix streams in; the browser checks it, right beside the conversation.</em></p>
 
 ---
 
@@ -72,65 +72,47 @@ Full positioning: [VISION.md](VISION.md).
 
 ## What it looks like
 
-### A room, and a board
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/flow-dark.gif" />
+    <img src="docs/images/app/flow-light.gif" width="900" alt="A Fix and review flow starting from its dry run: the fixer's card moves to Working, three reviewer cards open, one requests changes, the fixer answers, every reviewer approves, and the goal settles on Needs you for the merge." />
+  </picture>
+</p>
 
-Four vendors' agents on one piece of work, claiming from one queue. Each
-has said something different about the same change, and each can see what the
-others took.
+<p align="center"><em>One fixer, three reviewers, the merge stays yours — a flow runs the loop.</em></p>
 
 <p align="center">
   <a href="docs/images/app/board-light.png">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/board-dark.png" />
-      <img src="docs/images/app/board-light.png" width="900" alt="Four agents from four vendors — Claude, Gemini, Copilot, and Antigravity — in one room, each with an attributed message about the same change, beside a shared board whose To do column holds five unclaimed cards." />
+      <img src="docs/images/app/board-light.png" width="900" alt="The board, expanded to the full window: To do, Working, Needs you and In review each holding real cards — a dependency mark, an owner's name, file tags, and a check still running." />
     </picture>
   </a>
 </p>
 
-### Or hand the room a policy
-
-A flow declares who does what and what moves work between them — so a loop
-runs without you routing every card. Roles, the rules between them, and the
-steps you keep for yourself. Dry run first: it spends nothing and says exactly
-what it would open.
-
-<p align="center">
-  <a href="docs/images/app/flow-light.png">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/flow-dark.png" />
-      <img src="docs/images/app/flow-light.png" width="900" alt="A Goal named “Checkout hardening” just created through the New session dialog, in the storefront project: an empty board and chat, “Nothing said yet”, waiting for a flow or an agent to be added to it." />
-    </picture>
-  </a>
-</p>
-
-### What is left, and what it cost
-
-Every plan and every account on one screen — which window resets when,
-which lane is spent behind a healthy account, and what the work cost at public
-rates.
+<p align="center"><em>Every column, at once — claimed, blocked, checked, or waiting on you.</em></p>
 
 <p align="center">
   <a href="docs/images/app/dashboard-light.png">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/dashboard-dark.png" />
-      <img src="docs/images/app/dashboard-light.png" width="900" alt="The Dashboard's Overview: a rail of views — Overview, Plans, Spend, Activity, Projects — an All accounts scope in the header, a Paid/Value/Turns/Tokens strip, the accounts that need attention, and what it cost beside where it went." />
+      <img src="docs/images/app/dashboard-light.png" width="900" alt="The Dashboard's Overview: a Paid/Value/Turns/Tokens strip, three accounts that need attention — one genuinely low, two behind pace — and what it cost beside where it went." />
     </picture>
   </a>
 </p>
 
-### The repository, beside the work
-
-History, branches and worktrees in a pane next to the conversation that is
-changing them.
+<p align="center"><em>What every plan has left, and what the work actually cost.</em></p>
 
 <p align="center">
   <a href="docs/images/app/git-light.png">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/git-dark.png" />
-      <img src="docs/images/app/git-light.png" width="900" alt="The repository pane beside a new session: a branch graph with two feature branches and a merge back into main, drawn over the real git history of the open folder." />
+      <img src="docs/images/app/git-light.png" width="900" alt="The repository history pane, expanded to the full window: nine branches off main, several merges, three tags, and two branches still open — a real, tangled history rather than a straight line." />
     </picture>
   </a>
 </p>
+
+<p align="center"><em>The repository's own history, in the same window as the work.</em></p>
 
 ## Getting started
 
