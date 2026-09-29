@@ -18,6 +18,7 @@
     "sourceMap": true,
     "composite": true,
     "incremental": true,
+    "types": ["node"],
     "forceConsistentCasingInFileNames": true
   }
 }

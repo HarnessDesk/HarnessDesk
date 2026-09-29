@@ -204,7 +204,7 @@ test('a Cline row moved with --data-dir is read from there, sign-in and spend to
 
   // Unmoved, it falls back to the environment-based default as before.
   const plain = localUsageFor(row({ id: 'cline', command: 'cline', args: ['--acp'] }), knowledge('cline'))
-  assert.ok(plain?.root?.endsWith('/.cline/data/db/sessions.db'), plain?.root)
+  assert.ok(plain?.root?.endsWith('/.cline/data/db/sessions.db'), plain?.root ?? 'Cline default path was missing')
 })
 
 test('a row isolated with a bare HOME moves every fallback that would otherwise read the desk’s own account', () => {

@@ -21,7 +21,7 @@ import { audit, filesUnder, globToRegExp, main, projectsOf, prune, remove, TEST_
  * under test.
  */
 
-const TSC = createRequire(import.meta.url).resolve('typescript/bin/tsc')
+const TSC = join(dirname(createRequire(import.meta.url).resolve('typescript/package.json')), 'bin/tsc')
 const SCRIPT = fileURLToPath(new URL('./prune-dist.mjs', import.meta.url))
 
 /** A package the way every Node package here is configured, near enough to compile. */

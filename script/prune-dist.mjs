@@ -80,7 +80,7 @@ import { existsSync, readdirSync, realpathSync, rmdirSync, rmSync } from 'node:f
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import ts from 'typescript'
+import ts from '@typescript/typescript6'
 
 import { FIXTURES } from './copy-fixtures.mjs'
 

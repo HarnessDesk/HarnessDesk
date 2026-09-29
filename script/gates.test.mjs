@@ -61,7 +61,7 @@ import { offendersIn } from './check-secrets.mjs'
 import { methodsIn, reachedBy } from './check-reachable.mjs'
 import { DOCUMENTATION } from './check-layering.mjs'
 import { TEST_GLOB, distSegments, globToRegExp } from './prune-dist.mjs'
-import ts from 'typescript'
+import ts from '@typescript/typescript6'
 
 /**
  * A clean scan, derived rather than listed.

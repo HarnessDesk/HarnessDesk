@@ -151,6 +151,6 @@ test('the path in the sentence is a literal to a shell, whatever the page called
   })
   const parts = (await tools.get('browser_page')!.execute({ action: 'pdf' })) as { type: string; text?: string }[]
   const quoted = /at ('(?:[^']|'\\'')*')\. It/.exec(parts[0]!.text ?? '')?.[1]
-  assert.ok(quoted, parts[0]!.text)
+  assert.ok(quoted, parts[0]!.text ?? 'browser tool returned no text')
   assert.equal(spawnSync('/bin/sh', ['-c', `printf %s ${quoted}`], { encoding: 'utf8' }).stdout, `/tmp/hd-pdf-x/${title}.pdf`)
 })
