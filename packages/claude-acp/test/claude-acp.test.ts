@@ -118,10 +118,10 @@ test('the bridge uses the official Claude ACP package contract', () => {
   }
   assert.deepEqual(manifest.dependencies, {
     '@harnessdesk/protocol': 'workspace:*',
-    '@agentclientprotocol/claude-agent-acp': '0.79.0',
-    '@agentclientprotocol/sdk': '1.4.0',
-    '@anthropic-ai/claude-agent-sdk': '0.3.277',
-    '@modelcontextprotocol/sdk': '1.30.0',
+    '@agentclientprotocol/claude-agent-acp': '0.81.2',
+    '@agentclientprotocol/sdk': '1.5.0',
+    '@anthropic-ai/claude-agent-sdk': '0.3.283',
+    '@modelcontextprotocol/sdk': '1.30.1',
     zod: '4.6.5',
   })
   assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@zed-industries/claude-code-acp'), false)
