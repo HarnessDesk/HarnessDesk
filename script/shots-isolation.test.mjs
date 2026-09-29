@@ -771,7 +771,10 @@ test('reseeding clears a leftover browser-pane layout, closing the leak an earli
   seed()
 
   const state = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
-  assert.deepEqual(state.preferences, {}, 'a leftover panel/dock layout survived reseeding')
+  // `preferences` starts fresh on every reseed (seed.mjs's own doc comment),
+  // so nothing survives but what this seed itself writes — its own
+  // `usageOff` list, never the previous take's `layouts`.
+  assert.deepEqual(Object.keys(state.preferences).sort(), ['usageOff'], 'a leftover panel/dock layout survived reseeding')
   assert.doesNotMatch(readFileSync(join(home, 'state.json'), 'utf8'), /\/Users\/someone\/work\/browse/)
 })
 

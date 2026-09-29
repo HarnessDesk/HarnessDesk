@@ -188,6 +188,12 @@ export const REPORTS = [
     runtime: 'antigravity',
     account: 'Signed in',
     plan: null,
+    // A fee, even though the plan itself is unverified: the Overview's Paid
+    // total is prorated per account regardless of whether that account's own
+    // lanes are known (`lib/paid.ts`), so a real desk with this account
+    // signed in still has a fee on file for it — leaving this null is what
+    // made the strip's "fee not set for N" caption count this row.
+    billing: { kinds: ['windows'], fee: { amount: 20, currency: 'USD', period: 'month', source: 'vendor' } },
     lanes: [],
     credits: null,
     spend: null,

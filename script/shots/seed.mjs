@@ -426,7 +426,19 @@ writeFileSync(
         name: repo.name,
         lastOpenedAt: Date.now() - n * 60_000,
       })),
-      preferences: {},
+      preferences: {
+        // The five agents `usage.mjs` has never written a plan-usage report
+        // for, plus Windsurf's own deliberate signed-out state
+        // (`accounts.mjs`), are excluded from usage tracking the same way a
+        // real desk's own Settings › Usage toggle would — that is what keeps
+        // them off the Usage page's "tracked" roster (`Usage.tsx`'s
+        // `usageOff`) rather than turning up there as a card with no fee and
+        // no plan, or (Windsurf) as the "N agents don't report usage" line.
+        // The twelve-agent roster everywhere else (sidebar, board, room,
+        // repository) is untouched; this only scopes what the dashboard
+        // photographs.
+        usageOff: ['windsurf', 'amp', 'opencode', 'goose', 'cline', 'openclaw'].map(rigRuntimeId),
+      },
     },
     null,
     2,

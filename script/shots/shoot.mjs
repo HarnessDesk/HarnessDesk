@@ -147,7 +147,6 @@ try {
         const real = s.transport.request.bind(s.transport)
         const canned = {
           'usage/reports': ${q(USAGE)},
-          'usage/ledger': ${q(LEDGER)},
           'usage/scan': ${q(SCAN)},
           'runtime/skills': [
             { name: 'review', description: 'Review the current changes and report actionable findings with reproducible checks.', enabled: true, toggleable: false },
@@ -172,6 +171,65 @@ try {
              anticipated gets an invented answer rather than its own store. */
           if (method === 'runtime/account') {
             return Promise.resolve(accounts[params?.runtime] ?? anonymous)
+          }
+          /*
+           * \`usage/ledger\`'s only fixture, \`LEDGER\`, is a full year wide (the
+           * Activity heatmap's own 365-day grid). Answering every query with
+           * that same object, whatever \`params.days\` asked for, is what made
+           * the Overview strip's 30-day headline sum a year of spend while its
+           * own caption still said "Last 30 days" — an artefact of this stub,
+           * not of the app. Real days requested are honoured here by slicing
+           * \`daily\` to the trailing window and re-deriving every total from
+           * that slice, so a 365-day ask (the Activity view) still gets the
+           * whole year and a 30- or 60-day ask gets only its own days.
+           */
+          if (method === 'usage/ledger') {
+            const full = ${q(LEDGER)}
+            const days = Math.max(1, Math.min(full.days, Number(params?.days) || 30))
+            const last = full.daily.length ? full.daily[full.daily.length - 1].day : Date.now()
+            const cutoff = last - (days - 1) * 86_400_000
+            const daily = full.daily.filter((row) => row.day >= cutoff)
+            const sums = new Map()
+            for (const row of daily) {
+              const acc = sums.get(row.runtime) ?? { tokens: 0, cost: 0, turns: 0 }
+              acc.tokens += row.tokens
+              acc.cost += row.cost
+              acc.turns += row.turns
+              sums.set(row.runtime, acc)
+            }
+            const rows = full.rows.map((row) => {
+              const acc = sums.get(row.runtime) ?? { tokens: 0, cost: 0, turns: 0 }
+              return { ...row, tokens: acc.tokens, cost: Math.round(acc.cost * 100) / 100, turns: acc.turns }
+            })
+            const totalCost = Math.round(rows.reduce((sum, row) => sum + (row.cost ?? 0), 0) * 100) / 100
+            const totalTokens = rows.reduce((sum, row) => sum + (row.tokens ?? 0), 0)
+            const totalTurns = rows.reduce((sum, row) => sum + (row.turns ?? 0), 0)
+            const scale = days / full.days
+            return Promise.resolve({
+              ...full,
+              days,
+              totalCost,
+              totalTokens,
+              daily,
+              rows,
+              coverage: {
+                ...full.coverage,
+                priced: Math.round(full.coverage.priced * scale),
+                unpriced: Math.round(full.coverage.unpriced * scale),
+                estimated: Math.round(full.coverage.estimated * scale),
+                daysCovered: days,
+                daysRequested: days,
+              },
+              totals: {
+                input: Math.round(full.totals.input * scale),
+                output: Math.round(full.totals.output * scale),
+                cacheRead: Math.round(full.totals.cacheRead * scale),
+                cacheWrite: Math.round(full.totals.cacheWrite * scale),
+                reasoning: 0,
+                requests: totalTurns,
+                turns: totalTurns,
+              },
+            })
           }
           return method in canned ? Promise.resolve(canned[method]) : real(method, params)
         }
