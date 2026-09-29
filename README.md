@@ -70,38 +70,149 @@ Full positioning: [VISION.md](VISION.md).
   HarnessDesk offers each one an MCP server carrying its 73 built-in plugin
   tools, so a capability written once is available wherever you are working.
 
-## What it looks like
+## What you can run
 
-### A room, and a board
-
-Four vendors' agents on one piece of work, claiming from one queue. Each
-has said something different about the same change, and each can see what the
-others took.
+A **room** is several vendors' agents sharing one board on one piece of work.
+A **flow** is a declared policy for that room — who does what, what moves
+work from one to the next, and which step stays a person's — so a loop of
+agents can run without anyone routing every card by hand. The same board is
+what a person drives by hand when there is no flow at all.
 
 <p align="center">
+  <a href="docs/images/app/room-light.png">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/room-dark.png" />
+      <img src="docs/images/app/room-light.png" width="900" alt="A room named Checkout hardening with four agents present — Claude, Gemini, Copilot, and Antigravity — each having just answered the same question about retrying a 502 in the checkout flow, in a shared chat panel next to a board showing five unclaimed cards and four cards being worked, one per agent." />
+    </picture>
+  </a>
   <a href="docs/images/app/board-light.png">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/board-dark.png" />
-      <img src="docs/images/app/board-light.png" width="900" alt="Four agents from four vendors in one room, coordinating over a shared board: the To do column holds five unclaimed cards, the Working column holds four cards in progress, one per agent — Claude, Gemini, Copilot, and Antigravity — each showing what it is working on." />
+      <img src="docs/images/app/board-light.png" width="900" alt="The same room's board: a To do column with five unclaimed cards and a Working column with four cards in progress, one per agent — Claude, Gemini, Copilot, and Antigravity — each showing what it claimed." />
     </picture>
   </a>
 </p>
 
-### Or hand the room a policy
+Seven shapes of that come up often enough to be worth naming. Each row below
+is a real flow file in this repository, not a hypothetical.
 
-A flow declares who does what and what moves work between them — so a loop
-runs without you routing every card. Roles, the rules between them, and the
-steps you keep for yourself. Dry run first: it spends nothing and says exactly
-what it would open.
+| Use case | Flow file | Roles | What decides it |
+| --- | --- | --- | --- |
+| Research to accepted build | not one shipped file — see below | researcher, then an implementer, gated by a person | a person, on committed evidence |
+| Two competitors and a judge | [`comparison.yml`](packages/server/flows/comparison.yml) | 2 isolated implementers, a check, an agent judge | the judge's pick, merged by a person |
+| Every pull request, reviewed blind | [`review-pr.yml`](packages/server/flows/review-pr.yml) | a fixer, 2 blind reviewers, a check | unanimous approval + an open PR, merged by a person |
+| An issue stream, several implementers, a loop | [`fix-and-review.yml`](.harnessdesk/flows/fix-and-review.yml) via a `triggers.yml` issue trigger | a fixer, 3 blind reviewers, looped | unanimous approval, merged by a person |
+| Two developers who agree the split first | not one shipped file — see below | two proposers, an integrator, 2 isolated devs, a join step | the recorded split, enforced by the board |
+| Build a game, two agents play it | not one shipped file — the deciding primitive is [`mechanical-contest.yml`](packages/server/flows/mechanical-contest.yml) | a maker, 2 isolated players, a scripted match | a script's exit code |
+| Two agents compete in a web game | same primitive as above, with a browser lane | 2 isolated players, a scripted match | a script's exit code |
+
+### Research to accepted build
+
+A researcher gathers material and commits it — [`investigation.yml`](packages/server/flows/investigation.yml)
+ships exactly that: one agent, `diff` evidence, a person reading the committed
+answer before closing it. [`alignment.yml`](packages/server/flows/alignment.yml)
+ships the other half: an agent proposes a plan, a person has to agree it
+before an implementer is allowed to build it. The fuller chain this use case
+names in `docs/flows.md` — two analysts debating a position blind, then
+rebutting it sighted, then a fresh review of the two of them against their own
+requirement — composes from the same primitives (an independent round, an
+evidence-gated rule, a fresh Seat reviewing its own earlier work) but is not
+yet one flow file you can point at; you write it from those pieces, the way
+`alignment.yml` and `investigation.yml` were written. **Partly shipped.**
+
+### Two competitors and a judge
+
+`comparison.yml` gives one task to two implementers in isolated worktrees so
+neither can read the other's attempt, runs `pnpm verify` on each, hands both
+to a judge agent that has to say which it would keep and what the other did
+better, and leaves the merge to a person, on exactly the revision the judge
+picked. `.harnessdesk/flows/race.yml` — what `/race` runs — is the lighter
+version of the same shape: two isolated attempts and a judge, without the
+check step. What you keep for yourself: the merge, and the choice of which
+model competes as which seat. Evidence: a `review` record naming the pick and
+the reason, bound to the winning revision.
+
+### Every pull request, reviewed blind
+
+A project's own `triggers.yml`, in its `.harnessdesk` folder, arms `review-pr.yml` against its own
+pull requests — opened or pushed — and the desk polls the forge itself; no
+agent watches anything. Each firing seats a fixer and two independent
+reviewers who read the diff without seeing each other's comments until their
+round closes, then a mechanical check, then a person who merges only once
+every reviewer approved and the pull request the review actually judged is
+still open — a later push makes the old review stale and reopens a round at
+the new head automatically. What you keep for yourself: arming the trigger in
+the first place, and the merge. Evidence: each review posted to the pull
+request, threaded, at the head it read.
+
+### An issue stream, several implementers, a loop
+
+The same `triggers.yml` mechanism, aimed at issues instead of pull requests —
+label one `agent-ready` and it opens its own Goal, its own branch and its own
+pull request — with `concurrency` capping how many issues are worked at once;
+that number is "how many agents," not a headcount you seat by hand. Point it
+at [`.harnessdesk/flows/fix-and-review.yml`](.harnessdesk/flows/fix-and-review.yml),
+the flow this repository's own agents ran on themselves for a day: a fixer
+publishes a pull request, three reviewers read it blind in one round, any
+`request-changes` sends it back for a fixer round that answers every finding,
+and the loop repeats until every reviewer approves in the same round — at
+which point a person merges. Nothing here auto-merges: `main` here carries no
+branch protection, so the referee step is load-bearing, not decorative. What
+you keep for yourself: labelling the issue, arming the trigger, and the
+merge. Evidence: a findings ledger with a stable id per blocking comment, and
+a receipt that freezes what was still open when the run ended.
 
 <p align="center">
   <a href="docs/images/app/flow-light.png">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/flow-dark.png" />
-      <img src="docs/images/app/flow-light.png" width="900" alt="Starting a room with a flow: a Flow select reading “Fix and review”, and beneath it the dry run — four agents it would open, each with its role, model and permission, and a trace of how the loop would go from fixer to reviewer to the person." />
+      <img src="docs/images/app/flow-light.png" width="900" alt="A dialog for naming a new room, mid-fill: Fix and review chosen as its flow, “Retry the checkout call on a 502” as what to fix, and a dry run beneath it listing the four seats it would open — one fixer on Codex and three reviewers on Cursor's Gemini 3.8 Flash — each with its grant, and the round-by-round trace from fixer to reviewer to referee, ending in a note about what running the loop costs beyond opening the seats." />
+    </picture>
+  </a>
+  <a href="docs/images/app/flow-board-light.png">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/flow-board-dark.png" />
+      <img src="docs/images/app/flow-board-light.png" width="900" alt="The same flow mid-run: a Ready column holding three review cards — Review round 2, 1 of 3 through 3 of 3 — each tagged reviewer, each depending on the fixer's pull request, with Waiting, Claimed and Blocked columns all empty beside them." />
     </picture>
   </a>
 </p>
+
+### Two developers who agree the split first
+
+The mechanism this needs is shipped even though no bundled flow file is: an
+agent that finishes a card can record an agreed split of file patterns, one
+list per card of the next round, and the board refuses to record a split
+whose parts overlap and refuses to let a card claim paths outside its own
+list — enforced, not merely agreed to. What is not built in is the round
+shape around it (two proposers debating the split, a person admitting it, an
+integration step) or the `integrator` role it needs; you declare those the
+same way `comparison.yml` declares its judge. **Partly shipped**: the split
+enforcement is real; the seven-role flow is something you write.
+
+### Build a game, two agents play it
+
+A `check` role can already decide an outcome purely from a script's exit
+status — `mechanical-contest.yml` ships exactly that for two isolated
+implementations, mapping exit codes to `first`, `second`, `draw`, or a
+`no-contest` when the script never ran cleanly, with a person merging whatever
+it decided. That is the same primitive a maker-then-players shape needs for
+its match step: a headless referee a script can run and report on, never an
+agent's own claim of having won. What is not shipped is a `game-builder` or
+`game-player` role — you write the brief for the game the same way you'd
+write any other implementer's, and require it to ship the headless referee
+that makes the last step checkable at all. **Partly shipped.**
+
+### Two agents compete in a web game
+
+The same shape, with more for isolation to cover: a browser profile per
+player so two isolated Seats do not end up sharing one login or one game
+session, and a port range each so two dev servers can both start. Isolated
+lanes already mean more than a worktree — a checkout, and now a browser
+profile and a port range are the same mechanism, not a script the flow author
+has to write by hand. The browser is already every agent's tool through the
+built-in plugin, so no player needs a vendor-specific driver; what decides the
+match is still a script's exit code or a result file it commits, never a
+player's own report. **Partly shipped**, for the same reason as above.
 
 ### What is left, and what it cost
 
@@ -116,6 +227,7 @@ rates.
       <img src="docs/images/app/dashboard-light.png" width="900" alt="The Dashboard's Overview: a rail of views — Overview, Plans, Spend, Activity, Projects — an All accounts scope in the header, a Paid/Value/Turns/Tokens strip, the accounts that need attention, and what it cost beside where it went." />
     </picture>
   </a>
+  <!-- dashboard-activity image goes here -->
 </p>
 
 ### The repository, beside the work
