@@ -281,7 +281,7 @@ test('an evidence guard naming a check role’s own id opens the round once that
 version: 2
 name: Fix then gate, guarded by the gate role's own id
 roles:
-  author: { kind: agent, uses: writer }
+  author: { kind: agent, uses: writer, grant: edit }
   gate: { kind: check, run: "pnpm verify", exits: { "0": pass }, otherwise: fail, timeout: 30 }
   person: { kind: person, outcomes: [shipped] }
 seed: { role: author, title: Write it }
@@ -300,6 +300,9 @@ rules:
   const board = rig.board(run.goal)
   assert.equal(board.intents.find((one) => one.role === 'gate')?.outcome, 'pass')
   assert.ok(board.intents.find((one) => one.role === 'person'), 'the guard, naming the role’s own id, opened the person round once the check passed')
+
+  const unknown = GUARDED_BY_ROLE_ID.replace('check: gate', 'check: unknown')
+  await assert.rejects(() => rig.start(unknown, [agent('writer', ['done'])]), /Rule "ship" waits for a check called "unknown".*name a check role or its command/)
 })
 
 test('a writer with uncommitted changes stops the check round before any command runs', async (t) => {
