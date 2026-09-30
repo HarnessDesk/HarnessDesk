@@ -2,13 +2,13 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent }
 
 import { ArrowLeftIcon, ArrowRightIcon } from '../../components/Icons'
 import { dataUrlBytes, formatBytes } from '../../lib/images'
+import { DialogBody, DialogHead } from './ModalDialog'
+import { Text } from './Settings'
 import { Button } from '../ui/button'
 import {
   Dialog as DialogRoot,
   DialogContent,
   DialogDescription,
-  DialogHeader,
-  DialogTitle,
 } from '../ui/dialog'
 
 export interface LightboxImage {
@@ -75,20 +75,21 @@ export const Lightbox = ({
       <DialogContent
         ref={sheet}
         data-lightbox=""
+        showCloseButton={false}
         /* The sheet takes the focus, as every sheet here does (SkillSheet,
            ModalDialog with no field): it wears no ring, Escape and the arrows
            reach it, and Tab goes on to its controls. Base UI's own default
            would put a ring on the first of them, the Previous step. */
         initialFocus={() => sheet.current}
         onKeyDown={step}
-        className="h-[min(88vh,900px)] w-[min(88vw,1200px)] grid-rows-[auto_minmax(0,1fr)] sm:max-w-none"
+        bleed
+        className="grid h-[min(88vh,900px)] w-[min(88vw,1200px)] grid-rows-[auto_minmax(0,1fr)]"
       >
-        {/* The end margin keeps a long name clear of the close in the corner. */}
-        <DialogHeader className="mr-8 min-w-0">
-          <DialogTitle className="truncate">{image.name}</DialogTitle>
-          {facts && <DialogDescription>{facts}</DialogDescription>}
-        </DialogHeader>
-        <figure className="m-0 grid min-h-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
+        <DialogHead title={image.name}>
+          {facts && <DialogDescription className="m-0"><Text role="meta">{facts}</Text></DialogDescription>}
+        </DialogHead>
+        <DialogBody layout="reading" className="grid min-h-0">
+        <figure className="m-0 grid h-full min-h-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
           {several && (
             <Button
               variant="floating"
@@ -121,6 +122,7 @@ export const Lightbox = ({
             </Button>
           )}
         </figure>
+        </DialogBody>
       </DialogContent>
     </DialogRoot>
   )
