@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -47,6 +47,7 @@ interface Rig {
     logged: string[]
   }
   readonly dir: string
+  readonly teamPort: TeamPort
 }
 
 const peer = (over: Partial<TeamPeer> & { sessionId: string }): TeamPeer => ({
@@ -114,7 +115,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig & {
     await team.flush()
     await rm(dir, { recursive: true, force: true })
   })
-  return { team, port, dir, room }
+  return { team, port, dir, teamPort, room }
 }
 
 const codex = { runtime: 'codex', sessionId: 'c1' }
@@ -4302,4 +4303,35 @@ test("a message's label names its sender's ceiling, and asks the receiver not to
   const [plain] = splitContext(port.sent.at(-1)?.text ?? '').injections
   assert.equal(plain?.label, 'Message from Claude Code — “k1”')
   assert.equal(plain?.text, `Thanks.\n\n${AGENT_MESSAGE_NOTICE}`)
+})
+
+test('wire rooms carry a resolved root for links without changing the saved room', async (t) => {
+  const { team, port, dir, teamPort } = await rig(t)
+  const parent = await mkdtemp(join(tmpdir(), 'harnessdesk-room-link-'))
+  t.after(() => rm(parent, { recursive: true, force: true }))
+  const real = join(parent, 'widgets')
+  const link = join(parent, 'linked-widgets')
+  await mkdir(real)
+  await symlink(real, link)
+  const canonical = await realpath(real)
+
+  const linked = await team.createRoom(link, 'Linked widgets')
+  const plain = await team.createRoom(canonical, 'Plain widgets')
+  await team.flush()
+  const realRootOf = (state: TeamState | undefined) => state?.realRoot
+  assert.equal(realRootOf(team.stateFor(linked.id)), canonical)
+  assert.equal(realRootOf(team.states().find((state) => state.id === linked.id)), canonical)
+  assert.equal(realRootOf(team.roomsFor(link).find((state) => state.id === linked.id)), canonical)
+  assert.equal(realRootOf(port.changed.findLast((state) => state.id === linked.id)), canonical)
+  assert.equal(realRootOf(team.stateFor(plain.id)), undefined)
+
+  const stored = JSON.parse(await readFile(join(dir, `${encodeURIComponent(linked.id)}.json`), 'utf8')) as Record<string, unknown>
+  assert.equal(Object.hasOwn(stored, 'realRoot'), false)
+
+  await rm(real, { recursive: true, force: true })
+  await rm(link, { force: true })
+  const reloaded = new Team(dir, teamPort)
+  await reloaded.load()
+  assert.equal(realRootOf(reloaded.stateFor(linked.id)), undefined)
+  await reloaded.flush()
 })
