@@ -1,11 +1,9 @@
 {
   "lead-off-line": {
-    "count": 59,
+    "count": 26,
     "signatures": {
-      "design.html / adopted / lead-off-line / div > [attachment-group] > [attachment] > [attachment-media]": 4,
       "design.html / dialog / lead-off-line / div > [agent-card] > div > span": 1,
       "design.html / dialog / lead-off-line / div > [publication-card] > div > [icon-tile]": 1,
-      "design.html / empty / lead-off-line / [section-body] > [empty-state] > div > [choice-row] > span": 2,
       "design.html / group / lead-off-line / [data-testid=group-run-stalled-on-a-seat]": 3,
       "design.html / group / lead-off-line / [data-testid=group-run-stopped-on-a-question]": 3,
       "design.html / group / lead-off-line / [data-testid=group-run-stopped-with-a-release-pending]": 3,
@@ -13,7 +11,6 @@
       "design.html / group / lead-off-line / div > aside > [rail-section] > [list-row] > [list-row-lead]": 2,
       "design.html / list / lead-off-line / [section] > [section-body] > [list-rows] > [list-row] > [list-row-lead]": 2,
       "design.html / notices / lead-off-line / div": 1,
-      "design.html / plans-table / lead-off-line / [table-body] > [table-row] > [table-cell] > [button] > span": 27,
       "preview.html / publication-card / lead-off-line / div > [publication-card] > div > [icon-tile]": 1,
       "preview.html / setup-survey / lead-off-line / div > [card] > [list-rows] > [list-row] > [list-row-lead]": 3,
       "preview.html / tasks-session-plan / lead-off-line / [section] > div > [checklist] > [checklist-item] > span": 3,

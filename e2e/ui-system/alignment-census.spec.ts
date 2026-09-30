@@ -69,10 +69,19 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
   const hasIcon = (element: Element) => !!element.querySelector('svg, img')
   const hasText = (element: Element) => (element.textContent ?? '').trim().length > 0
   const visibleLineCount = (element: Element) => {
-    const range = document.createRange()
-    range.selectNodeContents(element)
-    const tops = [...range.getClientRects()].filter(rect => rect.width > 0 && rect.height > 0).map(rect => rect.top)
-    return tops.filter((top, index) => tops.findIndex(candidate => Math.abs(candidate - top) < 1) === index).length
+    const tops: number[] = []
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+    while (walker.nextNode()) {
+      const node = walker.currentNode
+      if (!node.textContent?.trim()) continue
+      const range = document.createRange()
+      range.selectNodeContents(node)
+      tops.push(...[...range.getClientRects()]
+        .filter(rect => rect.width > 0 && rect.height > 0)
+        .map(rect => rect.top))
+    }
+    return tops.sort((a, b) => a - b)
+      .filter((top, index, sorted) => sorted.findIndex(candidate => Math.abs(candidate - top) < 1) === index).length
   }
   const firstLine = (element: Element) => {
     const range = document.createRange()
