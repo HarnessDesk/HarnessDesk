@@ -37,12 +37,20 @@ export const mapAccountActivity = (response: AccountTokenUsage): AccountActivity
       const tokens = tokenCount(bucket?.tokens)
       return tokens === null ? [] : [{ day, tokens }]
     })
+    const lifetimeTokens = tokenCount(response.summary.lifetimeTokens)
+    const peakDailyTokens = tokenCount(response.summary.peakDailyTokens)
+    const currentStreakDays = tokenCount(response.summary.currentStreakDays)
+    const longestStreakDays = tokenCount(response.summary.longestStreakDays)
+    if (
+      days.length === 0 && lifetimeTokens === null && peakDailyTokens === null &&
+      currentStreakDays === null && longestStreakDays === null
+    ) return null
     return {
       days,
-      lifetimeTokens: tokenCount(response.summary.lifetimeTokens),
-      peakDailyTokens: tokenCount(response.summary.peakDailyTokens),
-      currentStreakDays: tokenCount(response.summary.currentStreakDays),
-      longestStreakDays: tokenCount(response.summary.longestStreakDays),
+      lifetimeTokens,
+      peakDailyTokens,
+      currentStreakDays,
+      longestStreakDays,
     }
   } catch {
     return null

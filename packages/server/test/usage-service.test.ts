@@ -125,6 +125,26 @@ test('a source that fails keeps the last good reading, with the failure beside i
   usage.dispose()
 })
 
+test('synchronous runtime throws are isolated and do not prevent the usage report', async () => {
+  const throwing: AgentRuntime = {
+    info: { id: METERED, name: 'metered', capabilities: { metered: true }, presentation: { name: 'metered' } },
+    getRateLimits: () => { throw new Error('sync limits failure') },
+    getAccountActivity: () => { throw new Error('sync activity failure') },
+    getAccount: async () => ({ accounts: [], signInMethods: [] }),
+  } as unknown as AgentRuntime
+  const usage = new UsageService({
+    runtimes: () => [throwing],
+    meters: new Map(),
+    spend: { spendFor: () => null },
+    onReport: () => undefined,
+  })
+
+  const [report] = await usage.reports()
+  assert.equal(report?.error?.message, 'sync limits failure')
+  assert.equal(Object.hasOwn(report ?? {}, 'accountActivity'), false)
+  usage.dispose()
+})
+
 test('account activity is attached for supporting runtimes and absent for others', async () => {
   const activity = {
     days: [{ day: new Date(2026, 8, 29).getTime(), tokens: 123 }],

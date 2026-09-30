@@ -248,10 +248,12 @@ export class UsageService {
     if (runtime.info.capabilities.metered || runtime.getAccountActivity) {
       const [limitsResult, activityResult] = await Promise.all([
         runtime.info.capabilities.metered
-          ? runtime.getRateLimits().then((limits) => ({ limits }), (cause: unknown) => ({ error: cause }))
+          ? Promise.resolve().then(() => runtime.getRateLimits())
+            .then((limits) => ({ limits }), (cause: unknown) => ({ error: cause }))
           : Promise.resolve({ limits: null as RateLimits | null }),
         runtime.getAccountActivity
-          ? runtime.getAccountActivity().then((activity) => ({ activity }), () => ({ activity: null }))
+          ? Promise.resolve().then(() => runtime.getAccountActivity!())
+            .then((activity) => ({ activity }), () => ({ activity: null }))
           : Promise.resolve({ activity: null }),
       ])
       if ('error' in limitsResult) {

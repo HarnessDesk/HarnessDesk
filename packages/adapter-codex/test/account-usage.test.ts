@@ -38,6 +38,19 @@ test('account usage mapper rejects a malformed response', () => {
   )
 })
 
+test('account usage mapper treats an all-null summary with no buckets as unavailable', () => {
+  assert.equal(mapAccountActivity({
+    summary: {
+      lifetimeTokens: null,
+      peakDailyTokens: null,
+      longestRunningTurnSec: null,
+      currentStreakDays: null,
+      longestStreakDays: null,
+    },
+    dailyUsageBuckets: [],
+  }), null)
+})
+
 test('Codex adapter reads account activity from the fake app-server', async (t) => {
   const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test' })
   t.after(async () => runtime.dispose())
