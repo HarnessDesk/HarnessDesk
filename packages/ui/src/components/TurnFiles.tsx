@@ -72,8 +72,9 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
           ? await store.revertTurn(turn.id, key, skipUnrecoverable ? { skipUnrecoverable: true } : {})
           : await store.redoTurn(turn.id, key)
       // Only a refusal leaves the card where it was: the host is all-or-
-      // nothing, so a failure means the tree is untouched and the offer
-      // stands unchanged.
+      // nothing — a refused pass takes back its own steps — so a failure
+      // means the tree is untouched and the offer stands unchanged. The one
+      // exception is a take-back that failed too, which `partial` reports.
       if (result.done) {
         setReverted(direction === 'undo')
         setStoppedPartway(false)
