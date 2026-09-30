@@ -54,64 +54,12 @@ const DEVICE_SCALE = 2
 const REPO = join(WORK, REPOS[0].dir)
 
 /**
- * `shoot.mjs`'s own `FLOW` (its `flow-board`/`flow` scenes), with two
- * changes for this GIF: the fixer is Codex over the camera row whenever
- * `HD_SHOTS_NATIVE_CODEX=0` is set for this recording (so its name is
- * "Codex", never the native adapter this rig otherwise prefers), and the
- * reviewer role names three *different* runtimes instead of one runtime
- * three times — `seat:` takes a list, one per card of the round — so the
- * three reviewer seats read as three distinguishable agents rather than
- * "Cursor" repeated three times.
+ * The flow take uses the shipped `Independent review` shape. Its implementer
+ * is the native fake Codex (the only rig seat that can hold an edit ceiling),
+ * while the three shipped reviewer Agents use the camera ACP seats. The
+ * marker below is created only for that take, so the native fixture's special
+ * board worker cannot affect adapter tests or any other scene.
  */
-const FLOW = `name: Fix and review
-description: One fixer, three reviewers, and the merge stays yours.
-
-inputs:
-  work:
-    label: What to fix
-
-roles:
-  fixer:
-    kind: agent
-    seat: ${NATIVE_CODEX ? `${rigRuntimeId('claude-code')}=opus` : `${rigRuntimeId('codex')}=gpt-5.6-sol`}
-    permission: publish
-    outcomes: [published, cannot]
-    order: |
-      Make the change, run the tests, and open a pull request for it.
-  reviewer:
-    kind: agent
-    seat: [${rigRuntimeId('cursor')}=gemini-3.8-flash, ${rigRuntimeId('claude-code')}=sonnet, ${rigRuntimeId('gemini-cli')}=gemini-3.8-pro]
-    permission: read
-    outcomes: [approve, request-changes]
-    order: |
-      Review the pull request on your own. Approve only if you would merge it.
-  referee:
-    kind: person
-    outcomes: [merged, dropped]
-
-seed:
-  role: fixer
-  title: "{{work}}"
-
-rules:
-  - id: review-it
-    on: fixer
-    when: { every: published }
-    then:
-      role: reviewer
-      title: "Review round {{round}} — {{n}} of {{count}}"
-      detail: |
-        Review the pull request the fixer's context package names. You are one
-        of {{count}} reviewers and will not see the others' answers.
-  - id: fix-again
-    on: reviewer
-    when: { any: request-changes }
-    then: { role: fixer, title: "Answer round {{round}}'s reviews" }
-  - id: hand-to-the-person
-    on: reviewer
-    when: { every: approve }
-    then: { role: referee, title: "Merge it — every reviewer approved" }
-`
 const FRAMES = join(HOME, 'frames')
 /**
  * A path under one of the rig's own homes, refused if any step below that
@@ -162,11 +110,10 @@ say(`frame  ${WIDTH}x${HEIGHT} @${FPS}fps`)
  * default. `TURNS[4,6]`/`TURNS[5]` are `agent.mjs`'s own; see its own
  * comment for what each plays.
  */
-if (SCENARIO === 'hero' || SCENARIO === 'flow') {
+if (SCENARIO === 'hero' || SCENARIO === 'flow-run') {
   const agentsPath = staged(HOME, 'agents.json')
-  // Each seat's pass through the flow, cleared for every take: a second take
-  // against the same seeded home would otherwise resume at the first one's last
-  // pass and skip the scripted `request-changes` round.
+  // The camera ACP workers keep their own tiny pass files; clear them for every
+  // take so a staged desk never resumes a previous recording.
   const passes = staged(HOME, 'flow-passes')
   rmSync(passes, { recursive: true, force: true })
   const roster = JSON.parse(readFileSync(agentsPath, 'utf8'))
@@ -180,23 +127,72 @@ if (SCENARIO === 'hero' || SCENARIO === 'flow') {
       if (agent.id === rigRuntimeId('codex')) agent.env.SHOT_TURN = '8,8,5'
     } else {
       delete agent.env.SHOT_CLAIM
-      const flow = (outcomes, delayMs) => JSON.stringify({
-        outcomes, delayMs, files: ['src/checkout/retry.ts'], state: join(passes, `${agent.id}.json`),
+      // The ids stay rig-only so no real vendor command can be selected. The
+      // knowledge hint is likewise rig-only: it gives the host a synthetic
+      // provider reader for the independent-review gate while the command
+      // still runs this camera agent.
+      // The bridge identity supplies a deterministic synthetic provider while
+      // leaving this row's `node script/shots/agent.mjs` command intact. A
+      // direct known provider (Gemini) would replace that command with the
+      // installed vendor CLI before the seat opens.
+      if (agent.id === rigRuntimeId('cursor')) agent.agent = 'claude-code'
+      if (agent.id === rigRuntimeId('claude-code')) agent.agent = 'claude-code'
+      if (agent.id === rigRuntimeId('gemini-cli')) agent.agent = 'claude-code'
+      if (agent.id === rigRuntimeId('cursor') || agent.id === rigRuntimeId('claude-code') || agent.id === rigRuntimeId('gemini-cli')) {
+        agent.env.HARNESSDESK_SHOTS_PROVIDER = 'anthropic'
+      }
+      const flow = (outcomes, delayMs, intent) => JSON.stringify({
+        outcomes, delayMs, intent, files: ['src/checkout/retry.ts'], state: join(passes, `${agent.id}.json`),
       })
-      if (agent.id === rigRuntimeId('codex')) agent.env.SHOT_FLOW = flow(['published', 'published'], 4800)
-      if (agent.id === rigRuntimeId('cursor')) agent.env.SHOT_FLOW = flow(['request-changes', 'approve'], 4200)
-      if (agent.id === rigRuntimeId('claude-code')) agent.env.SHOT_FLOW = flow(['approve', 'approve'], 4200)
-      if (agent.id === rigRuntimeId('gemini-cli')) agent.env.SHOT_FLOW = flow(['approve', 'approve'], 4200)
+      if (agent.id === rigRuntimeId('cursor')) agent.env.SHOT_FLOW = flow(['approve'], 3200, 3)
+      if (agent.id === rigRuntimeId('claude-code')) agent.env.SHOT_FLOW = flow(['approve'], 3200, 2)
+      if (agent.id === rigRuntimeId('gemini-cli')) agent.env.SHOT_FLOW = flow(['approve'], 3200, 4)
     }
   }
   mkdirSync(passes, { recursive: true })
   writeFileSync(agentsPath, `${JSON.stringify(roster, null, 2)}\n`)
+  if (SCENARIO === 'flow-run') {
+    // The shipped Agents prefer vendor ids (claude-code/codex/cursor), while
+    // this rig deliberately prefixes every camera runtime. Shadow only the
+    // three temporary project copies so the shipped flow can seat its real
+    // roles on the fake ACP commands without making a vendor id runnable.
+    const projectAgents = staged(REPO, '.harnessdesk', 'agents')
+    mkdirSync(projectAgents, { recursive: true })
+    for (const [id, runtime] of [
+      ['implementer', 'codex'],
+      ['security-reviewer', rigRuntimeId('claude-code')],
+      ['performance-reviewer', rigRuntimeId('cursor')],
+      ['api-reviewer', rigRuntimeId('gemini-cli')],
+    ]) {
+      const source = readFileSync(join(APP, 'packages/server', 'agents', id, 'AGENT.md'), 'utf8')
+      const preferred = id === 'implementer' ? runtime : `codex, ${runtime}`
+      const rewritten = source.replace(/^prefer:.*$/m, `prefer: [${preferred}]`)
+      mkdirSync(join(projectAgents, id), { recursive: true })
+      writeFileSync(join(projectAgents, id, 'AGENT.md'), rewritten)
+    }
+    // The flow's shared checkout must be clean when its build card is
+    // claimed. Commit these rig-only Agent preference shadows now, so the
+    // build's later commit_work can leave a clean head for the reviewers.
+    await run('git', ['-C', REPO, 'add', '--', '.harnessdesk/agents'])
+    await run('git', ['-C', REPO, 'commit', '--no-verify', '--no-gpg-sign', '-m', 'Add flow rig reviewer definitions'])
+  }
   say(SCENARIO === 'hero'
     ? 'patched agents.json: Claude plays context, fix, then acknowledgement; Codex plays the browser check'
-    : 'patched agents.json: the flow seats claim and complete their own cards through MCP')
+    : 'patched agents.json: reviewer seats claim, review, and complete their own cards through MCP')
 }
 
-const desk = await launchDesk({ app: APP, home: HOME, userDataDir: `${HOME}/electron`, logPath: `${HOME}/app.log`, env: SHOT_ENV })
+if (SCENARIO === 'flow-run') {
+  // The marker is inside the staged Codex home and is the only switch the
+  // native fixture uses for its flow worker. It is deliberately not a global
+  // FAKE_CODEX_MODE so adapter tests and every other rig scene stay ordinary.
+  mkdirSync(SHOT_ENV.CODEX_HOME, { recursive: true })
+  writeFileSync(staged(SHOT_ENV.CODEX_HOME, 'shots-flow'), '')
+}
+
+const launchEnv = SCENARIO === 'flow-run'
+  ? { ...SHOT_ENV, FAKE_CODEX_MODE: 'shots-flow' }
+  : SHOT_ENV
+const desk = await launchDesk({ app: APP, home: HOME, userDataDir: `${HOME}/electron`, logPath: `${HOME}/app.log`, env: launchEnv })
 const { cdp } = desk
 let browserServer = null
 
@@ -306,12 +302,20 @@ try {
   const fill = (label, value) =>
     cdp.eval(`(() => {
     const tag = [...document.querySelectorAll('label')].find((one) => one.textContent.trim() === ${q(label)})
-    let input = (tag && document.getElementById(tag.getAttribute('for'))) || document.querySelector('[aria-label=' + JSON.stringify(${q(label)}) + ']')
-    if (!input) input = [...document.querySelectorAll('input, textarea')].find((one) => one !== document.querySelector('[aria-label="What finishes this?"]'))
+    const field = tag?.closest('[data-slot="field"]')
+    let input = (tag && document.getElementById(tag.getAttribute('for'))) || field?.querySelector('input, textarea') || document.querySelector('[aria-label=' + JSON.stringify(${q(label)}) + ']')
+    if (!input) {
+      const scope = document.querySelector('[role="dialog"]') ?? document
+      input = [...scope.querySelectorAll('input, textarea')].find((one) => {
+        const rect = one.getBoundingClientRect()
+        return one !== document.querySelector('[aria-label="What finishes this?"]') && !one.hidden && rect.width > 0 && rect.height > 0
+      })
+    }
     if (!input) return false
     const proto = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
     Object.getOwnPropertyDescriptor(proto, 'value').set.call(input, ${q(value)})
     input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
     return true
   })()`)
 
@@ -335,16 +339,6 @@ try {
     await sleep(1200)
     await dismissNotices(cdp).catch(() => {})
     await retildify()
-  } else if (SCENARIO === 'flow') {
-    // The shape itself, written before the New Goal dialog ever opens: a
-    // project-local `.harnessdesk/flows` entry is exactly what the "Start a
-    // team" catalogue reads (`packages/server/src/flow-catalog.ts`), the same
-    // way the shipped "Independent review" shape reaches `front-door`'s own
-    // dialog in `shoot.mjs` — so "Fix and review" is a real catalogue row,
-    // not a room the dialog is skipped past.
-    const flowFile = staged(WORK, REPOS[0].dir, '.harnessdesk', 'flows', 'fix-and-review.yml')
-    mkdirSync(dirname(flowFile), { recursive: true })
-    writeFileSync(flowFile, FLOW)
   }
 
   /**
@@ -613,6 +607,10 @@ try {
     )
     collected.splice(beforeChoice)
     if (!(await fill('Task', 'Add 502 to the retryable status set'))) throw new Error('no Task field in the front door')
+    await waitForSnapshot(
+      () => cdp.eval(`${STORE}.getSnapshot().frontDoor?.preview?.vars?.task === ${q('Add 502 to the retryable status set')}`),
+      Boolean,
+    )
     if (!(await fill('What finishes this?', 'Ship it once every specialist approves'))) {
       throw new Error('no sentence field in the front door')
     }
@@ -667,13 +665,10 @@ try {
       }
     })()`)
     if (!frontDoorCrop) throw new Error('the front-door dry run has no crop target')
-  } else if (SCENARIO === 'flow') {
-    // Beat 1: the real New Goal dialog — "Start with a team" (or the redesign's
-    // "Team" radio, whichever this build has, exactly `front-door`'s own
-    // check in `shoot.mjs`), the "Fix and review" shape this file wrote into
-    // `.harnessdesk/flows` above, and its dry run held on screen before
-    // Start is ever clicked — the beat the rejected take skipped straight
-    // past.
+  } else if (SCENARIO === 'flow-run') {
+    // Beat 1: the real New Goal dialog — "Start with a team" (or the
+    // redesign's "Team" radio), the shipped Independent review shape, and its
+    // dry run held on screen before Start is clicked.
     if (!(await click('New session', '[aria-label="Workspace actions"]'))) {
       throw new Error('no New session button in the sidebar')
     }
@@ -694,15 +689,23 @@ try {
       () => cdp.eval(`document.querySelector('[role="dialog"][aria-label="Start a team"]') !== null`),
       Boolean,
     )
-    if (!(await click('Fix and review', '[role="dialog"][aria-label="Start a team"]'))) {
-      throw new Error('no "Fix and review" shape in the catalogue — is .harnessdesk/flows/fix-and-review.yml there?')
+    if (!(await click('Independent review', '[role="dialog"][aria-label="Start a team"]'))) {
+      throw new Error('no "Independent review" shape in the catalogue')
     }
     await waitForSnapshot(
-      () => cdp.eval(`document.querySelector('[role="dialog"][aria-label="Start Fix and review"]') !== null`),
+      () => cdp.eval(`document.querySelector('[role="dialog"][aria-label="Start Independent review"]') !== null`),
       Boolean,
     )
-    if (!(await fill('What to fix', 'Retry the checkout call on a 502'))) throw new Error('no "What to fix" field')
-    if (!(await fill('What finishes this?', 'Checkout hardening'))) throw new Error('no sentence field')
+    await waitForSnapshot(
+      () => cdp.eval(`[...document.querySelectorAll('label')].some((one) => one.textContent.trim() === 'Task')`),
+      Boolean,
+    )
+    if (!(await fill('Task', 'Add 502 to the retryable status set'))) throw new Error('no Task field')
+    await waitForSnapshot(
+      () => cdp.eval(`${STORE}.getSnapshot().frontDoor?.preview?.vars?.task === ${q('Add 502 to the retryable status set')}`),
+      Boolean,
+    )
+    if (!(await fill('What finishes this?', 'Ship it once every specialist approves'))) throw new Error('no sentence field')
     await waitForSnapshot(
       () => cdp.eval(`(() => {
         const button = [...document.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Start')
@@ -713,13 +716,16 @@ try {
     // Held: the dialog's own dry run — seats with human names, the round
     // trace — visible and unstarted.
     await sleep(3000)
-    if (!(await click('Start', '[role="dialog"][aria-label="Start Fix and review"]'))) {
+    if (!(await click('Start', '[role="dialog"][aria-label="Start Independent review"]'))) {
       throw new Error('no enabled Start button in the New Goal dialog')
     }
-    await waitForSnapshot(() => cdp.eval(`document.body.innerText.includes('Checkout hardening')`), Boolean)
+    await waitForSnapshot(
+      () => cdp.eval(`Array.from(${STORE}.getSnapshot().goals.values()).some((view) => view.goal.origin?.kind === 'flow')`),
+      Boolean,
+    )
     room = await cdp.eval(`(() => {
       for (const view of ${STORE}.getSnapshot().goals.values()) {
-        if (view.goal.sentence === 'Checkout hardening') return view.goal.id
+        if (view.goal.origin?.kind === 'flow') return view.goal.id
       }
       return null
     })()`)
@@ -746,37 +752,23 @@ try {
       throw new Error(`${label}: agents did not reach the expected real board state`)
     }
 
-    // The first fixation is visibly claimed before the delayed completion
-    // opens the three reviewer seats.
-    await awaitState('fixer claim', (intents) => intents.some((one) => one.role === 'fixer' && one.state === 'claimed'))
+    // The build is visibly claimed before its delayed completion opens the
+    // three independent specialist seats.
+    await awaitState('build claim', (intents) => intents.some((one) => one.role === 'build' && one.state === 'claimed'))
     await sleep(1600)
     await retildify()
 
-    await awaitState('first reviewer round', (intents) =>
-      intents.filter((one) => one.role === 'reviewer' && one.state === 'claimed').length === 3,
+    await awaitState('specialist round', (intents) =>
+      intents.filter((one) => one.role === 'specialists' && one.state === 'claimed').length === 3,
     )
     await sleep(1600)
     await retildify()
 
-    await awaitState('requested changes', (intents) =>
-      intents.some((one) => one.role === 'reviewer' && one.state === 'done' && one.outcome === 'request-changes') &&
-      intents.some((one) => one.role === 'fixer' && one.state === 'claimed' && /Answer round/.test(one.title)),
-    )
-    await sleep(1400)
-    await retildify()
-
-    await awaitState('second reviewer round', (intents) =>
-      intents.filter((one) => one.role === 'reviewer' && one.state === 'claimed').length === 3 &&
-      intents.some((one) => one.role === 'fixer' && one.state === 'done' && /Answer round/.test(one.title)),
-    )
-    await sleep(1400)
-    await retildify()
-
-    // Every reviewer has now completed its real approval. The only remaining
+    // Every specialist has now completed a real approval. The only remaining
     // card is the person's merge, so the flow correctly ends at Needs you.
     await awaitState('merge hand-off', (intents) =>
-      intents.some((one) => one.role === 'referee' && one.state === 'open') &&
-      intents.filter((one) => one.role === 'reviewer').filter((one) => one.state === 'done' && one.outcome === 'approve').length >= 5,
+      intents.some((one) => one.role === 'ship' && one.state === 'open') &&
+      intents.filter((one) => one.role === 'specialists').filter((one) => one.state === 'done' && one.outcome === 'approve').length === 3,
     )
     await waitForSnapshot(() => cdp.eval(`document.body.innerText.includes('Needs you')`), Boolean)
     await sleep(2500)
@@ -844,7 +836,7 @@ try {
   // the frame, so the camera crops close with no backdrop, shadow, or rounding.
   const outputFilter = SCENARIO === 'front-door'
     ? `fps=${FPS},crop=${frontDoorCrop.width}:${frontDoorCrop.height}:${frontDoorCrop.left}:${frontDoorCrop.top},scale=960:600:flags=lanczos`
-    : SCENARIO === 'flow'
+    : SCENARIO === 'flow-run'
     ? `fps=${FPS},crop=960:600:${WIDTH - 960}:0`
     : padFilter
   await run('ffmpeg', ['-y', '-f', 'concat', '-i', 'list.txt', '-vf', `${outputFilter},palettegen=max_colors=160:stats_mode=diff`, palette], { cwd: FRAMES })

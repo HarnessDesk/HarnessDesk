@@ -9,7 +9,7 @@ const gif = readFileSync(resolve(script, 'shots/gif2.mjs'), 'utf8')
 
 test('hero lets each named seat reply through an idle-checked room delivery', () => {
   const start = gif.indexOf("if (SCENARIO === 'hero') {\n    // HarnessDesk never shows")
-  const hero = gif.slice(start, gif.indexOf("} else if (SCENARIO === 'flow') {", start))
+  const hero = gif.slice(start, gif.indexOf("} else if (SCENARIO === 'flow-run') {", start))
 
   assert.match(gif, /seatGoal\(\{ goal: .*agent: 'room-claude-code' \}\)/)
   assert.match(gif, /seatGoal\(\{ goal: .*agent: 'room-codex' \}\)/)
@@ -22,21 +22,40 @@ test('hero lets each named seat reply through an idle-checked room delivery', ()
   assert.match(readFileSync(resolve(script, 'shots/agent.mjs'), 'utf8'), /turn\.say \?\? \[\]/)
 })
 
-test('flow records its board changes through the seated agents, not person verbs', () => {
-  const start = gif.indexOf("  } else if (SCENARIO === 'flow') {\n    // Beat 1")
+test('flow-run records the shipped Independent review through seated agents, not person verbs', () => {
+  const start = gif.indexOf("  } else if (SCENARIO === 'flow-run') {\n    // Beat 1")
   const flow = gif.slice(start)
   const agent = readFileSync(resolve(script, 'shots/agent.mjs'), 'utf8')
+  const nativeCodex = readFileSync(resolve(script, '../packages/adapter-codex/test/fixtures/fake-codex.mjs'), 'utf8')
 
-  assert.match(gif, /SHOT_FLOW/)
+  assert.match(gif, /SCENARIO === 'flow-run'/)
+  assert.doesNotMatch(gif, /const FLOW = `name: Fix and review/)
+  assert.doesNotMatch(flow, /fix-and-review\.yml/)
+  assert.match(flow, /click\('Independent review'/)
+  assert.match(flow, /one\.textContent\.trim\(\) === 'Task'/)
+  assert.match(flow, /fill\('Task', 'Add 502 to the retryable status set'\)/)
+  assert.match(flow, /Ship it once every specialist approves/)
+  assert.match(gif, /CODEX_HOME, 'shots-flow'/)
+  assert.match(nativeCodex, /mode === 'shots-flow'/)
+  assert.match(nativeCodex, /claim_next/)
+  assert.match(nativeCodex, /complete_claim/)
+  assert.match(gif, /agent\.agent = 'claude-code'/)
+  assert.match(gif, /HARNESSDESK_SHOTS_PROVIDER = 'anthropic'/)
+  assert.match(gif, /packages\/server', 'agents', id, 'AGENT\.md'/)
+  assert.match(gif, /const preferred = id === 'implementer' \? runtime : `codex, \$\{runtime\}`/)
   assert.doesNotMatch(flow, /\.teamIntent\(/)
   assert.match(flow, /crop=960:600/)
   assert.match(agent, /claim_next/)
+  assert.match(agent, /review_candidates/)
+  assert.match(agent, /record_review/)
   assert.match(agent, /complete_claim/)
+  assert.ok(agent.includes(String.raw`\bCard\s+#\d+\b`))
+  assert.match(nativeCodex, /commit_work/)
 })
 
 test('front-door records the shipped Independent review dry run without starting it', () => {
   const start = gif.indexOf("  } else if (SCENARIO === 'front-door') {")
-  const frontDoor = gif.slice(start, gif.indexOf("  } else if (SCENARIO === 'flow') {", start))
+  const frontDoor = gif.slice(start, gif.indexOf("  } else if (SCENARIO === 'flow-run') {", start))
 
   assert.match(frontDoor, /click\('Independent review', catalogue\)/)
   assert.match(frontDoor, /fill\('Task', 'Add 502 to the retryable status set'\)/)

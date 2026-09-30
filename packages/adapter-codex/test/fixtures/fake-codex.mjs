@@ -9,7 +9,8 @@
 
 import readline from 'node:readline'
 import { spawn, spawnSync } from 'node:child_process'
-import { appendFileSync, existsSync, readFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // A real file on disk, so the adapter's icon inlining is exercised rather than
@@ -24,7 +25,9 @@ const ICON = fileURLToPath(new URL('./plugin-icon.svg', import.meta.url))
 const versionFile = process.env['FAKE_CODEX_VERSION_FILE']
 const installed = versionFile && existsSync(versionFile) ? readFileSync(versionFile, 'utf8').trim() : ''
 const version = installed || (process.env['FAKE_CODEX_VERSION'] ?? '0.149.0')
-const mode = process.env['FAKE_CODEX_MODE'] ?? 'turn'
+const mode = process.env['FAKE_CODEX_MODE'] ?? (
+  process.env['CODEX_HOME'] && existsSync(join(process.env['CODEX_HOME'], 'shots-flow')) ? 'shots-flow' : 'turn'
+)
 /** Whether the release played is `0.<minor>.0` or later, for what arrived with one. */
 const since = (minor) => Number(version.split('.')[1]) >= minor
 
@@ -555,6 +558,113 @@ const flattenDynamicTools = (specs) =>
       : [{ namespace: null, name: spec.name }],
   )
 const toolAnswers = []
+
+/**
+ * The native build seat in the screenshot rig cannot run the team plugin as a
+ * model would. In this explicitly marker-gated mode it does the same real
+ * MCP round trip as the camera ACP workers: wait, claim, then publish. The
+ * marker lives only in the rig's throwaway CODEX_HOME, so the adapter fixture
+ * remains an ordinary scripted Codex for every test and other scene.
+ */
+const shotFlowCalls = new Map()
+let shotFlowWrote = false
+const shotFlowText = (result) => {
+  const items = result?.contentItems ?? result?.content ?? []
+  if (!Array.isArray(items)) return String(result ?? '')
+  return items.map((item) => item?.type === 'inputText' || item?.type === 'text' ? item.text ?? '' : '').join('\n')
+}
+const shotFlowTool = (name, args, role, threadId = THREAD, turnId = TURN) => {
+  const tool = declaredTools.find((one) => one.namespace === 'hd_team' && one.name === name)
+  if (!tool) return false
+  const id = ++approvalRequestId
+  shotFlowCalls.set(id, { name, args, role, threadId, turnId })
+  send({
+    id,
+    method: 'item/tool/call',
+    params: { threadId, turnId, callId: `shot-flow-${id}`, namespace: tool.namespace, tool: tool.name, arguments: args },
+  })
+  return true
+}
+const shotFlowDone = (threadId, turnId) => {
+  notify('turn/completed', {
+    threadId,
+    turn: { id: turnId, items: [], itemsView: 'summary', status: 'completed', error: null },
+  })
+  notify('thread/status/changed', { threadId, status: { type: 'idle' } })
+}
+const shotFlowMaterialize = () => {
+  if (shotFlowWrote || mode !== 'shots-flow' || !settingsState.cwd) return
+  const file = join(settingsState.cwd, 'src/checkout/retry.ts')
+  mkdirSync(join(settingsState.cwd, 'src/checkout'), { recursive: true })
+  if (existsSync(file)) appendFileSync(file, '\n// The flow rig build adds 502 to the retryable status set.\n')
+  else writeFileSync(file, '// The flow rig build adds 502 to the retryable status set.\n')
+  shotFlowWrote = true
+}
+const shotFlowComplete = (intent, threadId, turnId) => {
+  setTimeout(() => {
+    if (!shotFlowTool('complete_claim', {
+      intent: Number(intent), outcome: 'published', note: 'Built the change.',
+      context: 'The retry-status change is ready for specialist review.',
+    }, 'build', threadId, turnId)) shotFlowDone(threadId, turnId)
+  }, 300)
+}
+const shotFlowPublish = (intent, threadId, turnId) => {
+  // The flow records the dirty-path snapshot when the card is claimed. Make
+  // the fake build change only after that point so commit_work can attribute
+  // it to this card rather than treating it as pre-existing work.
+  shotFlowMaterialize()
+  setTimeout(() => {
+    if (!shotFlowTool('commit_work', {
+      intent: Number(intent), message: 'Build retry status change for flow review',
+    }, 'build', threadId, turnId)) shotFlowDone(threadId, turnId)
+  }, 4200)
+}
+const shotFlowStart = (said) => {
+  const role = 'build'
+  notify('turn/started', {
+    threadId: THREAD,
+    turn: { id: TURN, items: [], itemsView: 'full', status: 'inProgress', error: null, startedAt: nowSeconds() },
+  })
+  if (!shotFlowTool('await_work', { cycle: 0, block_ms: 1000 }, role)) shotFlowDone(THREAD, TURN)
+}
+const shotFlowAnswer = (message) => {
+  const call = shotFlowCalls.get(message.id)
+  if (!call) return false
+  shotFlowCalls.delete(message.id)
+  const text = shotFlowText(message.result)
+  if (call.name === 'await_work') {
+    const intent = /work:\s*#(\d+)/.exec(text)?.[1]
+    if (intent && /already holding|yours already/i.test(text)) {
+      shotFlowPublish(intent, call.threadId, call.turnId)
+    } else if (intent && !shotFlowTool('claim_next', { files: [] }, call.role, call.threadId, call.turnId)) {
+      shotFlowDone(call.threadId, call.turnId)
+    } else if (!intent) {
+      if ((call.args?.cycle ?? 0) < 4) {
+        if (!shotFlowTool('await_work', { cycle: (call.args?.cycle ?? 0) + 1, block_ms: 1000 }, call.role, call.threadId, call.turnId)) shotFlowDone(call.threadId, call.turnId)
+      } else {
+        shotFlowDone(call.threadId, call.turnId)
+      }
+    }
+    return true
+  }
+  if (message.error || message.result?.success === false) {
+    notify('warning', { threadId: call.threadId, message: `SHOT_FLOW ${call.name} failed: ${message.error?.message ?? text}` })
+    shotFlowDone(call.threadId, call.turnId)
+    return true
+  }
+  if (call.name === 'claim_next') {
+    const intent = /Claimed\s+#(\d+)/.exec(text)?.[1] ?? /(\d+)\s+is yours already/i.exec(text)?.[1]
+    if (!intent) shotFlowDone(call.threadId, call.turnId)
+    else shotFlowPublish(intent, call.threadId, call.turnId)
+    return true
+  }
+  if (call.name === 'commit_work') {
+    shotFlowComplete(call.args?.intent, call.threadId, call.turnId)
+    return true
+  }
+  if (call.name === 'complete_claim') shotFlowDone(call.threadId, call.turnId)
+  return true
+}
 
 /** The last turn/start's input, echoed back the way the real app-server echoes it. */
 let lastInput = null
@@ -1179,6 +1289,7 @@ rl.on('line', (line) => {
 
   // Client answering one of our server-initiated requests.
   if (message.id !== undefined && message.method === undefined) {
+    if (shotFlowAnswer(message)) return
     // Tool-call answers carry contentItems rather than a decision.
     if (message.result && Array.isArray(message.result.contentItems)) {
       toolAnswers.push(message.result)
@@ -2129,6 +2240,10 @@ rl.on('line', (line) => {
       send(response)
       if (verify) {
         setImmediate(() => askVerification(verify[1]))
+        return
+      }
+      if (mode === 'shots-flow') {
+        setImmediate(() => shotFlowStart(said))
         return
       }
       if (mode === 'turn') setImmediate(playTurn)

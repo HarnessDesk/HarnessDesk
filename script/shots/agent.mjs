@@ -65,7 +65,11 @@ const FLOW = (() => {
   try {
     const parsed = process.env['SHOT_FLOW'] ? JSON.parse(process.env['SHOT_FLOW']) : null
     return parsed && Array.isArray(parsed.outcomes) && typeof parsed.state === 'string'
-      ? { outcomes: parsed.outcomes.map(String), state: parsed.state, delayMs: Number(parsed.delayMs) || 0, files: Array.isArray(parsed.files) ? parsed.files.map(String) : [] }
+      ? {
+          outcomes: parsed.outcomes.map(String), state: parsed.state, delayMs: Number(parsed.delayMs) || 0,
+          files: Array.isArray(parsed.files) ? parsed.files.map(String) : [],
+          intent: Number.isInteger(parsed.intent) && parsed.intent > 0 ? parsed.intent : null,
+        }
       : null
   } catch {
     return null
@@ -82,6 +86,20 @@ const ROOM_MESSAGE = (() => {
     return null
   }
 })()
+
+const flowConfigOptions = () => FLOW ? [
+  {
+    id: 'permissions', name: 'Permissions', category: 'other', type: 'select', currentValue: ':read-only',
+    options: [
+      { value: ':read-only', name: 'Read only' },
+      { value: ':workspace', name: 'Workspace write' },
+    ],
+  },
+  {
+    id: 'approvalsReviewer', name: 'Approvals', category: 'other', type: 'select', currentValue: 'user',
+    options: [{ value: 'user', name: 'Ask me' }],
+  },
+] : undefined
 
 /**
  * Real ACP usage, for the seat this process plays.
@@ -217,10 +235,37 @@ const flowPass = () => {
   }
 }
 
-const flowCard = (value) => /work:\s*#(\d+)/.exec(JSON.stringify(value))?.[1] ?? null
+const flowText = (value) => {
+  const blocks = value?.content ?? value?.contentItems ?? []
+  if (!Array.isArray(blocks)) return typeof value === 'string' ? value : JSON.stringify(value ?? '')
+  return blocks.map((block) => {
+    if (typeof block === 'string') return block
+    if (block?.type === 'text' || block?.type === 'inputText') return block.text ?? ''
+    if (block?.content?.type === 'text') return block.content.text ?? ''
+    return block?.text ?? ''
+  }).join('\n')
+}
 
-const playFlow = async (state) => {
-  if (!FLOW || state.flowed) return
+const flowCard = (value) => /(?:work:\s*|card\s*#?|intent\s*#?)#?(\d+)/i.exec(flowText(value))?.[1] ?? null
+const flowIntent = (value) => /(?:Claimed|Completed)\s+#(\d+)/.exec(flowText(value))?.[1] ?? null
+const flowCandidate = (value) => /(?:^|\n)\s*(\S+)\s+—/.exec(flowText(value))?.[1] ?? null
+
+const flowRole = (prompt) => {
+  const text = String(prompt ?? '')
+  if (/\b(?:implementer|build)\b/i.test(text)) return 'build'
+  if (/\b(?:security|performance|api)-reviewer\b/i.test(text) || /\bspecialist\b/i.test(text)) return 'specialist'
+  return null
+}
+
+const flowCall = async (client, name, args) => {
+  return mcpCall(client, 'tools/call', { name, arguments: args }).catch((error) => ({ error: String(error) }))
+}
+
+const playFlow = async (state, prompt) => {
+  // The first prompt is the standing brief sent while the flow is still
+  // durably opening this Seat. Wait for the flow's own card order, otherwise
+  // review_candidates races the journal before it records the Seat id.
+  if (!FLOW || state.flowed || !/\bCard\s+#\d+\b/.test(String(prompt)) || !/\bFlow run\b/.test(String(prompt))) return
   state.flowed = true
   const client = mcpConnect(state)
   if (!client) return
@@ -228,17 +273,43 @@ const playFlow = async (state) => {
     protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'harnessdesk-shots-agent', version: '1.0.0' },
   })
   mcpNotify(client, 'notifications/initialized', {})
-  const waiting = await mcpCall(client, 'tools/call', { name: 'await_work', arguments: { cycle: 0, block_ms: 1000 } }).catch(() => null)
-  const intent = flowCard(waiting)
-  if (!intent) return
-  await mcpCall(client, 'tools/call', { name: 'claim_next', arguments: { files: FLOW.files } }).catch(() => null)
+  // A flow seat is not a Room member, so await_work (which intentionally
+  // speaks only to rooms) cannot discover its card. claim_next is the real
+  // board operation for both a fresh card and one the flow already assigned.
+  const claimed = await flowCall(client, 'claim_next', { files: FLOW.files })
+  // Flow seats arrive already holding their exact card; the standing order's
+  // card number is the authoritative fallback when the team tools correctly
+  // refuse room-only claim_next for this non-room conversation.
+  const claimedIntent = flowIntent(claimed) ?? flowCard(claimed) ?? flowCard(prompt) ?? (FLOW.intent === null ? null : String(FLOW.intent))
+  if (!claimedIntent) return
+  // Every camera seat carrying SHOT_FLOW is one of the shipped specialists;
+  // the fallback keeps the worker correct even if an ACP omits the role name
+  // from its standing-order text. The native build is handled by its own
+  // marker-gated Codex fixture and never enters this process.
+  const role = flowRole(prompt) ?? 'specialist'
+  if (role === 'specialist') {
+    const candidates = await flowCall(client, 'review_candidates', { intent: Number(claimedIntent) })
+    const candidate = flowCandidate(candidates)
+    if (!candidate) return
+    const recorded = await flowCall(client, 'record_review', {
+      intent: Number(claimedIntent), candidate, verdict: 'approve',
+    })
+    if (!/Recorded:\s+approve\b/.test(flowText(recorded))) return
+  }
   if (FLOW.delayMs > 0) await sleep(FLOW.delayMs)
   const pass = flowPass()
-  const outcome = FLOW.outcomes[Math.min(pass, FLOW.outcomes.length - 1)]
+  const outcome = role === 'specialist'
+    ? 'approve'
+    : FLOW.outcomes[Math.min(pass, FLOW.outcomes.length - 1)] ?? 'published'
   if (!outcome) return
   const result = await mcpCall(client, 'tools/call', {
-    name: 'complete_claim',
-    arguments: { intent: Number(intent), outcome, note: `Flow ${outcome}.`, context: 'The checkout retry change is ready for the next card.' },
+    name: 'complete_claim', arguments: {
+      intent: Number(claimedIntent), outcome,
+      note: role === 'specialist' ? 'Approved the change.' : 'Built the change.',
+      context: role === 'specialist'
+        ? 'The shipped retry-status change is approved for the person.'
+        : 'The retry-status change is ready for specialist review.',
+    },
   }).catch(() => null)
   if (/Completed #/.test(JSON.stringify(result))) writeFileSync(FLOW.state, `${JSON.stringify({ pass: pass + 1 })}\n`)
 }
@@ -526,6 +597,7 @@ const handlers = {
     reply(id, {
       sessionId: state.id,
       models: { currentModelId: state.modelId, availableModels: MODELS },
+      ...(flowConfigOptions() ? { configOptions: flowConfigOptions() } : {}),
       modes: {
         currentModeId: 'default',
         availableModes: [
@@ -575,6 +647,7 @@ const handlers = {
     reply(id, {
       sessionId: state.id,
       models: { currentModelId: state.modelId, availableModels: MODELS },
+      ...(flowConfigOptions() ? { configOptions: flowConfigOptions() } : {}),
       modes: { currentModeId: 'default', availableModes: [{ id: 'default', name: 'Default' }] },
     })
   },
@@ -589,6 +662,22 @@ const handlers = {
     const state = sessions.get(params.sessionId)
     if (state) state.modeId = params.modeId
     reply(id, null)
+  },
+
+  'session/set_config_option': (id, params) => {
+    if (!FLOW) return fail(id, 'no such option')
+    reply(id, {
+      configOptions: [
+        {
+          id: params?.configId === 'permissions' ? 'permissions' : 'approvalsReviewer',
+          name: params?.configId === 'permissions' ? 'Permissions' : 'Approvals',
+          category: 'other', type: 'select', currentValue: params?.value === undefined ? ':read-only' : params.value,
+          options: params?.configId === 'permissions'
+            ? [{ value: ':read-only', name: 'Read only' }, { value: ':workspace', name: 'Workspace write' }]
+            : [{ value: 'user', name: 'Ask me' }],
+        },
+      ],
+    })
   },
 
   'session/prompt': async (id, params) => {
@@ -611,7 +700,11 @@ const handlers = {
       state.claimed = true
       await playClaim(state).catch(() => {})
     }
-    await playFlow(state).catch(() => {})
+    const promptText = (params.prompt ?? [])
+      .filter((block) => block?.type === 'text')
+      .map((block) => block.text)
+      .join('\n')
+    await playFlow(state, promptText).catch(() => {})
     await playRoomMessage(state).catch(() => {})
     const stopReason = await playTurn(sessionId)
     // A window only when the seat's usage names one — an agent that never
