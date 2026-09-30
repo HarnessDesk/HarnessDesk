@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { appendFileSync, chmodSync, createReadStream, mkdirSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { test } from 'node:test'
 
 import { tempDir } from './scratch.js'
@@ -91,6 +92,90 @@ test('a Claude transcript counts one message once, however many lines carry it',
   assert.equal(result.rows[0]?.requests, 2, 'two distinct messages, not three lines')
   assert.equal(result.rows[0]?.output, 200)
   assert.equal(result.rows[0]?.cacheRead, 1000)
+})
+
+test('Claude calls are bucketed by their local hour, summing requests and the full token split', async () => {
+  const dir = scratch()
+  const path = join(dir, 'session.jsonl')
+  const call = (id: string, at: Date, input: number, output: number, cacheRead: number, cacheWrite: number) => `${JSON.stringify({
+    type: 'assistant', timestamp: at.toISOString(), cwd: '/tmp/project',
+    message: { id, model: 'claude-opus-5', usage: { input_tokens: input, output_tokens: output, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: cacheWrite } },
+  })}\n`
+  writeFileSync(path,
+    call('a', new Date(2026, 8, 22, 9, 15), 10, 3, 4, 1) +
+    call('b', new Date(2026, 8, 22, 9, 50), 20, 5, 2, 2) +
+    call('c', new Date(2026, 8, 22, 10, 5), 7, 1, 0, 0))
+  const result = await scanClaudeTranscript({ runtime: 'claude-code', kind: 'claude', path, size: 0, mtime: 0 }, 0, [])
+  assert.deepEqual(result.hours.map((hour) => [hour.hour, hour.requests, hour.tokens]), [[9, 2, 47], [10, 1, 8]])
+})
+
+test('the report exposes local weekday-hour buckets for a scanned file corpus', async () => {
+  const dir = scratch()
+  const path = join(dir, 'session.jsonl')
+  const at = (hour: number, minute: number) => new Date(2026, 8, 22, hour, minute)
+  const line = (id: string, date: Date) => `${JSON.stringify({ type: 'assistant', timestamp: date.toISOString(), cwd: '/tmp/project', message: { id, model: 'm', usage: { input_tokens: 10, output_tokens: 2 } } })}\n`
+  writeFileSync(path, line('a', at(9, 15)) + line('b', at(9, 50)) + line('c', at(10, 5)))
+  const ledger = new Ledger({
+    stateDir: dir,
+    databasePath: join(dir, 'usage.sqlite'),
+    corpora: [{ runtime: 'claude-code', kind: 'claude', root: dir }],
+    now: () => new Date(2026, 8, 22, 12).getTime(),
+  })
+  try {
+    await ledger.scan()
+    const report = ledger.query({ days: 1, groupBy: 'runtime' })
+    assert.deepEqual(report.coverage.hoursKnownFor, ['claude-code'])
+    assert.deepEqual(report.hourly?.map(({ weekday, hour, requests, tokens }) => [weekday, hour, requests, tokens]), [[new Date(2026, 8, 22).getDay(), 9, 2, 24], [new Date(2026, 8, 22).getDay(), 10, 1, 12]])
+  } finally { ledger.close() }
+})
+
+test('an old ledger hides hours until local rows have been rescanned', async () => {
+  const dir = scratch()
+  const path = join(dir, 'session.jsonl')
+  const at = new Date(2026, 8, 22, 9, 15)
+  writeFileSync(path, `${JSON.stringify({ type: 'assistant', timestamp: at.toISOString(), cwd: '/tmp/project', message: { id: 'a', model: 'm', usage: { input_tokens: 10, output_tokens: 2 } } })}\n`)
+  const databasePath = join(dir, 'usage.sqlite')
+  const old = new DatabaseSync(databasePath)
+  old.exec(`CREATE TABLE files (path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime INTEGER NOT NULL, offset INTEGER NOT NULL, tail TEXT NOT NULL DEFAULT '[]', scannedAt INTEGER NOT NULL);
+    CREATE TABLE usage (file TEXT NOT NULL, day INTEGER NOT NULL, runtime TEXT NOT NULL, model TEXT NOT NULL, project TEXT NOT NULL,
+      input INTEGER NOT NULL DEFAULT 0, output INTEGER NOT NULL DEFAULT 0, cacheRead INTEGER NOT NULL DEFAULT 0, cacheWrite INTEGER NOT NULL DEFAULT 0,
+      reasoning INTEGER NOT NULL DEFAULT 0, requests INTEGER NOT NULL DEFAULT 0, turns INTEGER, vendorCost REAL, vendored INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (file, day, runtime, model, project, vendored));
+    CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    INSERT INTO files VALUES ('${path.replaceAll("'", "''")}', 999, 1, 999, '[]', 1);
+    INSERT INTO usage (file, day, runtime, model, project, input, output, requests) VALUES ('${path.replaceAll("'", "''")}', ${new Date(at).setHours(0, 0, 0, 0)}, 'claude-code', 'm', '/tmp/project', 100, 100, 1);`)
+  old.close()
+  const ledger = new Ledger({
+    stateDir: dir, databasePath, corpora: [{ runtime: 'claude-code', kind: 'claude', root: dir }],
+    now: () => new Date(2026, 8, 22, 12).getTime(),
+  })
+  try {
+    const before = ledger.query({ days: 1, groupBy: 'runtime' })
+    assert.equal(before.hourly, undefined)
+    assert.deepEqual(before.coverage.hoursKnownFor, [])
+    await ledger.scan()
+    const after = ledger.query({ days: 1, groupBy: 'runtime' })
+    assert.deepEqual(after.coverage.hoursKnownFor, ['claude-code'])
+    assert.deepEqual(after.hourly?.map(({ hour, requests }) => [hour, requests]), [[9, 1]])
+  } finally { ledger.close() }
+})
+
+test('remote source rows do not claim hour coverage', async () => {
+  const dir = scratch()
+  const ledger = new Ledger({
+    stateDir: dir, databasePath: join(dir, 'usage.sqlite'), corpora: [], now: () => NOON,
+    remoteSources: [{
+      runtime: 'cursor',
+      resolveFile: async () => 'remote:cursor',
+      sync: async () => ({ rows: [{ file: 'remote:cursor', day: new Date(NOON).setHours(0, 0, 0, 0), runtime: 'cursor', model: 'm', project: '', input: 10, output: 2, cacheRead: 0, cacheWrite: 0, reasoning: 0, requests: 1 }] }),
+    }],
+  })
+  try {
+    await ledger.scan()
+    const report = ledger.query({ days: 1, groupBy: 'runtime' })
+    assert.equal(report.hourly, undefined)
+    assert.deepEqual(report.coverage.hoursKnownFor, [])
+  } finally { ledger.close() }
 })
 
 test('a resumed scan does not re-count the message it stopped on', async () => {

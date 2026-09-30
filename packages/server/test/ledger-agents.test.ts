@@ -187,6 +187,8 @@ test('OpenCode’s sessions are counted at the cost OpenCode priced them, a free
   assert.deepEqual(readdirSync(home).sort(), before)
 
   const report = ledger.query({ days: 7, groupBy: 'model' })
+  assert.equal(report.hourly, undefined, 'a last-updated session total is not a call time')
+  assert.deepEqual(report.coverage.hoursKnownFor, [])
   assert.equal(report.totalCost, 0.5, 'the costs OpenCode recorded, not list price')
   assert.equal(report.provenance, 'vendorMetered')
   assert.deepEqual(report.rows.map((row) => row.label).sort(), ['big-pickle', 'claude-sonnet-5'])
@@ -436,6 +438,31 @@ test('a ledger from before agents could price their own rows gains the column, e
   const again = new LedgerStore(path)
   assert.equal(again.since(0).length, 4)
   again.close()
+})
+
+test('creating usage_hours resets local cursors and holds hour coverage unknown until a scan', () => {
+  const dir = scratch()
+  const path = join(dir, 'usage.sqlite')
+  const old = new DatabaseSync(path)
+  old.exec(`CREATE TABLE files (path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime INTEGER NOT NULL, offset INTEGER NOT NULL,
+      tail TEXT NOT NULL DEFAULT '[]', scannedAt INTEGER NOT NULL);
+    CREATE TABLE usage (file TEXT NOT NULL, day INTEGER NOT NULL, runtime TEXT NOT NULL, model TEXT NOT NULL,
+      project TEXT NOT NULL, input INTEGER NOT NULL DEFAULT 0, output INTEGER NOT NULL DEFAULT 0,
+      cacheRead INTEGER NOT NULL DEFAULT 0, cacheWrite INTEGER NOT NULL DEFAULT 0, reasoning INTEGER NOT NULL DEFAULT 0,
+      requests INTEGER NOT NULL DEFAULT 0, turns INTEGER, vendorCost REAL, vendored INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (file, day, runtime, model, project, vendored));
+    CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    INSERT INTO files VALUES ('/old', 1, 1, 1, '[]', 1);
+    INSERT INTO usage (file, day, runtime, model, project, input, requests) VALUES ('/old', 1, 'codex', 'm', '', 8, 1);`)
+  old.close()
+  const store = new LedgerStore(path)
+  assert.equal(store.cursor('/old'), null, 'the old cursor cannot skip the hour backfill')
+  assert.deepEqual(store.since(0), [], 'local rows covered by old cursors are rescanned')
+  assert.equal(store.hoursReady(), false)
+  assert.deepEqual(store.hourly(0, 2), [])
+  store.markHoursReady()
+  assert.equal(store.hoursReady(), true)
+  store.close()
 })
 
 /** Every file in a folder with its size and time: what "left alone" means. */

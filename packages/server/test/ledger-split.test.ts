@@ -179,6 +179,37 @@ test('the token split sums per day, per row and in the window totals, across two
   ledger.close()
 })
 
+test('hour rows append and replace with the same file semantics as usage rows', () => {
+  const store = new LedgerStore(':memory:')
+  const cursor = (path: string) => ({ path, size: 1, mtime: 1, offset: 1, tail: [] })
+  const hours = (path: string, requests: number) => [{ file: path, day: NOON, hour: 9, runtime: 'codex', requests, tokens: 12 * requests }]
+  store.commit(cursor('/hour-file'), [], 1, true, hours('/hour-file', 2))
+  store.commit(cursor('/hour-file'), [], 2, false, hours('/hour-file', 1))
+  assert.deepEqual(store.hourly(NOON, NOON + DAY), [{ runtime: 'codex', weekday: new Date(NOON).getDay(), hour: 9, requests: 3, tokens: 36 }])
+  store.commit(cursor('/hour-file'), [], 3, true, hours('/hour-file', 4))
+  assert.deepEqual(store.hourly(NOON, NOON + DAY), [{ runtime: 'codex', weekday: new Date(NOON).getDay(), hour: 9, requests: 4, tokens: 48 }])
+  store.close()
+})
+
+test('hour query groups by local weekday and hour inside its half-open window', () => {
+  const store = new LedgerStore(':memory:')
+  const sunday = new Date(2026, 8, 20, 0).getTime()
+  const monday = new Date(2026, 8, 21, 0).getTime()
+  const nextDay = new Date(2026, 8, 22, 0).getTime()
+  const add = (path: string, day: number, hour: number, requests: number, tokens: number) => store.commit(
+    { path, size: 1, mtime: 1, offset: 1, tail: [] }, [], day, true,
+    [{ file: path, day, hour, runtime: 'codex', requests, tokens }],
+  )
+  add('/sunday', sunday, 9, 2, 50)
+  add('/monday', monday, 9, 3, 75)
+  add('/outside', nextDay, 9, 9, 999)
+  assert.deepEqual(store.hourly(sunday, nextDay), [
+    { runtime: 'codex', weekday: 0, hour: 9, requests: 2, tokens: 50 },
+    { runtime: 'codex', weekday: 1, hour: 9, requests: 3, tokens: 75 },
+  ])
+  store.close()
+})
+
 test('a vendored row and an unvendored row for the same day, model and project are two store rows, both counted', async () => {
   const dir = scratch()
   const dbPath = join(dir, 'usage.sqlite')

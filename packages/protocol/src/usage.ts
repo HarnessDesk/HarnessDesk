@@ -165,6 +165,12 @@ export interface SpendCoverage {
    * runtime as zero turns. Optional so an old report still validates.
    */
   readonly turnsKnownFor?: readonly RuntimeId[]
+  /**
+   * Which runtimes' calls have a recorded local hour. A runtime absent here
+   * has unknown timing, not a confirmed zero in every weekday/hour bucket.
+   * Optional so an old report still validates.
+   */
+  readonly hoursKnownFor?: readonly RuntimeId[]
 }
 
 export interface SpendSummary {
@@ -373,6 +379,8 @@ export interface LedgerReport {
   readonly coverage: SpendCoverage
   readonly rows: readonly LedgerRow[]
   readonly daily: readonly LedgerDay[]
+  /** Calls and tokens by local weekday and hour; absent when no runtime has known hours. */
+  readonly hourly?: readonly LedgerHour[]
   /** When the scan behind these figures last completed. */
   readonly scannedAt: number | null
   /**
@@ -391,6 +399,15 @@ export interface LedgerReport {
     /** `undefined` unless every runtime this window covers is turn-known — see `LedgerRow.turns`. */
     readonly turns?: number
   }
+}
+
+/** A call bucket in local wall-clock time; Sunday is weekday zero. */
+export interface LedgerHour {
+  readonly runtime: RuntimeId
+  readonly weekday: number
+  readonly hour: number
+  readonly requests: number
+  readonly tokens: number
 }
 
 /** Progress of a ledger scan, so a three-gigabyte corpus is not a silent wait. */
