@@ -17,6 +17,7 @@ import {
   costClause,
   planLabel,
   pricedNote,
+  provenanceLabel,
   runway,
   spendHint,
   workingAccount,
@@ -548,6 +549,12 @@ describe('pricedNote', () => {
     expect(pricedNote(3, 'listPrice')).toBe(
       '3 of these rows include models with no public price, so their cost is lower than shown.',
     )
+  })
+})
+
+describe('provenanceLabel', () => {
+  it('returns a label for provenance values outside the protocol union', () => {
+    expect(provenanceLabel({ provenance: 'priced' as never })).toBe('List-price equivalent')
   })
 })
 

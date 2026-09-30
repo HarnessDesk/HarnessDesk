@@ -763,6 +763,8 @@ export const provenanceLabel = (spend: Pick<SpendSummary, 'provenance'>): string
       return 'Metered and list-price'
     case 'unknown':
       return 'Spend unavailable'
+    default:
+      return 'List-price equivalent'
   }
 }
 
