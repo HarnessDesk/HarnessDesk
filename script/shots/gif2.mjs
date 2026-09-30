@@ -337,6 +337,11 @@ try {
     })()`, 60_000)
     return before
   }
+  const startIdleSeatTurn = async (key, text, label) => {
+    await waitForRoomIdle(label)
+    await cdp.eval(`void ${STORE}.send([{ type: 'text', text: ${q(text)} }], ${q(key)}); true`, 60_000)
+    await waitForSeatBusy(key, label)
+  }
   const waitForRoomDelivery = async (before, label) => {
     await waitForSnapshot(
       () => cdp.eval(`${STORE}.getSnapshot().teams.get(${q(room)})?.channel.length ?? 0`),
@@ -452,6 +457,13 @@ try {
     const acknowledgement = await startRoomDelivery(claudeKey, 'Please acknowledge the checkout result and the banner nit.', 'Claude acknowledgement')
     await waitForRoomDelivery(acknowledgement, 'Claude acknowledgement')
     await waitForRoomIdle('Claude acknowledgement')
+    await followRoomChat()
+    await retildify()
+    // The tab names its current driver, never a stale historical owner.  A
+    // final, idle-safe Codex inspection turn keeps the completed checkout
+    // visibly owned by Codex throughout the closing hold, while the room's
+    // already-settled answer remains the last chat line.
+    await startIdleSeatTurn(codexKey, 'Keep the completed checkout open for a final visual check.', 'Codex closing inspection')
     await followRoomChat()
     await retildify()
     // Hold the settled frame — both agents' messages and the open browser —
