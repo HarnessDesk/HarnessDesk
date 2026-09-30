@@ -192,8 +192,8 @@ export class Ledger {
   }
 
   /** Store one balance reading without exposing the ledger's SQLite store. */
-  recordBalance(runtime: RuntimeId, account: string, at: number, remaining: number, unit: string): void {
-    this.#store.recordBalance(runtime, account, at, remaining, unit)
+  recordBalance(runtime: RuntimeId, account: string, at: number, remaining: number, unit: string, pruneAt: number): void {
+    this.#store.recordBalance(runtime, account, at, remaining, unit, pruneAt)
   }
 
   /** Read recent balance readings for one account, oldest first. */

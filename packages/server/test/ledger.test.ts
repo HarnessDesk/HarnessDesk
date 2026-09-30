@@ -42,6 +42,27 @@ test('balance history records changes and at most one unchanged reading per hour
   } finally { store.close() }
 })
 
+test('a changed reading with an old or repeated observation time is skipped', () => {
+  const store = new LedgerStore(':memory:')
+  try {
+    store.recordBalance('runtime-a', 'account-a', NOON, 10, 'USD')
+    store.recordBalance('runtime-a', 'account-a', NOON, 9, 'USD')
+    store.recordBalance('runtime-a', 'account-a', NOON - 1, 8, 'credits')
+    assert.deepEqual(store.balanceHistory('runtime-a', 'account-a', NOON - 1).map(({ at, remaining, unit }) => [at, remaining, unit]), [[NOON, 10, 'USD']])
+  } finally { store.close() }
+})
+
+test('a unit change is recorded even within the hour', () => {
+  const store = new LedgerStore(':memory:')
+  try {
+    store.recordBalance('runtime-a', 'account-a', NOON, 10, 'USD')
+    store.recordBalance('runtime-a', 'account-a', NOON + HOUR_MS / 2, 10, 'credits')
+    assert.deepEqual(store.balanceHistory('runtime-a', 'account-a', NOON).map(({ at, remaining, unit }) => [at, remaining, unit]), [
+      [NOON, 10, 'USD'], [NOON + HOUR_MS / 2, 10, 'credits'],
+    ])
+  } finally { store.close() }
+})
+
 test('balance history is separated by account and pruned beyond 400 days', () => {
   const store = new LedgerStore(':memory:')
   try {
@@ -54,6 +75,26 @@ test('balance history is separated by account and pruned beyond 400 days', () =>
     assert.deepEqual(store.balanceHistory('runtime-a', 'account-b', oldest).map(({ at, remaining }) => [at, remaining]), [[NOON - 2 * DAY_MS, 20]])
     assert.deepEqual(store.balanceHistory('runtime-b', 'account-a', oldest), [])
   } finally { store.close() }
+})
+
+test('balance pruning runs at most hourly for each store instance', () => {
+  const path = join(scratch(), 'usage.sqlite')
+  const store = new LedgerStore(path)
+  const inspect = new DatabaseSync(path)
+  try {
+    store.recordBalance('runtime-a', 'account-a', NOON, 10, 'USD', NOON)
+    inspect.prepare('INSERT INTO balance_history (runtime, account, at, remaining, unit) VALUES (?, ?, ?, ?, ?)')
+      .run('runtime-a', 'account-b', NOON - 401 * DAY_MS, 20, 'USD')
+
+    store.recordBalance('runtime-a', 'account-a', NOON + 2 * 60_000, 10, 'USD', NOON + 2 * 60_000)
+    assert.equal(store.balanceHistory('runtime-a', 'account-b', 0).length, 1, 'a frequent write skips the prune')
+
+    store.recordBalance('runtime-a', 'account-a', NOON + HOUR_MS, 10, 'USD', NOON + HOUR_MS)
+    assert.equal(store.balanceHistory('runtime-a', 'account-b', 0).length, 0, 'the next hourly prune removes the stale row')
+  } finally {
+    inspect.close()
+    store.close()
+  }
 })
 
 const codexLine = (

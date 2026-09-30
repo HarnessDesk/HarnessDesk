@@ -59,7 +59,7 @@ export interface UsageServiceOptions {
   readonly spend?: SpendSource | null
   /** The host's own persisted balance readings, scoped to one account. */
   readonly balances?: {
-    record(runtime: RuntimeId, account: string, at: number, remaining: number, unit: string): void
+    record(runtime: RuntimeId, account: string, at: number, remaining: number, unit: string, pruneAt: number): void
     history(runtime: RuntimeId, account: string, since: number): readonly { readonly at: number; readonly remaining: number; readonly unit: string }[]
   }
   /** Called for each report as it lands, so a slow source never delays a fast one. */
@@ -187,10 +187,10 @@ export class UsageService {
       complete = withoutHistory
       const credits = report.credits
       if (credits && typeof credits.remaining === 'number' && Number.isFinite(credits.remaining) && !credits.unlimited) {
-        const at = this.#now()
+        const now = this.#now()
         const account = report.account ?? ''
         try {
-          balances.record(id, account, at, credits.remaining, credits.unit)
+          balances.record(id, account, report.fetchedAt, credits.remaining, credits.unit, now)
         } catch (error) {
           this.#options.log?.('a prepaid balance could not be recorded', {
             runtime: id,
@@ -198,7 +198,7 @@ export class UsageService {
           })
         }
         try {
-          const since = at - DEFAULT_BALANCE_HISTORY_DAYS * DAY_MS
+          const since = now - DEFAULT_BALANCE_HISTORY_DAYS * DAY_MS
           const points = balances.history(id, account, since)
             .filter((point) => point.unit === credits.unit && point.at >= since)
             .map(({ at: pointAt, remaining }) => ({ at: pointAt, remaining }))

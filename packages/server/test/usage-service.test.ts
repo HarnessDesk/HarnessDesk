@@ -6,6 +6,7 @@ import { runtimeId, type AgentRuntime, type RuntimeId, type SpendSummary, type U
 import { UsageService } from '../src/usage/service.js'
 import { MeterAuthError, type MeterReading, type UsageMeter } from '../src/usage/meter.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
+import { LedgerStore } from '../src/ledger/store.js'
 
 /**
  * What the service does when the ledger finishes after the screen is open.
@@ -273,7 +274,7 @@ test('a balance report records the current reading and attaches only same-unit h
     onReport: () => undefined,
     now: () => now,
     balances: {
-      record: (...args: [RuntimeId, string, number, number, string]) => { recorded.push(args) },
+      record: (...args: [RuntimeId, string, number, number, string, number]) => { recorded.push(args) },
       history: (_runtime, _account, since) => {
         historySince = since
         return [
@@ -290,7 +291,7 @@ test('a balance report records the current reading and attaches only same-unit h
   })
   try {
     const [report] = await usage.refresh(METERED)
-    assert.deepEqual(recorded, [[METERED, '', now, 8, 'USD']])
+    assert.deepEqual(recorded, [[METERED, '', 1, 8, 'USD', now]])
     assert.equal(historySince, now - 30 * 86_400_000)
     assert.deepEqual(report?.balanceHistory, {
       unit: 'USD',
@@ -299,6 +300,37 @@ test('a balance report records the current reading and attaches only same-unit h
     assert.equal(overlaySawHistory, true, 'the overlay receives the report after history is attached')
     assert.equal(report?.plan, 'Overlay')
   } finally { usage.dispose() }
+})
+
+test('a cached balance restated more than an hour later is not recorded as a new reading', async () => {
+  const fetchedAt = Date.parse('2026-08-22T12:00:00Z')
+  let now = fetchedAt
+  let ledgerHasSpend = false
+  const store = new LedgerStore(':memory:')
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, scriptedMeter([creditsReading(8, 'USD', fetchedAt)])]]),
+    spend: { spendFor: () => ledgerHasSpend ? money(1) : null },
+    onReport: () => undefined,
+    now: () => now,
+    balances: {
+      record: (id, account, at, remaining, unit, pruneAt) => store.recordBalance(id, account, at, remaining, unit, pruneAt),
+      history: (id, account, since) => store.balanceHistory(id, account, since),
+    },
+  })
+  try {
+    const [first] = await usage.refresh(METERED)
+    assert.equal(first?.fetchedAt, fetchedAt)
+    now += 2 * 60 * 60 * 1_000
+    ledgerHasSpend = true
+    await usage.settleLedger()
+    const restated = usage.cached(METERED)
+    assert.equal(restated?.fetchedAt, fetchedAt, 'the cached figure keeps its original observation time')
+    assert.deepEqual(store.balanceHistory(METERED, '', fetchedAt).map(({ at, remaining }) => [at, remaining]), [[fetchedAt, 8]])
+  } finally {
+    usage.dispose()
+    store.close()
+  }
 })
 
 test('a balance report does not attach a single historical point', async () => {

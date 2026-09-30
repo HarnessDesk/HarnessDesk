@@ -2033,8 +2033,8 @@ export class Host {
         valueFor: (runtime, sinceMs) => this.#ledgerService.valueFor(runtime, sinceMs),
       },
       balances: {
-        record: (runtime, account, at, remaining, unit) =>
-          this.#ledgerService.recordBalance(runtime, account, at, remaining, unit),
+        record: (runtime, account, at, remaining, unit, pruneAt) =>
+          this.#ledgerService.recordBalance(runtime, account, at, remaining, unit, pruneAt),
         history: (runtime, account, since) => this.#ledgerService.balanceHistory(runtime, account, since),
       },
       onReport: (report) => this.#push({ method: 'usage/updated', params: { report } }),

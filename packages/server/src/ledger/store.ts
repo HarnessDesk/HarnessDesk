@@ -141,6 +141,7 @@ const BALANCE_HISTORY_INTERVAL_MS = 60 * 60 * 1_000
 
 export class LedgerStore {
   readonly #db: DatabaseSync
+  #lastBalancePruneAt: number | null = null
 
   constructor(path: string) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
@@ -283,19 +284,23 @@ export class LedgerStore {
   }
 
   /** Keep a changed balance immediately, otherwise no more than once an hour. */
-  recordBalance(runtime: string, account: string, at: number, remaining: number, unit: string): void {
+  recordBalance(runtime: string, account: string, at: number, remaining: number, unit: string, pruneAt = at): void {
+    const prune = this.#lastBalancePruneAt === null || pruneAt - this.#lastBalancePruneAt >= BALANCE_HISTORY_INTERVAL_MS
     this.#db.exec('BEGIN IMMEDIATE')
     try {
-      this.#db.prepare('DELETE FROM balance_history WHERE at < ?').run(at - BALANCE_HISTORY_RETENTION_MS)
+      if (prune) {
+        this.#db.prepare('DELETE FROM balance_history WHERE at < ?').run(pruneAt - BALANCE_HISTORY_RETENTION_MS)
+      }
       const last = this.#db.prepare(`SELECT at, remaining, unit FROM balance_history
         WHERE runtime = ? AND account = ? ORDER BY at DESC, rowid DESC LIMIT 1`).get(runtime, account) as
         | { at: number; remaining: number; unit: string }
         | undefined
-      if (!last || last.remaining !== remaining || last.unit !== unit || at - last.at >= BALANCE_HISTORY_INTERVAL_MS) {
+      if (!last || (at > last.at && (last.remaining !== remaining || last.unit !== unit || at - last.at >= BALANCE_HISTORY_INTERVAL_MS))) {
         this.#db.prepare('INSERT INTO balance_history (runtime, account, at, remaining, unit) VALUES (?, ?, ?, ?, ?)')
           .run(runtime, account, at, remaining, unit)
       }
       this.#db.exec('COMMIT')
+      if (prune) this.#lastBalancePruneAt = pruneAt
     } catch (error) {
       this.#db.exec('ROLLBACK')
       throw error
