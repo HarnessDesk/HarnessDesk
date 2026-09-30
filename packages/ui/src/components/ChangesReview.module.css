@@ -29,10 +29,6 @@
   gap: var(--hd-space-2); /* desk: canonical One UI System scale */
 }
 
-.space {
-  flex: 1;
-}
-
 .hunkHead {
   display: flex;
   align-items: center;

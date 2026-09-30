@@ -64,10 +64,6 @@
 
 }
 
-.space {
-  flex: 1;
-}
-
 .count {
   flex: 0 1 auto; /* desk: none → 0 1 auto, the count gives way before the search does */
   min-width: 0;

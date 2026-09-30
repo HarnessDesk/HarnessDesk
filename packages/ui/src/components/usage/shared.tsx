@@ -61,6 +61,7 @@ import {
   Segmented,
   Separator,
   Text,
+  ToolbarGap,
   buttonVariants,
 } from '../../design'
 import {
@@ -141,7 +142,7 @@ export const BandHead = ({
     description={note}
     action={
       <>
-        <span className={styles.fill} />
+        <ToolbarGap />
         {action}
       </>
     }
@@ -372,7 +373,7 @@ export const Card = ({
         )}
         <Text role="subject" truncate className={styles.cardName}>{drawn.account ?? agent}</Text>
         {drawn.account && <Text role="meta" truncate className={styles.cardAgent}>{agent}</Text>}
-        <span className={styles.fill} />
+        <ToolbarGap />
         {shapeChip}
         <Chip state={state} {...(plan ? { label: plan } : {})} />
       </CardHeader>
@@ -384,7 +385,7 @@ export const Card = ({
           <div className={styles.heroFigure}>
             <Text role="figure" tone={hero ? usageReadingTone(hero.tone) : balance || money ? undefined : 'neutral'}>{figure}</Text>
             <Text role="muted" truncate>{word}</Text>
-            <span className={styles.fill} />
+            <ToolbarGap />
           {/* The pace sits beside the figure it qualifies, not in the header.
               It spent a year as the *last* of six candidates for the card's
               one line of prose, which meant the only card that ever showed it
@@ -456,7 +457,7 @@ export const Card = ({
       <CardFooter className={styles.cardFoot} {...(view.stale ? { 'data-stale': '' } : {})}>
         <Text role="meta" truncate className={styles.cardSource}>{report.source.label}</Text>
         {hero && <Text role="meta" tone={view.stale ? 'warning' : 'neutral'} className={styles.cardAge}>· {view.age}</Text>}
-        <span className={styles.fill} />
+        <ToolbarGap />
         <Popover
           label={<MoreIcon size={14} />}
           title={`What to do about ${agent}`}
@@ -1016,7 +1017,7 @@ export const Spend = ({
 
         <ChartFoot>
           <Text role="meta" className={styles.costWord}>{coverageSentence(ledger, metric)}</Text>
-          <span className={styles.fill} />
+          <ToolbarGap />
           <Button size="sm" variant="ghost" disabled={scan?.running} onClick={onScan}>
             {scan?.running ? `Scanning ${scan.filesDone}/${scan.filesTotal}` : 'Rescan'}
           </Button>

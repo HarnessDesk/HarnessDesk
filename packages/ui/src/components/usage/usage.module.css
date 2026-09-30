@@ -1,9 +1,5 @@
 /* The Dashboard keeps only placement; its visible roles belong to design/. */
 
-.fill {
-  flex: 1;
-}
-
 .band {
   display: flex;
   flex-direction: column;

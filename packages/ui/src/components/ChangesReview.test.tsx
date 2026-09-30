@@ -108,6 +108,7 @@ describe('the review workspace', () => {
     expect(text).toContain('2 files')
     expect(text).toContain('+3 −1')
     expect(text).toContain('on main')
+    expect(container.querySelector('[data-slot="toolbar-gap"]')).not.toBeNull()
   })
 
   it('parts one hunk from the next with the app\u2019s hairline, and never above the first', async () => {
