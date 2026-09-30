@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { RuntimeInfo, SessionSummary, WorkspaceEntry } from '@harnessdesk/protocol'
+import { sessionKey, type RuntimeInfo, type SessionSummary, type WorkspaceEntry } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -108,6 +108,19 @@ it('gives an open subfolder one row, not a second empty one for its repository',
 
   expect(projects()).toEqual(['ui'])
   expect(currentProject()).toBe('ui')
+})
+
+it('selects exactly the open conversation, never its current project head', () => {
+  const here = session('a', REPO, { root: REPO, worktree: false })
+  render([here], workspace(REPO, { root: REPO, worktree: false }), {
+    activeSessionKey: sessionKey(runtime.id, here.id),
+  })
+  const active = container.querySelectorAll('[data-slot="sidebar-menu-button"][data-active="true"]')
+  expect(active).toHaveLength(1)
+  expect(active[0]?.textContent).toBe('a')
+  const project = container.querySelector('[draggable="true"] [data-slot="sidebar-menu-button"]')
+  expect(project).not.toBeNull()
+  expect(project?.getAttribute('data-active')).not.toBe('true')
 })
 
 it('gives an open worktree the project it was cut from, and no row of its own', () => {

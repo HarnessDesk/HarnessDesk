@@ -113,6 +113,7 @@ type SidebarMenuButtonProps = Omit<React.ComponentProps<'button'>, 'children'> &
     icon?: React.ReactNode
     label?: React.ReactNode
     isActive?: boolean
+    trailingActions?: 1 | 2
   }
 
 const SidebarMenuButton = ({
@@ -122,6 +123,7 @@ const SidebarMenuButton = ({
   label,
   children,
   isActive = false,
+  trailingActions = 1,
   type = 'button',
   ...props
 }: SidebarMenuButtonProps) => (
@@ -130,8 +132,8 @@ const SidebarMenuButton = ({
     data-slot="sidebar-menu-button"
     data-sidebar="menu-button"
     data-size={size}
-    data-active={isActive}
-    className={cn(sidebarMenuButtonVariants({ size }), className)}
+    data-active={isActive ? 'true' : undefined}
+    className={cn(sidebarMenuButtonVariants({ size }), trailingActions === 2 && 'pe-(--hd-space-16)', className)}
     {...props}
   >
     {icon === undefined ? null : <span data-slot="sidebar-menu-icon" className="inline-flex size-4 shrink-0 items-center justify-center">{icon}</span>}

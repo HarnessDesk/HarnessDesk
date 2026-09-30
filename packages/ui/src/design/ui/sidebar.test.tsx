@@ -19,7 +19,7 @@ it('marks only the selected menu row active', () => {
   )
 
   expect(markup.match(/data-active="true"/g)).toHaveLength(1)
-  expect(markup.match(/data-active="false"/g)).toHaveLength(1)
+  expect(markup).not.toContain('data-active="false"')
   expect(markup).toContain('data-[active=true]:bg-(--hd-sidebar-selected)')
 })
 

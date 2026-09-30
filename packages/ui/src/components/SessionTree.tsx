@@ -59,11 +59,9 @@ import {
   PlusIcon,
   RowsLooseIcon,
   RowsTightIcon,
-  SessionIcon,
   SlidersIcon,
   SortNameIcon,
   TeamIcon,
-  TodoActiveIcon,
   TrashIcon,
   UnpinIcon,
 } from './Icons'
@@ -508,52 +506,41 @@ const GroupHead = ({
       onDragEnd={drag.onEnd}
       onContextMenu={menu.open}
     >
-      <Button
-        type="button"
-        variant="navigation" size="navigation" className={styles.groupRow}
-        data-draggable=""
-        {...(edge ? { 'data-insert': edge } : {})}
-        {...(drag.dragging === group.root ? { 'data-dragging': '' } : {})}
-        {...(current ? { 'data-current': '' } : {})}
-        onClick={(event) => (event.altKey ? onToggleAll() : onToggle())}
-        title={`${current ? 'The folder this app is working in.\n' : ''}${actualRoot}\n⌥-click to ${open ? 'collapse' : 'expand'} every project.`}
-      >
-        <DisclosureChevron open={open} size="xs" className={styles.groupChevron} />
-        {/* An open folder for the one you are in, a closed one for the rest:
-            the same distinction the OS file manager makes, and the one Codex
-            makes in this exact list. */}
-        <Text role={current ? 'row' : 'meta'} tone={current ? 'brand' : undefined} className={styles.groupIcon}>
-          {current ? <FolderOpenIcon size={12} /> : <FolderIcon size={12} />}
-        </Text>
-        <span className={styles.groupBody}>
-          <Text role="navigation" fade className={styles.groupName}>{group.name}</Text>
-          {stopped && <span title={`${stopped.reason} ${stopped.nextStep}`}><Chip tone="neutral" label="Capture stopped" /></span>}
-          {pinned && <Text role="meta" className={styles.groupPin}><PinIcon size={11} /></Text>}
-          <Text role="meta" numeric className={styles.groupCount}>{group.sessions.length}</Text>
-        </span>
-      </Button>
-      <span className={styles.groupTools}>
-        <Button
-          type="button"
-          variant="ghost" size="icon-sm" className={styles.groupAdd}
-          onClick={() => void store.startSessionIn(actualRoot)}
-          title={`New session in ${group.name}`}
-          aria-label={`New session in ${group.name}`}
-        >
-          <PlusIcon size={12} />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost" size="icon-sm" className={styles.groupAdd}
-          aria-haspopup="menu"
-          aria-expanded={menu.at !== null}
-          onClick={menu.open}
-          title={`Actions for ${group.name}`}
-          aria-label={`Actions for ${group.name}`}
-        >
-          <MoreIcon size={12} />
-        </Button>
-      </span>
+      <SidebarMenu>
+        <SidebarMenuItem data-current={current ? '' : undefined}>
+          <SidebarMenuButton
+            trailingActions={2}
+            data-draggable=""
+            data-insert={edge ?? undefined}
+            data-dragging={drag.dragging === group.root ? '' : undefined}
+            aria-expanded={open}
+            onClick={(event) => (event.altKey ? onToggleAll() : onToggle())}
+            title={`${current ? 'The folder this app is working in.\n' : ''}${actualRoot}\n⌥-click to ${open ? 'collapse' : 'expand'} every project.`}
+            icon={<>
+              <Text role="meta" className="group-hover/menu-item:hidden group-focus-within/menu-item:hidden">
+                {current ? <FolderOpenIcon size={14} /> : <FolderIcon size={14} />}
+              </Text>
+              <DisclosureChevron open={open} size="xs" className="hidden group-hover/menu-item:block group-focus-within/menu-item:block" />
+            </>}
+            label={<span className="flex min-w-0 items-center gap-(--hd-space-1)" >
+              <Text role="navigation" ink={current ? 'primary' : undefined} weight={current ? 'medium' : undefined} truncate className={styles.groupName}>{group.name}</Text>
+              {stopped && <span title={`${stopped.reason} ${stopped.nextStep}`}><Chip tone="neutral" label="Capture stopped" /></span>}
+              {pinned && <Text role="meta" className={styles.groupPin}><PinIcon size={11} /></Text>}
+            </span>}
+          />
+          <SidebarMenuAction showOnHover className="end-(--hd-space-8)"
+            onClick={() => void store.startSessionIn(actualRoot)}
+            title={`New session in ${group.name}`} aria-label={`New session in ${group.name}`}>
+            <PlusIcon size={12} />
+          </SidebarMenuAction>
+          <SidebarMenuAction showOnHover data-state={menu.at ? 'open' : undefined}
+            aria-haspopup="menu" aria-expanded={menu.at !== null}
+            onClick={menu.open}
+            title={`Actions for ${group.name}`} aria-label={`Actions for ${group.name}`}>
+            <MoreIcon size={12} />
+          </SidebarMenuAction>
+        </SidebarMenuItem>
+      </SidebarMenu>
       <WorkspaceMenu
         group={group}
         current={current}
@@ -574,7 +561,7 @@ const GroupHead = ({
  * and the ones it holds are one level further in. The group glyph says it is
  * several agents; the dot on each child says it is one.
  *
- * The whole row opens the room. The chevron is a separate button inside it,
+ * The whole row opens the room. The chevron is a separate button beside it,
  * because "show me who is in here" and "take me in there" are different
  * questions and a tree that answers the wrong one is a tree you stop
  * expanding.
@@ -651,123 +638,54 @@ const RoomRow = ({
   ).length
 
   return (
-    <div>
-      <Button
-        render={<div role="button" />}
-        nativeButton={false}
-        variant="navigation"
-        size="navigation"
-        className={styles.roomRow}
-        {...(held > 0 ? { 'data-held': '' } : {})}
-        tabIndex={0}
-        aria-label={`Room ${name}`}
-        title={
-          held > 0
-            ? `${name} — a held message is waiting for you`
-            : `${name} — the board, the chat, and who is here`
-        }
-        onClick={() => store.openTeamRoom(room.id)}
-        onKeyDown={(event) => {
-          /* Only the row's own keys. The chevron inside it is a button, and
-             its Enter or Space bubbles here: focusing the twisty and pressing
-             either opened the room instead of folding it, and Space's
-             `preventDefault` below swallowed the click that would have done
-             the folding. A nested control answers for itself. */
-          if (event.target !== event.currentTarget) return
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            store.openTeamRoom(room.id)
-          }
-        }}
-      >
-        <Button
-          type="button"
-          variant="ghost" size="icon-sm" className={styles.roomTwisty}
+    <SidebarMenu>
+      <SidebarMenuItem>
+        <div className="relative min-w-0">
+        <SidebarMenuButton
+          role="button"
+          aria-label={`Room ${name}`}
+          title={`${name} — ${held > 0 ? `${held} held ${held === 1 ? 'message' : 'messages'} waiting for you` : 'the board, the chat, and who is here'}${claimed > 0 ? ` · ${claimed} claimed ${claimed === 1 ? 'job' : 'jobs'}` : ''}`}
+          data-held={held > 0 ? '' : undefined}
+          onClick={() => store.openTeamRoom(room.id)}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget) return
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              store.openTeamRoom(room.id)
+            }
+          }}
+          icon={<Text role="meta"><TeamIcon size={14} /></Text>}
+          label={<span className="flex min-w-0 items-center gap-(--hd-space-1)">
+            <span className="min-w-0 truncate">{name}</span>
+            {goal && <Chip tone={waiting ? 'warning' : goalWords({ goal: goal.goal, activity: goal.activity }).tone}>
+              {waiting ? 'Needs you' : goalWords({ goal: goal.goal, activity: goal.activity }).label}
+            </Chip>}
+          </span>}
+        />
+        {held > 0 && <SidebarMenuBadge title={`${held} held ${held === 1 ? 'message' : 'messages'} waiting for you`}>
+          {held}
+        </SidebarMenuBadge>}
+        <SidebarMenuAction showOnHover
           aria-expanded={open}
           aria-label={open ? `Hide the agents in ${name}` : `Show the agents in ${name}`}
-          title={members.length === 1 ? '1 conversation in here' : `${members.length} conversations in here`}
-          onClick={(event) => {
-            event.stopPropagation()
-            onToggle()
-          }}
-        >
-          <DisclosureChevron open={open} size="xs" className={styles.groupChevron} />
-        </Button>
-        <Text role="meta" tint="violet" className={styles.roomIcon}>
-          <TeamIcon size={12} />
-        </Text>
-        {/* One line: the name, one state chip, then the counts. The name is
-            the only thing here that gives way — it fades at its edge — and the
-            chip and the counts keep their own width, so they never slide
-            under one another. A trigger's Goal is named by its subject
-            (`goalName`: "Issue #42"); where it came from is the room's own
-            header chip, not a second line here saying the name again. */}
-        <span className={styles.rowBody}>
-          <span className={styles.rowHead}>
-            <Text role="navigation" fade className={styles.roomTitle}>{name}</Text>
-            {goal ? (() => {
-              /* The room's own header rule: a member holding an approval is
-                 the Goal needing you, whatever the host's activity has
-                 caught up to — the two rows must not disagree. */
-              const words = waiting
-                ? { label: 'Needs you', tone: 'warning' as const }
-                : goalWords({ goal: goal.goal, activity: goal.activity })
-              return <Chip tone={words.tone}>{words.label}</Chip>
-            })() : null}
-          </span>
-        </span>
-        {/* A state and a size, and they must not read as one number. Drawn
-            plainly the row said "1 0" — two counts in the same grey, the same
-            size, a gap apart, and neither with a glyph to say what it
-            counted, which a taste sweep of #905 flagged as unreadable at a
-            glance. The project row one line above already answers this: a
-            glyph qualifies the count beside it, so what is a state looks like
-            a state. */}
-        {/* A Goal's row spends its width on its name and its one state chip.
-            At the sidebar's own width the two counters beside them left the
-            name "Issu" — measured in the running app — so on a Goal's row
-            they give way: what is claimed is the room rail's Board row, and
-            how many conversations it holds is the twisty's own label and
-            the list it opens. A plain room, with no chip, keeps both. */}
-        {!goal && claimed > 0 && (
-          <Text role="meta" numeric className={styles.roomClaimed} title={`${claimed} of this room's jobs ${claimed === 1 ? 'is' : 'are'} claimed`}>
-            <TodoActiveIcon size={11} />
-            {claimed}
-          </Text>
-        )}
-        {!goal && <Text
-          role="meta"
-          numeric
-          className={styles.groupCount}
-          /* `members` is resolved against what the tree is showing, so under an
-             agent filter it is a subset — saying "N conversations in this
-             room" of a filtered count states as fact a number the filter
-             chose. The row says which number it is showing. */
-          title={
-            filtered
-              ? `${members.length} of this room's conversations match the agent filter`
-              : members.length === 1
-                ? '1 conversation in this room'
-                : `${members.length} conversations in this room`
-          }
-        >
-          <SessionIcon size={11} />
-          {members.length}
-        </Text>}
-      </Button>
-      {/* A navigation tree never renders an empty-state sentence — several
-          freshly opened Goals, none seated yet, used to repeat "No agents in
-          here yet — open it to add one." under every one of them. The row
-          above already says 0: that is what a tree shows for empty, nothing
-          more, so an empty room opened here draws no second row at all. */}
-      {open && members.length > 0 && (
-        <div className={styles.nested}>
-          {members.map((summary) => (
-            <SessionRow key={summary.id} summary={summary} now={now} onDelete={onDelete} />
-          ))}
+          title={filtered
+            ? `${members.length} of this room's conversations match the agent filter`
+            : members.length === 1 ? '1 conversation in this room' : `${members.length} conversations in this room`}
+          onClick={onToggle}>
+          <DisclosureChevron open={open} size="xs" />
+        </SidebarMenuAction>
         </div>
-      )}
-    </div>
+        {open && members.length > 0 && (
+          <SidebarMenuSub>
+            {members.map((summary) => (
+              <SidebarMenuSubItem key={summary.id}>
+                <SessionRow summary={summary} now={now} onDelete={onDelete} />
+              </SidebarMenuSubItem>
+            ))}
+          </SidebarMenuSub>
+        )}
+      </SidebarMenuItem>
+    </SidebarMenu>
   )
 }
 
@@ -1281,21 +1199,14 @@ export const SessionTree = ({ now }: { now: number }) => {
               ),
             )}
             {!expanded.has(group.root) && loose.length > COLLAPSED_LIMIT && (
-              <Button
-                type="button"
-                variant="row" size="row" className={styles.showMore}
-                onClick={() =>
-                  setExpanded((current) => new Set(current).add(group.root))
-                }
-              >
-                Show {loose.length - COLLAPSED_LIMIT} more
-              </Button>
+              <SidebarMenu><SidebarMenuItem>
+                <SidebarMenuButton size="sm" label={`${loose.length - COLLAPSED_LIMIT} more`}
+                  onClick={() => setExpanded((current) => new Set(current).add(group.root))} />
+              </SidebarMenuItem></SidebarMenu>
             )}
             {wrapped.length > 0 ? (
               <>
-                <Button
-                  type="button"
-                  variant="row" size="row" className={styles.showMore}
+                <SidebarMenu><SidebarMenuItem><SidebarMenuButton size="sm"
                   aria-expanded={expanded.has(wrappedKey)}
                   onClick={() => setExpanded((current) => {
                     const next = new Set(current)
@@ -1303,9 +1214,8 @@ export const SessionTree = ({ now }: { now: number }) => {
                     else next.add(wrappedKey)
                     return next
                   })}
-                >
-                  Wrapped · {wrapped.length}
-                </Button>
+                  label={`Wrapped · ${wrapped.length}`}
+                /></SidebarMenuItem></SidebarMenu>
                 {expanded.has(wrappedKey) ? wrapped.map((room) => (
                   <RoomRow
                     key={room.id}
@@ -1364,10 +1274,12 @@ export const SessionTree = ({ now }: { now: number }) => {
       )}
       {near.map(renderGroup)}
       {far.length > 0 && (
-        <>
+        <SidebarGroup>
+          <SidebarGroupLabel>
           <Button
             type="button"
-            variant="row" size="row" className={styles.otherProjects}
+            variant="ghost" size="row"
+            className="flex w-full items-center gap-(--hd-space-2) text-left"
             onClick={() => setOthersOpen(!othersOpen)}
             aria-expanded={othersOpen}
             {...(dragging && !far.some((group) => group.root === dragging)
@@ -1390,10 +1302,10 @@ export const SessionTree = ({ now }: { now: number }) => {
           >
             <DisclosureChevron open={othersOpen} size="xs" className={styles.groupChevron} />
             <Text role="navigation">Other projects</Text>
-            <Text role="meta" numeric className={styles.groupCount}>{far.length}</Text>
           </Button>
-          {othersOpen && far.map(renderGroup)}
-        </>
+          </SidebarGroupLabel>
+          {othersOpen && <SidebarGroupContent>{far.map(renderGroup)}</SidebarGroupContent>}
+        </SidebarGroup>
       )}
       {deleting && <DeleteSession summary={deleting} onClose={() => setDeleting(null)} />}
       {/* Reordering by hand is silent by nature; this is the same move said

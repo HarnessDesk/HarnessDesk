@@ -383,7 +383,8 @@ it('an arrow key resizes a panel for good, not just for a frame', () => {
   act(() => {
     seam.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
   })
-  expect(harness.snapshot.workbench.sidebar.size).toBe(248)
+  // The nudge is 2% of the resizable span, now 200–520 px.
+  expect(harness.snapshot.workbench.sidebar.size).toBe(246)
 })
 
 /*
@@ -1200,4 +1201,3 @@ it('a second pointer on an area seam leaves no suppression behind (#252)', () =>
   pointFrom(seam, 'pointerup', 1, 0, 400)
   expect(windowResizing()).toBeNull()
 })
-

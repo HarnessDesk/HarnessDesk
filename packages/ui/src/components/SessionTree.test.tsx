@@ -57,7 +57,7 @@ it('keeps Archive self-explanatory without a subtitle', () => {
     activeRuntime: runtime.id,
     runtimes: [runtime],
     history: [summary],
-  } as AppSnapshot
+  } as unknown as AppSnapshot
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
@@ -93,16 +93,23 @@ it('uses one fixed trailing slot for conversation state and actions', () => {
     id, runtime: runtime.id, title: id, preview: null, cwd: '/repo',
     status: { type: status }, createdAt: 1, updatedAt: 2, archived: false,
   }) as unknown as SessionSummary
+  const waiting = summary('waiting', 'idle')
+  const waitingKey = sessionKey(runtime.id, sessionId('waiting'))
   const snapshot = { ...emptySnapshot(), status: 'open', activeRuntime: runtime.id,
-    runtimes: [runtime], history: [summary('quiet', 'idle'), summary('busy', 'active')],
-  } as AppSnapshot
+    runtimes: [runtime], history: [summary('quiet', 'idle'), summary('busy', 'active'), waiting],
+    sessions: new Map([[waitingKey, { ...waiting, turns: [] } as unknown as Session]]),
+    approvals: [{ key: waitingKey, approval: {} }],
+  } as unknown as AppSnapshot
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
   act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
   const rows = [...container.querySelectorAll<HTMLElement>('[data-slot="sidebar-menu-item"]')]
   const quiet = rows.find((row) => row.textContent?.includes('quiet'))!
   const busy = rows.find((row) => row.textContent?.includes('busy'))!
+  const needsYou = rows.filter((row) => row.textContent?.includes('waiting'))
   expect(quiet.querySelector('[data-slot="sidebar-menu-badge"]')).toBeNull()
   expect(busy.querySelectorAll('[data-slot="sidebar-menu-badge"]')).toHaveLength(1)
+  expect(needsYou.length).toBeGreaterThan(0)
+  for (const row of needsYou) expect(row.querySelectorAll('[data-slot="sidebar-menu-badge"]')).toHaveLength(1)
   const label = busy.querySelector('[data-slot="sidebar-menu-label"]')!
   const classes = label.className
   const action = busy.querySelector<HTMLElement>('[data-slot="sidebar-menu-action"]')!
@@ -285,6 +292,7 @@ const room = (over: {
   root?: string
   realRoot?: string
   intents?: { state: string }[]
+  channel?: { kind: string; state: string }[]
 }) =>
   ({
     id: over.id,
@@ -295,7 +303,7 @@ const room = (over: {
     members: over.members ?? [],
     messaging: true,
     intents: over.intents ?? [],
-    channel: [],
+    channel: over.channel ?? [],
   }) as unknown as TeamState
 
 const treeWith = (
@@ -509,7 +517,7 @@ it('draws a trigger Goal’s row on one line: its subject and one state chip, no
   await act(async () => { await Promise.resolve() })
 
   const row = roomRow(tree, 'Issue #43')
-  const head = row.querySelector('[class*="rowHead"]')
+  const head = row.querySelector('[data-slot="sidebar-menu-label"]')
   expect(head?.textContent).toBe('Issue #43Working')
   expect(row.querySelectorAll('[data-slot="chip"]')).toHaveLength(1)
   expect(row.querySelector('[class*="rowMeta"]')).toBeNull()
@@ -528,11 +536,10 @@ it('a room is a row under its project, and its members hang off it', () => {
 
   const row = roomRow(tree, 'Checkout rewrite')
   expect(row.textContent).toContain('Checkout rewrite')
-  expect(row.getAttribute('data-slot')).toBe('button')
-  expect(row.getAttribute('data-variant')).toBe('navigation')
-  expect(row.tagName).toBe('DIV')
+  expect(row.getAttribute('data-slot')).toBe('sidebar-menu-button')
+  expect(row.tagName).toBe('BUTTON')
   // The member is inside the room's own block; the loose one is not.
-  const nested = row.parentElement?.querySelector('[class*="nested"]')
+  const nested = row.closest('[data-slot="sidebar-menu-item"]')?.querySelector('[data-slot="sidebar-menu-sub"]')
   expect(nested?.textContent).toContain('session-1')
   expect(nested?.textContent).not.toContain('session-2')
 })
@@ -581,16 +588,14 @@ it('the twisty hides the members without opening the room', () => {
     [room({ id: 'r1', name: 'Checkout rewrite', members: [sessionKey('codex', sessionId('session-1'))] })],
     [summary({ id: 'session-1' })],
   )
-  const twisty = roomRow(tree, 'Checkout rewrite').querySelector('button')
+  const twisty = roomRow(tree, 'Checkout rewrite').parentElement?.querySelector('[data-slot="sidebar-menu-action"]')
   act(() => (twisty as HTMLButtonElement).click())
 
   expect(store.toggleCollapsed).toHaveBeenCalledWith('r1')
   expect(store.openTeamRoom).not.toHaveBeenCalled()
 })
 
-/* The room row is a `div` wearing the navigation button, not a native button,
-   so the keys a button answers for free are its own code, and its nested
-   twisty's keys bubble through it. Each is pinned here. */
+/* The row and the disclosure are sibling buttons; each answers its own keys. */
 it('the room row answers its own keys and leaves the twisty theirs', () => {
   const { container: tree, store } = treeWith([room({ id: 'r1', name: 'Checkout rewrite' })])
   const row = roomRow(tree, 'Checkout rewrite')
@@ -605,9 +610,8 @@ it('the room row answers its own keys and leaves the twisty theirs', () => {
   expect(store.openTeamRoom).toHaveBeenCalledTimes(2)
   expect(store.openTeamRoom).toHaveBeenLastCalledWith('r1')
 
-  // The twisty's own Enter and Space bubble to the row; they must not open the
-  // room, and the row must not cancel them, or the twisty's click is lost.
-  const twisty = row.querySelector<HTMLButtonElement>('button[aria-expanded]')!
+  // The disclosure's keys must not open the room.
+  const twisty = row.parentElement?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-action"]')!
   for (const key of ['Enter', ' ']) {
     const press = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
     act(() => { twisty.dispatchEvent(press) })
@@ -619,15 +623,12 @@ it('the room row answers its own keys and leaves the twisty theirs', () => {
 })
 
 it('the twisty answers the keyboard too, and the row does not answer for it', () => {
-  /* The chevron is a nested button, so its Enter or Space keydown bubbles to
-     the row — focusing it and pressing either opened the room, and Space's
-     `preventDefault` on the row also swallowed the click that would have
-     toggled. The earlier test only sent `.click()` and missed all of it. */
+  /* The disclosure is a sibling button, so its keys stay separate. */
   const { container: tree, store } = treeWith(
     [room({ id: 'r1', name: 'Checkout rewrite', members: [sessionKey('codex', sessionId('session-1'))] })],
     [summary({ id: 'session-1' })],
   )
-  const twisty = roomRow(tree, 'Checkout rewrite').querySelector('button') as HTMLButtonElement
+  const twisty = roomRow(tree, 'Checkout rewrite').parentElement?.querySelector('[data-slot="sidebar-menu-action"]') as HTMLButtonElement
 
   for (const key of ['Enter', ' ']) {
     act(() => {
@@ -881,14 +882,11 @@ it('a room in a project the tree drew for its own sake keeps its members under a
   // No history at all, so this project is in the tree only because the room is.
   const { container: tree } = treeWith([both], [], [codex, claude], { agent: runtimeId('codex') })
   const row = roomRow(tree, 'Checkout rewrite')
-  expect(row.parentElement?.textContent).not.toContain('No agents in here yet')
+  expect(row.closest('[data-slot="sidebar-menu-item"]')?.textContent).not.toContain('No agents in here yet')
   // The filter still decides *which* members: Codex's is kept, Claude's is not.
-  expect(rowTitles(row.parentElement as HTMLElement)).toEqual(['session-1'])
-  const count = [...tree.querySelectorAll('[class*="groupCount"]')].find(
-    (one) => one.closest('[class*="roomRow"]') !== null,
-  )
-  expect(count?.textContent).toBe('1')
-  expect(count?.getAttribute('title')).toBe(
+  expect(rowTitles(row.closest('[data-slot="sidebar-menu-item"]') as HTMLElement)).toEqual(['session-1'])
+  const disclosure = row.parentElement?.querySelector('[data-slot="sidebar-menu-action"]')
+  expect(disclosure?.getAttribute('title')).toBe(
     "1 of this room's conversations match the agent filter",
   )
 })
@@ -936,12 +934,12 @@ it('a room keyed at the repository belongs to the row homed at the subfolder you
  * reading "Working" at the same time. The row's own trailing count already
  * says 0, which is what a tree shows for empty — nothing more.
  */
-it('says a room is empty by its own count, never by a sentence in the tree', () => {
+it('keeps an empty room quiet without a zero or empty-state sentence', () => {
   const { container: tree } = treeWith([room({ id: 'r1', name: 'Checkout rewrite' })])
   const row = roomRow(tree, 'Checkout rewrite')
   expect(row.parentElement?.textContent).not.toContain('No agents in here yet')
-  const count = row.querySelector('[class*="groupCount"]')
-  expect(count?.textContent).toBe('0')
+  expect(row.parentElement?.querySelector('[data-slot="sidebar-menu-badge"]')).toBeNull()
+  expect(row.parentElement?.textContent).not.toContain('0')
 })
 
 it('lists a member the history has not caught up with', () => {
@@ -955,7 +953,7 @@ it('lists a member the history has not caught up with', () => {
     [],
     [fresh],
   )
-  const block = roomRow(tree, 'Checkout rewrite').parentElement
+  const block = roomRow(tree, 'Checkout rewrite').closest('[data-slot="sidebar-menu-item"]')
   expect(block?.textContent).not.toContain('No agents in here yet')
   expect(block?.textContent).toContain('Untitled session')
 })
@@ -973,31 +971,23 @@ it('a filtered list does not smuggle a member back in through the live map', () 
     { agent: runtimeId('codex') },
   )
   const row = roomRow(tree, 'Checkout rewrite')
-  const block = row.parentElement
+  const block = row.closest('[data-slot="sidebar-menu-item"]')
   expect(block?.textContent).not.toContain('No agents in here yet')
   expect(block?.textContent).not.toContain('Filtered away')
-  expect(row.querySelector('[class*="groupCount"]')?.textContent).toBe('0')
+  expect(row.parentElement?.querySelector('[data-slot="sidebar-menu-action"]')?.getAttribute('title')).toBe(
+    "0 of this room's conversations match the agent filter",
+  )
 })
 
-it('a room says what each of its numbers counts', () => {
-  /* The row carries a state and a size. Drawn as two bare counts it read
-     "1 0" — the same grey, the same size, a gap apart, and the member count
-     with nothing on it at all to say what it was. Whatever the row shows, a
-     reader must be able to find out what it means without leaving the row. */
+it('a room reserves its trailing badge for messages and explains other counts on hover', () => {
   const { container: tree } = treeWith([
-    room({ id: 'r1', name: 'Checkout rewrite', intents: [{ state: 'claimed' }, { state: 'open' }] }),
+    room({ id: 'r1', name: 'Checkout rewrite', intents: [{ state: 'claimed' }, { state: 'open' }], channel: [{ kind: 'message', state: 'held' }] }),
   ])
-  const counts = [...tree.querySelectorAll('[class*="roomClaimed"], [class*="groupCount"]')].filter(
-    (el) => el.closest('[class*="roomRow"]') !== null,
-  )
-  expect(counts.length).toBeGreaterThan(0)
-  for (const count of counts) expect(count.getAttribute('title')).toBeTruthy()
-
-  // And the state is not another plain number beside the size: it is drawn
-  // with the glyph the board gives that column.
-  const claimed = tree.querySelector('[class*="roomClaimed"]')
-  expect(claimed?.textContent).toBe('1')
-  expect(claimed?.querySelector('svg')).not.toBeNull()
+  const row = roomRow(tree, 'Checkout rewrite')
+  expect(row.title).toContain('1 claimed job')
+  const badge = row.parentElement?.querySelector('[data-slot="sidebar-menu-badge"]')
+  expect(badge?.textContent).toBe('1')
+  expect(badge?.getAttribute('title')).toContain('1 held message')
 })
 
 it('a filtered room row says the number is filtered', () => {
@@ -1013,15 +1003,11 @@ it('a filtered room row says the number is filtered', () => {
   ] })
 
   const plain = treeWith([both], [codex, claude])
-  const plainCount = [...plain.container.querySelectorAll('[class*="groupCount"]')]
-    .find((el) => el.closest('[class*="roomRow"]') !== null)
-  expect(plainCount?.textContent).toBe('2')
+  const plainCount = roomRow(plain.container, 'Checkout rewrite').parentElement?.querySelector('[data-slot="sidebar-menu-action"]')
   expect(plainCount?.getAttribute('title')).toBe('2 conversations in this room')
 
   const filtered = treeWith([both], [codex], [], { agent: runtimeId('codex') })
-  const filteredCount = [...filtered.container.querySelectorAll('[class*="groupCount"]')]
-    .find((el) => el.closest('[class*="roomRow"]') !== null)
-  expect(filteredCount?.textContent).toBe('1')
+  const filteredCount = roomRow(filtered.container, 'Checkout rewrite').parentElement?.querySelector('[data-slot="sidebar-menu-action"]')
   expect(filteredCount?.getAttribute('title')).toBe(
     "1 of this room's conversations match the agent filter",
   )

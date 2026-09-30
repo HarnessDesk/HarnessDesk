@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 
 import { runtimeId, sessionKey, sessionId, turnId, type AgentItem, type FileChange, type Turn } from '@harnessdesk/protocol'
 
-import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, MoreIcon, PlusIcon, PluginIcon, TerminalIcon, TodoPendingIcon, UserIcon } from '../../components/Icons'
+import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, MoreIcon, PlusIcon, PluginIcon, TeamIcon, TerminalIcon, TodoPendingIcon, UserIcon } from '../../components/Icons'
 import { RuntimeMark } from '../../components/BrandIcons'
 import { DiffView } from '../../components/Diff'
 import { TurnFiles } from '../../components/TurnFiles'
@@ -122,7 +122,6 @@ import {
   SidebarMenuItem,
   SidebarMenuSkeleton,
   SidebarMenuSub,
-  SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarSeparator,
 } from '..'
@@ -223,8 +222,12 @@ const SidebarBoard = () => (
           <SidebarGroupAction aria-label="Add project"><PlusIcon size={14} /></SidebarGroupAction>
           <SidebarGroupContent>
             <SidebarMenu>
-              <SidebarMenuItem><SidebarMenuButton size="sm" icon={<FolderIcon size={16} />} label="storefront" /></SidebarMenuItem>
-              <SidebarMenuItem><SidebarMenuButton size="default" icon={<FolderIcon size={16} />} label="atlas-api" /></SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton trailingActions={2} icon={<FolderIcon size={16} />} label="storefront" />
+                <SidebarMenuAction showOnHover className="end-(--hd-space-8)" aria-label="New session in storefront"><PlusIcon size={12} /></SidebarMenuAction>
+                <SidebarMenuAction showOnHover aria-label="Actions for storefront"><MoreIcon size={12} /></SidebarMenuAction>
+              </SidebarMenuItem>
+              <SidebarMenuItem><SidebarMenuButton trailingActions={2} icon={<FolderIcon size={16} />} label="atlas-api" /></SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -245,32 +248,33 @@ const SidebarBoard = () => (
           <SidebarGroupAction aria-label="More recent items"><MoreIcon size={14} /></SidebarGroupAction>
           <SidebarGroupContent>
             <SidebarMenu>
-              <SidebarMenuItem><SidebarMenuButton size="default" label="Fix checkout retry" /></SidebarMenuItem>
+              <SidebarMenuItem><SidebarMenuButton size="default" icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="Fix checkout retry" isActive /></SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton size="default" label="Pin the flaky inventory retry" />
-                <SidebarMenuBadge>2</SidebarMenuBadge>
+                <SidebarMenuButton size="default" icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="Pin the flaky inventory retry" />
+                <SidebarMenuBadge aria-label="Working"><Dot state="signin" /></SidebarMenuBadge>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton size="default" icon={<CheckIcon size={14} />} label="Ready for review" />
-                <SidebarMenuBadge aria-label="Complete"><CheckIcon size={14} /></SidebarMenuBadge>
+                <SidebarMenuButton size="default" icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="Ready for review" />
+                <SidebarMenuBadge aria-label="Needs you"><Dot state="limit" /></SidebarMenuBadge>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton size="default" label="Fix checkout retry" className="bg-sidebar-accent" />
-                <SidebarMenuBadge>2</SidebarMenuBadge>
+                <SidebarMenuButton size="default" icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="A very long conversation label that truncates when the sidebar is narrow" />
                 <SidebarMenuAction aria-label="More actions" showOnHover className="opacity-100"><MoreIcon size={14} /></SidebarMenuAction>
               </SidebarMenuItem>
-              <SidebarMenuItem><SidebarMenuButton size="default" label="Fix checkout retry" isActive /></SidebarMenuItem>
-              <SidebarMenuItem><SidebarMenuButton size="lg" label="A very long conversation label that truncates when the sidebar is narrow" /></SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton icon={<FolderIcon size={16} />} label="storefront" />
+                <SidebarMenuButton icon={<TeamIcon size={16} />} label="Release room" />
+                <SidebarMenuBadge>2</SidebarMenuBadge>
                 <SidebarMenuSub>
-                  <SidebarMenuSubItem><SidebarMenuSubButton href="#fix-checkout">Fix checkout retry</SidebarMenuSubButton></SidebarMenuSubItem>
-                  <SidebarMenuSubItem><SidebarMenuSubButton href="#atlas-api">atlas-api</SidebarMenuSubButton></SidebarMenuSubItem>
+                  <SidebarMenuSubItem><SidebarMenuButton size="sm" icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="Fix checkout retry" /></SidebarMenuSubItem>
                 </SidebarMenuSub>
               </SidebarMenuItem>
+              <SidebarMenuItem><SidebarMenuButton size="sm" label="12 more" /></SidebarMenuItem>
               <SidebarMenuItem><SidebarMenuSkeleton showIcon /></SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel><Button variant="ghost" size="row" className="text-left">Other projects</Button></SidebarGroupLabel>
         </SidebarGroup>
       </SidebarContent>
       <SidebarSeparator />

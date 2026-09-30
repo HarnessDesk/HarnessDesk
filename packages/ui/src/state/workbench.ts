@@ -122,7 +122,7 @@ export const VIEW_DRAG_TYPE = 'application/x-harnessdesk-view'
  * documents side by side share the space they are given.
  */
 const LIMITS: Record<DockId, { readonly min: number; readonly max: number; readonly start: number }> = {
-  sidebar: { min: 120, max: 520, start: 240 },
+  sidebar: { min: 200, max: 520, start: 240 },
   right: { min: 280, max: 900, start: 460 },
   bottom: { min: 80, max: 600, start: 220 },
 }
