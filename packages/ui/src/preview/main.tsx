@@ -261,8 +261,8 @@ Object.assign(store as unknown as Record<string, unknown>, {
  */
 
 /** A stand-in pane, so the frame's own edges are what the frame shows. */
-export const Frame = ({ title, children }: { title: string; children: ReactNode }) => (
-  <section className="min-w-0">
+export const Frame = ({ id, title, children }: { id: string; title: string; children: ReactNode }) => (
+  <section data-frame-id={id} className="min-w-0">
     <h2 className="mb-2 text-sm font-semibold text-muted-foreground">{title}</h2>
     <div className="overflow-hidden rounded-lg border bg-background">
       <Boundary>{children}</Boundary>
@@ -435,8 +435,8 @@ const Preview = () => {
   return (
     <div className="min-h-full bg-background p-4 text-foreground">
       <section aria-label="Provenance preview">
-        <Frame title="History — associated Seats"><CommitSeatLabels value={previewProvenance} /><CommitProvenance root={PROVENANCE_ROOT} sha={PROVENANCE_SHA} /></Frame>
-        <Frame title="Project — capture"><ProjectProvenance root={PROVENANCE_ROOT} /></Frame>
+        <Frame id="provenance-seats" title="History — associated Seats"><CommitSeatLabels value={previewProvenance} /><CommitProvenance root={PROVENANCE_ROOT} sha={PROVENANCE_SHA} /></Frame>
+        <Frame id="project-capture" title="Project — capture"><ProjectProvenance root={PROVENANCE_ROOT} /></Frame>
       </section>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <span className="text-sm font-semibold">Screen preview</span>
@@ -554,17 +554,17 @@ const Preview = () => {
           a button, a chip, a card, a column ground and an empty state all in
           one screen, so a change to the system is visible here before it is
           hunted for anywhere else. */}
-      <Frame title="Board — the pane, with work on it">
+      <Frame id="board-populated" title="Board — the pane, with work on it">
         <div className="h-[560px]">
           <TeamBoardPane room={PREVIEW_ROOM} />
         </div>
       </Frame>
-      <Frame title="Board — what the desk observed">
+      <Frame id="board-observed" title="Board — what the desk observed">
         <div className="h-[640px]">
           <TeamBoardPane room={EVIDENCE_ROOM} />
         </div>
       </Frame>
-      <Frame title="Board — the empty state">
+      <Frame id="board-empty" title="Board — the empty state">
         <div className="h-[420px]">
           <TeamBoardPane room={EMPTY_ROOM} />
         </div>
@@ -572,7 +572,7 @@ const Preview = () => {
       {/* Narrow on purpose: the room gives its board whatever the rail left
           over, and every truncation bug this fixture exists for only appears
           at a width the card cannot have all of. */}
-      <Frame title="Board — the edges, at the width the room leaves it">
+      <Frame id="board-edges" title="Board — the edges, at the width the room leaves it">
         <div className="h-[560px] w-[760px]">
           <TeamBoardPane room={EDGE_ROOM} />
         </div>
@@ -582,7 +582,7 @@ const Preview = () => {
           `position: fixed`, which pins the real dialog — unedited — inside a
           frame. It is the only way to see the settings surface at the 980px
           it actually opens at. */}
-      <Frame title="Settings — the sheet, its nav, and a page">
+      <Frame id="settings-sheet" title="Settings — the sheet, its nav, and a page">
         <div className="relative h-[860px]" style={{ transform: 'translateZ(0)' }}>
           {/* The page is the caller's, so the dial drives it directly and the
               sheet's own nav rail writes back to the same state — no remount,
@@ -606,13 +606,13 @@ const Preview = () => {
       {/* Settings › Runtimes on a roster that needs something: the page's own
           frame, because the sheet above opens on the all-signed-in fixture,
           which is the one roster this page never has to help with. */}
-      <Frame title="Runtimes — what needs you, then what is ready">
+      <Frame id="runtimes-status" title="Runtimes — what needs you, then what is ready">
         <RuntimesPreview />
       </Frame>
       {/* The Agents window: the owner's left-menu decision, in its own
           top-level screen, never a Settings page — the same containment
           trick as Settings and Usage, both `AppWindow`s too. */}
-      <Frame title="Agents — the roster, and a selected Agent">
+      <Frame id="agents-roster" title="Agents — the roster, and a selected Agent">
         <div className="relative h-[860px]" style={{ transform: 'translateZ(0)' }}>
           <AgentsWindow
             focus={agentsFocus === 'overview' ? null : agentsFocus}
@@ -634,12 +634,12 @@ const Preview = () => {
           onChange={setAgentsFocus}
         />
       </div>
-      <Frame title="Settings › Workspaces — a project">
+      <Frame id="workspace-project" title="Settings › Workspaces — a project">
         <div className="max-h-[560px] overflow-y-auto p-4">
           <WorkspacesSection focus={PREVIEW_ROOT} />
         </div>
       </Frame>
-      <Frame title="Settings › Workspaces — Triggers on this Mac">
+      <Frame id="workspace-triggers" title="Settings › Workspaces — Triggers on this Mac">
         <div className="max-h-[560px] overflow-y-auto p-4">
           <WorkspacesSection />
         </div>
@@ -657,7 +657,7 @@ const Preview = () => {
           this page became unreachable, and a screenshot of any of them came
           back as the Dashboard. One line, and the trap is already documented
           four frames up. */}
-      <Frame title="Dashboard — what is left, what it cost, where it went">
+      <Frame id="dashboard-overview" title="Dashboard — what is left, what it cost, where it went">
         <div className="relative h-[900px]" style={{ transform: 'translateZ(0)' }}>
           <Usage
             view={dashboardView}
@@ -682,7 +682,7 @@ const Preview = () => {
           exactly the way the workbench scopes it, so this is the same
           component the window renders and not a reduced one — the transcript,
           its header, and the composer under it. */}
-      <Frame title="Conversation — the transcript and its composer">
+      <Frame id="conversation-composer" title="Conversation — the transcript and its composer">
         <div className="h-[820px]">
           <PaneProvider
             scope={{
@@ -705,7 +705,7 @@ const Preview = () => {
           "What should we build?", the pane a fresh conversation opens on.
           Only on `preview.html?empty` — see `SHOW_EMPTY` above. */}
       {SHOW_EMPTY && (
-        <Frame title="Conversation — the empty pane">
+        <Frame id="conversation-empty" title="Conversation — the empty pane">
           <div className="h-[560px]">
             <PaneProvider
               scope={{
@@ -728,7 +728,7 @@ const Preview = () => {
       {/* The card a publication chip opens on hover: the forge's own crest,
           state, size and excerpt. Rendered directly — no transcript in this
           fixture set carries a publication item yet. */}
-      <Frame title="Publication card — a pull request">
+      <Frame id="publication-card" title="Publication card — a pull request">
         <div className="w-[320px] rounded-(--hd-radius-lg) shadow-[inset_0_0_0_1px_var(--hd-border-strong)] bg-(--hd-popover)">
           <PublicationCard
             reference={{
@@ -758,7 +758,7 @@ const Preview = () => {
           a second conversation on the page would give every spec that finds
           "the" model trigger or "the" transcript two of them. */}
       {SHOW_COMPOSER && <>
-      <Frame title="Composer — its pickers, the queue and a picture">
+      <Frame id="composer-pickers" title="Composer — its pickers, the queue and a picture">
         <div className="h-[820px]" data-preview="composer">
           <StoreProvider store={composerWaiting}>
             <PaneProvider
@@ -778,7 +778,7 @@ const Preview = () => {
           </StoreProvider>
         </div>
       </Frame>
-      <Frame title="Composer — a paused queue">
+      <Frame id="composer-paused" title="Composer — a paused queue">
         <div className="p-4" data-preview="queue-paused">
           <StoreProvider store={composerPaused}>
             <PaneProvider
@@ -798,7 +798,7 @@ const Preview = () => {
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[380px_1fr]">
         {/* The two right-dock panels, at the width the dock actually gives
             them — a panel judged at full width is not the panel. */}
-        <Frame title="Side panel — Changes">
+        <Frame id="panel-changes" title="Side panel — Changes">
           <div className="h-[420px]">
             <PaneProvider
               scope={{
@@ -811,7 +811,7 @@ const Preview = () => {
             </PaneProvider>
           </div>
         </Frame>
-        <Frame title="Side panel — Trajectory">
+        <Frame id="panel-trajectory" title="Side panel — Trajectory">
           <div className="h-[420px]">
             <PaneProvider
               scope={{
@@ -824,7 +824,7 @@ const Preview = () => {
             </PaneProvider>
           </div>
         </Frame>
-        <Frame title="Side panel — Agents, with the Seat record">
+        <Frame id="panel-agents" title="Side panel — Agents, with the Seat record">
           <div className="h-[420px]">
             <PaneProvider
               scope={{
@@ -837,7 +837,7 @@ const Preview = () => {
             </PaneProvider>
           </div>
         </Frame>
-        <Frame title="Side panel — Activity, this week's audit">
+        <Frame id="panel-activity" title="Side panel — Activity, this week's audit">
           <div className="h-[420px]">
             <PaneProvider
               scope={{
@@ -850,12 +850,12 @@ const Preview = () => {
             </PaneProvider>
           </div>
         </Frame>
-        <Frame title="Project — its flows">
+        <Frame id="project-flows" title="Project — its flows">
           <div className="p-4">
             <ProjectFlows root={PREVIEW_ROOT} current />
           </div>
         </Frame>
-        <Frame title="Flow — run status, interrupted check">
+        <Frame id="flow-status" title="Flow — run status, interrupted check">
           <div className="p-4">
             <FlowRunStatus
               execution={{
@@ -868,12 +868,12 @@ const Preview = () => {
             />
           </div>
         </Frame>
-        <Frame title="Project — its checks">
+        <Frame id="project-checks" title="Project — its checks">
           <div className="p-4">
             <ProjectChecks root={PREVIEW_ROOT} />
           </div>
         </Frame>
-        <Frame title="Project — its triggers">
+        <Frame id="project-triggers" title="Project — its triggers">
           <div className="p-4">
             <ProjectTriggers root={PREVIEW_ROOT} />
           </div>
@@ -883,7 +883,7 @@ const Preview = () => {
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[380px_1fr]">
         {/* The sidebar at its real width, on the plate it really sits on:
             the right edge only reads true against the column's own ground. */}
-        <Frame title="Sidebar — the column and its right edge">
+        <Frame id="sidebar-column" title="Sidebar — the column and its right edge">
           <div
             className="h-[720px]"
             style={{ width: 260, background: 'var(--hd-sidebar-plate, transparent)' }}
@@ -899,12 +899,12 @@ const Preview = () => {
             />
           </div>
         </Frame>
-        <Frame title="Goal — state, roster and channel">
+        <Frame id="goal-roster" title="Goal — state, roster and channel">
           <div className="h-[540px]">
             <TeamRoomPane room={PREVIEW_GOAL.goal.id} />
           </div>
         </Frame>
-        <Frame title="Goal — opened by a trigger">
+        <Frame id="goal-triggered" title="Goal — opened by a trigger">
           <div className="h-[540px]">
             <TeamRoomPane key={goalScene} room={PREVIEW_TRIGGER_GOAL.goal.id} />
           </div>
@@ -914,7 +914,7 @@ const Preview = () => {
             (no head to repeat), or a person's own stop line — all read off
             `flowExecutions`, never fetched, so the "flow scene" Dial above
             is what moves this frame. */}
-        <Frame title="Goal — a front-door start's pinned revision or stop line">
+      <Frame id="goal-front-door" title="Goal — a front-door start's pinned revision or stop line">
           <div className="h-[540px]">
             <TeamRoomPane key={flowScene} room={PREVIEW_FLOW_GOAL.goal.id} />
           </div>
@@ -926,12 +926,12 @@ const Preview = () => {
           and three Goal frames; a fifth item auto-placed into it lands back
           in the 380px sidebar column, not the wide one, which is what
           crushed this frame's own text to one word a line. */}
-      <Frame title="Settings › Library">
+      <Frame id="settings-library" title="Settings › Library">
         <div className="max-h-[540px] overflow-y-auto p-4">
           <LibrarySection />
         </div>
       </Frame>
-      <Frame title="Settings › Appearance">
+      <Frame id="settings-appearance" title="Settings › Appearance">
         <div className="p-4">
           <AppearanceSection />
         </div>

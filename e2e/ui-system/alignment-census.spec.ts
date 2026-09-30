@@ -6,7 +6,7 @@ import { expect, test } from '@playwright/test'
 import { writeOnceEveryTestPasses } from './write-once'
 
 type Check = 'lead-off-line' | 'trailing-glyph-off-column' | 'header-off-body'
-type Census = Record<Check, { count: number; signatures: string[] }>
+type Census = Record<Check, { count: number; signatures: Record<string, number> }>
 
 const TABLE = fileURLToPath(new URL('../../packages/ui/src/design/alignment-census.json', import.meta.url))
 const UPDATE = process.env.UPDATE_ALIGNMENT === '1'
@@ -19,37 +19,43 @@ const wholeTable = (observed: Map<string, string[]>): Census => {
   const missing = CHECKS.filter(check => !observed.has(check))
   if (missing.length) throw new Error(`A re-record needs every check; not measured: ${missing.join(', ')}`)
   return Object.fromEntries(CHECKS.map(check => {
-    const signatures = [...new Set(observed.get(check)!)].sort()
-    return [check, { count: signatures.length, signatures }]
+    const signatures = Object.fromEntries([...observed.get(check)!].sort().map(signature => [signature, 0]))
+    for (const signature of observed.get(check)!) signatures[signature]++
+    return [check, { count: Object.values(signatures).reduce((sum, count) => sum + count, 0), signatures }]
   })) as Census
 }
 
 const recorded = (): Census => JSON.parse(UPDATE ? JSON.stringify(wholeTable(staged)) : readFileSync(TABLE, 'utf8')) as Census
 
-/** Wait for the page's fonts and the layout changes caused by mounting a board to settle. */
+/** Wait for measured descendant geometry to match across samples, or fail with the unsettled page. */
 const settle = async (page: import('@playwright/test').Page) => page.evaluate(async () => {
   await document.fonts.ready
-  const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+  const nextFrame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
   const fingerprint = () => {
     const root = document.querySelector('#root')
-    return `${document.styleSheets.length}|${root?.getBoundingClientRect().height}|${root?.getBoundingClientRect().width}|${root?.scrollHeight}`
+    if (!root) return 'missing-root'
+    return [root, ...root.querySelectorAll('*')].map(element => {
+      const rect = element.getBoundingClientRect()
+      const round = (value: number) => Math.round(value * 100) / 100
+      return `${element.tagName}:${round(rect.x)},${round(rect.y)},${round(rect.width)},${round(rect.height)}`
+    }).join('|')
   }
+  const deadline = performance.now() + 4000
   let previous = fingerprint()
-  let stableSince = performance.now()
-  const start = stableSince
-  while (performance.now() - start < 4000) {
-    await frame()
+  let stableComparisons = 0
+  while (performance.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 100))
+    await nextFrame()
     const next = fingerprint()
-    if (next !== previous) {
-      previous = next
-      stableSince = performance.now()
-    }
-    if (performance.now() - stableSince >= 80) return
+    stableComparisons = next === previous ? stableComparisons + 1 : 0
+    previous = next
+    if (stableComparisons >= 4) return
   }
+  throw new Error(`Alignment census layout did not settle within 4s at ${location.pathname}${location.search}`)
 })
 
 /** Measure just the rendered app in one preview frame or one explorer board. */
-const measure = async (page: import('@playwright/test').Page, rootSelector: string, pageName: string, frameName: string) => page.locator(rootSelector).evaluate((root, context) => {
+const measure = async (page: import('@playwright/test').Page, rootSelector: string, pageName: string, stableId: string, title: string) => page.locator(rootSelector).evaluate((root, context) => {
   const hidden = (element: Element): boolean => {
     for (let node: Element | null = element; node; node = node.parentElement) {
       if (node.matches('[data-slot="preview-frame-chrome"], [aria-hidden="true"], [hidden], [inert], [data-slot="popover-content"][data-state="closed"], [role="menu"][data-state="closed"]')) return true
@@ -62,6 +68,12 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
   const visibleChildren = (element: Element) => [...element.children].filter(child => !hidden(child))
   const hasIcon = (element: Element) => !!element.querySelector('svg, img')
   const hasText = (element: Element) => (element.textContent ?? '').trim().length > 0
+  const visibleLineCount = (element: Element) => {
+    const range = document.createRange()
+    range.selectNodeContents(element)
+    const tops = [...range.getClientRects()].filter(rect => rect.width > 0 && rect.height > 0).map(rect => rect.top)
+    return tops.filter((top, index) => tops.findIndex(candidate => Math.abs(candidate - top) < 1) === index).length
+  }
   const firstLine = (element: Element) => {
     const range = document.createRange()
     range.selectNodeContents(element)
@@ -92,8 +104,24 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     }
     return parts.reverse().join(' > ')
   }
-  const signature = (kind: Check, element: Element) => `${context.page} / ${context.frame} / ${kind} / ${descriptors(element)}`
-  const found: Record<Check, string[]> = { 'lead-off-line': [], 'trailing-glyph-off-column': [], 'header-off-body': [] }
+  const signature = (kind: Check, element: Element) => {
+    const testId = element.closest('[data-testid]')?.getAttribute('data-testid')
+    const key = `${context.page} / ${context.id} / ${kind} / ${testId ? `[data-testid=${testId}]` : descriptors(element)}`
+    diagnostics[key] = context.title
+    return key
+  }
+  const found: Record<Check, Map<string, Set<Element>>> = {
+    'lead-off-line': new Map(),
+    'trailing-glyph-off-column': new Map(),
+    'header-off-body': new Map(),
+  }
+  const diagnostics: Record<string, string> = {}
+  const record = (kind: Check, element: Element) => {
+    const key = signature(kind, element)
+    const instances = found[kind].get(key) ?? new Set<Element>()
+    instances.add(element)
+    found[kind].set(key, instances)
+  }
   const elements = [root, ...root.querySelectorAll('*')].filter(element =>
     !hidden(element) && !element.closest('[data-slot="preview-frame-chrome"]') &&
     !(element.parentElement === root && ['H1', 'P'].includes(element.tagName)))
@@ -111,7 +139,11 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
       (leadRect.width <= 40 && leadRect.height <= 40 && hasIcon(lead) && !hasText(lead)))
     if (iconLike && hasText(text) && line && line.left >= leadRect.left && line.left - leadRect.right < row.getBoundingClientRect().width) {
       const delta = Math.abs((leadRect.top + leadRect.bottom) / 2 - (line.top + line.bottom) / 2)
-      if (delta >= 1.5) found['lead-off-line'].push(signature('lead-off-line', lead))
+      const rowStyle = getComputedStyle(row)
+      const firstLineAligned = rowStyle.alignItems === 'flex-start' || rowStyle.alignItems === 'start'
+      // #1009 allows an attachment thumbnail to centre beside its fixed title + one description/meta line.
+      // Only a row explicitly aligned to its first line, or text wrapping beyond that two-line contract, is a finding.
+      if (delta >= 1.5 && (firstLineAligned || visibleLineCount(text) > 2)) record('lead-off-line', lead)
     }
   }
 
@@ -119,9 +151,12 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     if (hasText(button) || !button.querySelector('svg') || [...button.children].some(child => child.tagName.toLowerCase() !== 'svg')) continue
     let row: Element | null = button.parentElement
     while (row && row !== root && !(getComputedStyle(row).display === 'flex' && getComputedStyle(row).flexDirection === 'row')) row = row.parentElement
-    if (!row || row === root) continue
+    if (!row || row === root || row.closest('[data-slot$="bar"], [role="toolbar"]')) continue
     const controls = [...row.querySelectorAll('button, input, select, [role="button"], [data-slot$="ctl"]')].filter(control => !hidden(control))
     if (controls.at(-1) !== button) continue
+    let branch: Element = button
+    while (branch.parentElement && branch.parentElement !== row) branch = branch.parentElement
+    if (!visibleChildren(row).slice(0, visibleChildren(row).indexOf(branch)).some(hasText)) continue
     let surface: Element | null = button.parentElement
     while (surface && surface !== root && !boxSurface(surface)) surface = surface.parentElement
     if (!surface || surface === root) continue
@@ -132,7 +167,7 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     const glyph = button.querySelector('svg')!.getBoundingClientRect()
     // The content edge is the right edge shared by the surface's text column; the hit target may hang past it.
     if (columnRight - glyph.right >= 2 && surfaceRect.right - button.getBoundingClientRect().right <= 48) {
-      found['trailing-glyph-off-column'].push(signature('trailing-glyph-off-column', button))
+      record('trailing-glyph-off-column', button)
     }
   }
 
@@ -151,33 +186,40 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
       if (bodyText) break
     }
     if (headerText && bodyText && Math.abs(headerText.left - bodyText.left) >= 2) {
-      found['header-off-body'].push(signature('header-off-body', header))
+      record('header-off-body', header)
     }
   }
 
-  for (const check of Object.keys(found) as Check[]) found[check] = [...new Set(found[check])].sort()
-  return found
-}, { page: pageName, frame: frameName })
+  const findings = Object.fromEntries((Object.keys(found) as Check[]).map(check => [
+    check,
+    [...found[check]].flatMap(([key, instances]) => Array.from(instances, () => key)).sort(),
+  ])) as Record<Check, string[]>
+  return { findings, diagnostics }
+}, { page: pageName, id: stableId, title })
 
 test('the rendered frames and boards hold the alignment census ceiling', async ({ page }, testInfo) => {
   test.setTimeout(60_000)
   const all: Record<Check, string[]> = { 'lead-off-line': [], 'trailing-glyph-off-column': [], 'header-off-body': [] }
+  const diagnostics = new Map<string, string>()
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/preview.html')
   await settle(page)
   const frames = await page.locator('#root > div > section').evaluateAll(nodes => nodes
     .filter(section => section.querySelector(':scope > h2') && section.querySelector(':scope > div'))
-    .map((section, index) => {
-      section.setAttribute('data-alignment-frame', String(index))
+    .map(section => {
+      const id = section.getAttribute('data-frame-id')
       return {
-        selector: `[data-alignment-frame="${index}"] > div`,
-        title: section.querySelector(':scope > h2')?.textContent?.trim() || `Frame ${index + 1}`,
+        selector: `[data-frame-id="${id}"] > div`,
+        id,
+        title: section.querySelector(':scope > h2')?.textContent?.trim() || `Frame ${id}`,
       }
     }))
   expect(frames.length, 'preview.html exposes its default frames without opening dials').toBeGreaterThan(10)
+  for (const frame of frames) expect(frame.id, 'each preview Frame has a stable data-frame-id').toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
   for (const frame of frames) {
-    const observed = await measure(page, frame.selector, 'preview.html', frame.title)
-    for (const check of CHECKS) all[check].push(...observed[check])
+    const observed = await measure(page, frame.selector, 'preview.html', frame.id, frame.title)
+    for (const [signature, title] of Object.entries(observed.diagnostics)) diagnostics.set(signature, title)
+    for (const check of CHECKS) all[check].push(...observed.findings[check])
   }
 
   await page.goto('/design.html')
@@ -195,28 +237,37 @@ test('the rendered frames and boards hold the alignment census ceiling', async (
     expect(actualTitle, `the ${title} navigation item opened its own board`).toBe(
       title === 'Foundation' ? 'Tokens' : title === 'Manifest' ? 'Coverage' : title,
     )
-    const observed = await measure(page, await page.locator('main > div').last().evaluate(element => {
+    // Product surfaces are lazy; a stable Suspense placeholder is not the rendered board to measure.
+    await page.getByText('Mounting the screen…').waitFor({ state: 'hidden' })
+    const boardRoot = page.locator('main > div').last()
+    const stableId = await boardRoot.evaluate(element => {
       element.setAttribute('data-alignment-measure-root', '')
-      return '[data-alignment-measure-root]'
-    }), 'design.html', `${title} — ${actualTitle}`)
-    for (const check of CHECKS) all[check].push(...observed[check])
+      return element.getAttribute('data-alignment-board-id')
+    })
+    expect(stableId, 'each explorer board exposes its registry id').toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+    const observed = await measure(page, '[data-alignment-measure-root]', 'design.html', stableId!, actualTitle)
+    for (const [signature, title] of Object.entries(observed.diagnostics)) diagnostics.set(signature, title)
+    for (const check of CHECKS) all[check].push(...observed.findings[check])
   }
 
   if (UPDATE) {
-    for (const check of CHECKS) all[check] = [...new Set(all[check])].sort()
     staged.clear()
     for (const check of CHECKS) staged.set(check, all[check])
-    testInfo.annotations.push({ type: 'measured', description: CHECKS.map(check => `${check}: ${all[check].length}`).join(', ') })
+    testInfo.annotations.push({ type: 'measured', description: CHECKS.map(check => `${check}: ${all[check].length} occurrences`).join(', ') })
     return
   }
 
   const table = recorded()
   const differences = CHECKS.flatMap(check => {
-    const actual = [...new Set(all[check])].sort()
-    const expected = table[check]?.signatures ?? []
-    const newOnes = actual.filter(signature => !expected.includes(signature)).map(signature => `${check}: new misalignment\n  ${signature}`)
-    const fixed = expected.filter(signature => !actual.includes(signature)).map(signature => `${check}: fixed — re-record to lower the ceiling\n  ${signature}`)
-    const countError = table[check]?.count !== expected.length ? [`${check}: recorded count ${table[check]?.count} does not match ${expected.length} signatures`] : []
+    const actual = Object.fromEntries([...new Set(all[check])].sort().map(signature => [signature, 0])) as Record<string, number>
+    for (const signature of all[check]) actual[signature]++
+    const expected = table[check]?.signatures ?? {}
+    const newOnes = Object.entries(actual).filter(([signature, count]) => count > (expected[signature] ?? 0))
+      .map(([signature, count]) => `${check}: multiplicity rose ${expected[signature] ?? 0} → ${count} — ${diagnostics.get(signature) ?? 'visible title unavailable'}\n  ${signature}`)
+    const fixed = Object.entries(expected).filter(([signature, count]) => (actual[signature] ?? 0) < count)
+      .map(([signature, count]) => `${check}: fixed — re-record to lower the ceiling (${count} → ${actual[signature] ?? 0}) — ${diagnostics.get(signature) ?? 'visible title unavailable'}\n  ${signature}`)
+    const countError = table[check]?.count !== Object.values(expected).reduce((sum, count) => sum + count, 0)
+      ? [`${check}: recorded total ${table[check]?.count} does not match signature multiplicity ${Object.values(expected).reduce((sum, count) => sum + count, 0)}`] : []
     return [...newOnes, ...fixed, ...countError]
   })
   await testInfo.attach('alignment-census', { body: JSON.stringify(all, null, 2), contentType: 'application/json' })

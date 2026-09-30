@@ -1085,6 +1085,15 @@ a confirm from the catalogue, and fails on four of them:
 - **A second line every row of a group repeats**, which belongs to the group
   as one note.
 
+`pnpm test:ui-system -- alignment-census.spec.ts` also measures three rendered
+alignment rules across every preview frame and design explorer board: icon
+leads against their text, trailing icon actions against a surface's text
+column, and card headings against their body. Its checked-in table records a
+multiplicity for each stable signature; frame and board headings are diagnostic
+labels only. When a change fixes a recorded instance, re-record with
+`pnpm design:alignment`. A signature's count may fall, but it may not rise; the
+table is a ceiling that only shrinks.
+
 ### What the audit refuses
 
 `pnpm design:audit --strict` holds every category at zero, except three
