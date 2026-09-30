@@ -397,6 +397,14 @@ export interface TeamState {
   readonly members: readonly SessionKey[]
   /** The project the room belongs to. */
   readonly root: string
+  /**
+   * `root` with every symlink resolved, so the list can file a room reached
+   * through a link with its project even when that folder is no longer open
+   * (#998). A grouping key only, like `WorkspaceEntry.realPath`: work starts
+   * at `root`, never here. Absent when it would equal `root`, or when the
+   * folder cannot be resolved any more.
+   */
+  readonly realRoot?: string
   readonly intents: readonly Intent[]
   readonly channel: readonly TeamEntry[]
   /** Where this room was created, for opening seats when different from project root. */

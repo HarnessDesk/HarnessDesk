@@ -1586,6 +1586,25 @@ export const DialogBoard = () => {
             actions: [{ label: 'Open', primary: true, onSelect: () => undefined }],
           }} />
         </Case>
+        <Case label="agent card budget: plenty left is untoned, low warns, spent is danger">
+          <div className={styles.stack}>
+            {([
+              { state: 'plenty', meter: { label: 'Context', left: 740, of: 1_000, reading: '740 left of 1K' } },
+              { state: 'low', meter: { label: 'Context', left: 250, of: 1_000, reading: '250 left of 1K', tone: 'warning' as const } },
+              { state: 'spent', meter: { label: 'Context', left: 0, of: 1_000, reading: '0 left of 1K', tone: 'danger' as const } },
+            ]).map(({ state, meter }) => (
+              <div key={state} data-catalog-case={`agent-card-meter-${state}`}>
+                <AgentCard subject={{
+                  kind: 'agent',
+                  name: `Budget ${state}`,
+                  tint: 'green',
+                  mark: <PluginIcon size={15} />,
+                  meter,
+                }} />
+              </div>
+            ))}
+          </div>
+        </Case>
         <Case label="publication card">
           <PublicationCard reference={{
             kind: 'pullRequest', action: 'opened', repo: 'acme/harnessdesk', number: 42,

@@ -312,7 +312,7 @@
     "radius": 8
   },
   "button/button/size/navigation": {
-    "h": 29,
+    "h": 30,
     "text": 13,
     "weight": "400",
     "line": 20,

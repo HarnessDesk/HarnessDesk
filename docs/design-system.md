@@ -202,7 +202,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-field-h` | `30px` |
 | `--hd-control-h-lg` | `<cycle>` |
 | `--hd-chip-h` | `22px` |
-| `--hd-row-h` | `calc(14px * 1.5 + 4px * 2)` |
+| `--hd-row-h` | `calc(20px + 4px * 2 + 2px)` |
 | `--hd-icon-target` | `24px` |
 | `--hd-icon-target-sm` | `20px` |
 | `--hd-bar-h` | `46px` |
@@ -341,12 +341,12 @@ A navigation column is its own small design system, and shadcn treats it as one:
 
 ### The nav row
 
-One row in a navigation list — the sidebar's sessions, the settings sheet's pages. The height is solved, not written: a row is its line of text plus one step of padding above and below. Move the reading size or the density and every row in every column follows without a second edit.
+One row in a navigation list — the sidebar's sessions, the settings sheet's pages. The height is solved, not written, from the row's real box: its small line, one step of padding above and below, and the 1px border a row keeps on each side for its focus and selection. Solved from the type alone it came to 29px, and a row that carried its border stood at 30 — the sidebar and a menu one pixel taller than the settings rail beside them (#1073). Move the line or the density and every row in every column follows without a second edit.
 
 | token | value |
 | --- | --- |
-| `--hd-nav-h` | `calc(14px * 1.5 + 4px * 2)` |
-| `--hd-nav-h-group` | `calc(14px * 1.5 + 4px * 2)` |
+| `--hd-nav-h` | `calc(20px + 4px * 2 + 2px)` |
+| `--hd-nav-h-group` | `calc(20px + 4px * 2 + 2px)` |
 | `--hd-nav-radius` | `10px` |
 | `--hd-nav-gap` | `8px` |
 | `--hd-nav-inset` | `8px` |
@@ -409,8 +409,8 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-sidebar-selected` | `color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)` |
 | `--hd-sidebar-selected-foreground` | `` |
 | `--hd-sidebar-selected-muted-foreground` | `` |
-| `--hd-nav-h` | `calc(14px * 1.5 + 4px * 2)` |
-| `--hd-nav-h-group` | `calc(14px * 1.5 + 4px * 2)` |
+| `--hd-nav-h` | `calc(20px + 4px * 2 + 2px)` |
+| `--hd-nav-h-group` | `calc(20px + 4px * 2 + 2px)` |
 | `--hd-nav-radius` | `10px` |
 | `--hd-nav-inset` | `8px` |
 | `--hd-label-weight` | `` |

@@ -802,7 +802,7 @@ const meterOf = (
     left,
     of: fill.size,
     reading: `${formatTokens(left)} left of ${formatTokens(fill.size)}`,
-    tone: fill.tone === 'bad' ? 'danger' : fill.tone === 'warn' ? 'warning' : 'success',
+    ...(fill.tone === 'bad' ? { tone: 'danger' as const } : fill.tone === 'warn' ? { tone: 'warning' as const } : {}),
   }
 }
 
@@ -1203,7 +1203,7 @@ const AccountCardBody = ({
               reading: [`${view.remainingPercent}% left`, view.label, view.shortCountdown && `resets in ${view.shortCountdown}`]
                 .filter(Boolean)
                 .join(' · '),
-              tone: view.tone === 'bad' ? 'danger' : view.tone === 'warn' ? 'warning' : 'success',
+              ...(view.tone === 'bad' ? { tone: 'danger' as const } : view.tone === 'warn' ? { tone: 'warning' as const } : {}),
             }
           : null,
       on:

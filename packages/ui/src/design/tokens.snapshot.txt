@@ -155,8 +155,8 @@
 --hd-muted = rgb(245, 245, 245)
 --hd-muted-foreground = rgb(107, 107, 107)
 --hd-nav-gap = 8px
---hd-nav-h = calc(14px * 1.5 + 4px * 2)
---hd-nav-h-group = calc(14px * 1.5 + 4px * 2)
+--hd-nav-h = calc(20px + 4px * 2 + 2px)
+--hd-nav-h-group = calc(20px + 4px * 2 + 2px)
 --hd-nav-inset = 8px
 --hd-nav-padding = 0 8px
 --hd-nav-radius = 10px
@@ -183,7 +183,7 @@
 --hd-ring-muted = rgb(52, 88, 240)
 --hd-ring-offset = 2px
 --hd-ring-width = 2px
---hd-row-h = calc(14px * 1.5 + 4px * 2)
+--hd-row-h = calc(20px + 4px * 2 + 2px)
 --hd-scrim = rgba(7, 9, 14, 0.28)
 --hd-scrollbar-fill = rgb(228, 228, 228)
 --hd-scrollbar-fill-hover = rgb(211, 211, 211)
@@ -627,8 +627,8 @@
 --hd-muted = rgb(49, 49, 49)
 --hd-muted-foreground = rgb(177, 177, 177)
 --hd-nav-gap = 8px
---hd-nav-h = calc(14px * 1.5 + 4px * 2)
---hd-nav-h-group = calc(14px * 1.5 + 4px * 2)
+--hd-nav-h = calc(20px + 4px * 2 + 2px)
+--hd-nav-h-group = calc(20px + 4px * 2 + 2px)
 --hd-nav-inset = 8px
 --hd-nav-padding = 0 8px
 --hd-nav-radius = 10px
@@ -655,7 +655,7 @@
 --hd-ring-muted = rgb(112, 142, 250)
 --hd-ring-offset = 2px
 --hd-ring-width = 2px
---hd-row-h = calc(14px * 1.5 + 4px * 2)
+--hd-row-h = calc(20px + 4px * 2 + 2px)
 --hd-scrim = rgba(7, 9, 14, 0.56)
 --hd-scrollbar-fill = rgb(65, 65, 65)
 --hd-scrollbar-fill-hover = rgb(93, 93, 93)
