@@ -65,19 +65,19 @@ export const CoverageFrames = () => {
         {dialog === 'library flow' && <LibraryFlows flow={{ type: 'import' }} setFlow={() => setDialog('off')} library={LIBRARY as never} columns={COLUMNS} cwd={PREVIEW_ROOT} onApplied={() => setDialog('off')} />}
         {dialog === 'add agents' && <AddAgents onBack={() => setDialog('off')} onDone={() => setDialog('off')} />}
       </Boundary>
-      <Frame title="Agent — editable field sections">
+      <Frame id="coverage-agent-fields" title="Agent — editable field sections">
         <div className="p-4"><AgentPageSections entry={entry}><StepNameScope items={[]} root={PREVIEW_ROOT}><PlanSteps todos={[{ label: 'Read the Agent file', done: true }, { label: 'Preview the saved edit', done: false }] as never} /></StepNameScope></AgentPageSections></div>
       </Frame>
-      <Frame title="Composer — permission, mode and more controls">
+      <Frame id="coverage-composer-controls" title="Composer — permission, mode and more controls">
         <div className="flex items-center gap-2 p-4"><PermissionControl /><ModeControl /><MoreControl /></div>
       </Frame>
-      <Frame title="Goal — choose a flow">
+      <Frame id="coverage-goal-flow" title="Goal — choose a flow">
         <div className="p-4"><FlowStart root={PREVIEW_ROOT} disabled={false} onChange={() => {}} /></div>
       </Frame>
-      <Frame title="Session — background work and deliverables">
+      <Frame id="coverage-session-background" title="Session — background work and deliverables">
         <StoreProvider store={coverageStore}><div className="p-4"><JobsBar /><Deliverables /></div></StoreProvider>
       </Frame>
-      <Frame title="Rows — usage and worktree alerts">
+      <Frame id="coverage-row-alerts" title="Rows — usage and worktree alerts">
         <div className="p-4">
           <UsageSection limits={null} name="Preview" />
           <UsageMeter window={{ label: 'Weekly', usedPercent: 50, windowMinutes: 10_080, resetsAt: Date.now() + 3_600_000 }} />
@@ -89,18 +89,18 @@ export const CoverageFrames = () => {
           <TroubleNote message="This checkout needs attention." trouble={null} onAsk={() => {}} />
         </div>
       </Frame>
-      <Frame title="Publication — a reviewable pull request">
+      <Frame id="coverage-publication" title="Publication — a reviewable pull request">
         <div className="p-4"><Publication root={PREVIEW_ROOT} item={{ reference: { kind: 'pullRequest', repo: 'acme/storefront', number: 42, url: 'https://example.com/acme/storefront/pull/42', state: 'open', title: 'Keep preview coverage honest', author: 'Jane Doe', files: 2, additions: 14, deletions: 3, excerpt: 'Adds coverage fixtures.' } } as never} /></div>
       </Frame>
-      <Frame title="Notices — strip, inbox and toast">
+      <Frame id="coverage-notices" title="Notices — strip, inbox and toast">
         <StoreProvider store={coverageStore}>
           <div className="p-4"><Notices /><NoticeStripOutlet host /><SidebarNotices /></div>
         </StoreProvider>
       </Frame>
-      <Frame title="Library — changes made from here">
+      <Frame id="coverage-library" title="Library — changes made from here">
         <div className="p-4"><LibraryHistory refreshedAt={0} home="/home/u" onFlow={() => {}} /></div>
       </Frame>
-      <Frame title="Panel actions context">
+      <Frame id="coverage-panel-actions" title="Panel actions context">
         <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
           <div className="p-4">Panel actions are available here.</div>
         </ShellProvider>

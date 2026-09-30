@@ -411,7 +411,7 @@ export const Explorer = () => {
             />
           </div>
         </div>
-        <div className={styles.body}>
+        <div className={styles.body} data-alignment-board-id={surface?.id ?? board?.id ?? boardId}>
           {boardId === 'coverage' ? (
             <CoverageBoard />
           ) : surface ? (

@@ -113,13 +113,13 @@ export const PanelFrames = () => {
           frame does, and two by default doubles every locator the existing
           ui-system suite reaches for expecting one. */}
       {dialog === 'split tree' && (
-        <Frame title="Panes — the split tree">
+        <Frame id="panes-split-tree" title="Panes — the split tree">
           <div className="relative h-[420px]">
             <Panes />
           </div>
         </Frame>
       )}
-      <Frame title="Tools — a file">
+      <Frame id="tools-file" title="Tools — a file">
         <div className="h-[420px]">
           <MountProvider scope={{ area: 'main', id: 'panel-file', view: { kind: 'file', path: '/work/project/lib/brands.ts', runtime: runtimeId('codex') } }}>
             <FilePane />
@@ -127,7 +127,7 @@ export const PanelFrames = () => {
         </div>
       </Frame>
       {dialog === 'git tools' && (
-        <Frame title="Tools — Git">
+        <Frame id="tools-git" title="Tools — Git">
           <div className="h-[420px]">
             <MountProvider scope={{ area: 'main', id: 'panel-git', view: { kind: 'git', root: PREVIEW_ROOT } }}>
               <GitPane />
@@ -135,7 +135,7 @@ export const PanelFrames = () => {
           </div>
         </Frame>
       )}
-      <Frame title="Tools — the browser">
+        <Frame id="tools-browser" title="Tools — the browser">
         <div className="h-[420px]">
           <MountProvider
             scope={{
@@ -152,7 +152,7 @@ export const PanelFrames = () => {
           </MountProvider>
         </div>
       </Frame>
-      <Frame title="Tools — the terminal">
+      <Frame id="tools-terminal" title="Tools — the terminal">
         <div className="h-[320px]">
           <MountProvider
             scope={{
@@ -165,17 +165,17 @@ export const PanelFrames = () => {
           </MountProvider>
         </div>
       </Frame>
-      <Frame title="Goal — its header row">
+      <Frame id="goal-header-row" title="Goal — its header row">
         <div className="p-4">
           <GoalHeader view={GOAL_WAITING} />
         </div>
       </Frame>
-      <Frame title="Room — the channel's own grouping">
+      <Frame id="room-channel-grouping" title="Room — the channel's own grouping">
         <div className="max-h-[420px] overflow-y-auto p-4">
           <ChannelStream entries={TEAM.channel} room={TEAM.id} onTrouble={() => {}} />
         </div>
       </Frame>
-      <Frame title="Tasks — a session's own plan">
+      <Frame id="tasks-session-plan" title="Tasks — a session's own plan">
         <div className="max-w-[420px] p-4">
           <StoreProvider store={taskPanelStore}>
             <PaneProvider scope={{ paneId: 'preview-tasks' as never, view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never, sessionKey: PREVIEW_SESSION_KEY }}>

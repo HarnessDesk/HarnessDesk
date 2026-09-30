@@ -171,34 +171,34 @@ export const GoalFrames = () => {
         )}
       </Boundary>
       {dialog === 'findings rail' && (
-        <Frame title="Goal — its findings rail">
+        <Frame id="goal-findings-rail" title="Goal — its findings rail">
           <div className="max-h-[480px] overflow-y-auto p-4">
             <GoalFindings goal={PREVIEW_GOAL.goal.id} />
           </div>
         </Frame>
       )}
 
-      <Frame title="Finding — a review round's status">
+      <Frame id="finding-status" title="Finding — a review round's status">
         <div className="p-4">
           <FindingRoundStatus view={RUN_VIEW} />
         </div>
       </Frame>
-      <Frame title="Goal — its receipt, as recorded when wrapped">
+      <Frame id="goal-receipt" title="Goal — its receipt, as recorded when wrapped">
         <div className="max-h-[560px] overflow-y-auto p-4">
           <GoalReceipt receipt={WRAPPED_WITH_FINDINGS.receipt!} root={PREVIEW_ROOT} onOpenFinding={() => {}} />
         </div>
       </Frame>
-      <Frame title="Goal — its receipt's own accounting">
+      <Frame id="goal-accounting" title="Goal — its receipt's own accounting">
         <div className="p-4">
           <GoalReceiptCost receipt={WRAPPED_WITH_FINDINGS.receipt!} />
         </div>
       </Frame>
-      <Frame title="Insight — recorded usage, loaded">
+      <Frame id="insight-loaded" title="Insight — recorded usage, loaded">
         <div className="p-4">
           <InsightCost report={INSIGHT_REPORT} loading={false} problem={null} onRefresh={() => {}} />
         </div>
       </Frame>
-      <Frame title="Insight — recorded usage, loading">
+      <Frame id="insight-loading" title="Insight — recorded usage, loading">
         <div className="p-4">
           <InsightCost report={null} loading problem={null} onRefresh={() => {}} />
         </div>
@@ -206,12 +206,12 @@ export const GoalFrames = () => {
       {/* `ShapeEditor` (a `Dialog`, chosen from the dial above) opens on its
           own "steps" tab, `ShapeStep` once per role; mounted directly too, so
           the step form is on the page whether or not that dialog is open. */}
-      <Frame title="Shape — one step's own form">
+      <Frame id="shape-step-form" title="Shape — one step's own form">
         <div className="max-w-[520px] p-4">
           <ShapeStep role={SHAPE_STEP_ROLE} agents={PREVIEW_AGENTS} runtimes={[]} onChange={() => {}} />
         </div>
       </Frame>
-      <Frame title="Shape — one rule's own form">
+      <Frame id="shape-rule-form" title="Shape — one rule's own form">
         <div className="max-w-[520px] p-4">
           <ShapeRule rule={SHAPE_POLICY_WITH_RULE.rule} policy={SHAPE_POLICY_WITH_RULE.policy} onChange={() => {}} />
         </div>
@@ -220,12 +220,12 @@ export const GoalFrames = () => {
           click; mounted directly too, so the graph is on the page whether or
           not that dialog is open. Two roles and the rule between them, so
           this draws an edge rather than one bare node. */}
-      <Frame title="Shape — the graph">
+      <Frame id="shape-graph" title="Shape — the graph">
         <div className="h-[420px] p-4">
           <ShapeGraph policy={SHAPE_POLICY_WITH_RULE.policy} selected={null} onSelect={() => {}} onPositions={() => {}} onEditRule={() => {}} />
         </div>
       </Frame>
-      <Frame title="The / and @ menu">
+      <Frame id="command-menu" title="The / and @ menu">
         <div className="w-[320px] p-4">
           <TriggerMenu title="Agents" items={TRIGGER_MENU_ITEMS} activeIndex={0} onHover={() => {}} onPick={() => {}} />
         </div>
