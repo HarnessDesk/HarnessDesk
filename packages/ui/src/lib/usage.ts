@@ -26,6 +26,9 @@ const MINUTE = 60_000
 const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 
+/** The Dashboard's initial spend window, shared with per-row accounting. */
+export const DEFAULT_RANGE = 30
+
 /** Below this, a lane is amber. At or below zero it is spent. */
 const LOW_AT = 20
 

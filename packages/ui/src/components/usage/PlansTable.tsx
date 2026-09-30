@@ -327,17 +327,17 @@ const ExpandedBody = ({
           onRefresh={onRefresh}
           onStopTracking={onStopTracking}
           shapeChip={<ShapeChip shape={row.shape} />}
-          moneyRow={<MoneyRowView money={moneyRowOf(row.report)} onOpenPlanSettings={onOpenPlanSettings} />}
+          moneyRow={<MoneyRowView money={moneyRowOf(row.report, now)} onOpenPlanSettings={onOpenPlanSettings} />}
         />
       )
     case 'allowance':
-      return <AllowanceBody row={row} info={info} onRefresh={onRefresh} />
+      return <AllowanceBody row={row} info={info} now={now} onRefresh={onRefresh} />
     case 'balance':
-      return <BalanceBody row={row} info={info} onRefresh={onRefresh} />
+      return <BalanceBody row={row} info={info} now={now} onRefresh={onRefresh} />
     case 'metered':
-      return <KeyBody row={row} info={info} onRefresh={onRefresh} onOpenPlanSettings={onOpenPlanSettings} />
+      return <KeyBody row={row} info={info} now={now} onRefresh={onRefresh} onOpenPlanSettings={onOpenPlanSettings} />
     case 'free':
-      return <FreeBody row={row} info={info} />
+      return <FreeBody row={row} info={info} now={now} />
     case 'none':
       return info ? (
         <NotReportingList entries={entriesFromReports([row.report], new Map([[row.report.runtime, info]]), onRefresh)} />

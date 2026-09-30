@@ -122,8 +122,8 @@ describe('paidForAccount', () => {
   const { start, end } = periodBounds(30, now)
 
   it('is null, never $0, for an account with no fee set', () => {
-    expect(paidForAccount(undefined, start, end, null)).toEqual({ amount: null, currency: null, overageAside: null })
-    expect(paidForAccount({ fee: null }, start, end, null)).toEqual({ amount: null, currency: null, overageAside: null })
+    expect(paidForAccount(undefined, start, end, null)).toEqual({ amount: null, currency: null, overageAside: null, overageAsideCurrency: null })
+    expect(paidForAccount({ fee: null }, start, end, null)).toEqual({ amount: null, currency: null, overageAside: null, overageAsideCurrency: null })
   })
 
   it('adds overage spent into the figure when its cycle is wholly inside the window', () => {
@@ -155,12 +155,13 @@ describe('paidForAccount', () => {
     expect(result.overageAside).toBe(8)
   })
 
-  it('leaves overage out entirely when its currency does not match the fee', () => {
+  it('shows mismatched-currency overage beside Paid in its own currency', () => {
     const fee: Fee = { amount: 30, currency: 'USD', period: 'month' }
     const mismatched = paidForAccount({ fee, overage: { enabled: true, spent: 12.5, currency: 'EUR' } }, start, end, day('2026-09-01'))
     const plain = paidForAccount({ fee, overage: null }, start, end, day('2026-09-01'))
     expect(mismatched.amount).toBeCloseTo(plain.amount ?? 0, 6)
-    expect(mismatched.overageAside).toBeNull()
+    expect(mismatched.overageAside).toBe(12.5)
+    expect(mismatched.overageAsideCurrency).toBe('EUR')
   })
 })
 
@@ -234,5 +235,19 @@ describe('paidSummary', () => {
       periodBounds(7, now).end,
     )
     expect(summary.overageAside).toBe(50)
+  })
+
+  it('keeps foreign-currency overage separate from the main-currency aside and exposes it for the caption', () => {
+    const summary = paidSummary(
+      [
+        { billing: { fee: { amount: 30, currency: 'USD', period: 'month' }, overage: { enabled: true, spent: 12.5, currency: 'EUR' } } },
+        { billing: { fee: { amount: 20, currency: 'USD', period: 'month' }, overage: { enabled: true, spent: 7, currency: 'USD' } }, cycleStart: day('2026-08-01') },
+      ],
+      start,
+      end,
+      'USD',
+    )
+    expect(summary.overageAside).toBe(7)
+    expect(summary.otherCurrencyOverageAsides).toEqual([{ currency: 'EUR', amount: 12.5 }])
   })
 })

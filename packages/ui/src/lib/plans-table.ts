@@ -1,8 +1,10 @@
 import type { UsageLane, UsagePreference, UsageReport } from '@harnessdesk/protocol'
 import { bindingLane } from '@harnessdesk/protocol'
 
+import { paidForAccount, cycleStartFromLanes, periodBounds } from './paid'
+import { paidRatio } from './overview-strip'
 import { formatTokens } from './context-usage'
-import { balanceOf, describeReport, drawnReport, formatMoney, reportNeedsAttention, type ReportView } from './usage'
+import { balanceOf, DEFAULT_RANGE, describeReport, drawnReport, formatMoney, reportNeedsAttention, type ReportView } from './usage'
 import type { Tone } from './limits'
 
 /**
@@ -448,6 +450,14 @@ export const feePerUnitOf = (
 export interface MoneyRow {
   /** The window's own spend — list price or the vendor's own metered figure, whichever `report.spend` already carries. Null when unknown, never drawn as $0. */
   readonly value: number | null
+  /** Paid for this account over Value's window, null when no fee is set. */
+  readonly paid: number | null
+  /** Overage outside Value's window, retained beside Paid. */
+  readonly overageAside: number | null
+  /** Currency of `overageAside`; it may differ from the fee currency. */
+  readonly overageAsideCurrency: string | null
+  /** Value ÷ Paid, only when both are known in the same currency. */
+  readonly ratio: number | null
   /** The plan's own recurring fee, when one is set — never inferred from `spend` or from overage. */
   readonly fee: { readonly amount: number; readonly currency: string; readonly period: 'month' | 'year' } | null
   /** `true` when the fee is a person's own figure ("you set this") rather than the vendor's own report. */
@@ -456,26 +466,23 @@ export interface MoneyRow {
 }
 
 /**
- * The shape frame's money row: Value, and the plan's own fee.
- *
- * Paid — the fee prorated across the window, plus overage only when it
- * applies to this period — is `lib/paid.ts`'s own definition (#1068, still
- * open at review time): this module stopped computing it rather than keep a
- * second, disagreeing copy (adding the whole `fee.amount` regardless of
- * period, always adding overage, and drawing a ratio against a window of a
- * different length than the fee's own — review of #1069, B4). A follow-up
- * threads `paidForAccount` through here once that lands. `value` is
- * `spend.windowCost`, read as the ledger's own figure for this runtime — a
- * report with neither a fee nor a priced window has nothing to show, so the
- * whole row is withheld.
+ * The shape frame's money row: Paid and Value for the same window, the plan's
+ * own fee, and overage outside that window shown separately. A report with
+ * neither a fee nor a priced window has nothing to show, so the row is withheld.
  */
-export const moneyRowOf = (report: UsageReport): MoneyRow | null => {
+export const moneyRowOf = (report: UsageReport, now: number): MoneyRow | null => {
   const fee = report.billing?.fee ?? null
   const value = report.spend?.windowCost ?? null
   if (!fee && value === null) return null
-  const currency = fee?.currency ?? report.spend?.currency ?? 'USD'
+  const { start, end } = periodBounds(report.spend?.windowDays ?? DEFAULT_RANGE, now)
+  const paid = paidForAccount(report.billing, start, end, cycleStartFromLanes(report.lanes))
+  const currency = report.spend?.currency ?? fee?.currency ?? 'USD'
   return {
     value,
+    paid: paid.amount,
+    overageAside: paid.overageAside,
+    overageAsideCurrency: paid.overageAsideCurrency,
+    ratio: fee && report.spend?.currency === fee.currency ? paidRatio(value, paid.amount) : null,
     fee: fee ? { amount: fee.amount, currency: fee.currency, period: fee.period } : null,
     feeIsUser: fee?.source === 'user',
     currency,

@@ -24,6 +24,7 @@ import {
 } from '../../lib/ledger'
 import { paletteTone, usageReadingTone, type Tone } from '../../lib/limits'
 import {
+  DEFAULT_RANGE,
   balanceOf,
   byUrgency,
   coverageLabel,
@@ -111,7 +112,7 @@ export const RANGES = [
   { value: '90', label: '90d' },
 ] as const
 
-export const DEFAULT_RANGE = 30
+export { DEFAULT_RANGE }
 
 /** One agent's colour, resolved once over the whole roster — see `Usage.tsx`. */
 export type TintOf = (runtime: string) => Tint

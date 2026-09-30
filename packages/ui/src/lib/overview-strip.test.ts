@@ -10,6 +10,7 @@ import {
   ledgerRuntimeIds,
   paidPerTurn,
   paidRatio,
+  paidRatioCaption,
   paidScopeMatchesLedger,
   percentChange,
   perDay,
@@ -194,5 +195,13 @@ describe('paidRatio / perDay / paidPerTurn', () => {
     expect(paidPerTurn(100, undefined)).toBeNull()
     expect(paidPerTurn(100, 0)).toBeNull()
     expect(paidPerTurn(null, 25)).toBeNull()
+  })
+})
+
+describe('paidRatioCaption', () => {
+  it('uses one decimal below ten times and a whole number at ten or more', () => {
+    expect(paidRatioCaption(9.4)).toBe('9.4× paid')
+    expect(paidRatioCaption(10.4)).toBe('10× paid')
+    expect(paidRatioCaption(0.55)).toBe('0.6× paid')
   })
 })
