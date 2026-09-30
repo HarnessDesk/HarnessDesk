@@ -387,6 +387,36 @@ test('a kept answer survives reloading the run files', async (t) => {
   assert.equal(run!.keptAnswer?.question, 'Which base branch?')
 })
 
+test('a kept answer is refused while its Seat is inside a turn and kept; once continued, a second continue finds nothing waiting', async (t) => {
+  const e = await engineStopped(t)
+  e.rig.failOrderTimes = 2
+  await assert.rejects(e.rig.flows.answerQuestion(e.runtime, e.sessionId, e.words, e.settle), /kept on the run/)
+  e.rig.busySeats.add(String(e.seat.id))
+  await assert.rejects(e.rig.flows.continueAnswer(e.run.id), /The Seat for card #1 is inside a turn now\. Answer again once it ends\./)
+  let [run] = e.rig.flows.executionsFor(e.run.goal)
+  assert.equal(run!.state, 'stalled')
+  assert.equal(run!.keptAnswer?.answer, 'main')
+  e.rig.busySeats.delete(String(e.seat.id))
+  assert.equal((await e.rig.flows.continueAnswer(e.run.id)).state, 'running')
+  ;[run] = e.rig.flows.executionsFor(e.run.goal)
+  const keys = run!.operations.map((one) => one.key)
+  assert.equal(new Set(keys).size, keys.length, `every operation keeps its own key: ${keys.join(', ')}`)
+  await assert.rejects(e.rig.flows.continueAnswer(e.run.id), /This run is no longer waiting on that answer\./)
+})
+
+test('a run that leaves its stop another way drops the kept answer, so no later stop offers it', async (t) => {
+  const e = await engineStopped(t)
+  e.rig.failOrderTimes = 2
+  await assert.rejects(e.rig.flows.answerQuestion(e.runtime, e.sessionId, e.words, e.settle), /kept on the run/)
+  assert.equal(e.rig.flows.executionsFor(e.run.goal)[0]!.keptAnswer?.answer, 'main')
+  await e.rig.flows.stopRun(e.run.id)
+  const [run] = e.rig.flows.executionsFor(e.run.goal)
+  assert.equal(run!.state, 'stopped')
+  assert.equal(run!.keptAnswer, undefined)
+  await e.rig.restart()
+  assert.equal(e.rig.flows.executionsFor(e.run.goal)[0]!.keptAnswer, undefined, 'and it is gone from the run file too')
+})
+
 test('continuing a kept answer is refused before its Seat reopens when the trigger’s gate refuses, and the answer stays kept', async (t) => {
   const e = await engineStopped(t)
   e.rig.failOrderTimes = 2

@@ -1230,19 +1230,31 @@ export class FlowExecutions {
         if (!gate.ok) throw new Error(`Your answer was not sent: ${gate.reason}`)
       }
       await this.#put({ ...now, state: 'running', reason: null })
-      if (!await this.#sameSeat(id, seat, card.id, round.role, 'answered')) {
-        await this.#put({ ...this.#get(id), state: 'stalled', reason: this.#get(id).reason ?? 'The Seat could not be reopened.' })
-        throw new Error(this.#get(id).reason ?? 'The Seat could not be reopened.')
-      }
-      // Reopening can take a while, and a limit reached meanwhile still holds: read the gate again right before the hand-back (#939).
-      if (this.#get(id).intake) {
-        const gate = await this.#gateOf(id)
-        if (!gate.ok) {
-          await this.#put({ ...this.#get(id), state: 'stalled', reason: gate.reason })
-          throw new Error(`Your answer was not sent: ${gate.reason}`)
+      // From here the run reads as running, and `#put` has dropped the kept answer: anything below that ends without the Seat hearing it puts both back.
+      let stop: string | null = null
+      try {
+        if (!await this.#sameSeat(id, seat, card.id, round.role, 'answered')) {
+          stop = this.#get(id).reason ?? 'The Seat could not be reopened.'
+          throw new Error(stop)
         }
+        // Reopening can take a while, and a limit reached meanwhile still holds: read the gate again right before the hand-back (#939).
+        if (this.#get(id).intake) {
+          const gate = await this.#gateOf(id)
+          if (!gate.ok) {
+            stop = gate.reason
+            throw new Error(`Your answer was not sent: ${gate.reason}`)
+          }
+        }
+        await this.#deliverAnswer(id, seat, card.id, round, index, binding, kept)
+      } catch (error) {
+        // `#deliverAnswer`'s own stop already keeps the answer, with its own words; any other end is put back here.
+        const left = this.#get(id)
+        if (left.state !== 'stalled' || !left.keptAnswer) {
+          const why = stop ?? left.reason ?? (error instanceof Error ? error.message : String(error))
+          await this.#put({ ...left, state: 'stalled', reason: why, keptAnswer: kept })
+        }
+        throw error
       }
-      await this.#deliverAnswer(id, seat, card.id, round, index, binding, kept)
       return this.#projectExecution(this.#get(id))
     })
   }
@@ -1340,7 +1352,10 @@ export class FlowExecutions {
       'Carry on from where you were, with that answer.',
     ].join('\n\n')
     let why: string | null = null
-    const firstAttempt = this.#get(id).operations.filter((one) => one.key.startsWith(prefix)).length + 1
+    // Past every suffix this answer's prefix has ever used — a `prepared` attempt is removed, so counting what is left would hand a later attempt a key already on record.
+    const used = [...this.#get(id).operations.map((one) => one.key), ...Object.keys(this.#get(id).operationTimes)]
+      .filter((one) => one.startsWith(prefix)).map((one) => Number(one.slice(prefix.length))).filter(Number.isInteger)
+    const firstAttempt = Math.max(0, ...used) + 1
     for (let attempt = 0; attempt < 2; attempt++) {
       const key = `${prefix}${firstAttempt + attempt}`
       const refused = await this.#handOver(id, key, seat, card, binding, lead)
@@ -2016,7 +2031,14 @@ export class FlowExecutions {
 
   /** Persist first, then hold it in memory, then say so: a failed write changes nothing the desk believes. */
   async #put(run: StoredFlowExecution): Promise<StoredFlowExecution> {
-    const next = { ...run, updatedAt: this.#now() }
+    /* A kept answer belongs to the stop it was kept at (#998). A run that
+       leaves that stop any other way — an extra round authorized, a check run
+       again, a person's Stop — drops it here, in the one place every run is
+       written. Otherwise a later, unrelated stop would offer an answer given
+       for another moment. `continueAnswer` puts it back itself when its
+       hand-back fails. */
+    const { keptAnswer, ...unkept } = run
+    const next = { ...(run.state === 'stalled' && keptAnswer ? run : unkept), updatedAt: this.#now() }
     try {
       await this.#files.save(next)
     } catch (error) {
