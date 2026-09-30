@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import type { AgentEntry, SeatPlan } from '@harnessdesk/protocol'
 
-import { ActionError, Button, Dialog, FormStack, ListRow, Note, RadioGroup, RadioGroupItem, Text } from '../design'
+import { ActionError, Button, ChoiceList, Dialog, FormStack, Note, Text } from '../design'
 import { agentName, firstReason, inForce, markFor, seatTaken } from '../lib/agents'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
@@ -41,10 +41,15 @@ export const AddMember = ({
     return () => { live = false }
   }, [store, root])
 
+  const refusal = (entry: AgentEntry): string | null => {
+    const plan = plans.get(entry.id)
+    return plan && !seatTaken(plan) ? firstReason(plan) : null
+  }
+  const selectable = (entry: AgentEntry): boolean => refusal(entry) === null
   const choice =
     (agentId && roster?.some((one) => one.id === agentId) ? agentId : null) ??
-    roster?.find((one) => seatTaken(plans.get(one.id)) !== null)?.id ??
-    roster?.[0]?.id ??
+    roster?.find((one) => selectable(one) && seatTaken(plans.get(one.id)) !== null)?.id ??
+    roster?.find(selectable)?.id ??
     null
 
   const seat = async (): Promise<void> => {
@@ -80,42 +85,27 @@ export const AddMember = ({
         <div className={styles.field}>
           <Text role="row">Its Agents, and the seat each would take here</Text>
           {roster === null ? <Text role="muted">Reading this project’s Agents…</Text> : (
-            <RadioGroup className={styles.picker} value={choice ?? ''} onValueChange={(value) => setAgentId(String(value))}>
-              {roster.map((entry) => {
+            <ChoiceList
+              label="Its Agents, and the seat each would take here"
+              value={choice}
+              onChange={setAgentId}
+              options={roster.map((entry) => {
                 const plan = plans.get(entry.id)
                 const taken = seatTaken(plan)
-                const reason = plan && !taken ? firstReason(plan) : null
+                const reason = refusal(entry)
                 const name = agentName(entry)
-                // Stable per Agent, not `useId()`: this runs inside `.map`,
-                // where a hook cannot be called at all.
-                const reasonId = reason ? `add-member-reason-${entry.id}` : undefined
                 return (
-                  <ListRow
-                    key={entry.id}
-                    as="label"
-                    interactive
-                    size="sm"
-                    {...(reason ? { 'data-refused': '' } : {})}
-                    lead={(
-                      <>
-                        <RadioGroupItem
-                          value={entry.id}
-                          aria-label={name}
-                          {...(reasonId ? { 'aria-describedby': reasonId } : {})}
-                        />
-                        {taken ? <RuntimeMark runtime={markFor(taken, snapshot.runtimes)} size={14} /> : <BriefIcon size={14} />}
-                      </>
-                    )}
-                    title={<Text role="value" truncate>{name}</Text>}
-                    {...(reason ? {
-                      subtitle: <Text id={reasonId} role="meta" tone="warning">{`Can't seat here · ${reason}`}</Text>,
-                      wrapSubtitle: true,
-                    } : {})}
-                    trail={taken ? <Text role="meta">{taken.label}</Text> : reason ? undefined : <Text role="meta">Checking…</Text>}
-                  />
+                  {
+                    value: entry.id,
+                    title: name,
+                    ...(reason ? { description: <Text role="meta" tone="warning">{`Can't seat here · ${reason}`}</Text> } : {}),
+                    refused: Boolean(reason),
+                    icon: taken ? <RuntimeMark runtime={markFor(taken, snapshot.runtimes)} size={14} /> : <BriefIcon size={14} />,
+                    trailing: taken ? <Text role="meta">{taken.label}</Text> : reason ? undefined : <Text role="meta">Checking…</Text>,
+                  }
                 )
               })}
-            </RadioGroup>
+            />
           )}
           <Note>The host records a durable Seat before the Agent receives its Goal.</Note>
         </div>

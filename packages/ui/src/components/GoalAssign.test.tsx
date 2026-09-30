@@ -18,9 +18,16 @@ it('offers unfiltered loose same-project history and keeps refusal visible', asy
   const assignGoal = vi.fn(async () => { throw new Error('That conversation became busy.') })
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, assignGoal } as unknown as AppStore
   act(() => root.render(<StoreProvider store={store}><GoalAssign view={goal} card={4} onClose={vi.fn()} /></StoreProvider>))
+  const group = document.querySelector('[role="radiogroup"][aria-label="Conversation"]')
+  expect(group).not.toBeNull()
+  expect(group?.getAttribute('data-slot')).toBe('choice-list')
   expect(document.body.textContent).toContain('loose')
   expect(document.body.textContent).not.toContain('member')
-  act(() => [...document.querySelectorAll<HTMLElement>('[role="radio"]')].find(one => one.getAttribute('aria-label') === 'loose')!.click())
+  const option = [...document.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(one => one.textContent?.includes('loose'))!
+  expect(option.getAttribute('data-slot')).toBe('choice-row')
+  expect(option.getAttribute('aria-checked')).toBe('false')
+  act(() => option.click())
+  expect(option.getAttribute('aria-checked')).toBe('true')
   act(() => [...document.querySelectorAll('button')].find(one => one.textContent === 'Assign')!.click())
   await act(async () => {})
   expect(assignGoal).toHaveBeenCalledWith('g1', 4, { runtime: 'codex', sessionId: 'loose' })

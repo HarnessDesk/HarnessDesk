@@ -28,11 +28,3 @@
 .count {
   margin-left: auto;
 }
-
-.picker {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-block-size: 220px;
-  overflow-y: auto;
-}

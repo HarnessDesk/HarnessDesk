@@ -80,7 +80,6 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
   message: 'packages/ui/src/components/Items.tsx',
   'native-select': 'packages/ui/src/components/PluginsSection.tsx',
   popover: 'packages/ui/src/components/ComposerControls.tsx',
-  'radio-group': 'packages/ui/src/components/AddMember.tsx',
   'resize-handle': 'packages/ui/src/components/Panes.tsx',
   separator: 'packages/ui/src/components/Channel.tsx',
   'sortable-list': 'packages/ui/src/components/MessageQueue.tsx',

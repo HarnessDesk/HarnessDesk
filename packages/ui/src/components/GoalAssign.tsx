@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 
 import { sessionKey, splitSessionKey, type GoalView, type SessionKey } from '@harnessdesk/protocol'
 
-import { Button, Dialog, Note, RadioGroup, RadioGroupItem, Row, Rows } from '../design'
+import { Button, Dialog, Note, RowChoice, Rows } from '../design'
 import { groupByProject } from '../lib/projects'
 import { sessionLabel } from '../lib/sessions'
 import { useSnapshot, useStore } from '../state/context'
@@ -58,21 +58,20 @@ export const GoalAssign = ({
       }
     >
       {loose.length > 0 ? (
-        <RadioGroup value={choice ?? ''} onValueChange={(value) => setChoice(value as SessionKey)} aria-label="Conversation">
-          <Rows>
+        <Rows role="radiogroup" aria-label="Conversation">
             {loose.map((summary) => {
               const key = sessionKey(summary.runtime, summary.id)
               return (
-                <Row
+                <RowChoice
                   key={String(key)}
                   title={sessionLabel(summary.title, summary.preview)}
                   desc={summary.cwd} truncateDesc
-                  control={<RadioGroupItem value={key} aria-label={sessionLabel(summary.title, summary.preview)} />}
+                  selected={choice === key}
+                  onClick={() => setChoice(key)}
                 />
               )
             })}
-          </Rows>
-        </RadioGroup>
+        </Rows>
       ) : <Note>Every available conversation in this project is already seated or working.</Note>}
       {problem ? <Note tone="bad">{problem}</Note> : null}
     </Dialog>

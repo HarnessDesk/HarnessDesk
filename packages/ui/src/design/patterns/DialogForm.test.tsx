@@ -255,6 +255,44 @@ describe('Fieldset and ChoiceList', () => {
     await act(async () => rows[1]!.click())
     expect(seen).toEqual(['b'])
   })
+
+  it('keeps a refused choice selectable, fades its icon and title, and leaves its reason at full ink', async () => {
+    const seen: string[] = []
+    await render(
+      <ChoiceList
+        label="Choose an Agent"
+        value={null}
+        onChange={(next) => seen.push(next)}
+        options={[{
+          value: 'refused',
+          title: 'Unavailable Agent',
+          description: "Can't seat here · signed out",
+          icon: <span>Agent mark</span>,
+          refused: true,
+        }]}
+      />,
+    )
+    const row = container.querySelector<HTMLButtonElement>('[role="radio"]')!
+    const icon = row.querySelector('[data-slot="choice-icon"]')
+    const title = row.querySelector('[data-slot="choice-title"]')
+    const description = row.querySelector('[data-slot="choice-desc"]')
+
+    expect(row.hasAttribute('data-refused')).toBe(true)
+    expect(row.disabled).toBe(false)
+    expect(row.className).toContain('data-[refused]:opacity-100')
+    expect(row.className).not.toContain('data-[refused]:opacity-45')
+    expect(row.className).toContain('data-[refused]:[&_[data-slot=choice-icon]]:opacity-45')
+    expect(row.className).toContain('data-[refused]:[&_[data-slot=choice-title]]:opacity-45')
+    expect(icon).not.toBeNull()
+    expect(title?.textContent).toBe('Unavailable Agent')
+    expect(description?.textContent).toBe("Can't seat here · signed out")
+    expect(description?.className).not.toContain('opacity-45')
+    expect(description?.className).not.toContain('data-[refused]')
+    expect(document.getElementById(row.getAttribute('aria-describedby')!)?.textContent).toBe(description?.textContent)
+
+    await act(async () => row.click())
+    expect(seen).toEqual(['refused'])
+  })
 })
 
 describe('the rhythm, as the sheets say it', () => {
