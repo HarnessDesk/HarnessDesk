@@ -74,10 +74,11 @@ const detailPage = (): FindingDetailPage => ({
   finding: findingsPage().rows[0]!, records: [], seat: seat(), next: null, problem: null,
 })
 
-const runView = (): FindingRunView => ({
+const runView = (over: Partial<FindingRunView> = {}): FindingRunView => ({
   run: 'run-1', goal: 'g1', round: 4, finished: 3, total: 5, embargoed: false, open: 1, blocking: 1,
   reason: null, stamp: STAMP, publication: 'posted', reviewersFinished: null, reviewersTotal: null,
   pendingExceptions: [], repair: null, boundPr: null, unbound: null, undecidable: null,
+  ...over,
 } as unknown as FindingRunView)
 
 const notify = (store: AppStore, notification: WireNotification): void => {
@@ -92,6 +93,38 @@ const typeInto = (textarea: HTMLTextAreaElement, text: string): void => {
     textarea.dispatchEvent(new Event('input', { bubbles: true }))
   })
 }
+
+it('refreshes the round budget and blind reviewer counts from a flow execution push', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  let current = runView({ round: 5, finished: 5, total: 5, embargoed: true, reviewersFinished: 1, reviewersTotal: 2 })
+  let lists = 0
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+    switch (method) {
+      case 'finding/list': lists += 1; return findingsPage()
+      case 'finding/run': return current
+      default: throw new Error(`unexpected ${method}`)
+    }
+  }) as never)
+
+  notify(store, { method: 'goal/changed', params: { view: goalView() } })
+  notify(store, { method: 'flow/execution-changed', params: { execution: { id: 'run-1', goal: 'g1', findings: {} } as never } })
+  act(() => {
+    root.render(<StoreProvider store={store}><GoalFindings goal="g1" /></StoreProvider>)
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)) })
+  expect(container.textContent).toContain('Round5 of 5')
+  expect(container.textContent).toContain('1 of 2 reviewers finished')
+
+  current = runView({ round: 7, finished: 7, total: 8, embargoed: true, reviewersFinished: 2, reviewersTotal: 3 })
+  const listsBefore = lists
+  notify(store, { method: 'flow/execution-changed', params: { execution: { id: 'run-1', goal: 'g1', findings: { extraRound: { after: 5, reason: 'make room', count: 3 } } } as never } })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)) })
+  expect(container.textContent).toContain('Round7 of 8')
+  expect(container.textContent).toContain('2 of 3 reviewers finished')
+  // The run views only: a push that moves a run must not reload the list, or
+  // a person paging through findings is sent back to the first page (#1091).
+  expect(lists).toBe(listsBefore)
+})
 
 it('a reason typed on the real store path reaches finding/decide, and a live push mid-edit does not lose it (#1089, #1090)', async () => {
   const store = new AppStore('ws://localhost:0/')
