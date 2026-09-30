@@ -52,7 +52,7 @@
 }
 
 .navRow {
-  gap: var(--hd-space-2);
+  gap: var(--hd-space-2); /* desk: 2px → 8px, keep the start action distinct from its adjacent menu. */
 }
 
 .newSession {
@@ -94,7 +94,7 @@
 }
 
 .navLink {
-  gap: var(--hd-space-0-5);
+  gap: var(--hd-space-0-5); /* desk: 8px → 2px, keep each compact icon and label together. */
 }
 
 .navCount {
