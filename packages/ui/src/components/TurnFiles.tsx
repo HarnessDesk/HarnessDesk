@@ -3,9 +3,10 @@ import { useMemo, useState } from 'react'
 import type { FileChange, Turn } from '@harnessdesk/protocol'
 
 import { totalsByFile } from '../lib/turn-view'
-import { useSessionKey, useStore } from '../state/context'
+import { useSelect, useSessionKey, useStore } from '../state/context'
+import { closedTurnFilesKey } from '../state/snapshot'
 import { Button, Card, ChangeStats, Chip, CodeText, IconTile, Separator, Text } from '../design'
-import { DiffIcon, RedoIcon, UndoIcon } from './Icons'
+import { CrossIcon, DiffIcon, RedoIcon, UndoIcon } from './Icons'
 import styles from './TurnFiles.module.css'
 
 /**
@@ -39,14 +40,17 @@ const relativeTo = (path: string, root: string): string => {
 export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readonly FileChange[]; root: string }) => {
   const store = useStore()
   const key = useSessionKey()
+  // Only this card's own flag, so closing one card re-renders one card.
+  const closed = useSelect((snapshot) => key !== null && snapshot.closedTurnFiles.has(closedTurnFilesKey(key, turn.id)))
   const [busy, setBusy] = useState(false)
   const [reverted, setReverted] = useState(false)
+  const [stoppedPartway, setStoppedPartway] = useState(false)
   const [expanded, setExpanded] = useState(false)
   // Offered only once the host has refused for this reason; never up front,
   // because most turns have nothing unrecoverable in them.
   const [partly, setPartly] = useState(false)
   const files = useMemo(() => totalsByFile(changes), [changes])
-  if (files.length === 0) return null
+  if (files.length === 0 || closed) return null
 
   const added = files.reduce((sum, file) => sum + file.added, 0)
   const removed = files.reduce((sum, file) => sum + file.removed, 0)
@@ -68,12 +72,19 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
           ? await store.revertTurn(turn.id, key, skipUnrecoverable ? { skipUnrecoverable: true } : {})
           : await store.redoTurn(turn.id, key)
       // Only a refusal leaves the card where it was: the host is all-or-
-      // nothing, so a failure means the tree is untouched and the offer
-      // stands unchanged.
+      // nothing — a refused pass takes back its own steps — so a failure
+      // means the tree is untouched and the offer stands unchanged. The one
+      // exception is a take-back that failed too, which `partial` reports.
       if (result.done) {
         setReverted(direction === 'undo')
+        setStoppedPartway(false)
         setPartly(false)
-      } else setPartly(result.unrecoverable)
+      } else {
+        setPartly(result.unrecoverable)
+        // Only a success clears it: a later refusal that changed nothing
+        // leaves the tree exactly as half changed as it was.
+        if (result.partial) setStoppedPartway(true)
+      }
     } finally {
       setBusy(false)
     }
@@ -134,6 +145,23 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
             title="Open the Changes panel"
           >
             Review
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            edge="end"
+            edgeGlyph={11}
+            type="button"
+            aria-label="Close"
+            onClick={() => key && store.closeTurnFiles(key, turn.id)}
+            disabled={busy || reverted || stoppedPartway}
+            title={stoppedPartway
+              ? "This turn's files are half changed — finish or reverse it here first."
+              : reverted
+                ? 'Redo or keep these edits first — this card is the only way to write them back.'
+                : 'Hide this card. The changes stay in the Changes panel.'}
+          >
+            <CrossIcon size={11} />
           </Button>
         </span>
       </div>

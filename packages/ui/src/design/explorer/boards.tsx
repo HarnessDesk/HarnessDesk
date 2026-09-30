@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 
-import type { AgentItem } from '@harnessdesk/protocol'
+import { runtimeId, sessionKey, sessionId, turnId, type AgentItem, type FileChange, type Turn } from '@harnessdesk/protocol'
 
 import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, PluginIcon, TerminalIcon, TodoPendingIcon } from '../../components/Icons'
 import { RuntimeMark } from '../../components/BrandIcons'
 import { DiffView } from '../../components/Diff'
+import { TurnFiles } from '../../components/TurnFiles'
 import { Toaster } from '../ui/toast'
 import { ItemView } from '../../components/Items'
 import { Markdown } from '../../components/Markdown'
@@ -944,6 +945,35 @@ const QueueBoard = () => (
    hands back the same object each time it is asked. */
 const catalogueSnapshot = emptySnapshot()
 const catalogueStore = { subscribe: () => () => {}, getSnapshot: () => catalogueSnapshot } as unknown as AppStore
+const catalogueTurnFilesKey = sessionKey(runtimeId('codex'), sessionId('catalogue'))
+const catalogueTurnFilesSnapshot = { ...catalogueSnapshot, activeSessionKey: catalogueTurnFilesKey }
+const catalogueTurnFilesStore = {
+  subscribe: () => () => {},
+  getSnapshot: () => catalogueTurnFilesSnapshot,
+  revertTurn: async () => ({ done: true, unrecoverable: false, partial: false }),
+  redoTurn: async () => ({ done: true, unrecoverable: false, partial: false }),
+  closeTurnFiles: () => {},
+  setDetailsTab: () => {},
+  openFile: () => {},
+} as unknown as AppStore
+const CATALOGUE_TURN: Turn = { id: turnId('catalogue-turn'), items: [], status: 'completed', diff: null }
+const CATALOGUE_TURN_ONE: readonly FileChange[] = [
+  { path: '/workspace/src/checkout.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-old\n+new\n' },
+]
+const CATALOGUE_TURN_SEVERAL: readonly FileChange[] = [
+  ...CATALOGUE_TURN_ONE,
+  { path: '/workspace/src/receipt.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-old\n+new\n' },
+  { path: '/workspace/src/tax.ts', kind: { type: 'add' }, diff: '+export const tax = 0\n' },
+]
+const CatalogueRevertedTurnFiles = () => {
+  const host = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    // This board's host stub resolves Undo successfully to show the real
+    // component's protected Redo state, without contacting a host service.
+    host.current?.querySelector<HTMLButtonElement>('button[title^="Put these files back"]')?.click()
+  }, [])
+  return <div ref={host}><TurnFiles turn={CATALOGUE_TURN} changes={CATALOGUE_TURN_SEVERAL} root="/workspace" /></div>
+}
 const CATALOGUE_DIFF = [
   'diff --git a/src/new.ts b/src/new.ts',
   'new file mode 100644',
@@ -1154,6 +1184,21 @@ const CodeBoard = () => (
           <ItemView item={CATALOGUE_RESTATED_RESULT} root="/workspace" />
         </StoreProvider>
       </div>
+    </Case>
+    <Case label="one changed file">
+      <StoreProvider store={catalogueTurnFilesStore}>
+        <TurnFiles turn={CATALOGUE_TURN} changes={CATALOGUE_TURN_ONE} root="/workspace" />
+      </StoreProvider>
+    </Case>
+    <Case label="several changed files">
+      <StoreProvider store={catalogueTurnFilesStore}>
+        <TurnFiles turn={{ ...CATALOGUE_TURN, id: turnId('catalogue-many') }} changes={CATALOGUE_TURN_SEVERAL} root="/workspace" />
+      </StoreProvider>
+    </Case>
+    <Case label="put back: Close greyed until Redo or keep">
+      <StoreProvider store={catalogueTurnFilesStore}>
+        <CatalogueRevertedTurnFiles />
+      </StoreProvider>
     </Case>
     <Case label="a runtime's own command record, unwrapped as the command plate">
       <div className="w-full" data-testid="runtime-command-result-sample" data-register="light">

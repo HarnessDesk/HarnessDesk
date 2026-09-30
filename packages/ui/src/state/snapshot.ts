@@ -453,6 +453,8 @@ export interface AppSnapshot {
   readonly boardEvidence: ReadonlyMap<string, BoardEvidence>
   /** Rooms whose first evidence read failed before any facts could be established. */
   readonly boardEvidenceFailed: ReadonlySet<string>
+  /** Turn-files cards hidden for this app run, one `closedTurnFilesKey` each. */
+  readonly closedTurnFiles: ReadonlySet<string>
   /**
    * The Agent roster for `agentsProject`: that project's own Agents, then this
    * machine's, then the ones that ship, one per id, each carrying what it
@@ -766,6 +768,17 @@ const EMPTY_WORKBENCH = emptyWorkbench()
  * held it and forgot would be sharing state with every other holder. The one
  * way out is `emptySnapshot()`, which copies those fields fresh.
  */
+/**
+ * One closed turn-files card: its conversation and its turn. A JSON pair,
+ * because a session key already carries a NUL separator of its own, so no
+ * joining character is safe.
+ */
+export const closedTurnFilesKey = (session: string, turn: string): string => JSON.stringify([session, turn])
+
+/** The closed set with one more card in it; the store and the preview both answer `closeTurnFiles` with this. */
+export const withClosedTurnFiles = (closed: ReadonlySet<string>, session: string, turn: string): ReadonlySet<string> =>
+  new Set(closed).add(closedTurnFilesKey(session, turn))
+
 const EMPTY: AppSnapshot = {
   captureHealth: new Map(),
   provenanceRevision: new Map(),
@@ -826,6 +839,7 @@ const EMPTY: AppSnapshot = {
   raceStart: null,
   boardEvidence: new Map(),
   boardEvidenceFailed: new Set(),
+  closedTurnFiles: new Set(),
   agents: null,
   agentsProject: null,
   agentPlans: new Map(),
