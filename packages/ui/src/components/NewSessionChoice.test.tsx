@@ -75,12 +75,12 @@ const shell: ShellActions = {
   openAgents: vi.fn(), reviewImports: () => {},
 }
 
-const render = (store: AppStore, onClose = vi.fn()): typeof onClose => {
+const render = (store: AppStore, onClose = vi.fn(), initialKind?: 'session' | 'goal' | 'flow' | 'team'): typeof onClose => {
   act(() => {
     root.render(
       <ShellProvider actions={shell}>
         <StoreProvider store={store}>
-          <NewSessionChoice onClose={onClose} />
+          <NewSessionChoice onClose={onClose} initialKind={initialKind} />
         </StoreProvider>
       </ShellProvider>,
     )
@@ -235,7 +235,7 @@ it('lists every in-force Agent under "Run as", and starting one runs the session
 
   const select = runAsSelect()
   const optionLabels = [...select.options].map((one) => one.textContent)
-  expect(optionLabels).toContain('Plain session')
+  expect(optionLabels).toContain('Default agent')
   expect(optionLabels).toContain('Code reviewer')
 
   act(() => {
@@ -248,6 +248,15 @@ it('lists every in-force Agent under "Run as", and starting one runs the session
   expect(store.startAsAgent).toHaveBeenCalledWith('code-reviewer')
   expect(store.newDraft).not.toHaveBeenCalled()
   expect(onClose).toHaveBeenCalled()
+})
+
+it('opens with the requested starting kind selected and describes the work in plain words', () => {
+  const { store } = rig()
+  render(store, vi.fn(), 'goal')
+  expect(kindRow('Goal').getAttribute('aria-checked')).toBe('true')
+  expect(kindRow('Goal').textContent).toContain('Several agents work toward one result, with progress tracked together.')
+  expect(kindRow('Flow').textContent).toContain('Agents take turns: one writes, another reviews.')
+  expect(kindRow('Team').textContent).toContain('Starts the helpers this project defines.')
 })
 
 it('a refused Agent stays choosable, is marked in the list, says why once under it, and still starts to show why', () => {
@@ -304,7 +313,7 @@ it('opens focused on Session without scrolling, and leaves focus where a person 
   expect(document.activeElement).toBe(select)
 })
 
-it('Enter with Agents listed still starts a plain session while Plain session is chosen', () => {
+it('Enter with Agents listed still starts a plain session while Default agent is chosen', () => {
   const { store } = rig({}, [reviewer('code-reviewer', 'Code reviewer')], PLANS)
   render(store)
   act(() => {

@@ -23,7 +23,7 @@ import { FrontDoor } from './FrontDoor'
 import { GoalCreate } from './GoalCreate'
 
 /** What this dialog can start. Order is the order a person reads them in. */
-type Kind = 'session' | 'goal' | 'flow' | 'team'
+export type NewSessionKind = 'session' | 'goal' | 'flow' | 'team'
 
 const PLAIN = 'plain'
 
@@ -50,11 +50,11 @@ const runAsInfo = (entry: AgentEntry, agentPlans: ReadonlyMap<string, SeatPlan>)
  * plain choice — what ⌘N does — buried under all of them. An Agent is now an
  * answer to "who runs the session", not a fifth kind of thing to start.
  */
-export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) => {
+export const NewSessionChoice = ({ onClose, initialKind = 'session' }: { readonly onClose: () => void; readonly initialKind?: NewSessionKind }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const root = projectRootOf(snapshot.workspace)
-  const [kind, setKind] = useState<Kind>('session')
+  const [kind, setKind] = useState<NewSessionKind>(initialKind)
   const [runAs, setRunAs] = useState<string>(PLAIN)
   const [creatingGoal, setCreatingGoal] = useState(false)
   const [startingFlow, setStartingFlow] = useState(false)
@@ -67,7 +67,7 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
      Session once the folder is gone, and an Agent that has left the roster
      falls back to Plain session — never a Start that acts on a choice the
      dialog no longer draws. */
-  const shownKind: Kind = kind !== 'session' && !root ? 'session' : kind
+  const shownKind: NewSessionKind = kind !== 'session' && !root ? 'session' : kind
   const showRunAs = shownKind === 'session' && agents.length > 0
   const chosenAgent = runAs === PLAIN ? null : agents.find((one) => one.id === runAs) ?? null
   const chosenInfo = chosenAgent ? runAsInfo(chosenAgent, snapshot.agentPlans) : null
@@ -155,21 +155,21 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
             {
               value: 'goal',
               title: 'Goal',
-              description: rootDescription('A finishable effort with a shared board and a receipt.'),
+              description: rootDescription('Several agents work toward one result, with progress tracked together.'),
               icon: <GoalIcon size={16} />,
               disabled: !root,
             },
             {
               value: 'flow',
               title: 'Flow',
-              description: rootDescription('Routes work between several Agents on one Goal.'),
+              description: rootDescription('Agents take turns: one writes, another reviews.'),
               icon: <FlowIcon size={16} />,
               disabled: !root,
             },
             {
               value: 'team',
               title: 'Team',
-              description: rootDescription('Starts from a shape this project ships.'),
+              description: rootDescription('Starts the helpers this project defines.'),
               icon: <TeamIcon size={16} />,
               disabled: !root,
             },
@@ -191,7 +191,7 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
                   value={chosenAgent ? chosenAgent.id : PLAIN}
                   onChange={(event) => setRunAs(event.target.value)}
                 >
-                  <option value={PLAIN}>Plain session</option>
+                  <option value={PLAIN}>Default agent</option>
                   {agents.map((entry) => {
                     const info = runAsInfo(entry, snapshot.agentPlans)
                     return (

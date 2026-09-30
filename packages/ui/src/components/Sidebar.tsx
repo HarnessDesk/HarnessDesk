@@ -4,9 +4,9 @@ import { SidebarNotices, useInboxMessages } from './Notices'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 import { useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
-import { BranchIcon, BriefIcon, FilterIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, UsageIcon } from './Icons'
+import { BranchIcon, BriefIcon, CaretIcon, FilterIcon, FlowIcon, GoalIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, TeamIcon, UsageIcon } from './Icons'
 import { WindowControls } from './WindowControls'
-import { NewSessionChoice } from './NewSessionChoice'
+import { NewSessionChoice, type NewSessionKind } from './NewSessionChoice'
 import { SessionListControls, SessionTree } from './SessionTree'
 // Imported for its side effect: the Tasks panel registers itself into the
 // `sidebar.panel` slot rendered below.
@@ -91,7 +91,7 @@ export const Sidebar = ({
   // the word or for a field you can read what you typed in, not both.
   const [filterFocused, setFilterFocused] = useState(false)
   /** The "session, or room?" dialog. On the button only; ⌘N is the express lane. */
-  const [starting, setStarting] = useState(false)
+  const [starting, setStarting] = useState<NewSessionKind | undefined>()
   const filtering = filterFocused || query.length > 0
   const listRef = useRef<HTMLDivElement>(null)
   const now = Date.now()
@@ -167,21 +167,19 @@ export const Sidebar = ({
           makes twice a month, so it lives in Settings with the rest of the
           on-purpose visits. Changes lives in every conversation's header, and
           ⌘K reaches the rest. */}
-      {starting && <NewSessionChoice onClose={() => setStarting(false)} />}
+      {starting && <NewSessionChoice initialKind={starting} onClose={() => setStarting(undefined)} />}
       <RailSection as="nav" stretch="head" className={styles.nav} aria-label="Workspace actions">
         <div className={styles.navRow}>
           <Button
             variant="navigation" size="navigation" className={styles.navItem}
             disabled={!ready || !snapshot.workspace}
-            /* Asks which kind of work this is; ⌘N and the palette still go
-               straight to a session. See `NewSessionChoice`. */
-            onClick={() => setStarting(true)}
-            title="Start one agent, or a room for several."
+            onClick={() => store.newDraft()}
+            title="Start a session here"
           >
             <Text role="muted" className={styles.navIcon}><PlusIcon size={15} /></Text>
             New session
           </Button>
-          <WorktreeMenu />
+          <WorktreeMenu onChoose={(kind) => setStarting(kind)} />
         </div>
         {/* The plain path's one new row (the owner's rule, 2026-09-18): who
             can do the work, beside where the work already starts. Its count
@@ -310,7 +308,7 @@ export const Sidebar = ({
  * It stays visible in a folder that is not a repository, disabled and saying
  * why. A control that vanishes teaches nobody what it was.
  */
-const WorktreeMenu = () => {
+const WorktreeMenu = ({ onChoose }: { readonly onChoose: (kind: 'goal' | 'flow' | 'team') => void }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const health = useRuntimeHealth()
@@ -319,41 +317,23 @@ const WorktreeMenu = () => {
   const active = snapshot.activeSessionKey ? snapshot.sessions.get(snapshot.activeSessionKey) : undefined
   const mine = snapshot.worktrees.filter((entry) => entry.managed)
 
-  if (!isRepo || !ready) {
-    const reason = isRepo
-      ? 'Connect an agent to work in a worktree.'
-      : 'Worktrees need a git repository. This folder is not one.'
-    return (
-      <RefusedAction reason={reason}>
-        <Button
-          variant="ghost" size="icon-sm" className={styles.navSecondary}
-          disabled
-          aria-label="Worktrees"
-        >
-          <BranchIcon size={14} />
-        </Button>
-      </RefusedAction>
-    )
-  }
-
   return (
     <Popover
-      title="Worktrees of this project"
+      title="More ways to start"
       drop="down"
       align="right"
       triggerClassName={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: styles.navSecondary })}
-      label={<BranchIcon size={14} />}
+      label={<CaretIcon size={14} />}
       onOpenChange={(open) => open && void store.loadWorktrees()}
     >
       {(close) => (
         <Menu close={close}>
-          {/* Which project, first — the same question the dialog answers in
-              its subhead, answered one step earlier. */}
           <MenuLabel>{folderName(snapshot.workspace?.path ?? '')}</MenuLabel>
           <MenuItem
             icon={<PlusIcon size={14} />}
             label="New worktree…"
             title="Its own checkout, on a branch of its own."
+            {...(!isRepo || !ready ? { disabled: true, hint: isRepo ? 'Connect an agent to work in a worktree.' : 'Worktrees need a git repository.' } : {})}
             onSelect={() => {
               close()
               store.askNewWorktree(snapshot.workspace?.path ?? null)
@@ -376,6 +356,10 @@ const WorktreeMenu = () => {
               ))}
             </>
           )}
+          <MenuSeparator />
+          <MenuItem icon={<GoalIcon size={14} />} label="Goal…" onSelect={() => { close(); onChoose('goal') }} />
+          <MenuItem icon={<FlowIcon size={14} />} label="Flow…" onSelect={() => { close(); onChoose('flow') }} />
+          <MenuItem icon={<TeamIcon size={14} />} label="Team…" onSelect={() => { close(); onChoose('team') }} />
         </Menu>
       )}
     </Popover>

@@ -11,11 +11,13 @@ import { Sidebar } from './Sidebar'
 
 let container: HTMLDivElement
 let root: Root
+let newDraft: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
+  newDraft = vi.fn()
 })
 
 afterEach(() => {
@@ -71,6 +73,9 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     searchHistory: vi.fn(async () => {}),
+    newDraft,
+    loadWorktrees: vi.fn(async () => {}),
+    loadAgents: vi.fn(async () => {}),
   } as unknown as AppStore
 
   act(() => {
@@ -95,16 +100,30 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
 describe('Sidebar readiness with active runtime (#382)', () => {
   it('enables New session button when active runtime is ready even if default runtime health is not ready', () => {
     mount()
-    const newSessionBtn = container.querySelector<HTMLButtonElement>('button[title*="Start one agent"]')
+    const newSessionBtn = [...container.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.textContent?.includes('New session'))
     expect(newSessionBtn).not.toBeNull()
     expect(newSessionBtn?.disabled).toBe(false)
   })
 
-  it('enables Worktrees button when active runtime is ready even if default runtime health is not ready', () => {
+  it('one click on New session starts a draft without opening the chooser', () => {
     mount()
-    const worktreeBtn = container.querySelector<HTMLButtonElement>('button[title*="Worktrees of this project"]')
-    expect(worktreeBtn).not.toBeNull()
-    expect(worktreeBtn?.disabled).toBe(false)
+    const newSessionBtn = [...container.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.textContent?.includes('New session'))!
+    act(() => newSessionBtn.click())
+    expect(newDraft).toHaveBeenCalledOnce()
+    expect(document.querySelector('[data-slot="dialog"]')).toBeNull()
+  })
+
+  it('the more-ways menu keeps worktree choices first and opens Goal preselected', () => {
+    mount()
+    const trigger = container.querySelector<HTMLButtonElement>('button[title="More ways to start"]')!
+    act(() => trigger.click())
+    const menu = document.querySelector('[role="menu"]')!
+    const items = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((one) => one.textContent?.trim())
+    expect(items).toEqual(['New worktree…', 'Goal…', 'Flow…', 'Team…'])
+    const goal = [...menu.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.textContent?.trim() === 'Goal…')!
+    act(() => goal.click())
+    const goalChoice = [...document.querySelectorAll<HTMLElement>('[role="radio"]')].find((one) => one.textContent?.startsWith('Goal'))
+    expect(goalChoice?.getAttribute('aria-checked')).toBe('true')
   })
 
   it('shows no sessions empty state rather than connect runtime when active runtime is ready', () => {
@@ -122,17 +141,13 @@ describe('Sidebar readiness with active runtime (#382)', () => {
         [CODEX]: unavailableHealth,
       },
     })
-    const newSessionBtn = container.querySelector<HTMLButtonElement>('button[title*="Start one agent"]')
+    const newSessionBtn = [...container.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.textContent?.includes('New session'))
     expect(newSessionBtn).not.toBeNull()
     expect(newSessionBtn?.disabled).toBe(true)
 
-    const worktreeHelp = container.querySelector<HTMLButtonElement>('[data-slot="refused-action"]')
-    expect(worktreeHelp).not.toBeNull()
-    expect(worktreeHelp?.tabIndex).toBe(0)
-    expect(worktreeHelp?.getAttribute('aria-disabled')).toBe('true')
-    const reasonId = worktreeHelp?.getAttribute('aria-describedby')
-    expect(reasonId).not.toBeNull()
-    expect(document.getElementById(reasonId!)?.textContent).toContain('Connect an agent')
+    const moreWays = container.querySelector<HTMLButtonElement>('button[title="More ways to start"]')
+    expect(moreWays).not.toBeNull()
+    expect(moreWays?.disabled).toBe(false)
 
     const empty = container.querySelector('[data-slot="empty-state"]')
     expect(empty).not.toBeNull()
