@@ -579,8 +579,8 @@ for (const id of ['claude-code', 'gemini-cli', 'copilot', 'antigravity', 'codex'
   writeAgent(
     join(HOME, 'agents', `room-${id}`),
     agentFile({
-      name: cast.name,
-      description: `${cast.name}, seated as itself in a room.`,
+      name: id === 'claude-code' ? 'Claude Code' : cast.name,
+      description: `${id === 'claude-code' ? 'Claude Code' : cast.name}, seated as itself in a room.`,
       prefer: [rigRuntimeId(id)],
       // The seat's own standing order (`host.ts`'s `#orderSeat`) is sent as
       // this seat's first turn the moment it is kept — the room's own task,

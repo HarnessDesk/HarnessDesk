@@ -143,11 +143,11 @@ if (SCENARIO === 'hero') {
   const agentsPath = join(HOME, 'agents.json')
   const roster = JSON.parse(readFileSync(agentsPath, 'utf8'))
   for (const agent of roster.agents) {
-    if (agent.id === rigRuntimeId('claude-code')) agent.env.SHOT_TURN = '4,6'
+    if (agent.id === rigRuntimeId('claude-code')) agent.env.SHOT_TURN = '7,7,4,6'
     if (agent.id === rigRuntimeId('codex')) agent.env.SHOT_TURN = '5'
   }
   writeFileSync(agentsPath, `${JSON.stringify(roster, null, 2)}\n`)
-  say('patched agents.json: claude-code plays turn 4 then 6, codex plays turn 5')
+  say('patched agents.json: claude-code plays context, fix, then acknowledgement; codex plays the browser check')
 }
 
 const desk = await launchDesk({ app: APP, home: HOME, userDataDir: `${HOME}/electron`, logPath: `${HOME}/app.log`, env: SHOT_ENV })
@@ -199,6 +199,14 @@ try {
     await cdp.eval(TILDIFY(dirname(WORK)))
     await cdp.eval(TILDIFY(HOME, '~/.harnessdesk'))
   }
+  const followRoomChat = () =>
+    cdp.eval(`(() => {
+      const stream = document.querySelector('[data-slot="room-stream"]')
+      if (!stream) return false
+      stream.scrollTop = stream.scrollHeight
+      stream.dispatchEvent(new Event('scroll', { bubbles: true }))
+      return true
+    })()`)
   await retildify()
 
   /**
@@ -292,6 +300,69 @@ try {
     writeFileSync(join(REPO, '.harnessdesk', 'flows', 'fix-and-review.yml'), FLOW)
   }
 
+  /**
+   * A named room seat starts its standing-order turn as it is kept.  Later
+   * prompts are safe only once every member is idle: ACP deliberately rejects
+   * a second prompt instead of queueing it.  Keeping that wait in one helper
+   * makes the hero's follow-up and acknowledgement real scripted turns rather
+   * than an optimistic race with the one the host already started.
+   */
+  const waitForRoomIdle = async (label) => {
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      await answerApprovals(cdp)
+      const peers = await cdp.json(`${STORE}.transport.request('team/peers', { room: ${q(room)} })`, 60_000).catch(() => [])
+      if (!peers.some((peer) => peer.busy)) return
+      await sleep(250)
+    }
+    throw new Error(`${label}: room members did not settle`)
+  }
+  const waitForSeatBusy = async (key, label) => {
+    const [runtime, sessionId] = key.split(String.fromCharCode(0))
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const peers = await cdp.json(`${STORE}.transport.request('team/peers', { room: ${q(room)} })`, 60_000).catch(() => [])
+      if (peers.some((peer) => peer.runtime === runtime && peer.sessionId === sessionId && peer.busy)) return
+      await sleep(100)
+    }
+    throw new Error(`${label}: the room delivery never started its turn`)
+  }
+  const startRoomDelivery = async (key, text, label) => {
+    await waitForRoomIdle(label)
+    const before = await cdp.eval(`${STORE}.getSnapshot().teams.get(${q(room)})?.channel.length ?? 0`)
+    const [runtime, sessionId] = key.split(String.fromCharCode(0))
+    await cdp.eval(`(() => {
+      void ${STORE}.transport.request('team/post', {
+        room: ${q(room)}, text: ${q(text)}, to: { runtime: ${q(runtime)}, sessionId: ${q(sessionId)} },
+      })
+      return true
+    })()`, 60_000)
+    return before
+  }
+  const waitForRoomDelivery = async (before, label) => {
+    await waitForSnapshot(
+      () => cdp.eval(`${STORE}.getSnapshot().teams.get(${q(room)})?.channel.length ?? 0`),
+      count => count > before,
+    ).catch(() => { throw new Error(`${label}: room delivery did not reach the channel`) })
+  }
+
+  // A short attributed context turn exists before the camera rolls, so the
+  // first recorded frame is a working room rather than its empty state.  The
+  // next two scripted Claude turns are deliberately started only by an
+  // idle-checked room delivery below, after the seat's standing order ends.
+  let heroClaudeKey = null
+  if (SCENARIO === 'hero') {
+    heroClaudeKey = await cdp.eval(
+      `${STORE}.seatGoal({ goal: ${q(room)}, agent: 'room-claude-code' })
+        .then((seat) => seat.session.runtime + String.fromCharCode(0) + seat.session.sessionId)`,
+      60_000,
+    )
+    await waitForRoomIdle('hero context')
+    const contextDelivery = await startRoomDelivery(heroClaudeKey, 'Please put the checkout condition in the room before starting the fix.', 'hero context delivery')
+    await waitForRoomDelivery(contextDelivery, 'hero context delivery')
+    await waitForRoomIdle('hero context reply')
+    await dismissNotices(cdp)
+    await retildify()
+  }
+
   const frames = []
   const collected = []
   cdp.on('Page.screencastFrame', (params) => {
@@ -316,19 +387,10 @@ try {
     // own `agents.json` patch above), the real fix, ending with a real
     // hand-off ("Codex — … can you check checkout end to end?") rather than
     // one this recording has to narrate for it.
-    const claudeKey = await cdp.eval(
-      `${STORE}.seatGoal({ goal: ${q(room)}, agent: 'room-claude-code' })
-        .then((seat) => seat.session.runtime + String.fromCharCode(0) + seat.session.sessionId)`,
-      60_000,
-    )
-    // Posted the instant Claude is a member — its own standing-order turn
-    // (`TURNS[4]`) has a 700ms `think` delay before its first token, which is
-    // room enough for these two lines to land first and read as context the
-    // room already had, not as a narration of what is about to happen.
-    await cdp.eval(`${STORE}.send([{ type: 'text', text: 'The room is ready for the checkout hardening hand-off.' }], ${q(claudeKey)})`, 60_000)
-    await cdp.eval(`${STORE}.send([{ type: 'text', text: 'Earlier context: checkout currently fails on a transient 502.' }], ${q(claudeKey)})`, 60_000)
-    await sleep(9000)
-    await answerApprovals(cdp).catch(() => {})
+    const claudeKey = heroClaudeKey
+    const claudeFix = await startRoomDelivery(claudeKey, 'Please make the 502 retry fix and hand the browser check to Codex.', 'Claude fix')
+    await waitForRoomDelivery(claudeFix, 'Claude fix')
+    await sleep(900)
     await retildify()
 
     // Beat 2: Codex is seated and immediately says "on it" (`TURNS[5]`'s own
@@ -340,12 +402,15 @@ try {
     // titles that call `browser_open` (the plugin's own tool name) for
     // exactly this reason, so the mark reads "Codex" for the window this
     // recording holds it open, never "Claude".
-    const codexKey = await cdp.eval(
-      `${STORE}.seatGoal({ goal: ${q(room)}, agent: 'room-codex' })
-        .then((seat) => seat.session.runtime + String.fromCharCode(0) + seat.session.sessionId)`,
-      60_000,
-    )
-    await sleep(1300)
+    await cdp.eval(`void ${STORE}.seatGoal({ goal: ${q(room)}, agent: 'room-codex' })
+      .then((seat) => { globalThis.__heroCodexKey = seat.session.runtime + String.fromCharCode(0) + seat.session.sessionId })
+      .catch((error) => { globalThis.__heroCodexError = String(error) }); true`, 60_000)
+    await waitForSnapshot(() => cdp.eval(`globalThis.__heroCodexKey ?? globalThis.__heroCodexError ?? null`), Boolean)
+    const codexKey = await cdp.eval(`globalThis.__heroCodexKey`)
+    if (!codexKey) throw new Error(`Codex seat failed: ${await cdp.eval('globalThis.__heroCodexError')}`)
+    const codexCheck = await startRoomDelivery(codexKey, 'Please check checkout end to end in the browser and report the result.', 'Codex browser check')
+    await waitForSeatBusy(codexKey, 'Codex browser check')
+    await sleep(700)
     const browseDir = join(WORK, 'browse')
     mkdirSync(browseDir, { recursive: true })
     writeFileSync(join(browseDir, 'index.html'), `<!doctype html>
@@ -365,6 +430,11 @@ try {
       if (title === 'Storefront checkout') break
       await sleep(100)
     }
+    // A 1280px framed window gives the right-docked browser a narrow room.
+    // At that width the room intentionally shows its rail until the reader
+    // picks a surface; select Chat again so the channel, rather than the
+    // roster, remains beside the page for the rest of the recording.
+    if (!(await click('Chat'))) throw new Error('the narrow room did not offer its Chat surface')
     // Held through the rest of the `browser_open` call's own pending window
     // (2.6s from when it was announced) — the frame this beat exists for.
     await sleep(2600)
@@ -372,19 +442,17 @@ try {
     await retildify()
     // The rest of Codex's turn: its own "checked" result posted to the room.
     await sleep(1800)
-    await answerApprovals(cdp).catch(() => {})
+    await waitForRoomDelivery(codexCheck, 'Codex browser check')
+    await waitForRoomIdle('Codex browser check')
     await retildify()
 
     // Beat 3: Claude acknowledges — a second, later turn on the *same*
     // session (`TURNS[6]`, this file's own `agents.json` patch), a real
     // second `send` rather than a `team/post` the person would have typed.
-    await sleep(600)
-    await cdp.eval(
-      `${STORE}.send([{ type: 'text', text: 'Codex found a nit in checkout — see above.' }], ${q(claudeKey)})`,
-      60_000,
-    )
-    await sleep(1500)
-    await answerApprovals(cdp).catch(() => {})
+    const acknowledgement = await startRoomDelivery(claudeKey, 'Please acknowledge the checkout result and the banner nit.', 'Claude acknowledgement')
+    await waitForRoomDelivery(acknowledgement, 'Claude acknowledgement')
+    await waitForRoomIdle('Claude acknowledgement')
+    await followRoomChat()
     await retildify()
     // Hold the settled frame — both agents' messages and the open browser —
     // for a beat before the loop restarts. The screencast is stopped by the

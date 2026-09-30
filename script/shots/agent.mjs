@@ -343,6 +343,9 @@ const TURNS = [
   {
     say: ['Good catch — I will sequence the banner off the retry settling, not the request firing. Thanks for checking.'],
   },
+  {
+    say: ['Earlier context: checkout currently fails on a transient 502. I am taking the retry fix, then I will ask Codex to check the completed checkout in the browser.'],
+  },
 ]
 
 /**
