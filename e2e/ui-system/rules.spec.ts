@@ -89,12 +89,13 @@ const PROBE_HELPERS = `
  * `design/patterns/Settings.tsx`, plus `PageHead`'s own `page-title`) computes
  * one of the pairs `docs/design.md`'s "Named text roles" table states:
  * wordmark 20/600, page 20/600, subject 14/500, row 13/500, navigation
- * 13/400, muted 13/400 — never 16px, never semibold outside wordmark and the
- * page title. `group label` is its own rule, below. The dashboard readouts
+ * 13/400, muted 13/400, section 16/600 — 16px and semibold belong only to
+ * section, wordmark and page in their documented pairs. `group label` is its
+ * own rule, below. The dashboard readouts
  * `Text` also draws (`meta`, `figure`, `metric`, `value`, `prose`) are not
  * names — nothing in the docs table lists them, `Text`'s own comment calls
  * them "dashboard readouts", and `figure`/`metric` are deliberately semibold
- * — so the checker only looks at the six name roles. A name drawn outside
+ * — so the checker only looks at the seven name roles. A name drawn outside
  * `Text`/`PageHead` altogether (`EmptyState`'s h3, a `Notices` title,
  * `AgentCard`'s own name) is out of this rule's reach and tracked separately
  * (#1072), not silently passed.
@@ -109,6 +110,7 @@ const PROBE_HELPERS = `
 const NAME_PAIRS: Record<string, { size: number; weight: number }> = {
   wordmark: { size: 20, weight: 600 },
   page: { size: 20, weight: 600 },
+  section: { size: 16, weight: 600 },
   subject: { size: 14, weight: 500 },
   row: { size: 13, weight: 500 },
   navigation: { size: 13, weight: 400 },
@@ -137,8 +139,8 @@ const namesViolations = (page: Page) =>
       const size = Math.round(parseFloat(cs.fontSize))
       const weight = Number(cs.fontWeight)
       const text = (el.textContent ?? '').trim().slice(0, 60)
-      if (size === 16) out.push({ role, text, size, weight, reason: '16px, which no name role may be' })
-      else if (weight === 600 && role !== 'wordmark' && role !== 'page') out.push({ role, text, size, weight, reason: 'semibold outside the wordmark and the page title' })
+      if (size === 16 && role !== 'section') out.push({ role, text, size, weight, reason: '16px outside the section role' })
+      else if (weight === 600 && role !== 'wordmark' && role !== 'page' && role !== 'section') out.push({ role, text, size, weight, reason: 'semibold outside section, wordmark and page' })
       else if (size !== wanted.size || weight !== wanted.weight) out.push({ role, text, size, weight, reason: `role ${role} wants ${wanted.size}/${wanted.weight}` })
     }
     return { out, measured }
@@ -167,6 +169,15 @@ test.describe('rule: names', () => {
     const after = await namesViolations(page)
     expect(after.out.length).toBeGreaterThan(before.out.length)
     expect(after.out.some((f) => f.reason.includes('16px'))).toBe(true)
+  })
+
+  test('rule: names — the checker catches section pushed to another pair', async ({ page }) => {
+    await gotoPreview(page)
+    const before = await namesViolations(page)
+    await page.addStyleTag({ content: '[data-slot="text"][data-role="section"] { font-size: 13px !important; font-weight: 500 !important; }' })
+    const after = await namesViolations(page)
+    expect(after.out.length).toBeGreaterThan(before.out.length)
+    expect(after.out.some((f) => f.reason.includes('role section wants 16/600'))).toBe(true)
   })
 })
 

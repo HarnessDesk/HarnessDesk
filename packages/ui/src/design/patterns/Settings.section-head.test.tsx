@@ -41,6 +41,13 @@ it('keeps card labels distinct from an explicit page-section heading', () => {
   expect(label?.tagName).toBe('H2')
   expect(heading?.dataset['level']).toBe('heading')
   expect(heading?.tagName).toBe('H2')
+  expect(heading?.getAttribute('data-slot')).toBe('section-name')
+  const name = heading?.querySelector<HTMLElement>('[data-slot="text"]')
+  expect(name?.getAttribute('data-role')).toBe('section')
+  expect(name?.className).toContain('text-(length:--hd-text-lg)')
+  expect(name?.className).toContain('leading-(--hd-line-lg)')
+  expect(name?.className).toContain('font-semibold')
+  expect(name?.className).toContain('text-(--hd-foreground)')
   expect(heading?.closest('[data-sticky]')?.textContent).toBe('What is leftThe selected account is out of quota.Range')
   expect(heading?.nextElementSibling?.getAttribute('data-slot')).toBe('section-description')
 
@@ -48,7 +55,7 @@ it('keeps card labels distinct from an explicit page-section heading', () => {
   expect(label?.className).toContain('text-(length:--hd-text-sm)')
   expect(label?.className).toContain('text-(--hd-secondary-foreground)')
   expect(css).not.toMatch(/\.sectionName\s*\{[^}]*font-size/s)
-  expect(css).toMatch(/\.sectionName\[data-level='heading'\]\s*\{[^}]*font-size:\s*var\(--hd-text-lg\)[^}]*font-weight:\s*var\(--hd-weight-semibold\)/s)
+  expect(css).not.toMatch(/\.sectionName\[data-level='heading'\]/)
 })
 
 /*
