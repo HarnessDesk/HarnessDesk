@@ -184,6 +184,22 @@ it('a person decides a claimed repair with a reason, against the run view they r
   })
 })
 
+it('a reason typed into Why reaches Withdraw it without the empty-reason warning (#1089)', async () => {
+  const { store } = rig(page())
+  const decideFindingRun = vi.fn(async () => runView())
+  Object.assign(store, { decideFindingRun })
+  await renderDeciding(store, runView())
+
+  typeReason('not relevant any more')
+  await act(async () => { clickNamed('Withdraw it').click() })
+
+  expect(document.body.textContent).not.toContain('Say why.')
+  expect(decideFindingRun).toHaveBeenCalledWith({
+    goal: 'g1', run: 'run-1', round: 4, stamp: STAMP,
+    action: { kind: 'adjudicate', finding: 'finding-1', state: 'withdrawn' }, reason: 'not relevant any more',
+  })
+})
+
 it('an open finding can only be withdrawn by a person; a repair is never accepted before one is claimed', async () => {
   const { store } = rig(page())
   Object.assign(store, { decideFindingRun: vi.fn(async () => runView()) })
