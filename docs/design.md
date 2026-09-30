@@ -778,9 +778,10 @@ semibold.
 Enforced by `rules.spec.ts` ("rule: names"), reading every `Text` role and
 `data-slot="page-title"` across mounted screens against that role's pair. It
 also checks every visible h1-h4 and `*-title` slot outside `Text` against the
-same five pairs, without guessing a role from the tag or slot. Numeric,
-amount, percentage and lone-dash title text is a figure readout and is
-excluded; the preview harness marks its own caption with
+same five pairs, without guessing a role from the tag or slot. A readout is
+declared, never read off its text: `ChartTitle`'s `figure` marks itself
+`data-figure` and is left to its own role, while a title that merely reads as
+a number is still a name. The preview harness marks its own caption with
 `data-preview-caption` so it is excluded too. Findings include text, tag,
 slot, computed size and weight. A mutation catches an injected 16/500 h3 and
 proves the marked caption is ignored.

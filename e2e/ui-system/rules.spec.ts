@@ -134,8 +134,9 @@ const namesViolations = (page: Page) =>
       return (html.offsetParent !== null || style.position === 'fixed') &&
         style.visibility !== 'hidden' && style.display !== 'none' && rect.width >= 1 && rect.height >= 1
     }
-    const readout = (text: string) =>
-      /^(?:[—–-]|[+-]?(?:[$€£¥]\s*)?\d[\d,]*(?:\.\d+)?(?:\s?(?:%|[kKmMbB]))?)$/i.test(text)
+    // A readout is declared, never guessed from its text: a title that
+    // happens to be a number is still a name.
+    const readout = (el: Element) => el.closest('[data-figure]') !== null
     const namePairs = Object.values(pairs as Record<string, { size: number; weight: number }>)
     for (const el of roleNodes) {
       const role = el.hasAttribute('data-slot') && el.getAttribute('data-slot') === 'page-title'
@@ -166,7 +167,7 @@ const namesViolations = (page: Page) =>
       const inner = el.querySelector('[data-slot="text"][data-role]')
       if (inner && (inner.textContent ?? '').trim() === (el.textContent ?? '').trim()) continue
       const text = ((el as HTMLElement).innerText ?? el.textContent ?? '').trim()
-      if (!text || readout(text) || !visible(el)) continue
+      if (!text || readout(el) || !visible(el)) continue
       measured += 1
       const style = getComputedStyle(el)
       const size = Math.round(parseFloat(style.fontSize))
@@ -238,6 +239,26 @@ test.describe('rule: names', () => {
       finding.text === 'Injected heading' && finding.tag === 'h3' && finding.slot === '' && finding.size === 16 && finding.weight === 500,
     )).toBe(true)
     expect(after.out.some((finding) => finding.text === 'Preview caption')).toBe(false)
+  })
+
+  test('rule: names — a title that is only a number is still a name unless it declares itself a figure', async ({ page }) => {
+    await gotoPreview(page)
+    await page.evaluate(() => {
+      // A conversation can be titled "2048"; only a declared readout
+      // (ChartTitle's figure, data-figure) is left to its own role.
+      const numeric = document.createElement('h3')
+      numeric.textContent = '2048'
+      numeric.style.cssText = 'position:fixed;top:0;left:0;font-size:16px;font-weight:500'
+      document.body.append(numeric)
+      const figure = document.createElement('h3')
+      figure.dataset.figure = ''
+      figure.textContent = '4096'
+      figure.style.cssText = 'position:fixed;top:30px;left:0;font-size:16px;font-weight:500'
+      document.body.append(figure)
+    })
+    const after = await namesViolations(page)
+    expect(after.out.some((finding) => finding.text === '2048' && finding.size === 16 && finding.weight === 500)).toBe(true)
+    expect(after.out.some((finding) => finding.text === '4096')).toBe(false)
   })
 })
 
