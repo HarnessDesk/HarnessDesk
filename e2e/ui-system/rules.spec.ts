@@ -268,9 +268,9 @@ test.describe('rule: group labels', () => {
  *
  * Agreement across kinds is a claim about one-line rows, measured at the
  * session list's compact density, which is what the preview renders. At
- * comfortable density a session row carries a second line and more air, and
- * stands taller by design; it is still floored and still agrees with its
- * own siblings, but it is not the rail's row.
+ * comfortable density a session row carries a second line and more air —
+ * a preview, or a chip on a row that needs you — and stands taller by
+ * design; it is still floored at --hd-nav-h, but it is not the rail's row.
  *
  * The settings rail's identity row was the one row of a kind that disagreed
  * with its siblings: its 28px face in a 29px row with 1px borders pushed it
