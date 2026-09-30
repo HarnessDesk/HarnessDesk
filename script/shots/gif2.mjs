@@ -21,7 +21,7 @@
  *   node script/shots/gif2.mjs --scenario front-door --theme dark
  */
 import { execFile } from 'node:child_process'
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -113,6 +113,28 @@ rules:
     then: { role: referee, title: "Merge it — every reviewer approved" }
 `
 const FRAMES = join(HOME, 'frames')
+/**
+ * A path under one of the rig's own homes, refused if any step below that
+ * home is a link. `config.mjs` resolves `HOME` and `WORK` themselves; a link
+ * planted inside either would still carry a staged write — the roster, the
+ * flow's pass state, the flow file, the browser's page — somewhere the rig
+ * never meant to touch, the way `seed.mjs` refuses to delete through one.
+ */
+const staged = (root, ...parts) => {
+  let at = root
+  for (const part of parts.flatMap((one) => one.split('/'))) {
+    at = join(at, part)
+    let info
+    try {
+      info = lstatSync(at)
+    } catch (error) {
+      if (error.code === 'ENOENT') break
+      throw error
+    }
+    if (info.isSymbolicLink()) throw new Error(`${at} is a link, not a path this rig staged. Refusing to write through it.`)
+  }
+  return join(root, ...parts)
+}
 const say = (line) => process.stdout.write(`  ${line}\n`)
 const q = (value) => JSON.stringify(value)
 
@@ -141,7 +163,12 @@ say(`frame  ${WIDTH}x${HEIGHT} @${FPS}fps`)
  * comment for what each plays.
  */
 if (SCENARIO === 'hero' || SCENARIO === 'flow') {
-  const agentsPath = join(HOME, 'agents.json')
+  const agentsPath = staged(HOME, 'agents.json')
+  // Each seat's pass through the flow, cleared for every take: a second take
+  // against the same seeded home would otherwise resume at the first one's last
+  // pass and skip the scripted `request-changes` round.
+  const passes = staged(HOME, 'flow-passes')
+  rmSync(passes, { recursive: true, force: true })
   const roster = JSON.parse(readFileSync(agentsPath, 'utf8'))
   for (const agent of roster.agents) {
     if (SCENARIO === 'hero') {
@@ -154,7 +181,7 @@ if (SCENARIO === 'hero' || SCENARIO === 'flow') {
     } else {
       delete agent.env.SHOT_CLAIM
       const flow = (outcomes, delayMs) => JSON.stringify({
-        outcomes, delayMs, files: ['src/checkout/retry.ts'], state: join(HOME, 'flow-passes', `${agent.id}.json`),
+        outcomes, delayMs, files: ['src/checkout/retry.ts'], state: join(passes, `${agent.id}.json`),
       })
       if (agent.id === rigRuntimeId('codex')) agent.env.SHOT_FLOW = flow(['published', 'published'], 4800)
       if (agent.id === rigRuntimeId('cursor')) agent.env.SHOT_FLOW = flow(['request-changes', 'approve'], 4200)
@@ -162,7 +189,7 @@ if (SCENARIO === 'hero' || SCENARIO === 'flow') {
       if (agent.id === rigRuntimeId('gemini-cli')) agent.env.SHOT_FLOW = flow(['approve', 'approve'], 4200)
     }
   }
-  mkdirSync(join(HOME, 'flow-passes'), { recursive: true })
+  mkdirSync(passes, { recursive: true })
   writeFileSync(agentsPath, `${JSON.stringify(roster, null, 2)}\n`)
   say(SCENARIO === 'hero'
     ? 'patched agents.json: Claude plays context, fix, then acknowledgement; Codex plays the browser check'
@@ -315,8 +342,9 @@ try {
     // way the shipped "Independent review" shape reaches `front-door`'s own
     // dialog in `shoot.mjs` — so "Fix and review" is a real catalogue row,
     // not a room the dialog is skipped past.
-    mkdirSync(join(REPO, '.harnessdesk', 'flows'), { recursive: true })
-    writeFileSync(join(REPO, '.harnessdesk', 'flows', 'fix-and-review.yml'), FLOW)
+    const flowFile = staged(WORK, REPOS[0].dir, '.harnessdesk', 'flows', 'fix-and-review.yml')
+    mkdirSync(dirname(flowFile), { recursive: true })
+    writeFileSync(flowFile, FLOW)
   }
 
   /**
@@ -460,6 +488,22 @@ try {
     everyNthFrame: 1,
   })
   await startScreencast()
+  /* The middle of the take is the one door the checks either side of it cannot
+     see: an account that appears and is gone again by the last check would
+     still be in frames already collected. So the account half of the audit
+     samples the store every 1.5 s while the camera runs, as `gif.mjs` does —
+     it reads the store and touches no DOM, so it records no jank. A refusal is
+     raised once the camera stops, before any frame reaches the disk. */
+  let accountRefusal = null
+  let sampling = false
+  const accountWatch = setInterval(() => {
+    if (sampling || accountRefusal) return
+    sampling = true
+    refuseUnvouchedAccounts(cdp, { name: NAME, vouched: VOUCHED })
+      .catch((error) => { accountRefusal = error })
+      .finally(() => { sampling = false })
+  }, 1500)
+  accountWatch.unref()
 
   if (SCENARIO === 'hero') {
     // HarnessDesk never shows two conversation panes at once, so "two agents
@@ -496,9 +540,9 @@ try {
     await waitForSeatBusy(codexKey, 'Codex browser check')
     await answerApprovals(cdp)
     await sleep(700)
-    const browseDir = join(WORK, 'browse')
+    const browseDir = staged(WORK, 'browse')
     mkdirSync(browseDir, { recursive: true })
-    writeFileSync(join(browseDir, 'index.html'), `<!doctype html>
+    writeFileSync(staged(WORK, 'browse', 'index.html'), `<!doctype html>
 <meta charset="utf-8">
 <title>Storefront checkout</title>
 <style>
@@ -740,7 +784,9 @@ try {
     throw new Error(`unknown --scenario ${q(SCENARIO)}`)
   }
 
+  clearInterval(accountWatch)
   await cdp.send('Page.stopScreencast')
+  if (accountRefusal) throw accountRefusal
   await refuseUnpublishable(cdp, {
     name: NAME, user: USER, vouched: VOUCHED, roots: REPOS.map(repo => join(WORK, repo.dir)), nativeCodex: NATIVE_CODEX,
     rigOrigin: browserServer?.url ?? null, subject: 'recording',
