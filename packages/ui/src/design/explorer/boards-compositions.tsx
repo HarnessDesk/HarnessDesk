@@ -821,7 +821,7 @@ const ToolPaneBoard = () => {
               <Dot state="signin" pulse />
               <Text role="meta">Being driven</Text>
               <ToolbarGap />
-              <Text role="meta" className="hidden @[16rem]/browser:inline">Framed pages only — the desktop app runs a real browser</Text>
+              <Text role="meta" className="hidden @[18rem]/browser:inline">Framed pages only — the desktop app runs a real browser</Text>
             </Bar>
           </ToolPane>
         </Case>

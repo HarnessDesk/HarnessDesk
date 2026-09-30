@@ -1926,9 +1926,11 @@ export const BrowserPane = () => {
         <ToolbarGap />
         {/* The bar is one row tall, so the sentence may wrap to two lines and
             no further: a pane split narrower than that keeps only the state
-            on the left rather than spilling the sentence past the bar.
+            on the left rather than spilling the sentence past the bar. With
+            the driven state beside it (a dot and a longer word) the sentence
+            first needs a third line at 252px, so it gives way below 18rem.
             `@container/browser` is on the pane. */}
-        <Text role="meta" className="hidden @[16rem]/browser:inline">
+        <Text role="meta" className="hidden @[18rem]/browser:inline">
           {inline ? 'Never your own browser profile' : 'Framed pages only — the desktop app runs a real browser'}
         </Text>
       </Bar>
