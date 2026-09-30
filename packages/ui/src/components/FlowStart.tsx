@@ -355,7 +355,13 @@ const SeatPreviewRows = ({ seat, roster }: { readonly seat: FlowPreviewSeat; rea
             {seat.atPredecessor && !seat.isolate && (
               <>
                 {' '}
-                <Chip tone="neutral" size="sm" title="Opens in a worktree of its own, at the commit it is handed">Own worktree</Chip>
+                <Chip
+                  tone="neutral"
+                  size="sm"
+                  title={seat.atPredecessor === 'may'
+                    ? "May open in a worktree of its own, at the commit it is handed, depending on which rule opens it"
+                    : "Opens in a worktree of its own, at the commit it is handed"}
+                >{seat.atPredecessor === 'may' ? 'Sometimes own worktree' : 'Own worktree'}</Chip>
               </>
             )}
           </>

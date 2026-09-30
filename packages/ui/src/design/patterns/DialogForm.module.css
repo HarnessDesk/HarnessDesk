@@ -179,3 +179,12 @@
   white-space: normal;
   overflow-wrap: anywhere;
 }
+
+/* A name or a path gives way at its end on one line (`truncateDesc`); a
+   sentence wraps and arrives whole, as above. */
+.choiceDesc[data-truncate] {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+}

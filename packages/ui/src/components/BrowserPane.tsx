@@ -62,6 +62,7 @@ import {
 } from './Icons'
 import { RuntimeMark } from './BrandIcons'
 import {
+  Bar,
   Button,
   Chip,
   ContextMenu,
@@ -82,12 +83,12 @@ import {
   ToolPaneBody,
   ToolPaneDocumentTab,
   ToolPaneEmptyState,
-  ToolPaneFooter,
   ToolPaneGuest,
   ToolPaneStage,
   ToolPaneTabIcon,
   ToolPaneTabViewport,
   ToolPaneToolGroup,
+  ToolbarGap,
   useContextMenu,
   useSortable,
 } from '../design'
@@ -1323,7 +1324,7 @@ export const BrowserPane = () => {
   if (!mount || !view || !tab || !paneId) return null
 
   return (
-    <ToolPane variant="integrated">
+    <ToolPane variant="integrated" className="@container/browser">
       <ToolPaneHeader
         title="Browser"
         lead={
@@ -1913,18 +1914,26 @@ export const BrowserPane = () => {
       </ToolPaneBody>
       {/* What the pane is, said once at the bottom: whether a turn has the
           wheel, and that the profile is never the one your own browser uses. */}
-      <ToolPaneFooter>
+      <Bar rule="top">
         {driving ? (
           <>
             <Dot state="signin" pulse />
-            Being driven
+            <Text role="meta">Being driven</Text>
           </>
         ) : (
-          'Idle'
+          <Text role="meta">Idle</Text>
         )}
-        <span className="flex-1" />
-        {inline ? 'Never your own browser profile' : 'Framed pages only — the desktop app runs a real browser'}
-      </ToolPaneFooter>
+        <ToolbarGap />
+        {/* The bar is one row tall, so the sentence may wrap to two lines and
+            no further: a pane split narrower than that keeps only the state
+            on the left rather than spilling the sentence past the bar. With
+            the driven state beside it (a dot and a longer word) the sentence
+            first needs a third line at 252px, so it gives way below 18rem.
+            `@container/browser` is on the pane. */}
+        <Text role="meta" className="hidden @[18rem]/browser:inline">
+          {inline ? 'Never your own browser profile' : 'Framed pages only — the desktop app runs a real browser'}
+        </Text>
+      </Bar>
     </ToolPane>
   )
 }

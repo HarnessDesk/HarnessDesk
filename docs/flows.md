@@ -764,7 +764,8 @@ or reviewer's own checkout, even one granted edit. An Agent that produces both
 diffs and reviews is there to review only where its ceiling cannot commit. A fact
 speaks for a subject when it is filed on a card of that walk (the finished
 round's own, the rounds between, or the subject's own), names the subject's
-current revision, is fresh, and was observed on this desk. So
+current revision, is fresh, and was observed on this desk. `check:` takes a
+check role's id or its command. So
 `evidence: [{ check: "pnpm verify" }]` is satisfied by the check card's own
 fact at the writer's head, `{ review: "picked" }` by the judge's structured
 review naming one candidate revision (and it narrows several candidates to

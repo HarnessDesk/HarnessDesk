@@ -41,7 +41,7 @@ import {
 } from './flow-evidence.js'
 import { decideLoop, QUESTION_STOP } from './findings/rounds.js'
 import { handedCheckout, writes } from './flow-handed.js'
-import { mayCommit, reviewsIn } from './flow-policy.js'
+import { mayCommit, resolveCheckGuard, reviewsIn } from './flow-policy.js'
 import type { FindingJournal, FindingJournalEntry } from './findings/journal.js'
 import type { PublicationEntry, PublicationJournal, StoredPublication } from './findings/publication.js'
 import type { TriggerClosure } from './intake/consent.js'
@@ -1469,7 +1469,11 @@ export class FlowExecutions {
     if (!this.#facts) return { state: 'waiting' }
     // A ready rule of a run with findings bookkeeping also waits on its open admitted blockers.
     const findings = run.findings && this.#findingsGate ? await this.#findingsGate(run.id) : undefined
-    const result = readyGuard(rule.when?.evidence ?? [], await this.#evidenceContext(run, round, await this.#facts(run.goal)), findings)
+    // A `check:` guard naming a check role's own id is read as that role's command (#1094): the fact
+    // this matches against is always the literal command a check role ran, never a role's id.
+    const policy = policyOf(run)
+    const evidence = (rule.when?.evidence ?? []).map((guard) => ('check' in guard ? { check: resolveCheckGuard(policy, guard.check) } : guard))
+    const result = readyGuard(evidence, await this.#evidenceContext(run, round, await this.#facts(run.goal)), findings)
     if (result.state === 'matched') return { state: 'matched', evidence: result.evidence }
     return result.reason ? { state: result.state, reason: result.reason } : { state: result.state }
   }

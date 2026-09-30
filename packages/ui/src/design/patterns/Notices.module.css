@@ -109,12 +109,6 @@
   margin-bottom: var(--hd-space-1-5);
 }
 
-.cardTitle {
-  font-size: var(--hd-text);
-  line-height: var(--hd-line);
-  font-weight: var(--hd-weight-semibold);
-}
-
 .cardBody {
   margin: 0;
   color: var(--hd-muted-foreground);
@@ -227,12 +221,6 @@
   align-items: center;
   gap: var(--hd-space-2);
   padding: var(--hd-space-1-5) var(--hd-space-1) var(--hd-space-1) var(--hd-space-2-5);
-}
-
-.inboxHeading {
-  font-size: var(--hd-text);
-  line-height: var(--hd-line);
-  font-weight: var(--hd-weight-semibold);
 }
 
 /* All / Unread: a small segmented pair beside the heading. */
@@ -365,7 +353,6 @@
 
 .inboxItem[data-unread] .inboxTitle {
   color: var(--hd-foreground);
-  font-weight: var(--hd-weight-semibold);
 }
 
 /* The whole row is the title's press; the action sits above it. */

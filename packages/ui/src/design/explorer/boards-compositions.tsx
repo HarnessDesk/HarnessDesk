@@ -40,6 +40,7 @@ import {
   Avatar,
   AvatarFallback,
   AvatarStack,
+  Bar,
   Bars,
   Breadcrumb,
   BreadcrumbEllipsis,
@@ -183,7 +184,7 @@ import {
   WorkbenchRail,
   WorkbenchScrim,
 } from '../patterns/DockPanel'
-import { CodeText, Row, Rows, SectionHead, Spinner, Text } from '../patterns/Settings'
+import { CodeText, Dot, Row, Rows, SectionHead, Spinner, Text } from '../patterns/Settings'
 import { HeatGrid, HeatLegend, type HeatGridRow } from '../ui/heat-grid'
 import {
   agentLevels,
@@ -809,13 +810,19 @@ const ToolPaneBoard = () => {
           </ToolPane>
         </Case>
         <Case label="integrated tool">
-          <ToolPane variant="integrated" className="h-56 w-full" data-catalog-variant="integrated">
+          <ToolPane variant="integrated" className="@container/browser h-56 w-full" data-catalog-variant="integrated">
             <ToolPaneHeader variant="window" title="Browser" subtitle="https://example.com" />
             <ToolPaneBar variant="address">example.com</ToolPaneBar>
             <ToolPaneNotice tone="warning">The page is still loading.</ToolPaneNotice>
             <ToolPaneBody bleed>
               <ToolPaneMessage>Waiting for the page.</ToolPaneMessage>
             </ToolPaneBody>
+            <Bar rule="top">
+              <Dot state="signin" pulse />
+              <Text role="meta">Being driven</Text>
+              <ToolbarGap />
+              <Text role="meta" className="hidden @[18rem]/browser:inline">Framed pages only — the desktop app runs a real browser</Text>
+            </Bar>
           </ToolPane>
         </Case>
         <Case label="inspector panel">

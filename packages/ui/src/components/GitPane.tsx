@@ -32,7 +32,7 @@ import { openExternal } from '../lib/desktop'
 import { shortPath } from '../lib/paths'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { useMount } from '../panels/mount'
-import { ActionError, Alert, Badge, Card, CardContent, ChangeStats, Chip, CodeText, Dialog, DisclosureChevron, Dot, EmptyState, FileState, KeyValue, ListRowDetail, ToolPaneBar, ToolPaneBody, KeyValueRow, Note, PatchHeader, PopoverGroupLabel, ResizeHandle, Separator, Text } from '../design'
+import { ActionError, Alert, Badge, Card, CardContent, ChangeStats, Chip, CodeText, Dialog, DisclosureChevron, Dot, EmptyState, FileState, KeyValue, ListRowDetail, ToolPaneBar, ToolPaneBody, KeyValueRow, Note, PatchHeader, PopoverGroupLabel, ResizeHandle, Separator, Text, ToolbarGap } from '../design'
 import { Button, Input, NativeSelect, RefusedAction, Search, Segmented, Switch } from '../design'
 import { DiffView } from './Diff'
 import {
@@ -806,7 +806,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
           title="Every folder this repository is checked out in…"
           onClick={() => setDialog({ kind: 'worktrees' })}
         />
-        <span className={styles.space} />
+        <ToolbarGap />
         {working && <Text role="meta">{working}</Text>}
       </ToolPaneBar>
 
@@ -866,7 +866,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             <option value="file">File</option>
           </NativeSelect>
         </span>
-        <span className={styles.space} />
+        <ToolbarGap />
         <Text role="meta" numeric className={styles.count}>
           {loading ? 'Reading…' : `${total.toLocaleString()}${hasMore ? '+' : ''} commits`}
         </Text>
@@ -2130,7 +2130,7 @@ const CommitDetail = ({
         <CommitIcon size={13} />
         <Text role="meta"><CodeText as="code">{shortSha(sha)}</CodeText></Text>
         <Text role="row" className={styles.detailTitle}>{subject}</Text>
-        <span className={styles.space} />
+        <ToolbarGap />
         <Button variant="ghost" size="icon-sm" aria-label="Close the commit" onClick={onClose}>
           <CrossIcon size={13} />
         </Button>
@@ -2157,7 +2157,7 @@ const CommitDetail = ({
                 <PatchHeader className={styles.diffHead}>
                   <FileIcon size={12} />
                   <span className={styles.filePath}>{ltr(file)}</span>
-                  <span className={styles.space} />
+                  <ToolbarGap />
                   <Button variant="ghost" size="sm" className={styles.fileAction} onClick={() => store.openFile(absolute(file))}>
                     Open current version
                   </Button>

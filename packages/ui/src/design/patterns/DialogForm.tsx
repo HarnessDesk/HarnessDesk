@@ -136,12 +136,16 @@ export const ChoiceRow = ({
   selected,
   tabStop,
   disabled,
+  refused,
+  truncateDesc = false,
   autoFocus,
   onClick,
   onDoubleClick,
 }: {
   readonly title: ReactNode
   readonly desc?: ReactNode
+  /** The description is a name or a path, which gives way at its end on one line. A sentence never does: by default it wraps and arrives whole. */
+  readonly truncateDesc?: boolean
   /** A 16px line icon leading the title — the kind being chosen, not a tinted tile. */
   readonly icon?: ReactNode
   /** Pinned to the title line's far end — a keyboard shortcut, said quietly. */
@@ -150,6 +154,8 @@ export const ChoiceRow = ({
   /** The Tab entry when the group has no answer yet. */
   readonly tabStop?: boolean
   readonly disabled?: boolean
+  /** refused: offered, but this machine cannot do it now — de-emphasised with its reason kept at full ink; still selectable, the action decides (#871) */
+  readonly refused?: boolean
   /**
    * Focuses this row once, the moment it mounts, without scrolling it into
    * view — a dialog that opens onto a list of answers still opens onto its
@@ -180,19 +186,20 @@ export const ChoiceRow = ({
       aria-describedby={desc ? `${id}-desc` : undefined}
       tabIndex={selected || tabStop ? 0 : -1}
       disabled={disabled}
-      className={styles.choice}
+      className={`${styles.choice} data-[refused]:opacity-100 data-[refused]:[&_[data-slot=choice-icon]]:opacity-45 data-[refused]:[&_[data-slot=choice-title]]:opacity-45`}
       data-slot="choice-row"
+      {...(refused ? { 'data-refused': '' } : {})}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       onKeyDown={stepRadio}
     >
       <span className={styles.radio} aria-hidden="true" {...(selected ? { 'data-checked': '' } : {})} />
       <span className={styles.choiceHead}>
-        {icon && <span className={styles.choiceIcon} aria-hidden="true">{icon}</span>}
-        <span id={`${id}-title`} className={styles.choiceTitle}>{title}</span>
+        {icon && <span className={styles.choiceIcon} data-slot="choice-icon" aria-hidden="true">{icon}</span>}
+        <span id={`${id}-title`} className={styles.choiceTitle} data-slot="choice-title">{title}</span>
         {trailing && <span className={styles.choiceTrailing}>{trailing}</span>}
       </span>
-      {desc ? <span id={`${id}-desc`} className={styles.choiceDesc}>{desc}</span> : null}
+      {desc ? <span id={`${id}-desc`} className={styles.choiceDesc} data-slot="choice-desc" {...(truncateDesc ? { 'data-truncate': '', title: typeof desc === 'string' ? desc : undefined } : {})}>{desc}</span> : null}
     </Button>
   )
 }
@@ -224,6 +231,8 @@ export const ChoiceList = <T extends string>({
     readonly title: ReactNode
     readonly description?: ReactNode
     readonly disabled?: boolean
+    /** refused: offered, but this machine cannot do it now — de-emphasised with its reason kept at full ink; still selectable, the action decides (#871) */
+    readonly refused?: boolean
     /** A 16px line icon leading the title, in place of a tinted tile. */
     readonly icon?: ReactNode
     /** Said quietly at the title line's far end — a keyboard shortcut. */
@@ -248,6 +257,7 @@ export const ChoiceList = <T extends string>({
           desc={option.description}
           icon={option.icon}
           trailing={option.trailing}
+          refused={option.refused}
           selected={option.value === value}
           tabStop={!answered && option.value === firstEnabled}
           disabled={disabled || option.disabled}

@@ -118,9 +118,9 @@ test('the bridge uses the official Claude ACP package contract', () => {
   }
   assert.deepEqual(manifest.dependencies, {
     '@harnessdesk/protocol': 'workspace:*',
-    '@agentclientprotocol/claude-agent-acp': '0.81.2',
-    '@agentclientprotocol/sdk': '1.5.0',
-    '@anthropic-ai/claude-agent-sdk': '0.3.283',
+    '@agentclientprotocol/claude-agent-acp': '0.84.0',
+    '@agentclientprotocol/sdk': '1.5.1',
+    '@anthropic-ai/claude-agent-sdk': '0.3.284',
     '@modelcontextprotocol/sdk': '1.30.1',
     zod: '4.6.5',
   })
@@ -137,6 +137,9 @@ test("the catalogue carries each model's own levels — including the model that
       ['default', 'sonnet', 'haiku'],
     )
     assert.equal(models[0]?.displayName, 'Default (recommended)')
+    assert.equal(models[1]?.id, 'sonnet')
+    assert.equal(models[1]?.displayName, 'Sonnet 5.5')
+    assert.equal(models[1]?.description, 'Sonnet 5.5')
     assert.deepEqual(
       models[0]?.reasoningLevels.map((level) => level.label),
       ['Low', 'Medium', 'High', 'Extra high', 'Max'],

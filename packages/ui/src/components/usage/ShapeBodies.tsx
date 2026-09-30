@@ -9,7 +9,7 @@ import {
   type PlanRow,
 } from '../../lib/plans-table'
 import { formatMoney } from '../../lib/usage'
-import { Chip, Progress, Separator, Text } from '../../design'
+import { Chip, Progress, Separator, Text, ToolbarGap } from '../../design'
 import { PlanFrame } from './PlanFrame'
 import styles from './usage.module.css'
 
@@ -80,7 +80,7 @@ export const AllowanceBody = ({
         <Text role="muted">
           {lane && lane.limit != null && lane.used != null ? `of ${laneAmount(lane.limit, lane.unit)} left` : ''}
         </Text>
-        <span className={styles.fill} />
+        <ToolbarGap />
         {row.approxTurns !== '—' && <Chip label={`≈ ${row.approxTurns.replace('~', '')} turns`} tone="neutral" />}
       </div>
 

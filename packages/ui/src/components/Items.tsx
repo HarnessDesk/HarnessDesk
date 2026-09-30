@@ -82,7 +82,7 @@ import {
 } from '../lib/group-items'
 import { editOf } from '../lib/handoff'
 import { findTodos, planOf, todoState, type Todo } from '../lib/todos'
-import { readToolResult } from '../lib/tool-result'
+import { readToolResult, resultPartsToDraw } from '../lib/tool-result'
 import { effectiveItemStatus } from '../lib/turn-view'
 import {
   bareToolName,
@@ -1099,7 +1099,8 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
   const target = path ? fileLabel(path, root, labels) : null
   const command = toolCallCommandOf(item)
   const recordsCommand = item.result?.some((part) => part.type === 'json' && readToolResult(part.value).kind === 'command') ?? false
-  const commandOutputParts = command ? item.result?.map((part) => {
+  const resultParts = resultPartsToDraw(item.result ?? [])
+  const commandOutputParts = command ? resultParts.map(({ part }) => {
     if (part.type === 'text') return stripAnsi(part.text)
     if (part.type === 'json' && typeof part.value === 'string') return stripAnsi(part.value)
     // A shell call whose runtime wraps its output in `{output, isError}`:
@@ -1170,7 +1171,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
   const argsShown = !(recordsCommand || readsInFull) && typeof item.args === 'object' && item.args !== null
     && (Array.isArray(item.args) || Object.keys(item.args).length > 0)
   const resultsShown = !(planOf(item.args) !== null && effectiveItemStatus(item) !== 'failed')
-    && (item.result ?? []).some(resultPartDraws)
+    && resultParts.some(({ part }) => resultPartDraws(part))
   /* A step with nothing to show under it does not offer to open: an opened
      card with an empty body reads as something that failed to load. */
   const bodyEmpty = !wire && !item.error && !change && !command && !argsShown && !resultsShown
@@ -1237,7 +1238,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
               the agent's echo of it ("Updated todo list: …") says it twice. */}
           {commandOutput === undefined &&
             !(planOf(item.args) !== null && effectiveItemStatus(item) !== 'failed') &&
-            item.result?.map((part, index) => resultPartView(part, String(index)))}
+            resultParts.map(({ part, index }) => resultPartView(part, String(index)))}
         </>
       )}
       </>)}

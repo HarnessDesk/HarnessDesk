@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import type { AgentEntry } from '@harnessdesk/protocol'
 
-import { compileFlowPolicy, parseFlowPolicy, serializeFlowPolicy } from '../src/flow-policy.js'
+import { compileFlowPolicy, parseFlowPolicy, resolveCheckGuard, serializeFlowPolicy } from '../src/flow-policy.js'
 
 const agent = (id: string, ceiling: 'read' | 'edit' | 'publish' | 'merge' = 'edit'): AgentEntry => ({
   id,
@@ -314,6 +314,53 @@ test('when.evidence must be a list: a scalar, a map or null is a parse error, ne
   }
   const listed = parseFlowPolicy(source('    kind: agent\n    uses: writer').replace('when: { every: done }', 'when: { every: done, evidence: [{ check: verify }] }'))
   assert.equal(listed.problems.filter((one) => one.level === 'error').length, 0)
+})
+
+/*
+ * #1094: a `check:` evidence guard is matched against the observed fact's
+ * own `run` — the literal command a check role ran — never a role's id. A
+ * rule naming the role, which reads naturally, could never match. Compiling
+ * the flow now reads a value equal to a check role's own id as that role's
+ * command, and refuses a name that names neither a role, a command, nor (of
+ * the caller passes them) a project's own declared checks.
+ */
+test('a check: evidence guard reads a check role’s own id as its command, and refuses a name nothing runs', () => {
+  const guardedFlow = (value: string) => `
+version: 2
+name: Guarded
+roles:
+  worker: { kind: agent, uses: writer }
+  gate: { kind: check, run: "node --test" }
+  person: { kind: person, outcomes: [done] }
+seed: { role: worker, title: Work }
+rules:
+  - { id: check, on: worker, when: { every: done }, then: { role: gate, title: Verify } }
+  - { id: ship, on: gate, when: { evidence: [{ check: ${value} }] }, then: { role: person, title: Ship } }
+`
+  const policyOf = (text: string) => {
+    const parsed = parseFlowPolicy(text)
+    if (parsed.document?.format !== 'agents') throw new Error('expected the current format')
+    return parsed.document
+  }
+
+  const byRoleId = policyOf(guardedFlow('gate'))
+  assert.deepEqual(compileFlowPolicy(byRoleId, [agent('writer')]).problems, [], 'the role’s own id names its own command')
+  assert.equal(resolveCheckGuard(byRoleId.flow, 'gate'), 'node --test')
+
+  const byCommand = policyOf(guardedFlow('"node --test"'))
+  assert.deepEqual(compileFlowPolicy(byCommand, [agent('writer')]).problems, [], 'the literal command still matches directly')
+  assert.equal(resolveCheckGuard(byCommand.flow, 'node --test'), 'node --test', 'a value that is already a command passes through unchanged')
+
+  const byUnknownName = parseFlowPolicy(guardedFlow('nonexistent'))
+  const problems = compileFlowPolicy(byUnknownName.document!, [agent('writer')]).problems
+  assert.ok(
+    problems.some((one) => one.level === 'error' && one.at === 'rules[1].when.evidence' && /waits for a check called "nonexistent".*name a check role or its command/.test(one.text)),
+    JSON.stringify(problems),
+  )
+
+  // A project's own declared check (.harnessdesk/checks.yml), passed in by the caller, is a legitimate name too.
+  const withProjectCheck = compileFlowPolicy(byUnknownName.document!, [agent('writer')], ['nonexistent'])
+  assert.deepEqual(withProjectCheck.problems, [], 'a name the flow does not run may still be a project’s own declared check')
 })
 
 // ------------------------------------------------------------- findings (phase 7)

@@ -4,7 +4,7 @@ import type { GitFileStatus, GitStatus } from '@harnessdesk/protocol'
 
 import { countChanges, splitByFile, splitHunks, type DiffHunk } from '../lib/diff'
 import { inView } from '../lib/git-view'
-import { Button, Card, ChangeStats, CodeText, EmptyState, Note, PageHead, PatchHeader, Separator, Tabs, TabsList, TabsTrigger, Text } from '../design'
+import { Button, Card, ChangeStats, CodeText, EmptyState, Note, PageHead, PatchHeader, Separator, Tabs, TabsList, TabsTrigger, Text, ToolbarGap } from '../design'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { AppWindow, WindowGroup, WindowNav, WindowNavEmpty, WindowNavItem, WindowPage } from './AppWindow'
 import { DiffView } from './Diff'
@@ -230,7 +230,7 @@ export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
                         {basename(file.path)}
                       </Text>
                       <Counts added={count.added} removed={count.removed} />
-                      <span className={styles.space} />
+                      <ToolbarGap />
                       <Button variant="quiet" size="content" onClick={() => store.openFile(absolute(file.path))}>
                         Open
                       </Button>
@@ -250,7 +250,7 @@ export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
                           {index > 0 && <Separator />}
                           <PatchHeader level="hunk" className={styles.hunkHead}>
                             <Text role="meta"><CodeText as="code">{hunk.header}</CodeText></Text>
-                            <span className={styles.space} />
+                            <ToolbarGap />
                             <Button
                               variant="quiet" size="content"
                               title="Quote this hunk into the composer as a revision request"

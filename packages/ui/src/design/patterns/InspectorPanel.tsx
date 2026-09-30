@@ -2,6 +2,7 @@ import { createElement, type ButtonHTMLAttributes, type HTMLAttributes, type Rea
 
 import { cn } from '../../lib/utils'
 import { Bar } from '../ui/bar'
+import { ToolbarGap } from '../ui/section'
 import { Button, buttonVariants } from '../ui/button'
 import { ChangeStats } from './Change'
 import { Chip, Dot, Search, Text } from './Settings'
@@ -38,7 +39,7 @@ const PanelBody = ({ children }: { children: ReactNode }) => (
 const PanelFooter = ({ left, right }: { left: ReactNode; right: ReactNode }) => (
   <Bar data-slot="inspector-footer" rule="top">
     <Text role="meta">{left}</Text>
-    <span className="flex-1" />
+    <ToolbarGap />
     <Text role="meta">{right}</Text>
   </Bar>
 )

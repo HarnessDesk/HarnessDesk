@@ -1084,7 +1084,7 @@ export const RowChoice = ({
   const inDialog = useDialogForm()
   const inCard = useContext(RowsCardContext)
   if (inDialog && !inCard) {
-    return <ChoiceRow title={title} desc={desc} selected={selected} tabStop={tabStop} disabled={disabled} onClick={onClick} />
+    return <ChoiceRow title={title} desc={desc} truncateDesc={truncateDesc} selected={selected} tabStop={tabStop} disabled={disabled} onClick={onClick} />
   }
   return (
   <Button variant="row" size="pattern"

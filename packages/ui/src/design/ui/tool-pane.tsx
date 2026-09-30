@@ -389,16 +389,6 @@ const ToolPaneToolGroup = ({ className, ...props }: React.ComponentProps<'div'>)
   />
 )
 
-const ToolPaneFooter = ({ children, className, ...props }: Omit<React.ComponentProps<'div'>, 'role'>) => (
-  <div
-    data-slot="tool-pane-footer"
-    className={cn('flex shrink-0 items-center gap-2 border-t border-(--hd-border) px-2.5 py-2 text-xs leading-(--hd-line) text-(--hd-muted-foreground)', className)}
-    {...props}
-  >
-    {children}
-  </div>
-)
-
 const ToolPaneReading = ({ className, ...props }: React.ComponentProps<'div'>) => (
   <div data-slot="tool-pane-reading" className={cn('max-w-3xl px-6 py-4', className)} {...props} />
 )
@@ -482,7 +472,6 @@ export {
   ToolPaneBody,
   ToolPaneDocumentTab,
   ToolPaneEmptyState,
-  ToolPaneFooter,
   ToolPaneGuest,
   ToolPaneHeader,
   ToolPaneHeaderDivider,

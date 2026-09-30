@@ -74,10 +74,11 @@ const detailPage = (): FindingDetailPage => ({
   finding: findingsPage().rows[0]!, records: [], seat: seat(), next: null, problem: null,
 })
 
-const runView = (): FindingRunView => ({
+const runView = (over: Partial<FindingRunView> = {}): FindingRunView => ({
   run: 'run-1', goal: 'g1', round: 4, finished: 3, total: 5, embargoed: false, open: 1, blocking: 1,
   reason: null, stamp: STAMP, publication: 'posted', reviewersFinished: null, reviewersTotal: null,
   pendingExceptions: [], repair: null, boundPr: null, unbound: null, undecidable: null,
+  ...over,
 } as unknown as FindingRunView)
 
 const notify = (store: AppStore, notification: WireNotification): void => {
@@ -92,6 +93,38 @@ const typeInto = (textarea: HTMLTextAreaElement, text: string): void => {
     textarea.dispatchEvent(new Event('input', { bubbles: true }))
   })
 }
+
+it('refreshes the round budget and blind reviewer counts from a flow execution push', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  let current = runView({ round: 5, finished: 5, total: 5, embargoed: true, reviewersFinished: 1, reviewersTotal: 2 })
+  let lists = 0
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+    switch (method) {
+      case 'finding/list': lists += 1; return findingsPage()
+      case 'finding/run': return current
+      default: throw new Error(`unexpected ${method}`)
+    }
+  }) as never)
+
+  notify(store, { method: 'goal/changed', params: { view: goalView() } })
+  notify(store, { method: 'flow/execution-changed', params: { execution: { id: 'run-1', goal: 'g1', findings: {} } as never } })
+  act(() => {
+    root.render(<StoreProvider store={store}><GoalFindings goal="g1" /></StoreProvider>)
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)) })
+  expect(container.textContent).toContain('Round5 of 5')
+  expect(container.textContent).toContain('1 of 2 reviewers finished')
+
+  current = runView({ round: 7, finished: 7, total: 8, embargoed: true, reviewersFinished: 2, reviewersTotal: 3 })
+  const listsBefore = lists
+  notify(store, { method: 'flow/execution-changed', params: { execution: { id: 'run-1', goal: 'g1', findings: { extraRound: { after: 5, reason: 'make room', count: 3 } } } as never } })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)) })
+  expect(container.textContent).toContain('Round7 of 8')
+  expect(container.textContent).toContain('2 of 3 reviewers finished')
+  // The run views only: a push that moves a run must not reload the list, or
+  // a person paging through findings is sent back to the first page (#1091).
+  expect(lists).toBe(listsBefore)
+})
 
 it('a reason typed on the real store path reaches finding/decide, and a live push mid-edit does not lose it (#1089, #1090)', async () => {
   const store = new AppStore('ws://localhost:0/')
@@ -145,6 +178,76 @@ it('a reason typed on the real store path reaches finding/decide, and a live pus
   expect(decideParams).toHaveLength(1)
   expect(decideParams[0]).toMatchObject({
     goal: 'g1', run: 'run-1', action: { kind: 'adjudicate', finding: 'finding-1', state: 'withdrawn' },
+    reason: 'checked the fix myself',
+  })
+})
+
+it('a page-two finding keeps its origin run when finding/changed reloads page one (#1091)', async () => {
+  const firstRow = findingsPage().rows[0]!
+  const secondRow = {
+    ...firstRow,
+    id: 'finding-2',
+    origin: { ...firstRow.origin, run: 'run-old', round: 1, card: 2 },
+    title: 'A later-page problem',
+  }
+  const firstPage: FindingPage = { ...findingsPage(), rows: [firstRow], next: 'cursor-2', totals: { all: 2, open: 2, blocking: 2 } }
+  const secondPage: FindingPage = { ...firstPage, rows: [secondRow], next: null }
+  const refreshedPage: FindingPage = firstPage
+  const oldRun: FindingRunView = { ...runView(), run: 'run-old', round: 1, stamp: 'stamp-old' }
+  const newRun: FindingRunView = runView()
+  const store = new AppStore('ws://localhost:0/')
+  const decideParams: HostParams<'finding/decide'>[] = []
+  let firstList = true
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: unknown) => {
+    switch (method) {
+      case 'finding/list': {
+        const input = params as HostParams<'finding/list'>
+        if (input.cursor !== undefined) return secondPage
+        const page = firstList ? firstPage : refreshedPage
+        firstList = false
+        return page
+      }
+      case 'finding/read':
+        return { finding: secondRow, records: [], seat: null, next: null, problem: null }
+      case 'finding/run':
+        return (params as HostParams<'finding/run'>).run === 'run-old' ? oldRun : newRun
+      case 'finding/decide':
+        decideParams.push(params as HostParams<'finding/decide'>)
+        return oldRun
+      default: throw new Error(`unexpected ${method}`)
+    }
+  }) as never)
+
+  notify(store, { method: 'goal/changed', params: { view: goalView() } })
+  notify(store, { method: 'flow/execution-changed', params: { execution: { id: 'run-old', goal: 'g1', state: 'stopped', findings: {} } as never } })
+  notify(store, { method: 'flow/execution-changed', params: { execution: { id: 'run-1', goal: 'g1', state: 'running', findings: {} } as never } })
+
+  act(() => {
+    root.render(<StoreProvider store={store}><GoalFindings goal="g1" /></StoreProvider>)
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
+  const more = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Load more')!
+  act(() => more.click())
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
+  const opener = [...container.querySelectorAll('button')].find((one) => one.textContent?.includes(secondRow.id))!
+  act(() => opener.click())
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
+
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!
+  const why = dialog.querySelector<HTMLTextAreaElement>('textarea[aria-label="Why"]')!
+  typeInto(why, 'checked the fix myself')
+  notify(store, { method: 'finding/changed', params: { goal: 'g1', revision: 2 } })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)) })
+
+  const stillOpen = document.querySelector<HTMLElement>('[role="dialog"]')!
+  expect(stillOpen).not.toBeNull()
+  expect((stillOpen.querySelector('textarea[aria-label="Why"]') as HTMLTextAreaElement).value).toBe('checked the fix myself')
+  await act(async () => { [...stillOpen.querySelectorAll('button')].find((one) => one.textContent === 'Withdraw it')!.click() })
+
+  expect(stillOpen.textContent).not.toContain('Say why.')
+  expect(decideParams).toHaveLength(1)
+  expect(decideParams[0]).toMatchObject({
+    goal: 'g1', run: 'run-old', action: { kind: 'adjudicate', finding: secondRow.id, state: 'withdrawn' },
     reason: 'checked the fix myself',
   })
 })

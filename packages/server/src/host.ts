@@ -1452,6 +1452,7 @@ export class Host {
         await this.#confineRoom(context.root)
         return factsKey(await resolveContext(this.#frontDoorContext, context))
       },
+      projectChecks: async (root) => (await this.#evidence.projectChecks(root)).checks.map((check) => check.run),
       now: () => Date.now(),
     })
     // The catalogue a trigger's closure resolves its flow through: the same layers and rules as a person's.
@@ -1758,7 +1759,7 @@ export class Host {
       confine: (root) => this.#confineGitRoot(root),
       flowSource: (root, id) => intakeCatalog.resolve(root, id),
       // A trigger's closure is read as its Goal will be seated: unattended.
-      preview: (root, source) => this.#flowPreviews.freeze(root, source, { unattended: true }),
+      preview: (root, source, againRole) => this.#flowPreviews.freeze(root, source, { unattended: true, againRole }),
       // And what each Agent attaches, by content: an arm consents to the bytes a Seat would load.
       attachments: async (root, agent) => {
         const entry = await this.#agents.read(agent, root)
