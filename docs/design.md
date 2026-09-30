@@ -785,10 +785,10 @@ The check covers a name drawn through `Text`/`PageHead` only. The shared
 parts that drew their names some other way now compose `Text` too (#1072):
 `EmptyState`'s heading and `ChoiceRow`'s title are `subject`, a `Notices`
 card title and the inbox heading are `subject`, an unread inbox title is
-`row`, and `AgentCard`'s name is `row`. Headings and `*-title` slots drawn
-outside `Text` elsewhere — 160 distinct names, among them the Dashboard's
-16/600 section heads — are the next convergence, and the check widens to
-them once they are converted (#1122).
+`row`, and `AgentCard`'s name is `row`. The Dashboard's band heads are
+`section` (16/600), drawn through `SectionHead`'s heading level (#1122).
+The other headings and `*-title` slots drawn outside `Text` are the next
+convergence, and the check widens to them once they are converted (#1122).
 
 ### Group labels
 
