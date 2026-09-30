@@ -253,4 +253,38 @@ describe('buildYearGrid', () => {
     expect(lastWeek[6]).toBeNull()
     expect(lastWeek[2]).not.toBeNull()
   })
+
+  it('drops a clipped first month when the next month label is one or two columns away', () => {
+    const cases = [
+      { now: '2021-09-01T12:00:00', nextWeek: 1, nextMonth: '2020-09-07T12:00:00' },
+      { now: '2021-09-20T12:00:00', nextWeek: 2, nextMonth: '2020-10-05T12:00:00' },
+    ] as const
+
+    for (const { now, nextWeek, nextMonth } of cases) {
+      const grid = buildYearGrid(report([]), new Date(now).getTime())
+      expect(grid.monthLabels[0]).toEqual({
+        week: nextWeek,
+        label: new Date(nextMonth).toLocaleDateString(undefined, { month: 'short' }),
+      })
+      expect(grid.monthLabels.some((entry) => entry.week === 0)).toBe(false)
+    }
+  })
+
+  it('keeps the first month label when the grid starts on the first', () => {
+    const grid = buildYearGrid(report([]), new Date('2021-06-01T12:00:00').getTime())
+    expect(grid.monthLabels[0]).toEqual({
+      week: 0,
+      label: new Date('2020-06-01T12:00:00').toLocaleDateString(undefined, { month: 'short' }),
+    })
+  })
+
+  it('keeps month labels in ascending columns with at least three columns between them', () => {
+    const grid = buildYearGrid(report([]), new Date('2021-09-20T12:00:00').getTime())
+    const weeks = grid.monthLabels.map((entry) => entry.week)
+
+    expect(weeks).toEqual([...weeks].sort((a, b) => a - b))
+    for (let index = 1; index < weeks.length; index += 1) {
+      expect((weeks[index] as number) - (weeks[index - 1] as number)).toBeGreaterThanOrEqual(3)
+    }
+  })
 })

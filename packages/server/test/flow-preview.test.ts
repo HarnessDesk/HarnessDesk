@@ -227,3 +227,61 @@ test('strict token cannot downgrade', async () => {
   assert.equal(startedAt(1).requireHeld, undefined)
   assert.equal(startedAt(1).authorization.start, undefined)
 })
+
+/*
+ * #1094: an evidence guard's `check:` is matched against the observed fact's
+ * own `run` — the literal command a check role ran — never a role's id. A
+ * rule written the way it reads naturally, naming the role, could never
+ * match; the dry run now reads a role's own id as its command, and refuses a
+ * name that explains nothing this flow (or, failing that, the project's own
+ * declared checks) runs.
+ */
+const guardedBy = (value: string) => `
+version: 2
+name: One writer, one gate, then a person
+roles:
+  author: { kind: agent, uses: writer }
+  gate: { kind: check, run: "pnpm verify", exits: { "0": pass }, otherwise: fail }
+  person: { kind: person, outcomes: [shipped] }
+seed: { role: author, title: Write it }
+rules:
+  - { id: check, on: author, when: { every: [done] }, then: { role: gate, title: Verify } }
+  - { id: ship, on: gate, when: { evidence: [{ check: ${value} }] }, then: { role: person, title: Ship it } }
+`
+
+test('an evidence guard naming a check role’s own id resolves to its command, and never asks the project for its own checks', async () => {
+  const state = rig()
+  state.port.projectChecks = async () => { throw new Error('a role’s own id never needs the project’s checks') }
+  const previews = new FlowPreviews(state.port)
+  const preview = await previews.preview('/repo', guardedBy('gate'), {})
+  assert.deepEqual(preview.problems, [])
+  assert.ok(preview.token, 'a role’s own id is a known, resolvable name')
+})
+
+test('an evidence guard naming its check role’s exact command still matches directly', async () => {
+  const state = rig()
+  const previews = new FlowPreviews(state.port)
+  const preview = await previews.preview('/repo', guardedBy('"pnpm verify"'), {})
+  assert.deepEqual(preview.problems, [])
+  assert.ok(preview.token)
+})
+
+test('an evidence guard naming nothing this flow runs is refused at the dry run, in one plain sentence', async () => {
+  const state = rig()
+  const previews = new FlowPreviews(state.port)
+  const preview = await previews.preview('/repo', guardedBy('nonexistent'), {})
+  assert.equal(preview.token, null)
+  assert.ok(
+    preview.problems.some((one) => one.level === 'error' && /waits for a check called "nonexistent".*name a check role or its command/.test(one.text)),
+    JSON.stringify(preview.problems),
+  )
+})
+
+test('an evidence guard the flow’s own roles leave unexplained may still name a project’s own declared check', async () => {
+  const state = rig()
+  state.port.projectChecks = async () => ['pnpm lint']
+  const previews = new FlowPreviews(state.port)
+  const preview = await previews.preview('/repo', guardedBy('"pnpm lint"'), {})
+  assert.deepEqual(preview.problems, [])
+  assert.ok(preview.token, 'a project’s own check, never named by this flow, is still a legitimate guard')
+})

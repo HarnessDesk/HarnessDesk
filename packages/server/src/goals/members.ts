@@ -23,11 +23,33 @@ export function memberNames(
   const counts = new Map<string, number>()
   for (const base of bases) counts.set(base, (counts.get(base) ?? 0) + 1)
 
+  /* Seats that share a base only because they share a seat label ("Cursor ·
+     Gemini 3.8 Flash" three times) cannot be told apart by appending that
+     label again — that is how "X · X 2" happened (#1115). They are told apart
+     by role instead, the way the sidebar already titles them: "reviewer 1",
+     "reviewer 2", and a lone "fixer" plain. Ordinals run across the room, so
+     two same-model groups never both claim "reviewer 1". */
+  const byRole = (seat: SeatRecord, index: number): string | null =>
+    (counts.get(bases[index]!) ?? 0) > 1 && bases[index] === seat.seatLabel ? seat.role?.trim() || null : null
+  const roleTotals = new Map<string, number>()
+  ordered.forEach((seat, index) => {
+    const role = byRole(seat, index)
+    if (role) roleTotals.set(role, (roleTotals.get(role) ?? 0) + 1)
+  })
+
   const used = new Set<string>()
+  const roleOrdinals = new Map<string, number>()
   const names = new Map<string, string>()
   ordered.forEach((seat, index) => {
     const base = bases[index]!
-    const candidate = (counts.get(base) ?? 0) > 1 ? `${base} · ${seat.seatLabel}` : base
+    const role = byRole(seat, index)
+    let candidate = base
+    if ((counts.get(base) ?? 0) > 1 && base !== seat.seatLabel) candidate = `${base} · ${seat.seatLabel}`
+    else if (role) {
+      const ordinal = (roleOrdinals.get(role) ?? 0) + 1
+      roleOrdinals.set(role, ordinal)
+      candidate = (roleTotals.get(role) ?? 0) > 1 ? `${role} ${ordinal}` : role
+    }
     let name = candidate
     let suffix = 2
     while (used.has(name)) name = `${candidate} ${suffix++}`
