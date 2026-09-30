@@ -4299,6 +4299,15 @@ export const SINGLE_AREA_PRIMITIVE_EXEMPTIONS = [
 ]
 
 /**
+ * Whether one single-area export is a named exemption: its module, its name
+ * and the area it is single to must all match one entry. A module's other
+ * exports, or the same export single to another area, are still counted.
+ */
+export const isSingleAreaPrimitiveExempt = (module, localName, area, exemptions = SINGLE_AREA_PRIMITIVE_EXEMPTIONS) =>
+  exemptions.some((entry) =>
+    path.join(UI_SRC, entry.module) === module && entry.area === area && entry.exports.includes(localName))
+
+/**
  * Return every named exemption whose export is gone or no longer has exactly
  * its recorded single area. The lookup returns `undefined` for a missing
  * export, `null` for an existing export without one single area, or an area.
@@ -4314,9 +4323,7 @@ for (const [module, exportsHere] of exportsByModule) {
   if (!isPatternModule(module)) {
     for (const { localName, consumers } of exportsHere) {
       const area = singleScreenAreaOf(consumers, importersByFile)
-      const exempt = SINGLE_AREA_PRIMITIVE_EXEMPTIONS.some((entry) =>
-        path.join(UI_SRC, entry.module) === module && entry.area === area && entry.exports.includes(localName))
-      if (area && !exempt) findings.singleAreaPrimitive.push(`${label(module)}: ${localName} [${area} screen area]`)
+      if (area && !isSingleAreaPrimitiveExempt(module, localName, area)) findings.singleAreaPrimitive.push(`${label(module)}: ${localName} [${area} screen area]`)
     }
     continue
   }

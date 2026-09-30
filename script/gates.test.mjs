@@ -33,6 +33,7 @@ import {
   resolvedConsumersOf,
   SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS,
   SINGLE_AREA_PRIMITIVE_EXEMPTIONS,
+  isSingleAreaPrimitiveExempt,
   screenAppearanceOf,
   screenAreaOf,
   staleScreenAppearanceExemptions,
@@ -1662,6 +1663,20 @@ test('single-area exemptions (data geometry, native boundaries) name only the li
   assert.deepEqual(staleSingleAreaPrimitiveExemptions([entry], (_module, name) => name === localName ? undefined : 'usage').map(({ localName: stale }) => stale), [localName])
   assert.deepEqual(staleSingleAreaPrimitiveExemptions([entry], lookup('settings')).map(({ localName: stale }) => stale), [localName])
   assert.deepEqual(staleSingleAreaPrimitiveExemptions([entry], lookup('usage')), [])
+})
+
+test('a single-area export is exempt only when its module, its name and its area all match an entry', () => {
+  const chart = path.join(repoRoot, 'packages/ui/src/design/ui/chart.tsx')
+  assert.equal(isSingleAreaPrimitiveExempt(chart, 'ChartCard', 'usage'), true)
+  // A new export beside the listed ones is counted, not swept in with its module.
+  assert.equal(isSingleAreaPrimitiveExempt(chart, 'ChartLegendPicker', 'usage'), false)
+  // A listed export that becomes single to another area is counted again.
+  assert.equal(isSingleAreaPrimitiveExempt(chart, 'ChartCard', 'settings'), false)
+  // The same name in another module is not the listed export.
+  assert.equal(isSingleAreaPrimitiveExempt(path.join(repoRoot, 'packages/ui/src/design/ui/card.tsx'), 'ChartCard', 'usage'), false)
+  const terminal = path.join(repoRoot, 'packages/ui/src/design/adapters/terminal.ts')
+  assert.equal(isSingleAreaPrimitiveExempt(terminal, 'terminalAppearance', 'terminalpane'), true)
+  assert.equal(isSingleAreaPrimitiveExempt(terminal, 'terminalAppearance', 'usage'), false)
 })
 
 test('screen property families have one explicit appearance or layout boundary', (t) => {
