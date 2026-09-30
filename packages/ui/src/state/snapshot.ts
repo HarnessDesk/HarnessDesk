@@ -775,6 +775,10 @@ const EMPTY_WORKBENCH = emptyWorkbench()
  */
 export const closedTurnFilesKey = (session: string, turn: string): string => JSON.stringify([session, turn])
 
+/** The closed set with one more card in it; the store and the preview both answer `closeTurnFiles` with this. */
+export const withClosedTurnFiles = (closed: ReadonlySet<string>, session: string, turn: string): ReadonlySet<string> =>
+  new Set(closed).add(closedTurnFilesKey(session, turn))
+
 const EMPTY: AppSnapshot = {
   captureHealth: new Map(),
   provenanceRevision: new Map(),

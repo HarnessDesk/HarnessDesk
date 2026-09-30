@@ -277,8 +277,8 @@ const summaryOfSession = (session: Session): SessionSummary => ({
  */
 
 import {
-  closedTurnFilesKey,
   emptySnapshot,
+  withClosedTurnFiles,
   type AppSnapshot,
   type AuditRow,
   type DraftHandoff,
@@ -6080,9 +6080,7 @@ export class AppStore {
    * record.
    */
   closeTurnFiles(key: string, turnId: string): void {
-    const closedTurnFiles = new Set(this.#snapshot.closedTurnFiles)
-    closedTurnFiles.add(closedTurnFilesKey(key, turnId))
-    this.#patch({ closedTurnFiles })
+    this.#patch({ closedTurnFiles: withClosedTurnFiles(this.#snapshot.closedTurnFiles, key, turnId) })
   }
 
   /** Opens a tab without the toggle behaviour, for callers that mean "show me". */

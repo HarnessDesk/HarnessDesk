@@ -53,6 +53,7 @@ import type { FindingFilter } from '../lib/findings'
 import { Boundary } from './boundary'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore, type AuditRow } from '../state/store'
+import { withClosedTurnFiles } from '../state/snapshot'
 import {
   NARROW_WINDOW,
   activate,
@@ -1155,6 +1156,11 @@ class PreviewStore {
   patch(partial: Partial<AppSnapshot>): void {
     this.#snapshot = { ...this.#snapshot, ...partial }
     for (const listener of this.#listeners) listener()
+  }
+
+  /* Closing a turn-files card, with the function the app's store runs. */
+  closeTurnFiles(key: string, turnId: string): void {
+    this.patch({ closedTurnFiles: withClosedTurnFiles(this.#snapshot.closedTurnFiles, key, turnId) })
   }
 
   /* The terminal's live stream. A real subscription with nothing on the other

@@ -1195,7 +1195,7 @@ const CodeBoard = () => (
         <TurnFiles turn={{ ...CATALOGUE_TURN, id: turnId('catalogue-many') }} changes={CATALOGUE_TURN_SEVERAL} root="/workspace" />
       </StoreProvider>
     </Case>
-    <Case label="reverted edits: Close disabled until Redo (catalogue host stub resolves Undo)">
+    <Case label="put back: Close greyed until Redo or keep">
       <StoreProvider store={catalogueTurnFilesStore}>
         <CatalogueRevertedTurnFiles />
       </StoreProvider>
