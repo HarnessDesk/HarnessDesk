@@ -213,11 +213,11 @@ const SidebarBoard = () => (
           <SidebarMenuAction aria-label="More ways to start" title="More ways to start"><CaretIcon size={14} /></SidebarMenuAction>
           </SidebarMenuItem>
         </SidebarMenu>
-        <div className={styles.sidebarTopLinks}>
-          <Button variant="ghost" size="sidebar-nav" aria-label="Agents" title="Agents" className="min-w-0 flex-1 justify-center"><BriefIcon size={14} /><Text role="navigation" className={styles.sidebarTopLabel}>Agents</Text></Button>
-          <Button variant="ghost" size="sidebar-nav" aria-label="Dashboard" title="Dashboard" className="min-w-0 flex-1 justify-center"><UsageIcon size={14} /><Text role="navigation" className={styles.sidebarTopLabel}>Dashboard</Text><Text role="meta">2</Text></Button>
-          <Button variant="ghost" size="sidebar-nav" aria-label="Plugins" title="Plugins" className="min-w-0 flex-1 justify-center"><PluginIcon size={14} /><Text role="navigation" className={styles.sidebarTopLabel}>Plugins</Text></Button>
-        </div>
+        <SidebarMenu horizontal>
+          <SidebarMenuItem className="flex-1 list-none"><Button variant="ghost" size="sidebar-nav" aria-label="Agents" title="Agents" className="min-w-0 flex-1 justify-center"><BriefIcon size={14} /><Text role="navigation" className={styles.sidebarTopLabel}>Agents</Text></Button></SidebarMenuItem>
+          <SidebarMenuItem className="flex-1 list-none"><Button variant="ghost" size="sidebar-nav" aria-label="Dashboard" title="Dashboard" className="min-w-0 flex-1 justify-center"><UsageIcon size={14} /><Text role="navigation" className={styles.sidebarTopLabel}>Dashboard</Text><Text role="meta">2</Text></Button></SidebarMenuItem>
+          <SidebarMenuItem className="flex-1 list-none"><Button variant="ghost" size="sidebar-nav" aria-label="Plugins" title="Plugins" className="min-w-0 flex-1 justify-center"><PluginIcon size={14} /><Text role="navigation" className={styles.sidebarTopLabel}>Plugins</Text></Button></SidebarMenuItem>
+        </SidebarMenu>
       </div>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-(--hd-space-0) overflow-x-hidden overflow-y-auto">
         <NavigationGroupHeader label={<span className="flex items-center gap-(--hd-space-1)">Projects <Chip tone="neutral" label="Filtered" /><Button variant="ghost" size="icon-xs" aria-label="Clear list filter"><CrossIcon size={12} /></Button></span>}>
@@ -255,15 +255,15 @@ const SidebarBoard = () => (
             <SidebarMenu>
               <SidebarMenuItem><SidebarMenuButton size="default" icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="Fix checkout retry" isActive /></SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton size="default" icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="Pin the flaky inventory retry" />
+                <SidebarMenuButton trailingOverlay size="default" icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="Pin the flaky inventory retry" />
                 <SidebarMenuBadge aria-label="Working"><Dot state="signin" /></SidebarMenuBadge>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton size="default" icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="Ready for review" />
+                <SidebarMenuButton trailingOverlay size="default" icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="Ready for review" />
                 <SidebarMenuBadge aria-label="Needs you"><Dot state="limit" /></SidebarMenuBadge>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton size="default" icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="A very long conversation label that truncates when the sidebar is narrow" />
+                <SidebarMenuButton trailingOverlay size="default" icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="A very long conversation label that truncates when the sidebar is narrow" />
                 <SidebarMenuAction aria-label="More actions" showOnHover className="opacity-100"><MoreIcon size={14} /></SidebarMenuAction>
               </SidebarMenuItem>
               <SidebarMenuItem>

@@ -26,13 +26,14 @@ const SidebarGroupContent = ({ className, ...props }: React.ComponentProps<'div'
   <div data-slot="sidebar-group-content" data-sidebar="group-content" className={cn('min-w-0 text-sm', className)} {...props} />
 )
 
-const SidebarMenu = ({ className, nested = false, ...props }: React.ComponentProps<'ul'> & { nested?: boolean }) => (
+const SidebarMenu = ({ className, nested = false, horizontal = false, ...props }: React.ComponentProps<'ul'> & { nested?: boolean; horizontal?: boolean }) => (
   <ul
     data-slot="sidebar-menu"
     data-sidebar="menu"
     data-nested={nested ? 'true' : undefined}
     className={cn(
-      'flex w-full min-w-0 flex-col gap-(--hd-space-0-5)',
+      'flex w-full min-w-0 gap-(--hd-space-0-5)',
+      horizontal ? 'flex-row items-center gap-(--hd-space-1) px-(--hd-space-2)' : 'flex-col',
       nested && 'ms-5 border-s border-sidebar-border ps-(--hd-space-2)',
       className,
     )}
@@ -45,7 +46,7 @@ const SidebarMenuItem = ({ className, ...props }: React.ComponentProps<'li'>) =>
 )
 
 const sidebarMenuButtonVariants = cva(
-  'peer/menu-button flex w-full min-w-0 items-center gap-(--hd-space-2) overflow-hidden rounded-(--hd-nav-radius) pe-(--hd-space-8) ps-(--hd-space-2) text-left text-base text-sidebar-foreground transition-colors hover:bg-sidebar-accent focus-visible:bg-sidebar-accent active:bg-sidebar-accent disabled:pointer-events-none disabled:opacity-50 data-[active=true]:bg-(--hd-sidebar-selected) data-[active=true]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[active=true]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[active=true]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] [&>svg]:size-4 [&>svg]:shrink-0',
+  'peer/menu-button flex w-full min-w-0 items-center gap-(--hd-space-2) overflow-hidden rounded-(--hd-nav-radius) ps-(--hd-space-2) text-left text-base text-sidebar-foreground transition-colors hover:bg-sidebar-accent focus-visible:bg-sidebar-accent active:bg-sidebar-accent disabled:pointer-events-none disabled:opacity-50 data-[active=true]:bg-(--hd-sidebar-selected) data-[active=true]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[active=true]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[active=true]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] [&>svg]:size-4 [&>svg]:shrink-0',
   {
     variants: {
       size: {
@@ -65,6 +66,7 @@ type SidebarMenuButtonProps = Omit<React.ComponentProps<'button'>, 'children'> &
     icon?: React.ReactNode
     iconSize?: 'default' | 'lg'
     label?: React.ReactNode
+    trailingOverlay?: boolean
     isActive?: boolean
     trailingActions?: 1 | 2
   }
@@ -75,6 +77,7 @@ const SidebarMenuButton = ({
   icon,
   iconSize = 'default',
   label,
+  trailingOverlay = false,
   children,
   isActive = false,
   trailingActions = 1,
@@ -87,11 +90,11 @@ const SidebarMenuButton = ({
     data-sidebar="menu-button"
     data-size={size}
     data-active={isActive ? 'true' : undefined}
-    className={cn(sidebarMenuButtonVariants({ size }), trailingActions === 2 && 'pe-(--hd-space-16)', className)}
+    className={cn(sidebarMenuButtonVariants({ size }), className)}
     {...props}
   >
     {icon === undefined ? null : <span data-slot="sidebar-menu-icon" data-size={iconSize} className={cn('inline-flex shrink-0 items-center justify-center', iconSize === 'lg' ? 'size-6' : 'size-4')}>{icon}</span>}
-    <span data-slot="sidebar-menu-label" className="block min-w-0 flex-1 truncate">{label ?? children}</span>
+    <span data-slot="sidebar-menu-label" className={cn('block min-w-0 flex-1 truncate', (trailingOverlay || trailingActions === 2) && 'sidebar-menu-label-fade [mask-image:linear-gradient(to_right,black_calc(100%-var(--hd-space-8)),transparent)]')}>{label ?? children}</span>
   </button>
 )
 

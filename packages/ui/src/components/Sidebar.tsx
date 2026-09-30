@@ -150,18 +150,24 @@ export const Sidebar = ({
             </Button>
             <WorktreeMenu onChoose={(kind) => setStarting(kind)} />
           </div>
-          <div className={styles.navLinks} role="group" aria-label="Main sections">
-            <Button variant="ghost" size="sidebar-nav" className={styles.navLink} onClick={onOpenAgents} aria-label="Agents" title="Agents">
+          <SidebarMenu horizontal className={styles.navLinks} role="group" aria-label="Main sections">
+            <SidebarMenuItem className="flex-1 list-none">
+            <Button variant="ghost" size="sidebar-nav" className={`${styles.navLink} min-w-0 flex-1`} onClick={onOpenAgents} aria-label="Agents" title="Agents">
               <BriefIcon size={14} /><Text role="navigation" className={styles.navLabel}>Agents</Text>
             </Button>
-            <Button variant="ghost" size="sidebar-nav" className={styles.navLink} onClick={() => onOpenUsage()} aria-label="Dashboard" title="Dashboard">
+            </SidebarMenuItem>
+            <SidebarMenuItem className="flex-1 list-none">
+            <Button variant="ghost" size="sidebar-nav" className={`${styles.navLink} min-w-0 flex-1`} onClick={() => onOpenUsage()} aria-label="Dashboard" title="Dashboard">
               <UsageIcon size={14} /><Text role="navigation" className={styles.navLabel}>Dashboard</Text>
               {lowAgents > 0 && <Text role="meta" numeric className={styles.navCount}>{lowAgents}</Text>}
             </Button>
-            <Button variant="ghost" size="sidebar-nav" className={styles.navLink} onClick={onOpenPlugins} aria-label="Plugins" title="Plugins">
+            </SidebarMenuItem>
+            <SidebarMenuItem className="flex-1 list-none">
+            <Button variant="ghost" size="sidebar-nav" className={`${styles.navLink} min-w-0 flex-1`} onClick={onOpenPlugins} aria-label="Plugins" title="Plugins">
               <PluginIcon size={14} /><Text role="navigation" className={styles.navLabel}>Plugins</Text>
             </Button>
-          </div>
+            </SidebarMenuItem>
+          </SidebarMenu>
         </RailSection>
       </div>
       <div ref={listRef} className={styles.content} data-region="sidebar-content" onScroll={onScroll}>
