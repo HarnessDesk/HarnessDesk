@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent }
 
 import { ArrowLeftIcon, ArrowRightIcon } from '../../components/Icons'
 import { dataUrlBytes, formatBytes } from '../../lib/images'
-import { DialogHead } from './ModalDialog'
+import { DialogBody, DialogHead } from './ModalDialog'
 import { Text } from './Settings'
 import { Button } from '../ui/button'
 import {
@@ -82,12 +82,14 @@ export const Lightbox = ({
            would put a ring on the first of them, the Previous step. */
         initialFocus={() => sheet.current}
         onKeyDown={step}
-        className="h-[min(88vh,900px)] w-[min(88vw,1200px)] grid-rows-[auto_minmax(0,1fr)] sm:max-w-none"
+        bleed
+        className="grid h-[min(88vh,900px)] w-[min(88vw,1200px)] grid-rows-[auto_minmax(0,1fr)]"
       >
         <DialogHead title={image.name}>
           {facts && <DialogDescription className="m-0"><Text role="meta">{facts}</Text></DialogDescription>}
         </DialogHead>
-        <figure className="m-0 grid min-h-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
+        <DialogBody layout="reading" className="grid min-h-0">
+        <figure className="m-0 grid h-full min-h-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
           {several && (
             <Button
               variant="floating"
@@ -120,6 +122,7 @@ export const Lightbox = ({
             </Button>
           )}
         </figure>
+        </DialogBody>
       </DialogContent>
     </DialogRoot>
   )

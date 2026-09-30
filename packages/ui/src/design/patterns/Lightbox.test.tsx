@@ -110,6 +110,10 @@ it('is the dialog, drawn by the dialog: its surface, its close, and the name as 
   expect(title?.classList.contains('sr-only')).toBe(false)
   expect(sheet?.getAttribute('aria-labelledby')).toBe(title?.id)
   expect(document.querySelector('[data-role="meta"]')?.textContent).toContain('1 of 2')
+  // As every Dialog: the surface bleeds (no padding of its own), and the
+  // head and the body own their insets, so the head runs edge to edge.
+  expect(sheet?.className).not.toMatch(/(?:^|\s)p-5(?:\s|$)/)
+  expect(sheet?.querySelector('[data-slot="modal-dialog-body"] figure')).not.toBeNull()
 })
 
 it('steps the gallery with the floating control every button over content wears', async () => {
