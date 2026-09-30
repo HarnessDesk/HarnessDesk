@@ -1292,7 +1292,8 @@ const heatHourLedger = (): LedgerReport => ({
     const weekday = Math.floor(index / 24)
     const hour = index % 24
     const daytime = hour >= 9 && hour < 19
-    const factor = (weekday < 5 ? 1 : 0.25) * (daytime ? 1 : 0.22) * (0.65 + ((index * 31) % 35) / 100)
+    const weekend = weekday === 0 || weekday === 6
+    const factor = (weekend ? 0.25 : 1) * (daytime ? 1 : 0.22) * (0.65 + ((index * 31) % 35) / 100)
     return [
       { runtime: HEAT_CLAUDE, weekday, hour, requests: Math.round(36 * factor), tokens: Math.round(2_100_000 * factor) },
       { runtime: HEAT_CODEX, weekday, hour, requests: Math.round(19 * factor), tokens: Math.round(1_050_000 * factor) },
@@ -1472,7 +1473,7 @@ const ChartKitBoard = () => {
       </Case>
     </div>
     <div className={styles.matrix}>
-      <Case label="by hour — local weekday and hour, with unknown hours called out">
+      <Case label="by hour — local weekday and hour">
         <div className="flex w-full flex-col gap-3">
           <HeatGrid
             label="Tokens by local weekday and hour"
@@ -1481,9 +1482,11 @@ const ChartKitBoard = () => {
             columnLabels={heatByHour.columnLabels}
             minCellPx={7}
           />
-          <HeatLegend levelTitle={heatLevelTitle} />
-          <EmptyState tight title="Hours fill in after the next full scan" />
+          <HeatLegend levelTitle={heatLevelTitle} showNotScanned={false} />
         </div>
+      </Case>
+      <Case label="no hourly data">
+        <EmptyState tight title="No hours recorded yet" />
       </Case>
     </div>
     <Rule>

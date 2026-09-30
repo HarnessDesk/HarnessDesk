@@ -2,7 +2,7 @@ import type { AppSnapshot } from '../../state/store'
 import type { LedgerReport, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 
 import { prefsForUsage } from '../../lib/accounts'
-import type { ActivityMetric } from '../../lib/heat'
+import type { HeatMetric, HourMetric } from '../../lib/heat'
 import type { RunwaySummary } from '../../lib/usage'
 import { Button, Segmented, Text } from '../../design'
 import { UsageActivity, type HeatView } from '../UsageActivity'
@@ -43,8 +43,10 @@ export const OverviewView = ({
   yearLedger,
   heatView,
   onHeatViewChange,
-  heatMetric,
-  onHeatMetricChange,
+  heatDayMetric,
+  onHeatDayMetricChange,
+  heatHourMetric,
+  onHeatHourMetricChange,
   stripMetric,
   onStripMetricChange,
   onOpenPlan,
@@ -74,8 +76,10 @@ export const OverviewView = ({
   yearLedger: LedgerReport | null
   heatView: HeatView
   onHeatViewChange: (view: HeatView) => void
-  heatMetric: ActivityMetric
-  onHeatMetricChange: (metric: ActivityMetric) => void
+  heatDayMetric: HeatMetric
+  onHeatDayMetricChange: (metric: HeatMetric) => void
+  heatHourMetric: HourMetric
+  onHeatHourMetricChange: (metric: HourMetric) => void
   /** The strip's own chart toggle — see `OverviewStrip.tsx`. */
   stripMetric: StripMetric
   onStripMetricChange: (metric: StripMetric) => void
@@ -176,8 +180,10 @@ export const OverviewView = ({
         report={yearLedger}
         view={heatView}
         onViewChange={onHeatViewChange}
-        metric={heatMetric}
-        onMetricChange={onHeatMetricChange}
+        dayMetric={heatDayMetric}
+        onDayMetricChange={onHeatDayMetricChange}
+        hourMetric={heatHourMetric}
+        onHourMetricChange={onHeatHourMetricChange}
       />
     </>
   )

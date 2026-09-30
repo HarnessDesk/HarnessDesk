@@ -20,7 +20,6 @@ import { formatMoney } from './usage'
 
 export type HeatMetric = 'tokens' | 'cost'
 export type HourMetric = 'tokens' | 'calls'
-export type ActivityMetric = HeatMetric | HourMetric
 export type HeatLevel = 0 | 1 | 2 | 3 | 4
 
 /** One agent's share of one day. */

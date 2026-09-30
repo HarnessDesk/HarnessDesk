@@ -19,12 +19,12 @@ import {
   WEEKDAY_NAMES,
   yearLevels,
   type HeatCell,
-  type ActivityMetric,
   type HeatMetric,
+  type HourMetric,
 } from '../lib/heat'
 import { formatMoney } from '../lib/usage'
 import { formatTokens } from '../lib/context-usage'
-import { agentCoverage, ledgerRuntimeIds } from '../lib/overview-strip'
+import { agentCoverage } from '../lib/overview-strip'
 import { useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import {
@@ -88,8 +88,10 @@ export const UsageActivity = ({
   report: suppliedReport,
   view: viewProp,
   onViewChange: onViewChangeProp,
-  metric: metricProp,
-  onMetricChange: onMetricChangeProp,
+  dayMetric: dayMetricProp,
+  onDayMetricChange: onDayMetricChangeProp,
+  hourMetric: hourMetricProp,
+  onHourMetricChange: onHourMetricChangeProp,
 }: {
   byId: ReadonlyMap<RuntimeId, RuntimeInfo>
   scope: RuntimeId | null
@@ -112,18 +114,23 @@ export const UsageActivity = ({
   report?: LedgerReport | null
   view?: HeatView
   onViewChange?: (view: HeatView) => void
-  metric?: ActivityMetric
-  onMetricChange?: (metric: ActivityMetric) => void
+  dayMetric?: HeatMetric
+  onDayMetricChange?: (metric: HeatMetric) => void
+  hourMetric?: HourMetric
+  onHourMetricChange?: (metric: HourMetric) => void
 }) => {
   const store = useStore()
   const [ownView, setOwnView] = useState<HeatView>('year')
-  const [ownMetric, setOwnMetric] = useState<ActivityMetric>('tokens')
+  const [ownDayMetric, setOwnDayMetric] = useState<HeatMetric>('tokens')
+  const [ownHourMetric, setOwnHourMetric] = useState<HourMetric>('tokens')
   const [ownLedger, setOwnLedger] = useState<LedgerReport | null>(null)
 
   const view = viewProp ?? ownView
   const setView = onViewChangeProp ?? setOwnView
-  const metric = metricProp ?? ownMetric
-  const setMetric = onMetricChangeProp ?? setOwnMetric
+  const dayMetric = dayMetricProp ?? ownDayMetric
+  const setDayMetric = onDayMetricChangeProp ?? setOwnDayMetric
+  const hourMetric = hourMetricProp ?? ownHourMetric
+  const setHourMetric = onHourMetricChangeProp ?? setOwnHourMetric
   const owned = suppliedReport === undefined
 
   useEffect(() => {
@@ -142,7 +149,6 @@ export const UsageActivity = ({
   const ledger = owned ? ownLedger : suppliedReport ?? null
 
   const currency = ledger?.currency ?? 'USD'
-  const dayMetric: HeatMetric = metric === 'cost' ? 'cost' : 'tokens'
   const format = (value: number): string => (dayMetric === 'tokens' ? formatTokens(value) : (formatMoney(value, currency) ?? '—'))
   const nameOf = (id: RuntimeId): string => byId.get(id)?.presentation.name ?? String(id)
   // Skip the mark rather than draw one for a runtime `byId` has never heard
@@ -155,7 +161,7 @@ export const UsageActivity = ({
 
   const recentCells = useMemo(() => buildRecentDays(ledger, now, AGENT_SPAN_DAYS), [ledger, now])
   const agentRows = useMemo(() => buildAgentRows(recentCells, dayMetric), [recentCells, dayMetric])
-  const hourGrid = useMemo(() => buildHourGrid(ledger, metric === 'calls' ? 'calls' : 'tokens'), [ledger, metric])
+  const hourGrid = useMemo(() => buildHourGrid(ledger, hourMetric), [ledger, hourMetric])
   const hourRows: readonly HeatGridRow[] = hourGrid.cells.map((cells, weekday) => ({
     key: WEEKDAY_NAMES[weekday] ?? String(weekday),
     header: [0, 2, 4].includes(weekday) ? <Text role="meta">{WEEKDAY_NAMES[weekday]?.slice(0, 3)}</Text> : undefined,
@@ -197,7 +203,7 @@ export const UsageActivity = ({
   const busiestHourWeekday = weekdayTotals.some((value) => value > 0)
     ? weekdayTotals.indexOf(Math.max(...weekdayTotals))
     : null
-  const hoursCoverage = agentCoverage(ledger?.coverage, ledgerRuntimeIds(ledger), 'hoursKnownFor')
+  const hoursCoverage = agentCoverage(ledger?.coverage, ledger?.daily.map((entry) => entry.runtime) ?? [], 'hoursKnownFor')
 
   const today = new Date(now)
   today.setHours(0, 0, 0, 0)
@@ -254,17 +260,13 @@ export const UsageActivity = ({
               label="Show by"
               options={VIEWS}
               value={view}
-              onChange={(next) => {
-                const nextView = next as HeatView
-                if ((nextView === 'hour' && metric === 'cost') || (nextView !== 'hour' && metric === 'calls')) setMetric('tokens')
-                setView(nextView)
-              }}
+              onChange={(next) => setView(next as HeatView)}
             />
             <Segmented
               label="Measure"
               options={view === 'hour' ? HOUR_METRICS : DAY_METRICS}
-              value={view === 'hour' ? (metric === 'calls' ? 'calls' : 'tokens') : dayMetric}
-              onChange={(next) => setMetric(next as ActivityMetric)}
+              value={view === 'hour' ? hourMetric : dayMetric}
+              onChange={(next) => view === 'hour' ? setHourMetric(next as HourMetric) : setDayMetric(next as HeatMetric)}
             />
           </>
         }
@@ -275,8 +277,8 @@ export const UsageActivity = ({
           {view === 'hour' ? (
             <>
               <div className={styles.fact}>
-                <Text role="metric">{metric === 'calls' ? hourTotal.toLocaleString() : formatTokens(hourTotal)}</Text>
-                <Text role="meta">{metric === 'calls' ? `${hourTotal === 1 ? 'call' : 'calls'} this year` : 'tokens this year'}</Text>
+                <Text role="metric">{!hourGrid.available ? '—' : hourMetric === 'calls' ? hourTotal.toLocaleString() : formatTokens(hourTotal)}</Text>
+                <Text role="meta">{hourMetric === 'calls' ? `${hourTotal === 1 ? 'call' : 'calls'} this year` : 'tokens this year'}</Text>
               </div>
               <div className={styles.fact}>
                 <Text role="metric">{busiestHour ? `${WEEKDAY_NAMES[busiestHour.weekday]?.slice(0, 3)} ${busiestHour.hour % 12 || 12} ${busiestHour.hour < 12 ? 'AM' : 'PM'}` : '—'}</Text>
@@ -328,7 +330,7 @@ export const UsageActivity = ({
           {ledger === null ? (
             <EmptyState tight title="Reading the ledger" />
           ) : view === 'hour' && !hourGrid.available ? (
-            <EmptyState tight title="Hours fill in after the next full scan" />
+            <EmptyState tight title="No hours recorded yet" />
           ) : (
             <HeatGrid
               label={view === 'year' ? 'Tokens or cost per day, this year' : view === 'agent' ? 'Tokens or cost per day, per agent, last 13 weeks' : 'Tokens or calls by local weekday and hour, this year'}
@@ -342,7 +344,10 @@ export const UsageActivity = ({
         </ChartCard>
 
         <ChartFoot>
-          <HeatLegend levelTitle={(level) => levelTitle(level, metric === 'calls' ? 'calls' : dayMetric)} />
+          <HeatLegend
+            levelTitle={(level) => levelTitle(level, view === 'hour' ? hourMetric : dayMetric)}
+            showNotScanned={view !== 'hour'}
+          />
           {view === 'hour' && hoursCoverage.partial && hoursCoverage.known > 0 && (
             <Text role="meta" className="basis-full">known for {hoursCoverage.known} of {hoursCoverage.total} agents</Text>
           )}
