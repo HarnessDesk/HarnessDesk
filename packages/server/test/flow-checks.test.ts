@@ -267,6 +267,44 @@ test('a retry whose planned revision has moved stalls with the reason instead of
   assert.match(execution.reason ?? '', new RegExp(`#${second.id}.*moved`))
 })
 
+/*
+ * #1094: `evidence: [{ check: gate }]`, naming the check role's own id
+ * rather than the command it runs, used to be silently unmatchable — the
+ * fact a check role leaves carries the literal command it ran, never the
+ * role's id, so the round would wait forever with nothing telling anyone
+ * why. The role's own id is now read as its command before the guard is
+ * matched, so the round opens exactly as it would if the rule had named
+ * "pnpm verify" itself.
+ */
+test('an evidence guard naming a check role’s own id opens the round once that role’s check passes (#1094)', async (t) => {
+  const GUARDED_BY_ROLE_ID = `
+version: 2
+name: Fix then gate, guarded by the gate role's own id
+roles:
+  author: { kind: agent, uses: writer, grant: edit }
+  gate: { kind: check, run: "pnpm verify", exits: { "0": pass }, otherwise: fail, timeout: 30 }
+  person: { kind: person, outcomes: [shipped] }
+seed: { role: author, title: Write it }
+rules:
+  - { id: check, on: author, when: { every: [done] }, then: { role: gate, title: Verify } }
+  - { id: ship, on: gate, when: { every: [pass], evidence: [{ check: gate }] }, then: { role: person, title: Ship it } }
+`
+  const rig = await goalRig(t)
+  // The evidence guard's subject is the writer's own head: a clean commit to judge the check's fact against.
+  rig.heads.set('/repo', { at: 'sha-author', dirty: false })
+  const run = await rig.start(GUARDED_BY_ROLE_ID, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+  assert.deepEqual(checks(rig.events), ['check:pnpm verify'])
+  const board = rig.board(run.goal)
+  assert.equal(board.intents.find((one) => one.role === 'gate')?.outcome, 'pass')
+  assert.ok(board.intents.find((one) => one.role === 'person'), 'the guard, naming the role’s own id, opened the person round once the check passed')
+
+  const unknown = GUARDED_BY_ROLE_ID.replace('check: gate', 'check: unknown')
+  await assert.rejects(() => rig.start(unknown, [agent('writer', ['done'])]), /Rule "ship" waits for a check called "unknown".*name a check role or its command/)
+})
+
 test('a writer with uncommitted changes stops the check round before any command runs', async (t) => {
   const rig = await goalRig(t)
   rig.heads.set('/repo/.lanes/1', { at: 'sha-writer-1', dirty: false })
