@@ -37,6 +37,7 @@ import { createInterface } from 'node:readline'
 
 const NAME = process.env['SHOT_AGENT_NAME'] ?? 'agent'
 const STORE = process.env['SHOT_STORE'] ?? null
+const ROOM_TILE = process.env['SHOT_ROOM_TILE'] === '1'
 const MODELS = (process.env['SHOT_MODELS'] ?? 'sonnet:Sonnet,opus:Opus')
   .split(',')
   .map((one) => one.split(':'))
@@ -435,6 +436,14 @@ const turnFor = (state) => {
   const n = state ? (state.turnsPlayed ?? 0) : 0
   if (state) state.turnsPlayed = n + 1
   const index = TURN_LIST[Math.min(n, TURN_LIST.length - 1)] ?? 0
+  if (ROOM_TILE) {
+    return {
+      Claude: { say: ['502 is retryable now; the capped, jittered backoff gives the gateway time to recover.'] },
+      Gemini: { say: ['Two 502 cases now pass, including the terminal case that preserves the original status.'] },
+      Copilot: { say: ['Delivery-id keys make a 24-hour redelivery a safe no-op that still answers 200.'] },
+      Antigravity: { say: ['Alert on distinct clients, not raw retry volume, so one noisy client cannot hide a real storm.'] },
+    }[NAME] ?? TURNS[index % TURNS.length]
+  }
   return TURNS[index % TURNS.length]
 }
 

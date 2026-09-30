@@ -87,6 +87,11 @@ const OUT = resolve(flag('out', `${APP}/docs/images/app`))
 const WIDTH = Number(flag('width', '1440'))
 const HEIGHT = Number(flag('height', '900'))
 const THEMES = flag('theme') ? [flag('theme')] : ['light', 'dark']
+/* The README room tile needs a deliberately compact real room: enough cards
+   for four claims and two named collisions, but not the expanded board
+   scene's eleven event rows. This switch only changes the camera fixture;
+   ordinary `room` and `board` captures keep their fuller working board. */
+const ROOM_TILE = has('room-tile')
 const REPO = join(WORK, REPOS[0].dir)
 const say = (line) => process.stdout.write(`  ${line}\n`)
 const PROVENANCE_SHOTS = (() => {
@@ -100,6 +105,34 @@ const busy = await deskInUse(HOME)
 if (busy) {
   process.stderr.write(`\n  A desk is already open on ${HOME} (pid ${busy}). Quit it first.\n\n`)
   process.exit(1)
+}
+
+/* The compact tile still uses the real seat and claim path. It changes only
+   which staged cards the four fake agents claim: each has one card, while
+   Gemini's second retry-path claim and Antigravity's second webhook-path
+   claim are honestly refused because those files are already held. */
+if (ROOM_TILE) {
+  const path = join(HOME, 'agents.json')
+  const roster = JSON.parse(readFileSync(path, 'utf8'))
+  const claims = {
+    [rigRuntimeId('claude-code')]: [{ intent: 1, files: ['src/checkout/retry.ts'] }],
+    [rigRuntimeId('gemini-cli')]: [
+      { intent: 2, files: ['src/checkout/backoff.ts'] },
+      { intent: 6, files: ['src/checkout/retry.ts'] },
+    ],
+    [rigRuntimeId('copilot')]: [{ intent: 4, files: ['src/webhooks/receiver.ts'] }],
+    [rigRuntimeId('antigravity')]: [
+      { intent: 5, files: ['src/alerts/retry.ts'] },
+      { intent: 7, files: ['src/webhooks/receiver.ts'] },
+    ],
+  }
+  for (const agent of roster.agents) {
+    const claim = claims[agent.id]
+    if (!claim) continue
+    agent.env = { ...agent.env, SHOT_CLAIM: JSON.stringify(claim), SHOT_ROOM_TILE: '1' }
+  }
+  writeFileSync(path, `${JSON.stringify(roster, null, 2)}\n`)
+  say('room tile fixture: four claims, two named conflicts, compact replies')
 }
 
 mkdirSync(OUT, { recursive: true })
@@ -683,7 +716,7 @@ rules:
     // real ids `team/add` hands back, in `BOARD`'s own order.
     const ask = (method, params) => cdp.eval(`${STORE}.transport.request(${q(method)}, ${q(params)})`, 60_000).catch(() => {})
     boardCardIds = []
-    for (const job of BOARD) {
+    for (const job of (ROOM_TILE ? BOARD.slice(0, 7) : BOARD)) {
       const dependsOn = job.dependsOn?.map((i) => boardCardIds[i]).filter((id) => id !== undefined)
       const added = await cdp.eval(
         `${STORE}.transport.request('team/add', ${q({ room: roomId, title: job.title, detail: job.detail, ...(dependsOn?.length ? { dependsOn } : {}) })}).then((intent) => intent.id)`,
