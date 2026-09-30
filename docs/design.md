@@ -186,18 +186,20 @@ Rows:
 | token | value | note |
 | --- | --- | --- |
 | `--hd-row-h` | 30px | a one-line row |
-| `--hd-nav-h` | `calc(--hd-text * 1.5 + --hd-space-1 * 2)` | a navigation row — solved, not written |
+| `--hd-nav-h` | `calc(--hd-line-sm + --hd-space-1 * 2 + 2px)` | a navigation row — solved, not written (30px) |
 | `--hd-control-h` | 26px | dense toolbar targets and icon buttons |
 | `--hd-field-h` | 30px | inputs and selects: matches `--hd-btn-h` |
 | `--hd-bar-h` | 46px | the window's own bar, and a pane's |
 
-A navigation row's height is solved from **the reading size**, not from the size
-the row itself is set in: `--hd-text` times 1.5, plus one step of padding above
-and below. The row's own text is a step smaller than that, which is the point —
-every row in every column stands the same height whatever it happens to carry,
-and a row of 13px labels does not end up shorter than a row of 14px ones. It is
-also what lets the density or the reading size move every one of them without a
-second edit, and it is how the two heights that column used to have became one.
+A navigation row's height is solved from **the row's real box**, not written:
+its small line (`--hd-line-sm`), one step of padding above and below, and the
+1px border it keeps on each side for focus and selection. Every row in every
+column stands that height whatever it happens to carry, so a row of 13px labels
+does not end up shorter than a row of 14px ones, and moving the line or the
+density moves every one of them without a second edit. It used to be solved
+from the reading size alone (`--hd-text` times 1.5), which came to 29px — a
+pixel under the rows that carried their border, so the settings rail sat
+lower than the sidebar and a menu beside it (#1073).
 
 Rows sit 2px apart. Without that gap a hover or selection pill reads as a band
 across the column rather than as one row.

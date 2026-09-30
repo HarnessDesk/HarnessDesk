@@ -309,8 +309,9 @@ const destinationRowViolations = (page: Page, menuHeight?: number, kindsAgree = 
           out.push({ where, height, navH, reason: 'destination-row kinds disagree: ' + JSON.stringify(representative) })
         }
       }
-      return { out, measured }`)(menuH, acrossKindsToo)
-  }, [PROBE_HELPERS, menuHeight, kindsAgree] as const) as Promise<{ out: RowFinding[]; measured: number }>
+      const counts = Object.fromEntries(Object.entries(groups).map(([where, list]) => [where, list.length]))
+      return { out, measured, counts }`)(menuH, acrossKindsToo)
+  }, [PROBE_HELPERS, menuHeight, kindsAgree] as const) as Promise<{ out: RowFinding[]; measured: number; counts: Record<string, number> }>
 
 /** Opens the sidebar footer's account menu (reused from `visual-contracts.spec.ts`). */
 const openAccountMenu = async (page: Page) => {
@@ -333,9 +334,15 @@ test.describe('rule: destination rows', () => {
         await openAccountMenu(page)
         const menuHeight = await page.locator('[role="menuitem"]').first().evaluate((el) => Math.round(el.getBoundingClientRect().height))
         await page.keyboard.press('Escape')
-        const { out, measured } = await destinationRowViolations(page, menuHeight)
-        // A check that measures nothing must fail, not pass by default.
+        const { out, measured, counts } = await destinationRowViolations(page, menuHeight)
+        // A check that measures nothing must fail, not pass by default — and
+        // per kind, not in total: the menu item alone would make `measured`
+        // non-zero, and agreement across kinds means nothing with a kind
+        // missing.
         expect(measured, `${theme}/${look}: no destination row was found`).toBeGreaterThan(0)
+        for (const [where, count] of Object.entries(counts)) {
+          expect(count, `${theme}/${look}: no ${where} was found`).toBeGreaterThan(0)
+        }
         for (const finding of out) findings.push({ ...finding, where: `${theme}/${look}: ${finding.where}` })
       }
     }
@@ -363,17 +370,20 @@ test.describe('rule: destination rows', () => {
     expect(after.out.some((f) => f.reason.includes("own rows disagree"))).toBe(true)
   })
 
-  test('rule: destination rows — the checker catches the kinds a pixel apart in Desk', async ({ page }) => {
-    await gotoPreview(page)
-    await setPreviewDials(page, 'light', 'desk')
-    const before = await destinationRowViolations(page)
-    expect(before.out).toEqual([])
-    // What Desk was before #1073, the other way round: one kind a pixel off
-    // the others while agreeing with its own siblings.
-    await page.addStyleTag({ content: '[class*="winNavItem"] { min-height: calc(var(--hd-nav-h) + 1px) !important; }' })
-    const after = await destinationRowViolations(page)
-    expect(after.out.some((f) => f.reason.startsWith('destination-row kinds disagree'))).toBe(true)
-  })
+  for (const theme of ['light', 'dark'] as const) {
+    test(`rule: destination rows — the checker catches the kinds a pixel apart in Desk (${theme})`, async ({ page }) => {
+      await gotoPreview(page)
+      await setPreviewDials(page, theme, 'desk')
+      const before = await destinationRowViolations(page)
+      expect(before.out).toEqual([])
+      expect(before.counts['settings/usage rail row']).toBeGreaterThan(0)
+      // What Desk was before #1073, the other way round: one kind a pixel off
+      // the others while agreeing with its own siblings.
+      await page.addStyleTag({ content: '[class*="winNavItem"] { min-height: calc(var(--hd-nav-h) + 1px) !important; }' })
+      const after = await destinationRowViolations(page)
+      expect(after.out.some((f) => f.reason.startsWith('destination-row kinds disagree'))).toBe(true)
+    })
+  }
 })
 
 /* ========================================================================
