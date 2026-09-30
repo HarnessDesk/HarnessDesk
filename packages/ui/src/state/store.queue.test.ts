@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   runtimeId,
@@ -47,6 +47,17 @@ beforeEach(() => {
 })
 
 describe('the queue in the store', () => {
+  it('reports a refused steer and keeps its refusal reason visible', async () => {
+    vi.spyOn(store.transport, 'request').mockRejectedValueOnce(new Error('turn already ended'))
+    await expect(store.steer([{ type: 'text', text: 'keep this' }], KEY)).resolves.toBe(false)
+    expect(store.getSnapshot().notices.some((notice) => notice.message.includes('turn already ended'))).toBe(true)
+  })
+
+  it('reports an accepted steer', async () => {
+    vi.spyOn(store.transport, 'request').mockResolvedValueOnce(null)
+    await expect(store.steer([{ type: 'text', text: 'keep this' }], KEY)).resolves.toBe(true)
+  })
+
   it('starts with nothing, and takes the whole list the host sends', () => {
     expect(store.getSnapshot().queues.size).toBe(0)
     feed({ type: 'session/queue', sessionId: sessionId('s1'), queue: queue('a', 'b') })

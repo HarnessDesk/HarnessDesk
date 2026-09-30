@@ -64,7 +64,7 @@ const session = (busy: boolean, items: readonly unknown[] = []): Session =>
 
 const calls = {
   queue: vi.fn(async (_input: unknown, _key?: unknown) => true),
-  steer: vi.fn(async () => {}),
+  steer: vi.fn(async () => true),
   send: vi.fn(async () => {}),
   interrupt: vi.fn(async () => {}),
   notice: vi.fn(),
@@ -201,6 +201,113 @@ describe('the composer while a turn is running', () => {
     enter()
     await act(async () => {})
     expect(textarea().value).toBe('do not lose me')
+  })
+
+  it('keeps a refused steer recoverable without replacing a newer draft', async () => {
+    calls.steer.mockImplementationOnce(async () => false)
+    mount({ busy: true, steer: true })
+    act(() => window.dispatchEvent(new CustomEvent('harnessdesk:compose', {
+      detail: { text: 'steer me', attachments: [{ name: 'spec.md', path: '/w/spec.md', kind: 'file' }] },
+    })))
+    await act(async () => {
+      enter({ meta: true })
+      type('newer draft')
+      await Promise.resolve()
+    })
+
+    expect(textarea().value).toBe('newer draft')
+    expect(container.textContent).toContain('Message not sent')
+    const restore = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('Restore'))
+    expect(restore).toBeDefined()
+    act(() => restore?.click())
+    expect(textarea().value).toBe('steer me')
+    expect(container.textContent).toContain('spec.md')
+    const restoreNewer = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('Restore'))
+    expect(restoreNewer).toBeDefined()
+    act(() => restoreNewer?.click())
+    expect(textarea().value).toBe('newer draft')
+  })
+
+  it('restores a refused steer with its chips when the composer is empty', async () => {
+    calls.steer.mockImplementationOnce(async () => false)
+    mount({ busy: true, steer: true })
+    act(() => window.dispatchEvent(new CustomEvent('harnessdesk:compose', {
+      detail: { text: 'steer me', attachments: [{ name: 'spec.md', path: '/w/spec.md', kind: 'file' }] },
+    })))
+    await act(async () => {
+      enter({ meta: true })
+      await Promise.resolve()
+    })
+    expect(textarea().value).toBe('steer me')
+    expect(container.textContent).toContain('spec.md')
+  })
+
+  it('keeps a refused queue recoverable without replacing a newer draft', async () => {
+    calls.queue.mockImplementationOnce(async () => false)
+    mount({ busy: true })
+    type('first message')
+    await act(async () => {
+      enter()
+      type('second message')
+      await Promise.resolve()
+    })
+
+    expect(textarea().value).toBe('second message')
+    expect(container.textContent).toContain('Message not sent')
+    const restore = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('Restore'))
+    expect(restore).toBeDefined()
+    act(() => restore?.click())
+    expect(textarea().value).toBe('first message')
+    const restoreNewer = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('Restore'))
+    expect(restoreNewer).toBeDefined()
+    act(() => restoreNewer?.click())
+    expect(textarea().value).toBe('second message')
+  })
+
+  it('keeps earlier refused messages when a later retry is refused too', async () => {
+    calls.queue.mockImplementationOnce(async () => false).mockImplementationOnce(async () => false)
+    mount({ busy: true })
+    type('first refused')
+    await act(async () => {
+      enter()
+      type('second refused')
+      await Promise.resolve()
+    })
+    await act(async () => {
+      enter()
+      type('newest draft')
+      await Promise.resolve()
+    })
+
+    expect(textarea().value).toBe('newest draft')
+    expect(container.querySelectorAll('[data-slot="composer-notice"]')).toHaveLength(2)
+    const restore = [...container.querySelectorAll<HTMLButtonElement>('[data-slot="composer-notice"] button')]
+    act(() => restore[1]?.click())
+    expect(textarea().value).toBe('second refused')
+    expect(container.querySelectorAll('[data-slot="composer-notice"]')).toHaveLength(2)
+  })
+
+  it('clears recovery after an accepted steer', async () => {
+    calls.steer.mockImplementationOnce(async () => true)
+    mount({ busy: true, steer: true })
+    type('accepted steer')
+    await act(async () => {
+      enter({ meta: true })
+      await Promise.resolve()
+    })
+    expect(container.textContent).not.toContain('Message not sent')
+  })
+
+  it('does not hold an accepted queue as recoverable', async () => {
+    calls.queue.mockImplementationOnce(async () => true)
+    mount({ busy: true })
+    type('accepted queue')
+    await act(async () => {
+      enter()
+      await Promise.resolve()
+    })
+    expect(textarea().value).toBe('')
+    expect(container.textContent).not.toContain('Message not sent')
   })
 })
 

@@ -15,6 +15,7 @@ import {
   Attachment as AttachmentTile,
   AttachmentMedia,
   Button,
+  ComposerNotice,
   ComposerChip,
   ComposerChips,
   ComposerDropHint,
@@ -122,6 +123,17 @@ interface Attachment {
   readonly runtime?: RuntimeId
 }
 
+interface Draft {
+  readonly text: string
+  readonly attachments: readonly Attachment[]
+}
+
+interface RecoverableDraft {
+  readonly id: number
+  readonly draft: Draft
+  readonly reason: 'refused' | 'saved'
+}
+
 let attachmentCounter = 0
 const nextAttachmentId = (): string => `att-${++attachmentCounter}`
 
@@ -186,6 +198,10 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
 
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
+  const [recoverable, setRecoverable] = useState<RecoverableDraft[]>([])
+  const nextRecoverableId = useRef(0)
+  const currentDraft = useRef<Draft>({ text, attachments })
+  currentDraft.current = { text, attachments }
   // Drag-and-drop: the counter survives the enter/leave pairs every child
   // fires as the pointer crosses it, so the highlight does not flicker.
   const dragDepth = useRef(0)
@@ -536,6 +552,34 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
    * call to make: it sends at once when nothing is running and holds it when
    * something is, so the two states cannot disagree across a round trip.
    */
+  const recoverDraft = useCallback((draft: Draft) => {
+    const current = currentDraft.current
+    if (current.text.trim().length === 0 && current.attachments.length === 0) {
+      setText(draft.text)
+      setAttachments([...draft.attachments])
+      return
+    }
+    // Keep the newer draft in the composer and make the refused message
+    // reachable through the notice above it.
+    const id = ++nextRecoverableId.current
+    setRecoverable((current) => [...current, { id, draft, reason: 'refused' }])
+  }, [])
+
+  const restoreDraft = useCallback((id: number) => {
+    const selected = recoverable.find((item) => item.id === id)
+    if (!selected) return
+    const current = currentDraft.current
+    const displaced = current.text.trim().length > 0 || current.attachments.length > 0
+      ? { id: ++nextRecoverableId.current, draft: current, reason: 'saved' as const }
+      : null
+    setRecoverable((items) => [
+      ...items.filter((item) => item.id !== id),
+      ...(displaced ? [displaced] : []),
+    ])
+    setText(selected.draft.text)
+    setAttachments([...selected.draft.attachments])
+  }, [recoverable])
+
   const deliver = useCallback(async (mode: 'auto' | 'now' = 'auto', release: () => void = () => {}) => {
     // `/open src/a.ts` is a command with an argument, not a message that
     // happens to start with a slash — and that holds however the draft is
@@ -680,17 +724,15 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     if (key) release()
 
     if (mode === 'now' && busy && canSteer) {
-      await store.steer(content, key)
+      const accepted = await store.steer(content, key)
+      if (!accepted) recoverDraft(draft)
       return
     }
     // A message that did not get anywhere goes back in the box. Losing what
     // was typed is the failure this whole feature exists to prevent, so the
     // one path that can fail has to put it back.
     const delivered = await store.queue(content, key)
-    if (!delivered) {
-      setText((current) => (current.trim().length > 0 ? current : draft.text))
-      setAttachments((current) => (current.length > 0 ? current : draft.attachments))
-    }
+    if (!delivered) recoverDraft(draft)
   }, [
     acceptsImages,
     agentName,
@@ -702,6 +744,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     handoff,
     images.length,
     key,
+    recoverDraft,
     scope,
     store,
     text,
@@ -947,6 +990,20 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       <ComposerNoticeStack>
         <NoticeStripOutlet host={isNoticeHost} />
         <ComposerNotices />
+        {recoverable.map((item) => (
+          <ComposerNotice
+            key={item.id}
+            message={{
+              id: `composer-recoverable-draft-${item.id}`,
+              tone: item.reason === 'refused' ? 'warning' : 'neutral',
+              title: item.reason === 'refused' ? 'Message not sent.' : 'Draft saved.',
+              body: item.reason === 'refused'
+                ? 'Restore it to the composer; your current draft stays available.'
+                : 'Restore it to swap with the current draft.',
+              action: { label: 'Restore', onSelect: () => restoreDraft(item.id) },
+            }}
+          />
+        ))}
       </ComposerNoticeStack>
       <ComposerShell
         className={`${styles.shell} ${styles.anchor}`}

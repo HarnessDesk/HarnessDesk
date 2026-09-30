@@ -5617,12 +5617,14 @@ export class AppStore {
     }
   }
 
-  async steer(input: readonly UserContent[], key = this.#snapshot.activeSessionKey): Promise<void> {
-    if (!key) return
+  async steer(input: readonly UserContent[], key = this.#snapshot.activeSessionKey): Promise<boolean> {
+    if (!key) return false
     try {
       await this.transport.request('turn/steer', { ...address(key), input })
+      return true
     } catch (error) {
       this.notice('error', describe(error))
+      return false
     }
   }
 
