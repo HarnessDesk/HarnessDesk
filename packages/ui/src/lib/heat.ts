@@ -181,6 +181,13 @@ export const buildYearGrid = (ledger: LedgerReport | null, now: number): YearGri
     if (!first) return
     const month = new Date(first.day).getMonth()
     if (month !== lastMonth) {
+      const previous = monthLabels[monthLabels.length - 1]
+      if (previous && index - previous.week < 3) {
+        // Months are four or more columns apart, so a label within three of
+        // the next is the grid's clipped first month: drawn, it runs into the
+        // next one ("SepOct", #1114). The month that follows keeps the space.
+        monthLabels.pop()
+      }
       monthLabels.push({ week: index, label: new Date(first.day).toLocaleDateString(undefined, { month: 'short' }) })
       lastMonth = month
     }
