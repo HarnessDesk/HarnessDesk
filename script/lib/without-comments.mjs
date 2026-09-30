@@ -10,7 +10,7 @@
  * already (#123, #228).
  */
 
-import ts from 'typescript'
+import ts from '@typescript/typescript6'
 
 /**
  * How the parser should read a file, from its name.

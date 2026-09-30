@@ -3,7 +3,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import ts from 'typescript'
+import ts from '@typescript/typescript6'
 
 import { repositoryFiles } from './lib/repository-files.mjs'
 
