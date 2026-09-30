@@ -55,7 +55,17 @@ export interface EvidenceOptions {
   /** Seals the key the approvals are signed with; the desktop app's is backed by the OS keychain. */
   readonly cipher?: CredentialCipher
   readonly now?: () => number
+  /** How long closing waits for card looks still running; `LOOK_DRAIN_MS` when absent. */
+  readonly lookDrainMs?: number
 }
+
+/**
+ * How long closing the desk waits for card looks still in flight. A look is a
+ * few git reads and one `gh` read, each under its own timeout, and on a
+ * healthy checkout it is over in well under a second. This bound is for the
+ * one that is not: a hung git must not hold the quit open.
+ */
+export const LOOK_DRAIN_MS = 10_000
 
 /**
  * Where a card's work began, for its diff: its claim's own record; else where
@@ -86,10 +96,12 @@ export class EvidencePlane {
   /** The last stamp a board read took: each is later than the one before, whatever the clock does. */
   #lastStamp = 0
   #closed = false
+  readonly #lookDrainMs: number
 
   constructor(options: EvidenceOptions, port: EvidencePort) {
     this.#port = port
     this.#now = options.now ?? Date.now
+    this.#lookDrainMs = options.lookDrainMs ?? LOOK_DRAIN_MS
     this.store = new EvidenceStore(options.dir, (message, details) => port.log(message, details))
     this.seats = new SeatBook(this.store, options.now)
     this.store.onDurable((_project, file, lines) => {
@@ -509,6 +521,8 @@ export class EvidencePlane {
     const work = (async () => {
       let recorded = false
       for (const look of looks) {
+        // Closing waits for the look under way, never for the rest of its batch.
+        if (this.#closed) break
         try {
           recorded = (await this.observer.observe(look)) || recorded
         } catch (error) {
@@ -757,12 +771,23 @@ export class EvidencePlane {
   /**
    * The desk is closing: no new looks start, running checks are stopped, and
    * every look and Seat settles before the store flush. Looks come first so
-   * none can append to the evidence folder after that flush.
+   * none can append to the evidence folder after that flush (#1141). The wait
+   * for looks is bounded (`LOOK_DRAIN_MS`). Past it, the quit goes on and says
+   * so once, and whatever is still running may land late, which only a hung
+   * git or `gh` can cause.
    */
   async close(): Promise<void> {
     this.#closed = true
     await this.checks.stop()
-    await Promise.allSettled([...this.#looks])
+    if (this.#looks.size > 0) {
+      let deadline: ReturnType<typeof setTimeout> | undefined
+      const late = await Promise.race([
+        Promise.allSettled([...this.#looks]).then(() => false),
+        new Promise<boolean>((resolve) => { deadline = setTimeout(() => resolve(true), this.#lookDrainMs) }),
+      ])
+      clearTimeout(deadline)
+      if (late) this.#port.log('some card looks were still running when the desk closed', { looks: this.#looks.size })
+    }
     await this.seats.settled()
     // A write that failed was refused to its caller already; the quit says so again, where it is read.
     await this.store.flush().catch((error: unknown) =>

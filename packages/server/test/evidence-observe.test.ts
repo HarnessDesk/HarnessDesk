@@ -231,6 +231,80 @@ test('a board read after close starts no observation', async () => {
   assert.deepEqual((await plane.store.read(await canonical(repo.dir), 'evidence')).lines, [])
 })
 
+test('closing waits for the look under way, never for the rest of its batch', async () => {
+  const repo = await branchWithWork()
+  const state = tempDir('hd-observe-batch-')
+  let entered!: () => void
+  const atForge = new Promise<void>((resolve) => { entered = resolve })
+  let release!: () => void
+  const forgeGate = new Promise<void>((resolve) => { release = resolve })
+  let reads = 0
+  const plane = new EvidencePlane(
+    { dir: join(state, 'evidence'), seenFile: join(state, 'seen.json'), gh: async () => {
+      reads += 1
+      entered()
+      await forgeGate
+      return { stdout: '', stderr: 'no pull requests found', exitCode: 1 }
+    } },
+    {
+      board: () => ({
+        id: 'room-1', root: repo.dir, cwd: repo.dir,
+        intents: [
+          { id: 4, state: 'claimed', claim: { runtime: 'fake', sessionId: 'session-1', head: null } },
+          { id: 5, state: 'claimed', claim: { runtime: 'fake', sessionId: 'session-2', head: null } },
+        ],
+      }) as unknown as TeamState,
+      cwdOf: () => repo.dir,
+      push: () => {},
+      log: () => {},
+    },
+  )
+
+  await plane.board('room-1')
+  await atForge
+  const closing = plane.close()
+  release()
+  await closing
+  assert.equal(reads, 1, 'the batch stopped after the look under way; card 5 was never looked at')
+})
+
+test('closing does not wait for ever on a look that hangs, and says so', async () => {
+  const repo = await branchWithWork()
+  const state = tempDir('hd-observe-hung-')
+  let entered!: () => void
+  const atForge = new Promise<void>((resolve) => { entered = resolve })
+  let release!: () => void
+  const forgeGate = new Promise<void>((resolve) => { release = resolve })
+  const logged: string[] = []
+  const plane = new EvidencePlane(
+    { dir: join(state, 'evidence'), seenFile: join(state, 'seen.json'), lookDrainMs: 20, gh: async () => {
+      entered()
+      await forgeGate
+      return { stdout: '', stderr: 'no pull requests found', exitCode: 1 }
+    } },
+    {
+      board: () => ({
+        id: 'room-1', root: repo.dir, cwd: repo.dir,
+        intents: [{ id: 4, state: 'claimed', claim: { runtime: 'fake', sessionId: 'session-1', head: null } }],
+      }) as unknown as TeamState,
+      cwdOf: () => repo.dir,
+      push: () => {},
+      log: (message) => { logged.push(message) },
+    },
+  )
+  const observe = plane.observer.observe.bind(plane.observer)
+  let looking: Promise<boolean> | null = null
+  plane.observer.observe = (look) => (looking = observe(look))
+
+  await plane.board('room-1')
+  await atForge
+  await plane.close()
+  assert.ok(logged.includes('some card looks were still running when the desk closed'), logged.join(' | '))
+  // Let the held look finish, so nothing outlives the test.
+  release()
+  await looking
+})
+
 test("a checkout outside the room's project is not looked at", async () => {
   const repo = await branchWithWork()
   const store = new EvidenceStore(tempDir('hd-observe-store-'))
