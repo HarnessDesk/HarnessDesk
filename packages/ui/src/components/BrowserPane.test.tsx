@@ -371,6 +371,11 @@ describe('BrowserPane', () => {
     mount(browserView('https://a.test/'))
     expect(container.textContent).toContain('Idle')
     expect(container.textContent).not.toContain('Being driven')
+    const footer = [...container.querySelectorAll('[data-slot="bar"][data-rule="top"]')]
+      .find((bar) => bar.textContent?.includes('Idle'))
+    expect(footer).toBeDefined()
+    expect(footer?.querySelector('[data-slot="text"][data-role="meta"]')?.textContent).toBe('Idle')
+    expect(footer?.textContent).toContain('Never your own browser profile')
   })
 
   it('names the driven tab to the shell, not whichever tab is on screen', () => {
