@@ -16,6 +16,7 @@ import {
 import { MeterAuthError, type MeterReading, type UsageMeter } from './meter.js'
 
 const DAY_MS = 86_400_000
+const DEFAULT_BALANCE_HISTORY_DAYS = 30
 /** "The current billing cycle when the report knows one, else the last 14 days" — "Turns", `docs/usage-dashboard.md`. */
 const FALLBACK_TURNS_WINDOW_DAYS = 14
 /** `UsageReport.turns.unitsPerTurn` needs this many turns in the window before it says a rate; fewer reports the count with a null rate. */
@@ -56,6 +57,11 @@ export interface UsageServiceOptions {
   /** Meters bound to a runtime id by the registry, or inferred at bootstrap. */
   readonly meters: ReadonlyMap<RuntimeId, UsageMeter>
   readonly spend?: SpendSource | null
+  /** The host's own persisted balance readings, scoped to one account. */
+  readonly balances?: {
+    record(runtime: RuntimeId, account: string, at: number, remaining: number, unit: string): void
+    history(runtime: RuntimeId, account: string, since: number): readonly { readonly at: number; readonly remaining: number; readonly unit: string }[]
+  }
   /** Called for each report as it lands, so a slow source never delays a fast one. */
   readonly onReport: (report: UsageReport) => void
   readonly log?: (message: string, details?: Record<string, unknown>) => void
@@ -174,7 +180,38 @@ export class UsageService {
    * never skipped on one path while another remembers it.
    */
   async #finish(id: RuntimeId, report: UsageReport): Promise<UsageReport> {
-    const overlaid = this.#options.overlay ? await this.#options.overlay(report) : report
+    let complete = report
+    const balances = this.#options.balances
+    if (balances) {
+      const { balanceHistory: _previousHistory, ...withoutHistory } = report
+      complete = withoutHistory
+      const credits = report.credits
+      if (credits && typeof credits.remaining === 'number' && Number.isFinite(credits.remaining) && !credits.unlimited) {
+        const at = this.#now()
+        const account = report.account ?? ''
+        try {
+          balances.record(id, account, at, credits.remaining, credits.unit)
+        } catch (error) {
+          this.#options.log?.('a prepaid balance could not be recorded', {
+            runtime: id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+        try {
+          const since = at - DEFAULT_BALANCE_HISTORY_DAYS * DAY_MS
+          const points = balances.history(id, account, since)
+            .filter((point) => point.unit === credits.unit && point.at >= since)
+            .map(({ at: pointAt, remaining }) => ({ at: pointAt, remaining }))
+          if (points.length >= 2) complete = { ...complete, balanceHistory: { unit: credits.unit, points } }
+        } catch (error) {
+          this.#options.log?.('prepaid balance history could not be read', {
+            runtime: id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+    }
+    const overlaid = this.#options.overlay ? await this.#options.overlay(complete) : complete
     this.#cache.set(id, overlaid)
     if (!this.#disposed) this.#options.onReport(overlaid)
     return overlaid

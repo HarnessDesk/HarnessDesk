@@ -191,6 +191,16 @@ export class Ledger {
     this.#store.close()
   }
 
+  /** Store one balance reading without exposing the ledger's SQLite store. */
+  recordBalance(runtime: RuntimeId, account: string, at: number, remaining: number, unit: string): void {
+    this.#store.recordBalance(runtime, account, at, remaining, unit)
+  }
+
+  /** Read recent balance readings for one account, oldest first. */
+  balanceHistory(runtime: RuntimeId, account: string, since: number): ReturnType<LedgerStore['balanceHistory']> {
+    return this.#store.balanceHistory(runtime, account, since)
+  }
+
   #now(): number {
     return this.#options.now?.() ?? Date.now()
   }

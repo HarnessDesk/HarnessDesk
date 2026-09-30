@@ -23,6 +23,38 @@ import { LedgerStore } from '../src/ledger/store.js'
 const scratch = (): string => tempDir('hd-ledger-test-')
 
 const NOON = Date.parse('2026-08-22T12:00:00Z')
+const HOUR_MS = 60 * 60 * 1_000
+const DAY_MS = 24 * HOUR_MS
+
+test('balance history records changes and at most one unchanged reading per hour', () => {
+  const store = new LedgerStore(':memory:')
+  try {
+    store.recordBalance('runtime-a', 'account-a', NOON, 10, 'USD')
+    store.recordBalance('runtime-a', 'account-a', NOON + HOUR_MS / 4, 10, 'USD')
+    assert.equal(store.balanceHistory('runtime-a', 'account-a', NOON).length, 1)
+
+    store.recordBalance('runtime-a', 'account-a', NOON + HOUR_MS / 2, 9, 'USD')
+    store.recordBalance('runtime-a', 'account-a', NOON + HOUR_MS - 1, 9, 'USD')
+    store.recordBalance('runtime-a', 'account-a', NOON + 3 * HOUR_MS / 2, 9, 'USD')
+    assert.deepEqual(store.balanceHistory('runtime-a', 'account-a', NOON).map(({ at, remaining }) => [at, remaining]), [
+      [NOON, 10], [NOON + HOUR_MS / 2, 9], [NOON + 3 * HOUR_MS / 2, 9],
+    ])
+  } finally { store.close() }
+})
+
+test('balance history is separated by account and pruned beyond 400 days', () => {
+  const store = new LedgerStore(':memory:')
+  try {
+    const oldest = NOON - 401 * DAY_MS
+    store.recordBalance('runtime-a', 'account-a', oldest, 10, 'USD')
+    store.recordBalance('runtime-a', 'account-b', NOON - 2 * DAY_MS, 20, 'USD')
+    store.recordBalance('runtime-a', 'account-a', NOON, 9, 'USD')
+
+    assert.deepEqual(store.balanceHistory('runtime-a', 'account-a', oldest).map(({ at, remaining }) => [at, remaining]), [[NOON, 9]])
+    assert.deepEqual(store.balanceHistory('runtime-a', 'account-b', oldest).map(({ at, remaining }) => [at, remaining]), [[NOON - 2 * DAY_MS, 20]])
+    assert.deepEqual(store.balanceHistory('runtime-b', 'account-a', oldest), [])
+  } finally { store.close() }
+})
 
 const codexLine = (
   type: string,

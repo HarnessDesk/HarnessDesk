@@ -70,6 +70,12 @@ export interface UsageHourBucket {
   readonly tokens: number
 }
 
+export interface BalanceHistoryRow {
+  readonly at: number
+  readonly remaining: number
+  readonly unit: string
+}
+
 export interface FileCursor {
   readonly path: string
   readonly size: number
@@ -120,7 +126,18 @@ CREATE TABLE IF NOT EXISTS usage (
 CREATE INDEX IF NOT EXISTS usage_day ON usage (day);
 CREATE INDEX IF NOT EXISTS usage_runtime_day ON usage (runtime, day);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS balance_history (
+  runtime TEXT NOT NULL,
+  account TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  remaining REAL NOT NULL,
+  unit TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS balance_history_scope_at ON balance_history (runtime, account, at);
 `
+
+const BALANCE_HISTORY_RETENTION_MS = 400 * 24 * 60 * 60 * 1_000
+const BALANCE_HISTORY_INTERVAL_MS = 60 * 60 * 1_000
 
 export class LedgerStore {
   readonly #db: DatabaseSync
@@ -263,6 +280,32 @@ export class LedgerStore {
 
   close(): void {
     this.#db.close()
+  }
+
+  /** Keep a changed balance immediately, otherwise no more than once an hour. */
+  recordBalance(runtime: string, account: string, at: number, remaining: number, unit: string): void {
+    this.#db.exec('BEGIN IMMEDIATE')
+    try {
+      this.#db.prepare('DELETE FROM balance_history WHERE at < ?').run(at - BALANCE_HISTORY_RETENTION_MS)
+      const last = this.#db.prepare(`SELECT at, remaining, unit FROM balance_history
+        WHERE runtime = ? AND account = ? ORDER BY at DESC, rowid DESC LIMIT 1`).get(runtime, account) as
+        | { at: number; remaining: number; unit: string }
+        | undefined
+      if (!last || last.remaining !== remaining || last.unit !== unit || at - last.at >= BALANCE_HISTORY_INTERVAL_MS) {
+        this.#db.prepare('INSERT INTO balance_history (runtime, account, at, remaining, unit) VALUES (?, ?, ?, ?, ?)')
+          .run(runtime, account, at, remaining, unit)
+      }
+      this.#db.exec('COMMIT')
+    } catch (error) {
+      this.#db.exec('ROLLBACK')
+      throw error
+    }
+  }
+
+  /** Balance readings for one runtime and account, oldest first. */
+  balanceHistory(runtime: string, account: string, since: number): readonly BalanceHistoryRow[] {
+    return this.#db.prepare(`SELECT at, remaining, unit FROM balance_history
+      WHERE runtime = ? AND account = ? AND at >= ? ORDER BY at, rowid`).all(runtime, account, since) as unknown as BalanceHistoryRow[]
   }
 
   meta(key: string): string | null {
