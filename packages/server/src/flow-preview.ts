@@ -192,9 +192,9 @@ export class FlowPreviews {
    * one-shot token a person presses Start with is never minted for it, so
    * neither can be redeemed as the other.
    */
-  async freeze(root: string, source: string, options: { readonly unattended?: boolean } = {}): Promise<FlowPreview> {
+  async freeze(root: string, source: string, options: { readonly unattended?: boolean; readonly againRole?: string | null } = {}): Promise<FlowPreview> {
     await this.#port.confine(root)
-    return { ...(await this.#build(root, source, options.unattended === true)), token: null }
+    return { ...(await this.#build(root, source, options.unattended === true, false, options.againRole ?? null)), token: null }
   }
 
   /**
@@ -219,7 +219,7 @@ export class FlowPreviews {
    * each role as a trigger's Goal would be seated — under this machine's
    * unattended ceiling policy — so what an arm shows is what will run.
    */
-  async #build(root: string, source: string, unattended = false, requireHeld = false): Promise<Omit<FlowPreview, 'token'>> {
+  async #build(root: string, source: string, unattended = false, requireHeld = false, againRole: string | null = null): Promise<Omit<FlowPreview, 'token'>> {
     const problems: FlowProblem[] = []
     const parsed = parseFlowPolicy(source)
     problems.push(...parsed.problems)
@@ -236,7 +236,7 @@ export class FlowPreviews {
     if (compiled.document.format !== 'agents') problems.push({ level: 'error', at: 'format', text: LEGACY_START })
     const seats: FlowPreviewSeat[] = []
     if (compiled.document.format === 'agents') {
-      const atPredecessor = rolesAtPredecessor(compiled)
+      const atPredecessor = rolesAtPredecessor(compiled, againRole)
       for (const role of compiled.document.flow.roles) {
         if (role.kind !== 'agent') continue
         const bindings = compiled.bindings.filter((one) => one.role === role.id).sort((a, b) => a.index - b.index)
@@ -247,7 +247,7 @@ export class FlowPreviews {
           })
           seats.push({
             role: role.id, index: binding.index, agent: binding.agent.id, plan, isolate: role.isolate,
-            ...(atPredecessor.has(role.id) ? { atPredecessor: true as const } : {}), reviews: reviewsIn(binding),
+            ...(atPredecessor.has(role.id) ? { atPredecessor: atPredecessor.get(role.id)! } : {}), reviews: reviewsIn(binding),
           })
           if (plan.blocked) {
             problems.push({ level: 'error', at: `roles.${role.id}`, text: plan.blocked })

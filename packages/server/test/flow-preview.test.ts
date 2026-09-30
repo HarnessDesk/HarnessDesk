@@ -121,6 +121,25 @@ test('a flow with an error mints no token, and names the problem', async () => {
   assert.ok(broken.problems.some((one) => one.level === 'error'))
 })
 
+test('a trigger again round keeps a mixed predecessor role conditional in the dry run', async () => {
+  const state = rig()
+  state.agentsRoster = [AGENT('writer'), AGENT('target')]
+  const source = `
+version: 2
+name: Trigger preview
+roles:
+  writer: { kind: agent, uses: writer, isolate: true, grant: edit }
+  target: { kind: agent, uses: target, grant: read }
+seed: { role: writer, title: Write }
+rules:
+  - { id: writer-target, on: writer, when: { every: [done] }, then: { role: target, title: Target } }
+`
+  const normal = await new FlowPreviews(state.port).freeze('/repo', source)
+  assert.equal(normal.seats.find((one) => one.role === 'target')?.atPredecessor, 'always')
+  const triggered = await new FlowPreviews(state.port).freeze('/repo', source, { againRole: 'target' })
+  assert.equal(triggered.seats.find((one) => one.role === 'target')?.atPredecessor, 'may')
+})
+
 test('a check retry preview validates the exact saved source and vars, never a new choice', async () => {
   const state = rig()
   let saved: { source: string; vars: Readonly<Record<string, string>> } | null = { source: FLOW, vars: {} }

@@ -1759,7 +1759,7 @@ export class Host {
       confine: (root) => this.#confineGitRoot(root),
       flowSource: (root, id) => intakeCatalog.resolve(root, id),
       // A trigger's closure is read as its Goal will be seated: unattended.
-      preview: (root, source) => this.#flowPreviews.freeze(root, source, { unattended: true }),
+      preview: (root, source, againRole) => this.#flowPreviews.freeze(root, source, { unattended: true, againRole }),
       // And what each Agent attaches, by content: an arm consents to the bytes a Seat would load.
       attachments: async (root, agent) => {
         const entry = await this.#agents.read(agent, root)
