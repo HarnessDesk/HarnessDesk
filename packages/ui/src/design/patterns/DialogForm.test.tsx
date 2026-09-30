@@ -255,6 +255,44 @@ describe('Fieldset and ChoiceList', () => {
     await act(async () => rows[1]!.click())
     expect(seen).toEqual(['b'])
   })
+
+  it('keeps a refused choice selectable, fades its icon and title, and leaves its reason at full ink', async () => {
+    const seen: string[] = []
+    await render(
+      <ChoiceList
+        label="Choose an Agent"
+        value={null}
+        onChange={(next) => seen.push(next)}
+        options={[{
+          value: 'refused',
+          title: 'Unavailable Agent',
+          description: "Can't seat here · signed out",
+          icon: <span>Agent mark</span>,
+          refused: true,
+        }]}
+      />,
+    )
+    const row = container.querySelector<HTMLButtonElement>('[role="radio"]')!
+    const icon = row.querySelector('[data-slot="choice-icon"]')
+    const title = row.querySelector('[data-slot="choice-title"]')
+    const description = row.querySelector('[data-slot="choice-desc"]')
+
+    expect(row.hasAttribute('data-refused')).toBe(true)
+    expect(row.disabled).toBe(false)
+    expect(row.className).toContain('data-[refused]:opacity-100')
+    expect(row.className).not.toContain('data-[refused]:opacity-45')
+    expect(row.className).toContain('data-[refused]:[&_[data-slot=choice-icon]]:opacity-45')
+    expect(row.className).toContain('data-[refused]:[&_[data-slot=choice-title]]:opacity-45')
+    expect(icon).not.toBeNull()
+    expect(title?.textContent).toBe('Unavailable Agent')
+    expect(description?.textContent).toBe("Can't seat here · signed out")
+    expect(description?.className).not.toContain('opacity-45')
+    expect(description?.className).not.toContain('data-[refused]')
+    expect(document.getElementById(row.getAttribute('aria-describedby')!)?.textContent).toBe(description?.textContent)
+
+    await act(async () => row.click())
+    expect(seen).toEqual(['refused'])
+  })
 })
 
 describe('the rhythm, as the sheets say it', () => {
@@ -305,4 +343,26 @@ describe('Field', () => {
     )
     expect(container.querySelector('[data-slot="form-optional"]')).toBeNull()
   })
+})
+
+it('a RowChoice in a dialog lets a path give way at its end, and a sentence wrap', () => {
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const r = createRoot(host)
+  act(() => r.render(
+    <Dialog title="Pick one" onClose={() => {}}>
+      <Rows role="radiogroup" aria-label="Pick">
+        <RowChoice title="A path" desc="/work/a/very/long/path/that/must/not/wrap" truncateDesc selected={false} onClick={() => {}} />
+        <RowChoice title="A sentence" desc="A sentence arrives whole, wrapping if it has to." selected={false} onClick={() => {}} />
+      </Rows>
+    </Dialog>,
+  ))
+  const descs = [...document.querySelectorAll<HTMLElement>('[data-slot="choice-desc"]')]
+  expect(descs).toHaveLength(2)
+  expect(descs[0]?.hasAttribute('data-truncate')).toBe(true)
+  expect(descs[0]?.title).toBe('/work/a/very/long/path/that/must/not/wrap')
+  expect(descs[1]?.hasAttribute('data-truncate')).toBe(false)
+  expect(formSheet).toMatch(/\.choiceDesc\[data-truncate\]\s*\{[^}]*text-overflow:\s*ellipsis/)
+  act(() => r.unmount())
+  host.remove()
 })
