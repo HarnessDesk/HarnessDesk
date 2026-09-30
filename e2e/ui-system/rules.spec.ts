@@ -258,14 +258,19 @@ test.describe('rule: group labels', () => {
  * nothing the sidebar's own sheet adds touches height.
  *
  * Measured on every instance, not one sample per kind. Every row of every
- * kind is at least `--hd-nav-h` tall, and every row of one kind agrees
- * with its own siblings, in both interfaces. That the kinds also agree with
- * each other is Studio's, by design: `foundation/tokens.css` gives Studio
- * "one height for every row in a navigation column, which is the thing Desk
- * does not do". At Studio every row of every kind is 34px. At Desk the
- * sidebar's session rows and the menu item are 30px (their line, block
- * padding and border add up one pixel past the 29px floor) while the rail's
- * rows sit on the floor — whether Desk should converge too is #1073.
+ * kind is at least `--hd-nav-h` tall, every row of one kind agrees with its
+ * own siblings, and the kinds agree with each other — in both interfaces.
+ * Studio's rows are 34px. Desk's are 30px since #1073: `--hd-nav-h` used to
+ * be solved from the type alone (29px), so the sidebar's session rows and
+ * the menu item, whose line, block padding and border add up to 30, stood a
+ * pixel taller than the rail's rows on the floor. It is now solved from
+ * that same box, and every kind stands on it.
+ *
+ * Agreement across kinds is a claim about one-line rows, measured at the
+ * session list's compact density, which is what the preview renders. At
+ * comfortable density a session row carries a second line and more air —
+ * a preview, or a chip on a row that needs you — and stands taller by
+ * design; it is still floored at --hd-nav-h, but it is not the rail's row.
  *
  * The settings rail's identity row was the one row of a kind that disagreed
  * with its siblings: its 28px face in a 29px row with 1px borders pushed it
@@ -310,8 +315,9 @@ const destinationRowViolations = (page: Page, menuHeight?: number, kindsAgree = 
           out.push({ where, height, navH, reason: 'destination-row kinds disagree: ' + JSON.stringify(representative) })
         }
       }
-      return { out, measured }`)(menuH, acrossKindsToo)
-  }, [PROBE_HELPERS, menuHeight, kindsAgree] as const) as Promise<{ out: RowFinding[]; measured: number }>
+      const counts = Object.fromEntries(Object.entries(groups).map(([where, list]) => [where, list.length]))
+      return { out, measured, counts }`)(menuH, acrossKindsToo)
+  }, [PROBE_HELPERS, menuHeight, kindsAgree] as const) as Promise<{ out: RowFinding[]; measured: number; counts: Record<string, number> }>
 
 /** Opens the sidebar footer's account menu (reused from `visual-contracts.spec.ts`). */
 const openAccountMenu = async (page: Page) => {
@@ -322,7 +328,7 @@ const openAccountMenu = async (page: Page) => {
 }
 
 test.describe('rule: destination rows', () => {
-  test('rule: destination rows — every sidebar row, every rail row and a menu item stand at least --hd-nav-h, each kind agrees with itself, and in Studio the kinds agree with each other', async ({ page }) => {
+  test('rule: destination rows — every sidebar row, every rail row and a menu item stand at least --hd-nav-h, each kind agrees with itself, and the kinds agree with each other in both interfaces', async ({ page }) => {
     await gotoPreview(page)
     const findings: (RowFinding & { where: string })[] = []
     for (const theme of ['light', 'dark'] as const) {
@@ -334,9 +340,15 @@ test.describe('rule: destination rows', () => {
         await openAccountMenu(page)
         const menuHeight = await page.locator('[role="menuitem"]').first().evaluate((el) => Math.round(el.getBoundingClientRect().height))
         await page.keyboard.press('Escape')
-        const { out, measured } = await destinationRowViolations(page, menuHeight, look === 'studio')
-        // A check that measures nothing must fail, not pass by default.
+        const { out, measured, counts } = await destinationRowViolations(page, menuHeight)
+        // A check that measures nothing must fail, not pass by default — and
+        // per kind, not in total: the menu item alone would make `measured`
+        // non-zero, and agreement across kinds means nothing with a kind
+        // missing.
         expect(measured, `${theme}/${look}: no destination row was found`).toBeGreaterThan(0)
+        for (const [where, count] of Object.entries(counts)) {
+          expect(count, `${theme}/${look}: no ${where} was found`).toBeGreaterThan(0)
+        }
         for (const finding of out) findings.push({ ...finding, where: `${theme}/${look}: ${finding.where}` })
       }
     }
@@ -363,6 +375,21 @@ test.describe('rule: destination rows', () => {
     const after = await destinationRowViolations(page, undefined, false)
     expect(after.out.some((f) => f.reason.includes("own rows disagree"))).toBe(true)
   })
+
+  for (const theme of ['light', 'dark'] as const) {
+    test(`rule: destination rows — the checker catches the kinds a pixel apart in Desk (${theme})`, async ({ page }) => {
+      await gotoPreview(page)
+      await setPreviewDials(page, theme, 'desk')
+      const before = await destinationRowViolations(page)
+      expect(before.out).toEqual([])
+      expect(before.counts['settings/usage rail row']).toBeGreaterThan(0)
+      // What Desk was before #1073, the other way round: one kind a pixel off
+      // the others while agreeing with its own siblings.
+      await page.addStyleTag({ content: '[class*="winNavItem"] { min-height: calc(var(--hd-nav-h) + 1px) !important; }' })
+      const after = await destinationRowViolations(page)
+      expect(after.out.some((f) => f.reason.startsWith('destination-row kinds disagree'))).toBe(true)
+    })
+  }
 })
 
 /* ========================================================================

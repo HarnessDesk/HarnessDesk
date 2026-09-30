@@ -186,18 +186,20 @@ Rows:
 | token | value | note |
 | --- | --- | --- |
 | `--hd-row-h` | 30px | a one-line row |
-| `--hd-nav-h` | `calc(--hd-text * 1.5 + --hd-space-1 * 2)` | a navigation row — solved, not written |
+| `--hd-nav-h` | `calc(--hd-line-sm + --hd-space-1 * 2 + 2px)` | a navigation row — solved, not written (30px) |
 | `--hd-control-h` | 26px | dense toolbar targets and icon buttons |
 | `--hd-field-h` | 30px | inputs and selects: matches `--hd-btn-h` |
 | `--hd-bar-h` | 46px | the window's own bar, and a pane's |
 
-A navigation row's height is solved from **the reading size**, not from the size
-the row itself is set in: `--hd-text` times 1.5, plus one step of padding above
-and below. The row's own text is a step smaller than that, which is the point —
-every row in every column stands the same height whatever it happens to carry,
-and a row of 13px labels does not end up shorter than a row of 14px ones. It is
-also what lets the density or the reading size move every one of them without a
-second edit, and it is how the two heights that column used to have became one.
+A navigation row's height is solved from **the row's real box**, not written:
+its small line (`--hd-line-sm`), one step of padding above and below, and the
+1px border it keeps on each side for focus and selection. Every row in every
+column stands that height whatever it happens to carry, so a row of 13px labels
+does not end up shorter than a row of 14px ones, and moving the line or the
+density moves every one of them without a second edit. It used to be solved
+from the reading size alone (`--hd-text` times 1.5), which came to 29px — a
+pixel under the rows that carried their border, so the settings rail sat
+lower than the sidebar and a menu beside it (#1073).
 
 Rows sit 2px apart. Without that gap a hover or selection pill reads as a band
 across the column rather than as one row.
@@ -812,17 +814,22 @@ every row of one kind stands at one height. There are three kinds:
 All three are `Button size="navigation"` or the menu's own row, floored at
 `--hd-nav-h`.
 
-In Studio the kinds also agree with each other: `--hd-nav-h` is a literal
-34px, and `design/foundation/tokens.css` gives Studio "one height for every row in
-a navigation column". Desk does not promise that:
+The kinds also agree with each other, in both interfaces. In Studio
+`--hd-nav-h` is a literal 34px. In Desk it is solved from the row's real
+box — its 20px line, 4+4px block padding and 1+1px border — to 30px, so the
+settings and usage rail rows stand with the sidebar's rows and a menu item
+rather than a pixel under them on a floor solved from the type alone
+(#1073).
 
-- the sidebar's session rows and a menu item are 30px, because their 20px line, 4+4px block padding and 1+1px border add up past the 29px floor;
-- the rail's rows have no block padding and sit on the 29px floor.
-
-Whether Desk should converge is #1073.
+This is a claim about one-line rows. The session list's comfortable density
+gives a session a second line and more air — a preview under a working row,
+a chip where one needs you — so those rows are taller than a rail row by
+design and can differ from each other with what they carry. They are still
+floored at `--hd-nav-h`. The rule is measured at the compact density the
+preview uses.
 
 The settings rail's identity row was the one row out of step with its own
-kind. Its 28px face in a 29px row with 1px borders pushed it to 30px. It
+kind. Its 28px face in what was then a 29px row with 1px borders pushed it to 30px. It
 now draws the seat's 24px face, the size the sidebar's seat row uses.
 
 Enforced by `rules.spec.ts` ("rule: destination rows"), on every visible row
