@@ -259,21 +259,26 @@ test('a Goal wrap records where a Seat-held card’s checkout stood, and finishe
   assert.ok(head, 'the probe repository must have a real commit to bound the wrap to')
   const choices = { summary: 'Reviewed and complete.', cards: [{ id: card.id, resolution: 'finished' as const, reason: 'Reviewed.' }] }
   /* Assigning a Seat starts its own background evidence observation (loading
-     its attachments, most often), which can still be landing right after
+     its attachments, most often), which can still be landing after
      `goal/assign` returns — unrelated to this test's own fix. `goal/wrap`
-     refuses a stamp the Goal has since moved past, so wait for two previews
-     in a row to agree before treating one as safe to wrap. */
-  let preview = await client.call('goal/preview', { goal: created.goal.id, choices }) as WrapPreview
-  for (let tries = 0; tries < 40; tries++) {
-    const again = await client.call('goal/preview', { goal: created.goal.id, choices }) as WrapPreview
-    if (again.stamp === preview.stamp) break
-    preview = again
-    await new Promise((resolve) => setTimeout(resolve, 25))
+     refuses a stamp the Goal has since moved past, and two previews that
+     agree are no promise the next write has not already started, so this
+     does what a person does on that refusal: preview again and wrap again. */
+  let elapsed = Number.POSITIVE_INFINITY
+  for (let tries = 0; ; tries++) {
+    const preview = await client.call('goal/preview', { goal: created.goal.id, choices }) as WrapPreview
+    const startedAt = Date.now()
+    try {
+      await client.call('goal/wrap', { goal: created.goal.id, stamp: preview.stamp, choices })
+      elapsed = Date.now() - startedAt
+      break
+    } catch (error) {
+      if (tries >= 40 || !/changed while you reviewed/.test(String((error as Error).message))) throw error
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
   }
-  const startedAt = Date.now()
-  await client.call('goal/wrap', { goal: created.goal.id, stamp: preview.stamp, choices })
   // Well under the 10s stop-read timeout: a real, fast git read, never the bound.
-  assert.ok(Date.now() - startedAt < 5_000, 'a wrap over a live, answering checkout must not wait for the stop-read timeout')
+  assert.ok(elapsed < 5_000, 'a wrap over a live, answering checkout must not wait for the stop-read timeout')
   const wrapped = await client.call('goal/read', { goal: created.goal.id }) as GoalView
   assert.equal(wrapped.board.intents[0]?.state, 'done')
   assert.equal(wrapped.board.intents[0]?.until, head)

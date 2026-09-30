@@ -267,4 +267,69 @@ describe('ContextUsage', () => {
     open()
     expect(panelText()).not.toContain('Delegated')
   })
+
+  it('keeps a reading and its note in one row, the note at the row\'s end', () => {
+    mount(
+      withSession(runtime('alpha', 'Alpha', false), {
+        total: tokens(200_000),
+        last: tokens(180_000, 180_000, 0, 500, 0, 180_000),
+        contextUsed: 180_000,
+        contextWindow: 258_000,
+      }),
+    )
+    open()
+    const readings = [...document.querySelectorAll<HTMLElement>('[class*="rowReading"]')]
+    const input = readings.find((node) => node.textContent?.includes('180K'))
+    expect(input).toBeTruthy()
+    // Both live in the one flex row `Row` renders — the value first, its
+    // note last — not the value alone with the hint drawn beside it by
+    // `KeyValueRow`'s own end column.
+    expect(input?.querySelector('[data-role="value"]')).toBeTruthy()
+    const note = input?.querySelector('[data-role="meta"]')
+    expect(note).toBeTruthy()
+    expect(note?.textContent).toContain('cold cache')
+  })
+
+  it('a reading with nothing to note draws no second child', () => {
+    mount(
+      withSession(runtime('alpha', 'Alpha', false), {
+        total: tokens(200_000),
+        last: tokens(180_000, 180_000, 0, 500, 0, 180_000),
+        contextUsed: 180_000,
+        contextWindow: 258_000,
+      }),
+    )
+    open()
+    const readings = [...document.querySelectorAll<HTMLElement>('[class*="rowReading"]')]
+    const output = readings.find((node) => node.textContent === '500')
+    expect(output).toBeTruthy()
+    expect(output?.querySelector('[data-role="value"]')).toBeTruthy()
+    expect(output?.querySelector('[data-role="meta"]')).toBeNull()
+  })
+
+  it('wraps the head\'s subtitle whole only when it has no window to draw', () => {
+    // No window: the subtitle is a sentence ("Beta Agent does not report its
+    // context window size."), and a sentence that does not fit wraps rather
+    // than losing its end to an ellipsis.
+    mount(withSession(runtime('beta', 'Beta Agent', false), { total: tokens(1280, 1200, 0, 80), last: tokens(1280, 1200, 0, 80) }))
+    open()
+    const noWindowSubtitle = document.querySelector('[data-slot="list-row-subtitle"]')
+    expect(noWindowSubtitle?.hasAttribute('data-wrap-subtitle')).toBe(true)
+
+    // A window: the subtitle is a reading ("171K of 258K tokens in
+    // context"), truncated like any other value rather than wrapped.
+    // Same root, same trigger — the popover's own open state carries over
+    // reconciliation the way a person's would, so this does not click it
+    // shut again the way a second `open()` would.
+    mount(
+      withSession(runtime('alpha', 'Alpha Agent', false), {
+        total: tokens(2_000_000, 1_900_000, 0, 100_000),
+        last: tokens(50_000, 48_000, 40_000, 2000, 300),
+        contextUsed: 171_000,
+        contextWindow: 258_000,
+      }),
+    )
+    const fillSubtitle = document.querySelector('[data-slot="list-row-subtitle"]')
+    expect(fillSubtitle?.hasAttribute('data-wrap-subtitle')).toBe(false)
+  })
 })

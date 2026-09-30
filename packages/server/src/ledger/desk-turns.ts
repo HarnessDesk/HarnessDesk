@@ -1,4 +1,5 @@
 import { projectRootOf } from './scan.js'
+import { MissingTranscriptRuntimeError } from '../transcripts.js'
 import type { RemoteEventsSource } from './remote.js'
 import type { UsageRow } from './store.js'
 
@@ -33,7 +34,7 @@ export interface DeskTranscriptExport {
 
 /** The one thing this source needs from `TranscriptStore` — its own export. */
 export interface DeskTranscriptReader {
-  exportAll(): Promise<readonly DeskTranscriptExport[]>
+  exportRuntime(runtime: string): Promise<readonly DeskTranscriptExport[]>
 }
 
 const startOfLocalDay = (at: number): number => {
@@ -78,6 +79,8 @@ const countsAsPrompt = (turn: unknown): boolean => {
 
 export class DeskTranscriptTurnsSource implements RemoteEventsSource {
   readonly runtime: string
+  /** Local transcript data changes with turns, so it is read on every ledger scan. */
+  readonly syncEveryScan = true
   readonly #transcripts: DeskTranscriptReader
 
   constructor(runtime: string, transcripts: DeskTranscriptReader) {
@@ -93,11 +96,12 @@ export class DeskTranscriptTurnsSource implements RemoteEventsSource {
   async sync(
     range: { readonly from: number; readonly to: number },
     file: string,
-  ): Promise<{ readonly rows: readonly UsageRow[] } | null> {
+  ): Promise<{ readonly rows: readonly UsageRow[]; readonly missing?: boolean } | null> {
     let entries: readonly DeskTranscriptExport[]
     try {
-      entries = await this.#transcripts.exportAll()
-    } catch {
+      entries = await this.#transcripts.exportRuntime(this.runtime)
+    } catch (error) {
+      if (error instanceof MissingTranscriptRuntimeError) return { rows: [], missing: true }
       return null
     }
     const rows = new Map<string, UsageRow>()

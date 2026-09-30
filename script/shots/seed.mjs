@@ -24,7 +24,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, wr
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { CAST, CONVERSATIONS, HISTORY, PRIMARY, REPOS, rigRuntimeId } from './cast.mjs'
+import { CAST, CONTEXT_CAST, CONVERSATIONS, HISTORY, PRIMARY, REPOS, rigRuntimeId } from './cast.mjs'
 import { HOME, NATIVE_CODEX, SHOT_ENV, WORK } from './config.mjs'
 
 const APP = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -220,10 +220,31 @@ const buildRepo = (dir, blurb) => {
   mkdirSync(join(at, 'src'), { recursive: true })
 
   const git = (...args) => execFileSync('git', args, { cwd: at, stdio: 'pipe' })
+  /**
+   * A commit's date, spread across real time rather than the one instant
+   * `seed.mjs` happens to run in.
+   *
+   * Every commit used to land at whatever second this script executed —
+   * real, but all of them the same second, so the git pane's own Date column
+   * read "10:29 PM" all the way down and looked exactly as generated as it
+   * was. The offset is a function of the step alone (never `Date.now()`), so
+   * a reseed draws the same history and the same dates every time: 14 to 66
+   * hours after the previous commit, a spacing that varies without being
+   * random, anchored a year before this file's own last edit so the history
+   * reads as done, not as future-dated.
+   */
+  const ANCHOR = Date.UTC(2025, 5, 1, 9, 0, 0)
+  const dateAt = (n) => {
+    let hours = 0
+    for (let i = 1; i <= n; i += 1) hours += 14 + ((i * 37) % 53)
+    return new Date(ANCHOR + hours * 3_600_000).toISOString()
+  }
+  const gitAt = (n, ...args) =>
+    execFileSync('git', args, { cwd: at, stdio: 'pipe', env: { ...process.env, GIT_AUTHOR_DATE: dateAt(n), GIT_COMMITTER_DATE: dateAt(n) } })
   const commit = (message, n) => {
     writeFileSync(join(at, 'src', `step-${n}.ts`), `// ${message}\nexport const step = ${n}\n`)
     git('add', '-A')
-    git('commit', '-m', message)
+    gitAt(n, 'commit', '-m', message)
   }
 
   writeFileSync(join(at, 'README.md'), `# ${dir}\n\n${blurb}\n`)
@@ -250,10 +271,14 @@ const buildRepo = (dir, blurb) => {
     current = branch
   }
   for (const entry of HISTORY) {
+    if (entry.tag) {
+      git('tag', entry.tag)
+      continue
+    }
     step += 1
     if (entry.merge) {
       goTo(entry.into)
-      git('merge', '--no-ff', entry.merge, '-m', entry.message)
+      gitAt(step, 'merge', '--no-ff', entry.merge, '-m', entry.message)
       continue
     }
     if (entry.from) {
@@ -323,27 +348,103 @@ for (const agent of CAST) {
  */
 const SIGNED_OUT = { command: 'node', args: ['-e', 'process.stdout.write(JSON.stringify({ loggedIn: false }))'] }
 
+/**
+ * Three extra seats, only for the `ring-*` scenes (`HD_SHOTS_CONTEXT=1`) —
+ * `CONTEXT_CAST` (`cast.mjs`) is the single source for who they are and what
+ * they report, so `audit.mjs`'s history check and this staging agree.
+ */
+const CONTEXT_AGENTS = process.env['HD_SHOTS_CONTEXT'] === '1' ? CONTEXT_CAST : []
+
+for (const agent of CONTEXT_AGENTS) {
+  const [title, answer] = agent.conversation
+  const id = `${agent.id}-0`
+  writeFileSync(
+    join(HOME, 'stores', `${agent.id}.json`),
+    JSON.stringify(
+      { [id]: { sessionId: id, cwd: roots.storefront, title, updatedAt: new Date().toISOString(), turns: [[title, answer]] } },
+      null,
+      1,
+    ),
+  )
+}
+
+/**
+ * Which scripted turn each of the room's own four seats plays —
+ * `claude-code`, `gemini-cli`, `copilot`, `antigravity` (or `codex` in
+ * `claude-code`'s place on the all-camera desk), the exact four
+ * `roomRuntimes` picks in `shoot.mjs`'s `stageRoom` — mapped by id rather
+ * than by position in `REGISTERED_CAST`. Position drifted out of sync with
+ * that list the moment `antigravity` (index 4) was added after `cursor`
+ * (index 1): `n % 4` landed turn 0 on both `claude-code` (n=0) and
+ * `antigravity` (n=4), so two of the four seats read the same scripted
+ * reply word for word. Every other seat is never in this room, so its own
+ * turn only has to be *some* index — 0 is as good as any.
+ */
+const ROOM_TURN = { codex: 0, 'claude-code': 0, 'gemini-cli': 1, copilot: 2, antigravity: 3 }
+
+/**
+ * The board claims two of this room's seats actually take, over a real MCP
+ * `claim_work` call (`agent.mjs`'s `playClaim`) — the `board`/`room` scenes'
+ * "Taking the retry policy itself" and "The webhook one is independent"
+ * lines (`shoot.mjs`'s `CHATTER`), turned into the "Working" cards the
+ * README's own "Board, expanded" still needs. Card ids are this room's own
+ * (`shoot.mjs`'s `BOARD`, added in order: 1 and 2 are the retry-policy pair,
+ * 4 is the webhook card) — set on the runtime's own env, so it also fires on
+ * this runtime's very first prompt in *any other* room a scene seats it
+ * into within the same take (`flow`/`front-door`'s own rooms number their
+ * own cards from 1 too). Harmless there: a card that number does not name,
+ * or does but is not open, simply refuses the claim (`agent.mjs` swallows
+ * the refusal), and a card it does name and can claim is one this same
+ * runtime already owns in that room's own story. Scoped to `--scene
+ * board`/`--scene room` alone, which is how this rig's own shots are taken,
+ * there is exactly one room to claim into.
+ */
+const ROOM_CLAIM = {
+  'claude-code': [{ intent: 1, files: ['src/checkout/retry.ts'] }, { intent: 2, files: ['src/checkout/retry.ts'] }],
+  copilot: [{ intent: 4, files: ['src/webhooks/receiver.ts'] }],
+  // Board density (`board-*.png`): every room vendor holds something, not
+  // only the two `board`/`room` scenes always claimed.
+  'gemini-cli': [{ intent: 6, files: ['src/checkout/retry.ts'] }],
+  antigravity: [{ intent: 7, files: ['src/webhooks/receiver.ts'] }],
+}
+
 writeFileSync(
   join(HOME, 'agents.json'),
   `${JSON.stringify(
     {
-      agents: REGISTERED_CAST.map((agent, n) => ({
-        id: rigRuntimeId(agent.id),
-        name: agent.name,
-        brand: agent.brand,
-        tagline: agent.tagline,
-        command: 'node',
-        args: [AGENT],
-        env: {
-          SHOT_AGENT_NAME: agent.name,
-          SHOT_STORE: join(HOME, 'stores', `${agent.id}.json`),
-          SHOT_MODELS: agent.models,
-          /* Which scripted turn this seat plays. The room seats the first four
-             of the cast, so 0-3 land one distinct turn on each of them. */
-          SHOT_TURN: String(n % 4),
-        },
-        ...(agent.id === 'windsurf' ? { account: { status: SIGNED_OUT } } : {}),
-      })),
+      agents: [
+        ...REGISTERED_CAST.map((agent) => ({
+          id: rigRuntimeId(agent.id),
+          name: agent.name,
+          brand: agent.brand,
+          tagline: agent.tagline,
+          command: 'node',
+          args: [AGENT],
+          env: {
+            SHOT_AGENT_NAME: agent.name,
+            SHOT_STORE: join(HOME, 'stores', `${agent.id}.json`),
+            SHOT_MODELS: agent.models,
+            SHOT_TURN: String(ROOM_TURN[agent.id] ?? 0),
+            ...(ROOM_CLAIM[agent.id] ? { SHOT_CLAIM: JSON.stringify(ROOM_CLAIM[agent.id]) } : {}),
+          },
+          ...(agent.id === 'windsurf' ? { account: { status: SIGNED_OUT } } : {}),
+        })),
+        ...CONTEXT_AGENTS.map((agent) => ({
+          id: agent.id,
+          name: agent.name,
+          brand: agent.brand,
+          tagline: agent.tagline,
+          command: 'node',
+          args: [AGENT],
+          env: {
+            SHOT_AGENT_NAME: agent.name,
+            SHOT_STORE: join(HOME, 'stores', `${agent.id}.json`),
+            SHOT_MODELS: agent.models,
+            SHOT_TURN: '0',
+            SHOT_USAGE: JSON.stringify(agent.usage),
+          },
+        })),
+      ],
     },
     null,
     2,
@@ -377,7 +478,19 @@ writeFileSync(
         name: repo.name,
         lastOpenedAt: Date.now() - n * 60_000,
       })),
-      preferences: {},
+      preferences: {
+        // The five agents `usage.mjs` has never written a plan-usage report
+        // for, plus Windsurf's own deliberate signed-out state
+        // (`accounts.mjs`), are excluded from usage tracking the same way a
+        // real desk's own Settings › Usage toggle would — that is what keeps
+        // them off the Usage page's "tracked" roster (`Usage.tsx`'s
+        // `usageOff`) rather than turning up there as a card with no fee and
+        // no plan, or (Windsurf) as the "N agents don't report usage" line.
+        // The twelve-agent roster everywhere else (sidebar, board, room,
+        // repository) is untouched; this only scopes what the dashboard
+        // photographs.
+        usageOff: ['windsurf', 'amp', 'opencode', 'goose', 'cline', 'openclaw'].map(rigRuntimeId),
+      },
     },
     null,
     2,
@@ -392,8 +505,10 @@ writeFileSync(
  * them passed over on the way. Seats name the rig's runtimes, except the one
  * meant to be missing, so no Agent reads through to a CLI on this machine.
  */
-const agentFile = ({ name, description, prefer, brief }) =>
-  `---\nname: ${name}\ndescription: ${description}\npermission: read\nanswers: [approve, request-changes]\nproduces: [review]\nprefer: [${prefer.join(', ')}]\n---\n\n${brief}\n`
+const agentFile = ({ name, description, prefer, brief, permission = 'read', reviewer = true }) =>
+  `---\nname: ${name}\ndescription: ${description}\npermission: ${permission}\n${
+    reviewer ? 'answers: [approve, request-changes]\nproduces: [review]\n' : ''
+  }prefer: [${prefer.join(', ')}]\n---\n\n${brief}\n`
 
 const writeAgent = (dir, source) => {
   mkdirSync(dir, { recursive: true })
@@ -440,6 +555,62 @@ writeFileSync(
   join(HOME, 'seating.json'),
   `${JSON.stringify({ 'code-reviewer': [rigRuntimeId('windsurf'), `${rigRuntimeId('claude-code')}=opus`] }, null, 2)}\n`,
 )
+
+/**
+ * One identity Agent per room seat — user-scope, so no project's history
+ * gains a commit for it the way the storefront's own reviewer does.
+ *
+ * `room`/`board` used to seat a bare `{runtime, sessionId}` directly onto a
+ * Goal card (`goal/assign`), which is how a person seats a conversation that
+ * is already running as itself. A seat opened that way has no Agent behind
+ * it, so `memberNames` (`goals/members.ts`) and the channel's own attribution
+ * (`host.ts`'s `opening()`, `seatLabel: previous?.seatLabel ?? session.runtime`)
+ * both fall back to the bare runtime id — `shots-claude-code`, not "Claude" —
+ * because nothing at seat time knows to call it anything else, and a seat's
+ * label is minted once and then kept. `flow-board`'s seats read fine because
+ * a flow's own seat carries the model it chose (`seat.ts`'s `seatLabel`); a
+ * plain room join carries nothing. Binding each of the room's four runtimes
+ * to a named Agent (`goal/seat`, not `goal/assign`) is what gives the seat an
+ * `agent.name` to read instead — the same path `GoalCreate`'s own "Seat
+ * Agents" checkboxes use.
+ */
+for (const id of ['claude-code', 'gemini-cli', 'copilot', 'antigravity', 'codex']) {
+  const cast = CAST.find((one) => one.id === id)
+  writeAgent(
+    join(HOME, 'agents', `room-${id}`),
+    agentFile({
+      name: id === 'claude-code' ? 'Claude Code' : cast.name,
+      description: `${id === 'claude-code' ? 'Claude Code' : cast.name}, seated as itself in a room.`,
+      prefer: [rigRuntimeId(id)],
+      // The seat's own standing order (`host.ts`'s `#orderSeat`) is sent as
+      // this seat's first turn the moment it is kept — the room's own task,
+      // not a generic brief, so that turn is the useful one rather than one
+      // this scene then has to duplicate. Sending "Retry the checkout call
+      // on a 502" again afterwards, as a second, separate `send`, raced this
+      // one: `adapter-acp/src/runtime.ts` refuses a `send` outright while a
+      // turn is already running rather than queuing it, and the refusal
+      // left a standing "is still working" toast over the composer that
+      // neither answering approvals nor a longer wait ever cleared.
+      //
+      // `room-codex` is unused by `stageRoom` (`shoot.mjs` bare-seats `codex`
+      // itself, since the native adapter needs its own explicit `send`), but
+      // exists here too so `gif2.mjs`'s own `hero` scene — a two-agent room,
+      // not the four-agent one this loop otherwise serves — can seat it by
+      // name over `HD_SHOTS_NATIVE_CODEX=0`'s camera row and get "Codex" as
+      // its label rather than a bare runtime id.
+      brief: id === 'codex' ? 'Check checkout end to end once the retry fix lands.' : 'Retry the checkout call on a 502.',
+      // Publish, not the template's default read: an Agent's `permission:`
+      // is only ever read, publish or merge, and the room's scripted turns
+      // (`agent.mjs`) edit files as part of the story — a read ceiling held
+      // every one of those edits for an approval nobody was going to give,
+      // which read on screen as every seat stuck on "Edit · asked" and the
+      // room's composer warning that a turn was still running long after
+      // the scene's own wait should have cleared it.
+      permission: 'publish',
+      reviewer: false,
+    }),
+  )
+}
 say('agents: storefront’s Code reviewer (shadows the one that ships), Release checker (yours), seats for this Mac')
 
 say(`agents: ${REGISTERED_CAST.length} registered  (${REGISTERED_CAST.map((one) => one.name).join(', ')})`)

@@ -6,6 +6,11 @@ import {
   sessionKey,
   type AgentAttachmentsView,
   type AgentEntry,
+  type AgentFieldEdit,
+  type AgentNotesView,
+  type AuthoringDocument,
+  type AuthoringSavePreview,
+  type AuthoringTarget,
   type CarryFindingsInput,
   type FindingPublicationsView,
   type CeilingLevel,
@@ -29,6 +34,7 @@ import {
   type PlanFeeEntry,
   type PlanRead,
   type PlanSuggestion,
+  type RuntimeId,
   type RuntimeInfo,
   type SeatRecord,
   type SeatCeiling,
@@ -46,7 +52,7 @@ import { EMPTY_FINDINGS_STATE, findingDetail, findingsListState } from './findin
 import type { FindingFilter } from '../lib/findings'
 import { Boundary } from './boundary'
 import { StoreProvider } from '../state/context'
-import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { emptySnapshot, type AppSnapshot, type AppStore, type AuditRow } from '../state/store'
 import {
   NARROW_WINDOW,
   activate,
@@ -145,7 +151,7 @@ export const EMPTY_ROOM = 'room-empty'
  */
 export const EDGE_ROOM = 'room-edges'
 
-const TEAM: TeamState = {
+export const TEAM: TeamState = {
   id: PREVIEW_ROOM,
   name: 'Checkout rewrite',
   updatedAt: 1,
@@ -366,7 +372,7 @@ const EDGE_TEAM = {
   ],
 } as unknown as TeamState
 
-const LIBRARY = {
+export const LIBRARY = {
   generatedAt: now,
   runtimes: [runtimeId('codex'), runtimeId('claude'), runtimeId('cursor')],
   locations: (['codex', 'claude', 'cursor'] as const).flatMap((id) => [
@@ -560,6 +566,19 @@ const LIBRARY = {
 }
 
 /**
+ * What `loadAudit` answers here — the audit tab's own week, one session
+ * begun, a turn finished, an approval decided, a skill installed.
+ */
+const AUDIT_DAY = 86_400_000
+const AUDIT_ROWS: readonly AuditRow[] = [
+  { at: now - 3 * AUDIT_DAY, runtime: 'codex', sessionId: 's1', kind: 'session/started' },
+  { at: now - 3 * AUDIT_DAY + 90_000, runtime: 'codex', sessionId: 's1', kind: 'turn/completed', status: 'completed', steps: 4, durationMs: 62_000 },
+  { at: now - AUDIT_DAY, runtime: 'claude', sessionId: 's2', kind: 'approval/decided', approvalType: 'command', decision: 'approve' },
+  { at: now - AUDIT_DAY + 4_000, runtime: 'claude', sessionId: 's2', kind: 'library/write', op: 'skill/create', name: 'code-review', status: 'completed' },
+  { at: now - 3_600_000, runtime: 'codex', sessionId: 's3', kind: 'approval/autoDecided', decision: 'deny', rule: 'no writes outside the workspace' },
+]
+
+/**
  * What `library/definition` answers here. Real frontmatter and real prose,
  * because a sheet fed lorem ipsum cannot be judged: the whole question the
  * design has to answer is whether a genuine `SKILL.md` reads well in it.
@@ -679,7 +698,7 @@ const agentEntry = (
   },
 })
 
-const PREVIEW_AGENTS: readonly AgentEntry[] = [
+export const PREVIEW_AGENTS: readonly AgentEntry[] = [
   agentEntry('code-reviewer', 'Code reviewer', 'project', 'The storefront team’s reviewer: reads the diff against our checkout rules.', 'read', [
     { origin: 'builtin', path: '/app/agents/code-reviewer/AGENT.md' },
   ]),
@@ -696,6 +715,88 @@ const PREVIEW_AGENTS: readonly AgentEntry[] = [
     definition: null,
   },
 ]
+
+/**
+ * The `AGENT.md` text a preview Agent's own front matter would read as — built
+ * from the same fixture `agentEntry()` already carries, so `AgentFields`'
+ * edit-then-preview flow has a real file to diff against instead of an empty
+ * string. Only `PREVIEW_AGENTS` entries with a `definition` have one; `draft`,
+ * whose file does not parse, has none to offer.
+ */
+const agentSource = (entry: AgentEntry): string => {
+  const definition = entry.definition
+  if (!definition) return ''
+  return [
+    '---',
+    `name: ${definition.name}`,
+    `description: ${definition.description ?? ''}`,
+    `ceiling: ${definition.ceiling}`,
+    'answers:',
+    ...definition.answers.map((one) => `  - ${one}`),
+    'produces:',
+    ...definition.produces.map((one) => `  - ${one}`),
+    '---',
+    '',
+    definition.brief,
+    '',
+  ].join('\n')
+}
+
+/** One field of `agentSource(entry)`'s front matter, replaced with a new value — a small, real-looking diff for `FieldEditDialog`'s preview to show. */
+const applyAgentFieldEdit = (source: string, edit: AgentFieldEdit): string => {
+  if (edit.key === 'name' || edit.key === 'description' || edit.key === 'ceiling') {
+    const line = edit.key === 'ceiling' ? 'ceiling' : edit.key
+    return source.replace(new RegExp(`^${line}:.*$`, 'm'), `${line}: ${edit.value}`)
+  }
+  if (edit.key === 'answers' || edit.key === 'produces') {
+    const block = edit.value.map((one) => `  - ${one}`).join('\n')
+    return source.replace(new RegExp(`^${edit.key}:\\n(  - .*\\n?)*`, 'm'), `${edit.key}:\n${block}\n`)
+  }
+  // `prefer` has no line of its own in this fixture's source — the diff shows the file unchanged but for a trailing note, which is enough to demonstrate the dialog without inventing YAML this fixture does not otherwise carry.
+  return `${source}# prefer: ${edit.key === 'prefer' ? edit.value.map((seat) => seat.runtime).join(', ') : ''}\n`
+}
+
+/**
+ * One Goal's recorded usage, real enough for `InsightCost` (and
+ * `GoalReceiptCost`, which mounts it) to draw a populated cost section
+ * rather than its own "no report yet" empty return. Exported so the preview
+ * page can show the loaded state directly, beside the loading one — the
+ * store's own `readGoalInsight` returns the identical shape.
+ */
+export const insightReportFor = (goal: string): import('@harnessdesk/protocol').InsightReport => {
+  const metric = (value: number): import('@harnessdesk/protocol').InsightMetric => ({
+    value, quality: 'exact', unit: 'usd', basis: 'vendorMetered', sourceIds: ['src-preview'], coverage: 'complete', missing: [],
+  })
+  const amounts = (usd: number): import('@harnessdesk/protocol').InsightAmounts => ({
+    usd: metric(usd),
+    tokens: { ...metric(usd), unit: 'tokens', value: usd * 10_000 },
+    activeMs: { ...metric(usd), unit: 'milliseconds', value: usd * 60_000 },
+    turns: { ...metric(usd), unit: 'count', value: 3 },
+  })
+  return {
+    id: 'insight-preview',
+    generatedAt: now,
+    query: { root: PREVIEW_ROOT, from: now - 86_400_000, to: now },
+    goals: [],
+    seats: [],
+    goal,
+    receipt: null,
+    totals: amounts(4.82),
+    elapsedMs: metric(180_000),
+    breakdowns: [
+      {
+        dimension: 'seat',
+        rows: [{ key: 'seat-preview-reviewer', label: 'Alpha · careful', amounts: amounts(4.82), seat: 'seat-preview-reviewer', goal, session: null, message: null, note: null, elapsedMs: metric(180_000) }],
+        unattributed: amounts(0),
+        reason: null,
+      },
+    ],
+    sources: [{ id: 'src-preview', kind: 'evidence', label: 'This desk’s own record', observedAt: now, checkedAt: now, stale: false, problem: null }],
+    recordedSpend: [],
+    provenance: { state: 'available', note: 'Recorded on this desk.' },
+    gaps: [],
+  }
+}
 
 const takenOn = (
   id: string,
@@ -1173,6 +1274,27 @@ class PreviewStore {
     }
   }
   projectChecks = async (): Promise<ProjectChecks> => PREVIEW_CHECKS
+  /** `AgentNotes`' own `NOTES.md` read — one Agent has prose worth showing, the rest read as having none, which is the ordinary case a roster's worth of Agents mostly has. */
+  readAgentNotes = async (id: string, origin: AgentEntry['origin']): Promise<AgentNotesView> => {
+    const found = PREVIEW_AGENTS.find((one) => one.id === id && one.origin === origin)
+    if (id === 'code-reviewer') {
+      return {
+        path: `${found?.path.replace(/AGENT\.md$/, '') ?? ''}NOTES.md`,
+        text: 'Prefer the smaller diff when two fixes both close the finding.',
+        digest: 'notes-digest-code-reviewer',
+        writable: found?.origin !== 'builtin',
+        problem: null,
+      }
+    }
+    return { path: `${found?.path.replace(/AGENT\.md$/, '') ?? ''}NOTES.md`, text: null, digest: null, writable: found?.origin !== 'builtin', problem: null }
+  }
+  clearAgentNotes = async (id: string, origin: AgentEntry['origin']): Promise<AgentNotesView> => ({
+    path: `${PREVIEW_AGENTS.find((one) => one.id === id && one.origin === origin)?.path.replace(/AGENT\.md$/, '') ?? ''}NOTES.md`,
+    text: '',
+    digest: 'notes-digest-cleared',
+    writable: true,
+    problem: null,
+  })
 
   // --- intake ------------------------------------------------------------
   projectTriggers = async (): Promise<import('@harnessdesk/protocol').TriggerProjectView> => triggerProjectView()
@@ -1441,8 +1563,67 @@ class PreviewStore {
     { name: 'Google Chrome', path: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' },
   ]
   loadWorktrees = async () => {}
+  /** `BranchSwitcher`'s own list — a few ordinary branches, one of them checked out, so the switcher has something to filter and pick from. */
+  listBranches = async (): Promise<readonly { name: string; current: boolean; committedAt: number }[]> => [
+    { name: 'main', current: true, committedAt: now },
+    { name: 'feat/checkout-retry', current: false, committedAt: now - 3_600_000 },
+    { name: 'fix/worktree-listing', current: false, committedAt: now - 86_400_000 },
+  ]
   agentCatalog = async () => []
   agentsIn = async (): Promise<readonly AgentEntry[]> => PREVIEW_AGENTS
+  /* `AgentFields`, `AgentNotes` and the two field-edit dialogs all wait on
+     this read before they draw anything — without it `AgentPage` falls back
+     to its no-document branch and none of them ever mount. The source is
+     synthesised from the same fixture `AgentEntry` the roster already
+     carries (`agentSource`, above), so a field's diff matches what the
+     page's own rows already say. */
+  readAuthoring = async (target: AuthoringTarget): Promise<AuthoringDocument> => {
+    if (target.kind === 'triggers') {
+      // No project here has committed one yet — `TriggerCreate`'s "already exists" merge path has nothing to read against, which is the ordinary first-time case.
+      return { target, source: '', digest: 'digest-triggers-none', exists: false, displayPath: `${target.root}/.harnessdesk/triggers.yaml`, writable: true, issues: [] }
+    }
+    if (target.kind === 'flow') {
+      const source = PREVIEW_FLOW_SOURCE[target.id] ?? PREVIEW_FLOW_SOURCE['fix']!
+      return { target, source, digest: `digest-flow-${target.id}`, exists: true, displayPath: `${target.root}/.harnessdesk/flows/${target.id}.md`, writable: target.origin !== 'builtin', issues: [] }
+    }
+    const entry = PREVIEW_AGENTS.find((one) => one.id === target.id)
+    if (!entry?.definition || entry.digest === null) throw new Error('The preview desk has no such file.')
+    return {
+      target,
+      source: agentSource(entry),
+      digest: entry.digest,
+      exists: true,
+      displayPath: entry.path,
+      writable: entry.origin !== 'builtin',
+      issues: [],
+    }
+  }
+  previewAgentEdit = async (
+    target: Extract<AuthoringTarget, { readonly kind: 'agent' }>,
+    _expected: string,
+    edit: AgentFieldEdit,
+  ): Promise<AuthoringSavePreview> => {
+    const entry = PREVIEW_AGENTS.find((one) => one.id === target.id)
+    if (!entry?.definition) throw new Error('The preview desk has no such file.')
+    const before = agentSource(entry)
+    return { token: 'preview-authoring-token', edits: [{ path: entry.path, before, after: applyAgentFieldEdit(before, edit) }], issues: [], resuming: false } // hd-secrets-ok: a fixture save token, never a credential
+  }
+  /**
+   * `ShapeSave`'s own dry run: `preview !== null && preview.token !== null`
+   * is its whole "can I save" test, so this must answer a real object —
+   * never the floor's bare `undefined`, which reads as "not null" and then
+   * throws on `.token` the moment the dialog paints.
+   */
+  previewAuthoringSave = async (input: { readonly target: AuthoringTarget; readonly source: string }): Promise<AuthoringSavePreview> => {
+    const { target } = input
+    const path = target.kind === 'agent'
+      ? (PREVIEW_AGENTS.find((one) => one.id === target.id)?.path ?? `agents/${target.id}/AGENT.md`)
+      : target.kind === 'flow'
+        ? `${target.root}/.harnessdesk/flows/${target.id}.md`
+        : `${target.root}/.harnessdesk/triggers.yaml`
+    return { token: 'preview-save-token', edits: [{ path, before: null, after: input.source }], issues: [], resuming: false }
+  }
+  applyAuthoringSave = async (): Promise<FlowUpdateResult> => ({ state: 'applied', written: [], message: 'The preview desk writes nothing.' })
   plansIn = async (): Promise<readonly SeatPlan[]> => [...PREVIEW_PLANS.values()]
   modelsFor = async (): Promise<readonly ModelInfo[]> => [
     {
@@ -1593,10 +1774,37 @@ class PreviewStore {
 
   readFinding = async (_goal: string, finding: string): Promise<FindingDetailPage> => findingDetail(finding)
 
+  /**
+   * The audit tab's own rows (`Activity.tsx`, mounted as `ActivityView`).
+   * `loadAudit` is a *store* verb, not a transport method the floor's
+   * `audit/query` answer already covers — the fallback proxy resolves an
+   * unimplemented verb to `undefined`, and `Activity` only guards against
+   * `null` (`useState`'s own start), so an unimplemented `loadAudit` reached
+   * `rows.length` on `undefined` and threw, caught only by this page's own
+   * error boundary. A real implementation, even a small one, is the fix —
+   * the same shape the real `Store.loadAudit` returns, never the floor.
+   */
+  loadAudit = async (): Promise<readonly AuditRow[]> => AUDIT_ROWS
+
+  /**
+   * `GoalReceiptCost` and `InsightCost` both wait on this before they draw a
+   * row: with the floor's bare `undefined` (which `InsightCost` reads as "no
+   * report yet" and returns `null` for) neither ever paints anything, which
+   * is why they were never found by a fiber walk that starts from the DOM.
+   * One breakdown, one row, is enough to draw the real thing.
+   */
+  readGoalInsight = async (goal: string): Promise<import('@harnessdesk/protocol').InsightReport> => insightReportFor(goal)
+
   carryFindings = async (_input: CarryFindingsInput): Promise<readonly FindingView[]> => []
 
-  readFindingPublications = async (goal: string, run: string): Promise<FindingPublicationsView> =>
-    ({ goal, run, items: [], backfill: null, backfillRefusal: 'The preview desk posts nothing.' })
+  /** One paused posting, so `FindingPublications` has a row to draw rather than its own "nothing to post" empty return. */
+  readFindingPublications = async (goal: string, run: string): Promise<FindingPublicationsView> => ({
+    goal,
+    run,
+    items: [{ key: 'post-1', round: 2, finding: 'finding-security-1', pr: 42, state: 'prepared', reason: 'A security finding is paused before it posts.' }],
+    backfill: null,
+    backfillRefusal: 'The preview desk posts nothing.',
+  })
 
   publishFinding = async (input: { goal: string; run: string }): Promise<FindingPublicationsView> =>
     ({ goal: input.goal, run: input.run, items: [], backfill: null, backfillRefusal: 'The preview desk posts nothing.' })
@@ -1660,12 +1868,31 @@ class PreviewStore {
         return null
       }
       if (method === 'workspace/stat') return { kind: 'file', isSymlink: false, modifiedAt: now }
+      /** `FolderPicker`'s own listing — one folder deep, plain names, so the dialog has something to click into. */
+      if (method === 'workspace/browse') {
+        const path = (params as { path?: string } | undefined)?.path ?? PREVIEW_ROOT
+        return {
+          path,
+          parent: path === '/' ? null : path.split('/').slice(0, -1).join('/') || '/',
+          entries: [
+            { name: 'apps', path: `${path}/apps` },
+            { name: 'packages', path: `${path}/packages` },
+            { name: 'docs', path: `${path}/docs` },
+          ],
+        }
+      }
       if (method === 'git/log') return gitLog()
       if (method === 'git/refs') return gitRefs()
       if (method === 'git/status') return gitStatus()
       if (method === 'git/worktrees') return gitWorktrees()
       if (method === 'git/commit') return gitCommit((params as { sha?: string } | undefined)?.sha ?? '')
-      if (method === 'audit/query') return []
+      if (method === 'audit/query') {
+        return [{
+          kind: 'library/write', at: now - 3_600_000, op: 'skill/update', name: 'code-review',
+          path: '/home/u/.codex/skills/code-review/SKILL.md', status: 'done', runtime: runtimeId('codex'),
+          backupPath: '/home/u/.harnessdesk/backups/code-review/SKILL.md',
+        }]
+      }
       if (method === 'library/plan') return { plannedAt: now, ops: [] }
       return null
     },
@@ -1725,6 +1952,20 @@ export const previewStore = (seed: Partial<AppSnapshot> = {}): AppStore => new P
 }) as unknown as AppStore
 
 export const store = previewStore()
+
+/**
+ * `LIBRARY.runtimes`, as columns — each named from the shared store's own
+ * `RuntimeInfo.presentation`, never a literal brand string (rule 8: the UI
+ * never names a runtime; every string about an agent comes from
+ * `RuntimeInfo.presentation`, which `pnpm layering` enforces even inside this
+ * fixture). The main store presents its runtimes as Alpha/Beta/Gamma for
+ * exactly this reason, so a column reads the same way.
+ */
+export const libraryColumnsFor = (ids: readonly RuntimeId[]): readonly { readonly id: RuntimeId; readonly label: string }[] =>
+  ids.map((id) => {
+    const info = store.getSnapshot().runtimes.find((one) => one.id === id)
+    return { id, label: info?.presentation.name ?? id }
+  })
 
 /**
  * Mount a production screen: the store under it, the app's window mode around

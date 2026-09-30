@@ -1245,7 +1245,7 @@ test('a CLI that dies before its first word is started again, and the turn compl
     const session = await runtime.createSession({ cwd: WORKDIR })
     await session.send([{ type: 'text', text: 'flaky-start: say hello' }])
     const turn = completedTurn(await tape.until((event) => event.type === 'turn/completed'))
-    assert.equal(turn.status, 'completed', turn.error?.message)
+    assert.equal(turn.status, 'completed', turn.error?.message ?? 'expected a completed turn')
     assert.equal(readFileSync(counter, 'utf8'), '3', 'two deaths, then the boot that answered')
   } finally {
     await runtime.dispose()

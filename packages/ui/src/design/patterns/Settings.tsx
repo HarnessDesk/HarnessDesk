@@ -648,7 +648,12 @@ const TEXT_ROLE = {
   row: 'text-sm leading-(--hd-line-sm) font-medium',
   navigation: 'text-sm leading-(--hd-line-sm) font-normal',
   muted: 'text-sm leading-(--hd-line-sm) font-normal',
-  meta: 'text-xs leading-(--hd-line-xs) font-normal',
+  // Explicit, not inherited: `docs/design.md`'s "no named text role computes
+  // the monospace family" has to hold wherever a caller puts one, and a
+  // `<pre>` (`CodeBlock`'s own body, for one) sets the code face on itself —
+  // browsers do too, by default — which a role relying on ambient
+  // inheritance would otherwise pick up the moment it sat inside one.
+  meta: 'text-xs leading-(--hd-line-xs) font-normal font-(family-name:--hd-font-family)',
   figure:
     'text-(length:--hd-display) leading-(--hd-line-display) font-semibold tracking-[-0.025em] tabular-nums',
   metric: 'text-lg leading-none font-semibold tracking-[-0.015em] tabular-nums',

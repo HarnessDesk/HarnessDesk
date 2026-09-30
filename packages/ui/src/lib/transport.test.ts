@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { runtimeId } from '@harnessdesk/protocol'
 
 import { rejectionFor, sentenceOf } from './transport'
 
@@ -55,6 +56,58 @@ describe('rejectionFor', () => {
 })
 
 describe('Transport queue handling (#501)', () => {
+  it('removes an aborted disconnected request before the socket opens', async () => {
+    class MockWebSocket {
+      static instances: MockWebSocket[] = []
+      url: string
+      readyState = 0
+      listeners = new Map<string, ((event: unknown) => void)[]>()
+      sent: string[] = []
+
+      constructor(url: string) {
+        this.url = url
+        MockWebSocket.instances.push(this)
+      }
+
+      addEventListener(type: string, cb: (event: unknown) => void) {
+        const list = this.listeners.get(type) ?? []
+        list.push(cb)
+        this.listeners.set(type, list)
+      }
+
+      send(frame: string) { this.sent.push(frame) }
+      close() { this.readyState = 3 }
+      open() {
+        this.readyState = 1
+        for (const cb of this.listeners.get('open') ?? []) cb({})
+      }
+    }
+
+    const originalWebSocket = globalThis.WebSocket
+    MockWebSocket.instances = []
+    globalThis.WebSocket = MockWebSocket as unknown as typeof WebSocket
+
+    try {
+      const { Transport } = await import('./transport')
+      const transport = new Transport('ws://example.test/ws?token=t', {
+        onEvent: () => {}, onNotification: () => {}, onStatus: () => {},
+      })
+      transport.connect()
+      const socket = MockWebSocket.instances[0]
+      if (!socket) throw new Error('socket undefined')
+
+      const controller = new AbortController()
+      const promise = transport.request('runtime/account', { runtime: runtimeId('codex') }, { signal: controller.signal })
+      controller.abort()
+      await expect(promise).rejects.toMatchObject({ name: 'AbortError' })
+
+      socket.open()
+      expect(socket.sent).toEqual([])
+    } finally {
+      globalThis.WebSocket = originalWebSocket
+    }
+  })
+
   it('clears queued requests on socket disconnect so rejected calls are not sent on reconnect', async () => {
     class MockWebSocket {
       static instances: MockWebSocket[] = []
@@ -202,4 +255,3 @@ describe('Transport queue handling (#501)', () => {
     }
   })
 })
-

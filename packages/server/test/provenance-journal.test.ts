@@ -33,6 +33,71 @@ test('serialized observations and chunked checkpoints replay in durable prefix o
   assert.ok((await fs.readFile(file, 'utf8')).split('\n').every((line) => Buffer.byteLength(line) < 65536))
 })
 
+test('a shallow journal read snapshots the entry list without cloning its records', async () => {
+  const file = join(tempDir('journal-'), 'provenance.ndjson')
+  const journal = new ProvenanceJournal(file)
+  await journal.append('gap', gap('first'))
+
+  const first = await journal.read({ copy: 'shallow' })
+  const second = await journal.read({ copy: 'shallow' })
+  assert.notStrictEqual(first.entries, second.entries)
+  assert.strictEqual(first.entries[0], second.entries[0])
+
+  await journal.append('gap', gap('second'))
+  const later = await journal.read({ copy: 'shallow' })
+  assert.equal(first.entries.length, 1, 'an existing list snapshot does not grow')
+  assert.equal(later.entries.length, 2)
+})
+
+test('the default journal read isolates nested record values', async () => {
+  const journal = new ProvenanceJournal(join(tempDir('journal-'), 'provenance.ndjson'))
+  await journal.append('gap', { id: 'restored', restoredAt: 1, data: gap('original') })
+
+  const first = await journal.read()
+  const nested = first.entries[0]!.value as { data: { id: string } }
+  nested.data.id = 'changed-by-caller'
+
+  const later = await journal.read()
+  assert.equal((later.entries[0]!.value as { data: { id: string } }).data.id, 'original')
+  assert.notStrictEqual(first.entries[0], later.entries[0])
+})
+
+test('a shallow read waits for an already queued append', { timeout: 5_000 }, async (t) => {
+  const journal = new ProvenanceJournal(join(tempDir('journal-'), 'provenance.ndjson'))
+  await journal.append('gap', gap('first'))
+
+  const originalOpen = fs.open
+  let releaseWrite!: () => void
+  let reachedWrite!: () => void
+  const holdWrite = new Promise<void>((resolve) => { releaseWrite = resolve })
+  const atWrite = new Promise<void>((resolve) => { reachedWrite = resolve })
+  const mock = t.mock.method(fs, 'open', async (...args: Parameters<typeof fs.open>) => {
+    reachedWrite()
+    await holdWrite
+    return originalOpen(...args)
+  })
+  try {
+    const append = journal.append('gap', gap('second'))
+    await atWrite
+    let readDone = false
+    const read = journal.read({ copy: 'shallow' }).then((value) => {
+      readDone = true
+      return value
+    })
+    await Promise.resolve()
+    assert.equal(readDone, false, 'the read cannot finish before the queued write')
+
+    releaseWrite()
+    const [snapshot] = await Promise.all([read, append])
+    assert.deepEqual(snapshot.entries.map((entry) => (entry.value as { id: string }).id), ['first', 'second'])
+    await journal.append('gap', gap('third'))
+    assert.equal(snapshot.entries.length, 2, 'later writes do not grow the returned snapshot')
+  } finally {
+    releaseWrite()
+    mock.mock.restore()
+  }
+})
+
 test('a torn tail refuses appends and leaves every original byte in place', async () => {
   const file = join(tempDir('journal-'), 'provenance.ndjson')
   await new ProvenanceJournal(file).append('gap', gap())

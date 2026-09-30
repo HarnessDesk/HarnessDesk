@@ -82,9 +82,13 @@ const settled = () => pause(LONGEST_SETTLE_MS + 200)
 const proveLive = async (isHeard: () => boolean, touch: () => Promise<void>, what: string, attempts = 60): Promise<void> => {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     await touch()
-    const attemptEnd = Date.now() + LONGEST_SETTLE_MS
-    while (!isHeard() && Date.now() <= attemptEnd) await pause(20)
-    if (isHeard()) return
+    // Count polls, not elapsed time. If the process is descheduled just after
+    // the write, a stale deadline must not spend the whole attempt before it
+    // gets its first chance to observe the event.
+    for (let poll = 0; poll <= LONGEST_SETTLE_MS / 20; poll += 1) {
+      if (isHeard()) return
+      await pause(20)
+    }
   }
   throw new Error(`timed out waiting for ${what}`)
 }

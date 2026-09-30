@@ -251,6 +251,7 @@ type AccountAnswer = { readonly failed: boolean; readonly status: AccountStatus 
 /** A failed account read is asked again this soon, then twice as long each time, up to the last. */
 const ACCOUNT_RETRY_FIRST_MS = 2_000
 const ACCOUNT_RETRY_LAST_MS = 60_000
+const ACCOUNT_READ_TIMEOUT_MS = 10_000
 
 const summaryOfSession = (session: Session): SessionSummary => ({
   id: session.id,
@@ -1372,11 +1373,31 @@ export class AppStore {
   async #readAccount(id: RuntimeId): Promise<readonly [number, AccountAnswer]> {
     const read = (this.#accountReads.get(id) ?? 0) + 1
     this.#accountReads.set(id, read)
-    const answer = await this.transport.request('runtime/account', { runtime: id }).then(
+    const answer = await this.#requestAccount(id).then(
       (status): AccountAnswer => ({ failed: false, status }),
       (): AccountAnswer => ({ failed: true, status: null }),
     )
     return [read, answer]
+  }
+
+  /** A stuck host must not hold account loading or sign-in discovery forever. */
+  async #requestAccount(id: RuntimeId) {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const controller = new AbortController()
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(`runtime/account timed out after ${ACCOUNT_READ_TIMEOUT_MS}ms`))
+        controller.abort()
+      }, ACCOUNT_READ_TIMEOUT_MS)
+    })
+    try {
+      return await Promise.race([
+        this.transport.request('runtime/account', { runtime: id }, { signal: controller.signal }),
+        deadline,
+      ])
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+    }
   }
 
   #applyAccounts(entries: readonly (readonly [RuntimeId, number, AccountAnswer])[]): void {
@@ -1428,9 +1449,12 @@ export class AppStore {
     // is already covered by it, and must not push it later.
     if (this.#accountRetry) return
     const delay = this.#accountRetryDelay
-    this.#accountRetryDelay = Math.min(delay * 2, ACCOUNT_RETRY_LAST_MS)
     this.#accountRetry = setTimeout(() => {
       this.#accountRetry = null
+      // A timer that was cleared before it fired did not consume a wait. If it
+      // does fire, keep the backoff even when a newer read makes this re-ask
+      // unnecessary; a still-failing account has not recovered.
+      this.#accountRetryDelay = Math.min(delay * 2, ACCOUNT_RETRY_LAST_MS)
       const ids = this.#accountsToRetry()
       if (ids.length === 0) {
         if (this.#accountFailed.size === 0) this.#accountRetryDelay = ACCOUNT_RETRY_FIRST_MS
@@ -1466,7 +1490,7 @@ export class AppStore {
     let methods = known
     if (methods === undefined) {
       try {
-        methods = (await this.transport.request('runtime/account', { runtime })).signInMethods
+        methods = (await this.#requestAccount(runtime)).signInMethods
       } catch (error) {
         // "Could not ask" is not "has no way in". The old sentence sent people
         // to a terminal over a socket that had blinked.

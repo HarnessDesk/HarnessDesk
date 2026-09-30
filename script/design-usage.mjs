@@ -35,7 +35,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
-import ts from 'typescript'
+import ts from '@typescript/typescript6'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const FILE = path.join(root, 'packages/ui/src/design/usage.ts')

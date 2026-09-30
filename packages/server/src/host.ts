@@ -1999,10 +1999,10 @@ export class Host {
       log: (message, details) => this.#logger.warn(message, details),
       onProgress: (progress) => {
         this.#push({ method: 'usage/scanProgress', params: { progress } })
-        // The first scan of a machine finishes long after the cards are on
-        // screen. Their money arrives with it, restated rather than re-asked.
+        // The scan can land new spend and desk turns after the cards are on
+        // screen. Restate those local ledger fields rather than re-asking.
         if (!progress.running && progress.finishedAt !== null) {
-          void this.#usageService.settleSpend().catch(() => undefined)
+          void this.#usageService.settleLedger().catch(() => undefined)
         }
       },
     })

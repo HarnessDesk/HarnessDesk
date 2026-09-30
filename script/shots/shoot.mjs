@@ -25,10 +25,12 @@ import { execFileSync } from 'node:child_process'
  *   node script/shots/shoot.mjs --survey          # what is on screen
  *   node script/shots/shoot.mjs --scene board     # one scene, both themes
  *   node script/shots/shoot.mjs --all             # every scene, both themes
+ *   HD_SHOTS_CONTEXT=1 node script/shots/shoot.mjs --all
+ *                                                 # every context-panel ring
  *   node script/shots/shoot.mjs --scene session-hover --reduced-motion
  *                                                 # as a reader who asked for less motion sees it
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -39,6 +41,7 @@ import { TILDIFY, USER, refuseUnpublishable } from './audit.mjs'
 import { CAST, CONVERSATIONS, REPOS, rigRuntimeId } from './cast.mjs'
 import { HOME, NATIVE_CODEX, WORK, SHOT_ENV, requireSeeded } from './config.mjs'
 import { runScene } from './scene.mjs'
+import { selectScenes } from './selection.mjs'
 import { startStaticServer } from './static-server.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
 
@@ -53,15 +56,23 @@ import { LEDGER, SCAN, USAGE } from './usage.mjs'
 const BOARD = [
   { title: 'Add 502 to the retryable status set', detail: 'Only 503 and 504 are listed today, so a bad gateway surfaces as a failed order.' },
   { title: 'Cap the backoff and add jitter', detail: 'Flat 200ms × 3 is three failures in 600ms against a gateway that is still restarting.' },
-  { title: 'Cover both in retry.test.ts', detail: 'A 502 that recovers on the second attempt, and one that never does.' },
+  // Depends on the two cards above (by their position in this array,
+  // resolved to real ids once each is added) — the dependency mark the
+  // README's own "Board, expanded" still names.
+  { title: 'Cover both in retry.test.ts', detail: 'A 502 that recovers on the second attempt, and one that never does.', dependsOn: [0, 1] },
   { title: 'Make the webhook receiver idempotent', detail: 'Key on the delivery id so a redelivery cannot charge twice.' },
   { title: 'Decide the alert threshold for retry storms', detail: 'Needs a number from whoever owns the on-call rota.' },
-]
-
-const CHATTER = [
-  'Taking the retry policy itself — the status set and the backoff are one change.',
-  'I will take the tests once that lands, so we are not both editing retry.test.ts.',
-  'The webhook one is independent; starting on it now.',
+  // Five more, so the still `board-*.png` reads as a busy desk rather than a
+  // five-card demo: claimed across every vendor in the room (not only the
+  // two `ROOM_CLAIM` already used), a second dependency (on the webhook card
+  // this time, not the retry pair), two cards fast-checked straight to
+  // Ready, and a second Needs-you card.
+  { title: 'Log the gateway request id on every retry', detail: 'One id per attempt today; the same id across all three would make a trace one story.' },
+  { title: 'Trace the slow webhook cold start', detail: 'Two thirds of it is loading the currency table eagerly at import.' },
+  { title: 'Extend idempotency to the refund webhook', detail: 'The same delivery-id key the checkout receiver just got.', dependsOn: [3] },
+  { title: 'Add a synthetic checkout canary', detail: 'A real order placed every five minutes, so a broken checkout pages before a customer finds it.' },
+  { title: "Write the postmortem for last week's 502 spike", detail: 'Timeline, blast radius, and the one line that says what the retry fix above changes.' },
+  { title: 'Confirm the retry budget with finance', detail: 'A retried order that still fails should not be charged twice while it waits on that answer.' },
 ]
 
 const APP = process.env['HD_SHOTS_APP'] ?? resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -76,6 +87,15 @@ const OUT = resolve(flag('out', `${APP}/docs/images/app`))
 const WIDTH = Number(flag('width', '1440'))
 const HEIGHT = Number(flag('height', '900'))
 const THEMES = flag('theme') ? [flag('theme')] : ['light', 'dark']
+/* The README room tile needs a deliberately compact real room: enough cards
+   for four claims and two named collisions, but not the expanded board
+   scene's eleven event rows. This switch only changes the camera fixture;
+   ordinary `room` and `board` captures keep their fuller working board. */
+const ROOM_TILE = has('room-tile')
+/* A tall, per-agent heatmap avoids the known overlapping first-month labels
+   in the Year view and gives the Dashboard tour an Activity frame with no
+   dead lower half. Like `ROOM_TILE`, this is camera-only. */
+const DASHBOARD_TILE = has('dashboard-tile')
 const REPO = join(WORK, REPOS[0].dir)
 const say = (line) => process.stdout.write(`  ${line}\n`)
 const PROVENANCE_SHOTS = (() => {
@@ -89,6 +109,34 @@ const busy = await deskInUse(HOME)
 if (busy) {
   process.stderr.write(`\n  A desk is already open on ${HOME} (pid ${busy}). Quit it first.\n\n`)
   process.exit(1)
+}
+
+/* The compact tile still uses the real seat and claim path. It changes only
+   which staged cards the four fake agents claim: each has one card, while
+   Gemini's second retry-path claim and Antigravity's second webhook-path
+   claim are honestly refused because those files are already held. */
+if (ROOM_TILE) {
+  const path = join(HOME, 'agents.json')
+  const roster = JSON.parse(readFileSync(path, 'utf8'))
+  const claims = {
+    [rigRuntimeId('claude-code')]: [{ intent: 1, files: ['src/checkout/retry.ts'] }],
+    [rigRuntimeId('gemini-cli')]: [
+      { intent: 2, files: ['src/checkout/backoff.ts'] },
+      { intent: 6, files: ['src/checkout/retry.ts'] },
+    ],
+    [rigRuntimeId('copilot')]: [{ intent: 4, files: ['src/webhooks/receiver.ts'] }],
+    [rigRuntimeId('antigravity')]: [
+      { intent: 5, files: ['src/alerts/retry.ts'] },
+      { intent: 7, files: ['src/webhooks/receiver.ts'] },
+    ],
+  }
+  for (const agent of roster.agents) {
+    const claim = claims[agent.id]
+    if (!claim) continue
+    agent.env = { ...agent.env, SHOT_CLAIM: JSON.stringify(claim), SHOT_ROOM_TILE: '1' }
+  }
+  writeFileSync(path, `${JSON.stringify(roster, null, 2)}\n`)
+  say('room tile fixture: four claims, two named conflicts, compact replies')
 }
 
 mkdirSync(OUT, { recursive: true })
@@ -144,7 +192,6 @@ try {
         const real = s.transport.request.bind(s.transport)
         const canned = {
           'usage/reports': ${q(USAGE)},
-          'usage/ledger': ${q(LEDGER)},
           'usage/scan': ${q(SCAN)},
           'runtime/skills': [
             { name: 'review', description: 'Review the current changes and report actionable findings with reproducible checks.', enabled: true, toggleable: false },
@@ -170,6 +217,65 @@ try {
           if (method === 'runtime/account') {
             return Promise.resolve(accounts[params?.runtime] ?? anonymous)
           }
+          /*
+           * \`usage/ledger\`'s only fixture, \`LEDGER\`, is a full year wide (the
+           * Activity heatmap's own 365-day grid). Answering every query with
+           * that same object, whatever \`params.days\` asked for, is what made
+           * the Overview strip's 30-day headline sum a year of spend while its
+           * own caption still said "Last 30 days" — an artefact of this stub,
+           * not of the app. Real days requested are honoured here by slicing
+           * \`daily\` to the trailing window and re-deriving every total from
+           * that slice, so a 365-day ask (the Activity view) still gets the
+           * whole year and a 30- or 60-day ask gets only its own days.
+           */
+          if (method === 'usage/ledger') {
+            const full = ${q(LEDGER)}
+            const days = Math.max(1, Math.min(full.days, Number(params?.days) || 30))
+            const last = full.daily.length ? full.daily[full.daily.length - 1].day : Date.now()
+            const cutoff = last - (days - 1) * 86_400_000
+            const daily = full.daily.filter((row) => row.day >= cutoff)
+            const sums = new Map()
+            for (const row of daily) {
+              const acc = sums.get(row.runtime) ?? { tokens: 0, cost: 0, turns: 0 }
+              acc.tokens += row.tokens
+              acc.cost += row.cost
+              acc.turns += row.turns
+              sums.set(row.runtime, acc)
+            }
+            const rows = full.rows.map((row) => {
+              const acc = sums.get(row.runtime) ?? { tokens: 0, cost: 0, turns: 0 }
+              return { ...row, tokens: acc.tokens, cost: Math.round(acc.cost * 100) / 100, turns: acc.turns }
+            })
+            const totalCost = Math.round(rows.reduce((sum, row) => sum + (row.cost ?? 0), 0) * 100) / 100
+            const totalTokens = rows.reduce((sum, row) => sum + (row.tokens ?? 0), 0)
+            const totalTurns = rows.reduce((sum, row) => sum + (row.turns ?? 0), 0)
+            const scale = days / full.days
+            return Promise.resolve({
+              ...full,
+              days,
+              totalCost,
+              totalTokens,
+              daily,
+              rows,
+              coverage: {
+                ...full.coverage,
+                priced: Math.round(full.coverage.priced * scale),
+                unpriced: Math.round(full.coverage.unpriced * scale),
+                estimated: Math.round(full.coverage.estimated * scale),
+                daysCovered: days,
+                daysRequested: days,
+              },
+              totals: {
+                input: Math.round(full.totals.input * scale),
+                output: Math.round(full.totals.output * scale),
+                cacheRead: Math.round(full.totals.cacheRead * scale),
+                cacheWrite: Math.round(full.totals.cacheWrite * scale),
+                reasoning: 0,
+                requests: totalTurns,
+                turns: totalTurns,
+              },
+            })
+          }
           return method in canned ? Promise.resolve(canned[method]) : real(method, params)
         }
         s.__shotsPatched = true
@@ -191,6 +297,18 @@ try {
     await sleep(900)
   }
   await stageAnswers()
+
+  /**
+   * A lane engineered to be behind pace (`usage.mjs`'s own comment on why —
+   * three full "What is left" cards on the dashboard scene, not one) is a
+   * lane real enough to also raise `lib/usage-alerts.ts`'s own "will run out
+   * before it refills" banner, anywhere in the app, on a poll this rig never
+   * controls the timing of — a real product behaviour, not a rig artefact,
+   * and not one any scene here is about. Muted once, the same "stop showing
+   * this" a person reaches from the notice itself (`setNoticeMuted`), so no
+   * scene's frame carries it.
+   */
+  await cdp.eval(`${STORE}.setNoticeMuted('usage:pace', true); ${STORE}.setNoticeMuted('usage:spent', true); true`).catch(() => {})
 
   /**
    * Nothing is written until this passes. See `audit.mjs` for what it asks and
@@ -413,6 +531,20 @@ try {
   }
 
   /**
+   * Gives the docked panel currently showing (board and git both mount to
+   * `right` by default, `panels/builtins.tsx`) the whole window — the same
+   * `zoomPanel(area, 'content')` its own maximise control calls
+   * (`panels/mount.tsx`'s `zoomScope`, which is `'content'` for every dock
+   * and `'window'` only for a pane inside `main`) — for the README's
+   * "expanded" board and repository-history stills, which need the full
+   * window rather than a panel sharing it with the conversation beside it.
+   */
+  const expandPaneOf = async () => {
+    await cdp.eval(`${STORE}.zoomPanel('right', 'content'); true`)
+    await sleep(500)
+  }
+
+  /**
    * Click by what it says, not by where it is — a coordinate is one build's
    * layout.
    *
@@ -560,6 +692,10 @@ rules:
   }
 
   let roomId = null
+  /** The five `BOARD` cards' real ids, in `BOARD`'s own order, once `stageRoom` has added them. */
+  let boardCardIds = []
+  /** Undoes the `board` scene's own temporary commit — see its `finish`. */
+  let boardRevert = null
   const stageRoom = async () => {
     if (roomId) return roomId
     const keys = []
@@ -571,39 +707,138 @@ rules:
     const roomRuntimes = NATIVE_CODEX
       ? ['claude-code', 'gemini-cli', 'copilot', 'antigravity']
       : ['codex', 'claude-code', 'gemini-cli', 'copilot']
-    for (const runtime of roomRuntimes) {
-      keys.push(await seat(cdp, { work: REPO, runtime: rigRuntimeId(runtime), picks: {} }))
+    roomId = await cdp.eval(
+      `${STORE}.createGoal({ root: ${q(REPO)}, sentence: 'Checkout hardening' }).then((view) => view.goal.id)`,
+      60_000,
+    )
+    // Added before any seat is kept: a kept seat's standing order is sent as
+    // its own first turn immediately (`host.ts`'s `#orderSeat`), and
+    // `agent.mjs`'s `playClaim` runs on that very first prompt — a card it
+    // is meant to claim has to already exist on the board by then, or the
+    // real `claim_work` call it makes finds nothing there yet and is
+    // refused. `dependsOn` resolves each job's own array indices to the
+    // real ids `team/add` hands back, in `BOARD`'s own order.
+    const ask = (method, params) => cdp.eval(`${STORE}.transport.request(${q(method)}, ${q(params)})`, 60_000).catch(() => {})
+    boardCardIds = []
+    for (const job of (ROOM_TILE ? BOARD.slice(0, 7) : BOARD)) {
+      const dependsOn = job.dependsOn?.map((i) => boardCardIds[i]).filter((id) => id !== undefined)
+      const added = await cdp.eval(
+        `${STORE}.transport.request('team/add', ${q({ room: roomId, title: job.title, detail: job.detail, ...(dependsOn?.length ? { dependsOn } : {}) })}).then((intent) => intent.id)`,
+        60_000,
+      ).catch(() => null)
+      boardCardIds.push(added)
     }
-    roomId = await makeRoom(cdp, { work: REPO, name: 'Checkout hardening', members: keys.map(splitKey) })
+    for (const runtime of roomRuntimes) {
+      if (runtime === 'codex') {
+        // The native Codex adapter has no `room-codex` identity Agent
+        // (`seed.mjs`) — seated the old way, a bare conversation on a card,
+        // and given its opening prompt explicitly below since nothing seats
+        // it into a turn on its own.
+        const key = await seat(cdp, { work: REPO, runtime: rigRuntimeId(runtime), picks: {} })
+        const { runtime: r, sessionId: s } = splitKey(key)
+        await cdp.eval(
+          `(async () => {
+            const card = await ${STORE}.transport.request('team/add', { room: ${q(roomId)}, title: 'Seat' })
+            await ${STORE}.assignGoal(${q(roomId)}, card.id, { runtime: ${q(r)}, sessionId: ${q(s)} })
+          })()`,
+          60_000,
+        )
+        await cdp.eval(`${STORE}.send([{ type: 'text', text: 'Retry the checkout call on a 502' }], ${q(key)})`, 60_000).catch(() => {})
+        keys.push(key)
+        continue
+      }
+      // Seated by a named identity Agent (`seed.mjs`'s `room-<id>`) rather
+      // than a bare `{runtime, sessionId}` card assignment: a bare seat's
+      // label is minted once, from nothing more than the runtime id
+      // (`host.ts`'s `opening()`, `seatLabel: previous?.seatLabel ??
+      // session.runtime`), and kept forever — which is why an ad-hoc room
+      // used to read "shots-claude-code" rather than "Claude" in its own
+      // chat. `goal/seat` with a bound Agent gives the seat an `agent.name`
+      // to read instead (`goals/members.ts`'s `memberNames`), the same path
+      // `GoalCreate`'s "Seat Agents" checkboxes use.
+      //
+      // Its standing order (`host.ts`'s `#orderSeat`) is sent as this seat's
+      // own first turn the instant it is kept, and `seed.mjs`'s `room-<id>`
+      // Agent briefs carry the room's own task ("Retry the checkout call on
+      // a 502") for exactly that reason — a *second*, separate `send` here
+      // used to race that first turn: `adapter-acp/src/runtime.ts` refuses a
+      // `send` outright while one is already running rather than queuing it,
+      // and the refusal left a standing "is still working" toast over the
+      // composer that nothing afterward — answering approvals, waiting
+      // longer, even clicking its own close button — ever reached, because
+      // it is not a live reading of state. No second send, nothing to race.
+      const key = await cdp.eval(
+        `${STORE}.seatGoal({ goal: ${q(roomId)}, agent: ${q(`room-${runtime}`)} })
+          .then((seat) => seat.session.runtime + String.fromCharCode(0) + seat.session.sessionId)`,
+        60_000,
+      )
+      keys.push(key)
+    }
 
-    /* Work on the board and words in the chat, through the host's own verbs.
-       An empty room photographs as "Nothing said yet" beside "Nothing on the
-       board", which is an accurate picture of a room nobody has used and a
+    /* Words in the chat, through the host's own verbs — the board itself is
+       already staged, above. An empty room photographs as "Nothing said
+       yet", which is an accurate picture of a room nobody has used and a
        useless one of the feature. `store.transport` is public, so these are
        the same calls the interface makes when a person types them. */
-    const ask = (method, params) => cdp.eval(`${STORE}.transport.request(${q(method)}, ${q(params)})`, 60_000).catch(() => {})
-    for (const job of BOARD) await ask('team/add', { room: roomId, title: job.title, detail: job.detail })
-
-    /* The work first, then the chatter — the order it happens in, and the only
-       order that photographs as one.
-
-       An agent can be asked one thing at a time, so a post to the room and a
-       prompt into the same conversation in the same breath is two prompts in
-       flight: one is refused now, and before the adapter refused it the room
-       showed the two answers spliced into one message. Asking first and
-       talking over the work also leaves each seat's opening message as what
-       it was asked, which is the line the sidebar reads.
-
-       All four work, not two: four agents on one piece of work is the thing a
-       room is for, and two idle columns read as two agents that failed to
-       start. */
-    for (const key of keys) {
-      await cdp.eval(`${STORE}.send([{ type: 'text', text: 'Retry the checkout call on a 502' }], ${q(key)})`, 60_000).catch(() => {})
+    // A seat opened through a bound Agent (`goal/seat`, `seed.mjs`'s
+    // `room-<id>`) carries a standing order, unlike the bare `{runtime,
+    // sessionId}` card this replaced — so the fixture's edit tool calls now
+    // ask rather than running unattended, and an unanswered ask holds the
+    // turn open forever, not merely slowly: no fixed sleep, however long,
+    // reliably clears "Antigravity is still working" on its own.
+    await sleep(1500)
+    await answerApprovals(cdp)
+    // Polled to idle rather than slept a fixed amount: ACP rejects a prompt
+    // while the previous turn is still running instead of queuing it.
+    const settle = async () => {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await answerApprovals(cdp)
+        const busy = await cdp.eval(
+          `${STORE}.transport.request('team/peers', { room: ${q(roomId)} }).then((peers) => peers.some((peer) => peer.busy))`,
+          60_000,
+        ).catch(() => false)
+        if (!busy) return
+        await sleep(3000)
+      }
     }
-    /* Queued by the room, one per member per turn: every seat is working by
-       now, and the board's own queue drains each post as a turn ends. */
-    for (const line of CHATTER) await ask('team/post', { room: roomId, text: line })
-    await sleep(7000)
+    // The room needs each Agent's own visible answer, but `team/post` without
+    // `to` broadcasts and makes every fake Agent replay its turn. Deliver one
+    // concise, task-specific message to each known seat instead. The first
+    // stand-alone turns above establish each member; these four deliveries
+    // produce exactly one attributable room reply per vendor.
+    const prompts = [
+      'Please take the retry policy: make 502 retryable and fix the backoff.',
+      'Please cover the retry policy with the recovering and terminal 502 cases.',
+      'Please make the webhook receiver idempotent without changing the checkout path.',
+      'Please investigate a useful alert threshold for retry storms before proposing a number.',
+    ]
+    for (const [key, text] of prompts.entries()) {
+      await settle()
+      const { runtime, sessionId } = splitKey(keys[key])
+      await cdp.eval(
+        `${STORE}.transport.request('team/post', ${q({ room: roomId, text, to: { runtime, sessionId } })})`,
+        60_000,
+      ).catch(() => {})
+    }
+    await settle()
+    // A "still working" toast the composer raised for one refused `send`
+    // earlier in this function (`adapter-acp/src/runtime.ts`'s own "one
+    // prompt at a time") outlives the race that caused it: it is not a live
+    // reading of current state, so it does not clear once the seat it named
+    // goes idle, and it is not in `snapshot.notices` either, so
+    // `dismissNotices` does not reach it — every seat above can finish every
+    // turn and this card stays exactly where it was. Dismissed here the only
+    // way it goes: its own close button, the same click a person would make.
+    await cdp.eval(`(() => {
+      const text = [...document.querySelectorAll('button, [role="status"], div')]
+        .find((node) => (node.textContent ?? '').includes('is still working on the last message'))
+      const card = text?.closest('[class*="toast" i], [class*="notice" i]') ?? text
+      const close = card?.querySelector('button')
+      close?.click()
+      return Boolean(close)
+    })()`).catch(() => {})
+    await dismissNotices(cdp)
+    await sleep(1000)
     return roomId
   }
 
@@ -640,6 +875,127 @@ rules:
    */
   /** The `browser` scene's loopback server, open only while that scene runs. */
   let browserServer = null
+
+  /**
+   * Which flat colour a `ring-*` scene isolated its popover against, by scene
+   * name — `finish` reads it back to border the crop the same colour, rather
+   * than guessing one that might seam against the page underneath.
+   */
+  const ringBackgrounds = {}
+
+  /** A `context-*` seat only exists once `seed.mjs` ran with `HD_SHOTS_CONTEXT=1`. */
+  const requireContextAgent = (id) => {
+    if (!existsSync(join(HOME, 'stores', `${id}.json`))) {
+      throw new Error(`${id} is not seeded — reseed with HD_SHOTS_CONTEXT=1 (node script/shots/seed.mjs)`)
+    }
+  }
+
+  /**
+   * One seat, one message, the composer's context ring opened and everything
+   * else on screen made to disappear — the same "photographed in the app
+   * with the rest of the window hidden" `docs/context-usage.md` already
+   * describes, done by hiding every element that is not an ancestor of the
+   * popover rather than by trusting a tight crop to miss whatever is behind
+   * it. `finish` (`cropRing`) turns that into the small, bordered PNG that
+   * ships.
+   */
+  const ringScene = async (runtime) => {
+    // Cropping only ever reads the light frame (`cropRing`), and isolating
+    // the page forces a light background regardless of theme — a dark
+    // capture here would be silently wrong rather than merely unwritten, so
+    // this refuses instead of trusting the caller to remember `--theme light`.
+    if (THEMES.length !== 1 || THEMES[0] !== 'light') {
+      throw new Error(`${runtime}: ring-* scenes are light-only — pass --theme light (got ${THEMES.join(', ')})`)
+    }
+    const key = await seat(cdp, { work: REPO, runtime, picks: {} })
+    await cdp.eval(`${STORE}.send([{ type: 'text', text: 'Retry the checkout call on a 502' }], ${q(key)})`, 60_000)
+    // The native Codex adapter asks before it runs a tool; the camera fixture
+    // never does, so this is a no-op for the two `context-*` seats.
+    await sleep(1200)
+    await answerApprovals(cdp)
+    // Long enough for the scripted turn — and, for the two `context-*` seats,
+    // the usage it carries — to land.
+    await sleep(6500)
+    await answerApprovals(cdp)
+    const opened = await cdp.eval(`(() => {
+      const trigger = [...document.querySelectorAll('button[title], button[aria-label]')].find((b) => {
+        const label = b.getAttribute('title') || b.getAttribute('aria-label') || ''
+        return label.includes('Context window') || label.includes('does not report')
+      })
+      if (!trigger) return false
+      trigger.click()
+      return true
+    })()`)
+    if (!opened) throw new Error(`${runtime}: no context-ring trigger on the composer`)
+    await waitForSnapshot(() => cdp.eval(`Boolean(document.querySelector('[data-slot="popover-popup"]'))`), Boolean)
+    // Long enough that the popup's own entrance transform has settled — a
+    // capture mid-animation is a slightly smaller card, and four scenes
+    // whose content differs in height reach that rest point at slightly
+    // different times.
+    await sleep(700)
+    const bg = await cdp.eval(`(() => {
+      const popup = document.querySelector('[data-slot="popover-popup"]')
+      if (!popup) return null
+      const bg = getComputedStyle(document.documentElement).getPropertyValue('--hd-background').trim() || '#e7e7e8'
+      // Tagged rather than only styled, so \`restoreRing\` can undo exactly
+      // this and nothing a later scene in the same run did of its own.
+      document.documentElement.setAttribute('data-hd-ring-bg', '')
+      document.body.setAttribute('data-hd-ring-bg', '')
+      document.documentElement.style.setProperty('background', bg, 'important')
+      document.body.style.setProperty('background', bg, 'important')
+      const keep = new Set()
+      for (let node = popup; node; node = node.parentElement) keep.add(node)
+      // Recurse only down to the popup itself: its own children are the reading, not a sibling.
+      const hide = (node) => {
+        if (node === popup) return
+        for (const child of Array.from(node.children)) {
+          if (keep.has(child)) hide(child)
+          else {
+            child.setAttribute('data-hd-ring-hidden', '')
+            child.style.setProperty('visibility', 'hidden', 'important')
+          }
+        }
+      }
+      hide(document.body)
+      return bg
+    })()`)
+    if (!bg) throw new Error(`${runtime}: the context popover never opened`)
+    return bg
+  }
+
+  /**
+   * Undoes exactly what `ringScene` did to the live page — the forced
+   * background and every `visibility: hidden`, by the tag each carries —
+   * so a scene run after a `ring-*` one in the same `--all`/multi-scene
+   * invocation does not inherit a blank page. Cropping already happened by
+   * the time this runs, so it only ever touches the live DOM, never a file.
+   */
+  const restoreRing = () => cdp.eval(`(() => {
+    for (const node of document.querySelectorAll('[data-hd-ring-hidden]')) {
+      node.style.removeProperty('visibility')
+      node.removeAttribute('data-hd-ring-hidden')
+    }
+    for (const node of document.querySelectorAll('[data-hd-ring-bg]')) {
+      node.style.removeProperty('background')
+      node.removeAttribute('data-hd-ring-bg')
+    }
+    return true
+  })()`).catch(() => {})
+
+  /** The isolated frame, trimmed to its card and re-bordered a little margin. */
+  const cropRing = (name) => {
+    const raw = `${OUT}/${name}-light.png`
+    const dest = `${APP}/docs/images/${name}.png`
+    const bg = ringBackgrounds[name] ?? '#e7e7e8'
+    execFileSync('magick', [raw, '-trim', '+repage', '-bordercolor', bg, '-border', '40', dest])
+    rmSync(raw, { force: true })
+  }
+
+  /** Crop, then give the live page back — every ring-* scene's `finish`. */
+  const finishRing = async (name) => {
+    cropRing(name)
+    await restoreRing()
+  }
 
   const SCENES = {
     ...(PROVENANCE_SHOTS.length === 2 ? {
@@ -745,6 +1101,41 @@ rules:
       if (folded) await click('Worked for')
     } },
 
+    /**
+     * The composer's context ring, popped open and everything else on screen
+     * made to disappear — `docs/context-usage.md`'s own four photographs.
+     * Present in `SCENES` only under `HD_SHOTS_CONTEXT=1` (the rig's own
+     * pattern, see `PROVENANCE_SHOTS` above): the seats these need only
+     * exist once `seed.mjs` ran with that flag, and a plain `--all` must
+     * still shoot every scene that does not, rather than stopping here.
+     * `HD_SHOTS_NATIVE_CODEX=0` and multi-theme runs are not this scene's
+     * business either: `ringScene` refuses anything but `--theme light`.
+     */
+    ...(process.env['HD_SHOTS_CONTEXT'] === '1' ? {
+      'ring-codex': { leaveOverlay: true, expect: 'Reported by', run: async () => {
+        if (!NATIVE_CODEX) throw new Error('ring-codex needs the native Codex adapter (HD_SHOTS_NATIVE_CODEX unset or 1)')
+        if (process.env['FAKE_CODEX_WINDOWS'] !== '1') {
+          throw new Error('ring-codex needs FAKE_CODEX_WINDOWS=1 set before launch, for the plan-usage rows')
+        }
+        ringBackgrounds['ring-codex'] = await ringScene('codex')
+      }, finish: () => finishRing('ring-codex') },
+
+      'ring-claude-code': { leaveOverlay: true, expect: 'Reported by', run: async () => {
+        requireContextAgent('context-claude-code')
+        ringBackgrounds['ring-claude-code'] = await ringScene('context-claude-code')
+      }, finish: () => finishRing('ring-claude-code') },
+
+      'ring-cursor': { leaveOverlay: true, expect: 'does not report', run: async () => {
+        requireContextAgent('context-cursor')
+        ringBackgrounds['ring-cursor'] = await ringScene('context-cursor')
+      }, finish: () => finishRing('ring-cursor') },
+
+      'ring-dsh': { leaveOverlay: true, expect: 'Reported by', run: async () => {
+        requireContextAgent('context-dsh')
+        ringBackgrounds['ring-dsh'] = await ringScene('context-dsh')
+      }, finish: () => finishRing('ring-dsh') },
+    } : {}),
+
     /** What every agent has left, and what it has cost. */
     dashboard: { expect: 'What is left', run: async () => {
       if (!(await click('Dashboard'))) throw new Error('no Dashboard row in the sidebar')
@@ -766,16 +1157,35 @@ rules:
       await sleep(1200)
     } },
 
+    /**
+     * The Activity view: the year calendar heatmap over the seeded ledger's
+     * six months of daily spend (`usage.mjs`'s `LEDGER`), several agents
+     * deep. `expect` is the band's own heading rather than a figure, since a
+     * figure would tie this scene to `usage.mjs`'s exact totals.
+     */
+    'dashboard-activity': { leaveOverlay: true, expect: 'When it ran', run: async () => {
+      if (!(await click('Dashboard'))) throw new Error('no Dashboard row in the sidebar')
+      await sleep(1600)
+      if (!(await click('Activity'))) throw new Error('no Activity row in the Dashboard nav')
+      await sleep(1600)
+      if (DASHBOARD_TILE) {
+        if (!(await click('By agent'))) throw new Error('no By agent toggle in Activity')
+        await sleep(1200)
+      }
+    } },
+
     /** The rebuilt settings patterns, reached through the same store request features use. */
     settings: { leaveOverlay: true, expect: 'Appearance', run: async () => {
       await cdp.eval(`${STORE}.askSettings('appearance'); true`)
       await sleep(1400)
     } },
 
-    /** The repository pane: a real graph over real git objects. */
+    /** The repository pane, expanded: a real, tangled graph over real git objects. */
     git: { leaveOverlay: true, expect: 'History', run: async () => {
       await cdp.eval(`${STORE}.openGitHistory(${q(REPO)}); true`)
       await sleep(2200)
+      await expandPaneOf()
+      await sleep(400)
     } },
 
     /** CodeMirror behind the canonical editor theme bridge. */
@@ -834,11 +1244,92 @@ rules:
       }
     } },
 
-    /** A room of agents, and the board they claim work from. */
+    /** The board, expanded to the full window: every column populated. */
+    /**
+     * The board, expanded to the full window: every column populated —
+     * two cards genuinely claimed (a real `claim_work` call, `agent.mjs`'s
+     * `playClaim`, wired from `seed.mjs`'s `ROOM_CLAIM`) for Working, the
+     * dependent third card for a dependency mark in To do, a person's own
+     * `block` for Needs you, and the webhook card's own named check, caught
+     * running, for In review — the one column nothing this board already
+     * does can produce, so this scene alone slows that check (and undoes
+     * the commit that does it in `finish`, below).
+     */
     board: { leaveOverlay: true, expect: 'Ready', run: async () => {
       await stageRoom()
+      const reviewCard = boardCardIds[3]
+      const needsCard = boardCardIds[4]
+      // Density for the still (`board-*.png`): a second Needs-you card and
+      // two more marked `done` while the check is still the fast one below
+      // (`checks.yml`'s own `node --test`, seeded by `seed.mjs`) — a passing
+      // check is `board-facts.ts`'s own route to Ready, the same one the
+      // README's own "Board, expanded" already relies on for the webhook
+      // card, just not slowed this time.
+      const secondNeedsCard = boardCardIds[10]
+      const readyCards = [boardCardIds[8], boardCardIds[9]]
+      if (needsCard != null) {
+        await cdp.eval(
+          `${STORE}.transport.request('team/intent', ${q({ room: roomId, id: needsCard, action: 'block', reason: 'Needs a number from whoever owns the on-call rota.' })})`,
+          60_000,
+        ).catch(() => {})
+      }
+      if (secondNeedsCard != null) {
+        await cdp.eval(
+          `${STORE}.transport.request('team/intent', ${q({ room: roomId, id: secondNeedsCard, action: 'block', reason: "Needs finance's own number before a retry can double-charge." })})`,
+          60_000,
+        ).catch(() => {})
+      }
+      for (const id of readyCards) {
+        if (id == null) continue
+        await cdp.eval(`${STORE}.transport.request('team/intent', ${q({ room: roomId, id, action: 'done' })})`, 60_000).catch(() => {})
+      }
+      if (reviewCard != null) {
+        await cdp.eval(
+          `${STORE}.transport.request('team/intent', ${q({ room: roomId, id: reviewCard, action: 'done' })})`,
+          60_000,
+        ).catch(() => {})
+      }
       await cdp.eval(`${STORE}.openTeamBoard(${q(roomId)}); true`)
-      await sleep(2200)
+      await sleep(1600)
+      await expandPaneOf()
+      if (reviewCard != null) {
+        const checksPath = join(REPO, '.harnessdesk', 'checks.yml')
+        const before = execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+        writeFileSync(checksPath, 'verify: { run: "node --test && sleep 8", timeout: 120 }\n')
+        execFileSync('git', ['-C', REPO, 'add', '-A'], { stdio: 'pipe' })
+        execFileSync('git', ['-C', REPO, 'commit', '-q', '-m', 'shots: slow the verify check for one frame'], { stdio: 'pipe' })
+        boardRevert = () => {
+          try {
+            execFileSync('git', ['-C', REPO, 'reset', '-q', '--hard', before], { stdio: 'pipe' })
+          } catch {
+            // best effort — the scene's own frames already exist either way
+          }
+        }
+        const menu = await press({ selector: `button[aria-label="What to do with #${reviewCard}"]` }, { wait: 600 })
+        if (menu && (await click('Run verify', '[role="menu"]'))) {
+          const armed = await waitForSnapshot(
+            () =>
+              cdp.eval(
+                `[...document.querySelectorAll('[role="alertdialog"] button')].some((one) => one.textContent?.trim() === 'Run verify' && !one.disabled)`,
+              ),
+            Boolean,
+            { attempts: 50 },
+          ).catch(() => false)
+          if (armed) await click('Run verify', '[role="alertdialog"]')
+          // Caught mid-run, well before the extra `sleep 8` completes: the
+          // only real source `board-facts.ts`'s `settled` has for "In
+          // review" is a check the board is honestly still waiting on.
+          await sleep(1800)
+        }
+      }
+      // A usage notice can land any time a seated agent's own turn runs —
+      // dismissed once already inside `stageRoom`, but the extra turns and
+      // waits above give a later one room to appear before the frame is
+      // taken.
+      await dismissNotices(cdp).catch(() => {})
+    }, finish: () => {
+      boardRevert?.()
+      boardRevert = null
     } },
 
     /** The same room, as a room: several agents' turns side by side. */
@@ -867,7 +1358,19 @@ rules:
         throw new Error('no New session button in the sidebar')
       }
       await sleep(700)
-      await pressKey('Tab')
+      // The chooser opens with "Session" selected in its radiogroup
+      // (`NewSessionChoice.tsx`'s `ChoiceList`), which is "one Tab stop, and
+      // the arrows choose" (`DialogForm.tsx`'s `stepRadio`): a plain Tab
+      // leaves the group entirely, landing on the footer's own "Start"
+      // button rather than moving between answers, which silently starts a
+      // plain session and closes the dialog before the Goal form this scene
+      // wants ever opens — the "What finishes this?" field then never
+      // appears, and the snapshot wait below used to time out. One
+      // ArrowDown moves the selection from "Session" to "Goal" within the
+      // group; the capture handler on the surrounding form
+      // (`onKeyDownCapture`) then treats Enter as the dialog's one filled
+      // act and opens `GoalCreate`.
+      await pressKey('ArrowDown')
       await pressKey('Enter')
       await waitForSnapshot(() => cdp.eval(`document.querySelector('input[aria-label="What finishes this?"]') !== null`), Boolean)
       if (!(await fill('What finishes this?', 'Checkout hardening'))) throw new Error('no Goal sentence field')
@@ -990,6 +1493,17 @@ rules:
       await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
       await sleep(1200)
       const room = await cdp.eval(`${STORE}.createGoal({ root: ${q(REPO)}, sentence: 'Checkout hardening' }).then((view) => view.goal.id)`, 60_000)
+      // `createGoal` only registers the Goal; nothing focuses it. The New
+      // Goal dialog's own submit does that itself (`store.openGoal`, see
+      // `GoalCreate.tsx`/`FlowGoalCreate` in `packages/ui/src/components`),
+      // but this scene drives the engine's verbs directly rather than the
+      // dialog, so the room this Goal opened was never the one on screen —
+      // the middle pane stayed on whatever `openWorkspace` left there (the
+      // plain "New session" composer) while `openTeamBoard` below opened only
+      // the board at the edge, leaving the room it belongs to invisible.
+      // Focusing it explicitly is what puts the room in the middle and the
+      // board beside it, the picture this scene's own comment describes.
+      await cdp.eval(`${STORE}.openGoal(${q(room)}); true`)
       const source = await cdp.eval(`${STORE}.readFlow(${q(REPO)}, '.harnessdesk/flows/fix-and-review.yml')`, 60_000)
       await cdp.eval(
         `${STORE}.startFlow(${q(room)}, ${q(source)}, { path: '.harnessdesk/flows/fix-and-review.yml', vars: { work: 'Retry the checkout call on a 502' } })`,
@@ -1908,6 +2422,16 @@ rules:
       await openStorefront()
       if (!(await click('Agents'))) throw new Error('no Agents row in the sidebar')
       await sleep(1400)
+      await cdp.eval(`(() => {
+        const dialog = document.querySelector('[role="dialog"][aria-label="Agents"]')
+        const scroller = [...(dialog?.querySelectorAll('*') ?? [])]
+          .find((node) => node.scrollHeight > node.clientHeight + 300)
+        if (!scroller) return false
+        scroller.scrollTop = scroller.scrollHeight
+        scroller.dispatchEvent(new Event('scroll', { bubbles: true }))
+        return true
+      })()`)
+      await sleep(500)
     } },
 
     /** An Agent's page: its file, its ceiling, its own seats muted, and this Mac's. */
@@ -2288,7 +2812,16 @@ rules:
      three scenes, and silently shooting only one of them is the kind of miss
      you find after the app has been shut down. */
   const named = argv.flatMap((one, i) => (one === '--scene' && argv[i + 1] && !argv[i + 1].startsWith('--') ? [argv[i + 1]] : []))
-  const wanted = has('all') ? Object.keys(SCENES) : named
+  // Context seats are deliberately a ring-only rig. `--all` with that rig
+  // captures the four ring cards, leaving the ordinary 12-seat take to the
+  // normal seed; otherwise one combined run would silently republish every
+  // non-ring scene with extra newest conversations in its sidebar.
+  const wanted = selectScenes({
+    all: has('all'),
+    context: process.env['HD_SHOTS_CONTEXT'] === '1',
+    names: Object.keys(SCENES),
+    requested: named,
+  })
 
   if (has('survey')) {
     const survey = await cdp.json(`(() => {

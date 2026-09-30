@@ -17,6 +17,9 @@ import { openingOf, preserveNoticeItems } from '@harnessdesk/protocol'
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
 import { publicationsIn, withPublications } from './publications.js'
 
+/** The runtime has no transcript directory yet (or it disappeared). */
+export class MissingTranscriptRuntimeError extends Error {}
+
 /**
  * The transcript the host watched, kept.
  *
@@ -573,6 +576,37 @@ export class TranscriptStore {
           continue
         }
       }
+    }
+    return out
+  }
+
+  /** Every stored transcript for one runtime. A missing folder or invalid file aborts the export so a ledger replacement cannot publish a partial count. */
+  async exportRuntime(runtime: string): Promise<readonly { runtime: string; id: string; data: unknown }[]> {
+    const folder = join(this.directory, encodeURIComponent(runtime))
+    let names: string[]
+    try {
+      names = await readdir(folder)
+    } catch (error) {
+      // A missing runtime folder is different from a present empty folder:
+      // this may be a transient move of conversations counted earlier.
+      if (NOTHING_YET.has(errnoOf(error))) throw new MissingTranscriptRuntimeError('Transcript runtime directory is absent', { cause: error })
+      throw unexported(error)
+    }
+    const out: { runtime: string; id: string; data: unknown }[] = []
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue
+      // Unlike backup export, this result replaces already-counted ledger
+      // rows. A failed read or invalid file must reject the whole batch, not
+      // silently erase that file's prior turns as a partial export would.
+      const text = await readFile(join(folder, name), 'utf8')
+      const data = JSON.parse(text) as Partial<Stored> | null
+      if (
+        data === null || typeof data !== 'object' ||
+        data.version !== FORMAT ||
+        !Array.isArray(data.turns) ||
+        data.turns.some((turn) => typeof turn !== 'object' || turn === null || !Array.isArray(turn.items))
+      ) throw new Error('A stored transcript is invalid; its runtime export cannot replace the ledger window')
+      out.push({ runtime, id: String(data.id), data })
     }
     return out
   }

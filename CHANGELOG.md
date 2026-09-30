@@ -5,7 +5,9 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
-## Unreleased
+## 0.3.1 — 2026-09-27
+
+HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
 
 - **A reviewer that already raised a finding is now told plainly how to close
   it on a later round.** A blocking finding could be fixed, confirmed fixed in
@@ -21,6 +23,14 @@ move is real work and is not news to a person weighing an upgrade.
   own packet now names the raising Agent beside each finding still in
   question, since more than one Agent can hold the same role across a Goal's
   rounds. (Refs #1089, #1090)
+
+- **Context usage keeps each reading with its note** — a cache verdict stays
+  beside its token count when it fits, and wraps together at the row's edge
+  when the panel is narrow.
+
+- **Folder breadcrumbs now render and navigate correctly** — choosing a
+  parent path in the folder picker no longer relies on invalid nested list
+  markup.
 
 - **"Decide it yourself" in Findings hardened against ever losing a typed
   reason, and against ever sending one to the wrong finding.** The person's
@@ -852,12 +862,12 @@ move is real work and is not news to a person weighing an upgrade.
   subject** — each competitor's own isolated work is checked on its own,
   rather than one command picking a single subject to stand in for all of
   them. Naming a checkout explicitly keeps the old single-command behaviour.
-- Fix the whole app quitting on the first line it logged after the terminal
-  or script that started it had gone away — usually a refused Wrap, Seat or
-  check run. The refusal is now shown, and the host log says its console went
-  away.
-- Add source-qualified, read-only Insight transport for historical usage,
-  receipt cost summaries, project usage, and local Agent-seat ordering review.
+- **The app stays open when the terminal that launched it closes** — refused
+  Wraps, Seats and checks are still shown, and the host log records that its
+  console went away.
+- **Insight can review usage across projects and receipts** — historical
+  usage, receipt cost summaries and Agent-seat ordering are available through
+  source-qualified, read-only views.
 
 ## 0.2.4 — 2026-09-18
 

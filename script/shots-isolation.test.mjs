@@ -15,8 +15,33 @@ import { GoalStore } from '../packages/server/dist/src/goals/store.js'
 import { AcpRuntime } from '../packages/adapter-acp/dist/src/runtime.js'
 import { RUNTIME_ACCOUNTS } from './shots/accounts.mjs'
 import { USAGE, LEDGER } from './shots/usage.mjs'
+import { selectScenes } from './shots/selection.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+test('the context rig can never republish ordinary scenes with its extra seats', () => {
+  const scenes = ['desk', 'conversation', 'ring-codex', 'ring-cursor', 'ring-dsh']
+  assert.deepEqual(
+    selectScenes({ all: true, context: false, names: scenes, requested: [] }),
+    scenes,
+  )
+  assert.deepEqual(
+    selectScenes({ all: true, context: true, names: scenes, requested: [] }),
+    ['ring-codex', 'ring-cursor', 'ring-dsh'],
+  )
+  assert.deepEqual(
+    selectScenes({ all: false, context: true, names: scenes, requested: ['ring-cursor'] }),
+    ['ring-cursor'],
+  )
+  assert.throws(
+    () => selectScenes({ all: false, context: true, names: scenes, requested: ['desk'] }),
+    /HD_SHOTS_CONTEXT=1 only permits ring-\* scenes/,
+  )
+  assert.throws(
+    () => selectScenes({ all: true, context: true, names: scenes, requested: ['desk'] }),
+    /HD_SHOTS_CONTEXT=1 only permits ring-\* scenes/,
+  )
+})
 
 test('native appearance relaunch keeps the packaged executable selected for the sweep', () => {
   const native = readFileSync(join(root, 'e2e/ui-system/native-smoke.mjs'), 'utf8')
@@ -89,6 +114,18 @@ test('the flow and new-session-agents scenes find the sidebar\'s own trigger, no
   assert.match(flow, /waitForSnapshot\(\(\) => cdp\.eval\(`document\.body\.innerText\.includes\('Checkout hardening'\)`\), Boolean\)/, 'the Goal must be waited for, not merely slept past')
   const newSessionAgents = shoot.slice(shoot.indexOf("'new-session-agents': {"), shoot.indexOf("'palette-agents': {"))
   assert.match(newSessionAgents, /click\('New session', '\[aria-label="Workspace actions"\]'\)/)
+})
+
+test('the room delivers one distinct prompt to each seat without broadcasting a second turn to every seat', () => {
+  const shoot = readFileSync(join(root, 'script/shots/shoot.mjs'), 'utf8')
+  const room = shoot.slice(shoot.indexOf('const stageRoom = async () => {'), shoot.indexOf('/**\n   * Leave the Dashboard'))
+  assert.match(room, /for \(const runtime of roomRuntimes\)/)
+  assert.match(room, /const prompts = \[/)
+  assert.match(room, /for \(const \[key, text\] of prompts\.entries\(\)\)/)
+  assert.match(room, /to: \{ runtime, sessionId \}/, 'each room prompt must name one recipient')
+  assert.match(room, /transport\.request\('team\/post'/)
+  assert.doesNotMatch(room, /for \(const line of CHATTER\)/, 'a room-wide post replays every fake agent turn and duplicates the chat')
+  assert.doesNotMatch(room, /transport\.request\('team\/post', \{ room: roomId, text: line \}\)/)
 })
 
 test('every seeded camera agent stays on its scripted process even with real CLIs installed', async t => {
@@ -746,7 +783,10 @@ test('reseeding clears a leftover browser-pane layout, closing the leak an earli
   seed()
 
   const state = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
-  assert.deepEqual(state.preferences, {}, 'a leftover panel/dock layout survived reseeding')
+  // `preferences` starts fresh on every reseed (seed.mjs's own doc comment),
+  // so nothing survives but what this seed itself writes — its own
+  // `usageOff` list, never the previous take's `layouts`.
+  assert.deepEqual(Object.keys(state.preferences).sort(), ['usageOff'], 'a leftover panel/dock layout survived reseeding')
   assert.doesNotMatch(readFileSync(join(home, 'state.json'), 'utf8'), /\/Users\/someone\/work\/browse/)
 })
 

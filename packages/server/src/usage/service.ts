@@ -71,6 +71,10 @@ export interface UsageServiceOptions {
 
 const DEFAULT_STALE_AFTER_MS = 5 * 60_000
 
+const sameTurns = (left: UsageReport['turns'], right: UsageReport['turns']): boolean =>
+  (!left && !right) || Boolean(left && right &&
+    left.count === right.count && left.unitsPerTurn === right.unitsPerTurn && left.since === right.since)
+
 /**
  * A runtime that meters itself gives us `RateLimits` and nothing about where
  * they came from, so the label is the honest general answer.
@@ -164,7 +168,7 @@ export class UsageService {
 
   /**
    * The one place a report is cached and pushed — every exit out of `#build`
-   * and `settleSpend` funnels through here, so the overlay (a stored plan
+   * and `settleLedger` funnels through here, so the overlay (a stored plan
    * fee/budget, when the host supplies one) is applied exactly once and
    * never skipped on one path while another remembers it.
    */
@@ -176,15 +180,14 @@ export class UsageService {
   }
 
   /**
-   * Restates the money after the ledger has learned something new.
+   * Restates the ledger-derived parts after a scan has learned something new.
    *
-   * A finished scan changes the spend half of every report and nothing else,
-   * so no account is asked again — the readings already in hand are restated
-   * and re-emitted. The exception is an agent that had nothing at all to say
-   * and so was never cached: money alone now earns it a card, and that one is
-   * built properly.
+   * A finished scan can change both spend and turns, so no account is asked
+   * again — the readings already in hand are restated and re-emitted. The
+   * exception is an agent that had nothing at all to say and so was never
+   * cached: money alone now earns it a card, and that one is built properly.
    */
-  async settleSpend(): Promise<void> {
+  async settleLedger(): Promise<void> {
     for (const runtime of this.#options.runtimes()) {
       const id = runtime.info.id
       const spend = this.#options.spend?.spendFor(id) ?? null
@@ -193,8 +196,10 @@ export class UsageService {
         if (spend) await this.#reportFor(runtime, true).catch(() => null)
         continue
       }
-      if (spend === null && cached.spend === null) continue
-      const restated: UsageReport = { ...cached, spend }
+      const turns = this.#turnsFor(id, cached.billing, cached.lanes)
+      if (spend === null && cached.spend === null && sameTurns(cached.turns, turns)) continue
+      const { turns: _previousTurns, ...withoutTurns } = cached
+      const restated: UsageReport = { ...withoutTurns, spend, ...(turns ? { turns } : {}) }
       await this.#finish(id, restated)
     }
   }

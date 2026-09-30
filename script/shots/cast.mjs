@@ -72,6 +72,91 @@ export const REPOS = [
 ]
 
 /**
+ * Three more seats, only for the `ring-*` scenes (`HD_SHOTS_CONTEXT=1`,
+ * `seed.mjs`): the camera fixture (`agent.mjs`) fed real ACP usage shapes
+ * through `SHOT_USAGE`, so the composer's context ring has something to
+ * photograph for `docs/context-usage.md`. Kept out of `CAST` — every other
+ * scene's desk stays the twelve agents it has always been — but listed here,
+ * not only in `seed.mjs`, so `audit.mjs`'s history check recognises them as
+ * this rig's own rather than refusing the frame as an unstaged conversation.
+ *
+ * The numbers are the real adapters' own fixtures' first-turn answers, or
+ * (DeepSeek Harness has no fake in this repository) the real bridge's own
+ * documented shape — `claude-acp`'s `fake-claude.mjs` (`input_tokens: 12,
+ * cache_creation_input_tokens: 3000, cache_read_input_tokens: 20000,
+ * output_tokens: 40`, a 200K window, spend 0.0123), `cursor-acp`'s
+ * `fake-cursor-agent.mjs` (`inputTokens: 1200, outputTokens: 80,
+ * cacheReadTokens: 900`, no window ever sent), and
+ * DeepSeek Harness's own `docs/context-usage.md` table row (`used: 4400`,
+ * `size: 32000`, a composition from `@deepseek-ai/dsh-token-meter` of a
+ * 700-token system prompt and 4.3K of 15 tool schemas) — so the panel's own
+ * arithmetic (`describeContext`, `compositionOf`, both agent-agnostic)
+ * produces the exact figures `docs/context-usage.md` already describes;
+ * only the design around them is new. Never `'a fake meter'` — the estimator
+ * name a reader sees has to be the one the real agent would give, not a test
+ * fixture's own name for itself (`adapter-acp/test/fixtures/fake-acp-agent.mjs`).
+ */
+export const CONTEXT_CAST = [
+  {
+    id: 'context-claude-code',
+    name: 'Claude',
+    brand: 'claudecode',
+    tagline: "Anthropic's coding agent.",
+    models: 'sonnet:Sonnet,opus:Opus',
+    conversation: ['Retry the checkout call on a 502', 'Only 503 and 504 were retried; 502 joins them, with a capped, jittered backoff.'],
+    usage: {
+      last: { totalTokens: 23052, inputTokens: 12, outputTokens: 40, cachedReadTokens: 20000, cachedWriteTokens: 3000 },
+      used: 23012,
+      size: 200000,
+      cost: { amount: 0.0123, currency: 'USD' },
+    },
+  },
+  {
+    id: 'context-cursor',
+    name: 'Cursor Agent',
+    brand: 'cursor',
+    tagline: "Cursor's CLI agent.",
+    models: 'composer-2:Composer 2',
+    conversation: ['Retry the checkout call on a 502', 'Added 502 to the retryable set and capped the backoff.'],
+    usage: {
+      last: { totalTokens: 1280, inputTokens: 1200, outputTokens: 80, cachedReadTokens: 900 },
+      // No `used`/`size`: Cursor never sends a window, so the ring stays dashed.
+      cost: null,
+    },
+  },
+  {
+    id: 'context-dsh',
+    // Matches the real registry's own name for this agent
+    // (packages/server/src/agent-registry.ts), not this rig's docs shorthand
+    // "DeepSeek Harness" — the footer has to read as the app's own does.
+    name: 'DeepSeek',
+    brand: 'deepseek',
+    tagline: "DeepSeek's agent harness, speaking ACP directly.",
+    models: 'deepseek-chat:DeepSeek Chat',
+    conversation: ['Retry the checkout call on a 502', 'Added 502 to the retryable set and capped the backoff.'],
+    usage: {
+      // No `last`, on purpose: `docs/context-usage.md`'s own table says the
+      // real fake "sends none" for a turn's tokens or the session total —
+      // DeepSeek Harness's ring is the composition alone.
+      used: 4400,
+      size: 32000,
+      cost: null,
+      // The real bridge's own estimator, not a fixture's name for itself —
+      // `docs/context-usage.md`'s own table: "`contextBreakdown` projection
+      // from `@deepseek-ai/dsh-token-meter`".
+      breakdown: {
+        source: '@deepseek-ai/dsh-token-meter',
+        approximate: true,
+        segments: [
+          { id: 'system', label: 'System prompt', tokens: 700 },
+          { id: 'tools', label: 'Tool schemas', tokens: 4300, count: 15 },
+        ],
+      },
+    },
+  },
+]
+
+/**
  * Seeded conversations, by agent id.
  *
  * Written as real work rather than as lorem: a reader who stops to read a
@@ -111,12 +196,21 @@ export const CONVERSATIONS = {
 /**
  * The git history the repository pane draws.
  *
- * Shaped for the graph rather than for the log: two branches off one trunk and
- * a merge back, so the lane renderer has lanes to draw and a merge point to
- * join. A straight line of commits makes a correct graph and a dull picture.
+ * Shaped for the graph rather than for the log, and for the *expanded* graph
+ * the README's own "Repository history" still shows in particular: nine
+ * branches off `main` (ten lanes, `main` included), most merged back with
+ * `--no-ff` so the merge commit exists as an object the graph can draw a
+ * join at, two still open so a long-lived branch has something to cross a
+ * later, shorter one, and three tags so the graph has more to carry than
+ * commits and merges alone. `feat/address-extract` branches off another
+ * feature branch rather than off `main`, which is the one thing a straight
+ * "every branch forks the trunk" history never has to draw. `{ tag }` marks
+ * the ref the lane renderer reads it from — the current branch at the point
+ * the entry runs, same as a commit's own placement.
  */
 export const HISTORY = [
   { branch: 'main', message: 'storefront at 2.4.1' },
+  { tag: 'v2.4.1' },
   { branch: 'main', message: 'checkout: split the retry policy out of the client' },
   { branch: 'main', message: 'deps: vitest 3.2, and the two snapshots it moved' },
   { branch: 'feat/promo-stacking', from: 'main', message: 'pricing: allow two promos to stack' },
@@ -126,4 +220,34 @@ export const HISTORY = [
   { branch: 'fix/cart-drift', message: 'cart: the rounding test that found it' },
   { merge: 'fix/cart-drift', into: 'main', message: 'Merge: cart totals in minor units' },
   { branch: 'main', message: 'checkout: retry on 502 with a capped backoff' },
+  { branch: 'feat/webhook-v2', from: 'main', message: 'webhook: accept v2 signatures alongside v1' },
+  { branch: 'main', message: 'docs: runbook for a failed payout' },
+  { branch: 'fix/rate-limiter-clock', from: 'main', message: 'ratelimiter: take a clock instead of Date.now()' },
+  { merge: 'fix/rate-limiter-clock', into: 'main', message: "Merge: inject the rate limiter's clock" },
+  { branch: 'feat/webhook-v2', message: 'webhook: drop v1 after the grace window' },
+  // Still open at the end of this history — the long-lived branch several
+  // shorter ones (`chore/deps-bump`, `fix/webhook-retry-cap`) cross while it
+  // waits.
+  { branch: 'feat/currency-cache', from: 'main', message: 'pricing: cache the currency table for an hour' },
+  { branch: 'main', message: "checkout: log the gateway's request id on every retry" },
+  { merge: 'feat/webhook-v2', into: 'main', message: 'Merge: webhook v2 signatures' },
+  { branch: 'chore/deps-bump', from: 'main', message: 'deps: bump the SDK to 4.2' },
+  { merge: 'chore/deps-bump', into: 'main', message: 'Merge: SDK 4.2' },
+  // Forks a feature branch, not `main` — the one crossing a straight
+  // trunk-only history never has to draw.
+  { branch: 'feat/address-extract', from: 'feat/promo-stacking', message: 'checkout: extract the shared address form' },
+  { merge: 'feat/promo-stacking', into: 'main', message: 'Merge: promo stacking, capped at item price' },
+  { branch: 'feat/address-extract', message: 'checkout: validate the extracted address form' },
+  { branch: 'fix/webhook-retry-cap', from: 'main', message: 'webhook: cap the total retry budget' },
+  { merge: 'fix/webhook-retry-cap', into: 'main', message: 'Merge: cap the webhook retry budget' },
+  { branch: 'main', message: 'storefront at 2.5.0' },
+  { tag: 'v2.5.0' },
+  { merge: 'feat/address-extract', into: 'main', message: 'Merge: shared address form' },
+  // Still open — the second long-lived branch, started late and never
+  // merged in this history.
+  { branch: 'feat/promo-audit', from: 'main', message: 'pricing: audit promo expiry rules' },
+  { branch: 'main', message: 'checkout: name the 503/504 paths explicitly' },
+  { merge: 'feat/currency-cache', into: 'main', message: 'Merge: cached currency table' },
+  { branch: 'main', message: 'storefront at 2.5.1' },
+  { tag: 'v2.5.1' },
 ]

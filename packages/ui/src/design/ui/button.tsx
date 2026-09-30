@@ -164,7 +164,13 @@ const boxedVariants = cva(
          restate the label. */
         default:
           'h-(--hd-btn-h) p-(--hd-btn-padding) has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
-        xs: "h-5 gap-1 px-1.5 text-xs [&_svg:not([class*='size-'])]:size-3",
+        /* `h-5` (20px) is the same four-under-the-floor story `icon-xs`
+           carries in its own comment below — a text button this small (the
+           panel-toolbar "Clear", a message's own "Envelope") reads as
+           compact, but its actual box was a control a finger could miss.
+           The floor, not the padding: `--hd-target-min` sets the height,
+           the tight `px-1.5`/`text-xs` keep the compact look. */
+        xs: "h-(--hd-target-min) gap-1 px-1.5 text-xs [&_svg:not([class*='size-'])]:size-3",
         sm: 'h-(--hd-btn-h-sm) gap-1 p-(--hd-btn-padding-sm) text-(length:--hd-btn-text-sm) has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5',
         icon: 'size-(--hd-btn-h) p-0',
         /* The floor, not a literal. This was `size-5` — 20px, four under the
@@ -174,6 +180,19 @@ const boxedVariants = cva(
         'icon-xs': 'size-(--hd-icon-target) p-0',
         'icon-sm': 'size-(--hd-btn-h-sm) p-0',
         content: 'h-auto p-0 whitespace-normal',
+        /* `content`, with a floor under it: a button whose box otherwise
+           follows its own words (`GitPane`'s folder-header rows, `.railFolder`)
+           read as compact at 18px, but a folder header is not the row beside
+           it (`row`, on `--hd-nav-h`) and had no floor of its own under it.
+           `min-h`, not `h`: the row still grows for a folder name that wraps. */
+        'content-min': 'h-auto min-h-(--hd-target-min) p-0 whitespace-normal',
+        /* A link read mid-sentence, not a control of its own: `content`'s box
+           sized to its own words, same as a real inline anchor's — but a
+           `<button>` never gets WCAG 2.5.8's inline-text exemption an anchor
+           does, so this pads its hit target to the floor and pulls the same
+           amount back with a negative margin, the way any hit-slop trick
+           does, so the sentence around it never reflows. */
+        'inline-link': 'h-auto whitespace-normal px-0 py-(--hd-space-2) -my-(--hd-space-2)',
         /* A row of a hand-windowed table: fixed to the pitch the list's own
            arithmetic assumes (`--hd-table-row-h`), with only the right inset
            a table row keeps clear of its own scrollbar. Distinct from `row`
