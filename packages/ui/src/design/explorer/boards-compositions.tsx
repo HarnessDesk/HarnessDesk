@@ -697,6 +697,8 @@ const ListBoard = () => (
               wrapSubtitle
               trail={<Progress value={19} tone="warning" className="w-24" />}
             />
+            <ListRow size="sm" nav title="Board" />
+            <ListRow size="sm" nav selected title="Chat" />
           </ListRows>
         </SectionBody>
       </Section>
@@ -774,6 +776,7 @@ const KeyValueBoard = () => (
       </Case>
       <Case label="text roles">
         <div className="flex flex-col gap-1">
+          <Text as="h2" role="section">What is left</Text>
           <Text role="subject">Account name</Text>
           <Text role="row">Weekly allowance</Text>
           <Text role="muted">Resets in four days</Text>
@@ -2219,7 +2222,11 @@ const PLANS_CASES = {
     account: 'windows@harnessdesk.app',
     plan: 'Max 20x',
     lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 42, windowMinutes: 10_080, resetsAt: PLANS_NOW + 2 * PLANS_DAY }],
-    billing: { kinds: ['windows'] },
+    spend: {
+      currency: 'USD', todayCost: null, windowCost: 50, windowDays: 30,
+      todayTokens: null, windowTokens: null, provenance: 'listPrice', coverage: null,
+    },
+    billing: { kinds: ['windows'], fee: { amount: 30, currency: 'USD', period: 'month', source: 'user' } },
   }),
   allowance: plansReport({
     runtime: PLANS_CURSOR.id,
@@ -2328,15 +2335,23 @@ const PLANS_CASES = {
         id: 'overage',
         label: 'On-demand usage',
         usedPercent: 25,
-        windowMinutes: 30 * 24 * 60,
-        resetsAt: PLANS_NOW + 12 * PLANS_DAY,
+        windowMinutes: 60 * 24 * 60,
+        resetsAt: PLANS_NOW + 30 * PLANS_DAY,
         unit: 'usd',
         used: 5,
         limit: 20,
         layer: 'overage',
       },
     ],
-    billing: { kinds: ['allowance', 'metered'], overage: { enabled: true, spent: 5, currency: 'USD' } },
+    spend: {
+      currency: 'USD', todayCost: null, windowCost: 10, windowDays: 30,
+      todayTokens: null, windowTokens: null, provenance: 'listPrice', coverage: null,
+    },
+    billing: {
+      kinds: ['allowance', 'metered'],
+      fee: { amount: 30, currency: 'USD', period: 'month', source: 'user' },
+      overage: { enabled: true, spent: 5, currency: 'USD' },
+    },
   }),
   'key-no-budget': plansReport({
     runtime: PLANS_GEMINI.id,
@@ -2674,7 +2689,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   {
     id: 'plans-table',
     title: 'Plans table',
-    about: 'Every account, least left first, and the shape body each row opens into, in every state.',
+    about: 'Every account, least left first, with Paid, Value, the paid ratio, fee state and overage aside in the shape body.',
     render: PlansTableBoard,
   },
   {

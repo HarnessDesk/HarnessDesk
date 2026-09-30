@@ -1,4 +1,4 @@
-import type { SessionSummary, WorkspaceEntry } from '@harnessdesk/protocol'
+import type { SessionSummary, TeamState, WorkspaceEntry } from '@harnessdesk/protocol'
 
 import { isPathInside, relativeTo, shortPath } from './paths'
 
@@ -292,12 +292,25 @@ export const projectGroupRootOf = (workspace: WorkspaceEntry | null | undefined)
  * reached through a link keeps the link's spelling. The list homes the same
  * folder at its canonical root (`projectGroupRootOf`). Filed under its own
  * spelling, the room earned the project a second row, under "Other
- * projects", and went missing from the row it belongs to. So a room whose
- * root is an open folder's own spelling is filed where that folder is.
+ * projects", and went missing from the row it belongs to. A link's spelling
+ * must never change where a room is filed. The open folder at the room's own
+ * spelling knows both spellings. Once that folder has left the list, the
+ * host's resolved root (`realRoot`) stands in for it, and it is looked up in
+ * the list as well: a worktree open at the resolved spelling files there
+ * under its checkout, just as the same room at that spelling would be
+ * (#998).
  */
-export const roomGroupRootOf = (root: string, open: readonly (WorkspaceEntry | null | undefined)[]): string => {
-  const opened = open.find((one) => one?.path === root)
-  return (opened && projectGroupRootOf(opened)) ?? root
+export const roomGroupRootOf = (
+  room: string | Pick<TeamState, 'root' | 'realRoot'>,
+  open: readonly (WorkspaceEntry | null | undefined)[],
+): string => {
+  const { root, realRoot } = typeof room === 'string' ? { root: room, realRoot: undefined } : room
+  for (const spelling of [root, realRoot]) {
+    if (spelling === undefined) continue
+    const opened = open.find((one) => one?.path === spelling)
+    if (opened) return projectGroupRootOf(opened) ?? spelling
+  }
+  return realRoot ?? root
 }
 
 /**

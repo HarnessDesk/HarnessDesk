@@ -157,6 +157,8 @@ export const flowMethods = {
     return ctx.flows.retryCheck(params.run, params.card)
   },
 
+  'flow/answer/continue': (ctx, params) => ctx.flows.continueAnswer(params.run),
+
   'flow/update/preview': (ctx, params) => ctx.flowUpdates.preview(params.root, params.id),
 
   'flow/update/apply': (ctx, params) => ctx.flowUpdates.apply(params.root, params.token),

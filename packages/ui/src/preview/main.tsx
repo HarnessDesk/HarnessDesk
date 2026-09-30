@@ -263,7 +263,7 @@ Object.assign(store as unknown as Record<string, unknown>, {
 /** A stand-in pane, so the frame's own edges are what the frame shows. */
 export const Frame = ({ id, title, children }: { id: string; title: string; children: ReactNode }) => (
   <section data-frame-id={id} className="min-w-0">
-    <h2 className="mb-2 text-sm font-semibold text-muted-foreground">{title}</h2>
+    <h2 data-preview-caption="" className="mb-2 text-sm font-semibold text-muted-foreground">{title}</h2>
     <div className="overflow-hidden rounded-lg border bg-background">
       <Boundary>{children}</Boundary>
     </div>

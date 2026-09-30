@@ -150,6 +150,24 @@ it('retryFlowCheck redeems a check-retry token and keeps the resulting execution
   expect(store.getSnapshot().flowExecutions.get('run-1')).toEqual(settled)
 })
 
+it('continueFlowAnswer calls the run-scoped wire verb and keeps the returned execution', async () => {
+  const stalled: FlowExecution = { ...EXECUTION, state: 'stalled', keptAnswer: {
+    card: 1, seat: 'seat-1', question: 'Which base branch?', answer: 'main', at: 1, canContinue: true, refusal: null,
+  } }
+  const spy = vi.spyOn(store.transport, 'request').mockResolvedValue(stalled)
+  expect(await store.continueFlowAnswer('run-1')).toEqual(stalled)
+  expect(spy).toHaveBeenCalledWith('flow/answer/continue', { run: 'run-1' })
+  expect(store.getSnapshot().flowExecutions.get('run-1')).toEqual(stalled)
+})
+
+it('continueFlowAnswer shows a refusal in the host’s own words rather than dropping it', async () => {
+  vi.spyOn(store.transport, 'request').mockRejectedValue(new Error('The Seat for card #1 is inside a turn now. Answer again once it ends.'))
+  expect(await store.continueFlowAnswer('run-1')).toBeNull()
+  const notice = store.getSnapshot().notices.at(-1)
+  expect(notice?.level).toBe('warning')
+  expect(notice?.message).toContain('The Seat for card #1 is inside a turn now. Answer again once it ends.')
+})
+
 it('raceAgents opens dialog state only — no session, worktree or draft is created', async () => {
   const spy = vi.spyOn(store.transport, 'request')
   expect(store.getSnapshot().raceStart).toBeNull()

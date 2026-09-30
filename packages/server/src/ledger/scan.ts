@@ -8,7 +8,7 @@ import type { DatabaseSync } from 'node:sqlite'
 
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from '../errno.js'
 import { readForeignDatabase, type ForeignReadOptions } from './foreign-db.js'
-import type { UsageRow } from './store.js'
+import type { UsageHourRow, UsageRow } from './store.js'
 import { InsightBudgetExceededError, InsightSourceChangedError, type InsightScanOptions, type UsageSample } from './insight.js'
 import type { Measure } from '@harnessdesk/protocol'
 
@@ -60,6 +60,9 @@ export type CorpusKind = 'codex' | 'claude' | 'gemini' | 'qwen' | 'opencode' | '
  */
 export const TURN_CAPABLE_KINDS: ReadonlySet<CorpusKind> = new Set(['codex', 'claude', 'gemini', 'qwen'])
 
+/** Session-total databases have no call timestamps, even when a row has a last-updated time. */
+export const HOUR_CAPABLE_KINDS: ReadonlySet<CorpusKind> = new Set(['codex', 'claude', 'gemini', 'qwen'])
+
 /**
  * Formats an agent rewrites rather than appends to. Each changed file is read
  * from its start and its rows replaced, which the file-keyed rows make safe.
@@ -76,6 +79,8 @@ export interface ScanTarget {
 
 export interface ScanResult {
   readonly rows: readonly UsageRow[]
+  /** Only `add()` call records create these; turn-only and session/remote summary rows do not. */
+  readonly hours: readonly UsageHourRow[]
   /** Bytes consumed, to resume from. */
   readonly offset: number
   /** Message ids seen at the end of the file, so a resume cannot re-count them. */
@@ -189,6 +194,12 @@ const startOfDay = (at: number): number => {
 
 interface Accumulator {
   readonly rows: Map<string, UsageRow>
+  readonly hours: Map<string, UsageHourRow>
+}
+
+interface AddOptions {
+  /** Session snapshots have no per-call time to attribute. */
+  readonly hour?: boolean
 }
 
 const add = (
@@ -207,8 +218,24 @@ const add = (
     /** What the agent itself says these requests cost, when it says. */
     vendorCost?: number | null
   },
+  options: AddOptions = {},
 ): void => {
   const day = startOfDay(at)
+  if (options.hour !== false) {
+    const hour = new Date(at).getHours()
+    const hourKey = `${day}\u0000${hour}`
+    const hourRow = into.hours.get(hourKey)
+    // Reasoning is already included in output in the ledger's token total.
+    const callTokens = tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite
+    into.hours.set(hourKey, {
+      file,
+      day,
+      hour,
+      runtime,
+      requests: (hourRow?.requests ?? 0) + 1,
+      tokens: (hourRow?.tokens ?? 0) + callTokens,
+    })
+  }
   const vendorCost = tokens.vendorCost ?? null
   // A separator that cannot occur in a model id or a path, so two rows
   // never collide on a key. Requests the agent priced and requests it did not
@@ -271,6 +298,7 @@ const addTurn = (
   project: string,
   count = 1,
 ): void => {
+  // Turn-only rows have no model call, so they intentionally have no hour bucket.
   const day = startOfDay(at)
   const key = `${day}\u0000${model}\u0000${project}\u00000`
   const existing = into.rows.get(key)
@@ -503,7 +531,7 @@ export const scanCodexRollout = async (
   tail: readonly string[] = [],
   insight?: InsightScanOptions,
 ): Promise<ScanResult> => {
-  const into: Accumulator = { rows: new Map() }
+  const into: Accumulator = { rows: new Map(), hours: new Map() }
   /* The model and the project are said near the top — `session_meta`, then
      `turn_context` at each turn — and a resumed scan starts after them, so
      every row it found read 'unknown' with no project (#33). What they were
@@ -566,7 +594,7 @@ export const scanCodexRollout = async (
       output: last.output_tokens, cacheRead: last.cached_input_tokens, cacheWrite: undefined,
     }, 'call', null, context.sessionId ?? null)
   }, insight?.byteLimit)
-  return { rows: [...into.rows.values()], offset: consumed, tail: [JSON.stringify(context)], bytesRead }
+  return { rows: [...into.rows.values()], hours: [...into.hours.values()], offset: consumed, tail: [JSON.stringify(context)], bytesRead }
 }
 
 interface CodexContext {
@@ -731,7 +759,7 @@ export const scanClaudeTranscript = async (
   tail: readonly string[],
   insight?: InsightScanOptions,
 ): Promise<ScanResult> => {
-  const into: Accumulator = { rows: new Map() }
+  const into: Accumulator = { rows: new Map(), hours: new Map() }
   // The same assistant message is written on more than one line. Dedup by the
   // provider's own message id, carrying the last few across the resume
   // boundary so a message split by two scans is still counted once.
@@ -805,7 +833,7 @@ export const scanClaudeTranscript = async (
   }
   // Claude's consecutive candidates collapse to the last one before a model;
   // keeping earlier unanswered candidates cannot change a later result.
-  return { rows: [...into.rows.values()], offset: consumed, tail: scannerTail(order, unresolved.slice(-1)), bytesRead }
+  return { rows: [...into.rows.values()], hours: [...into.hours.values()], offset: consumed, tail: scannerTail(order, unresolved.slice(-1)), bytesRead }
 }
 
 /** The Gemini API's own counts, which Qwen Code records as it received them. */
@@ -859,7 +887,7 @@ export const scanQwenTranscript = async (
   tail: readonly string[],
   insight?: InsightScanOptions,
 ): Promise<ScanResult> => {
-  const into: Accumulator = { rows: new Map() }
+  const into: Accumulator = { rows: new Map(), hours: new Map() }
   const seen = new Set<string>(scannerIdsFrom(tail))
   const order: string[] = [...seen]
   // A 'user' line is the person's own prompt (Qwen writes one record per
@@ -928,7 +956,7 @@ export const scanQwenTranscript = async (
     }
     addTurn(into, target.path, target.runtime, entry.at, nextModel, entry.project, entry.count ?? 1)
   }
-  return { rows: [...into.rows.values()], offset: consumed, tail: scannerTail(order, compactPendingTurns(unresolved)), bytesRead }
+  return { rows: [...into.rows.values()], hours: [...into.hours.values()], offset: consumed, tail: scannerTail(order, compactPendingTurns(unresolved)), bytesRead }
 }
 
 interface GeminiMessage {
@@ -1110,7 +1138,7 @@ export const scanGeminiChat = async (target: ScanTarget, insight?: InsightScanOp
     }
     note(record)
   }
-  const into: Accumulator = { rows: new Map() }
+  const into: Accumulator = { rows: new Map(), hours: new Map() }
   const project = geminiProjectOf(target.path)
   let nextModel = 'unknown'
   for (let index = events.length - 1; index >= 0; index -= 1) {
@@ -1139,7 +1167,7 @@ export const scanGeminiChat = async (target: ScanTarget, insight?: InsightScanOp
     add(into, target.path, target.runtime, at, call.model, project, aggregateTokens(aggregate))
     emit(insight, target, call.id ?? JSON.stringify(call), at, call.model, project || null, normalized, 'call')
   }
-  return { rows: [...into.rows.values()], offset: size, tail: [], bytesRead: size }
+  return { rows: [...into.rows.values()], hours: [...into.hours.values()], offset: size, tail: [], bytesRead: size }
 }
 
 /** The columns a query needs, or a reason the table is not the shape measured. */
@@ -1245,7 +1273,7 @@ export const scanOpencodeDatabase = async (target: ScanTarget, insight?: Insight
     },
     foreignBudgetOptions(insight, (checked) => { size = checked }),
   )
-  const into: Accumulator = { rows: new Map() }
+  const into: Accumulator = { rows: new Map(), hours: new Map() }
   for (const session of sessions) {
     const at = typeof session.time_updated === 'number' && session.time_updated > 0 ? session.time_updated : null
     if (at === null) continue
@@ -1269,10 +1297,10 @@ export const scanOpencodeDatabase = async (target: ScanTarget, insight?: Insight
     add(into, target.path, target.runtime, at, model, project, {
       ...tokens,
       vendorCost: cost,
-    })
+    }, { hour: false })
     emit(insight, target, JSON.stringify(session), at, model, project || null, observed, 'session', cost)
   }
-  return { rows: [...into.rows.values()], offset: size, tail: [], bytesRead: size }
+  return { rows: [...into.rows.values()], hours: [...into.hours.values()], offset: size, tail: [], bytesRead: size }
 }
 
 const CLINE_COLUMNS = ['model', 'cwd', 'workspace_root', 'started_at', 'updated_at', 'metadata_json'] as const
@@ -1338,7 +1366,7 @@ export const scanClineDatabase = async (target: ScanTarget, insight?: InsightSca
     },
     foreignBudgetOptions(insight, (checked) => { size = checked }),
   )
-  const into: Accumulator = { rows: new Map() }
+  const into: Accumulator = { rows: new Map(), hours: new Map() }
   for (const session of sessions) {
     let usage: ClineUsage = {}
     try {
@@ -1376,10 +1404,10 @@ export const scanClineDatabase = async (target: ScanTarget, insight?: InsightSca
     add(into, target.path, target.runtime, at, model, project, {
       ...tokens,
       vendorCost: cost,
-    })
+    }, { hour: false })
     emit(insight, target, JSON.stringify(session), at, model, project || null, observed, 'session', cost)
   }
-  return { rows: [...into.rows.values()], offset: size, tail: [], bytesRead: size }
+  return { rows: [...into.rows.values()], hours: [...into.hours.values()], offset: size, tail: [], bytesRead: size }
 }
 
 export const scanFile = (target: ScanTarget, offset: number, tail: readonly string[], insight?: InsightScanOptions): Promise<ScanResult> => {

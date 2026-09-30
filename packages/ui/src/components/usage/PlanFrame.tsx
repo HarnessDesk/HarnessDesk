@@ -4,6 +4,7 @@ import type { RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 
 import { cn } from '@/lib/utils'
 import { paletteTone } from '../../lib/limits'
+import { paidRatioCaption } from '../../lib/overview-strip'
 import { planLabel } from '../../lib/usage'
 import { formatMoney } from '../../lib/usage'
 import { STATUS_LABEL, STATUS_TONE, type MoneyRow, type RowShape, type RowStatus } from '../../lib/plans-table'
@@ -90,14 +91,10 @@ export const PlanFrame = ({
 }
 
 /**
- * "Value $31.00 · $20.00 a month · you set this" — or "Fee not set", a link
- * to the account's own Plan card rather than a figure.
- *
- * Paid — the fee prorated across the window, plus overage only when it
- * applies to this period — is `lib/paid.ts`'s own definition (#1068); this
- * row draws only what this PR itself decides: the window's own Value, never
- * unpriced as $0, and the fee exactly as it is set, or an invitation to set
- * one. Withheld entirely with neither a fee nor a priced window to show.
+ * Paid, Value, the Value÷Paid chip, and the plan's own fee — or "Fee not set",
+ * a link to the account's own Plan card rather than a figure. Overage outside
+ * the window sits beside Paid in its own currency. Withheld entirely with
+ * neither a fee nor a priced window to show.
  */
 export const MoneyRowView = ({
   money,
@@ -111,8 +108,22 @@ export const MoneyRowView = ({
   const fee = money.fee
   return (
     <CardContent className={styles.frameMoney}>
+      {fee && money.paid !== null && (
+        <>
+          <Text role="meta">Paid</Text>
+          <Text role="value" numeric>{formatMoney(money.paid, fee.currency) ?? `${money.paid}`}</Text>
+          {money.overageAside !== null && (
+            <Text role="meta">
+              + {formatMoney(money.overageAside, money.overageAsideCurrency ?? fee.currency) ?? `${money.overageAside}`} overage this cycle
+            </Text>
+          )}
+        </>
+      )}
       <Text role="meta">Value</Text>
       <Text role="value" numeric>{value}</Text>
+      {fee && money.ratio !== null && (
+        <Chip label={paidRatioCaption(money.ratio)} tone={money.ratio < 1 ? 'warning' : 'neutral'} />
+      )}
       <Text role="meta">Fee</Text>
       {fee ? (
         <Text role="value" numeric>

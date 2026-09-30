@@ -1150,10 +1150,11 @@ rules:
     /* Waits for the page's own sentence, not only the card's heading: the
        sentence is what said "Antigravity's own numbers" over another sign-in's
        figures until review round 1 of #769. */
-    'dashboard-antigravity': { expect: "Its plan figures are the agy CLI sign-in's", run: async () => {
+    'dashboard-antigravity': { leaveOverlay: true, expect: "Its plan figures are the agy CLI sign-in's", run: async () => {
       if (!(await click('Dashboard'))) throw new Error('no Dashboard row in the sidebar')
       await sleep(1600)
-      if (!(await click('Antigravity'))) throw new Error('no Antigravity row in the Dashboard rail')
+      if (!(await click('All accounts'))) throw new Error('no account scope in the Dashboard header')
+      if (!(await click('Antigravity'))) throw new Error('no Antigravity option in the Dashboard account scope')
       await sleep(1200)
     } },
 
@@ -1172,6 +1173,20 @@ rules:
         if (!(await click('By agent'))) throw new Error('no By agent toggle in Activity')
         await sleep(1200)
       }
+    } },
+
+    /**
+     * The Plans view: one row per account, each drawn by its own billing
+     * shape, with the money row (Paid, Value, the fee as set) under the head.
+     */
+    'dashboard-plans': { leaveOverlay: true, expect: 'Plans', run: async () => {
+      if (!(await click('Dashboard'))) throw new Error('no Dashboard row in the sidebar')
+      await sleep(1600)
+      if (!(await click('Plans'))) throw new Error('no Plans row in the Dashboard nav')
+      await sleep(1600)
+      // Open one row, so its shape body and money row are in the frame.
+      if (!(await click('jane@example.com'))) throw new Error('no jane@example.com row in Plans')
+      await sleep(1200)
     } },
 
     /** The rebuilt settings patterns, reached through the same store request features use. */

@@ -418,6 +418,12 @@ export class Flows implements TeamFlows {
     return this.#executions.retryCheck(run, card)
   }
 
+  /** Resends a question answer kept after its already-closed hand-back failed. */
+  continueAnswer(run: string): Promise<FlowExecution> {
+    if (!this.#executions) throw new Error(`There is no flow run ${run}.`)
+    return this.#executions.continueAnswer(run)
+  }
+
   /**
    * A person's Stop. What the run had released but not yet sent is skipped by
    * the listeners (`onRunStopped`); a comment already on its way is read

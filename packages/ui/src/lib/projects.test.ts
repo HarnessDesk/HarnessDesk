@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import type { SessionSummary, WorkspaceEntry } from '@harnessdesk/protocol'
+import type { SessionSummary, TeamState, WorkspaceEntry } from '@harnessdesk/protocol'
 
-import { folderShown, groupByProject, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, repoKey } from './projects'
+import { folderShown, groupByProject, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, repoKey, roomGroupRootOf } from './projects'
 
 const session = (
   id: string,
@@ -26,6 +26,37 @@ const session = (
 
 const workspace = (path: string, repo?: { root: string; worktree: boolean } | null): WorkspaceEntry =>
   ({ path, name: path.split('/').at(-1) ?? path, lastOpenedAt: 1, ...(repo === undefined ? {} : { repo }) })
+
+describe('roomGroupRootOf', () => {
+  const link = '/var/folders/x/work/widgets'
+  const real = '/private/var/folders/x/work/widgets'
+  const opened = [workspace(link, { root: real, worktree: false })]
+  const room = { root: link, realRoot: real } as TeamState
+
+  it('files a room at an open folder spelling under that folder group', () => {
+    expect(roomGroupRootOf(room, opened)).toBe(real)
+  })
+
+  it('uses the resolved root when the linked folder is not open', () => {
+    expect(roomGroupRootOf(room, [])).toBe(real)
+  })
+
+  it('falls back to the recorded root without a resolved spelling', () => {
+    expect(roomGroupRootOf({ root: link } as TeamState, [])).toBe(link)
+  })
+
+  it('keeps accepting a bare root string', () => {
+    expect(roomGroupRootOf(link, opened)).toBe(real)
+  })
+
+  it('files a linked room where the same room at the resolved spelling goes, when that folder is open as a worktree', () => {
+    const checkout = '/private/var/folders/x/work/widgets'
+    const worktree = '/private/var/folders/x/work/widgets/.worktrees/retry'
+    const open = [workspace(worktree, { root: checkout, worktree: true })]
+    expect(roomGroupRootOf({ root: worktree } as TeamState, open)).toBe(checkout)
+    expect(roomGroupRootOf({ root: '/var/folders/x/work/widgets/.worktrees/retry', realRoot: worktree } as TeamState, open)).toBe(checkout)
+  })
+})
 
 describe('repoKey', () => {
   it('spells one repository one way', () => {

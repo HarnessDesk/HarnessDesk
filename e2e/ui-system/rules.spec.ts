@@ -85,61 +85,105 @@ const PROBE_HELPERS = `
 /* ========================================================================
  * Rule: names
  *
- * Every element wearing a name role (`Text role=…` in
- * `design/patterns/Settings.tsx`, plus `PageHead`'s own `page-title`) computes
- * one of the pairs `docs/design.md`'s "Named text roles" table states:
- * wordmark 20/600, page 20/600, subject 14/500, row 13/500, navigation
- * 13/400, muted 13/400 — never 16px, never semibold outside wordmark and the
- * page title. `group label` is its own rule, below. The dashboard readouts
- * `Text` also draws (`meta`, `figure`, `metric`, `value`, `prose`) are not
- * names — nothing in the docs table lists them, `Text`'s own comment calls
- * them "dashboard readouts", and `figure`/`metric` are deliberately semibold
- * — so the checker only looks at the six name roles. A name drawn outside
- * `Text`/`PageHead` altogether (`EmptyState`'s h3, a `Notices` title,
- * `AgentCard`'s own name) is out of this rule's reach and tracked separately
- * (#1072), not silently passed.
+ * `Text` elements with `data-role` and `PageHead`'s `page-title` keep their
+ * own documented pair. Visible h1-h4 and `*-title` slots outside `Text` must
+ * compute one of those same pairs; the checker does not guess a role from the
+ * heading level or component. A readout is declared, never guessed from its
+ * text: `ChartTitle`'s `figure` marks itself `data-figure` and is left to its
+ * own role, while a title that merely reads as a number is still a name. A
+ * heading whose whole name is drawn by a `Text` inside it is measured through
+ * that `Text`. The preview frame caption is excluded by `data-preview-caption`
+ * because it labels the harness, not the product. `Text` readout roles and
+ * group labels keep their own rule boundaries.
  *
- * Measured on `/preview.html`'s full set of mounted screens, across every
- * theme and interface (the pairs are named in tokens, not in the interface
- * layer, so they do not vary by dial — this proves that rather than assumes
- * it). The pull-request card's title (`components/Publication.tsx`) was the
- * one name wearing `weight="semibold"` — the weight `weight` exists for
- * lifting a search match, not a title — and now takes its row role's own.
+ * The check runs against `/preview.html`'s mounted screens in every theme and
+ * interface. Mutations prove it catches a bad role pair, an unclassified
+ * heading and a bare numeric title, while permitting the marked preview
+ * caption and a declared figure.
  */
 const NAME_PAIRS: Record<string, { size: number; weight: number }> = {
   wordmark: { size: 20, weight: 600 },
   page: { size: 20, weight: 600 },
+  section: { size: 16, weight: 600 },
   subject: { size: 14, weight: 500 },
   row: { size: 13, weight: 500 },
   navigation: { size: 13, weight: 400 },
   muted: { size: 13, weight: 400 },
 }
 
-type NameFinding = { role: string; text: string; size: number; weight: number; reason: string }
+type NameFinding = {
+  role: string
+  text: string
+  tag: string
+  slot: string
+  size: number
+  weight: number
+  reason: string
+}
 
 const namesViolations = (page: Page) =>
   page.evaluate((pairs) => {
     const out: NameFinding[] = []
     let measured = 0
-    const nodes = [
+    const roleNodes = [
       ...document.querySelectorAll('[data-slot="text"][data-role]'),
       ...document.querySelectorAll('[data-slot="page-title"]'),
     ]
-    for (const el of nodes) {
+    const checked = new Set<Element>()
+    const visible = (el: Element) => {
+      const html = el as HTMLElement
+      const style = getComputedStyle(html)
+      const rect = html.getBoundingClientRect()
+      return (html.offsetParent !== null || style.position === 'fixed') &&
+        style.visibility !== 'hidden' && style.display !== 'none' && rect.width >= 1 && rect.height >= 1
+    }
+    // A readout is declared, never guessed from its text: a title that
+    // happens to be a number is still a name.
+    const readout = (el: Element) => el.closest('[data-figure]') !== null
+    const namePairs = Object.values(pairs as Record<string, { size: number; weight: number }>)
+    for (const el of roleNodes) {
       const role = el.hasAttribute('data-slot') && el.getAttribute('data-slot') === 'page-title'
         ? 'page'
         : (el.getAttribute('data-role') ?? '')
       const wanted = (pairs as Record<string, { size: number; weight: number }>)[role]
       if (!wanted) continue
-      if (!(el as HTMLElement).offsetParent && getComputedStyle(el).position !== 'fixed') continue
+      if (!visible(el)) continue
+      checked.add(el)
       measured += 1
       const cs = getComputedStyle(el)
       const size = Math.round(parseFloat(cs.fontSize))
       const weight = Number(cs.fontWeight)
-      const text = (el.textContent ?? '').trim().slice(0, 60)
-      if (size === 16) out.push({ role, text, size, weight, reason: '16px, which no name role may be' })
-      else if (weight === 600 && role !== 'wordmark' && role !== 'page') out.push({ role, text, size, weight, reason: 'semibold outside the wordmark and the page title' })
-      else if (size !== wanted.size || weight !== wanted.weight) out.push({ role, text, size, weight, reason: `role ${role} wants ${wanted.size}/${wanted.weight}` })
+      const text = ((el as HTMLElement).innerText ?? el.textContent ?? '').trim()
+      if (size !== wanted.size || weight !== wanted.weight) out.push({
+        role: `role ${role}`,
+        text,
+        tag: el.tagName.toLowerCase(),
+        slot: el.getAttribute('data-slot') ?? '',
+        size, weight, reason: `role ${role} wants ${wanted.size}/${wanted.weight}`,
+      })
+    }
+    for (const el of document.querySelectorAll('h1, h2, h3, h4, [data-slot$="-title"]')) {
+      if (checked.has(el) || el.closest('[data-slot="text"]') || el.closest('[data-preview-caption]')) continue
+      // A heading whose whole name is drawn by a Text inside it (SectionHead's
+      // band heading keeps its h2 and draws `section` inside) is measured
+      // through that Text's own role above, not by the box around it.
+      const inner = el.querySelector('[data-slot="text"][data-role]')
+      if (inner && (inner.textContent ?? '').trim() === (el.textContent ?? '').trim()) continue
+      const text = ((el as HTMLElement).innerText ?? el.textContent ?? '').trim()
+      if (!text || readout(el) || !visible(el)) continue
+      measured += 1
+      const style = getComputedStyle(el)
+      const size = Math.round(parseFloat(style.fontSize))
+      const weight = Number(style.fontWeight)
+      if (!namePairs.some((pair) => size === pair.size && weight === pair.weight)) out.push({
+        role: 'heading/title',
+        text,
+        tag: el.tagName.toLowerCase(),
+        slot: el.getAttribute('data-slot') ?? '',
+        size,
+        weight,
+        reason: 'outside every name pair',
+      })
     }
     return { out, measured }
   }, NAME_PAIRS)
@@ -166,7 +210,58 @@ test.describe('rule: names', () => {
     await page.addStyleTag({ content: '[data-slot="text"][data-role="row"] { font-size: 16px !important; }' })
     const after = await namesViolations(page)
     expect(after.out.length).toBeGreaterThan(before.out.length)
-    expect(after.out.some((f) => f.reason.includes('16px'))).toBe(true)
+    expect(after.out.some((f) => f.size === 16 && f.weight === 500 && f.role === 'role row')).toBe(true)
+  })
+
+  test('rule: names — the checker catches section pushed to another pair', async ({ page }) => {
+    await gotoPreview(page)
+    const before = await namesViolations(page)
+    await page.addStyleTag({ content: '[data-slot="text"][data-role="section"] { font-size: 13px !important; font-weight: 500 !important; }' })
+    const after = await namesViolations(page)
+    expect(after.out.length).toBeGreaterThan(before.out.length)
+    expect(after.out.some((f) => f.reason.includes('role section wants 16/600'))).toBe(true)
+  })
+
+  test('rule: names — the checker catches an unclassified heading and skips preview chrome', async ({ page }) => {
+    await gotoPreview(page)
+    const before = await namesViolations(page)
+    await page.evaluate(() => {
+      const heading = document.createElement('h3')
+      heading.textContent = 'Injected heading'
+      heading.style.cssText = 'position:fixed;top:0;left:0;font-size:16px;font-weight:500'
+      document.body.append(heading)
+      const caption = document.createElement('h3')
+      caption.dataset.previewCaption = ''
+      caption.textContent = 'Preview caption'
+      caption.style.cssText = 'position:fixed;top:30px;left:0;font-size:16px;font-weight:500'
+      document.body.append(caption)
+    })
+    const after = await namesViolations(page)
+    expect(after.measured).toBeGreaterThan(before.measured)
+    expect(after.out.some((finding) =>
+      finding.text === 'Injected heading' && finding.tag === 'h3' && finding.slot === '' && finding.size === 16 && finding.weight === 500,
+    )).toBe(true)
+    expect(after.out.some((finding) => finding.text === 'Preview caption')).toBe(false)
+  })
+
+  test('rule: names — a title that is only a number is still a name unless it declares itself a figure', async ({ page }) => {
+    await gotoPreview(page)
+    await page.evaluate(() => {
+      // A conversation can be titled "2048"; only a declared readout
+      // (ChartTitle's figure, data-figure) is left to its own role.
+      const numeric = document.createElement('h3')
+      numeric.textContent = '2048'
+      numeric.style.cssText = 'position:fixed;top:0;left:0;font-size:16px;font-weight:500'
+      document.body.append(numeric)
+      const figure = document.createElement('h3')
+      figure.dataset.figure = ''
+      figure.textContent = '4096'
+      figure.style.cssText = 'position:fixed;top:30px;left:0;font-size:16px;font-weight:500'
+      document.body.append(figure)
+    })
+    const after = await namesViolations(page)
+    expect(after.out.some((finding) => finding.text === '2048' && finding.size === 16 && finding.weight === 500)).toBe(true)
+    expect(after.out.some((finding) => finding.text === '4096')).toBe(false)
   })
 })
 
@@ -258,14 +353,19 @@ test.describe('rule: group labels', () => {
  * nothing the sidebar's own sheet adds touches height.
  *
  * Measured on every instance, not one sample per kind. Every row of every
- * kind is at least `--hd-nav-h` tall, and every row of one kind agrees
- * with its own siblings, in both interfaces. That the kinds also agree with
- * each other is Studio's, by design: `foundation/tokens.css` gives Studio
- * "one height for every row in a navigation column, which is the thing Desk
- * does not do". At Studio every row of every kind is 34px. At Desk the
- * sidebar's session rows and the menu item are 30px (their line, block
- * padding and border add up one pixel past the 29px floor) while the rail's
- * rows sit on the floor — whether Desk should converge too is #1073.
+ * kind is at least `--hd-nav-h` tall, every row of one kind agrees with its
+ * own siblings, and the kinds agree with each other — in both interfaces.
+ * Studio's rows are 34px. Desk's are 30px since #1073: `--hd-nav-h` used to
+ * be solved from the type alone (29px), so the sidebar's session rows and
+ * the menu item, whose line, block padding and border add up to 30, stood a
+ * pixel taller than the rail's rows on the floor. It is now solved from
+ * that same box, and every kind stands on it.
+ *
+ * Agreement across kinds is a claim about one-line rows, measured at the
+ * session list's compact density, which is what the preview renders. At
+ * comfortable density a session row carries a second line and more air —
+ * a preview, or a chip on a row that needs you — and stands taller by
+ * design; it is still floored at --hd-nav-h, but it is not the rail's row.
  *
  * The settings rail's identity row was the one row of a kind that disagreed
  * with its siblings: its 28px face in a 29px row with 1px borders pushed it
@@ -310,8 +410,9 @@ const destinationRowViolations = (page: Page, menuHeight?: number, kindsAgree = 
           out.push({ where, height, navH, reason: 'destination-row kinds disagree: ' + JSON.stringify(representative) })
         }
       }
-      return { out, measured }`)(menuH, acrossKindsToo)
-  }, [PROBE_HELPERS, menuHeight, kindsAgree] as const) as Promise<{ out: RowFinding[]; measured: number }>
+      const counts = Object.fromEntries(Object.entries(groups).map(([where, list]) => [where, list.length]))
+      return { out, measured, counts }`)(menuH, acrossKindsToo)
+  }, [PROBE_HELPERS, menuHeight, kindsAgree] as const) as Promise<{ out: RowFinding[]; measured: number; counts: Record<string, number> }>
 
 /** Opens the sidebar footer's account menu (reused from `visual-contracts.spec.ts`). */
 const openAccountMenu = async (page: Page) => {
@@ -322,7 +423,7 @@ const openAccountMenu = async (page: Page) => {
 }
 
 test.describe('rule: destination rows', () => {
-  test('rule: destination rows — every sidebar row, every rail row and a menu item stand at least --hd-nav-h, each kind agrees with itself, and in Studio the kinds agree with each other', async ({ page }) => {
+  test('rule: destination rows — every sidebar row, every rail row and a menu item stand at least --hd-nav-h, each kind agrees with itself, and the kinds agree with each other in both interfaces', async ({ page }) => {
     await gotoPreview(page)
     const findings: (RowFinding & { where: string })[] = []
     for (const theme of ['light', 'dark'] as const) {
@@ -334,9 +435,15 @@ test.describe('rule: destination rows', () => {
         await openAccountMenu(page)
         const menuHeight = await page.locator('[role="menuitem"]').first().evaluate((el) => Math.round(el.getBoundingClientRect().height))
         await page.keyboard.press('Escape')
-        const { out, measured } = await destinationRowViolations(page, menuHeight, look === 'studio')
-        // A check that measures nothing must fail, not pass by default.
+        const { out, measured, counts } = await destinationRowViolations(page, menuHeight)
+        // A check that measures nothing must fail, not pass by default — and
+        // per kind, not in total: the menu item alone would make `measured`
+        // non-zero, and agreement across kinds means nothing with a kind
+        // missing.
         expect(measured, `${theme}/${look}: no destination row was found`).toBeGreaterThan(0)
+        for (const [where, count] of Object.entries(counts)) {
+          expect(count, `${theme}/${look}: no ${where} was found`).toBeGreaterThan(0)
+        }
         for (const finding of out) findings.push({ ...finding, where: `${theme}/${look}: ${finding.where}` })
       }
     }
@@ -363,6 +470,21 @@ test.describe('rule: destination rows', () => {
     const after = await destinationRowViolations(page, undefined, false)
     expect(after.out.some((f) => f.reason.includes("own rows disagree"))).toBe(true)
   })
+
+  for (const theme of ['light', 'dark'] as const) {
+    test(`rule: destination rows — the checker catches the kinds a pixel apart in Desk (${theme})`, async ({ page }) => {
+      await gotoPreview(page)
+      await setPreviewDials(page, theme, 'desk')
+      const before = await destinationRowViolations(page)
+      expect(before.out).toEqual([])
+      expect(before.counts['settings/usage rail row']).toBeGreaterThan(0)
+      // What Desk was before #1073, the other way round: one kind a pixel off
+      // the others while agreeing with its own siblings.
+      await page.addStyleTag({ content: '[class*="winNavItem"] { min-height: calc(var(--hd-nav-h) + 1px) !important; }' })
+      const after = await destinationRowViolations(page)
+      expect(after.out.some((f) => f.reason.startsWith('destination-row kinds disagree'))).toBe(true)
+    })
+  }
 })
 
 /* ========================================================================
@@ -947,9 +1069,8 @@ test.describe('rule: monospace', () => {
  * - `components/SeatAttachments.tsx`: a loaded attachment read "Loaded" in
  *   the success tone; "Not loaded" keeps its warning, which is a verdict.
  *
- * A budget meter (`AgentCard`'s `meter`, `AgentCards.tsx`'s context/plan
- * readings) is explicitly out of scope — an open owner question, #1061 —
- * and not part of this checker's word list.
+ * Budget meters are covered separately below: plenty left is their untoned
+ * resting state, low is warning and spent is danger (#1061).
  */
 const HEALTH_RESTING_WORDS = ['Healthy', 'Armed', 'On', 'Loaded']
 
@@ -1052,5 +1173,68 @@ test.describe('rule: health takes no tone', () => {
     const after = await healthToneViolations(page, scope)
     expect(after.out.length).toBeGreaterThan(before.out.length)
     expect(after.out.some((f) => f.text.includes('Healthy'))).toBe(true)
+  })
+})
+
+test.describe('rule: budget meters take no tone when plenty remains', () => {
+  const catalogMeters = '[data-catalog-case^="agent-card-meter-"] [data-slot="agent-card"] [data-slot="progress"]'
+  const plentyMeters = '[data-catalog-case="agent-card-meter-plenty"] [data-slot="agent-card"] [data-slot="progress"]'
+
+  /* A budget meter never carries the success tone: plenty left is untoned,
+     and low or spent is a warning or a danger. Read off the tone and the
+     fill, never guessed from the share left — where "low" starts is each
+     producer's own threshold (a context meter warns at 30% left, a plan
+     meter at 20%), and a checker that guessed would flag a correct warning. */
+  const meterViolations = (page: Page, selector = catalogMeters) => page.locator(selector).evaluateAll((meters) => {
+    return meters.flatMap((meter) => {
+      const value = Number(meter.getAttribute('aria-valuenow'))
+      const max = Number(meter.getAttribute('aria-valuemax'))
+      const share = max > 0 ? value / max : 0
+      const fill = meter.querySelector('[data-slot="progress-fill"]')
+      const fillColor = fill ? getComputedStyle(fill).backgroundColor : ''
+      const expectedSuccess = document.createElement('span')
+      expectedSuccess.style.color = 'var(--hd-success-ink)'
+      document.body.append(expectedSuccess)
+      const successColor = getComputedStyle(expectedSuccess).color
+      expectedSuccess.remove()
+      return meter.getAttribute('data-tone') === 'success' || fillColor === successColor
+        ? [{ tone: meter.getAttribute('data-tone'), fillColor, successColor, share }]
+        : []
+    })
+  })
+
+  test('no AgentCard meter takes the success tone, and each catalogue state carries its own', async ({ page }) => {
+    await page.goto('/design.html?view=dialog')
+    await expect(page.locator(catalogMeters)).toHaveCount(3)
+    const meters = await page.locator(catalogMeters).evaluateAll((elements) => elements.map((element) => ({
+      state: element.closest('[data-catalog-case]')?.getAttribute('data-catalog-case'),
+      tone: element.getAttribute('data-tone'),
+      value: Number(element.getAttribute('aria-valuenow')),
+      max: Number(element.getAttribute('aria-valuemax')),
+    })))
+    expect(meters.map(({ state, tone }) => [state, tone])).toEqual([
+      ['agent-card-meter-plenty', 'neutral'],
+      ['agent-card-meter-low', 'warning'],
+      ['agent-card-meter-spent', 'danger'],
+    ])
+    expect(meters[0]!.value / meters[0]!.max).toBeGreaterThan(0.2)
+    // The low case sits at 25% left — above a plan meter's 20% line, inside
+    // a context meter's 30% one — so a checker that guessed "plenty" from the
+    // share would call this correct warning a violation.
+    expect(meters[1]!.value / meters[1]!.max).toBeGreaterThan(0.2)
+    expect(await meterViolations(page)).toEqual([])
+  })
+
+  test('the checker catches a plenty-left meter forcibly painted with success ink', async ({ page }) => {
+    await page.goto('/design.html?view=dialog')
+    await expect(page.locator(plentyMeters)).toHaveCount(1)
+    const before = await meterViolations(page, plentyMeters)
+    expect(before).toEqual([])
+    await page.addStyleTag({
+      content: '[data-catalog-case="agent-card-meter-plenty"] [data-slot="progress-fill"] { background-color: var(--hd-success-ink) !important; }',
+    })
+    const after = await meterViolations(page, plentyMeters)
+    expect(after.length).toBeGreaterThan(before.length)
+    expect(after[0]?.tone).toBe('neutral')
   })
 })

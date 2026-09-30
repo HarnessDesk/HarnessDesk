@@ -1865,6 +1865,8 @@ export interface HostMethods {
   'flow/execution/source': { params: { readonly run: string }; result: { readonly source: string; readonly vars: Readonly<Record<string, string>> } }
   /** Runs an interrupted check again, once a person has reviewed it — a fresh preview token, bound to this exact run and card. */
   'flow/check/retry': { params: { readonly run: string; readonly card: number; readonly token: string }; result: FlowExecution }
+  /** Hands a stopped run's kept answer (`FlowExecution.keptAnswer`) to the same Seat again, and the run goes on; refused, the answer still kept, while it cannot be delivered. */
+  'flow/answer/continue': { params: { readonly run: string }; result: FlowExecution }
   /** What updating this project flow to the Agent format would write, previewed before anything is touched. */
   'flow/update/preview': { params: { readonly root: string; readonly id: string }; result: FlowUpdatePreview }
   /** Applies a previously previewed update, exactly as shown. */

@@ -930,14 +930,6 @@
   margin: 0;
 }
 
-/* A page band opts into the one larger role SectionHead supports. */
-.sectionName[data-level='heading'] {
-  font-size: var(--hd-text-lg); /* desk: --hd-heading → --hd-text-lg, the Dashboard heading stays below its page title */
-  line-height: var(--hd-line-lg); /* desk: --hd-line-heading → --hd-line-lg, the line follows the heading step */
-  font-weight: var(--hd-weight-semibold);
-  color: var(--hd-foreground);
-}
-
 .sectionDescription {
   min-width: 0;
   font-size: var(--hd-text-sm);

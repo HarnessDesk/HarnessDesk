@@ -105,6 +105,12 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
   if (!text(raw['goal'])) bad('names no Goal')
   if (!RUN_STATES.includes(String(raw['state']))) bad('has an unknown state')
   if (!(raw['reason'] === null || text(raw['reason']))) bad('has an unreadable reason')
+  if (raw['keptAnswer'] !== undefined) {
+    const answer = raw['keptAnswer']
+    if (!object(answer) || !integer(answer['card']) || answer['card'] < 1 || !text(answer['seat']) || !answer['seat'] ||
+      !text(answer['question']) || !text(answer['answer']) || !finite(answer['at']) ||
+      typeof answer['canContinue'] !== 'boolean' || !(answer['refusal'] === null || text(answer['refusal']))) bad('has a kept answer it cannot describe')
+  }
   if (!text(raw['source']) || !(raw['sourcePath'] === null || text(raw['sourcePath']))) bad('has no source')
   if (!object(raw['vars']) || !Object.values(raw['vars']).every(text)) bad('has unreadable inputs')
   if (!finite(raw['startedAt']) || !finite(raw['updatedAt'])) bad('has unreadable times')

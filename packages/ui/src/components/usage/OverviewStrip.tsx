@@ -8,6 +8,7 @@ import {
   ledgerRuntimeIds,
   paidPerTurn,
   paidRatio,
+  paidRatioCaption,
   paidScopeMatchesLedger,
   perDay,
   tokenCoverage,
@@ -112,6 +113,7 @@ export const OverviewStrip = ({
   const turnsCoverage = useMemo(() => agentCoverage(ledger?.coverage, ledgerRuntimeIds(ledger)), [ledger])
   const tokensCoverage = useMemo(() => tokenCoverage(ledger), [ledger])
   const cacheHit = cacheHitRate(ledger?.totals)
+  const valuePricing = ledger ? provenanceLabel(ledger).replace(/^./, (letter) => letter.toLowerCase()) : null
 
   // Value's ratio and Turns' per-turn price only mean what they claim when
   // Paid covers the same scope Value and Turns do — see
@@ -146,6 +148,13 @@ export const OverviewStrip = ({
   for (const other of currentPaid.otherCurrencyTotals) {
     paidCaption.push(<span key={`other-${other.currency}`}>+ {formatMoney(other.amount, other.currency)}</span>)
   }
+  for (const other of currentPaid.otherCurrencyOverageAsides) {
+    paidCaption.push(
+      <span key={`overage-${other.currency}`}>
+        + {formatMoney(other.amount, other.currency)} overage this cycle
+      </span>,
+    )
+  }
 
   return (
     <ChartFrame className={styles.strip} aria-label="What it cost, in brief">
@@ -178,10 +187,14 @@ export const OverviewStrip = ({
             variant="quiet"
             className={`${styles.stripCell} items-start text-left`}
             aria-pressed={metric === 'value'}
-            title="Value — switch the chart below to cost per day"
+            title={
+              valuePricing
+                ? `Value (${valuePricing}). Switch the chart below to cost per day`
+                : 'Value. Switch the chart below to cost per day'
+            }
             onClick={() => onMetricChange('value')}
           >
-            <Text role="meta">{ledger ? provenanceLabel(ledger) : 'Value'}</Text>
+            <Text role="meta">Value</Text>
             <div className={styles.stripFigureLine}>
               <ChartTitle figure>
                 {ledger === null ? '—' : ledger.totalCost === null ? 'unpriced' : formatMoney(ledger.totalCost, ledger.currency)}
@@ -194,7 +207,7 @@ export const OverviewStrip = ({
               className={styles.stripCaption}
             >
               {ratio !== null
-                ? `${ratio.toFixed(1)}× paid`
+                ? paidRatioCaption(ratio)
                 : currentCost !== null
                   ? `${formatMoney(perDay(currentCost, range) ?? 0, ledger?.currency ?? 'USD')} a day`
                   : ''}

@@ -1,10 +1,12 @@
 {
   "lead-off-line": {
-    "count": 29,
+    "count": 38,
     "signatures": {
-      "design.html / dialog / lead-off-line / div > [agent-card] > div > span": 1,
+      "design.html / dialog / lead-off-line / div > [agent-card] > div > span": 4,
       "design.html / dialog / lead-off-line / div > [publication-card] > div > [icon-tile]": 1,
       "design.html / empty / lead-off-line / [section-body] > [empty-state] > div > [choice-row] > span": 2,
+      "design.html / group / lead-off-line / [data-testid=group-run-kept-answer-seat-gone]": 3,
+      "design.html / group / lead-off-line / [data-testid=group-run-kept-answer]": 3,
       "design.html / group / lead-off-line / [data-testid=group-run-stalled-on-a-seat]": 3,
       "design.html / group / lead-off-line / [data-testid=group-run-stopped-on-a-question]": 3,
       "design.html / group / lead-off-line / [data-testid=group-run-stopped-with-a-release-pending]": 3,
@@ -20,7 +22,7 @@
     }
   },
   "trailing-glyph-off-column": {
-    "count": 32,
+    "count": 34,
     "signatures": {
       "design.html / adopted / trailing-glyph-off-column / div > [section] > [data-table-pagination] > button": 1,
       "design.html / code / trailing-glyph-off-column / [data-testid=diff-sample]": 1,
@@ -28,6 +30,8 @@
       "design.html / conversation / trailing-glyph-off-column / div > [composer-dock] > [pane-column] > [alert] > [button]": 1,
       "design.html / conversation-map-dense / trailing-glyph-off-column / [data-testid=conversation-map-dense]": 1,
       "design.html / conversation-map-preview-open / trailing-glyph-off-column / [data-testid=conversation-map-preview-open]": 1,
+      "design.html / group / trailing-glyph-off-column / [data-testid=group-run-kept-answer-seat-gone]": 1,
+      "design.html / group / trailing-glyph-off-column / [data-testid=group-run-kept-answer]": 1,
       "design.html / group / trailing-glyph-off-column / [data-testid=group-run-stalled-on-a-seat]": 1,
       "design.html / group / trailing-glyph-off-column / [data-testid=group-run-stopped-on-a-question]": 1,
       "design.html / group / trailing-glyph-off-column / [data-testid=group-run-stopped-with-a-release-pending]": 1,
@@ -55,9 +59,11 @@
     }
   },
   "header-off-body": {
-    "count": 78,
+    "count": 80,
     "signatures": {
       "design.html / chart / header-off-body / div > [chart-frame] > [chart-card]": 1,
+      "design.html / group / header-off-body / [data-testid=group-run-kept-answer-seat-gone]": 1,
+      "design.html / group / header-off-body / [data-testid=group-run-kept-answer]": 1,
       "design.html / group / header-off-body / [data-testid=group-run-stalled-on-a-seat]": 1,
       "design.html / group / header-off-body / [data-testid=group-run-stopped-on-a-question]": 7,
       "design.html / group / header-off-body / [data-testid=group-run-stopped-with-a-release-pending]": 1,

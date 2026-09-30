@@ -258,6 +258,7 @@ const room = (over: {
   updatedAt?: number
   members?: string[]
   root?: string
+  realRoot?: string
   intents?: { state: string }[]
 }) =>
   ({
@@ -265,6 +266,7 @@ const room = (over: {
     name: over.name,
     updatedAt: over.updatedAt ?? 1,
     root: over.root ?? '/repo',
+    ...(over.realRoot ? { realRoot: over.realRoot } : {}),
     members: over.members ?? [],
     messaging: true,
     intents: over.intents ?? [],
@@ -743,6 +745,25 @@ it('a room started in a project opened through a symlink is drawn in that projec
     [],
     { othersOpen: true },
     { path: link, name: 'widgets', lastOpenedAt: 1, repo: { root: real, worktree: false } },
+  )
+  const widgetsRows = [...tree.querySelectorAll('button')].filter((one) => one.textContent?.trim().startsWith('widgets'))
+  expect(widgetsRows).toHaveLength(1)
+  expect(tree.textContent).toContain('Fix the retry')
+})
+
+it('files a linked room under its resolved project when the folder is no longer open', () => {
+  const real = '/private/var/folders/x/work/widgets'
+  const link = '/var/folders/x/work/widgets'
+  const { container: tree } = treeWith(
+    [
+      room({ id: 'goal-1', name: 'Fix the retry', root: link, realRoot: real }),
+      room({ id: 'other-1', name: 'Elsewhere', root: '/elsewhere' }),
+      room({ id: 'other-2', name: 'Further', root: '/further' }),
+    ],
+    [summary({ id: 'session-1', cwd: real, repo: { root: real, worktree: false } })],
+    [],
+    { othersOpen: true },
+    { path: '/repo', name: 'repo', lastOpenedAt: 1 },
   )
   const widgetsRows = [...tree.querySelectorAll('button')].filter((one) => one.textContent?.trim().startsWith('widgets'))
   expect(widgetsRows).toHaveLength(1)

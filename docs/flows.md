@@ -269,7 +269,7 @@ round it opened, each card wearing the role it is addressed to:
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="images/app/flow-board-dark.png" />
-    <img src="images/app/flow-board-light.png" width="900" alt="A room running a flow. The sidebar lists the four seats by the role each holds — fixer, reviewer 1, reviewer 2, reviewer 3. The channel reads: the fix card added, then completed with the outcome “published”, then three review cards added in one round. The board beside it shows those three cards in Ready, each tagged with a violet “reviewer” chip and carrying the reviewer’s brief." />
+    <img src="images/app/flow-board-light.png" width="900" alt="The Checkout hardening room. The sidebar shows reviewer 1, reviewer 2 and reviewer 3 working, and lists the fixer and all three reviewers under the room. The Agents list has four entries: Claude · Opus as fixer with Publish · asked, and three Cursor · Gemini 3.8 … entries with Edit · asked. The channel says #1 “Retry the checkout call on a 502” was added and completed with the answer “published”, then adds #2, #3 and #4 as review round 2 cards, 1 of 3, 2 of 3 and 3 of 3. The board has three cards in To do (#2, #3 and #4, each tagged reviewer), none in Working, one in Needs you (#1, tagged fixer), and none in In review." />
   </picture>
 </p>
 

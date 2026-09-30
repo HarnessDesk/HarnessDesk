@@ -165,6 +165,9 @@ export const paidRatio = (value: number | null, paid: number | null): number | n
   return value / paid
 }
 
+/** The shared label for Value divided by Paid in the Overview and Plans rows. */
+export const paidRatioCaption = (ratio: number): string => `${ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)}× paid`
+
 /** Value's own window average, for the "a day" caption when Paid is not known. */
 export const perDay = (value: number | null, days: number): number | null => {
   if (value === null || days <= 0) return null

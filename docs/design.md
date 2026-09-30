@@ -149,6 +149,7 @@ are doing; screens do not invent a new spelling for the same job:
 | --- | --- | --- |
 | wordmark | 20 / semibold | the product name beside its mark |
 | page | 20 / semibold | the name of a place — a settings page, a review, and a page drilled into (`DetailHead`) alike; by owner decision on 2026-09-19 it matches the wordmark rather than outsizing it, and #832 put the detail head on it too: a detail page adds its mark and its owner chip, never a size of its own |
+| section | 16 / semibold | a page band's heading (a Dashboard band) — below the page title, above a subject (#1122) |
 | group label | 13 / normal, secondary ink | the word over a group — a card of rows, a rail's list, a section of a page (`GroupLabel`). Sentence case, always: no label outside a `Keycap` is set in capitals |
 | subject | 14 / medium | the name of the thing a pane, a dialog or a card is about |
 | row | 13 / medium | the title of a setting, and the word above a control |
@@ -162,9 +163,9 @@ The design system's own head slots said 600 in five components and 500 in the
 sixth — so a screen that composed the system got a heavier title than a screen
 that drew its own, which is the opposite of what a design system is for.
 
-Nothing is 16 any more. A step between the subject and the page turned out to
-be a way of avoiding the choice between them: a dialog names one question and a
-page names a place, and 16 said neither.
+At the time this rule was written, nothing was 16. A step between the subject
+and the page turned out to be a way of avoiding the choice between them: a
+dialog names one question and a page names a place, and 16 said neither.
 
 | step | line | ratio |
 | --- | --- | --- |
@@ -186,18 +187,20 @@ Rows:
 | token | value | note |
 | --- | --- | --- |
 | `--hd-row-h` | 30px | a one-line row |
-| `--hd-nav-h` | `calc(--hd-text * 1.5 + --hd-space-1 * 2)` | a navigation row — solved, not written |
+| `--hd-nav-h` | `calc(--hd-line-sm + --hd-space-1 * 2 + 2px)` | a navigation row — solved, not written (30px) |
 | `--hd-control-h` | 26px | dense toolbar targets and icon buttons |
 | `--hd-field-h` | 30px | inputs and selects: matches `--hd-btn-h` |
 | `--hd-bar-h` | 46px | the window's own bar, and a pane's |
 
-A navigation row's height is solved from **the reading size**, not from the size
-the row itself is set in: `--hd-text` times 1.5, plus one step of padding above
-and below. The row's own text is a step smaller than that, which is the point —
-every row in every column stands the same height whatever it happens to carry,
-and a row of 13px labels does not end up shorter than a row of 14px ones. It is
-also what lets the density or the reading size move every one of them without a
-second edit, and it is how the two heights that column used to have became one.
+A navigation row's height is solved from **the row's real box**, not written:
+its small line (`--hd-line-sm`), one step of padding above and below, and the
+1px border it keeps on each side for focus and selection. Every row in every
+column stands that height whatever it happens to carry, so a row of 13px labels
+does not end up shorter than a row of 14px ones, and moving the line or the
+density moves every one of them without a second edit. It used to be solved
+from the reading size alone (`--hd-text` times 1.5), which came to 29px — a
+pixel under the rows that carried their border, so the settings rail sat
+lower than the sidebar and a menu beside it (#1073).
 
 Rows sit 2px apart. Without that gap a hover or selection pill reads as a band
 across the column rather than as one row.
@@ -764,28 +767,29 @@ difference is a deliberate interface choice; the sections below say which.
 
 Every element wearing a name role — `Text role=…` (`design/patterns/
 Settings.tsx`) or `PageHead`'s own title — computes one of the pairs the
-"Named text roles" table above states: wordmark and page at 20/600, subject
-at 14/500, row at 13/500, navigation and muted at 13/400. Nothing is 16px,
-and nothing outside the wordmark and the page title is semibold — both
-already said above, under "Named text roles" and "Weight". The dashboard
+"Named text roles" table above states: wordmark and page at 20/600, section at
+16/600, subject at 14/500, row at 13/500, navigation and muted at 13/400.
+Section is the one role at 16px; section, wordmark and page are the only name
+roles in semibold. The dashboard
 readouts `Text` also draws (`meta`, `figure`, `metric`, `value`, `prose`) are
 not names and sit outside the rule; `figure`/`metric` are deliberately
 semibold.
 
-Enforced by `rules.spec.ts` ("rule: names"), reading `data-role` and
-`data-slot="page-title"` across every mounted screen. The spec found one
-name out of rule: the pull-request card's title (`components/Publication.tsx`)
-wore `weight="semibold"`, the weight `weight` exists for lifting a search
-match inside a line. It now takes its row role's own 13/500.
+Enforced by `rules.spec.ts` ("rule: names"), reading every `Text` role and
+`data-slot="page-title"` across mounted screens against that role's pair. It
+also checks every visible h1-h4 and `*-title` slot outside `Text` against the
+same five pairs, without guessing a role from the tag or slot. A readout is
+declared, never read off its text: `ChartTitle`'s `figure` marks itself
+`data-figure` and is left to its own role, while a title that merely reads as
+a number is still a name. The preview harness marks its own caption with
+`data-preview-caption` so it is excluded too. Findings include text, tag,
+slot, computed size and weight. A mutation catches an injected 16/500 h3 and
+proves the marked caption is ignored.
 
-The check covers a name drawn through `Text`/`PageHead` only. The shared
-parts that drew their names some other way now compose `Text` too (#1072):
-`EmptyState`'s heading and `ChoiceRow`'s title are `subject`, a `Notices`
-card title and the inbox heading are `subject`, an unread inbox title is
-`row`, and `AgentCard`'s name is `row`. Headings and `*-title` slots drawn
-outside `Text` elsewhere — 160 distinct names, among them the Dashboard's
-16/600 section heads — are the next convergence, and the check widens to
-them once they are converted (#1122).
+The small `ListRow` title uses the navigation pair (13/400), including when
+selected; selection is shown by the row's fill. Its default title remains the
+subject pair (14/500). The Dashboard's band heads are `section` (16/600),
+drawn through `SectionHead`'s heading level (#1122).
 
 ### Group labels
 
@@ -812,17 +816,22 @@ every row of one kind stands at one height. There are three kinds:
 All three are `Button size="navigation"` or the menu's own row, floored at
 `--hd-nav-h`.
 
-In Studio the kinds also agree with each other: `--hd-nav-h` is a literal
-34px, and `design/foundation/tokens.css` gives Studio "one height for every row in
-a navigation column". Desk does not promise that:
+The kinds also agree with each other, in both interfaces. In Studio
+`--hd-nav-h` is a literal 34px. In Desk it is solved from the row's real
+box — its 20px line, 4+4px block padding and 1+1px border — to 30px, so the
+settings and usage rail rows stand with the sidebar's rows and a menu item
+rather than a pixel under them on a floor solved from the type alone
+(#1073).
 
-- the sidebar's session rows and a menu item are 30px, because their 20px line, 4+4px block padding and 1+1px border add up past the 29px floor;
-- the rail's rows have no block padding and sit on the 29px floor.
-
-Whether Desk should converge is #1073.
+This is a claim about one-line rows. The session list's comfortable density
+gives a session a second line and more air — a preview under a working row,
+a chip where one needs you — so those rows are taller than a rail row by
+design and can differ from each other with what they carry. They are still
+floored at `--hd-nav-h`. The rule is measured at the compact density the
+preview uses.
 
 The settings rail's identity row was the one row out of step with its own
-kind. Its 28px face in a 29px row with 1px borders pushed it to 30px. It
+kind. Its 28px face in what was then a 29px row with 1px borders pushed it to 30px. It
 now draws the seat's 24px face, the size the sidebar's seat row uses.
 
 Enforced by `rules.spec.ts` ("rule: destination rows"), on every visible row
@@ -964,13 +973,10 @@ wrong keeps its own:
   success tone; "Not loaded" keeps its warning, which is a verdict rather
   than a resting state.
 
-A budget meter (`AgentCard`'s `meter`, the context or plan reading
-`components/AgentCards.tsx` builds) is deliberately not in this rule's word
-list and not fixed here. Its fill is a verdict on how much is left, not a
-named resting state, and green there is documented as "plenty left" — a
-different claim from "nothing is wrong". Whether a budget with plenty left
-should also be untoned is an open question for the owner (#1061); narrowing
-this rule to leave it out is that decision waiting, not an oversight.
+Budget meters follow the same rule (#1061): plenty left is the untoned resting
+state, a low budget is warning, and a spent budget is danger. The AgentCard
+catalogue shows all three states, and the rule spec checks that a plenty-left
+meter remains neutral and does not compute the success colour.
 
 ## Adding to the app
 

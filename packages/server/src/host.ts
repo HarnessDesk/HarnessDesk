@@ -4490,9 +4490,20 @@ export class Host {
     if (!record || approval?.type !== 'userInput') return false
     /* Its turn is still live — the answer landed between the run stopping and
        the turn being interrupted, or the interrupt never took: the answer
-       goes into that turn, as it always could, and the run it stopped goes on. */
+       goes into that turn, as it always could, and the run it stopped goes on.
+       The claim is made now, before awaiting the run's serialized resume,
+       which can sit behind the stop: made after it, the stop had already
+       finished and its interrupt cut the turn the answer was going into (#998). */
     if (approval.turnId !== undefined && record.running.has(approval.turnId)) {
-      await this.#flows.answeredInTurn(runtime, sessionId)
+      this.#questions.answering(questionKey(runtime, sessionId), approvalId)
+      try {
+        await this.#flows.answeredInTurn(runtime, sessionId)
+      } catch (error) {
+        // The answer never reached the run: let the stop interrupt the turn
+        // rather than leave it live on a question its run has stopped on.
+        this.#questions.unclaim(questionKey(runtime, sessionId), approvalId)
+        throw error
+      }
       return false
     }
     const words = questionWords(approval, decision)

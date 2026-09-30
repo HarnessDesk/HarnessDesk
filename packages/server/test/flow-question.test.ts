@@ -106,7 +106,15 @@ const claimedCards = async (d: IntakeDesk, goal: string): Promise<readonly { id:
 }
 
 /** A trigger's run whose one Seat asked a question nobody answered in time: its run stopped, its turn interrupted. */
-const stoppedOnAQuestion = async (t: { after(fn: () => Promise<void>): void }): Promise<Asking> => {
+const stoppedOnAQuestion = async (
+  t: { after(fn: () => Promise<void>): void },
+  holdStopping?: (host: IntakeDesk['host']) => {
+    readonly stopped: Promise<void>
+    readonly answering: Promise<void>
+    releaseStop(): void
+    releaseAnswer(): void
+  },
+): Promise<Asking & { readonly stoppingHold?: ReturnType<NonNullable<typeof holdStopping>> }> => {
   const timers = manualTimers()
   const repo = await makeRepo('hd-flow-question-')
   await commitTriggers(repo, TRIAGE)
@@ -137,14 +145,16 @@ const stoppedOnAQuestion = async (t: { after(fn: () => Promise<void>): void }): 
   void session.askQuestion('qu-base' as never, 'Which base branch should the fix go on?', OPTIONS)
   const [timer] = await until(() => (timers.live.size === 1 ? [...timers.live.values()] : null), 'the question’s wait set')
   assert.equal(timer!.ms, 5 * 60_000, 'this machine’s default wait: five minutes')
+  const stoppingHold = holdStopping?.(d.host)
   timers.fireAll()
   const stalled = await until(async () => {
     const now = await d.host.call('flow/execution', { run: runId }) as FlowExecution
     return now.state === 'stalled' ? now : null
   }, 'the run stopped for the unanswered question')
   assert.match(stalled.reason ?? '', /asked a question nobody can answer/)
-  assert.equal(session.busy, false, 'the Seat’s turn was interrupted')
-  return { d, timers, run: stalled, card: card!, session, sent, denials }
+  await stoppingHold?.stopped
+  assert.equal(session.busy, Boolean(stoppingHold), 'the Seat’s turn stays live only while the test holds the stop')
+  return { d, timers, run: stalled, card: card!, session, sent, denials, ...(stoppingHold ? { stoppingHold } : {}) }
 }
 
 const hasQuestion = (a: Asking): boolean =>
@@ -197,6 +207,44 @@ test('an answered question resumes the trigger’s Seat that asked it, and the r
   assert.doesNotMatch(said, /^Refused/, said)
   a.session.finish()
   await until(async () => ((await runOf(a)).state === 'settled' ? true : null), 'the run at its end')
+})
+
+test('an answer before the scheduled interrupt lands keeps the live turn running', E2E, async (t) => {
+  const a = await stoppedOnAQuestion(t, (host) => {
+    const flows = host.flowsPlane
+    const stop = flows.stopForQuestion.bind(flows)
+    const answer = flows.answeredInTurn.bind(flows)
+    let stopped!: () => void
+    let answering!: () => void
+    let releaseStop!: () => void
+    let releaseAnswer!: () => void
+    const stoppedSignal = new Promise<void>((resolve) => { stopped = resolve })
+    const answeringSignal = new Promise<void>((resolve) => { answering = resolve })
+    const stopGate = new Promise<void>((resolve) => { releaseStop = resolve })
+    const answerGate = new Promise<void>((resolve) => { releaseAnswer = resolve })
+    flows.stopForQuestion = async (...args: Parameters<typeof stop>) => {
+      const result = await stop(...args)
+      stopped()
+      await stopGate
+      return result
+    }
+    flows.answeredInTurn = async (...args: Parameters<typeof answer>) => {
+      answering()
+      await answerGate
+      await answer(...args)
+    }
+    return { stopped: stoppedSignal, answering: answeringSignal, releaseStop: () => releaseStop(), releaseAnswer: () => releaseAnswer() }
+  })
+
+  assert.equal(a.session.busy, true, 'the run has stopped, but the scheduled interrupt has not landed')
+  const answering = answerIt(a)
+  await a.stoppingHold!.answering
+  a.stoppingHold!.releaseStop()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(a.session.busy, true, 'an interrupt scheduled before the answer cannot end its live turn')
+  a.stoppingHold!.releaseAnswer()
+  await answering
+  assert.equal((await runOf(a)).state, 'running', 'the answer resumes the run before an interrupt can land')
 })
 
 test('while a run is stopped on its Seat’s question, the Goal reads Needs you; once answered, it reads working', E2E, async (t) => {
@@ -299,6 +347,101 @@ test('the old question is settled before the turn that carries its answer is sen
   assert.ok(settleAt !== -1 && settleAt < orderAt, `settled before the order: ${e.rig.events.slice(-4).join(', ')}`)
   assert.match(e.rig.orderTexts.get(String(e.seat.id))!.at(-1)!, /Their answer: main/)
   assert.equal(e.rig.flows.executionsFor(e.run.goal)[0]!.state, 'running')
+})
+
+test('one failed answer hand-over is retried immediately with one accepted answer turn', async (t) => {
+  const e = await engineStopped(t)
+  const prior = (e.rig.orderTexts.get(String(e.seat.id)) ?? []).filter((text) => text.includes('Their answer:')).length
+  e.rig.failOrderTimes = 1
+  assert.equal(await e.rig.flows.answerQuestion(e.runtime, e.sessionId, e.words, e.settle), true)
+  const [run] = e.rig.flows.executionsFor(e.run.goal)
+  assert.equal(run!.state, 'running')
+  assert.equal(run!.keptAnswer, undefined)
+  assert.equal((e.rig.orderTexts.get(String(e.seat.id)) ?? []).filter((text) => text.includes('Their answer:')).length - prior, 1)
+  assert.equal(run!.operations.filter((one) => one.kind === 'turn' && one.key.includes(':answer:')).length, 2)
+})
+
+test('a twice-refused answer is kept and can be continued through the same Seat', async (t) => {
+  const e = await engineStopped(t)
+  e.rig.failOrderTimes = 2
+  await assert.rejects(e.rig.flows.answerQuestion(e.runtime, e.sessionId, e.words, e.settle), /kept on the run/)
+  let [run] = e.rig.flows.executionsFor(e.run.goal)
+  assert.equal(run!.state, 'stalled')
+  assert.deepEqual({ card: run!.keptAnswer?.card, seat: run!.keptAnswer?.seat, question: run!.keptAnswer?.question, answer: run!.keptAnswer?.answer },
+    { card: 1, seat: String(e.seat.id), question: e.words.question, answer: e.words.answer })
+  assert.match(run!.reason ?? '', /It is kept on this run\./)
+  assert.equal(run!.keptAnswer?.canContinue, true)
+  assert.equal(await e.rig.flows.continueAnswer(e.run.id).then((value) => value.state), 'running')
+  ;[run] = e.rig.flows.executionsFor(e.run.goal)
+  assert.equal(run!.keptAnswer, undefined)
+  assert.match(e.rig.orderTexts.get(String(e.seat.id))!.at(-1)!, /Their answer: main/)
+})
+
+test('a kept answer survives reloading the run files', async (t) => {
+  const e = await engineStopped(t)
+  e.rig.failOrderTimes = 2
+  await assert.rejects(e.rig.flows.answerQuestion(e.runtime, e.sessionId, e.words, e.settle))
+  await e.rig.restart()
+  const [run] = e.rig.flows.executionsFor(e.run.goal)
+  assert.equal(run!.keptAnswer?.answer, 'main')
+  assert.equal(run!.keptAnswer?.question, 'Which base branch?')
+})
+
+test('a kept answer is refused while its Seat is inside a turn and kept; once continued, a second continue finds nothing waiting', async (t) => {
+  const e = await engineStopped(t)
+  e.rig.failOrderTimes = 2
+  await assert.rejects(e.rig.flows.answerQuestion(e.runtime, e.sessionId, e.words, e.settle), /kept on the run/)
+  e.rig.busySeats.add(String(e.seat.id))
+  await assert.rejects(e.rig.flows.continueAnswer(e.run.id), /The Seat for card #1 is inside a turn now\. Answer again once it ends\./)
+  let [run] = e.rig.flows.executionsFor(e.run.goal)
+  assert.equal(run!.state, 'stalled')
+  assert.equal(run!.keptAnswer?.answer, 'main')
+  e.rig.busySeats.delete(String(e.seat.id))
+  assert.equal((await e.rig.flows.continueAnswer(e.run.id)).state, 'running')
+  ;[run] = e.rig.flows.executionsFor(e.run.goal)
+  const keys = run!.operations.map((one) => one.key)
+  assert.equal(new Set(keys).size, keys.length, `every operation keeps its own key: ${keys.join(', ')}`)
+  await assert.rejects(e.rig.flows.continueAnswer(e.run.id), /This run is no longer waiting on that answer\./)
+})
+
+test('a run that leaves its stop another way drops the kept answer, so no later stop offers it', async (t) => {
+  const e = await engineStopped(t)
+  e.rig.failOrderTimes = 2
+  await assert.rejects(e.rig.flows.answerQuestion(e.runtime, e.sessionId, e.words, e.settle), /kept on the run/)
+  assert.equal(e.rig.flows.executionsFor(e.run.goal)[0]!.keptAnswer?.answer, 'main')
+  await e.rig.flows.stopRun(e.run.id)
+  const [run] = e.rig.flows.executionsFor(e.run.goal)
+  assert.equal(run!.state, 'stopped')
+  assert.equal(run!.keptAnswer, undefined)
+  await e.rig.restart()
+  assert.equal(e.rig.flows.executionsFor(e.run.goal)[0]!.keptAnswer, undefined, 'and it is gone from the run file too')
+})
+
+test('continuing a kept answer is refused before its Seat reopens when the trigger’s gate refuses, and the answer stays kept', async (t) => {
+  const e = await engineStopped(t)
+  e.rig.failOrderTimes = 2
+  await assert.rejects(e.rig.flows.answerQuestion(e.runtime, e.sessionId, e.words, e.settle), /kept on the run/)
+  let reopened = false
+  e.rig.onReseat = () => { reopened = true }
+  e.rig.triggerGate = () => 'Today’s trigger spend cap was reached.'
+  await assert.rejects(e.rig.flows.continueAnswer(e.run.id), /Your answer was not sent: Today’s trigger spend cap was reached\./)
+  const [run] = e.rig.flows.executionsFor(e.run.goal)
+  assert.equal(run!.state, 'stalled')
+  assert.equal(run!.keptAnswer?.answer, 'main')
+  assert.equal(reopened, false, 'no Seat is reopened for an answer its gate would refuse')
+})
+
+test('a closed Seat makes a kept answer non-continuable and preserves it on refusal', async (t) => {
+  const e = await engineStopped(t)
+  e.rig.failOrderTimes = 2
+  await assert.rejects(e.rig.flows.answerQuestion(e.runtime, e.sessionId, e.words, e.settle))
+  Object.assign(e.seat, { closed: Date.now() })
+  const message = 'The Seat for card #1 is closed, so it cannot be handed your answer. Start a new run to pick up the work.'
+  const [projected] = e.rig.flows.executionsFor(e.run.goal)
+  assert.equal(projected!.keptAnswer?.canContinue, false)
+  assert.equal(projected!.keptAnswer?.refusal, message)
+  await assert.rejects(e.rig.flows.continueAnswer(e.run.id), (error: Error) => error.message === message)
+  assert.equal(e.rig.flows.executionsFor(e.run.goal)[0]!.keptAnswer?.answer, 'main')
 })
 
 test('an answer re-checks a trigger’s consent and spend right before the hand-back, not only before reopening its Seat (#939)', async (t) => {

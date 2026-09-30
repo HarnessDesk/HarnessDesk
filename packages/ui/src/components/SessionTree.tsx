@@ -1055,7 +1055,7 @@ export const useProjectGroups = (): ProjectGroup[] => {
      is work for nothing. Only the set of roots changes what comes out.
      Joined on NUL, the one byte a path cannot hold. */
   const roomRoots = useMemo(
-    () => [...new Set([...snapshot.teams.values()].map((team) => roomGroupRootOf(team.root, [snapshot.workspace, ...snapshot.workspaces])))]
+    () => [...new Set([...snapshot.teams.values()].map((team) => roomGroupRootOf(team, [snapshot.workspace, ...snapshot.workspaces])))]
       .sort().join('\u0000'),
     [snapshot.teams, snapshot.workspace, snapshot.workspaces],
   )
@@ -1184,7 +1184,7 @@ export const SessionTree = ({ now }: { now: number }) => {
   const roomsByProject = useMemo(() => {
     const out = new Map<string, TeamState[]>()
     for (const team of snapshot.teams.values()) {
-      const root = roomGroupRootOf(team.root, [snapshot.workspace, ...snapshot.workspaces])
+      const root = roomGroupRootOf(team, [snapshot.workspace, ...snapshot.workspaces])
       const held = out.get(root)
       if (held) held.push(team)
       else out.set(root, [team])
