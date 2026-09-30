@@ -102,9 +102,9 @@ const MODELS = [
   },
   {
     value: 'sonnet',
-    resolvedModel: 'claude-sonnet-5',
-    displayName: 'Sonnet',
-    description: 'Sonnet 5',
+    resolvedModel: 'claude-sonnet-5-5',
+    displayName: 'Sonnet 5.5',
+    description: 'Sonnet 5.5',
     supportsEffort: true,
     supportedEffortLevels: ['low', 'medium', 'high'],
   },

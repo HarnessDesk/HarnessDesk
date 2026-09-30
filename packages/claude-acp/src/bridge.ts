@@ -267,6 +267,7 @@ const clientFromContext = (context: AgentContext): AcpClient => ({
 type StoredControls = { values: Record<string, string>; meta?: Meta; cwd: string }
 type ModelInfo = { value: string; supportedEffortLevels?: readonly string[] }
 type StoredControlsWithRuntime = StoredControls & { styles: readonly string[]; spawned: Record<string, string>; prompted: boolean }
+type RawToolResult = { name: string; content: unknown }
 const customOptions = (stored: StoredControlsWithRuntime): SessionConfigOption[] => [
   { type: 'select', id: AUTOCOMPACT_OPTION_ID, name: 'Auto-compact', description: 'When Claude Code compacts its context window.', category: 'model_config', currentValue: stored.values[AUTOCOMPACT_OPTION_ID] ?? DEFAULT, options: AUTOCOMPACT_CHOICES.map((choice) => ({ ...choice })) },
   ...(stored.styles.length > 0
@@ -312,6 +313,7 @@ const decorateModelOptions = <T extends { configOptions?: SessionConfigOption[] 
 
 export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
   readonly #controls = new Map<string, StoredControlsWithRuntime>()
+  readonly #rawToolResults = new Map<string, Map<string, RawToolResult>>()
   readonly #tasks = new Map<string, TaskRegistry>()
   readonly #delegations = new Map<string, DelegationRegistry>()
   readonly #outputPollers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -332,6 +334,22 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
           const payload = params as { sessionId?: unknown; message?: unknown }
           const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : ''
           if (sessionId && !this.#deletedSessions.has(sessionId) && payload.message) {
+            const message = payload.message as { type?: unknown; message?: { content?: unknown } }
+            const content = message.message?.content
+            if (Array.isArray(content)) {
+              const results = this.#rawToolResults.get(sessionId) ?? new Map<string, RawToolResult>()
+              for (const raw of content) {
+                if (!raw || typeof raw !== 'object') continue
+                const block = raw as { type?: unknown; id?: unknown; name?: unknown; tool_use_id?: unknown; content?: unknown }
+                if (block.type === 'tool_use' && typeof block.id === 'string' && typeof block.name === 'string') {
+                  results.set(block.id, { name: block.name, content: results.get(block.id)?.content })
+                } else if (block.type === 'tool_result' && typeof block.tool_use_id === 'string') {
+                  const previous = results.get(block.tool_use_id)
+                  results.set(block.tool_use_id, { name: previous?.name ?? '', content: block.content })
+                }
+              }
+              this.#rawToolResults.set(sessionId, results)
+            }
             const tasks = this.#tasks.get(sessionId) ?? new TaskRegistry()
             const delegations = this.#delegations.get(sessionId) ?? new DelegationRegistry()
             this.#tasks.set(sessionId, tasks)
@@ -349,13 +367,23 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       }
     }
     client.sessionUpdate = async (params) => {
-      if (params.update.sessionUpdate === 'config_option_update') {
-        const stored = this.#controls.get(params.sessionId)
-        const base = decorateModelOptions({ configOptions: params.update.configOptions }, (this.sessions[params.sessionId]?.modelInfos ?? []) as readonly ModelInfo[]).configOptions ?? []
-        const custom = stored ? customOptions(stored) : []
-        return notify({ ...params, update: { ...params.update, configOptions: [...base, ...custom] } })
+      let next = params
+      const update = params.update
+      if (update.sessionUpdate === 'tool_call_update' && typeof update.toolCallId === 'string' && (update.status === 'completed' || update.status === 'failed')) {
+        const raw = this.#rawToolResults.get(params.sessionId)?.get(update.toolCallId)
+        if (raw?.name === 'Read' && raw.content !== undefined && update.rawOutput === undefined) {
+          const content = Array.isArray(raw.content) ? raw.content.map((block) => ({ type: 'content', content: safeBlock(block) })) : [{ type: 'content', content: safeBlock(raw.content) }]
+          next = { ...params, update: { ...update, ...(Array.isArray(update.content) && update.content.length > 0 ? {} : { content }), rawOutput: raw.content } } as SessionNotification
+        }
+        this.#rawToolResults.get(params.sessionId)?.delete(update.toolCallId)
       }
-      return notify(params)
+      if (next.update.sessionUpdate === 'config_option_update') {
+        const stored = this.#controls.get(next.sessionId)
+        const base = decorateModelOptions({ configOptions: next.update.configOptions }, (this.sessions[next.sessionId]?.modelInfos ?? []) as readonly ModelInfo[]).configOptions ?? []
+        const custom = stored ? customOptions(stored) : []
+        return notify({ ...next, update: { ...next.update, configOptions: [...base, ...custom] } })
+      }
+      return notify(next)
     }
     this.#stateDir = options.stateDir ?? process.env['CLAUDE_ACP_STATE_DIR'] ?? join(homedir(), '.harnessdesk', 'claude-acp')
     this.#log = options.log ?? ((line) => process.stderr.write(`${line}\n`))
@@ -399,6 +427,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     try {
       return await super.closeSession(params)
     } finally {
+      this.#rawToolResults.delete(params.sessionId)
       this.#releaseAttachments(params.sessionId)
     }
   }
@@ -504,6 +533,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       if (!sessionId) throw RequestError.invalidParams('A session id is required.')
       this.#deletedSessions.add(sessionId)
       this.#controls.delete(sessionId)
+      this.#rawToolResults.delete(sessionId)
       this.#tasks.delete(sessionId)
       this.#delegations.delete(sessionId)
       this.#releaseAttachments(sessionId)
