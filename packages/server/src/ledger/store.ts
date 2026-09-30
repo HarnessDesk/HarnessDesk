@@ -51,6 +51,25 @@ export interface UsageRow {
   readonly turns?: number | null
 }
 
+/** A scanner's call and token totals for one file's local wall-clock hour. */
+export interface UsageHourRow {
+  readonly file: string
+  /** Local midnight of the bucket, epoch milliseconds. */
+  readonly day: number
+  readonly hour: number
+  readonly runtime: string
+  readonly requests: number
+  readonly tokens: number
+}
+
+export interface UsageHourBucket {
+  readonly runtime: string
+  readonly weekday: number
+  readonly hour: number
+  readonly requests: number
+  readonly tokens: number
+}
+
 export interface FileCursor {
   readonly path: string
   readonly size: number
@@ -112,6 +131,42 @@ export class LedgerStore {
     this.#db.exec('PRAGMA journal_mode = WAL')
     this.#db.exec(SCHEMA)
     this.#migrate()
+    this.#migrateHours()
+  }
+
+  #migrateHours(): void {
+    const existed = (this.#db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'usage_hours'").get() !== undefined)
+    this.#db.exec('BEGIN IMMEDIATE')
+    try {
+      this.#db.exec(`CREATE TABLE IF NOT EXISTS usage_hours (
+        file TEXT NOT NULL, day INTEGER NOT NULL, hour INTEGER NOT NULL, runtime TEXT NOT NULL,
+        requests INTEGER NOT NULL, tokens INTEGER NOT NULL,
+        PRIMARY KEY (file, day, hour, runtime)
+      ); CREATE INDEX IF NOT EXISTS usage_hours_window ON usage_hours (day, runtime, hour);`)
+      if (!existed) {
+        const files = this.#db.prepare('SELECT COUNT(*) AS n FROM files').get() as { n: number }
+        this.#db.prepare("INSERT INTO meta (key, value) VALUES ('hours:ready', '0') ON CONFLICT(key) DO UPDATE SET value = '0'").run()
+        if (files.n > 0) {
+          // These rows were written by local file cursors without hour buckets.
+          // Force a full read; remote rows have no matching cursor and remain intact.
+          this.#db.exec('DELETE FROM usage WHERE file IN (SELECT path FROM files)')
+          this.#db.exec('DELETE FROM files')
+        }
+      }
+      this.#db.exec('COMMIT')
+    } catch (error) {
+      this.#db.exec('ROLLBACK')
+      throw error
+    }
+  }
+
+  /** False only in the gap after migrating old local rows and before their rescan. */
+  hoursReady(): boolean {
+    return this.meta('hours:ready') !== '0'
+  }
+
+  markHoursReady(): void {
+    if (this.meta('hours:ready') === '0') this.setMeta('hours:ready', '1')
   }
 
   #columns(): Set<unknown> {
@@ -280,12 +335,19 @@ export class LedgerStore {
   }
 
   /** One file's new rows, folded in atomically with its cursor. */
-  commit(cursor: FileCursor, rows: readonly UsageRow[], scannedAt: number, replace: boolean): void {
+  commit(cursor: FileCursor, rows: readonly UsageRow[], scannedAt: number, replace: boolean, hours: readonly UsageHourRow[] = []): void {
     this.#db.exec('BEGIN IMMEDIATE')
     try {
-      if (replace) this.#db.prepare('DELETE FROM usage WHERE file = ?').run(cursor.path)
+      if (replace) {
+        this.#db.prepare('DELETE FROM usage WHERE file = ?').run(cursor.path)
+        this.#db.prepare('DELETE FROM usage_hours WHERE file = ?').run(cursor.path)
+      }
       const add = this.#insertRowStatement()
       for (const row of rows) this.#insertRow(add, row)
+      const addHour = this.#db.prepare(`INSERT INTO usage_hours (file, day, hour, runtime, requests, tokens)
+        VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(file, day, hour, runtime) DO UPDATE SET
+        requests = requests + excluded.requests, tokens = tokens + excluded.tokens`)
+      for (const hour of hours) addHour.run(hour.file, hour.day, hour.hour, hour.runtime, hour.requests, hour.tokens)
       this.#db
         .prepare(
           `INSERT INTO files (path, size, mtime, offset, tail, scannedAt) VALUES (?, ?, ?, ?, ?, ?)
@@ -313,6 +375,7 @@ export class LedgerStore {
     this.#db.exec('BEGIN IMMEDIATE')
     try {
       this.#db.prepare('DELETE FROM usage WHERE file = ? AND day >= ? AND day < ?').run(file, from, to)
+      this.#db.prepare('DELETE FROM usage_hours WHERE file = ? AND day >= ? AND day < ?').run(file, from, to)
       const add = this.#insertRowStatement()
       for (const row of rows) this.#insertRow(add, row)
       this.#db.exec('COMMIT')
@@ -320,6 +383,30 @@ export class LedgerStore {
       this.#db.exec('ROLLBACK')
       throw error
     }
+  }
+
+  /** Sums local hour rows into the requested window's runtime × weekday × hour buckets. */
+  hourly(from: number, to: number, runtime?: string): readonly UsageHourBucket[] {
+    const statement = this.#db.prepare(`SELECT day, runtime, hour, SUM(requests) AS requests, SUM(tokens) AS tokens
+      FROM usage_hours WHERE day >= ? AND day < ? ${runtime === undefined ? '' : 'AND runtime = ?'}
+      GROUP BY day, runtime, hour ORDER BY runtime, day, hour`)
+    const rows = (runtime === undefined ? statement.all(from, to) : statement.all(from, to, runtime)) as unknown as {
+      day: number; runtime: string; hour: number; requests: number; tokens: number
+    }[]
+    const buckets = new Map<string, UsageHourBucket>()
+    for (const row of rows) {
+      const weekday = new Date(row.day).getDay()
+      const key = `${row.runtime}\u0000${weekday}\u0000${row.hour}`
+      const current = buckets.get(key)
+      buckets.set(key, {
+        runtime: row.runtime,
+        weekday,
+        hour: row.hour,
+        requests: (current?.requests ?? 0) + row.requests,
+        tokens: (current?.tokens ?? 0) + row.tokens,
+      })
+    }
+    return [...buckets.values()].sort((a, b) => a.runtime.localeCompare(b.runtime) || a.weekday - b.weekday || a.hour - b.hour)
   }
 
   /** Every row in the window, for the caller to price and group. */

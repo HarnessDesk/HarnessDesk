@@ -102,6 +102,8 @@ const ChartTitle = ({
 }) => (
   <h3
     data-slot="chart-title"
+    // A readout, not a name: the names rule leaves a figure to its own role.
+    {...(figure ? { 'data-figure': '' } : {})}
     className={cn(
       figure
         ? 'text-lg leading-none font-semibold tracking-[-0.015em] tabular-nums'

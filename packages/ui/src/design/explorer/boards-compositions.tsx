@@ -697,6 +697,8 @@ const ListBoard = () => (
               wrapSubtitle
               trail={<Progress value={19} tone="warning" className="w-24" />}
             />
+            <ListRow size="sm" nav title="Board" />
+            <ListRow size="sm" nav selected title="Chat" />
           </ListRows>
         </SectionBody>
       </Section>
