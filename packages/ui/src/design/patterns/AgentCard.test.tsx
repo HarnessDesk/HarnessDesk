@@ -76,8 +76,20 @@ it('fills the meter with what is left, and says so', () => {
   expect(text()).toContain('740K left of 1M')
   const bar = container.querySelector('[role="progressbar"]')
   expect(bar?.getAttribute('aria-valuenow')).toBe('740000')
+  expect(bar?.getAttribute('data-tone')).toBe('neutral')
   const fill = container.querySelector('[data-slot="progress-fill"]') as HTMLElement | null
   expect(fill?.style.width).toBe('74%')
+})
+
+it.each([
+  ['low', 120_000, 'warning'],
+  ['spent', 0, 'danger'],
+] as const)('uses the %s verdict tone for a budget meter', (_state, left, tone) => {
+  render({
+    ...BARE,
+    meter: { label: 'Context', left, of: 1_000_000, reading: `${left} left`, tone },
+  })
+  expect(container.querySelector('[role="progressbar"]')?.getAttribute('data-tone')).toBe(tone)
 })
 
 it('carries both cautions, not the higher-ranked one', () => {

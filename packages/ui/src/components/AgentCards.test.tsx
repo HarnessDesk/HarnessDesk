@@ -1770,3 +1770,37 @@ it('a plain conversation carries no Agent band, and reads nothing for one', () =
   expect(store.readSeatAgent).not.toHaveBeenCalled()
   vi.useRealTimers()
 })
+
+it('maps context budgets to neutral, warning and danger meter tones', () => {
+  vi.useFakeTimers()
+  const cases = [
+    { used: 100, expected: 'neutral' },
+    { used: 800, expected: 'warning' },
+    { used: 950, expected: 'danger' },
+  ] as const
+  for (const { used, expected } of cases) {
+    const key = sessionKey('claude-code', 'sess-1' as SessionSummary['id'])
+    const live = {
+      ...SESSION,
+      turns: [],
+      itemsLoaded: true,
+      settings: { cwd: '/repo', model: 'opus-5' },
+      usage: { contextUsed: used, contextWindow: 1_000, total: null, last: null },
+    } as unknown as Session
+    const snapshot = {
+      ...emptySnapshot(),
+      runtimes: [{ id: 'claude-code', presentation: { name: 'Claude Code' }, capabilities: {} }] as unknown as RuntimeInfo[],
+      sessions: new Map([[key, live]]),
+    } as AppSnapshot
+    const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readSeatAgent: vi.fn() } as unknown as AppStore
+    act(() => root.render(
+      <StoreProvider store={store}>
+        <SessionHoverCard session={SESSION}><span>glyph</span></SessionHoverCard>
+      </StoreProvider>,
+    ))
+    rest(trigger())
+    expect(openCard()?.querySelector('[data-slot="progress"]')?.getAttribute('data-tone')).toBe(expected)
+    act(() => root.render(null))
+  }
+  vi.useRealTimers()
+})

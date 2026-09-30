@@ -964,13 +964,10 @@ wrong keeps its own:
   success tone; "Not loaded" keeps its warning, which is a verdict rather
   than a resting state.
 
-A budget meter (`AgentCard`'s `meter`, the context or plan reading
-`components/AgentCards.tsx` builds) is deliberately not in this rule's word
-list and not fixed here. Its fill is a verdict on how much is left, not a
-named resting state, and green there is documented as "plenty left" — a
-different claim from "nothing is wrong". Whether a budget with plenty left
-should also be untoned is an open question for the owner (#1061); narrowing
-this rule to leave it out is that decision waiting, not an oversight.
+Budget meters follow the same rule (#1061): plenty left is the untoned resting
+state, a low budget is warning, and a spent budget is danger. The AgentCard
+catalogue shows all three states, and the rule spec checks that a plenty-left
+meter remains neutral and does not compute the success colour.
 
 ## Adding to the app
 
