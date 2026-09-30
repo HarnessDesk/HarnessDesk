@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs'
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -857,6 +858,8 @@ export class Team {
   readonly #dir: string
   readonly #port: TeamPort
   #settings: TeamSettings = DEFAULT_TEAM_SETTINGS
+  /** Resolved once per recorded root; null remembers a root that is gone or unchanged. */
+  #realRoots = new Map<string, string | null>()
   /** The flow engine, when the host has one. Null on every desk running no flows. */
   #flows: TeamFlows | null = null
   #findings: TeamFindings | null = null
@@ -3492,7 +3495,28 @@ export class Team {
   /** `#stateOf`, wire-safe: every claim's `dirtyPaths` gone (`cardsForWire`). */
   #wireStateOf(board: Board): TeamState {
     const state = this.#stateOf(board)
-    return { ...state, intents: cardsForWire(state.intents) }
+    return this.#wireState(state)
+  }
+
+  #wireState(state: TeamState): TeamState {
+    const realRoot = this.#realRootOf(state.root)
+    return {
+      ...state,
+      ...(realRoot ? { realRoot } : {}),
+      intents: cardsForWire(state.intents),
+    }
+  }
+
+  #realRootOf(root: string): string | undefined {
+    if (!this.#realRoots.has(root)) {
+      try {
+        const resolved = realpathSync.native(root)
+        this.#realRoots.set(root, resolved === root ? null : resolved)
+      } catch {
+        this.#realRoots.set(root, null)
+      }
+    }
+    return this.#realRoots.get(root) ?? undefined
   }
 
   /**
@@ -3503,7 +3527,7 @@ export class Team {
    * made wire-safe before a renderer ever sees it.
    */
   #notify(state: TeamState): void {
-    this.#port.changed({ ...state, intents: cardsForWire(state.intents) })
+    this.#port.changed(this.#wireState(state))
   }
 
   /** A room by its id, or nothing. Rooms are made on purpose, never on sight. */

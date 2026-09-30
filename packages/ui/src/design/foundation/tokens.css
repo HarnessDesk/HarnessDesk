@@ -1024,12 +1024,16 @@ body {
      One row in a navigation list — the sidebar's sessions, the settings
      sheet's pages.
 
-     The height is solved, not written: a row is its line of text plus one
-     step of padding above and below. Move the reading size or the density
-     and every row in every column follows without a second edit. */
-  --hd-nav-h: calc(var(--hd-text) * 1.5 + var(--hd-space-1) * 2); /* desk: 31 → 29, solved from the type */
+     The height is solved, not written, from the row's real box: its small
+     line, one step of padding above and below, and the 1px border a row
+     keeps on each side for its focus and selection. Solved from the type
+     alone it came to 29px, and a row that carried its border stood at 30 —
+     the sidebar and a menu one pixel taller than the settings rail beside
+     them (#1073). Move the line or the density and every row in every
+     column follows without a second edit. */
+  --hd-nav-h: calc(var(--hd-line-sm) + var(--hd-space-1) * 2 + 2px); /* desk: 31 → 30, solved from the row's box */
   /* Every row in a navigation column stands the same. */
-  --hd-nav-h-group: var(--hd-nav-h); /* desk: 30 → 29, one height for every row in the column */
+  --hd-nav-h-group: var(--hd-nav-h); /* desk: 29 → 30, one height for every row in the column */
   --hd-nav-radius: var(--hd-radius); /* desk: 8 → 10, the row radius */
   --hd-nav-gap: var(--hd-space-2); /* desk: 10 → 8 */
   /* How far a row's text sits from its own edge. Named separately from the
@@ -1340,9 +1344,9 @@ body[data-hd-interface='studio'] {
     transparent
   );
   --hd-nav-h: 34px;
-  /* One height for every row in a navigation column, which is the thing Desk
-     does not do: three rows in one sidebar at 31, 30 and neither. */
-  --hd-nav-h-group: var(--hd-nav-h); /* desk: 30 → 29, one height for every row in the column */
+  /* One height for every row in a navigation column, as Desk has too since
+     #1073 — only taller. */
+  --hd-nav-h-group: var(--hd-nav-h); /* desk: 29 → 30, one height for every row in the column */
   --hd-nav-radius: var(--hd-radius-sm);
   --hd-nav-inset: var(--hd-space-2-5);
 
