@@ -137,12 +137,15 @@ export const ChoiceRow = ({
   tabStop,
   disabled,
   refused,
+  truncateDesc = false,
   autoFocus,
   onClick,
   onDoubleClick,
 }: {
   readonly title: ReactNode
   readonly desc?: ReactNode
+  /** The description is a name or a path, which gives way at its end on one line. A sentence never does: by default it wraps and arrives whole. */
+  readonly truncateDesc?: boolean
   /** A 16px line icon leading the title — the kind being chosen, not a tinted tile. */
   readonly icon?: ReactNode
   /** Pinned to the title line's far end — a keyboard shortcut, said quietly. */
@@ -196,7 +199,7 @@ export const ChoiceRow = ({
         <span id={`${id}-title`} className={styles.choiceTitle} data-slot="choice-title">{title}</span>
         {trailing && <span className={styles.choiceTrailing}>{trailing}</span>}
       </span>
-      {desc ? <span id={`${id}-desc`} className={styles.choiceDesc} data-slot="choice-desc">{desc}</span> : null}
+      {desc ? <span id={`${id}-desc`} className={styles.choiceDesc} data-slot="choice-desc" {...(truncateDesc ? { 'data-truncate': '', title: typeof desc === 'string' ? desc : undefined } : {})}>{desc}</span> : null}
     </Button>
   )
 }

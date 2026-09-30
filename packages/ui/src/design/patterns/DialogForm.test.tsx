@@ -344,3 +344,25 @@ describe('Field', () => {
     expect(container.querySelector('[data-slot="form-optional"]')).toBeNull()
   })
 })
+
+it('a RowChoice in a dialog lets a path give way at its end, and a sentence wrap', () => {
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const r = createRoot(host)
+  act(() => r.render(
+    <Dialog title="Pick one" onClose={() => {}}>
+      <Rows role="radiogroup" aria-label="Pick">
+        <RowChoice title="A path" desc="/work/a/very/long/path/that/must/not/wrap" truncateDesc selected={false} onClick={() => {}} />
+        <RowChoice title="A sentence" desc="A sentence arrives whole, wrapping if it has to." selected={false} onClick={() => {}} />
+      </Rows>
+    </Dialog>,
+  ))
+  const descs = [...document.querySelectorAll<HTMLElement>('[data-slot="choice-desc"]')]
+  expect(descs).toHaveLength(2)
+  expect(descs[0]?.hasAttribute('data-truncate')).toBe(true)
+  expect(descs[0]?.title).toBe('/work/a/very/long/path/that/must/not/wrap')
+  expect(descs[1]?.hasAttribute('data-truncate')).toBe(false)
+  expect(formSheet).toMatch(/\.choiceDesc\[data-truncate\]\s*\{[^}]*text-overflow:\s*ellipsis/)
+  act(() => r.unmount())
+  host.remove()
+})
