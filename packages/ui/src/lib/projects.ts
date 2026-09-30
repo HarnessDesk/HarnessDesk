@@ -293,16 +293,24 @@ export const projectGroupRootOf = (workspace: WorkspaceEntry | null | undefined)
  * folder at its canonical root (`projectGroupRootOf`). Filed under its own
  * spelling, the room earned the project a second row, under "Other
  * projects", and went missing from the row it belongs to. A link's spelling
- * never changes where a room is filed: the host supplies its resolved root
- * when the linked folder is no longer open to provide both spellings.
+ * must never change where a room is filed. The open folder at the room's own
+ * spelling knows both spellings. Once that folder has left the list, the
+ * host's resolved root (`realRoot`) stands in for it, and it is looked up in
+ * the list as well: a worktree open at the resolved spelling files there
+ * under its checkout, just as the same room at that spelling would be
+ * (#998).
  */
 export const roomGroupRootOf = (
   room: string | Pick<TeamState, 'root' | 'realRoot'>,
   open: readonly (WorkspaceEntry | null | undefined)[],
 ): string => {
-  const root = typeof room === 'string' ? room : room.root
-  const opened = open.find((one) => one?.path === root)
-  return (opened && projectGroupRootOf(opened)) ?? (typeof room === 'string' ? root : room.realRoot) ?? root
+  const { root, realRoot } = typeof room === 'string' ? { root: room, realRoot: undefined } : room
+  for (const spelling of [root, realRoot]) {
+    if (spelling === undefined) continue
+    const opened = open.find((one) => one?.path === spelling)
+    if (opened) return projectGroupRootOf(opened) ?? spelling
+  }
+  return realRoot ?? root
 }
 
 /**

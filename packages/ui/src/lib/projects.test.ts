@@ -48,6 +48,14 @@ describe('roomGroupRootOf', () => {
   it('keeps accepting a bare root string', () => {
     expect(roomGroupRootOf(link, opened)).toBe(real)
   })
+
+  it('files a linked room where the same room at the resolved spelling goes, when that folder is open as a worktree', () => {
+    const checkout = '/private/var/folders/x/work/widgets'
+    const worktree = '/private/var/folders/x/work/widgets/.worktrees/retry'
+    const open = [workspace(worktree, { root: checkout, worktree: true })]
+    expect(roomGroupRootOf({ root: worktree } as TeamState, open)).toBe(checkout)
+    expect(roomGroupRootOf({ root: '/var/folders/x/work/widgets/.worktrees/retry', realRoot: worktree } as TeamState, open)).toBe(checkout)
+  })
 })
 
 describe('repoKey', () => {
