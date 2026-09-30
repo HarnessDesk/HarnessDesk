@@ -553,8 +553,8 @@ describe('pricedNote', () => {
 })
 
 describe('provenanceLabel', () => {
-  it('returns a label for provenance values outside the protocol union', () => {
-    expect(provenanceLabel({ provenance: 'priced' as never })).toBe('List-price equivalent')
+  it('names no pricing basis for a value outside the protocol union', () => {
+    expect(provenanceLabel({ provenance: 'priced' as never })).toBe('Pricing method unknown')
   })
 })
 
