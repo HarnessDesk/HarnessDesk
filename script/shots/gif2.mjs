@@ -144,7 +144,7 @@ if (SCENARIO === 'hero') {
   const roster = JSON.parse(readFileSync(agentsPath, 'utf8'))
   for (const agent of roster.agents) {
     if (agent.id === rigRuntimeId('claude-code')) agent.env.SHOT_TURN = '7,7,4,6'
-    if (agent.id === rigRuntimeId('codex')) agent.env.SHOT_TURN = '5'
+    if (agent.id === rigRuntimeId('codex')) agent.env.SHOT_TURN = '5,5,8'
   }
   writeFileSync(agentsPath, `${JSON.stringify(roster, null, 2)}\n`)
   say('patched agents.json: claude-code plays context, fix, then acknowledgement; codex plays the browser check')

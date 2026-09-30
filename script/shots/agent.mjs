@@ -331,7 +331,7 @@ const TURNS = [
     opening: 'On it.',
     think: "Claude's retry fix just landed on retry.ts. Rather than read the diff, I will run the checkout flow for real and see whether a 502 actually recovers.",
     tools: [
-      { id: 'c1', title: 'browser_open', kind: 'fetch', input: { url: 'http://127.0.0.1/checkout' }, output: { text: 'Checkout — order placed' }, ms: 2600 },
+      { id: 'c1', title: 'browser_open', kind: 'fetch', input: { url: 'http://127.0.0.1/checkout' }, output: { text: 'Checkout — order placed' }, ms: 1500 },
     ],
     second: 'The first attempt hit the simulated 502, the retry a moment later got through, and the order posted — the success banner just needs a beat before it agrees.',
     plan: ['Drive the checkout flow with a 502 in the middle', 'Confirm the order actually posts', 'Note anything that would still block a merge'],
@@ -345,6 +345,13 @@ const TURNS = [
   },
   {
     say: ['Earlier context: checkout currently fails on a transient 502. I am taking the retry fix, then I will ask Codex to check the completed checkout in the browser.'],
+  },
+  {
+    opening: 'One final visual pass.',
+    tools: [
+      { id: 'c2', title: 'browser_open', kind: 'fetch', input: { url: 'http://127.0.0.1/checkout' }, output: { text: 'Checkout stays open' }, ms: 3500 },
+    ],
+    say: ['Keeping the completed checkout visible.'],
   },
 ]
 
