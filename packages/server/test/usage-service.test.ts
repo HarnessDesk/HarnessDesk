@@ -5,6 +5,7 @@ import { runtimeId, type AgentRuntime, type RuntimeId, type SpendSummary, type U
 
 import { UsageService } from '../src/usage/service.js'
 import { MeterAuthError, type MeterReading, type UsageMeter } from '../src/usage/meter.js'
+import { FakeRuntime } from './fixtures/fake-runtime.js'
 
 /**
  * What the service does when the ledger finishes after the screen is open.
@@ -121,6 +122,62 @@ test('a source that fails keeps the last good reading, with the failure beside i
   assert.equal(after?.lanes.length, 1, 'the lanes we knew about are still the best we have')
   assert.equal(after?.fetchedAt, good?.fetchedAt, 'and they are still dated when they were read')
   assert.equal(after?.error?.message, 'the provider is down')
+  usage.dispose()
+})
+
+test('synchronous runtime throws are isolated and do not prevent the usage report', async () => {
+  const throwing: AgentRuntime = {
+    info: { id: METERED, name: 'metered', capabilities: { metered: true }, presentation: { name: 'metered' } },
+    getRateLimits: () => { throw new Error('sync limits failure') },
+    getAccountActivity: () => { throw new Error('sync activity failure') },
+    getAccount: async () => ({ accounts: [], signInMethods: [] }),
+  } as unknown as AgentRuntime
+  const usage = new UsageService({
+    runtimes: () => [throwing],
+    meters: new Map(),
+    spend: { spendFor: () => null },
+    onReport: () => undefined,
+  })
+
+  const [report] = await usage.reports()
+  assert.equal(report?.error?.message, 'sync limits failure')
+  assert.equal(Object.hasOwn(report ?? {}, 'accountActivity'), false)
+  usage.dispose()
+})
+
+test('account activity is attached for supporting runtimes and absent for others', async () => {
+  const activity = {
+    days: [{ day: new Date(2026, 8, 29).getTime(), tokens: 123 }],
+    lifetimeTokens: 456,
+    peakDailyTokens: null,
+    currentStreakDays: 2,
+    longestStreakDays: null,
+  }
+  let activityReads = 0
+  const supporting = new FakeRuntime({
+    id: METERED,
+    name: 'metered',
+    capabilities: { metered: true },
+    accountActivity: activity,
+  })
+  const readActivity = supporting.getAccountActivity!
+  supporting.getAccountActivity = async () => { activityReads += 1; return readActivity() }
+  const legacy = new FakeRuntime({ id: SILENT, name: 'silent', capabilities: { metered: true } })
+  const activityOnly = new FakeRuntime({ id: runtimeId('activity-only'), name: 'activity-only', accountActivity: activity })
+  const readActivityOnly = activityOnly.getAccountActivity!
+  activityOnly.getAccountActivity = async () => { activityReads += 1; return readActivityOnly() }
+  const usage = new UsageService({
+    runtimes: () => [supporting, legacy, activityOnly],
+    meters: new Map(),
+    spend: { spendFor: () => null },
+    onReport: () => undefined,
+  })
+
+  const reports = await usage.reports()
+  assert.deepEqual((reports[0] as unknown as { accountActivity?: unknown }).accountActivity, activity)
+  assert.equal(Object.hasOwn(reports[1] ?? {}, 'accountActivity'), false)
+  assert.deepEqual((reports[2] as unknown as { accountActivity?: unknown }).accountActivity, activity)
+  assert.equal(activityReads, 2)
   usage.dispose()
 })
 
