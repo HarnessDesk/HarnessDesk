@@ -29,9 +29,10 @@ const git = async (root: string, args: readonly string[], signal?: AbortSignal):
 
 export class RevertError extends Error {
   /**
-   * Files changed before this refusal. The interface needs to distinguish
-   * "refused, nothing changed" from "stopped partway" so it does not hide the
-   * only card that can finish or reverse the partial change.
+   * Files a refusal left changed. A refused pass takes its own steps back, so
+   * this is set only when that failed too: the interface must tell "refused,
+   * nothing changed" from a turn left half changed, and never let the only
+   * card that knows the turn be put away over the second.
    */
   wireData?: { readonly reverted: readonly string[] }
 
@@ -46,7 +47,7 @@ export class RevertError extends Error {
 
   constructor(
     message: string,
-    /** Files already put back before the refusal, so the user knows the state. */
+    /** Files the refusal left changed — empty unless taking the pass back failed. */
     readonly reverted: readonly string[],
     /**
      * Files this undo cannot put back at all, because the agent recorded no
@@ -130,7 +131,9 @@ const patchFor = (inRepo: string, change: FileChange): string =>
  * file the direction removes taken away only while its content is still
  * exactly what the agent left there; a file the direction writes put back
  * only while nothing else occupies the path. A file the user has touched
- * since stops the pass there and the error names what was already done.
+ * since stops the pass there, and what the pass had already changed is taken
+ * back, so a refusal changes nothing either way. Only when taking a step back
+ * fails does the error name what is still changed.
  *
  * A redo is not a second undo of the undo: it applies the same recorded diff
  * forward, so a turn can be put back and taken away as often as the working
@@ -214,6 +217,13 @@ export const applyTurn = async (
     }
   }
 
+  /* What this pass has changed so far, in order, so a refusal can take it
+     back: the aggregated diff is all-or-nothing through `git apply`, and the
+     per-file pass is held to the same promise by undoing its own steps. A
+     half-changed turn is the one state no card can finish or reverse — a
+     second Undo stops on the files already put back, and Redo is not offered
+     for a turn that was never put back whole. */
+  const steps: Array<{ readonly path: string; readonly undoStep: () => Promise<void> }> = []
   const done: string[] = []
   for (const change of direction === 'undo' ? [...pending].reverse() : pending) {
     const { absolute, inRepo: path } = await locate(root, top, change.path)
@@ -224,6 +234,7 @@ export const applyTurn = async (
     try {
       if (change.kind.type === 'update') {
         await applyPatch(top, patchFor(path, change), direction)
+        steps.push({ path, undoStep: () => applyPatch(top, patchFor(path, change), direction === 'undo' ? 'redo' : 'undo') })
       } else if (removes) {
         const current = await readFile(absolute, 'utf8').catch(() => null)
         if (current === null) continue // already gone
@@ -239,18 +250,32 @@ export const applyTurn = async (
         }
         if (current !== change.diff) throw new Error('it has been edited since the agent wrote it')
         await unlink(absolute)
+        steps.push({ path, undoStep: () => writeFile(absolute, current) })
       } else {
         const current = await readFile(absolute, 'utf8').catch(() => null)
         if (current === change.diff) continue // already there
         if (current !== null) throw new Error('it exists again; not overwriting it')
         await writeFile(absolute, change.diff)
+        steps.push({ path, undoStep: () => unlink(absolute) })
       }
       if (!done.includes(path)) done.push(path)
     } catch (error) {
-      throw new RevertError(
-        `Stopped at ${path}: ${describeGit(error)}.${done.length > 0 ? ` Already ${direction === 'undo' ? 'put back' : 'written'}: ${done.join(', ')}.` : ''}`,
-        done,
-      )
+      const why = `Stopped at ${path}: ${describeGit(error)}.`
+      // Taken back newest first, the way they were stacked.
+      while (steps.length > 0) {
+        const step = steps[steps.length - 1]!
+        try {
+          await step.undoStep()
+          steps.pop()
+        } catch (undoError) {
+          const still = [...new Set(steps.map((kept) => kept.path))]
+          throw new RevertError(
+            `${why} Could not take back ${step.path} (${describeGit(undoError)}), so ${direction === 'undo' ? 'these are still put back' : 'these are still written'}: ${still.join(', ')}.`,
+            still,
+          )
+        }
+      }
+      throw new RevertError(`${why} Nothing was changed.`, [])
     }
   }
   return { files: done, skipped }

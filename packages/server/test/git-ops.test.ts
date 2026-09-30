@@ -82,7 +82,7 @@ test('uses the aggregated diff when the turn has one, all or nothing', async () 
   }
 })
 
-test('refuses when the user edited the file since, naming what was put back', async () => {
+test('refuses when the user edited the file since, and takes back what it had already put back', async () => {
   const dir = await repo()
   try {
     await writeFile(join(dir, 'a.txt'), 'one\n2\nthree\n')
@@ -95,17 +95,26 @@ test('refuses when the user edited the file since, naming what was put back', as
     ])
     await assert.rejects(revertTurn(dir, turn), (error: unknown) => {
       assert.ok(error instanceof RevertError)
-      assert.match(error.message, /Stopped at new\.txt: it has been edited since/)
-      assert.deepEqual(error.reverted, ['a.txt'])
-      assert.deepEqual((error as { wireData?: unknown }).wireData, { reverted: ['a.txt'] })
+      assert.match(error.message, /Stopped at new\.txt: it has been edited since.*Nothing was changed\./)
+      assert.deepEqual(error.reverted, [])
+      assert.equal((error as { wireData?: unknown }).wireData, undefined)
       return true
     })
-    // The hand edit is untouched; the agent's update is gone.
+    // The hand edit is untouched, and so is the agent's update: the pass put
+    // a.txt back first, then took that back when it stopped at new.txt, so the
+    // turn is whole and the card can still offer Undo.
     assert.equal(await readFile(join(dir, 'new.txt'), 'utf8'), 'fresh, then edited by hand\n')
-    assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'one\ntwo\nthree\n')
+    assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'one\n2\nthree\n')
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+test('a refusal that left files changed says which on the wire, and one that left none says nothing', () => {
+  // Only a pass whose own take-back failed leaves files changed; the card
+  // reads this list to keep itself on screen for a half-changed turn.
+  assert.deepEqual(new RevertError('Stopped.', ['a.txt']).wireData, { reverted: ['a.txt'] })
+  assert.equal(new RevertError('Stopped. Nothing was changed.', []).wireData, undefined)
 })
 
 test('a refusal before changing any file has no reverted wire data', async () => {
@@ -174,7 +183,7 @@ test('redo uses the aggregated diff when the turn has one, all or nothing', asyn
   }
 })
 
-test('redo refuses to overwrite what the user put in the way, naming what it wrote', async () => {
+test('redo refuses to overwrite what the user put in the way, and takes back what it had written', async () => {
   const dir = await repo()
   try {
     await writeFile(join(dir, 'a.txt'), 'one\n2\nthree\n')
@@ -190,13 +199,14 @@ test('redo refuses to overwrite what the user put in the way, naming what it wro
     await writeFile(join(dir, 'new.txt'), 'mine now\n')
     await assert.rejects(reapplyTurn(dir, turn), (error: unknown) => {
       assert.ok(error instanceof RevertError)
-      assert.match(error.message, /Stopped at new\.txt: it exists again/)
-      assert.deepEqual(error.reverted, ['a.txt'])
+      assert.match(error.message, /Stopped at new\.txt: it exists again.*Nothing was changed\./)
+      assert.deepEqual(error.reverted, [])
       return true
     })
-    // The user's file is untouched; the update that went first stands.
+    // The user's file is untouched, and the update that went first is taken
+    // back: the turn stays put back whole, so Redo is still on offer.
     assert.equal(await readFile(join(dir, 'new.txt'), 'utf8'), 'mine now\n')
-    assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'one\n2\nthree\n')
+    assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'one\ntwo\nthree\n')
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
