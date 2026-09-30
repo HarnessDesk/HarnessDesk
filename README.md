@@ -134,7 +134,7 @@ a judge, a researcher — and each sits on whichever runtime can offer it a seat
 - **[`/race`](docs/multi-agent.md#3-race-competing-in-parallel)** — one task to two agents, each in its own worktree, side by side.
 - **[Hand-off](docs/multi-agent.md#2-hand-offs-passing-the-baton)** — a conversation moves to another agent as a packet it can pick up.
 - **[A browser the agent drives](docs/browser-control.md)** — it opens the page, clicks, reads the console; you watch.
-- **[Plugins for every agent](docs/extending.md)** — twelve built in; their 73 tools reach every agent over MCP.
+- **Plugins.** Twelve built in, and their tools reach every agent: each one gets an MCP server carrying its 73 built-in plugin tools. [Docs →](docs/extending.md)
 - **[Library](docs/interface.md#settings)** — every skill and MCP server on the machine, and which agents actually load each.
 - **[One policy, one audit log](docs/architecture.md)** — the same rules whichever agent asked.
 
