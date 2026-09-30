@@ -259,6 +259,11 @@ export class QuestionDeadline {
     if (this.#stopping.has(at)) this.#answeredWhileStopping.add(at)
   }
 
+  /** Gives the claim back when the answer never reached the run, so the stop's interrupt goes ahead as it would have. */
+  unclaim(key: string, question: string): void {
+    this.#answeredWhileStopping.delete(`${key}\u0000${question}`)
+  }
+
   /**
    * Whether this question outlived its wait and is still unanswered: its run
    * stopped on it, so an answer to it now has no turn to go into.

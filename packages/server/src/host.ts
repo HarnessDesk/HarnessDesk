@@ -4496,7 +4496,14 @@ export class Host {
        finished and its interrupt cut the turn the answer was going into (#998). */
     if (approval.turnId !== undefined && record.running.has(approval.turnId)) {
       this.#questions.answering(questionKey(runtime, sessionId), approvalId)
-      await this.#flows.answeredInTurn(runtime, sessionId)
+      try {
+        await this.#flows.answeredInTurn(runtime, sessionId)
+      } catch (error) {
+        // The answer never reached the run: let the stop interrupt the turn
+        // rather than leave it live on a question its run has stopped on.
+        this.#questions.unclaim(questionKey(runtime, sessionId), approvalId)
+        throw error
+      }
       return false
     }
     const words = questionWords(approval, decision)
