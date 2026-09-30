@@ -165,6 +165,72 @@ test('a fact a backup brought never says where the desk looks', async () => {
   await plane.close()
 })
 
+test('close waits for an observation already started by a board read', async () => {
+  const repo = await branchWithWork()
+  const state = tempDir('hd-observe-close-')
+  const project = await canonical(repo.dir)
+  let entered!: () => void
+  const atForge = new Promise<void>((resolve) => { entered = resolve })
+  let release!: () => void
+  const forgeGate = new Promise<void>((resolve) => { release = resolve })
+  const plane = new EvidencePlane(
+    { dir: join(state, 'evidence'), seenFile: join(state, 'seen.json'), gh: async () => {
+      entered()
+      await forgeGate
+      return { stdout: '', stderr: 'no pull requests found', exitCode: 1 }
+    } },
+    {
+      board: () => ({
+        id: 'room-1', root: repo.dir, cwd: repo.dir,
+        intents: [{ id: 4, state: 'claimed', claim: { runtime: 'fake', sessionId: 'session-1', head: null } }],
+      }) as unknown as TeamState,
+      cwdOf: () => repo.dir,
+      push: () => {},
+      log: () => {},
+    },
+  )
+
+  await plane.board('room-1')
+  await atForge
+  let closed = false
+  const closing = plane.close().then(() => { closed = true })
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  assert.equal(closed, false, 'close must wait while the look is held before recording')
+  release()
+  await closing
+
+  const records = (await plane.store.read(project, 'evidence')).lines.filter((line) => line.type === 'evidence')
+  assert.equal(records.length, 1)
+  assert.equal(records[0]?.record.fact.kind, 'diff')
+  assert.equal(records[0]?.record.card?.id, 4)
+})
+
+test('a board read after close starts no observation', async () => {
+  const repo = await branchWithWork()
+  const state = tempDir('hd-observe-closed-')
+  let looks = 0
+  const plane = new EvidencePlane(
+    { dir: join(state, 'evidence'), seenFile: join(state, 'seen.json') },
+    {
+      board: () => ({
+        id: 'room-1', root: repo.dir, cwd: repo.dir,
+        intents: [{ id: 4, state: 'claimed', claim: { runtime: 'fake', sessionId: 'session-1', head: null } }],
+      }) as unknown as TeamState,
+      cwdOf: () => repo.dir,
+      push: () => {},
+      log: () => {},
+    },
+  )
+  const observe = plane.observer.observe.bind(plane.observer)
+  plane.observer.observe = async (look) => { looks += 1; return observe(look) }
+
+  await plane.close()
+  await plane.board('room-1')
+  await plane.store.flush()
+  assert.equal(looks, 0)
+  assert.deepEqual((await plane.store.read(await canonical(repo.dir), 'evidence')).lines, [])
+})
+
 test("a checkout outside the room's project is not looked at", async () => {
   const repo = await branchWithWork()
   const store = new EvidenceStore(tempDir('hd-observe-store-'))
