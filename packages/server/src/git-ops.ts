@@ -112,7 +112,10 @@ const applyPatch = async (root: string, patch: string, direction: TurnDirection)
     await git(root, ['apply', ...reverse, '--check', '--whitespace=nowarn', file])
     await git(root, ['apply', ...reverse, '--whitespace=nowarn', file])
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    /* A leftover temporary file is not the caller's failure: once `git apply`
+       has run, the tree has changed, and reporting otherwise would let a
+       refused pass believe it had nothing of this step to take back. */
+    await rm(dir, { recursive: true, force: true }).catch(() => {})
   }
 }
 
@@ -250,13 +253,26 @@ export const applyTurn = async (
         }
         if (current !== change.diff) throw new Error('it has been edited since the agent wrote it')
         await unlink(absolute)
-        steps.push({ path, undoStep: () => writeFile(absolute, current) })
+        steps.push({
+          path,
+          // Written back only while the path is still empty: something put
+          // there since is somebody's work, and the take-back refuses it.
+          undoStep: () => writeFile(absolute, current, { flag: 'wx' }),
+        })
       } else {
         const current = await readFile(absolute, 'utf8').catch(() => null)
         if (current === change.diff) continue // already there
         if (current !== null) throw new Error('it exists again; not overwriting it')
         await writeFile(absolute, change.diff)
-        steps.push({ path, undoStep: () => unlink(absolute) })
+        steps.push({
+          path,
+          // Taken away only while it is still exactly what this pass wrote.
+          undoStep: async () => {
+            const now = await readFile(absolute, 'utf8').catch(() => null)
+            if (now !== change.diff) throw new Error('it has changed since this pass wrote it')
+            await unlink(absolute)
+          },
+        })
       }
       if (!done.includes(path)) done.push(path)
     } catch (error) {
