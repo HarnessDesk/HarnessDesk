@@ -119,6 +119,20 @@ export interface UsageCredits {
   readonly unlimited?: boolean
 }
 
+/**
+ * Account-wide token activity reported by the runtime, across machines.
+ * Daily bucket days are local-midnight timestamps so they line up with the
+ * ledger's day keys. This is advisory account history, not this machine's
+ * transcript-derived spend.
+ */
+export interface AccountActivity {
+  readonly days: readonly { readonly day: number; readonly tokens: number }[]
+  readonly lifetimeTokens: number | null
+  readonly peakDailyTokens: number | null
+  readonly currentStreakDays: number | null
+  readonly longestStreakDays: number | null
+}
+
 /** How a cost figure was produced. Display-time accounting, never a bill. */
 export type SpendProvenance =
   /** Token counts priced at public API rates. */
@@ -277,6 +291,8 @@ export interface UsageReport {
    * themselves.
    */
   readonly turns?: { readonly count: number; readonly unitsPerTurn: number | null; readonly since: number } | null
+  /** Account-wide activity across machines, when the runtime can report it. */
+  readonly accountActivity?: AccountActivity
 }
 
 /** How the ledger should slice its history. */

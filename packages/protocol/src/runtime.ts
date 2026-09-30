@@ -1,6 +1,7 @@
 import type { ApprovalDecision } from './approval.js'
 import type { AttachmentSupport, SessionAttachmentReceipt } from './attachments.js'
 import type { AgentEvent } from './events.js'
+import type { AccountActivity } from './usage.js'
 import type { CeilingLevel } from './evidence.js'
 import type { ApprovalId, RuntimeId, SessionId, TurnId } from './ids.js'
 import type { UserContent } from './items.js'
@@ -1082,6 +1083,8 @@ export interface AgentRuntime {
   submitLoginCode?(loginId: string, code: string): Promise<void>
   logout?(): Promise<void>
   getRateLimits(): Promise<RateLimits | null>
+  /** Account-wide usage across machines; unavailable runtimes omit this advisory source. */
+  getAccountActivity?(): Promise<AccountActivity | null>
 
   listSessions(query?: ListSessionsQuery): Promise<Page<SessionSummary>>
   searchSessions(query: string): Promise<Page<SessionSummary>>

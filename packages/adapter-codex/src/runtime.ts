@@ -24,6 +24,7 @@ import {
   type AgentEvent,
   type AgentItem,
   type AgentRuntime,
+  type AccountActivity,
   type CatalogRefresh,
   type SkillProblem,
   type AgentSession,
@@ -67,6 +68,7 @@ import { CodexTasks } from './tasks.js'
 import { loginParamsFor, mapAccount, mapLoginStart, signInMethods } from './mapping/account.js'
 import { mapThrown } from './mapping/errors.js'
 import { mapNotification, mapRateLimits } from './mapping/notifications.js'
+import { mapAccountActivity } from './mapping/account-usage.js'
 import {
   CODEX_CEILINGS,
   effortLabel,
@@ -767,6 +769,18 @@ export class CodexRuntime implements AgentRuntime {
     } catch {
       // Rate limits are advisory; a provider that does not meter should not
       // make the whole settings pane fail to load.
+      return null
+    }
+  }
+
+  /** Codex's account-wide activity, across machines; advisory and unavailable on older servers. */
+  async getAccountActivity(): Promise<AccountActivity | null> {
+    try {
+      const response = await this.#server.request('account/usage/read', {})
+      return mapAccountActivity(response)
+    } catch {
+      // This account-wide endpoint is advisory; older servers and signed-out
+      // accounts may not provide it, and must not affect the usage report.
       return null
     }
   }

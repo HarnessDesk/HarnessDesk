@@ -51,6 +51,8 @@ import type {
   GetAccountParams,
   GetAccountResponse,
   GetAccountRateLimitsResponse,
+  GetAccountTokenUsageParams,
+  GetAccountTokenUsageResponse,
   AppsListParams,
   AppsListResponse,
   ListMcpServerStatusParams,
@@ -207,6 +209,7 @@ export interface CodexMethods {
   'account/login/cancel': { params: CancelLoginAccountParams; result: CancelLoginAccountResponse }
   'account/logout': { params: undefined; result: LogoutAccountResponse }
   'account/rateLimits/read': { params: undefined; result: GetAccountRateLimitsResponse }
+  'account/usage/read': { params: GetAccountTokenUsageParams; result: GetAccountTokenUsageResponse }
 
   'config/read': { params: ConfigReadParams; result: ConfigReadResponse }
   'configRequirements/read': { params: undefined; result: ConfigRequirementsReadResponse }
