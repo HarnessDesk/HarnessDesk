@@ -480,14 +480,12 @@ it('regression guard: a reason typed survives even a hypothetical flowExecutions
 
   // A live push drops this run out of `flowExecutions` for one render — the
   // shape a round's own bookkeeping arriving a message behind the round
-  // itself produces — so `goalRunOf` finds nothing live, `decide` (the run
-  // view `FindingDetail` renders "Decide it yourself" against) goes
-  // undefined, and `PersonVerdict` unmounts while the person is still
-  // editing. The very next push restores it.
+  // itself produces. The opened finding carries its origin run, so the
+  // cached run view keeps the decision section present while this happens.
   act(() => { push({ flowExecutions: new Map() }) })
-  // The dialog itself never closes — only its "Decide it yourself" section blinks away.
+  // Neither the dialog nor its decision section blinks away.
   expect(document.querySelector('[role="dialog"]')).not.toBeNull()
-  expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('Decide it yourself')
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Decide it yourself')
   act(() => {
     push({
       flowExecutions: new Map([['run-1', { id: 'run-1', goal: 'g1', findings: {} } as never]]),
@@ -507,6 +505,60 @@ it('regression guard: a reason typed survives even a hypothetical flowExecutions
   expect(stillOpen!.textContent).not.toContain('Say why.')
   expect(store.decideFindingRun).toHaveBeenCalledWith(expect.objectContaining({
     goal: 'g1', run: 'run-1', action: { kind: 'adjudicate', finding: 'finding-open-1', state: 'withdrawn' },
+    reason: 'checked the fix myself',
+  }))
+})
+
+it('keeps a page-two finding’s decision context through a first-page refresh (#1091)', async () => {
+  const pageOne = row('finding-page-1', { origin: { goal: 'g1', run: 'run-new', round: 2, card: 1, seat: 'seat-writer', at: A } })
+  const pageTwo = row('finding-page-2', { origin: { goal: 'g1', run: 'run-old', round: 1, card: 2, seat: 'seat-writer', at: A } })
+  const firstPage: FindingsListState = {
+    filter: 'all', rows: [pageOne], next: 'cursor-2', totals: { all: 2, open: 2, blocking: 2 }, problem: null,
+    loading: false, loadingMore: false, error: null, stale: false,
+  }
+  const { flowExecutions, findingRuns } = twoRuns()
+  const { store, push } = liveRig(firstPage, { flowExecutions, findingRuns })
+  const decideFindingRun = vi.fn().mockResolvedValue(undefined)
+  Object.assign(store, {
+    readFinding: vi.fn().mockImplementation(async (_goal: string, finding: string) => ({
+      finding: finding === pageTwo.id ? pageTwo : pageOne, records: [], seat: null, next: null, problem: null,
+    })),
+    decideFindingRun,
+  })
+  await render(store)
+
+  const more = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Load more')!
+  act(() => more.click())
+  expect(store.loadFindings).toHaveBeenCalledWith('g1', 'all', 'cursor-2')
+  act(() => {
+    push({ findings: new Map([['g1', { ...firstPage, rows: [pageOne, pageTwo], next: null }]]) })
+  })
+
+  const opener = [...container.querySelectorAll('button')].find((one) => one.textContent?.includes(pageTwo.id))!
+  act(() => opener.click())
+  await act(async () => {})
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!
+  const why = dialog.querySelector<HTMLTextAreaElement>('textarea[aria-label="Why"]')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(why, 'checked the fix myself')
+    why.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+
+  // A live refresh answers only the first page and replaces the cached rows;
+  // the opened page-two finding is no longer available in state.rows.
+  act(() => {
+    push({ findings: new Map([['g1', { ...firstPage, rows: [pageOne], next: 'cursor-2' }]]) })
+  })
+  const stillOpen = document.querySelector<HTMLElement>('[role="dialog"]')
+  expect(stillOpen).not.toBeNull()
+  expect((stillOpen!.querySelector('textarea[aria-label="Why"]') as HTMLTextAreaElement).value).toBe('checked the fix myself')
+
+  const withdraw = [...stillOpen!.querySelectorAll('button')].find((one) => one.textContent === 'Withdraw it')!
+  act(() => withdraw.click())
+  await act(async () => {})
+  expect(stillOpen!.textContent).not.toContain('Say why.')
+  expect(decideFindingRun).toHaveBeenCalledWith(expect.objectContaining({
+    goal: 'g1', run: 'run-old', action: { kind: 'adjudicate', finding: pageTwo.id, state: 'withdrawn' },
     reason: 'checked the fix myself',
   }))
 })

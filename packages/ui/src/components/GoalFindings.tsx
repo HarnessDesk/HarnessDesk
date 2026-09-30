@@ -47,11 +47,13 @@ const rowSecondLine = (view: FindingView): string => {
   return bits.join(' · ')
 }
 
+type OpenedFinding = Readonly<{ finding: string; originRun: string | null }>
+
 export const GoalFindings = ({ goal }: { readonly goal: string }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const state = snapshot.findings.get(goal)
-  const [opened, setOpened] = useState<string | null>(null)
+  const [opened, setOpened] = useState<OpenedFinding | null>(null)
   const [deciding, setDeciding] = useState(false)
   const [publicationPending, setPublicationPending] = useState<boolean | null>(null)
   const [publicationError, setPublicationError] = useState<string | null>(null)
@@ -65,10 +67,12 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
   const run = (chosen ? runs.find((one) => one.id === chosen) : undefined) ?? live
   const runView = run ? snapshot.findingRuns.get(run.id) : undefined
   // A finding a run of this Goal raised is decided against that run, whichever one is shown.
-  const openedRow = opened ? (state?.rows ?? []).find((one) => one.id === opened) : undefined
-  const originRun = openedRow && openedRow.origin.goal === goal && runs.some((one) => one.id === openedRow.origin.run)
-    ? openedRow.origin.run
-    : null
+  // A finding's decision belongs to the run that raised it, captured when the
+  // row opens: a fresh first page may replace the list — and drop a later
+  // page's row — while the person's dialog is still in progress (#1091). Not
+  // re-checked against this Goal's runs either, which can briefly lack it
+  // (#1090); the host judges the decision against the run itself.
+  const originRun = opened?.originRun ?? null
   const decideView = originRun ? snapshot.findingRuns.get(originRun) : runView
   // A verdict on a finding outlives the run that raised it while its Goal is open; the host refuses once it is not (or came from a backup).
   const goalOpen = goalView !== undefined && goalView.goal.state === 'open'
@@ -196,7 +200,10 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
             {rows.map((row) => (
               <RowButton
                 key={row.id}
-                onClick={() => setOpened(row.id)}
+                onClick={() => setOpened({
+                  finding: row.id,
+                  originRun: row.origin.goal === goal ? row.origin.run : null,
+                })}
                 title={
                   <span className="flex min-w-0 items-baseline gap-2">
                     <span className="min-w-0 flex-1 truncate">{row.title || 'Untitled finding'}</span>
@@ -223,7 +230,7 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
       {opened && (
         <FindingDetail
           goal={goal}
-          finding={opened}
+          finding={opened.finding}
           onClose={() => setOpened(null)}
           {...(decideView ? { decide: decideView, verdictAfterRun: goalOpen } : {})}
         />
