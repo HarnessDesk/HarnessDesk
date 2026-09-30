@@ -81,6 +81,22 @@ const rig = (patch: Partial<AppSnapshot['listPrefs']> = {}) => {
 const heads = (): HTMLElement[] =>
   [...container.querySelectorAll<HTMLElement>('[draggable="true"]')]
 
+it('puts a pinned project mark in the row trailing slot beside its label', () => {
+  const { store } = rig()
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <SessionTree now={4} />
+      </StoreProvider>,
+    )
+  })
+  const head = heads()[0]
+  const label = head?.querySelector('[data-slot="sidebar-menu-label"]')
+  const pin = head?.querySelector('[data-sidebar="menu-badge"][aria-label="Pinned"]')
+  expect(pin).not.toBeNull()
+  expect(label?.contains(pin!)).toBe(false)
+})
+
 /** A drag event jsdom will carry a dataTransfer on. */
 const dragEvent = (type: string, clientY: number): DragEvent => {
   const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientY }) as DragEvent

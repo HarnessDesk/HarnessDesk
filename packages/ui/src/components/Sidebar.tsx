@@ -4,7 +4,7 @@ import { SidebarNotices, useInboxMessages } from './Notices'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 import { useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
-import { BranchIcon, BriefIcon, CaretIcon, FilterIcon, FlowIcon, GoalIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, TeamIcon, UsageIcon } from './Icons'
+import { BranchIcon, BriefIcon, CaretIcon, CrossIcon, FlowIcon, GoalIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, TeamIcon, UsageIcon } from './Icons'
 import { WindowControls } from './WindowControls'
 import { NewSessionChoice, type NewSessionKind } from './NewSessionChoice'
 import { SessionListControls, SessionTree } from './SessionTree'
@@ -27,8 +27,13 @@ import {
   NavigationGroupHeader,
   Popover,
   RailSection,
-  RefusedAction,
   Search,
+  Chip,
+  Sidebar as DesignSidebar,
+  SidebarMenu,
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem,
   Text,
   buttonVariants,
   type MenuAccountFigure,
@@ -39,8 +44,6 @@ import { folderName } from '../lib/projects'
 import { brandOf } from '../lib/identity'
 import { profileName } from '../lib/profile'
 import { READINESS_LABEL, readinessOf, type Readiness } from '../lib/readiness'
-import { livePlugins } from '../lib/plugins'
-import { anyBroken, inForce } from '../lib/agents'
 import { AccountHoverCard } from './AgentCards'
 import { HarnessMark, RuntimeMark } from './BrandIcons'
 import { ProfileFace } from './ProfileFace'
@@ -86,11 +89,11 @@ export const Sidebar = ({
   const store = useStore()
   const snapshot = useSnapshot()
   const [query, setQuery] = useState('')
-  // The filter takes the Workspaces row while it is in use and gives the
+  // The filter takes the Projects row while it is in use and gives the
   // label back when it is empty and unfocused: a 200px sidebar has room for
   // the word or for a field you can read what you typed in, not both.
   const [filterFocused, setFilterFocused] = useState(false)
-  /** The "session, or room?" dialog. On the button only; ⌘N is the express lane. */
+  /** The non-default start flow selected from the adjacent menu. */
   const [starting, setStarting] = useState<NewSessionKind | undefined>()
   const filtering = filterFocused || query.length > 0
   const listRef = useRef<HTMLDivElement>(null)
@@ -121,174 +124,113 @@ export const Sidebar = ({
   const ready = health?.state === 'ready' || health?.state === 'idle'
   // Not `plugins.length`: an installed copy a built-in has taken over is off,
   // and counting it here made the sidebar promise one more than the page lists.
-  const pluginCount = livePlugins(snapshot.plugins).length
-  // Null until a surface that lists Agents has asked (the plain path's own
-  // rule): this row then counts none and wears no dot, rather than reading
-  // the roster itself just to sit in the sidebar.
-  const agentsRoster = snapshot.agents ?? []
-  const agentsCount = inForce(agentsRoster).length
-  const agentsBroken = anyBroken(agentsRoster)
-
   return (
-    <div className={styles.sidebar}>
-      <Bar corner className="hd-drag">
-        <WindowControls />
-      </Bar>
-
-      {/* The magnifier is search, not filtering: it opens the palette over
-          everything — sessions, files, agents, commands — which is what a
-          magnifier at the top of a window promises. Narrowing the list is the
-          Workspaces row's job, down where the list is. */}
-      <Bar inset="ink">
-        <Text role="subject" className={styles.brandMark} aria-hidden>
-          <HarnessMark size={14} />
-        </Text>
-        <Text role="wordmark" truncate className={styles.workspaceName} title={snapshot.workspace?.path ?? undefined}>
-          HarnessDesk
-        </Text>
-        <span style={{ flex: 1 }} />
-        <Button
-          variant="ghost" size="icon-sm" className={`${styles.iconButton} hd-no-drag`}
-          onClick={onSearch}
-          title="Search sessions, files, agents and commands (⌘K)"
-          aria-label="Search everything"
-        >
-          <SearchIcon size={13} />
-        </Button>
-      </Bar>
-
-      {/* Three slots, because the top of the sidebar is the most valuable
-          space in the app and only what a person reaches for *while working*
-          earns a place in it: start a conversation, with the worktrees of
-          this project one press to its right; what is left of the
-          plan; and the way into what the agents can do. The archive is
-          deliberately not up here — filing a conversation away happens from
-          its own ⋯ menu, and going to look for it again is a trip somebody
-          makes twice a month, so it lives in Settings with the rest of the
-          on-purpose visits. Changes lives in every conversation's header, and
-          ⌘K reaches the rest. */}
-      {starting && <NewSessionChoice initialKind={starting} onClose={() => setStarting(undefined)} />}
-      <RailSection as="nav" stretch="head" className={styles.nav} aria-label="Workspace actions">
-        <div className={styles.navRow}>
+    <DesignSidebar
+      className={styles.sidebar}
+      header={(
+        <>
+        <Bar corner className="hd-drag"><WindowControls /></Bar>
+        <Bar inset="ink">
+          <Text role="subject" className={styles.brandMark} aria-hidden><HarnessMark size={14} /></Text>
+          <Text role="prose" truncate className={styles.workspaceName} title={snapshot.workspace?.path ?? undefined}>HarnessDesk</Text>
+          <span style={{ flex: 1 }} />
           <Button
-            variant="navigation" size="navigation" className={styles.navItem}
-            disabled={!ready || !snapshot.workspace}
-            onClick={() => store.newDraft()}
-            title="Start a session here"
-          >
-            <Text role="muted" className={styles.navIcon}><PlusIcon size={15} /></Text>
-            New session
-          </Button>
-          <WorktreeMenu onChoose={(kind) => setStarting(kind)} />
-        </div>
-        {/* The plain path's one new row (the owner's rule, 2026-09-18): who
-            can do the work, beside where the work already starts. Its count
-            is the roster in force, and it wears the same warn tone the
-            Dashboard's own badge does — never a chip drawn just for this row. */}
-        <Button variant="navigation" size="navigation" className={styles.navItem} onClick={onOpenAgents}>
-          <BriefIcon size={15} className={styles.navIcon} />
-          Agents
-          {agentsCount > 0 && (
-            <span className={styles.navCount} {...(agentsBroken ? { 'data-tone': 'warn' } : {})}>
-              {agentsCount}
+            variant="ghost" size="icon-sm" className={`${styles.iconButton} hd-no-drag`}
+            onClick={onSearch} title="Search everything (⌘K)" aria-label="Search everything (⌘K)"
+          ><SearchIcon size={13} /></Button>
+        </Bar>
+        {starting && <NewSessionChoice initialKind={starting} onClose={() => setStarting(undefined)} />}
+        <RailSection as="nav" stretch="head" className={styles.nav} aria-label="Workspace actions">
+          <div className={styles.navRow}>
+            <Button
+              variant="navigation" size="navigation" className={styles.newSession}
+              disabled={!ready || !snapshot.workspace}
+              onClick={() => store.newDraft()} title="Start a session here"
+            >
+              <Text role="muted" className={styles.navIcon}><PlusIcon size={15} /></Text>
+              New session
+            </Button>
+            <WorktreeMenu onChoose={(kind) => setStarting(kind)} />
+          </div>
+          <div className={styles.navLinks} role="group" aria-label="Main sections">
+            <Button variant="ghost" size="sidebar-nav" className={styles.navLink} onClick={onOpenAgents} aria-label="Agents" title="Agents">
+              <BriefIcon size={14} /><Text role="navigation" className={styles.navLabel}>Agents</Text>
+            </Button>
+            <Button variant="ghost" size="sidebar-nav" className={styles.navLink} onClick={() => onOpenUsage()} aria-label="Dashboard" title="Dashboard">
+              <UsageIcon size={14} /><Text role="navigation" className={styles.navLabel}>Dashboard</Text>
+              {lowAgents > 0 && <Text role="meta" numeric className={styles.navCount}>{lowAgents}</Text>}
+            </Button>
+            <Button variant="ghost" size="sidebar-nav" className={styles.navLink} onClick={onOpenPlugins} aria-label="Plugins" title="Plugins">
+              <PluginIcon size={14} /><Text role="navigation" className={styles.navLabel}>Plugins</Text>
+            </Button>
+          </div>
+        </RailSection>
+        </>
+      )}
+      content={(
+        <>
+        <NavigationGroupHeader
+          label={(
+            <span className={styles.groupLabel}>
+              <span className={styles.projectName}>Projects</span>
+              {query && <span className={styles.filterBadge}><Chip tone="neutral" label="Filtered" /><Button variant="ghost" size="icon-xs" aria-label="Clear list filter" title="Clear list filter" onClick={() => setQuery('')}><CrossIcon size={12} /></Button></span>}
             </span>
           )}
-        </Button>
-        {/* Called with nothing, on purpose: the handler takes an agent id
-            now, and a click event in its place would open the dashboard
-            scoped to an object. */}
-        <Button variant="navigation" size="navigation" className={styles.navItem} onClick={() => onOpenUsage()}>
-          <Text role="muted" className={styles.navIcon}><UsageIcon size={15} /></Text>
-          Dashboard
-          {/* The count is the number of agents that need attention, not the
-              number that report — a badge for "everything is fine" is noise. */}
-          {lowAgents > 0 && (
-            <Text role="meta" numeric className={styles.navCount}>
-              {lowAgents}
-            </Text>
-          )}
-        </Button>
-        <Button variant="navigation" size="navigation" className={styles.navItem} onClick={onOpenPlugins}>
-          <Text role="muted" className={styles.navIcon}><PluginIcon size={15} /></Text>
-          Plugins
-          {pluginCount > 0 && (
-            <Text role="meta" numeric className={styles.navCount}>{pluginCount}</Text>
-          )}
-        </Button>
-      </RailSection>
-
-      {/* The list's own row: what the list is, the field that narrows it, and
-          the two things you do to it. It sits outside the scroller so that
-          filtering stays one click away however far down the list you are. */}
-      <NavigationGroupHeader label="Workspaces" filtering={filtering}>
-        <div className={styles.filter}>
-          <Search
-            size="compact"
-            icon="filter"
-            className={styles.filterInput}
-            placeholder={filtering ? 'Filter sessions' : ''}
-            label="Filter sessions"
-            title="Narrow the list below. ⌘K searches everything."
-            value={query}
-            onChange={setQuery}
-            onFocus={() => setFilterFocused(true)}
-            onBlur={() => setFilterFocused(false)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                // Spent on the words it clears, and said so: a sidebar floating
-                // over a narrow window stays open for the list the filter just
-                // gave back. An empty filter has nothing to clear, and lets the
-                // key go on to whatever it would have closed.
-                if (query) event.preventDefault()
-                setQuery('')
-                event.currentTarget.blur()
-              }
-            }}
-          />
-        </div>
-        <SessionListControls />
-        <Button
-          variant="muted" size="icon-sm" edge="end" edgeGlyph={13} className={styles.iconButton}
-          onClick={onBrowseFolders}
-          title="Open a project folder"
-          aria-label="Open a project folder"
+          filtering={filtering}
+          keepLabelWhenFiltering
+          data-filtered={query ? '' : undefined}
         >
-          <PlusIcon size={13} />
-        </Button>
-      </NavigationGroupHeader>
-
-      <RailSection stretch="list" className={styles.list} ref={listRef} onScroll={onScroll}>
-        {snapshot.history.length === 0 && !snapshot.historyLoading && (
-          <EmptyState
-            variant="inline"
-            title={ready
-              ? `No sessions yet. Start one to see it here${
-                  runtime.presentation.historySource
-                    ? ` — sessions you run in ${runtime.presentation.historySource} show up too`
-                    : ''
-                }.`
-              : 'Connect a runtime to see your sessions.'}
-          />
-        )}
-        <SessionTree now={now} />
-      </RailSection>
-
-      <Slot name="sidebar.panel" />
-
-      {/* Offers and news that can wait, one at a time, above your seat. */}
-      <SidebarNotices />
-
-      <AccountFooter
-        onOpenSettings={onOpenSettings}
-        onOpenUsage={onOpenUsage}
-        onSignIn={onSignIn}
-      />
-    </div>
+          <div className={styles.filter}>
+            <Search
+              size="compact" icon="filter" className={styles.filterInput}
+              placeholder="Filter by title" label="Filter this list" title="Filter this list"
+              value={query} onChange={setQuery}
+              onFocus={() => setFilterFocused(true)} onBlur={() => setFilterFocused(false)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  if (query) event.preventDefault()
+                  setQuery('')
+                  event.currentTarget.blur()
+                }
+              }}
+            />
+          </div>
+          <SessionListControls />
+          <Button
+            variant="muted" size="icon-sm" edge="end" edgeGlyph={13} className={styles.iconButton}
+            onClick={onBrowseFolders} title="Open a project folder" aria-label="Open a project folder"
+          ><PlusIcon size={13} /></Button>
+        </NavigationGroupHeader>
+        <RailSection stretch="list">
+          {snapshot.history.length === 0 && !snapshot.historyLoading && (
+            <EmptyState
+              variant="inline"
+              title={ready
+                ? `No sessions yet. Start one to see it here${runtime.presentation.historySource ? ` — sessions you run in ${runtime.presentation.historySource} show up too` : ''}.`
+                : 'Connect a runtime to see your sessions.'}
+            />
+          )}
+          <SessionTree now={now} />
+        </RailSection>
+        </>
+      )}
+      contentClassName={styles.content}
+      contentRef={listRef}
+      onContentScroll={onScroll}
+      footer={(
+        <>
+        <Slot name="sidebar.panel" />
+        <SidebarNotices />
+        <AccountFooter onOpenSettings={onOpenSettings} onOpenUsage={onOpenUsage} onSignIn={onSignIn} />
+        </>
+      )}
+      footerClassName={styles.footer}
+    />
   )
 }
 
 /**
- * The worktrees of the project you are in, one press right of New session.
+ * The other ways to start work, one press right of New session.
  *
  * This slot used to be a single button that made a worktree called
  * `session-mfk3x1` off HEAD and started a conversation in it — a thing that

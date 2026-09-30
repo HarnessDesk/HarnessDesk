@@ -816,6 +816,7 @@ export const TextMark = ({
 export const NavigationGroupHeader = ({
   label,
   filtering = false,
+  keepLabelWhenFiltering = false,
   inset = 'bar',
   className,
   children,
@@ -823,6 +824,8 @@ export const NavigationGroupHeader = ({
 }: HTMLAttributes<HTMLDivElement> & {
   label: ReactNode
   filtering?: boolean
+  /** Keep an active-state label beside a filter when that state must stay visible. */
+  keepLabelWhenFiltering?: boolean
   /**
    * Which row's left column this header's label answers to. `'bar'` — the
    * default — is the sidebar's, whose own filter bar carries a padding this
@@ -837,6 +840,7 @@ export const NavigationGroupHeader = ({
     {...props}
     data-slot="navigation-group-header"
     {...(filtering ? { 'data-filtering': '' } : {})}
+    {...(keepLabelWhenFiltering ? { 'data-keep-label': '' } : {})}
     {...(inset === 'nav' ? { 'data-inset': 'nav' } : {})}
     className={cx(styles.navigationGroupHeader, className)}
   >

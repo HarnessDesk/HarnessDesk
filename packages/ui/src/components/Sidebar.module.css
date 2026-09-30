@@ -7,6 +7,15 @@
   min-width: 0;
 }
 
+.content {
+  gap: var(--hd-space-0);
+  container: sidebar-content / inline-size;
+}
+
+.footer {
+  gap: var(--hd-space-1);
+}
+
 .workspaceName {
   min-width: 0;
   overflow: hidden;
@@ -16,7 +25,6 @@
 .brandMark,
 .navIcon,
 .groupChevron,
-.groupPin,
 .accountMeta {
   flex: none;
 }
@@ -29,6 +37,7 @@
 
 .nav {
   flex: none;
+  container: sidebar-nav / inline-size;
 }
 
 .nav > * + * {
@@ -43,21 +52,49 @@
 }
 
 .navRow {
-  gap: var(--hd-space-0-5); /* desk: 8px → 2px, paired actions keep their existing compact separation. */
+  gap: var(--hd-space-2);
 }
 
-.navRow .navItem {
+.newSession {
   flex: 1;
   min-width: 0;
 }
 
-.navItem,
+.navLinks {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  gap: var(--hd-space-2);
+}
+
+.navLink {
+  flex: none;
+  justify-content: center;
+}
+
+.navLabel {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+@container sidebar-nav (width < 14rem) {
+  .navLabel {
+    display: none;
+  }
+
+  .navLink {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.newSession,
 .accountRow {
   width: 100%;
 }
 
-.navItem {
-  gap: var(--hd-nav-gap);
+.navLink {
+  gap: var(--hd-space-0-5);
 }
 
 .navCount {
@@ -70,10 +107,25 @@
   margin-right: var(--hd-space-0-5);
 }
 
-.list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
+.groupLabel,
+.filterBadge {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.groupLabel {
+  gap: var(--hd-space-1);
+}
+
+@container sidebar-content (max-width: 15rem) {
+  :global([data-filtered]) .projectName {
+    display: none;
+  }
+}
+
+.filterBadge {
+  gap: var(--hd-space-0-5);
 }
 
 .filter {

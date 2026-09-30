@@ -386,6 +386,15 @@ it('opens Other projects when the active session belongs to a far project', () =
   )
 
   expect(store.setOthersOpen).toHaveBeenCalledWith(true)
+  const fold = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.startsWith('Other projects'))
+  expect(fold?.querySelector('[data-slot="sidebar-menu-icon"]')).not.toBeNull()
+})
+
+it('aligns the N more row with the project and conversation label column', () => {
+  const sessions = Array.from({ length: 6 }, (_, index) => summary({ id: `session-${index + 1}`, updatedAt: index + 1 }))
+  const { container: tree } = treeWith([], sessions)
+  const more = [...tree.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === '1 more')
+  expect(more?.querySelector('[data-slot="sidebar-menu-icon"]')).not.toBeNull()
 })
 
 it('expands the active session beyond the five-row preview', () => {

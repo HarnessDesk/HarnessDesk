@@ -54,7 +54,7 @@ const mount = (): HTMLInputElement => {
       </StoreProvider>,
     )
   })
-  const filter = container.querySelector<HTMLInputElement>('input[aria-label="Filter sessions"]')
+  const filter = container.querySelector<HTMLInputElement>('input[aria-label="Filter this list"]')
   if (!filter) throw new Error('no filter')
   return filter
 }
@@ -83,6 +83,15 @@ it('an empty filter lets Escape go on to what it would close; one with words spe
   act(() => filter.focus())
   type(filter, 'retry')
   expect(filter.value).toBe('retry')
+  expect(filter.placeholder).toBe('Filter by title')
+  expect(container.querySelector('[data-slot="navigation-group-label"]')?.textContent).toContain('Filtered')
+  const clear = container.querySelector<HTMLButtonElement>('button[aria-label="Clear list filter"]')
+  expect(clear).not.toBeNull()
+  act(() => clear?.click())
+  expect(filter.value).toBe('')
+  expect(container.querySelector('[data-slot="navigation-group-label"]')?.textContent).not.toContain('Filtered')
+
+  type(filter, 'retry')
   expect(escape(filter).defaultPrevented).toBe(true)
   expect(filter.value).toBe('')
 })

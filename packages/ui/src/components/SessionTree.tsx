@@ -525,9 +525,9 @@ const GroupHead = ({
             label={<span className="flex min-w-0 items-center gap-(--hd-space-1)" >
               <Text role="navigation" ink={current ? 'primary' : undefined} weight={current ? 'medium' : undefined} truncate className={styles.groupName}>{group.name}</Text>
               {stopped && <span title={`${stopped.reason} ${stopped.nextStep}`}><Chip tone="neutral" label="Capture stopped" /></span>}
-              {pinned && <Text role="meta" className={styles.groupPin}><PinIcon size={11} /></Text>}
             </span>}
           />
+          {pinned && <SidebarMenuBadge title="Pinned" aria-label="Pinned"><PinIcon size={11} /></SidebarMenuBadge>}
           <SidebarMenuAction showOnHover className="end-(--hd-space-8)"
             onClick={() => void store.startSessionIn(actualRoot)}
             title={`New session in ${group.name}`} aria-label={`New session in ${group.name}`}>
@@ -1200,7 +1200,7 @@ export const SessionTree = ({ now }: { now: number }) => {
             )}
             {!expanded.has(group.root) && loose.length > COLLAPSED_LIMIT && (
               <SidebarMenu><SidebarMenuItem>
-                <SidebarMenuButton size="sm" label={`${loose.length - COLLAPSED_LIMIT} more`}
+                <SidebarMenuButton size="sm" icon={<span aria-hidden="true" />} label={`${loose.length - COLLAPSED_LIMIT} more`}
                   onClick={() => setExpanded((current) => new Set(current).add(group.root))} />
               </SidebarMenuItem></SidebarMenu>
             )}
@@ -1275,35 +1275,29 @@ export const SessionTree = ({ now }: { now: number }) => {
       {near.map(renderGroup)}
       {far.length > 0 && (
         <SidebarGroup>
-          <SidebarGroupLabel>
-          <Button
-            type="button"
-            variant="ghost" size="row"
-            className="flex w-full items-center gap-(--hd-space-2) text-left"
-            onClick={() => setOthersOpen(!othersOpen)}
-            aria-expanded={othersOpen}
-            {...(dragging && !far.some((group) => group.root === dragging)
-              ? { 'data-insert': 'into' }
-              : {})}
-            title={dragging ? 'Drop here to let this project sort itself again' : undefined}
-            onDragOver={(event) => {
-              if (!dragging) return
-              event.preventDefault()
-              event.dataTransfer.dropEffect = 'move'
-            }}
-            onDrop={(event) => {
-              if (!dragging) return
-              event.preventDefault()
-              store.moveProject(dragging, -1)
-              setAnnouncement('Back in automatic order')
-              setDragging(null)
-              setOver(null)
-            }}
-          >
-            <DisclosureChevron open={othersOpen} size="xs" className={styles.groupChevron} />
-            <Text role="navigation">Other projects</Text>
-          </Button>
-          </SidebarGroupLabel>
+          <SidebarMenu><SidebarMenuItem>
+            <SidebarMenuButton
+              icon={<DisclosureChevron open={othersOpen} size="xs" className={styles.groupChevron} />}
+              label="Other projects"
+              aria-expanded={othersOpen}
+              onClick={() => setOthersOpen(!othersOpen)}
+              {...(dragging && !far.some((group) => group.root === dragging) ? { 'data-insert': 'into' } : {})}
+              title={dragging ? 'Drop here to let this project sort itself again' : undefined}
+              onDragOver={(event) => {
+                if (!dragging) return
+                event.preventDefault()
+                event.dataTransfer.dropEffect = 'move'
+              }}
+              onDrop={(event) => {
+                if (!dragging) return
+                event.preventDefault()
+                store.moveProject(dragging, -1)
+                setAnnouncement('Back in automatic order')
+                setDragging(null)
+                setOver(null)
+              }}
+            />
+          </SidebarMenuItem></SidebarMenu>
           {othersOpen && <SidebarGroupContent>{far.map(renderGroup)}</SidebarGroupContent>}
         </SidebarGroup>
       )}

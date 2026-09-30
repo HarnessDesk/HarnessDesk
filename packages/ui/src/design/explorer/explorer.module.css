@@ -387,3 +387,24 @@
   line-height: 1;
   color: var(--hd-muted-foreground);
 }
+
+.sidebarTop {
+  container: sidebar-top / inline-size;
+}
+
+.sidebarTopLinks {
+  display: flex;
+  min-width: 0;
+  gap: var(--hd-space-0-5);
+}
+
+.sidebarTopLabel {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+@container sidebar-top (max-width: 18rem) {
+  .sidebarTopLabel {
+    display: none;
+  }
+}

@@ -62,11 +62,12 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
       [CLAUDE]: readyHealth,
       [CODEX]: unavailableHealth,
     },
-    workspace: {
+      workspace: {
       path: '/workspace/repo',
       git: { branch: 'main' },
-    } as AppSnapshot['workspace'],
-    ...overrides,
+      } as AppSnapshot['workspace'],
+      worktrees: [{ path: '/workspace/repo/.worktrees/topic', branch: 'topic', head: 'abc', isMain: false, managed: true }],
+      ...overrides,
   }
 
   const store = {
@@ -119,7 +120,8 @@ describe('Sidebar readiness with active runtime (#382)', () => {
     act(() => trigger.click())
     const menu = document.querySelector('[role="menu"]')!
     const items = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((one) => one.textContent?.trim())
-    expect(items).toEqual(['New worktree…', 'Goal…', 'Flow…', 'Team…'])
+    expect(items).toEqual(['New worktree…', 'topic', 'Goal…', 'Flow…', 'Team…'])
+    expect(menu.querySelector('[role="separator"]')).not.toBeNull()
     const goal = [...menu.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.textContent?.trim() === 'Goal…')!
     act(() => goal.click())
     const goalChoice = [...document.querySelectorAll<HTMLElement>('[role="radio"]')].find((one) => one.textContent?.startsWith('Goal'))
@@ -134,7 +136,7 @@ describe('Sidebar readiness with active runtime (#382)', () => {
     expect(empty?.textContent).toContain('No sessions yet.')
   })
 
-  it('disables New session and Worktrees when active runtime is not ready', () => {
+  it('disables direct session start when the active runtime is not ready but keeps the menu reachable', () => {
     mount({
       healthByRuntime: {
         [CLAUDE]: unavailableHealth,
@@ -155,45 +157,50 @@ describe('Sidebar readiness with active runtime (#382)', () => {
   })
 })
 
+it('uses the design sidebar header, one content scroller, and a footer for docked panels', () => {
+  mount()
+  const header = container.querySelector('[data-sidebar="header"]')!
+  const content = container.querySelector('[data-sidebar="content"]')!
+  const footer = container.querySelector('[data-sidebar="footer"]')!
+  expect(header.querySelector('button[aria-label="Search everything (⌘K)"]')).not.toBeNull()
+  expect(content.querySelector('[data-slot="navigation-group-label"]')?.textContent).toContain('Projects')
+  expect(footer.childElementCount).toBeGreaterThan(0)
+})
+
 /**
  * The plain path's one new row (the owner's rule, 2026-09-18): always there,
  * reading nothing of its own — it counts whatever roster another surface has
  * already asked for, and wears the Dashboard badge's own warn tone rather
  * than a rule drawn just for this row.
  */
-describe('the Agents row', () => {
-  const agentsRow = (): HTMLButtonElement => {
-    const found = [...container.querySelectorAll('button')].find((one) => one.textContent?.startsWith('Agents'))
-    if (!found) throw new Error('no Agents row')
-    return found
-  }
+describe('compact sidebar destinations', () => {
+  it('renders three named navigation buttons without roster or plugin counts', () => {
+    mount({
+      agents: [{ id: 'a', origin: 'builtin', path: '/a/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'a', name: 'A', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], prefer: [], brief: '' } }],
+      plugins: [{ id: 'one' }, { id: 'two' }],
+    } as unknown as Partial<AppSnapshot>)
+    const group = container.querySelector('[aria-label="Main sections"]')!
+    expect([...group.querySelectorAll<HTMLButtonElement>('button')].map((one) => one.getAttribute('aria-label'))).toEqual(['Agents', 'Dashboard', 'Plugins'])
+    expect([...group.querySelectorAll('button')].map((one) => one.textContent?.trim())).toEqual(['Agents', 'Dashboard', 'Plugins'])
+    expect(group.querySelector('[class*="navCount"]')).toBeNull()
+  })
 
-  it('shows with no count before any surface has read the roster', () => {
+  it('shows a Dashboard badge only when an agent needs attention', () => {
     mount()
-    const row = agentsRow()
-    expect(row.querySelector('span[class*="navCount"]')).toBeNull()
+    const dashboard = container.querySelector<HTMLButtonElement>('button[aria-label="Dashboard"]')!
+    expect(dashboard.querySelector('[class*="navCount"]')).toBeNull()
+
+    mount({
+      usage: [{ runtime: CLAUDE, account: null, plan: null, lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 90, windowMinutes: 10080, resetsAt: null }], credits: null, spend: null, reached: null, source: { kind: 'runtime', label: 'API' }, fetchedAt: 1, staleAfterMs: 1, error: null }],
+    } as unknown as Partial<AppSnapshot>)
+    const needsAttention = container.querySelector<HTMLButtonElement>('button[aria-label="Dashboard"]')!
+    expect(needsAttention.querySelector('[class*="navCount"]')?.textContent).toBe('1')
   })
 
-  it('counts the roster once something has read it, in force only', () => {
-    mount({
-      agents: [
-        { id: 'a', origin: 'builtin', path: '/a/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'a', name: 'A', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], prefer: [], brief: '' } },
-        { id: 'b', origin: 'builtin', path: '/b/AGENT.md', digest: 'd', shadows: [], problems: [{ level: 'error', at: 'x', text: 'bad' }], definition: null },
-      ],
-    } as unknown as Partial<AppSnapshot>)
-    const row = agentsRow()
-    // Only "a" parses; "b" is broken and not counted as in force.
-    expect(row.textContent).toContain('1')
-    expect(row.querySelector('[data-tone="warn"]')?.textContent).toBe('1')
-  })
-
-  it('wears no warn tone when nothing is broken', () => {
-    mount({
-      agents: [
-        { id: 'a', origin: 'builtin', path: '/a/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'a', name: 'A', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], prefer: [], brief: '' } },
-      ],
-    } as unknown as Partial<AppSnapshot>)
-    const row = agentsRow()
-    expect(row.querySelector('[data-tone="warn"]')).toBeNull()
+  it('keeps everything-search and list-filter names distinct and calls the group Projects', () => {
+    mount()
+    expect(container.querySelector('button[aria-label="Search everything (⌘K)"]')).not.toBeNull()
+    expect(container.querySelector('input[aria-label="Filter this list"]')).not.toBeNull()
+    expect(container.querySelector('[data-slot="navigation-group-label"]')?.textContent).toContain('Projects')
   })
 })

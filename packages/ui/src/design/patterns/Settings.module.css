@@ -161,6 +161,10 @@
   display: none;
 }
 
+.navigationGroupHeader[data-filtering][data-keep-label] .navigationGroupLabel {
+  display: flex;
+}
+
 /* Identity and current-item chips are names rather than sentences. Their
    icon, words and edge travel as one bounded object, so a long name shortens
    before it can erase the subject beside it. */

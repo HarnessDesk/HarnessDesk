@@ -185,29 +185,32 @@ so the composer, a filter box and an empty desk all still navigate.
 
 ## The sidebar
 
-Three slots at the top, because that space is the most valuable in the app and
-only what a person reaches for *while working* earns a place in it:
+The sidebar column has three parts: a **header** with the title bar, brand and
+everything-search, then New session and a compact navigation row; one scrolling
+**content** area for the list controls and conversations; and a **footer** for
+docked panels, notices and the seat.
 
-- **New session**: clicking the button opens a choice between a solo session,
-  a collaborative room, and **Start with a team** — the front door, below.
-  The solo choice lists Agents first,
-  each with the mark of the runtime it would sit on here — one that cannot be
-  seated here stays, greyed with its reason — and then the runtime's own
-  session; ⌘N goes straight to a session. The small branch button at the row's
-  end opens the **Worktrees** menu for this project: a new worktree, or one it
-  already has. Either opens a draft pointed at it — the composer's **Work in**
-  control then says so — and nothing is made on disk until that draft's first
-  message.
-- **Dashboard**: opens plan usage and limits, wearing an amber warning count
-  only when an agent needs attention.
-- **Plugins**: lists live extensions and their contributed tools and panels.
+**New session** starts a draft in the current project with the default agent,
+in one click, just like ⌘N. The always-visible ⌄ beside it opens **More ways to
+start**: New worktree…, any existing worktree, Goal…, Flow… and Team…. A
+worktree choice points the draft at that checkout; nothing is made on disk
+until its first message. Goal, Flow and Team reuse their existing chooser and
+start screens. The plain path stays plain until somebody chooses another way
+to work.
 
-Changes lives in every conversation's header; ⌘K reaches the rest.
+**Agents**, **Dashboard** and **Plugins** share one compact row under New
+session. At the narrow sidebar width their labels give way to icons, with the
+name retained for assistive technology and on hover. The Dashboard shows an
+attention count only while an agent needs attention; the other destinations
+carry no counts.
 
-**The magnifier beside the title is search, not filtering**: it opens ⌘K over
-everything — sessions, files, agents, commands — which is what a magnifier at
-the top of a window promises. Narrowing the list is a different gesture and
-lives where the list is, on the Workspaces row below.
+The magnifier beside the brand says **Search everything (⌘K)** and opens the
+search palette across sessions, files, agents and commands. The funnel beside
+**Projects** filters the conversation list by title. Its field is named **Filter
+this list**, with the placeholder **Filter by title**. While a query is active,
+a **Filtered** chip stays beside Projects and its × clears the query, so a
+short result list cannot read as missing data. The title, list filter and
+conversation history all remain in the same sidebar column.
 
 **Triage first.** Above the projects, two bands gather live conversations from
 every workspace: **Needs you** (amber, for approvals, input requests, or turns
@@ -235,18 +238,17 @@ folder belongs to, until the agent's history catches up. The active row is
 scrolled into view when it changes: a list long enough to hold a month of
 rooms kept it thousands of pixels below the fold.
 
-The Workspaces row carries what you do to the list: a **funnel** that narrows
-it, the display controls (density, agent filter, collapse or expand all
-projects, sort), and the folder browse button. The funnel is the row's own
-field — one click opens it to full width and the label steps aside, because a
-200px sidebar has room for the word or for a field you can read what you typed
-in, not both. It stays open while it holds a query even unfocused, so the list
-never looks short for a reason you cannot see; Escape clears it back to the
-icon. The row sits outside the scroller, so filtering is one click away however
-far down you are. The display-controls button wears a dot when a filter is
-hiding rows, because a filtered list must never read as missing data.
+The **Projects** row also carries the display controls (density, agent filter,
+collapse or expand all projects, sort) and the folder browse button. The funnel
+is the row's own field — one click opens it to full width and the label steps
+aside, because a 200px sidebar has room for the word or for a field you can
+read what you typed in, not both. It stays open while it holds a query even
+unfocused; Escape clears it back to the icon. The row and list scroll together,
+while the header actions remain reachable. The display-controls button wears a
+dot when a filter is hiding rows, because a filtered list must never read as
+missing data.
 
-**The footer is the seat: you, and the agent you will pick up next.** The row
+**The footer holds the docks, notices and seat: you, and the agent you will pick up next.** The seat row
 is your identity — your profile's face and name, which are the house mark and
 "HarnessDesk" until you choose otherwise, and your HarnessDesk account when
 there is one — and at its end sits the mark of the agent new sessions run as,

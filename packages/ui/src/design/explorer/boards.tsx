@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 
 import { runtimeId, sessionKey, sessionId, turnId, type AgentItem, type FileChange, type Turn } from '@harnessdesk/protocol'
 
-import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, MoreIcon, PlusIcon, PluginIcon, TeamIcon, TerminalIcon, TodoPendingIcon, UserIcon } from '../../components/Icons'
+import { AlertIcon, BranchIcon, BriefIcon, CaretIcon, CheckIcon, CrossIcon, FilterIcon, FolderIcon, MoreIcon, PlusIcon, PluginIcon, SearchIcon, TeamIcon, TerminalIcon, TodoPendingIcon, UsageIcon, UserIcon } from '../../components/Icons'
 import { RuntimeMark } from '../../components/BrandIcons'
 import { DiffView } from '../../components/Diff'
 import { TurnFiles } from '../../components/TurnFiles'
@@ -163,7 +163,7 @@ const Case = ({ label, children }: { label: string; children: React.ReactNode })
 )
 
 const BUTTON_CATALOG_VARIANTS = ['default', 'outline', 'secondary', 'ghost', 'floating', 'danger', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'] as const
-const BUTTON_CATALOG_SIZES = ['default', 'xs', 'sm', 'icon', 'icon-xs', 'icon-sm', 'content', 'content-min', 'inline-link', 'table-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'] as const
+const BUTTON_CATALOG_SIZES = ['default', 'xs', 'sm', 'sidebar-nav', 'icon', 'icon-xs', 'icon-sm', 'content', 'content-min', 'inline-link', 'table-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'] as const
 const BUTTON_CATALOG_STATES = ['default', 'hover', 'focus-visible', 'disabled'] as const
 const INPUT_CATALOG_VARIANTS = ['default', 'quiet', 'filled', 'chrome', 'code'] as const
 const INPUT_CATALOG_SIZES = ['default', 'compact', 'bare', 'row'] as const
@@ -210,16 +210,30 @@ const SIDEBAR_CATALOG_STATES = ['default', 'hover', 'active', 'populated'] as co
 const SidebarBoard = () => (
   <div className="grid gap-(--hd-space-4)" data-catalog-example="sidebar" data-catalog-variants={SIDEBAR_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={SIDEBAR_CATALOG_SIZES.join(' ')} data-catalog-states={SIDEBAR_CATALOG_STATES.join(' ')}>
     <Sidebar className="h-[calc(var(--sidebar-width)*3)] w-(--sidebar-width) max-w-full overflow-hidden rounded-(--hd-radius) border border-sidebar-border">
-      <SidebarHeader>
-        <div className="flex h-(--hd-control-h) items-center gap-(--hd-space-2) px-(--hd-space-2) text-sm font-medium">
-          <FolderIcon size={16} /> <span>storefront</span>
+      <SidebarHeader className={styles.sidebarTop}>
+        <div className="flex h-(--hd-control-h) items-center gap-(--hd-space-2) px-(--hd-space-2)">
+          <Text role="prose">HarnessDesk</Text>
+          <span className="flex-1" />
+          <Button variant="ghost" size="icon-sm" aria-label="Search everything (⌘K)" title="Search everything (⌘K)"><SearchIcon size={14} /></Button>
         </div>
-        <SidebarInput aria-label="Search projects" placeholder="Search" />
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton size="sm" icon={<PlusIcon size={16} />} label="New session" />
+            <SidebarMenuAction aria-label="More ways to start" title="More ways to start"><CaretIcon size={14} /></SidebarMenuAction>
+          </SidebarMenuItem>
+        </SidebarMenu>
+        <div className={styles.sidebarTopLinks}>
+          <Button variant="ghost" size="sidebar-nav" aria-label="Agents" title="Agents" className="min-w-0 flex-1 justify-center"><BriefIcon size={14} /><Text role="navigation" className={styles.sidebarTopLabel}>Agents</Text></Button>
+          <Button variant="ghost" size="sidebar-nav" aria-label="Dashboard" title="Dashboard" className="min-w-0 flex-1 justify-center"><UsageIcon size={14} /><Text role="navigation" className={styles.sidebarTopLabel}>Dashboard</Text><Text role="meta">2</Text></Button>
+          <Button variant="ghost" size="sidebar-nav" aria-label="Plugins" title="Plugins" className="min-w-0 flex-1 justify-center"><PluginIcon size={14} /><Text role="navigation" className={styles.sidebarTopLabel}>Plugins</Text></Button>
+        </div>
       </SidebarHeader>
       <SidebarContent>
+        <NavigationGroupHeader label={<span className="flex items-center gap-(--hd-space-1)">Projects <Chip tone="neutral" label="Filtered" /><Button variant="ghost" size="icon-xs" aria-label="Clear list filter"><CrossIcon size={12} /></Button></span>}>
+          <div className="flex min-w-0 flex-1 items-center gap-(--hd-space-1)"><FilterIcon size={13} /><SidebarInput aria-label="Filter this list" placeholder="Filter by title" /></div>
+          <Button variant="ghost" size="icon-sm" aria-label="Display controls" title="Display controls"><MoreIcon size={14} /></Button>
+        </NavigationGroupHeader>
         <SidebarGroup>
-          <SidebarGroupLabel>Projects</SidebarGroupLabel>
-          <SidebarGroupAction aria-label="Add project"><PlusIcon size={14} /></SidebarGroupAction>
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>

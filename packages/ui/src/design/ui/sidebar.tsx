@@ -1,4 +1,5 @@
 import { cva, type VariantProps } from 'class-variance-authority'
+import { forwardRef } from 'react'
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
@@ -20,29 +21,59 @@ import { Separator } from './separator'
 const sidebarMenuTrailingSlotClass =
   'sidebar-menu-trailing-slot absolute end-(--hd-space-1) top-1/2 z-10 inline-flex size-(--hd-icon-target) -translate-y-1/2 items-center justify-center rounded-md text-sidebar-foreground transition-colors'
 
-type SidebarProps = React.ComponentProps<'aside'>
+type SidebarProps = Omit<React.ComponentProps<'aside'>, 'content'> & {
+  header?: React.ReactNode
+  content?: React.ReactNode
+  footer?: React.ReactNode
+  headerClassName?: string
+  contentClassName?: string
+  footerClassName?: string
+  contentRef?: React.Ref<HTMLDivElement>
+  onContentScroll?: React.UIEventHandler<HTMLDivElement>
+}
 
-const Sidebar = ({ className, ...props }: SidebarProps) => (
+const Sidebar = ({
+  className,
+  children,
+  header,
+  content,
+  footer,
+  headerClassName,
+  contentClassName,
+  footerClassName,
+  contentRef,
+  onContentScroll,
+  ...props
+}: SidebarProps) => (
   <aside
     data-slot="sidebar"
     data-sidebar="sidebar"
     className={cn('flex h-full min-h-0 min-w-0 flex-col bg-sidebar text-sidebar-foreground', className)}
     {...props}
-  />
+  >
+    {header !== undefined && <SidebarHeader compact className={headerClassName}>{header}</SidebarHeader>}
+    {content !== undefined && (
+      <SidebarContent ref={contentRef} className={contentClassName} onScroll={onContentScroll}>{content}</SidebarContent>
+    )}
+    {children}
+    {footer !== undefined && <SidebarFooter className={footerClassName}>{footer}</SidebarFooter>}
+  </aside>
 )
 
-const SidebarHeader = ({ className, ...props }: React.ComponentProps<'div'>) => (
-  <div data-slot="sidebar-header" data-sidebar="header" className={cn('flex shrink-0 flex-col gap-(--hd-space-2) p-(--hd-space-2)', className)} {...props} />
+const SidebarHeader = ({ compact = false, className, ...props }: React.ComponentProps<'div'> & { compact?: boolean }) => (
+  <div data-slot="sidebar-header" data-sidebar="header" className={cn('flex shrink-0 flex-col', compact ? 'gap-(--hd-space-0) p-0' : 'gap-(--hd-space-2) p-(--hd-space-2)', className)} {...props} />
 )
 
-const SidebarContent = ({ className, ...props }: React.ComponentProps<'div'>) => (
+const SidebarContent = forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(({ className, ...props }, ref) => (
   <div
+    ref={ref}
     data-slot="sidebar-content"
     data-sidebar="content"
     className={cn('flex min-h-0 min-w-0 flex-1 flex-col gap-(--hd-space-2) overflow-y-auto overflow-x-hidden', className)}
     {...props}
   />
-)
+))
+SidebarContent.displayName = 'SidebarContent'
 
 const SidebarFooter = ({ className, ...props }: React.ComponentProps<'div'>) => (
   <div data-slot="sidebar-footer" data-sidebar="footer" className={cn('flex shrink-0 flex-col gap-(--hd-space-2) p-(--hd-space-2)', className)} {...props} />
