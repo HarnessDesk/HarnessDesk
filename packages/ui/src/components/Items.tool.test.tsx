@@ -152,6 +152,22 @@ describe('an opened tool step', () => {
     expect(outputs()[1]).toContain('"a"')
   })
 
+  it.each([
+    ['a string', 'ok'],
+    ['an output record', { output: 'ok', isError: false }],
+  ])('draws shell result text once beside %s JSON', (_shape, value) => {
+    open(call({
+      tool: 'ls -a',
+      args: { command: 'ls -a', description: 'List entries' },
+      result: [
+        { type: 'text', text: 'ok' },
+        { type: 'json', value },
+      ],
+    }))
+
+    expect(outputs()).toEqual(['ok'])
+  })
+
   it("puts a shell call's {output} inside its own command plate, saying so when there was none", () => {
     open(call({ tool: 'ls -a', args: { command: 'ls -a', description: 'List' }, result: [{ type: 'json', value: { output: '.\n..', isError: false } }] }))
     expect(container.querySelectorAll('[data-slot="code-block"]')).toHaveLength(1)

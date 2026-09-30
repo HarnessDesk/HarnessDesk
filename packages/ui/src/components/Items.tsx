@@ -1099,7 +1099,8 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
   const target = path ? fileLabel(path, root, labels) : null
   const command = toolCallCommandOf(item)
   const recordsCommand = item.result?.some((part) => part.type === 'json' && readToolResult(part.value).kind === 'command') ?? false
-  const commandOutputParts = command ? item.result?.map((part) => {
+  const resultParts = resultPartsToDraw(item.result ?? [])
+  const commandOutputParts = command ? resultParts.map(({ part }) => {
     if (part.type === 'text') return stripAnsi(part.text)
     if (part.type === 'json' && typeof part.value === 'string') return stripAnsi(part.value)
     // A shell call whose runtime wraps its output in `{output, isError}`:
@@ -1114,7 +1115,6 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
     && commandOutputParts.every((part): part is string => part !== null)
     ? commandOutputParts.join('\n')
     : undefined
-  const resultParts = resultPartsToDraw(item.result ?? [])
   const pattern = [record?.['pattern'], record?.['query']].find(
     (value): value is string => typeof value === 'string' && value.trim().length > 0,
   )
@@ -1171,7 +1171,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
   const argsShown = !(recordsCommand || readsInFull) && typeof item.args === 'object' && item.args !== null
     && (Array.isArray(item.args) || Object.keys(item.args).length > 0)
   const resultsShown = !(planOf(item.args) !== null && effectiveItemStatus(item) !== 'failed')
-    && resultParts.some(resultPartDraws)
+    && resultParts.some(({ part }) => resultPartDraws(part))
   /* A step with nothing to show under it does not offer to open: an opened
      card with an empty body reads as something that failed to load. */
   const bodyEmpty = !wire && !item.error && !change && !command && !argsShown && !resultsShown
@@ -1238,7 +1238,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
               the agent's echo of it ("Updated todo list: …") says it twice. */}
           {commandOutput === undefined &&
             !(planOf(item.args) !== null && effectiveItemStatus(item) !== 'failed') &&
-            resultParts.map((part, index) => resultPartView(part, String(index)))}
+            resultParts.map(({ part, index }) => resultPartView(part, String(index)))}
         </>
       )}
       </>)}

@@ -132,7 +132,7 @@ export const readToolResult = (value: unknown): ToolResultReading => {
 const readableJsonText = (value: unknown): string | null => {
   if (typeof value === 'string') return value
   const reading = readToolResult(value)
-  if (reading.kind === 'output') return reading.text
+  if (reading.kind === 'output') return reading.error ? null : reading.text
   if (reading.kind === 'blocks' && !reading.blocks.some((block) => block.type === 'image')) {
     return reading.blocks
       .filter((block): block is Extract<(typeof reading.blocks)[number], { type: 'text' }> => block.type === 'text')
@@ -142,7 +142,12 @@ const readableJsonText = (value: unknown): string | null => {
   if (isRecord(value)) {
     const prototype = Object.getPrototypeOf(value)
     const keys = Reflect.ownKeys(value)
-    if ((prototype === Object.prototype || prototype === null) && keys.length === 1 && typeof keys[0] === 'string') {
+    if (
+      (prototype === Object.prototype || prototype === null)
+      && keys.length === 1
+      && typeof keys[0] === 'string'
+      && ['text', 'output', 'result', 'content', 'stdout'].includes(keys[0])
+    ) {
       const onlyValue = value[keys[0]]
       if (typeof onlyValue === 'string') return onlyValue
     }
@@ -151,12 +156,13 @@ const readableJsonText = (value: unknown): string | null => {
 }
 
 /** The adapter keeps the raw record on purpose; skip it here when it only restates text. */
-export const resultPartsToDraw = (parts: readonly ToolResultContent[]): ToolResultContent[] => {
+export const resultPartsToDraw = (parts: readonly ToolResultContent[]): Array<{ part: ToolResultContent; index: number }> => {
   const texts = parts.filter((part) => part.type === 'text').map((part) => part.text)
-  if (texts.length === 0) return [...parts]
+  const indexed = parts.map((part, index) => ({ part, index }))
+  if (texts.length === 0) return indexed
   const spoken = new Set(texts.map((text) => text.trim()))
   spoken.add(texts.join('\n').trim())
-  return parts.filter((part) => {
+  return indexed.filter(({ part }) => {
     if (part.type !== 'json') return true
     const readable = readableJsonText(part.value)
     return readable === null || !spoken.has(readable.trim())

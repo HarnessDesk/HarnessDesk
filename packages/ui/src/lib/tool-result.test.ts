@@ -136,6 +136,8 @@ describe('readToolResult', () => {
 
 describe('resultPartsToDraw', () => {
   const text = { type: 'text' as const, text: '3 matches in 2 files' }
+  const drawnParts = (parts: Parameters<typeof resultPartsToDraw>[0]) =>
+    resultPartsToDraw(parts).map(({ part }) => part)
 
   it.each([
     ['a string', '3 matches in 2 files'],
@@ -143,7 +145,7 @@ describe('resultPartsToDraw', () => {
     ['text blocks', [{ type: 'text', text: '3 matches in 2 files' }]],
     ['a one-key record', { text: '3 matches in 2 files' }],
   ])('drops JSON that only restates text as %s', (_shape, value) => {
-    expect(resultPartsToDraw([text, { type: 'json', value }])).toEqual([text])
+    expect(drawnParts([text, { type: 'json', value }])).toEqual([text])
   })
 
   it('drops a string that restates all text parts joined with newlines', () => {
@@ -152,11 +154,11 @@ describe('resultPartsToDraw', () => {
       { type: 'text' as const, text: 'in 2 files' },
       { type: 'json' as const, value: '3 matches\nin 2 files' },
     ]
-    expect(resultPartsToDraw(parts)).toEqual(parts.slice(0, 2))
+    expect(drawnParts(parts)).toEqual(parts.slice(0, 2))
   })
 
   it('compares readable output after trimming whitespace', () => {
-    expect(resultPartsToDraw([text, { type: 'json', value: '  3 matches in 2 files  \n' }])).toEqual([text])
+    expect(drawnParts([text, { type: 'json', value: '  3 matches in 2 files  \n' }])).toEqual([text])
   })
 
   it.each([
@@ -165,12 +167,12 @@ describe('resultPartsToDraw', () => {
     ['text that differs', '3 matches in 3 files'],
   ])('keeps JSON that carries %s', (_shape, value) => {
     const json = { type: 'json' as const, value }
-    expect(resultPartsToDraw([text, json])).toEqual([text, json])
+    expect(drawnParts([text, json])).toEqual([text, json])
   })
 
   it('keeps a JSON part when no text part is beside it', () => {
     const json = { type: 'json' as const, value: '3 matches in 2 files' }
-    expect(resultPartsToDraw([json])).toEqual([json])
+    expect(drawnParts([json])).toEqual([json])
   })
 
   it('keeps JSON blocks whose readable result also contains an image', () => {
@@ -181,6 +183,37 @@ describe('resultPartsToDraw', () => {
         { type: 'image', url: 'https://example.test/image.png' },
       ],
     }
-    expect(resultPartsToDraw([text, json])).toEqual([text, json])
+    expect(drawnParts([text, json])).toEqual([text, json])
+  })
+
+  it.each([
+    ['error', { error: 'x' }],
+    ['path', { path: 'x' }],
+  ])('keeps the one-key %s record beside matching text', (_key, value) => {
+    const json = { type: 'json' as const, value }
+    expect(drawnParts([{ type: 'text', text: 'x' }, json])).toEqual([{ type: 'text', text: 'x' }, json])
+  })
+
+  it('drops a one-key stdout record that repeats text', () => {
+    expect(drawnParts([{ type: 'text', text: 'x' }, { type: 'json', value: { stdout: 'x' } }])).toEqual([
+      { type: 'text', text: 'x' },
+    ])
+  })
+
+  it('keeps an output reading marked as an error', () => {
+    const json = { type: 'json' as const, value: { output: 'x', isError: true } }
+    expect(drawnParts([{ type: 'text', text: 'x' }, json])).toEqual([{ type: 'text', text: 'x' }, json])
+  })
+
+  it('keeps each drawn part keyed by its original input index', () => {
+    const parts = [
+      text,
+      { type: 'json' as const, value: '3 matches in 2 files' },
+      { type: 'image' as const, url: 'https://example.test/image.png' },
+    ]
+    expect(resultPartsToDraw(parts)).toEqual([
+      { part: text, index: 0 },
+      { part: parts[2], index: 2 },
+    ])
   })
 })
