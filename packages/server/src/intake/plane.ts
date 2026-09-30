@@ -83,8 +83,8 @@ export interface IntakeHostPort {
   source?(root: string): Promise<TriggerSourceFile>
   /** `FlowCatalog.resolve`. */
   flowSource(root: string, id: string): Promise<{ readonly source: string; readonly origin: FlowOrigin; readonly path: string }>
-  /** `FlowPreviews.freeze`. */
-  preview(root: string, source: string): Promise<FlowPreview>
+  /** `FlowPreviews.freeze`, with the trigger's dependency-free `again` route. */
+  preview(root: string, source: string, againRole?: string | null): Promise<FlowPreview>
   /** Each attachment one Agent resolves to now, as its identity (`TriggerClosureReads.attachments`). */
   attachments?(root: string, agent: string): Promise<readonly string[]>
   readonly goals: TriggerGoalPort & {
@@ -202,7 +202,7 @@ export class IntakePlane {
     this.#forge = new ForgeSource({ ...(port.gh ? { run: port.gh } : {}), now: () => port.now() })
     const closures = this.#closures = new TriggerClosures({
       flowSource: (root, id) => port.flowSource(root, id),
-      preview: (root, source) => port.preview(root, source),
+      preview: (root, source, againRole) => port.preview(root, source, againRole),
       ...(port.attachments ? { attachments: (root: string, agent: string) => port.attachments!(root, agent) } : {}),
     })
     this.#consent = new TriggerConsent(port.home, port.cipher, {

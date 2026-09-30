@@ -108,10 +108,10 @@ test('a tester after an isolated dev opens in a checkout that holds the dev’s 
 test('the dry run marks a reading step it will open at an isolated step’s commit, and only that one', async (t) => {
   const d = await desk(t)
   const relay = await d.host.call('flow/preview', { root: d.root, source: RELAY, vars: TASK }) as FlowPreview
-  assert.deepEqual(relay.seats.map((one) => [one.role, one.isolate, one.atPredecessor === true]), [['dev', true, false], ['tester', false, true]])
+  assert.deepEqual(relay.seats.map((one) => [one.role, one.isolate, one.atPredecessor]), [['dev', true, undefined], ['tester', false, 'always']])
   // Two analysts hand the next round two commits: each is named in its order, and no one is cut a lane at one of them.
   const debate = await d.host.call('flow/preview', { root: d.root, source: DEBATE, vars: TASK }) as FlowPreview
-  assert.ok(debate.seats.every((one) => one.atPredecessor !== true))
+  assert.ok(debate.seats.every((one) => one.atPredecessor === undefined))
 })
 
 test('debate siblings in isolated lanes: each next-round card is told where both positions are, and reaches both', E2E, async (t) => {

@@ -125,7 +125,7 @@ export const rig = (options: { home?: string; cipher?: CredentialCipher } = {}) 
         return { source, origin: 'project', path: `.harnessdesk/flows/${id}.yml` }
       },
       // As the host wires it: a trigger's closure is always read as unattended work would be seated.
-      preview: (root, source) => previews.freeze(root, source, { unattended: true }),
+      preview: (root, source, againRole) => previews.freeze(root, source, { unattended: true, againRole }),
       attachments: async (_root, agent) => world.attachments[agent] ?? [],
     }),
     account: async () => world.account ? { account: world.account } : { refused: 'The forge is not signed in.', fix: 'Sign in to the forge.' },
@@ -142,4 +142,3 @@ export const rig = (options: { home?: string; cipher?: CredentialCipher } = {}) 
   const consent = new TriggerConsent(home, options.cipher ?? plainCipher, port)
   return { world, port, home, consent, previews }
 }
-
