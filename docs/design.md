@@ -821,6 +821,12 @@ settings and usage rail rows stand with the sidebar's rows and a menu item
 rather than a pixel under them on a floor solved from the type alone
 (#1073).
 
+This is a claim about one-line rows. The session list's comfortable density
+gives each session a second line (its preview) and more air, so those rows
+are taller than a rail row by design: they are still floored at
+`--hd-nav-h`, and they still agree with each other, but they are not the
+same row. The rule is measured at the compact density the preview uses.
+
 The settings rail's identity row was the one row out of step with its own
 kind. Its 28px face in what was then a 29px row with 1px borders pushed it to 30px. It
 now draws the seat's 24px face, the size the sidebar's seat row uses.
