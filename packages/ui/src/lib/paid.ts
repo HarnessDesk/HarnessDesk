@@ -18,8 +18,9 @@ import type { UsageLane } from '@harnessdesk/protocol'
  * counts happened inside the window, so it is added to Paid exactly. When
  * the cycle began earlier — most 7-day windows, most 30-day windows on the
  * month's later days — the figure counts money spent partly outside the
- * window too, which Paid cannot honestly fold in; it is shown *beside* the
- * figure instead (`overageAside`), never dropped, so a real cost never
+ * window too, which Paid cannot honestly fold in. Overage in a currency
+ * different from the fee cannot be added either. Both are shown beside Paid
+ * instead (`overageAside`), in `overageAsideCurrency`, so a real cost never
  * vanishes from the screen. The cycle start comes from the report itself —
  * `cycleStartFromLanes`, below — never assumed to be the calendar 1st the
  * way a fee's own `period` would imply: a monthly fee's billing cycle does
@@ -32,7 +33,8 @@ import type { UsageLane } from '@harnessdesk/protocol'
  * never mixed: `paidSummary` sums only the accounts sharing the main
  * currency (the ledger's own, when a known account shares it, else whichever
  * currency's sum is largest) and flags the rest as `otherCurrencies`, naming
- * their own total so it is not simply hidden.
+ * their own total so it is not simply hidden. Foreign-currency overage asides
+ * stay in their own list for the caption and never enter the main aside sum.
  */
 
 export interface Fee {
@@ -148,6 +150,8 @@ export interface AccountPaid {
    * show beside it — no overage, or it was already added into `amount`.
    */
   readonly overageAside: number | null
+  /** The currency of `overageAside`, which can differ from the fee currency. */
+  readonly overageAsideCurrency: string | null
 }
 
 /**
@@ -163,16 +167,29 @@ export const paidForAccount = (
   cycleStart: number | null,
 ): AccountPaid => {
   const fee = billing?.fee
-  if (!fee) return { amount: null, currency: null, overageAside: null }
-  const amount = proratedFee(fee, periodStart, periodEnd)
   const overage = billing?.overage
-  if (overage?.enabled && overage.spent !== null && overage.currency === fee.currency) {
-    if (overageAppliesToPeriod(cycleStart, periodStart, periodEnd)) {
-      return { amount: amount + overage.spent, currency: fee.currency, overageAside: null }
+  const overageSpent = overage?.enabled && overage.spent !== null ? overage.spent : null
+  if (!fee) {
+    return {
+      amount: null,
+      currency: null,
+      overageAside: overageSpent,
+      overageAsideCurrency: overageSpent === null ? null : overage?.currency ?? null,
     }
-    return { amount, currency: fee.currency, overageAside: overage.spent }
   }
-  return { amount, currency: fee.currency, overageAside: null }
+  const amount = proratedFee(fee, periodStart, periodEnd)
+  if (overageSpent === null || !overage?.enabled) {
+    return { amount, currency: fee.currency, overageAside: null, overageAsideCurrency: null }
+  }
+  if (overage.currency !== fee.currency || !overageAppliesToPeriod(cycleStart, periodStart, periodEnd)) {
+    return {
+      amount,
+      currency: fee.currency,
+      overageAside: overageSpent,
+      overageAsideCurrency: overage.currency,
+    }
+  }
+  return { amount: amount + overageSpent, currency: fee.currency, overageAside: null, overageAsideCurrency: null }
 }
 
 export interface PaidSummary {
@@ -189,6 +206,8 @@ export interface PaidSummary {
   readonly otherCurrencyTotals: readonly { readonly currency: string; readonly amount: number }[]
   /** Overage real and spent but not folded into `amount` — see `AccountPaid.overageAside`. Summed across the main-currency accounts; `null` when none of them has any. */
   readonly overageAside: number | null
+  /** Overage asides in currencies other than `currency`, retained separately for the Overview caption. */
+  readonly otherCurrencyOverageAsides: readonly { readonly currency: string; readonly amount: number }[]
 }
 
 export const paidSummary = (
@@ -201,7 +220,12 @@ export const paidSummary = (
     paidForAccount(account.billing, periodStart, periodEnd, account.cycleStart ?? null),
   )
   const known = perAccount.filter(
-    (paid): paid is { readonly amount: number; readonly currency: string; readonly overageAside: number | null } =>
+    (paid): paid is {
+      readonly amount: number
+      readonly currency: string
+      readonly overageAside: number | null
+      readonly overageAsideCurrency: string | null
+    } =>
       paid.amount !== null && paid.currency !== null,
   )
   const missingFeeCount = perAccount.length - known.length
@@ -214,6 +238,7 @@ export const paidSummary = (
       otherCurrencies: false,
       otherCurrencyTotals: [],
       overageAside: null,
+      otherCurrencyOverageAsides: [],
     }
   }
   const sumsByCurrency = new Map<string, number>()
@@ -227,9 +252,18 @@ export const paidSummary = (
   const otherCurrencyTotals = [...sumsByCurrency.entries()]
     .filter(([currency]) => currency !== mainCurrency)
     .map(([currency, total]) => ({ currency, amount: total }))
-  const overageAsideAmounts = known
-    .filter((paid) => paid.currency === mainCurrency && paid.overageAside !== null)
-    .map((paid) => paid.overageAside as number)
+  const overageAsidesByCurrency = new Map<string, number>()
+  for (const paid of known) {
+    if (paid.overageAside === null || paid.overageAsideCurrency === null) continue
+    overageAsidesByCurrency.set(
+      paid.overageAsideCurrency,
+      (overageAsidesByCurrency.get(paid.overageAsideCurrency) ?? 0) + paid.overageAside,
+    )
+  }
+  const overageAside = overageAsidesByCurrency.get(mainCurrency) ?? null
+  const otherCurrencyOverageAsides = [...overageAsidesByCurrency.entries()]
+    .filter(([currency]) => currency !== mainCurrency)
+    .map(([currency, total]) => ({ currency, amount: total }))
   return {
     amount,
     currency: mainCurrency,
@@ -237,6 +271,7 @@ export const paidSummary = (
     knownCount: known.length,
     otherCurrencies: otherCurrencyTotals.length > 0,
     otherCurrencyTotals,
-    overageAside: overageAsideAmounts.length > 0 ? overageAsideAmounts.reduce((sum, value) => sum + value, 0) : null,
+    overageAside,
+    otherCurrencyOverageAsides,
   }
 }

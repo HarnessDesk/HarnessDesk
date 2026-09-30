@@ -454,6 +454,8 @@ export interface MoneyRow {
   readonly paid: number | null
   /** Overage outside Value's window, retained beside Paid. */
   readonly overageAside: number | null
+  /** Currency of `overageAside`; it may differ from the fee currency. */
+  readonly overageAsideCurrency: string | null
   /** Value ÷ Paid, only when both are known in the same currency. */
   readonly ratio: number | null
   /** The plan's own recurring fee, when one is set — never inferred from `spend` or from overage. */
@@ -479,6 +481,7 @@ export const moneyRowOf = (report: UsageReport, now: number): MoneyRow | null =>
     value,
     paid: paid.amount,
     overageAside: paid.overageAside,
+    overageAsideCurrency: paid.overageAsideCurrency,
     ratio: fee && report.spend?.currency === fee.currency ? paidRatio(value, paid.amount) : null,
     fee: fee ? { amount: fee.amount, currency: fee.currency, period: fee.period } : null,
     feeIsUser: fee?.source === 'user',

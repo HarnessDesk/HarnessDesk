@@ -93,8 +93,8 @@ export const PlanFrame = ({
 /**
  * Paid, Value, the Value÷Paid chip, and the plan's own fee — or "Fee not set",
  * a link to the account's own Plan card rather than a figure. Overage outside
- * the window sits beside Paid. Withheld entirely with neither a fee nor a
- * priced window to show.
+ * the window sits beside Paid in its own currency. Withheld entirely with
+ * neither a fee nor a priced window to show.
  */
 export const MoneyRowView = ({
   money,
@@ -113,7 +113,9 @@ export const MoneyRowView = ({
           <Text role="meta">Paid</Text>
           <Text role="value" numeric>{formatMoney(money.paid, fee.currency) ?? `${money.paid}`}</Text>
           {money.overageAside !== null && (
-            <Text role="meta">+ {formatMoney(money.overageAside, fee.currency) ?? `${money.overageAside}`} overage this cycle</Text>
+            <Text role="meta">
+              + {formatMoney(money.overageAside, money.overageAsideCurrency ?? fee.currency) ?? `${money.overageAside}`} overage this cycle
+            </Text>
           )}
         </>
       )}

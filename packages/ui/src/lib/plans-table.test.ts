@@ -713,6 +713,20 @@ describe('moneyRowOf', () => {
     expect(row?.currency).toBe('USD')
   })
 
+  it('carries mismatched-currency overage aside in the overage currency', () => {
+    const row = moneyRowOf(report({
+      billing: billing(['windows'], {
+        fee: { amount: 30, currency: 'USD', period: 'month', source: 'user' },
+        overage: { enabled: true, spent: 8.5, currency: 'EUR' },
+      }),
+      lanes: [lane({ id: 'overage', usedPercent: 20, layer: 'overage', windowMinutes: 10 * 24 * 60, resetsAt: monthEnd })],
+      spend: { currency: 'USD', todayCost: null, windowCost: 31, windowDays: 30, todayTokens: null, windowTokens: null, provenance: 'listPrice', coverage: null },
+    }), monthEnd)
+    expect(row?.paid).toBeCloseTo(30, 6)
+    expect(row?.overageAside).toBe(8.5)
+    expect(row?.overageAsideCurrency).toBe('EUR')
+  })
+
   it('uses the Dashboard 30-day default when spend is absent', () => {
     const row = moneyRowOf(report({ billing: billing(['windows'], { fee: { amount: 30, currency: 'USD', period: 'month', source: 'user' } }) }), monthEnd)
     expect(row?.paid).toBeCloseTo(30, 6)

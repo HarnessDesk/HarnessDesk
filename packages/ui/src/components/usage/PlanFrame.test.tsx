@@ -29,6 +29,7 @@ const row = (over: Partial<MoneyRow>): MoneyRow => ({
   value: 60,
   paid: 100,
   overageAside: null,
+  overageAsideCurrency: null,
   ratio: 0.6,
   fee: { amount: 100, currency: 'USD', period: 'month' },
   feeIsUser: false,
@@ -52,6 +53,11 @@ describe('MoneyRowView', () => {
   it('shows overage beside Paid', () => {
     mount(row({ overageAside: 4.5 }))
     expect(host.textContent).toContain('+ $4.50 overage this cycle')
+  })
+
+  it('formats overage aside in its own currency', () => {
+    mount(row({ overageAside: 4.5, overageAsideCurrency: 'EUR' }))
+    expect(host.textContent).toContain('+ €4.50 overage this cycle')
   })
 
   it('does not show Paid or a ratio chip when no fee is set', () => {
