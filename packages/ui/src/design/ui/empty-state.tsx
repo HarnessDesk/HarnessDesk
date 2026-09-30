@@ -137,7 +137,7 @@ const EmptyState = (allProps: EmptyStateProps) => {
         </span>
       )}
       <div className="flex flex-col gap-1">
-        <Text as="h3" role="subject">{title}</Text>
+        <Text as="h3" role="subject" align="center">{title}</Text>
         {description != null && (
           <p className="text-base text-(--hd-muted-foreground)">{description}</p>
         )}

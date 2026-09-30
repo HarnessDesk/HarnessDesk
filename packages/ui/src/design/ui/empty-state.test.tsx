@@ -36,6 +36,8 @@ it('keeps the centred panel as the default, so existing callers do not move', ()
   expect(panel.className).toContain('text-center')
   expect(panel.querySelector('h3')?.textContent).toBe('Nothing in the background')
   expect(panel.querySelector('h3[data-slot="text"][data-role="subject"]')?.textContent).toBe('Nothing in the background')
+  // Centred with the rest of the panel: Text sets its own alignment, left by default.
+  expect(panel.querySelector('h3')?.className).toContain('text-center')
   expect(panel.querySelector('[data-testid="icon"]')).not.toBeNull()
 })
 
