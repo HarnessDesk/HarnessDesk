@@ -144,7 +144,8 @@ export interface AccountPaid {
   /**
    * Overage that is real and unpaid-for-elsewhere but cannot be honestly
    * folded into `amount` — the cycle it covers is not wholly inside the
-   * window, or the report does not say where the cycle starts. Never
+   * window, the report does not say where the cycle starts, or it is billed
+   * in a currency other than the fee's (`overageAsideCurrency`). Never
    * dropped: a caller shows this beside the figure ("+ $50 overage this
    * cycle") rather than silently losing it. `null` when there is nothing to
    * show beside it — no overage, or it was already added into `amount`.
