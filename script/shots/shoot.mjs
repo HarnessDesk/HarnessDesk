@@ -92,6 +92,10 @@ const THEMES = flag('theme') ? [flag('theme')] : ['light', 'dark']
    scene's eleven event rows. This switch only changes the camera fixture;
    ordinary `room` and `board` captures keep their fuller working board. */
 const ROOM_TILE = has('room-tile')
+/* A tall, per-agent heatmap avoids the known overlapping first-month labels
+   in the Year view and gives the Dashboard tour an Activity frame with no
+   dead lower half. Like `ROOM_TILE`, this is camera-only. */
+const DASHBOARD_TILE = has('dashboard-tile')
 const REPO = join(WORK, REPOS[0].dir)
 const say = (line) => process.stdout.write(`  ${line}\n`)
 const PROVENANCE_SHOTS = (() => {
@@ -1164,6 +1168,10 @@ rules:
       await sleep(1600)
       if (!(await click('Activity'))) throw new Error('no Activity row in the Dashboard nav')
       await sleep(1600)
+      if (DASHBOARD_TILE) {
+        if (!(await click('By agent'))) throw new Error('no By agent toggle in Activity')
+        await sleep(1200)
+      }
     } },
 
     /** The rebuilt settings patterns, reached through the same store request features use. */
