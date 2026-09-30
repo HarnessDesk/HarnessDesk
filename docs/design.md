@@ -1188,6 +1188,8 @@ own, so a single-area primitive is still held to "may only fall," and moving
 a genuine screen composition into `design/ui/` to dodge the
 `screenAppearance` charge just raises this one instead — it never zeroes the
 move out. `pnpm design:audit --verbose` lists each one by name.
+The named data-geometry and native-boundary exceptions are listed in `SINGLE_AREA_PRIMITIVE_EXEMPTIONS`
+and remain exempt only while each export stays single to its recorded area.
 
 Both ledgers count *exports*, not declarations, which prices a move unevenly
 on purpose: `screenAppearance` charges every appearance-side declaration a

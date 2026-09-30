@@ -45,7 +45,7 @@ export const SECTIONS = [
   [
     'singleAreaPrimitive',
     'Single-area design/ui/ primitives',
-    'A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen\'s own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever.',
+    'A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen\'s own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. Named data-geometry and native-boundary exemptions in `SINGLE_AREA_PRIMITIVE_EXEMPTIONS` remain exempt only while each export stays single to its recorded area.',
     'Nothing to fix by itself: read the listed export under `--verbose` and judge whether it is genuinely reusable vocabulary (leave it) or a screen\'s own composition that was placed in `design/ui/` rather than `design/patterns/` (move it, which moves the finding to `screenAppearance` instead). This category is a burn-down: its ceiling may only fall.',
   ],
   [

@@ -32,9 +32,11 @@ import {
   resolveFamilies,
   resolvedConsumersOf,
   SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS,
+  SINGLE_AREA_PRIMITIVE_EXEMPTIONS,
   screenAppearanceOf,
   screenAreaOf,
   staleScreenAppearanceExemptions,
+  staleSingleAreaPrimitiveExemptions,
   singleScreenAreaOf,
   screenInlineStyleAppearanceOf,
   patternSourceAppearanceOf,
@@ -1630,6 +1632,36 @@ test('a named exemption that matches nothing is reported, so the list cannot out
   // Moved under an at-rule, it no longer names that rule: stale.
   assert.deepEqual(staleScreenAppearanceExemptions(() => `${without}\n@media print { ${first.selector} { ${first.property}: ${first.value}; } }`), [first])
   assert.equal(staleScreenAppearanceExemptions(() => null).length, 3)
+})
+
+test('single-area exemptions (data geometry, native boundaries) name only the live usage exports and go stale with their contract', () => {
+  const expected = new Map([
+    ['design/ui/chart.tsx', ['ChartCard', 'ChartFoot', 'ChartFrame', 'ChartTitle', 'SegmentMeter', 'BurnDown', 'ChartAxis', 'ChartHead', 'ChartHint', 'ChartTools', 'DayColumns', 'PaceBadge', 'ChartTip', 'ChartTipRow']],
+    ['design/ui/heat-grid.tsx', ['HeatGrid', 'HeatLegend']],
+    ['design/ui/delta.tsx', ['Delta']],
+    ['design/ui/tone.ts', ['tintFor', 'tintsFor']],
+    ['design/adapters/terminal.ts', ['terminalAppearance']],
+  ])
+  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 20)
+  assert.deepEqual(new Map(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.map(({ module, exports: names }) => [module, names])), expected)
+  for (const entry of SINGLE_AREA_PRIMITIVE_EXEMPTIONS) {
+    if (entry.kind === 'data-geometry') {
+      assert.match(entry.module, /^design\/ui\//)
+      assert.equal(entry.area, 'usage')
+    } else {
+      assert.equal(entry.kind, 'native-boundary', `${entry.module} is one of the two recorded kinds`)
+      assert.match(entry.module, /^design\/adapters\//)
+    }
+    assert.ok(entry.reason.length > 40, `${entry.module} carries a specific reason`)
+  }
+
+  const [entry] = SINGLE_AREA_PRIMITIVE_EXEMPTIONS
+  const localName = entry.exports[0]
+  const lookup = (area) => (_module, name) => name === localName ? area : 'usage'
+  assert.deepEqual(staleSingleAreaPrimitiveExemptions([entry], lookup(null)).map(({ localName: stale }) => stale), [localName])
+  assert.deepEqual(staleSingleAreaPrimitiveExemptions([entry], (_module, name) => name === localName ? undefined : 'usage').map(({ localName: stale }) => stale), [localName])
+  assert.deepEqual(staleSingleAreaPrimitiveExemptions([entry], lookup('settings')).map(({ localName: stale }) => stale), [localName])
+  assert.deepEqual(staleSingleAreaPrimitiveExemptions([entry], lookup('usage')), [])
 })
 
 test('screen property families have one explicit appearance or layout boundary', (t) => {
