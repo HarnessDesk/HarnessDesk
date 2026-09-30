@@ -5,10 +5,12 @@ import { runtimeId, type LedgerReport, type RuntimeId } from '@harnessdesk/proto
 import {
   addDays,
   buildDayRange,
+  buildHourGrid,
   buildYearGrid,
   earliestScannedDay,
   localMidnight,
   quartileLevels,
+  toHourGridCell,
   streaksFor,
   busiestWeekday,
 } from './heat'
@@ -286,5 +288,52 @@ describe('buildYearGrid', () => {
     for (let index = 1; index < weeks.length; index += 1) {
       expect((weeks[index] as number) - (weeks[index - 1] as number)).toBeGreaterThanOrEqual(3)
     }
+  })
+})
+
+describe('buildHourGrid', () => {
+  it('sums runtime-scoped hourly rows and maps Sunday to the last Monday-first row', () => {
+    const ledger = {
+      ...report([]),
+      hourly: [
+        { runtime: CODEX, weekday: 0, hour: 10, requests: 4, tokens: 1_000 },
+        { runtime: CODEX, weekday: 0, hour: 10, requests: 3, tokens: 500 },
+        { runtime: runtimeId('claude'), weekday: 1, hour: 9, requests: 2, tokens: 200 },
+      ],
+    } as LedgerReport
+    const grid = buildHourGrid(ledger, 'tokens')
+
+    expect(grid.cells).toHaveLength(7)
+    expect(grid.cells.every((row) => row.length === 24)).toBe(true)
+    expect(grid.cells[6]?.[10]).toMatchObject({ weekday: 6, hour: 10, requests: 7, tokens: 1_500 })
+    expect(grid.cells[0]?.[9]).toMatchObject({ weekday: 0, hour: 9, requests: 2, tokens: 200 })
+    expect(grid.levelOf(1_500)).toBe(4)
+    expect(grid.levelOf(0)).toBe(0)
+
+    const runtimeScoped = { ...ledger, hourly: ledger.hourly?.filter((entry) => entry.runtime === CODEX) }
+    const scopedGrid = buildHourGrid(runtimeScoped, 'tokens')
+    expect(scopedGrid.cells[6]?.[10]).toMatchObject({ requests: 7, tokens: 1_500 })
+    expect(scopedGrid.cells.flat().reduce((sum, cell) => sum + cell.tokens, 0)).toBe(1_500)
+  })
+
+  it('uses calls as the hourly measure and has no data when hourly coverage is absent', () => {
+    const ledger = { ...report([]), hourly: [{ runtime: CODEX, weekday: 2, hour: 18, requests: 9, tokens: 30 }] } as LedgerReport
+    const grid = buildHourGrid(ledger, 'calls')
+    expect(grid.cells[1]?.[18]?.value).toBe(9)
+    expect(grid.cells[2]?.[18]?.value).toBe(0)
+    expect(buildHourGrid(report([]), 'tokens').available).toBe(false)
+  })
+
+  it('gives each slot a tooltip with its local hour and both figures, leaving zero at level zero', () => {
+    const cell = { weekday: 1, hour: 10, tokens: 1_200_000, requests: 84, value: 1_200_000 }
+    const populated = toHourGridCell(cell, quartileLevels([cell.value]))
+    expect(populated.tooltip).toEqual({
+      title: 'Tuesday 10–11 AM',
+      footer: { label: 'Total', value: '1.2M tokens · 84 calls' },
+    })
+    const zero = toHourGridCell({ ...cell, tokens: 0, requests: 0, value: 0 }, () => 4)
+    expect(zero.level).toBe(0)
+    expect(zero.state).toBe('empty')
+    expect(toHourGridCell({ ...cell, weekday: 6, hour: 23 }, quartileLevels([cell.value])).tooltip?.title).toBe('Sunday 11 PM–12 AM')
   })
 })

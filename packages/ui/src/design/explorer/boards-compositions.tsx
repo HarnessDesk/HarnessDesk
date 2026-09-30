@@ -189,9 +189,12 @@ import { HeatGrid, HeatLegend, type HeatGridRow } from '../ui/heat-grid'
 import {
   agentLevels,
   buildAgentRows,
+  buildHourGrid,
   buildYearGrid,
   toGridCell,
+  toHourGridCell,
   yearLevels,
+  WEEKDAY_NAMES,
   type HeatCell,
   type HeatMetric,
 } from '@/lib/heat'
@@ -1265,6 +1268,42 @@ const heatAgentRows = (ledger: LedgerReport | null, metric: HeatMetric, byId: Re
   return { rows, columns: cells.length / 7 }
 }
 
+const heatHourRows = (ledger: LedgerReport): { rows: HeatGridRow[]; columns: number; columnLabels: { index: number; label: string }[] } => {
+  const grid = buildHourGrid(ledger, 'tokens')
+  return {
+    rows: grid.cells.map((cells, weekday) => ({
+      key: WEEKDAY_NAMES[weekday] ?? String(weekday),
+      header: [0, 2, 4].includes(weekday) ? <Text role="meta">{WEEKDAY_NAMES[weekday]?.slice(0, 3)}</Text> : undefined,
+      cells: cells.map((cell) => toHourGridCell(cell, grid.levelOf)),
+    })),
+    columns: 24,
+    columnLabels: [
+      { index: 0, label: '12a' },
+      { index: 6, label: '6a' },
+      { index: 12, label: '12p' },
+      { index: 18, label: '6p' },
+    ],
+  }
+}
+
+const heatHourLedger = (): LedgerReport => ({
+  ...heatLedger({ days: 365, notScanned: 40 }),
+  hourly: Array.from({ length: 7 * 24 }, (_, index) => {
+    const weekday = Math.floor(index / 24)
+    const hour = index % 24
+    const daytime = hour >= 9 && hour < 19
+    const factor = (weekday < 5 ? 1 : 0.25) * (daytime ? 1 : 0.22) * (0.65 + ((index * 31) % 35) / 100)
+    return [
+      { runtime: HEAT_CLAUDE, weekday, hour, requests: Math.round(36 * factor), tokens: Math.round(2_100_000 * factor) },
+      { runtime: HEAT_CODEX, weekday, hour, requests: Math.round(19 * factor), tokens: Math.round(1_050_000 * factor) },
+    ]
+  }).flat(),
+  coverage: {
+    ...heatLedger({ days: 365, notScanned: 40 }).coverage,
+    hoursKnownFor: [HEAT_CLAUDE, HEAT_CODEX],
+  },
+})
+
 const HEAT_AGENT_NAMES: Readonly<Record<string, string>> = { [String(HEAT_CLAUDE)]: 'Claude Code', [String(HEAT_CODEX)]: 'Codex' }
 
 const heatLevelTitle = (level: 0 | 1 | 2 | 3 | 4): string => (level === 0 ? 'Nothing' : `Level ${level} of 4`)
@@ -1274,6 +1313,7 @@ const ChartKitBoard = () => {
   const heatOneDay = heatYearRows(heatLedger({ days: 30, notScanned: 29 }), 'tokens')
   const heatFullYear = heatYearRows(heatLedger({ days: 365, notScanned: 40 }), 'tokens')
   const heatByAgent = heatAgentRows(heatLedger({ days: 365, notScanned: 40 }), 'tokens', HEAT_AGENT_NAMES)
+  const heatByHour = heatHourRows(heatHourLedger())
   const heatCostUnpriced = heatYearRows(heatLedger({ days: 60, unpricedDay: true }), 'cost')
 
   return (
@@ -1429,6 +1469,21 @@ const ChartKitBoard = () => {
       </Case>
       <Case label="cost, with a day the ledger can't price">
         <HeatGrid label="Cost, unpriced day included" rows={heatCostUnpriced.rows} columns={heatCostUnpriced.columns} minCellPx={5} />
+      </Case>
+    </div>
+    <div className={styles.matrix}>
+      <Case label="by hour — local weekday and hour, with unknown hours called out">
+        <div className="flex w-full flex-col gap-3">
+          <HeatGrid
+            label="Tokens by local weekday and hour"
+            rows={heatByHour.rows}
+            columns={heatByHour.columns}
+            columnLabels={heatByHour.columnLabels}
+            minCellPx={7}
+          />
+          <HeatLegend levelTitle={heatLevelTitle} />
+          <EmptyState tight title="Hours fill in after the next full scan" />
+        </div>
       </Case>
     </div>
     <Rule>

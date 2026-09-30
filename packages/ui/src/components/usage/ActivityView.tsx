@@ -1,6 +1,6 @@
 import type { LedgerReport, RuntimeId, RuntimeInfo } from '@harnessdesk/protocol'
 
-import type { HeatMetric } from '../../lib/heat'
+import type { ActivityMetric } from '../../lib/heat'
 import { UsageActivity, type HeatView } from '../UsageActivity'
 
 /** Activity: when it ran, full width — the heatmap alone, scoped like every other view. */
@@ -23,8 +23,8 @@ export const ActivityView = ({
   yearLedger: LedgerReport | null
   heatView: HeatView
   onHeatViewChange: (view: HeatView) => void
-  heatMetric: HeatMetric
-  onHeatMetricChange: (metric: HeatMetric) => void
+  heatMetric: ActivityMetric
+  onHeatMetricChange: (metric: ActivityMetric) => void
 }) => (
   <UsageActivity
     byId={byId}

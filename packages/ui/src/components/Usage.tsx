@@ -22,7 +22,7 @@ import { PlansView } from './usage/PlansView'
 import { SpendView } from './usage/SpendView'
 import { ActivityView } from './usage/ActivityView'
 import { ProjectsView } from './usage/ProjectsView'
-import type { HeatMetric } from '../lib/heat'
+import type { ActivityMetric } from '../lib/heat'
 import type { HeatView } from './UsageActivity'
 import styles from './Usage.module.css'
 
@@ -108,7 +108,7 @@ export const Usage = ({
    */
   const [yearLedger, setYearLedger] = useState<LedgerReport | null>(null)
   const [heatView, setHeatView] = useState<HeatView>('year')
-  const [heatMetric, setHeatMetric] = useState<HeatMetric>('tokens')
+  const [heatMetric, setHeatMetric] = useState<ActivityMetric>('tokens')
   /** The Overview strip's own chart toggle — see `OverviewStrip.tsx`. Owned here, not by the strip, the same reason `pivot` and `mode` are: it is one piece of state for a view that unmounts and remounts as the rail switches. */
   const [stripMetric, setStripMetric] = useState<StripMetric>('value')
   const [insightReport, setInsightReport] = useState<InsightReport | null>(null)
