@@ -124,6 +124,34 @@ describe('an opened tool step', () => {
     expect(container.querySelectorAll('[data-slot="code-block"]')).toHaveLength(0)
   })
 
+  it('does not draw a JSON record that only repeats a text result', () => {
+    open(call({
+      tool: 'search_files',
+      result: [
+        { type: 'text', text: '3 matches in 2 files' },
+        { type: 'json', value: { text: '3 matches in 2 files' } },
+      ],
+    }))
+
+    expect(outputs()).toEqual(['3 matches in 2 files'])
+    expect(container.textContent).not.toContain('"text":')
+  })
+
+  it('draws a JSON record beside text when it carries additional information', () => {
+    open(call({
+      tool: 'search_files',
+      result: [
+        { type: 'text', text: '3 matches' },
+        { type: 'json', value: { text: '3 matches', files: ['a', 'b'] } },
+      ],
+    }))
+
+    expect(outputs()).toHaveLength(2)
+    expect(outputs()[0]).toBe('3 matches')
+    expect(outputs()[1]).toContain('"files"')
+    expect(outputs()[1]).toContain('"a"')
+  })
+
   it("puts a shell call's {output} inside its own command plate, saying so when there was none", () => {
     open(call({ tool: 'ls -a', args: { command: 'ls -a', description: 'List' }, result: [{ type: 'json', value: { output: '.\n..', isError: false } }] }))
     expect(container.querySelectorAll('[data-slot="code-block"]')).toHaveLength(1)

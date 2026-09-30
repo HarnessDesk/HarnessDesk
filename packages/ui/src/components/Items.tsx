@@ -82,7 +82,7 @@ import {
 } from '../lib/group-items'
 import { editOf } from '../lib/handoff'
 import { findTodos, planOf, todoState, type Todo } from '../lib/todos'
-import { readToolResult } from '../lib/tool-result'
+import { readToolResult, resultPartsToDraw } from '../lib/tool-result'
 import { effectiveItemStatus } from '../lib/turn-view'
 import {
   bareToolName,
@@ -1114,6 +1114,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
     && commandOutputParts.every((part): part is string => part !== null)
     ? commandOutputParts.join('\n')
     : undefined
+  const resultParts = resultPartsToDraw(item.result ?? [])
   const pattern = [record?.['pattern'], record?.['query']].find(
     (value): value is string => typeof value === 'string' && value.trim().length > 0,
   )
@@ -1170,7 +1171,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
   const argsShown = !(recordsCommand || readsInFull) && typeof item.args === 'object' && item.args !== null
     && (Array.isArray(item.args) || Object.keys(item.args).length > 0)
   const resultsShown = !(planOf(item.args) !== null && effectiveItemStatus(item) !== 'failed')
-    && (item.result ?? []).some(resultPartDraws)
+    && resultParts.some(resultPartDraws)
   /* A step with nothing to show under it does not offer to open: an opened
      card with an empty body reads as something that failed to load. */
   const bodyEmpty = !wire && !item.error && !change && !command && !argsShown && !resultsShown
@@ -1237,7 +1238,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
               the agent's echo of it ("Updated todo list: …") says it twice. */}
           {commandOutput === undefined &&
             !(planOf(item.args) !== null && effectiveItemStatus(item) !== 'failed') &&
-            item.result?.map((part, index) => resultPartView(part, String(index)))}
+            resultParts.map((part, index) => resultPartView(part, String(index)))}
         </>
       )}
       </>)}

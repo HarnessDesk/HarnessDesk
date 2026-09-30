@@ -1,3 +1,5 @@
+import type { ToolResultContent } from '@harnessdesk/protocol'
+
 /**
  * What a tool call's own result actually is, however the runtime shaped it.
  *
@@ -125,4 +127,38 @@ export const readToolResult = (value: unknown): ToolResultReading => {
   const blocks = blocksOf(value)
   if (blocks) return { kind: 'blocks', blocks, error: isRecord(value) && value['isError'] === true }
   return commandOf(value) ?? outputOf(value) ?? { kind: 'json' }
+}
+
+const readableJsonText = (value: unknown): string | null => {
+  if (typeof value === 'string') return value
+  const reading = readToolResult(value)
+  if (reading.kind === 'output') return reading.text
+  if (reading.kind === 'blocks' && !reading.blocks.some((block) => block.type === 'image')) {
+    return reading.blocks
+      .filter((block): block is Extract<(typeof reading.blocks)[number], { type: 'text' }> => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n')
+  }
+  if (isRecord(value)) {
+    const prototype = Object.getPrototypeOf(value)
+    const keys = Reflect.ownKeys(value)
+    if ((prototype === Object.prototype || prototype === null) && keys.length === 1 && typeof keys[0] === 'string') {
+      const onlyValue = value[keys[0]]
+      if (typeof onlyValue === 'string') return onlyValue
+    }
+  }
+  return null
+}
+
+/** The adapter keeps the raw record on purpose; skip it here when it only restates text. */
+export const resultPartsToDraw = (parts: readonly ToolResultContent[]): ToolResultContent[] => {
+  const texts = parts.filter((part) => part.type === 'text').map((part) => part.text)
+  if (texts.length === 0) return [...parts]
+  const spoken = new Set(texts.map((text) => text.trim()))
+  spoken.add(texts.join('\n').trim())
+  return parts.filter((part) => {
+    if (part.type !== 'json') return true
+    const readable = readableJsonText(part.value)
+    return readable === null || !spoken.has(readable.trim())
+  })
 }

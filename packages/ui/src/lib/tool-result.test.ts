@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { readToolResult } from './tool-result'
+import { readToolResult, resultPartsToDraw } from './tool-result'
 
 /**
  * A tool result's own envelope, read once regardless of which runtime sent
@@ -132,4 +132,55 @@ describe('readToolResult', () => {
     expect(readToolResult({ commandLine: 'ls', combinedOutput: '', pid: 4 })).toEqual({ kind: 'json' })
   })
 
+})
+
+describe('resultPartsToDraw', () => {
+  const text = { type: 'text' as const, text: '3 matches in 2 files' }
+
+  it.each([
+    ['a string', '3 matches in 2 files'],
+    ['an output pair', { output: '3 matches in 2 files', isError: false }],
+    ['text blocks', [{ type: 'text', text: '3 matches in 2 files' }]],
+    ['a one-key record', { text: '3 matches in 2 files' }],
+  ])('drops JSON that only restates text as %s', (_shape, value) => {
+    expect(resultPartsToDraw([text, { type: 'json', value }])).toEqual([text])
+  })
+
+  it('drops a string that restates all text parts joined with newlines', () => {
+    const parts = [
+      { type: 'text' as const, text: '3 matches' },
+      { type: 'text' as const, text: 'in 2 files' },
+      { type: 'json' as const, value: '3 matches\nin 2 files' },
+    ]
+    expect(resultPartsToDraw(parts)).toEqual(parts.slice(0, 2))
+  })
+
+  it('compares readable output after trimming whitespace', () => {
+    expect(resultPartsToDraw([text, { type: 'json', value: '  3 matches in 2 files  \n' }])).toEqual([text])
+  })
+
+  it.each([
+    ['a record with more keys', { text: '3 matches in 2 files', files: ['a', 'b'] }],
+    ['a command reading', { commandLine: 'find .', combinedOutput: '3 matches in 2 files' }],
+    ['text that differs', '3 matches in 3 files'],
+  ])('keeps JSON that carries %s', (_shape, value) => {
+    const json = { type: 'json' as const, value }
+    expect(resultPartsToDraw([text, json])).toEqual([text, json])
+  })
+
+  it('keeps a JSON part when no text part is beside it', () => {
+    const json = { type: 'json' as const, value: '3 matches in 2 files' }
+    expect(resultPartsToDraw([json])).toEqual([json])
+  })
+
+  it('keeps JSON blocks whose readable result also contains an image', () => {
+    const json = {
+      type: 'json' as const,
+      value: [
+        { type: 'text', text: '3 matches in 2 files' },
+        { type: 'image', url: 'https://example.test/image.png' },
+      ],
+    }
+    expect(resultPartsToDraw([text, json])).toEqual([text, json])
+  })
 })
