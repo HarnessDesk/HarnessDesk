@@ -225,12 +225,17 @@ try {
         })
         const el = hits.sort((a, b) => (a.textContent ?? '').length - (b.textContent ?? '').length)[0]
         if (!el) return false
+        el.scrollIntoView({ block: 'center', inline: 'nearest' })
         const rect = el.getBoundingClientRect()
         return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
       })()`,
       )
     let hit = await find()
     for (let waited = 0; !hit && waited < wait; waited += 200) {
+      await sleep(200)
+      hit = await find()
+    }
+    if (hit) {
       await sleep(200)
       hit = await find()
     }
@@ -247,9 +252,11 @@ try {
   const fill = (label, value) =>
     cdp.eval(`(() => {
     const tag = [...document.querySelectorAll('label')].find((one) => one.textContent.trim() === ${q(label)})
-    const input = (tag && document.getElementById(tag.getAttribute('for'))) || document.querySelector('[aria-label=' + JSON.stringify(${q(label)}) + ']')
+    let input = (tag && document.getElementById(tag.getAttribute('for'))) || document.querySelector('[aria-label=' + JSON.stringify(${q(label)}) + ']')
+    if (!input) input = [...document.querySelectorAll('input, textarea')].find((one) => one !== document.querySelector('[aria-label="What finishes this?"]'))
     if (!input) return false
-    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, ${q(value)})
+    const proto = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+    Object.getOwnPropertyDescriptor(proto, 'value').set.call(input, ${q(value)})
     input.dispatchEvent(new Event('input', { bubbles: true }))
     return true
   })()`)
@@ -318,7 +325,8 @@ try {
     // (`TURNS[4]`) has a 700ms `think` delay before its first token, which is
     // room enough for these two lines to land first and read as context the
     // room already had, not as a narration of what is about to happen.
-    // const post disabled for isolation test
+    await cdp.eval(`${STORE}.send([{ type: 'text', text: 'The room is ready for the checkout hardening hand-off.' }], ${q(claudeKey)})`, 60_000)
+    await cdp.eval(`${STORE}.send([{ type: 'text', text: 'Earlier context: checkout currently fails on a transient 502.' }], ${q(claudeKey)})`, 60_000)
     await sleep(9000)
     await answerApprovals(cdp).catch(() => {})
     await retildify()
@@ -415,7 +423,7 @@ try {
       throw new Error('no "Fix and review" shape in the catalogue — is .harnessdesk/flows/fix-and-review.yml there?')
     }
     await waitForSnapshot(
-      () => cdp.eval(`[...document.querySelectorAll('label')].some((one) => one.textContent.trim() === 'What to fix')`),
+      () => cdp.eval(`document.querySelector('[role="dialog"][aria-label="Start Fix and review"]') !== null`),
       Boolean,
     )
     if (!(await fill('What to fix', 'Retry the checkout call on a 502'))) throw new Error('no "What to fix" field')
