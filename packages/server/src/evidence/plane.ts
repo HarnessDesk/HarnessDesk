@@ -55,7 +55,17 @@ export interface EvidenceOptions {
   /** Seals the key the approvals are signed with; the desktop app's is backed by the OS keychain. */
   readonly cipher?: CredentialCipher
   readonly now?: () => number
+  /** How long closing waits for card looks still running; `LOOK_DRAIN_MS` when absent. */
+  readonly lookDrainMs?: number
 }
+
+/**
+ * How long closing the desk waits for card looks still in flight. A look is a
+ * few git reads and one `gh` read, each under its own timeout, and on a
+ * healthy checkout it is over in well under a second. This bound is for the
+ * one that is not: a hung git must not hold the quit open.
+ */
+export const LOOK_DRAIN_MS = 10_000
 
 /**
  * Where a card's work began, for its diff: its claim's own record; else where
@@ -71,6 +81,7 @@ export const cardStart = (
 
 export class EvidencePlane {
   readonly #settling = new Map<string, Set<Promise<void>>>()
+  readonly #looks = new Set<Promise<void>>()
   readonly store: EvidenceStore
   readonly seats: SeatBook
   readonly seen: CommandsSeen
@@ -84,10 +95,13 @@ export class EvidencePlane {
   readonly #now: () => number
   /** The last stamp a board read took: each is later than the one before, whatever the clock does. */
   #lastStamp = 0
+  #closed = false
+  readonly #lookDrainMs: number
 
   constructor(options: EvidenceOptions, port: EvidencePort) {
     this.#port = port
     this.#now = options.now ?? Date.now
+    this.#lookDrainMs = options.lookDrainMs ?? LOOK_DRAIN_MS
     this.store = new EvidenceStore(options.dir, (message, details) => port.log(message, details))
     this.seats = new SeatBook(this.store, options.now)
     this.store.onDurable((_project, file, lines) => {
@@ -388,7 +402,7 @@ export class EvidencePlane {
    * awaited by the board.
    */
   settled(room: string, intent: Intent): void {
-    if (intent.state !== 'done' || !intent.claim) return
+    if (this.#closed || intent.state !== 'done' || !intent.claim) return
     const cwd = this.#port.cwdOf(intent.claim.runtime, intent.claim.sessionId)
     const board = this.#port.board(room)
     if (!cwd || !board) return
@@ -405,6 +419,7 @@ export class EvidencePlane {
       }
       if (await this.observer.observe(look)) this.announce(room)
     })()
+    this.#trackLook(work)
     let pending = this.#settling.get(room)
     if (!pending) {
       pending = new Set()
@@ -441,6 +456,7 @@ export class EvidencePlane {
    * claimed one is measured all the way to its checkout's HEAD.
    */
   #lookAround(room: string, board: TeamState, project: string, records: readonly EvidenceRecord[]): void {
+    if (this.#closed) return
     const looks: Look[] = []
     for (const intent of board.intents) {
       const holder =
@@ -502,9 +518,11 @@ export class EvidencePlane {
       })
     }
     if (looks.length === 0) return
-    void (async () => {
+    const work = (async () => {
       let recorded = false
       for (const look of looks) {
+        // Closing waits for the look under way, never for the rest of its batch.
+        if (this.#closed) break
         try {
           recorded = (await this.observer.observe(look)) || recorded
         } catch (error) {
@@ -517,6 +535,13 @@ export class EvidencePlane {
       }
       if (recorded) this.announce(room)
     })()
+    this.#trackLook(work)
+  }
+
+  /** Every background look must finish before the store is flushed for quit. */
+  #trackLook(work: Promise<void>): void {
+    this.#looks.add(work)
+    void work.finally(() => this.#looks.delete(work)).catch(() => undefined)
   }
 
   /**
@@ -744,12 +769,25 @@ export class EvidencePlane {
 
 
   /**
-   * The desk is closing: every check still running is stopped — it leaves no
-   * fact, since nothing was observed — and this resolves once every record
-   * already asked for is on disk.
+   * The desk is closing: no new looks start, running checks are stopped, and
+   * every look and Seat settles before the store flush. Looks come first so
+   * none can append to the evidence folder after that flush (#1141). The wait
+   * for looks is bounded (`LOOK_DRAIN_MS`). Past it, the quit goes on and says
+   * so once, and whatever is still running may land late, which only a hung
+   * git or `gh` can cause.
    */
   async close(): Promise<void> {
+    this.#closed = true
     await this.checks.stop()
+    if (this.#looks.size > 0) {
+      let deadline: ReturnType<typeof setTimeout> | undefined
+      const late = await Promise.race([
+        Promise.allSettled([...this.#looks]).then(() => false),
+        new Promise<boolean>((resolve) => { deadline = setTimeout(() => resolve(true), this.#lookDrainMs) }),
+      ])
+      clearTimeout(deadline)
+      if (late) this.#port.log('some card looks were still running when the desk closed', { looks: this.#looks.size })
+    }
     await this.seats.settled()
     // A write that failed was refused to its caller already; the quit says so again, where it is read.
     await this.store.flush().catch((error: unknown) =>
