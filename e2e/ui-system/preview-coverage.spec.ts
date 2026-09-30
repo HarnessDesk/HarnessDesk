@@ -257,7 +257,10 @@ test.describe('preview coverage', () => {
   })
 
   test('every exported components/ and panels/ component renders in preview.html or design.html', async ({ page }) => {
-    test.setTimeout(180_000)
+    // It visits every dial of both pages; on the hosted runner that now takes
+    // about three minutes, and at 180s it failed two runs in three with
+    // nothing wrong (#1140). Sharding is the lasting fix.
+    test.setTimeout(360_000)
     const covered = new Set<string>()
     let allComponents: readonly string[] = []
 
