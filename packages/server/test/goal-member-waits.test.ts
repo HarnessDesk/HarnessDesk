@@ -38,6 +38,76 @@ test('member names are stable, deterministic and collision-free without changing
   assert.deepEqual(historical, { from: 'Builder', text: 'already recorded' })
 })
 
+test('same-label reviewer Seats are named by role and ordinal', () => {
+  const names = memberNames([
+    seat('reviewer-3', { seatLabel: 'Cursor · Gemini 3.8 Flash', role: 'reviewer', openedAt: 3 }),
+    seat('reviewer-1', { seatLabel: 'Cursor · Gemini 3.8 Flash', role: 'reviewer', openedAt: 1 }),
+    seat('reviewer-2', { seatLabel: 'Cursor · Gemini 3.8 Flash', role: 'reviewer', openedAt: 2 }),
+  ])
+
+  assert.deepEqual([...names], [
+    ['reviewer-1', 'reviewer 1'],
+    ['reviewer-2', 'reviewer 2'],
+    ['reviewer-3', 'reviewer 3'],
+  ])
+})
+
+test('same-label Seats without a role keep the label and use numeric suffixes', () => {
+  const names = memberNames([
+    seat('seat-2', { seatLabel: 'Cursor · Gemini 3.8 Flash', openedAt: 2 }),
+    seat('seat-1', { seatLabel: 'Cursor · Gemini 3.8 Flash', openedAt: 1 }),
+  ])
+
+  assert.deepEqual([...names], [
+    ['seat-1', 'Cursor · Gemini 3.8 Flash'],
+    ['seat-2', 'Cursor · Gemini 3.8 Flash 2'],
+  ])
+})
+
+test('same-label Seats number a role only when it repeats', () => {
+  const names = memberNames([
+    seat('reviewer-2', { seatLabel: 'Cursor · Gemini 3.8 Flash', role: 'reviewer', openedAt: 2 }),
+    seat('fixer', { seatLabel: 'Cursor · Gemini 3.8 Flash', role: 'fixer', openedAt: 1 }),
+    seat('reviewer-3', { seatLabel: 'Cursor · Gemini 3.8 Flash', role: 'reviewer', openedAt: 3 }),
+    seat('reviewer-1', { seatLabel: 'Cursor · Gemini 3.8 Flash', role: 'reviewer', openedAt: 4 }),
+  ])
+
+  assert.deepEqual([...names], [
+    ['fixer', 'fixer'],
+    ['reviewer-2', 'reviewer 1'],
+    ['reviewer-3', 'reviewer 2'],
+    ['reviewer-1', 'reviewer 3'],
+  ])
+})
+
+test('two same-label groups of one role number across the room, never both from 1', () => {
+  const names = memberNames([
+    seat('gemini-a', { seatLabel: 'Cursor · Gemini 3.8 Flash', role: 'reviewer', openedAt: 1 }),
+    seat('codex-a', { seatLabel: 'Codex · GPT-5.6', role: 'reviewer', openedAt: 2 }),
+    seat('gemini-b', { seatLabel: 'Cursor · Gemini 3.8 Flash', role: 'reviewer', openedAt: 3 }),
+    seat('codex-b', { seatLabel: 'Codex · GPT-5.6', role: 'reviewer', openedAt: 4 }),
+  ])
+
+  assert.deepEqual([...names], [
+    ['gemini-a', 'reviewer 1'],
+    ['codex-a', 'reviewer 2'],
+    ['gemini-b', 'reviewer 3'],
+    ['codex-b', 'reviewer 4'],
+  ])
+})
+
+test('Seats sharing an Agent name still include different seat labels', () => {
+  const names = memberNames([
+    namedSeat('opus', 'Reviewer', 'Cursor · Opus', 1),
+    namedSeat('gemini', 'Reviewer', 'Cursor · Gemini', 2),
+  ])
+
+  assert.deepEqual([...names], [
+    ['opus', 'Reviewer · Cursor · Opus'],
+    ['gemini', 'Reviewer · Cursor · Gemini'],
+  ])
+})
+
 test('a wait is owned by the turn captured at registration', async (t) => {
   let status: MemberStatus = { exists: true, turn: 't1', stopped: null }
   const waits = new MemberWaits(() => status)

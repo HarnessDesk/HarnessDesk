@@ -1452,6 +1452,7 @@ export class Host {
         await this.#confineRoom(context.root)
         return factsKey(await resolveContext(this.#frontDoorContext, context))
       },
+      projectChecks: async (root) => (await this.#evidence.projectChecks(root)).checks.map((check) => check.run),
       now: () => Date.now(),
     })
     // The catalogue a trigger's closure resolves its flow through: the same layers and rules as a person's.

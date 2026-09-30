@@ -722,6 +722,14 @@ export class AppStore {
           const flowExecutions = new Map(this.#snapshot.flowExecutions)
           flowExecutions.set(execution.id, execution)
           this.#patch({ flowExecutions })
+          // A person authorising extra rounds changes the findings run's budget
+          // and current blind-round counts without changing the findings ledger.
+          // Refresh the cached run views from this same push, rather than leaving
+          // the Findings tab with the old denominator until it is reopened —
+          // only the run views: this push fires on every step of a run, and
+          // reloading the list with it would throw a person paging through
+          // findings back to the first page each time (#1094, #1091).
+          this.#findingRunsRefresh(execution.goal)
         }
         if (notification.method === 'evidence/changed') {
           const { room, evidence } = notification.params
@@ -4221,6 +4229,22 @@ export class AppStore {
       this.#findingsRefreshers.set(goal, trigger)
     }
     if (this.#snapshot.findings.has(goal) || [...this.#snapshot.findingRuns.values()].some((run) => run.goal === goal)) trigger()
+  }
+
+  #findingRunsRefreshers = new Map<string, () => void>()
+
+  /** The cached run views of a Goal only — its round, budget and who has finished — for a push that moves a run but not its ledger. */
+  #findingRunsRefresh(goal: GoalId): void {
+    let trigger = this.#findingRunsRefreshers.get(goal)
+    if (!trigger) {
+      trigger = coalesce(() => {
+        for (const run of this.#snapshot.findingRuns.values()) {
+          if (run.goal === goal) void this.loadFindingRun(goal, run.run)
+        }
+      })
+      this.#findingRunsRefreshers.set(goal, trigger)
+    }
+    if ([...this.#snapshot.findingRuns.values()].some((run) => run.goal === goal)) trigger()
   }
 
   #withFindings(goal: GoalId, state: FindingsListState): void {
