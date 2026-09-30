@@ -75,12 +75,6 @@ const BOARD = [
   { title: 'Confirm the retry budget with finance', detail: 'A retried order that still fails should not be charged twice while it waits on that answer.' },
 ]
 
-const CHATTER = [
-  'Taking the retry policy itself — the status set and the backoff are one change.',
-  'I will take the tests once that lands, so we are not both editing retry.test.ts.',
-  'The webhook one is independent; starting on it now.',
-]
-
 const APP = process.env['HD_SHOTS_APP'] ?? resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const argv = process.argv.slice(2)
 const flag = (name, fallback = null) => {
@@ -757,16 +751,8 @@ rules:
     // reliably clears "Antigravity is still working" on its own.
     await sleep(1500)
     await answerApprovals(cdp)
-    // Polled to idle rather than slept a fixed amount, and between every
-    // post rather than only after the last one: `team/post` broadcasts to
-    // every member immediately, and a member still finishing the *previous*
-    // line's turn refuses that send outright (`adapter-acp/src/runtime.ts`)
-    // instead of queuing it — Antigravity's own scripted turn (`agent.mjs`'s
-    // `TURNS[3]`) runs measurably longer than the other three, so it was the
-    // one this always caught. Each of the four seats replays its scripted
-    // turn once per message it is sent, so this also bounds how long that
-    // takes before the next line goes out, rather than firing all three into
-    // a room still working through the first.
+    // Polled to idle rather than slept a fixed amount: ACP rejects a prompt
+    // while the previous turn is still running instead of queuing it.
     const settle = async () => {
       for (let attempt = 0; attempt < 20; attempt += 1) {
         await answerApprovals(cdp)
@@ -778,11 +764,24 @@ rules:
         await sleep(3000)
       }
     }
-    /* Queued by the room, one per member per turn: every seat is working by
-       now, and the board's own queue drains each post as a turn ends. */
-    for (const line of CHATTER) {
+    // The room needs each Agent's own visible answer, but `team/post` without
+    // `to` broadcasts and makes every fake Agent replay its turn. Deliver one
+    // concise, task-specific message to each known seat instead. The first
+    // stand-alone turns above establish each member; these four deliveries
+    // produce exactly one attributable room reply per vendor.
+    const prompts = [
+      'Please take the retry policy: make 502 retryable and fix the backoff.',
+      'Please cover the retry policy with the recovering and terminal 502 cases.',
+      'Please make the webhook receiver idempotent without changing the checkout path.',
+      'Please investigate a useful alert threshold for retry storms before proposing a number.',
+    ]
+    for (const [key, text] of prompts.entries()) {
       await settle()
-      await ask('team/post', { room: roomId, text: line })
+      const { runtime, sessionId } = splitKey(keys[key])
+      await cdp.eval(
+        `${STORE}.transport.request('team/post', ${q({ room: roomId, text, to: { runtime, sessionId } })})`,
+        60_000,
+      ).catch(() => {})
     }
     await settle()
     // A "still working" toast the composer raised for one refused `send`

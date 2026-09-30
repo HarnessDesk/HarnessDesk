@@ -116,6 +116,18 @@ test('the flow and new-session-agents scenes find the sidebar\'s own trigger, no
   assert.match(newSessionAgents, /click\('New session', '\[aria-label="Workspace actions"\]'\)/)
 })
 
+test('the room delivers one distinct prompt to each seat without broadcasting a second turn to every seat', () => {
+  const shoot = readFileSync(join(root, 'script/shots/shoot.mjs'), 'utf8')
+  const room = shoot.slice(shoot.indexOf('const stageRoom = async () => {'), shoot.indexOf('/**\n   * Leave the Dashboard'))
+  assert.match(room, /for \(const runtime of roomRuntimes\)/)
+  assert.match(room, /const prompts = \[/)
+  assert.match(room, /for \(const \[key, text\] of prompts\.entries\(\)\)/)
+  assert.match(room, /to: \{ runtime, sessionId \}/, 'each room prompt must name one recipient')
+  assert.match(room, /transport\.request\('team\/post'/)
+  assert.doesNotMatch(room, /for \(const line of CHATTER\)/, 'a room-wide post replays every fake agent turn and duplicates the chat')
+  assert.doesNotMatch(room, /transport\.request\('team\/post', \{ room: roomId, text: line \}\)/)
+})
+
 test('every seeded camera agent stays on its scripted process even with real CLIs installed', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'hd-shots-isolation-'))
   t.after(() => rmSync(directory, { recursive: true, force: true }))
