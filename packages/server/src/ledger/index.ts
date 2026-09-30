@@ -151,7 +151,6 @@ export class Ledger {
   readonly #insightByteLimit: number
   readonly #turnRuntimes: ReadonlySet<string>
   readonly #deskTurnRuntimes: ReadonlySet<string>
-  readonly #hourRuntimes: ReadonlySet<string>
   #progress: ScanProgress = IDLE
   #scanning: Promise<void> | null = null
   #warmed: Promise<void> | null = null
@@ -165,9 +164,6 @@ export class Ledger {
     // that rebuilds a fresh copy from what existed at construction time.
     this.#turnRuntimes = options.turnRuntimes ?? new Set()
     this.#deskTurnRuntimes = options.deskTurnRuntimes ?? new Set()
-    // Every file corpus registered here uses scan.ts's `add()` path; remote
-    // event and desk-transcript sources deliberately do not earn hour coverage.
-    this.#hourRuntimes = new Set(options.corpora.filter((corpus) => HOUR_CAPABLE_KINDS.has(corpus.kind)).map((corpus) => corpus.runtime))
     this.#store = new LedgerStore(options.databasePath ?? join(options.stateDir, 'usage.sqlite'))
     const paths = defaultPricingPaths(options.stateDir)
     this.#pricing =
@@ -540,7 +536,7 @@ export class Ledger {
     // without one, among them) -- from here on, a turn-capable runtime's
     // count is trustworthy. See `LedgerStore.turnsReady`.
     this.#store.markTurnsReady()
-    this.#store.markHoursReady()
+    if (readFailures === 0 && discoveryFailures === 0) this.#store.markHoursReady()
     this.#report({
       running: false,
       filesDone,
@@ -708,8 +704,9 @@ export class Ledger {
   /** The Spend and *Where it went* bands. */
   query(request: LedgerQuery): LedgerReport {
     const days = Math.max(1, Math.min(365, Math.round(request.days)))
-    const from = startOfDay(this.#now() - (days - 1) * DAY)
-    const to = stepDay(startOfDay(this.#now()), 1)
+    const today = startOfDay(this.#now())
+    const from = stepDay(today, 1 - days)
+    const to = stepDay(today, 1)
     const rows = this.#store.since(from, request.runtime)
 
     let totalCost = 0
@@ -858,7 +855,7 @@ export class Ledger {
         .sort()
         .map((runtime) => runtimeId(runtime)),
       hoursKnownFor: this.#store.hoursReady()
-        ? [...this.#hourRuntimes]
+        ? [...new Set(this.#options.corpora.filter((corpus) => HOUR_CAPABLE_KINDS.has(corpus.kind)).map((corpus) => corpus.runtime))]
           .filter((runtime) => request.runtime === undefined || runtime === request.runtime)
           .sort()
           .map((runtime) => runtimeId(runtime))

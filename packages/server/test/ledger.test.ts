@@ -76,6 +76,8 @@ test('a Codex rollout counts cached tokens beside input, not inside it', async (
   assert.equal(row?.output, 50)
   assert.equal(row?.reasoning, 20)
   assert.equal(row?.model, 'gpt-5.6-sol')
+  assert.equal(result.hours[0]?.tokens, row!.input + row!.output + row!.cacheRead + row!.cacheWrite,
+    'the hour total matches the day row total; reasoning is already inside output')
 })
 
 test('a Claude transcript counts one message once, however many lines carry it', async () => {
@@ -92,6 +94,7 @@ test('a Claude transcript counts one message once, however many lines carry it',
   assert.equal(result.rows[0]?.requests, 2, 'two distinct messages, not three lines')
   assert.equal(result.rows[0]?.output, 200)
   assert.equal(result.rows[0]?.cacheRead, 1000)
+  assert.deepEqual(result.hours.map(({ requests, tokens }) => [requests, tokens]), [[2, 1620]], 'the duplicate message contributes neither an extra call nor tokens')
 })
 
 test('Claude calls are bucketed by their local hour, summing requests and the full token split', async () => {
@@ -127,6 +130,71 @@ test('the report exposes local weekday-hour buckets for a scanned file corpus', 
     assert.deepEqual(report.coverage.hoursKnownFor, ['claude-code'])
     assert.deepEqual(report.hourly?.map(({ weekday, hour, requests, tokens }) => [weekday, hour, requests, tokens]), [[new Date(2026, 8, 22).getDay(), 9, 2, 24], [new Date(2026, 8, 22).getDay(), 10, 1, 12]])
   } finally { ledger.close() }
+})
+
+test('a corpus added after Ledger construction is hour-known after its scan', async () => {
+  const dir = scratch()
+  const corpora: { runtime: string; kind: 'claude'; root: string }[] = []
+  const ledger = new Ledger({ stateDir: dir, databasePath: join(dir, 'usage.sqlite'), corpora, now: () => new Date(2026, 8, 22, 12).getTime() })
+  const root = join(dir, 'late-corpus')
+  mkdirSync(root)
+  writeFileSync(join(root, 'session.jsonl'), `${JSON.stringify({ type: 'assistant', timestamp: new Date(2026, 8, 22, 9).toISOString(), cwd: '/tmp/project', message: { id: 'late', model: 'm', usage: { input_tokens: 10, output_tokens: 2 } } })}\n`)
+  try {
+    assert.deepEqual(ledger.query({ days: 1, groupBy: 'runtime' }).coverage.hoursKnownFor, [])
+    corpora.push({ runtime: 'late-claude', kind: 'claude', root })
+    await ledger.scan()
+    const report = ledger.query({ days: 1, groupBy: 'runtime' })
+    assert.deepEqual(report.coverage.hoursKnownFor, ['late-claude'])
+    assert.deepEqual(report.hourly?.map(({ runtime, requests }) => [runtime, requests]), [['late-claude', 1]])
+  } finally { ledger.close() }
+})
+
+test('hours remain unknown after skipped corpus discovery and become known after a clean scan', async () => {
+  const dir = scratch()
+  const valid = join(dir, 'claude-projects')
+  mkdirSync(valid)
+  writeFileSync(join(valid, 'session.jsonl'), claudeLine('msg_1', { input_tokens: 10, output_tokens: 10 }))
+  const loop = join(dir, 'codex-loop')
+  symlinkSync(loop, loop)
+  const corpora: { runtime: string; kind: 'codex' | 'claude'; root: string }[] = [
+    { runtime: 'codex', kind: 'codex', root: loop },
+    { runtime: 'claude-code', kind: 'claude', root: valid },
+  ]
+  const ledger = new Ledger({ stateDir: dir, databasePath: join(dir, 'usage.sqlite'), corpora, now: () => NOON })
+  try {
+    await ledger.scan()
+    assert.equal(ledger.query({ days: 1, groupBy: 'runtime' }).hourly, undefined, 'the failed discovery leaves readiness cleared')
+    corpora.splice(0, 1)
+    await ledger.scan()
+    const clean = ledger.query({ days: 1, groupBy: 'runtime' })
+    assert.deepEqual(clean.coverage.hoursKnownFor, ['claude-code'])
+    assert.equal(clean.hourly?.[0]?.requests, 1)
+  } finally { ledger.close() }
+})
+
+test('a two-day query across spring-forward starts at the previous local midnight', async () => {
+  const priorTz = process.env.TZ
+  process.env.TZ = 'America/Los_Angeles'
+  const dir = scratch()
+  const databasePath = join(dir, 'usage.sqlite')
+  const store = new LedgerStore(databasePath)
+  const row = (file: string, day: number) => ({
+    file, day, runtime: 'claude-code', model: 'm', project: '', input: 1, output: 0,
+    cacheRead: 0, cacheWrite: 0, reasoning: 0, requests: 1,
+  })
+  const cursor = (path: string) => ({ path, size: 1, mtime: 1, offset: 1, tail: [] })
+  store.commit(cursor('/saturday'), [row('/saturday', new Date(2026, 2, 7).getTime())], 1, true)
+  store.commit(cursor('/sunday'), [row('/sunday', new Date(2026, 2, 8).getTime())], 1, true)
+  store.close()
+  const ledger = new Ledger({ stateDir: dir, databasePath, corpora: [], now: () => new Date(2026, 2, 9, 0, 15).getTime() })
+  try {
+    const report = ledger.query({ days: 2, groupBy: 'runtime' })
+    assert.deepEqual(report.daily.map(({ day }) => day), [new Date(2026, 2, 8).getTime()])
+  } finally {
+    ledger.close()
+    if (priorTz === undefined) delete process.env.TZ
+    else process.env.TZ = priorTz
+  }
 })
 
 test('an old ledger hides hours until local rows have been rescanned', async () => {
@@ -194,6 +262,7 @@ test('a resumed scan does not re-count the message it stopped on', async () => {
     first.tail,
   )
   assert.equal(second.rows[0]?.requests, 1, 'only the new message counts')
+  assert.deepEqual(second.hours.map(({ requests, tokens }) => [requests, tokens]), [[1, 11]], 'the resumed message id is deduplicated in hour buckets too')
 })
 
 test('a half-written last line is left for the next pass', async () => {

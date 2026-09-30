@@ -225,7 +225,8 @@ const add = (
     const hour = new Date(at).getHours()
     const hourKey = `${day}\u0000${hour}`
     const hourRow = into.hours.get(hourKey)
-    const callTokens = tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite + tokens.reasoning
+    // Reasoning is already included in output in the ledger's token total.
+    const callTokens = tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite
     into.hours.set(hourKey, {
       file,
       day,
