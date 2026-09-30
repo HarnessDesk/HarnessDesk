@@ -1058,12 +1058,16 @@ test.describe('rule: budget meters take no tone when plenty remains', () => {
   const catalogMeters = '[data-catalog-case^="agent-card-meter-"] [data-slot="agent-card"] [data-slot="progress"]'
   const plentyMeters = '[data-catalog-case="agent-card-meter-plenty"] [data-slot="agent-card"] [data-slot="progress"]'
 
+  /* A budget meter never carries the success tone: plenty left is untoned,
+     and low or spent is a warning or a danger. Read off the tone and the
+     fill, never guessed from the share left — where "low" starts is each
+     producer's own threshold (a context meter warns at 30% left, a plan
+     meter at 20%), and a checker that guessed would flag a correct warning. */
   const meterViolations = (page: Page, selector = catalogMeters) => page.locator(selector).evaluateAll((meters) => {
     return meters.flatMap((meter) => {
       const value = Number(meter.getAttribute('aria-valuenow'))
       const max = Number(meter.getAttribute('aria-valuemax'))
       const share = max > 0 ? value / max : 0
-      if (share <= 0.2) return []
       const fill = meter.querySelector('[data-slot="progress-fill"]')
       const fillColor = fill ? getComputedStyle(fill).backgroundColor : ''
       const expectedSuccess = document.createElement('span')
@@ -1071,13 +1075,13 @@ test.describe('rule: budget meters take no tone when plenty remains', () => {
       document.body.append(expectedSuccess)
       const successColor = getComputedStyle(expectedSuccess).color
       expectedSuccess.remove()
-      return meter.getAttribute('data-tone') !== 'neutral' || fillColor === successColor
+      return meter.getAttribute('data-tone') === 'success' || fillColor === successColor
         ? [{ tone: meter.getAttribute('data-tone'), fillColor, successColor, share }]
         : []
     })
   })
 
-  test('every AgentCard meter above the low threshold is neutral and its fill is not success ink', async ({ page }) => {
+  test('no AgentCard meter takes the success tone, and each catalogue state carries its own', async ({ page }) => {
     await page.goto('/design.html?view=dialog')
     await expect(page.locator(catalogMeters)).toHaveCount(3)
     const meters = await page.locator(catalogMeters).evaluateAll((elements) => elements.map((element) => ({
@@ -1092,6 +1096,10 @@ test.describe('rule: budget meters take no tone when plenty remains', () => {
       ['agent-card-meter-spent', 'danger'],
     ])
     expect(meters[0]!.value / meters[0]!.max).toBeGreaterThan(0.2)
+    // The low case sits at 25% left — above a plan meter's 20% line, inside
+    // a context meter's 30% one — so a checker that guessed "plenty" from the
+    // share would call this correct warning a violation.
+    expect(meters[1]!.value / meters[1]!.max).toBeGreaterThan(0.2)
     expect(await meterViolations(page)).toEqual([])
   })
 

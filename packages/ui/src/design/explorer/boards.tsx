@@ -1590,7 +1590,7 @@ export const DialogBoard = () => {
           <div className={styles.stack}>
             {([
               { state: 'plenty', meter: { label: 'Context', left: 740, of: 1_000, reading: '740 left of 1K' } },
-              { state: 'low', meter: { label: 'Context', left: 120, of: 1_000, reading: '120 left of 1K', tone: 'warning' as const } },
+              { state: 'low', meter: { label: 'Context', left: 250, of: 1_000, reading: '250 left of 1K', tone: 'warning' as const } },
               { state: 'spent', meter: { label: 'Context', left: 0, of: 1_000, reading: '0 left of 1K', tone: 'danger' as const } },
             ]).map(({ state, meter }) => (
               <div key={state} data-catalog-case={`agent-card-meter-${state}`}>
