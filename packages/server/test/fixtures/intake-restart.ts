@@ -304,7 +304,7 @@ export const desk = async (home: string, options: DeskOptions = {}) => {
       if (id !== 'review-pr') throw new Error(`There is no flow called "${id}".`)
       return { source: REVIEW_FLOW, origin: 'project', path: '.harnessdesk/flows/review-pr.yml' }
     },
-    preview: (root, source) => previews.freeze(root, source),
+    preview: (root, source, againRole) => previews.freeze(root, source, { againRole }),
   })
   const executions = new FlowExecutions(new ExecutionFiles(join(home, 'flows-v2')), team, port, {
     triggered: {

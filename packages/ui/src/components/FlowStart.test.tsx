@@ -126,7 +126,7 @@ it('every candidate and effective ceiling remains visible', async () => {
 // #1053: a reading step handed an isolated step's one commit gets a worktree of its own, and the dry run says so.
 it('a seat the run opens at the commit it is handed says so, in plain words', async () => {
   const seat: FlowPreviewSeat = {
-    role: 'tester', index: 0, agent: 'reviewer', isolate: false, atPredecessor: true, reviews: true,
+    role: 'tester', index: 0, agent: 'reviewer', isolate: false, atPredecessor: 'always', reviews: true,
     plan: { id: 'reviewer', from: 'machine', winner: 0, blocked: null, ceiling: { level: 'read', hold: 'asked' }, candidates: [candidate({ state: 'taken', reason: null, fix: null, label: 'Codex' })] } as SeatPlan,
   }
   const theStore = store({
@@ -143,6 +143,26 @@ it('a seat the run opens at the commit it is handed says so, in plain words', as
   expect(container.textContent).toContain('Reviewer — tester')
   const chip = [...container.querySelectorAll('[title="Opens in a worktree of its own, at the commit it is handed"]')]
   expect(chip.map((one) => one.textContent)).toEqual(['Own worktree'])
+})
+
+it('a seat with mixed predecessor routes says its worktree is conditional', async () => {
+  const seat: FlowPreviewSeat = {
+    role: 'tester', index: 0, agent: 'reviewer', isolate: false, atPredecessor: 'may', reviews: true,
+    plan: { id: 'reviewer', from: 'machine', winner: 0, blocked: null, ceiling: { level: 'read', hold: 'asked' }, candidates: [candidate({ state: 'taken', reason: null, fix: null, label: 'Codex' })] } as SeatPlan,
+  }
+  const theStore = store({
+    entries: [ENTRY('fix')],
+    agents: [AGENT('reviewer', 'Reviewer')],
+    source: () => 'version: 2\n',
+    preview: () => ({ ...emptyPreview(), seats: [seat] }),
+  })
+  render(theStore, () => {})
+  await act(async () => {})
+  await select('fix')
+  await act(async () => {})
+
+  const chip = [...container.querySelectorAll('[title="May open in a worktree of its own, at the commit it is handed, depending on which rule opens it"]')]
+  expect(chip.map((one) => one.textContent)).toEqual(['Sometimes own worktree'])
 })
 
 it('a review flow discloses its effective budget and the blind-round messaging restriction; a plain flow shows neither', async () => {

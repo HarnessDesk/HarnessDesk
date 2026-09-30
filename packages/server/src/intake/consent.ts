@@ -115,8 +115,8 @@ export class ClosureMissingError extends Error {
 export interface TriggerClosureReads {
   /** `FlowCatalog.resolve`: project, then user, then built-in, by id. */
   flowSource(root: string, id: string): Promise<{ readonly source: string; readonly origin: FlowOrigin; readonly path: string }>
-  /** `FlowPreviews.freeze`: the dry run with no start token. */
-  preview(root: string, source: string): Promise<FlowPreview>
+  /** `FlowPreviews.freeze`: the dry run with no start token, including a trigger's dependency-free `again` route. */
+  preview(root: string, source: string, againRole?: string | null): Promise<FlowPreview>
   /**
    * What one Agent attaches, as it resolves now: each skill's and MCP
    * server's identity — kind, name, content digest, source — so an arm
@@ -155,7 +155,7 @@ export class TriggerClosures implements TriggerPreviewPort {
       text = agentFlowSource(definition.opens.agent)
       flow = { id: `agent:${definition.opens.agent}`, origin: 'trigger', path: null }
     }
-    const preview = await this.#port.preview(root, text)
+    const preview = await this.#port.preview(root, text, definition.again?.role ?? null)
     const availability: TriggerProblem[] = []
     for (const problem of preview.problems) {
       if (problem.level !== 'error') continue
