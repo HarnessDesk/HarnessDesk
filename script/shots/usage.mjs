@@ -239,13 +239,19 @@ export const USAGE = REPORTS.filter((one) => known.has(one.runtime)).map(one => 
  * from here for every query, and the scan is reported already finished so that
  * nothing walks the real corpus while the camera is up.
  */
+/*
+ * A year of someone who runs several agents all day. A coding agent's turn
+ * re-sends its whole context on every step, almost all of it from cache, so a
+ * turn is ~150k tokens and a year of them is billions — the first rig's 87M
+ * read as a light hobbyist's month, and its 9%-cached mix as no agent at all.
+ */
 const LEDGER_ROWS = [
-  { key: 'claude-code', label: 'Claude', runtime: 'claude-code', tokens: 47_280_000, cost: 1_154.4, hasUnpriced: false, turns: 9_744 },
-  { key: 'codex', label: 'Codex', runtime: 'codex', tokens: 20_520_000, cost: 500.4, hasUnpriced: false, turns: 4_272 },
-  { key: 'cursor', label: 'Cursor', runtime: 'cursor', tokens: 9_840_000, cost: 220.8, hasUnpriced: false, turns: 2_280 },
-  { key: 'gemini-cli', label: 'Gemini', runtime: 'gemini-cli', tokens: 4_920_000, cost: 0, hasUnpriced: true, turns: 1_056 },
-  { key: 'copilot', label: 'Copilot', runtime: 'copilot', tokens: 3_680_000, cost: 92.6, hasUnpriced: false, turns: 812 },
-  { key: 'amp', label: 'Amp', runtime: 'amp', tokens: 1_152_000, cost: 37.2, hasUnpriced: false, turns: 252 },
+  { key: 'claude-code', label: 'Claude', runtime: 'claude-code', tokens: 1_560_000_000, cost: 6_926.4, hasUnpriced: false, turns: 9_744 },
+  { key: 'codex', label: 'Codex', runtime: 'codex', tokens: 677_000_000, cost: 3_002.4, hasUnpriced: false, turns: 4_272 },
+  { key: 'cursor', label: 'Cursor', runtime: 'cursor', tokens: 325_000_000, cost: 1_324.8, hasUnpriced: false, turns: 2_280 },
+  { key: 'gemini-cli', label: 'Gemini', runtime: 'gemini-cli', tokens: 162_000_000, cost: 0, hasUnpriced: true, turns: 1_056 },
+  { key: 'copilot', label: 'Copilot', runtime: 'copilot', tokens: 121_000_000, cost: 555.6, hasUnpriced: false, turns: 812 },
+  { key: 'amp', label: 'Amp', runtime: 'amp', tokens: 38_000_000, cost: 223.2, hasUnpriced: false, turns: 252 },
 ]
 
 const TOTAL_COST = LEDGER_ROWS.reduce((sum, row) => sum + (row.cost ?? 0), 0)
@@ -283,9 +289,23 @@ const DAYS = 365
  * testing conventions) while still keeping neighbouring days from reading as
  * a smooth, machine-drawn ramp.
  */
+/*
+ * And days off, because a year with none reads as generated: most weekends
+ * empty, about one weekday in fourteen skipped, a quiet stretch over the new
+ * year and a few days away in August. Drawn from a fixed-seed generator in
+ * day order, so every take draws the same year; the last week is always
+ * worked, so the Overview's 7- and 30-day figures stay steady.
+ */
+let seed = 0x2f6e2b1
+const draw = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32
 const WEIGHTS = Array.from({ length: DAYS }, (_, i) => {
-  const weekday = new Date(midnight(DAYS - 1 - i)).getDay()
+  const date = new Date(midnight(DAYS - 1 - i))
+  const weekday = date.getDay()
   const weekend = weekday === 0 || weekday === 6
+  const roll = draw()
+  const holiday = (date.getMonth() === 11 && date.getDate() >= 23) || (date.getMonth() === 0 && date.getDate() <= 2) ||
+    (date.getMonth() === 7 && date.getDate() >= 11 && date.getDate() <= 16)
+  if (i < DAYS - 7 && (holiday || roll < (weekend ? 0.6 : 0.07))) return 0
   const wobble = 1 + 0.22 * Math.sin(i * 0.89) + 0.12 * Math.sin(i * 0.37 + 1.7)
   return (weekend ? 0.35 : 1) * (0.85 + (i / DAYS) * 0.3) * Math.max(0.15, wobble)
 })
@@ -332,10 +352,10 @@ export const LEDGER = {
   daily: DAILY.map(row => ({ ...row, runtime: rigRuntimeId(row.runtime) })),
   scannedAt: Date.now() - 12 * MINUTE,
   totals: {
-    input: Math.round(TOTAL_TOKENS * 0.58),
-    output: Math.round(TOTAL_TOKENS * 0.34),
-    cacheRead: Math.round(TOTAL_TOKENS * 0.06),
-    cacheWrite: Math.round(TOTAL_TOKENS * 0.02),
+    input: Math.round(TOTAL_TOKENS * 0.05),
+    output: Math.round(TOTAL_TOKENS * 0.02),
+    cacheRead: Math.round(TOTAL_TOKENS * 0.9),
+    cacheWrite: Math.round(TOTAL_TOKENS * 0.03),
     reasoning: 0,
     requests: TOTAL_TURNS,
     turns: TOTAL_TURNS,
