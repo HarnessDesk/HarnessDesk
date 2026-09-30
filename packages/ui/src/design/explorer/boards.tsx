@@ -1002,6 +1002,21 @@ const CATALOGUE_COMMAND_STEP = {
 
 /** A runtime that answers a shell call with its own record, not a plain
  * result — read as the same command plate a `command` step draws. */
+/* An agent that sends a result both as text for the reader and as a raw
+   record repeating it: the record adds nothing, so the step draws once. */
+const CATALOGUE_RESTATED_RESULT = {
+  id: 'catalogue-restated-result',
+  type: 'toolCall',
+  tool: 'Grep',
+  source: { kind: 'builtin' },
+  status: 'completed',
+  args: { pattern: '50[0-9]', path: 'src/checkout' },
+  result: [
+    { type: 'text', text: '3 matches in 2 files' },
+    { type: 'json', value: { text: '3 matches in 2 files' } },
+  ],
+} as unknown as AgentItem
+
 const CATALOGUE_RUNTIME_COMMAND_RESULT = {
   id: 'catalogue-runtime-command-result',
   type: 'toolCall',
@@ -1130,6 +1145,13 @@ const CodeBoard = () => (
         <StoreProvider store={catalogueStore}>
           <ItemView item={CATALOGUE_AGENT_STEP} root="/workspace" />
           <ItemView item={CATALOGUE_COMMAND_STEP} root="/workspace" />
+        </StoreProvider>
+      </div>
+    </Case>
+    <Case label="a result sent as text and as a record that only repeats it, drawn once">
+      <div className="w-full" data-testid="restated-result-sample" data-register="light">
+        <StoreProvider store={catalogueStore}>
+          <ItemView item={CATALOGUE_RESTATED_RESULT} root="/workspace" />
         </StoreProvider>
       </div>
     </Case>
