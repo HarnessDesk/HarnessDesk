@@ -306,6 +306,21 @@ test('editing a stale or currently sending queued id refuses without restoring i
   assert.equal(text(record.queue.messages[0]!), 'sending')
 })
 
+test('the host queue registry refuses empty content and never stores an empty message', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  const { session } = await busySession(client, harness)
+  const id = (await client.call('turn/queue', {
+    runtime: FAKE_RUNTIME_ID, sessionId: session.id, input: [{ type: 'text', text: 'keep this' }],
+  }) as { queuedId: string }).queuedId
+  const record = harness.host.registry.get(FAKE_RUNTIME_ID, sessionId(session.id))!
+  assert.throws(() => harness.host.registry.updateQueued(record, id, []), /empty/i)
+  assert.throws(() => harness.host.registry.enqueue(record, 'empty', []), /at least one/i)
+  assert.equal(record.queue.messages.some((message) => message.input.length === 0), false)
+})
+
 test('queueing on an idle conversation sends at once', async (t) => {
   const harness = await start()
   t.after(() => stop(harness))

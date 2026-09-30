@@ -54,6 +54,7 @@ const calls = {
   flushQueue: vi.fn(),
   clearQueue: vi.fn(),
   notice: vi.fn(),
+  addRecoverableDraft: vi.fn(),
 }
 
 const mount = (queue: SessionQueue | null): void => {
@@ -272,6 +273,27 @@ describe('MessageQueue', () => {
     expect(container.querySelector('textarea')).toBeNull()
   })
 
+  it('recovers a revised head row when delivery removes it before Save', () => {
+    mount(waiting('original'))
+    click(button('Edit'))
+    typeIntoEditor('my revised instruction')
+    mount({ status: 'waiting', reason: null, messages: [] })
+    expect(calls.addRecoverableDraft).toHaveBeenCalledWith(KEY, expect.objectContaining({
+      text: 'my revised instruction',
+      detail: 'Your edit wasn’t saved — the original was already sent. Restore it to the composer.',
+    }))
+    expect(container.querySelector('textarea')).toBeNull()
+  })
+
+  it('disables Save for an empty text-only edit and points to Remove', () => {
+    mount(waiting('original'))
+    click(button('Edit'))
+    typeIntoEditor('   ')
+    expect(button('Save').disabled).toBe(true)
+    expect(button('Save').title).toContain('Remove')
+    expect(calls.updateQueued).not.toHaveBeenCalled()
+  })
+
   it('keeps resolved context attached when edited words are saved', async () => {
     mount({
       status: 'waiting',
@@ -316,19 +338,16 @@ describe('MessageQueue', () => {
   })
 
   it('keeps a refused edit recoverable and explains why it could not be saved', async () => {
-    const recovery = vi.fn()
-    window.addEventListener('harnessdesk:recoverable-draft', recovery)
     calls.updateQueued.mockRejectedValueOnce(new Error('This message is being delivered.'))
     mount(waiting('original'))
     click(button('Edit'))
     typeIntoEditor('save this text for me')
     await act(async () => click(button('Save')))
-    window.removeEventListener('harnessdesk:recoverable-draft', recovery)
-    expect(recovery).toHaveBeenCalledTimes(1)
-    expect((recovery.mock.calls[0]?.[0] as CustomEvent).detail).toMatchObject({
+    expect(calls.addRecoverableDraft).toHaveBeenCalledTimes(1)
+    expect(calls.addRecoverableDraft.mock.calls[0]).toMatchObject([KEY, {
       text: 'save this text for me',
-      reason: 'This message is being delivered.',
-    })
+      detail: expect.stringContaining('This message is being delivered.'),
+    }])
   })
 
   it('Escape cancels and Enter or Meta+Enter saves', async () => {

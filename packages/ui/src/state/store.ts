@@ -287,6 +287,7 @@ import {
   type Notice,
   type NoticeAction,
   type PendingApproval,
+  type RecoverableDraft,
   type PolicyRule,
   type RouteInfo,
   type SeatRefusal,
@@ -301,12 +302,47 @@ export type {
   Notice,
   NoticeAction,
   PendingApproval,
+  RecoverableDraft,
   PolicyRule,
   RouteInfo,
   SeatRefusal,
   StoredCredential,
 } from './snapshot'
 export { emptySnapshot } from './snapshot'
+
+const RECOVERABLE_DRAFTS_STORAGE_KEY = 'harnessdesk:recoverable-drafts:v1'
+
+const readRecoverableDrafts = (): ReadonlyMap<SessionKey, readonly RecoverableDraft[]> => {
+  try {
+    if (typeof sessionStorage === 'undefined') return new Map()
+    const raw: unknown = JSON.parse(sessionStorage.getItem(RECOVERABLE_DRAFTS_STORAGE_KEY) ?? 'null')
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return new Map()
+    const result = new Map<SessionKey, readonly RecoverableDraft[]>()
+    for (const [key, value] of Object.entries(raw)) {
+      if (!Array.isArray(value)) continue
+      const drafts = value.filter((entry): entry is RecoverableDraft =>
+        Boolean(entry && typeof entry === 'object' &&
+          typeof (entry as RecoverableDraft).id === 'number' &&
+          typeof (entry as RecoverableDraft).text === 'string' &&
+          typeof (entry as RecoverableDraft).detail === 'string' &&
+          Array.isArray((entry as RecoverableDraft).attachments)),
+      )
+      if (drafts.length > 0) result.set(key as SessionKey, drafts)
+    }
+    return result
+  } catch {
+    return new Map()
+  }
+}
+
+const writeRecoverableDrafts = (drafts: ReadonlyMap<SessionKey, readonly RecoverableDraft[]>): void => {
+  try {
+    if (typeof sessionStorage === 'undefined') return
+    sessionStorage.setItem(RECOVERABLE_DRAFTS_STORAGE_KEY, JSON.stringify(Object.fromEntries(drafts)))
+  } catch {
+    // Storage can be disabled or full; recovery still works until this store closes.
+  }
+}
 
 export type UnheldCeilings = 'seat' | 'refuse'
 
@@ -511,10 +547,13 @@ export class AppStore {
   }
 
   #snapshot: AppSnapshot = emptySnapshot()
+  #nextRecoverableDraftId = 0
   #listeners = new Set<() => void>()
   readonly transport: Transport
 
   constructor(url = transportUrl()) {
+    this.#snapshot = { ...this.#snapshot, recoverableDrafts: readRecoverableDrafts() }
+    this.#nextRecoverableDraftId = Math.max(0, ...[...this.#snapshot.recoverableDrafts.values()].flat().map((draft) => draft.id))
     this.transport = new Transport(url, {
       onEvent: (runtime, event) => this.#onEvent(runtime, event),
       onNotification: (notification) => {
@@ -5638,6 +5677,27 @@ export class AppStore {
   }
 
   // ---------------------------------------------------------------- the queue
+
+  /** Keep refused draft content scoped to its conversation and this window. */
+  addRecoverableDraft(
+    key: SessionKey,
+    draft: Omit<RecoverableDraft, 'id'>,
+  ): void {
+    const id = ++this.#nextRecoverableDraftId
+    const recoverableDrafts = new Map(this.#snapshot.recoverableDrafts)
+    recoverableDrafts.set(key, [...(recoverableDrafts.get(key) ?? []), { ...draft, id }])
+    this.#patch({ recoverableDrafts })
+    writeRecoverableDrafts(recoverableDrafts)
+  }
+
+  removeRecoverableDraft(key: SessionKey, id: number): void {
+    const recoverableDrafts = new Map(this.#snapshot.recoverableDrafts)
+    const remaining = (recoverableDrafts.get(key) ?? []).filter((draft) => draft.id !== id)
+    if (remaining.length > 0) recoverableDrafts.set(key, remaining)
+    else recoverableDrafts.delete(key)
+    this.#patch({ recoverableDrafts })
+    writeRecoverableDrafts(recoverableDrafts)
+  }
 
   /**
    * Holds a message until the running turn ends. The host decides whether it

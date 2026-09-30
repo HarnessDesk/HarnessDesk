@@ -559,18 +559,22 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
    * call to make: it sends at once when nothing is running and holds it when
    * something is, so the two states cannot disagree across a round trip.
    */
-  const recoverDraft = useCallback((draft: Draft) => {
+  const recoverDraft = useCallback((draft: Draft, originKey: ReturnType<typeof sessionKey> | null) => {
     const current = currentDraft.current
-    if (current.text.trim().length === 0 && current.attachments.length === 0) {
+    if (originKey === key && current.text.trim().length === 0 && current.attachments.length === 0) {
       setText(draft.text)
       setAttachments([...draft.attachments])
       return
     }
-    // Keep the newer draft in the composer and make the refused message
-    // reachable through the notice above it.
-    const id = ++nextRecoverableId.current
-    setRecoverable((current) => [...current, { id, draft, reason: 'refused' }])
-  }, [])
+    // The store scopes this to the originating conversation, so a late reply
+    // cannot put one conversation's words into a reused composer for another.
+    if (originKey) store.addRecoverableDraft(originKey, {
+      text: draft.text,
+      attachments: draft.attachments,
+      detail: 'Restore it to the composer; your current draft stays available.',
+    })
+    else setText(draft.text)
+  }, [key, store])
 
   const restoreDraft = useCallback((id: number) => {
     const selected = recoverable.find((item) => item.id === id)
@@ -586,6 +590,21 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     setText(selected.draft.text)
     setAttachments([...selected.draft.attachments])
   }, [recoverable])
+
+  const storedRecoverable = key ? snapshot.recoverableDrafts.get(key) ?? [] : []
+  const restoreStoredDraft = useCallback((id: number) => {
+    if (!key) return
+    const selected = (store.getSnapshot().recoverableDrafts.get(key) ?? []).find((item) => item.id === id)
+    if (!selected) return
+    const current = currentDraft.current
+    const displaced = current.text.trim().length > 0 || current.attachments.length > 0
+      ? { id: ++nextRecoverableId.current, draft: current, reason: 'saved' as const }
+      : null
+    if (displaced) setRecoverable((items) => [...items, displaced])
+    setText(selected.text)
+    setAttachments(selected.attachments.map((attachment) => ({ ...attachment, id: nextAttachmentId() })))
+    store.removeRecoverableDraft(key, id)
+  }, [key, store])
 
   const deliver = useCallback(async (mode: 'auto' | 'now' = 'auto', release: () => void = () => {}) => {
     // `/open src/a.ts` is a command with an argument, not a message that
@@ -732,14 +751,14 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
 
     if (mode === 'now' && busy && canSteer) {
       const accepted = await store.steer(content, key)
-      if (!accepted) recoverDraft(draft)
+      if (!accepted) recoverDraft(draft, key)
       return
     }
     // A message that did not get anywhere goes back in the box. Losing what
     // was typed is the failure this whole feature exists to prevent, so the
     // one path that can fail has to put it back.
     const delivered = await store.queue(content, key)
-    if (!delivered) recoverDraft(draft)
+    if (!delivered) recoverDraft(draft, key)
   }, [
     acceptsImages,
     agentName,
@@ -926,13 +945,11 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
           id: nextAttachmentId(),
         })),
       }
-      const id = ++nextRecoverableId.current
-      setRecoverable((current) => [...current, {
-        id,
-        draft,
-        reason: 'refused',
+      if (key) store.addRecoverableDraft(key, {
+        text: draft.text,
+        attachments: draft.attachments,
         detail: `Could not save the queued message: ${detail.reason} Your edited text is available to restore.`,
-      }])
+      })
     }
     const onCompose = (event: Event): void => {
       const raw = (event as CustomEvent<string | ComposeDetail>).detail
@@ -968,7 +985,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       window.removeEventListener('harnessdesk:compose', onCompose)
       window.removeEventListener('harnessdesk:recoverable-draft', onRecoverable)
     }
-  }, [focused])
+  }, [focused, key, store])
 
   const placeholder = useMemo(() => {
     if (!session && !canType) {
@@ -1030,6 +1047,18 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
                 ? item.detail ?? 'Restore it to the composer; your current draft stays available.'
                 : 'Restore it to swap with the current draft.',
               action: { label: 'Restore', onSelect: () => restoreDraft(item.id) },
+            }}
+          />
+        ))}
+        {storedRecoverable.map((item) => (
+          <ComposerNotice
+            key={`stored-${item.id}`}
+            message={{
+              id: `composer-stored-recoverable-draft-${item.id}`,
+              tone: 'warning',
+              title: 'Message not sent.',
+              body: item.detail,
+              action: { label: 'Restore', onSelect: () => restoreStoredDraft(item.id) },
             }}
           />
         ))}

@@ -22,9 +22,13 @@ import { Composer } from './Composer'
 
 let container: HTMLDivElement
 let root: Root
+let mountedSnapshot: AppSnapshot
+let mountedListeners = new Set<() => void>()
+let mockRecoveries: AppSnapshot['recoverableDrafts'] = new Map()
 
 beforeEach(() => {
   container = document.createElement('div')
+  mockRecoveries = new Map()
   document.body.appendChild(container)
   root = createRoot(container)
 })
@@ -44,9 +48,9 @@ const runtime = (steer: boolean): RuntimeInfo =>
     presentation: { name: 'Alpha Agent' },
   }) as RuntimeInfo
 
-const session = (busy: boolean, items: readonly unknown[] = []): Session =>
+const session = (busy: boolean, items: readonly unknown[] = [], id = 's1'): Session =>
   ({
-    id: 's1',
+    id,
     runtime: 'alpha',
     cwd: '/w',
     status: { type: busy ? 'active' : 'idle' },
@@ -69,33 +73,51 @@ const calls = {
   interrupt: vi.fn(async () => {}),
   notice: vi.fn(),
   runCommand: vi.fn(async () => true),
+  addRecoverableDraft: vi.fn((key: ReturnType<typeof sessionKey>, draft: Parameters<AppStore['addRecoverableDraft']>[1]) => {
+    const drafts = new Map(mountedSnapshot.recoverableDrafts)
+    const items = drafts.get(key) ?? []
+    drafts.set(key, [...items, { ...draft, id: Date.now() + items.length }])
+    mockRecoveries = drafts
+    mountedSnapshot = { ...mountedSnapshot, recoverableDrafts: drafts }
+    mountedListeners.forEach((listener) => listener())
+  }),
+  removeRecoverableDraft: vi.fn((key: ReturnType<typeof sessionKey>, id: number) => {
+    const drafts = new Map(mountedSnapshot.recoverableDrafts)
+    drafts.set(key, (drafts.get(key) ?? []).filter((entry) => entry.id !== id))
+    mockRecoveries = drafts
+    mountedSnapshot = { ...mountedSnapshot, recoverableDrafts: drafts }
+    mountedListeners.forEach((listener) => listener())
+  }),
 }
 
 const mount = ({
   busy,
   steer = false,
   queue = null,
+  key = KEY,
   items = [],
 }: {
   busy: boolean
   steer?: boolean
   queue?: SessionQueue | null
+  key?: ReturnType<typeof sessionKey>
   /** What the running turn holds so far. */
   items?: readonly unknown[]
 }): void => {
-  const snapshot: AppSnapshot = {
+  mountedSnapshot = {
     ...emptySnapshot(),
     runtimes: [runtime(steer)],
     activeRuntime: runtime(steer).id,
     health: { state: 'ready' } as AppSnapshot['health'],
     workspace: { path: '/w', name: 'w' } as AppSnapshot['workspace'],
-    sessions: new Map([[KEY, session(busy, items)]]),
-    activeSessionKey: KEY,
-    queues: queue ? new Map([[KEY, queue]]) : new Map(),
+    sessions: new Map([[key, session(busy, items, key.split(':').slice(1).join(':'))]]),
+    activeSessionKey: key,
+    queues: queue ? new Map([[key, queue]]) : new Map(),
+    recoverableDrafts: mockRecoveries,
   }
   const store = {
-    subscribe: () => () => {},
-    getSnapshot: () => snapshot,
+    subscribe: (listener: () => void) => { mountedListeners.add(listener); return () => mountedListeners.delete(listener) },
+    getSnapshot: () => mountedSnapshot,
     transport: { request: vi.fn() },
     ...calls,
   } as unknown as AppStore
@@ -132,6 +154,7 @@ const enter = (modifiers: { meta?: boolean } = {}): void => {
 }
 
 beforeEach(() => {
+  mountedListeners = new Set()
   for (const call of Object.values(calls)) call.mockClear()
 })
 
@@ -226,6 +249,23 @@ describe('the composer while a turn is running', () => {
     expect(restoreNewer).toBeDefined()
     act(() => restoreNewer?.click())
     expect(textarea().value).toBe('newer draft')
+  })
+
+  it('shows a refused draft only in the conversation that sent it', () => {
+    mount({ busy: false, key: KEY })
+    calls.addRecoverableDraft(KEY, {
+      text: 'A private draft',
+      attachments: [],
+      detail: 'Message not sent. Restore it to the composer.',
+    })
+    mount({ busy: false, key: sessionKey('alpha', 's2') })
+    expect(container.textContent).not.toContain('Message not sent')
+    mount({ busy: false, key: KEY })
+    expect(container.textContent).toContain('Message not sent')
+    const restore = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('Restore'))
+    expect(restore).toBeDefined()
+    act(() => restore?.click())
+    expect(textarea().value).toBe('A private draft')
   })
 
   it('restores a refused steer with its chips when the composer is empty', async () => {

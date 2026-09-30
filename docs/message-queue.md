@@ -49,7 +49,7 @@ real keystrokes and mouse clicks.
 | --- | --- |
 | **Drag** on a row's grip handle | Reorders, dropping anywhere in the line ✓ |
 | Hover and click **↑** / **↓** on a row | Moves one step earlier or later ✓ |
-| Click **✎** (Edit) on a row | Opens that row for editing. Save replaces its text and chips in place; Cancel leaves it as it was. The composer is untouched. |
+| Click **✎** (Edit) on a row | Opens that row for editing. Save replaces its text and chips in place; Cancel leaves it as it was. The composer is untouched. Remove a text-only message if you do not want any words sent. |
 | Click **✕** (Remove) on a row | That one is gone; the rest keep their order and the queue keeps its status ✓ |
 | Click **✕** on the last row | The strip disappears, and nothing is ever sent ✓ |
 | **Send now** on a held queue | The head goes out; the queue resumes ✓ |
@@ -216,6 +216,8 @@ and editing never changes the composer or its draft.
   sentence.
 - **No persistence across a host restart.** See above — a dead session cannot
   deliver, and a stale message firing later is worse than a lost draft.
+- Refused-draft recovery stays in `sessionStorage` for the window's lifetime
+  and is lost when the app restarts.
 - **Action commands bypass the queue.** Inline workbench commands (`/open`)
   execute locally upon pressing Enter; they never wait behind an agent turn.
 - **Context chips stay note chips on edit.** An edited message preserves

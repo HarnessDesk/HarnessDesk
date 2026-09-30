@@ -38,9 +38,54 @@ export const MessageQueue = () => {
   const store = useStore()
   const key = useSessionKey()
   const queue = useQueue()
-  const [editing, setEditing] = useState<{ readonly id: string; readonly text: string } | null>(null)
+  const messages = queue?.messages ?? []
+  const [editing, setEditing] = useState<{
+    readonly id: string
+    readonly text: string
+    readonly input: readonly UserContent[]
+    readonly key: typeof key
+  } | null>(null)
   const [saving, setSaving] = useState(false)
   const previouslyEditing = useRef<string | null>(null)
+  const recoveredEdits = useRef(new Set<string>())
+
+  const recoverEdit = useCallback((id: string, text: string, input: readonly UserContent[], detail: string, originKey: typeof key) => {
+    if (!originKey) return
+    const recoveryId = `${originKey}:${id}`
+    if (recoveredEdits.current.has(recoveryId)) return
+    recoveredEdits.current.add(recoveryId)
+    const editedInput = withEditedText(input, text)
+    const view = describeQueued(editedInput)
+    store.addRecoverableDraft(originKey, {
+      text: view.text,
+      attachments: [
+        ...view.attachments.map((attachment) => ({
+          name: attachment.name,
+          path: attachment.path,
+          kind: attachment.kind === 'mention' ? 'file' as const : attachment.kind,
+        })),
+        ...view.context.map((block) => ({
+          name: block.label,
+          path: noteKey(block.label, block.text),
+          kind: 'note' as const,
+          text: wrapContext(block.label, block.text),
+        })),
+      ],
+      detail,
+    })
+  }, [key, store])
+
+  useLayoutEffect(() => {
+    if (!editing || messages.some((message) => message.id === editing.id)) return
+    recoverEdit(
+      editing.id,
+      editing.text,
+      editing.input,
+      'Your edit wasn’t saved — the original was already sent. Restore it to the composer.',
+      editing.key,
+    )
+    setEditing(null)
+  }, [editing, messages, recoverEdit])
 
   useLayoutEffect(() => {
     const previous = previouslyEditing.current
@@ -61,34 +106,16 @@ export const MessageQueue = () => {
     setSaving(true)
     const editedInput = withEditedText(input, editing.text)
     try {
-      await store.updateQueued(id, editedInput, key ?? undefined)
+      await store.updateQueued(id, editedInput, editing.key ?? undefined)
       setEditing(null)
     } catch (error) {
-      const view = describeQueued(editedInput)
-      window.dispatchEvent(new CustomEvent('harnessdesk:recoverable-draft', {
-        detail: {
-          text: view.text,
-          attachments: [
-            ...view.attachments.map((attachment) => ({
-              name: attachment.name,
-              path: attachment.path,
-              kind: attachment.kind === 'mention' ? 'file' : attachment.kind,
-            })),
-            ...view.context.map((block) => ({
-              name: block.label,
-              path: noteKey(block.label, block.text),
-              kind: 'note',
-              text: wrapContext(block.label, block.text),
-            })),
-          ],
-          reason: error instanceof Error ? error.message : String(error),
-        },
-      }))
+      recoverEdit(id, editing.text, editing.input,
+        `Could not save the queued edit: ${error instanceof Error ? error.message : String(error)} Restore it to the composer.`, editing.key)
       setEditing(null)
     } finally {
       setSaving(false)
     }
-  }, [editing, key, saving, store])
+  }, [editing, key, recoverEdit, saving, store])
 
   /**
    * Arranging the line: a drag from the handle, or ⌥↑ / ⌥↓ from anywhere in
@@ -99,7 +126,6 @@ export const MessageQueue = () => {
    * Nothing is reordered locally; the rows redraw when the queue event comes
    * back, and the move is announced when it lands.
    */
-  const messages = queue?.messages ?? []
   const sortable = useSortable({
     ids: messages.map((message) => message.id),
     onMove: (id, to) => void store.moveQueued(id, to, key ?? undefined),
@@ -176,7 +202,7 @@ export const MessageQueue = () => {
                 text={editing.text}
                 message={message}
                 pending={saving}
-                onText={(text) => setEditing({ id: message.id, text })}
+                onText={(text) => setEditing({ ...editing, text })}
                 onSave={() => void saveEdit(message.id, message.input)}
                 onCancel={cancelEdit}
               />
@@ -197,7 +223,7 @@ export const MessageQueue = () => {
                   aria-label="Edit"
                   title={editing ? 'Save or cancel the current edit first' : 'Edit this waiting message in its row'}
                   disabled={Boolean(editing) || saving}
-                  onClick={() => setEditing({ id: message.id, text: describeQueued(message.input).text })}
+                  onClick={() => setEditing({ id: message.id, text: describeQueued(message.input).text, input: message.input, key })}
                 >
                   <PencilIcon size={13} />
                 </Button>
@@ -236,6 +262,7 @@ const QueueMessageEditor = ({
   onCancel(): void
 }) => {
   const view = describeQueued(message.input)
+  const empty = text.trim().length === 0 && view.attachments.length === 0 && view.context.length === 0
   return (
     <span className="flex min-w-0 flex-1 flex-col gap-1">
       <Textarea
@@ -253,7 +280,7 @@ const QueueMessageEditor = ({
             onCancel()
           } else if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault()
-            onSave()
+            if (!empty) onSave()
           }
         }}
       />
@@ -273,7 +300,7 @@ const QueueMessageEditor = ({
       )}
       <span className="flex items-center justify-end gap-1">
         <Button type="button" variant="quiet" size="sm" disabled={pending} onClick={onCancel}>Cancel</Button>
-        <Button type="button" variant="quiet" size="sm" disabled={pending} onClick={onSave}>
+        <Button type="button" variant="quiet" size="sm" disabled={pending || empty} title={empty ? 'Remove this message instead of saving it empty' : undefined} onClick={onSave}>
           {pending ? 'Saving…' : 'Save'}
         </Button>
       </span>

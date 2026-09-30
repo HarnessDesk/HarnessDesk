@@ -83,6 +83,12 @@ export const userContentValidator: Validator<UserContent> = taggedUnion('type', 
   }) as Validator<UserContent>,
 })
 
+const nonEmptyUserContent: Validator<UserContent[]> = (value, path = '') => {
+  const input = arrayOf(userContentValidator)(value, path)
+  if (input.length === 0) throw new ValidationError(path, 'expected at least one content item')
+  return input
+}
+
 const delivery = optional(literalUnion('inline', 'detached'))
 const reviewRequestValidator: Validator<ReviewRequest> = taggedUnion('type', {
   uncommitted: shape({ type: literalUnion('uncommitted'), delivery }) as Validator<ReviewRequest>,
@@ -1022,9 +1028,9 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'turn/send': shape({ runtime: isString, sessionId: isString, input: arrayOf(userContentValidator) }),
   'turn/steer': shape({ runtime: isString, sessionId: isString, input: arrayOf(userContentValidator) }),
   'turn/interrupt': shape({ runtime: isString, sessionId: isString }),
-  'turn/queue': shape({ runtime: isString, sessionId: isString, input: arrayOf(userContentValidator) }),
+  'turn/queue': shape({ runtime: isString, sessionId: isString, input: nonEmptyUserContent }),
   'turn/queue/cancel': shape({ runtime: isString, sessionId: isString, id: isString }),
-  'turn/queue/update': shape({ runtime: isString, sessionId: isString, id: isString, input: arrayOf(userContentValidator) }),
+  'turn/queue/update': shape({ runtime: isString, sessionId: isString, id: isString, input: nonEmptyUserContent }),
   'turn/queue/move': shape({ runtime: isString, sessionId: isString, id: isString, to: isNumber }),
   'turn/queue/flush': shape({ runtime: isString, sessionId: isString }),
   'turn/queue/clear': shape({ runtime: isString, sessionId: isString }),

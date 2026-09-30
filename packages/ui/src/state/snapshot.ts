@@ -204,6 +204,22 @@ export interface PendingApproval {
   readonly approval: Approval
 }
 
+/** A refused or unsaved draft that belongs to one conversation in this window. */
+export interface RecoverableDraft {
+  readonly id: number
+  readonly text: string
+  readonly attachments: readonly {
+    readonly name: string
+    readonly path: string
+    readonly kind: 'file' | 'image' | 'skill' | 'session' | 'context' | 'note'
+    readonly contextId?: string
+    readonly ref?: string
+    readonly text?: string
+    readonly runtime?: RuntimeId
+  }[]
+  readonly detail: string
+}
+
 /** A conversation handed to the open draft: shown as a chip, resolved at send. */
 export interface DraftHandoff {
   readonly runtime: RuntimeId
@@ -375,6 +391,8 @@ export interface AppSnapshot {
    * and a conversation with nothing waiting has no entry.
    */
   readonly queues: ReadonlyMap<SessionKey, SessionQueue>
+  /** Drafts the host refused, kept by conversation and for this window's lifetime. */
+  readonly recoverableDrafts: ReadonlyMap<SessionKey, readonly RecoverableDraft[]>
   /**
    * What each conversation has running in the background, keyed like the
    * sessions. The runtime's own list, relayed by the host; a conversation
@@ -811,6 +829,7 @@ const EMPTY: AppSnapshot = {
   draftRouteId: null,
   sessions: new Map(),
   queues: new Map(),
+  recoverableDrafts: new Map(),
   tasks: new Map(),
   history: [],
   historyLoading: false,
@@ -903,6 +922,7 @@ export const emptySnapshot = (): AppSnapshot => ({
   triggerAttention: {},
   sessions: new Map(),
   queues: new Map(),
+  recoverableDrafts: new Map(),
   tasks: new Map(),
   foldersGone: new Map(),
   loadingSessions: new Set(),

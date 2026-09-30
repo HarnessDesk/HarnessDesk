@@ -41,6 +41,12 @@ test('queued-message edits validate the complete replacement input', () => {
   assert.throws(() => parseClientMessage(request('turn/queue/update', {
     runtime: 'codex', sessionId: 's1', id: 'q1', input: [{ type: 'unknown' }],
   })), ValidationError)
+  assert.throws(() => parseClientMessage(request('turn/queue/update', {
+    runtime: 'codex', sessionId: 's1', id: 'q1', input: [],
+  })), ValidationError)
+  assert.throws(() => parseClientMessage(request('turn/queue', {
+    runtime: 'codex', sessionId: 's1', input: [],
+  })), ValidationError)
 })
 
 test('root and Seat bounds reject before any host dispatch can run', () => {

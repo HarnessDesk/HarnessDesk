@@ -399,6 +399,7 @@ export class SessionRegistry {
    * can see and act on, not a message that quietly disappears.
    */
   enqueue(record: SessionRecord, id: string, input: readonly UserContent[]): QueuedMessage {
+    if (input.length === 0) throw new Error('A queued message must contain at least one content item.')
     const queue = record.queue
     if (queue.messages.length >= QUEUE_LIMIT) {
       throw new Error(
@@ -424,6 +425,7 @@ export class SessionRegistry {
 
   /** Replaces one waiting message's complete input without changing its identity or place. */
   updateQueued(record: SessionRecord, id: string, input: readonly UserContent[]): void {
+    if (input.length === 0) throw new Error('A queued message cannot be updated to empty content.')
     const index = record.queue.messages.findIndex((message) => message.id === id)
     if (index === -1) throw new Error('This message is no longer waiting, so it could not be updated.')
     const message = record.queue.messages[index]!

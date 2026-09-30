@@ -43,6 +43,7 @@ const feed = (event: AgentEvent): void => {
 }
 
 beforeEach(() => {
+  sessionStorage.clear()
   // Never connected: the socket queues, and nothing here reaches the wire.
   store = new AppStore('ws://localhost:0/')
 })
@@ -104,5 +105,24 @@ describe('the queue in the store', () => {
     feed({ type: 'session/queue', sessionId: sessionId('s2'), queue: queue('theirs') })
     expect(store.getSnapshot().queues.get(KEY)?.messages).toHaveLength(1)
     expect(store.getSnapshot().queues.get(sessionKey(RUNTIME, 's2'))?.messages).toHaveLength(1)
+  })
+
+  it('scopes refused drafts by conversation and restores them after a store remount', () => {
+    store.addRecoverableDraft(KEY, {
+      text: 'revised for A',
+      attachments: [{ name: 'plan.md', path: '/w/plan.md', kind: 'file' }],
+      detail: 'Your edit wasn’t saved — the original was already sent. Restore it to the composer.',
+    })
+    const other = sessionKey(RUNTIME, 's2')
+    expect(store.getSnapshot().recoverableDrafts.get(other)).toBeUndefined()
+    expect(store.getSnapshot().recoverableDrafts.get(KEY)?.[0]?.text).toBe('revised for A')
+
+    store = new AppStore('ws://localhost:0/')
+    expect(store.getSnapshot().recoverableDrafts.get(other)).toBeUndefined()
+    expect(store.getSnapshot().recoverableDrafts.get(KEY)?.[0]).toMatchObject({
+      text: 'revised for A',
+      detail: 'Your edit wasn’t saved — the original was already sent. Restore it to the composer.',
+      attachments: [{ name: 'plan.md', kind: 'file' }],
+    })
   })
 })
