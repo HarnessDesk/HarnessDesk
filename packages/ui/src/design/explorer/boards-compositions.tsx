@@ -40,6 +40,7 @@ import {
   Avatar,
   AvatarFallback,
   AvatarStack,
+  Bar,
   Bars,
   Breadcrumb,
   BreadcrumbEllipsis,
@@ -183,7 +184,7 @@ import {
   WorkbenchRail,
   WorkbenchScrim,
 } from '../patterns/DockPanel'
-import { CodeText, Row, Rows, SectionHead, Spinner, Text } from '../patterns/Settings'
+import { CodeText, Dot, Row, Rows, SectionHead, Spinner, Text } from '../patterns/Settings'
 import { HeatGrid, HeatLegend, type HeatGridRow } from '../ui/heat-grid'
 import {
   agentLevels,
@@ -816,6 +817,12 @@ const ToolPaneBoard = () => {
             <ToolPaneBody bleed>
               <ToolPaneMessage>Waiting for the page.</ToolPaneMessage>
             </ToolPaneBody>
+            <Bar rule="top">
+              <Dot state="signin" pulse />
+              <Text role="meta">Being driven</Text>
+              <ToolbarGap />
+              <Text role="meta">Framed pages only — the desktop app runs a real browser</Text>
+            </Bar>
           </ToolPane>
         </Case>
         <Case label="inspector panel">

@@ -62,6 +62,7 @@ import {
 } from './Icons'
 import { RuntimeMark } from './BrandIcons'
 import {
+  Bar,
   Button,
   Chip,
   ContextMenu,
@@ -82,12 +83,12 @@ import {
   ToolPaneBody,
   ToolPaneDocumentTab,
   ToolPaneEmptyState,
-  ToolPaneFooter,
   ToolPaneGuest,
   ToolPaneStage,
   ToolPaneTabIcon,
   ToolPaneTabViewport,
   ToolPaneToolGroup,
+  ToolbarGap,
   useContextMenu,
   useSortable,
 } from '../design'
@@ -1913,18 +1914,18 @@ export const BrowserPane = () => {
       </ToolPaneBody>
       {/* What the pane is, said once at the bottom: whether a turn has the
           wheel, and that the profile is never the one your own browser uses. */}
-      <ToolPaneFooter>
+      <Bar rule="top">
         {driving ? (
           <>
             <Dot state="signin" pulse />
-            Being driven
+            <Text role="meta">Being driven</Text>
           </>
         ) : (
-          'Idle'
+          <Text role="meta">Idle</Text>
         )}
-        <span className="flex-1" />
-        {inline ? 'Never your own browser profile' : 'Framed pages only — the desktop app runs a real browser'}
-      </ToolPaneFooter>
+        <ToolbarGap />
+        <Text role="meta">{inline ? 'Never your own browser profile' : 'Framed pages only — the desktop app runs a real browser'}</Text>
+      </Bar>
     </ToolPane>
   )
 }
