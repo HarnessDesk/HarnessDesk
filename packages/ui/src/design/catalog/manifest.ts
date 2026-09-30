@@ -95,6 +95,7 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
 }
 
 const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  sidebar: 'packages/ui/src/design/explorer/boards.tsx',
   'heat-grid': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   /* Shown on the compositions board, beside the panes it resizes. Its example
      used to be `showcase/PanelPlayground.tsx`, where coloured rectangles stood
@@ -185,6 +186,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   'scroll-area': ['default'],
   section: ['card', 'plain', 'quiet', 'panel', 'page'],
   select: ['default'],
+  sidebar: ['default'],
   separator: ['horizontal', 'vertical'],
   'sortable-list': ['default'],
   bar: ['default'],
@@ -311,6 +313,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   Notices: ['default', 'populated', 'empty', 'warning', 'error', 'open', 'closed'],
   Checklist: ['default', 'active', 'inactive', 'success', 'empty'],
   'heat-grid': ['default', 'empty', 'populated'],
+  sidebar: ['default', 'hover', 'active', 'populated'],
   PaneColumn: ['default'],
   // empty: no fee set, nothing suggested. derived: a suggestion offered.
   // populated: a fee is set. warning: a key/metered account's budget row.
@@ -333,6 +336,7 @@ Object.assign(SIZES, {
   switch: ['default', 'sm'],
   textarea: ['default', 'compact', 'composer'],
   'toggle-group': ['default', 'sm', 'lg'],
+  sidebar: ['sm', 'default', 'lg'],
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
@@ -449,6 +453,7 @@ export const CANONICAL_UI_MODULES = [
   ['breadcrumb', 'adopted', 'Hierarchical location trail'],
   ['bubble', 'message', 'What a chat message part’s words stand on'],
   ['button', 'button', 'All action and icon buttons'],
+  ['sidebar', 'sidebar', 'Navigation column anatomy, with one fixed row and trailing slot'],
   ['card', 'adopted', 'Generic grouped surface'],
   ['chart', 'chart', 'Panel-sized quantitative charts'],
   ['composer', 'composer', 'Shared composer presentation shell'],

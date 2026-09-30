@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 
 import { runtimeId, sessionKey, sessionId, turnId, type AgentItem, type FileChange, type Turn } from '@harnessdesk/protocol'
 
-import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, PluginIcon, TerminalIcon, TodoPendingIcon } from '../../components/Icons'
+import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, MoreIcon, PlusIcon, PluginIcon, TerminalIcon, TodoPendingIcon, UserIcon } from '../../components/Icons'
 import { RuntimeMark } from '../../components/BrandIcons'
 import { DiffView } from '../../components/Diff'
 import { TurnFiles } from '../../components/TurnFiles'
@@ -106,6 +106,25 @@ import {
   Toolbar,
   sortableItemClass,
   useSortable,
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupAction,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarInput,
+  SidebarMenu,
+  SidebarMenuAction,
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarMenuSkeleton,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
+  SidebarSeparator,
 } from '..'
 import { Specimen } from './specimen'
 import styles from './explorer.module.css'
@@ -185,6 +204,84 @@ const PANECOLUMN_CATALOG_INSET = ['reading', 'bars', 'rail', 'jobs'] as const
 const PANECOLUMN_CATALOG_VARIANTS = ['default'] as const
 const PANECOLUMN_CATALOG_SIZES = ['default'] as const
 const PANECOLUMN_CATALOG_STATES = ['default'] as const
+const SIDEBAR_CATALOG_VARIANTS = ['default'] as const
+const SIDEBAR_CATALOG_SIZES = ['sm', 'default', 'lg'] as const
+const SIDEBAR_CATALOG_STATES = ['default', 'hover', 'active', 'populated'] as const
+
+const SidebarBoard = () => (
+  <div className="grid gap-(--hd-space-4)" data-catalog-example="sidebar" data-catalog-variants={SIDEBAR_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={SIDEBAR_CATALOG_SIZES.join(' ')} data-catalog-states={SIDEBAR_CATALOG_STATES.join(' ')}>
+    <Sidebar className="h-[calc(var(--sidebar-width)*3)] w-(--sidebar-width) max-w-full overflow-hidden rounded-(--hd-radius) border border-sidebar-border">
+      <SidebarHeader>
+        <div className="flex h-(--hd-control-h) items-center gap-(--hd-space-2) px-(--hd-space-2) text-sm font-medium">
+          <FolderIcon size={16} /> <span>storefront</span>
+        </div>
+        <SidebarInput aria-label="Search projects" placeholder="Search" />
+      </SidebarHeader>
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupLabel>Projects</SidebarGroupLabel>
+          <SidebarGroupAction aria-label="Add project"><PlusIcon size={14} /></SidebarGroupAction>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem><SidebarMenuButton size="sm" icon={<FolderIcon size={16} />} label="storefront" /></SidebarMenuItem>
+              <SidebarMenuItem><SidebarMenuButton size="default" icon={<FolderIcon size={16} />} label="atlas-api" /></SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Row sizes</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {SIDEBAR_CATALOG_SIZES.map((size) => (
+                <SidebarMenuItem key={size}>
+                  <SidebarMenuButton size={size} data-catalog-size={size} label={`Fix checkout retry · ${size}`} />
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Recent</SidebarGroupLabel>
+          <SidebarGroupAction aria-label="More recent items"><MoreIcon size={14} /></SidebarGroupAction>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem><SidebarMenuButton size="default" label="Fix checkout retry" /></SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton size="default" label="Pin the flaky inventory retry" />
+                <SidebarMenuBadge>2</SidebarMenuBadge>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton size="default" icon={<CheckIcon size={14} />} label="Ready for review" />
+                <SidebarMenuBadge aria-label="Complete"><CheckIcon size={14} /></SidebarMenuBadge>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton size="default" label="Fix checkout retry" className="bg-sidebar-accent" />
+                <SidebarMenuBadge>2</SidebarMenuBadge>
+                <SidebarMenuAction aria-label="More actions" showOnHover className="opacity-100"><MoreIcon size={14} /></SidebarMenuAction>
+              </SidebarMenuItem>
+              <SidebarMenuItem><SidebarMenuButton size="default" label="Fix checkout retry" isActive /></SidebarMenuItem>
+              <SidebarMenuItem><SidebarMenuButton size="lg" label="A very long conversation label that truncates when the sidebar is narrow" /></SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton icon={<FolderIcon size={16} />} label="storefront" />
+                <SidebarMenuSub>
+                  <SidebarMenuSubItem><SidebarMenuSubButton href="#fix-checkout">Fix checkout retry</SidebarMenuSubButton></SidebarMenuSubItem>
+                  <SidebarMenuSubItem><SidebarMenuSubButton href="#atlas-api">atlas-api</SidebarMenuSubButton></SidebarMenuSubItem>
+                </SidebarMenuSub>
+              </SidebarMenuItem>
+              <SidebarMenuItem><SidebarMenuSkeleton showIcon /></SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+      <SidebarSeparator />
+      <SidebarFooter>
+        <SidebarMenu>
+          <SidebarMenuItem><SidebarMenuButton icon={<UserIcon size={16} />} label="Jane Doe" /></SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
+    </Sidebar>
+  </div>
+)
 
 const ButtonBoard = () => (
   <>
@@ -1780,6 +1877,12 @@ const REVIEW_TEXT = `Reviewed your 86e1bdb fix. Verdict: correct and complete.
 One-line fix, right target, no regressions. Ship it.`
 
 export const BOARDS: Board[] = [
+  {
+    id: 'sidebar',
+    title: 'Sidebar',
+    about: 'One navigation grammar: the row stays the same size when its trailing action appears.',
+    render: SidebarBoard,
+  },
   {
     id: 'queue',
     title: 'Sortable list · Trigger picker',
