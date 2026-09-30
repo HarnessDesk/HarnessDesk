@@ -775,20 +775,20 @@ readouts `Text` also draws (`meta`, `figure`, `metric`, `value`, `prose`) are
 not names and sit outside the rule; `figure`/`metric` are deliberately
 semibold.
 
-Enforced by `rules.spec.ts` ("rule: names"), reading `data-role` and
-`data-slot="page-title"` across every mounted screen. The spec found one
-name out of rule: the pull-request card's title (`components/Publication.tsx`)
-wore `weight="semibold"`, the weight `weight` exists for lifting a search
-match inside a line. It now takes its row role's own 13/500.
+Enforced by `rules.spec.ts` ("rule: names"), reading every `Text` role and
+`data-slot="page-title"` across mounted screens against that role's pair. It
+also checks every visible h1-h4 and `*-title` slot outside `Text` against the
+same five pairs, without guessing a role from the tag or slot. Numeric,
+amount, percentage and lone-dash title text is a figure readout and is
+excluded; the preview harness marks its own caption with
+`data-preview-caption` so it is excluded too. Findings include text, tag,
+slot, computed size and weight. A mutation catches an injected 16/500 h3 and
+proves the marked caption is ignored.
 
-The check covers a name drawn through `Text`/`PageHead` only. The shared
-parts that drew their names some other way now compose `Text` too (#1072):
-`EmptyState`'s heading and `ChoiceRow`'s title are `subject`, a `Notices`
-card title and the inbox heading are `subject`, an unread inbox title is
-`row`, and `AgentCard`'s name is `row`. The Dashboard's band heads are
-`section` (16/600), drawn through `SectionHead`'s heading level (#1122).
-The other headings and `*-title` slots drawn outside `Text` are the next
-convergence, and the check widens to them once they are converted (#1122).
+The small `ListRow` title uses the navigation pair (13/400), including when
+selected; selection is shown by the row's fill. Its default title remains the
+subject pair (14/500). The Dashboard's band heads are `section` (16/600),
+drawn through `SectionHead`'s heading level (#1122).
 
 ### Group labels
 

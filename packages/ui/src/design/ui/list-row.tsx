@@ -178,9 +178,10 @@ const ListRow = ({
       <div
         data-slot="list-row-title"
         className={cn(
-          'truncate leading-(--hd-line)',
-          size === 'sm' ? 'text-base' : 'text-base font-medium',
-          selected && 'font-medium',
+          'truncate',
+          size === 'sm'
+            ? 'text-sm leading-(--hd-line-sm) font-normal'
+            : 'text-base leading-(--hd-line) font-medium',
         )}
       >
         {title}

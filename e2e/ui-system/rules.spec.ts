@@ -85,27 +85,18 @@ const PROBE_HELPERS = `
 /* ========================================================================
  * Rule: names
  *
- * Every element wearing a name role (`Text role=…` in
- * `design/patterns/Settings.tsx`, plus `PageHead`'s own `page-title`) computes
- * one of the pairs `docs/design.md`'s "Named text roles" table states:
- * wordmark 20/600, page 20/600, subject 14/500, row 13/500, navigation
- * 13/400, muted 13/400, section 16/600 — 16px and semibold belong only to
- * section, wordmark and page in their documented pairs. `group label` is its
- * own rule, below. The dashboard readouts
- * `Text` also draws (`meta`, `figure`, `metric`, `value`, `prose`) are not
- * names — nothing in the docs table lists them, `Text`'s own comment calls
- * them "dashboard readouts", and `figure`/`metric` are deliberately semibold
- * — so the checker only looks at the seven name roles. A name drawn outside
- * `Text`/`PageHead` altogether (`EmptyState`'s h3, a `Notices` title,
- * `AgentCard`'s own name) is out of this rule's reach and tracked separately
- * (#1072), not silently passed.
+ * `Text` elements with `data-role` and `PageHead`'s `page-title` keep their
+ * own documented pair. Visible h1-h4 and `*-title` slots outside `Text` must
+ * compute one of those same pairs; the checker does not guess a role from the
+ * heading level or component. Numeric, amount, percentage and lone-dash text
+ * is excluded because those slots are figure readouts, not names. The
+ * preview frame caption is excluded by `data-preview-caption` because it
+ * labels the harness, not the product. `Text` readout roles and group labels
+ * keep their own rule boundaries.
  *
- * Measured on `/preview.html`'s full set of mounted screens, across every
- * theme and interface (the pairs are named in tokens, not in the interface
- * layer, so they do not vary by dial — this proves that rather than assumes
- * it). The pull-request card's title (`components/Publication.tsx`) was the
- * one name wearing `weight="semibold"` — the weight `weight` exists for
- * lifting a search match, not a title — and now takes its row role's own.
+ * The check runs against `/preview.html`'s mounted screens in every theme and
+ * interface. Mutations prove it catches a bad role pair and an unclassified
+ * heading while permitting the explicitly marked preview caption.
  */
 const NAME_PAIRS: Record<string, { size: number; weight: number }> = {
   wordmark: { size: 20, weight: 600 },
@@ -117,31 +108,78 @@ const NAME_PAIRS: Record<string, { size: number; weight: number }> = {
   muted: { size: 13, weight: 400 },
 }
 
-type NameFinding = { role: string; text: string; size: number; weight: number; reason: string }
+type NameFinding = {
+  role: string
+  text: string
+  tag: string
+  slot: string
+  size: number
+  weight: number
+  reason: string
+}
 
 const namesViolations = (page: Page) =>
   page.evaluate((pairs) => {
     const out: NameFinding[] = []
     let measured = 0
-    const nodes = [
+    const roleNodes = [
       ...document.querySelectorAll('[data-slot="text"][data-role]'),
       ...document.querySelectorAll('[data-slot="page-title"]'),
     ]
-    for (const el of nodes) {
+    const checked = new Set<Element>()
+    const visible = (el: Element) => {
+      const html = el as HTMLElement
+      const style = getComputedStyle(html)
+      const rect = html.getBoundingClientRect()
+      return (html.offsetParent !== null || style.position === 'fixed') &&
+        style.visibility !== 'hidden' && style.display !== 'none' && rect.width >= 1 && rect.height >= 1
+    }
+    const readout = (text: string) =>
+      /^(?:[—–-]|[+-]?(?:[$€£¥]\s*)?\d[\d,]*(?:\.\d+)?(?:\s?(?:%|[kKmMbB]))?)$/i.test(text)
+    const namePairs = Object.values(pairs as Record<string, { size: number; weight: number }>)
+    for (const el of roleNodes) {
       const role = el.hasAttribute('data-slot') && el.getAttribute('data-slot') === 'page-title'
         ? 'page'
         : (el.getAttribute('data-role') ?? '')
       const wanted = (pairs as Record<string, { size: number; weight: number }>)[role]
       if (!wanted) continue
-      if (!(el as HTMLElement).offsetParent && getComputedStyle(el).position !== 'fixed') continue
+      if (!visible(el)) continue
+      checked.add(el)
       measured += 1
       const cs = getComputedStyle(el)
       const size = Math.round(parseFloat(cs.fontSize))
       const weight = Number(cs.fontWeight)
-      const text = (el.textContent ?? '').trim().slice(0, 60)
-      if (size === 16 && role !== 'section') out.push({ role, text, size, weight, reason: '16px outside the section role' })
-      else if (weight === 600 && role !== 'wordmark' && role !== 'page' && role !== 'section') out.push({ role, text, size, weight, reason: 'semibold outside section, wordmark and page' })
-      else if (size !== wanted.size || weight !== wanted.weight) out.push({ role, text, size, weight, reason: `role ${role} wants ${wanted.size}/${wanted.weight}` })
+      const text = ((el as HTMLElement).innerText ?? el.textContent ?? '').trim()
+      if (size !== wanted.size || weight !== wanted.weight) out.push({
+        role: `role ${role}`,
+        text,
+        tag: el.tagName.toLowerCase(),
+        slot: el.getAttribute('data-slot') ?? '',
+        size, weight, reason: `role ${role} wants ${wanted.size}/${wanted.weight}`,
+      })
+    }
+    for (const el of document.querySelectorAll('h1, h2, h3, h4, [data-slot$="-title"]')) {
+      if (checked.has(el) || el.closest('[data-slot="text"]') || el.closest('[data-preview-caption]')) continue
+      // A heading whose whole name is drawn by a Text inside it (SectionHead's
+      // band heading keeps its h2 and draws `section` inside) is measured
+      // through that Text's own role above, not by the box around it.
+      const inner = el.querySelector('[data-slot="text"][data-role]')
+      if (inner && (inner.textContent ?? '').trim() === (el.textContent ?? '').trim()) continue
+      const text = ((el as HTMLElement).innerText ?? el.textContent ?? '').trim()
+      if (!text || readout(text) || !visible(el)) continue
+      measured += 1
+      const style = getComputedStyle(el)
+      const size = Math.round(parseFloat(style.fontSize))
+      const weight = Number(style.fontWeight)
+      if (!namePairs.some((pair) => size === pair.size && weight === pair.weight)) out.push({
+        role: 'heading/title',
+        text,
+        tag: el.tagName.toLowerCase(),
+        slot: el.getAttribute('data-slot') ?? '',
+        size,
+        weight,
+        reason: 'outside every name pair',
+      })
     }
     return { out, measured }
   }, NAME_PAIRS)
@@ -168,7 +206,7 @@ test.describe('rule: names', () => {
     await page.addStyleTag({ content: '[data-slot="text"][data-role="row"] { font-size: 16px !important; }' })
     const after = await namesViolations(page)
     expect(after.out.length).toBeGreaterThan(before.out.length)
-    expect(after.out.some((f) => f.reason.includes('16px'))).toBe(true)
+    expect(after.out.some((f) => f.size === 16 && f.weight === 500 && f.role === 'role row')).toBe(true)
   })
 
   test('rule: names — the checker catches section pushed to another pair', async ({ page }) => {
@@ -178,6 +216,28 @@ test.describe('rule: names', () => {
     const after = await namesViolations(page)
     expect(after.out.length).toBeGreaterThan(before.out.length)
     expect(after.out.some((f) => f.reason.includes('role section wants 16/600'))).toBe(true)
+  })
+
+  test('rule: names — the checker catches an unclassified heading and skips preview chrome', async ({ page }) => {
+    await gotoPreview(page)
+    const before = await namesViolations(page)
+    await page.evaluate(() => {
+      const heading = document.createElement('h3')
+      heading.textContent = 'Injected heading'
+      heading.style.cssText = 'position:fixed;top:0;left:0;font-size:16px;font-weight:500'
+      document.body.append(heading)
+      const caption = document.createElement('h3')
+      caption.dataset.previewCaption = ''
+      caption.textContent = 'Preview caption'
+      caption.style.cssText = 'position:fixed;top:30px;left:0;font-size:16px;font-weight:500'
+      document.body.append(caption)
+    })
+    const after = await namesViolations(page)
+    expect(after.measured).toBeGreaterThan(before.measured)
+    expect(after.out.some((finding) =>
+      finding.text === 'Injected heading' && finding.tag === 'h3' && finding.slot === '' && finding.size === 16 && finding.weight === 500,
+    )).toBe(true)
+    expect(after.out.some((finding) => finding.text === 'Preview caption')).toBe(false)
   })
 })
 
