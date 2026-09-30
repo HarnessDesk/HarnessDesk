@@ -150,9 +150,11 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
       const delta = Math.abs((leadRect.top + leadRect.bottom) / 2 - (line.top + line.bottom) / 2)
       const rowStyle = getComputedStyle(row)
       const firstLineAligned = rowStyle.alignItems === 'flex-start' || rowStyle.alignItems === 'start'
-      // #1009 allows an attachment thumbnail to centre beside its fixed title + one description/meta line.
-      // Only a row explicitly aligned to its first line, or text wrapping beyond that two-line contract, is a finding.
-      if (delta >= 1.5 && (firstLineAligned || visibleLineCount(text) > 2)) record('lead-off-line', lead)
+      // #1009 allows a horizontal Attachment thumbnail and the Plans account mark to centre beside fixed title + meta lines.
+      // ListRow subtitles/meta and ChoiceRow descriptions follow the first-line rule; a two-line shape alone is not an exemption.
+      const centeredMetaPattern = row.matches('[data-slot="attachment"][data-orientation="horizontal"]') || !!row.closest('[data-slot="plans-table"]')
+      const centeredTwoLineLead = centeredMetaPattern && visibleLineCount(text) <= 2
+      if (delta >= 1.5 && (firstLineAligned || !centeredTwoLineLead)) record('lead-off-line', lead)
     }
   }
 
