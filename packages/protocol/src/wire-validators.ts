@@ -1205,6 +1205,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'flow/execution': goalShape({ run: isFilled }),
   'flow/execution/source': goalShape({ run: isFilled }),
   'flow/check/retry': goalShape({ run: isFilled, card: goalInteger(1), token: isFilled }),
+  'flow/answer/continue': goalShape({ run: isFilled }),
   'flow/update/preview': goalShape({ root: isString, id: isFilled }),
   'flow/update/apply': goalShape({ root: isString, token: isFilled }),
   'flow/customize/preview': goalShape({ root: isString, id: isFilled }),

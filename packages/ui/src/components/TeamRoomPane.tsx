@@ -1950,12 +1950,31 @@ const RoomLiveLine = ({
        reason is the only place that says why and what to do next — a Seat that
        would not open, the siblings its round held back with it. The header
        said "Needs you" and nothing here said for what, so the one visible way
-       on was a card's own "Give this to…". Its lines are kept as written. */
+       on was a card's own "Give this to…". Its lines are kept as written.
+       An answer its Seat would not take is kept on the run, and sending it
+       again is this line's own way on (#998). When that cannot work — the
+       Seat is gone, the card finished — the action stays, greyed, and the
+       line says why: a control that vanished would say nothing at all. */
     if (!waiting && flowExecution?.state === 'stalled' && flowExecution.reason) {
+      const kept = flowExecution.keptAnswer
+      const trail = kept ? (
+        <Button
+          variant="link"
+          size="inline"
+          disabled={!kept.canContinue}
+          title={kept.refusal ?? `Sends “${kept.answer}” to the Seat for card #${kept.card} again.`}
+          onClick={() => void store.continueFlowAnswer(flowExecution.id)}
+        >
+          Continue with this answer
+        </Button>
+      ) : null
       return (
-        <TurnWorkLive settled data-slot="room-live-line" data-kind="stall">
+        <TurnWorkLive settled data-slot="room-live-line" data-kind="stall" {...(trail ? { trail } : {})}>
           <Dot state="limit" pulse />
-          <span className="whitespace-pre-line">{sentence(flowExecution.reason)}</span>
+          <span className="whitespace-pre-line">
+            {sentence(flowExecution.reason)}
+            {kept?.refusal ? ` ${sentence(kept.refusal)}` : ''}
+          </span>
         </TurnWorkLive>
       )
     }

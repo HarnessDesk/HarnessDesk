@@ -857,7 +857,11 @@ Permissions, from stopping right away to waiting until you are back — and
 then stops its run and ends its turn. Answered afterwards on that same
 question card, it is handed to the Seat in a turn of its own — reopened
 first, the way a relaunch reopens a Seat — and the run goes on. Until then
-the Seat's card sits in Needs you on the board, where the header reads it. A
+the Seat's card sits in Needs you on the board, where the header reads it. If
+the Seat will not take the answer, even asked twice, the run stops with the
+answer kept: the room's line for that stop offers Continue with this answer,
+which hands the same answer to the same Seat again, and when that Seat is gone
+the action stays, greyed, and says why. A
 run a person started is never timed: its Seat's question waits for them. macOS notifications gain two kinds of their own,
 individually silenceable exactly like every other kind: unattended work that
 needs a person, and a trigger that was skipped. A wrapped Goal's receipt keeps
