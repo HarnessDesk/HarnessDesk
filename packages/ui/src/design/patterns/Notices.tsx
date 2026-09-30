@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '../ui/button'
 import { revealMotion } from '../ui/motion'
 import { toast } from '../ui/toast'
+import { Text } from './Settings'
 import styles from './Notices.module.css'
 
 /**
@@ -175,9 +176,9 @@ export const NoticeCard = ({
         <Pager at={pager.at} count={messages.length} onPrevious={pager.previous} onNext={pager.next} />
         <Dismiss onDismiss={() => onDismiss(message.id)} onMute={onMute?.(message.id)} />
       </div>
-      <div className={styles.cardTitle} data-slot="notice-title">
+      <Text as="div" role="subject" data-part="notice-title">
         {message.title}
-      </div>
+      </Text>
       {message.body ? (
         <p className={styles.cardBody} data-slot="notice-description">
           {message.body}
@@ -318,10 +319,12 @@ export const InboxList = ({
                   message.go?.()
                 }}
               >
-                {message.title}
+                {message.read ? message.title : <Text role="row">{message.title}</Text>}
               </Button>
             ) : (
-              <span className={styles.inboxTitle}>{message.title}</span>
+              <span className={styles.inboxTitle}>
+                {message.read ? message.title : <Text role="row">{message.title}</Text>}
+              </span>
             )}
             {message.at !== undefined ? <time className={styles.inboxTime}>{ago(message.at, now)}</time> : null}
           </span>
@@ -344,7 +347,7 @@ export const InboxList = ({
   return (
     <div className={styles.inbox} data-slot="inbox-list">
       <div className={styles.inboxHead}>
-        <span className={styles.inboxHeading}>Inbox</span>
+        <Text role="subject" data-part="inbox-heading">Inbox</Text>
         {messages.length > 0 ? (
           // A pair of toggles narrowing the one list below, not a set of
           // panels — `role="tablist"` promised arrow-key navigation and a

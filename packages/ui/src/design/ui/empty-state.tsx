@@ -2,7 +2,7 @@ import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
 import { ChevronIcon } from '@/components/Icons'
-import { Row } from '../patterns/Settings'
+import { Row, Text } from '../patterns/Settings'
 
 /**
  * The screen with nothing on it yet, doing something useful anyway.
@@ -137,7 +137,7 @@ const EmptyState = (allProps: EmptyStateProps) => {
         </span>
       )}
       <div className="flex flex-col gap-1">
-        <h3 className={cn('font-semibold', tight ? 'text-base' : 'text-lg')}>{title}</h3>
+        <Text as="h3" role="subject">{title}</Text>
         {description != null && (
           <p className="text-base text-(--hd-muted-foreground)">{description}</p>
         )}
@@ -183,7 +183,7 @@ const ChoiceRow = ({
   >
     {icon != null && <span className="shrink-0">{icon}</span>}
     <span className="min-w-0 flex-1">
-      <span className="block truncate text-base font-medium">{title}</span>
+      <Text role="subject" truncate className="block">{title}</Text>
       {description != null && (
         <span className="block truncate text-xs text-(--hd-muted-foreground)">{description}</span>
       )}

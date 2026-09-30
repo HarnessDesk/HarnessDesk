@@ -56,6 +56,7 @@ const BARE: AgentCardSubject = {
 it('draws nothing but the crest when that is all it knows', () => {
   render(BARE)
   expect(text()).toBe('Opus')
+  expect(container.querySelector('[data-slot="text"][data-role="row"]')?.textContent).toBe('Opus')
   expect(bands()).toBe(0)
 })
 
