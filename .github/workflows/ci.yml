@@ -214,9 +214,12 @@ jobs:
   ui-system-browser:
     name: UI system browser integration
     runs-on: macos-14
-    # 259 browser tests take 13-14 minutes on a hosted runner; at 15 the job
-    # was cancelled mid-suite on ordinary runs.
-    timeout-minutes: 25
+    # 259 browser tests took 13-14 minutes on a hosted runner, and at 15 the
+    # job was cancelled mid-suite. At 304 tests the suite takes about 24
+    # minutes here (10-11 locally), and at 25 it was cancelled after every
+    # test had passed (#1140). 40 is headroom while the suite is sharded or
+    # trimmed, which is the lasting fix.
+    timeout-minutes: 40
 
     steps:
       - uses: actions/checkout@v7
