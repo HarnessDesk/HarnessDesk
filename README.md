@@ -1,13 +1,10 @@
-<div align="center">
+<h1 align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/brand/svgs/harnessdesk-icon-white-transparent.svg" />
-    <img src="assets/brand/svgs/harnessdesk-icon-black-transparent.svg" width="84" alt="HarnessDesk" />
+    <img src="assets/brand/svgs/harnessdesk-icon-black-transparent.svg" width="56" valign="middle" alt="" />
   </picture>
-  <h1>HarnessDesk</h1>
-  <p><strong>Where your agents work — whoever made them.</strong><br/>
-  A control plane for coding agents, owned by no model vendor.<br/>
-  <sub>Context, policy, history, tools, cost and evidence in one place — whichever agent does the work. macOS app today.</sub></p>
-</div>
+  HarnessDesk
+</h1>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-blue?style=flat-square" alt="MIT licence" /></a>
@@ -16,20 +13,132 @@
 </p>
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/turn-dark.gif" />
-    <img src="docs/images/app/turn-light.gif" width="900"
-         alt="A turn arriving in HarnessDesk: the agent's reasoning appears first, then its tool calls one at a time — reading a file, grepping for a status code, editing it — while the task list in the sidebar ticks over, ending with a summary of what changed." />
-  </picture>
+  <strong>Where your agents work — whoever made them.</strong><br/>
+  Put Codex, Claude Code, Cursor and Gemini on one piece of work — one room, one board, one set of rules.
 </p>
 
-<p align="center"><em>A turn, as it arrives. Reasoning, then the tool calls, then what changed.</em></p>
+<h3 align="center"><a href="#getting-started"><ins>Get started</ins></a></h3>
 
----
+<p align="center">
+  <a href="docs/images/app/hero-light.gif"><picture>
+    <source media="(prefers-color-scheme: dark) and (prefers-reduced-motion: no-preference)" srcset="docs/images/app/hero-dark.gif" />
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/hero-dark-poster.png" />
+    <source media="(prefers-reduced-motion: no-preference)" srcset="docs/images/app/hero-light.gif" />
+    <img src="docs/images/app/hero-light-poster.png" width="960" alt="A HarnessDesk room with two agents from different vendors. Claude Code reports its fix for a checkout that fails on a transient 502 and asks Codex to check it; Codex opens a browser pane beside the chat, the storefront shows the order placed after the 502 was retried, and Codex reports back with one nit, which Claude Code takes." />
+  </picture></a>
+</p>
 
-## The problem
+Your machine already has several coding agents, each with its own history, permissions and credentials, and
+nothing shared between them. A model vendor's shell always has a preferred worker; HarnessDesk is the desk they
+all report to, and it makes none of them. [Why →](VISION.md)
 
-Your machine probably already has several of these:
+## Features
+
+<table>
+<tr>
+<td width="40%" valign="middle">
+
+### Rooms
+
+Agents from different vendors on one piece of work, claiming from one board — each sees what the others took, and a
+second reach for a file already held is refused by name.
+
+[Docs →](docs/multi-agent.md#4-the-room-the-shared-workspace)
+
+</td>
+<td width="60%">
+  <a href="docs/images/app/rooms-light.png"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/rooms-dark.png" />
+    <img src="docs/images/app/rooms-light.png" width="100%" alt="A room with four agents from four vendors — Claude Code, Gemini, Copilot and Antigravity — each holding a card from the board. Its feed shows the cards claimed, two collisions refused by name because another agent's card already holds the file, and each agent's reply." />
+  </picture></a>
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+
+### Flows
+
+Pick a shape — independent review, fan-out review, comparison, a staged relay — or write your own: who does what,
+and what moves work between them. The dry run spends nothing and shows every seat before you start; shipping stays
+yours.
+
+[Docs →](docs/flows.md)
+
+</td>
+<td width="60%">
+  <a href="docs/images/app/flows-light.png"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/flows-dark.png" />
+    <img src="docs/images/app/flows-light.png" width="100%" alt="The Start a team dialog listing the shapes that ship — Independent review, Fan-out review, Comparison and Staged relay — each with a one-line description." />
+  </picture></a>
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+
+### Dashboard
+
+Every plan and every account on one screen — what is left, when it resets, what the work cost at public rates, and
+each agent's days, week by week.
+
+[Docs →](docs/usage-dashboard.md)
+
+</td>
+<td width="60%">
+  <a href="docs/images/app/dashboard-tour-light.gif"><picture>
+    <source media="(prefers-color-scheme: dark) and (prefers-reduced-motion: no-preference)" srcset="docs/images/app/dashboard-tour-dark.gif" />
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/dashboard-tour-dark-poster.png" />
+    <source media="(prefers-reduced-motion: no-preference)" srcset="docs/images/app/dashboard-tour-light.gif" />
+    <img src="docs/images/app/dashboard-tour-light-poster.png" width="100%" alt="The Dashboard: what was paid, what the work was worth, turns and tokens, and three accounts' remaining quota; then Activity by agent, thirteen weeks of each agent's days with the days off left empty." />
+  </picture></a>
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+
+### The repository, beside the work
+
+History, branches and worktrees in a pane next to the conversation that is changing them.
+
+[Docs →](docs/interface.md)
+
+</td>
+<td width="60%">
+  <a href="docs/images/app/history-light.png"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/history-dark.png" />
+    <img src="docs/images/app/history-light.png" width="100%" alt="The repository pane expanded: branches grouped as chore, feat and fix, three tags, and a commit graph where several branches merge back into main." />
+  </picture></a>
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+
+### Agents
+
+Who does the work: a brief, the most it may do, and the seats it prefers. Nine ship — reviewers, an implementer,
+a judge, a researcher — and each sits on whichever runtime can offer it a seat.
+
+[Docs →](docs/agents.md)
+
+</td>
+<td width="60%">
+  <a href="docs/images/app/agents-light.png"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/agents-dark.png" />
+    <img src="docs/images/app/agents-light.png" width="100%" alt="The Agents page's built-in list — API reviewer, Implementer, Judge, Performance reviewer and Requirements analyst — each with its one-line purpose, its grant and the runtime it sits on." />
+  </picture></a>
+</td>
+</tr>
+</table>
+
+**Also in the box:**
+
+- **[`/race`](docs/multi-agent.md#3-race-competing-in-parallel)** — one task to two agents, each in its own worktree, side by side.
+- **[Hand-off](docs/multi-agent.md#2-hand-offs-passing-the-baton)** — a conversation moves to another agent as a packet it can pick up.
+- **[A browser the agent drives](docs/browser-control.md)** — it opens the page, clicks, reads the console; you watch.
+- **Plugins.** Twelve built in, and their tools reach every agent: each one gets an MCP server carrying its 73 built-in plugin tools. [Docs →](docs/extending.md)
+- **[Library](docs/interface.md#settings)** — every skill and MCP server on the machine, and which agents actually load each.
+- **[One policy, one audit log](docs/architecture.md)** — the same rules whichever agent asked.
+
+## Supported agents
 
 <p align="center">
   <picture>
@@ -38,99 +147,7 @@ Your machine probably already has several of these:
   </picture>
 </p>
 
-Several agents. Several histories, several permission models, several config
-directories, several sets of credentials. No shared context between them, no way
-to compare them, and no single answer to *what did the agents do in this
-repository this week*.
-
-**A model vendor has little reason to fix that**, and every reason to fix it
-only as far as its own agent stays the default — DeepSeek's harness drives
-Codex today, and it is still DeepSeek's harness. A shell built by a model
-vendor is a shell with a preferred worker, however many others it can run.
-HarnessDesk is the desk they all report to, and it makes none of them.
-
-Full positioning: [VISION.md](VISION.md).
-
-## What you get
-
-- **Every agent on one desk.** One window, one history, one search — and a
-  sidebar that puts what needs you above what is working, read off each
-  turn's items rather than from prose.
-- **Parallel work that cannot collide.** Each conversation can run in its own
-  git worktree, on its own branch, so two agents edit the same files without
-  seeing each other — and `/race` sends one task to two agents side by side.
-- **One set of rules, and a library they share.** One permission policy and
-  one audit log whichever agent asked; a conversation handed from one agent
-  to another as a packet; and a Library that knows every skill and MCP server
-  on the machine, which agents actually load each one, and what its catalogue
-  line costs per turn.
-- **Plugins.** Twelve built in — git, files, search, task list, team,
-  checkpoints, guardrails, the browser, the iOS Simulator, Android, the web
-  fetcher and the test runner. A plugin's tools reach *every* agent:
-  HarnessDesk offers each one an MCP server carrying its 73 built-in plugin
-  tools, so a capability written once is available wherever you are working.
-
-## What it looks like
-
-### A room, and a board
-
-Four vendors' agents on one piece of work, claiming from one queue. Each
-has said something different about the same change, and each can see what the
-others took.
-
-<p align="center">
-  <a href="docs/images/app/board-light.png">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/board-dark.png" />
-      <img src="docs/images/app/board-light.png" width="900" alt="Four agents from four vendors in one room, coordinating over a shared board: the To do column holds five unclaimed cards, the Working column holds four cards in progress, one per agent — Claude, Gemini, Copilot, and Antigravity — each showing what it is working on." />
-    </picture>
-  </a>
-</p>
-
-### Or hand the room a policy
-
-A flow declares who does what and what moves work between them — so a loop
-runs without you routing every card. Roles, the rules between them, and the
-steps you keep for yourself. Dry run first: it spends nothing and says exactly
-what it would open.
-
-<p align="center">
-  <a href="docs/images/app/flow-light.png">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/flow-dark.png" />
-      <img src="docs/images/app/flow-light.png" width="900" alt="Starting a room with a flow: a Flow select reading “Fix and review”, and beneath it the dry run — four agents it would open, each with its role, model and permission, and a trace of how the loop would go from fixer to reviewer to the person." />
-    </picture>
-  </a>
-</p>
-
-### What is left, and what it cost
-
-Every plan and every account on one screen — which window resets when,
-which lane is spent behind a healthy account, and what the work cost at public
-rates.
-
-<p align="center">
-  <a href="docs/images/app/dashboard-light.png">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/dashboard-dark.png" />
-      <img src="docs/images/app/dashboard-light.png" width="900" alt="The Dashboard's Overview: a rail of views — Overview, Plans, Spend, Activity, Projects — an All accounts scope in the header, a Paid/Value/Turns/Tokens strip, the accounts that need attention, and what it cost beside where it went." />
-    </picture>
-  </a>
-</p>
-
-### The repository, beside the work
-
-History, branches and worktrees in a pane next to the conversation that is
-changing them.
-
-<p align="center">
-  <a href="docs/images/app/git-light.png">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/git-dark.png" />
-      <img src="docs/images/app/git-light.png" width="900" alt="The repository pane beside a new session: a branch graph with two feature branches and a merge back into main, drawn over the real git history of the open folder." />
-    </picture>
-  </a>
-</p>
+<p align="center">…and any agent that speaks ACP. <a href="#what-each-agent-can-actually-do">What each one can actually do →</a></p>
 
 ## Getting started
 
