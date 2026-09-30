@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it } from 'vitest'
 
 import { Rows } from '../patterns/Settings'
 import css from '../patterns/Settings.module.css?raw'
-import { EmptyState } from './empty-state'
+import { ChoiceRow, EmptyState } from './empty-state'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -35,6 +35,9 @@ it('keeps the centred panel as the default, so existing callers do not move', ()
   expect(panel.className).toContain('items-center')
   expect(panel.className).toContain('text-center')
   expect(panel.querySelector('h3')?.textContent).toBe('Nothing in the background')
+  expect(panel.querySelector('h3[data-slot="text"][data-role="subject"]')?.textContent).toBe('Nothing in the background')
+  // Centred with the rest of the panel: Text sets its own alignment, left by default.
+  expect(panel.querySelector('h3')?.className).toContain('text-center')
   expect(panel.querySelector('[data-testid="icon"]')).not.toBeNull()
 })
 
@@ -87,6 +90,12 @@ it('takes only the props its variant can draw', () => {
   // @ts-expect-error — an inline line draws no icon.
   const inlineIcon = <EmptyState variant="inline" title="Nothing" icon={<svg />} />
   expect([inlineFooter, rowTight, inlineIcon]).toHaveLength(3)
+})
+
+it('draws a choice name through the row text role', () => {
+  const choice = container
+  act(() => root.render(<ChoiceRow title="Create a project" description="Start with a folder." />))
+  expect(choice.querySelector('[data-slot="text"][data-role="subject"]')?.textContent).toBe('Create a project')
 })
 
 it('holds an element in an inline line without nesting it in a paragraph', () => {

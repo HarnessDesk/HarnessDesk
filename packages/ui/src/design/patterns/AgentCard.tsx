@@ -2,7 +2,7 @@ import type { ComponentProps, ReactNode } from 'react'
 
 import { AlertIcon, InfoIcon, ShieldOffIcon } from '../../components/Icons'
 import { PopoverGroupLabel } from './Popover'
-import { Dot, Segmented } from './Settings'
+import { Dot, Segmented, Text } from './Settings'
 import { Button } from '../ui/button'
 import { IconTile } from '../ui/icon-tile'
 import { Progress } from '../ui/progress'
@@ -312,7 +312,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
               name fits its line: where it does, the tooltip repeats it, which
               is what a native title does everywhere and costs a rest nobody
               makes. */}
-          <span className="flex items-baseline gap-1.5 text-sm leading-(--hd-line-sm) font-semibold">
+          <Text role="row" className="flex items-baseline gap-1.5">
             <span className="truncate" title={subject.name}>
               {subject.name}
             </span>
@@ -325,7 +325,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
               </span>
             )}
             {subject.working && <span className="sr-only"> — working</span>}
-          </span>
+          </Text>
           {identity && (
             <span className="mt-px block truncate text-xs text-(--hd-muted-foreground)">
               {identity}
