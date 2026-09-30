@@ -73,3 +73,16 @@ test('generic state cannot carry machine consent or trigger preferences', () => 
   }
   assert.doesNotThrow(() => request('app/state/set', { patch: { systemNotifications: { enabled: true } } }), 'a window preference still saves')
 })
+
+test('generic state accepts only a declared unattended question wait', () => {
+  for (const wait of ['now', '1m', '5m', '1h', 'back']) {
+    assert.doesNotThrow(() => request('app/state/set', { patch: { unattendedQuestionWait: wait } }), `${wait} is a Settings choice`)
+  }
+  for (const wait of ['forever', 42, null]) {
+    assert.throws(
+      () => request('app/state/set', { patch: { unattendedQuestionWait: wait } }),
+      (error: unknown) => error instanceof ValidationError && /now, 1m, 5m, 1h, back/.test(error.message),
+      `${JSON.stringify(wait)} names the choices it must use`,
+    )
+  }
+})

@@ -106,7 +106,15 @@ const claimedCards = async (d: IntakeDesk, goal: string): Promise<readonly { id:
 }
 
 /** A trigger's run whose one Seat asked a question nobody answered in time: its run stopped, its turn interrupted. */
-const stoppedOnAQuestion = async (t: { after(fn: () => Promise<void>): void }): Promise<Asking> => {
+const stoppedOnAQuestion = async (
+  t: { after(fn: () => Promise<void>): void },
+  holdStopping?: (host: IntakeDesk['host']) => {
+    readonly stopped: Promise<void>
+    readonly answering: Promise<void>
+    releaseStop(): void
+    releaseAnswer(): void
+  },
+): Promise<Asking & { readonly stoppingHold?: ReturnType<NonNullable<typeof holdStopping>> }> => {
   const timers = manualTimers()
   const repo = await makeRepo('hd-flow-question-')
   await commitTriggers(repo, TRIAGE)
@@ -137,14 +145,16 @@ const stoppedOnAQuestion = async (t: { after(fn: () => Promise<void>): void }): 
   void session.askQuestion('qu-base' as never, 'Which base branch should the fix go on?', OPTIONS)
   const [timer] = await until(() => (timers.live.size === 1 ? [...timers.live.values()] : null), 'the question’s wait set')
   assert.equal(timer!.ms, 5 * 60_000, 'this machine’s default wait: five minutes')
+  const stoppingHold = holdStopping?.(d.host)
   timers.fireAll()
   const stalled = await until(async () => {
     const now = await d.host.call('flow/execution', { run: runId }) as FlowExecution
     return now.state === 'stalled' ? now : null
   }, 'the run stopped for the unanswered question')
   assert.match(stalled.reason ?? '', /asked a question nobody can answer/)
-  assert.equal(session.busy, false, 'the Seat’s turn was interrupted')
-  return { d, timers, run: stalled, card: card!, session, sent, denials }
+  await stoppingHold?.stopped
+  assert.equal(session.busy, Boolean(stoppingHold), 'the Seat’s turn stays live only while the test holds the stop')
+  return { d, timers, run: stalled, card: card!, session, sent, denials, ...(stoppingHold ? { stoppingHold } : {}) }
 }
 
 const hasQuestion = (a: Asking): boolean =>
@@ -197,6 +207,44 @@ test('an answered question resumes the trigger’s Seat that asked it, and the r
   assert.doesNotMatch(said, /^Refused/, said)
   a.session.finish()
   await until(async () => ((await runOf(a)).state === 'settled' ? true : null), 'the run at its end')
+})
+
+test('an answer before the scheduled interrupt lands keeps the live turn running', E2E, async (t) => {
+  const a = await stoppedOnAQuestion(t, (host) => {
+    const flows = host.flowsPlane
+    const stop = flows.stopForQuestion.bind(flows)
+    const answer = flows.answeredInTurn.bind(flows)
+    let stopped!: () => void
+    let answering!: () => void
+    let releaseStop!: () => void
+    let releaseAnswer!: () => void
+    const stoppedSignal = new Promise<void>((resolve) => { stopped = resolve })
+    const answeringSignal = new Promise<void>((resolve) => { answering = resolve })
+    const stopGate = new Promise<void>((resolve) => { releaseStop = resolve })
+    const answerGate = new Promise<void>((resolve) => { releaseAnswer = resolve })
+    flows.stopForQuestion = async (...args: Parameters<typeof stop>) => {
+      const result = await stop(...args)
+      stopped()
+      await stopGate
+      return result
+    }
+    flows.answeredInTurn = async (...args: Parameters<typeof answer>) => {
+      answering()
+      await answerGate
+      await answer(...args)
+    }
+    return { stopped: stoppedSignal, answering: answeringSignal, releaseStop: () => releaseStop(), releaseAnswer: () => releaseAnswer() }
+  })
+
+  assert.equal(a.session.busy, true, 'the run has stopped, but the scheduled interrupt has not landed')
+  const answering = answerIt(a)
+  await a.stoppingHold!.answering
+  a.stoppingHold!.releaseStop()
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(a.session.busy, true, 'an interrupt scheduled before the answer cannot end its live turn')
+  a.stoppingHold!.releaseAnswer()
+  await answering
+  assert.equal((await runOf(a)).state, 'running', 'the answer resumes the run before an interrupt can land')
 })
 
 test('while a run is stopped on its Seat’s question, the Goal reads Needs you; once answered, it reads working', E2E, async (t) => {

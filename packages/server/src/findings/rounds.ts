@@ -253,6 +253,12 @@ export class QuestionDeadline {
     this.#waiting.delete(key)
   }
 
+  /** Claims the live-turn race before the answer path waits on the run's serialized write. */
+  answering(key: string, question: string): void {
+    const at = `${key}\u0000${question}`
+    if (this.#stopping.has(at)) this.#answeredWhileStopping.add(at)
+  }
+
   /**
    * Whether this question outlived its wait and is still unanswered: its run
    * stopped on it, so an answer to it now has no turn to go into.
