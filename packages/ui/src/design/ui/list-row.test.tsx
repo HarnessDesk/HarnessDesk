@@ -17,6 +17,29 @@ it('lets an earned sentence wrap instead of cutting it into a caption', () => {
   expect(markup).toContain('[overflow-wrap:anywhere]')
 })
 
+it('sets the small title in the navigation pair and does not bold selection', () => {
+  const unselected = renderToStaticMarkup(<ListRow size="sm" nav title="Board" />)
+  const selected = renderToStaticMarkup(<ListRow size="sm" nav selected title="Board" />)
+
+  for (const markup of [unselected, selected]) {
+    expect(markup).toContain('text-sm')
+    expect(markup).toContain('leading-(--hd-line-sm)')
+    expect(markup).toContain('font-normal')
+    expect(markup).not.toContain('font-medium')
+  }
+})
+
+it('keeps the default title in the subject pair', () => {
+  const unselected = renderToStaticMarkup(<ListRow title="A subject" />)
+  const selected = renderToStaticMarkup(<ListRow selected title="A subject" />)
+
+  for (const markup of [unselected, selected]) {
+    expect(markup).toContain('text-base')
+    expect(markup).toContain('leading-(--hd-line)')
+    expect(markup).toContain('font-medium')
+  }
+})
+
 /*
  * Scoped to the lead and the title only — never the row as a whole, and
  * never the subtitle. A refused row's subtitle is its reason, the one
