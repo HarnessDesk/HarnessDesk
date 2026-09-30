@@ -14,7 +14,11 @@ on:
 # A superseded run has nothing to tell us; cancel it rather than queue behind it.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A pull request's newer push supersedes its older run. Main never cancels:
+  # on a busy main every push cancelled the run before it, so for over an hour
+  # no combined state of main was checked in full, and "main is green" could
+  # not be shown (#1140).
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   verify:
