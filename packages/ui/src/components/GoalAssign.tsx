@@ -59,7 +59,7 @@ export const GoalAssign = ({
     >
       {loose.length > 0 ? (
         <Rows role="radiogroup" aria-label="Conversation">
-            {loose.map((summary) => {
+            {loose.map((summary, index) => {
               const key = sessionKey(summary.runtime, summary.id)
               return (
                 <RowChoice
@@ -67,6 +67,9 @@ export const GoalAssign = ({
                   title={sessionLabel(summary.title, summary.preview)}
                   desc={summary.cwd} truncateDesc
                   selected={choice === key}
+                  // Nothing chosen yet: the first row is the group's Tab stop, so
+                  // the keyboard can reach the list before a pointer has.
+                  tabStop={choice === null && index === 0}
                   onClick={() => setChoice(key)}
                 />
               )

@@ -26,6 +26,10 @@ it('offers unfiltered loose same-project history and keeps refusal visible', asy
   const option = [...document.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(one => one.textContent?.includes('loose'))!
   expect(option.getAttribute('data-slot')).toBe('choice-row')
   expect(option.getAttribute('aria-checked')).toBe('false')
+  // Nothing chosen yet, and the keyboard can still reach the list: the first
+  // row is the group's one Tab stop.
+  const radios = [...document.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
+  expect(radios.map((one) => one.tabIndex)).toEqual([0, ...radios.slice(1).map(() => -1)])
   act(() => option.click())
   expect(option.getAttribute('aria-checked')).toBe('true')
   act(() => [...document.querySelectorAll('button')].find(one => one.textContent === 'Assign')!.click())
