@@ -763,6 +763,13 @@ export const provenanceLabel = (spend: Pick<SpendSummary, 'provenance'>): string
       return 'Metered and list-price'
     case 'unknown':
       return 'Spend unavailable'
+    default: {
+      // A new `SpendProvenance` member fails to compile here; a value from
+      // outside the union at run time says so rather than claiming a basis.
+      const unhandled: never = spend.provenance
+      void unhandled
+      return 'Pricing method unknown'
+    }
   }
 }
 
