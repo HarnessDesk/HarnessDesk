@@ -88,15 +88,18 @@ const PROBE_HELPERS = `
  * `Text` elements with `data-role` and `PageHead`'s `page-title` keep their
  * own documented pair. Visible h1-h4 and `*-title` slots outside `Text` must
  * compute one of those same pairs; the checker does not guess a role from the
- * heading level or component. Numeric, amount, percentage and lone-dash text
- * is excluded because those slots are figure readouts, not names. The
- * preview frame caption is excluded by `data-preview-caption` because it
- * labels the harness, not the product. `Text` readout roles and group labels
- * keep their own rule boundaries.
+ * heading level or component. A readout is declared, never guessed from its
+ * text: `ChartTitle`'s `figure` marks itself `data-figure` and is left to its
+ * own role, while a title that merely reads as a number is still a name. A
+ * heading whose whole name is drawn by a `Text` inside it is measured through
+ * that `Text`. The preview frame caption is excluded by `data-preview-caption`
+ * because it labels the harness, not the product. `Text` readout roles and
+ * group labels keep their own rule boundaries.
  *
  * The check runs against `/preview.html`'s mounted screens in every theme and
- * interface. Mutations prove it catches a bad role pair and an unclassified
- * heading while permitting the explicitly marked preview caption.
+ * interface. Mutations prove it catches a bad role pair, an unclassified
+ * heading and a bare numeric title, while permitting the marked preview
+ * caption and a declared figure.
  */
 const NAME_PAIRS: Record<string, { size: number; weight: number }> = {
   wordmark: { size: 20, weight: 600 },
