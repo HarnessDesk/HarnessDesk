@@ -132,6 +132,13 @@ interface RecoverableDraft {
   readonly id: number
   readonly draft: Draft
   readonly reason: 'refused' | 'saved'
+  readonly detail?: string
+}
+
+interface RecoverableDetail {
+  readonly text: string
+  readonly attachments?: readonly Omit<Attachment, 'id'>[]
+  readonly reason: string
 }
 
 let attachmentCounter = 0
@@ -909,6 +916,24 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   // "edit" on a queued message — hands the focused composer a draft to finish.
   useEffect(() => {
     if (!focused) return
+    const onRecoverable = (event: Event): void => {
+      const detail = (event as CustomEvent<RecoverableDetail>).detail
+      if (!detail || typeof detail.text !== 'string') return
+      const draft: Draft = {
+        text: detail.text,
+        attachments: (detail.attachments ?? []).map((attachment) => ({
+          ...attachment,
+          id: nextAttachmentId(),
+        })),
+      }
+      const id = ++nextRecoverableId.current
+      setRecoverable((current) => [...current, {
+        id,
+        draft,
+        reason: 'refused',
+        detail: `Could not save the queued message: ${detail.reason} Your edited text is available to restore.`,
+      }])
+    }
     const onCompose = (event: Event): void => {
       const raw = (event as CustomEvent<string | ComposeDetail>).detail
       const detail = typeof raw === 'string' ? { text: raw, replace: false } : raw
@@ -937,8 +962,12 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       }
       textarea.current?.focus()
     }
+    window.addEventListener('harnessdesk:recoverable-draft', onRecoverable)
     window.addEventListener('harnessdesk:compose', onCompose)
-    return () => window.removeEventListener('harnessdesk:compose', onCompose)
+    return () => {
+      window.removeEventListener('harnessdesk:compose', onCompose)
+      window.removeEventListener('harnessdesk:recoverable-draft', onRecoverable)
+    }
   }, [focused])
 
   const placeholder = useMemo(() => {
@@ -998,7 +1027,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
               tone: item.reason === 'refused' ? 'warning' : 'neutral',
               title: item.reason === 'refused' ? 'Message not sent.' : 'Draft saved.',
               body: item.reason === 'refused'
-                ? 'Restore it to the composer; your current draft stays available.'
+                ? item.detail ?? 'Restore it to the composer; your current draft stays available.'
                 : 'Restore it to swap with the current draft.',
               action: { label: 'Restore', onSelect: () => restoreDraft(item.id) },
             }}

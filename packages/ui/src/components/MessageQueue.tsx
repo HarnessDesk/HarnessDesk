@@ -1,15 +1,18 @@
-import { useCallback } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import type { UserContent } from '@harnessdesk/protocol'
 
 import { useQueue, useSessionKey, useStore } from '../state/context'
-import { noteKey, wrapContext } from '../lib/context-envelope'
+import { noteKey, splitContext, wrapContext } from '../lib/context-envelope'
 import { describeQueued, queuedLabel } from '../lib/queue'
 import {
   Alert,
   Button,
+  ComposerChip,
   SortableAnnouncer,
   SortableHandle,
   Spinner,
   Text,
+  Textarea,
   Toolbar,
   ToolbarGap,
   sortableItemClass,
@@ -35,43 +38,57 @@ export const MessageQueue = () => {
   const store = useStore()
   const key = useSessionKey()
   const queue = useQueue()
+  const [editing, setEditing] = useState<{ readonly id: string; readonly text: string } | null>(null)
+  const [saving, setSaving] = useState(false)
+  const previouslyEditing = useRef<string | null>(null)
 
-  /** Takes a message back out of the queue and into the composer, whole. */
-  const edit = useCallback(
-    (id: string) => {
-      const message = queue?.messages.find((entry) => entry.id === id)
-      if (!message || !key) return
-      const view = describeQueued(message.input)
-      void store.unqueue(id, key)
-      window.dispatchEvent(
-        new CustomEvent('harnessdesk:compose', {
-          detail: {
-            text: view.text,
-            replace: true,
-            attachments: [
-              ...view.attachments.map((attachment) => ({
-                name: attachment.name,
-                path: attachment.path,
-                kind: attachment.kind === 'mention' ? ('file' as const) : attachment.kind,
-              })),
-              // Context that was already resolved comes back as a note chip
-              // holding exactly what was queued. The provider cannot be asked
-              // to resolve again — the chip is gone — and this message is the
-              // one that was queued, not a fresh one: what it carried is what
-              // it should still carry.
-              ...view.context.map((block) => ({
-                name: block.label,
-                path: noteKey(block.label, block.text),
-                kind: 'note' as const,
-                text: wrapContext(block.label, block.text),
-              })),
-            ],
-          },
-        }),
-      )
-    },
-    [key, queue, store],
-  )
+  useLayoutEffect(() => {
+    const previous = previouslyEditing.current
+    previouslyEditing.current = editing?.id ?? null
+    if (previous && !editing) {
+      const row = [...document.querySelectorAll<HTMLElement>('[data-queue-id]')]
+        .find((element) => element.dataset.queueId === previous)
+      row?.querySelector<HTMLButtonElement>('[aria-label="Edit"]')?.focus()
+    }
+  }, [editing])
+
+  const cancelEdit = useCallback(() => {
+    setEditing(null)
+  }, [])
+
+  const saveEdit = useCallback(async (id: string, input: Parameters<typeof describeQueued>[0]) => {
+    if (!editing || editing.id !== id || saving) return
+    setSaving(true)
+    const editedInput = withEditedText(input, editing.text)
+    try {
+      await store.updateQueued(id, editedInput, key ?? undefined)
+      setEditing(null)
+    } catch (error) {
+      const view = describeQueued(editedInput)
+      window.dispatchEvent(new CustomEvent('harnessdesk:recoverable-draft', {
+        detail: {
+          text: view.text,
+          attachments: [
+            ...view.attachments.map((attachment) => ({
+              name: attachment.name,
+              path: attachment.path,
+              kind: attachment.kind === 'mention' ? 'file' : attachment.kind,
+            })),
+            ...view.context.map((block) => ({
+              name: block.label,
+              path: noteKey(block.label, block.text),
+              kind: 'note',
+              text: wrapContext(block.label, block.text),
+            })),
+          ],
+          reason: error instanceof Error ? error.message : String(error),
+        },
+      }))
+      setEditing(null)
+    } finally {
+      setSaving(false)
+    }
+  }, [editing, key, saving, store])
 
   /**
    * Arranging the line: a drag from the handle, or ⌥↑ / ⌥↓ from anywhere in
@@ -145,27 +162,42 @@ export const MessageQueue = () => {
           <li
             key={message.id}
             data-slot="sortable-row"
+            data-queue-id={message.id}
             {...(message.state === 'sending' ? { 'data-sending': '' } : {})}
             {...sortable.row(message.id, index)}
-            className={`${sortableItemClass()} flex items-center gap-2`}
+            className={`${sortableItemClass()} flex items-start gap-2`}
           >
             <SortableHandle {...sortable.handle(message.id)} />
             <Text role="meta" className={styles.position} aria-hidden>
               {message.state === 'sending' ? <Spinner size="sm" tone="brand" /> : index + 1}
             </Text>
-            <Text role="navigation" ink={message.state === 'sending' ? 'muted' : 'primary'} className={styles.text} title={queuedLabel(message)}>
-              {queuedLabel(message)}
-            </Text>
-            <Carried message={message} />
+            {editing?.id === message.id ? (
+              <QueueMessageEditor
+                text={editing.text}
+                message={message}
+                pending={saving}
+                onText={(text) => setEditing({ id: message.id, text })}
+                onSave={() => void saveEdit(message.id, message.input)}
+                onCancel={cancelEdit}
+              />
+            ) : (
+              <>
+                <Text role="navigation" ink={message.state === 'sending' ? 'muted' : 'primary'} className={styles.text} title={queuedLabel(message)}>
+                  {queuedLabel(message)}
+                </Text>
+                <Carried message={message} />
+              </>
+            )}
             <When paused={paused} index={index} state={message.state} />
-            {message.state === 'queued' && (
+            {message.state === 'queued' && editing?.id !== message.id && (
               <span data-slot="sortable-actions" className="flex shrink-0 items-center gap-px">
                 <Button
                   type="button"
                   variant="ghost" size="icon-sm"
                   aria-label="Edit"
-                  title="Put this back in the composer"
-                  onClick={() => edit(message.id)}
+                  title={editing ? 'Save or cancel the current edit first' : 'Edit this waiting message in its row'}
+                  disabled={Boolean(editing) || saving}
+                  onClick={() => setEditing({ id: message.id, text: describeQueued(message.input).text })}
                 >
                   <PencilIcon size={13} />
                 </Button>
@@ -186,6 +218,87 @@ export const MessageQueue = () => {
       <SortableAnnouncer message={sortable.announcement} />
     </Alert>
   )
+}
+
+const QueueMessageEditor = ({
+  text,
+  message,
+  pending,
+  onText,
+  onSave,
+  onCancel,
+}: {
+  text: string
+  message: Parameters<typeof queuedLabel>[0]
+  pending: boolean
+  onText(text: string): void
+  onSave(): void
+  onCancel(): void
+}) => {
+  const view = describeQueued(message.input)
+  return (
+    <span className="flex min-w-0 flex-1 flex-col gap-1">
+      <Textarea
+        autoFocus
+        aria-label="Edit queued message"
+        variant="inline"
+        controlSize="compact"
+        rows={Math.max(2, Math.min(5, text.split('\n').length))}
+        value={text}
+        disabled={pending}
+        onChange={(event) => onText(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            onCancel()
+          } else if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault()
+            onSave()
+          }
+        }}
+      />
+      {(view.attachments.length > 0 || view.context.length > 0) && (
+        <span role="group" aria-label="Carried with this message" className="flex flex-wrap gap-1">
+          {view.attachments.map((attachment, index) => (
+            <ComposerChip key={`${attachment.kind}-${attachment.path}-${index}`} title={attachment.path}>
+              {attachment.name}
+            </ComposerChip>
+          ))}
+          {view.context.map((block, index) => (
+            <ComposerChip key={`${block.label}-${index}`} title={block.text}>
+              {block.label}
+            </ComposerChip>
+          ))}
+        </span>
+      )}
+      <span className="flex items-center justify-end gap-1">
+        <Button type="button" variant="quiet" size="sm" disabled={pending} onClick={onCancel}>Cancel</Button>
+        <Button type="button" variant="quiet" size="sm" disabled={pending} onClick={onSave}>
+          {pending ? 'Saving…' : 'Save'}
+        </Button>
+      </span>
+    </span>
+  )
+}
+
+/** Keep resolved context and every non-text part while replacing only what was typed. */
+const withEditedText = (input: readonly UserContent[], text: string): readonly UserContent[] => {
+  const context = input.flatMap((part) => part.type === 'text' ? splitContext(part.text).injections : [])
+  const replacement = [
+    ...context.map((block) => wrapContext(block.label, block.text)),
+    text,
+  ].filter((part) => part.length > 0).join('\n\n')
+  let inserted = false
+  const output: UserContent[] = []
+  for (const part of input) {
+    if (part.type !== 'text') {
+      output.push(part)
+    } else if (!inserted) {
+      if (replacement.length > 0) output.push({ type: 'text', text: replacement })
+      inserted = true
+    }
+  }
+  return inserted ? output : replacement.length > 0 ? [{ type: 'text', text: replacement }, ...input] : [...input]
 }
 
 /**

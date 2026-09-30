@@ -227,6 +227,8 @@ test('editing replaces one queued input in place and emits one queue event', asy
   t.after(() => stop(harness))
   const client = await Client.connect(harness.server)
   t.after(() => client.close())
+  const secondWindow = await Client.connect(harness.server)
+  t.after(() => secondWindow.close())
   const { session } = await busySession(client, harness)
   const inputs: UserContent[][] = [
     [{ type: 'text', text: 'first' }],
@@ -240,11 +242,16 @@ test('editing replaces one queued input in place and emits one queue event', asy
     }) as { queuedId: string }).queuedId)
   }
   await client.until(() => queueOf(client)?.messages.length === 3)
+  await secondWindow.until(() => secondWindow.notifications.some((notification) =>
+    'method' in notification && notification.method === 'sync',
+  ))
+  await secondWindow.until(() => queueOf(secondWindow)?.messages.length === 3)
   const record = harness.host.registry.get(FAKE_RUNTIME_ID, sessionId(session.id))!
   // A paused queue retains its held state through an edit during a running turn.
   harness.host.registry.pauseQueue(record, 'The turn stopped.')
   const before = record.queue.messages[1]!
   const eventsBefore = client.events.filter((event) => event.type === 'session/queue').length
+  const secondEventsBefore = secondWindow.events.filter((event) => event.type === 'session/queue').length
   const replacement: UserContent[] = [
     { type: 'text', text: 'revised middle' },
     { type: 'mention', name: 'b.ts', path: '/w/b.ts' },
@@ -253,6 +260,7 @@ test('editing replaces one queued input in place and emits one queue event', asy
     runtime: FAKE_RUNTIME_ID, sessionId: session.id, id: ids[1]!, input: replacement,
   })
   await client.until(() => text(queueOf(client)!.messages[1]!) === 'revised middle')
+  await secondWindow.until(() => text(queueOf(secondWindow)!.messages[1]!) === 'revised middle')
   const after = record.queue.messages[1]!
   assert.equal(after.id, before.id)
   assert.equal(after.queuedAt, before.queuedAt)
@@ -268,6 +276,7 @@ test('editing replaces one queued input in place and emits one queue event', asy
   assert.equal(record.queue.status, 'paused')
   assert.deepEqual(record.queue.messages.map(text), ['first', 'revised middle', 'last'])
   assert.equal(client.events.filter((event) => event.type === 'session/queue').length, eventsBefore + 1)
+  assert.equal(secondWindow.events.filter((event) => event.type === 'session/queue').length, secondEventsBefore + 1)
 })
 
 test('editing a stale or currently sending queued id refuses without restoring it', async (t) => {

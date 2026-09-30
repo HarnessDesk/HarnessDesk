@@ -50,6 +50,7 @@ const session = (): Session =>
 const calls = {
   unqueue: vi.fn(),
   moveQueued: vi.fn(),
+  updateQueued: vi.fn(),
   flushQueue: vi.fn(),
   clearQueue: vi.fn(),
   notice: vi.fn(),
@@ -99,6 +100,18 @@ const button = (label: string, index = 0): HTMLButtonElement => {
 const click = (element: HTMLButtonElement): void => {
   act(() => {
     element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+}
+const editor = (): HTMLTextAreaElement => {
+  const field = container.querySelector('textarea[aria-label="Edit queued message"]') as HTMLTextAreaElement | null
+  if (!field) throw new Error('no queued-message editor')
+  return field
+}
+const typeIntoEditor = (value: string): void => {
+  act(() => {
+    const field = editor()
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(field, value)
+    field.dispatchEvent(new Event('input', { bubbles: true }))
   })
 }
 
@@ -202,12 +215,9 @@ describe('MessageQueue', () => {
     expect(calls.clearQueue).toHaveBeenCalledWith(KEY)
   })
 
-  it('puts an edited message back in the composer, whole, and takes it off the queue', () => {
-    const heard: unknown[] = []
-    const listener = (event: Event): void => {
-      heard.push((event as CustomEvent).detail)
-    }
-    window.addEventListener('harnessdesk:compose', listener)
+  it('edits one row in place without touching the composer or changing its carried file', async () => {
+    const compose = vi.fn()
+    window.addEventListener('harnessdesk:compose', compose)
     mount({
       status: 'waiting',
       reason: null,
@@ -221,28 +231,66 @@ describe('MessageQueue', () => {
             { type: 'mention', name: 'a.ts', path: '/w/a.ts' },
           ],
         },
+        { id: 'q1', queuedAt: 0, state: 'queued', input: [{ type: 'text', text: 'next item' }] },
       ],
     })
     click(button('Edit'))
-    window.removeEventListener('harnessdesk:compose', listener)
-
-    expect(calls.unqueue).toHaveBeenCalledWith('q0', KEY)
-    expect(heard[0]).toEqual({
-      text: 'revise this',
-      replace: true,
-      attachments: [{ name: 'a.ts', path: '/w/a.ts', kind: 'file' }],
+    expect(editor().value).toBe('revise this')
+    expect(container.textContent).toContain('a.ts')
+    expect(button('Edit').disabled).toBe(true)
+    typeIntoEditor('revised text')
+    await act(async () => {
+      click(button('Save'))
+      await new Promise((resolve) => setTimeout(resolve, 1))
     })
+    window.removeEventListener('harnessdesk:compose', compose)
+
+    expect(calls.updateQueued).toHaveBeenCalledWith('q0', [
+      { type: 'text', text: 'revised text' },
+      { type: 'mention', name: 'a.ts', path: '/w/a.ts' },
+    ], KEY)
+    expect(calls.unqueue).not.toHaveBeenCalled()
+    expect(compose).not.toHaveBeenCalled()
+    expect(container.querySelector('textarea')).toBeNull()
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 1)))
+    const edit = button('Edit')
+    expect(edit.ownerDocument.activeElement).toBe(edit)
   })
 
-  it('gives back the context it carried as a chip, rather than dropping it', () => {
-    // Editing a message must not quietly lose what it promised to carry. The
-    // provider cannot resolve again — the chip became this text when the
-    // message was queued — so the text itself comes back as a chip.
-    const heard: unknown[] = []
-    const listener = (event: Event): void => {
-      heard.push((event as CustomEvent).detail)
-    }
-    window.addEventListener('harnessdesk:compose', listener)
+  it('keeps an unresolved save visible and leaves the queued row in place until the host answers', async () => {
+    let resolve!: () => void
+    calls.updateQueued.mockImplementationOnce(() => new Promise<void>((done) => { resolve = done }))
+    mount(waiting('original'))
+    click(button('Edit'))
+    typeIntoEditor('pending revision')
+    await act(async () => click(button('Save')))
+    expect(editor().value).toBe('pending revision')
+    expect(button('Saving…').disabled).toBe(true)
+    expect(rows()).toHaveLength(1)
+    expect(calls.unqueue).not.toHaveBeenCalled()
+    await act(async () => resolve())
+    expect(container.querySelector('textarea')).toBeNull()
+  })
+
+  it('keeps resolved context attached when edited words are saved', async () => {
+    mount({
+      status: 'waiting',
+      reason: null,
+      messages: [{
+        id: 'q0', queuedAt: 0, state: 'queued',
+        input: [{ type: 'text', text: '<context source="Issue 12">\nbody\n</context>\nfix it' }],
+      }],
+    })
+    click(button('Edit'))
+    expect(container.querySelector('[aria-label="Carried with this message"]')?.textContent).toContain('Issue 12')
+    typeIntoEditor('fix it carefully')
+    await act(async () => click(button('Save')))
+    expect(calls.updateQueued).toHaveBeenCalledWith('q0', [
+      { type: 'text', text: '<context source="Issue 12">\nbody\n</context>\n\nfix it carefully' },
+    ], KEY)
+  })
+
+  it('cancel restores the original row and leaves its chips and composer alone', async () => {
     mount({
       status: 'waiting',
       reason: null,
@@ -256,14 +304,50 @@ describe('MessageQueue', () => {
       ],
     })
     click(button('Edit'))
-    window.removeEventListener('harnessdesk:compose', listener)
+    typeIntoEditor('discard this change')
+    click(button('Cancel'))
+    expect(container.querySelector('textarea')).toBeNull()
+    expect(rows()[0]?.textContent).toContain('fix it')
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 1)))
+    const edit = button('Edit')
+    expect(edit.ownerDocument.activeElement).toBe(edit)
+    expect(calls.updateQueued).not.toHaveBeenCalled()
+    expect(calls.unqueue).not.toHaveBeenCalled()
+  })
 
-    const detail = heard[0] as { text: string; attachments: { name: string; kind: string; text: string }[] }
-    expect(detail.text).toBe('fix it')
-    expect(detail.attachments[0]?.kind).toBe('note')
-    expect(detail.attachments[0]?.name).toBe('Issue 12')
-    expect(detail.attachments[0]?.text).toBe('<context source="Issue 12">\nbody\n</context>')
-    expect(calls.notice).not.toHaveBeenCalled()
+  it('keeps a refused edit recoverable and explains why it could not be saved', async () => {
+    const recovery = vi.fn()
+    window.addEventListener('harnessdesk:recoverable-draft', recovery)
+    calls.updateQueued.mockRejectedValueOnce(new Error('This message is being delivered.'))
+    mount(waiting('original'))
+    click(button('Edit'))
+    typeIntoEditor('save this text for me')
+    await act(async () => click(button('Save')))
+    window.removeEventListener('harnessdesk:recoverable-draft', recovery)
+    expect(recovery).toHaveBeenCalledTimes(1)
+    expect((recovery.mock.calls[0]?.[0] as CustomEvent).detail).toMatchObject({
+      text: 'save this text for me',
+      reason: 'This message is being delivered.',
+    })
+  })
+
+  it('Escape cancels and Enter or Meta+Enter saves', async () => {
+    mount(waiting('one', 'two'))
+    click(button('Edit'))
+    typeIntoEditor('first revision')
+    act(() => editor().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    expect(container.querySelector('textarea')).toBeNull()
+    expect(calls.updateQueued).not.toHaveBeenCalled()
+
+    click(button('Edit'))
+    typeIntoEditor('second revision')
+    await act(async () => editor().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
+    expect(calls.updateQueued).toHaveBeenCalledTimes(1)
+
+    click(button('Edit'))
+    typeIntoEditor('third revision')
+    await act(async () => editor().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true })))
+    expect(calls.updateQueued).toHaveBeenCalledTimes(2)
   })
 
   /** The state the whole pause rule exists for. */

@@ -264,6 +264,28 @@ describe('the composer while a turn is running', () => {
     expect(textarea().value).toBe('second message')
   })
 
+  it('shows an inline queue refusal as a recoverable draft without replacing the composer', () => {
+    mount({ busy: false })
+    type('my current composer draft')
+    act(() => window.dispatchEvent(new CustomEvent('harnessdesk:recoverable-draft', {
+      detail: {
+        text: 'edited queued words',
+        attachments: [{
+          name: 'Issue 12', path: 'note:Issue 12', kind: 'note',
+          text: '<context source="Issue 12">\nbody\n</context>',
+        }],
+        reason: 'It was delivered before the edit arrived.',
+      },
+    })))
+    expect(textarea().value).toBe('my current composer draft')
+    expect(container.textContent).toContain('Could not save the queued message: It was delivered before the edit arrived.')
+    const restore = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('Restore'))
+    expect(restore).toBeDefined()
+    act(() => restore?.click())
+    expect(textarea().value).toBe('edited queued words')
+    expect(container.textContent).toContain('Issue 12')
+  })
+
   it('keeps earlier refused messages when a later retry is refused too', async () => {
     calls.queue.mockImplementationOnce(async () => false).mockImplementationOnce(async () => false)
     mount({ busy: true })

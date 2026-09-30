@@ -98,6 +98,7 @@ import {
   TextMark,
   Switch,
   SwitchShape,
+  Textarea,
   ToggleGroup,
   ToggleGroupItem,
   stateTone,
@@ -878,6 +879,7 @@ const BannerBoard = () => (
  */
 const QueueRows = () => {
   const [ids, setIds] = useState(['Run the focused tests again', 'Then write the release note', 'Open a pull request'])
+  const [editing, setEditing] = useState(true)
   const sortable = useSortable({
     ids,
     name: (id) => `“${id}”`,
@@ -893,7 +895,21 @@ const QueueRows = () => {
           <li key={id} data-slot="sortable-row" {...sortable.row(id, index)} className={`${sortableItemClass()} flex items-center gap-2`}>
             <SortableHandle {...sortable.handle(id)} />
             <Text role="meta">{index + 1}</Text>
-            <Text role="navigation" className="min-w-0 flex-1 truncate">{id}</Text>
+            {editing && index === 0 ? (
+              <span className="flex min-w-0 flex-1 flex-col gap-1">
+                <Textarea aria-label="Edit queued message" variant="inline" controlSize="compact" rows={2} defaultValue={id} />
+                <span className="flex flex-wrap gap-1">
+                  <ComposerChip>review.md</ComposerChip>
+                  <ComposerChip>Issue 12</ComposerChip>
+                </span>
+                <span className="flex justify-end gap-1">
+                  <Button variant="quiet" size="sm" onClick={() => setEditing(false)}>Cancel</Button>
+                  <Button variant="quiet" size="sm" onClick={() => setEditing(false)}>Save</Button>
+                </span>
+              </span>
+            ) : (
+              <Text role="navigation" className="min-w-0 flex-1 truncate">{id}</Text>
+            )}
             {index === 0 ? <Text role="meta" tone="brand">next</Text> : null}
             <span data-slot="sortable-actions" className="flex shrink-0 items-center">
               <Button variant="ghost" size="icon-sm" aria-label="Remove"><CrossIcon size={13} /></Button>
