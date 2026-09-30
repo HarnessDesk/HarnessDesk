@@ -4246,12 +4246,84 @@ export const stylesheetFor = (module) => (module.endsWith('.tsx') ? module.repla
  */
 export const isPatternModule = (module) => /[\\/]design[\\/]patterns[\\/]/.test(module)
 
+/**
+ * Single-area exports that are not a screen's own control, named one by one
+ * rather than exempting `design/ui/` as a directory — the two kinds AGENTS.md
+ * rule 11 records precisely. `data-geometry` draws measured values (a chart, a
+ * heat grid, a delta, a series' tone ramp); `native-boundary` hands the
+ * system's tokens to a renderer that cannot read CSS. A directory rule would
+ * make the next single-area control invisible; each entry is exact — module,
+ * export, and the one screen area that currently uses it — and goes stale when
+ * any part of that contract changes.
+ */
+export const SINGLE_AREA_PRIMITIVE_EXEMPTIONS = [
+  {
+    module: 'design/ui/chart.tsx',
+    kind: 'data-geometry',
+    exports: [
+      'ChartCard', 'ChartFoot', 'ChartFrame', 'ChartTitle', 'SegmentMeter',
+      'BurnDown', 'ChartAxis', 'ChartHead', 'ChartHint', 'ChartTools',
+      'DayColumns', 'PaceBadge', 'ChartTip', 'ChartTipRow',
+    ],
+    area: 'usage',
+    reason: 'The chart kit draws measured data series on axes and supplies their labels and summaries; it is data geometry rather than a screen control.',
+  },
+  {
+    module: 'design/ui/heat-grid.tsx',
+    kind: 'data-geometry',
+    exports: ['HeatGrid', 'HeatLegend'],
+    area: 'usage',
+    reason: 'The heat grid renders a calendar of values, with a legend for its scale; it is a data view rather than a screen control.',
+  },
+  {
+    module: 'design/ui/delta.tsx',
+    kind: 'data-geometry',
+    exports: ['Delta'],
+    area: 'usage',
+    reason: 'The delta is a signed change readout derived from data, rather than an interactive control owned by a screen.',
+  },
+  {
+    module: 'design/ui/tone.ts',
+    kind: 'data-geometry',
+    exports: ['tintFor', 'tintsFor'],
+    area: 'usage',
+    reason: 'These helpers map a series index to the tone ramp used to distinguish chart data, rather than styling screen controls.',
+  },
+  {
+    module: 'design/adapters/terminal.ts',
+    kind: 'native-boundary',
+    exports: ['terminalAppearance'],
+    area: 'terminalpane',
+    reason: "Maps the --hd-* tokens onto the terminal emulator's own theme object, which cannot resolve CSS variables on its canvas; one consumer by nature.",
+  },
+]
+
+/**
+ * Whether one single-area export is a named exemption: its module, its name
+ * and the area it is single to must all match one entry. A module's other
+ * exports, or the same export single to another area, are still counted.
+ */
+export const isSingleAreaPrimitiveExempt = (module, localName, area, exemptions = SINGLE_AREA_PRIMITIVE_EXEMPTIONS) =>
+  exemptions.some((entry) =>
+    path.join(UI_SRC, entry.module) === module && entry.area === area && entry.exports.includes(localName))
+
+/**
+ * Return every named exemption whose export is gone or no longer has exactly
+ * its recorded single area. The lookup returns `undefined` for a missing
+ * export, `null` for an existing export without one single area, or an area.
+ */
+export const staleSingleAreaPrimitiveExemptions = (exemptions, lookupArea) =>
+  exemptions.flatMap((entry) => entry.exports.flatMap((localName) => {
+    const currentArea = lookupArea(entry.module, localName)
+    return currentArea === entry.area ? [] : [{ entry, localName, currentArea }]
+  }))
+
 const patternCountedDefs = new Set()
 for (const [module, exportsHere] of exportsByModule) {
   if (!isPatternModule(module)) {
     for (const { localName, consumers } of exportsHere) {
       const area = singleScreenAreaOf(consumers, importersByFile)
-      if (area) findings.singleAreaPrimitive.push(`${label(module)}: ${localName} [${area} screen area]`)
+      if (area && !isSingleAreaPrimitiveExempt(module, localName, area)) findings.singleAreaPrimitive.push(`${label(module)}: ${localName} [${area} screen area]`)
     }
     continue
   }
@@ -4369,6 +4441,23 @@ for (const entry of staleScreenAppearanceExemptions((sheet) => {
   return fs.existsSync(file) ? read(file) : null
 })) {
   findings.screenAppearance.push(`${entry.sheet}: stale exemption ${entry.selector} ${entry.property} ${entry.value}, which matches nothing; delete it`)
+}
+
+for (const stale of staleSingleAreaPrimitiveExemptions(SINGLE_AREA_PRIMITIVE_EXEMPTIONS, (module, localName) => {
+  const modulePath = path.join(UI_SRC, module)
+  if (!fs.existsSync(modulePath) || !exportedNamesOf(modulePath).has(localName)) return undefined
+  const exportsHere = exportsByModule.get(modulePath)
+  const namedExport = exportsHere?.find((candidate) => candidate.localName === localName)
+  if (!namedExport) return null
+  return singleScreenAreaOf(namedExport.consumers, importersByFile)
+})) {
+  const { entry, localName, currentArea } = stale
+  const reason = currentArea === undefined
+    ? 'the named export no longer exists'
+    : currentArea === null
+      ? 'it no longer has exactly one consumer area'
+      : `its single area is now ${currentArea}`
+  findings.screenAppearance.push(`${entry.module}: stale single-area primitive exemption ${localName} for ${entry.area}; ${reason}; delete it`)
 }
 
 const counts = Object.fromEntries(SECTIONS.map(([key]) => [key, findings[key].length]))
