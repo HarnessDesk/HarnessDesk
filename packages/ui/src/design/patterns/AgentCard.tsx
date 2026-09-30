@@ -110,11 +110,11 @@ export type AgentCardMeter = {
   /** The reading, spelled by the caller: "740K left of 1M". */
   readonly reading: string
   /**
-   * The verdict the fill carries. A budget is one of the few places a `tint`
-   * would be wrong: running low *is* bad news, and green here means "plenty
-   * left", not "this one is the green agent".
+   * The fill carries a verdict only when there is one: warning when low,
+   * danger when spent. Plenty left is the resting state and takes no colour,
+   * so the one card running low stands out (#1061).
    */
-  readonly tone?: 'success' | 'warning' | 'danger'
+  readonly tone?: 'warning' | 'danger'
 }
 
 export type AgentCardSubject = {
@@ -378,7 +378,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
             size="sm"
             value={meter.left}
             max={meter.of}
-            tone={meter.tone ?? 'success'}
+            tone={meter.tone ?? 'neutral'}
             label={false}
             className="mb-1.5"
           />

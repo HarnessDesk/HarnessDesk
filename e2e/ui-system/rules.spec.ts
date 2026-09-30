@@ -947,9 +947,8 @@ test.describe('rule: monospace', () => {
  * - `components/SeatAttachments.tsx`: a loaded attachment read "Loaded" in
  *   the success tone; "Not loaded" keeps its warning, which is a verdict.
  *
- * A budget meter (`AgentCard`'s `meter`, `AgentCards.tsx`'s context/plan
- * readings) is explicitly out of scope — an open owner question, #1061 —
- * and not part of this checker's word list.
+ * Budget meters are covered separately below: plenty left is their untoned
+ * resting state, low is warning and spent is danger (#1061).
  */
 const HEALTH_RESTING_WORDS = ['Healthy', 'Armed', 'On', 'Loaded']
 
@@ -1052,5 +1051,60 @@ test.describe('rule: health takes no tone', () => {
     const after = await healthToneViolations(page, scope)
     expect(after.out.length).toBeGreaterThan(before.out.length)
     expect(after.out.some((f) => f.text.includes('Healthy'))).toBe(true)
+  })
+})
+
+test.describe('rule: budget meters take no tone when plenty remains', () => {
+  const catalogMeters = '[data-catalog-case^="agent-card-meter-"] [data-slot="agent-card"] [data-slot="progress"]'
+  const plentyMeters = '[data-catalog-case="agent-card-meter-plenty"] [data-slot="agent-card"] [data-slot="progress"]'
+
+  const meterViolations = (page: Page, selector = catalogMeters) => page.locator(selector).evaluateAll((meters) => {
+    return meters.flatMap((meter) => {
+      const value = Number(meter.getAttribute('aria-valuenow'))
+      const max = Number(meter.getAttribute('aria-valuemax'))
+      const share = max > 0 ? value / max : 0
+      if (share <= 0.2) return []
+      const fill = meter.querySelector('[data-slot="progress-fill"]')
+      const fillColor = fill ? getComputedStyle(fill).backgroundColor : ''
+      const expectedSuccess = document.createElement('span')
+      expectedSuccess.style.color = 'var(--hd-success-ink)'
+      document.body.append(expectedSuccess)
+      const successColor = getComputedStyle(expectedSuccess).color
+      expectedSuccess.remove()
+      return meter.getAttribute('data-tone') !== 'neutral' || fillColor === successColor
+        ? [{ tone: meter.getAttribute('data-tone'), fillColor, successColor, share }]
+        : []
+    })
+  })
+
+  test('every AgentCard meter above the low threshold is neutral and its fill is not success ink', async ({ page }) => {
+    await page.goto('/design.html?view=dialog')
+    await expect(page.locator(catalogMeters)).toHaveCount(3)
+    const meters = await page.locator(catalogMeters).evaluateAll((elements) => elements.map((element) => ({
+      state: element.closest('[data-catalog-case]')?.getAttribute('data-catalog-case'),
+      tone: element.getAttribute('data-tone'),
+      value: Number(element.getAttribute('aria-valuenow')),
+      max: Number(element.getAttribute('aria-valuemax')),
+    })))
+    expect(meters.map(({ state, tone }) => [state, tone])).toEqual([
+      ['agent-card-meter-plenty', 'neutral'],
+      ['agent-card-meter-low', 'warning'],
+      ['agent-card-meter-spent', 'danger'],
+    ])
+    expect(meters[0]!.value / meters[0]!.max).toBeGreaterThan(0.2)
+    expect(await meterViolations(page)).toEqual([])
+  })
+
+  test('the checker catches a plenty-left meter forcibly painted with success ink', async ({ page }) => {
+    await page.goto('/design.html?view=dialog')
+    await expect(page.locator(plentyMeters)).toHaveCount(1)
+    const before = await meterViolations(page, plentyMeters)
+    expect(before).toEqual([])
+    await page.addStyleTag({
+      content: '[data-catalog-case="agent-card-meter-plenty"] [data-slot="progress-fill"] { background-color: var(--hd-success-ink) !important; }',
+    })
+    const after = await meterViolations(page, plentyMeters)
+    expect(after.length).toBeGreaterThan(before.length)
+    expect(after[0]?.tone).toBe('neutral')
   })
 })
