@@ -209,7 +209,10 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
 }, { page: pageName, id: stableId, title })
 
 test('the rendered frames and boards hold the alignment census ceiling', async ({ page }, testInfo) => {
-  test.setTimeout(60_000)
+  // Every preview frame and catalogue board, each settled before it is
+  // measured: about 35s on a laptop and slower on a CI runner, so the budget
+  // is the coverage gate's, not the suite's one-minute default.
+  test.setTimeout(180_000)
   const all: Record<Check, string[]> = { 'lead-off-line': [], 'trailing-glyph-off-column': [], 'header-off-body': [] }
   const diagnostics = new Map<string, string>()
   await page.setViewportSize({ width: 1440, height: 900 })
