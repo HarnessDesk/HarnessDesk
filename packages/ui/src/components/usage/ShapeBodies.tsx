@@ -30,10 +30,12 @@ const laneAmount = (value: number, unit: string | undefined): string =>
 export const AllowanceBody = ({
   row,
   info,
+  now,
   onRefresh,
 }: {
   row: PlanRow
   info: RuntimeInfo | null
+  now: number
   onRefresh: () => void
 }) => {
   const report = row.report
@@ -53,7 +55,7 @@ export const AllowanceBody = ({
       shape={row.shape}
       shapeChip={<ShapeChip shape={row.shape} />}
       status={row.status}
-      money={moneyRowOf(report)}
+      money={moneyRowOf(report, now)}
       footerAction={{ label: 'Refresh', onClick: onRefresh }}
     >
       <div className={styles.heroFigure}>
@@ -130,10 +132,12 @@ const LaneRow = ({ title, lanes }: { title: string; lanes: UsageReport['lanes'] 
 export const BalanceBody = ({
   row,
   info,
+  now,
   onRefresh,
 }: {
   row: PlanRow
   info: RuntimeInfo | null
+  now: number
   onRefresh: () => void
 }) => {
   const report = row.report
@@ -148,7 +152,7 @@ export const BalanceBody = ({
       shape={row.shape}
       shapeChip={<ShapeChip shape={row.shape} />}
       status={row.status}
-      money={moneyRowOf(report)}
+      money={moneyRowOf(report, now)}
       footerAction={{ label: 'Refresh', onClick: onRefresh }}
     >
       <div className={styles.heroFigure}>
@@ -181,11 +185,13 @@ export const BalanceBody = ({
 export const KeyBody = ({
   row,
   info,
+  now,
   onRefresh,
   onOpenPlanSettings,
 }: {
   row: PlanRow
   info: RuntimeInfo | null
+  now: number
   onRefresh: () => void
   /** Opens this account's own Plan card in Settings — where a budget is actually set (review of #1069, B5). */
   onOpenPlanSettings: () => void
@@ -201,7 +207,7 @@ export const KeyBody = ({
       shape={row.shape}
       shapeChip={<ShapeChip shape={row.shape} />}
       status={row.status}
-      money={moneyRowOf(report)}
+      money={moneyRowOf(report, now)}
       onOpenPlanSettings={onOpenPlanSettings}
       footerAction={{ label: budget ? 'Edit budget' : 'Set a budget', onClick: onOpenPlanSettings }}
     >
@@ -233,7 +239,7 @@ export const KeyBody = ({
   )
 }
 
-export const FreeBody = ({ row, info }: { row: PlanRow; info: RuntimeInfo | null }) => {
+export const FreeBody = ({ row, info, now }: { row: PlanRow; info: RuntimeInfo | null; now: number }) => {
   const report = row.report
   const turns = report.turns
   return (
@@ -243,7 +249,7 @@ export const FreeBody = ({ row, info }: { row: PlanRow; info: RuntimeInfo | null
       shape={row.shape}
       shapeChip={<ShapeChip shape={row.shape} />}
       status={row.status}
-      money={moneyRowOf(report)}
+      money={moneyRowOf(report, now)}
       footerAction={null}
     >
       <div className={styles.statLine}>

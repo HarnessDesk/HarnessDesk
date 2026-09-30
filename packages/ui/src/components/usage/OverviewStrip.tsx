@@ -8,6 +8,7 @@ import {
   ledgerRuntimeIds,
   paidPerTurn,
   paidRatio,
+  paidRatioCaption,
   paidScopeMatchesLedger,
   perDay,
   tokenCoverage,
@@ -194,7 +195,7 @@ export const OverviewStrip = ({
               className={styles.stripCaption}
             >
               {ratio !== null
-                ? `${ratio.toFixed(1)}× paid`
+                ? paidRatioCaption(ratio)
                 : currentCost !== null
                   ? `${formatMoney(perDay(currentCost, range) ?? 0, ledger?.currency ?? 'USD')} a day`
                   : ''}

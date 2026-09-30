@@ -1175,6 +1175,20 @@ rules:
       }
     } },
 
+    /**
+     * The Plans view: one row per account, each drawn by its own billing
+     * shape, with the money row (Paid, Value, the fee as set) under the head.
+     */
+    'dashboard-plans': { leaveOverlay: true, expect: 'Plans', run: async () => {
+      if (!(await click('Dashboard'))) throw new Error('no Dashboard row in the sidebar')
+      await sleep(1600)
+      if (!(await click('Plans'))) throw new Error('no Plans row in the Dashboard nav')
+      await sleep(1600)
+      // Open one row, so its shape body and money row are in the frame.
+      if (!(await click('jane@example.com'))) throw new Error('no jane@example.com row in Plans')
+      await sleep(1200)
+    } },
+
     /** The rebuilt settings patterns, reached through the same store request features use. */
     settings: { leaveOverlay: true, expect: 'Appearance', run: async () => {
       await cdp.eval(`${STORE}.askSettings('appearance'); true`)

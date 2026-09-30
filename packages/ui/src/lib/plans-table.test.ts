@@ -645,11 +645,12 @@ describe('planRows', () => {
 })
 
 describe('moneyRowOf', () => {
-  it('is the window\'s own Value and the plan\'s own fee — never a computed Paid (B4)', () => {
+  const monthEnd = new Date('2026-09-30T12:00:00').getTime()
+
+  it('prorates a monthly fee over the same 30-day window as Value', () => {
     const subject = report({
       billing: billing(['windows'], {
-        fee: { amount: 20, currency: 'USD', period: 'month', source: 'user' },
-        overage: { enabled: true, spent: 4.5, currency: 'USD' },
+        fee: { amount: 30, currency: 'USD', period: 'month', source: 'user' },
       }),
       spend: {
         currency: 'USD',
@@ -662,16 +663,65 @@ describe('moneyRowOf', () => {
         coverage: null,
       },
     })
-    const row = moneyRowOf(subject)
+    const row = moneyRowOf(subject, monthEnd)
     expect(row?.value).toBe(31)
-    expect(row?.fee).toEqual({ amount: 20, currency: 'USD', period: 'month' })
+    expect(row?.fee).toEqual({ amount: 30, currency: 'USD', period: 'month' })
+    expect(row?.paid).toBeCloseTo(30, 6)
+    expect(row?.ratio).toBeCloseTo(31 / 30, 6)
     expect(row?.feeIsUser).toBe(true)
-    expect(row).not.toHaveProperty('paid')
-    expect(row).not.toHaveProperty('ratio')
+  })
+
+  it('folds overage in when its cycle starts inside the window', () => {
+    const row = moneyRowOf(report({
+      billing: billing(['windows'], {
+        fee: { amount: 30, currency: 'USD', period: 'month', source: 'user' },
+        overage: { enabled: true, spent: 4.5, currency: 'USD' },
+      }),
+      lanes: [lane({ id: 'overage', usedPercent: 20, layer: 'overage', windowMinutes: 10 * 24 * 60, resetsAt: monthEnd })],
+      spend: { currency: 'USD', todayCost: null, windowCost: 31, windowDays: 30, todayTokens: null, windowTokens: null, provenance: 'listPrice', coverage: null },
+    }), monthEnd)
+    expect(row?.paid).toBeCloseTo(34.5, 6)
+    expect(row?.overageAside).toBeNull()
+  })
+
+  it('keeps overage beside Paid when the cycle started before the window', () => {
+    const row = moneyRowOf(report({
+      billing: billing(['windows'], {
+        fee: { amount: 30, currency: 'USD', period: 'month', source: 'user' },
+        overage: { enabled: true, spent: 4.5, currency: 'USD' },
+      }),
+      lanes: [lane({ id: 'overage', usedPercent: 20, layer: 'overage', windowMinutes: 60 * 24 * 60, resetsAt: monthEnd })],
+      spend: { currency: 'USD', todayCost: null, windowCost: 31, windowDays: 30, todayTokens: null, windowTokens: null, provenance: 'listPrice', coverage: null },
+    }), monthEnd)
+    expect(row?.paid).toBeCloseTo(30, 6)
+    expect(row?.overageAside).toBe(4.5)
+  })
+
+  it('does not invent Paid when the fee is unset', () => {
+    const row = moneyRowOf(report({ spend: { currency: 'USD', todayCost: null, windowCost: 12, windowDays: 30, todayTokens: null, windowTokens: null, provenance: 'listPrice', coverage: null } }), monthEnd)
+    expect(row?.paid).toBeNull()
+    expect(row?.overageAside).toBeNull()
+  })
+
+  it('does not calculate a ratio across different currencies', () => {
+    const row = moneyRowOf(report({
+      billing: billing(['windows'], { fee: { amount: 30, currency: 'EUR', period: 'month', source: 'user' } }),
+      spend: { currency: 'USD', todayCost: null, windowCost: 31, windowDays: 30, todayTokens: null, windowTokens: null, provenance: 'listPrice', coverage: null },
+    }), monthEnd)
+    expect(row?.paid).toBeCloseTo(30, 6)
+    expect(row?.ratio).toBeNull()
+    expect(row?.currency).toBe('USD')
+  })
+
+  it('uses the Dashboard 30-day default when spend is absent', () => {
+    const row = moneyRowOf(report({ billing: billing(['windows'], { fee: { amount: 30, currency: 'USD', period: 'month', source: 'user' } }) }), monthEnd)
+    expect(row?.paid).toBeCloseTo(30, 6)
+    expect(row?.value).toBeNull()
+    expect(row?.ratio).toBeNull()
   })
 
   it('is null with neither a fee nor a priced window to show', () => {
-    expect(moneyRowOf(report({}))).toBeNull()
+    expect(moneyRowOf(report({}), monthEnd)).toBeNull()
   })
 
   it('carries no fee when none is set, rather than a computed figure', () => {
@@ -687,14 +737,14 @@ describe('moneyRowOf', () => {
         coverage: null,
       },
     })
-    const row = moneyRowOf(subject)
+    const row = moneyRowOf(subject, monthEnd)
     expect(row?.value).toBe(12)
     expect(row?.fee).toBeNull()
   })
 
   it('a vendor-reported fee is not "you set this"', () => {
     const subject = report({ billing: billing(['metered'], { fee: { amount: 20, currency: 'USD', period: 'month', source: 'vendor' } }) })
-    const row = moneyRowOf(subject)
+    const row = moneyRowOf(subject, monthEnd)
     expect(row?.feeIsUser).toBe(false)
   })
 })
