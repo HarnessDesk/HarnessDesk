@@ -810,7 +810,7 @@ const ToolPaneBoard = () => {
           </ToolPane>
         </Case>
         <Case label="integrated tool">
-          <ToolPane variant="integrated" className="h-56 w-full" data-catalog-variant="integrated">
+          <ToolPane variant="integrated" className="@container/browser h-56 w-full" data-catalog-variant="integrated">
             <ToolPaneHeader variant="window" title="Browser" subtitle="https://example.com" />
             <ToolPaneBar variant="address">example.com</ToolPaneBar>
             <ToolPaneNotice tone="warning">The page is still loading.</ToolPaneNotice>
@@ -821,7 +821,7 @@ const ToolPaneBoard = () => {
               <Dot state="signin" pulse />
               <Text role="meta">Being driven</Text>
               <ToolbarGap />
-              <Text role="meta">Framed pages only — the desktop app runs a real browser</Text>
+              <Text role="meta" className="hidden @[16rem]/browser:inline">Framed pages only — the desktop app runs a real browser</Text>
             </Bar>
           </ToolPane>
         </Case>

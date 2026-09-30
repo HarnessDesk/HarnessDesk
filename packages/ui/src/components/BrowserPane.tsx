@@ -1324,7 +1324,7 @@ export const BrowserPane = () => {
   if (!mount || !view || !tab || !paneId) return null
 
   return (
-    <ToolPane variant="integrated">
+    <ToolPane variant="integrated" className="@container/browser">
       <ToolPaneHeader
         title="Browser"
         lead={
@@ -1924,7 +1924,13 @@ export const BrowserPane = () => {
           <Text role="meta">Idle</Text>
         )}
         <ToolbarGap />
-        <Text role="meta">{inline ? 'Never your own browser profile' : 'Framed pages only — the desktop app runs a real browser'}</Text>
+        {/* The bar is one row tall, so the sentence may wrap to two lines and
+            no further: a pane split narrower than that keeps only the state
+            on the left rather than spilling the sentence past the bar.
+            `@container/browser` is on the pane. */}
+        <Text role="meta" className="hidden @[16rem]/browser:inline">
+          {inline ? 'Never your own browser profile' : 'Framed pages only — the desktop app runs a real browser'}
+        </Text>
       </Bar>
     </ToolPane>
   )
