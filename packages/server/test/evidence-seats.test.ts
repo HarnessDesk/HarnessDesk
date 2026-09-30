@@ -151,10 +151,14 @@ test('through the host: an Agent seated leaves its Seat record before the call a
 })
 
 test('through the host: a seat whose record cannot be written is closed, and the refusal says why', async (t) => {
-  const { host, runtime, stateDir, repo } = await evidenceDesk(t)
-  await writeAgent(stateDir)
-  // A file where the store's folder has to be: nothing under it can be written.
+  // A file where the store's folder has to be, planted before the host
+  // starts: nothing under it can be written. Planted afterwards it raced the
+  // host's own background evidence work, which could make the folder first
+  // and turn this write into EISDIR under load (#1066).
+  const stateDir = tempDir('hd-evidence-state-')
   await writeFile(join(stateDir, 'evidence'), 'not a folder')
+  const { host, runtime, repo } = await evidenceDesk(t, {}, { stateDir, repo: await makeRepo() })
+  await writeAgent(stateDir)
   await assert.rejects(
     host.call('agent/seat', { id: 'scout', cwd: repo.dir }),
     /^Error: Scout was seated on .+, and its Seat record could not be written, so the conversation was closed: /,
