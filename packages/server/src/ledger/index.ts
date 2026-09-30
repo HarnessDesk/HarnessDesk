@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 
 import { runtimeId, type LedgerDay,
+  type LedgerHour,
   type LedgerQuery,
   type LedgerReport,
   type LedgerRow,
@@ -16,7 +17,7 @@ import { runtimeId, type LedgerDay,
 import { Pricing, defaultPricingPaths, type ModelRates } from './pricing.js'
 import { safeLedgerDiagnostic } from './diagnostics.js'
 import type { RemoteEventsSource } from './remote.js'
-import { listTargets, scanFile, wholeFile, type CorpusSpec, type ScanTarget } from './scan.js'
+import { HOUR_CAPABLE_KINDS, listTargets, scanFile, wholeFile, type CorpusSpec, type ScanTarget } from './scan.js'
 import { LedgerStore, type UsageRow } from './store.js'
 import { INSIGHT_BYTE_LIMIT, INSIGHT_BYTE_LIMIT_MESSAGE, InsightBudgetExceededError, InsightSourceChangedError, type UsageDetail, type UsageSample } from './insight.js'
 
@@ -500,6 +501,7 @@ export class Ledger {
           result.rows,
           this.#now(),
           full || rewritten,
+          result.hours,
         )
       } catch (error) {
         readFailures += 1
@@ -534,6 +536,7 @@ export class Ledger {
     // without one, among them) -- from here on, a turn-capable runtime's
     // count is trustworthy. See `LedgerStore.turnsReady`.
     this.#store.markTurnsReady()
+    if (readFailures === 0 && discoveryFailures === 0) this.#store.markHoursReady()
     this.#report({
       running: false,
       filesDone,
@@ -701,7 +704,9 @@ export class Ledger {
   /** The Spend and *Where it went* bands. */
   query(request: LedgerQuery): LedgerReport {
     const days = Math.max(1, Math.min(365, Math.round(request.days)))
-    const from = startOfDay(this.#now() - (days - 1) * DAY)
+    const today = startOfDay(this.#now())
+    const from = stepDay(today, 1 - days)
+    const to = stepDay(today, 1)
     const rows = this.#store.since(from, request.runtime)
 
     let totalCost = 0
@@ -849,7 +854,17 @@ export class Ledger {
         .filter((runtime) => this.#turnKnown(runtime))
         .sort()
         .map((runtime) => runtimeId(runtime)),
+      hoursKnownFor: this.#store.hoursReady()
+        ? [...new Set(this.#options.corpora.filter((corpus) => HOUR_CAPABLE_KINDS.has(corpus.kind)).map((corpus) => corpus.runtime))]
+          .filter((runtime) => request.runtime === undefined || runtime === request.runtime)
+          .sort()
+          .map((runtime) => runtimeId(runtime))
+        : [],
     }
+    const hoursKnown = coverage.hoursKnownFor ?? []
+    const hourly: LedgerHour[] = hoursKnown.length > 0
+      ? this.#store.hourly(from, to, request.runtime).map((bucket) => ({ ...bucket, runtime: runtimeId(bucket.runtime) }))
+      : []
     const ordered: LedgerRow[] = [...groups.entries()]
       .map(([key, group]) => {
         const turnsKnown = this.#turnsIfKnown(group.runtimes, group.turns)
@@ -892,6 +907,7 @@ export class Ledger {
       coverage,
       rows: ordered,
       daily: [...daily.values()].sort((a, b) => a.day - b.day),
+      ...(hoursKnown.length > 0 ? { hourly } : {}),
       scannedAt: Number.isFinite(scannedAt) && scannedAt > 0 ? scannedAt : null,
       totals: {
         input: totals.input,
