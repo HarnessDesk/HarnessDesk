@@ -192,4 +192,6 @@ it('truncates a long image name on the shared dialog head', async () => {
   const heading = head?.querySelector('[data-slot="dialog-title"]')
   expect(heading?.textContent).toBe(longName)
   expect(heading?.classList.contains('truncate')).toBe(true)
+  // Cut at its end on screen, whole on hover.
+  expect(heading?.getAttribute('title')).toBe(longName)
 })
