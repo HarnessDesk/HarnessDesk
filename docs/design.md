@@ -778,10 +778,14 @@ name out of rule: the pull-request card's title (`components/Publication.tsx`)
 wore `weight="semibold"`, the weight `weight` exists for lifting a search
 match inside a line. It now takes its row role's own 13/500.
 
-The check covers a name drawn through `Text`/`PageHead` only. A name drawn
-some other way — `EmptyState`'s own heading, a `Notices` title, `AgentCard`'s
-name — is out of this rule's reach for now and tracked separately (#1072),
-not silently passed by this one.
+The check covers a name drawn through `Text`/`PageHead` only. The shared
+parts that drew their names some other way now compose `Text` too (#1072):
+`EmptyState`'s heading and `ChoiceRow`'s title are `subject`, a `Notices`
+card title and the inbox heading are `subject`, an unread inbox title is
+`row`, and `AgentCard`'s name is `row`. Headings and `*-title` slots drawn
+outside `Text` elsewhere — 160 distinct names, among them the Dashboard's
+16/600 section heads — are the next convergence, and the check widens to
+them once they are converted (#1122).
 
 ### Group labels
 
