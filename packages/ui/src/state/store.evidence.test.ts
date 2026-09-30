@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 
-import { runtimeId, sessionId, type HostMethodName, type WireNotification } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey, type HostMethodName, type WireNotification } from '@harnessdesk/protocol'
 
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, PREVIEW_CHECKS, PREVIEW_SEAT, PREVIEW_UNSEEN } from '../preview/evidence-fixture'
 import { AppStore } from './store'
@@ -90,6 +90,24 @@ it('remembers closed turn-files cards in the snapshot for the current run', () =
   expect(store.getSnapshot().closedTurnFiles.has(JSON.stringify(['codex\u0000s1', 't1']))).toBe(true)
   expect(store.getSnapshot().closedTurnFiles.has(JSON.stringify(['codex\u0000s1', 't2']))).toBe(false)
   expect(store.getSnapshot().closedTurnFiles.has(JSON.stringify(['codex', 's1\u0000t1']))).toBe(false)
+})
+
+it('reports a partial turn apply only when a refusal lists files already changed', async () => {
+  const key = sessionKey(runtimeId('codex'), sessionId('s1'))
+  request.mockRejectedValueOnce(Object.assign(new Error('Stopped partway'), {
+    data: { reverted: ['src/a.ts'] },
+  }))
+  await expect(store.revertTurn('t1', key)).resolves.toEqual({ done: false, unrecoverable: false, partial: true })
+
+  request.mockRejectedValueOnce(Object.assign(new Error('Nothing changed'), {
+    data: { reverted: [] },
+  }))
+  await expect(store.revertTurn('t2', key)).resolves.toEqual({ done: false, unrecoverable: false, partial: false })
+
+  request.mockRejectedValueOnce(new Error('Nothing changed'))
+  await expect(store.revertTurn('t3', key)).resolves.toEqual({ done: false, unrecoverable: false, partial: false })
+
+  await expect(store.revertTurn('t4', null as never)).resolves.toEqual({ done: false, unrecoverable: false, partial: false })
 })
 
 it('running a check says it started, or hands back the command nobody here has approved, verbatim', async () => {

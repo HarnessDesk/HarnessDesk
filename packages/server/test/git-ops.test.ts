@@ -97,11 +97,30 @@ test('refuses when the user edited the file since, naming what was put back', as
       assert.ok(error instanceof RevertError)
       assert.match(error.message, /Stopped at new\.txt: it has been edited since/)
       assert.deepEqual(error.reverted, ['a.txt'])
+      assert.deepEqual((error as { wireData?: unknown }).wireData, { reverted: ['a.txt'] })
       return true
     })
     // The hand edit is untouched; the agent's update is gone.
     assert.equal(await readFile(join(dir, 'new.txt'), 'utf8'), 'fresh, then edited by hand\n')
     assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'one\ntwo\nthree\n')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('a refusal before changing any file has no reverted wire data', async () => {
+  const dir = await repo()
+  try {
+    await writeFile(join(dir, 'new.txt'), 'edited by hand\n')
+    const turn = turnOf([
+      fileChange(dir, [{ path: join(dir, 'new.txt'), kind: { type: 'add' }, diff: 'fresh\n' }]),
+    ])
+    await assert.rejects(applyTurn(dir, turn, 'undo'), (error: unknown) => {
+      assert.ok(error instanceof RevertError)
+      assert.equal(error.reverted.length, 0)
+      assert.equal((error as { wireData?: unknown }).wireData, undefined)
+      return true
+    })
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

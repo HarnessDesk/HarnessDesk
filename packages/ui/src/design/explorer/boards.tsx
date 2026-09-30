@@ -950,8 +950,8 @@ const catalogueTurnFilesSnapshot = { ...catalogueSnapshot, activeSessionKey: cat
 const catalogueTurnFilesStore = {
   subscribe: () => () => {},
   getSnapshot: () => catalogueTurnFilesSnapshot,
-  revertTurn: async () => ({ done: true, unrecoverable: false }),
-  redoTurn: async () => ({ done: true, unrecoverable: false }),
+  revertTurn: async () => ({ done: true, unrecoverable: false, partial: false }),
+  redoTurn: async () => ({ done: true, unrecoverable: false, partial: false }),
   closeTurnFiles: () => {},
   setDetailsTab: () => {},
   openFile: () => {},

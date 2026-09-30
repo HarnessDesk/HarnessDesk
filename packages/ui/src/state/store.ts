@@ -5397,7 +5397,7 @@ export class AppStore {
     key = this.#snapshot.activeSessionKey,
     options: { readonly skipUnrecoverable?: boolean } = {},
   ): Promise<TurnUndo> {
-    if (!key) return { done: false, unrecoverable: false }
+    if (!key) return { done: false, unrecoverable: false, partial: false }
     try {
       const { files, skipped } = await this.transport.request('session/revertTurn', {
         ...address(key),
@@ -5423,13 +5423,20 @@ export class AppStore {
             ? `Wrote the turn's change to ${files[0]} again.`
             : `Wrote the turn's changes to ${files.length} files again.`) + without,
       )
-      return { done: true, unrecoverable: false }
+      return { done: true, unrecoverable: false, partial: false }
     } catch (error) {
       this.notice('error', describe(error))
       /* Read off the code the host put on the refusal, never off the sentence:
          the interface can only offer the way out if it can tell this failure
          from every other one, and English changes. */
-      return { done: false, unrecoverable: (error as { code?: unknown }).code === 'turnPartlyUnrecoverable' }
+      const data = (error as { data?: unknown }).data
+      const reverted =
+        data !== null && typeof data === 'object' && 'reverted' in data ? (data as { reverted?: unknown }).reverted : undefined
+      return {
+        done: false,
+        unrecoverable: (error as { code?: unknown }).code === 'turnPartlyUnrecoverable',
+        partial: Array.isArray(reverted) && reverted.length > 0,
+      }
     }
   }
 
@@ -7025,11 +7032,13 @@ const isFolderGone = (error: unknown): boolean =>
  *
  * `unrecoverable` is the one refusal with a way out: the turn holds a deletion
  * the agent recorded no content for, and everything else in it could still be
- * put back if asked (#237).
+ * put back if asked (#237). `partial` means the host changed at least one file
+ * before refusing, so the card must stay available to finish or reverse it.
  */
 export interface TurnUndo {
   readonly done: boolean
   readonly unrecoverable: boolean
+  readonly partial: boolean
 }
 
 const describe = (error: unknown): string => {

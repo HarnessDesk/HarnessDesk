@@ -44,6 +44,7 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
   const closed = useSelect((snapshot) => key !== null && snapshot.closedTurnFiles.has(closedTurnFilesKey(key, turn.id)))
   const [busy, setBusy] = useState(false)
   const [reverted, setReverted] = useState(false)
+  const [stoppedPartway, setStoppedPartway] = useState(false)
   const [expanded, setExpanded] = useState(false)
   // Offered only once the host has refused for this reason; never up front,
   // because most turns have nothing unrecoverable in them.
@@ -75,8 +76,14 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
       // stands unchanged.
       if (result.done) {
         setReverted(direction === 'undo')
+        setStoppedPartway(false)
         setPartly(false)
-      } else setPartly(result.unrecoverable)
+      } else {
+        setPartly(result.unrecoverable)
+        // Only a success clears it: a later refusal that changed nothing
+        // leaves the tree exactly as half changed as it was.
+        if (result.partial) setStoppedPartway(true)
+      }
     } finally {
       setBusy(false)
     }
@@ -146,10 +153,12 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
             type="button"
             aria-label="Close"
             onClick={() => key && store.closeTurnFiles(key, turn.id)}
-            disabled={busy || reverted}
-            title={reverted
-              ? 'Redo or keep these edits first — this card is the only way to write them back.'
-              : 'Hide this card. The changes stay in the Changes panel.'}
+            disabled={busy || reverted || stoppedPartway}
+            title={stoppedPartway
+              ? "This turn's files are half changed — finish or reverse it here first."
+              : reverted
+                ? 'Redo or keep these edits first — this card is the only way to write them back.'
+                : 'Hide this card. The changes stay in the Changes panel.'}
           >
             <CrossIcon size={11} />
           </Button>

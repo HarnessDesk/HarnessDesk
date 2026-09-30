@@ -29,6 +29,13 @@ const git = async (root: string, args: readonly string[], signal?: AbortSignal):
 
 export class RevertError extends Error {
   /**
+   * Files changed before this refusal. The interface needs to distinguish
+   * "refused, nothing changed" from "stopped partway" so it does not hide the
+   * only card that can finish or reverse the partial change.
+   */
+  wireData?: { readonly reverted: readonly string[] }
+
+  /**
    * Named on the wire only when there *is* a way out — when leaving the
    * unrecoverable files out would still put something back. The interface
    * offers that second choice off this code rather than off the sentence,
@@ -53,6 +60,7 @@ export class RevertError extends Error {
     super(message)
     this.name = 'RevertError'
     if (unrecoverable.length > 0 && recoverable) this.wireCode = 'turnPartlyUnrecoverable'
+    if (reverted.length > 0) this.wireData = { reverted: [...reverted] }
   }
 }
 
