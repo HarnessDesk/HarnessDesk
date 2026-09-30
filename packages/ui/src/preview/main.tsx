@@ -61,6 +61,7 @@ import { MessageQueue } from '../components/MessageQueue'
 import { GoalFrames } from './frames-goals'
 import { PanelFrames } from './frames-panels'
 import { CoverageFrames } from './frames-coverage'
+import { ComposerSlotFrames } from './frames-composer-slots'
 import { SettingsFrames } from './frames-settings'
 import { TranscriptFrames } from './frames-transcript'
 import '../styles/app.css'
@@ -435,6 +436,7 @@ const Preview = () => {
   return (
     <div className="min-h-full bg-background p-4 text-foreground">
       <section aria-label="Provenance preview">
+        <ComposerSlotFrames />
         <Frame title="History — associated Seats"><CommitSeatLabels value={previewProvenance} /><CommitProvenance root={PROVENANCE_ROOT} sha={PROVENANCE_SHA} /></Frame>
         <Frame title="Project — capture"><ProjectProvenance root={PROVENANCE_ROOT} /></Frame>
       </section>
