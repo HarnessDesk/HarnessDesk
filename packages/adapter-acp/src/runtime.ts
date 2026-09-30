@@ -733,22 +733,6 @@ const acpCategory = (id: string, category: string | null | undefined): OptionCat
   return category?.startsWith('_') ? (category as `_${string}`) : 'other'
 }
 
-/**
- * The screenshot rig's flow take uses ACP camera processes as read-only
- * specialists behind a front-door start. ACP has no ceiling-reporting field,
- * so its ordinary runtime info stays honest (no ceilings); this narrow marker
- * is the rig's synthetic read seat, never a user-configurable capability.
- */
-const SHOT_FLOW_READ_CEILINGS = {
-  read: {
-    settings: [
-      { option: 'permissions', value: ':read-only' },
-      { option: 'approvalsReviewer', value: 'user' },
-    ],
-    how: 'Read-only sandbox; anything past it asks you',
-  },
-} as const
-
 export class AcpRuntime implements AgentRuntime {
   readonly #config: AcpAgentConfig
   /**
@@ -888,7 +872,6 @@ export class AcpRuntime implements AgentRuntime {
         ? this.launchedVersion ?? selfVersion
         : selfVersion
 
-    const shotFlowReadOnly = process.env['FAKE_CODEX_MODE'] === 'shots-flow' && this.#config.env?.SHOT_FLOW !== undefined
     return {
       id: runtimeId(this.#config.id),
       name: this.#config.name,
@@ -903,7 +886,6 @@ export class AcpRuntime implements AgentRuntime {
           : null
         : null,
       capabilities: this.#capabilities(),
-      ...(shotFlowReadOnly ? { ceilings: SHOT_FLOW_READ_CEILINGS } : {}),
       // Phase 12's stronger session contract — a sibling of `capabilities`,
       // never folded into it, and absent (not `unsupported`) until this
       // runtime has actually shaken hands: "what a runtime may claim before

@@ -142,10 +142,6 @@ const claudeOverride = (name: string): boolean => /^ANTHROPIC_.*BASE_URL$/.test(
 
 const claudeProvider = async (context: ProviderContext, cwd?: string): Promise<string | null> => {
   const env = context.env ?? process.env
-  // The screenshot rig's synthetic Claude bridge rows keep their scripted
-  // `node` command while borrowing the bridge identity. Their staged marker
-  // is the only explicit provider fact, and never exists in a user's desk.
-  if (env['HARNESSDESK_SHOTS_PROVIDER'] === 'anthropic') return 'anthropic'
   if (Object.entries(env).some(([name, value]) => claudeOverride(name) && set(value))) return null
   const home = context.home ?? homedir()
   const user = env['CLAUDE_CONFIG_DIR']?.trim() || join(home, '.claude')
