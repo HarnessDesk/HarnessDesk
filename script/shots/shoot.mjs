@@ -2381,6 +2381,16 @@ rules:
       await openStorefront()
       if (!(await click('Agents'))) throw new Error('no Agents row in the sidebar')
       await sleep(1400)
+      await cdp.eval(`(() => {
+        const dialog = document.querySelector('[role="dialog"][aria-label="Agents"]')
+        const scroller = [...(dialog?.querySelectorAll('*') ?? [])]
+          .find((node) => node.scrollHeight > node.clientHeight + 300)
+        if (!scroller) return false
+        scroller.scrollTop = scroller.scrollHeight
+        scroller.dispatchEvent(new Event('scroll', { bubbles: true }))
+        return true
+      })()`)
+      await sleep(500)
     } },
 
     /** An Agent's page: its file, its ceiling, its own seats muted, and this Mac's. */
