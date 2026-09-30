@@ -10,13 +10,20 @@ import {
   MenuLabel,
   MenuSeparator,
   Popover,
-  PopoverGroupLabel,
-  PaneColumn,
   Separator,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuAction,
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubItem,
   Text,
   buttonVariants,
   useContextMenu,
-  type Tone,
 } from '../design'
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from 'react'
 
@@ -34,6 +41,7 @@ import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
 import {
   ArchiveIcon,
+  AgentIcon,
   BranchIcon,
   ClockIcon,
   CollapseAllIcon,
@@ -85,33 +93,6 @@ const relativeTime = (timestamp: number, now: number): string => {
   const days = Math.round(hours / 24)
   if (days < 30) return `${days}d ago`
   return new Date(timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
-
-const traceTone = (trace: ReturnType<typeof traceOf>): Tone | undefined => {
-  if (trace === 'waiting') return 'warning'
-  if (trace === 'failed') return 'danger'
-  return trace !== null && ACTIVE_STATES.has(trace) ? 'brand' : undefined
-}
-
-/**
- * The row titles more than one agent's conversations wear — the only rows
- * whose title alone cannot say which agent they are. Computed once per
- * history list, not once per row.
- */
-const sharedLabels = new WeakMap<readonly SessionSummary[], ReadonlySet<string>>()
-const labelsSharedAcrossAgents = (history: readonly SessionSummary[]): ReadonlySet<string> => {
-  const known = sharedLabels.get(history)
-  if (known) return known
-  const agentsBy = new Map<string, Set<string>>()
-  for (const summary of history) {
-    const label = sessionLabel(summary.title, summary.preview)
-    const agents = agentsBy.get(label) ?? new Set<string>()
-    agents.add(String(summary.runtime))
-    agentsBy.set(label, agents)
-  }
-  const shared = new Set([...agentsBy].filter(([, agents]) => agents.size > 1).map(([label]) => label))
-  sharedLabels.set(history, shared)
-  return shared
 }
 
 const SessionRow = ({
@@ -167,12 +148,6 @@ const SessionRow = ({
      read every name. The live session is the fresher record when it exists. */
   const ownLabel = sessionLabel(live?.title ?? summary.title, summary.preview)
   const label = need?.name ?? ownLabel
-  const presentedName = runtime?.presentation.name ?? null
-  const collides =
-    !need &&
-    snapshot.listPrefs.density !== 'comfortable' &&
-    snapshot.runtimes.length > 1 &&
-    labelsSharedAcrossAgents(snapshot.history).has(ownLabel)
   const traceShown = trace !== null && (ACTIVE_STATES.has(trace) || trace === 'waiting' || trace === 'failed')
   // Work the agent sent to the background and walked away from: the turn is
   // over, the row would read idle, and something is still running. The glyph
@@ -220,11 +195,9 @@ const SessionRow = ({
   }, [draft, key, store, summary.title])
 
   return (
-    <div className={styles.rowWrap} {...(menu.at ? { 'data-menu-open': '' } : {})} onContextMenu={menu.open}>
-      {renaming ? (
-        // The rename box stands in for the row itself: the rail's own inset, an
-        // input with the row's own box, and the height the row had.
-        <PaneColumn inset="rail">
+    <SidebarMenu className={styles.rowWrap} onContextMenu={menu.open}>
+      <SidebarMenuItem className="list-none" data-menu-open={menu.at ? '' : undefined}>
+        {renaming ? (
           <Input
             variant="quiet" controlSize="row" className={styles.renameInput}
             style={renameHeight ? { minHeight: renameHeight } : undefined}
@@ -235,166 +208,79 @@ const SessionRow = ({
             onKeyDown={(event) => {
               if (event.key === 'Enter') commitRename()
               if (event.key === 'Escape') {
-                // Spent on the rename, so a floating sidebar stays open.
                 event.preventDefault()
                 setRenaming(false)
               }
             }}
           />
-        </PaneColumn>
-      ) : (
-        <>
-          <Button
-            ref={rowRef}
-            type="button" variant="navigation" size="navigation" className={styles.row}
-            data-density={snapshot.listPrefs.density}
-            {...(snapshot.activeSessionKey === key ? { 'data-active': '' } : {})}
-            {...(openInPane ? { 'data-open': '' } : {})}
-            title={
-              need
+        ) : (
+          <>
+            <SidebarMenuButton
+              ref={rowRef}
+              size={snapshot.listPrefs.density === 'compact' ? 'sm' : 'default'}
+              isActive={active}
+              data-active={active ? 'true' : undefined}
+              aria-current={active ? 'page' : undefined}
+              data-open={openInPane ? '' : undefined}
+              title={need
                 ? `${ownLabel} · ${agentName} — ${need.reason.toLowerCase()}`
-                : snapshot.listPrefs.density === 'compact'
-                ? `${agentName} · ${traceShown ? TRACE_LABEL[trace] : relativeTime(summary.updatedAt, now)}${summary.git?.branch ? ` · ${summary.git.branch}` : ''}${worktree ? ` · worktree ${folderName(summary.cwd)}` : ''}${backgrounded > 0 ? ` · ${backgrounded} running in the background` : ''}`
-                : backgrounded > 0
-                  ? `${backgrounded === 1 ? '1 task is' : `${backgrounded} tasks are`} still running in the background — open the conversation, then Background tasks`
-                  : openInPane
-                    ? 'This conversation is on screen'
-                    : 'Open this conversation'
-            }
-            onClick={() => void store.openSession(summary.id, { runtime: summary.runtime })}
-          >
-            {/* The one place in this row that identifies the conversation
-                rather than describing it, and so the one place the name card
-                hangs from. The row shows a title and a time; *which agent
-                this is, on what model, with how much context left* is not on
-                it at all — at compact density it is not even in the `title`.
-                That is the card's whole case here. */}
-            <SessionHoverCard
-              session={summary}
-              // The rail's own indent, only wanted here: the other consumer
-              // (`TeamBoardPane`) lays this card out with no inset at all,
-              // so the inset belongs to this row, not the shared card —
-              // `AgentHoverCard` composes `PaneColumn` onto its own trigger.
-              className={styles.statusTarget}
-              inset="rail"
-              actions={[
-                ...(snapshot.activeSessionKey === key
-                  ? []
-                  : [
-                      {
-                        label: 'Open',
-                        primary: true,
-                        onSelect: () =>
-                          void store.openSession(summary.id, { runtime: summary.runtime }),
-                      },
-                    ]),
-                {
-                  label: 'Rename',
-                  onSelect: startRename,
-                },
-              ]}
-            >
-              <Dot
-                state={dotState}
-                variant="navigation"
-                className={styles.statusGlyph}
-                pulse={trace !== null && ACTIVE_STATES.has(trace)}
-                {...(backgrounded > 0 ? { 'data-tasks': '' } : {})}
-                {...(summary.status.type === 'active' ? { 'data-live': '' } : {})}
-                {...(traceShown ? { 'data-trace': trace } : {})}
-                aria-hidden="true"
-              />
-            </SessionHoverCard>
-            <span className={styles.rowBody}>
-              <span className={styles.rowHead}>
-                <Text role="navigation" fade className={styles.rowTitle}>{label}</Text>
-                {need && <Chip tone="warning">{need.reason}</Chip>}
-                {/* Which agent, where the title cannot say. A flow's several
-                    Seats of one role — three "Code reviewer" rows, one per
-                    agent — share the exact same title (measured on UC3's
-                    review flow), and compact density has no second line to
-                    tell them apart. The agent's name is a word, so it is a
-                    chip on the title's own line (rule 9): no row gets taller,
-                    and a title only one agent's rows wear carries none. */}
-                {collides && presentedName && <Chip tone="neutral">{presentedName}</Chip>}
-                {/* One project, several checkouts. The row says which it ran
-                    in with a branch glyph rather than a group of its own —
-                    a worktree is where a conversation happened, not what it
-                    was about — and the glyph sits on the list's right rail,
-                    so "which of these ran in a worktree" is one glance down
-                    a column rather than five titles read to their end. */}
-                {worktree && (
-                  <span
-                    className={styles.rowWorktree}
-                    role="img"
-                    aria-label={`Worktree ${summary.git?.branch ?? folderName(summary.cwd)}`}
-                    title={`Worktree · ${summary.git?.branch ?? folderName(summary.cwd)}\n${summary.cwd}`}
-                  >
-                    <Text role="meta"><BranchIcon size={11} /></Text>
-                  </span>
-                )}
-                {/* The folder this conversation ran in is no longer on the
-                    machine, so it can be read and not continued. On the same
-                    right rail as the worktree glyph, in the same ink and for
-                    the same reason: both are facts about *where* a row ran,
-                    asked of the whole list at once. It says so before the
-                    click — a deleted worktree usually takes several
-                    conversations, and one refusal is enough to know about all
-                    of them. */}
-                {folderGone && (
-                  <span
-                    className={styles.rowGone}
-                    role="img"
-                    aria-label={`Folder is gone — ${folderName(summary.cwd)}`}
-                    title={`${folderGone}\nThe transcript can be read; nothing more can be sent to it.`}
-                  >
-                    <Text role="meta"><FolderGoneIcon size={11} /></Text>
-                  </span>
-                )}
-              </span>
-              {!need && snapshot.listPrefs.density === 'comfortable' && (
-                <span className={styles.rowMeta}>
-                  {snapshot.runtimes.length > 1 && (
-                    <>
-                      <Text role="meta" className={styles.rowMetaItem}>{agentName}</Text>
-                      <Text role="meta" aria-hidden="true">·</Text>
-                    </>
+                : `${agentName} · ${traceShown ? TRACE_LABEL[trace] : relativeTime(summary.updatedAt, now)}${summary.git?.branch ? ` · ${summary.git.branch}` : ''}${worktree ? ` · worktree ${folderName(summary.cwd)}` : ''}${backgrounded > 0 ? ` · ${backgrounded} running in the background` : ''}`}
+              onClick={() => void store.openSession(summary.id, { runtime: summary.runtime })}
+              icon={
+                <SessionHoverCard
+                  session={summary}
+                  actions={[
+                    ...(active ? [] : [{ label: 'Open', primary: true,
+                      onSelect: () => void store.openSession(summary.id, { runtime: summary.runtime }) }]),
+                    { label: 'Rename', onSelect: startRename },
+                  ]}
+                >
+                  <Text role="meta" className="inline-flex items-center justify-center" aria-label={agentName}>
+                    {runtime ? <RuntimeMark runtime={runtime} size={14} /> : <AgentIcon size={14} />}
+                  </Text>
+                </SessionHoverCard>
+              }
+              label={
+                <span className="flex min-w-0 items-center gap-(--hd-space-1)" title={label}>
+                  <span className="min-w-0 truncate">{label}</span>
+                  {need && <Chip tone="warning">{need.reason}</Chip>}
+                  {worktree && (
+                    <span className="inline-flex shrink-0" role="img"
+                      aria-label={`Worktree ${summary.git?.branch ?? folderName(summary.cwd)}`}
+                      title={`Worktree · ${summary.git?.branch ?? folderName(summary.cwd)}\n${summary.cwd}`}>
+                      <Text role="meta"><BranchIcon size={11} /></Text>
+                    </span>
                   )}
-                  {traceShown ? (
-                    <Text role="meta" tone={traceTone(trace)} className={styles.rowMetaItem} data-trace={trace}>
-                      {TRACE_LABEL[trace]}
-                    </Text>
-                  ) : (
-                    <Text role="meta" className={styles.rowMetaItem}>{relativeTime(summary.updatedAt, now)}</Text>
-                  )}
-                  {summary.git?.branch && (
-                    <>
-                      <Text role="meta" aria-hidden="true">·</Text>
-                      <Text role="meta" truncate className={`${styles.rowMetaItem} ${styles.rowMetaBranch}`}>
-                        {summary.git.branch}
-                      </Text>
-                    </>
+                  {folderGone && (
+                    <span className="inline-flex shrink-0" role="img"
+                      aria-label={`Folder is gone — ${folderName(summary.cwd)}`}
+                      title={`${folderGone}\nThe transcript can be read; nothing more can be sent to it.`}>
+                      <Text role="meta"><FolderGoneIcon size={11} /></Text>
+                    </span>
                   )}
                 </span>
-              )}
-            </span>
-          </Button>
-
-          <span className={styles.rowMenu} {...(menu.at ? { 'data-open': '' } : {})}>
-            <Button
-              type="button"
-              variant="ghost" size="icon-sm" className={styles.rowMenuButton}
-              aria-haspopup="menu"
-              aria-expanded={menu.at !== null}
+              }
+            />
+            {(backgrounded > 0 || traceShown || summary.status.type === 'active') && (
+              <SidebarMenuBadge aria-label={backgrounded > 0 ? 'Background tasks running' : traceShown ? TRACE_LABEL[trace] : 'Working'}>
+                <Dot state={dotState} variant="navigation"
+                  pulse={trace !== null && ACTIVE_STATES.has(trace)}
+                  data-tasks={backgrounded > 0 ? '' : undefined}
+                  data-live={summary.status.type === 'active' ? '' : undefined}
+                  data-trace={traceShown ? trace : undefined}
+                  aria-hidden="true" />
+              </SidebarMenuBadge>
+            )}
+            <SidebarMenuAction showOnHover
+              data-state={menu.at ? 'open' : undefined}
+              aria-haspopup="menu" aria-expanded={menu.at !== null}
               onClick={menu.open}
-              title={`Actions for ${label}`}
-              aria-label={`Actions for ${label}`}
-            >
+              title={`Actions for ${label}`} aria-label={`Actions for ${label}`}>
               <MoreIcon size={12} />
-            </Button>
-          </span>
-        </>
-      )}
+            </SidebarMenuAction>
+          </>
+        )}
+      </SidebarMenuItem>
       <ContextMenu at={menu.at} label={`Actions for ${label}`} onClose={menu.close}>
         <MenuItem
           icon={pinned ? <UnpinIcon size={13} /> : <PinIcon size={13} />}
@@ -450,7 +336,7 @@ const SessionRow = ({
           onSelect={() => onDelete(summary)}
         />
       </ContextMenu>
-    </div>
+    </SidebarMenu>
   )
 }
 
@@ -1444,10 +1330,9 @@ export const SessionTree = ({ now }: { now: number }) => {
       {/* Triage first: what needs the developer, then what is working — every
           workspace, one list. The words come from the live trace. */}
       {triage.waiting.length > 0 && (
-        <div className={styles.triage} data-tone="waiting">
-          <PopoverGroupLabel inset={false}>
-            <Text role="muted" tone="warning">Needs you · {triage.waiting.length}</Text>
-          </PopoverGroupLabel>
+        <SidebarGroup className={styles.triage} data-tone="waiting">
+          <SidebarGroupLabel><Text role="muted" tone="warning">Needs you · {triage.waiting.length}</Text></SidebarGroupLabel>
+          <SidebarGroupContent>
           {triage.waiting.map((summary) => (
             <SessionRow
               key={`w-${summary.runtime}-${summary.id}`}
@@ -1457,12 +1342,14 @@ export const SessionTree = ({ now }: { now: number }) => {
               need={needsYouOf(summary, snapshot)}
             />
           ))}
+          </SidebarGroupContent>
           <Separator />
-        </div>
+        </SidebarGroup>
       )}
       {triage.working.length > 0 && (
-        <div className={styles.triage} data-tone="working">
-          <PopoverGroupLabel inset={false}>Working · {triage.working.length}</PopoverGroupLabel>
+        <SidebarGroup className={styles.triage} data-tone="working">
+          <SidebarGroupLabel>Working · {triage.working.length}</SidebarGroupLabel>
+          <SidebarGroupContent>
           {triage.working.map((summary) => (
             <SessionRow
               key={`a-${summary.runtime}-${summary.id}`}
@@ -1471,8 +1358,9 @@ export const SessionTree = ({ now }: { now: number }) => {
               onDelete={setDeleting}
             />
           ))}
+          </SidebarGroupContent>
           <Separator />
-        </div>
+        </SidebarGroup>
       )}
       {near.map(renderGroup)}
       {far.length > 0 && (

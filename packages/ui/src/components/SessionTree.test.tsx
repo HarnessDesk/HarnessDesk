@@ -87,6 +87,31 @@ it('keeps Archive self-explanatory without a subtitle', () => {
   expect(archive?.textContent).toBe('Archive')
 })
 
+it('uses one fixed trailing slot for conversation state and actions', () => {
+  const runtime = { id: 'agent', name: 'Agent', capabilities: {}, presentation: { name: 'Agent' } } as unknown as RuntimeInfo
+  const summary = (id: string, status: 'idle' | 'active'): SessionSummary => ({
+    id, runtime: runtime.id, title: id, preview: null, cwd: '/repo',
+    status: { type: status }, createdAt: 1, updatedAt: 2, archived: false,
+  }) as unknown as SessionSummary
+  const snapshot = { ...emptySnapshot(), status: 'open', activeRuntime: runtime.id,
+    runtimes: [runtime], history: [summary('quiet', 'idle'), summary('busy', 'active')],
+  } as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
+  const rows = [...container.querySelectorAll<HTMLElement>('[data-slot="sidebar-menu-item"]')]
+  const quiet = rows.find((row) => row.textContent?.includes('quiet'))!
+  const busy = rows.find((row) => row.textContent?.includes('busy'))!
+  expect(quiet.querySelector('[data-slot="sidebar-menu-badge"]')).toBeNull()
+  expect(busy.querySelectorAll('[data-slot="sidebar-menu-badge"]')).toHaveLength(1)
+  const label = busy.querySelector('[data-slot="sidebar-menu-label"]')!
+  const classes = label.className
+  const action = busy.querySelector<HTMLElement>('[data-slot="sidebar-menu-action"]')!
+  expect(action.parentElement).toBe(busy)
+  action.focus()
+  expect(busy.querySelector('[data-slot="sidebar-menu-label"]')).toBe(label)
+  expect(label.className).toBe(classes)
+})
+
 it('a conversation with work still running in the background wears a green glyph, and says so on hover', () => {
   // The turn is over and the row would read idle, but the agent sent
   // something to the background and walked away. A person browsing other
@@ -142,11 +167,11 @@ it('a conversation with work still running in the background wears a green glyph
     if (!found) throw new Error(`no row called ${title}`)
     return found as HTMLButtonElement
   }
-  const glyph = (title: string): HTMLElement | null => row(title).querySelector('[data-slot="dot"]')
+  const glyph = (title: string): HTMLElement | null => row(title).parentElement?.querySelector('[data-slot="dot"]') ?? null
   expect(glyph('Busy one')?.hasAttribute('data-tasks')).toBe(true)
   expect(row('Busy one').title).toContain('running in the background')
   // Finished work is not a reason to look: only running work earns the dot.
-  expect(glyph('Quiet one')?.hasAttribute('data-tasks')).toBe(false)
+  expect(glyph('Quiet one')).toBeNull()
   expect(row('Quiet one').title).not.toContain('background')
 })
 
@@ -212,8 +237,8 @@ it('two flow seats of one role, on different runtimes, read apart on their own l
     button.textContent?.includes('Code reviewer'),
   )
   expect(rows).toHaveLength(2)
-  expect([...rows[0]!.querySelectorAll('[data-slot="chip"]')].map((chip) => chip.textContent)).toEqual(['Claude'])
-  expect([...rows[1]!.querySelectorAll('[data-slot="chip"]')].map((chip) => chip.textContent)).toEqual(['DeepSeek'])
+  expect(rows[0]!.querySelector('[aria-label="Claude"]')).not.toBeNull()
+  expect(rows[1]!.querySelector('[aria-label="DeepSeek"]')).not.toBeNull()
   for (const row of rows) expect(row.querySelector('[class*="rowMeta"]')).toBeNull()
 
   // A title only one row wears already says which conversation it is: no
@@ -458,7 +483,7 @@ it('names each “Needs you” row by its Goal, with a short reason as a chip on
 
   const waiting = container.querySelector('[data-tone="waiting"]')
   if (!waiting) throw new Error('no Needs you band rendered')
-  const rows = [...waiting.querySelectorAll<HTMLElement>('[class*="rowHead"]')]
+  const rows = [...waiting.querySelectorAll<HTMLElement>('[data-slot="sidebar-menu-label"]')]
   expect(rows.map((one) => one.textContent)).toEqual(['Issue #42Approval', 'Issue #43Approval'])
   expect(waiting.textContent).not.toContain('from trigger')
   expect(waiting.textContent).not.toContain('Triager')
@@ -1445,7 +1470,7 @@ it('renames an inactive session without opening it or changing active session (#
 
   // The row as it stands, two lines tall (a comfortable row's second line):
   // the rename box must hold that height, or every row below moves up.
-  const rowB = menuB!.closest('[class*="rowWrap"]')!.querySelector<HTMLButtonElement>('button[data-density]')!
+  const rowB = menuB!.closest('[class*="rowWrap"]')!.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')!
   rowB.getBoundingClientRect = () => ({ height: 55 }) as DOMRect
 
   act(() => {
