@@ -62,6 +62,17 @@ const BOARD = [
   { title: 'Cover both in retry.test.ts', detail: 'A 502 that recovers on the second attempt, and one that never does.', dependsOn: [0, 1] },
   { title: 'Make the webhook receiver idempotent', detail: 'Key on the delivery id so a redelivery cannot charge twice.' },
   { title: 'Decide the alert threshold for retry storms', detail: 'Needs a number from whoever owns the on-call rota.' },
+  // Five more, so the still `board-*.png` reads as a busy desk rather than a
+  // five-card demo: claimed across every vendor in the room (not only the
+  // two `ROOM_CLAIM` already used), a second dependency (on the webhook card
+  // this time, not the retry pair), two cards fast-checked straight to
+  // Ready, and a second Needs-you card.
+  { title: 'Log the gateway request id on every retry', detail: 'One id per attempt today; the same id across all three would make a trace one story.' },
+  { title: 'Trace the slow webhook cold start', detail: 'Two thirds of it is loading the currency table eagerly at import.' },
+  { title: 'Extend idempotency to the refund webhook', detail: 'The same delivery-id key the checkout receiver just got.', dependsOn: [3] },
+  { title: 'Add a synthetic checkout canary', detail: 'A real order placed every five minutes, so a broken checkout pages before a customer finds it.' },
+  { title: "Write the postmortem for last week's 502 spike", detail: 'Timeline, blast radius, and the one line that says what the retry fix above changes.' },
+  { title: 'Confirm the retry budget with finance', detail: 'A retried order that still fails should not be charged twice while it waits on that answer.' },
 ]
 
 const CHATTER = [
@@ -1208,11 +1219,29 @@ rules:
       await stageRoom()
       const reviewCard = boardCardIds[3]
       const needsCard = boardCardIds[4]
+      // Density for the still (`board-*.png`): a second Needs-you card and
+      // two more marked `done` while the check is still the fast one below
+      // (`checks.yml`'s own `node --test`, seeded by `seed.mjs`) — a passing
+      // check is `board-facts.ts`'s own route to Ready, the same one the
+      // README's own "Board, expanded" already relies on for the webhook
+      // card, just not slowed this time.
+      const secondNeedsCard = boardCardIds[10]
+      const readyCards = [boardCardIds[8], boardCardIds[9]]
       if (needsCard != null) {
         await cdp.eval(
           `${STORE}.transport.request('team/intent', ${q({ room: roomId, id: needsCard, action: 'block', reason: 'Needs a number from whoever owns the on-call rota.' })})`,
           60_000,
         ).catch(() => {})
+      }
+      if (secondNeedsCard != null) {
+        await cdp.eval(
+          `${STORE}.transport.request('team/intent', ${q({ room: roomId, id: secondNeedsCard, action: 'block', reason: "Needs finance's own number before a retry can double-charge." })})`,
+          60_000,
+        ).catch(() => {})
+      }
+      for (const id of readyCards) {
+        if (id == null) continue
+        await cdp.eval(`${STORE}.transport.request('team/intent', ${q({ room: roomId, id, action: 'done' })})`, 60_000).catch(() => {})
       }
       if (reviewCard != null) {
         await cdp.eval(

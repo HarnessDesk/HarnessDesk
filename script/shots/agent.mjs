@@ -18,7 +18,11 @@
  *   SHOT_AGENT_NAME   what it calls itself on the wire
  *   SHOT_STORE        conversation store, in `seed.mjs`'s shape
  *   SHOT_MODELS       `id:Name,id:Name` — the composer's model picker
- *   SHOT_TURN         which of the four scripted turns this seat plays
+ *   SHOT_TURN         which scripted turn this seat plays — one index, or a
+ *                      comma-separated list (`"4,6"`): the first prompt this
+ *                      session gets plays the first index, every prompt after
+ *                      plays the last one. A single index behaves exactly as
+ *                      before — the same turn, replayed, on every prompt.
  *
  * Two files beside the store, read on every listing rather than at start, so a
  * scene can bend the history while the app runs and put it back:
@@ -294,35 +298,114 @@ const TURNS = [
       '61 exhausted retries in 7 days, 54 of them one client retrying a 400 without backing off. Alerting on the total would page us about that client weekly and hide a real storm. Suggest we alert on distinct clients rather than on volume, and I will write it up for whoever owns the rota.',
     ],
   },
+  /**
+   * Three more, for `gif2.mjs`'s `hero` scenario alone — two agents in one
+   * room, working the same piece rather than four agents each taking a
+   * separate card. `TURNS[0]`'s own fix is reused almost verbatim (it is the
+   * real change), with the ending rewritten to actually name the hand-off
+   * ("Codex — …") rather than leaving it for a reader to infer; `TURNS[5]`
+   * is the check that hand-off asks for, real enough that the ACP tool call
+   * it announces (`browser_open`, the browser plugin's own name — see
+   * `packages/plugins/src/browser.ts`) is what the browser pane's own
+   * "driven by" mark reads while it is pending, which is why `gif2.mjs`
+   * opens the real browser during exactly that window rather than whenever
+   * is convenient; `TURNS[6]` is the reply once that check lands, a second,
+   * later turn on the *same* session, which is what `SHOT_TURN`'s new list
+   * form (`"4,6"`) exists for.
+   */
+  {
+    think: 'The checkout client retries on a timeout but not on a 502, so a bad gateway surfaces to the customer as a failed order. Worth reading what the retry policy actually covers.',
+    tools: [
+      { id: 'h1', title: 'Read src/checkout/retry.ts', kind: 'read', input: { path: 'src/checkout/retry.ts' }, output: { text: '42 lines' } },
+      { id: 'h2', title: 'Grep 50[0-9] in src/checkout', kind: 'search', input: { pattern: '50[0-9]', path: 'src/checkout' }, output: { text: '3 matches in 2 files' } },
+      { id: 'h3', title: 'Edit src/checkout/retry.ts', kind: 'edit', input: { path: 'src/checkout/retry.ts' }, output: { text: '+14 −6' } },
+    ],
+    second: 'Only 503 and 504 are listed as retryable, and the backoff is a flat 200ms — three retries against a gateway that is still restarting is three failures in 600ms.',
+    plan: ['Add 502 to the retryable set', 'Cap the backoff and add jitter', 'Ask Codex to check checkout end to end'],
+    say: [
+      '502 is retryable alongside 503 and 504 now, and the backoff is exponential with a 2s cap and full jitter (`src/checkout/retry.ts`).\n\n',
+      'Codex — once this lands, can you check checkout end to end in the browser?',
+    ],
+  },
+  {
+    opening: 'On it.',
+    think: "Claude's retry fix just landed on retry.ts. Rather than read the diff, I will run the checkout flow for real and see whether a 502 actually recovers.",
+    tools: [
+      { id: 'c1', title: 'browser_open', kind: 'fetch', input: { url: 'http://127.0.0.1/checkout' }, output: { text: 'Checkout — order placed' }, ms: 2600 },
+    ],
+    second: 'The first attempt hit the simulated 502, the retry a moment later got through, and the order posted — the success banner just needs a beat before it agrees.',
+    plan: ['Drive the checkout flow with a 502 in the middle', 'Confirm the order actually posts', 'Note anything that would still block a merge'],
+    say: [
+      'Checked: the 502 retried twice and the order placed.\n\n',
+      'One nit, not blocking: the success banner shows before the second attempt actually finishes, so a slow retry would read as done a beat early.',
+    ],
+  },
+  {
+    say: ['Good catch — I will sequence the banner off the retry settling, not the request firing. Thanks for checking.'],
+  },
 ]
+
+/**
+ * `SHOT_TURN`'s indices, in the order this session should play them — the
+ * last one repeats for every prompt past the list's own length, the same
+ * "replay the one turn" behaviour a bare number always had.
+ */
+const TURN_LIST = String(process.env['SHOT_TURN'] ?? '0')
+  .split(',')
+  .map((one) => Number(one.trim()))
+  .filter((one) => Number.isFinite(one))
+const turnFor = (state) => {
+  const n = state ? (state.turnsPlayed ?? 0) : 0
+  if (state) state.turnsPlayed = n + 1
+  const index = TURN_LIST[Math.min(n, TURN_LIST.length - 1)] ?? 0
+  return TURNS[index % TURNS.length]
+}
 
 const playTurn = async (id) => {
   const stop = () => cancelled.has(id)
-  const turn = TURNS[Number(process.env['SHOT_TURN'] ?? 0) % TURNS.length]
+  const turn = turnFor(sessions.get(id))
 
-  think(id, turn.think)
-  await sleep(700)
-  if (stop()) return 'cancelled'
+  // A quick, real chat line before any reasoning shows — "On it." — for a
+  // turn that answers another agent's ask rather than opening one. Optional:
+  // every turn before this one had none, and still does not.
+  if (turn.opening) {
+    say(id, turn.opening)
+    await sleep(500)
+  }
 
-  const [first, ...rest] = turn.tools
-  await tool(id, { toolCallId: `tc-${first.id}`, title: first.title, kind: first.kind, input: first.input, output: first.output, ms: first.ms })
-  if (stop()) return 'cancelled'
+  if (turn.think) {
+    think(id, turn.think)
+    await sleep(700)
+    if (stop()) return 'cancelled'
+  }
 
-  think(id, turn.second)
-  await sleep(600)
+  const tools = turn.tools ?? []
+  const [first, ...rest] = tools
+  if (first) {
+    await tool(id, { toolCallId: `tc-${first.id}`, title: first.title, kind: first.kind, input: first.input, output: first.output, ms: first.ms })
+    if (stop()) return 'cancelled'
+  }
 
-  update(id, {
-    sessionUpdate: 'plan',
-    entries: turn.plan.map((content, n) => ({ content, status: n === 0 ? 'in_progress' : 'pending' })),
-  })
-  await sleep(500)
+  if (turn.second) {
+    think(id, turn.second)
+    await sleep(600)
+  }
+
+  const plan = turn.plan ?? []
+  if (plan.length) {
+    update(id, {
+      sessionUpdate: 'plan',
+      entries: plan.map((content, n) => ({ content, status: n === 0 ? 'in_progress' : 'pending' })),
+    })
+    await sleep(500)
+  }
 
   for (const step of rest) {
     if (stop()) return 'cancelled'
     await tool(id, { toolCallId: `tc-${step.id}`, title: step.title, kind: step.kind, input: step.input, output: step.output, ms: step.ms })
   }
 
-  update(id, { sessionUpdate: 'plan', entries: turn.plan.map((content) => ({ content, status: 'completed' })) })
+  if (plan.length) update(id, { sessionUpdate: 'plan', entries: plan.map((content) => ({ content, status: 'completed' })) })
 
   /* One chunk, not two.
      A conversation renders successive `agent_message_chunk`s as one growing

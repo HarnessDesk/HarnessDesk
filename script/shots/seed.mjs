@@ -220,10 +220,31 @@ const buildRepo = (dir, blurb) => {
   mkdirSync(join(at, 'src'), { recursive: true })
 
   const git = (...args) => execFileSync('git', args, { cwd: at, stdio: 'pipe' })
+  /**
+   * A commit's date, spread across real time rather than the one instant
+   * `seed.mjs` happens to run in.
+   *
+   * Every commit used to land at whatever second this script executed —
+   * real, but all of them the same second, so the git pane's own Date column
+   * read "10:29 PM" all the way down and looked exactly as generated as it
+   * was. The offset is a function of the step alone (never `Date.now()`), so
+   * a reseed draws the same history and the same dates every time: 14 to 66
+   * hours after the previous commit, a spacing that varies without being
+   * random, anchored a year before this file's own last edit so the history
+   * reads as done, not as future-dated.
+   */
+  const ANCHOR = Date.UTC(2025, 5, 1, 9, 0, 0)
+  const dateAt = (n) => {
+    let hours = 0
+    for (let i = 1; i <= n; i += 1) hours += 14 + ((i * 37) % 53)
+    return new Date(ANCHOR + hours * 3_600_000).toISOString()
+  }
+  const gitAt = (n, ...args) =>
+    execFileSync('git', args, { cwd: at, stdio: 'pipe', env: { ...process.env, GIT_AUTHOR_DATE: dateAt(n), GIT_COMMITTER_DATE: dateAt(n) } })
   const commit = (message, n) => {
     writeFileSync(join(at, 'src', `step-${n}.ts`), `// ${message}\nexport const step = ${n}\n`)
     git('add', '-A')
-    git('commit', '-m', message)
+    gitAt(n, 'commit', '-m', message)
   }
 
   writeFileSync(join(at, 'README.md'), `# ${dir}\n\n${blurb}\n`)
@@ -257,7 +278,7 @@ const buildRepo = (dir, blurb) => {
     step += 1
     if (entry.merge) {
       goTo(entry.into)
-      git('merge', '--no-ff', entry.merge, '-m', entry.message)
+      gitAt(step, 'merge', '--no-ff', entry.merge, '-m', entry.message)
       continue
     }
     if (entry.from) {
@@ -381,6 +402,10 @@ const ROOM_TURN = { codex: 0, 'claude-code': 0, 'gemini-cli': 1, copilot: 2, ant
 const ROOM_CLAIM = {
   'claude-code': [{ intent: 1, files: ['src/checkout/retry.ts'] }, { intent: 2, files: ['src/checkout/retry.ts'] }],
   copilot: [{ intent: 4, files: ['src/webhooks/receiver.ts'] }],
+  // Board density (`board-*.png`): every room vendor holds something, not
+  // only the two `board`/`room` scenes always claimed.
+  'gemini-cli': [{ intent: 6, files: ['src/checkout/retry.ts'] }],
+  antigravity: [{ intent: 7, files: ['src/webhooks/receiver.ts'] }],
 }
 
 writeFileSync(
@@ -549,7 +574,7 @@ writeFileSync(
  * `agent.name` to read instead — the same path `GoalCreate`'s own "Seat
  * Agents" checkboxes use.
  */
-for (const id of ['claude-code', 'gemini-cli', 'copilot', 'antigravity']) {
+for (const id of ['claude-code', 'gemini-cli', 'copilot', 'antigravity', 'codex']) {
   const cast = CAST.find((one) => one.id === id)
   writeAgent(
     join(HOME, 'agents', `room-${id}`),
@@ -566,7 +591,14 @@ for (const id of ['claude-code', 'gemini-cli', 'copilot', 'antigravity']) {
       // turn is already running rather than queuing it, and the refusal
       // left a standing "is still working" toast over the composer that
       // neither answering approvals nor a longer wait ever cleared.
-      brief: 'Retry the checkout call on a 502.',
+      //
+      // `room-codex` is unused by `stageRoom` (`shoot.mjs` bare-seats `codex`
+      // itself, since the native adapter needs its own explicit `send`), but
+      // exists here too so `gif2.mjs`'s own `hero` scene — a two-agent room,
+      // not the four-agent one this loop otherwise serves — can seat it by
+      // name over `HD_SHOTS_NATIVE_CODEX=0`'s camera row and get "Codex" as
+      // its label rather than a bare runtime id.
+      brief: id === 'codex' ? 'Check checkout end to end once the retry fix lands.' : 'Retry the checkout call on a 502.',
       // Publish, not the template's default read: an Agent's `permission:`
       // is only ever read, publish or merge, and the room's scripted turns
       // (`agent.mjs`) edit files as part of the story — a read ceiling held
