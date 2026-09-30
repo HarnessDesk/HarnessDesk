@@ -774,6 +774,7 @@ const KeyValueBoard = () => (
       </Case>
       <Case label="text roles">
         <div className="flex flex-col gap-1">
+          <Text as="h2" role="section">What is left</Text>
           <Text role="subject">Account name</Text>
           <Text role="row">Weekly allowance</Text>
           <Text role="muted">Resets in four days</Text>

@@ -149,6 +149,7 @@ are doing; screens do not invent a new spelling for the same job:
 | --- | --- | --- |
 | wordmark | 20 / semibold | the product name beside its mark |
 | page | 20 / semibold | the name of a place — a settings page, a review, and a page drilled into (`DetailHead`) alike; by owner decision on 2026-09-19 it matches the wordmark rather than outsizing it, and #832 put the detail head on it too: a detail page adds its mark and its owner chip, never a size of its own |
+| section | 16 / semibold | a page band's heading (a Dashboard band) — below the page title, above a subject (#1122) |
 | group label | 13 / normal, secondary ink | the word over a group — a card of rows, a rail's list, a section of a page (`GroupLabel`). Sentence case, always: no label outside a `Keycap` is set in capitals |
 | subject | 14 / medium | the name of the thing a pane, a dialog or a card is about |
 | row | 13 / medium | the title of a setting, and the word above a control |
@@ -162,9 +163,9 @@ The design system's own head slots said 600 in five components and 500 in the
 sixth — so a screen that composed the system got a heavier title than a screen
 that drew its own, which is the opposite of what a design system is for.
 
-Nothing is 16 any more. A step between the subject and the page turned out to
-be a way of avoiding the choice between them: a dialog names one question and a
-page names a place, and 16 said neither.
+At the time this rule was written, nothing was 16. A step between the subject
+and the page turned out to be a way of avoiding the choice between them: a
+dialog names one question and a page names a place, and 16 said neither.
 
 | step | line | ratio |
 | --- | --- | --- |
@@ -764,10 +765,10 @@ difference is a deliberate interface choice; the sections below say which.
 
 Every element wearing a name role — `Text role=…` (`design/patterns/
 Settings.tsx`) or `PageHead`'s own title — computes one of the pairs the
-"Named text roles" table above states: wordmark and page at 20/600, subject
-at 14/500, row at 13/500, navigation and muted at 13/400. Nothing is 16px,
-and nothing outside the wordmark and the page title is semibold — both
-already said above, under "Named text roles" and "Weight". The dashboard
+"Named text roles" table above states: wordmark and page at 20/600, section at
+16/600, subject at 14/500, row at 13/500, navigation and muted at 13/400.
+Section is the one role at 16px; section, wordmark and page are the only name
+roles in semibold. The dashboard
 readouts `Text` also draws (`meta`, `figure`, `metric`, `value`, `prose`) are
 not names and sit outside the rule; `figure`/`metric` are deliberately
 semibold.

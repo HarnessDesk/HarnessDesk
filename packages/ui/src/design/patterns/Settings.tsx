@@ -628,7 +628,10 @@ export const SectionHead = ({
   <div className={cx(styles.sectionHead, className)} data-section-head="" {...(sticky ? { 'data-sticky': '' } : {})}>
     <div className={styles.sectionHeadText}>
       {level === 'heading' ? (
-        <h2 className={styles.sectionName} data-slot="section-name" data-level={level}>{name}</h2>
+        /* The heading keeps its own slot for everything that finds a section by
+           it; the type is the named role's, inside it, so the one rule that
+           measures names measures this one too. */
+        <h2 className={styles.sectionName} data-slot="section-name" data-level={level}><Text role="section">{name}</Text></h2>
       ) : (
         <GroupLabel as={inSection ? 'h3' : 'h2'} className={styles.sectionName} data-slot="section-name" data-level={level}>{name}</GroupLabel>
       )}
@@ -644,6 +647,8 @@ export const SectionHead = ({
 const TEXT_ROLE = {
   wordmark: 'font-(family-name:--hd-font-heading) text-(length:--hd-heading) leading-(--hd-line-heading) font-semibold tracking-(--hd-tracking-heading)',
   page: 'font-(family-name:--hd-font-heading) text-(length:--hd-heading) leading-(--hd-line-heading) font-semibold tracking-(--hd-tracking-heading)',
+  // A page band's heading, below the page title and above a subject.
+  section: 'text-(length:--hd-text-lg) leading-(--hd-line-lg) font-semibold',
   subject: 'text-base leading-(--hd-line) font-medium',
   row: 'text-sm leading-(--hd-line-sm) font-medium',
   navigation: 'text-sm leading-(--hd-line-sm) font-normal',
@@ -666,6 +671,7 @@ const TEXT_ROLE = {
 const TEXT_ROLE_INK = {
   wordmark: 'text-(--hd-foreground)',
   page: undefined,
+  section: 'text-(--hd-foreground)',
   subject: 'text-(--hd-foreground)',
   row: 'text-(--hd-foreground)',
   navigation: 'text-(--hd-foreground)',
