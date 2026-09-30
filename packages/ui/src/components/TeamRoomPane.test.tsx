@@ -190,6 +190,7 @@ const rig = (
     openSession: vi.fn().mockResolvedValue(undefined),
     /* A room with no flow, which is every room these tests are about. */
     loadFlowRuns: vi.fn().mockResolvedValue(undefined),
+    continueFlowAnswer: vi.fn().mockResolvedValue(undefined),
     loadBoardEvidence: vi.fn().mockResolvedValue(undefined),
     setRoomWatching: vi.fn(),
     releaseGoal: vi.fn().mockResolvedValue(undefined),
@@ -1660,6 +1661,35 @@ it("names a stalled run's own reason on the live line, lines kept, as a wait on 
   expect(line.querySelector('[data-slot="dot"]')).not.toBeNull()
   const words = line.querySelector<HTMLElement>('.whitespace-pre-line')!
   expect(words.textContent).toBe(reason)
+})
+
+it('offers to continue a kept answer and disables the action with the visible refusal when its Seat is gone', async () => {
+  const reason = 'The Seat for card #1 is no longer recorded, so it cannot be handed your answer. Start a new run to pick up the work.'
+  const execution: FlowExecution = {
+    version: 2, id: 'run-1', goal: ROOM, document: FLOW_DOCUMENT, state: 'stalled',
+    rounds: [], operations: [], legacyRun: null, reason: 'Card #1: your answer could not be handed to its Seat after two attempts: it started another turn first. It is kept on this run.',
+    keptAnswer: { card: 1, seat: 'seat-1', question: 'Which base branch?', answer: 'main', at: 1, canContinue: false, refusal: reason },
+  }
+  const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
+  await render(store)
+  const button = document.querySelector<HTMLButtonElement>('[data-kind="stall"] button')!
+  expect(button.textContent).toBe('Continue with this answer')
+  expect(button.disabled).toBe(true)
+  expect(button.title).toBe(reason)
+  expect(document.querySelector('[data-kind="stall"]')?.textContent).toContain(reason)
+})
+
+it('sends an enabled kept answer through the store verb with its run id', async () => {
+  const execution: FlowExecution = {
+    version: 2, id: 'run-1', goal: ROOM, document: FLOW_DOCUMENT, state: 'stalled',
+    rounds: [], operations: [], legacyRun: null, reason: 'Card #1: your answer could not be handed to its Seat after two attempts: it started another turn first. It is kept on this run.',
+    keptAnswer: { card: 1, seat: 'seat-1', question: 'Which base branch?', answer: 'main', at: 1, canContinue: true, refusal: null },
+  }
+  const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
+  await render(store)
+  const button = document.querySelector<HTMLButtonElement>('[data-kind="stall"] button')!
+  act(() => button.click())
+  expect(store.continueFlowAnswer).toHaveBeenCalledWith('run-1')
 })
 
 /**

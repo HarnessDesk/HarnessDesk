@@ -349,6 +349,101 @@ test('the old question is settled before the turn that carries its answer is sen
   assert.equal(e.rig.flows.executionsFor(e.run.goal)[0]!.state, 'running')
 })
 
+test('one failed answer hand-over is retried immediately with one accepted answer turn', async (t) => {
+  const e = await engineStopped(t)
+  const prior = (e.rig.orderTexts.get(String(e.seat.id)) ?? []).filter((text) => text.includes('Their answer:')).length
+  e.rig.failOrderTimes = 1
+  assert.equal(await e.rig.flows.answerQuestion(e.runtime, e.sessionId, e.words, e.settle), true)
+  const [run] = e.rig.flows.executionsFor(e.run.goal)
+  assert.equal(run!.state, 'running')
+  assert.equal(run!.keptAnswer, undefined)
+  assert.equal((e.rig.orderTexts.get(String(e.seat.id)) ?? []).filter((text) => text.includes('Their answer:')).length - prior, 1)
+  assert.equal(run!.operations.filter((one) => one.kind === 'turn' && one.key.includes(':answer:')).length, 2)
+})
+
+test('a twice-refused answer is kept and can be continued through the same Seat', async (t) => {
+  const e = await engineStopped(t)
+  e.rig.failOrderTimes = 2
+  await assert.rejects(e.rig.flows.answerQuestion(e.runtime, e.sessionId, e.words, e.settle), /kept on the run/)
+  let [run] = e.rig.flows.executionsFor(e.run.goal)
+  assert.equal(run!.state, 'stalled')
+  assert.deepEqual({ card: run!.keptAnswer?.card, seat: run!.keptAnswer?.seat, question: run!.keptAnswer?.question, answer: run!.keptAnswer?.answer },
+    { card: 1, seat: String(e.seat.id), question: e.words.question, answer: e.words.answer })
+  assert.match(run!.reason ?? '', /It is kept on this run\./)
+  assert.equal(run!.keptAnswer?.canContinue, true)
+  assert.equal(await e.rig.flows.continueAnswer(e.run.id).then((value) => value.state), 'running')
+  ;[run] = e.rig.flows.executionsFor(e.run.goal)
+  assert.equal(run!.keptAnswer, undefined)
+  assert.match(e.rig.orderTexts.get(String(e.seat.id))!.at(-1)!, /Their answer: main/)
+})
+
+test('a kept answer survives reloading the run files', async (t) => {
+  const e = await engineStopped(t)
+  e.rig.failOrderTimes = 2
+  await assert.rejects(e.rig.flows.answerQuestion(e.runtime, e.sessionId, e.words, e.settle))
+  await e.rig.restart()
+  const [run] = e.rig.flows.executionsFor(e.run.goal)
+  assert.equal(run!.keptAnswer?.answer, 'main')
+  assert.equal(run!.keptAnswer?.question, 'Which base branch?')
+})
+
+test('a kept answer is refused while its Seat is inside a turn and kept; once continued, a second continue finds nothing waiting', async (t) => {
+  const e = await engineStopped(t)
+  e.rig.failOrderTimes = 2
+  await assert.rejects(e.rig.flows.answerQuestion(e.runtime, e.sessionId, e.words, e.settle), /kept on the run/)
+  e.rig.busySeats.add(String(e.seat.id))
+  await assert.rejects(e.rig.flows.continueAnswer(e.run.id), /The Seat for card #1 is inside a turn now\. Answer again once it ends\./)
+  let [run] = e.rig.flows.executionsFor(e.run.goal)
+  assert.equal(run!.state, 'stalled')
+  assert.equal(run!.keptAnswer?.answer, 'main')
+  e.rig.busySeats.delete(String(e.seat.id))
+  assert.equal((await e.rig.flows.continueAnswer(e.run.id)).state, 'running')
+  ;[run] = e.rig.flows.executionsFor(e.run.goal)
+  const keys = run!.operations.map((one) => one.key)
+  assert.equal(new Set(keys).size, keys.length, `every operation keeps its own key: ${keys.join(', ')}`)
+  await assert.rejects(e.rig.flows.continueAnswer(e.run.id), /This run is no longer waiting on that answer\./)
+})
+
+test('a run that leaves its stop another way drops the kept answer, so no later stop offers it', async (t) => {
+  const e = await engineStopped(t)
+  e.rig.failOrderTimes = 2
+  await assert.rejects(e.rig.flows.answerQuestion(e.runtime, e.sessionId, e.words, e.settle), /kept on the run/)
+  assert.equal(e.rig.flows.executionsFor(e.run.goal)[0]!.keptAnswer?.answer, 'main')
+  await e.rig.flows.stopRun(e.run.id)
+  const [run] = e.rig.flows.executionsFor(e.run.goal)
+  assert.equal(run!.state, 'stopped')
+  assert.equal(run!.keptAnswer, undefined)
+  await e.rig.restart()
+  assert.equal(e.rig.flows.executionsFor(e.run.goal)[0]!.keptAnswer, undefined, 'and it is gone from the run file too')
+})
+
+test('continuing a kept answer is refused before its Seat reopens when the trigger’s gate refuses, and the answer stays kept', async (t) => {
+  const e = await engineStopped(t)
+  e.rig.failOrderTimes = 2
+  await assert.rejects(e.rig.flows.answerQuestion(e.runtime, e.sessionId, e.words, e.settle), /kept on the run/)
+  let reopened = false
+  e.rig.onReseat = () => { reopened = true }
+  e.rig.triggerGate = () => 'Today’s trigger spend cap was reached.'
+  await assert.rejects(e.rig.flows.continueAnswer(e.run.id), /Your answer was not sent: Today’s trigger spend cap was reached\./)
+  const [run] = e.rig.flows.executionsFor(e.run.goal)
+  assert.equal(run!.state, 'stalled')
+  assert.equal(run!.keptAnswer?.answer, 'main')
+  assert.equal(reopened, false, 'no Seat is reopened for an answer its gate would refuse')
+})
+
+test('a closed Seat makes a kept answer non-continuable and preserves it on refusal', async (t) => {
+  const e = await engineStopped(t)
+  e.rig.failOrderTimes = 2
+  await assert.rejects(e.rig.flows.answerQuestion(e.runtime, e.sessionId, e.words, e.settle))
+  Object.assign(e.seat, { closed: Date.now() })
+  const message = 'The Seat for card #1 is closed, so it cannot be handed your answer. Start a new run to pick up the work.'
+  const [projected] = e.rig.flows.executionsFor(e.run.goal)
+  assert.equal(projected!.keptAnswer?.canContinue, false)
+  assert.equal(projected!.keptAnswer?.refusal, message)
+  await assert.rejects(e.rig.flows.continueAnswer(e.run.id), (error: Error) => error.message === message)
+  assert.equal(e.rig.flows.executionsFor(e.run.goal)[0]!.keptAnswer?.answer, 'main')
+})
+
 test('an answer re-checks a trigger’s consent and spend right before the hand-back, not only before reopening its Seat (#939)', async (t) => {
   for (const [gate, stays] of [
     [{ reason: 'The desk is paused.', transient: true as const }, /asked a question nobody can answer/],

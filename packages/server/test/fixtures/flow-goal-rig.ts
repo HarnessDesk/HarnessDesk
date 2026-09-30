@@ -141,6 +141,7 @@ export interface GoalRig {
   opensAs: ((asked: string) => string) | null
   /** Refuse every order after this many. */
   failOrder: boolean
+  failOrderTimes: number
   /** Seats inside a turn now — their brief's, say — which an order would be refused by. */
   busySeats: Set<string>
   /**
@@ -224,7 +225,7 @@ export const goalRig = async (
     facts: new Map<string, EvidenceRecord[]>(),
     staleFacts: new Set<string>(),
     goalSerial: new Serial(), seatAsked: null, strictAsks: [] as boolean[], holdsCeilings: true, reserve: null,
-    beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, turnsEndLater: false, turnEndDelayMs: 120, comesBackAs: null, busySeats: new Set<string>(), raceReleaseOnce: new Set<string>(), onOrder: null, onReseat: null,
+    beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, failOrderTimes: 0, turnsEndLater: false, turnEndDelayMs: 120, comesBackAs: null, busySeats: new Set<string>(), raceReleaseOnce: new Set<string>(), onOrder: null, onReseat: null,
     orderTexts: new Map<string, string[]>(),
     origins: new Map<string, GoalOrigin>(),
     triggerGate: null,
@@ -360,6 +361,7 @@ export const goalRig = async (
     release: (goal, id) => rig.goalSerial.run(() => release(goal, id)),
     order: async (seat, text) => {
       if (rig.failOrder) throw new Error('the agent is not running')
+      if (rig.failOrderTimes > 0) { rig.failOrderTimes -= 1; throw new Error('the agent is not running') }
       if (rig.busySeats.has(String(seat.id))) throw new Error('still working on the last message')
       rig.events.push(`order:${seat.id}`)
       rig.orderTexts.set(String(seat.id), [...(rig.orderTexts.get(String(seat.id)) ?? []), text])
