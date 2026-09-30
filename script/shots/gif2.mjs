@@ -18,7 +18,7 @@
  * on the right the way `shoot.mjs`'s own `browser` scene does.
  *
  *   node script/shots/gif2.mjs --scenario hero --theme light
- *   node script/shots/gif2.mjs --scenario flow --theme dark
+ *   node script/shots/gif2.mjs --scenario front-door --theme dark
  */
 import { execFile } from 'node:child_process'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -50,6 +50,7 @@ const NAME = flag('name', `${SCENARIO}-${THEME}`)
 const WIDTH = Number(flag('width', '1280'))
 const HEIGHT = Number(flag('height', '800'))
 const FPS = Number(flag('fps', '13'))
+const DEVICE_SCALE = 2
 const REPO = join(WORK, REPOS[0].dir)
 
 /**
@@ -173,7 +174,7 @@ const { cdp } = desk
 let browserServer = null
 
 try {
-  await cdp.send('Emulation.setDeviceMetricsOverride', { width: WIDTH, height: HEIGHT, deviceScaleFactor: 1, mobile: false })
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width: WIDTH, height: HEIGHT, deviceScaleFactor: DEVICE_SCALE, mobile: false })
   await sleep(2500)
   await dismissNotices(cdp).catch(() => {})
 
@@ -402,6 +403,7 @@ try {
 
   const frames = []
   const collected = []
+  let frontDoorCrop = null
   cdp.on('Page.screencastFrame', (params) => {
     collected.push(params)
     cdp.send('Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => {})
@@ -409,8 +411,55 @@ try {
 
   await refuseUnpublishable(cdp, { name: NAME, user: USER, vouched: VOUCHED, roots: REPOS.map(repo => join(WORK, repo.dir)), nativeCodex: NATIVE_CODEX, subject: 'recording' })
 
+  // The dialogue is the whole tile. A normal translucent scrim lets the empty
+  // conversation's sentence peek out as a clipped fragment at its edge, which
+  // is neither useful context nor a complete line. This recording-only neutral
+  // scrim leaves the actual dialog and its own controls untouched.
+  if (SCENARIO === 'front-door') {
+    await cdp.eval(`(() => {
+      const id = 'hd-shots-front-door-scrim'
+      document.getElementById(id)?.remove()
+      const style = document.createElement('style')
+      style.id = id
+      style.textContent = '[data-slot="dialog-overlay"] { background: ${THEME === 'dark' ? '#161618' : '#d8d8d7'} !important; }'
+      document.head.append(style)
+      return true
+    })()`)
+  }
+
+  // The tile begins at the catalogue, after the short New session → Team path
+  // has reached its useful destination. Starting the camera one click earlier
+  // left a few empty-conversation frames at the loop seam.
+  if (SCENARIO === 'front-door') {
+    if (!(await click('New session', '[aria-label="Workspace actions"]'))) {
+      throw new Error('no New session button in the sidebar')
+    }
+    const chooser = '[role="dialog"][aria-label="What are you starting?"]'
+    await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(chooser)}) !== null`), Boolean)
+    const hasTeamRadio = await cdp.eval(`(() => {
+      const root = document.querySelector(${q(chooser)})
+      return Boolean(root) && [...root.querySelectorAll('[role="radio"]')]
+        .some((one) => (one.textContent ?? '').trim().startsWith('Team'))
+    })()`)
+    if (hasTeamRadio) {
+      if (!(await click('Team', chooser))) throw new Error('no Team radio in the New session dialog')
+      if (!(await click('Continue', chooser))) throw new Error('no Continue button in the New session dialog')
+    } else if (!(await click('Start with a team', chooser))) {
+      throw new Error('no "Start with a team" choice in the New session dialog')
+    }
+    await waitForSnapshot(
+      () => cdp.eval(`document.querySelector('[role="dialog"][aria-label="Start a team"]') !== null`),
+      Boolean,
+    )
+  }
+
   const startedAt = Date.now()
-  await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 88, maxWidth: WIDTH, maxHeight: HEIGHT, everyNthFrame: 1 })
+  const startScreencast = () => cdp.send('Page.startScreencast', {
+    format: 'jpeg', quality: 88,
+    maxWidth: WIDTH * DEVICE_SCALE, maxHeight: HEIGHT * DEVICE_SCALE,
+    everyNthFrame: 1,
+  })
+  await startScreencast()
 
   if (SCENARIO === 'hero') {
     // HarnessDesk never shows two conversation panes at once, so "two agents
@@ -496,6 +545,84 @@ try {
     // after the frames are already collected (see its own comment) — closing
     // it here would record the pane disappearing as the GIF's own last beat.
     await sleep(2000)
+  } else if (SCENARIO === 'front-door') {
+    // The README tile is the front door, not a running flow: catalogue,
+    // chosen shipped shape, and its held dry run. The normal scene continues
+    // into the Goal only as an acceptance check; the recording must stop while
+    // the person can still read what Start would create.
+    const catalogue = '[role="dialog"][aria-label="Start a team"]'
+    await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(catalogue)}) !== null`), Boolean)
+    // Let the catalogue be read before the chosen shape replaces it.
+    await sleep(4000)
+    // Choosing a row deliberately replaces this tall catalogue with a brief
+    // loading shell. It is not a meaningful beat; remove only those transition
+    // frames, keeping the continuous capture before and after it intact.
+    const beforeChoice = collected.length
+    if (!(await click('Independent review', catalogue))) {
+      throw new Error('no "Independent review" shape in the front door catalogue')
+    }
+    const dryRun = '[role="dialog"][aria-label="Start Independent review"]'
+    await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(dryRun)}) !== null`), Boolean)
+    await waitForSnapshot(
+      () => cdp.eval(`[...document.querySelectorAll('label')].some((one) => one.textContent.trim() === 'Task')`),
+      Boolean,
+    )
+    collected.splice(beforeChoice)
+    if (!(await fill('Task', 'Add 502 to the retryable status set'))) throw new Error('no Task field in the front door')
+    if (!(await fill('What finishes this?', 'Ship it once every specialist approves'))) {
+      throw new Error('no sentence field in the front door')
+    }
+    await waitForSnapshot(
+      () => cdp.eval(`(() => {
+        const button = [...document.querySelectorAll(${q(`${dryRun} button`)})]
+          .find((one) => one.textContent?.trim() === 'Start')
+        return Boolean(button) && !button.disabled
+      })()`),
+      Boolean,
+    )
+    // The report is a real scroll region. The settled beat is its dry run, so
+    // leave the seats, their agents, and the held grants in view.
+    await cdp.eval(`(() => {
+      const body = document.querySelector(${q(`${dryRun} [data-slot="modal-dialog-body"]`)})
+      if (!body) return false
+      body.scrollTop = Math.min(226, body.scrollHeight - body.clientHeight)
+      return true
+    })()`)
+    await retildify()
+    // A settled, enabled dry run is the answer this tile exists to show.
+    await sleep(2600)
+    // The catalogue dialog is the subject, so the one fixed crop follows its
+    // final dry-run geometry with only a small breathing margin. It is chosen
+    // once for the whole recording, then every source frame is downscaled to
+    // the README tile; nothing is enlarged or framed.
+    frontDoorCrop = await cdp.json(`(() => {
+      const dialog = document.querySelector(${q(dryRun)})
+      if (!dialog) return null
+      const rect = dialog.getBoundingClientRect()
+      // A 768 × 480 CSS window comes from the 2× frame and is only ever
+      // reduced to the 960 × 600 tile.  It intentionally frames the useful
+      // upper part of the tall modal (title, inputs, and dry-run seats),
+      // rather than preserving a wide empty field around the whole dialog.
+      const width = 659
+      const height = 412
+      // A crop that starts inside the sidebar turns the wordmark into a stray
+      // fragment. Start after that rail whenever a close dialog crop permits
+      // it; the scrim, not a clipped bit of chrome, is the backdrop here.
+      const sidebarRight = Math.max(
+        160,
+        document.querySelector('nav[aria-label="Workspace actions"]')?.parentElement
+          ?.getBoundingClientRect().right ?? 0,
+      )
+      const centeredLeft = rect.left + rect.width / 2 - width / 2
+      const left = Math.max(0, Math.min(innerWidth - width, Math.max(sidebarRight, centeredLeft)))
+      const top = Math.max(0, Math.min(innerHeight - height, rect.top + 12))
+      const scale = ${DEVICE_SCALE}
+      return {
+        width: Math.round(width * scale), height: Math.round(height * scale),
+        left: Math.round(left * scale), top: Math.round(top * scale),
+      }
+    })()`)
+    if (!frontDoorCrop) throw new Error('the front-door dry run has no crop target')
   } else if (SCENARIO === 'flow') {
     // Beat 1: the real New Goal dialog — "Start with a team" (or the redesign's
     // "Team" radio, whichever this build has, exactly `front-door`'s own
@@ -667,10 +794,11 @@ try {
   const pad = 48
   const scaledWidth = Math.round(WIDTH * 0.94)
   const padFilter = `fps=${FPS},scale=${scaledWidth}:-1:flags=lanczos,pad=iw+${pad * 2}:ih+${pad * 2}:${pad}:${pad}:${backdrop}`
-  // The flow tile is deliberately unlike the hero: its README cell supplies
-  // the frame, so the camera takes a fixed main-area crop, with no sidebar,
-  // padding, shadow, or rounded window around it.
-  const outputFilter = SCENARIO === 'flow'
+  // The flow tiles are deliberately unlike the hero: their README cells supply
+  // the frame, so the camera crops close with no backdrop, shadow, or rounding.
+  const outputFilter = SCENARIO === 'front-door'
+    ? `fps=${FPS},crop=${frontDoorCrop.width}:${frontDoorCrop.height}:${frontDoorCrop.left}:${frontDoorCrop.top},scale=960:600:flags=lanczos`
+    : SCENARIO === 'flow'
     ? `fps=${FPS},crop=960:600:${WIDTH - 960}:0`
     : padFilter
   await run('ffmpeg', ['-y', '-f', 'concat', '-i', 'list.txt', '-vf', `${outputFilter},palettegen=max_colors=160:stats_mode=diff`, palette], { cwd: FRAMES })

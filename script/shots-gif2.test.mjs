@@ -33,3 +33,16 @@ test('flow records its board changes through the seated agents, not person verbs
   assert.match(agent, /claim_next/)
   assert.match(agent, /complete_claim/)
 })
+
+test('front-door records the shipped Independent review dry run without starting it', () => {
+  const start = gif.indexOf("  } else if (SCENARIO === 'front-door') {")
+  const frontDoor = gif.slice(start, gif.indexOf("  } else if (SCENARIO === 'flow') {", start))
+
+  assert.match(frontDoor, /click\('Independent review', catalogue\)/)
+  assert.match(frontDoor, /fill\('Task', 'Add 502 to the retryable status set'\)/)
+  assert.match(frontDoor, /fill\('What finishes this\?', 'Ship it once every specialist approves'\)/)
+  assert.match(frontDoor, /button\.disabled/)
+  assert.doesNotMatch(frontDoor, /click\('Start'/)
+  assert.match(gif, /deviceScaleFactor: DEVICE_SCALE/)
+  assert.match(gif, /scale=960:600:flags=lanczos/)
+})
