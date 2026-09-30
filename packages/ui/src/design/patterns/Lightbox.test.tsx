@@ -99,14 +99,21 @@ it('is the dialog, drawn by the dialog: its surface, its close, and the name as 
   expect(sheet?.getAttribute('data-slot')).toBe('dialog-content')
   expect(sheet?.className).toContain('bg-popover')
   expect(sheet?.className).not.toContain('bg-transparent')
-  // The dialog's close — the one every dialog wears — named for a reader.
-  expect(close()?.textContent).toContain('Close')
+  // The shared head owns the one close control, named for a reader.
+  expect(document.querySelectorAll('[data-lightbox] [data-slot="dialog-close"]')).toHaveLength(1)
+  expect(close()?.getAttribute('aria-label')).toBe('Close')
   // Named by its title and described by its facts, where a reader looks.
+  const head = document.querySelector('[data-slot="dialog-head"]')
+  expect(head).not.toBeNull()
   const title = document.querySelector('[data-slot="dialog-title"]')
   expect(title?.textContent).toBe('First image')
   expect(title?.classList.contains('sr-only')).toBe(false)
   expect(sheet?.getAttribute('aria-labelledby')).toBe(title?.id)
-  expect(document.querySelector('[data-slot="dialog-description"]')?.textContent).toContain('1 of 2')
+  expect(document.querySelector('[data-role="meta"]')?.textContent).toContain('1 of 2')
+  // As every Dialog: the surface bleeds (no padding of its own), and the
+  // head and the body own their insets, so the head runs edge to edge.
+  expect(sheet?.className).not.toMatch(/(?:^|\s)p-5(?:\s|$)/)
+  expect(sheet?.querySelector('[data-slot="modal-dialog-body"] figure')).not.toBeNull()
 })
 
 it('steps the gallery with the floating control every button over content wears', async () => {
@@ -118,7 +125,7 @@ it('steps the gallery with the floating control every button over content wears'
   }
   await act(() => (document.querySelector('[aria-label="Next image"]') as HTMLButtonElement).click())
   expect(document.querySelector('[data-slot="dialog-title"]')?.textContent).toBe('Second image')
-  expect(document.querySelector('[data-slot="dialog-description"]')?.textContent).toContain('2 of 2')
+  expect(document.querySelector('[data-role="meta"]')?.textContent).toContain('2 of 2')
 })
 
 it('draws one picture without steps or a count', async () => {
@@ -126,7 +133,7 @@ it('draws one picture without steps or a count', async () => {
   await frame()
   expect(document.querySelector('[aria-label="Next image"]')).toBeNull()
   expect(document.querySelector('[aria-label="Previous image"]')).toBeNull()
-  expect(document.querySelector('[data-slot="dialog-description"]')?.textContent ?? '').not.toContain('of')
+  expect(document.querySelector('[data-role="meta"]')?.textContent ?? '').not.toContain('of')
 })
 
 it('answers the arrows from inside the sheet even when the key never reaches the window', async () => {
@@ -168,11 +175,23 @@ it('steps back with ← and on with →, round the ends, in a gallery of three',
 it('reads the picture’s size from the picture once it has loaded', async () => {
   await act(() => root.render(<Lightbox images={three} index={1} onClose={() => {}} />))
   await frame()
-  const description = () => document.querySelector('[data-slot="dialog-description"]')?.textContent ?? ''
+  const description = () => document.querySelector('[data-role="meta"]')?.textContent ?? ''
   expect(description()).not.toContain('×')
   const img = document.querySelector('img')!
   Object.defineProperty(img, 'naturalWidth', { configurable: true, value: 1280 })
   Object.defineProperty(img, 'naturalHeight', { configurable: true, value: 800 })
   await act(() => { img.dispatchEvent(new Event('load')) })
   expect(description()).toMatch(/^1280 × 800 · .+ · 2 of 3$/)
+})
+
+it('truncates a long image name on the shared dialog head', async () => {
+  const longName = 'a-very-long-image-name-that-must-remain-on-one-line-and-yield-at-the-end.png'
+  await act(() => root.render(<Lightbox images={[{ name: longName, url: images[0].url }]} index={0} onClose={() => {}} />))
+  await frame()
+  const head = document.querySelector('[data-slot="dialog-head"]')
+  const heading = head?.querySelector('[data-slot="dialog-title"]')
+  expect(heading?.textContent).toBe(longName)
+  expect(heading?.classList.contains('truncate')).toBe(true)
+  // Cut at its end on screen, whole on hover.
+  expect(heading?.getAttribute('title')).toBe(longName)
 })
