@@ -172,6 +172,32 @@ test('hours remain unknown after skipped corpus discovery and become known after
   } finally { ledger.close() }
 })
 
+test('hours remain unknown after an unreadable file and become known when it is rescanned', async () => {
+  const dir = scratch()
+  const root = join(dir, 'claude-projects')
+  mkdirSync(root)
+  const unreadable = join(root, 'a-unreadable.jsonl')
+  writeFileSync(unreadable, claudeLine('blocked', { input_tokens: 10, output_tokens: 10 }))
+  writeFileSync(join(root, 'b-readable.jsonl'), claudeLine('readable', { input_tokens: 10, output_tokens: 10 }))
+  chmodSync(unreadable, 0o000)
+  const ledger = new Ledger({
+    stateDir: dir,
+    databasePath: join(dir, 'usage.sqlite'),
+    corpora: [{ runtime: 'claude-code', kind: 'claude', root }],
+    now: () => NOON,
+  })
+  try {
+    await ledger.scan()
+    assert.equal(ledger.query({ days: 1, groupBy: 'runtime' }).hourly, undefined)
+    chmodSync(unreadable, 0o644)
+    await ledger.scan()
+    assert.equal(ledger.query({ days: 1, groupBy: 'runtime' }).hourly?.[0]?.requests, 2)
+  } finally {
+    chmodSync(unreadable, 0o644)
+    ledger.close()
+  }
+})
+
 test('a two-day query across spring-forward starts at the previous local midnight', async () => {
   const priorTz = process.env.TZ
   process.env.TZ = 'America/Los_Angeles'
