@@ -5,6 +5,7 @@ import type { FindingDecisionAction, FindingPublishAction } from './findings.js'
 import { lanePreferences } from './goal.js'
 import { TRIGGER_DAILY_USD_MAX, TRIGGER_ID } from './intake.js'
 import type { TriggerBudget, TriggerCommentFrom, TriggerDefinition, TriggerField, TriggerOn, TriggerSource } from './intake.js'
+import { QUESTION_WAIT_PREFERENCE, QUESTION_WAITS } from './question-wait.js'
 import { CEILING_LEVELS } from './ceiling.js'
 import type {
   ClientToHost,
@@ -791,6 +792,9 @@ const windowPreferences: Validator<Record<string, unknown>> = (value, path = '')
   for (const key of Object.keys(patch)) {
     if (/^trigger/i.test(key) || /^intake/i.test(key)) {
       throw new ValidationError(`${path}.${key}`, 'trigger arms, pause and daily cap are set through their own controls')
+    }
+    if (key === QUESTION_WAIT_PREFERENCE && !(QUESTION_WAITS as readonly unknown[]).includes(patch[key])) {
+      throw new ValidationError(`${path}.${key}`, `expected one of: ${QUESTION_WAITS.join(', ')}`)
     }
   }
   return patch

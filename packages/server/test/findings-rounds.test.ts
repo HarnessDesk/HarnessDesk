@@ -230,6 +230,40 @@ test('a question’s wait is this machine’s: none at all sets no timer, and an
   assert.deepEqual(order, ['stop alpha:s2'], 'answered in its turn while the run was stopping: that turn is not cut off')
 })
 
+test('an answer claimed while the run is stopping keeps the turn, and one that never reached the run gives the claim back (#998)', async () => {
+  const timers: { fire: () => void }[] = []
+  const order: string[] = []
+  let release: (() => void) | null = null
+  const deadline = new QuestionDeadline({
+    waitMs: () => 60_000,
+    setTimer: (fire) => { timers.push({ fire }); return timers.length },
+    clearTimer: () => {},
+    interrupt: async (key) => { order.push(`interrupt ${key}`) },
+    stop: async (key) => { order.push(`stop ${key}`); await new Promise<void>((resolve) => { release = resolve }) },
+  })
+  const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+
+  // Claimed the moment the answer arrives, while the stop is still under way: the turn is kept.
+  deadline.asked('alpha:s1', 'q-1')
+  timers[0]!.fire()
+  await settle()
+  deadline.answering('alpha:s1', 'q-1')
+  release!()
+  await settle()
+  assert.deepEqual(order, ['stop alpha:s1'], 'the claim made during the stop skips the interrupt')
+
+  // Claimed, then the answer never reached the run: the claim is given back, and the stop interrupts as it would have.
+  order.length = 0
+  deadline.asked('alpha:s2', 'q-2')
+  timers[1]!.fire()
+  await settle()
+  deadline.answering('alpha:s2', 'q-2')
+  deadline.unclaim('alpha:s2', 'q-2')
+  release!()
+  await settle()
+  assert.deepEqual(order, ['stop alpha:s2', 'interrupt alpha:s2'], 'without the claim, the turn is interrupted')
+})
+
 test('trigger budget cannot widen flow progress rules', async (t) => {
   const { effectiveBudget } = await import('../src/intake/definition.js')
   const { agent, goalRig } = await import('./fixtures/flow-goal-rig.js')
