@@ -63,6 +63,7 @@ import { PanelFrames } from './frames-panels'
 import { CoverageFrames } from './frames-coverage'
 import { SettingsFrames } from './frames-settings'
 import { TranscriptFrames } from './frames-transcript'
+import { RaceViewFrames } from './frames-race-view'
 import '../styles/app.css'
 
 const SHOW_COMPOSER = new URLSearchParams(window.location.search).has('composer')
@@ -937,6 +938,7 @@ const Preview = () => {
         </div>
       </Frame>
 
+      <RaceViewFrames />
       <SettingsFrames />
       <GoalFrames />
       <TranscriptFrames />

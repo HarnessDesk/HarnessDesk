@@ -35,8 +35,10 @@ This is settled first because the rest follows from it.
   shows **one row** for it (the host stores a row per recipient; the channel
   merges them). There is no second copy and no second path.
 
-So the race view is not a new screen and needs **no new wire method**. It is
-the room's side-by-side view, made first-class.
+So the race view is not a new screen, and its messaging needs **no new wire
+method**. It is the room's side-by-side view, made first-class. (The one new
+method in this design is the judge fallback's, section 2 — the multi-agent
+owner's.)
 
 ### Options
 
@@ -47,9 +49,14 @@ starts the comparison flow and opens its room on Side by side with the
 competitors on the tiles; any room can open Side by side with the members
 the person picks. The composer at the bottom is the room's composer.
 *Pros:* one component, one composer, one record; race and room converge;
-works for any room. *Cons:* the room's current "click a member opens a
-column" becomes "click a member puts it on a tile" — a small change to a
-shipped behaviour.
+works for any room. *Cons:* more to build than it looks — the room's
+columns, its composer and its browser were not made for this (section 4
+lists what changes), so the slices are sized for that.
+
+The room's member actions keep their meaning: **Open** still shows that
+member's full conversation, with its own composer; **Watch** now puts the
+member on a Side by side tile (or focuses it if already there) and switches
+to Side by side, from any destination.
 
 **B — Race is a mode the room switches into.** The same data, but a race
 room opens a dedicated race layout (grid + judge bar) that ordinary rooms do
@@ -62,7 +69,8 @@ exactly the drift the owner asked to avoid.
 every pane would bring its own composer, and nothing would tie the panes to
 one prompt.
 
-**Recommendation: A.** The race-specific parts (the judge's verdict, the
+**Recommendation: A** (reviewed: the direction holds; section 4 carries
+what it costs). The race-specific parts (the judge's verdict, the
 person's decision) are shown only when the room runs a comparison flow, as
 bands in the same view — not a second layout.
 
@@ -89,22 +97,40 @@ panel system, and tiles are equal (resizing a split is a later slice).
   chip (working / waiting for you / done / stopped), elapsed time and cost
   when the runtime reports them, then **Conversation | Browser** (a
   segmented control), **Expand**, and a ⋯ menu (take off the grid, open in
-  its own window's conversation, stop this one).
+  its own window's conversation, stop this one). The header folds as the
+  tile narrows: time and cost go into the state chip's hover text first,
+  then the model into the name's, then the toggle becomes two icons — the
+  name, the state and the toggle always stay on the bar.
 - **Conversation** (default): that member's real `Conversation`, mounted in
   its own scope (pane-local session key — never the global active session),
   **without its own composer** while it is on a grid of two or more: the one
   composer is below. Approvals it raises appear in the tile as they do
   today.
 - **Browser**: that seat's **own isolated browser profile** (every race seat
-  already gets an isolated checkout, lane and browser profile) — the real
-  browser pane scoped to that profile. The toggle is per tile and persisted.
-- **Idle**: before its first turn a tile says what it is waiting for
-  ("Waiting for the first prompt"), not an empty transcript.
+  already gets an isolated checkout, lane and browser profile). The browser
+  pane reads a mounted browser view and its mount id, and agent navigation
+  finds views by profile, so each tile **owns a profile-scoped browser view**
+  registered like any other mount (its own id, its tabs persisted with the
+  room's view). An agent navigating its profile lands in its tile. Before the
+  seat has a page the tile says "No page yet — it opens here when this
+  attempt serves one". The toggle is per tile and persisted.
+- **The first prompt is the race's task.** `/race` asks for the task in its
+  dialog and the comparison flow seeds each competitor's card from it; the
+  grid's composer is for everything after — follow-ups, steering, a shared
+  hint. The task is never sent twice. Before a competitor's first turn
+  starts its tile says "Starting — setting up its checkout", not an empty
+  transcript; a seat that could not start says why, with the flow's own
+  reason, and offers **Replace this seat**.
 - **Expand**: the tile fills the room's right side; the others stay mounted
-  (hidden with `visibility`, never `display: none` — a webview comes back
-  blank and a terminal measures zero columns otherwise); **Esc** or the
-  same control returns. An expanded tile **shows its own composer**, so
-  steering one competitor directly is one click, not a mention.
+  and hidden the way the workbench hides panes (never `display: none` — a
+  webview comes back blank and a terminal measures zero columns — and a
+  hidden webview is moved outside the clipped box so it cannot paint over
+  the expanded tile); **Esc** or the same control returns. An expanded tile
+  **shows its own composer**, so steering one competitor directly is one
+  click, not a mention.
+- **Approvals**: each tile shows the approvals its member raises, in the
+  tile, as a conversation does today; four at once are four prompts in four
+  tiles. The shared composer never claims one tile's approval.
 
 ### The composer
 
@@ -113,7 +139,13 @@ of the grid, over the splitter junction, as wide as the ordinary composer.
 
 - **Audience**: a chip row above the text reads **Everyone** by default;
   typing `@` narrows it to named members (the existing audience logic,
-  unchanged). One tile expanded → its own composer instead.
+  unchanged). A stopped or unavailable member stays listed with what will
+  happen ("stopped — it will read this when restarted"), never silently
+  dropped. After a send, each recipient's outcome shows as the composer
+  shows it today (delivered, queued, refused with its reason).
+- **One draft**: the room has one composer draft, kept across Chat and Side
+  by side (today it unmounts with Chat). One tile expanded → that member's
+  own composer and its own draft; the room draft waits unchanged.
 - **Settings for several agents**: the composer's controls are the fixed
   slots of the composer proposal (#979); where the targets' values differ a
   slot reads **Mixed** and its menu lists each target.
@@ -133,10 +165,30 @@ of the grid, over the splitter junction, as wide as the ordinary composer.
   which stays a person's decision.
 - **No independent judge available**: the judge needs a runtime that holds
   a read-only ceiling (today only one does, #1132) and a provider none of
-  the competitors use. When four competitors leave no such seat, the race
-  still starts; the band says why no judge was seated and offers **Choose a
-  judge** (any seat, with the independence caveat stated) or **Judge it
-  yourself**. Nothing is silently seated.
+  the competitors use. Today the flow's preview refuses such a race (its
+  only errors sit at the judge role), and the flow language has no
+  fallback role. So, agreed with the multi-agent owner:
+  - **In the `/race` dialog** (this view): when the preview's only errors
+    are at the judge, the dialog offers **Judge it myself** — it rewrites
+    the judge's block to a person step (the same substitution idiom `/race`
+    already uses for its seats) and previews again, so the file that runs is
+    exactly the one previewed. **Name a seat** is the other offer; if that
+    seat shares a provider with a competitor, the preview says in words that
+    the judge is no longer independent.
+  - **In the engine** (the multi-agent owner's slice, before this view's
+    judge slice): a person step in the judge's place receives the same
+    candidates an agent judge gets — each attempt's card, branch and check
+    result — and a new wire method (`flow/review/decide`, added in the
+    three-edit order) records the person's pick as the same review fact an
+    agent judge records, so every later rule of the flow works unchanged.
+  Nothing is silently seated.
+- **Every attempt fails its checks**: today no rule continues and the run
+  waits for the person, with nothing to offer. The first version adds no
+  engine change: the band says "No attempt passed its checks", lists each
+  failure, and offers **Race again** (a new race, same task and seats) and
+  **Open an attempt** (that competitor's conversation, to carry on by hand).
+  A flow-level "fix what failed" round is a later option, once the
+  multi-agent owner has verified how each new card pairs with its attempt.
 
 ### More than four members
 
@@ -156,37 +208,53 @@ view, not workbench panes, so an accidental split cannot produce this layout.
 
 ## 4. Reliability
 
-- **Focus**: one tile is focused (a ring); ⌘1–⌘4 focus a tile, ⌘⇧↵ expands
-  the focused tile, Esc returns; Tab moves within a tile, never across tiles
-  by surprise. The composer keeps its own focus.
+- **Focus and keys**: one tile is focused (a ring). The tile keys go through
+  the app's one shortcut table and its settings page, not a local handler.
+  ⌘1–⌘4 already select browser tabs when a browser has focus, so tile focus
+  uses ⌥⌘1–⌥⌘4; ⌥⌘↵ expands the focused tile; Esc returns — after an open
+  menu, dialog or approval has taken its own Esc. F6 moves between the rail,
+  the tiles (in order) and the composer; Tab stays inside a tile.
 - **Mounting**: tiles stay mounted across toggles and expand (`visibility`),
   so a transcript keeps its scroll and a browser keeps its page.
-- **Resizing**: the grid re-flows from the room's measured width (the same
-  measurement today's columns use); a tile never drops below ~420px wide
-  except in the narrow one-at-a-time layout.
-- **Restore**: the destination, the tiles, each tile's Conversation/Browser
-  choice and the expanded tile are part of the persisted view layout and
-  come back after a restart; a tile whose member left the room says so and
-  offers another member.
+- **Resizing**: the grid re-flows from the room's measured width; a tile
+  never drops below ~420px except in the narrow one-at-a-time layout.
+  **The tiles are kept separately from how many fit**: today's column
+  observer trims the stored column list when the window narrows, which
+  would erase a race's tiles; the grid instead stores its chosen members and
+  only the *display* adapts. In the narrow layout a tile strip above the
+  composer lists the tiles in grid order, the focused one shown; the rail
+  stays reachable; the composer stays at the bottom.
+- **Closing a tile** takes the member off the grid; it does not stop it. Its
+  ⋯ has **Stop** for that.
+- **Restore**: the destination, the chosen members, each tile's
+  Conversation/Browser choice, its browser tabs and the expanded tile are
+  part of the room's persisted view (the room-view reader, which restores
+  only its watched columns today, is extended); a tile whose member left
+  the room says so and offers another member.
 
-## 5. Engine changes (the multi-agent owner's lane, agreed)
+## 5. Engine changes (the multi-agent owner's lane)
 
-- `comparison.yml`: drop `count: 2` on the competitor role (or have the
-  substitution set it) so two to four seats compile; the judge card title
-  stops saying "better" of two. — multi-agent owner.
-- `substituteAgentRole`: set the width from the chosen seats. — multi-agent
-  owner.
+- Four seats compile already: the seat substitution rewrites the role's
+  seats and width. The judge card's title changes from "Pick the better
+  attempt" to "Pick the best attempt". — multi-agent owner.
 - `/race` dialog: two to four seat pickers instead of two fixed ones, the
   duplicate-seat check across all of them, and the judge line above. — this
   view's slices.
-- No new wire method: posts, hand-outs and delivery states already exist.
+- **The person-judged review**: a person step in the judge's place gets the
+  candidates, and `flow/review/decide` records the pick as the same review
+  fact (section 2). — multi-agent owner, a slice before this view's judge
+  slice. The dialog's "Judge it myself" / "Name a seat" rewrite is this
+  view's.
+- Messaging needs no new wire method: posts, hand-outs and delivery states
+  already exist.
 
 ## 6. The demo
 
 "Race four agents to build a browser game." Four competitors on four
-different models; one prompt in the composer ("Build a playable Snake game
-in one HTML file"); all four tiles switch to **Browser** as each serves its
-page; the person plays each in its tile, expands one, the judge's verdict
+different models; the race's task in the `/race` dialog ("Build a playable
+Snake game in one HTML file"); all four tiles switch to **Browser** as each
+serves its page; a follow-up in the shared composer ("add a high-score
+counter") reaches all four; the person plays each in its tile, expands one, the judge's verdict
 band appears, the person merges the pick. Frames and a short recording from
 the rig (never a real desk).
 
@@ -206,13 +274,19 @@ the rig (never a real desk).
 
 ## 8. Slices (after approval)
 
-1. **Side by side destination + tiles + expand** (grid, header, focus,
-   restore; Conversation only).
+1. **Side by side destination + tiles + expand** (Watch puts a member on a
+   tile; grid, header, focus and keys, tile state kept apart from the column
+   observer, restore; Conversation in a supported no-composer presentation;
+   approvals in tiles). Conversation only.
 2. **One composer + audience + four seats** (the room composer in the
-   ordinary spot, the dialog's four pickers; engine edits by the
-   multi-agent owner).
-3. **Browser per tile** (each seat's profile in its tile).
-4. **Judge band, no-judge case, demo frames and recording.**
+   ordinary spot with one draft across Chat and Side by side, per-recipient
+   outcomes, stopped members listed; the dialog's four pickers; engine
+   edits by the multi-agent owner).
+3. **Browser per tile** (a profile-scoped browser view per tile, agent
+   navigation routed to it, tabs persisted, hidden webviews parked outside
+   the clip).
+4. **Judge band, all-fail and no-judge cases** (the fallback engine change
+   first), **demo frames and recording.**
 
 ## For the owner to decide
 
@@ -220,5 +294,8 @@ the rig (never a real desk).
    Recommended.
 2. **A tile on a grid has no composer of its own; expanding it brings its
    composer back.** Recommended — one place to type while comparing.
-3. **When no independent judge can be seated**, the race starts and asks the
-   person to choose a judge or judge it themselves. Recommended.
+3. **When no independent judge can be seated**, the race starts with the
+   person as judge (an engine change in the comparison flow), or with a
+   judge the person names. Recommended.
+4. **Tile keys are ⌥⌘1–⌥⌘4**, because ⌘1–⌘4 already switch browser tabs.
+   Recommended.
