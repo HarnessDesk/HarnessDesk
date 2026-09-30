@@ -4500,6 +4500,25 @@ export class AppStore {
     return execution
   }
 
+  /**
+   * "Continue with this answer": a stopped run's kept answer, handed to its
+   * Seat again. A refusal is the host's own sentence, shown as it is: the
+   * answer stays kept, so the action is still there once it can work, and
+   * the run's new state arrives on `flow/execution-changed` either way.
+   */
+  async continueFlowAnswer(run: string): Promise<FlowExecution | null> {
+    try {
+      const execution = await this.transport.request('flow/answer/continue', { run })
+      const flowExecutions = new Map(this.#snapshot.flowExecutions)
+      flowExecutions.set(execution.id, execution)
+      this.#patch({ flowExecutions })
+      return execution
+    } catch (error) {
+      this.notice('warning', describe(error))
+      return null
+    }
+  }
+
   // ------------------------------------------------------------- front door
 
   /**

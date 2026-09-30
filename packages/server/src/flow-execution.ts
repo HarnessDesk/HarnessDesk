@@ -88,6 +88,11 @@ export type StoredFlowExecution = FlowExecution & {
   publication?: StoredPublication
 }
 
+const cardFinishedAnswer = (card: number): string => `Card #${card} is already finished, so there is nothing to hand this answer to.`
+const missingAnswerSeat = (card: number, closed: boolean): string =>
+  `The Seat for card #${card} is ${closed ? 'closed' : 'no longer recorded'}, so it cannot be handed your answer. Start a new run to pick up the work.`
+const busyAnswerSeat = (card: number): string => `The Seat for card #${card} is inside a turn now. Answer again once it ends.`
+
 /** What a later review round was handed, and the subject revisions it was pinned to. */
 export interface ReviewPacketPin {
   readonly text: string
@@ -428,6 +433,7 @@ export const projectExecution = (run: StoredFlowExecution): FlowExecution => ({
   operations: run.operations,
   legacyRun: run.legacyRun,
   reason: run.reason,
+  ...(run.keptAnswer ? { keptAnswer: run.keptAnswer } : {}),
   ...(run.findings ? { findings: run.findings } : {}),
   ...(run.intake ? { intake: run.intake } : {}),
   ...(run.requireHeld ? { requireHeld: true as const } : {}),
@@ -1178,7 +1184,8 @@ export class FlowExecutions {
    * False when no run here stopped on this Seat's question, so the answer is
    * not the flow's to deliver. Throws a sentence when it is and cannot be
    * delivered: before `settle`, the question is kept and the run left
-   * stopped on it; after, the run stops with the answer in its reason.
+   * stopped on it; after, the run stops with the structured answer kept on
+   * the run so a person can send it again when its Seat is ready.
    */
   async answerQuestion(
     runtime: string,
@@ -1191,6 +1198,65 @@ export class FlowExecutions {
       return this.#queue.within(run.id, () => this.#answerQuestion(run.id, runtime, sessionId, words, settle))
     }
     return false
+  }
+
+  /**
+   * A person's "Continue with this answer": the answer `#deliverAnswer` kept
+   * when its Seat would not take it, handed to that same Seat again, and the
+   * run goes on. The question itself was closed when the answer was first
+   * given, so there is nothing to settle. Every refusal leaves the run stopped
+   * with the answer still kept, so the action is there to press again.
+   */
+  async continueAnswer(id: string): Promise<FlowExecution> {
+    const run = this.#runs.get(id)
+    if (!run) throw new Error(`There is no flow run ${id}.`)
+    return this.#queue.within(id, async () => {
+      const now = this.#get(id)
+      const kept = now.keptAnswer
+      if (now.state !== 'stalled' || !kept) throw new Error('This run is no longer waiting on that answer.')
+      const card = this.#team.stateFor(now.goal).intents.find((one) => one.id === kept.card)
+      const seat = this.#port.seatOf(kept.seat)
+      if (!card || done(card)) throw new Error(cardFinishedAnswer(kept.card))
+      if (!seat || seat.closed) throw new Error(missingAnswerSeat(kept.card, Boolean(seat)))
+      if (this.#port.busy?.(seat)) throw new Error(busyAnswerSeat(kept.card))
+      const round = now.rounds.find((one) => one.cards.includes(card.id))
+      const index = round ? round.cards.indexOf(card.id) : -1
+      const binding = round ? bindingsFor(now, round.role)[index] : undefined
+      if (!round || !binding) throw new Error(`Card #${card.id} no longer matches a Seat of its round, so it cannot be handed your answer.`)
+      // A trigger's run sends nothing its gate would not, and a Seat is not reopened for an answer the gate would refuse.
+      if (now.intake) {
+        if (now.intake.dispatchHeld) throw new Error(DISPATCH_HELD)
+        const gate = await this.#gateOf(id)
+        if (!gate.ok) throw new Error(`Your answer was not sent: ${gate.reason}`)
+      }
+      await this.#put({ ...now, state: 'running', reason: null })
+      // From here the run reads as running, and `#put` has dropped the kept answer: anything below that ends without the Seat hearing it puts both back.
+      let stop: string | null = null
+      try {
+        if (!await this.#sameSeat(id, seat, card.id, round.role, 'answered')) {
+          stop = this.#get(id).reason ?? 'The Seat could not be reopened.'
+          throw new Error(stop)
+        }
+        // Reopening can take a while, and a limit reached meanwhile still holds: read the gate again right before the hand-back (#939).
+        if (this.#get(id).intake) {
+          const gate = await this.#gateOf(id)
+          if (!gate.ok) {
+            stop = gate.reason
+            throw new Error(`Your answer was not sent: ${gate.reason}`)
+          }
+        }
+        await this.#deliverAnswer(id, seat, card.id, round, index, binding, kept)
+      } catch (error) {
+        // `#deliverAnswer`'s own stop already keeps the answer, with its own words; any other end is put back here.
+        const left = this.#get(id)
+        if (left.state !== 'stalled' || !left.keptAnswer) {
+          const why = stop ?? left.reason ?? (error instanceof Error ? error.message : String(error))
+          await this.#put({ ...left, state: 'stalled', reason: why, keptAnswer: kept })
+        }
+        throw error
+      }
+      return this.#projectExecution(this.#get(id))
+    })
   }
 
   /**
@@ -1241,13 +1307,13 @@ export class FlowExecutions {
     const run = this.#get(id)
     const seating = this.#seatingOf(run, runtime, sessionId)!
     const card = this.#team.stateFor(run.goal).intents.find((one) => one.id === seating.card)
-    if (!card || done(card)) throw new Error(`Card #${seating.card} is already finished, so there is nothing to hand this answer to.`)
+    if (!card || done(card)) throw new Error(cardFinishedAnswer(seating.card))
     const seat = this.#port.seatOf(seating.seat!)
     if (!seat || seat.closed) {
-      throw new Error(`The Seat for card #${card.id} is ${seat ? 'closed' : 'no longer recorded'}, so it cannot be handed your answer. Start a new run to pick up the work.`)
+      throw new Error(missingAnswerSeat(card.id, Boolean(seat)))
     }
     // A turn still ending — the one the question stopped, or one begun since — is never sent into: the answer waits for it.
-    if (this.#port.busy?.(seat)) throw new Error(`The Seat for card #${card.id} is inside a turn now. Answer again once it ends.`)
+    if (this.#port.busy?.(seat)) throw new Error(busyAnswerSeat(card.id))
     const round = run.rounds.find((one) => one.cards.includes(card.id))
     const index = round ? round.cards.indexOf(card.id) : -1
     const binding = round ? bindingsFor(run, round.role)[index] : undefined
@@ -1268,32 +1334,45 @@ export class FlowExecutions {
         throw new Error(`Your answer was not sent: ${again.reason}`)
       }
     }
-    const prefix = `turn:${round.n}:${index}:answer:`
-    const key = `${prefix}${this.#get(id).operations.filter((one) => one.key.startsWith(prefix)).length + 1}`
-    const lead = [
-      'The person has answered the question you asked. Your turn had already been stopped while it waited, so their answer comes to you here.',
-      `You asked: ${words.question}`,
-      `Their answer: ${words.answer}`,
-      'Carry on from where you were, with that answer.',
-    ].join('\n\n')
     // The old question closes as answered before the turn that carries the answer begins.
     await settle()
-    const refused = await this.#handOver(id, key, seat, card.id, binding, lead)
-    const left = this.#get(id)
-    if (refused !== null || left.operations.find((one) => one.key === key)?.state === 'prepared') {
-      /* Not delivered — refused, or a turn began between the look and the
-         send. The question is already closed, so the run stops with the
-         answer in its reason: nothing reads as running over an answer the
-         Seat never heard, and the answer is not lost. */
-      const why = refused ?? 'it started another turn first'
-      const kept = left.operations.filter((one) => one.key !== key || one.state !== 'prepared')
-      await this.#put({
-        ...left, operations: kept, state: 'stalled',
-        reason: `Card #${card.id}: your answer (${words.answer}) could not be handed to its Seat: ${why}. Tell it in that conversation.`,
-      })
-      throw new Error(`Your answer could not be handed to the Seat for card #${card.id}: ${why}.`)
-    }
+    await this.#deliverAnswer(id, seat, card.id, round, index, binding, { card: card.id, seat: String(seat.id), ...words, at: this.#now() })
     return true
+  }
+
+  async #deliverAnswer(
+    id: string, seat: SeatRecord, card: number, round: FlowRoundState, index: number,
+    binding: FlowBinding, answer: { readonly card: number; readonly seat: string; readonly question: string; readonly answer: string; readonly at: number },
+  ): Promise<void> {
+    const prefix = `turn:${round.n}:${index}:answer:`
+    const lead = [
+      'The person has answered the question you asked. Your turn had already been stopped while it waited, so their answer comes to you here.',
+      `You asked: ${answer.question}`,
+      `Their answer: ${answer.answer}`,
+      'Carry on from where you were, with that answer.',
+    ].join('\n\n')
+    let why: string | null = null
+    // Past every suffix this answer's prefix has ever used — a `prepared` attempt is removed, so counting what is left would hand a later attempt a key already on record.
+    const used = [...this.#get(id).operations.map((one) => one.key), ...Object.keys(this.#get(id).operationTimes)]
+      .filter((one) => one.startsWith(prefix)).map((one) => Number(one.slice(prefix.length))).filter(Number.isInteger)
+    const firstAttempt = Math.max(0, ...used) + 1
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const key = `${prefix}${firstAttempt + attempt}`
+      const refused = await this.#handOver(id, key, seat, card, binding, lead)
+      const left = this.#get(id)
+      const prepared = left.operations.find((one) => one.key === key)?.state === 'prepared'
+      if (refused === null && !prepared) {
+        const { keptAnswer: _kept, ...withoutKeptAnswer } = left
+        await this.#put({ ...withoutKeptAnswer, state: 'running', reason: null })
+        return
+      }
+      why = refused ?? 'it started another turn first'
+      await this.#put({ ...left, operations: left.operations.filter((one) => one.key !== key || one.state !== 'prepared') })
+    }
+    const left = this.#get(id)
+    await this.#put({ ...left, state: 'stalled', keptAnswer: { ...answer, canContinue: true, refusal: null },
+      reason: `Card #${card}: your answer could not be handed to its Seat after two attempts: ${why}. It is kept on this run.` })
+    throw new Error(`Your answer could not be handed to the Seat for card #${card}: ${why}. It is kept on the run.`)
   }
 
   /** The latest seating of this conversation on a run, preferring one whose card is still open. */
@@ -1952,7 +2031,14 @@ export class FlowExecutions {
 
   /** Persist first, then hold it in memory, then say so: a failed write changes nothing the desk believes. */
   async #put(run: StoredFlowExecution): Promise<StoredFlowExecution> {
-    const next = { ...run, updatedAt: this.#now() }
+    /* A kept answer belongs to the stop it was kept at (#998). A run that
+       leaves that stop any other way — an extra round authorized, a check run
+       again, a person's Stop — drops it here, in the one place every run is
+       written. Otherwise a later, unrelated stop would offer an answer given
+       for another moment. `continueAnswer` puts it back itself when its
+       hand-back fails. */
+    const { keptAnswer, ...unkept } = run
+    const next = { ...(run.state === 'stalled' && keptAnswer ? run : unkept), updatedAt: this.#now() }
     try {
       await this.#files.save(next)
     } catch (error) {
@@ -2213,11 +2299,19 @@ export class FlowExecutions {
    */
   #projectExecution(run: StoredFlowExecution): FlowExecution {
     const base = projectExecution(run)
+    let keptAnswer = run.keptAnswer
+    if (keptAnswer) {
+      const card = this.#team.stateFor(run.goal).intents.find((one) => one.id === keptAnswer!.card)
+      const seat = this.#port.seatOf(keptAnswer.seat)
+      const refusal = !card || done(card) ? cardFinishedAnswer(keptAnswer.card)
+        : !seat || seat.closed ? missingAnswerSeat(keptAnswer.card, Boolean(seat)) : null
+      keptAnswer = { ...keptAnswer, canContinue: refusal === null, refusal }
+    }
     const note = [...this.#pendingReleases.entries()]
       .filter(([, pending]) => pending.run === run.id)
       .map(([seatId, pending]) => this.#sentenceFor(seatId, pending, this.#now() - pending.startedAt >= this.#releaseStallMs))
       .join(' ')
-    return note ? { ...base, pendingReleaseNote: note } : base
+    return { ...base, ...(keptAnswer ? { keptAnswer } : {}), ...(note ? { pendingReleaseNote: note } : {}) }
   }
 
   // ---------------------------------------------------------------- start

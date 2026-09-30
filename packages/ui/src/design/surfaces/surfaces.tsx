@@ -589,6 +589,12 @@ const seatRefusedStore = (): AppStore => {
 
 const SEAT_REFUSED_STORE = seatRefusedStore()
 
+const keptAnswerStore = (scene: 'answer-kept' | 'answer-seat-gone'): AppStore =>
+  previewStore({ flowExecutions: new Map([['preview-flow-run', sceneFlowExecution(scene)]]) })
+
+const KEPT_ANSWER_STORE = keptAnswerStore('answer-kept')
+const KEPT_ANSWER_SEAT_GONE_STORE = keptAnswerStore('answer-seat-gone')
+
 /**
  * The front-door Goal's run stopped on its time budget while its Seat was
  * still busy: the card stays claimed, and the room's live line — beside
@@ -673,6 +679,18 @@ export const GroupSurface = () => (
           <Frame>
             <TeamRoomPane room={PREVIEW_FLOW_GOAL.goal.id} />
           </Frame>
+        </Mount>
+      </div>
+      <div className={styles.headerCase} data-testid="group-run-kept-answer">
+        <span className={styles.headerCaseLabel}>A stalled run keeps an answer that can be sent again</span>
+        <Mount with={KEPT_ANSWER_STORE}>
+          <Frame><TeamRoomPane room={PREVIEW_FLOW_GOAL.goal.id} /></Frame>
+        </Mount>
+      </div>
+      <div className={styles.headerCase} data-testid="group-run-kept-answer-seat-gone">
+        <span className={styles.headerCaseLabel}>A kept answer whose Seat is gone stays visible and disabled</span>
+        <Mount with={KEPT_ANSWER_SEAT_GONE_STORE}>
+          <Frame><TeamRoomPane room={PREVIEW_FLOW_GOAL.goal.id} /></Frame>
         </Mount>
       </div>
       <div className={styles.headerCase} data-testid="group-run-stopped-with-a-release-pending">

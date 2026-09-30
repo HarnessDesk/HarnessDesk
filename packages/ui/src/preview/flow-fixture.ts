@@ -192,7 +192,7 @@ const FLOW_EXECUTION = (over: Partial<FlowExecution> = {}): FlowExecution => ({
   ...over,
 })
 
-export const FLOW_EXECUTION_SCENES = ['pinned', 'stopped', 'question', 'seat-refused', 'pending-release', 'diff', 'working-diff'] as const
+export const FLOW_EXECUTION_SCENES = ['pinned', 'stopped', 'question', 'answer-kept', 'answer-seat-gone', 'seat-refused', 'pending-release', 'diff', 'working-diff'] as const
 export type FlowExecutionScene = (typeof FLOW_EXECUTION_SCENES)[number]
 
 /** `seatRefused`'s own words for card #1 of two, around a seating refusal as `agent-seating.ts` writes one. */
@@ -214,6 +214,15 @@ export const sceneFlowExecution = (scene: FlowExecutionScene): FlowExecution => 
   // Stopped for its person on its Seat's unanswered question: the host's exact sentence (`questionStall`, flow-execution.ts).
   if (scene === 'question') {
     return FLOW_EXECUTION({ target: FLOW_TARGETS.branch, state: 'stalled', reason: 'Card #1: its Seat asked a question nobody can answer. Its answer so far is kept.' })
+  }
+  if (scene === 'answer-kept') {
+    return FLOW_EXECUTION({ target: FLOW_TARGETS.branch, state: 'stalled', reason: 'Card #1: your answer could not be handed to its Seat after two attempts: it started another turn first. It is kept on this run.',
+      keptAnswer: { card: 1, seat: 'preview-seat', question: 'Which base branch?', answer: 'main', at: 1_799_000_000_000, canContinue: true, refusal: null } })
+  }
+  if (scene === 'answer-seat-gone') {
+    const refusal = 'The Seat for card #1 is no longer recorded, so it cannot be handed your answer. Start a new run to pick up the work.'
+    return FLOW_EXECUTION({ target: FLOW_TARGETS.branch, state: 'stalled', reason: 'Card #1: your answer could not be handed to its Seat after two attempts: it started another turn first. It is kept on this run.',
+      keptAnswer: { card: 1, seat: 'preview-seat', question: 'Which base branch?', answer: 'main', at: 1_799_000_000_000, canContinue: false, refusal } })
   }
   // Stalled for its person on a round whose first Seat would not open: the
   // host's exact sentence (`seatRefused`, flow-execution.ts), the Agent's own

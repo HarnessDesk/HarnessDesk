@@ -147,8 +147,10 @@ const TurnWorkLive = ({
         {words}
       </span>
       {/* Composes `Text`, so its slot reads `text` like every other one;
-          `data-mark` is this trail's own hook for a test or a screen. */}
-      <Text as="span" role="prose" ink="muted" numeric data-mark="turn-work-live-trail">
+          `data-mark` is this trail's own hook for a test or a screen. A
+          trail is a reading or an action's name, never a sentence: it keeps
+          its width and its one line, and the words beside it are what wrap. */}
+      <Text as="span" role="prose" ink="muted" numeric className="shrink-0 whitespace-nowrap" data-mark="turn-work-live-trail">
         {trail}
       </Text>
     </div>

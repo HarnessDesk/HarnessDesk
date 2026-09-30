@@ -42,6 +42,12 @@ test('flow/check/retry rejects unknown fields, and its ids and card are bounded'
   assert.doesNotThrow(() => request('flow/check/retry', { run: 'flow-1', card: 1, token: 't1' }))
 })
 
+test('flow/answer/continue accepts only a non-empty run id', () => {
+  assert.throws(() => request('flow/answer/continue', { run: '' }), ValidationError)
+  assert.throws(() => request('flow/answer/continue', { run: 'run-1', origin: 'user' }), ValidationError)
+  assert.doesNotThrow(() => request('flow/answer/continue', { run: 'run-1' }))
+})
+
 test('a token field never accepts anything but a filled string — no object, number or cross-type value stands in for it', () => {
   for (const token of [{ run: 'flow-1' }, 42, null, undefined, ['t1']]) {
     assert.throws(() => request('flow/start-goal', { root: '/r', source: 'x', token, sentence: 'Go' }), ValidationError)

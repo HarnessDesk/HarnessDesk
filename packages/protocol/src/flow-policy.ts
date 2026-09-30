@@ -161,6 +161,23 @@ export interface FlowExecution {
   readonly operations: readonly FlowOperation[]
   readonly legacyRun: FlowRun | null
   readonly reason: string | null
+  /**
+   * A person's answer to a Seat's question that the Seat would not take,
+   * even when asked twice. The question is already closed, so the answer is
+   * kept here, on a stopped run, until `flow/answer/continue` hands it to
+   * that Seat again. `canContinue` and `refusal` are read fresh on every
+   * projection: `refusal` says why it cannot be sent now (the Seat is gone,
+   * the card finished), and is null when it can.
+   */
+  readonly keptAnswer?: {
+    readonly card: number
+    readonly seat: string
+    readonly question: string
+    readonly answer: string
+    readonly at: number
+    readonly canContinue: boolean
+    readonly refusal: string | null
+  }
   /** The run's findings bookkeeping; absent on a run saved before it existed, which keeps its old behaviour. */
   readonly findings?: FindingRunState
   /** Set only on a run a trigger started. */
