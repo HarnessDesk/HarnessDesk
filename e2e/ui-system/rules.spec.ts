@@ -258,14 +258,13 @@ test.describe('rule: group labels', () => {
  * nothing the sidebar's own sheet adds touches height.
  *
  * Measured on every instance, not one sample per kind. Every row of every
- * kind is at least `--hd-nav-h` tall, and every row of one kind agrees
- * with its own siblings, in both interfaces. That the kinds also agree with
- * each other is Studio's, by design: `foundation/tokens.css` gives Studio
- * "one height for every row in a navigation column, which is the thing Desk
- * does not do". At Studio every row of every kind is 34px. At Desk the
- * sidebar's session rows and the menu item are 30px (their line, block
- * padding and border add up one pixel past the 29px floor) while the rail's
- * rows sit on the floor — whether Desk should converge too is #1073.
+ * kind is at least `--hd-nav-h` tall, every row of one kind agrees with its
+ * own siblings, and the kinds agree with each other — in both interfaces.
+ * Studio's rows are 34px. Desk's are 30px since #1073: `--hd-nav-h` used to
+ * be solved from the type alone (29px), so the sidebar's session rows and
+ * the menu item, whose line, block padding and border add up to 30, stood a
+ * pixel taller than the rail's rows on the floor. It is now solved from
+ * that same box, and every kind stands on it.
  *
  * The settings rail's identity row was the one row of a kind that disagreed
  * with its siblings: its 28px face in a 29px row with 1px borders pushed it
@@ -322,7 +321,7 @@ const openAccountMenu = async (page: Page) => {
 }
 
 test.describe('rule: destination rows', () => {
-  test('rule: destination rows — every sidebar row, every rail row and a menu item stand at least --hd-nav-h, each kind agrees with itself, and in Studio the kinds agree with each other', async ({ page }) => {
+  test('rule: destination rows — every sidebar row, every rail row and a menu item stand at least --hd-nav-h, each kind agrees with itself, and the kinds agree with each other in both interfaces', async ({ page }) => {
     await gotoPreview(page)
     const findings: (RowFinding & { where: string })[] = []
     for (const theme of ['light', 'dark'] as const) {
@@ -334,7 +333,7 @@ test.describe('rule: destination rows', () => {
         await openAccountMenu(page)
         const menuHeight = await page.locator('[role="menuitem"]').first().evaluate((el) => Math.round(el.getBoundingClientRect().height))
         await page.keyboard.press('Escape')
-        const { out, measured } = await destinationRowViolations(page, menuHeight, look === 'studio')
+        const { out, measured } = await destinationRowViolations(page, menuHeight)
         // A check that measures nothing must fail, not pass by default.
         expect(measured, `${theme}/${look}: no destination row was found`).toBeGreaterThan(0)
         for (const finding of out) findings.push({ ...finding, where: `${theme}/${look}: ${finding.where}` })
@@ -362,6 +361,18 @@ test.describe('rule: destination rows', () => {
     await page.addStyleTag({ content: '[class*="winNavItem"]:first-of-type { min-height: calc(var(--hd-nav-h) + 1px) !important; }' })
     const after = await destinationRowViolations(page, undefined, false)
     expect(after.out.some((f) => f.reason.includes("own rows disagree"))).toBe(true)
+  })
+
+  test('rule: destination rows — the checker catches the kinds a pixel apart in Desk', async ({ page }) => {
+    await gotoPreview(page)
+    await setPreviewDials(page, 'light', 'desk')
+    const before = await destinationRowViolations(page)
+    expect(before.out).toEqual([])
+    // What Desk was before #1073, the other way round: one kind a pixel off
+    // the others while agreeing with its own siblings.
+    await page.addStyleTag({ content: '[class*="winNavItem"] { min-height: calc(var(--hd-nav-h) + 1px) !important; }' })
+    const after = await destinationRowViolations(page)
+    expect(after.out.some((f) => f.reason.startsWith('destination-row kinds disagree'))).toBe(true)
   })
 })
 

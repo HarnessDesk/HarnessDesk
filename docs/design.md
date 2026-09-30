@@ -812,17 +812,15 @@ every row of one kind stands at one height. There are three kinds:
 All three are `Button size="navigation"` or the menu's own row, floored at
 `--hd-nav-h`.
 
-In Studio the kinds also agree with each other: `--hd-nav-h` is a literal
-34px, and `design/foundation/tokens.css` gives Studio "one height for every row in
-a navigation column". Desk does not promise that:
-
-- the sidebar's session rows and a menu item are 30px, because their 20px line, 4+4px block padding and 1+1px border add up past the 29px floor;
-- the rail's rows have no block padding and sit on the 29px floor.
-
-Whether Desk should converge is #1073.
+The kinds also agree with each other, in both interfaces. In Studio
+`--hd-nav-h` is a literal 34px. In Desk it is solved from the row's real
+box — its 20px line, 4+4px block padding and 1+1px border — to 30px, so the
+settings and usage rail rows stand with the sidebar's rows and a menu item
+rather than a pixel under them on a floor solved from the type alone
+(#1073).
 
 The settings rail's identity row was the one row out of step with its own
-kind. Its 28px face in a 29px row with 1px borders pushed it to 30px. It
+kind. Its 28px face in what was then a 29px row with 1px borders pushed it to 30px. It
 now draws the seat's 24px face, the size the sidebar's seat row uses.
 
 Enforced by `rules.spec.ts` ("rule: destination rows"), on every visible row
