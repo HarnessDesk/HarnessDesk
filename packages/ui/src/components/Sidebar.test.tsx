@@ -157,11 +157,11 @@ describe('Sidebar readiness with active runtime (#382)', () => {
   })
 })
 
-it('uses the design sidebar header, one content scroller, and a footer for docked panels', () => {
+it('keeps the workbench-owned header, one content scroller, and footer as plain layout', () => {
   mount()
-  const header = container.querySelector('[data-sidebar="header"]')!
-  const content = container.querySelector('[data-sidebar="content"]')!
-  const footer = container.querySelector('[data-sidebar="footer"]')!
+  const header = container.querySelector('[data-region="sidebar-header"]')!
+  const content = container.querySelector('[data-region="sidebar-content"]')!
+  const footer = container.querySelector('[data-region="sidebar-footer"]')!
   expect(header.querySelector('button[aria-label="Search everything (⌘K)"]')).not.toBeNull()
   expect(content.querySelector('[data-slot="navigation-group-label"]')?.textContent).toContain('Projects')
   expect(footer.childElementCount).toBeGreaterThan(0)

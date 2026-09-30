@@ -388,6 +388,8 @@ it('opens Other projects when the active session belongs to a far project', () =
   expect(store.setOthersOpen).toHaveBeenCalledWith(true)
   const fold = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.startsWith('Other projects'))
   expect(fold?.querySelector('[data-slot="sidebar-menu-icon"]')).not.toBeNull()
+  expect(fold?.closest('[data-sidebar="group"]')).toBeNull()
+  expect(fold?.parentElement?.querySelector('[data-slot="sidebar-menu-badge"]')?.textContent).toBe('4')
 })
 
 it('aligns the N more row with the project and conversation label column', () => {
@@ -548,7 +550,7 @@ it('a room is a row under its project, and its members hang off it', () => {
   expect(row.getAttribute('data-slot')).toBe('sidebar-menu-button')
   expect(row.tagName).toBe('BUTTON')
   // The member is inside the room's own block; the loose one is not.
-  const nested = row.closest('[data-slot="sidebar-menu-item"]')?.querySelector('[data-slot="sidebar-menu-sub"]')
+  const nested = row.closest('[data-slot="sidebar-menu-item"]')?.querySelector('[data-slot="sidebar-menu"]')
   expect(nested?.textContent).toContain('session-1')
   expect(nested?.textContent).not.toContain('session-2')
 })

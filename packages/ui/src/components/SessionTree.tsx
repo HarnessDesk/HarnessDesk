@@ -13,14 +13,12 @@ import {
   Separator,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
+  GroupLabel,
   SidebarMenu,
   SidebarMenuAction,
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubItem,
   Text,
   buttonVariants,
   useContextMenu,
@@ -676,13 +674,13 @@ const RoomRow = ({
         </SidebarMenuAction>
         </div>
         {open && members.length > 0 && (
-          <SidebarMenuSub>
+          <SidebarMenu nested>
             {members.map((summary) => (
-              <SidebarMenuSubItem key={summary.id}>
+              <SidebarMenuItem key={summary.id}>
                 <SessionRow summary={summary} now={now} onDelete={onDelete} />
-              </SidebarMenuSubItem>
+              </SidebarMenuItem>
             ))}
-          </SidebarMenuSub>
+          </SidebarMenu>
         )}
       </SidebarMenuItem>
     </SidebarMenu>
@@ -1241,7 +1239,7 @@ export const SessionTree = ({ now }: { now: number }) => {
           workspace, one list. The words come from the live trace. */}
       {triage.waiting.length > 0 && (
         <SidebarGroup className={styles.triage} data-tone="waiting">
-          <SidebarGroupLabel><Text role="muted" tone="warning">Needs you · {triage.waiting.length}</Text></SidebarGroupLabel>
+          <GroupLabel><Text role="muted" tone="warning">Needs you · {triage.waiting.length}</Text></GroupLabel>
           <SidebarGroupContent>
           {triage.waiting.map((summary) => (
             <SessionRow
@@ -1258,7 +1256,7 @@ export const SessionTree = ({ now }: { now: number }) => {
       )}
       {triage.working.length > 0 && (
         <SidebarGroup className={styles.triage} data-tone="working">
-          <SidebarGroupLabel>Working · {triage.working.length}</SidebarGroupLabel>
+          <GroupLabel>Working · {triage.working.length}</GroupLabel>
           <SidebarGroupContent>
           {triage.working.map((summary) => (
             <SessionRow
@@ -1274,7 +1272,7 @@ export const SessionTree = ({ now }: { now: number }) => {
       )}
       {near.map(renderGroup)}
       {far.length > 0 && (
-        <SidebarGroup>
+        <div>
           <SidebarMenu><SidebarMenuItem>
             <SidebarMenuButton
               icon={<DisclosureChevron open={othersOpen} size="xs" className={styles.groupChevron} />}
@@ -1297,9 +1295,10 @@ export const SessionTree = ({ now }: { now: number }) => {
                 setOver(null)
               }}
             />
+            <SidebarMenuBadge aria-label={`${far.length} other projects`}>{far.length}</SidebarMenuBadge>
           </SidebarMenuItem></SidebarMenu>
           {othersOpen && <SidebarGroupContent>{far.map(renderGroup)}</SidebarGroupContent>}
-        </SidebarGroup>
+        </div>
       )}
       {deleting && <DeleteSession summary={deleting} onClose={() => setDeleting(null)} />}
       {/* Reordering by hand is silent by nature; this is the same move said

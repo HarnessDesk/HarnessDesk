@@ -2,13 +2,12 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
 
 import {
-  SidebarGroupAction,
   SidebarMenuAction,
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSkeleton,
 } from './sidebar'
+import * as sidebarExports from './sidebar'
 
 it('marks only the selected menu row active', () => {
   const markup = renderToStaticMarkup(
@@ -58,24 +57,19 @@ it('keeps the menu label geometry and the badge/action slot fixed across hover s
   expect(hover).toContain('pe-(--hd-space-8)')
 })
 
-it('renders group and menu actions as named buttons', () => {
-  const markup = renderToStaticMarkup(
-    <>
-      <SidebarGroupAction aria-label="Add project" />
-      <SidebarMenuAction aria-label="More actions" />
-    </>,
-  )
+it('renders the trailing menu action as a named button', () => {
+  const markup = renderToStaticMarkup(<SidebarMenuAction aria-label="More actions" />)
 
   expect(markup).toContain('<button')
-  expect(markup).toContain('aria-label="Add project"')
   expect(markup).toContain('aria-label="More actions"')
-  expect(markup.match(/<button/g)).toHaveLength(2)
 })
 
-it('renders a menu skeleton without text', () => {
-  const markup = renderToStaticMarkup(<SidebarMenuSkeleton showIcon />)
-  expect(markup).toContain('data-slot="sidebar-menu-skeleton"')
-  expect(markup).toContain('data-sidebar="menu-skeleton-icon"')
-  expect(markup).toContain('data-sidebar="menu-skeleton-text"')
-  expect(markup.replace(/<[^>]+>/g, '').trim()).toBe('')
+it('does not export sidebar parts that duplicate shared controls or workbench layout', () => {
+  for (const name of [
+    'Sidebar', 'SidebarHeader', 'SidebarContent', 'SidebarFooter',
+    'SidebarInput', 'SidebarSeparator', 'SidebarGroupLabel', 'SidebarGroupAction',
+    'SidebarMenuSkeleton', 'SidebarMenuSub', 'SidebarMenuSubItem', 'SidebarMenuSubButton',
+  ]) {
+    expect(sidebarExports).not.toHaveProperty(name)
+  }
 })

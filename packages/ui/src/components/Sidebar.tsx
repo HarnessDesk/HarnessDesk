@@ -29,7 +29,7 @@ import {
   RailSection,
   Search,
   Chip,
-  Sidebar as DesignSidebar,
+  Separator,
   SidebarMenu,
   SidebarMenuBadge,
   SidebarMenuButton,
@@ -125,10 +125,8 @@ export const Sidebar = ({
   // Not `plugins.length`: an installed copy a built-in has taken over is off,
   // and counting it here made the sidebar promise one more than the page lists.
   return (
-    <DesignSidebar
-      className={styles.sidebar}
-      header={(
-        <>
+    <div className={styles.sidebar}>
+      <div className={styles.header} data-region="sidebar-header">
         <Bar corner className="hd-drag"><WindowControls /></Bar>
         <Bar inset="ink">
           <Text role="subject" className={styles.brandMark} aria-hidden><HarnessMark size={14} /></Text>
@@ -165,10 +163,8 @@ export const Sidebar = ({
             </Button>
           </div>
         </RailSection>
-        </>
-      )}
-      content={(
-        <>
+      </div>
+      <div ref={listRef} className={styles.content} data-region="sidebar-content" onScroll={onScroll}>
         <NavigationGroupHeader
           label={(
             <span className={styles.groupLabel}>
@@ -212,20 +208,14 @@ export const Sidebar = ({
           )}
           <SessionTree now={now} />
         </RailSection>
-        </>
-      )}
-      contentClassName={styles.content}
-      contentRef={listRef}
-      onContentScroll={onScroll}
-      footer={(
-        <>
+      </div>
+      <Separator />
+      <div className={styles.footer} data-region="sidebar-footer">
         <Slot name="sidebar.panel" />
         <SidebarNotices />
         <AccountFooter onOpenSettings={onOpenSettings} onOpenUsage={onOpenUsage} onSignIn={onSignIn} />
-        </>
-      )}
-      footerClassName={styles.footer}
-    />
+      </div>
+    </div>
   )
 }
 

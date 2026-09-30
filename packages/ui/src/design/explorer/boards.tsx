@@ -106,24 +106,15 @@ import {
   Toolbar,
   sortableItemClass,
   useSortable,
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
   SidebarGroup,
-  SidebarGroupAction,
   SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarHeader,
-  SidebarInput,
   SidebarMenu,
   SidebarMenuAction,
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSkeleton,
-  SidebarMenuSub,
-  SidebarMenuSubItem,
-  SidebarSeparator,
+  GroupLabel,
+  Separator,
 } from '..'
 import { Specimen } from './specimen'
 import styles from './explorer.module.css'
@@ -209,8 +200,8 @@ const SIDEBAR_CATALOG_STATES = ['default', 'hover', 'active', 'populated'] as co
 
 const SidebarBoard = () => (
   <div className="grid gap-(--hd-space-4)" data-catalog-example="sidebar" data-catalog-variants={SIDEBAR_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={SIDEBAR_CATALOG_SIZES.join(' ')} data-catalog-states={SIDEBAR_CATALOG_STATES.join(' ')}>
-    <Sidebar className="h-[calc(var(--sidebar-width)*3)] w-(--sidebar-width) max-w-full overflow-hidden rounded-(--hd-radius) border border-sidebar-border">
-      <SidebarHeader className={styles.sidebarTop}>
+    <div className="flex h-[calc(var(--sidebar-width)*3)] w-(--sidebar-width) max-w-full flex-col overflow-hidden rounded-(--hd-radius) border border-sidebar-border bg-sidebar text-sidebar-foreground">
+      <div className="flex shrink-0 flex-col">
         <div className="flex h-(--hd-control-h) items-center gap-(--hd-space-2) px-(--hd-space-2)">
           <Text role="prose">HarnessDesk</Text>
           <span className="flex-1" />
@@ -219,7 +210,7 @@ const SidebarBoard = () => (
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="sm" icon={<PlusIcon size={16} />} label="New session" />
-            <SidebarMenuAction aria-label="More ways to start" title="More ways to start"><CaretIcon size={14} /></SidebarMenuAction>
+          <SidebarMenuAction aria-label="More ways to start" title="More ways to start"><CaretIcon size={14} /></SidebarMenuAction>
           </SidebarMenuItem>
         </SidebarMenu>
         <div className={styles.sidebarTopLinks}>
@@ -227,10 +218,10 @@ const SidebarBoard = () => (
           <Button variant="ghost" size="sidebar-nav" aria-label="Dashboard" title="Dashboard" className="min-w-0 flex-1 justify-center"><UsageIcon size={14} /><Text role="navigation" className={styles.sidebarTopLabel}>Dashboard</Text><Text role="meta">2</Text></Button>
           <Button variant="ghost" size="sidebar-nav" aria-label="Plugins" title="Plugins" className="min-w-0 flex-1 justify-center"><PluginIcon size={14} /><Text role="navigation" className={styles.sidebarTopLabel}>Plugins</Text></Button>
         </div>
-      </SidebarHeader>
-      <SidebarContent>
+      </div>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-(--hd-space-0) overflow-x-hidden overflow-y-auto">
         <NavigationGroupHeader label={<span className="flex items-center gap-(--hd-space-1)">Projects <Chip tone="neutral" label="Filtered" /><Button variant="ghost" size="icon-xs" aria-label="Clear list filter"><CrossIcon size={12} /></Button></span>}>
-          <div className="flex min-w-0 flex-1 items-center gap-(--hd-space-1)"><FilterIcon size={13} /><SidebarInput aria-label="Filter this list" placeholder="Filter by title" /></div>
+          <div className="flex min-w-0 flex-1 items-center gap-(--hd-space-1)"><FilterIcon size={13} /><Input controlSize="row" aria-label="Filter this list" placeholder="Filter by title" /></div>
           <Button variant="ghost" size="icon-sm" aria-label="Display controls" title="Display controls"><MoreIcon size={14} /></Button>
         </NavigationGroupHeader>
         <SidebarGroup>
@@ -246,7 +237,7 @@ const SidebarBoard = () => (
           </SidebarGroupContent>
         </SidebarGroup>
         <SidebarGroup>
-          <SidebarGroupLabel>Row sizes</SidebarGroupLabel>
+          <GroupLabel>Row sizes</GroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {SIDEBAR_CATALOG_SIZES.map((size) => (
@@ -258,8 +249,8 @@ const SidebarBoard = () => (
           </SidebarGroupContent>
         </SidebarGroup>
         <SidebarGroup>
-          <SidebarGroupLabel>Recent</SidebarGroupLabel>
-          <SidebarGroupAction aria-label="More recent items"><MoreIcon size={14} /></SidebarGroupAction>
+          <GroupLabel>Recent</GroupLabel>
+          <Button variant="ghost" size="icon-sm" aria-label="More recent items"><MoreIcon size={14} /></Button>
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem><SidebarMenuButton size="default" icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="Fix checkout retry" isActive /></SidebarMenuItem>
@@ -278,26 +269,32 @@ const SidebarBoard = () => (
               <SidebarMenuItem>
                 <SidebarMenuButton icon={<TeamIcon size={16} />} label="Release room" />
                 <SidebarMenuBadge>2</SidebarMenuBadge>
-                <SidebarMenuSub>
-                  <SidebarMenuSubItem><SidebarMenuButton size="sm" icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="Fix checkout retry" /></SidebarMenuSubItem>
-                </SidebarMenuSub>
+                <SidebarMenu nested>
+                  <SidebarMenuItem><SidebarMenuButton size="sm" icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="Fix checkout retry" /></SidebarMenuItem>
+                </SidebarMenu>
               </SidebarMenuItem>
-              <SidebarMenuItem><SidebarMenuButton size="sm" label="12 more" /></SidebarMenuItem>
-              <SidebarMenuItem><SidebarMenuSkeleton showIcon /></SidebarMenuItem>
+              <SidebarMenuItem><SidebarMenuButton size="sm" icon={<span aria-hidden="true" />} label="12 more" /></SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
         <SidebarGroup>
-          <SidebarGroupLabel><Button variant="ghost" size="row" className="text-left">Other projects</Button></SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton icon={<CaretIcon size={12} />} label="Other projects" />
+                <SidebarMenuBadge>3</SidebarMenuBadge>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
         </SidebarGroup>
-      </SidebarContent>
-      <SidebarSeparator />
-      <SidebarFooter>
+      </div>
+      <Separator />
+      <div className="flex shrink-0 flex-col gap-(--hd-space-2) p-(--hd-space-2)">
         <SidebarMenu>
           <SidebarMenuItem><SidebarMenuButton icon={<UserIcon size={16} />} label="Jane Doe" /></SidebarMenuItem>
         </SidebarMenu>
-      </SidebarFooter>
-    </Sidebar>
+      </div>
+    </div>
   </div>
 )
 
@@ -715,9 +712,15 @@ const AppWindowBoard = () => (
           <Button variant="navigation" size="navigation" className="w-full">Back to app</Button>
         </AppWindowRailTop>
         <AppWindowRailScroll className="flex min-h-0 flex-1 flex-col">
-          <NavigationGroupHeader label="You" />
-          <Button variant="navigation" size="navigation" data-selected className="w-full">Appearance</Button>
-          <Button variant="navigation" size="navigation" className="w-full">Permissions</Button>
+          <SidebarGroup>
+            <GroupLabel>You</GroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem><SidebarMenuButton label="Appearance" isActive aria-current="page" /></SidebarMenuItem>
+                <SidebarMenuItem><SidebarMenuButton label="Permissions" /></SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
         </AppWindowRailScroll>
       </AppWindowRail>
       <AppWindowPage className="overflow-hidden">

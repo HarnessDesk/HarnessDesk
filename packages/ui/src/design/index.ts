@@ -75,9 +75,8 @@ export {
 } from './patterns/Settings'
 export { Button, buttonVariants, buttonEdge } from './ui/button'
 export {
-  SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu,
+  SidebarGroup, SidebarGroupContent, SidebarMenu,
   SidebarMenuAction, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem,
-  SidebarMenuSub, SidebarMenuSubItem,
 } from './ui/sidebar'
 export { DisclosureChevron } from './ui/disclosure-chevron'
 export { Input } from './ui/input'
