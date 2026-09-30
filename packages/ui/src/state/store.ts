@@ -1957,7 +1957,8 @@ export class AppStore {
     // cursor handed to a different agent names nothing.
     const runtime =
       options.reset || !this.#historyAnchor ? this.#snapshot.activeRuntime : this.#historyAnchor
-    if (!runtime || this.#snapshot.historyLoading) return
+    if (!runtime || (this.#snapshot.historyLoading && !options.reset)) return
+    const requestId = ++this.#historyRequestId
     this.#historyAnchor = runtime
     this.#patch({ historyLoading: true })
     try {
@@ -1982,6 +1983,7 @@ export class AppStore {
         ),
       ])
       const merged = [...page.data, ...extra.flat()].sort((a, b) => b.updatedAt - a.updatedAt)
+      if (requestId !== this.#historyRequestId) return
       const nextFoldersGone = this.#foldersGoneFor(merged)
       this.#patch({
         ...(nextFoldersGone ? { foldersGone: nextFoldersGone } : {}),
@@ -1997,7 +1999,7 @@ export class AppStore {
     } catch (error) {
       this.#backgroundNotice('warning', describe(error))
     } finally {
-      this.#patch({ historyLoading: false })
+      if (requestId === this.#historyRequestId) this.#patch({ historyLoading: false })
     }
   }
 
@@ -2010,6 +2012,7 @@ export class AppStore {
       await this.loadHistory({ reset: true })
       return
     }
+    const requestId = ++this.#historyRequestId
     this.#patch({ historyLoading: true })
     try {
       const pages = await Promise.all(
@@ -2023,6 +2026,7 @@ export class AppStore {
           ),
       )
       const results = pages.flat().sort((a, b) => b.updatedAt - a.updatedAt)
+      if (requestId !== this.#historyRequestId) return
       const nextFoldersGone = this.#foldersGoneFor(results)
       this.#patch({
         ...(nextFoldersGone ? { foldersGone: nextFoldersGone } : {}),
@@ -2032,7 +2036,7 @@ export class AppStore {
     } catch (error) {
       this.#backgroundNotice('warning', describe(error))
     } finally {
-      this.#patch({ historyLoading: false })
+      if (requestId === this.#historyRequestId) this.#patch({ historyLoading: false })
     }
   }
 
@@ -6875,6 +6879,8 @@ export class AppStore {
   }
 
   #historyRefresh: ReturnType<typeof setTimeout> | null = null
+  /** Newer history reads supersede older replies, including a reset after search. */
+  #historyRequestId = 0
   /** The sidebar's live filter, so a re-read keeps showing what was searched. */
   #historyQuery = ''
   /** The agent the list is paged around; see `loadHistory`. */

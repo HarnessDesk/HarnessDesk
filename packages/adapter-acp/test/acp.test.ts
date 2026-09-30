@@ -2048,6 +2048,8 @@ test('an agent error keeps the detail it arrived with', async (t) => {
  */
 interface StoredConversation {
   readonly cwd: string
+  readonly title?: string
+  readonly preview?: string
   readonly turns?: readonly (readonly string[])[]
 }
 
@@ -2077,9 +2079,9 @@ const storedAgent = async (
     store,
     JSON.stringify(
       Object.fromEntries(
-        Object.entries(stored(dir)).map(([id, { cwd, turns = [] }]) => [
+        Object.entries(stored(dir)).map(([id, { cwd, title = id, preview, turns = [] }]) => [
           id,
-          { sessionId: id, cwd, title: id, updatedAt: at, turns },
+          { sessionId: id, cwd, title, preview, updatedAt: at, turns },
         ]),
       ),
     ),
@@ -2239,6 +2241,47 @@ test('a paged listing is listed whole, each conversation once, the draft probe o
   assert.equal(listed.nextCursor, null)
 })
 
+test('search walks listed history, matches title and preview, and excludes the draft probe', async (t) => {
+  const { runtime } = await storedAgent(t, (dir) => Object.fromEntries(Array.from({ length: 60 }, (_, index) => {
+    const id = `search-${index + 1}`
+    return [id, {
+      cwd: folderIn(dir, id),
+      title: index === 44 ? 'Retry 45 from title' : id,
+      ...(index === 19 ? { preview: 'a preview-only phrase' } : {}),
+    }]
+  })), { FAKE_ACP_LIST_PAGE: '7' })
+  assert.equal(runtime.info.capabilities.listHistory, true)
+  assert.equal(runtime.info.capabilities.searchHistory, true)
+  await runtime.defaultSessionOptions()
+
+  const title = await runtime.searchSessions('rEtRy 45')
+  assert.deepEqual(title.data.map((row) => row.title), ['Retry 45 from title'])
+  const preview = await runtime.searchSessions('PREVIEW-ONLY')
+  assert.deepEqual(preview.data.map((row) => String(row.id)), ['search-20'])
+  const all = await runtime.searchSessions('')
+  assert.equal(all.data.length, 60)
+})
+
+test('search caps the history rows it reads', async (t) => {
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const dir = mkdtempSync(join(tmpdir(), 'acp-search-bound-'))
+  const store = join(dir, 'store.json')
+  const at = new Date().toISOString()
+  writeFileSync(store, JSON.stringify(Object.fromEntries(Array.from({ length: 8 }, (_, index) => {
+    const id = `bounded-${index + 1}`
+    const cwd = folderIn(dir, id)
+    return [id, { sessionId: id, cwd, title: id, updatedAt: at, turns: [] }]
+  }))))
+  const runtime = new AcpRuntime({
+    id: 'fake-acp', name: 'Fake ACP Agent', command: process.execPath, args: [FAKE],
+    env: { FAKE_ACP_STORE: store, FAKE_ACP_LIST_PAGE: '1' },
+  }, { searchRowLimit: 3 })
+  t.after(async () => { await runtime.dispose(); rmSync(dir, { recursive: true, force: true }) })
+  await runtime.start()
+  assert.equal((await runtime.searchSessions('bounded')).data.length, 3)
+})
+
 /**
  * A listing that cannot be read to its end is a failure, not a shorter list.
  * The sidebar keeps the list it has when a listing fails, and the archive
@@ -2331,6 +2374,7 @@ test('an agent that keeps no listing cannot say where a conversation not opened 
   // The control: it declared that it reopens conversations, and no listing.
   assert.equal(runtime.info.capabilities.resume, true)
   assert.equal(runtime.info.capabilities.listHistory, false)
+  assert.equal(runtime.info.capabilities.searchHistory, false)
 
   assert.deepEqual(await reopening(runtime, 'stored'), { refused: unplaced('stored'), gone: true })
   assert.deepEqual(opened(), [])

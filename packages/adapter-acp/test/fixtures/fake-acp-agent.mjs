@@ -1187,6 +1187,7 @@ const handlers = {
         sessionId: entry.sessionId,
         cwd: entry.cwd,
         title: entry.title,
+        preview: entry.preview,
         updatedAt: entry.updatedAt,
       }))
     if (!(LIST_PAGE > 0)) return reply(id, { sessions: rows })
