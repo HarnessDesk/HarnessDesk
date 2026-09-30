@@ -60,7 +60,7 @@ export const DialogHead = ({
      `text-base leading-none`: a module rule saying the same tied with them,
      and the preview drew 16px titles. */
   const name = (className: string | undefined) => (
-    <DialogTitle className={cn(className, 'text-(length:--hd-text) leading-(--hd-line) font-medium')}>{title}</DialogTitle>
+    <DialogTitle className={cn(className, 'min-w-0 truncate text-(length:--hd-text) leading-(--hd-line) font-medium')}>{title}</DialogTitle>
   )
   const lines = children != null || aside != null
   return (
