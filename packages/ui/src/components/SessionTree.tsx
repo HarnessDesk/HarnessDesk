@@ -191,7 +191,7 @@ const SessionRow = ({
   }, [draft, key, store, summary.title])
 
   return (
-    <SidebarMenu className={styles.rowWrap} onContextMenu={menu.open}>
+    <SidebarMenu className={styles.rowWrap} data-region="session-row" onContextMenu={menu.open}>
       <SidebarMenuItem className="list-none" data-menu-open={menu.at ? '' : undefined}>
         {renaming ? (
           <Input
@@ -521,7 +521,7 @@ const GroupHead = ({
               <DisclosureChevron open={open} size="xs" className="hidden group-hover/menu-item:block group-focus-within/menu-item:block" />
             </>}
             label={<span className="flex min-w-0 items-center gap-(--hd-space-1)" >
-              <Text role="navigation" ink={current ? 'primary' : undefined} weight={current ? 'medium' : undefined} truncate className={styles.groupName}>{group.name}</Text>
+              <Text role="navigation" ink={current ? 'primary' : undefined} truncate className={styles.groupName}>{group.name}</Text>
               {stopped && <span title={`${stopped.reason} ${stopped.nextStep}`}><Chip tone="neutral" label="Capture stopped" /></span>}
             </span>}
           />

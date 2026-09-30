@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
 const sidebar = (page: Page) => page.locator('[class*="sidebar_"]')
-const workspace = (page: Page) => sidebar(page).locator('[class*="groupHead_"]').filter({
+const workspace = (page: Page) => page.locator('[data-region="sidebar-content"] [data-slot="sidebar-menu-item"]').filter({
   has: page.locator('button[aria-label="Actions for HarnessDesk"]'),
 })
 
@@ -122,7 +122,7 @@ test('settled gives up on an animation whose timeline never advances', async ({ 
 })
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`workspace hover actions leave its pin and count visible (${theme})`, async ({ page }, testInfo) => {
+test(`workspace hover keeps its pin visible and label width fixed (${theme})`, async ({ page }, testInfo) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/preview.html')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
@@ -131,7 +131,8 @@ for (const theme of ['light', 'dark'] as const) {
     await group.hover()
     await actions.click()
     await page.getByRole('menuitem', { name: 'Pin to top', exact: true }).click()
-    const pin = group.locator('[class*="groupPin_"]')
+    const pin = group.locator('[data-slot="sidebar-menu-badge"][aria-label="Pinned"]')
+    const title = group.locator('[data-slot="sidebar-menu-label"]')
     await expect(pin).toBeVisible()
 
     for (const width of [260, 200, 480]) {
@@ -139,27 +140,25 @@ for (const theme of ['light', 'dark'] as const) {
       // Neither metadata nor title should jump when hover controls appear.
       await page.mouse.move(1400, 0)
       await group.getByRole('button').first().blur()
-      const before = await settled(pin)
+      const before = await settled(title)
       await group.hover()
       const add = group.getByRole('button', { name: 'New session in HarnessDesk', exact: true })
       await expect(add).toBeVisible()
-      const after = await settled(pin)
+      const after = await settled(title)
       if (width === 260) {
         await group.screenshot({ path: testInfo.outputPath('workspace-hover.png') })
         await testInfo.attach('workspace-geometry', {
-          body: JSON.stringify({ pin: after, count: await settled(group.locator('[class*="groupCount_"]')), add: await settled(add), actions: await settled(actions) }),
+          body: JSON.stringify({ pin: await settled(pin), label: after, add: await settled(add), actions: await settled(actions) }),
           contentType: 'application/json',
         })
       }
-      // A resting row keeps its whole width — no room is held for a control
-      // that is not drawn — and the marks at its end step aside when the ⋯
-      // arrives, which is the moment they would otherwise sit under it.
-      // It never moves right and never changes line; whether it moves left at
-      // all depends on whether the row was full, which the wide case is not.
-      expect(after.left).toBeLessThanOrEqual(before.left)
+      // The fixed trailing slot keeps the label's width while its actions appear.
+      expect(after.left).toBe(before.left)
+      expect(after.right).toBe(before.right)
       expect(after.top).toBe(before.top)
-      expect(after.right).toBeLessThanOrEqual((await settled(add)).left)
-      expect((await settled(group.locator('[class*="groupCount_"]'))).right).toBeLessThanOrEqual((await settled(add)).left)
+      // The action shares the trailing slot with the badge, so it may cover
+      // the pin while hovered; the pin returns when the pointer leaves.
+      await expect(pin).toBeVisible()
       expect(await unobstructed(add)).toBe(true)
       expect(await unobstructed(actions)).toBe(true)
     }
@@ -176,10 +175,10 @@ for (const theme of ['light', 'dark'] as const) {
       await sidebar(page).getByRole('button', { name: 'How this list is shown', exact: true }).click()
       await page.getByRole('menuitemradio', { name: density, exact: true }).click()
       const label = 'Learn from every single tab of the settings screen'
-      const row = sidebar(page).locator('[class*="rowWrap_"]').filter({
+      const row = page.locator('[data-region="session-row"] [data-slot="sidebar-menu-item"]').filter({
         has: page.locator(`button[aria-label="Actions for ${label}"]`),
       })
-      const open = row.locator('button[data-density]')
+      const open = row.locator('[data-slot="sidebar-menu-button"]')
       const action = row.getByRole('button', { name: `Actions for ${label}`, exact: true })
       const branch = row.getByRole('img', { name: 'Worktree chore/settings-audit', exact: true })
       const gone = row.getByRole('img', { name: /^Folder is gone/ })

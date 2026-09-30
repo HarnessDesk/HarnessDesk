@@ -27,7 +27,7 @@ const label = 'Learn from every single tab of the settings screen'
 const actions = `Actions for ${label}`
 
 const rowOf = (page: Page) =>
-  page.locator('[class*="sidebar_"] [class*="rowWrap_"]').filter({
+  page.locator('[data-region="session-row"] [data-slot="sidebar-menu-item"]').filter({
     has: page.locator(`button[aria-label="${actions}"]`),
   })
 
@@ -80,7 +80,7 @@ for (const motion of ['reduce', 'no-preference'] as const) {
 
     test('a ⋯ opened from the keyboard has the focus back after Escape', async ({ page }) => {
       const row = rowOf(page)
-      await row.locator('button[data-density]').focus()
+      await row.locator('[data-slot="sidebar-menu-button"]').focus()
       // The ⋯ shows while its row holds the focus, and is the next stop.
       await page.keyboard.press('Tab')
       await expect.poll(() => holder(page)).toBe(actions)

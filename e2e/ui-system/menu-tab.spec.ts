@@ -147,7 +147,9 @@ test.describe('a context menu', () => {
   // leaving it goes back to where the focus was. Before, Tab stopped on the
   // guard after it; Shift+Tab and Escape dropped the focus on the page.
   const sessionRow = (page: Page) =>
-    page.locator('[class*="sidebar_"]').getByRole('button', { name: /^Duplicate Codex accounts/ })
+    page.locator('[data-region="session-row"] [data-slot="sidebar-menu-button"]')
+      .filter({ hasText: 'Duplicate Codex accounts logged in twice' })
+      .first()
 
   test('Tab, Shift+Tab and Escape each close it and give the focus back to its row', async ({ page }) => {
     await page.goto('/preview.html')

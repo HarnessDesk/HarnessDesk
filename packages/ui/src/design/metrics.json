@@ -343,6 +343,14 @@
     "pad": "4 8 4 8",
     "radius": 10
   },
+  "button/button/size/sidebar-nav": {
+    "h": 28,
+    "text": 13,
+    "weight": "500",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 8
+  },
   "button/button/size/sm": {
     "h": 28,
     "text": 12,
@@ -789,6 +797,30 @@
     "weight": "400",
     "line": 20,
     "pad": "0 0 0 0",
+    "radius": 10
+  },
+  "sidebar/sidebar-menu-button/size/default": {
+    "h": 30,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 32 0 8",
+    "radius": 10
+  },
+  "sidebar/sidebar-menu-button/size/lg": {
+    "h": 26,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 32 0 8",
+    "radius": 10
+  },
+  "sidebar/sidebar-menu-button/size/sm": {
+    "h": 30,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 32 0 8",
     "radius": 10
   },
   "stat/stat/variant/bordered": {

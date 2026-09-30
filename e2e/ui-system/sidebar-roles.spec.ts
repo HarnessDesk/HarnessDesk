@@ -1,26 +1,28 @@
 import { expect, test } from '@playwright/test'
 
-test('sidebar navigation names stay regular and fade at their trailing edge', async ({ page }) => {
+test('sidebar navigation names stay regular and truncate at their trailing edge', async ({ page }) => {
   await page.goto('/preview.html')
 
-  const title = page.locator('[class*="rowWrap_"] [data-role="navigation"]').filter({
+  const title = page.locator('[data-region="session-row"] [data-slot="sidebar-menu-label"]').filter({
     hasText: 'Duplicate Codex accounts logged in twice',
   }).first()
   await expect(title).toBeVisible()
 
-  const style = await title.evaluate(node => {
-    const computed = getComputedStyle(node)
+  const style = await title.evaluate((node) => {
+    const text = [...node.querySelectorAll<HTMLElement>('*')].filter((child) => child.textContent?.trim() === 'Duplicate Codex accounts logged in twice').at(-1)
+    if (!text) throw new Error('session label text missing')
+    const computed = getComputedStyle(text)
     return {
       weight: computed.fontWeight,
       mask: computed.maskImage,
       overflow: computed.textOverflow,
-      clipped: node.scrollWidth > node.clientWidth,
+      clipped: text.scrollWidth > text.clientWidth,
     }
   })
   expect(style.weight).toBe('400')
   expect(style.clipped).toBe(true)
-  expect(style.mask).toContain('linear-gradient')
-  expect(style.overflow).not.toBe('ellipsis')
+  expect(style.mask).not.toContain('linear-gradient')
+  expect(style.overflow).toBe('ellipsis')
 })
 
 test('a healthy account reading keeps plain ink rather than success ink', async ({ page }) => {
@@ -93,14 +95,12 @@ test('a settings group label is smaller than its page title', async ({ page }) =
   expect(sizes[1]).toBeLessThan(sizes[0])
 })
 
-test('a page title computes the wordmark type', async ({ page }) => {
+test('a page title computes the heading type', async ({ page }) => {
   await page.goto('/preview.html')
   await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('general')
   const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
 
-  const wordmark = page.locator('[data-role="wordmark"]').first()
   const title = settings.locator('[data-slot="page-title"]')
-  await expect(wordmark).toBeVisible()
   await expect(title).toBeVisible()
 
   const type = (node: Element) => {
@@ -111,5 +111,14 @@ test('a page title computes the wordmark type', async ({ page }) => {
       weight: style.fontWeight,
     }
   }
-  expect(await title.evaluate(type)).toEqual(await wordmark.evaluate(type))
+  const expected = await title.evaluate((node) => {
+    const probe = document.createElement('span')
+    probe.style.cssText = 'font-size:var(--hd-heading);line-height:var(--hd-line-heading);font-weight:var(--hd-weight-semibold)'
+    node.parentElement!.append(probe)
+    const style = getComputedStyle(probe)
+    const result = { size: style.fontSize, line: style.lineHeight, weight: style.fontWeight }
+    probe.remove()
+    return result
+  })
+  expect(await title.evaluate(type)).toEqual(expected)
 })
