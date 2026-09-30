@@ -56,6 +56,33 @@ const MODELS = (process.env['SHOT_MODELS'] ?? 'sonnet:Sonnet,opus:Opus')
 const CLAIM = process.env['SHOT_CLAIM'] ? JSON.parse(process.env['SHOT_CLAIM']) : null
 
 /**
+ * A tiny, real flow worker used only by the GIF rig. It asks the board for
+ * its next card, claims it, then completes it through the MCP tools a seated
+ * agent receives. Outcomes persist per runtime across the flow's fresh seats.
+ */
+const FLOW = (() => {
+  try {
+    const parsed = process.env['SHOT_FLOW'] ? JSON.parse(process.env['SHOT_FLOW']) : null
+    return parsed && Array.isArray(parsed.outcomes) && typeof parsed.state === 'string'
+      ? { outcomes: parsed.outcomes.map(String), state: parsed.state, delayMs: Number(parsed.delayMs) || 0, files: Array.isArray(parsed.files) ? parsed.files.map(String) : [] }
+      : null
+  } catch {
+    return null
+  }
+})()
+
+const ROOM_MESSAGE = (() => {
+  try {
+    const parsed = process.env['SHOT_ROOM_MESSAGE'] ? JSON.parse(process.env['SHOT_ROOM_MESSAGE']) : null
+    return parsed && typeof parsed.to === 'string' && typeof parsed.text === 'string'
+      ? { to: parsed.to, text: parsed.text, onTurn: Number(parsed.onTurn) || 0 }
+      : null
+  } catch {
+    return null
+  }
+})()
+
+/**
  * Real ACP usage, for the seat this process plays.
  *
  * Nothing above this line ever reported a token: this fixture was written
@@ -177,6 +204,54 @@ const playClaim = async (state) => {
   for (const { intent, files } of CLAIM) {
     await mcpCall(client, 'tools/call', { name: 'claim_work', arguments: { intent, files: files ?? [] } }).catch(() => {})
   }
+}
+
+const flowPass = () => {
+  if (!FLOW) return 0
+  try {
+    const stored = JSON.parse(readFileSync(FLOW.state, 'utf8'))
+    return Number.isInteger(stored?.pass) && stored.pass >= 0 ? stored.pass : 0
+  } catch {
+    return 0
+  }
+}
+
+const flowCard = (value) => /work:\s*#(\d+)/.exec(JSON.stringify(value))?.[1] ?? null
+
+const playFlow = async (state) => {
+  if (!FLOW || state.flowed) return
+  state.flowed = true
+  const client = mcpConnect(state)
+  if (!client) return
+  await mcpCall(client, 'initialize', {
+    protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'harnessdesk-shots-agent', version: '1.0.0' },
+  })
+  mcpNotify(client, 'notifications/initialized', {})
+  const waiting = await mcpCall(client, 'tools/call', { name: 'await_work', arguments: { cycle: 0, block_ms: 1000 } }).catch(() => null)
+  const intent = flowCard(waiting)
+  if (!intent) return
+  await mcpCall(client, 'tools/call', { name: 'claim_next', arguments: { files: FLOW.files } }).catch(() => null)
+  if (FLOW.delayMs > 0) await sleep(FLOW.delayMs)
+  const pass = flowPass()
+  const outcome = FLOW.outcomes[Math.min(pass, FLOW.outcomes.length - 1)]
+  if (!outcome) return
+  const result = await mcpCall(client, 'tools/call', {
+    name: 'complete_claim',
+    arguments: { intent: Number(intent), outcome, note: `Flow ${outcome}.`, context: 'The checkout retry change is ready for the next card.' },
+  }).catch(() => null)
+  if (/Completed #/.test(JSON.stringify(result))) writeFileSync(FLOW.state, `${JSON.stringify({ pass: pass + 1 })}\n`)
+}
+
+const playRoomMessage = async (state) => {
+  if (!ROOM_MESSAGE || state.roomMessageSent || (state.turnsPlayed ?? 0) !== ROOM_MESSAGE.onTurn) return
+  state.roomMessageSent = true
+  const client = mcpConnect(state)
+  if (!client) return
+  await mcpCall(client, 'initialize', {
+    protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'harnessdesk-shots-agent', version: '1.0.0' },
+  })
+  mcpNotify(client, 'notifications/initialized', {})
+  await mcpCall(client, 'tools/call', { name: 'agent_message', arguments: { to: ROOM_MESSAGE.to, text: ROOM_MESSAGE.text } }).catch(() => null)
 }
 
 const remember = (state) => {
@@ -323,12 +398,10 @@ const TURNS = [
     second: 'Only 503 and 504 are listed as retryable, and the backoff is a flat 200ms — three retries against a gateway that is still restarting is three failures in 600ms.',
     plan: ['Add 502 to the retryable set', 'Cap the backoff and add jitter', 'Ask Codex to check checkout end to end'],
     say: [
-      '502 is retryable alongside 503 and 504 now, and the backoff is exponential with a 2s cap and full jitter (`src/checkout/retry.ts`).\n\n',
-      'Codex — once this lands, can you check checkout end to end in the browser?',
+      '502 is retryable alongside 503 and 504 now, with exponential backoff capped at 2s and full jitter (`src/checkout/retry.ts`). Codex — can you check checkout end to end in the browser?',
     ],
   },
   {
-    opening: 'On it.',
     think: "Claude's retry fix just landed on retry.ts. Rather than read the diff, I will run the checkout flow for real and see whether a 502 actually recovers.",
     tools: [
       { id: 'c1', title: 'browser_open', kind: 'fetch', input: { url: 'http://127.0.0.1/checkout' }, output: { text: 'Checkout — order placed' }, ms: 1500 },
@@ -336,22 +409,16 @@ const TURNS = [
     second: 'The first attempt hit the simulated 502, the retry a moment later got through, and the order posted — the success banner just needs a beat before it agrees.',
     plan: ['Drive the checkout flow with a 502 in the middle', 'Confirm the order actually posts', 'Note anything that would still block a merge'],
     say: [
-      'Checked: the 502 retried twice and the order placed.\n\n',
-      'One nit, not blocking: the success banner shows before the second attempt actually finishes, so a slow retry would read as done a beat early.',
+      'Checked: the 502 retried twice and the order placed. One nit, not blocking: the success banner shows before the second attempt finishes, so a slow retry reads as done a beat early.',
     ],
   },
   {
-    say: ['Good catch — I will sequence the banner off the retry settling, not the request firing. Thanks for checking.'],
+    say: ["Good catch — I'll tie the banner to the retry settling, not the request firing. Thanks, Codex."],
   },
   {
-    say: ['Earlier context: checkout currently fails on a transient 502. I am taking the retry fix, then I will ask Codex to check the completed checkout in the browser.'],
+    say: ["On it. I'll make 502 retryable with a capped backoff, then ask Codex to check the finished checkout in the browser."],
   },
   {
-    opening: 'One final visual pass.',
-    tools: [
-      { id: 'c2', title: 'browser_open', kind: 'fetch', input: { url: 'http://127.0.0.1/checkout' }, output: { text: 'Checkout stays open' }, ms: 3500 },
-    ],
-    say: ['Keeping the completed checkout visible.'],
   },
 ]
 
@@ -423,7 +490,7 @@ const playTurn = async (id) => {
      chunks arrive in the chat as the first sentence, then the first sentence
      and the second concatenated, and the column reads as if every agent
      stuttered. The paragraph break survives inside a single chunk. */
-  say(id, turn.say.join(''))
+  say(id, (turn.say ?? []).join(''))
   return 'end_turn'
 }
 
@@ -535,6 +602,8 @@ const handlers = {
       state.claimed = true
       await playClaim(state).catch(() => {})
     }
+    await playFlow(state).catch(() => {})
+    await playRoomMessage(state).catch(() => {})
     const stopReason = await playTurn(sessionId)
     // A window only when the seat's usage names one — an agent that never
     // sends a size, like the real Cursor CLI, must not gain one by being

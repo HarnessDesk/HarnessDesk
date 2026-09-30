@@ -139,15 +139,33 @@ say(`frame  ${WIDTH}x${HEIGHT} @${FPS}fps`)
  * default. `TURNS[4,6]`/`TURNS[5]` are `agent.mjs`'s own; see its own
  * comment for what each plays.
  */
-if (SCENARIO === 'hero') {
+if (SCENARIO === 'hero' || SCENARIO === 'flow') {
   const agentsPath = join(HOME, 'agents.json')
   const roster = JSON.parse(readFileSync(agentsPath, 'utf8'))
   for (const agent of roster.agents) {
-    if (agent.id === rigRuntimeId('claude-code')) agent.env.SHOT_TURN = '7,7,4,6'
-    if (agent.id === rigRuntimeId('codex')) agent.env.SHOT_TURN = '5,5,8'
+    if (SCENARIO === 'hero') {
+      if (agent.id === rigRuntimeId('claude-code')) agent.env.SHOT_TURN = '7,7,4,6'
+      if (agent.id === rigRuntimeId('claude-code')) agent.env.SHOT_ROOM_MESSAGE = JSON.stringify({
+        to: 'Codex', onTurn: 2,
+        text: '502 is retryable alongside 503 and 504 now, with exponential backoff capped at 2s and full jitter (`src/checkout/retry.ts`). Codex — can you check checkout end to end in the browser?',
+      })
+      if (agent.id === rigRuntimeId('codex')) agent.env.SHOT_TURN = '8,8,5'
+    } else {
+      delete agent.env.SHOT_CLAIM
+      const flow = (outcomes, delayMs) => JSON.stringify({
+        outcomes, delayMs, files: ['src/checkout/retry.ts'], state: join(HOME, 'flow-passes', `${agent.id}.json`),
+      })
+      if (agent.id === rigRuntimeId('codex')) agent.env.SHOT_FLOW = flow(['published', 'published'], 4800)
+      if (agent.id === rigRuntimeId('cursor')) agent.env.SHOT_FLOW = flow(['request-changes', 'approve'], 4200)
+      if (agent.id === rigRuntimeId('claude-code')) agent.env.SHOT_FLOW = flow(['approve', 'approve'], 4200)
+      if (agent.id === rigRuntimeId('gemini-cli')) agent.env.SHOT_FLOW = flow(['approve', 'approve'], 4200)
+    }
   }
+  mkdirSync(join(HOME, 'flow-passes'), { recursive: true })
   writeFileSync(agentsPath, `${JSON.stringify(roster, null, 2)}\n`)
-  say('patched agents.json: claude-code plays context, fix, then acknowledgement; codex plays the browser check')
+  say(SCENARIO === 'hero'
+    ? 'patched agents.json: Claude plays context, fix, then acknowledgement; Codex plays the browser check'
+    : 'patched agents.json: the flow seats claim and complete their own cards through MCP')
 }
 
 const desk = await launchDesk({ app: APP, home: HOME, userDataDir: `${HOME}/electron`, logPath: `${HOME}/app.log`, env: SHOT_ENV })
@@ -354,6 +372,7 @@ try {
   // next two scripted Claude turns are deliberately started only by an
   // idle-checked room delivery below, after the seat's standing order ends.
   let heroClaudeKey = null
+  let heroCodexKey = null
   if (SCENARIO === 'hero') {
     heroClaudeKey = await cdp.eval(
       `${STORE}.seatGoal({ goal: ${q(room)}, agent: 'room-claude-code' })
@@ -361,9 +380,22 @@ try {
       60_000,
     )
     await waitForRoomIdle('hero context')
-    const contextDelivery = await startRoomDelivery(heroClaudeKey, 'Please put the checkout condition in the room before starting the fix.', 'hero context delivery')
+    const contextDelivery = await startRoomDelivery(heroClaudeKey, 'Checkout fails on a transient 502. Can you take the retry fix?', 'hero context delivery')
     await waitForRoomDelivery(contextDelivery, 'hero context delivery')
     await waitForRoomIdle('hero context reply')
+    // Keep Codex a named, idle room member before Claude hands the fix over.
+    // Its initial scripted turn has no chat text, so the camera still opens
+    // on exactly the first two spoken lines.
+    heroCodexKey = await cdp.eval(
+      `${STORE}.seatGoal({ goal: ${q(room)}, agent: 'room-codex' })
+        .then((seat) => seat.session.runtime + String.fromCharCode(0) + seat.session.sessionId)`,
+      60_000,
+    )
+    await waitForRoomIdle('hero Codex seating')
+    // The seeded desktop's historical conversation list can briefly include
+    // a placeholder session while Codex is warming. The hero is about the
+    // room, not that list, so remove the outer sidebar before any frame.
+    await cdp.eval(`${STORE}.toggleSidebar(); true`)
     await dismissNotices(cdp)
     await retildify()
   }
@@ -388,18 +420,20 @@ try {
     // `browser` scene does, driven by Codex's own turn rather than opened
     // from outside it.
     //
-    // Beat 1: Claude's turn streams — `agent.mjs`'s `TURNS[4]` (this file's
-    // own `agents.json` patch above), the real fix, ending with a real
-    // hand-off ("Codex — … can you check checkout end to end?") rather than
-    // one this recording has to narrate for it.
+    // Beat 1: Claude's own next turn streams (`agent.mjs`'s `TURNS[4]`) with
+    // the completed fix and hand-off. It is a direct seat turn, so its room
+    // answer follows the opening exchange without a staged person message.
     const claudeKey = heroClaudeKey
-    const claudeFix = await startRoomDelivery(claudeKey, 'Please make the 502 retry fix and hand the browser check to Codex.', 'Claude fix')
+    const claudeFix = await cdp.eval(`${STORE}.getSnapshot().teams.get(${q(room)})?.channel.length ?? 0`)
+    await startIdleSeatTurn(claudeKey, 'Make the 502 retry fix and hand the finished checkout to Codex.', 'Claude fix')
+    await answerApprovals(cdp)
     await waitForRoomDelivery(claudeFix, 'Claude fix')
     await sleep(900)
     await retildify()
 
-    // Beat 2: Codex is seated and immediately says "on it" (`TURNS[5]`'s own
-    // `opening`), then — a beat later, timed to land while its scripted
+    // Beat 2: Claude's real inter-agent hand-off reaches the already-seated
+    // Codex, whose received turn is silent; the person then hands Codex the
+    // inspection, which lands while its scripted
     // `browser_open` tool call is the *pending* one in its turn — the real
     // browser pane opens on the storefront's checkout page. The pane's own
     // "driven by" mark (`BrowserPane.tsx`'s `useDriving`) reads whichever
@@ -407,14 +441,11 @@ try {
     // titles that call `browser_open` (the plugin's own tool name) for
     // exactly this reason, so the mark reads "Codex" for the window this
     // recording holds it open, never "Claude".
-    await cdp.eval(`void ${STORE}.seatGoal({ goal: ${q(room)}, agent: 'room-codex' })
-      .then((seat) => { globalThis.__heroCodexKey = seat.session.runtime + String.fromCharCode(0) + seat.session.sessionId })
-      .catch((error) => { globalThis.__heroCodexError = String(error) }); true`, 60_000)
-    await waitForSnapshot(() => cdp.eval(`globalThis.__heroCodexKey ?? globalThis.__heroCodexError ?? null`), Boolean)
-    const codexKey = await cdp.eval(`globalThis.__heroCodexKey`)
-    if (!codexKey) throw new Error(`Codex seat failed: ${await cdp.eval('globalThis.__heroCodexError')}`)
-    const codexCheck = await startRoomDelivery(codexKey, 'Please check checkout end to end in the browser and report the result.', 'Codex browser check')
+    const codexKey = heroCodexKey
+    if (!codexKey) throw new Error('Codex seat failed before the recording started')
+    const codexCheck = await startRoomDelivery(codexKey, 'Over to you, Codex.', 'Codex browser check')
     await waitForSeatBusy(codexKey, 'Codex browser check')
+    await answerApprovals(cdp)
     await sleep(700)
     const browseDir = join(WORK, 'browse')
     mkdirSync(browseDir, { recursive: true })
@@ -454,16 +485,9 @@ try {
     // Beat 3: Claude acknowledges — a second, later turn on the *same*
     // session (`TURNS[6]`, this file's own `agents.json` patch), a real
     // second `send` rather than a `team/post` the person would have typed.
-    const acknowledgement = await startRoomDelivery(claudeKey, 'Please acknowledge the checkout result and the banner nit.', 'Claude acknowledgement')
+    const acknowledgement = await startRoomDelivery(claudeKey, 'Your call on the nit.', 'Claude acknowledgement')
     await waitForRoomDelivery(acknowledgement, 'Claude acknowledgement')
     await waitForRoomIdle('Claude acknowledgement')
-    await followRoomChat()
-    await retildify()
-    // The tab names its current driver, never a stale historical owner.  A
-    // final, idle-safe Codex inspection turn keeps the completed checkout
-    // visibly owned by Codex throughout the closing hold, while the room's
-    // already-settled answer remains the last chat line.
-    await startIdleSeatTurn(codexKey, 'Keep the completed checkout open for a final visual check.', 'Codex closing inspection')
     await followRoomChat()
     await retildify()
     // Hold the settled frame — both agents' messages and the open browser —
@@ -533,77 +557,57 @@ try {
     await answerApprovals(cdp).catch(() => {})
     await retildify()
 
-    // Beat 2: the expanded board — the fixer's card, To do → Working (a real
-    // seat the flow engine opened, not one this script arranged) → published,
-    // read back through `team/state` rather than guessed: a round's cards
-    // are numbered by the engine, not by this file, and answering the wrong
-    // id is the rejected take's own bug — every `team/intent` here silently
-    // failed against a guess, which is why nothing ever showed as approved.
+    // Beat 2 onward: the flow seats themselves use `await_work`, `claim_next`,
+    // and `complete_claim` through agent.mjs's real MCP bridge. This driver
+    // observes each genuine board transition; it never applies a person verb
+    // or guesses an intent id.
     await cdp.eval(`${STORE}.openTeamBoard(${q(room)}); true`)
     await cdp.eval(`${STORE}.zoomPanel('right', 'content'); true`)
     await sleep(2200)
 
     const teamState = () => cdp.json(`${STORE}.transport.request('team/state', ${q({ room })})`, 60_000)
-    const resolved = new Set()
-    /** The next round's cards of `role`, not already answered — polled, because the engine opens a round in its own time. */
-    const nextRound = async (role, count) => {
-      for (let attempt = 0; attempt < 40; attempt += 1) {
+    const awaitState = async (label, predicate) => {
+      for (let attempt = 0; attempt < 90; attempt += 1) {
         const state = await teamState().catch(() => null)
-        const hits = (state?.intents ?? []).filter((one) => one.role === role && !resolved.has(one.id))
-        if (hits.length >= count) {
-          for (const one of hits) resolved.add(one.id)
-          return hits
-        }
-        await sleep(1000)
+        if (state && predicate(state.intents ?? [])) return state
+        await sleep(250)
       }
-      throw new Error(`timed out waiting for a ${role} round of ${count}`)
+      throw new Error(`${label}: agents did not reach the expected real board state`)
     }
-    const answer = (id, outcome, note) =>
-      cdp
-        .eval(`${STORE}.teamIntent(${q(room)}, ${id}, 'done', undefined, ${q(outcome)}${note ? `, ${q(note)}` : ''})`, 60_000)
-        .catch(() => {})
 
-    const [fixer1] = await nextRound('fixer', 1)
-    await sleep(1800)
-    await answer(fixer1.id, 'published', 'Opened #482 on fix/checkout-retry-502.')
-    await sleep(2200)
-    await answerApprovals(cdp).catch(() => {})
+    // The first fixation is visibly claimed before the delayed completion
+    // opens the three reviewer seats.
+    await awaitState('fixer claim', (intents) => intents.some((one) => one.role === 'fixer' && one.state === 'claimed'))
+    await sleep(1600)
     await retildify()
 
-    // Beat 3: the loop — three reviewer cards claimed (three distinguishable
-    // seats — the flow's own `seat:` list, not one runtime three times), one
-    // requests changes, the fixer answers, a second round opens and every
-    // reviewer approves.
-    const round1 = await nextRound('reviewer', 3)
-    await sleep(1800)
-    await answer(round1[0].id, 'request-changes', 'The 502 case is untested.')
-    await answer(round1[1].id, 'approve')
-    await answer(round1[2].id, 'approve')
-    await sleep(2200)
-    await answerApprovals(cdp).catch(() => {})
+    await awaitState('first reviewer round', (intents) =>
+      intents.filter((one) => one.role === 'reviewer' && one.state === 'claimed').length === 3,
+    )
+    await sleep(1600)
     await retildify()
 
-    const [fixer2] = await nextRound('fixer', 1)
-    await sleep(1500)
-    await answer(fixer2.id, 'published', 'Added the missing 502 case; both rounds pass now.')
-    await sleep(2200)
-    await answerApprovals(cdp).catch(() => {})
+    await awaitState('requested changes', (intents) =>
+      intents.some((one) => one.role === 'reviewer' && one.state === 'done' && one.outcome === 'request-changes') &&
+      intents.some((one) => one.role === 'fixer' && one.state === 'claimed' && /Answer round/.test(one.title)),
+    )
+    await sleep(1400)
     await retildify()
 
-    const round2 = await nextRound('reviewer', 3)
-    await sleep(1800)
-    await answer(round2[0].id, 'approve')
-    await answer(round2[1].id, 'approve')
-    await answer(round2[2].id, 'approve')
-    await sleep(2500)
-    await answerApprovals(cdp).catch(() => {})
+    await awaitState('second reviewer round', (intents) =>
+      intents.filter((one) => one.role === 'reviewer' && one.state === 'claimed').length === 3 &&
+      intents.some((one) => one.role === 'fixer' && one.state === 'done' && /Answer round/.test(one.title)),
+    )
+    await sleep(1400)
     await retildify()
 
-    // Beat 4: settled — every reviewer approved (drawn as such, not as
-    // "nothing checked"), so the goal lands on "Needs you" for the person's
-    // own merge. Held for the loop's final beat; the merge itself stays
-    // the person's, so this never clicks it.
-    await waitForSnapshot(() => cdp.eval(`document.body.innerText.includes('Needs you')`), Boolean).catch(() => {})
+    // Every reviewer has now completed its real approval. The only remaining
+    // card is the person's merge, so the flow correctly ends at Needs you.
+    await awaitState('merge hand-off', (intents) =>
+      intents.some((one) => one.role === 'referee' && one.state === 'open') &&
+      intents.filter((one) => one.role === 'reviewer').filter((one) => one.state === 'done' && one.outcome === 'approve').length >= 5,
+    )
+    await waitForSnapshot(() => cdp.eval(`document.body.innerText.includes('Needs you')`), Boolean)
     await sleep(2500)
   } else {
     throw new Error(`unknown --scenario ${q(SCENARIO)}`)
@@ -639,6 +643,7 @@ try {
   writeFileSync(join(FRAMES, 'list.txt'), `${lines.join('\n')}\n`)
 
   const gif = join(OUT, `${NAME}.gif`)
+  const poster = join(OUT, `${NAME}-poster.png`)
   const palette = join(FRAMES, 'palette.png')
   // The presentation frame's own padding/backdrop, applied as a video
   // filter rather than per-frame in ImageMagick (hundreds of raw frames):
@@ -662,12 +667,19 @@ try {
   const pad = 48
   const scaledWidth = Math.round(WIDTH * 0.94)
   const padFilter = `fps=${FPS},scale=${scaledWidth}:-1:flags=lanczos,pad=iw+${pad * 2}:ih+${pad * 2}:${pad}:${pad}:${backdrop}`
-  await run('ffmpeg', ['-y', '-f', 'concat', '-i', 'list.txt', '-vf', `${padFilter},palettegen=max_colors=160:stats_mode=diff`, palette], { cwd: FRAMES })
+  // The flow tile is deliberately unlike the hero: its README cell supplies
+  // the frame, so the camera takes a fixed main-area crop, with no sidebar,
+  // padding, shadow, or rounded window around it.
+  const outputFilter = SCENARIO === 'flow'
+    ? `fps=${FPS},crop=960:600:${WIDTH - 960}:0`
+    : padFilter
+  await run('ffmpeg', ['-y', '-f', 'concat', '-i', 'list.txt', '-vf', `${outputFilter},palettegen=max_colors=160:stats_mode=diff`, palette], { cwd: FRAMES })
   await run(
     'ffmpeg',
-    ['-y', '-f', 'concat', '-i', 'list.txt', '-i', palette, '-lavfi', `${padFilter}[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=3`, '-loop', '0', gif],
+    ['-y', '-f', 'concat', '-i', 'list.txt', '-i', palette, '-lavfi', `${outputFilter}[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=3`, '-loop', '0', gif],
     { cwd: FRAMES },
   )
+  await run('ffmpeg', ['-y', '-i', join(FRAMES, frames[frames.length - 1].file), '-vf', outputFilter, '-frames:v', '1', poster])
 
   const { stdout } = await run('/bin/ls', ['-lh', gif])
   say(`✓ ${NAME}.gif  ${stdout.trim().split(/\s+/)[4]}  (${((Date.now() - startedAt) / 1000).toFixed(1)}s of app)`)
