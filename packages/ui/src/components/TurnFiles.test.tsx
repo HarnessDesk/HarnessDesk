@@ -6,6 +6,7 @@ import { runtimeId, sessionKey, turnId, type FileChange, type SessionId, type Tu
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore, type TurnUndo } from '../state/store'
+import { closedTurnFilesKey } from '../state/snapshot'
 import { TurnFiles } from './TurnFiles'
 
 /**
@@ -43,25 +44,38 @@ const CHANGES: readonly FileChange[] = [
   { path: '/work/storefront/src/retry.ts', kind: { type: 'update' }, diff: '@@ -1,2 +1,2 @@\n-one\n+1\n two\n' },
 ]
 
-const rig = async (answers: TurnUndo[], changes: readonly FileChange[] = CHANGES) => {
-  const snapshot = { ...emptySnapshot(), status: 'open', activeSessionKey: KEY } as unknown as AppSnapshot
-  const revertTurn = vi.fn(async () => answers.shift() ?? { done: true, unrecoverable: false })
+const rig = async (
+  answers: TurnUndo[],
+  changes: readonly FileChange[] = CHANGES,
+  turn = TURN,
+  pendingRevert?: Promise<TurnUndo>,
+) => {
+  let snapshot = { ...emptySnapshot(), status: 'open', activeSessionKey: KEY } as unknown as AppSnapshot
+  const listeners = new Set<() => void>()
+  const revertTurn = vi.fn(async () => answers.shift() ?? pendingRevert ?? { done: true, unrecoverable: false })
   const store = {
-    subscribe: () => () => {},
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
     getSnapshot: () => snapshot,
     revertTurn,
     redoTurn: vi.fn(async () => ({ done: true, unrecoverable: false })),
     setDetailsTab: vi.fn(),
     openFile: vi.fn(),
+    closeTurnFiles: (key: string, turnId: string) => {
+      const closedTurnFiles = new Set(snapshot.closedTurnFiles)
+      closedTurnFiles.add(closedTurnFilesKey(key, turnId))
+      snapshot = { ...snapshot, closedTurnFiles }
+      listeners.forEach((listener) => listener())
+    },
   } as unknown as AppStore
-  await act(async () => {
+  const renderCard = (nextTurn: Turn) => (
     root.render(
       <StoreProvider store={store}>
-        <TurnFiles turn={TURN} changes={changes} root="/work/storefront" />
+        <TurnFiles turn={nextTurn} changes={changes} root="/work/storefront" />
       </StoreProvider>,
     )
-  })
-  return { revertTurn }
+  )
+  await act(async () => renderCard(turn))
+  return { revertTurn, store, renderCard }
 }
 
 const button = (text: string): HTMLButtonElement | undefined =>
@@ -157,4 +171,51 @@ it('shows three file rows and expands the rest from an N more row', async () => 
   act(() => button('2 more')?.click())
   expect(fileRows()).toHaveLength(5)
   expect(button('2 more')).toBeUndefined()
+})
+
+it('closes from an icon control at the end of the head', async () => {
+  await rig([])
+  const close = container.querySelector<HTMLButtonElement>('button[aria-label="Close"]')
+  expect(close?.title).toBe('Hide this card. The changes stay in the Changes panel.')
+  expect(close?.parentElement?.className).toContain('actions')
+  await act(async () => close!.click())
+  expect(container.querySelector('[data-slot="card"]')).toBeNull()
+})
+
+it('keeps the close choice in the store across remounts and scopes it to the turn', async () => {
+  const { renderCard } = await rig([])
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click())
+  expect(container.querySelector('[data-slot="card"]')).toBeNull()
+  await act(async () => root.render(null))
+  await act(async () => renderCard(TURN))
+  expect(container.querySelector('[data-slot="card"]')).toBeNull()
+  await act(async () => root.render(null))
+  await act(async () => renderCard({ ...TURN, id: turnId('t2') }))
+  expect(container.querySelector('[data-slot="card"]')).not.toBeNull()
+})
+
+it('keeps Close disabled while undone, then enables it after Redo', async () => {
+  await rig([{ done: true, unrecoverable: false }])
+  const close = () => container.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!
+  await act(async () => button('Undo')!.click())
+  expect(close().disabled).toBe(true)
+  expect(close().title).toBe('Redo or keep these edits first — this card is the only way to write them back.')
+  await act(async () => button('Redo')!.click())
+  expect(close().disabled).toBe(false)
+})
+
+it('keeps Close present but greyed while Undo is in flight, then says why once the edits are put back', async () => {
+  let finishUndo!: (result: TurnUndo) => void
+  const pendingUndo = new Promise<TurnUndo>((resolve) => { finishUndo = resolve })
+  await rig([], CHANGES, TURN, pendingUndo)
+  await act(async () => button('Undo')!.click())
+  const close = container.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!
+  // Nothing is reverted yet, so there is nothing to protect to name: the
+  // control only waits for the answer.
+  expect(close.disabled).toBe(true)
+  expect(close.title).toBe('Hide this card. The changes stay in the Changes panel.')
+  await act(async () => finishUndo({ done: true, unrecoverable: false }))
+  const after = container.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!
+  expect(after.disabled).toBe(true)
+  expect(after.title).toBe('Redo or keep these edits first — this card is the only way to write them back.')
 })

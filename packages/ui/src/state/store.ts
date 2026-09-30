@@ -277,6 +277,7 @@ const summaryOfSession = (session: Session): SessionSummary => ({
  */
 
 import {
+  closedTurnFilesKey,
   emptySnapshot,
   type AppSnapshot,
   type AuditRow,
@@ -6071,6 +6072,17 @@ export class AppStore {
       return
     }
     this.openDetailsTab(tab)
+  }
+
+  /**
+   * Hide one turn's files card for this app run. This stays in memory: the
+   * renderer's origin is ephemeral and a closed card is a view choice, not a
+   * record.
+   */
+  closeTurnFiles(key: string, turnId: string): void {
+    const closedTurnFiles = new Set(this.#snapshot.closedTurnFiles)
+    closedTurnFiles.add(closedTurnFilesKey(key, turnId))
+    this.#patch({ closedTurnFiles })
   }
 
   /** Opens a tab without the toggle behaviour, for callers that mean "show me". */

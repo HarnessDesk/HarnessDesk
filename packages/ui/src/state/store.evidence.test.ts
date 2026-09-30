@@ -85,6 +85,13 @@ it('a pushed evidence answer clears a prior cold-read failure', async () => {
   expect(store.getSnapshot().boardEvidence.get(EVIDENCE_ROOM)).toBe(EVIDENCE_BOARD)
 })
 
+it('remembers closed turn-files cards in the snapshot for the current run', () => {
+  store.closeTurnFiles('codex\u0000s1', 't1')
+  expect(store.getSnapshot().closedTurnFiles.has(JSON.stringify(['codex\u0000s1', 't1']))).toBe(true)
+  expect(store.getSnapshot().closedTurnFiles.has(JSON.stringify(['codex\u0000s1', 't2']))).toBe(false)
+  expect(store.getSnapshot().closedTurnFiles.has(JSON.stringify(['codex', 's1\u0000t1']))).toBe(false)
+})
+
 it('running a check says it started, or hands back the command nobody here has approved, verbatim', async () => {
   await expect(store.runCheck(EVIDENCE_ROOM, 1, 'verify')).resolves.toEqual({ kind: 'started' })
   expect(request).toHaveBeenLastCalledWith('evidence/check/run', {

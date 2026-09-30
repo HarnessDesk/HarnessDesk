@@ -3,9 +3,10 @@ import { useMemo, useState } from 'react'
 import type { FileChange, Turn } from '@harnessdesk/protocol'
 
 import { totalsByFile } from '../lib/turn-view'
-import { useSessionKey, useStore } from '../state/context'
+import { useSelect, useSessionKey, useStore } from '../state/context'
+import { closedTurnFilesKey } from '../state/snapshot'
 import { Button, Card, ChangeStats, Chip, CodeText, IconTile, Separator, Text } from '../design'
-import { DiffIcon, RedoIcon, UndoIcon } from './Icons'
+import { CrossIcon, DiffIcon, RedoIcon, UndoIcon } from './Icons'
 import styles from './TurnFiles.module.css'
 
 /**
@@ -39,6 +40,8 @@ const relativeTo = (path: string, root: string): string => {
 export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readonly FileChange[]; root: string }) => {
   const store = useStore()
   const key = useSessionKey()
+  // Only this card's own flag, so closing one card re-renders one card.
+  const closed = useSelect((snapshot) => key !== null && snapshot.closedTurnFiles.has(closedTurnFilesKey(key, turn.id)))
   const [busy, setBusy] = useState(false)
   const [reverted, setReverted] = useState(false)
   const [expanded, setExpanded] = useState(false)
@@ -46,7 +49,7 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
   // because most turns have nothing unrecoverable in them.
   const [partly, setPartly] = useState(false)
   const files = useMemo(() => totalsByFile(changes), [changes])
-  if (files.length === 0) return null
+  if (files.length === 0 || closed) return null
 
   const added = files.reduce((sum, file) => sum + file.added, 0)
   const removed = files.reduce((sum, file) => sum + file.removed, 0)
@@ -134,6 +137,21 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
             title="Open the Changes panel"
           >
             Review
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            edge="end"
+            edgeGlyph={11}
+            type="button"
+            aria-label="Close"
+            onClick={() => key && store.closeTurnFiles(key, turn.id)}
+            disabled={busy || reverted}
+            title={reverted
+              ? 'Redo or keep these edits first — this card is the only way to write them back.'
+              : 'Hide this card. The changes stay in the Changes panel.'}
+          >
+            <CrossIcon size={11} />
           </Button>
         </span>
       </div>
