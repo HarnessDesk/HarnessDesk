@@ -15,6 +15,7 @@ import {
   CardFooter,
   CardHeader,
   Chip,
+  ToolbarGap,
   Text,
 } from '../../design'
 import styles from './usage.module.css'
@@ -65,7 +66,7 @@ export const PlanFrame = ({
         )}
         <Text role="subject" truncate className={styles.cardName}>{report.account ?? agent}</Text>
         {report.account && <Text role="meta" truncate className={styles.cardAgent}>{agent}</Text>}
-        <span className={styles.fill} />
+        <ToolbarGap />
         {shapeChip}
         {plan && <Chip label={plan} tone="neutral" />}
         <Chip tone={paletteTone(STATUS_TONE[status])} label={STATUS_LABEL[status]} />
@@ -77,7 +78,7 @@ export const PlanFrame = ({
 
       <CardFooter className={styles.cardFoot}>
         <Text role="meta" truncate className={styles.cardSource}>{report.source.label}</Text>
-        <span className={styles.fill} />
+        <ToolbarGap />
         {footerAction && (
           <Button variant="outline" size="sm" onClick={footerAction.onClick}>
             {footerAction.label}
