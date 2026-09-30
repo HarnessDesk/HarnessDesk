@@ -381,6 +381,8 @@ export interface HostContext {
     /** Sends the next queued message, if the conversation is idle and the queue is not held. */
     drain(record: SessionRecord): Promise<void>
     nextId(): string
+    /** Replaces one queued message in place, refusing stale or currently delivering ids. */
+    update(record: SessionRecord, id: string, input: readonly UserContent[]): void
     /**
      * Whether the conversation can take a message right now: a turn is running,
      * or a direct send is still on its way to the agent. The second half is

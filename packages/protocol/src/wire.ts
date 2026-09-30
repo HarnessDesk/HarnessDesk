@@ -1384,6 +1384,16 @@ export interface HostMethods {
     params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly id: string }
     result: null
   }
+  /** Replaces one waiting message's content without changing its place in the queue. */
+  'turn/queue/update': {
+    params: {
+      readonly runtime: RuntimeId
+      readonly sessionId: SessionId
+      readonly id: string
+      readonly input: readonly UserContent[]
+    }
+    result: null
+  }
   /** Moves one waiting message to `to`, a zero-based position, clamped. */
   'turn/queue/move': {
     params: {

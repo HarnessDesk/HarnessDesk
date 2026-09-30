@@ -49,7 +49,7 @@ real keystrokes and mouse clicks.
 | --- | --- |
 | **Drag** on a row's grip handle | Reorders, dropping anywhere in the line ✓ |
 | Hover and click **↑** / **↓** on a row | Moves one step earlier or later ✓ |
-| Click **✎** (Edit) on a row | Returns to the composer, text, attachments, and note chips intact. Enter re-queues at the back ✓ |
+| Click **✎** (Edit) on a row | Opens that row for editing. Save replaces its text and chips in place; Cancel leaves it as it was. The composer is untouched. |
 | Click **✕** (Remove) on a row | That one is gone; the rest keep their order and the queue keeps its status ✓ |
 | Click **✕** on the last row | The strip disappears, and nothing is ever sent ✓ |
 | **Send now** on a held queue | The head goes out; the queue resumes ✓ |
@@ -169,11 +169,11 @@ Two limits apply before queueing:
   capability, attaching an image is refused with a warning notice rather than
   queued.
 
-Editing returns the text to the composer and restores attachments as chips.
-Resolved context blocks return as **note chips** holding exactly what was
-queued. The provider is not asked to resolve again — its chip was already
-consumed — and the text is not dumped into the text box for you to scroll past
-or edit around. What the message promised to carry stays attached.
+Editing keeps the message in its row. The row editor shows its text and carried
+items together; saving replaces that one message's complete content in place.
+Resolved context blocks stay as **note chips** holding exactly what was queued.
+The provider is not asked to resolve again — its chip was already consumed —
+and editing never changes the composer or its draft.
 
 ## Where the code is
 
@@ -218,6 +218,6 @@ or edit around. What the message promised to carry stays attached.
   deliver, and a stale message firing later is worse than a lost draft.
 - **Action commands bypass the queue.** Inline workbench commands (`/open`)
   execute locally upon pressing Enter; they never wait behind an agent turn.
-- **Context chips return as note chips on edit.** An edited message preserves
+- **Context chips stay note chips on edit.** An edited message preserves
   resolved context blocks without re-querying consumed providers or dumping
-  raw text into the draft.
+  raw text into the composer.

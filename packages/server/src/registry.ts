@@ -422,6 +422,22 @@ export class SessionRegistry {
       messages.length === 0 ? emptyQueue() : { ...record.queue, messages }
   }
 
+  /** Replaces one waiting message's complete input without changing its identity or place. */
+  updateQueued(record: SessionRecord, id: string, input: readonly UserContent[]): void {
+    const index = record.queue.messages.findIndex((message) => message.id === id)
+    if (index === -1) throw new Error('This message is no longer waiting, so it could not be updated.')
+    const message = record.queue.messages[index]!
+    if (message.state === 'sending') throw new Error('This message is being delivered and can no longer be updated.')
+    const size = record.queue.messages.reduce(
+      (total, queued, at) => total + charsOf(at === index ? input : queued.input),
+      0,
+    )
+    if (size > QUEUE_CHAR_LIMIT) throw new Error('The queue for this conversation would be too large with these changes.')
+    const messages = record.queue.messages.slice()
+    messages[index] = { ...message, input }
+    record.queue = { ...record.queue, messages }
+  }
+
   /** Moves one message to `to`, clamped into range. Unknown ids do nothing. */
   moveQueued(record: SessionRecord, id: string, to: number): void {
     const messages = record.queue.messages.slice()

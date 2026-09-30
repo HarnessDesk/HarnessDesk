@@ -5669,6 +5669,12 @@ export class AppStore {
     }
   }
 
+  /** Replaces one queued message in place; the caller decides how to recover a refusal. */
+  async updateQueued(id: string, input: readonly UserContent[], key = this.#snapshot.activeSessionKey): Promise<void> {
+    if (!key) return
+    await this.transport.request('turn/queue/update', { ...address(key), id, input })
+  }
+
   async moveQueued(id: string, to: number, key = this.#snapshot.activeSessionKey): Promise<void> {
     if (!key) return
     try {

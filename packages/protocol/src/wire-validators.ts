@@ -1024,6 +1024,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'turn/interrupt': shape({ runtime: isString, sessionId: isString }),
   'turn/queue': shape({ runtime: isString, sessionId: isString, input: arrayOf(userContentValidator) }),
   'turn/queue/cancel': shape({ runtime: isString, sessionId: isString, id: isString }),
+  'turn/queue/update': shape({ runtime: isString, sessionId: isString, id: isString, input: arrayOf(userContentValidator) }),
   'turn/queue/move': shape({ runtime: isString, sessionId: isString, id: isString, to: isNumber }),
   'turn/queue/flush': shape({ runtime: isString, sessionId: isString }),
   'turn/queue/clear': shape({ runtime: isString, sessionId: isString }),

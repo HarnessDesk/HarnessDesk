@@ -67,6 +67,12 @@ test('a message typed mid-turn waits, and goes out when the turn ends', async (t
 
   live.finish()
   await client.until(() => queueOf(client)?.messages.length === 0)
+  await assert.rejects(client.call('turn/queue/update', {
+    runtime: FAKE_RUNTIME_ID,
+    sessionId: session.id,
+    id: result.queuedId!,
+    input: [{ type: 'text', text: 'too late' }],
+  }), /no longer waiting/i)
 
   const record = harness.host.registry.get(FAKE_RUNTIME_ID, sessionId(session.id))
   const prompts = record!.session.turns.flatMap((turn) =>
@@ -214,6 +220,81 @@ test('a queued message can be dropped, reordered, and thrown away wholesale', as
 
   await client.call('turn/queue/clear', { runtime: FAKE_RUNTIME_ID, sessionId: session.id })
   await client.until(() => queueOf(client)?.messages.length === 0)
+})
+
+test('editing replaces one queued input in place and emits one queue event', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  const { session } = await busySession(client, harness)
+  const inputs: UserContent[][] = [
+    [{ type: 'text', text: 'first' }],
+    [{ type: 'text', text: 'middle' }, { type: 'mention', name: 'a.ts', path: '/w/a.ts' }],
+    [{ type: 'text', text: 'last' }],
+  ]
+  const ids: string[] = []
+  for (const input of inputs) {
+    ids.push((await client.call('turn/queue', {
+      runtime: FAKE_RUNTIME_ID, sessionId: session.id, input,
+    }) as { queuedId: string }).queuedId)
+  }
+  await client.until(() => queueOf(client)?.messages.length === 3)
+  const record = harness.host.registry.get(FAKE_RUNTIME_ID, sessionId(session.id))!
+  // A paused queue retains its held state through an edit during a running turn.
+  harness.host.registry.pauseQueue(record, 'The turn stopped.')
+  const before = record.queue.messages[1]!
+  const eventsBefore = client.events.filter((event) => event.type === 'session/queue').length
+  const replacement: UserContent[] = [
+    { type: 'text', text: 'revised middle' },
+    { type: 'mention', name: 'b.ts', path: '/w/b.ts' },
+  ]
+  await client.call('turn/queue/update', {
+    runtime: FAKE_RUNTIME_ID, sessionId: session.id, id: ids[1]!, input: replacement,
+  })
+  await client.until(() => text(queueOf(client)!.messages[1]!) === 'revised middle')
+  const after = record.queue.messages[1]!
+  assert.equal(after.id, before.id)
+  assert.equal(after.queuedAt, before.queuedAt)
+  assert.equal(after.state, before.state)
+  assert.deepEqual(after.input.map((part) => part.type === 'text'
+    ? { type: part.type, text: part.text }
+    : part.type === 'mention'
+      ? { type: part.type, name: part.name, path: part.path }
+      : { type: part.type }), [
+    { type: 'text', text: 'revised middle' },
+    { type: 'mention', name: 'b.ts', path: '/w/b.ts' },
+  ])
+  assert.equal(record.queue.status, 'paused')
+  assert.deepEqual(record.queue.messages.map(text), ['first', 'revised middle', 'last'])
+  assert.equal(client.events.filter((event) => event.type === 'session/queue').length, eventsBefore + 1)
+})
+
+test('editing a stale or currently sending queued id refuses without restoring it', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  const { session } = await busySession(client, harness)
+  const id = (await client.call('turn/queue', {
+    runtime: FAKE_RUNTIME_ID, sessionId: session.id, input: [{ type: 'text', text: 'queued' }],
+  }) as { queuedId: string }).queuedId
+  await client.until(() => queueOf(client)?.messages.length === 1)
+  const record = harness.host.registry.get(FAKE_RUNTIME_ID, sessionId(session.id))!
+  harness.host.registry.cancelQueued(record, id)
+  await assert.rejects(client.call('turn/queue/update', {
+    runtime: FAKE_RUNTIME_ID, sessionId: session.id, id, input: [{ type: 'text', text: 'stale' }],
+  }), /no longer waiting/i)
+  assert.equal(record.queue.messages.some((message) => message.id === id), false)
+
+  const sendingId = (await client.call('turn/queue', {
+    runtime: FAKE_RUNTIME_ID, sessionId: session.id, input: [{ type: 'text', text: 'sending' }],
+  }) as { queuedId: string }).queuedId
+  harness.host.registry.markSending(record)
+  await assert.rejects(client.call('turn/queue/update', {
+    runtime: FAKE_RUNTIME_ID, sessionId: session.id, id: sendingId, input: [{ type: 'text', text: 'too late' }],
+  }), /being delivered/i)
+  assert.equal(text(record.queue.messages[0]!), 'sending')
 })
 
 test('queueing on an idle conversation sends at once', async (t) => {
@@ -463,4 +544,3 @@ test('turn/queue does not send two immediate turns when send resolves before tur
   assert.equal(secondCall.sent, false, 'second call is queued, not sent immediately')
   assert.ok(secondCall.queuedId, 'second call received a queuedId')
 })
-

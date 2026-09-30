@@ -3461,6 +3461,10 @@ export class Host {
       },
       queue: {
         push: (record) => this.#pushQueue(record),
+        update: (record, id, input) => {
+          this.registry.updateQueued(record, id, input)
+          this.#pushQueue(record)
+        },
         drain: (record) => this.#drain(record),
         nextId: () => this.#nextQueuedId(),
         busy: (record) => this.#queueBusy(record),

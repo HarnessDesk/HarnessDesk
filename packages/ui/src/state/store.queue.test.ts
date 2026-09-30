@@ -6,6 +6,7 @@ import {
   sessionKey,
   type AgentEvent,
   type SessionQueue,
+  type UserContent,
 } from '@harnessdesk/protocol'
 
 import type { TransportEvents } from '../lib/transport'
@@ -47,6 +48,16 @@ beforeEach(() => {
 })
 
 describe('the queue in the store', () => {
+  it('sends a full queued-message replacement and leaves refusal to its caller', async () => {
+    const request = vi.spyOn(store.transport, 'request').mockRejectedValueOnce(new Error('message is being delivered'))
+    const input: UserContent[] = [
+      { type: 'text', text: 'edited' },
+      { type: 'mention', name: 'plan.md', path: '/w/plan.md' },
+    ]
+    await expect(store.updateQueued('q7', input, KEY)).rejects.toThrow('message is being delivered')
+    expect(request).toHaveBeenCalledWith('turn/queue/update', { runtime: RUNTIME, sessionId: 's1', id: 'q7', input })
+  })
+
   it('reports a refused steer and keeps its refusal reason visible', async () => {
     vi.spyOn(store.transport, 'request').mockRejectedValueOnce(new Error('turn already ended'))
     await expect(store.steer([{ type: 'text', text: 'keep this' }], KEY)).resolves.toBe(false)
