@@ -412,6 +412,28 @@ export class Flows implements TeamFlows {
     return stored ? this.#executions!.runs(stored.goal).find((one) => one.id === run) ?? null : null
   }
 
+  /** A person review step's current predecessor subjects, bound to its run and open card. */
+  personReviewBinding(run: string, card: number): ReturnType<FlowExecutions['personReviewBinding']> {
+    return this.#executions?.personReviewBinding(run, card) ?? Promise.resolve(null)
+  }
+
+  personReviewCandidates(run: string, card: number): Promise<readonly ReviewCandidate[]> {
+    return this.#review?.personCandidates(run, card) ?? Promise.resolve([])
+  }
+
+  /** Records the pick, then answers the person's card through the Board's own Team action. */
+  async decidePersonReview(run: string, card: number, candidate: string, verdict: string): Promise<FlowExecution> {
+    if (!this.#review) throw new Error('Runs on Goals are not available on this desk.')
+    const stored = this.#executions?.stored(run)
+    if (!stored) throw new Error(`There is no flow run ${run}.`)
+    return this.#review.decidePerson(stored.goal, run, card, candidate, verdict, async () => {
+      await this.#team.intentAction(stored.goal, card, 'done', undefined, verdict)
+      const execution = this.executionOf(run)
+      if (!execution) throw new Error(`There is no flow run ${run}.`)
+      return execution
+    })
+  }
+
   /** Runs an interrupted check again, once a person has reviewed it. The only way a v2 check ever runs a second time. */
   retryCheck(run: string, card: number): Promise<FlowExecution> {
     if (!this.#executions) throw new Error(`There is no flow run ${run}.`)

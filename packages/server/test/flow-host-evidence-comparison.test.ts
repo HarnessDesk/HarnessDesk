@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 
 import { INDEPENDENT } from '../src/flow-execution.js'
 import {
@@ -140,4 +142,32 @@ test('an all-fail race stops for the person, plainly, instead of opening a judge
   assert.ok(verifies.every((one) => one.outcome === 'fail'), 'no competitor’s check passed')
   assert.equal(finalBoard.find((one) => one.role === 'judge'), undefined, 'no judge round opens when nothing passed')
   assert.match(done.reason ?? '', /fail/, 'the stop names what each card answered, not a silent halt')
+})
+
+test('a person review step lists the attempts, records the pick, and opens the referee on that revision', E2E, async (t) => {
+  const d = await desk(t)
+  const source = await readFile(fileURLToPath(new URL('./fixtures/comparison-person.yml', import.meta.url)), 'utf8')
+  const run = await start(d, source, TASK)
+  const competitors = await claimed(d, run.goal, 'competitor', 2)
+  const heads = [] as string[]
+  for (const [index, card] of competitors.entries()) heads.push(await write(d, card, `attempt ${index + 1}`))
+
+  const personCard = await whenChanged(d, async () => {
+    const next = (await board(d, run.goal)).find((one) => one.role === 'judge')
+    return next?.state === 'open' ? next : null
+  }, 'the open person judge card')
+  const call = d.host.call.bind(d.host) as (method: string, params: Record<string, unknown>) => Promise<unknown>
+  const offered = await call('flow/review/candidates', { run: run.id, card: personCard.id }) as readonly { id: string; card: number; at: string; branch: string | null; evidence: readonly string[] }[]
+  assert.equal(offered.length, 2)
+  assert.deepEqual(new Set(offered.map((one) => one.at)), new Set(heads))
+  assert.ok(offered.every((one) => one.branch && one.evidence.length > 0), 'each attempt includes branch and check evidence')
+  const picked = offered.find((one) => one.at === heads[1])!
+  const decided = await call('flow/review/decide', { run: run.id, card: personCard.id, candidate: picked.id, verdict: 'picked' }) as import('@harnessdesk/protocol').FlowExecution
+  assert.equal((await board(d, run.goal)).find((one) => one.id === personCard.id)?.outcome, 'picked')
+
+  const referee = await person(d, run.goal, 'referee', 'merged')
+  assert.match(`${referee.title}\n${referee.detail ?? ''}`, new RegExp(heads[1]!))
+  const done = await settled(d, run.id)
+  assert.equal(decided.state, 'running')
+  assert.ok(done.rounds.find((one) => one.role === 'referee')?.evidence.length)
 })

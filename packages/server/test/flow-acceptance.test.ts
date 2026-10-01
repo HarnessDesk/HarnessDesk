@@ -48,7 +48,7 @@ roles:
 seed: { role: competitor, title: "{{task}}" }
 rules:
   - { id: to-verify, on: competitor, then: { role: verify, title: "Check the attempt" } }
-  - { id: to-judge, on: verify, when: { every: [pass] }, then: { role: judge, title: "Pick the better attempt" } }
+  - { id: to-judge, on: verify, when: { every: [pass] }, then: { role: judge, title: "Pick the best attempt" } }
   - { id: to-referee, on: judge, when: { every: [picked], evidence: [{ review: picked }] }, then: { role: referee, title: "Merge the picked change" } }
 messaging: board-only
 wait: 240

@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 
-import { activityOf, flowStepOf, placeCard, type FlowExecution, type FlowPolicy, type Intent, type Session } from '@harnessdesk/protocol'
+import { activityOf, flowStepOf, placeCard, type BoardEvidence, type FlowExecution, type FlowPolicy, type Intent, type Session, type TeamState } from '@harnessdesk/protocol'
 
 import { BrowserPane } from '../../components/BrowserPane'
 import { Composer } from '../../components/Composer'
@@ -19,11 +19,87 @@ import { dock, emptyWorkbench } from '../../state/workbench'
 import { PaneProvider } from '../../state/context'
 import type { AppStore } from '../../state/store'
 import { Mount, PREVIEW_ROOM, PREVIEW_SESSION_KEY, previewStore } from '../../preview/harness'
+import { cardEvidence, checkView, EVIDENCE_ROOM } from '../../preview/evidence-fixture'
 import { PREVIEW_FLOW_CARD, sceneFlowExecution } from '../../preview/flow-fixture'
 import { PREVIEW_FLOW_GOAL } from '../../preview/goal-fixture'
 import { denseTurns, PREVIEW_ROOT, previewHistory, previewSession } from '../../preview/sidebar-fixture'
 import { SIGN_IN_SELECTED, signInSeed } from '../../preview/signin-fixture'
 import styles from './surfaces.module.css'
+
+const PERSON_REVIEW_ROOM = 'room-person-review'
+const personCheck = checkView({ card: 2 })
+const personReviewCandidate = {
+  id: 'preview-person-review-candidate',
+  card: 2,
+  at: 'abcdef0123456789abcdef0123456789abcdef01',
+  branch: 'attempt-one',
+  evidence: [personCheck.record.id],
+  holder: 'Implementer',
+}
+const personReviewExecution: FlowExecution = {
+  version: 2,
+  id: 'preview-person-review-run',
+  goal: PERSON_REVIEW_ROOM,
+  document: {
+    format: 'agents',
+    flow: {
+      version: 2, name: 'Comparison', inputs: [], messaging: 'board-only', wait: 240,
+      roles: [
+        { id: 'competitor', kind: 'agent', uses: ['implementer'], seats: [], isolate: true, grant: 'edit', independentOf: [] },
+        { id: 'judge', kind: 'person', outcomes: ['picked'] },
+        { id: 'referee', kind: 'person', outcomes: ['merged'] },
+      ],
+      rules: [{ id: 'to-referee', on: 'judge', when: { every: ['picked'], evidence: [{ review: 'picked' }] }, then: { role: 'referee', title: 'Merge the picked attempt' } }],
+      seed: { role: 'competitor', title: 'Implement the task' },
+    },
+  },
+  state: 'running',
+  rounds: [
+    { n: 1, role: 'competitor', cards: [2], seats: [], evidence: [], state: 'closed', cause: 'seed' },
+    { n: 2, role: 'judge', cards: [1], seats: [], evidence: [], state: 'running', cause: 'after:1:judge' },
+  ],
+  operations: [],
+  legacyRun: null,
+  reason: null,
+}
+const personJudgeCard: Intent = {
+  id: 1, title: 'Pick the best attempt', detail: null, state: 'open', role: 'judge', files: [], dependsOn: [2],
+  claim: null, blockedReason: null, handoff: null, note: null, createdAt: 1, updatedAt: 1,
+}
+const personAttemptCard: Intent = {
+  id: 2, title: 'Implement the task', detail: null, state: 'done', role: 'competitor', files: [], dependsOn: [],
+  outcome: 'pass', claim: null, blockedReason: null, handoff: null, note: null, createdAt: 1, updatedAt: 1,
+}
+const personReviewTeam: TeamState = {
+  id: PERSON_REVIEW_ROOM, name: 'Comparison preview', root: PREVIEW_ROOT, updatedAt: 1, members: [], messaging: true,
+  intents: [personJudgeCard, personAttemptCard], channel: [],
+}
+const personReviewEvidence: BoardEvidence = {
+  room: PERSON_REVIEW_ROOM, stamp: 1, checks: ['verify'], refused: [], unreadable: null,
+  cards: [cardEvidence(2, [personCheck])],
+}
+const personReviewBase = previewStore().getSnapshot()
+const personReviewTeams = new Map(personReviewBase.teams).set(PERSON_REVIEW_ROOM, personReviewTeam)
+const personReviewEvidenceByRoom = new Map(personReviewBase.boardEvidence).set(PERSON_REVIEW_ROOM, personReviewEvidence)
+const personReviewExecutions = new Map(personReviewBase.flowExecutions).set(personReviewExecution.id, personReviewExecution)
+const personReviewBoardStore = new Proxy(previewStore({
+  teams: personReviewTeams,
+  boardEvidence: personReviewEvidenceByRoom,
+  flowExecutions: personReviewExecutions,
+}), {
+  get(target, property, receiver) {
+    if (property === 'flowReviewCandidates') return async () => [personReviewCandidate]
+    if (property === 'decideFlowReview') return async () => { throw new Error('The preview shows the chooser without recording a review.') }
+    return Reflect.get(target, property, receiver)
+  },
+})
+
+/** The synthetic board state used in the preview and the design catalogue. */
+export const PersonReviewBoard = () => (
+  <Mount with={personReviewBoardStore}>
+    <TeamBoardPane room={PERSON_REVIEW_ROOM} />
+  </Mount>
+)
 
 /**
  * The catalogue's whole-screen entries — each one the screen the app ships.
@@ -640,6 +716,14 @@ const PENDING_RELEASE_STORE = pendingReleaseStore()
  */
 export const GroupSurface = () => (
   <>
+    <div className={styles.headerCases}>
+      <div className={styles.headerCase} data-testid="group-person-review-step">
+        <span className={styles.headerCaseLabel}>A person judges a comparison by choosing one attempt</span>
+        <Frame height="page">
+          <PersonReviewBoard />
+        </Frame>
+      </div>
+    </div>
     <Mount>
       <div className={styles.pair}>
         <Frame>

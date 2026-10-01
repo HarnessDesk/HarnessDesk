@@ -42,7 +42,7 @@ roles:
   judge: { kind: agent, uses: judge, grant: read, independentOf: [] }
 seed: { role: competitor, title: "{{task}}" }
 rules:
-  - { id: to-judge, on: competitor, then: { role: judge, title: "Pick the better attempt" } }
+  - { id: to-judge, on: competitor, then: { role: judge, title: "Pick the best attempt" } }
 messaging: board-only
 `
 
