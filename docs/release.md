@@ -124,6 +124,14 @@ either way) is worth one re-run before treating it as real — CI here has
 shown that flake more than once on a cold runner. Anything else, treat as
 real.
 
+Post every review round to its PR with `node script/post-review.mjs <pr>
+--round <n> --by "<model effort>" [--file <result.md>]` (or pipe the result
+on stdin). Use `--fixes <fixes.md>` for the follow-up comment, and name the
+commit that contains each fix so the review trail stays tied to the code.
+The script signs and sanitizes review text, refuses any remaining private
+paths or real email addresses, and supports `--dry-run` to inspect the body
+and command before posting.
+
 **Prove the merge changed nothing**, so the build below doesn't have to wait
 on CI to finish before it can start:
 
