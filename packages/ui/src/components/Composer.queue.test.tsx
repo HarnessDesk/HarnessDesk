@@ -159,6 +159,66 @@ beforeEach(() => {
 })
 
 describe('the composer while a turn is running', () => {
+  const runtimeShapes = [
+    { name: 'Codex fake', steer: true },
+    { name: 'ACP fake', steer: false },
+  ] as const
+
+  for (const shape of runtimeShapes) {
+    it(`uses only declared steer capability and recovers a refused ⌘↵ on ${shape.name}`, async () => {
+      if (shape.steer) calls.steer.mockImplementationOnce(async () => false)
+      else calls.queue.mockImplementationOnce(async () => false)
+      mount({ busy: true, steer: shape.steer })
+      expect(textarea().placeholder).toBe(shape.steer
+        ? 'Type the next message — ↵ queues it, ⌘↵ adds it to this turn'
+        : 'Type the next message — it is sent when this turn ends')
+      act(() => window.dispatchEvent(new CustomEvent('harnessdesk:compose', {
+        detail: { text: `typed for ${shape.name}`, attachments: [{ name: 'spec.md', path: '/w/spec.md', kind: 'file' }] },
+      })))
+      await act(async () => {
+        enter({ meta: true })
+        type('newer draft')
+        await Promise.resolve()
+      })
+
+      expect(shape.steer ? calls.steer : calls.queue).toHaveBeenCalledTimes(1)
+      expect(textarea().value).toBe('newer draft')
+      expect(container.textContent).toContain('Message not sent')
+      const restore = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('Restore'))
+      expect(restore).toBeDefined()
+      act(() => restore?.click())
+      expect(textarea().value).toBe(`typed for ${shape.name}`)
+      expect(container.textContent).toContain('spec.md')
+      const restoreNewer = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('Restore'))
+      expect(restoreNewer).toBeDefined()
+      act(() => restoreNewer?.click())
+      expect(textarea().value).toBe('newer draft')
+    })
+
+    it(`keeps the 25-cap refusal recoverable alongside a newer draft on ${shape.name}`, async () => {
+      calls.queue.mockImplementationOnce(async () => false)
+      mount({ busy: true, steer: shape.steer })
+      type(`the 25th queued refusal for ${shape.name}`)
+      await act(async () => {
+        enter()
+        type('typed after the queue refusal')
+        await Promise.resolve()
+      })
+
+      expect(calls.queue).toHaveBeenCalledTimes(1)
+      expect(textarea().value).toBe('typed after the queue refusal')
+      expect(container.textContent).toContain('Message not sent')
+      const restore = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('Restore'))
+      expect(restore).toBeDefined()
+      act(() => restore?.click())
+      expect(textarea().value).toBe(`the 25th queued refusal for ${shape.name}`)
+      const restoreNewer = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('Restore'))
+      expect(restoreNewer).toBeDefined()
+      act(() => restoreNewer?.click())
+      expect(textarea().value).toBe('typed after the queue refusal')
+    })
+  }
+
   it('queues rather than steering, for an agent that cannot steer', () => {
     mount({ busy: true, steer: false })
     type('and then run the tests')
