@@ -52,6 +52,8 @@ export interface FlowPreviewPort {
   checkoutPath?(root: string, lane: boolean): Promise<string>
   /** Predicts whether this candidate will get HarnessDesk's tool server in its actual flow checkout. */
   pluginToolsProblem?(runtime: string, root: string, lane: boolean): Promise<string | null>
+  /** Whether this runtime asks per MCP tool and the host cannot answer for it. */
+  perToolMcpApproval?(runtime: string): boolean
   /**
    * A front-door target read again from the host, as the canonical facts it
    * was bound to — commits, a diff, a working tree's snapshot. Asked at
@@ -392,6 +394,13 @@ export class FlowPreviews {
             level: 'error',
             at: `roles.${role.id}.seat`,
             text: toolProblem,
+          })
+        }
+        if (!plan.blocked && plan.winner !== null && this.#port.perToolMcpApproval?.(plan.candidates[plan.winner]!.seat.runtime)) {
+          problems.push({
+            level: 'warning',
+            at: `roles.${role.id}.seat`,
+            text: 'On a first run this seat asks once for each HarnessDesk tool it uses.',
           })
         }
         if (plan.blocked) {

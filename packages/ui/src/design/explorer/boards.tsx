@@ -12,6 +12,7 @@ import { Markdown } from '../../components/Markdown'
 import { PublicationCard } from '../../components/Publication'
 import { QuestionWaitSection } from '../../components/SettingsQuestionWait'
 import { Mount } from '../../preview/harness'
+import { boardToolApprovalNote } from '../../preview/approval-fixture'
 import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppStore } from '../../state/store'
 import {
@@ -1689,20 +1690,39 @@ export const DialogBoard = () => {
         </ConfirmDialog>
       )}
       {open === 'approval' && (
-        <ApprovalDialog
-          title="Run a command?"
-          icon={<TerminalIcon size={16} />}
-          focused
-          focusKey="catalog-approval"
-          actions={[
-            { id: 'keep', label: 'Keep waiting', shortcut: 1, placement: 'safe', onSelect: () => setOpen(null) },
-            { id: 'run', label: 'Run once', shortcut: 2, placement: 'proceed', onSelect: () => setOpen(null) },
-          ]}
-        >
-          <ApprovalReason>Runs the repository's complete verification gate.</ApprovalReason>
-          <ApprovalCode>pnpm verify</ApprovalCode>
-          <ApprovalMeta label="in">/workspace</ApprovalMeta>
-        </ApprovalDialog>
+        <div className={styles.stack}>
+          <div data-catalog-case="board-tool-approval-always">
+          <ApprovalDialog
+            title="Permission"
+            icon={<PluginIcon size={16} />}
+            focused
+            focusKey="catalog-board-tool-always"
+            placement="docked"
+            actions={[
+              { id: 'deny', label: 'Deny', placement: 'safe', onSelect: () => setOpen(null) },
+              { id: 'always', label: 'Allow tool for this session', description: 'Allows this tool for the rest of this session.', placement: 'safe', onSelect: () => setOpen(null) },
+              { id: 'once', label: 'Allow once', placement: 'proceed', onSelect: () => setOpen(null) },
+            ]}
+          >
+            <ApprovalReason>{boardToolApprovalNote({ label: 'Allow tool for this session', description: 'Allows this tool for the rest of this session.' })}</ApprovalReason>
+          </ApprovalDialog>
+          </div>
+          <div data-catalog-case="board-tool-approval-setting">
+          <ApprovalDialog
+            title="Permission"
+            icon={<PluginIcon size={16} />}
+            focused
+            focusKey="catalog-board-tool-setting"
+            placement="docked"
+            actions={[
+              { id: 'deny', label: 'Deny', placement: 'safe', onSelect: () => setOpen(null) },
+              { id: 'once', label: 'Allow once', placement: 'proceed', onSelect: () => setOpen(null) },
+            ]}
+          >
+            <ApprovalReason>{boardToolApprovalNote()}</ApprovalReason>
+          </ApprovalDialog>
+          </div>
+        </div>
       )}
       {open === 'lightbox' && (
         <Lightbox

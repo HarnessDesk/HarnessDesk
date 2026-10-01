@@ -218,6 +218,8 @@ export interface AcpAgentConfig {
   /** Reads a stored secret at spawn time. Supplied by the host, not the registry. */
   readonly resolveSecret?: (env: string) => string | undefined
   readonly tagline?: string
+  /** This agent asks for each MCP tool and the host cannot answer on its behalf. */
+  readonly perToolMcpApproval?: { readonly permanentApprovalSetting: string }
   /** How to install the agent, for the first-run screen. */
   readonly installCommand?: string
   /**
@@ -919,6 +921,7 @@ export class AcpRuntime implements AgentRuntime {
       provider: this.#provider,
       presentation: {
         name: this.#config.name,
+        ...(this.#config.perToolMcpApproval ? { boardToolApproval: this.#config.perToolMcpApproval } : {}),
         ...(this.#config.pluginToolsUnavailable ? { pluginToolsUnavailable: this.#config.pluginToolsUnavailable } : {}),
         // What an ACP agent declares are commands; some of them are skills
         // and some are `/compact`. The page says both rather than filing
@@ -953,6 +956,7 @@ export class AcpRuntime implements AgentRuntime {
     const shaken = this.#initialized !== null
     return {
       ...NO_CAPABILITIES,
+      perToolMcpApproval: Boolean(this.#config.perToolMcpApproval),
       sessionEnvironment: environmentSupported(this.#initialized?._meta),
       // ACP declares how to authenticate but never whether you already are
       // — so claiming an account from authMethods alone painted "not signed
@@ -4360,16 +4364,26 @@ class AcpSession implements AgentSession {
       // user asked me to write outside the workspace" and the dialog showed
       // `write`. A decision needs the sentence, not the verb.
       ...(permissionReason(request.toolCall) ? { reason: permissionReason(request.toolCall) } : {}),
-      options: request.options.map((option) => ({
-        id: option.optionId,
-        label: option.name,
-        intent:
-          option.kind === 'allow_once'
-            ? ('approve' as const)
-            : option.kind === 'allow_always'
-              ? ('approveAlways' as const)
-              : ('deny' as const),
-      })),
+      options: request.options.map((option) => {
+        const geminiScope = this.#host.info.capabilities.perToolMcpApproval && option.kind === 'allow_always'
+          ? ({
+              proceed_always_server: 'Allows every tool from this server for this session.',
+              proceed_always_tool: 'Allows this tool for the rest of this session.',
+              proceed_always_and_save: 'Saves approval for this tool in future sessions.',
+            } as const)[option.optionId as 'proceed_always_server' | 'proceed_always_tool' | 'proceed_always_and_save']
+          : undefined
+        return {
+          id: option.optionId,
+          label: option.name,
+          ...(geminiScope ? { description: geminiScope } : {}),
+          intent:
+            option.kind === 'allow_once'
+              ? ('approve' as const)
+              : option.kind === 'allow_always'
+                ? ('approveAlways' as const)
+                : ('deny' as const),
+        }
+      }),
     }
     return new Promise((resolve) => {
       this.#pendingPermissions.set(id, (outcome) => resolve({ outcome }))

@@ -1275,12 +1275,43 @@ test('a permission request becomes an approval; the decision reaches the agent',
       approval.options.map((option) => option.intent),
       ['approve', 'approveAlways', 'deny'],
     )
+    assert.deepEqual(approval.options.map((option) => option.description), [undefined, undefined, undefined])
     await session.respondToApproval(approval.id, { type: 'option', optionId: 'yes' })
     const completed = await tape.until((event) => event.type === 'turn/completed')
     const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
     assert.equal(turn.status, 'completed')
     const tool = turn.items.find((item) => item.type === 'toolCall')
     assert.ok(tool && tool.type === 'toolCall' && tool.status === 'completed')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('the per-tool MCP adapter explains each Gemini approval scope', async () => {
+  const runtime = new AcpRuntime({
+    id: 'gemini',
+    name: 'Gemini CLI',
+    command: process.execPath,
+    args: [FAKE],
+    perToolMcpApproval: { permanentApprovalSetting: 'security.enablePermanentToolApproval' },
+  })
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'use the Gemini board tool' }])
+    const requested = await tape.until((event) => event.type === 'approval/requested')
+    const approval = (requested as Extract<AgentEvent, { type: 'approval/requested' }>).approval
+    assert.equal(approval.type, 'permission')
+    assert.deepEqual(approval.options.map(({ label, description }) => [label, description]), [
+      ['Allow all server tools for this session', 'Allows every tool from this server for this session.'],
+      ['Allow tool for this session', 'Allows this tool for the rest of this session.'],
+      ['Allow tool for all future sessions', 'Saves approval for this tool in future sessions.'],
+      ['Allow once', undefined],
+      ['Deny', undefined],
+    ])
+    await session.respondToApproval(approval.id, { type: 'option', optionId: 'proceed_once' })
+    await tape.until((event) => event.type === 'turn/completed')
   } finally {
     await runtime.dispose()
   }

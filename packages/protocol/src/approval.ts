@@ -67,6 +67,14 @@ export interface PermissionApproval extends ApprovalBase {
   readonly options: readonly ApprovalOption[]
 }
 
+/** Board tools whose permission titles may be named by ACP clients. */
+export const FLOW_BOARD_TOOL_NAMES = [
+  'list_intents', 'add_intent', 'claim_work', 'claim_next', 'await_work', 'await_member',
+  'check_conflicts', 'complete_claim', 'commit_work', 'run_check', 'release_claim', 'get_context',
+  'get_team_status', 'review_candidates', 'record_review', 'raise_finding', 'repair_finding',
+  'decide_finding', 'list_findings',
+] as const
+
 export interface QuestionOption {
   readonly id: string
   readonly label: string

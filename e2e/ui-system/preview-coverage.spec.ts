@@ -268,7 +268,7 @@ test.describe('preview coverage', () => {
     // `?composer` and `?empty` gate two more frames the plain page never
     // draws — a composer with a picture, a queue, and the pane with no
     // session at all — so both are visited too.
-    for (const query of ['', '?composer', '?empty']) {
+    for (const query of ['', '?composer', '?empty', '?board-tool-approvals']) {
       await page.goto(`/preview.html${query}`)
       await page.waitForTimeout(1200)
       const result = await collectCoverage(page)
@@ -336,6 +336,25 @@ test.describe('preview coverage', () => {
     // trusts a reason that no longer holds.
     const staleExemptions = Object.keys(EXEMPT).filter((component) => covered.has(component))
     expect(staleExemptions, `EXEMPT entries that now render (remove them from EXEMPT): ${staleExemptions.join(', ')}`).toEqual([])
+  })
+
+  test('preview shows both board-tool permission card states and keeps Always allow quiet', async ({ page }) => {
+    await page.goto('/preview.html?board-tool-approvals')
+    const offered = page.locator('#board-tool-approval-always [data-slot="approval-card"]')
+    const unavailable = page.locator('#board-tool-approval-setting [data-slot="approval-card"]')
+    await expect(offered).toContainText('This asks for HarnessDesk\'s board tool `list_intents`.')
+    await expect(offered).toContainText('HarnessDesk can\'t confirm which server is asking.')
+    await expect(offered.locator('button')).toHaveText(['Deny', 'Allow tool for this session', 'Allow once'])
+    await expect(offered.getByRole('button', { name: 'Allow tool for this session' })).toHaveAttribute('data-variant', 'quiet')
+    await expect(offered.getByRole('button', { name: 'Allow once' })).toHaveAttribute('data-variant', 'default')
+    await expect(unavailable).toContainText('security.enablePermanentToolApproval')
+    await expect(unavailable.getByRole('button', { name: 'Allow tool for this session' })).toHaveCount(0)
+
+    await page.goto('/design.html')
+    await page.getByRole('button', { name: 'Dialog · ConfirmDialog', exact: true }).click()
+    await page.getByRole('button', { name: 'Approval', exact: true }).click()
+    await expect(page.locator('[data-catalog-case="board-tool-approval-always"]')).toContainText('Always allow')
+    await expect(page.locator('[data-catalog-case="board-tool-approval-setting"]')).toContainText('security.enablePermanentToolApproval')
   })
 
   /**
