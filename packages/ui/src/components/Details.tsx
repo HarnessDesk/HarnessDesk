@@ -114,7 +114,7 @@ const InspectorFrame = ({
       <PanelTools>
         <PanelFilter value={query} placeholder={find} onChange={onQuery} />
         {tools}
-        <Button variant="ghost" size="icon-sm"
+        <Button variant="ghost" size="icon-sm" edge="end" edgeGlyph={14}
           disabled={!session}
           aria-label="Export this session as Markdown"
           title="Export this session as Markdown"
