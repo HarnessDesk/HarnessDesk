@@ -86,7 +86,9 @@ export const userContentValidator: Validator<UserContent> = taggedUnion('type', 
 
 const nonEmptyUserContent: Validator<UserContent[]> = (value, path = '') => {
   const input = arrayOf(userContentValidator)(value, path)
-  if (input.length === 0) throw new ValidationError(path, 'expected at least one content item')
+  if (!input.some((part) => part.type !== 'text' || part.text.trim().length > 0)) {
+    throw new ValidationError(path, 'expected at least one non-empty content item')
+  }
   return input
 }
 

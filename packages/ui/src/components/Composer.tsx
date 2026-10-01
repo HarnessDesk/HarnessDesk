@@ -587,7 +587,10 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       detail: 'Restore the refused message to the composer; your current draft stays available.',
       reason: 'refused',
     })
-    else setText(draft.text)
+    else {
+      setText(draft.text)
+      setAttachments([...draft.attachments])
+    }
   }, [store])
 
   const storedRecoverable = key ? snapshot.recoverableDrafts.get(key) ?? [] : []

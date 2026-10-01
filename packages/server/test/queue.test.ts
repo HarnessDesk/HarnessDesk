@@ -318,6 +318,16 @@ test('the host queue registry refuses empty content and never stores an empty me
   const record = harness.host.registry.get(FAKE_RUNTIME_ID, sessionId(session.id))!
   assert.throws(() => harness.host.registry.updateQueued(record, id, []), /empty/i)
   assert.throws(() => harness.host.registry.enqueue(record, 'empty', []), /at least one/i)
+
+  for (const text of ['', '   ', '\n\t']) {
+    const input = [{ type: 'text' as const, text }]
+    assert.throws(() => harness.host.registry.updateQueued(record, id, input), /empty/i)
+    assert.throws(() => harness.host.registry.enqueue(record, `empty-${text.length}`, input), /empty/i)
+  }
+
+  harness.host.registry.enqueue(record, 'attachment-only', [
+    { type: 'mention', name: 'plan.md', path: '/w/plan.md' },
+  ])
   assert.equal(record.queue.messages.some((message) => message.input.length === 0), false)
 })
 

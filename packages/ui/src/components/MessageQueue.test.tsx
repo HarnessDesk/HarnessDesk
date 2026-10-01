@@ -34,10 +34,11 @@ afterEach(() => {
 })
 
 const KEY = sessionKey('alpha', 's1')
+const OTHER_KEY = sessionKey('alpha', 's2')
 
-const session = (): Session =>
+const session = (id: string): Session =>
   ({
-    id: 's1',
+    id,
     runtime: 'alpha',
     cwd: '/w',
     status: { type: 'active' },
@@ -57,12 +58,12 @@ const calls = {
   addRecoverableDraft: vi.fn(),
 }
 
-const mount = (queue: SessionQueue | null): void => {
+const mount = (queue: SessionQueue | null, key = KEY): void => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
-    sessions: new Map([[KEY, session()]]),
-    activeSessionKey: KEY,
-    queues: queue ? new Map([[KEY, queue]]) : new Map(),
+    sessions: new Map([[key, session(key.split(':').slice(1).join(':'))]]),
+    activeSessionKey: key,
+    queues: queue ? new Map([[key, queue]]) : new Map(),
   }
   const store = {
     subscribe: () => () => {},
@@ -280,9 +281,38 @@ describe('MessageQueue', () => {
     mount({ status: 'waiting', reason: null, messages: [] })
     expect(calls.addRecoverableDraft).toHaveBeenCalledWith(KEY, expect.objectContaining({
       text: 'my revised instruction',
-      detail: 'Your edit wasn’t saved — the original was already sent. Restore it to the composer.',
+      detail: 'Your edit wasn’t saved because its message is no longer waiting. Restore it to the composer.',
     }))
     expect(container.querySelector('textarea')).toBeNull()
+  })
+
+  it('does not recover or discard an edit when the same queue view switches conversations', () => {
+    mount(waiting('original'))
+    click(button('Edit'))
+    typeIntoEditor('revision for the first conversation')
+
+    mount({ ...waiting('another conversation'), messages: [{
+      id: 'other-row', queuedAt: 0, state: 'queued', input: [{ type: 'text', text: 'another conversation' }],
+    }] }, OTHER_KEY)
+    expect(calls.addRecoverableDraft).not.toHaveBeenCalled()
+
+    mount(waiting('original'))
+    expect(rows()[0]?.textContent).toContain('original')
+    expect(button('Edit')).toBeDefined()
+    expect(calls.addRecoverableDraft).not.toHaveBeenCalled()
+  })
+
+  it('keeps an unsaved revision recoverable when Discard all removes its queued row', () => {
+    mount(waiting('original', 'another row'))
+    click(button('Edit'))
+    typeIntoEditor('keep this revision')
+    click(button('Discard all'))
+
+    mount({ status: 'waiting', reason: null, messages: [] })
+    expect(calls.addRecoverableDraft).toHaveBeenCalledWith(KEY, expect.objectContaining({
+      text: 'keep this revision',
+      detail: 'Your edit wasn’t saved because its message is no longer waiting. Restore it to the composer.',
+    }))
   })
 
   it('disables Save for an empty text-only edit and points to Remove', () => {

@@ -80,17 +80,25 @@ export const MessageQueue = () => {
   }, [key, store])
 
   useLayoutEffect(() => {
-    if (!editing || messages.some((message) => message.id === editing.id)) return
+    if (!editing) return
+    if (editing.key !== key) {
+      setEditing(null)
+      return
+    }
+    if (messages.some((message) => message.id === editing.id)) return
+    // A same-conversation queue update does not say why a row left. Preserve
+    // its unsaved revision on delivery, Discard all, or removal; a view switch
+    // above is the one case where the original row is still elsewhere.
     recoverEdit(
       editing.id,
       editing.attemptId,
       editing.text,
       editing.input,
-      'Your edit wasn’t saved — the original was already sent. Restore it to the composer.',
+      'Your edit wasn’t saved because its message is no longer waiting. Restore it to the composer.',
       editing.key,
     )
     setEditing(null)
-  }, [editing, messages, recoverEdit])
+  }, [editing, key, messages, recoverEdit])
 
   useLayoutEffect(() => {
     const previous = previouslyEditing.current

@@ -142,7 +142,7 @@ const mount = ({
   busy: boolean
   steer?: boolean
   queue?: SessionQueue | null
-  key?: ReturnType<typeof sessionKey>
+  key?: ReturnType<typeof sessionKey> | null
   /** What the running turn holds so far. */
   items?: readonly unknown[]
 }): void => {
@@ -152,9 +152,9 @@ const mount = ({
     activeRuntime: runtime(steer).id,
     health: { state: 'ready' } as AppSnapshot['health'],
     workspace: { path: '/w', name: 'w' } as AppSnapshot['workspace'],
-    sessions: new Map([[key, session(busy, items, key.split(':').slice(1).join(':'))]]),
+    sessions: key ? new Map([[key, session(busy, items, key.split(':').slice(1).join(':'))]]) : new Map(),
     activeSessionKey: key,
-    queues: queue ? new Map([[key, queue]]) : new Map(),
+    queues: queue && key ? new Map([[key, queue]]) : new Map(),
     recoverableDrafts: mockRecoveries,
   }
   mountedStore = {
@@ -458,6 +458,25 @@ describe('the composer while a turn is running', () => {
     expect(restoreNewer).toBeDefined()
     act(() => restoreNewer?.click())
     expect(textarea().value).toBe('second message')
+  })
+
+  it('restores path attachments when the first send is refused before a session exists', async () => {
+    calls.queue.mockImplementationOnce(async () => false)
+    mount({ busy: false, key: null })
+    act(() => window.dispatchEvent(new CustomEvent('harnessdesk:compose', {
+      detail: {
+        text: 'first message with a file',
+        attachments: [{ name: 'spec.md', path: '/w/spec.md', kind: 'file' }],
+      },
+    })))
+
+    await act(async () => {
+      enter()
+      await Promise.resolve()
+    })
+
+    expect(textarea().value).toBe('first message with a file')
+    expect(container.textContent).toContain('spec.md')
   })
 
   it('shows an inline queue refusal as a recoverable draft without replacing the composer', () => {
