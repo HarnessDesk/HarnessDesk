@@ -164,11 +164,10 @@ const ListRow = ({
         data-slot="list-row-lead"
         className={cn(
           'inline-flex shrink-0 items-center gap-2',
-          /* Pinned to the row's top edge and dropped by half the gap between
-             the title's line and a 16–20px lead — the common IconTile and
-             Avatar sizes at this row's two densities — so the lead's own
-             centre lands on the title's centre instead of the taller block's. */
-          (subtitle != null || meta != null) && 'translate-y-(--hd-space-px)',
+          /* The lead slot is exactly the title's first line. A larger mark
+             overflows it evenly above and below instead of inheriting the
+             height of a wrapped description. */
+          (subtitle != null || meta != null) && (size === 'sm' ? 'h-(--hd-line-sm)' : 'h-(--hd-line)'),
         )}
       >
         {lead}

@@ -256,6 +256,7 @@ it('CardShell, CardCrest and CardCrestBody draw the anatomy on their own, for a 
     root.render(
       <CardShell slot="publication-card" kind="pullRequest">
         <CardCrest>
+          <span><svg /></span>
           <CardCrestBody>hello</CardCrestBody>
         </CardCrest>
       </CardShell>,
@@ -268,7 +269,10 @@ it('CardShell, CardCrest and CardCrestBody draw the anatomy on their own, for a 
   expect(crest?.className).toContain('px-3')
   expect(crest?.className).toContain('pt-3')
   expect(crest?.className).toContain('pb-2.5')
-  const body = crest?.firstElementChild as HTMLElement | null
+  const lead = crest?.firstElementChild as HTMLElement | null
+  expect(lead?.className).toContain('h-(--hd-line)')
+  expect(lead?.querySelector('svg')).toBeTruthy()
+  const body = crest?.children[1] as HTMLElement | null
   expect(body?.className).toContain('pt-px')
   expect(body?.textContent).toBe('hello')
 })

@@ -1,4 +1,4 @@
-import type { ComponentProps, ReactNode } from 'react'
+import { Children, type ComponentProps, type ReactNode } from 'react'
 
 import { AlertIcon, InfoIcon, ShieldOffIcon } from '../../components/Icons'
 import { PopoverGroupLabel } from './Popover'
@@ -230,11 +230,17 @@ export const CardShell = ({
  * exact `flex items-start gap-2.5 px-3 pt-3 pb-2.5` by hand, down to the
  * pixel, until this crest gave both a single place to read it from.
  */
-export const CardCrest = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <div className={`flex items-start gap-2.5 px-3 pt-3 pb-2.5${className ? ` ${className}` : ''}`}>
-    {children}
-  </div>
-)
+export const CardCrest = ({ children, className }: { children: ReactNode; className?: string }) => {
+  const parts = Children.toArray(children)
+  return (
+    <div className={`flex items-start gap-2.5 px-3 pt-3 pb-2.5${className ? ` ${className}` : ''}`}>
+      {parts.length > 1 ? (
+        <span className="flex h-(--hd-line) flex-none items-center">{parts[0]}</span>
+      ) : parts[0]}
+      {parts.slice(1)}
+    </div>
+  )
+}
 
 /**
  * The text column beside a crest's mark, nudged down `pt-px` so its first
