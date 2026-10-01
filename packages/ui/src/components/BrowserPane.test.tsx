@@ -194,6 +194,39 @@ describe('BrowserPane', () => {
     expect(container.textContent).not.toContain('Type a URL above')
   })
 
+  it('shows a failed page with its address and retry, then clears it after navigation succeeds', () => {
+    mount(browserView('http://127.0.0.1:9/'))
+    const guest = webviews()[0]!
+    const loadURL = vi.fn(() => Promise.resolve())
+    Object.assign(guest, { loadURL })
+
+    act(() => {
+      const failed = Object.assign(new Event('did-fail-load'), {
+        errorCode: -102,
+        validatedURL: 'http://127.0.0.1:9/',
+        isMainFrame: true,
+      })
+      guest.dispatchEvent(failed)
+    })
+
+    expect(container.textContent).toContain("Couldn't reach 127.0.0.1 — the connection was refused")
+    expect(container.textContent).toContain('http://127.0.0.1:9/')
+    expect(container.textContent).toContain('Try again')
+    const footer = [...container.querySelectorAll('[data-slot="bar"][data-rule="top"]')]
+      .find((bar) => bar.textContent?.includes('Page failed to load'))
+    expect(footer).toBeDefined()
+    expect(footer?.textContent).not.toContain('Idle')
+
+    click([...container.querySelectorAll('button')].find((button) => button.textContent === 'Try again'))
+    expect(loadURL).toHaveBeenCalledWith('http://127.0.0.1:9/')
+
+    act(() => {
+      guest.dispatchEvent(Object.assign(new Event('did-navigate'), { url: 'http://127.0.0.1:9/' }))
+    })
+    expect(container.textContent).not.toContain('connection was refused')
+    expect(container.textContent).toContain('Idle')
+  })
+
   it('draws one tab per page, named by the page', () => {
     const view = patchBrowserTab(addBrowserTab(browserView('https://example.com/'), 'https://other.test/'), 'x', {})
     mount(view)

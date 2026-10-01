@@ -319,11 +319,10 @@ try {
     roots: REPOS.map(repo => join(WORK, repo.dir)),
     nativeCodex: NATIVE_CODEX,
     // The one guest address this take can vouch for: `browserServer` is
-    // declared below and only ever set while the `browser` scene's own
-    // static server is up, so every other scene asks with no origin at all —
-    // which is right, because no other scene opens a guest pane a real
-    // address could belong to (#928 review, P2).
-    rigOrigin: browserServer?.url ?? null,
+    // declared below and only ever set while a browser fixture is up. The
+    // failure scene may instead vouch for its exact refused loopback origin;
+    // every other scene asks with no origin at all (#928 review, P2).
+    rigOrigin: browserFailureOrigin ?? browserServer?.url ?? null,
   })
 
   /** Hide this machine's home, the one substitution a frame is allowed. */
@@ -880,6 +879,8 @@ rules:
    */
   /** The `browser` scene's loopback server, open only while that scene runs. */
   let browserServer = null
+  /** The one refused origin the browser-failure scene may photograph. */
+  let browserFailureOrigin = null
 
   /**
    * Which flat colour a `ring-*` scene isolated its popover against, by scene
@@ -1719,6 +1720,68 @@ rules:
       await sleep(300)
       await browserServer?.close()
       browserServer = null
+    } },
+    'browser-failure': { leaveOverlay: true, run: async () => {
+      const browseDir = join(WORK, 'browse-failure')
+      mkdirSync(browseDir, { recursive: true })
+      writeFileSync(join(browseDir, 'index.html'), `<!doctype html>
+<meta charset="utf-8">
+<title>HarnessDesk browser fixture</title>
+<style>body{font:16px system-ui;margin:4rem;color:#253047;background:#f7f9fc}h1{font-size:2rem}</style>
+<h1>Storefront preview</h1><p>Before the refused navigation.</p>`)
+      browserServer = await startStaticServer(browseDir)
+      const url = `${browserServer.url}/index.html`
+      await cdp.eval(`${STORE}.openBrowser(${q(url)}); true`)
+      let title = ''
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        title = await cdp.eval(`document.querySelector('webview')?.getTitle?.() ?? ''`).catch(() => '')
+        if (title === 'HarnessDesk browser fixture') break
+        await sleep(100)
+      }
+      if (title !== 'HarnessDesk browser fixture') throw new Error('the browser fixture did not load')
+
+      // Chromium reserves port 9 for its discard protocol and reports
+      // ERR_UNSAFE_PORT instead of attempting a connection. Port 8 is an
+      // ordinary closed loopback port, so the native frame shows refusal.
+      const refused = 'http://127.0.0.1:8/'
+      await cdp.eval(`(() => {
+        const input = document.querySelector('input[aria-label="Address"]')
+        if (!input) throw new Error('the browser address field is missing')
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+        setter?.call(input, ${q(refused)})
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        return true
+      })()`)
+      for (const theme of THEMES) {
+        await setTheme(theme)
+        await shoot(`browser-failure-before-${theme}`, null, async () => {
+          const address = await cdp.eval(`document.querySelector('input[aria-label="Address"]')?.value ?? ''`)
+          if (address !== refused) throw new Error(`browser-failure-before-${theme}: address is ${q(address)}`)
+        })
+      }
+
+      browserFailureOrigin = 'http://127.0.0.1:8'
+      const submitted = await cdp.eval(`(() => {
+        const form = document.querySelector('form[data-slot="tool-pane-bar"][data-variant="address"]')
+        if (!form) return false
+        form.requestSubmit()
+        return true
+      })()`)
+      if (!submitted) throw new Error('the browser address form is missing')
+      await waitForSnapshot(
+        () => cdp.eval(`document.body.innerText.includes('connection was refused')`),
+        Boolean,
+        { attempts: 80 },
+      ).catch(async (error) => {
+        const state = await cdp.eval(`JSON.stringify({ address: document.querySelector('input[aria-label="Address"]')?.value, page: document.body.innerText.slice(-260), guest: document.querySelector('webview')?.getURL?.() })`)
+        throw new Error(`${error.message}; browser state: ${state}`)
+      })
+    }, finish: async () => {
+      await cdp.eval(`${STORE}.closeBrowser(); true`).catch(() => {})
+      await sleep(300)
+      await browserServer?.close()
+      browserServer = null
+      browserFailureOrigin = null
     } },
   }
 

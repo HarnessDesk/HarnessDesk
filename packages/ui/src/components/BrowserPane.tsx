@@ -21,6 +21,7 @@ import {
   readAnnotations,
 } from '../lib/annotate'
 import { handOverToComposer, type ComposeRequest } from '../lib/compose'
+import { browserLoadFailureMessage } from '../lib/browser-load-error'
 import { noteKey, wrapContext } from '../lib/context-envelope'
 import { browserPartition, desktop, hasInlineBrowser, openExternal } from '../lib/desktop'
 import { bareToolName, toolsOfPlugin, toolWords } from '../lib/tool-names'
@@ -286,6 +287,8 @@ const BrowserTabPage = ({
   onNavigate,
   onTitle,
   onLoading,
+  failure,
+  onFailure,
   onCanGo,
   onIcon,
   onFound,
@@ -301,6 +304,8 @@ const BrowserTabPage = ({
   onNavigate: (tabId: string, url: string) => void
   onTitle: (tabId: string, title: string) => void
   onLoading: (tabId: string, loading: boolean) => void
+  failure: { url: string; errorCode: number } | null
+  onFailure: (tabId: string, failure: { url: string; errorCode: number } | null) => void
   onCanGo: (tabId: string, canGo: { back: boolean; forward: boolean }) => void
   onIcon: (tabId: string, dataUrl: string) => void
   onFound: (result: { active: number; total: number }) => void
@@ -354,6 +359,8 @@ const BrowserTabPage = ({
   */
   const zoomAt = useRef(zoom)
   zoomAt.current = zoom
+  const tabUrlAt = useRef(tab.url)
+  tabUrlAt.current = tab.url
   /** Where the guest last was, for telling a change of site from a page of the same one. */
   const lastUrl = useRef(tab.url)
   /** The icon last asked for, so the same one reported again is not a change. */
@@ -401,6 +408,17 @@ const BrowserTabPage = ({
       onLoading(tab.id, false)
       report()
     }
+    const failed = (event: Event) => {
+      const detail = event as Event & { errorCode?: number; validatedURL?: string; isMainFrame?: boolean }
+      // Aborts are expected when a guest is redirected or replaced; only the
+      // main document's actual navigation failure belongs in the page area.
+      if (detail.isMainFrame === false || detail.errorCode === -3) return
+      onLoading(tab.id, false)
+      onFailure(tab.id, {
+        url: detail.validatedURL || tabUrlAt.current,
+        errorCode: detail.errorCode ?? -1,
+      })
+    }
     const navigated = (event: Event) => {
       onNavigate(tab.id, (event as Event & { url: string }).url)
       applyZoom()
@@ -416,6 +434,7 @@ const BrowserTabPage = ({
       Baidu to such a site and the strip would still say Baidu.
     */
     const leftTheSite = (event: Event) => {
+      onFailure(tab.id, null)
       const url = (event as Event & { url: string }).url
       if (originOf(url) !== originOf(lastUrl.current)) {
         onIcon(tab.id, '')
@@ -475,6 +494,7 @@ const BrowserTabPage = ({
     element.addEventListener('dom-ready', onDomReady)
     element.addEventListener('did-start-loading', onStart)
     element.addEventListener('did-stop-loading', onStop)
+    element.addEventListener('did-fail-load', failed)
     element.addEventListener('did-navigate', leftTheSite)
     // A hash change is the same page; its mark stays.
     element.addEventListener('did-navigate-in-page', navigated)
@@ -483,6 +503,7 @@ const BrowserTabPage = ({
       element.removeEventListener('dom-ready', onDomReady)
       element.removeEventListener('did-start-loading', onStart)
       element.removeEventListener('did-stop-loading', onStop)
+      element.removeEventListener('did-fail-load', failed)
       element.removeEventListener('did-navigate', leftTheSite)
       element.removeEventListener('did-navigate-in-page', navigated)
       element.removeEventListener('page-title-updated', titled)
@@ -496,7 +517,7 @@ const BrowserTabPage = ({
     // is read at `dom-ready` and applied by the effect below; making it a
     // dependency here would rebuild every listener on each ⌘+.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [element, tab.id, inline, onReady, onNavigate, onTitle, onLoading, onCanGo, onIcon, onFound, onPageMenu, register])
+  }, [element, tab.id, inline, onReady, onNavigate, onTitle, onLoading, onFailure, onCanGo, onIcon, onFound, onPageMenu, register])
 
   useEffect(() => {
     if (!element || !inline || !ready.current) return
@@ -570,6 +591,22 @@ const BrowserTabPage = ({
             ? 'Type a URL above, or let a turn open one. Whatever an agent does in the marked tab happens here, in front of you.'
             : 'Type a URL above. In the desktop app this pane is a full browser; here it shows what allows itself to be framed.'}
         />
+      )}
+      {failure && (
+        <ToolPaneEmptyState
+          over
+          icon={<GlobeIcon size={40} />}
+          title={browserLoadFailureMessage(failure.url, failure.errorCode)}
+          description={tab.url}
+        >
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => safely(() => { void element?.loadURL(tab.url).catch(() => {}) })}
+          >
+            Try again
+          </Button>
+        </ToolPaneEmptyState>
       )}
     </div>
   )
@@ -765,6 +802,7 @@ export const BrowserPane = () => {
     },
   }
   const [loading, setLoading] = useState<Record<string, boolean>>({})
+  const [loadFailures, setLoadFailures] = useState<Record<string, { url: string; errorCode: number } | null>>({})
   const [canGo, setCanGo] = useState<Record<string, { back: boolean; forward: boolean }>>({})
   /**
    * Find in page. Open or shut is a property of the pane, not of a tab: ⌘F
@@ -848,7 +886,12 @@ export const BrowserPane = () => {
   )
 
   const onLoading = useCallback((tabId: string, busy: boolean) => {
+    if (busy) setLoadFailures((was) => (was[tabId] ? { ...was, [tabId]: null } : was))
     setLoading((was) => (was[tabId] === busy ? was : { ...was, [tabId]: busy }))
+  }, [])
+
+  const onFailure = useCallback((tabId: string, failure: { url: string; errorCode: number } | null) => {
+    setLoadFailures((was) => (was[tabId] === failure ? was : { ...was, [tabId]: failure }))
   }, [])
 
   const onCanGo = useCallback((tabId: string, next: { back: boolean; forward: boolean }) => {
@@ -1877,6 +1920,8 @@ export const BrowserPane = () => {
             onNavigate={onNavigate}
             onTitle={onTitle}
             onLoading={onLoading}
+            failure={loadFailures[entry.id] ?? null}
+            onFailure={onFailure}
             onCanGo={onCanGo}
             onIcon={onIcon}
             onFound={onFound}
@@ -1915,7 +1960,9 @@ export const BrowserPane = () => {
       {/* What the pane is, said once at the bottom: whether a turn has the
           wheel, and that the profile is never the one your own browser uses. */}
       <Bar rule="top">
-        {driving ? (
+        {loadFailures[view.active] ? (
+          <Text role="meta">Page failed to load</Text>
+        ) : driving ? (
           <>
             <Dot state="signin" pulse />
             <Text role="meta">Being driven</Text>
