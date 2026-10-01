@@ -67,6 +67,7 @@ export class HoldSession extends FakeSession {
 export class HoldFake extends FakeRuntime {
   habit: SandboxHabit = 'takes'
   readonly held: HoldSession[] = []
+  readonly createOptions: SessionOptions[] = []
 
   constructor(id = 'holdfake') {
     super({ id: runtimeId(id), name: 'Hold Fake' })
@@ -81,6 +82,7 @@ export class HoldFake extends FakeRuntime {
   #opened = 0
 
   override async createSession(options: SessionOptions): Promise<AgentSession> {
+    this.createOptions.push(options)
     this.#opened += 1
     const id = sessionId(`hold-session-${this.#opened}`)
     const model = options.model ?? 'fake-1'

@@ -40,6 +40,16 @@ describeAdapterConformance('adapter-acp', {
   sessionOptions: { cwd: '/tmp/acp-conformance' },
 })
 
+test('an ACP bridge without the read-ceiling handshake does not claim a held ceiling', async () => {
+  const runtime = make()
+  await runtime.start()
+  try {
+    assert.equal(runtime.info.ceilings, undefined)
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 const record = (runtime: AcpRuntime) => {
   const events: AgentEvent[] = []
   runtime.subscribe((event) => events.push(event))

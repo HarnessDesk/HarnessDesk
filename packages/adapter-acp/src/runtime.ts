@@ -37,6 +37,7 @@ import {
   type RuntimeHealth,
   type SecretReload,
   type RuntimeInfo,
+  type CeilingLevel,
   NO_CAPABILITIES,
   type InstallationCheck,
   type Session,
@@ -806,6 +807,9 @@ export class AcpRuntime implements AgentRuntime {
   #tasks: AcpTasks | null = null
   /** Decoded once from `initialize`'s `_meta.harnessdesk.attachments`; `null` until shaken, and forever if the peer never declared it. */
   #attachmentCapability: AcpAttachmentCapability | null = null
+  /** Read ceiling enforcement is claimed only after an ACP peer advertises the bridge contract. */
+  #readCeiling = false
+  readonly #sessionCeilings = new Map<SessionId, CeilingLevel>()
   /**
    * What each live session was actually prepared with, kept for
    * `attachmentReceipt` — which the protocol asks by session id alone — to
@@ -904,6 +908,9 @@ export class AcpRuntime implements AgentRuntime {
           : null
         : null,
       capabilities: this.#capabilities(),
+      ...(this.#readCeiling
+        ? { ceilings: { read: { settings: [], how: 'PreToolUse blocks every write-class tool, unknown MCP server, and shell command outside the read-only allowlist.' } } }
+        : {}),
       // Phase 12's stronger session contract — a sibling of `capabilities`,
       // never folded into it, and absent (not `unsupported`) until this
       // runtime has actually shaken hands: "what a runtime may claim before
@@ -1084,6 +1091,7 @@ export class AcpRuntime implements AgentRuntime {
       }
       const declared = (this.#initialized._meta as { harnessdesk?: Record<string, unknown> } | undefined)
         ?.harnessdesk
+      this.#readCeiling = declared?.['readCeiling'] === true
       if (declared?.[ACP_TASKS_CAPABILITY] === true) this.#adoptTasks()
       this.#canDelete = declared?.[ACP_SESSION_DELETE_CAPABILITY] === true
       this.#briefs = declared?.[ACP_INSTRUCTIONS_CAPABILITY] === true
@@ -2383,6 +2391,10 @@ export class AcpRuntime implements AgentRuntime {
       ...(options.model !== undefined ? { model: options.model } : {}),
       ...(options.options ?? {}),
     }
+    const heldCeiling = options.requestedCeiling && this.#readCeiling && options.requestedCeiling === 'read' ? 'read' : undefined
+    const sessionMeta = Object.keys(initial).length > 0 || heldCeiling
+      ? { harnessdesk: { ...(Object.keys(initial).length > 0 ? { options: initial } : {}), ...(heldCeiling ? { ceiling: heldCeiling } : {}) } }
+      : {}
     const result = await this.#openWithTools<AcpNewSessionResult>('session/new', {
       cwd: options.cwd,
       // The initial values ride along in ACP's extension slot too: a bridge
@@ -2392,18 +2404,19 @@ export class AcpRuntime implements AgentRuntime {
       ...(options.environment
         ? {
             _meta: environmentMeta(
-              { harnessdesk: { options: initial } },
+              sessionMeta,
               options.environment,
               this.info.capabilities.sessionEnvironment,
             ),
           }
-        : Object.keys(initial).length > 0
-          ? { _meta: { harnessdesk: { options: initial } } }
+        : Object.keys(initial).length > 0 || heldCeiling
+          ? { _meta: sessionMeta }
           : {}),
     }, options.attachments)
     const session = new AcpSession(this, result, options.cwd)
     this.#sessions.set(session.id, session)
     this.#invalidateSearchListing()
+    if (heldCeiling) this.#sessionCeilings.set(session.id, heldCeiling)
     if (options.attachments) this.#attachmentInputs.set(session.id, options.attachments)
     this.#learnCatalog(result)
     // Initial option values ride the same path a user change would — mode
@@ -2467,6 +2480,8 @@ export class AcpRuntime implements AgentRuntime {
   async resumeSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
     const saved = this.#environments.get(id)
     const environment = options.environment ? laneEnvironmentOf(options.environment) : saved
+    const requestedCeiling = options.requestedCeiling ?? this.#sessionCeilings.get(id)
+    const heldCeiling: CeilingLevel | undefined = this.#readCeiling && requestedCeiling === 'read' ? 'read' : undefined
     if (saved && environment && JSON.stringify(saved) !== JSON.stringify(environment)) {
       throw new Error('A live session cannot change its lane environment.')
     }
@@ -2543,13 +2558,14 @@ export class AcpRuntime implements AgentRuntime {
           sessionId: id,
           cwd,
           ...(environment
-            ? { _meta: environmentMeta({}, environment, this.info.capabilities.sessionEnvironment) }
-            : {}),
+            ? { _meta: environmentMeta(heldCeiling && this.#readCeiling ? { harnessdesk: { ceiling: heldCeiling } } : {}, environment, this.info.capabilities.sessionEnvironment) }
+            : heldCeiling && this.#readCeiling ? { _meta: { harnessdesk: { ceiling: heldCeiling } } } : {}),
         }, options.attachments)
         // Reapplied, never re-resolved: the caller (the host) is the one that
         // decides whether a resume repeats a Seat's frozen input, exactly as
         // it decided at create. This only remembers what it was handed.
         if (options.attachments) this.#attachmentInputs.set(id, options.attachments)
+        if (heldCeiling && this.#readCeiling) this.#sessionCeilings.set(id, heldCeiling)
         if (environment) {
           acknowledgeEnvironment(loaded._meta, environment)
           this.#environments.set(id, environment)
