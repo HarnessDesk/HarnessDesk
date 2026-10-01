@@ -260,6 +260,47 @@ export interface HarnessDeskClaudeAgentOptions { readonly stateDir?: string; rea
 type AcpClient = { sessionUpdate(params: SessionNotification): Promise<void>; requestPermission(params: unknown, signal?: AbortSignal): Promise<unknown>; readTextFile?(params: unknown): Promise<unknown>; writeTextFile?(params: unknown): Promise<unknown>; createElicitation?(params: unknown, signal?: AbortSignal): Promise<unknown>; completeElicitation?(params: unknown): Promise<void>; extNotification?(method: string, params: unknown): Promise<void> }
 type Logger = { log: (...args: unknown[]) => void; error: (...args: unknown[]) => void }
 
+/** Adds provenance only when the desk server supplied for this session asked. */
+export const withFlowBoardToolProvenance = (
+  value: unknown,
+  suppliedServerNames: readonly string[],
+  liveServerStatus: readonly { readonly name: string; readonly source?: string }[],
+): unknown => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return value
+  const request = value as Record<string, unknown>
+  const requestMeta = (request['_meta'] ?? {}) as Record<string, unknown>
+  const suppliedMeta = requestMeta['harnessdesk']
+  const harnessdesk = typeof suppliedMeta === 'object' && suppliedMeta !== null && !Array.isArray(suppliedMeta)
+    ? suppliedMeta as Record<string, unknown>
+    : {}
+  const { flowBoardTool: _untrustedFlowBoardTool, ...cleanHarnessdesk } = harnessdesk
+  const cleanRequest = Object.hasOwn(harnessdesk, 'flowBoardTool')
+    ? { ...request, _meta: { ...requestMeta, harnessdesk: cleanHarnessdesk } }
+    : request
+  const toolCall = request['toolCall']
+  if (typeof toolCall !== 'object' || toolCall === null || Array.isArray(toolCall)) return cleanRequest
+  const call = toolCall as Record<string, unknown>
+  const meta = call['_meta'] as { claudeCode?: { mcpServer?: { name?: unknown; source?: unknown }; toolName?: unknown } } | undefined
+  const claudeCode = meta?.claudeCode
+  const matchingLiveServers = liveServerStatus.filter((server) => server.name === 'harnessdesk')
+  if (
+    suppliedServerNames.filter((name) => name === 'harnessdesk').length !== 1 ||
+    claudeCode?.mcpServer?.name !== 'harnessdesk' ||
+    claudeCode.mcpServer.source !== 'dynamic' ||
+    matchingLiveServers.length !== 1 ||
+    matchingLiveServers[0]?.source !== 'dynamic' ||
+    typeof claudeCode.toolName !== 'string' ||
+    !claudeCode.toolName.startsWith('mcp__harnessdesk__')
+  ) return cleanRequest
+  return {
+    ...cleanRequest,
+    _meta: {
+      ...requestMeta,
+      harnessdesk: { ...cleanHarnessdesk, flowBoardTool: { server: 'harnessdesk', tool: claudeCode.toolName } },
+    },
+  }
+}
+
 const clientFromContext = (context: AgentContext): AcpClient => ({
   sessionUpdate: (params) => context.notify(methods.client.session.update, params as never),
   requestPermission: (params, signal) => context.request(methods.client.session.requestPermission, params as never, { cancellationSignal: signal }),
@@ -323,6 +364,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
   readonly #delegations = new Map<string, DelegationRegistry>()
   readonly #outputPollers = new Map<string, ReturnType<typeof setTimeout>>()
   readonly #deletedSessions = new Set<string>()
+  readonly #suppliedMcpServers = new Map<string, readonly string[]>()
   /** The exact input a session was prepared with, and what actually got staged for it — set once at create/load, reapplied unchanged by `#recreate`. */
   readonly #attachments = new Map<string, { input: AttachmentInput; staged: StagedAttachments }>()
   readonly #stateDir: string
@@ -331,6 +373,21 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     const log = options.log ?? ((line: string) => process.stderr.write(`${line}\n`))
     const logger: Logger = { log: (...args) => log(String(args[0] ?? '')), error: (...args) => log(String(args[0] ?? '')) }
     super(client as never, logger)
+    const requestPermission = client.requestPermission.bind(client)
+    client.requestPermission = async (params, signal) => {
+      const sessionId = typeof (params as { sessionId?: unknown } | null)?.sessionId === 'string'
+        ? (params as { sessionId: string }).sessionId
+        : ''
+      const query = this.sessions[sessionId]?.query as
+        | { mcpServerStatus(): Promise<readonly { readonly name: string; readonly source?: string }[]> }
+        | undefined
+      const liveServerStatus = await query?.mcpServerStatus().catch(() => []) ?? []
+      return requestPermission(withFlowBoardToolProvenance(
+        params,
+        this.#suppliedMcpServers.get(sessionId) ?? [],
+        liveServerStatus,
+      ), signal)
+    }
     const notify = client.sessionUpdate.bind(client)
     const extNotify = client.extNotification?.bind(client)
     if (extNotify) {
@@ -433,6 +490,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       return await super.closeSession(params)
     } finally {
       this.#rawToolResults.delete(params.sessionId)
+      this.#suppliedMcpServers.delete(params.sessionId)
       this.#releaseAttachments(params.sessionId)
     }
   }
@@ -442,6 +500,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     const { params, input, staged } = withAttachments(instructed, (key) => this.#stagingRoot(key))
     const values = optionsIn(params._meta)
     const response = await super.newSession({ ...params, _meta: withOptions(params._meta, values, new AbortController()) })
+    this.#suppliedMcpServers.set(response.sessionId, params.mcpServers?.map((server) => server.name) ?? [])
     this.#deletedSessions.delete(response.sessionId)
     this.#releaseAttachments(response.sessionId, input?.key)
     if (input && staged) this.#attachments.set(response.sessionId, { input, staged })
@@ -463,6 +522,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     const instructed = withInstructions(request)
     const { params, input, staged } = withAttachments(instructed, (key) => this.#stagingRoot(key))
     const response = await super.loadSession({ ...params, _meta: withOptions(params._meta, remembered, new AbortController()) })
+    this.#suppliedMcpServers.set(request.sessionId, params.mcpServers?.map((server) => server.name) ?? [])
     this.#releaseAttachments(request.sessionId, input?.key)
     if (input && staged) this.#attachments.set(request.sessionId, { input, staged })
     const session = this.sessions[request.sessionId]

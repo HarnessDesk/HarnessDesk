@@ -17,7 +17,7 @@ import {
 } from '@harnessdesk/protocol'
 import { WebSocketServer, type WebSocket } from 'ws'
 
-import type { Host } from './host.js'
+import { PreviewFileTooLargeError, type Host } from './host.js'
 import type { Logger } from './log.js'
 
 /**
@@ -230,7 +230,17 @@ const handleHttp = async (
   // was fetched with is spent before its scripts ever execute.
   if (url.pathname === '/preview-frame') {
     const ticket = url.searchParams.get('ticket') ?? ''
-    const redeemed = await context.host.redeemPreviewTicket(ticket).catch(() => null)
+    let redeemed: { bytes: Uint8Array; contentType: string } | null
+    try {
+      redeemed = await context.host.redeemPreviewTicket(ticket)
+    } catch (thrown) {
+      if (thrown instanceof PreviewFileTooLargeError) {
+        response.writeHead(413, { 'content-type': 'text/plain' })
+        response.end(thrown.message)
+        return
+      }
+      redeemed = null
+    }
     if (!redeemed) {
       response.writeHead(410, { 'content-type': 'text/plain' })
       response.end('This preview link has expired. Reload the preview pane.')

@@ -1437,6 +1437,15 @@ export class FlowExecutions {
     }))
   }
 
+  /** Whether a live v2 flow run still governs this conversation. */
+  seated(runtime: string, sessionId: string): boolean {
+    return [...this.#runs.values()].some((run) => {
+      if (run.state !== 'running' && run.state !== 'stalled') return false
+      const seating = this.#seatingOf(run, runtime, sessionId)
+      return seating?.seat !== null && seating?.seat !== undefined && this.#port.seatOf(seating.seat)?.closed === null
+    })
+  }
+
   // ------------------------------------------------------------- reading
 
   runs(goal?: string): FlowExecution[] {

@@ -186,15 +186,33 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     while (branch.parentElement && branch.parentElement !== row) branch = branch.parentElement
     if (!visibleChildren(row).slice(0, visibleChildren(row).indexOf(branch)).some(hasText)) continue
     let surface: Element | null = button.parentElement
-    while (surface && surface !== root && !boxSurface(surface)) surface = surface.parentElement
+    // A Row owns its inset even when its container draws the visible card edge.
+    while (surface && surface !== root && !surface.matches('[data-slot="row"]') && !boxSurface(surface)) surface = surface.parentElement
     if (!surface || surface === root) continue
     const surfaceRect = surface.getBoundingClientRect()
     const surfaceStyle = getComputedStyle(surface)
     const rightInset = parseFloat(surfaceStyle.paddingRight) + parseFloat(surfaceStyle.borderRightWidth)
     const columnRight = surfaceRect.right - rightInset
+    const buttonRect = button.getBoundingClientRect()
+    const buttonStyle = getComputedStyle(button)
+    const visibleColor = (color: string) => {
+      if (color === 'transparent') return false
+      const alpha = color.match(/,\s*([\d.]+)\s*\)$/)
+      return !alpha || Number(alpha[1]) > 0
+    }
+    const visibleBorder = ['Top', 'Right', 'Bottom', 'Left'].some(side => {
+      const width = parseFloat(buttonStyle[`border${side}Width` as 'borderTopWidth'])
+      const style = buttonStyle[`border${side}Style` as 'borderTopStyle']
+      const color = buttonStyle[`border${side}Color` as 'borderTopColor']
+      return width > 0 && style !== 'none' && visibleColor(color)
+    })
+    const visibleFill = visibleColor(buttonStyle.backgroundColor)
+    const visibleBox = visibleBorder || visibleFill
     const glyph = button.querySelector('svg')!.getBoundingClientRect()
-    // The content edge is the right edge shared by the surface's text column; the hit target may hang past it.
-    if (columnRight - glyph.right >= 2 && surfaceRect.right - button.getBoundingClientRect().right <= 48) {
+    // docs/design.md, “What the engine checks”: trailing actions align to the surface text column.
+    // A visible border/fill makes the button box its edge; a ghost button has no visible box, so align its glyph.
+    const trailingEdge = visibleBox ? buttonRect.right : glyph.right
+    if (Math.abs(columnRight - trailingEdge) >= 2 && surfaceRect.right - buttonRect.right <= 48) {
       record('trailing-glyph-off-column', button)
     }
   }
@@ -211,16 +229,33 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     // Start at the heading's first text glyph so a decorative mark before it is not measured as the heading.
     const heading = header.matches(headingSelector) ? header : header.querySelector(headingSelector) ?? header
     const headerText = firstTextLine(heading)
-    let bodyText: ReturnType<typeof firstTextLine> = null
+    let bodyLeft: number | null = null
     for (const child of children.slice(1)) {
+      const rows = child.matches('[data-slot="rows"]') ? child : child.querySelector('[data-slot="rows"]')
+      if (rows) {
+        const firstRow = visibleChildren(rows)
+          .map(element => element.matches('[data-slot="row-folding"]')
+            ? visibleChildren(element).find(opener => opener.matches('button')) ?? null
+            : element)
+          .find(element => element?.matches('[data-slot="row"], button'))
+        if (firstRow) {
+          const mark = firstRow.querySelector('[data-slot="row-mark"]')
+          const markRect = mark && !hidden(mark) ? mark.getBoundingClientRect() : null
+          const textLine = firstTextLine(firstRow)
+          // docs/design.md, “Where a label lands”: a SectionHead over Rows shares the first row's lead,
+          // which is its mark when present and otherwise its first text glyph; bar/column labels share text columns.
+          bodyLeft = markRect?.left ?? textLine?.left ?? null
+        }
+        if (bodyLeft !== null) break
+      }
       const candidates = [child, ...child.querySelectorAll('*')].filter(element =>
         hasText(element) && !element.closest('button, [data-slot="alert"]') && !element.querySelector('button, [data-slot="alert"]'),
       )
       // Use body glyphs, skipping nested controls and alerts whose own insets do not define this surface's text column.
-      bodyText = candidates.map(firstTextLine).find(rect => rect !== null) ?? null
-      if (bodyText) break
+      bodyLeft = candidates.map(firstTextLine).find(rect => rect !== null)?.left ?? null
+      if (bodyLeft !== null) break
     }
-    if (headerText && bodyText && Math.abs(headerText.left - bodyText.left) >= 2) {
+    if (headerText && bodyLeft !== null && Math.abs(headerText.left - bodyLeft) >= 2) {
       record('header-off-body', header)
     }
   }
@@ -259,6 +294,21 @@ test('the rendered frames and boards hold the alignment census ceiling', async (
     for (const [signature, title] of Object.entries(observed.diagnostics)) diagnostics.set(signature, title)
     for (const check of CHECKS) all[check].push(...observed.findings[check])
   }
+
+  // The catalog's Settings row-fold specimen starts with a marked folding
+  // opener and reveals an unmarked row. Exercise both states so the census's
+  // first-row wrapper handling remains covered by a mixed-mark example.
+  await page.goto('/design.html?view=row')
+  await settle(page)
+  const rowFoldCase = page.locator('[data-catalog-case="row-fold"][data-slot="rows"]')
+  await expect(rowFoldCase.locator('[data-slot="row-folding"] > button [data-slot="row-mark"]'),
+    'the first folding row is marked').toHaveCount(1)
+  await rowFoldCase.locator('[aria-label$="accounts under Codex"]').click()
+  const revealedPlainRow = rowFoldCase.locator('[data-slot="row-folding"] + button')
+  await expect(revealedPlainRow,
+    'the folding opener reveals the following row').toHaveCount(1)
+  await expect(revealedPlainRow.locator('[data-slot="row-mark"]'),
+    'the revealed following row is unmarked').toHaveCount(0)
 
   await page.goto('/design.html')
   await settle(page)

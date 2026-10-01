@@ -4,6 +4,7 @@ export {
   acpSafeToolContent,
   optionsIn,
   withOptions,
+  withFlowBoardToolProvenance,
   classifyReplayed,
   commandsFor,
   storedTitle,

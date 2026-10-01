@@ -129,7 +129,7 @@ export class FakeFiles implements RuntimeFiles {
   async read(path: string): Promise<Uint8Array> {
     this.calls.push(`read ${path}`)
     const content = this.tree[path]
-    if (content === undefined) throw new Error(`fake: no such file ${path}`)
+    if (content === undefined) throw Object.assign(new Error(`fake: no such file ${path}`), { code: 'ENOENT' })
     return new TextEncoder().encode(content)
   }
 
@@ -945,6 +945,32 @@ export class FakeSession implements AgentSession {
       options: [
         { id: 'opt-0', label: 'Allow', intent: 'approve' },
         { id: 'opt-1', label: 'Deny', intent: 'deny' },
+      ],
+    }
+    return new Promise((resolve) => {
+      this.#pendingApproval = { id, resolve }
+      this.host.emit({ type: 'approval/requested', approval })
+    })
+  }
+
+  /** Raises an ACP-style permission request with the tool's title as its subject. */
+  askPermission(
+    id: ApprovalId,
+    summary: string,
+    flowBoardTool?: { readonly server: 'harnessdesk'; readonly tool: string },
+  ): Promise<ApprovalDecision> {
+    const approval: Approval = {
+      id,
+      sessionId: this.id,
+      ...(this.#activeTurn ? { turnId: this.#activeTurn } : {}),
+      requestedAt: Date.now(),
+      type: 'permission',
+      summary,
+      ...(flowBoardTool ? { flowBoardTool } : {}),
+      options: [
+        { id: 'allow-once', label: 'Allow once', intent: 'approve' },
+        { id: 'allow-always', label: 'Always allow', intent: 'approveAlways' },
+        { id: 'reject', label: 'Reject', intent: 'deny' },
       ],
     }
     return new Promise((resolve) => {

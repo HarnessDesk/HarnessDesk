@@ -917,7 +917,7 @@ export const Row = ({
   className?: string
 } & Omit<HTMLAttributes<HTMLDivElement>, 'title'>) => (
   <div className={cx(styles.row, className)} data-slot="row" {...props}>
-    {mark ? <span className={styles.rowMark}>{mark}</span> : null}
+    {mark ? <span className={styles.rowMark} data-slot="row-mark">{mark}</span> : null}
     <span className={styles.rowText}>
       <span className={styles.rowTitle} data-slot="row-title">{title}</span>
       {desc ? <RowDesc truncate={truncateDesc}>{desc}</RowDesc> : null}
@@ -1003,7 +1003,7 @@ export const RowButton = ({
       onClick={onClick}
       {...rest}
     >
-      {mark ? <span className={styles.rowMark}>{mark}</span> : null}
+      {mark ? <span className={styles.rowMark} data-slot="row-mark">{mark}</span> : null}
       <span className={styles.rowText}>
         <span className={styles.rowTitle}>{title}</span>
         {desc ? <RowDesc truncate={truncateDesc}>{desc}</RowDesc> : null}

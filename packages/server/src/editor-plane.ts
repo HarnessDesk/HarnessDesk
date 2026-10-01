@@ -1,5 +1,6 @@
 import {
   applyLineEdits,
+  WORKSPACE_TEXT_LIMIT_BYTES,
   type EditorDocument,
   type EditorEdit,
   type EditorEvent,
@@ -123,7 +124,7 @@ export class EditorPlane implements EditorEngine {
     if (!files.write) {
       throw new Error('This runtime cannot write files from the interface.')
     }
-    const before = await files.read(target)
+    const before = await files.read(target, WORKSPACE_TEXT_LIMIT_BYTES + 1)
     // The plugin gets text, not bytes: an edit is expressed in lines, and a
     // file this cannot decode as text is a file a line edit cannot describe.
     const { content, truncated } = asText(before)
