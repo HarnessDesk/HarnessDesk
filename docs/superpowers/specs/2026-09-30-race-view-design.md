@@ -1,6 +1,9 @@
 # Race view — design
 
-Status: **proposal, awaiting the owner's approval.** No code before it.
+Status: **approved by the owner (2026-10-01)** — all four decisions as
+recommended (Option A; one shared composer, an expanded tile brings back
+its own; the person-judged fallback with the engine slice first; tile keys
+⌥⌘1–⌥⌘4). Build in the slices of section 8.
 
 ## What the owner asked
 
@@ -100,7 +103,10 @@ panel system, and tiles are equal (resizing a split is a later slice).
   its own window's conversation, stop this one). The header folds as the
   tile narrows: time and cost go into the state chip's hover text first,
   then the model into the name's, then the toggle becomes two icons — the
-  name, the state and the toggle always stay on the bar.
+  name, the state and the toggle always stay on the bar. A chip added to the
+  header (the verdict's "Picked") folds before the name does — it becomes a
+  mark beside the name rather than squeezing it (seen in the mock frames:
+  "Ga… Mod…").
 - **Conversation** (default): that member's real `Conversation`, mounted in
   its own scope (pane-local session key — never the global active session),
   **without its own composer** while it is on a grid of two or more: the one
@@ -136,6 +142,9 @@ panel system, and tiles are equal (resizing a split is a later slice).
 
 The room's composer, in the ordinary composer's spot: centred at the bottom
 of the grid, over the splitter junction, as wide as the ordinary composer.
+The bottom tiles keep room under it — their scroll area ends above the
+composer's measured height — so their last lines are never hidden behind
+it (seen in the mock frames).
 
 - **Audience**: a chip row above the text reads **Everyone** by default;
   typing `@` narrows it to named members (the existing audience logic,
@@ -253,7 +262,8 @@ view, not workbench panes, so an accidental split cannot produce this layout.
 "Race four agents to build a browser game." Four competitors on four
 different models; the race's task in the `/race` dialog ("Build a playable
 Snake game in one HTML file"); all four tiles switch to **Browser** as each
-serves its page; a follow-up in the shared composer ("add a high-score
+serves its page (each tile its own attempt's transcript — the mock frames'
+shared fixture is not acceptable for the demo); a follow-up in the shared composer ("add a high-score
 counter") reaches all four; the person plays each in its tile, expands one, the judge's verdict
 band appears, the person merges the pick. Frames and a short recording from
 the rig (never a real desk).
