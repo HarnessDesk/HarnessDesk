@@ -29,6 +29,7 @@ const CREDENTIAL_ROOTS = [
   '.git-credentials', 'Library/Keychains', 'Library/Application Support',
 ]
 const FACT_KEYS = new Set(['rulesFiles', 'catalogue', 'precedence', 'rejections', 'skillRoots', 'refresh', 'mcp', 'signedOutCatalogue'])
+const unmeasuredFacts = () => Object.fromEntries([...FACT_KEYS].map((key) => [key, { status: 'could-not-ask' }]))
 const SAFE_FACT_STRINGS = new Set([
   'user', 'project', 'unknown', 'asked', 'could-not-ask', 'none', 'live', 'restart', 'available', 'empty',
   'connected', 'disconnected', 'accepted', 'rejected', 'enabled', 'disabled', 'loaded', 'not-loaded',
@@ -45,6 +46,7 @@ const SAFE_TEXT_WORDS = new Set([
   'failed', 'safely', 'privacy', 'allowlist', 'parsed', 'facts', 'answer', 'needs', 'sign-in', 'measured', 'is',
   'exact', 'version', 'changed', 'during', 'discovery', 'couldnt', 'capture', 'an', 'installed', 'available', 'its', 'list',
   'openai', 'claude', 'opencode', 'cline', 'hermes', 'codebuddy', 'kimi', 'pi', 'grok', 'copilot', 'antigravity', 'devin',
+  'model', 'required', 'unavailable', 'listing', 'session', 'acp', 'out', 'initialize', 'request', 'cannot', 'isolation',
 ])
 
 const write = async (path, body) => {
@@ -440,7 +442,8 @@ export function validateResult(result, fixture) {
   if (!result.facts || typeof result.facts !== 'object' || Array.isArray(result.facts)) throw new Error('facts must be an object')
   if (Object.keys(result.facts).some((key) => !FACT_KEYS.has(key)) || !safeFact(result.facts, fixture)) throw new Error('facts are outside the fixture-derived allowlist')
   if (result.status !== 'asked' && result.status !== 'could-not-ask') throw new Error('status must be asked or could-not-ask')
-  if (typeof result.rawAnswer !== 'string' || (result.status === 'asked' && !result.rawAnswer.trim())) throw new Error('rawAnswer is required for asked results')
+  const signedOutStatus = result.facts?.signedOutCatalogue?.status ?? result.facts?.signedOutCatalogue
+  if (typeof result.rawAnswer !== 'string' || (result.status === 'asked' && !result.rawAnswer.trim() && !['available', 'empty'].includes(signedOutStatus))) throw new Error('rawAnswer is required for asked results')
   if (result.rawAnswer && result.rawAnswer.split('\n').some((line) => !fixtureTokens(fixture).includes(line))) throw new Error('rawAnswer must contain only fixture-derived tokens')
   if (result.status === 'could-not-ask' && result.rawAnswer !== '') throw new Error('could-not-ask results cannot persist an answer')
   if (result.status === 'could-not-ask' && (typeof result.reason !== 'string' || !safeText(result.reason, fixture))) throw new Error('reason is outside the fixture-derived allowlist')
@@ -461,11 +464,18 @@ export async function askAgent(agent, fixture) {
   try {
     const answer = await probe(agent, fixture)
     if (answer.status === 'could-not-ask') {
-      return { ...base, interface: base.interface, question: base.question, status: 'could-not-ask', reason: 'probe declined safely' }
+      const reason = typeof answer.reason === 'string' && safeText(answer.reason, fixture) ? answer.reason : 'probe failed safely'
+      const facts = answer.facts && Object.keys(answer.facts).every((key) => FACT_KEYS.has(key)) && safeFact(answer.facts, fixture) ? answer.facts : {}
+      return { ...base, interface: safeText(answer.interface, fixture) ? answer.interface : base.interface, question: safeText(answer.question, fixture) ? answer.question : base.question, facts, status: 'could-not-ask', reason }
     }
     const normalizedRaw = redact(answer.rawAnswer ?? '', fixtureTokens(fixture), fixture.root)
-    if (!normalizedRaw) return { ...base, status: 'could-not-ask', reason: 'answer failed the fixture-only privacy allowlist' }
+    const signedOutStatus = answer.facts?.signedOutCatalogue?.status ?? answer.facts?.signedOutCatalogue
+    const observedListing = ['available', 'empty'].includes(signedOutStatus)
+    if (!normalizedRaw && !observedListing) return { ...base, status: 'could-not-ask', reason: 'answer failed the fixture-only privacy allowlist' }
     const facts = answer.facts ?? {}
+    if (!safeFact(facts, fixture) || Object.keys(facts).some((key) => !FACT_KEYS.has(key))) return { ...base, status: 'could-not-ask', reason: 'parsed facts failed the privacy allowlist' }
+    if (!safeText(answer.interface ?? base.interface, fixture)) return { ...base, status: 'could-not-ask', reason: 'probe interface failed the privacy allowlist' }
+    if (!safeText(answer.question ?? base.question, fixture)) return { ...base, status: 'could-not-ask', reason: 'probe question failed the privacy allowlist' }
     const result = {
       ...base,
       interface: safeText(answer.interface ?? base.interface, fixture) ? answer.interface ?? base.interface : base.interface,
@@ -475,9 +485,10 @@ export async function askAgent(agent, fixture) {
       status: answer.status ?? 'asked',
     }
     try {
-      return validateResult(result, fixture)
+      const { fixtureRoot: _fixtureRoot, ...publicResult } = result
+      return validateResult(publicResult, fixture)
     } catch {
-      return { ...base, status: 'could-not-ask', reason: 'parsed facts failed the privacy allowlist' }
+      return { ...base, status: 'could-not-ask', reason: 'probe result failed the privacy allowlist' }
     }
   } catch {
     return { ...base, status: 'could-not-ask', reason: 'probe failed safely' }
@@ -526,7 +537,8 @@ export async function findAgentInstall(agent, fixture) {
 
 export async function main(args = process.argv.slice(2)) {
   if (!args.includes('--all')) throw new Error('usage: node script/measure/library.mjs --all')
-  await import('./probes/index.mjs')
+  const probes = await import('./probes/index.mjs')
+  probes.installProbes({ run, registerProbe })
   const { KNOWN_AGENTS } = await import('../../packages/server/dist/src/installs/known-agents.js')
   const agents = [{ id: 'codex', name: 'Codex' }, ...KNOWN_AGENTS]
   for (const agent of agents) {
@@ -545,7 +557,7 @@ export async function main(args = process.argv.slice(2)) {
         ? await askAgent({ ...agent, command, version: discovered.value }, fixture)
         : {
             agent: agent.name, agentId: agent.id, version: 'unknown', measured: new Date().toISOString().slice(0, 10),
-            interface: 'not launched', question: 'Is an installed build available?', rawAnswer: '', facts: {},
+            interface: 'not launched', question: 'Is an installed build available?', rawAnswer: '', facts: unmeasuredFacts(),
             status: 'could-not-ask',
             reason: !fixture.isolation.available || installResult.cannotIsolate ? 'cannot isolate' : !install ? 'binary not installed' : !discovered?.value ? 'could not capture an exact version' : 'installed version changed during discovery',
           }

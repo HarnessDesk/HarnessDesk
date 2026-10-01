@@ -1,0 +1,62 @@
+{
+  "agent": "Codex",
+  "agentId": "codex",
+  "version": "0.155.0",
+  "measured": "2026-10-01",
+  "interface": "codex app-server skills/list",
+  "question": "catalogue precedence rejections refresh mcp",
+  "rawAnswer": "measure-sentinel",
+  "facts": {
+    "rulesFiles": {
+      "status": "could-not-ask"
+    },
+    "catalogue": {
+      "reported": [
+        "measure-duplicate",
+        "measure-oversized",
+        "measure-project",
+        "measure-sentinel",
+        "measure-with-auxiliary",
+        "measure-user"
+      ],
+      "userPresent": true,
+      "projectPresent": true,
+      "auxiliaryPresent": true
+    },
+    "precedence": {
+      "duplicateUserPresent": true,
+      "duplicateProjectPresent": true,
+      "duplicateCount": 2
+    },
+    "rejections": {
+      "missingDescriptionListed": false,
+      "missingDescriptionError": true,
+      "oversizedListed": true,
+      "oversizedError": false,
+      "rejectionWords": {
+        "description": true,
+        "size": false,
+        "manifest": false
+      },
+      "errorCount": 1
+    },
+    "skillRoots": {
+      "userFound": true,
+      "projectFound": true
+    },
+    "refresh": {
+      "forceReloadChangedDescription": true,
+      "runtimeRefreshSupported": false,
+      "runtimeRefreshRejected": true,
+      "openSessionSeesChange": "unknown"
+    },
+    "mcp": {
+      "fixtureConfigured": true,
+      "status": "unknown"
+    },
+    "signedOutCatalogue": {
+      "status": "available"
+    }
+  },
+  "status": "asked"
+}

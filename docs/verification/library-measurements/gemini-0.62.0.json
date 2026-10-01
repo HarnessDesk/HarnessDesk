@@ -1,0 +1,39 @@
+{
+  "agent": "Gemini CLI",
+  "agentId": "gemini",
+  "version": "0.62.0",
+  "measured": "2026-10-01",
+  "interface": "not selected",
+  "question": "signed out list agent skills",
+  "rawAnswer": "",
+  "facts": {
+    "rulesFiles": {
+      "status": "could-not-ask"
+    },
+    "catalogue": {
+      "status": "could-not-ask"
+    },
+    "precedence": {
+      "status": "could-not-ask"
+    },
+    "rejections": {
+      "status": "could-not-ask"
+    },
+    "skillRoots": {
+      "status": "could-not-ask"
+    },
+    "refresh": {
+      "status": "unknown"
+    },
+    "mcp": {
+      "status": "unknown"
+    },
+    "signedOutCatalogue": {
+      "status": "unknown",
+      "commandCount": 0,
+      "skillsListed": false
+    }
+  },
+  "status": "could-not-ask",
+  "reason": "ACP session unavailable"
+}

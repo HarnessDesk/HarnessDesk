@@ -23,6 +23,7 @@ import {
   agentHomeIsIsolated,
   normalizeVersion,
 } from './library.mjs'
+import { parseAcpOutput, parseCodexOutput, parseRejectionWords, summarizeAcpMessages } from './probes/index.mjs'
 
 const under = (root, path) => path.startsWith(`${root}/`) || path === root
 
@@ -251,14 +252,44 @@ test('versioned measurement records are linked from the tier table', async () =>
   assert.ok(names.length > 0)
   for (const name of names) {
     const result = JSON.parse(await readFile(new URL(name, directory), 'utf8'))
-    assert.equal(result.status, 'could-not-ask')
+    assert.ok(['asked', 'could-not-ask'].includes(result.status))
     assert.ok(result.agent && result.agentId && result.version && result.measured && result.interface && result.question)
-    assert.equal(result.rawAnswer, '')
-    assert.ok(result.reason)
+    if (result.status === 'asked') {
+      assert.ok(result.rawAnswer)
+      assert.equal(result.reason, undefined)
+    } else {
+      assert.equal(result.rawAnswer, '')
+      assert.ok(result.reason)
+    }
     assert.match(readme, new RegExp(`\\(${name.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\)`))
     assert.deepEqual(Object.keys(result.facts).sort(), ['catalogue','mcp','precedence','refresh','rejections','rulesFiles','signedOutCatalogue','skillRoots'].sort())
   }
+  const normalizedTable = readme.toLowerCase().replaceAll('-', ' ')
   for (const heading of ['rules', 'catalogue', 'precedence', 'limits', 'roots', 'refresh', 'MCP', 'signed out']) {
-    assert.ok(readme.toLowerCase().includes(heading.toLowerCase()), `tier table includes ${heading}`)
+    assert.ok(normalizedTable.includes(heading.toLowerCase()), `tier table includes ${heading}`)
   }
+})
+
+test('Codex protocol parser ignores diagnostics and keeps only JSON-RPC records', () => {
+  const records = parseCodexOutput('diagnostic line\n{"jsonrpc":"2.0","id":2,"result":{"data":[]}}\nnot json\n')
+  assert.equal(records.length, 1)
+  assert.equal(records[0].id, 2)
+})
+
+test('ACP parser summarizes only signed-out session and command availability', () => {
+  const messages = parseAcpOutput([
+    'startup diagnostic',
+    JSON.stringify({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2025-06-18' } }),
+    JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: { update: { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'secret-command' }] } } }),
+    JSON.stringify({ jsonrpc: '2.0', id: 2, result: { sessionId: 'private-id' } }),
+  ].join('\n'))
+  assert.deepEqual(summarizeAcpMessages(messages), { initialized: true, sessionCreated: true, signedOutFailure: false, commandCount: 1 })
+})
+
+test('Codex rejection parser reduces vendor errors to safe word categories', () => {
+  assert.deepEqual(parseRejectionWords([
+    { message: 'missing description in skill manifest' },
+    { message: 'fixture exceeds size limit' },
+  ]), { description: true, size: true, manifest: true })
+  assert.deepEqual(parseRejectionWords([{ message: 'other validation issue' }]), { description: false, size: false, manifest: false })
 })
