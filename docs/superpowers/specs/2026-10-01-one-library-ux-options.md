@@ -260,7 +260,7 @@ Library    [Skills 42 | Rules 6 | MCP servers 9]      [Check for updates] [Add s
 
 ## The mockups
 
-Each option is drawn on `packages/ui/preview.html`, under "Library — UX
+Each option is drawn on `packages/ui/preview.html?library-options`, under "Library — UX
 options", from the real design system with fixture data:
 
 | Frame id | Option |

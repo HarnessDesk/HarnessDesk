@@ -12,7 +12,7 @@ never claim more than an agent said.
 **Spec:** [2026-10-01-library-design.md](../specs/2026-10-01-library-design.md).
 The use cases are in
 [2026-10-01-skills-management-use-cases.md](../specs/2026-10-01-skills-management-use-cases.md).
-The approved mockup is `library-option-e` on `packages/ui/preview.html`.
+The approved mockup is `library-option-e` on `packages/ui/preview.html?library-options`.
 
 ## Who does what
 

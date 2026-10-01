@@ -85,6 +85,11 @@ const SHOW_DENSE = new URLSearchParams(window.location.search).has('dense')
    `preview.html?side-by-side`; the design page's own board draws the grid
    for the coverage sweep. */
 const SHOW_SIDE_BY_SIDE = new URLSearchParams(window.location.search).has('side-by-side')
+/* The Library's UX option mockups are a design record for the owner, not a
+   shipped surface: they render only on `preview.html?library-options`, so the
+   default page the UI-system census reads holds shipped components alone.
+   Phase 1 of the Library plan deletes them once the real components exist. */
+const SHOW_LIBRARY_OPTIONS = new URLSearchParams(window.location.search).has('library-options')
 /* Which of the Dashboard's five rail rows the preview frame opens on — the
    rig's own way to shoot each view without clicking through the rail by
    hand: `preview.html?view=spend`. Falls back to the dial beside the frame. */
@@ -945,8 +950,8 @@ const Preview = () => {
           <LibrarySection />
         </div>
       </Frame>
-      <LibraryDevFrames />
-      <LibraryOptionFrames />
+      {SHOW_LIBRARY_OPTIONS && <LibraryDevFrames />}
+      {SHOW_LIBRARY_OPTIONS && <LibraryOptionFrames />}
       <Frame id="settings-appearance" title="Settings › Appearance">
         <div className="p-4">
           <AppearanceSection />

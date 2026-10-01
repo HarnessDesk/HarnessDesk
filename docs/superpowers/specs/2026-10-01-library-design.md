@@ -6,7 +6,7 @@ package-manager view of every agent's skills, rules files and MCP servers.
 It serves [the use cases](2026-10-01-skills-management-use-cases.md) under the
 principles of [the one-library design](2026-09-30-one-library-design.md). The
 mockups are `library-option-e` and `library-option-e-applied` on
-`packages/ui/preview.html`.*
+`packages/ui/preview.html?library-options`.*
 
 ## The idea in one paragraph
 
