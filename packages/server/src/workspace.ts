@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
-import { lstat, readFile, readdir, stat, watch as fsWatch, writeFile } from 'node:fs/promises'
+import { isUtf8 } from 'node:buffer'
+import { lstat, open, readdir, stat, watch as fsWatch, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
@@ -230,10 +231,17 @@ export class LocalFiles implements RuntimeFiles {
       .slice(0, limit)
   }
 
-  async read(path: string): Promise<Uint8Array> {
+  async read(path: string, maxBytes: number): Promise<Uint8Array> {
     const info = await stat(path)
     if (!info.isFile()) throw new Error(`${path} is not a file`)
-    return readFile(path)
+    const handle = await open(path, 'r')
+    try {
+      const buffer = Buffer.alloc(Math.max(0, maxBytes))
+      const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, 0)
+      return buffer.subarray(0, bytesRead)
+    } finally {
+      await handle.close()
+    }
   }
 
   async list(path: string): Promise<readonly FileEntry[]> {
@@ -255,6 +263,7 @@ export class LocalFiles implements RuntimeFiles {
       kind: info?.isDirectory() ? 'directory' : info?.isFile() ? 'file' : 'other',
       isSymlink: link.isSymbolicLink(),
       modifiedAt: (info ?? link).mtimeMs,
+      ...(info?.isFile() ? { size: info.size } : {}),
     }
   }
 
@@ -287,6 +296,21 @@ export const asText = (
   const buffer = Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength)
   if (buffer.byteLength <= maxBytes) return { content: buffer.toString('utf8'), truncated: false }
   return { content: buffer.subarray(0, maxBytes).toString('utf8'), truncated: true }
+}
+
+/** NUL bytes and invalid UTF-8 are binary; replacement decoding can look like editable text. */
+export const isBinaryFile = (raw: Uint8Array): boolean => {
+  const bytes = Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength)
+  return bytes.includes(0) || !isUtf8(bytes)
+}
+
+/** Local readers preserve ENOENT as a code; Codex's generic RPC error carries
+ * its filesystem errno in the app-server message, translated here at the host boundary. */
+export const isMissingWorkspaceFileError = (error: unknown): boolean => {
+  const shaped = error as { code?: unknown; rpcCode?: unknown; message?: unknown } | null
+  return shaped?.code === 'ENOENT' || (
+    shaped?.rpcCode === -32600 && typeof shaped.message === 'string' && /os error 2\)?$/.test(shaped.message)
+  )
 }
 
 /**

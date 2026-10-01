@@ -49,6 +49,7 @@ import {
 
 import { AppWindowMode } from '../components/AppWindow'
 import { EMPTY_FINDINGS_STATE, findingDetail, findingsListState } from './findings-fixture'
+import { focus as focusPaneIn } from '../state/layout'
 import type { FindingFilter } from '../lib/findings'
 import { Boundary } from './boundary'
 import { StoreProvider } from '../state/context'
@@ -1215,6 +1216,10 @@ class PreviewStore {
     if ((this.#snapshot.workbench.focus ?? null) === (id ?? null)) return
     this.#workbench(focusView(this.#snapshot.workbench, id))
   }
+  focusPane(paneId: string): void {
+    const workbench = this.#snapshot.workbench
+    this.#workbench(focusView({ ...workbench, main: focusPaneIn(workbench.main, paneId) }, null))
+  }
 
   /* The sidebar's verbs, answered as the app's store answers them
      (`toggleSidebar`, `closeFloatingSidebar` and `setNarrowWindow` in
@@ -1870,8 +1875,8 @@ class PreviewStore {
       if (method === 'workspace/readFile') {
         const path = (params as { path?: string } | undefined)?.path ?? ''
         if (path.endsWith('lib/brands.ts'))
-          return { content: editorSource, truncated: false, hash: `len-${editorSource.length}` }
-        return null
+          return { kind: 'text', content: editorSource, truncated: false, hash: `len-${editorSource.length}` }
+        return { kind: 'missing' }
       }
       if (method === 'workspace/stat') return { kind: 'file', isSymlink: false, modifiedAt: now }
       /** `FolderPicker`'s own listing — one folder deep, plain names, so the dialog has something to click into. */

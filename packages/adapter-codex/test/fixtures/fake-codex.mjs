@@ -394,7 +394,7 @@ const storedThreads = () => [
   thread({
     id: 'thread-3',
     name: null,
-    preview: '<context source="Uncommitted changes">\nStatus: ## main\n</context>\n\nReply with exactly: ok',
+    preview: '<context source="Uncommitted changes" data-hd-envelope="harnessdesk-v1">\nStatus: ## main\n</context>\n\nReply with exactly: ok',
   }),
   // A first message that is nothing but blocks, the adapter's own Git
   // preamble ahead of the chip the person attached.
@@ -402,7 +402,7 @@ const storedThreads = () => [
     id: 'thread-4',
     name: null,
     preview:
-      '<context source="Git">\nOn branch main.\n</context>\n\n<context source="Uncommitted changes">\nStatus: ## main\n</context>',
+      '<context source="Git" data-hd-envelope="harnessdesk-v1">\nOn branch main.\n</context>\n\n<context source="Uncommitted changes" data-hd-envelope="harnessdesk-v1">\nStatus: ## main\n</context>',
   }),
 ].filter((t) => !deletedThreads.has(t.id))
 
@@ -1510,12 +1510,20 @@ rl.on('line', (line) => {
         send({ id, error: { code: -32600, message: 'Invalid request: AbsolutePathBuf deserialized without a base path' } })
         return
       }
+      const largeFileBytes = Number(process.env['FAKE_CODEX_LARGE_FILE_BYTES'])
+      const mediumImageBytes = Number(process.env['FAKE_CODEX_MEDIUM_IMAGE_BYTES'])
       const content = FILES[params.path]
-      if (content === undefined) {
+      if (content === undefined && !(params.path === '/w/large.bin' && Number.isSafeInteger(largeFileBytes) && largeFileBytes >= 0)
+        && !(params.path === '/w/medium.png' && Number.isSafeInteger(mediumImageBytes) && mediumImageBytes >= 4)) {
         send({ id, error: { code: -32600, message: 'No such file or directory (os error 2)' } })
         return
       }
-      send({ id, result: { dataBase64: Buffer.from(content).toString('base64') } })
+      const bytes = params.path === '/w/large.bin'
+        ? Buffer.alloc(largeFileBytes, 0x61)
+        : params.path === '/w/medium.png'
+          ? Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.alloc(mediumImageBytes - 4, 0x61)])
+        : Buffer.from(content)
+      send({ id, result: { dataBase64: bytes.toString('base64') } })
       return
     }
 
@@ -1610,7 +1618,11 @@ rl.on('line', (line) => {
       return
 
     case 'fs/getMetadata': {
+      const largeFileBytes = Number(process.env['FAKE_CODEX_LARGE_FILE_BYTES'])
+      const mediumImageBytes = Number(process.env['FAKE_CODEX_MEDIUM_IMAGE_BYTES'])
       const isFile = params.path in FILES
+        || (params.path === '/w/large.bin' && Number.isSafeInteger(largeFileBytes) && largeFileBytes >= 0)
+        || (params.path === '/w/medium.png' && Number.isSafeInteger(mediumImageBytes) && mediumImageBytes >= 4)
       const isDirectory = DIRECTORIES.includes(params.path)
       if (!isFile && !isDirectory) {
         send({ id, error: { code: -32600, message: 'No such file or directory (os error 2)' } })

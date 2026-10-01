@@ -10,6 +10,7 @@ import {
   WorktreeDirtyError,
   Worktrees,
   isManagedWorktree,
+  managedWorktreePath,
   parseWorktreeList,
   putBack,
   repositoryOf,
@@ -46,6 +47,16 @@ const fixture = async (t: { after(fn: () => Promise<void>): void }): Promise<Fix
   await git(repo, 'commit', '-q', '-m', 'init')
   return { repo, stateDir, worktrees: new Worktrees(stateDir) }
 }
+
+test('a predicted isolated lane path matches flow checkout creation from a repository subfolder', async (t) => {
+  const { repo, stateDir, worktrees } = await fixture(t)
+  const project = join(repo, 'packages', 'app')
+  await mkdir(project, { recursive: true })
+  const predicted = await managedWorktreePath(project, stateDir, 'lane-preview')
+  const checkout = await worktrees.create(project, { name: 'lane-preview' })
+  assert.equal(checkout.path, predicted)
+  assert.equal(checkout.path.startsWith(join(stateDir, 'worktrees', 'repo-')), true)
+})
 
 /**
  * What the session list groups on. Every checkout of a repository has to name
@@ -737,4 +748,3 @@ test('parseWorktreeList handles CRLF line endings from git worktree list on Wind
     managed: false,
   })
 })
-

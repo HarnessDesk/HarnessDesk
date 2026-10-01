@@ -161,6 +161,16 @@ export interface PaneScope {
 
 const PaneContext = createContext<PaneScope | null>(null)
 
+/**
+ * Whether the keyboard is in this part of a focused mount. A mount that
+ * holds several conversations at once — Side by side's tiles — is one
+ * focused pane to the app, so each tile says here whether it is the one the
+ * keys go to; a tile that is not (or is hidden) reads as unfocused to every
+ * consumer of `useIsFocusedPane`: its composer takes no compose events and
+ * its approvals answer no keys and take no focus. Unset is "no opinion".
+ */
+export const KeyboardHereContext = createContext<boolean | null>(null)
+
 export const PaneProvider = ({ scope, children }: { scope: PaneScope; children: ReactNode }) => (
   <PaneContext.Provider value={scope}>{children}</PaneContext.Provider>
 )
@@ -204,6 +214,7 @@ export const useQueue = (): SessionQueue | null => {
 export const useIsFocusedPane = (): boolean => {
   const pane = useContext(PaneContext)
   const snapshot = useSnapshot()
+  if (useContext(KeyboardHereContext) === false) return false
   if (!pane) return true
   const focused = focusedMount(snapshot.workbench)
   const rootId = pane.paneId.includes(':') ? pane.paneId.split(':')[0] : pane.paneId

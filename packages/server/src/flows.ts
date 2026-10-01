@@ -716,7 +716,7 @@ export class Flows implements TeamFlows {
     return { goalExists: goal.exists, goalWritable: goal.writable }
   }
 
-  /** A seat governed by a flow that is still live; settled and stopped runs govern nothing. */
+  /** The seat recorded for a live flow run, retained even when closed for question-recovery paths. */
   seatOf(runtime: string, sessionId: string): FlowSeatRecord | null {
     const key = String(sessionKey(runtime as never, sessionId as never))
     for (const run of this.#runs.values()) {
@@ -725,6 +725,19 @@ export class Flows implements TeamFlows {
       if (seat) return seat
     }
     return null
+  }
+
+  /** Whether an open seat on either a legacy or v2 live flow still governs this conversation. */
+  governs(runtime: string, sessionId: string): boolean {
+    const key = String(sessionKey(runtime as never, sessionId as never))
+    for (const run of this.#runs.values()) {
+      if (run.state !== 'running' && run.state !== 'stalled') continue
+      if (!Array.isArray(run.seats) || !run.seats.some((seat) => seat.key === key)) continue
+      if (this.#port.recovery.seats(run.room).some((record) =>
+        record.closed === null && record.session.runtime === runtime && record.session.sessionId === sessionId,
+      )) return true
+    }
+    return this.#executions?.seated(runtime, sessionId) === true
   }
 
   // ------------------------------------------------------------------ reading

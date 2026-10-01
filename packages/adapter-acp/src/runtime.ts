@@ -64,6 +64,7 @@ import {
   SessionGoneError,
   openingOf,
   laneEnvironmentOf,
+  wrapContext,
 } from '@harnessdesk/protocol'
 import {
   AcpConnection,
@@ -313,6 +314,18 @@ export interface AcpAgentConfig {
      */
     readonly onOpen?: (token: string) => void
   }
+  /** Folder-specific policy the agent applies before starting a configured MCP server. */
+  readonly pluginToolsAvailableAt?: (cwd: string) => boolean | Promise<boolean>
+  readonly pluginToolsProblemAt?: (cwd: string) => string | null | Promise<string | null>
+  /** Runtime-authored guidance shown if that folder policy withholds the desk tools. */
+  readonly pluginToolsUnavailable?: string
+  /**
+   * True only when `command` is a bridge HarnessDesk ships. Then, and only
+   * then, a permission request's `_meta.harnessdesk.flowBoardTool` is the
+   * bridge's own proof of which MCP server asked; from any other peer it is
+   * the agent's say-so and is ignored.
+   */
+  readonly trustsBridgeProvenance?: boolean
   /**
    * The desk's standing instruction for the agent, read when a session is
    * opened and put in `session/new`'s and `session/load`'s `_meta` under
@@ -897,6 +910,7 @@ export class AcpRuntime implements AgentRuntime {
       provider: this.#provider,
       presentation: {
         name: this.#config.name,
+        ...(this.#config.pluginToolsUnavailable ? { pluginToolsUnavailable: this.#config.pluginToolsUnavailable } : {}),
         // What an ACP agent declares are commands; some of them are skills
         // and some are `/compact`. The page says both rather than filing
         // half the list under the wrong word.
@@ -2310,6 +2324,14 @@ export class AcpRuntime implements AgentRuntime {
     }
   }
 
+  pluginToolsAvailableAt(cwd: string): Promise<boolean> {
+    return Promise.resolve(this.#config.pluginToolsAvailableAt?.(cwd) ?? true)
+  }
+
+  pluginToolsProblemAt(cwd: string): Promise<string | null> {
+    return Promise.resolve(this.#config.pluginToolsProblemAt?.(cwd) ?? null)
+  }
+
   async createSession(options: SessionOptions): Promise<AgentSession> {
     /* `SessionOptions` is `Partial<SessionSettings> & …`, so `model` is legal
        to write — and it used to be read by nobody here, which made "start this
@@ -2635,6 +2657,11 @@ export class AcpRuntime implements AgentRuntime {
 
   get connection(): AcpConnection {
     return this.#connection
+  }
+
+  /** Whether this peer is a bridge HarnessDesk ships; see `AcpAgentConfig.trustsBridgeProvenance`. */
+  get trustsBridgeProvenance(): boolean {
+    return this.#config.trustsBridgeProvenance === true
   }
 
   get agentName(): string {
@@ -3096,11 +3123,13 @@ const ACP_ENVELOPE: PeelOptions = {
  * is a whole block rather than something spanning two.
  */
 const withUserContent = (item: UserMessageItem, block: AcpContentBlock): UserMessageItem => {
-  const { content, context } = peelUserContent([userContentOf(block)], ACP_ENVELOPE)
+  // Re-peel the accumulated blocks as one message. A desk wrapper may be its
+  // own ACP content block, with the person's sentence arriving afterwards.
+  const { content, context } = peelUserContent([...item.content, userContentOf(block)], ACP_ENVELOPE)
   const kept = [...item.context ?? [], ...context]
   return {
     ...item,
-    content: [...item.content, ...content],
+    content,
     ...(kept.length > 0 ? { context: kept } : {}),
   }
 }
@@ -3203,6 +3232,17 @@ const questionOf = (
         : {}),
     })),
   }
+}
+
+/** Reads only the bridge's structured claim; titles and raw tool text never confer provenance. */
+const flowBoardToolOf = (request: AcpPermissionRequest): { readonly server: 'harnessdesk'; readonly tool: string } | null => {
+  const marker = request._meta?.['harnessdesk'] as { flowBoardTool?: unknown } | undefined
+  const value = marker?.flowBoardTool
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+  const shaped = value as { server?: unknown; tool?: unknown }
+  return shaped.server === 'harnessdesk' && typeof shaped.tool === 'string' && shaped.tool.startsWith('mcp__harnessdesk__')
+    ? { server: 'harnessdesk', tool: shaped.tool }
+    : null
 }
 
 const noticeOf = (update: Extract<AcpSessionUpdate, { sessionUpdate: 'user_message_chunk' }>): string | null => {
@@ -3560,7 +3600,16 @@ class AcpSession implements AgentSession {
     const userItem: AgentItem =
       opts?.recordAs === 'notice'
         ? { id: itemId(`${id}-user`), type: 'notice', text: plainTextOf(input), startedAt: Date.now() }
-        : { id: itemId(`${id}-user`), type: 'userMessage', content: input, startedAt: Date.now() }
+        : (() => {
+            const { content, context } = peelUserContent(input, ACP_ENVELOPE)
+            return {
+              id: itemId(`${id}-user`),
+              type: 'userMessage',
+              content,
+              ...(context.length > 0 ? { context } : {}),
+              startedAt: Date.now(),
+            }
+          })()
     const turn: MutableTurn = { id, items: [userItem], startedAt: Date.now() }
     this.#currentTurn = turn
     this.#host.emit({
@@ -3691,7 +3740,10 @@ class AcpSession implements AgentSession {
       preview:
         preview?.type === 'userMessage'
           ? // Named from the whole message, before the cut: a block cut short has no label to read (#186).
-            openingOf(preview.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n')).slice(0, 120) || null
+            openingOf([
+              ...(preview.context ?? []).map((block) => wrapContext(block.label, block.text)),
+              preview.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n'),
+            ].join('\n')).slice(0, 120) || null
           : // Loaded, not replayed: the agent's own record of how this
             // conversation opened stands in for turns this process never saw.
             this.#host.previewOf(this.id),
@@ -4218,6 +4270,7 @@ class AcpSession implements AgentSession {
         this.#host.emit({ type: 'approval/requested', approval })
       })
     }
+    const flowBoardTool = this.#host.trustsBridgeProvenance ? flowBoardToolOf(request) : null
     const approval: Approval = {
       id,
       sessionId: this.id,
@@ -4226,6 +4279,7 @@ class AcpSession implements AgentSession {
       requestedAt: Date.now(),
       type: 'permission',
       summary: request.toolCall.title ?? 'The agent asks permission to continue.',
+      ...(flowBoardTool ? { flowBoardTool } : {}),
       // Why the agent is asking, when the agent said. ACP carries that on the
       // request's own tool call, and reading only the title threw it away:
       // DeepSeek Harness sends "escalate sandbox to danger-full-access: the
@@ -4298,6 +4352,7 @@ class AcpSession implements AgentSession {
 
   #finishTurn(turn: MutableTurn, stopReason?: AcpStopReason | string | null): void {
     if (this.#currentTurn?.id !== turn.id) return
+    const completedAt = Date.now()
     const reason = typeof stopReason === 'string' ? stopReason : stopReason == null ? 'end_turn' : String(stopReason)
     const status =
       reason === 'cancelled' ? 'interrupted' : reason === 'end_turn' ? 'completed' : 'failed'
@@ -4309,12 +4364,12 @@ class AcpSession implements AgentSession {
         ? { error: { message: `The agent stopped: ${reason.replace(/_/g, ' ')}.` } }
         : {}),
       startedAt: turn.startedAt,
-      completedAt: Date.now(),
+      completedAt,
       // Never actually null here -- `#finishTurn` only ever closes a live
       // turn (`send`'s own `Date.now()`), replay never reaches it -- but the
       // type is shared with a replayed turn's, so the arithmetic still has
       // to allow for it.
-      durationMs: turn.startedAt === null ? null : Date.now() - turn.startedAt,
+      durationMs: turn.startedAt === null ? null : completedAt - turn.startedAt,
     }
     this.#currentTurn = null
     this.#turns.push(finished)
@@ -4324,6 +4379,7 @@ class AcpSession implements AgentSession {
 
   #failTurn(turn: MutableTurn, message: string): void {
     if (this.#currentTurn?.id !== turn.id) return
+    const completedAt = Date.now()
     this.#currentTurn = null
     const finished: Turn = {
       id: turn.id,
@@ -4331,7 +4387,8 @@ class AcpSession implements AgentSession {
       status: 'failed',
       error: { message },
       startedAt: turn.startedAt,
-      completedAt: Date.now(),
+      completedAt,
+      durationMs: turn.startedAt === null ? null : completedAt - turn.startedAt,
     }
     this.#turns.push(finished)
     this.#host.emit({ type: 'turn/completed', sessionId: this.id, turn: finished })

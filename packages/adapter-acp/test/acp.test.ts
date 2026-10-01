@@ -78,6 +78,27 @@ test('a prompt streams chunks, a plan, and completes', async () => {
   }
 })
 
+test('a live ACP user message peels the shared desk envelope around its typed sentence', async () => {
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{
+      type: 'text',
+      text: `${wrapContext('Git', 'On branch main')}\n\nFix the stale branch filter.`,
+    }])
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
+    const user = turn.items.find((item) => item.type === 'userMessage')
+    assert.ok(user && user.type === 'userMessage')
+    assert.deepEqual(user.content, [{ type: 'text', text: 'Fix the stale branch filter.' }])
+    assert.deepEqual(user.context, [{ label: 'Git', text: 'On branch main' }])
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('a prompt response with omitted stopReason completes cleanly without dropping the turn (#408)', async () => {
   const runtime = make()
   await runtime.start()
@@ -1084,13 +1105,14 @@ test('every open carries a caller token, and the map learns whose it is', async 
   const dir = await mkdtemp(join(tmpdir(), 'hd-caller-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
   const dump = join(dir, 'servers.json')
+  const opens = join(dir, 'opens.jsonl')
   const claims: [string, string][] = []
   const runtime = new AcpRuntime({
     id: 'fake-acp',
     name: 'Fake ACP Agent',
     command: process.execPath,
     args: [FAKE],
-    env: { FAKE_ACP_DUMP_SERVERS: dump },
+    env: { FAKE_ACP_DUMP_SERVERS: dump, FAKE_ACP_OPENS: opens },
     toolServer: {
       name: 'harnessdesk',
       command: process.execPath,
@@ -1101,14 +1123,37 @@ test('every open carries a caller token, and the map learns whose it is', async 
   })
   await runtime.start()
   try {
-    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    const session = await runtime.createSession({ cwd: dir })
     const claim = claims.find(([, id]) => id === String(session.id))
     assert.ok(claim, 'the open announced which session its token names')
 
+    const opened = (await readFile(opens, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { sessionId: string; cwd: string })
+    assert.equal(
+      opened.find((entry) => entry.sessionId === String(session.id))?.cwd,
+      dir,
+      'the peer receives the session working directory',
+    )
+    const tape = record(runtime)
+    await session.send([{ type: 'text', text: 'run a tool in this session' }])
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
+    assert.ok(
+      turn.items.some((item) => item.type === 'assistantMessage' && item.text.includes(dir)),
+      'the fake tool runs from the opened session directory',
+    )
+
     const dumped = JSON.parse(await readFile(dump, 'utf8')) as {
+      name: string
+      command: string
       env?: { name: string; value: string }[]
     }[]
-    const env = dumped.at(-1)?.env ?? []
+    const server = dumped.at(-1)
+    assert.equal(server?.name, 'harnessdesk', 'the peer receives the board tools MCP server')
+    assert.equal(server?.command, process.execPath)
+    const env = server?.env ?? []
     const carried = env.find((entry) => entry.name === 'HD_TOOLS_CALLER')
     assert.equal(carried?.value, claim[0], 'the bridge env carries the very token that was claimed')
     assert.ok(
@@ -1226,6 +1271,47 @@ test('a permission request becomes an approval; the decision reaches the agent',
     assert.equal(turn.status, 'completed')
     const tool = turn.items.find((item) => item.type === 'toolCall')
     assert.ok(tool && tool.type === 'toolCall' && tool.status === 'completed')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+const askForDeskTool = async (runtime: AcpRuntime) => {
+  await runtime.start()
+  const tape = record(runtime)
+  const session = await runtime.createSession({ cwd: '/tmp/w' })
+  await session.send([{ type: 'text', text: 'use the desk tool with provenance' }])
+  const requested = await tape.until((event) => event.type === 'approval/requested')
+  const approval = (requested as Extract<AgentEvent, { type: 'approval/requested' }>).approval
+  await session.respondToApproval(approval.id, { type: 'option', optionId: 'yes' })
+  await tape.until((event) => event.type === 'turn/completed')
+  return approval
+}
+
+test('a desk tool marker from a peer that is not a shipped bridge is the agent\'s say-so, and is dropped', async () => {
+  const runtime = make()
+  try {
+    const approval = await askForDeskTool(runtime)
+    assert.equal(approval.type, 'permission')
+    assert.equal(approval.flowBoardTool, undefined)
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a bridge-proven desk tool permission keeps its structured provenance on the Approval', async () => {
+  const runtime = new AcpRuntime({ id: 'fake-acp', name: 'Fake ACP Agent', command: process.execPath, args: [FAKE], trustsBridgeProvenance: true })
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'use the desk tool with provenance' }])
+    const requested = await tape.until((event) => event.type === 'approval/requested')
+    const approval = (requested as Extract<AgentEvent, { type: 'approval/requested' }>).approval
+    assert.equal(approval.type, 'permission')
+    assert.deepEqual(approval.flowBoardTool, { server: 'harnessdesk', tool: 'mcp__harnessdesk__claim_next' })
+    await session.respondToApproval(approval.id, { type: 'option', optionId: 'yes' })
+    await tape.until((event) => event.type === 'turn/completed')
   } finally {
     await runtime.dispose()
   }
@@ -1352,6 +1438,7 @@ test('an agent dying mid-turn fails the turn cleanly — never hangs', async () 
     const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
     assert.equal(turn.status, 'failed')
     assert.ok(turn.error, 'the turn carries why')
+    assert.equal(typeof turn.durationMs, 'number', 'a failed live turn still carries its wall time')
     assert.equal(runtime.health().state, 'unavailable')
   } finally {
     await runtime.dispose()
@@ -1394,7 +1481,7 @@ test('a stored conversation survives the agent and this process', async (t) => {
     // Three blocks — a context chip, an image, and the ask — the way the
     // composer sends them.
     await session.send([
-      { type: 'text', text: '<context source="x">ctx</context>' },
+      { type: 'text', text: wrapContext('x', 'ctx') },
       { type: 'image', url: 'data:image/png;base64,AAAA', name: 'dot.png' },
       { type: 'text', text: 'remember me' },
     ])
@@ -1417,10 +1504,11 @@ test('a stored conversation survives the agent and this process', async (t) => {
     assert.equal(read.turns.length, 1, 'one prompt is one turn, however many blocks it had')
     const user = read.turns[0]!.items.find((item) => item.type === 'userMessage')
     assert.ok(user, 'the replayed turn carries the original user message')
-    assert.equal(user.type === 'userMessage' ? user.content.length : 0, 3, 'all blocks, one message')
+    assert.equal(user.type === 'userMessage' ? user.content.length : 0, 2, 'the envelope is removed; image and typed ask remain')
+    assert.deepEqual(user.type === 'userMessage' ? user.context : [], [{ label: 'x', text: 'ctx' }])
     // The image comes back as the bytes that were sent, renderable again —
     // the name was never the agent's to keep.
-    assert.deepEqual(user.type === 'userMessage' ? user.content[1] : null, {
+    assert.deepEqual(user.type === 'userMessage' ? user.content.find((part) => part.type === 'image') : null, {
       type: 'image',
       url: 'data:image/png;base64,AAAA',
     })
@@ -1461,6 +1549,7 @@ test("a client's own wrapper comes back folded beside the words, not inside them
     await session.send([
       { type: 'text', text: `${annotation}\n\ntoo big …` },
       { type: 'image', url: 'data:image/png;base64,AAAA', name: 'shot.png' },
+      { type: 'text', text: '<context source="Git">\nOn branch main\n</context>\n\nFix the stale branch filter.' },
     ])
     await tape.until((event) => event.type === 'turn/completed')
   } finally {
@@ -1478,13 +1567,15 @@ test("a client's own wrapper comes back folded beside the words, not inside them
     assert.ok(user, 'the replayed turn carries the user message')
     const content = user.type === 'userMessage' ? user.content : []
     const context = user.type === 'userMessage' ? user.context ?? [] : []
-    // The bubble is the two words the person typed about their drawing; the
-    // picture is still beside them, and the note is a row of its own.
+  // The bubble is what the person typed; the picture is still beside it, and
+  // both the client's annotation and the desk's Git envelope are rows of their own.
     assert.deepEqual(content[0], { type: 'text', text: 'too big …' })
-    assert.equal(content.length, 2, 'the text and the image, the envelope gone from both')
-    assert.equal(context.length, 1)
+    assert.deepEqual(content[2], { type: 'text', text: 'Fix the stale branch filter.' })
+    assert.equal(content.length, 3, 'both typed sentences and the image remain')
+    assert.equal(context.length, 2)
     assert.equal(context[0]?.label, 'Annotated screenshot')
     assert.match(context[0]?.text ?? '', /freehand annotations/, 'folded whole, not summarised away')
+    assert.deepEqual(context[1], { label: 'Git', text: 'On branch main' })
   } finally {
     await second.dispose()
   }
@@ -2763,7 +2854,7 @@ test('a conversation opened with only context blocks is called by the first one,
   }
 })
 
-test('a first message cut off inside a block names nothing (review of #231)', async (t) => {
+test('an unclosed context lookalike remains the person\'s words (review of #231)', async (t) => {
   const { mkdtemp, rm } = await import('node:fs/promises')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
@@ -2784,7 +2875,7 @@ test('a first message cut off inside a block names nothing (review of #231)', as
     await tape.until((event) => event.type === 'turn/completed')
     const row = (await runtime.listSessions()).data.find((entry) => entry.id === session.id)
     assert.ok(row)
-    assert.equal(row.preview, null)
+    assert.equal(row.preview, '<context source="Handed off from Claude Code — “Migrate the web')
   } finally {
     await runtime.dispose()
   }
