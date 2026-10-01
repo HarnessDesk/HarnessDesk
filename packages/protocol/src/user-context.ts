@@ -25,6 +25,8 @@
  * is what keeps this file below the layering rule.
  */
 
+import { peelDeskContextPrefix } from './context-envelope.js'
+
 /** One peeled wrapper: what it is, and what it held. */
 export interface UserContext {
   /**
@@ -34,7 +36,7 @@ export interface UserContext {
    * the UI.
    */
   readonly label: string
-  /** The block, verbatim, wrapper and all. */
+  /** The block's contents, verbatim, with its wrapper removed. */
   readonly text: string
 }
 
@@ -170,6 +172,15 @@ export const peelContext = (text: string, options: PeelOptions, evidence: NoteEv
   let composed = false
   let rest = text
 
+  // This exact marked prefix is the one `wrapContext` writes. A generic
+  // `<context>` lookalike anywhere in the person's message is ordinary text.
+  const desk = peelDeskContextPrefix(rest)
+  if (desk) {
+    composed = true
+    context.push(...desk.injections)
+    rest = desk.text
+  }
+
   for (const [tag, label] of Object.entries(options.tags)) {
     rest = rest.replace(blockPattern(tag), (block) => {
       composed = true
@@ -236,14 +247,32 @@ export const peelUserContent = <T extends { readonly type: string }>(
   evidence: NoteEvidence = {},
 ): { readonly content: readonly T[]; readonly context: readonly UserContext[] } => {
   const context: UserContext[] = []
-  const peeled = content.map((part) => {
+  const hasTypedTextAfter = (index: number): boolean =>
+    content.slice(index + 1).some((part) => {
+      if (part.type !== 'text') return false
+      const value = (part as { readonly text?: unknown }).text
+      if (typeof value !== 'string') return false
+      const desk = peelDeskContextPrefix(value, true)
+      return desk ? desk.text.length > 0 : value.trim().length > 0
+    })
+
+  const peeled = content.map((part, index) => {
     if (part.type !== 'text') return part
     const text = (part as { readonly text?: unknown }).text
     if (typeof text !== 'string') return part
     const result = peelContext(text, options, evidence)
-    if (result.context.length === 0) return part
-    context.push(...result.context)
-    return { ...part, text: result.text }
+    if (result.context.length > 0) {
+      context.push(...result.context)
+      return { ...part, text: result.text }
+    }
+    if (hasTypedTextAfter(index)) {
+      const desk = peelDeskContextPrefix(text, true)
+      if (desk) {
+        context.push(...desk.injections)
+        return { ...part, text: desk.text }
+      }
+    }
+    return part
   })
   // A part that was nothing but envelope leaves an empty string behind; a
   // bubble with no words in it is not a bubble.

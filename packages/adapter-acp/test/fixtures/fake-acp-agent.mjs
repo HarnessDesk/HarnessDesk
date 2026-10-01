@@ -239,6 +239,12 @@ const runPrompt = async (id, params) => {
   const say = (chunk) =>
     update(state.id, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: chunk } })
 
+  if (text.includes('run a tool in this session')) {
+    const { execFileSync } = await import('node:child_process')
+    say(execFileSync('/bin/pwd', { cwd: state.cwd, encoding: 'utf8' }).trim())
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
   if (process.env.FAKE_ACP_PROMPT_AUTH_REQUIRED === '1') {
     send({
       jsonrpc: '2.0',
@@ -341,6 +347,17 @@ const runPrompt = async (id, params) => {
       _meta: { harnessdesk: { notice: true, from: { kind: 'agent-message', senderSessionId: 'child-1' } } },
     })
     say('noted.')
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
+  if (text.includes('use the desk tool with provenance')) {
+    const { outcome } = await request('session/request_permission', {
+      sessionId: state.id,
+      toolCall: { toolCallId: 'tc-desk', title: 'Mcp', kind: 'other' },
+      options: [{ optionId: 'yes', name: 'Allow once', kind: 'allow_once' }],
+      _meta: { harnessdesk: { flowBoardTool: { server: 'harnessdesk', tool: 'mcp__harnessdesk__claim_next' } } },
+    })
+    say(outcome.outcome === 'selected' ? 'allowed.' : 'denied.')
     return reply(id, { stopReason: 'end_turn' })
   }
 

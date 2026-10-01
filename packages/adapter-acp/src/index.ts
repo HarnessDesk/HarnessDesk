@@ -20,3 +20,4 @@ export {
 } from './executable.js'
 export { parseMcpList, type AcpMcpCommands } from './mcp.js'
 export { AcpExtensions } from './extensions.js'
+export { geminiTrustsFolder, geminiTrustsFolderStatus, type GeminiTrustOptions, type GeminiTrustStatus } from './gemini-trust.js'

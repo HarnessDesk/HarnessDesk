@@ -218,6 +218,8 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
   const [needle, setNeedle] = useState('')
   const [search, setSearch] = useState<GitLogSearch>('message')
   const [selected, setSelected] = useState<string | null>(null)
+  const [activeSha, setActiveSha] = useState<string | null>(null)
+  const activeIndexRef = useRef<number | null>(null)
   const [selectedProvenance, setSelectedProvenance] = useState<import('@harnessdesk/protocol').CommitProvenance | undefined>()
   const [railOpen, setRailOpen] = useState(true)
   const [railError, setRailError] = useState<string | null>(null)
@@ -600,6 +602,23 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
   const total = commits.length
   const first = Math.max(0, Math.floor(scrollTop / ROW) - OVERSCAN)
   const last = Math.min(total, Math.ceil((scrollTop + viewport) / ROW) + OVERSCAN)
+  const activeIndex = activeSha === null ? -1 : commits.findIndex((commit) => commit.sha === activeSha)
+  const hasActiveCommit = activeSha !== null || activeIndexRef.current !== null
+  const reconciledIndex = activeIndex >= 0
+    ? activeIndex
+    : Math.max(0, Math.min(activeIndexRef.current ?? 0, total - 1))
+  const currentActiveSha = activeIndex >= 0
+    ? activeSha
+    : hasActiveCommit
+      ? commits[reconciledIndex]?.sha ?? null
+      : null
+  useEffect(() => {
+    if (activeSha !== currentActiveSha) setActiveSha(currentActiveSha)
+    if (currentActiveSha !== null) activeIndexRef.current = commits.findIndex((commit) => commit.sha === currentActiveSha)
+  }, [activeSha, commits, currentActiveSha])
+  const activeDescendant = currentActiveSha !== null && commits.slice(first, last).some((commit) => commit.sha === currentActiveSha)
+    ? `git-commit-${currentActiveSha}`
+    : undefined
   // What the graph would like, before anyone drags it.
   const wanted = searching ? 0 : Math.min(lanes, LANE_CAP) * LANE_W + GUTTER_PAD
   const chosen = snapshot.listPrefs.gitColumns ?? {}
@@ -677,17 +696,37 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
 
   const onKeyDown = useCallback(
     (event: ReactKeyboardEvent): void => {
-      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
-      event.preventDefault()
-      const at = commits.findIndex((commit) => commit.sha === selected)
-      const next = event.key === 'ArrowDown' ? Math.min(total - 1, at + 1) : Math.max(0, at === -1 ? 0 : at - 1)
-      const commit = commits[next]
-      if (commit) {
-        select(commit.sha)
-        scrollToIndex(next)
+      if (total === 0) return
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
+        event.preventDefault()
+        const at = commits.findIndex((commit) => commit.sha === (currentActiveSha ?? selected))
+        const next = event.key === 'Home'
+          ? 0
+          : event.key === 'End'
+            ? total - 1
+            : event.key === 'ArrowDown'
+              ? Math.min(total - 1, at < 0 ? 0 : at + 1)
+              : Math.max(0, at < 0 ? total - 1 : at - 1)
+        const commit = commits[next]
+        if (commit) {
+          activeIndexRef.current = next
+          setActiveSha(commit.sha)
+          scrollToIndex(next)
+        }
+        return
       }
+      if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return
+      event.preventDefault()
+      const sha = currentActiveSha ?? selected ?? commits[0]?.sha
+      if (!sha) return
+      const index = commits.findIndex((commit) => commit.sha === sha)
+      if (index < 0) return
+      activeIndexRef.current = index
+      setActiveSha(sha)
+      scrollToIndex(index)
+      select(selected === sha ? null : sha)
     },
-    [commits, selected, total, select, scrollToIndex],
+    [commits, currentActiveSha, selected, total, select, scrollToIndex],
   )
 
   if (!root) return null
@@ -948,6 +987,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             tabIndex={0}
             role="listbox"
             aria-label="Commits"
+            aria-activedescendant={activeDescendant}
           >
             {total === 0 && !loading ? (
               <EmptyState
@@ -976,8 +1016,13 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
                       fit={fit}
                       remotes={remoteNames}
                       selected={selected === commit.sha}
+                      active={currentActiveSha === commit.sha}
                       now={Date.now()}
-                      onSelect={() => select(selected === commit.sha ? null : commit.sha)}
+                      onSelect={() => {
+                        activeIndexRef.current = commits.findIndex((candidate) => candidate.sha === commit.sha)
+                        setActiveSha(commit.sha)
+                        select(selected === commit.sha ? null : commit.sha)
+                      }}
                       onMenu={(event) => {
                         setMenuSha(commit.sha)
                         menu.open(event)
@@ -1690,6 +1735,7 @@ const CommitRow = ({
   fit,
   remotes,
   selected,
+  active,
   now,
   onSelect,
   onMenu,
@@ -1704,6 +1750,7 @@ const CommitRow = ({
   fit: ReturnType<typeof fits>
   remotes: ReadonlySet<string>
   selected: boolean
+  active: boolean
   now: number
   onSelect: () => void
   onMenu: (event: ReactMouseEvent) => void
@@ -1721,8 +1768,11 @@ const CommitRow = ({
       style={{ top }}
       {...(selected ? { 'data-selected': '' } : {})}
       {...(merge ? { 'data-merge': '' } : {})}
+      tabIndex={-1}
       role="option"
+      id={`git-commit-${commit.sha}`}
       aria-selected={selected}
+      {...(active ? { 'data-active': '' } : {})}
       onClick={onSelect}
       onContextMenu={onMenu}
     >

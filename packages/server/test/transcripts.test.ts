@@ -624,7 +624,7 @@ test('a file from before the metadata, opened with only context blocks, is calle
   })
 })
 
-test('a name read from the opening survives a restart, and a block cut short names nothing (review of #231)', async () => {
+test('a name read from the opening survives a restart, and an unclosed context lookalike stays literal', async () => {
   await withStore(async (store, dir) => {
     const packet = wrapContext('Handed off from Claude Code — “Migrate webhooks”', '## Goal\nfinish')
     store.record(talk('codex', 'handed', [['userMessage', `${wrapContext('Git', 'On branch main.')}\n${packet}`]]), { now: true })
@@ -636,7 +636,7 @@ test('a name read from the opening survives a restart, and a block cut short nam
     assert.equal(handed?.summary.preview, 'Handed off from Claude Code — “Migrate webhooks”')
     const [cut] = await again.search('Queue work')
     assert.ok(cut)
-    assert.equal(cut.summary.preview, null)
+    assert.equal(cut.summary.preview, '<context source="Handed off from Claude Code — “Queue work')
   })
 })
 

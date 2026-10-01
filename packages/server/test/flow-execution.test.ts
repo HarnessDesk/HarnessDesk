@@ -24,6 +24,25 @@ rules:
 `
 const AGENTS = [agent('writer-a', ['done']), agent('writer-b', ['done']), agent('reviewer', ['approve'])]
 
+test('a closed Seat no longer governs a v2 flow conversation', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(`
+version: 2
+name: Live seat
+roles:
+  fixer: { kind: agent, uses: implementer }
+seed: { role: fixer, title: Fix it }
+rules: []
+`, [agent('implementer', ['done'])])
+  const operation = rig.executions.stored(run.id)!.operations.find((one) => one.kind === 'seat')!
+  const seat = rig.seats.get(operation.seat!)!
+  assert.equal(rig.flows.governs(seat.session.runtime, seat.session.sessionId), true)
+  assert.equal(rig.executions.seated(seat.session.runtime, seat.session.sessionId), true)
+  rig.seats.set(String(seat.id), { ...seat, closed: { at: Date.now(), why: 'released' } })
+  assert.equal(rig.flows.governs(seat.session.runtime, seat.session.sessionId), false)
+  assert.equal(rig.executions.seated(seat.session.runtime, seat.session.sessionId), false)
+})
+
 const opens = (events: readonly string[]) => events.filter((one) => one.startsWith('open:'))
 const orders = (events: readonly string[]) => events.filter((one) => one.startsWith('order:'))
 

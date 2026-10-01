@@ -236,6 +236,10 @@ hairline it reserves whether or not it paints one. Anything with no box of its
 own — a wordmark, a section label, a page title — states the sum instead, and
 then everything in the column shares one x.
 
+A `SectionHead` over a `Rows` card aligns with the first row's leading edge:
+its mark when present, otherwise its first text glyph. The shared-column rule
+is for bars and columns, not a card's row leads.
+
 Getting this wrong is not subtle and is easy to do: handing the box inset to
 things that have no box put the sidebar's wordmark, its section labels and the
 conversation's title nine pixels left of everything they were meant to line up

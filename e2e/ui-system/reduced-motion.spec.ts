@@ -151,8 +151,11 @@ test('a sidebar collapsed with motion reduced is hidden at once, with nothing in
 test('a floating sidebar put away with motion reduced is hidden at once, with nothing in it to Tab to', async ({ page }) => {
   await page.setViewportSize({ width: 700, height: 900 })
   await page.goto('/design.html?view=panels')
-  // Its header's toggle lies under the right panel, which a window this
-  // narrow gives the conversation's width; pressed where it is.
+  // At this width the right panel covers main, including the sidebar toggle.
+  // Collapse the panel through its visible control before opening the sidebar.
+  const hidePanel = page.getByRole('button', { name: 'Hide this panel', exact: true })
+  await expect(hidePanel).toBeVisible()
+  await hidePanel.click()
   const show = page.locator('button[aria-label="Show sidebar"]').filter({ visible: true }).first()
   await expect(show).toBeAttached()
   await show.evaluate((node: HTMLButtonElement) => node.click())

@@ -36,6 +36,7 @@ export const PanelActions = ({ where = 'view' }: { where?: 'strip' | 'view' }) =
    * buttons in the first place.
    */
   if (where === 'view' && chrome !== 'own') return null
+  const trailingAction = area !== 'main' ? 'collapse' : !hasTabs && panel.canClose ? 'close' : 'zoom'
 
   return (
     <>
@@ -66,6 +67,7 @@ export const PanelActions = ({ where = 'view' }: { where?: 'strip' | 'view' }) =
               : 'Give this panel the whole area'
         }
         onClick={() => panel.setZoom(zoom ?? zoomScope)}
+        edge={trailingAction === 'zoom'}
       >
         {zoom ? <RestoreIcon size={14} /> : <ExpandIcon size={14} />}
       </PanelButton>
@@ -80,7 +82,7 @@ export const PanelActions = ({ where = 'view' }: { where?: 'strip' | 'view' }) =
         * cannot be got rid of.
         */}
       {!hasTabs && panel.canClose && (
-        <PanelButton label={`Close ${titleOf(view)}`} onClick={panel.close}>
+        <PanelButton label={`Close ${titleOf(view)}`} onClick={panel.close} edge={trailingAction === 'close'}>
           <CrossIcon size={14} />
         </PanelButton>
       )}
@@ -94,6 +96,7 @@ export const PanelActions = ({ where = 'view' }: { where?: 'strip' | 'view' }) =
                 : 'Collapse to the tabs'
           }
           onClick={panel.toggleCollapse}
+          edge={trailingAction === 'collapse'}
         >
           <span className={styles.caret} data-collapsed={panel.collapsed ? '' : undefined}>
             <CaretIcon size={14} />
@@ -176,12 +179,21 @@ const PanelButton = ({
   label,
   onClick,
   children,
+  edge = false,
 }: {
   label: string
   onClick: () => void
   children: React.ReactNode
+  edge?: boolean
 }) => (
-  <Button variant="ghost" size="icon-sm" onClick={onClick} title={label} aria-label={label}>
+  <Button
+    variant="ghost"
+    size="icon-sm"
+    {...(edge ? { edge: 'end' as const, edgeGlyph: 14 } : {})}
+    onClick={onClick}
+    title={label}
+    aria-label={label}
+  >
     {children}
   </Button>
 )

@@ -53,6 +53,18 @@ it('owns the integrated pane frame and the window-corner header', () => {
   expect(container.querySelector('[data-slot="tool-pane-body"]')?.hasAttribute('data-bleed')).toBe(true)
 })
 
+it('aligns a non-corner window header with the integrated body text column', () => {
+  act(() => root.render(
+    <ToolPane variant="integrated">
+      <ToolPaneHeader title="Browser" variant="window" />
+      <ToolPaneBody bleed><ToolPaneMessage>Waiting for the page.</ToolPaneMessage></ToolPaneBody>
+    </ToolPane>,
+  ))
+
+  expect(container.querySelector('[data-slot="tool-pane-header"]')?.className).toContain('pl-4')
+  expect(container.querySelector('[data-slot="tool-pane-message"]')?.className).toContain('p-4')
+})
+
 it('uses the header inset for a padded body so their content starts together', () => {
   act(() => root.render(
     <ToolPane>

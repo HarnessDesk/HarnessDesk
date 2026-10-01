@@ -67,6 +67,14 @@ test('cross products and contradictory counts refuse', () => {
   assert.ok(errors(source('    kind: agent\n    uses: writer\n    count: 1.5')).some((one) => /must be a whole/i.test(one)))
 })
 
+test('seats need an Agent, and count keeps its 1–32 bound', () => {
+  const seatsOnly = errors(source('    kind: agent\n    seats: [fixture=one]'))
+  assert.ok(seatsOnly.some((one) => /needs uses: to name an Agent/.test(one)), seatsOnly.join('\n'))
+
+  const countOutOfRange = errors(source('    kind: agent\n    uses: writer\n    count: 33'))
+  assert.ok(countOutOfRange.some((one) => /whole number from 1 to 32/.test(one)), countOutOfRange.join('\n'))
+})
+
 test('generation detection never chooses a permission by precedence', () => {
   for (const fields of [
     '    kind: agent\n    uses: writer\n    permission: publish',

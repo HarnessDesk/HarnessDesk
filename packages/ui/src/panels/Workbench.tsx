@@ -28,7 +28,7 @@ import { CaretIcon, ExpandIcon, MoreIcon, RestoreIcon } from '../components/Icon
 import { NoticeStripOutlet } from '../components/Notices'
 import { Panes } from '../components/Panes'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
-import type { PaneView } from '../state/layout'
+import { findPane, sameView, type PaneView } from '../state/layout'
 import {
   AREA_EDGE,
   AREA_NAME,
@@ -156,6 +156,10 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
 
   const [dragging, setDragging] = useState<Dragging>(null)
   const shell = useRef<HTMLDivElement>(null)
+  const main = useRef<HTMLDivElement>(null)
+  const mainFocus = useRef<{ target: HTMLElement; paneId: string; view: PaneView } | null>(null)
+  const rightPanelFocus = useRef<HTMLElement | null>(null)
+  const wasRightPanelDrawn = useRef(false)
 
   /*
    * Where the sidebar is, and whether it is on screen at all. A narrow window
@@ -171,6 +175,56 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   const showSidebar = placement !== 'away'
   const floating = placement === 'floating'
   const column = placement === 'column'
+  const rightPanelOverlay = narrow && rightPanelDrawn(workbench) && areaVisible(workbench, 'main')
+
+  useLayoutEffect(() => {
+    if (rightPanelDrawn(workbench)) {
+      wasRightPanelDrawn.current = true
+      return
+    }
+    if (!wasRightPanelDrawn.current) return
+    wasRightPanelDrawn.current = false
+    // A right panel has no resting strip, so hiding it returns focus to the
+    // conversation target it displaced. This covers both wide docks and the
+    // narrow overlay; widening alone leaves the panel drawn.
+    const saved = mainFocus.current
+    mainFocus.current = null
+    const active = document.activeElement
+    const focusWasStranded = active === document.body || (
+      active instanceof HTMLElement && (
+        active === rightPanelFocus.current ||
+        (!active.isConnected && rightPanelFocus.current?.contains(active) === true)
+      )
+    )
+    rightPanelFocus.current = null
+    if (!focusWasStranded) return
+    const focused = findPane(snapshot.layout, snapshot.layout.focused)
+    if (!focused || (snapshot.layout.expanded !== null && snapshot.layout.expanded !== focused.id)) return
+    const pane = [...(main.current?.querySelectorAll<HTMLElement>('[data-pane-id]') ?? [])]
+      .find((candidate) => candidate.dataset.paneId === focused.id) ?? null
+    if (!pane || pane.closest('[data-hidden]') || getComputedStyle(pane).visibility === 'hidden') return
+    const savedViewStillOwnsTarget = saved !== null && saved.paneId === focused.id && (
+      sameView(saved.view, focused.view) || (
+        saved.view.kind === 'conversation' && focused.view.kind === 'conversation' &&
+        saved.view.session === null && focused.view.session === null
+      )
+    )
+    const target = savedViewStillOwnsTarget && saved?.target.isConnected && pane?.contains(saved.target) &&
+      !saved.target.hasAttribute('disabled') && !saved.target.closest('[data-hidden]') &&
+      getComputedStyle(saved.target).visibility !== 'hidden'
+      ? saved.target
+      : null
+    const firstFocusable = [...pane.querySelectorAll<HTMLElement>(
+      'a[href], area[href], button, input, select, textarea, iframe, object, embed, summary, [contenteditable="true"], [tabindex]',
+    )].find((candidate) =>
+      candidate.tabIndex >= 0 && !candidate.matches(':disabled') &&
+      !candidate.closest('[data-hidden], [hidden], [inert]') &&
+      getComputedStyle(candidate).visibility !== 'hidden',
+    )
+    store.focusPane(focused.id)
+    const back = target ?? firstFocusable ?? pane
+    back?.focus({ preventScroll: true })
+  }, [snapshot.layout, store, workbench])
 
   /*
    * Which area the macOS window buttons are sitting over, named on the shell
@@ -273,18 +327,30 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
             a panel that failed to expand rather than one that did. */}
         <div
           className={styles.middle}
+          onFocusCapture={(event) => {
+            const target = event.target
+            rightPanelFocus.current = target instanceof HTMLElement &&
+              target.closest('[data-slot="dock-panel"]')
+              ? target
+              : null
+          }}
           {...(areaVisible(workbench, 'main') || areaVisible(workbench, 'right')
             ? {}
             : { 'data-hidden': '' })}
         >
           <div
+            ref={main}
             className={styles.main}
+            data-slot="workbench-main"
             {...(areaVisible(workbench, 'main') ? {} : { 'data-hidden': '' })}
-            /* Covered by a right panel that took a narrow window's width, the
-               conversation is out of reach as well as out of sight, as it is
-               under the floating sidebar: Tab from the panel walked into the
-               composer and the header behind it. */
-            {...(narrow && rightPanelDrawn(workbench) && areaVisible(workbench, 'main') ? { inert: true } : {})}
+            {...(rightPanelOverlay ? { 'data-right-panel-overlay': '', inert: true } : {})}
+            onFocusCapture={(event) => {
+              if (!(event.target instanceof HTMLElement) || event.target === main.current) return
+              const owner = event.target.closest<HTMLElement>('[data-pane-id]')
+              const paneId = owner?.dataset.paneId
+              const pane = paneId ? findPane(snapshot.layout, paneId) : undefined
+              if (pane) mainFocus.current = { target: event.target, paneId: pane.id, view: pane.view }
+            }}
           >
             <Panes />
             <DropZone area="main" />
