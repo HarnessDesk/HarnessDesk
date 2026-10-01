@@ -179,6 +179,10 @@ const draw = (at: number, layout: 'draft' | 'live' = 'draft', populatedExtension
       </StoreProvider>,
     )
   })
+  const toolbarNode = container.querySelector<HTMLElement>('[data-slot="composer-tools"]')
+  if (!toolbarNode) throw new Error('no composer toolbar')
+  toolbarNode.getBoundingClientRect = () => ({ width } as DOMRect)
+  resize(at)
 }
 
 const triggers = (): HTMLButtonElement[] => [
@@ -249,12 +253,15 @@ it('recomputes fold steps when one toolbar switches between draft and live at a 
 })
 
 it('reserves the populated Extension track width even when the track is empty', () => {
-  const at = 560
+  // Draft Model folds at 588px with the reserved Extension track, but at
+  // 556px if the empty track is incorrectly counted as zero.
+  const at = 570
   draw(at, 'draft', false)
-  const emptyFolded = triggers().map((trigger) => trigger.textContent?.trim())
+  const emptyFolded = container.querySelector('[data-composer-track="model"]')?.hasAttribute('data-folded')
   draw(at, 'draft', true)
-  const populatedFolded = triggers().map((trigger) => trigger.textContent?.trim())
-  expect(populatedFolded).toEqual(emptyFolded)
+  const populatedFolded = container.querySelector('[data-composer-track="model"]')?.hasAttribute('data-folded')
+  expect(emptyFolded).toBe(true)
+  expect(populatedFolded).toBe(true)
 })
 
 /**

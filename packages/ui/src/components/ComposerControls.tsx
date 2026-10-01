@@ -74,6 +74,17 @@ const trackToken = (track: string, size: 'wide' | 'folded' | 'tight'): string =>
 
 const px = (value: string): number => Number.parseFloat(value) || 0
 
+/** The fold thresholds describe the toolbar's content box, not its padding. */
+const contentBoxWidth = (toolbar: HTMLElement): number => {
+  const style = getComputedStyle(toolbar)
+  const box = toolbar.getBoundingClientRect().width
+  return box
+    - px(style.paddingLeft)
+    - px(style.paddingRight)
+    - px(style.borderLeftWidth)
+    - px(style.borderRightWidth)
+}
+
 /** Read the active foundation once and measure fold steps from its tracks and gaps. */
 const toolbarStepper = (toolbar: HTMLElement): ((width: number) => ToolbarStep) => {
   const style = getComputedStyle(toolbar)
@@ -127,13 +138,13 @@ const useNarrowToolbar = (name: FoldableTrack): {
   const [step, setStep] = useState<ToolbarStep>({ folded: 0, tight: false })
   useEffect(() => {
     if (!toolbar) return
-    const update = (width = toolbar.getBoundingClientRect().width) => {
-      const next = toolbarStepper(toolbar)(width)
+    const update = () => {
+      const next = toolbarStepper(toolbar)(contentBoxWidth(toolbar))
       setStep((current) => current.folded === next.folded && current.tight === next.tight ? current : next)
     }
     update()
     const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(([entry]) => {
-      if (entry) update(entry.contentRect.width)
+      if (entry) update()
     })
     resizeObserver?.observe(toolbar)
     // Layout, foundation and viewport changes can alter the threshold without

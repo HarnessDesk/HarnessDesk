@@ -85,6 +85,12 @@ const ExtensionWidthCase = () => (
   </section>
 )
 
+const ComposerWidthExtensionCase = () => (
+  <section data-composer-width-extension-case className="grid w-(--hd-column) max-w-full">
+    <SlotToolbar shape={0} live={false} extensionAction />
+  </section>
+)
+
 const widths = [
   { name: 'composer', width: 'var(--hd-column)' },
   { name: '560', width: 'var(--hd-composer-slots-preview-narrow)' },
@@ -119,6 +125,7 @@ export const ComposerSlotsFrames = () => (
       ))}
       <LayoutSwitchCase />
       <ExtensionWidthCase />
+      <ComposerWidthExtensionCase />
     </div>
   </Frame>
 )

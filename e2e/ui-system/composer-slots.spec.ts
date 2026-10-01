@@ -144,6 +144,17 @@ const extensionCaseMatches = (page: Page) => page.evaluate(() => {
 const switchCaseModelFolded = async (page: Page) =>
   (await page.locator('[data-layout-switch-case] [data-composer-track="model"]').getAttribute('data-folded')) !== null
 
+const composerWidthFoldIsStable = (page: Page) => page.evaluate(() => {
+  const toolbar = document.querySelector<HTMLElement>('[data-composer-width-extension-case] [data-slot="composer-tools"]')
+  const more = toolbar?.querySelector<HTMLElement>('[data-composer-track="more"]')
+  if (!toolbar || !more) return { moreFolded: false, overflow: true, width: -1 }
+  return {
+    moreFolded: more.hasAttribute('data-folded'),
+    overflow: toolbar.scrollWidth > toolbar.clientWidth,
+    width: Math.round(toolbar.getBoundingClientRect().width),
+  }
+})
+
 test('composer slots keep their tracks aligned across agent shapes', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1600 })
   await page.goto('/preview.html?composer-slots')
@@ -155,6 +166,45 @@ test('composer slots keep their tracks aligned across agent shapes', async ({ pa
   await expect.poll(() => switchCaseModelFolded(page)).toBe(false)
   await switchCase.locator('[data-layout-switch]').click()
   await expect.poll(() => switchCaseModelFolded(page)).toBe(true)
+
+  const stableBefore = await composerWidthFoldIsStable(page)
+  expect(stableBefore).toMatchObject({ moreFolded: true, overflow: false })
+  await page.evaluate(() => { document.body.dataset.foldThresholdProbe = 'theme-change' })
+  await expect.poll(async () => composerWidthFoldIsStable(page)).toMatchObject({ moreFolded: true, overflow: false })
+  const afterBodyMutation = await composerWidthFoldIsStable(page)
+  expect(afterBodyMutation.width).toBe(stableBefore.width)
+  await page.evaluate(() => { delete document.body.dataset.foldThresholdProbe })
+
+  await page.setViewportSize({ width: 1360, height: 1600 })
+  const afterViewportResize = await composerWidthFoldIsStable(page)
+  expect(afterViewportResize.width).toBe(stableBefore.width)
+  expect(afterViewportResize).toMatchObject({ moreFolded: true, overflow: false })
+  await page.setViewportSize({ width: 1440, height: 1600 })
+
+  // Mutation: make the body-attribute path receive a width 18px wider, as if
+  // it used the toolbar's border box rather than its content box. That crosses
+  // More's 728px draft threshold while only 718px fits in this toolbar.
+  const contentBoxToolbar = page.locator('[data-composer-width-extension-case] [data-slot="composer-tools"]')
+  await contentBoxToolbar.evaluate((node) => {
+    const toolbar = node as HTMLElement
+    const original = toolbar.getBoundingClientRect.bind(toolbar)
+    const style = getComputedStyle(toolbar)
+    const padding = (Number.parseFloat(style.paddingLeft) || 0) + (Number.parseFloat(style.paddingRight) || 0)
+    Object.defineProperty(toolbar, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => {
+        const rect = original()
+        return new DOMRect(rect.x, rect.y, rect.width + padding, rect.height)
+      },
+    })
+    document.body.dataset.foldThresholdProbe = 'border-box-mutation'
+  })
+  await expect.poll(async () => composerWidthFoldIsStable(page)).toMatchObject({ moreFolded: false, overflow: true })
+  await contentBoxToolbar.evaluate((node) => {
+    delete (node as HTMLElement & { getBoundingClientRect?: () => DOMRect }).getBoundingClientRect
+    delete document.body.dataset.foldThresholdProbe
+  })
+  await expect.poll(async () => composerWidthFoldIsStable(page)).toMatchObject({ moreFolded: true, overflow: false })
 
   const extensionCase = page.locator('[data-extension-width-case] [data-composer-layout="draft"]').last()
   await expect.poll(async () => extensionCaseMatches(page)).toMatchObject({ valid: true, overflow: false })
