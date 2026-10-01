@@ -76,7 +76,7 @@ import {
   SparkIcon,
   StopIcon,
 } from './Icons'
-import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from './ComposerControls'
+import { AgentControl, ComposerTrack, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from './ComposerControls'
 import { ContextUsage } from './ContextUsage'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
 import { draftsOf } from '../state/drafts'
@@ -1139,7 +1139,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
           spellCheck
         />
 
-        <ComposerTools>
+        <ComposerTools data-composer-layout={session ? 'live' : 'draft'}>
           <Input
             ref={filePicker}
             type="file"
@@ -1151,7 +1151,8 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
               event.target.value = ''
             }}
           />
-          <Popover title="Add" drop="up" align="left" label={<PlusIcon size={14} />}>
+          <ComposerTrack name="add">
+          <Popover title="Add" fullWidth drop="up" align="left" label={<PlusIcon size={14} />}>
             {(close) => (
               <>
                 <PopoverOption
@@ -1249,13 +1250,16 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
               </>
             )}
           </Popover>
+          </ComposerTrack>
           {/* Where it runs, first: the one decision here that cannot be
               changed once the message has gone. Drafts only. */}
           <PlaceControl />
           <AgentControl />
           <PermissionControl />
           <ModeControl />
-          <Slot name="composer.action" />
+          <ComposerTrack name="extension">
+            <Slot name="composer.action" />
+          </ComposerTrack>
           <ComposerGap />
           <MoreControl />
           <ContextUsage />
@@ -1271,6 +1275,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
               the ink colour for Stop, and the accent reserved for the send.
               Two saturated coins side by side read as two competing primary
               buttons, which is what this replaces. */}
+          <ComposerTrack name="send">
           {(!busy || canSend) && (
             <ComposerSend
               type="button"
@@ -1293,6 +1298,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
               <StopIcon size={12} />
             </ComposerSend>
           )}
+          </ComposerTrack>
         </ComposerTools>
       </ComposerShell>
       {preview != null && images[preview] && (

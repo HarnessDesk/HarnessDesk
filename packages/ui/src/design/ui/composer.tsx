@@ -121,7 +121,7 @@ const ComposerText = ({ className, rows = 1, ...props }: React.ComponentProps<'t
 const ComposerTools = ({ className, ...props }: React.ComponentProps<'div'>) => (
   <div
     data-slot="composer-tools"
-    className={cn('flex items-center gap-1.5 pt-1 pr-2 pb-2 pl-2.5', className)}
+    className={cn('flex min-w-0 items-center gap-1.5 pt-1 pr-2 pb-2 pl-2.5', className)}
     {...props}
   />
 )
@@ -179,7 +179,7 @@ const ComposerSend = ({ className, ...props }: React.ComponentProps<'button'>) =
 
 /** The gap that pushes the send side to the right. One per row. */
 const ComposerGap = ({ className, ...props }: React.ComponentProps<'div'>) => (
-  <div data-slot="composer-gap" aria-hidden className={cn('flex-1', className)} {...props} />
+  <div data-slot="composer-gap" aria-hidden className={cn('min-w-0 flex-1', className)} {...props} />
 )
 
 /**

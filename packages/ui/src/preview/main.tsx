@@ -67,6 +67,7 @@ import { TranscriptFrames } from './frames-transcript'
 import { LibraryDevFrames } from './frames-library-dev'
 import { LibraryOptionFrames } from './frames-library-options'
 import { SideBySideFrames } from './frames-side-by-side'
+import { ComposerSlotsFrames } from './frames-composer-slots'
 import '../styles/app.css'
 
 const SHOW_COMPOSER = new URLSearchParams(window.location.search).has('composer')
@@ -90,6 +91,7 @@ const SHOW_SIDE_BY_SIDE = new URLSearchParams(window.location.search).has('side-
    default page the UI-system census reads holds shipped components alone.
    Phase 1 of the Library plan deletes them once the real components exist. */
 const SHOW_LIBRARY_OPTIONS = new URLSearchParams(window.location.search).has('library-options')
+const SHOW_COMPOSER_SLOTS = new URLSearchParams(window.location.search).has('composer-slots')
 /* Which of the Dashboard's five rail rows the preview frame opens on — the
    rig's own way to shoot each view without clicking through the rail by
    hand: `preview.html?view=spend`. Falls back to the dial beside the frame. */
@@ -964,6 +966,7 @@ const Preview = () => {
       <PanelFrames />
       <CoverageFrames />
       {SHOW_SIDE_BY_SIDE && <SideBySideFrames />}
+      {SHOW_COMPOSER_SLOTS && <ComposerSlotsFrames />}
     </div>
   )
 }
