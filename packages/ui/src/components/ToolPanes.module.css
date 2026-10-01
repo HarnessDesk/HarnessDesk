@@ -27,6 +27,15 @@
   height: 100%;
 }
 
+/* xterm 6's own stylesheet paints its viewport black, and the theme we hand
+   it (`terminalAppearance`) colours only the rows' scrollable element, which
+   covers whole rows. Whatever the dock height leaves below the last row then
+   showed that black: a bar under the prompt (#1169). The viewport takes the
+   same surface the theme reads, so it follows a theme switch too. */
+.terminalHost :global(.xterm .xterm-viewport) {
+  background-color: var(--hd-surface-fill);
+}
+
 .cmEditor {
   flex: 1;
   min-height: 0;
