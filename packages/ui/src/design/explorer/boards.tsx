@@ -1522,7 +1522,7 @@ const MessageBoard = () => (
         </StoreProvider>
       </div>
     </Case>
-    <Case label="a long sent message — clamped past twelve lines, with the toggle">
+    <Case label="a long sent message — clamped past twelve lines, fading its last line">
       <div className="w-full" data-testid="message-user-long">
         <StoreProvider store={catalogueStore}>
           <ItemView item={CATALOGUE_USER_LONG} root="/workspace" />

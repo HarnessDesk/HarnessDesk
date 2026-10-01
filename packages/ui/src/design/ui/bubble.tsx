@@ -88,10 +88,12 @@ type BubbleContentProps = React.ComponentProps<'div'> & {
    */
   clampLines?: number
   expanded?: boolean
+  /** Fade the last reading line when the caller has measured real overflow. */
+  fadeOverflow?: boolean
 }
 
 const BubbleContent = React.forwardRef<HTMLDivElement, BubbleContentProps>(
-  ({ className, clampLines, expanded = false, style, ...props }, ref) => {
+  ({ className, clampLines, expanded = false, fadeOverflow = false, style, ...props }, ref) => {
     const variant = React.useContext(BubbleVariantContext)
     const clamp = !expanded && clampLines != null
     return (
@@ -99,7 +101,11 @@ const BubbleContent = React.forwardRef<HTMLDivElement, BubbleContentProps>(
         ref={ref}
         data-slot="bubble-content"
         className={cn(bubbleContentVariants({ variant }), clamp && 'overflow-hidden', className)}
-        style={clamp ? { ...style, maxHeight: `calc(var(--hd-line) * ${clampLines})` } : style}
+        style={clamp ? {
+          ...style,
+          maxHeight: `calc(var(--hd-line) * ${clampLines})`,
+          ...(fadeOverflow ? { maskImage: 'linear-gradient(to bottom, var(--hd-foreground) calc(100% - var(--hd-line)), transparent)' } : {}),
+        } : style}
         {...props}
       />
     )

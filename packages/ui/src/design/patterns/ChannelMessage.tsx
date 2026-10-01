@@ -369,6 +369,7 @@ export const ChannelMessage = ({
               data-slot="channel-body"
               clampLines={9}
               expanded={expanded}
+              fadeOverflow={overflows}
               // Several screens (Items, FindingDetail, ProjectTriggers, the
               // session tree) each clamp long content with their own "Show
               // more", none sharing a part. Giving that role one owner is a
