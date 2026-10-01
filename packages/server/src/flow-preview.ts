@@ -304,14 +304,10 @@ export class FlowPreviews {
         const providerRoot = root
         if (role.independentOf.length > 0 && !plan.blocked) {
           const writerProviders = role.independentOf.flatMap((id) => providersByRole.get(id) ?? [null])
-          // A regular start can still be previewed when none of its predecessor
-          // providers can be read at all. The runner will make the same
-          // independence decision when that role is reached; turning an
-          // unreadable provider into a preview-time refusal here would make an
-          // ordinary dry run fail where it did before this check existed. A
-          // held-only front door remains strict because its token promises the
-          // whole opening plan.
-          const canJudgeIndependence = requireHeld || writerProviders.some((one) => one !== null)
+          // When no predecessor provider can be read at all, the runner makes the
+          // independence decision when this role is reached; the preview warns
+          // rather than refusing a start it cannot judge.
+          const canJudgeIndependence = writerProviders.some((one) => one !== null)
           if (!canJudgeIndependence) problems.push({
             level: 'warning',
             at: `roles.${role.id}`,
@@ -337,10 +333,10 @@ export class FlowPreviews {
             // Goal checkout before the selected Seat is opened.
             const ownProvider = await provider(candidate.seat.runtime, root)
             const reason = independentProviderReason(ownProvider, knownWriters)
-            // An unreadable provider is not a known clash: an ordinary start may
-            // go ahead, warned, and the run decides when the step is reached. A
-            // held-only front door promises its whole plan, so it stays strict.
-            if (!reason || (reason.kind === 'unknownProvider' && !requireHeld)) {
+            // An unreadable provider is not a known clash: the start may go
+            // ahead, warned, and the run decides when the step is reached —
+            // independence is judged at that step, not in the opening plan.
+            if (!reason || reason.kind === 'unknownProvider') {
               if (reason) warnUnknown(candidate.label)
               winner = index
               break
@@ -359,7 +355,7 @@ export class FlowPreviews {
             const selected = candidates[winner]!
             const actualProvider = await provider(selected.seat.runtime, providerRoot)
             const reason = independentProviderReason(actualProvider, knownWriters)
-            if (reason?.kind === 'unknownProvider' && !requireHeld) warnUnknown(selected.label)
+            if (reason?.kind === 'unknownProvider') warnUnknown(selected.label)
             else if (reason) {
               candidates[winner] = {
                 ...selected,
