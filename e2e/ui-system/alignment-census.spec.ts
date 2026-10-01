@@ -208,13 +208,16 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     const headingSelector = 'h1, h2, h3, [data-slot$="title"]:not([data-slot="row-title"]), [data-slot="section-name"]'
     const headerish = header.matches(`header, ${headingSelector}`) || !!header.querySelector(headingSelector)
     if (!headerish) continue
-    const headerText = header.matches('h1,h2,h3')
-      ? firstLine(header)
-      : firstLine(header.querySelector(headingSelector) ?? header)
-    let bodyText: ReturnType<typeof firstLine> = null
+    // Start at the heading's first text glyph so a decorative mark before it is not measured as the heading.
+    const heading = header.matches(headingSelector) ? header : header.querySelector(headingSelector) ?? header
+    const headerText = firstTextLine(heading)
+    let bodyText: ReturnType<typeof firstTextLine> = null
     for (const child of children.slice(1)) {
-      const candidates = [child, ...child.querySelectorAll('*')].filter(hasText)
-      bodyText = candidates.map(firstLine).find(rect => rect !== null) ?? null
+      const candidates = [child, ...child.querySelectorAll('*')].filter(element =>
+        hasText(element) && !element.closest('button, [data-slot="alert"]') && !element.querySelector('button, [data-slot="alert"]'),
+      )
+      // Use body glyphs, skipping nested controls and alerts whose own insets do not define this surface's text column.
+      bodyText = candidates.map(firstTextLine).find(rect => rect !== null) ?? null
       if (bodyText) break
     }
     if (headerText && bodyText && Math.abs(headerText.left - bodyText.left) >= 2) {

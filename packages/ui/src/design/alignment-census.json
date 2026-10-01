@@ -34,7 +34,7 @@
     }
   },
   "header-off-body": {
-    "count": 16,
+    "count": 14,
     "signatures": {
       "design.html / chart / header-off-body / div > [chart-frame] > [chart-card]": 1,
       "design.html / group / header-off-body / [data-testid=group-run-kept-answer-seat-gone]": 1,
@@ -48,9 +48,7 @@
       "design.html / tool-pane / header-off-body / div > [tool-pane] > [tool-pane-header]": 1,
       "design.html / tools / header-off-body / div > [tool-pane] > [tool-pane-header]": 2,
       "preview.html / board-empty / header-off-body / div > [tool-pane] > [tool-pane-header]": 1,
-      "preview.html / tools-browser / header-off-body / div > [tool-pane] > [tool-pane-header]": 1,
-      "preview.html / tools-file / header-off-body / div > [tool-pane] > [tool-pane-header]": 1,
-      "preview.html / transcript-preview-pane / header-off-body / div > [tool-pane] > [tool-pane-header]": 1
+      "preview.html / tools-file / header-off-body / div > [tool-pane] > [tool-pane-header]": 1
     }
   }
 }

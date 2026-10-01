@@ -164,9 +164,8 @@ const BoardColumn = ({
     )}
     {...props}
   >
-    <header className="relative flex items-center gap-1.5 pb-0.5">
-      {/* The tint marks the column in its inset; the title starts on the card text column. */}
-      <span aria-hidden className={cn('absolute -left-2.5 top-1/2 size-1.5 -translate-y-1/2 rounded-full', dotTint({ tint }))} />
+    <header className="flex items-center gap-1.5 pb-0.5">
+      <span aria-hidden className={cn('size-1.5 shrink-0 rounded-full', dotTint({ tint }))} />
       <h3 className="min-w-0 flex-1 truncate text-base font-medium">{title}</h3>
       {count != null && (
         <span
@@ -199,14 +198,9 @@ const BoardColumn = ({
       )}
       {actions}
     </header>
-    <div
-      data-slot="board-column-body"
-      className="flex min-w-0 flex-col gap-2 [&>[data-slot=board-card]]:ps-0"
-    >
-      {children}
-    </div>
+    <div className="flex min-w-0 flex-col gap-2">{children}</div>
     {derived && empty && (
-      <EmptyState variant="inline" data-slot="board-empty" className="my-auto ps-0 text-left" title="Nothing here" />
+      <EmptyState variant="inline" data-slot="board-empty" className="my-auto ps-3 text-left" title="Nothing here" />
     )}
     {/* The second entry point, at the foot where the eye ends after reading the
         column. A composer when the column can take a title on the spot, and a
