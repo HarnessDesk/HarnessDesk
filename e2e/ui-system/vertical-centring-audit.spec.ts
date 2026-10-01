@@ -78,7 +78,7 @@ const measureRoot = async (page: import('@playwright/test').Page, rootSelector: 
     // be hundreds of pixels tall. Boxed controls are explicit; otherwise the
     // nearest horizontal row/bar owns the text's vertical centre.
     for (let node: Element | null = textElement; node && node !== root; node = node.parentElement) {
-      if (node.matches('button,input,[data-slot="chip"],[data-slot="badge"],[role="tab"],[data-slot="tab"],[data-slot="notice-strip"]')) return node
+      if (node.matches('button,input,[data-slot="chip"],[data-slot="badge"],[role="tab"],[data-slot="tab"],[data-slot="popover-trigger"],[data-slot="notice-strip"]')) return node
     }
     for (let node: Element | null = textElement; node && node !== root; node = node.parentElement) {
       const style = getComputedStyle(node)
@@ -137,7 +137,7 @@ const measureRoot = async (page: import('@playwright/test').Page, rootSelector: 
     const ownerRect = owner.getBoundingClientRect()
     const borderTop = parseFloat(ownerStyle.borderTopWidth) || 0
     const borderBottom = parseFloat(ownerStyle.borderBottomWidth) || 0
-    const boxed = owner.matches('button,input,[data-slot="chip"],[data-slot="badge"],[role="tab"],[data-slot="tab"],[data-slot="notice-strip"]') || ['Top', 'Bottom', 'Left', 'Right'].some(side => parseFloat(ownerStyle[`border${side}Width` as 'borderTopWidth']) > 0 && ownerStyle[`border${side}Style` as 'borderTopStyle'] !== 'none') || (ownerStyle.backgroundColor !== 'rgba(0, 0, 0, 0)' && ownerStyle.backgroundColor !== 'transparent')
+    const boxed = owner.matches('button,input,[data-slot="chip"],[data-slot="badge"],[role="tab"],[data-slot="tab"],[data-slot="popover-trigger"],[data-slot="notice-strip"]') || ['Top', 'Bottom', 'Left', 'Right'].some(side => parseFloat(ownerStyle[`border${side}Width` as 'borderTopWidth']) > 0 && ownerStyle[`border${side}Style` as 'borderTopStyle'] !== 'none') || (ownerStyle.backgroundColor !== 'rgba(0, 0, 0, 0)' && ownerStyle.backgroundColor !== 'transparent')
     const top = ownerRect.top + (boxed ? borderTop : 0)
     const bottom = ownerRect.bottom - (boxed ? borderBottom : 0)
     const font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`
