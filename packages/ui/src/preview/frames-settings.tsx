@@ -96,33 +96,33 @@ export const SettingsFrames = () => {
         )}
       </Boundary>
       {dialog === 'plugins' && (
-        <Frame title="Settings › Plugins">
+        <Frame id="settings-plugins" title="Settings › Plugins">
           <div className="max-h-[560px] overflow-y-auto p-4">
             <PluginsSection />
           </div>
         </Frame>
       )}
-      <Frame title="Settings › Archive">
+      <Frame id="settings-archive" title="Settings › Archive">
         <div className="max-h-[560px] overflow-y-auto p-4">
           <ArchiveSection />
         </div>
       </Frame>
-      <Frame title="Settings › Extensions">
+      <Frame id="settings-extensions" title="Settings › Extensions">
         <div className="max-h-[560px] overflow-y-auto p-4">
           <ExtensionsSection />
         </div>
       </Frame>
-      <Frame title="Settings › Ceilings">
+      <Frame id="settings-ceilings" title="Settings › Ceilings">
         <div className="max-h-[560px] overflow-y-auto p-4">
           <CeilingsSection />
         </div>
       </Frame>
-      <Frame title="Setup — the whole desk, surveyed">
+      <Frame id="setup-survey" title="Setup — the whole desk, surveyed">
         <div className="p-4">
           <SetupDesk onSignIn={() => {}} onOpenRuntimes={() => {}} />
         </div>
       </Frame>
-      <Frame title="Schema form — a plugin's own configuration">
+      <Frame id="schema-form" title="Schema form — a plugin's own configuration">
         <div className="max-w-[420px] p-4">
           <SchemaForm schema={SCHEMA_FIXTURE} value={{ level: 'medium' }} onSubmit={() => {}} />
         </div>

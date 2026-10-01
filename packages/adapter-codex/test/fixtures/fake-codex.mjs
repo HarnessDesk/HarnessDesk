@@ -2084,6 +2084,30 @@ rl.on('line', (line) => {
       })
       return
 
+    case 'account/usage/read':
+      if (process.env['FAKE_CODEX_USAGE_METHOD_NOT_FOUND'] === '1') {
+        send({ id, error: { code: -32601, message: 'account/usage/read is not supported yet' } })
+        return
+      }
+      send({
+        id,
+        result: {
+          summary: {
+            lifetimeTokens: 4200,
+            peakDailyTokens: 1200,
+            longestRunningTurnSec: 90,
+            currentStreakDays: 2,
+            longestStreakDays: 5,
+          },
+          dailyUsageBuckets: [
+            { startDate: '2026-09-28', tokens: 840 },
+            { startDate: '2026-09-29', tokens: 1200 },
+            { startDate: '2026-09-30', tokens: 560 },
+          ],
+        },
+      })
+      return
+
     case 'turn/start': {
       THREAD = params.threadId
       TURN = `turn-${THREAD}`

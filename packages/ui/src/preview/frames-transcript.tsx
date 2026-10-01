@@ -203,29 +203,29 @@ export const TranscriptFrames = () => {
         )}
       </Boundary>
 
-      <Frame title="A folded burst of steps">
+      <Frame id="transcript-folded-steps" title="A folded burst of steps">
         <div className="max-w-[640px] p-4">
           <StepGroup items={STEP_ITEMS} running={false} root="/work/storefront" />
         </div>
       </Frame>
-      <Frame title="A memory citation, read from the working tree">
+      <Frame id="transcript-memory-citation" title="A memory citation, read from the working tree">
         <div className="max-w-[480px] p-4">
           <MemoryCitation root="/work/storefront" goal={null} />
         </div>
       </Frame>
-      <Frame title="Preview pane — a file from the tools surface">
+      <Frame id="transcript-preview-pane" title="Preview pane — a file from the tools surface">
         <div className="h-[420px]">
           <MountProvider scope={{ area: 'main', id: 'preview-pane', view: { kind: 'preview', path: '/work/project/lib/brands.ts', runtime: runtimeId('codex') } }}>
             <PreviewPane />
           </MountProvider>
         </div>
       </Frame>
-      <Frame title="A folder that no longer exists">
+      <Frame id="transcript-missing-folder" title="A folder that no longer exists">
         <div className="p-4">
           <FolderGone folder="/work/storefront" said="No such file or directory" />
         </div>
       </Frame>
-      <Frame title="Background tasks — this conversation's own">
+      <Frame id="transcript-background-tasks" title="Background tasks — this conversation's own">
         <div className="h-[320px]">
           <StoreProvider store={backgroundTasksStore}>
             <PaneProvider scope={{ paneId: 'preview-tasks' as never, view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never, sessionKey: PREVIEW_SESSION_KEY }}>

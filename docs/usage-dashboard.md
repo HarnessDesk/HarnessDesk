@@ -1122,6 +1122,12 @@ as one row per agent, so a pattern that belongs to one agent does not have to
 be read out of a shared column. Both read Tokens or Cost, and both follow the
 rail's scope like every band here.
 
+**By hour** groups this year's recorded tokens or calls by local weekday and
+hour, Monday first; there is no cost figure at this granularity. A runtime
+whose calls do not carry a local hour is unknown, not a week of zeros: until
+any runtime is hour-known the grid says "No hours recorded yet", and partial
+coverage names how many agents with ledger rows have known hours.
+
 **Levels come from the data's own quartiles, not from `value / max`.** A
 scale built off the single highest day makes every ordinary day look empty
 the moment one huge day appears in the window — the outlier does not just

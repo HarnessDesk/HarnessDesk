@@ -3,6 +3,7 @@ import { watch, type FSWatcher } from 'node:fs'
 import {
   bindingLane,
   type AgentRuntime,
+  type AccountActivity,
   type RateLimits,
   type RuntimeId,
   type SpendSummary,
@@ -239,13 +240,27 @@ export class UsageService {
     let error: UsageReport['error'] = null
     let unverified: UnverifiedUsage | null = null
     let billing: UsageBilling | undefined
+    let accountActivity: AccountActivity | undefined
     // Another sign-in's source failing, kept apart from the agent's own error.
     let unverifiedFailure: string | null = null
 
     // The runtime first: it is the only source that can be live.
-    if (runtime.info.capabilities.metered) {
-      try {
-        const limits = await runtime.getRateLimits()
+    if (runtime.info.capabilities.metered || runtime.getAccountActivity) {
+      const [limitsResult, activityResult] = await Promise.all([
+        runtime.info.capabilities.metered
+          ? Promise.resolve().then(() => runtime.getRateLimits())
+            .then((limits) => ({ limits }), (cause: unknown) => ({ error: cause }))
+          : Promise.resolve({ limits: null as RateLimits | null }),
+        runtime.getAccountActivity
+          ? Promise.resolve().then(() => runtime.getAccountActivity!())
+            .then((activity) => ({ activity }), () => ({ activity: null }))
+          : Promise.resolve({ activity: null }),
+      ])
+      if ('error' in limitsResult) {
+        const cause = limitsResult.error
+        error = { message: cause instanceof Error ? cause.message : String(cause) }
+      } else {
+        const limits = limitsResult.limits
         if (limits) {
           lanes = lanesFrom(limits)
           plan = limits.planType ?? null
@@ -256,9 +271,8 @@ export class UsageService {
           if (limits.source) source = limits.source
           if (limits.billing) billing = limits.billing
         }
-      } catch (cause) {
-        error = { message: cause instanceof Error ? cause.message : String(cause) }
       }
+      accountActivity = activityResult.activity ?? undefined
     }
 
     // A meter fills in for a runtime that cannot answer; it never overwrites
@@ -335,7 +349,7 @@ export class UsageService {
       return this.#finish(id, kept)
     }
 
-    if (lanes.length === 0 && !credits && !spend && !error && !unverified) {
+    if (lanes.length === 0 && !credits && !spend && !error && !unverified && !accountActivity) {
       // Nothing to say about this agent. A card with no content is worse than
       // no card, and the screen names the roster from the runtimes anyway. A
       // balance counts as something: pay-as-you-go has no window to run out
@@ -367,6 +381,7 @@ export class UsageService {
       ...(unverified ? { unverified } : {}),
       ...(billing ? { billing } : {}),
       ...(turns ? { turns } : {}),
+      ...(accountActivity ? { accountActivity } : {}),
     }
     return this.#finish(id, report)
   }
