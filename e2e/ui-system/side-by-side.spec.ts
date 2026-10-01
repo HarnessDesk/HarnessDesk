@@ -370,10 +370,11 @@ test('a narrow tile keeps the full nickname, and bare ⌘1 is not a grid chord',
   await page.keyboard.press('Alt+Meta+Digit2')
   await expect.poll(() => focusedIndex(target), { timeout: 10_000 }).toBe(1)
   // The chord moved the keys, not only the highlight: typing goes to tile 2.
-  expect(await target.evaluate((node) => {
+  // Polled: focus moves in an effect, after the header has already changed.
+  await expect.poll(() => target.evaluate((node) => {
     const tiles = [...node.querySelectorAll('[data-slot="side-by-side-tile"]')]
     return tiles.findIndex((tile) => tile.contains(document.activeElement))
-  })).toBe(1)
+  }), { timeout: 10_000 }).toBe(1)
   // The mutation routes bare ⌘1 to the grid while the room is focused, and the check bites.
   await page.evaluate(() => {
     // On window's capture phase: the browser pane takes bare ⌘1 on document's.
