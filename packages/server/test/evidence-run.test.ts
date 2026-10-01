@@ -20,12 +20,14 @@ const alive = (pid: number): boolean => {
     if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
   }
 
-  // On macOS, kill(pid, 0) succeeds for a zombie, while kill(-pgid, 0) returns
-  // EPERM for a group of only zombies, which the runner treats as gone. ESRCH
-  // comes only after launchd reaps the child, so check the process state too.
+  // kill(pid, 0) still finds a killed child until launchd reaps it, while the
+  // run's own kill(-pgid, 0) already skips it (EPERM for a group of only such
+  // processes) and counts it gone. Under load it was measured as a zombie (Z),
+  // and as `?E 1 <pgid> (sleep)`: E is macOS ps(1)'s "trying to exit". A Z, an
+  // X (dead, on Linux) or an E process can never run again, so it is gone.
   try {
     const state = execFileSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' }).trim()
-    return state.length > 0 && !state.startsWith('Z')
+    return state.length > 0 && !state.startsWith('Z') && !state.startsWith('X') && !state.includes('E')
   } catch (error) {
     // `ps` exits 1 and prints nothing when the pid is gone, reaped since the
     // kill above. Any other failure (a sandbox, no `ps`) cannot tell a zombie
@@ -86,9 +88,17 @@ test('a child that has exited but is not yet reaped is gone, though kill(pid, 0)
   assert.equal(alive(zombie), false, 'a zombie is gone even though kill(pid, 0) found it')
 })
 
-test('a process the test may not signal is not taken for gone', () => {
-  // pid 1 is always running and never ours to signal: kill(1, 0) is EPERM, not ESRCH.
-  assert.throws(() => process.kill(1, 0), { code: 'EPERM' })
+test('a process the test may not signal is not taken for gone', (t) => {
+  let code: string | undefined
+  try {
+    process.kill(1, 0)
+  } catch (error) {
+    code = (error as NodeJS.ErrnoException).code
+  }
+  if (code !== 'EPERM') {
+    t.skip('this user may signal pid 1, so EPERM cannot be shown here')
+    return
+  }
   assert.equal(alive(1), true, 'only ESRCH proves a process is gone')
 })
 
