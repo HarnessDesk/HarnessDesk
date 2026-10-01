@@ -347,6 +347,21 @@ test('a runtime that moves while its notice is being measured is measured again,
   )
 })
 
+test('an on-demand start after idle still announces the update advisory', async (t) => {
+  const { runtime, move } = upgradable('0.149.0')
+  const desk = await deskWith(t, runtime)
+  await until(() => desk.told()?.version === '0.149.0' && desk.told()?.update?.version === LATEST, 'the initial advisory')
+
+  move('0.152.0')
+  runtime.setHealth({ state: 'idle' })
+  await desk.host.call('session/create', { runtime: runtime.info.id, options: { cwd: '/w' } })
+
+  await until(
+    () => desk.told()?.version === '0.152.0' && desk.told()?.update?.version === LATEST,
+    'the advisory after the idle runtime starts on 0.152.0',
+  )
+})
+
 test('a runtime removed while its notice is being measured leaves nothing behind', async (t) => {
   const registry = held()
   const desk = await deskWith(t, upgradable('0.149.0').runtime, { fetch: registry.fetch })

@@ -557,7 +557,10 @@ const IDLE_STOP_MS = 10 * 60_000
 const LIVE_RUNTIME_METHODS = new Set<PropertyKey>([
   'createSession', 'resumeSession', 'forkSession', 'readSession', 'searchSessions', 'archiveSession',
   'deleteSession', 'setOption', 'setSkillEnabled', 'login', 'cancelLogin', 'submitLoginCode',
-  'logout', 'refreshCatalog', 'checkInstallation', 'getRateLimits', 'listSkills', 'listSkillProblems',
+  'logout', 'refreshCatalog', 'checkInstallation', 'getRateLimits',
+])
+const CACHED_RUNTIME_READ_METHODS = new Set<PropertyKey>([
+  'listModels', 'knownModels', 'listOptions', 'defaultSessionOptions',
 ])
 
 /** Why a Goal takes no person decision on its findings now, or null while it is open. A snapshot read of the Goal store. */
@@ -1914,8 +1917,17 @@ export class Host {
         const member = Reflect.get(target, key, target) as unknown
         if (typeof member !== 'function') return member
         if (key === 'listSessions') {
-          return (...args: unknown[]) => Promise.resolve(Reflect.apply(member, target, args) as Promise<Page<SessionSummary>>)
-            .then((page) => this.#withHostHistory(target.info.id, page, args[0] as ListSessionsQuery | undefined))
+          return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
+            await this.#waitForRuntimeStop(target)
+            const page = await Reflect.apply(member, target, args) as Page<SessionSummary>
+            return this.#withHostHistory(target.info.id, page, args[0] as ListSessionsQuery | undefined)
+          })
+        }
+        if (CACHED_RUNTIME_READ_METHODS.has(key) || key === 'listSkills' || key === 'listSkillProblems') {
+          return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
+            await this.#waitForRuntimeStop(target)
+            return Reflect.apply(member, target, args)
+          })
         }
         if (LIVE_RUNTIME_METHODS.has(key)) {
           return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
@@ -2307,11 +2319,14 @@ export class Host {
 
   async #ensureStarted(runtime: AgentRuntime): Promise<void> {
     if (this.#disposed) throw new Error('The desk is closing.')
-    const id = String(runtime.info.id)
-    const stopping = this.#stoppingRuntimes.get(id)
-    if (stopping) await stopping
+    await this.#waitForRuntimeStop(runtime)
     if (runtime.health().state === 'ready') return
     await this.#beginRuntimeStart(runtime, false)
+  }
+
+  async #waitForRuntimeStop(runtime: AgentRuntime): Promise<void> {
+    const stopping = this.#stoppingRuntimes.get(String(runtime.info.id))
+    if (stopping) await stopping
   }
 
   async #withRuntimeActivity<T>(runtime: AgentRuntime, operation: () => Promise<T>): Promise<T> {
@@ -2345,6 +2360,7 @@ export class Host {
       record.live !== null || record.running.size > 0 || record.approvals.size > 0 ||
       record.tasks.some((task) => task.state === 'running')
     ))) return false
+    if (this.registry.all().some((record) => record.runtime === id && record.queue.messages.length > 0)) return false
     return !this.#evidence.seats.all().some((seat) => seat.session.runtime === id && seat.closed === null && !seat.restored)
   }
 
@@ -2397,7 +2413,7 @@ export class Host {
 
   #announceReady(runtime: AgentRuntime): void {
     this.#logger.info('runtime ready', { runtime: runtime.info.id, version: runtime.info.version })
-    void this.#checkForUpdate(runtime)
+    void this.#checkForUpdate(this.#runtimes.get(runtime.info.id) ?? runtime)
   }
 
   async dispose(): Promise<void> {
@@ -4985,7 +5001,7 @@ export class Host {
   async #reattach(runtime: AgentRuntime, id: SessionId): Promise<AgentSession> {
     const name = runtime.info.presentation.name
     const health = runtime.health()
-    if (health.state !== 'ready') {
+    if (health.state !== 'ready' && health.state !== 'idle') {
       // Not a restart this can heal: the agent is not running at all, and
       // saying why beats offering to reopen something into nothing.
       throw new Error(

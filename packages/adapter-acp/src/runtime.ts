@@ -1411,6 +1411,7 @@ export class AcpRuntime implements AgentRuntime {
     // upgraded CLI is exactly how a new skill appears.
     this.#catalogDefault = null
     this.#commands = []
+    this.#commandsKnown = false
     await this.start()
     return { restarted: true }
   }
@@ -1445,6 +1446,7 @@ export class AcpRuntime implements AgentRuntime {
     this.#opening = null
     this.#catalogDefault = null
     this.#commands = []
+    this.#commandsKnown = false
     await this.start()
     return 'restarted'
   }
@@ -1517,7 +1519,10 @@ export class AcpRuntime implements AgentRuntime {
     // reach column does, and `reported` outranks the disk there) would
     // otherwise read a dead process as "loaded nothing", and every skill on
     // disk would show as unreachable for it.
-    if (this.#commands.length === 0 && this.#health.state !== 'ready') {
+    if (!this.#commandsKnown && this.#health.state === 'idle') {
+      await this.start()
+    }
+    if (!this.#commandsKnown && this.#health.state !== 'ready') {
       throw new Error(
         this.#health.state === 'starting'
           ? 'The agent is still starting and has not said what it loaded.'
@@ -1526,7 +1531,7 @@ export class AcpRuntime implements AgentRuntime {
             : this.#health.message,
       )
     }
-    if (this.#commands.length === 0 && this.#health.state === 'ready') {
+    if (!this.#commandsKnown && this.#health.state === 'ready') {
       try {
         await this.#openProbe(cwd)
         // They are declared just *after* the session exists, as an update.
@@ -1557,7 +1562,7 @@ export class AcpRuntime implements AgentRuntime {
 
   /** Remembers what the agent declared it can be asked to run. */
   learnCommands(commands: readonly AcpAvailableCommand[]): void {
-    if (commands.length === 0) return
+    this.#commandsKnown = true
     const same =
       commands.length === this.#commands.length &&
       commands.every((command, index) => command.name === this.#commands[index]?.name)
@@ -2110,6 +2115,7 @@ export class AcpRuntime implements AgentRuntime {
   #catalogRead = false
   /** The commands the agent last declared — its skills, in ACP's vocabulary. */
   #commands: readonly AcpAvailableCommand[] = []
+  #commandsKnown = false
   readonly #commandsWaiting: (() => void)[] = []
 
   /** Resolves on the first declaration, or after a moment if none comes. */

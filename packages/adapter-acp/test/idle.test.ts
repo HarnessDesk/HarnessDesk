@@ -33,6 +33,8 @@ test('an idle stop reaps the bridge and serves cached models, account, and histo
   })
 
   await runtime.start()
+  const skills = await runtime.listSkills()
+  assert.deepEqual(skills.map((skill) => skill.name), ['forget', 'rehearse'])
   const models = await runtime.knownModels()
   assert.ok(models)
   const options = await runtime.defaultSessionOptions()
@@ -56,6 +58,8 @@ test('an idle stop reaps the bridge and serves cached models, account, and histo
   assert.deepEqual(runtime.info.capabilities, info.capabilities)
   assert.deepEqual(runtime.info.presentation, info.presentation)
   assert.deepEqual(await runtime.listSessions(), history)
+  assert.deepEqual(await runtime.listSkills(), skills, 'the cached skills remain available while idle')
+  assert.equal(runtime.health().state, 'idle', 'reading cached skills does not restart the helper')
 
   await runtime.start()
   assert.equal(runtime.health().state, 'ready')

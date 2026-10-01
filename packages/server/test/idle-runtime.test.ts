@@ -120,6 +120,100 @@ test('resumes an idle-stopped conversation and serves its cached history without
   assert.equal(runtime.resumes, 1)
 })
 
+test('reads during an idle stop wait for the stop and use runtime caches without starting', async (t) => {
+  const runtime = new IdleRuntime({ id: 'read-stop-test' as never, name: 'Read Stop Test' })
+  const { host, stateDir } = await makeHost(runtime)
+  t.after(async () => {
+    runtime.continueStop()
+    await host.dispose()
+    await rm(stateDir, { recursive: true, force: true })
+  })
+  await host.start()
+  runtime.holdNextStop()
+  while (runtime.stops === 0) await new Promise((resolve) => setTimeout(resolve, 1))
+
+  let historyDone = false
+  const history = host.call('session/list', { runtime: runtime.info.id, archived: 'exclude' }).then((value) => {
+    historyDone = true
+    return value
+  })
+  const models = host.call('runtime/models', { runtime: runtime.info.id })
+  const options = host.call('runtime/options', { runtime: runtime.info.id })
+  const defaults = host.call('runtime/sessionDefaults', { runtime: runtime.info.id, cwd: '/w' })
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.equal(historyDone, false, 'history waits for the stop barrier')
+  assert.equal(runtime.starts, 1, 'read-only calls do not start an idle runtime')
+
+  runtime.continueStop()
+  await Promise.all([history, models, options, defaults])
+  assert.equal(runtime.health().state, 'idle')
+  assert.equal(runtime.starts, 1)
+})
+
+test('queued messages keep a detached runtime from idle stop', async (t) => {
+  const runtime = new IdleRuntime({ id: 'queued-idle-test' as never, name: 'Queued Idle Test' })
+  const { host, stateDir } = await makeHost(runtime)
+  t.after(async () => {
+    await host.dispose()
+    await rm(stateDir, { recursive: true, force: true })
+  })
+  await host.start()
+  const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: '/w' } }) as { id: string }
+  const record = host.registry.get(runtime.info.id, session.id as never)!
+  host.registry.detachAll(runtime.info.id)
+  host.registry.enqueue(record, 'queued-test', [{ type: 'text', text: 'waiting' }])
+  await new Promise((resolve) => setTimeout(resolve, 80))
+  assert.equal(runtime.stops, 0)
+})
+
+test('cached skills are served from an idle runtime without restarting it', async (t) => {
+  const runtime = new IdleRuntime({ id: 'skills-idle-test' as never, name: 'Skills Idle Test' })
+  Object.assign(runtime, {
+    listSkills: async () => [{ name: 'cached', description: '', enabled: true, toggleable: false }],
+    listSkillProblems: async () => [],
+  })
+  const { host, stateDir } = await makeHost(runtime)
+  t.after(async () => {
+    await host.dispose()
+    await rm(stateDir, { recursive: true, force: true })
+  })
+  await host.start()
+  await new Promise((resolve) => setTimeout(resolve, 80))
+  assert.equal(runtime.health().state, 'idle')
+  const skills = await host.call('runtime/skills', { runtime: runtime.info.id, cwd: '/w' })
+  assert.deepEqual(skills, [{ name: 'cached', description: '', enabled: true, toggleable: false }])
+  assert.equal(runtime.starts, 1)
+})
+
+test('a room post resumes an idle-stopped member and delivers to it', async (t) => {
+  const runtime = new IdleRuntime({ id: 'room-idle-test' as never, name: 'Room Idle Test' })
+  const { host, stateDir } = await makeHost(runtime, 0)
+  const repo = await makeRepo('hd-room-idle-test-')
+  t.after(async () => {
+    await host.dispose()
+    await rm(stateDir, { recursive: true, force: true })
+    await rm(repo.dir, { recursive: true, force: true })
+  })
+  await host.start()
+  await host.call('workspace/open', { path: repo.dir })
+  const created = await host.call('goal/create', { root: repo.dir, sentence: 'Idle room member' }) as unknown as { board: { id: string } }
+  const room = created.board.id
+  const card = await host.call('team/add', { room, title: 'Keep working' }) as { id: number }
+  const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: repo.dir } }) as { id: string }
+  await host.call('goal/assign', {
+    goal: room,
+    card: card.id,
+    session: { runtime: runtime.info.id, sessionId: session.id },
+  })
+  host.registry.detachAll(runtime.info.id)
+  runtime.setHealth({ state: 'idle' } as unknown as RuntimeHealth)
+  await host.call('team/post', { room, text: 'Wake and deliver.' })
+  const state = await host.call('team/state', { room }) as { channel: readonly { kind: string; state?: string }[] }
+  assert.equal(state.channel.filter((entry) => entry.kind === 'message').at(-1)?.state, 'delivered')
+  assert.equal(runtime.starts, 2)
+  assert.equal(runtime.resumes, 1)
+})
+
 test('an open session prevents idle stop', async (t) => {
   const runtime = new IdleRuntime({ id: 'open-idle-test' as never, name: 'Open Idle Test' })
   const { host, stateDir } = await makeHost(runtime)
