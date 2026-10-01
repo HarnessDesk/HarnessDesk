@@ -73,9 +73,10 @@ every pane would bring its own composer, and nothing would tie the panes to
 one prompt.
 
 **Recommendation: A** (reviewed: the direction holds; section 4 carries
-what it costs). The race-specific parts (the judge's verdict, the
-person's decision) are shown only when the room runs a comparison flow, as
-bands in the same view — not a second layout.
+what it costs). A race adds no chrome of its own to the view: the judge's
+verdict and the person's decision live where any flow's do — the judge's
+own conversation, the room's Chat and Board (owner, 2026-10-01: "I don't
+like the judge attempt UI. Not needed.").
 
 ## 2. The view
 
@@ -103,10 +104,9 @@ panel system, and tiles are equal (resizing a split is a later slice).
   its own window's conversation, stop this one). The header folds as the
   tile narrows: time and cost go into the state chip's hover text first,
   then the model into the name's, then the toggle becomes two icons — the
-  name, the state and the toggle always stay on the bar. A chip added to the
-  header (the verdict's "Picked") folds before the name does — it becomes a
-  mark beside the name rather than squeezing it (seen in the mock frames:
-  "Ga… Mod…").
+  name, the state and the toggle always stay on the bar. The name is never
+  what truncates: anything else on the bar folds first (the mock frames
+  showed a chip squeezing a name to "Ga…").
 - **Conversation** (default): that member's real `Conversation`, mounted in
   its own scope (pane-local session key — never the global active session),
   **without its own composer** while it is on a grid of two or more: the one
@@ -140,18 +140,21 @@ panel system, and tiles are equal (resizing a split is a later slice).
 
 ### The composer
 
-The room's composer, in the ordinary composer's spot: centred at the bottom
-of the grid, over the splitter junction, as wide as the ordinary composer.
-The bottom tiles keep room under it — their scroll area ends above the
-composer's measured height — so their last lines are never hidden behind
-it (seen in the mock frames).
+**It looks like the ordinary single-conversation composer** (owner,
+2026-10-01: "make the composer closer to the single session") — the same
+box and placeholder, the same tool row underneath, the same round send
+button — in the ordinary composer's spot: centred at the bottom of the grid,
+over the splitter junction, as wide as the ordinary composer. The bottom
+tiles keep room under it — their scroll area ends above the composer's
+measured height — so their last lines are never hidden behind it.
 
-- **Audience**: a chip row above the text reads **Everyone** by default;
-  typing `@` narrows it to named members (the existing audience logic,
-  unchanged). A stopped or unavailable member stays listed with what will
-  happen ("stopped — it will read this when restarted"), never silently
-  dropped. After a send, each recipient's outcome shows as the composer
-  shows it today (delivered, queued, refused with its reason).
+- **Audience is the tool row's leftmost anchor**, where a conversation's
+  composer shows its agent: it reads **Everyone** by default, or the named
+  members; typing `@` narrows it (the room composer's existing audience
+  logic, unchanged). A stopped or unavailable member stays listed with what
+  will happen ("stopped — it will read this when restarted"), never
+  silently dropped. After a send, each recipient's outcome shows as the room
+  composer shows it today (delivered, queued, refused with its reason).
 - **One draft**: the room has one composer draft, kept across Chat and Side
   by side (today it unmounts with Chat). One tile expanded → that member's
   own composer and its own draft; the room draft waits unchanged.
@@ -165,22 +168,16 @@ it (seen in the mock frames).
 
 ### The judge and the person's decision
 
-- The judge is a room member like any other; it is not on a tile by default.
-  While it works, a band above the grid reads "The judge is comparing N
-  attempts".
-- Its structured verdict appears as a **verdict band** above the grid (the
-  pick, and a line per attempt), and the picked tile's header gets a chip.
-  The band's action is the flow's person step — **Merge this attempt** —
-  which stays a person's decision. The picked attempt's name is never what
-  truncates: on a narrow header the "Picked" chip becomes a mark beside the
-  name first.
-- **After the verdict the shared composer stays.** It still addresses the
-  room (the person may ask the picked attempt to polish, or ask all of them
-  a question before deciding); its audience defaults to Everyone as before.
-  The decision itself is never made through the composer — only through the
-  band's action. Once the person has merged, the composer stays for the
-  room's ordinary use; the race's own bands collapse to one line ("Merged
-  Gamma's attempt") that reopens the verdict.
+No judge or verdict UI in this view (owner, 2026-10-01).
+
+- The judge is a room member like any other; it is not on a tile by default
+  (Watch can put it on one). Its verdict lives in its own conversation, in
+  the room's Chat and on the Board, as any flow's review does.
+- The merge is the comparison flow's existing person card on the Board, as
+  in any flow — a person's decision, never made through the composer.
+- **After the verdict the shared composer stays** for the room's ordinary
+  use: the person may ask the picked attempt to polish, or ask all of them a
+  question before deciding; its audience defaults to Everyone as before.
 - **No independent judge available**: the judge needs a runtime that holds
   a read-only ceiling (today only one does, #1132) and a provider none of
   the competitors use. Today the flow's preview refuses such a race (its
@@ -200,13 +197,13 @@ it (seen in the mock frames).
     three-edit order) records the person's pick as the same review fact an
     agent judge records, so every later rule of the flow works unchanged.
   Nothing is silently seated.
+  The person's pick, when the person judges, is made on the Board's person
+  card (the multi-agent owner's slice), not in this view.
 - **Every attempt fails its checks**: today no rule continues and the run
-  waits for the person, with nothing to offer. The first version adds no
-  engine change: the band says "No attempt passed its checks", lists each
-  failure, and offers **Race again** (a new race, same task and seats) and
-  **Open an attempt** (that competitor's conversation, to carry on by hand).
-  A flow-level "fix what failed" round is a later option, once the
-  multi-agent owner has verified how each new card pairs with its attempt.
+  settles waiting for the person, with its reason on the Board. This view
+  adds nothing for it in the first version; each tile's state chip reads
+  its attempt's own outcome. A flow-level "fix what failed" round is a later
+  option for the multi-agent owner.
 
 ### More than four members
 
@@ -273,8 +270,8 @@ different models; the race's task in the `/race` dialog ("Build a playable
 Snake game in one HTML file"); all four tiles switch to **Browser** as each
 serves its page (each tile its own attempt's transcript — the mock frames'
 shared fixture is not acceptable for the demo); a follow-up in the shared composer ("add a high-score
-counter") reaches all four; the person plays each in its tile, expands one, the judge's verdict
-band appears, the person merges the pick. Frames and a short recording from
+counter") reaches all four; the person plays each in its tile, expands one,
+reads the judge's verdict in Chat, and merges the pick from the Board. Frames and a short recording from
 the rig (never a real desk).
 
 ## 7. Tests
@@ -288,8 +285,8 @@ the rig (never a real desk).
 - Rules: the one-conversation rule still holds outside Side by side (a
   workbench split cannot hold two conversations).
 - Rig: a four-seat comparison run on fake agents — one post reaches all
-  four as user turns, Chat shows one row, a busy seat shows queued, the
-  verdict band and the no-judge case.
+  four as user turns, Chat shows one row, a busy seat shows queued, and the
+  no-judge case starts with the person as judge.
 
 ## 8. Slices (after approval)
 
@@ -297,15 +294,18 @@ the rig (never a real desk).
    tile; grid, header, focus and keys, tile state kept apart from the column
    observer, restore; Conversation in a supported no-composer presentation;
    approvals in tiles). Conversation only.
-2. **One composer + audience + four seats** (the room composer in the
-   ordinary spot with one draft across Chat and Side by side, per-recipient
-   outcomes, stopped members listed; the dialog's four pickers; engine
-   edits by the multi-agent owner).
+2. **One composer + audience + four seats** (the ordinary composer's look
+   with the room's audience as its leftmost anchor, in the ordinary spot,
+   one draft across Chat and Side by side, per-recipient outcomes, stopped
+   members listed; the dialog's four pickers). Its settings slots follow
+   #979 — undecided at the time of writing; the owner decides #979, not
+   this plan.
 3. **Browser per tile** (a profile-scoped browser view per tile, agent
    navigation routed to it, tabs persisted, hidden webviews parked outside
    the clip).
-4. **Judge band, all-fail and no-judge cases** (the fallback engine change
-   first), **demo frames and recording.**
+4. **The no-judge path in the `/race` dialog** ("Judge it myself" / "Name a
+   seat", after the multi-agent owner's person-review slice lands), **demo
+   frames and recording.**
 
 ## For the owner to decide
 
