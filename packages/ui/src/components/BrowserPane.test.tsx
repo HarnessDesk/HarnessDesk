@@ -195,7 +195,7 @@ describe('BrowserPane', () => {
   })
 
   it('shows a failed page with its address and retry, then clears it after navigation succeeds', () => {
-    mount(browserView('http://127.0.0.1:9/'))
+    mount(browserView('https://last-good.example/'))
     const guest = webviews()[0]!
     const loadURL = vi.fn(() => Promise.resolve())
     Object.assign(guest, { loadURL })
@@ -210,7 +210,9 @@ describe('BrowserPane', () => {
     })
 
     expect(container.textContent).toContain("Couldn't reach 127.0.0.1 — the connection was refused")
-    expect(container.textContent).toContain('http://127.0.0.1:9/')
+    const failureState = container.querySelector('[data-slot="tool-pane-empty"]')
+    expect(failureState?.textContent).toContain('http://127.0.0.1:9/')
+    expect(failureState?.textContent).not.toContain('https://last-good.example/')
     expect(container.textContent).toContain('Try again')
     const footer = [...container.querySelectorAll('[data-slot="bar"][data-rule="top"]')]
       .find((bar) => bar.textContent?.includes('Page failed to load'))

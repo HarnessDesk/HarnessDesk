@@ -597,12 +597,12 @@ const BrowserTabPage = ({
           over
           icon={<GlobeIcon size={40} />}
           title={browserLoadFailureMessage(failure.url, failure.errorCode)}
-          description={tab.url}
+          description={failure.url}
         >
           <Button
             type="button"
             variant="secondary"
-            onClick={() => safely(() => { void element?.loadURL(tab.url).catch(() => {}) })}
+            onClick={() => safely(() => { void element?.loadURL(failure.url).catch(() => {}) })}
           >
             Try again
           </Button>
