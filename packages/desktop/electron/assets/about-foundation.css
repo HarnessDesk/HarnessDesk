@@ -21,7 +21,7 @@
     --hd-foreground: rgb(231, 231, 231);
     --hd-card: rgb(33, 33, 33);
     --hd-muted: rgb(49, 49, 49);
-    --hd-muted-foreground: rgb(208, 208, 208);
+    --hd-muted-foreground: rgb(177, 177, 177);
     --hd-border: rgba(255, 255, 255, 0.05);
     --hd-font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
     --hd-text-sm: 13px;
@@ -47,6 +47,7 @@
     --hd-foreground: #f5f4ee;
     --hd-card: #2b2a28;
     --hd-muted: #30302e;
+    --hd-muted-foreground: #a3a198;
     --hd-border: rgba(240, 238, 230, 0.07);
     --hd-radius-lg: 16px;
   }
@@ -68,6 +69,7 @@
     --hd-foreground: #fafafa;
     --hd-card: #171717;
     --hd-muted: #262626;
+    --hd-muted-foreground: #a3a3a3;
     --hd-border: rgba(255, 255, 255, 0.07);
     --hd-text-sm: 14px;
     --hd-heading: 18px;

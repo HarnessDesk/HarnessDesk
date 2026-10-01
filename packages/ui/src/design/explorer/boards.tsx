@@ -20,6 +20,7 @@ import {
   Checklist,
   ChecklistItem,
   ComposerNoticeStack,
+  ComposerTail,
   InboxPanel,
   InboxList,
   NoticeCard,
@@ -97,6 +98,7 @@ import {
   StatePill,
   Spinner,
   Text,
+  TurnWorkLive,
   TextMark,
   Switch,
   SwitchShape,
@@ -860,6 +862,14 @@ const NoticesBoard = () => {
             <ComposerNotice message={{ ...NOTICE_STRIP[1]!, id: 'signin-2' }} />
             <ComposerNotice message={{ id: 'plain', title: 'Reconnecting to the host…' }} />
           </ComposerNoticeStack>
+        </div>
+      </Case>
+      <Case label="composer tail: the live line and a state notice are one strip">
+        <div style={{ width: 'min(var(--hd-column), 100%)' }}>
+          <ComposerTail>
+            <TurnWorkLive settled>Alpha is waiting for your approval</TurnWorkLive>
+            <TurnWorkLive settled>Board-only is on: agents cannot message each other. You still can.</TurnWorkLive>
+          </ComposerTail>
         </div>
       </Case>
       <Case label="composer: an Agent asks, and the strip sharing the stack">

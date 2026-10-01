@@ -22,7 +22,6 @@ export type CatalogEntry = {
 type ModuleSeed = readonly [name: string, exampleId: string, purpose: string]
 
 const EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
-  'turn-work': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   button: 'packages/ui/src/design/explorer/boards.tsx',
   control: 'packages/ui/src/design/explorer/boards.tsx',
   face: 'packages/ui/src/design/explorer/boards.tsx',
@@ -523,7 +522,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['RefusedAction', 'propagation', 'Keyboard-reachable disabled-action explanation'],
   ['InspectorPanel', 'tool-pane', 'Right-hand inspector anatomy'],
   ['ConversationEmptyState', 'conversation', 'Conversation empty-state anatomy'],
-  ['TurnWork', 'turn-work', 'Turn work header, disclosure and composer tail anatomy'],
+  ['TurnWork', 'conversation', 'Turn work header and disclosure anatomy'],
   ['Notices', 'notices', 'Message surfaces: sidebar card, composer notice, strip, inbox and toast'],
   ['Checklist', 'checklist', 'An agent plan: steps to do, under way and done'],
   ['PaneColumn', 'conversation', 'The reading column\'s inset, shared by the transcript and the room stream, plus the bars strip, the jobs strip and the rail'],

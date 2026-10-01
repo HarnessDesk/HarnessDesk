@@ -103,6 +103,7 @@ export { Banner, BannerAction, BannerStack, type BannerTone } from './primitives
 export {
   ComposerNotice,
   ComposerNoticeStack,
+  ComposerTail,
   InboxList,
   InboxPanel,
   NoticeCard,
@@ -138,7 +139,6 @@ export {
   TurnWorkHeaderLabel,
   TurnWorkBody,
   TurnWorkLive,
-  TurnWorkTail,
   type TurnWorkState,
 } from './patterns/TurnWork'
 export { PaneColumn, useComposerHeightVar, type PaneColumnProps, type PaneColumnInset } from './patterns/PaneColumn'

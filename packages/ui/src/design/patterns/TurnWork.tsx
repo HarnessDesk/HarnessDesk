@@ -4,7 +4,6 @@ import { cn } from '@/lib/utils'
 import { Button } from '../ui/button'
 import { revealMotion } from '../ui/motion'
 import { Text } from './Settings'
-import styles from './TurnWork.module.css'
 
 /**
  * The anatomy of a turn's work in the transcript.
@@ -158,17 +157,11 @@ const TurnWorkLive = ({
   )
 }
 
-/** The short status lines above a composer, joined into one tinted tail. */
-const TurnWorkTail = ({ children }: React.ComponentProps<'div'>) => (
-  <div data-slot="turn-work-tail" className={styles.tail}>{children}</div>
-)
-
 export {
   TurnItem,
   TurnWorkBody,
   TurnWorkHeader,
   TurnWorkHeaderLabel,
   TurnWorkLive,
-  TurnWorkTail,
   type TurnWorkState,
 }

@@ -159,7 +159,6 @@ import {
   SummaryList,
 } from '../ui'
 import { ConversationEmptyState } from '../patterns/ConversationEmptyState'
-import { TurnWorkLive, TurnWorkTail } from '..'
 import { entriesFromSilent, NotReportingList } from '../../components/usage/NotReporting'
 import { PlansTable, ShapeFilters } from '../../components/usage/PlansTable'
 import type { SilentAgent } from '../../components/usage/shared'
@@ -2726,20 +2725,6 @@ const PlansTableBoard = () => {
 }
 
 export const COMPOSITION_BOARDS: BoardSpec[] = [
-  {
-    id: 'turn-work',
-    title: 'TurnWork · Tail',
-    about: 'Live activity and a composer notice joined into one quiet strip above the Team composer.',
-    render: () => (
-      <>
-        <TurnWorkTail>
-          <TurnWorkLive settled data-slot="room-live-line">Alpha is waiting for your approval</TurnWorkLive>
-          <TurnWorkLive settled data-slot="room-composer-notice">Board-only is on: agents cannot message each other. You still can.</TurnWorkLive>
-        </TurnWorkTail>
-        <Rule>The lines over the Team composer share one tinted ground, secondary ink and outer corners.</Rule>
-      </>
-    ),
-  },
   {
     id: 'stat',
     title: 'Stat',

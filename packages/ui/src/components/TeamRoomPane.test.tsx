@@ -1653,7 +1653,7 @@ it("draws the room's tail — the live line and the composer's notice — as one
   await render(store)
   const line = container.querySelector<HTMLElement>('[data-slot="room-live-line"]')
   const notice = container.querySelector<HTMLElement>('[data-slot="room-composer-notice"]')
-  const tail = container.querySelector('[data-slot="turn-work-tail"]')
+  const tail = container.querySelector('[data-slot="composer-tail"]')
   expect(tail?.contains(line)).toBe(true)
   expect(tail?.contains(notice)).toBe(true)
   expect(line?.textContent).toContain('is working')

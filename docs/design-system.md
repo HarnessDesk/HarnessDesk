@@ -1434,6 +1434,15 @@ action sits at the right as a small button.
 
 The composer notices, stacked over the composer they are about.
 
+### `ComposerTail`
+
+`packages/ui/src/design/patterns/Notices.tsx`
+
+The short status lines over a composer — who is working, what sending does
+besides send — as one tinted strip rather than loose sentences on the
+page's own ground. It styles its direct children, so any line can ride in
+it, and two or more join: no gap, only the outer corners round.
+
 ### `NoticeStrip`
 
 `packages/ui/src/design/patterns/Notices.tsx`

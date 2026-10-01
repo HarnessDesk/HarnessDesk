@@ -36,7 +36,7 @@ import {
 } from '../design'
 import { BrandMark } from './BrandIcons'
 import { AgentIcon, SendIcon, TeamIcon } from './Icons'
-import { ComposerNoticeStack, MemberName, Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, Popover, TurnWorkTail } from '../design'
+import { ComposerNoticeStack, ComposerTail, MemberName, Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, Popover } from '../design'
 import { ComposerNotices, NoticeStripOutlet } from './Notices'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
 
@@ -511,7 +511,7 @@ export const RoomComposer = ({
 
   return (
     <>
-    <TurnWorkTail>
+    <ComposerTail>
     {statusLine}
     {/* What sending will do, said over the box rather than inside it, as one
         more line of the room's tail: the transcript's live line, settled —
@@ -525,7 +525,7 @@ export const RoomComposer = ({
         {notice.tone === 'warn' ? <Text role="prose" tone="warning">{notice.text}</Text> : notice.text}
       </TurnWorkLive>
     )}
-    </TurnWorkTail>
+    </ComposerTail>
     {/* A dropped link, whatever the person moved to the strip, and — same as
         a conversation's own composer — what stops a turn here and what an
         Agent in this room is waiting on someone to decide, over the room's
