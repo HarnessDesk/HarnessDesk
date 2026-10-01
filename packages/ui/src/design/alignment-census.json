@@ -9,7 +9,7 @@
     }
   },
   "trailing-glyph-off-column": {
-    "count": 23,
+    "count": 19,
     "signatures": {
       "design.html / adopted / trailing-glyph-off-column / div > [section] > [data-table-pagination] > button": 1,
       "design.html / code / trailing-glyph-off-column / [data-testid=diff-sample]": 1,
@@ -25,19 +25,15 @@
       "design.html / message / trailing-glyph-off-column / [data-testid=message-user-image]": 1,
       "design.html / message / trailing-glyph-off-column / [data-testid=message-user-long]": 1,
       "design.html / message / trailing-glyph-off-column / [data-testid=message-user-short]": 1,
-      "design.html / panels / trailing-glyph-off-column / [dock-panel-body] > div > [inspector-panel] > [inspector-tools] > [button]": 1,
       "design.html / panels / trailing-glyph-off-column / [workbench-canvas] > [workbench-rail] > div > [navigation-group-header] > [button]": 1,
       "design.html / panels / trailing-glyph-off-column / [workbench-rail] > div > [rail-section] > div > [refused-action]": 1,
       "design.html / tools / trailing-glyph-off-column / [tool-pane-header] > div > [tool-pane-tab-viewport] > [tool-pane-document-tab] > [button]": 1,
-      "design.html / tools / trailing-glyph-off-column / div > [tool-pane] > [tool-pane-header] > div > [button]": 1,
       "preview.html / conversation-composer / trailing-glyph-off-column / div > [composer-dock] > [pane-column] > [alert] > [button]": 1,
-      "preview.html / shape-rule-form / trailing-glyph-off-column / [rows] > [row] > [row-ctl] > span > [button]": 1,
-      "preview.html / tools-file / trailing-glyph-off-column / div > [tool-pane] > [tool-pane-header] > div > [button]": 1,
-      "preview.html / transcript-preview-pane / trailing-glyph-off-column / div > [tool-pane] > [tool-pane-header] > div > [button]": 1
+      "preview.html / shape-rule-form / trailing-glyph-off-column / [rows] > [row] > [row-ctl] > span > [button]": 1
     }
   },
   "header-off-body": {
-    "count": 64,
+    "count": 63,
     "signatures": {
       "design.html / chart / header-off-body / div > [chart-frame] > [chart-card]": 1,
       "design.html / group / header-off-body / [data-testid=group-person-review-step]": 2,
@@ -57,7 +53,6 @@
       "design.html / propagation / header-off-body / [data-testid=prop-settings]": 1,
       "design.html / row / header-off-body / div > figure > [card] > div": 1,
       "design.html / row / header-off-body / figure > [card] > div > [rows] > [row]": 1,
-      "design.html / tool-pane / header-off-body / div > [tool-pane] > [tool-pane-header]": 1,
       "design.html / tools / header-off-body / div > [tool-pane] > [tool-pane-header]": 2,
       "preview.html / board-edges / header-off-body / [tool-pane] > [tool-pane-body] > [board] > [board-column] > header": 3,
       "preview.html / board-empty / header-off-body / div > [tool-pane] > [tool-pane-header]": 1,
