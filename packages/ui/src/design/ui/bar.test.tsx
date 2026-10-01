@@ -37,3 +37,21 @@ it('is a header when it names what is under it, and a plain box otherwise', () =
   expect(head).toMatch(/^<header data-slot="bar"/)
   expect(classOf(head)).toContain('h-(--hd-bar-h)')
 })
+
+it('an active bar draws its rule in the focus ink, and only when it has a rule', () => {
+  const active = renderToStaticMarkup(<Bar rule="bottom" active>Tile</Bar>)
+  expect(active).toContain('data-active=""')
+  expect(active).toContain('border-(--hd-ring)')
+  const ruleless = renderToStaticMarkup(<Bar active>Tile</Bar>)
+  expect(ruleless).not.toContain('border-(--hd-ring)')
+})
+
+it('a growing bar keeps the bar height as its floor and is otherwise sized by its words', () => {
+  const grows = renderToStaticMarkup(<Bar grow>Tile</Bar>)
+  expect(grows).toContain('h-auto')
+  expect(grows).toContain('min-h-(--hd-bar-h)')
+  expect(grows).not.toMatch(/(^|\s)h-\(--hd-bar-h\)/)
+  const fixed = renderToStaticMarkup(<Bar>Tile</Bar>)
+  expect(fixed).toContain('h-(--hd-bar-h)')
+  expect(fixed).not.toContain('h-auto')
+})

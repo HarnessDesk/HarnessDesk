@@ -108,6 +108,30 @@ beforeEach(() => {
   for (const call of Object.values(calls)) call.mockClear()
 })
 
+describe('the window’s chord over a composer', () => {
+  it('leaves ⌥⌘↵ to the window — it neither sends nor stops the event', async () => {
+    mount()
+    type('Not yet.')
+    const event = new KeyboardEvent('keydown', { key: 'Enter', altKey: true, metaKey: true, bubbles: true, cancelable: true })
+    act(() => { textarea().dispatchEvent(event) })
+    await act(async () => {})
+    expect(calls.queue).not.toHaveBeenCalled()
+    expect(event.defaultPrevented).toBe(false)
+  })
+
+  it('leaves ⌥⌘↵ to the window with a completion menu open, picking nothing', async () => {
+    mount()
+    type('/')
+    await act(async () => {})
+    expect(document.querySelector('[role="listbox"], [role="option"]')).not.toBeNull()
+    const event = new KeyboardEvent('keydown', { key: 'Enter', altKey: true, metaKey: true, bubbles: true, cancelable: true })
+    act(() => { textarea().dispatchEvent(event) })
+    await act(async () => {})
+    expect(event.defaultPrevented).toBe(false)
+    expect(textarea().value).toBe('/')
+  })
+})
+
 describe('a draft carrying a hand-off', () => {
   it('shows what it is carrying, and from whom', () => {
     mount()

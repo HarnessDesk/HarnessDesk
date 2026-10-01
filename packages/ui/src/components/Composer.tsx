@@ -79,6 +79,7 @@ import {
 import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from './ComposerControls'
 import { ContextUsage } from './ContextUsage'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
+import { draftsOf } from '../state/drafts'
 import styles from './Composer.module.css'
 
 /**
@@ -184,8 +185,47 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   const textarea = useRef<HTMLTextAreaElement>(null)
   const filePicker = useRef<HTMLInputElement>(null)
 
-  const [text, setText] = useState('')
-  const [attachments, setAttachments] = useState<Attachment[]>([])
+  /* The draft belongs to the conversation, not to this composer: a tile
+     returned to the grid, a tab switched or a window reloaded draws a new
+     composer, and what was typed is waiting for it. See state/drafts. */
+  const drafts = draftsOf(store)
+  const [text, setText] = useState(() => (key ? (drafts.live(key)?.text ?? '') : ''))
+  const [attachments, setAttachments] = useState<Attachment[]>(() => (key ? [...(drafts.live(key)?.attachments ?? [])] : []))
+  /* Which conversation's draft `text` holds, and whether this composer is
+     still drawn: words are only ever saved to — or put back into — the
+     conversation they were typed for. Layout effects, not passive ones: a
+     failed send's continuation is a microtask, and it must never find these
+     still naming the conversation the composer has just left — which a
+     passive effect, run after paint, would leave it a frame to do. Saving is
+     declared before loading, so on a switch nothing is saved until the new
+     conversation's own draft has been read in. */
+  const draftOf = useRef(key)
+  const mounted = useRef(true)
+  useLayoutEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+  useLayoutEffect(() => {
+    if (key && draftOf.current === key) drafts.setLive(key, { text, attachments })
+  }, [drafts, key, text, attachments])
+  // A message put back by a composer that has gone (see `putBack`): shown
+  // here when this composer is drawing its conversation now.
+  useLayoutEffect(() => {
+    if (!key) return
+    return drafts.onPutBack(key, (draft) => {
+      setText((current) => (current.trim().length > 0 ? current : draft.text))
+      setAttachments((current) => (current.length > 0 ? current : [...draft.attachments]))
+    })
+  }, [drafts, key])
+  useLayoutEffect(() => {
+    if (draftOf.current === key) return
+    draftOf.current = key
+    const held = key ? drafts.live(key) : null
+    setText(held?.text ?? '')
+    setAttachments(held ? [...held.attachments] : [])
+  }, [drafts, key])
   // Drag-and-drop: the counter survives the enter/leave pairs every child
   // fires as the pointer crosses it, so the highlight does not flicker.
   const dragDepth = useRef(0)
@@ -688,14 +728,23 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     // one path that can fail has to put it back.
     const delivered = await store.queue(content, key)
     if (!delivered) {
-      setText((current) => (current.trim().length > 0 ? current : draft.text))
-      setAttachments((current) => (current.length > 0 ? current : draft.attachments))
+      /* Back to the conversation it was written for. This composer may have
+         moved on to another conversation, or been taken away, while the send
+         was out: put back into whatever it shows now, the words would sit —
+         and could be sent — under a conversation they were never meant for. */
+      if (mounted.current && draftOf.current === key) {
+        setText((current) => (current.trim().length > 0 ? current : draft.text))
+        setAttachments((current) => (current.length > 0 ? current : draft.attachments))
+      } else if (key) {
+        drafts.putBack(key, draft)
+      }
     }
   }, [
     acceptsImages,
     agentName,
     attachments,
     busy,
+    drafts,
     canSend,
     canSteer,
     commands,
@@ -826,6 +875,10 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      // ⌥⌘↵ is the window's (expand or return a Side by side tile), not a
+      // send and not a completion pick: left untouched here, before either
+      // reads Enter, it reaches the shortcut runner.
+      if (event.key === 'Enter' && event.altKey && (event.metaKey || event.ctrlKey)) return
       if (menuOpen && items.length > 0) {
         if (event.key === 'ArrowDown') {
           event.preventDefault()

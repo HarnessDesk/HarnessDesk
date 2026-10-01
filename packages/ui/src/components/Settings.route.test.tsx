@@ -217,6 +217,8 @@ it('a page asked for while the window is open replaces the one on show', async (
   // bug — the window used to stay put.
   await act(async () => route('shortcuts'))
   expect(page()).toBe('Keyboard shortcuts')
+  expect(document.body.textContent).toContain('⌥⌘1')
+  expect(document.body.textContent).toContain('Focus tile 1')
 })
 
 it('a page asked for a second time still moves the window back to it', async () => {

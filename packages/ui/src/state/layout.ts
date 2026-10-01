@@ -1,4 +1,5 @@
 import type { RuntimeId, SessionKey, UiDock } from '@harnessdesk/protocol'
+import { fromStored, toStored, type StoredSideBySide } from '../lib/side-by-side'
 
 /**
  * The pane layout: a binary tree of splits whose leaves each show one
@@ -158,6 +159,8 @@ export type PaneView =
        * arrangement survives the trip and the next launch.
        */
       readonly watching?: readonly SessionKey[]
+      /** The room's Side by side tiles, their selection and display modes. */
+      readonly sideBySide?: StoredSideBySide
     }
   /**
    * The four inspectors, which used to be a closed set of tabs on the
@@ -911,7 +914,17 @@ export const readView = (raw: unknown): PaneView => {
       const watching = held.filter(
         (entry): entry is SessionKey => typeof entry === 'string' && entry !== '',
       )
-      return watching.length > 0 ? { kind: 'room', room, watching } : { kind: 'room', room }
+      const heldSideBySide = record['sideBySide']
+      const sideBySide =
+        heldSideBySide && typeof heldSideBySide === 'object' && Array.isArray((heldSideBySide as { tiles?: unknown }).tiles)
+          ? toStored(fromStored(heldSideBySide as StoredSideBySide))
+          : undefined
+      return {
+        kind: 'room',
+        room,
+        ...(watching.length > 0 ? { watching } : {}),
+        ...(sideBySide ? { sideBySide } : {}),
+      }
     }
     case 'changes':
     case 'trajectory':

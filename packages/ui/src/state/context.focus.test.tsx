@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { sessionId, sessionKey } from '@harnessdesk/protocol'
 
-import { PaneProvider, StoreProvider, useIsFocusedPane } from './context'
+import { KeyboardHereContext, PaneProvider, StoreProvider, useIsFocusedPane } from './context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from './store'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -28,7 +28,7 @@ const FocusProbe = () => {
   return <span data-testid="focus-probe" data-focused={String(isFocused)} />
 }
 
-const render = (focusedPane: string, paneId?: string) => {
+const render = (focusedPane: string, paneId?: string, keyboardHere: boolean | null = null) => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -46,7 +46,7 @@ const render = (focusedPane: string, paneId?: string) => {
     getSnapshot: () => snapshot,
   } as unknown as AppStore
 
-  const content = <FocusProbe />
+  const content = <KeyboardHereContext.Provider value={keyboardHere}><FocusProbe /></KeyboardHereContext.Provider>
 
   act(() => {
     root.render(
@@ -102,5 +102,21 @@ describe('useIsFocusedPane (#381)', () => {
   it('returns true when outside any pane', () => {
     render('p1')
     expect(isFocused()).toBe(true)
+  })
+})
+
+describe('useIsFocusedPane inside a mount that holds several conversations', () => {
+  it('is false for a part that says the keyboard is elsewhere, though its mount is focused', () => {
+    render('p1', 'p1:codex\x00s-1', false)
+    expect(isFocused()).toBe(false)
+  })
+
+  it('is unchanged where the part has the keyboard or says nothing', () => {
+    render('p1', 'p1:codex\x00s-1', true)
+    expect(isFocused()).toBe(true)
+    render('p1', 'p1:codex\x00s-1', null)
+    expect(isFocused()).toBe(true)
+    render('p2', 'p1:codex\x00s-1', true)
+    expect(isFocused()).toBe(false)
   })
 })
