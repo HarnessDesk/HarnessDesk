@@ -76,6 +76,10 @@ export const sideBySideStore = (options: SideBySideFixtureOptions = {}): AppStor
       options: (prior.options ?? []).filter((option) => option.category !== 'model'),
       turns: exchange(member.id, index, options),
       itemsLoaded: true,
+      // A conversation nobody has used yet: the product tells it from one whose
+      // messages could not be restored by `updatedAt` never moving past
+      // `createdAt`, and answers with its prompt instead of "Nothing to show".
+      ...(options.ready && index === 3 ? { updatedAt: prior.createdAt } : {}),
     })
   })
   const runtimes = snapshot.runtimes.map((entry, index) => ({

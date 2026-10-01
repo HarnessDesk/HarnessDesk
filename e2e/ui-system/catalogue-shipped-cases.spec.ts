@@ -32,6 +32,8 @@ test('the catalogue renders shipped composer slots and Side by side cases', asyn
   await expect(tile('Beta').getByText('Done', { exact: true })).toBeVisible()
   await expect(tile('Gamma').getByText('Stopped', { exact: true })).toBeVisible()
   await expect(tile('Delta').getByText(/Working|Waiting for you|Done|Stopped/)).toHaveCount(0)
+  // A ready member is a conversation nobody has used yet, not one whose messages failed to restore.
+  await expect(tile('Delta').getByText('Nothing to show')).toHaveCount(0)
 
   const narrow = caseLabel(page, 'room — Side by side · narrow tabs with a waiting mark')
   await expect(narrow.getByRole('tablist', { name: 'Side by side tiles' })).toBeVisible()
