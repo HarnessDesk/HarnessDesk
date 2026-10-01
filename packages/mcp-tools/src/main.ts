@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { connect, type Socket } from 'node:net'
-import { createInterface } from 'node:readline'
+import { createInterface, type Interface } from 'node:readline'
 
 import { buildToolIndex, toMcpContent, type GatewayResult, type GatewayTool } from './content.js'
+import { orphanedAtStart } from './lifecycle.js'
 
 /**
  * HarnessDesk's plugin tools as a stdio MCP server.
@@ -41,6 +42,44 @@ if (!SOCKET) {
 const CALLER = process.env['HD_TOOLS_CALLER']
 /** The agent whose environment this bridge was spawned from — said only when no conversation gave it a token. */
 const AGENT = process.env['HD_TOOLS_AGENT']
+
+// The bridge belongs to the agent that opened it; EOF is not enough when a
+// grandchild inherited the pipe, so watch both ways the parent can disappear.
+const PARENT_PID = process.ppid
+let shuttingDown = false
+let inFlight = 0
+/** Closed on shutdown, so a parent-watch exit stops taking new lines from a stdin something else still holds. */
+let lines: Interface | null = null
+
+const finishShutdown = (): void => {
+  if (!shuttingDown || inFlight !== 0) return
+  // Queue behind every response write before ending the bridge.
+  process.stdout.write('', () => process.exit(0))
+}
+
+const shutdown = (): void => {
+  if (shuttingDown) return
+  shuttingDown = true
+  lines?.close()
+  socket?.destroy()
+  socket = null
+  setTimeout(() => process.exit(0), 1_000)
+  // The deadline is only a last resort; the stdout callback exits sooner.
+  finishShutdown()
+}
+
+const parentWatch = setInterval(() => {
+  if (process.ppid !== PARENT_PID) {
+    shutdown()
+    return
+  }
+  try {
+    process.kill(PARENT_PID, 0)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') shutdown()
+  }
+}, 2_000)
+parentWatch.unref()
 
 // ------------------------------------------------------------ gateway client
 
@@ -155,96 +194,106 @@ const fail = (id: unknown, code: number, message: string): void => {
   process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id, error: { code, message } })}\n`)
 }
 
-createInterface({ input: process.stdin }).on('line', (line) => {
-  if (line.trim() === '') return
-  void (async () => {
-    let message: { id?: unknown; method?: string; params?: Record<string, unknown> }
-    try {
-      message = JSON.parse(line) as typeof message
-    } catch {
-      return
-    }
-    const { id, method, params } = message
-    if (!method) return
-    try {
-      switch (method) {
-        case 'initialize': {
-          let instructions = ''
-          try {
-            instructions = (
-              await call<{ instructions?: unknown }>('server/info', CALLER ? { caller: CALLER } : AGENT ? { agent: AGENT } : {})
-            ).instructions as string
-          } catch {
-            // An older host without the verb: the tools still work, unbriefed.
-          }
-          respond(id, {
-            protocolVersion: (params?.['protocolVersion'] as string) ?? '2024-11-05',
-            capabilities: { tools: {} },
-            serverInfo: { name: 'harnessdesk', version: '0.1.0' },
-            ...(typeof instructions === 'string' && instructions.trim() !== '' ? { instructions } : {}),
-          })
+const handleLine = async (line: string): Promise<void> => {
+  let message: { id?: unknown; method?: string; params?: Record<string, unknown> }
+  try {
+    message = JSON.parse(line) as typeof message
+  } catch {
+    return
+  }
+  const { id, method, params } = message
+  if (!method) return
+  try {
+    switch (method) {
+      case 'initialize': {
+        let instructions = ''
+        try {
+          instructions = (
+            await call<{ instructions?: unknown }>('server/info', CALLER ? { caller: CALLER } : AGENT ? { agent: AGENT } : {})
+          ).instructions as string
+        } catch {
+          // An older host without the verb: the tools still work, unbriefed.
+        }
+        respond(id, {
+          protocolVersion: (params?.['protocolVersion'] as string) ?? '2024-11-05',
+          capabilities: { tools: {} },
+          serverInfo: { name: 'harnessdesk', version: '0.1.0' },
+          ...(typeof instructions === 'string' && instructions.trim() !== '' ? { instructions } : {}),
+        })
+        return
+      }
+      case 'notifications/initialized':
+      case 'notifications/cancelled':
+        return // notifications take no reply
+      case 'ping':
+        respond(id, {})
+        return
+      case 'tools/list': {
+        const index = await toolIndex()
+        respond(id, {
+          tools: [...index.entries()].map(([name, tool]) => ({
+            name,
+            description: tool.description,
+            inputSchema: tool.inputSchema ?? { type: 'object' },
+          })),
+        })
+        return
+      }
+      case 'tools/call': {
+        const name = String(params?.['name'] ?? '')
+        const index = await toolIndex()
+        const tool = index.get(name)
+        if (!tool) {
+          fail(id, -32602, `No tool named ${name}.`)
           return
         }
-        case 'notifications/initialized':
-        case 'notifications/cancelled':
-          return // notifications take no reply
-        case 'ping':
-          respond(id, {})
-          return
-        case 'tools/list': {
-          const index = await toolIndex()
-          respond(id, {
-            tools: [...index.entries()].map(([name, tool]) => ({
-              name,
-              description: tool.description,
-              inputSchema: tool.inputSchema ?? { type: 'object' },
-            })),
-          })
-          return
-        }
-        case 'tools/call': {
-          const name = String(params?.['name'] ?? '')
-          const index = await toolIndex()
-          const tool = index.get(name)
-          if (!tool) {
-            fail(id, -32602, `No tool named ${name}.`)
-            return
-          }
-          if (tool.mcp) {
-            // A Seat's approved external server: the gateway's own gate
-            // (approval, ceiling, caller identity) runs on `mcp/call`, never
-            // on the plugin verb — this tool never reaches `tools/invoke`.
-            const mcpResult = await call<{ ok: true; result: unknown } | { ok: false; reason: string }>('mcp/call', {
-              server: tool.mcp.server,
-              tool: tool.name,
-              args: params?.['arguments'] ?? {},
-              ...(CALLER ? { caller: CALLER } : {}),
-            })
-            if (mcpResult.ok) {
-              // Already a real upstream MCP `CallToolResult` — passed through
-              // exactly as the server answered, never reshaped by a
-              // converter built for the desk's own internal tool result
-              // shape.
-              respond(id, isMcpContent(mcpResult.result) ? mcpResult.result : { content: [{ type: 'text', text: String(mcpResult.result) }] })
-            } else {
-              respond(id, { content: [{ type: 'text', text: mcpResult.reason }], isError: true })
-            }
-            return
-          }
-          const result = await call<GatewayResult>('tools/invoke', {
-            namespace: tool.namespace,
-            name: tool.name,
+        if (tool.mcp) {
+          // A Seat's approved external server: the gateway's own gate
+          // (approval, ceiling, caller identity) runs on `mcp/call`, never
+          // on the plugin verb — this tool never reaches `tools/invoke`.
+          const mcpResult = await call<{ ok: true; result: unknown } | { ok: false; reason: string }>('mcp/call', {
+            server: tool.mcp.server,
+            tool: tool.name,
             args: params?.['arguments'] ?? {},
             ...(CALLER ? { caller: CALLER } : {}),
           })
-          respond(id, toMcpContent(result))
+          if (mcpResult.ok) {
+            // Already a real upstream MCP `CallToolResult` — passed through
+            // exactly as the server answered, never reshaped by a
+            // converter built for the desk's own internal tool result
+            // shape.
+            respond(id, isMcpContent(mcpResult.result) ? mcpResult.result : { content: [{ type: 'text', text: String(mcpResult.result) }] })
+          } else {
+            respond(id, { content: [{ type: 'text', text: mcpResult.reason }], isError: true })
+          }
           return
         }
-        default:
-          if (id !== undefined) fail(id, -32601, `Method not supported: ${method}`)
+        const result = await call<GatewayResult>('tools/invoke', {
+          namespace: tool.namespace,
+          name: tool.name,
+          args: params?.['arguments'] ?? {},
+          ...(CALLER ? { caller: CALLER } : {}),
+        })
+        respond(id, toMcpContent(result))
+        return
       }
-    } catch (error) {
-      if (id !== undefined) fail(id, -32603, error instanceof Error ? error.message : String(error))
+      default:
+        if (id !== undefined) fail(id, -32601, `Method not supported: ${method}`)
     }
-  })()
-})
+  } catch (error) {
+    if (id !== undefined) fail(id, -32603, error instanceof Error ? error.message : String(error))
+  }
+}
+lines = createInterface({ input: process.stdin })
+  .on('close', shutdown)
+  .on('line', (line) => {
+    if (shuttingDown || line.trim() === '') return
+    inFlight += 1
+    void handleLine(line).finally(() => {
+      inFlight -= 1
+      finishShutdown()
+    })
+  })
+
+// Orphaned before it could record its parent: see `orphanedAtStart`.
+if (orphanedAtStart(PARENT_PID, process.platform)) shutdown()
