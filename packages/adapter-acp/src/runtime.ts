@@ -749,6 +749,8 @@ const acpCategory = (id: string, category: string | null | undefined): OptionCat
 
 export class AcpRuntime implements AgentRuntime {
   readonly #config: AcpAgentConfig
+  #searchListing: { readonly rows: readonly AcpSessionRow[]; readonly expiresAt: number } | null = null
+  #searchListingGeneration = 0
   /**
    * Read on construction and again on each start; see `RuntimeInfo.provider`.
    * Three values, not two: `undefined` when this agent has no provider
@@ -974,6 +976,7 @@ export class AcpRuntime implements AgentRuntime {
             plans: true,
             reasoning: true,
             listHistory: Boolean(this.#initialized?.agentCapabilities?.sessionCapabilities?.list),
+            searchHistory: Boolean(this.#initialized?.agentCapabilities?.sessionCapabilities?.list),
             imageInput: this.#initialized?.agentCapabilities?.promptCapabilities?.image ?? false,
             // The agent's own commands are its skills — Claude Code declares
             // its 51, Cursor its own — and they arrive per session, so this
@@ -1272,6 +1275,7 @@ export class AcpRuntime implements AgentRuntime {
     this.#disposed = true
     await this.#connection.stop()
     this.#sessions.clear()
+    this.#invalidateSearchListing()
     this.#resuming.clear()
     this.#openedIn.clear()
     this.#probe = null
@@ -1845,6 +1849,7 @@ export class AcpRuntime implements AgentRuntime {
       // agent that keys its store by folder — Cursor hashes the path — can
       // only answer for a folder it has been given.
       const rows = await this.#listedRows(query?.cwd)
+      this.#invalidateSearchListing()
       // The agent names its own conversations — Claude Code writes a title
       // into the transcript as the turn runs — and that name is what its own
       // window shows. A session open here has no title of its own, so it
@@ -1910,6 +1915,7 @@ export class AcpRuntime implements AgentRuntime {
    */
   noteTitle(id: SessionId, title: string): void {
     this.#titles.set(id, title)
+    this.#invalidateSearchListing()
   }
 
   /** The ask each session opened with, as of the last listing. */
@@ -1923,14 +1929,40 @@ export class AcpRuntime implements AgentRuntime {
 
   async searchSessions(query: string): Promise<Page<SessionSummary>> {
     const needle = query.toLowerCase()
+    const rows = await this.#searchableRows()
+    const matches = new Map<SessionId, SessionSummary>()
+    for (const row of rows) {
+      const id = makeSessionId(row.sessionId)
+      if (id === this.#probeId) continue
+      const title = titleOf(row)
+      const preview = openingOf(row.preview ?? '').slice(0, 120) || null
+      if (title) this.#titles.set(id, title)
+      if (preview) this.#previews.set(id, preview)
+      if (!(title ?? '').toLowerCase().includes(needle) && !(preview ?? '').toLowerCase().includes(needle)) continue
+      matches.set(id, {
+        id,
+        runtime: this.info.id,
+        title,
+        preview,
+        cwd: row.cwd,
+        status: { type: 'notLoaded' },
+        createdAt: row.updatedAt ? Date.parse(row.updatedAt) : 0,
+        updatedAt: row.updatedAt ? Date.parse(row.updatedAt) : 0,
+        git: null,
+      })
+    }
+    // A live summary wins over the listed form for a duplicate id, while
+    // retaining metadata learned from the agent's latest listing.
+    for (const session of this.#sessions.values()) {
+      if (session.id === this.#probeId) continue
+      const summary = session.summary()
+      const title = summary.title ?? this.#titles.get(session.id) ?? null
+      const preview = summary.preview ?? this.#previews.get(session.id) ?? null
+      if (!(title ?? '').toLowerCase().includes(needle) && !(preview ?? '').toLowerCase().includes(needle)) continue
+      matches.set(session.id, { ...summary, title, preview })
+    }
     return {
-      data: [...this.#sessions.values()]
-        // The draft probe is no conversation, here as in `listSessions`. Its
-        // preview is empty, so a search for nothing found it, and its id was
-        // then read as one — in the folder the probe was opened in.
-        .filter((session) => session.id !== this.#probeId)
-        .map((session) => session.summary())
-        .filter((summary) => (summary.preview ?? '').toLowerCase().includes(needle)),
+      data: [...matches.values()].sort((a, b) => b.updatedAt - a.updatedAt),
       nextCursor: null,
     }
   }
@@ -1976,6 +2008,7 @@ export class AcpRuntime implements AgentRuntime {
     this.#titles.delete(id)
     this.#previews.delete(id)
     this.#openedIn.delete(id)
+    this.#invalidateSearchListing()
     const disposition = result?.disposition ?? 'removed'
     const removed = result?.removed?.length ?? 0
     this.#config.logger?.debug?.('session deleted', { session: String(id), removed, disposition })
@@ -2380,6 +2413,7 @@ export class AcpRuntime implements AgentRuntime {
     }, options.attachments)
     const session = new AcpSession(this, result, options.cwd)
     this.#sessions.set(session.id, session)
+    this.#invalidateSearchListing()
     if (heldCeiling) this.#sessionCeilings.set(session.id, heldCeiling)
     if (options.attachments) this.#attachmentInputs.set(session.id, options.attachments)
     this.#learnCatalog(result)
@@ -2638,12 +2672,34 @@ export class AcpRuntime implements AgentRuntime {
    * read can put a row on two pages. A walk that cannot reach the last page
    * throws; see `#listPages`.
    */
-  async #listedRows(cwd?: string): Promise<AcpSessionRow[]> {
+  async #listedRows(cwd?: string, rowLimit = Number.POSITIVE_INFINITY): Promise<AcpSessionRow[]> {
     const rows = new Map<string, AcpSessionRow>()
     for await (const page of this.#listPages(cwd)) {
-      for (const row of page) if (!rows.has(row.sessionId)) rows.set(row.sessionId, row)
+      for (const row of page) {
+        if (rows.has(row.sessionId)) continue
+        rows.set(row.sessionId, row)
+        // Page<T> has no truncation field. Search stops at a deliberately
+        // high row bound rather than inventing wire metadata for partial hits.
+        if (rows.size >= rowLimit) return [...rows.values()]
+      }
     }
     return [...rows.values()]
+  }
+
+  async #searchableRows(): Promise<readonly AcpSessionRow[]> {
+    const cached = this.#searchListing
+    if (cached && cached.expiresAt > Date.now()) return cached.rows
+    const generation = this.#searchListingGeneration
+    const rows = await this.#listedRows()
+    if (generation === this.#searchListingGeneration) {
+      this.#searchListing = { rows, expiresAt: Date.now() + SEARCH_LISTING_CACHE_MS }
+    }
+    return rows
+  }
+
+  #invalidateSearchListing(): void {
+    this.#searchListingGeneration += 1
+    this.#searchListing = null
   }
 
   async forkSession(): Promise<AgentSession> {
@@ -3044,6 +3100,8 @@ interface AcpSessionPage {
  * a fresh next page forever.
  */
 const LISTING_PAGE_LIMIT = 1000
+/** Reuses a recent listing across adjacent keystrokes; session changes invalidate it immediately. */
+const SEARCH_LISTING_CACHE_MS = 1500
 
 /**
  * A title that is only the conversation's own id — `Session <id>` — names

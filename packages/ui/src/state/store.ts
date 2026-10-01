@@ -621,6 +621,10 @@ export class AppStore {
         }
         if (notification.method === 'runtime/removed') {
           const { runtime } = notification.params
+          // In-flight searches include this runtime's response. Invalidate
+          // the request before filtering the visible history so a late page
+          // cannot put its rows back.
+          this.#historyRequestId += 1
           const runtimes = this.#snapshot.runtimes.filter((entry) => entry.id !== runtime)
           const accountsByRuntime = { ...this.#snapshot.accountsByRuntime }
           delete accountsByRuntime[runtime]
@@ -632,6 +636,7 @@ export class AppStore {
           if (anchored) this.#historyAnchor = null
           this.#patch({
             runtimes,
+            historyLoading: false,
             accountsByRuntime,
             healthByRuntime,
             activeRuntime:
@@ -1969,7 +1974,8 @@ export class AppStore {
     // cursor handed to a different agent names nothing.
     const runtime =
       options.reset || !this.#historyAnchor ? this.#snapshot.activeRuntime : this.#historyAnchor
-    if (!runtime || this.#snapshot.historyLoading) return
+    if (!runtime || (this.#snapshot.historyLoading && !options.reset)) return
+    const requestId = ++this.#historyRequestId
     this.#historyAnchor = runtime
     this.#patch({ historyLoading: true })
     try {
@@ -1994,6 +2000,7 @@ export class AppStore {
         ),
       ])
       const merged = [...page.data, ...extra.flat()].sort((a, b) => b.updatedAt - a.updatedAt)
+      if (requestId !== this.#historyRequestId) return
       const nextFoldersGone = this.#foldersGoneFor(merged)
       this.#patch({
         ...(nextFoldersGone ? { foldersGone: nextFoldersGone } : {}),
@@ -2009,7 +2016,7 @@ export class AppStore {
     } catch (error) {
       this.#backgroundNotice('warning', describe(error))
     } finally {
-      this.#patch({ historyLoading: false })
+      if (requestId === this.#historyRequestId) this.#patch({ historyLoading: false })
     }
   }
 
@@ -2022,6 +2029,7 @@ export class AppStore {
       await this.loadHistory({ reset: true })
       return
     }
+    const requestId = ++this.#historyRequestId
     this.#patch({ historyLoading: true })
     try {
       const pages = await Promise.all(
@@ -2034,7 +2042,10 @@ export class AppStore {
               .catch(() => [] as SessionSummary[]),
           ),
       )
-      const results = pages.flat().sort((a, b) => b.updatedAt - a.updatedAt)
+      const results = pages.flat()
+        .filter((row) => this.#snapshot.runtimes.some((entry) => entry.id === row.runtime))
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+      if (requestId !== this.#historyRequestId) return
       const nextFoldersGone = this.#foldersGoneFor(results)
       this.#patch({
         ...(nextFoldersGone ? { foldersGone: nextFoldersGone } : {}),
@@ -2044,7 +2055,7 @@ export class AppStore {
     } catch (error) {
       this.#backgroundNotice('warning', describe(error))
     } finally {
-      this.#patch({ historyLoading: false })
+      if (requestId === this.#historyRequestId) this.#patch({ historyLoading: false })
     }
   }
 
@@ -6916,6 +6927,8 @@ export class AppStore {
   }
 
   #historyRefresh: ReturnType<typeof setTimeout> | null = null
+  /** Newer history reads supersede older replies, including a reset after search. */
+  #historyRequestId = 0
   /** The sidebar's live filter, so a re-read keeps showing what was searched. */
   #historyQuery = ''
   /** The agent the list is paged around; see `loadHistory`. */

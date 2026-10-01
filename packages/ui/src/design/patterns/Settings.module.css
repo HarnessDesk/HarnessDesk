@@ -137,6 +137,9 @@
   align-items: center;
   gap: var(--hd-space-1-5);
   padding: var(--hd-label-space, var(--hd-space-1-5)) var(--hd-bar-pad) var(--hd-space-1) var(--hd-bar-ink);
+  /* The trailing control's glyph is the rail's content edge; the button's
+     own edge pull supplies its hit-target inset. */
+  padding-inline-end: var(--hd-space-0);
 }
 
 /* A rail with no filter bar of its own — the app window's nav — has no
@@ -159,6 +162,10 @@
 
 .navigationGroupHeader[data-filtering] .navigationGroupLabel {
   display: none;
+}
+
+.navigationGroupHeader[data-filtering][data-keep-label] .navigationGroupLabel {
+  display: flex;
 }
 
 /* Identity and current-item chips are names rather than sentences. Their

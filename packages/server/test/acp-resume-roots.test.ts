@@ -199,8 +199,8 @@ test('the draft probe opens outside the host\'s folder, and no conversation is m
   assert.equal(drafts.length, 1)
   const probe = drafts[0]!
   const refusal = `Fake ACP Agent has no conversation ${probe.sessionId}.`
-  // A search for anything would find it if it were a conversation; its id,
-  // read or reopened, would make it one.
+  // Search includes persisted listed history, but not the draft probe: the
+  // listed conversation remains searchable, and this id never appears.
   assert.deepEqual(
     {
       where: probe.cwd,
@@ -213,7 +213,7 @@ test('the draft probe opens outside the host\'s folder, and no conversation is m
     },
     {
       where: homedir(),
-      searched: [],
+      searched: ['listed'],
       read: { refused: refusal, code: 'sessionGone' },
       resumed: { refused: `Fake ACP Agent could not reopen this conversation: ${refusal}`, code: 'sessionGone' },
       unopened: outside(unopened),

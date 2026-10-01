@@ -101,19 +101,18 @@ test('the native editor scene seeds the fake filesystem and requires rendered fi
 })
 
 test('the flow and new-session-agents scenes find the sidebar\'s own trigger, not a shorter-text button a staged Goal leaves behind (#928 review)', () => {
-  // Reproduced on the real rig: `board` or `room` stages a Goal, whose
-  // sidebar group keeps its own "New job" button standing for as long as the
-  // desk runs — shorter than "New session", so `click`'s own "smallest match
-  // wins" rule silently opened the board's composer instead of the session/
-  // Goal chooser, and the flow scene's readiness wait for the Goal dialog
-  // then timed out. Scoping the search to the sidebar's action row is what
-  // makes each scene independent of a Goal an earlier one left behind.
+  // Reproduced on the real rig: a staged Goal leaves a shorter-text "New
+  // job" button in the sidebar. The secondary start trigger and its menu
+  // choice must both be scoped so another button cannot win the text match.
   const shoot = readFileSync(join(root, 'script/shots/shoot.mjs'), 'utf8')
+  const startKind = shoot.slice(shoot.indexOf('const openStartingKind = async (kind) => {'), shoot.indexOf('/** The same room, as a room:'))
+  assert.match(startKind, /document\.querySelector\('nav\[aria-label="Workspace actions"\] button\[title="More ways to start"\]'\)/, 'the secondary start trigger belongs to the sidebar')
+  assert.match(startKind, /click\(`\$\{kind\}…`, '\[role="menu"\]'\)/, 'the Goal or Team choice belongs to the opened menu')
   const flow = shoot.slice(shoot.indexOf("flow: { expect: 'Checkout hardening'"), shoot.indexOf("'flow-board': {"))
-  assert.match(flow, /click\('New session', '\[aria-label="Workspace actions"\]'\)/)
+  assert.match(flow, /openStartingKind\('Goal'\)/)
   assert.match(flow, /waitForSnapshot\(\(\) => cdp\.eval\(`document\.body\.innerText\.includes\('Checkout hardening'\)`\), Boolean\)/, 'the Goal must be waited for, not merely slept past')
   const newSessionAgents = shoot.slice(shoot.indexOf("'new-session-agents': {"), shoot.indexOf("'palette-agents': {"))
-  assert.match(newSessionAgents, /click\('New session', '\[aria-label="Workspace actions"\]'\)/)
+  assert.match(newSessionAgents, /openStartingKind\('Team'\)/)
 })
 
 test('the room delivers one distinct prompt to each seat without broadcasting a second turn to every seat', () => {

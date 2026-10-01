@@ -172,6 +172,10 @@ const boxedVariants = cva(
            the tight `px-1.5`/`text-xs` keep the compact look. */
         xs: "h-(--hd-target-min) gap-1 px-1.5 text-xs [&_svg:not([class*='size-'])]:size-3",
         sm: 'h-(--hd-btn-h-sm) gap-1 p-(--hd-btn-padding-sm) text-(length:--hd-btn-text-sm) has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5',
+        /* A labelled destination in the sidebar's three-item rail. The row
+           keeps the 13px navigation type and 24px hit target, with no outer
+           inset so all three names fit together at the rail's narrow width. */
+        'sidebar-nav': 'h-(--hd-btn-h-sm) gap-(--hd-space-0-5) p-0 text-(length:--hd-text-sm)',
         icon: 'size-(--hd-btn-h) p-0',
         /* The floor, not a literal. This was `size-5` — 20px, four under the
            target the system declares and names twice (`--hd-target-min`,

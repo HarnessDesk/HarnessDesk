@@ -35,7 +35,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
       const dashboard = page.getByRole('dialog', { name: 'Dashboard', exact: true })
       // The rail lists the Dashboard's views (#1057); it used to list accounts.
-      const views = dashboard.locator('nav button[class*="winNavItem"]')
+      const views = dashboard.locator('[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"]')
       await expect(views.first()).toBeVisible()
       expect(await views.count()).toBe(5)
       const measurements = await views.evaluateAll(nodes => nodes.map(node => {
@@ -62,10 +62,10 @@ for (const theme of ['light', 'dark'] as const) {
         }
       }
       await views.nth(1).click()
-      await expect(views.nth(1)).toHaveAttribute('data-selected', '')
+      await expect(views.nth(1)).toHaveAttribute('aria-current', 'page')
       await expect.poll(() => views.nth(1).evaluate(node => getComputedStyle(node).backgroundColor))
         .not.toBe('rgba(0, 0, 0, 0)')
-      await expect(views.first()).not.toHaveAttribute('data-selected')
+      await expect(views.first()).not.toHaveAttribute('aria-current', 'page')
     })
 
     test(`permission segments contain unequal labels at ${width}px in ${theme}`, async ({ page }, testInfo) => {
@@ -106,7 +106,7 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 /** What the ink has to reach against what it is drawn on: a glyph's 3, text's 4.5. */
-const floorOf = (part: string) => part.includes('winNavIcon') ? 3 : 4.5
+const floorOf = (part: string) => part.includes('sidebar-menu-icon') ? 3 : 4.5
 
 /**
  * Override fixture data at its module boundary; Usage still renders the real
@@ -215,7 +215,7 @@ async function inkOf(account: Locator, within = 10_000) {
       paint(color)
       const foreground = luminance(context.getImageData(0, 0, 1, 1).data)
       return {
-        part: child.className,
+        part: child.getAttribute('data-slot') ?? child.className,
         text: child.textContent,
         color,
         ratio: (Math.max(background, foreground) + 0.05) / (Math.min(background, foreground) + 0.05),
@@ -327,7 +327,7 @@ for (const [look, theme] of [
     // percent column carries the same rule the card's headline figure did:
     // a plain reading takes no judgement colour, only low and spent are
     // claims (`usageReadingTone`).
-    await dashboard.locator('nav button[class*="winNavItem"]', { hasText: 'Plans' }).click()
+    await dashboard.locator('[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"]', { hasText: 'Plans' }).click()
     const plansTable = dashboard.getByRole('table')
     await expect(plansTable).toBeVisible()
     // The percent column is the table's own reading: a header now names it
@@ -372,9 +372,9 @@ for (const [look, theme] of [
     // Plans carries the "N low" count in the warning tone, which has to read on
     // the selected fill as well as the label does.
     for (const view of ['Overview', 'Plans', 'Spend', 'Activity', 'Projects']) {
-      const row = dashboard.locator('nav button[class*="winNavItem"]', { hasText: view })
+      const row = dashboard.locator('[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"]', { hasText: view })
       await row.click()
-      await expect(row).toHaveAttribute('data-selected', '')
+      await expect(row).toHaveAttribute('aria-current', 'page')
       const measurements = await inkOf(row)
       await testInfo.attach(`selected-${view}`, { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' })
       await row.screenshot({ path: testInfo.outputPath(`selected-${view}.png`) })
@@ -390,20 +390,20 @@ test('selected view row ink waits for a child transition that the row does not c
   await page.goto('/preview.html')
   await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption('light')
   await page.getByRole('combobox', { name: 'interface', exact: true }).selectOption('desk')
-  const parts = '[class*="winNavIcon"], [class*="winNavLabel"]'
+  const parts = '[data-slot="sidebar-menu-icon"] [data-slot="text"], [data-slot="sidebar-menu-label"] [data-slot="text"]'
   // The reduced-motion rule starts no transition for an element that declares
   // none, and a declared delay still starts one. That holds the children where
   // CI found them: each child's colour change is a transition of its own, made
   // with the selection and held at the unselected ink, while the row has none
   // of its own. It is long enough that no stall can end it.
   await page.addStyleTag({ content: `${parts} { transition-delay: 30s !important }` })
-  const account = page.getByRole('dialog', { name: 'Dashboard', exact: true }).locator('nav button[class*="winNavItem"]', { hasText: 'Spend' })
+  const account = page.getByRole('dialog', { name: 'Dashboard', exact: true }).locator('[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"]', { hasText: 'Spend' })
   const inks = () => account.locator(parts).evaluateAll(nodes => nodes.map(node => getComputedStyle(node).color))
   // Nothing moves once this returns, so what follows is the ink the row rests on.
   await inkOf(account)
   const unselected = await inks()
   await account.click()
-  await expect(account).toHaveAttribute('data-selected', '')
+  await expect(account).toHaveAttribute('aria-current', 'page')
 
   // The control: what this spec once waited on, the row's own animations, has
   // nothing in it while every child still holds the unselected ink. A read
@@ -450,5 +450,3 @@ test('no band head covers what it heads, first band or not', async ({ page }) =>
   })
   expect(overlaps).toEqual([])
 })
-
-

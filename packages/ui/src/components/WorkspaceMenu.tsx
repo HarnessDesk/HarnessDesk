@@ -1,11 +1,13 @@
 import { useState } from 'react'
 
 import { projectGroupRootOf, type ProjectGroup } from '../lib/projects'
+import { shortPath } from '../lib/paths'
 import { isDesktop } from '../lib/desktop'
 import { useSnapshot, useStore } from '../state/context'
 import {
   ArchiveIcon,
   BranchIcon,
+  ChevronIcon,
   CopyIcon,
   FolderOpenIcon,
   HistoryIcon,
@@ -26,6 +28,7 @@ import {
   MenuSeparator,
   PopoverGroupLabel,
   SortableAnnouncer,
+  Submenu,
   useMenuClose,
   useSortable,
   type MenuPoint,
@@ -200,7 +203,7 @@ const WorkspaceRows = ({
     <>
       <MenuItem
         icon={<PlusIcon size={14} />}
-        label="New session"
+        label="New session here"
         hint={current ? undefined : 'Switches to this folder first.'}
         disabled={!ready}
         onSelect={() => void store.startSessionIn(actualRoot)}
@@ -214,6 +217,8 @@ const WorkspaceRows = ({
           onSelect={() => onNewWorktree(actualRoot)}
         />
       )}
+      <MenuSeparator />
+
       {!current && (
         <MenuItem
           icon={<FolderOpenIcon size={14} />}
@@ -222,9 +227,6 @@ const WorkspaceRows = ({
           onSelect={() => void store.openWorkspace(openEntry?.path ?? actualRoot)}
         />
       )}
-
-      <MenuSeparator />
-
       {isDesktop() && (
         <MenuItem
           icon={<FolderOpenIcon size={14} />}
@@ -250,7 +252,7 @@ const WorkspaceRows = ({
       <MenuItem
         icon={<CopyIcon size={14} />}
         label="Copy path"
-        hint={actualRoot}
+        hint={shortPath(actualRoot, snapshot.home)}
         onSelect={() => void navigator.clipboard?.writeText(actualRoot)}
       />
       <MenuItem
@@ -267,24 +269,33 @@ const WorkspaceRows = ({
           everything the sort is ordering — so one press does something, and
           the next two are the ordinary step. */}
       <MenuItem
-        icon={<MoveUpIcon size={14} />}
-        label="Move up"
-        keepOpen
-        disabled={place === 0 ? 'Already first.' : false}
-        onSelect={() => move(place === -1 ? order.length : place - 1)}
-      />
-      <MenuItem
-        icon={<MoveDownIcon size={14} />}
-        label="Move down"
-        keepOpen
-        hint={place === order.length - 1 ? 'Back into automatic order.' : undefined}
-        onSelect={() => move(place === -1 ? order.length : place + 1)}
-      />
-      <MenuItem
         icon={pinned ? <UnpinIcon size={14} /> : <PinIcon size={14} />}
-        label={pinned ? 'Unpin' : 'Pin to top'}
+        label={pinned ? 'Unpin' : 'Pin'}
         onSelect={() => store.togglePinned(group.root)}
       />
+      <Submenu icon={<ChevronIcon size={14} />} label="Move">
+        <MenuItem
+          icon={<MoveUpIcon size={14} />}
+          label="Move up"
+          keepOpen
+          disabled={place === 0 ? 'Already first.' : false}
+          onSelect={() => move(place === -1 ? order.length : place - 1)}
+        />
+        <MenuItem
+          icon={<MoveDownIcon size={14} />}
+          label="Move down"
+          keepOpen
+          disabled={place === order.length - 1 ? 'Already last.' : false}
+          onSelect={() => move(place === -1 ? order.length : place + 1)}
+        />
+        <MenuItem
+          icon={<MoveDownIcon size={14} />}
+          label="Back to automatic order"
+          keepOpen
+          disabled={!pinned ? 'Already in automatic order.' : false}
+          onSelect={() => move(-1)}
+        />
+      </Submenu>
 
       <MenuSeparator />
 

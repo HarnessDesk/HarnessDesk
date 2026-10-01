@@ -378,6 +378,7 @@ export const App = () => {
                 onBrowseFolders={chooseFolder}
                 onSignIn={(runtime) => setSignInOpen(runtime ?? true)}
                 onSearch={() => setPaletteOpen(true)}
+                activeDestination={agentsOpen ? 'agents' : usageOpen ? 'dashboard' : settingsOpen === 'plugins' ? 'plugins' : null}
               />
             }
           />

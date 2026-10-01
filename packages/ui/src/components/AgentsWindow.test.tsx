@@ -175,13 +175,16 @@ it('a selected Agent gets its own page, not the overview', () => {
 it('wears a state mark for an Agent that will not parse', () => {
   mount()
   const row = navItem('draft')
-  expect(row.querySelector('[data-state="broken"]')).not.toBeNull()
+  // Shared Sidebar keeps the button and its one trailing badge as siblings.
+  const item = row.closest('[data-slot="sidebar-menu-item"]')
+  expect(item?.querySelector('[data-state="broken"]')).not.toBeNull()
 })
 
 it('wears a state mark for an Agent that cannot be seated here', () => {
   mount()
   const row = navItem('Judge')
-  expect(row.querySelector('[data-state]')).not.toBeNull()
+  const item = row.closest('[data-slot="sidebar-menu-item"]')
+  expect(item?.querySelector('[data-state]')).not.toBeNull()
   // Never the reason inline in the rail — the overview page says why; the rail only marks it.
   expect(row.textContent).not.toContain('signed out')
 })
