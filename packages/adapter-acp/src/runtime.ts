@@ -3205,6 +3205,17 @@ const questionOf = (
   }
 }
 
+/** Reads only the bridge's structured claim; titles and raw tool text never confer provenance. */
+const flowBoardToolOf = (request: AcpPermissionRequest): { readonly server: 'harnessdesk'; readonly tool: string } | null => {
+  const marker = request._meta?.['harnessdesk'] as { flowBoardTool?: unknown } | undefined
+  const value = marker?.flowBoardTool
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+  const shaped = value as { server?: unknown; tool?: unknown }
+  return shaped.server === 'harnessdesk' && typeof shaped.tool === 'string' && shaped.tool.startsWith('mcp__harnessdesk__')
+    ? { server: 'harnessdesk', tool: shaped.tool }
+    : null
+}
+
 const noticeOf = (update: Extract<AcpSessionUpdate, { sessionUpdate: 'user_message_chunk' }>): string | null => {
   const marker = update._meta?.['harnessdesk']
   if (typeof marker !== 'object' || marker === null) return null
@@ -4218,6 +4229,7 @@ class AcpSession implements AgentSession {
         this.#host.emit({ type: 'approval/requested', approval })
       })
     }
+    const flowBoardTool = flowBoardToolOf(request)
     const approval: Approval = {
       id,
       sessionId: this.id,
@@ -4226,6 +4238,7 @@ class AcpSession implements AgentSession {
       requestedAt: Date.now(),
       type: 'permission',
       summary: request.toolCall.title ?? 'The agent asks permission to continue.',
+      ...(flowBoardTool ? { flowBoardTool } : {}),
       // Why the agent is asking, when the agent said. ACP carries that on the
       // request's own tool call, and reading only the title threw it away:
       // DeepSeek Harness sends "escalate sandbox to danger-full-access: the

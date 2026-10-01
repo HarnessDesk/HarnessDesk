@@ -954,7 +954,11 @@ export class FakeSession implements AgentSession {
   }
 
   /** Raises an ACP-style permission request with the tool's title as its subject. */
-  askPermission(id: ApprovalId, summary: string): Promise<ApprovalDecision> {
+  askPermission(
+    id: ApprovalId,
+    summary: string,
+    flowBoardTool?: { readonly server: 'harnessdesk'; readonly tool: string },
+  ): Promise<ApprovalDecision> {
     const approval: Approval = {
       id,
       sessionId: this.id,
@@ -962,6 +966,7 @@ export class FakeSession implements AgentSession {
       requestedAt: Date.now(),
       type: 'permission',
       summary,
+      ...(flowBoardTool ? { flowBoardTool } : {}),
       options: [
         { id: 'allow-once', label: 'Allow once', intent: 'approve' },
         { id: 'allow-always', label: 'Always allow', intent: 'approveAlways' },

@@ -1231,6 +1231,24 @@ test('a permission request becomes an approval; the decision reaches the agent',
   }
 })
 
+test('a bridge-proven desk tool permission keeps its structured provenance on the Approval', async () => {
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'use the desk tool with provenance' }])
+    const requested = await tape.until((event) => event.type === 'approval/requested')
+    const approval = (requested as Extract<AgentEvent, { type: 'approval/requested' }>).approval
+    assert.equal(approval.type, 'permission')
+    assert.deepEqual(approval.flowBoardTool, { server: 'harnessdesk', tool: 'mcp__harnessdesk__claim_next' })
+    await session.respondToApproval(approval.id, { type: 'option', optionId: 'yes' })
+    await tape.until((event) => event.type === 'turn/completed')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('a permission request with null/non-object blocks in content does not throw and becomes an approval', async () => {
   const runtime = make()
   await runtime.start()

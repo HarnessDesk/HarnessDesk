@@ -79,13 +79,19 @@ test('on a run a person started, a Seat’s question has no deadline: it waits f
   assert.equal(now.operations.some((one) => one.key.includes(':answer:')), false, 'no answer is handed over in a turn of its own')
 })
 
-test('a flow Seat answers its own board tool permissions, while other servers and outside writes still reach the person', E2E, async (t) => {
+test('only a proven live flow board tool is answered automatically; spoofed and released requests reach the person', E2E, async (t) => {
   const d = await desk(t)
   const run = await start(d, FLOW, TASK)
   const [card] = await claimed(d, run.goal, 'fixer', 1)
   const runtime = d.runtimes.find((one) => one.info.id === card!.claim!.runtime)!
   const session = runtime.sessions.get(card!.claim!.sessionId)!
-  const board = session.askPermission('flow-board-tool' as never, 'mcp__harnessdesk__claim_next')
+  assert.equal(d.host.flowsPlane.governs(runtime.info.id, session.id), true, 'the open legacy seat governs')
+  const notifications: WireNotification[] = []
+  const unsubscribe = d.host.addBroadcaster((notification) => notifications.push(notification))
+  t.after(unsubscribe)
+  const board = session.askPermission('flow-board-tool' as never, 'Mcp', {
+    server: 'harnessdesk', tool: 'mcp__harnessdesk__claim_next',
+  })
   const boardAnswer = await Promise.race([
     board,
     new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('flow board tool approval did not resolve')), 5_000)),
@@ -93,6 +99,57 @@ test('a flow Seat answers its own board tool permissions, while other servers an
   assert.deepEqual(boardAnswer, { type: 'option', optionId: 'allow-once' })
   assert.equal(d.host.registry.hasApproval(runtime.info.id, session.id, 'flow-board-tool' as never), false,
     'the flow tool permission never waits in the person approval queue')
+  const auditAfterSuccess = await d.host.call('audit/query', {}) as readonly { kind: string; rule?: string }[]
+  assert.equal(auditAfterSuccess.filter((entry) => entry.kind === 'approval/autoDecided' && entry.rule === 'flow board tool').length, 1,
+    'a successful response is audited')
+  assert.equal(notifications.some((notification) =>
+    notification.method === 'event' && notification.params.event.type === 'notice' && notification.params.event.sessionId === session.id,
+  ), false, 'the auto-decision produces no per-call notice')
+
+  const respond = session.respondToApproval.bind(session)
+  session.respondToApproval = async () => { throw new Error('scripted response failure') }
+  const failedResponse = session.askPermission('flow-board-response-failed' as never, 'Mcp', {
+    server: 'harnessdesk', tool: 'mcp__harnessdesk__claim_next',
+  })
+  await whenChanged(d, () => d.host.registry.hasApproval(runtime.info.id, session.id, 'flow-board-response-failed' as never) ? true : null,
+    'a failed bridge response falls back to the person')
+  session.respondToApproval = respond
+  const auditAfterFailure = await d.host.call('audit/query', {}) as readonly { kind: string; rule?: string }[]
+  assert.equal(auditAfterFailure.filter((entry) => entry.kind === 'approval/autoDecided' && entry.rule === 'flow board tool').length, 1,
+    'the failed response records no auto-decision')
+  await d.host.call('approval/respond', {
+    runtime: runtime.info.id, sessionId: session.id, approvalId: 'flow-board-response-failed' as never,
+    decision: { type: 'option', optionId: 'allow-once' },
+  })
+  assert.deepEqual(await failedResponse, { type: 'option', optionId: 'allow-once' })
+
+  const spoofed = session.askPermission('flow-board-title-only' as never, 'mcp__harnessdesk__claim_next')
+  await whenChanged(d, () => d.host.registry.hasApproval(runtime.info.id, session.id, 'flow-board-title-only' as never) ? true : null,
+    'a matching title without bridge provenance reaches the person')
+  await d.host.call('approval/respond', {
+    runtime: runtime.info.id, sessionId: session.id, approvalId: 'flow-board-title-only' as never,
+    decision: { type: 'option', optionId: 'allow-once' },
+  })
+  assert.deepEqual(await spoofed, { type: 'option', optionId: 'allow-once' })
+  const reArm = d.host.flowsPlane.reArm.bind(d.host.flowsPlane)
+  d.host.flowsPlane.reArm = async () => {}
+  t.after(() => { d.host.flowsPlane.reArm = reArm })
+  session.finish()
+
+  const goal = await d.host.call('goal/read', { goal: run.goal }) as GoalView
+  const seat = goal.members.find((one) => one.session.sessionId === session.id)!
+  await d.host.call('goal/release', { goal: run.goal as never, seat: seat.id })
+  assert.equal(d.host.flowsPlane.governs(runtime.info.id, session.id), false, 'the closed legacy seat no longer governs')
+  const released = session.askPermission('flow-board-after-release' as never, 'Mcp', {
+    server: 'harnessdesk', tool: 'mcp__harnessdesk__claim_next',
+  })
+  await whenChanged(d, () => d.host.registry.hasApproval(runtime.info.id, session.id, 'flow-board-after-release' as never) ? true : null,
+    'a released seat no longer governs its board tool request')
+  await d.host.call('approval/respond', {
+    runtime: runtime.info.id, sessionId: session.id, approvalId: 'flow-board-after-release' as never,
+    decision: { type: 'option', optionId: 'allow-once' },
+  })
+  assert.deepEqual(await released, { type: 'option', optionId: 'allow-once' })
 
   for (const [id, summary] of [
     ['flow-other-server', 'mcp__other__claim_next'],

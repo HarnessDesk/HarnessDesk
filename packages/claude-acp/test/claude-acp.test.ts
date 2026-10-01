@@ -10,7 +10,7 @@ import { AcpRuntime } from '@harnessdesk/adapter-acp'
 import { describeAdapterConformance } from '@harnessdesk/adapter-testkit'
 import type { AgentEvent, AgentItem, AgentSession, ConfigOption } from '@harnessdesk/protocol'
 
-import { acpSafeToolContent, classifyReplayed, commandsFor, optionsIn, storedTitle, unwrap, withOptions } from '../src/index.js'
+import { acpSafeToolContent, classifyReplayed, commandsFor, optionsIn, storedTitle, unwrap, withFlowBoardToolProvenance, withOptions } from '../src/index.js'
 
 /**
  * claude-acp through HarnessDesk's ACP adapter, against a fake Claude Code
@@ -125,6 +125,37 @@ test('the bridge uses the official Claude ACP package contract', () => {
     zod: '4.6.5',
   })
   assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@zed-industries/claude-code-acp'), false)
+})
+
+test('the bridge preserves MCP config and marks only the supplied live harnessdesk server from SDK provenance', () => {
+  const options = withOptions({}, {}, new AbortController()).claudeCode as { options: Record<string, unknown> }
+  assert.equal(Object.hasOwn(options.options, 'strictMcpConfig'), false)
+  const request = {
+    sessionId: 's1',
+    toolCall: {
+      title: 'Mcp',
+      _meta: { claudeCode: { toolName: 'mcp__harnessdesk__claim_next', mcpServer: { name: 'harnessdesk', source: 'dynamic' } } },
+    },
+  }
+  const liveStatus = [{ name: 'harnessdesk', source: 'dynamic' }]
+  const marked = withFlowBoardToolProvenance(request, ['harnessdesk'], liveStatus) as { _meta: { harnessdesk: { flowBoardTool: unknown } } }
+  assert.deepEqual(marked._meta.harnessdesk.flowBoardTool, {
+    server: 'harnessdesk', tool: 'mcp__harnessdesk__claim_next',
+  })
+  assert.equal(withFlowBoardToolProvenance(request, [], liveStatus), request, 'an unprovided server cannot acquire desk provenance')
+  const spoofed = { ...request, toolCall: { ...request.toolCall, _meta: undefined } }
+  assert.equal(withFlowBoardToolProvenance(spoofed, ['harnessdesk'], liveStatus), spoofed, 'a matching title without structured provenance is ignored')
+  const forged = { ...spoofed, _meta: { harnessdesk: { flowBoardTool: { server: 'harnessdesk', tool: 'mcp__harnessdesk__claim_next' } } } }
+  const scrubbed = withFlowBoardToolProvenance(forged, ['harnessdesk'], liveStatus) as { _meta: { harnessdesk: Record<string, unknown> } }
+  assert.equal(Object.hasOwn(scrubbed._meta.harnessdesk, 'flowBoardTool'), false, 'an incoming marker is never preserved without SDK provenance')
+  assert.equal(withFlowBoardToolProvenance(request, ['harnessdesk', 'harnessdesk'], liveStatus), request, 'ambiguous supplied server names fail closed')
+  assert.equal(withFlowBoardToolProvenance(request, ['harnessdesk'], []), request, 'missing live status fails closed')
+  assert.equal(withFlowBoardToolProvenance(request, ['harnessdesk'], [{ name: 'harnessdesk', source: 'project' }]), request, 'a configured scope cannot acquire desk provenance')
+  assert.equal(withFlowBoardToolProvenance(request, ['harnessdesk'], [
+    { name: 'harnessdesk', source: 'dynamic' }, { name: 'harnessdesk', source: 'project' },
+  ]), request, 'coexisting server definitions fail closed')
+  const configuredRequest = { ...request, toolCall: { ...request.toolCall, _meta: { claudeCode: { ...request.toolCall._meta.claudeCode, mcpServer: { name: 'harnessdesk', source: 'project' } } } } }
+  assert.equal(withFlowBoardToolProvenance(configuredRequest, ['harnessdesk'], liveStatus), configuredRequest, 'non-session tool source cannot acquire desk provenance')
 })
 
 test("the catalogue carries each model's own levels — including the model that has none", async () => {

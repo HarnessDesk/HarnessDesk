@@ -327,7 +327,6 @@ const FLOW_BOARD_TOOLS = new Set([
   'mcp__harnessdesk__release_claim',
   'mcp__harnessdesk__get_context',
   'mcp__harnessdesk__get_team_status',
-  'mcp__harnessdesk__agent_message',
   'mcp__harnessdesk__review_candidates',
   'mcp__harnessdesk__record_review',
   'mcp__harnessdesk__raise_finding',
@@ -6291,14 +6290,26 @@ export class Host {
    * only its explicitly named tools and only with the one-call approval.
    */
   #answerFlowBoardTool(runtime: RuntimeId, approval: Approval): boolean {
-    if (approval.type !== 'permission' || !FLOW_BOARD_TOOLS.has(approval.summary)) return false
+    if (approval.type !== 'permission' || approval.flowBoardTool?.server !== 'harnessdesk' || !FLOW_BOARD_TOOLS.has(approval.flowBoardTool.tool)) return false
     if (!this.#flows.governs(String(runtime), String(approval.sessionId))) return false
     const option = approval.options.find((entry) => entry.intent === 'approve')
     const record = this.registry.get(runtime, approval.sessionId)
     if (!option || !record?.live) return false
 
     void Promise.resolve()
-      .then(() => record.live!.respondToApproval(approval.id, { type: 'option', optionId: option.id }))
+      .then(async () => {
+        await record.live!.respondToApproval(approval.id, { type: 'option', optionId: option.id })
+        this.#audit.append({
+          at: Date.now(),
+          runtime,
+          sessionId: String(approval.sessionId),
+          ...(record.session.cwd ? { cwd: record.session.cwd } : {}),
+          kind: 'approval/autoDecided',
+          approvalType: approval.type,
+          decision: 'approve',
+          rule: 'flow board tool',
+        })
+      })
       .catch((error: unknown) => {
         this.#logger.warn('failed to answer a flow board tool permission, falling back to human approval', {
           runtime,
@@ -6312,28 +6323,6 @@ export class Host {
         )
         this.#push({ method: 'event', params: { runtime, event: approvalEvent } })
       })
-    this.#audit.append({
-      at: Date.now(),
-      runtime,
-      sessionId: String(approval.sessionId),
-      ...(record.session.cwd ? { cwd: record.session.cwd } : {}),
-      kind: 'approval/autoDecided',
-      approvalType: approval.type,
-      decision: 'approve',
-      rule: 'flow board tool',
-    })
-    this.#push({
-      method: 'event',
-      params: {
-        runtime,
-        event: {
-          type: 'notice',
-          sessionId: approval.sessionId,
-          level: 'info',
-          message: 'Allowed the flow Seat to use its board tool.',
-        },
-      },
-    })
     return true
   }
 
