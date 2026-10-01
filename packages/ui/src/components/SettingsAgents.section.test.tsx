@@ -93,7 +93,7 @@ it('draws each usage window as a row of the card, before Credits', () => {
     }),
   )
   const card = [...container.children].find((node) => node.textContent?.includes('Credits'))
-  const rows = [...(card?.children ?? [])]
+  const rows = [...(card?.querySelector('[data-slot="rows-body"]')?.children ?? [])]
   const meters = rows.filter((row) => row.querySelector('[role="progressbar"]'))
   const credits = rows.find((row) => row.textContent?.includes('Credits'))
   expect(meters.map((row) => row.textContent)).toEqual([expect.stringContaining('5-hour'), expect.stringContaining('Weekly')])

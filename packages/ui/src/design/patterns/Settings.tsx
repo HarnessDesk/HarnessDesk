@@ -594,12 +594,14 @@ export const PageHead = ({
   blurb?: ReactNode
   actions?: ReactNode
 }) => (
-  <div className={styles.pageHead}>
-    <div className={styles.pageHeadText}>
-      <h1 className={styles.pageTitle} data-slot="page-title">{title}</h1>
-      {blurb ? <p className={styles.pageBlurb}>{blurb}</p> : null}
+    <div className={styles.pageHead} data-slot="page-head">
+    <div className={styles.pageHeadContent}>
+      <div className={styles.pageHeadText}>
+        <h1 className={styles.pageTitle} data-slot="page-title">{title}</h1>
+        {blurb ? <p className={styles.pageBlurb}>{blurb}</p> : null}
+      </div>
+      {actions ? <div className={styles.pageCtl}>{actions}</div> : null}
     </div>
-    {actions ? <div className={styles.pageCtl}>{actions}</div> : null}
   </div>
 )
 
@@ -626,20 +628,22 @@ export const SectionHead = ({
   if (useDialogForm()) return <FieldsetLegend name={name} description={description} action={action} className={className} />
   return (
   <div className={cx(styles.sectionHead, className)} data-section-head="" {...(sticky ? { 'data-sticky': '' } : {})}>
-    <div className={styles.sectionHeadText}>
-      {level === 'heading' ? (
-        /* The heading keeps its own slot for everything that finds a section by
-           it; the type is the named role's, inside it, so the one rule that
-           measures names measures this one too. */
-        <h2 className={styles.sectionName} data-slot="section-name" data-level={level}><Text role="section">{name}</Text></h2>
-      ) : (
-        <GroupLabel as={inSection ? 'h3' : 'h2'} className={styles.sectionName} data-slot="section-name" data-level={level}>{name}</GroupLabel>
-      )}
-      {description != null && (
-        <span className={styles.sectionDescription} data-slot="section-description">{description}</span>
-      )}
+    <div className={styles.sectionHeadContent}>
+      <div className={styles.sectionHeadText}>
+        {level === 'heading' ? (
+          /* The heading keeps its own slot for everything that finds a section by
+             it; the type is the named role's, inside it, so the one rule that
+             measures names measures this one too. */
+          <h2 className={styles.sectionName} data-slot="section-name" data-level={level}><Text role="section">{name}</Text></h2>
+        ) : (
+          <GroupLabel as={inSection ? 'h3' : 'h2'} className={styles.sectionName} data-slot="section-name" data-level={level}>{name}</GroupLabel>
+        )}
+        {description != null && (
+          <span className={styles.sectionDescription} data-slot="section-description">{description}</span>
+        )}
+      </div>
+      {action}
     </div>
-    {action}
   </div>
   )
 }
@@ -878,7 +882,9 @@ export const Rows = ({
       {...(inDialog ? { 'data-context': 'dialog' } : {})}
       {...props}
     >
-      <RowsCardContext.Provider value>{children}</RowsCardContext.Provider>
+      <RowsCardContext.Provider value>
+        <div className={styles.rowsBody} data-slot="rows-body">{children}</div>
+      </RowsCardContext.Provider>
     </div>
   )
 }
@@ -1141,19 +1147,21 @@ export const DetailHead = ({
   actions?: ReactNode
 }) => (
   <div className={styles.detailHead}>
-    {mark}
-    <div className={styles.detailText}>
-      <div className={styles.detailName}>
-        <h1 className={styles.detailTitle} data-slot="detail-title">{name}</h1>
-        {/* A text owner — a place, a path — gives way at its end; a chip or any
-            other element is a mark and stays whole, so the name wraps first. */}
-        {owner ? (
-          <span className={styles.detailOwner} data-owner={typeof owner === 'string' ? 'text' : 'mark'}>{owner}</span>
-        ) : null}
+    <div className={styles.detailHeadContent}>
+      {mark}
+      <div className={styles.detailText}>
+        <div className={styles.detailName}>
+          <h1 className={styles.detailTitle} data-slot="detail-title">{name}</h1>
+          {/* A text owner — a place, a path — gives way at its end; a chip or any
+              other element is a mark and stays whole, so the name wraps first. */}
+          {owner ? (
+            <span className={styles.detailOwner} data-owner={typeof owner === 'string' ? 'text' : 'mark'}>{owner}</span>
+          ) : null}
+        </div>
+        {blurb ? <p className={styles.detailBlurb}>{blurb}</p> : null}
       </div>
-      {blurb ? <p className={styles.detailBlurb}>{blurb}</p> : null}
+      {actions ? <div className={styles.detailCtl}>{actions}</div> : null}
     </div>
-    {actions ? <div className={styles.detailCtl}>{actions}</div> : null}
   </div>
 )
 

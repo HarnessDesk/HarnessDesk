@@ -66,7 +66,7 @@ it('sits as a row inside a Rows card, with the row’s own anatomy and a quieter
   expect(row.dataset['variant']).toBe('row')
   // The Row's own classes: same padding and hairline as every other row in the card.
   expect(row.className).toMatch(/row/)
-  expect(row.parentElement?.className).toMatch(/rows/)
+  expect(row.closest('[data-slot="rows"]')?.className).toMatch(/rows/)
   expect(row.querySelector('[data-testid="icon"]')).not.toBeNull()
   expect(row.textContent).toContain('No rules yet')
   expect(row.textContent).toContain('Every request reaches you.')

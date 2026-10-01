@@ -34,6 +34,12 @@
   color: var(--hd-primary-ink);
 }
 
+/* Reword controls carry a 24px target inside the label. Match the mark to
+   that first line's full target box instead of the surrounding 20px line. */
+.item:has(.body [data-slot='button']) .mark {
+  margin-top: calc((var(--hd-target-min) - var(--hd-line-sm)) / 2);
+}
+
 .body {
   flex: 1;
   min-width: 0;
