@@ -19,11 +19,12 @@ import { SHORTCUTS, chordOf, shortcutFor } from './shortcuts'
  * whole shell against a fake host to find it out would be a worse test of it.
  */
 
-const chord = (key: string): { key: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean } => ({
+const chord = (key: string): { key: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean } => ({
   key,
   metaKey: true,
   ctrlKey: false,
   shiftKey: false,
+  altKey: false,
 })
 
 const row = (action: string) => {
@@ -58,17 +59,34 @@ describe('the shortcut table', () => {
     expect(chordOf(row('toggle-sidebar'))).toBe('⌘B')
     expect(chordOf(row('show-changes'))).toBe('⇧⌘D')
   })
+
+  it('matches an Option chord only with Option held, and a plain chord only without it', () => {
+    const base = { metaKey: true, ctrlKey: false, shiftKey: false }
+    expect(shortcutFor({ ...base, key: '1', altKey: true, code: 'Digit1' })?.action).toBe('tile-1')
+    expect(shortcutFor({ ...base, key: '¡', altKey: true, code: 'Digit1' })?.action).toBe('tile-1')
+    expect(shortcutFor({ ...base, key: '1', altKey: false, code: 'Digit1' })).toBeNull()
+    expect(shortcutFor({ ...base, key: 'k', altKey: true, code: 'KeyK' })).toBeNull()
+    expect(shortcutFor({ ...base, key: 'Enter', altKey: true, code: 'Enter' })?.action).toBe('tile-expand')
+  })
+
+  it('leaves AltGr with a digit to type its character, where Windows reports it as Ctrl+Alt', () => {
+    const altGr = { metaKey: false, ctrlKey: true, shiftKey: false, altKey: true, code: 'Digit1' }
+    expect(shortcutFor({ ...altGr, key: '|', getModifierState: (key) => key === 'AltGraph' })).toBeNull()
+    // Ctrl+Alt held as themselves, not as AltGr, is still the chord.
+    expect(shortcutFor({ ...altGr, key: '1', getModifierState: () => false })?.action).toBe('tile-1')
+  })
 })
 
 describe('the handler behind the table', () => {
   it('answers every action the table declares', () => {
-    const unanswered = SHORTCUTS.filter((one) => !appSource.includes(`case '${one.action}':`))
+    const unanswered = SHORTCUTS.filter((one) => !one.action.startsWith('tile-') && !appSource.includes(`case '${one.action}':`))
     expect(
       unanswered.map((one) => one.action),
       'these chords are printed on the shortcuts page and dispatched by nothing',
     ).toEqual([])
     // The table is not empty, so the assertion above had something to check.
     expect(SHORTCUTS.length).toBeGreaterThan(8)
+    expect(appSource).not.toMatch(/case 'tile-(?:1|2|3|4|expand)'/)
   })
 
   it('and the two new ones reach the store verbs they exist for', () => {
@@ -102,6 +120,8 @@ describe('a chord the focused surface already answered', () => {
         metaKey: true,
         ctrlKey: false,
         shiftKey: Boolean(one.shift),
+        altKey: Boolean(one.alt),
+        code: one.code,
         defaultPrevented: true,
       }
       expect(shortcutFor(spent), `${one.action} ran on an event something else had handled`).toBeNull()
@@ -109,7 +129,7 @@ describe('a chord the focused surface already answered', () => {
     // Control: with the flag down every row in the table still matches, so the
     // loop above cannot pass by the table being empty or the matcher broken.
     for (const one of SHORTCUTS) {
-      const fresh = { key: one.key, metaKey: true, ctrlKey: false, shiftKey: Boolean(one.shift) }
+      const fresh = { key: one.key, metaKey: true, ctrlKey: false, shiftKey: Boolean(one.shift), altKey: Boolean(one.alt), code: one.code }
       expect(shortcutFor(fresh)?.action).toBe(one.action)
     }
   })
@@ -119,4 +139,9 @@ describe('a chord the focused surface already answered', () => {
     // field that says somebody else got there first.
     expect(appSource).toMatch(/const shortcut = shortcutFor\(event\)/)
   })
+})
+
+it('writes the expand chord with the return glyph', () => {
+  const expand = SHORTCUTS.find((shortcut) => shortcut.action === 'tile-expand')!
+  expect(chordOf(expand)).toBe('⌥⌘↵')
 })

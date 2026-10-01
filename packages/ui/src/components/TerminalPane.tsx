@@ -183,8 +183,19 @@ const TerminalScreen = ({ view }: { view: TerminalView }) => {
     }
   }, [store, terminalId])
 
+  /* xterm cannot read CSS variables, so its theme is copied out of them. It
+     is copied again whenever the body's theme attributes change, not only on
+     light/dark: a palette or accent switch moves the surface too, and the
+     viewport skin (styles/terminal.css) follows the token at once, so a
+     terminal left on the old values would show a strip off its own rows. */
   useEffect(() => {
-    if (term.current) term.current.options.theme = terminalAppearance().theme
+    const retheme = () => {
+      if (term.current) term.current.options.theme = terminalAppearance().theme
+    }
+    retheme()
+    const watch = new MutationObserver(retheme)
+    watch.observe(document.body, { attributes: true })
+    return () => watch.disconnect()
   }, [theme])
 
   return (

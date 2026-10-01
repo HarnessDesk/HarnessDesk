@@ -1,0 +1,24 @@
+/*
+ * The terminal skin.
+ *
+ * xterm draws its rows itself, from the theme the pane hands it
+ * (`design/adapters/terminal.ts`). Its own stylesheet, though, paints the
+ * viewport behind those rows black, and the rows only ever cover whole rows.
+ * Whatever a dock height leaves under the last one showed that black: a bar
+ * under the prompt, in either theme (#1169). The viewport takes the same
+ * surface the theme reads, so it follows a theme switch with everything else.
+ *
+ * One class more specific than xterm's own `.xterm .xterm-viewport`: that
+ * sheet arrives with the pane's chunk, after this one, and would otherwise win
+ * the tie.
+ */
+.terminal.xterm .xterm-viewport {
+  background-color: var(--hd-surface-fill);
+}
+
+/* The same sheet paints its IME composition view black with white text; it
+   sits over the rows while a person composes, so it takes the rows' colours. */
+.terminal.xterm .composition-view.active {
+  background-color: var(--hd-surface-fill);
+  color: var(--hd-foreground);
+}

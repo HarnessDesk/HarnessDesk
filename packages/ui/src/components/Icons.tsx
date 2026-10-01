@@ -469,6 +469,8 @@ export const DesktopIcon = icon(AppWindow, 'DesktopIcon')
 export const DevToolsIcon = icon(Code, 'DevToolsIcon')
 /** The same thing, in a full window. */
 export const ExpandIcon = icon(Maximize2, 'ExpandIcon')
+/** Return a tile from its expanded view to the grid. */
+export const CollapseIcon = icon(Minimize2, 'CollapseIcon')
 /** Back from the full pane area to the split it came from. */
 export const RestoreIcon = icon(Minimize2, 'RestoreIcon')
 /** Read the repository again; distinct from RetryIcon, which re-runs a thing that failed. */
