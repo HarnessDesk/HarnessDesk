@@ -160,6 +160,17 @@
   overflow: hidden;
 }
 
+/* A right dock takes the whole content row below the narrow-window threshold.
+   Hide the covered main surface as well as making it inert in Workbench: on
+   macOS, a draggable title-bar region can composite above ordinary overlays. */
+.main[data-right-panel-overlay] {
+  visibility: hidden;
+}
+
+.main[data-right-panel-overlay] [data-slot='bar'] {
+  -webkit-app-region: no-drag;
+}
+
 .right {
   display: flex;
   flex: none;

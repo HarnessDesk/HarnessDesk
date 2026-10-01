@@ -156,6 +156,9 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
 
   const [dragging, setDragging] = useState<Dragging>(null)
   const shell = useRef<HTMLDivElement>(null)
+  const main = useRef<HTMLDivElement>(null)
+  const mainFocus = useRef<HTMLElement | null>(null)
+  const wasRightPanelOverlay = useRef(false)
 
   /*
    * Where the sidebar is, and whether it is on screen at all. A narrow window
@@ -171,6 +174,27 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   const showSidebar = placement !== 'away'
   const floating = placement === 'floating'
   const column = placement === 'column'
+  const rightPanelOverlay = narrow && rightPanelDrawn(workbench) && areaVisible(workbench, 'main')
+
+  useLayoutEffect(() => {
+    if (rightPanelOverlay) {
+      wasRightPanelOverlay.current = true
+      return
+    }
+    if (!wasRightPanelOverlay.current) return
+    wasRightPanelOverlay.current = false
+    // Widening the window stops the overlay but leaves the panel open; focus
+    // can stay in its controls. Closing or collapsing removes the panel, so
+    // return focus to the covered conversation target instead.
+    if (rightPanelDrawn(workbench)) return
+    const target = mainFocus.current
+    mainFocus.current = null
+    const composer = main.current?.querySelector<HTMLElement>('textarea:not(:disabled)') ?? null
+    const back = target?.isConnected && !target.hasAttribute('disabled') && !target.closest('[inert]')
+      ? target
+      : composer
+    back?.focus({ preventScroll: true })
+  }, [rightPanelOverlay, workbench])
 
   /*
    * Which area the macOS window buttons are sitting over, named on the shell
@@ -278,13 +302,14 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
             : { 'data-hidden': '' })}
         >
           <div
+            ref={main}
             className={styles.main}
+            data-slot="workbench-main"
             {...(areaVisible(workbench, 'main') ? {} : { 'data-hidden': '' })}
-            /* Covered by a right panel that took a narrow window's width, the
-               conversation is out of reach as well as out of sight, as it is
-               under the floating sidebar: Tab from the panel walked into the
-               composer and the header behind it. */
-            {...(narrow && rightPanelDrawn(workbench) && areaVisible(workbench, 'main') ? { inert: true } : {})}
+            {...(rightPanelOverlay ? { 'data-right-panel-overlay': '', inert: true } : {})}
+            onFocusCapture={(event) => {
+              if (event.target instanceof HTMLElement && event.target !== main.current) mainFocus.current = event.target
+            }}
           >
             <Panes />
             <DropZone area="main" />

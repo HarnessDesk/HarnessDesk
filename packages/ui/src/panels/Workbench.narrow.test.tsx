@@ -31,11 +31,12 @@ vi.mock('../components/Panes', async () => {
   const { Popover: Menu } = await import('../design')
   return {
     Panes: () => (
-      <>
-        <button type="button" data-testid="in-the-conversation">
-          the conversation
-        </button>
-        <Menu label="Branch" title="Branch">
+    <>
+      <button type="button" data-testid="in-the-conversation">
+        the conversation
+      </button>
+      <textarea aria-label="Conversation composer" data-testid="conversation-composer" />
+      <Menu label="Branch" title="Branch">
           {() => <input aria-label="Filter branches" />}
         </Menu>
       </>
@@ -45,7 +46,7 @@ vi.mock('../components/Panes', async () => {
 
 const changes = views.get('changes')
 if (!changes) throw new Error('changes is not registered')
-views.register({ ...changes, component: () => <div data-testid="view-changes">changes</div> })
+views.register({ ...changes, component: () => <button type="button" data-testid="view-changes">changes</button> })
 // The registry is the module's, so the real definition goes back when this file is done.
 afterAll(() => views.register(changes))
 
@@ -364,13 +365,45 @@ it('a panel on the right that covers the conversation puts it out of reach, and 
   render(wide.store)
   // The control: beside the conversation, nothing is covered.
   expect(conversation()?.closest('[inert]')).toBeNull()
+  expect(conversation()?.closest('[data-right-panel-overlay]')).toBeNull()
 
   const narrow = rig({ narrowWindow: true }, docked)
   render(narrow.store)
   expect(conversation()?.closest('[inert]')).not.toBeNull()
+  expect(conversation()?.closest('[data-right-panel-overlay]')).not.toBeNull()
 
   narrow.patch({ workbench: { ...docked, right: { ...docked.right, collapsed: true } } })
   expect(conversation()?.closest('[inert]')).toBeNull()
+  expect(conversation()?.closest('[data-right-panel-overlay]')).toBeNull()
+})
+
+it('returns focus to the conversation target, or its composer when that target is gone', () => {
+  const docked = dock(emptyWorkbench(), 'right', { kind: 'changes' })
+  const { store, patch } = rig({}, docked)
+  render(store)
+  const opener = container.querySelector<HTMLButtonElement>('[data-testid="in-the-conversation"]')
+  const composer = container.querySelector<HTMLTextAreaElement>('[data-testid="conversation-composer"]')
+  const view = container.querySelector<HTMLButtonElement>('[data-testid="view-changes"]')
+  expect(opener).not.toBeNull()
+  expect(composer).not.toBeNull()
+  expect(view).not.toBeNull()
+
+  opener!.focus()
+  patch({ narrowWindow: true })
+  expect(opener?.closest('[inert]')).not.toBeNull()
+  view!.focus()
+  patch({ workbench: { ...docked, right: { ...docked.right, collapsed: true } } })
+  expect(document.activeElement).toBe(opener)
+
+  // A stale opener must not strand focus when its node was removed/disabled.
+  patch({ workbench: docked })
+  opener!.disabled = false
+  opener!.focus()
+  patch({ narrowWindow: true })
+  opener!.disabled = true
+  view!.focus()
+  patch({ workbench: { ...docked, right: { ...docked.right, collapsed: true } } })
+  expect(document.activeElement).toBe(composer)
 })
 
 it('a panel on the right takes the conversation’s width in a narrow window, and has no seam', () => {
