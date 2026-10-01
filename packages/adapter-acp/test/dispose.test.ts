@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { createServer } from 'node:net'
+import { createServer, type AddressInfo, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
@@ -30,11 +30,10 @@ import { AcpRuntime, type AcpExecutableSpec, type ResolvedExecutable } from '../
  * and the test drives it rather than waiting on it: the CLI lookup is a
  * promise the test resolves by hand, so "the quit landed inside the gap" is
  * arranged, not hoped for. What is asked afterwards is settled before it is
- * asked — every generation writes down the workspace it holds *before* it will
- * answer the handshake, and every handshake here is awaited, so by the time
- * the refresh has returned either two bridges were born or one was. Then the
- * kernel is asked the last question: the port that one generation holds for
- * life can only be bound again once it is really gone.
+ * asked — every generation checks in *before* it will answer the handshake,
+ * and every handshake here is awaited, so by the time the refresh has returned
+ * either two bridges checked in or one did. Then the lifeline says whether the
+ * generation was reaped: its connection closes when the process goes away.
  */
 
 /** A stand-in bridge, and the file every generation of it writes to. */
@@ -44,16 +43,63 @@ interface Desk {
 }
 
 /**
+ * This is the transport-acp test lifeline pattern (`transport-acp/test/lifeline.ts`):
+ * keep one loopback connection per stand-in and treat its close as process exit.
+ * The fixture stays local because transport-acp exports no test surface and
+ * importing its source would cross this package's TypeScript root boundary.
+ */
+interface Checkin {
+  alive(): boolean
+  readonly gone: Promise<void>
+}
+
+interface Lifeline {
+  readonly port: number
+  checkin(): Promise<Checkin>
+}
+
+const lifeline = async (t: TestContext): Promise<Lifeline> => {
+  const arrived: Checkin[] = []
+  const waiting: Array<(checkin: Checkin) => void> = []
+  const sockets = new Set<Socket>()
+  const server = createServer((socket) => {
+    sockets.add(socket)
+    socket.on('error', () => {})
+    let holding = true
+    const checkin: Checkin = {
+      alive: () => holding,
+      gone: new Promise<void>((resolve) => {
+        socket.on('close', () => {
+          holding = false
+          sockets.delete(socket)
+          resolve()
+        })
+      }),
+    }
+    const next = waiting.shift()
+    if (next) next(checkin)
+    else arrived.push(checkin)
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(async () => {
+    for (const socket of sockets) socket.destroy()
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  })
+  return {
+    port: (server.address() as AddressInfo).port,
+    checkin: async () => arrived.shift() ?? new Promise<Checkin>((resolve) => waiting.push(resolve)),
+  }
+}
+
+/**
  * The smallest thing that is both a real process family and a real ACP agent.
  *
- * The order inside is the point. It claims a port — held for as long as the
- * process lives, which is what makes "has this generation gone?" a question
- * the kernel answers — writes that claim down, and only then starts reading
- * stdin. So a generation that answered `initialize` has certainly recorded
- * itself, and an awaited handshake is an awaited claim; nothing below has to
- * guess how long a stand-in takes to boot Node.
+ * The order inside is the point. It checks in on the lifeline, writes that
+ * check-in down, and only then starts reading stdin. So a generation that
+ * answered `initialize` has certainly checked in; nothing below has to guess
+ * how long a stand-in takes to boot Node.
  */
-const desk = async (t: TestContext): Promise<Desk> => {
+const desk = async (t: TestContext, line: Lifeline): Promise<Desk> => {
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-dispose-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
   const claims = join(dir, 'generations')
@@ -63,12 +109,11 @@ const desk = async (t: TestContext): Promise<Desk> => {
     bridge,
     `
     import { appendFileSync } from 'node:fs'
-    import { createServer } from 'node:net'
     import { createInterface } from 'node:readline'
+    import { connect } from 'node:net'
 
-    const workspace = createServer()
-    workspace.listen(0, '127.0.0.1', () => {
-      appendFileSync(${JSON.stringify(claims)}, workspace.address().port + '\\n')
+    connect(${line.port}, '127.0.0.1', () => {
+      appendFileSync(${JSON.stringify(claims)}, 'checked in\\n')
       createInterface({ input: process.stdin }).on('line', (line) => {
         const message = JSON.parse(line)
         if (message.method !== 'initialize') return
@@ -82,30 +127,12 @@ const desk = async (t: TestContext): Promise<Desk> => {
   return { bridge, claims }
 }
 
-/** Every generation that has ever run, in the order they came up. */
+/** Every generation that has ever checked in, in the order they came up. */
 const generations = async (desks: Desk): Promise<number[]> =>
   (await readFile(desks.claims, 'utf8'))
     .split('\n')
     .filter((line) => line.length > 0)
-    .map((line) => Number.parseInt(line, 10))
-
-/**
- * Take the workspace back — the assertion the kernel decides.
- *
- * A port cannot be bound while another process is listening on it, so this
- * fails if and only if that generation is still running. Nothing is timed and
- * nothing is retried: the answer was already true before the question.
- */
-const claimWorkspace = async (t: TestContext, port: number): Promise<void> => {
-  const server = createServer()
-  t.after(() => new Promise<void>((resolve) => server.close(() => resolve())))
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', (error: NodeJS.ErrnoException) =>
-      reject(new Error(`the workspace on :${port} was still held (${error.code})`)),
-    )
-    server.listen(port, '127.0.0.1', () => resolve())
-  })
-}
+    .map((_, index) => index + 1)
 
 /**
  * A runtime whose CLI lookup the test owns.
@@ -167,9 +194,12 @@ const runtimeWithAParkedLookup = (
 test('a refresh parked mid-restart when the app quits spawns no bridge behind the quit', async (t) => {
   if (process.platform === 'win32') return
 
-  const desks = await desk(t)
+  const line = await lifeline(t)
+  const desks = await desk(t, line)
   const { runtime, park, release } = runtimeWithAParkedLookup(t, desks)
   await runtime.start()
+  const first = await line.checkin()
+  assert.ok(first.alive(), 'the first bridge is holding its lifeline')
   assert.deepEqual((await generations(desks)).length, 1, 'one bridge to begin with')
 
   const arrived = park()
@@ -177,6 +207,9 @@ test('a refresh parked mid-restart when the app quits spawns no bridge behind th
      gone before the gap below opens — and starts it again. */
   const refresh = runtime.refreshCatalog()
   await arrived
+  // The refresh reached its new-start lookup only after stop finished. Wait
+  // for the asynchronous close event rather than sampling alive() at once.
+  await first.gone
 
   // The quit, landing in the gap. Nothing is in flight for it to wait on:
   // the connection has no child and no reap, so this returns at once.
@@ -192,12 +225,7 @@ test('a refresh parked mid-restart when the app quits spawns no bridge behind th
   )
 
   const born = await generations(desks)
-  assert.deepEqual(
-    born.length,
-    1,
-    `a second bridge was spawned into the quit, and nothing will reap it (workspaces: ${born.join(', ')})`,
-  )
-  await claimWorkspace(t, born[0]!)
+  assert.deepEqual(born.length, 1, 'no second bridge checked in after the quit')
   assert.match(outcome, /has been shut down/, 'and the refusal is reported, not passed off as a restart')
 
   /* And it left the same kind of state behind as its sibling. `start()` set
@@ -222,14 +250,19 @@ test('a refresh parked mid-restart when the app quits spawns no bridge behind th
 test('a secret reload parked mid-restart when the app quits spawns no bridge either', async (t) => {
   if (process.platform === 'win32') return
 
-  const desks = await desk(t)
+  const line = await lifeline(t)
+  const desks = await desk(t, line)
   const { runtime, park, release } = runtimeWithAParkedLookup(t, desks)
   await runtime.start()
+  const first = await line.checkin()
+  assert.ok(first.alive(), 'the first bridge is holding its lifeline')
   assert.deepEqual((await generations(desks)).length, 1, 'one bridge to begin with')
 
   const arrived = park()
   const reloading = runtime.reloadSecrets()
   await arrived
+  // reloadSecrets reached its new-start lookup only after stop finished.
+  await first.gone
 
   await runtime.dispose()
   release()
@@ -240,25 +273,26 @@ test('a secret reload parked mid-restart when the app quits spawns no bridge eit
   )
 
   const born = await generations(desks)
-  assert.deepEqual(
-    born.length,
-    1,
-    `a second bridge was spawned into the quit, and nothing will reap it (workspaces: ${born.join(', ')})`,
-  )
-  await claimWorkspace(t, born[0]!)
+  assert.deepEqual(born.length, 1, 'no second bridge checked in after the quit')
   assert.match(outcome, /has been shut down/, 'and the refusal is reported, not passed off as a reload')
 })
 
 test('a runtime the host has finished with will not start again', async (t) => {
   if (process.platform === 'win32') return
 
-  const desks = await desk(t)
+  const line = await lifeline(t)
+  const desks = await desk(t, line)
   const { runtime, lookups } = runtimeWithAParkedLookup(t, desks)
   await runtime.start()
+  const first = await line.checkin()
+  assert.ok(first.alive(), 'the bridge is holding its lifeline')
   const born = await generations(desks)
   assert.deepEqual(born.length, 1)
 
   await runtime.dispose()
+  // Socket close is asynchronous; waiting for it avoids treating delivery
+  // latency as a live generation while still failing if the process survives.
+  await first.gone
   await assert.rejects(runtime.start(), /has been shut down/)
 
   assert.deepEqual(await generations(desks), born, 'no bridge was spawned to find that out')
@@ -270,6 +304,4 @@ test('a runtime the host has finished with will not start again', async (t) => {
   // does it by way of `t.after`; this is the one that says so.
   await runtime.dispose()
   assert.deepEqual(await generations(desks), born, 'and disposing again changes nothing')
-
-  await claimWorkspace(t, born[0]!)
 })
