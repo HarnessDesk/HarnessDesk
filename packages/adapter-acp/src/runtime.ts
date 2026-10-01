@@ -314,6 +314,13 @@ export interface AcpAgentConfig {
     readonly onOpen?: (token: string) => void
   }
   /**
+   * True only when `command` is a bridge HarnessDesk ships. Then, and only
+   * then, a permission request's `_meta.harnessdesk.flowBoardTool` is the
+   * bridge's own proof of which MCP server asked; from any other peer it is
+   * the agent's say-so and is ignored.
+   */
+  readonly trustsBridgeProvenance?: boolean
+  /**
    * The desk's standing instruction for the agent, read when a session is
    * opened and put in `session/new`'s and `session/load`'s `_meta` under
    * `harnessdesk.instructions`. A bridge that declared the capability in its
@@ -2637,6 +2644,11 @@ export class AcpRuntime implements AgentRuntime {
     return this.#connection
   }
 
+  /** Whether this peer is a bridge HarnessDesk ships; see `AcpAgentConfig.trustsBridgeProvenance`. */
+  get trustsBridgeProvenance(): boolean {
+    return this.#config.trustsBridgeProvenance === true
+  }
+
   get agentName(): string {
     return this.#config.name
   }
@@ -4229,7 +4241,7 @@ class AcpSession implements AgentSession {
         this.#host.emit({ type: 'approval/requested', approval })
       })
     }
-    const flowBoardTool = flowBoardToolOf(request)
+    const flowBoardTool = this.#host.trustsBridgeProvenance ? flowBoardToolOf(request) : null
     const approval: Approval = {
       id,
       sessionId: this.id,

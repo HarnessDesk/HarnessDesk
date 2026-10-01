@@ -239,6 +239,18 @@ const bridgeEntryOf = (template: AgentTemplate): string | null => {
   return existsSync(entry) ? entry : null
 }
 
+/**
+ * Whether this command line launches a bridge HarnessDesk itself ships, so a
+ * claim in its structured `_meta` (a request's tool provenance) is the
+ * desk's own code speaking, not the agent's.
+ */
+export const isShippedBridge = (command: string, args: readonly string[] | undefined): boolean =>
+  command === process.execPath &&
+  TEMPLATES.some((template) => {
+    const entry = bridgeEntryOf(template)
+    return entry !== null && args?.[0] === entry
+  })
+
 /** The full config a stored template entry stands for. Null when this build cannot serve it. */
 const expandTemplate = (
   template: AgentTemplate,

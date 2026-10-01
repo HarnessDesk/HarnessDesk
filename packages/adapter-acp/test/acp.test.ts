@@ -1231,8 +1231,31 @@ test('a permission request becomes an approval; the decision reaches the agent',
   }
 })
 
-test('a bridge-proven desk tool permission keeps its structured provenance on the Approval', async () => {
+const askForDeskTool = async (runtime: AcpRuntime) => {
+  await runtime.start()
+  const tape = record(runtime)
+  const session = await runtime.createSession({ cwd: '/tmp/w' })
+  await session.send([{ type: 'text', text: 'use the desk tool with provenance' }])
+  const requested = await tape.until((event) => event.type === 'approval/requested')
+  const approval = (requested as Extract<AgentEvent, { type: 'approval/requested' }>).approval
+  await session.respondToApproval(approval.id, { type: 'option', optionId: 'yes' })
+  await tape.until((event) => event.type === 'turn/completed')
+  return approval
+}
+
+test('a desk tool marker from a peer that is not a shipped bridge is the agent\'s say-so, and is dropped', async () => {
   const runtime = make()
+  try {
+    const approval = await askForDeskTool(runtime)
+    assert.equal(approval.type, 'permission')
+    assert.equal(approval.flowBoardTool, undefined)
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a bridge-proven desk tool permission keeps its structured provenance on the Approval', async () => {
+  const runtime = new AcpRuntime({ id: 'fake-acp', name: 'Fake ACP Agent', command: process.execPath, args: [FAKE], trustsBridgeProvenance: true })
   await runtime.start()
   const tape = record(runtime)
   try {

@@ -21,7 +21,7 @@ import { applyLoginShellPath } from './installs/shell-path.js'
 import { knowledgeOverlay } from './installs/overlay.js'
 import type { KnownAgent } from './installs/known-agents.js'
 import { commandName, InstallService } from './installs/service.js'
-import { AgentDirectory, AgentRegistryStore, packagedPath, templateBrandFor } from './agent-registry.js'
+import { AgentDirectory, AgentRegistryStore, isShippedBridge, packagedPath, templateBrandFor } from './agent-registry.js'
 import { CredentialBroker } from './credentials.js'
 import { Host, type AccountFactory, type HostOptions } from './host.js'
 import { ClaudeFileMeter } from './usage/claude-file.js'
@@ -473,6 +473,7 @@ export const createDefaultHost = (
       // template's is what they would say today. See `templateBrandFor`.
       ...(agent.brand ? {} : templateBrandFor(agent.id) ? { brand: templateBrandFor(agent.id) } : {}),
       ...(executable ? { executable } : {}),
+      trustsBridgeProvenance: isShippedBridge(agent.command, agent.args),
       env: agentEnvironment(socketPath, agent.env, agent.id),
       ...(toolServer
         ? { toolServer: { ...toolServer, onOpen: claimOpen(agent.id), onSession: claimCaller(agent.id) } }
