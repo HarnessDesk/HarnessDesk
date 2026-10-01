@@ -172,6 +172,12 @@ jobs:
       - name: Interface drift
         run: node script/check-interface-drift.mjs
 
+      - name: Alignment census
+        run: node script/check-alignment-census.mjs
+        env:
+          # A push to main answers for the whole pushed range, not its last commit.
+          ALIGNMENT_CENSUS_SINCE: ${{ github.event_name == 'push' && github.event.before || '' }}
+
       - name: Design doc
         run: node script/design-doc.mjs --check
 

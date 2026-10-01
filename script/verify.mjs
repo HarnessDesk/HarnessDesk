@@ -163,6 +163,9 @@ step('design tokens', () => run('node', ['script/check-design-tokens.mjs']))
 step('design drift', () => run('node', ['script/design-audit.mjs', '--strict']))
 step('UI system', () => run('node', ['script/check-ui-system.mjs']))
 step('interface drift', () => run('node', ['script/check-interface-drift.mjs']))
+// The census spec reads its own table, so a re-record that rises passes it;
+// this holds the table to the one the branch started from.
+step('alignment census', () => run('node', ['script/check-alignment-census.mjs']))
 step('design doc', () => run('node', ['script/design-doc.mjs', '--check']))
 
 step('recorded claims', () => run('node', ['script/check-claims.mjs']))
