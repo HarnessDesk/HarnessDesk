@@ -25,6 +25,8 @@
  * is what keeps this file below the layering rule.
  */
 
+import { splitContext } from './context-envelope.js'
+
 /** One peeled wrapper: what it is, and what it held. */
 export interface UserContext {
   /**
@@ -34,7 +36,7 @@ export interface UserContext {
    * the UI.
    */
   readonly label: string
-  /** The block, verbatim, wrapper and all. */
+  /** The block's contents, verbatim, with its wrapper removed. */
   readonly text: string
 }
 
@@ -169,6 +171,19 @@ export const peelContext = (text: string, options: PeelOptions, evidence: NoteEv
   // person types.
   let composed = false
   let rest = text
+
+  // This envelope belongs to the desk, not to whichever runtime reads it.
+  // It is written by HarnessDesk before every runtime receives the prompt, so
+  // peel and name it here even when an adapter has no client-specific tags.
+  rest = rest.replace(blockPattern('context'), (block) => {
+    composed = true
+    const shared = splitContext(block).injections
+    if (shared.length > 0) context.push(...shared)
+    else if (contentsOf(block, 'context').length > 0) {
+      context.push({ label: 'Context', text: contentsOf(block, 'context') })
+    }
+    return ''
+  })
 
   for (const [tag, label] of Object.entries(options.tags)) {
     rest = rest.replace(blockPattern(tag), (block) => {

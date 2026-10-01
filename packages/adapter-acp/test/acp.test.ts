@@ -78,6 +78,27 @@ test('a prompt streams chunks, a plan, and completes', async () => {
   }
 })
 
+test('a live ACP user message peels the shared desk envelope around its typed sentence', async () => {
+  const runtime = make()
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{
+      type: 'text',
+      text: '<context source="Git">\nOn branch main\n</context>\n\nFix the stale branch filter.',
+    }])
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
+    const user = turn.items.find((item) => item.type === 'userMessage')
+    assert.ok(user && user.type === 'userMessage')
+    assert.deepEqual(user.content, [{ type: 'text', text: 'Fix the stale branch filter.' }])
+    assert.deepEqual(user.context, [{ label: 'Git', text: 'On branch main' }])
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('a prompt response with omitted stopReason completes cleanly without dropping the turn (#408)', async () => {
   const runtime = make()
   await runtime.start()
@@ -1352,6 +1373,7 @@ test('an agent dying mid-turn fails the turn cleanly — never hangs', async () 
     const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
     assert.equal(turn.status, 'failed')
     assert.ok(turn.error, 'the turn carries why')
+    assert.equal(typeof turn.durationMs, 'number', 'a failed live turn still carries its wall time')
     assert.equal(runtime.health().state, 'unavailable')
   } finally {
     await runtime.dispose()
@@ -1417,10 +1439,11 @@ test('a stored conversation survives the agent and this process', async (t) => {
     assert.equal(read.turns.length, 1, 'one prompt is one turn, however many blocks it had')
     const user = read.turns[0]!.items.find((item) => item.type === 'userMessage')
     assert.ok(user, 'the replayed turn carries the original user message')
-    assert.equal(user.type === 'userMessage' ? user.content.length : 0, 3, 'all blocks, one message')
+    assert.equal(user.type === 'userMessage' ? user.content.length : 0, 2, 'the envelope is removed; image and typed ask remain')
+    assert.deepEqual(user.type === 'userMessage' ? user.context : [], [{ label: 'x', text: 'ctx' }])
     // The image comes back as the bytes that were sent, renderable again —
     // the name was never the agent's to keep.
-    assert.deepEqual(user.type === 'userMessage' ? user.content[1] : null, {
+    assert.deepEqual(user.type === 'userMessage' ? user.content.find((part) => part.type === 'image') : null, {
       type: 'image',
       url: 'data:image/png;base64,AAAA',
     })
@@ -1461,6 +1484,7 @@ test("a client's own wrapper comes back folded beside the words, not inside them
     await session.send([
       { type: 'text', text: `${annotation}\n\ntoo big …` },
       { type: 'image', url: 'data:image/png;base64,AAAA', name: 'shot.png' },
+      { type: 'text', text: '<context source="Git">\nOn branch main\n</context>\n\nFix the stale branch filter.' },
     ])
     await tape.until((event) => event.type === 'turn/completed')
   } finally {
@@ -1478,13 +1502,15 @@ test("a client's own wrapper comes back folded beside the words, not inside them
     assert.ok(user, 'the replayed turn carries the user message')
     const content = user.type === 'userMessage' ? user.content : []
     const context = user.type === 'userMessage' ? user.context ?? [] : []
-    // The bubble is the two words the person typed about their drawing; the
-    // picture is still beside them, and the note is a row of its own.
+  // The bubble is what the person typed; the picture is still beside it, and
+  // both the client's annotation and the desk's Git envelope are rows of their own.
     assert.deepEqual(content[0], { type: 'text', text: 'too big …' })
-    assert.equal(content.length, 2, 'the text and the image, the envelope gone from both')
-    assert.equal(context.length, 1)
+    assert.deepEqual(content[2], { type: 'text', text: 'Fix the stale branch filter.' })
+    assert.equal(content.length, 3, 'both typed sentences and the image remain')
+    assert.equal(context.length, 2)
     assert.equal(context[0]?.label, 'Annotated screenshot')
     assert.match(context[0]?.text ?? '', /freehand annotations/, 'folded whole, not summarised away')
+    assert.deepEqual(context[1], { label: 'Git', text: 'On branch main' })
   } finally {
     await second.dispose()
   }

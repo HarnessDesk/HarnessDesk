@@ -21,6 +21,19 @@
   white-space: nowrap;
 }
 
+/* Prose is a sentence: it wraps to three design-system lines while names,
+   commands and paths above keep their compact one-line treatment. */
+.messageLabel {
+  flex: 1;
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  text-overflow: clip;
+}
+
 /* Role tag, so a glance says who produced each entry. Right-aligned in a
    column of its own, so the marks beside it line up down the turn. */
 .role {

@@ -663,8 +663,8 @@ test('a replayed user message is speech, housekeeping, or nothing', () => {
     { kind: 'prompt', text: 'and what does the score read?' },
     'a reminder around speech leaves the speech',
   )
-  // HarnessDesk's own envelope is not Claude Code's plumbing: the client
-  // renders it as the "Context added" row, so it has to survive the sieve.
+  // This classifier leaves HarnessDesk's envelope alone; the shared ACP
+  // adapter peels it after replay, so both parts reach the transcript.
   const withContext = classifyReplayed('<context source="notes">the score is 3</context>\nis that right?')
   assert.equal(withContext?.kind, 'prompt')
   assert.match(withContext?.text ?? '', /<context source="notes">/)
@@ -822,10 +822,14 @@ test('a reopened conversation replays what was said, not the plumbing around it'
         ['notice: Interrupted'],
         ['notice: Claude Code added: Approach this as the design lead at a small studio.'],
         ['notice: Continued from a previous conversation'],
-        ['userMessage: <context source="notes">the score is 3</context>\nis that right?'],
+        ['userMessage: is that right?'],
       ],
       'the caveat, the command echo and the image note are gone; the injected template is attributed, not speech',
     )
+    const lastUser = turns.at(-1)?.items.find((item) => item.type === 'userMessage')
+    assert.deepEqual(lastUser?.type === 'userMessage' ? lastUser.context : [], [
+      { label: 'notes', text: 'the score is 3' },
+    ])
   } finally {
     await runtime.dispose()
   }

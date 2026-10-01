@@ -64,6 +64,7 @@ import {
   SessionGoneError,
   openingOf,
   laneEnvironmentOf,
+  wrapContext,
 } from '@harnessdesk/protocol'
 import {
   AcpConnection,
@@ -3560,7 +3561,16 @@ class AcpSession implements AgentSession {
     const userItem: AgentItem =
       opts?.recordAs === 'notice'
         ? { id: itemId(`${id}-user`), type: 'notice', text: plainTextOf(input), startedAt: Date.now() }
-        : { id: itemId(`${id}-user`), type: 'userMessage', content: input, startedAt: Date.now() }
+        : (() => {
+            const { content, context } = peelUserContent(input, ACP_ENVELOPE)
+            return {
+              id: itemId(`${id}-user`),
+              type: 'userMessage',
+              content,
+              ...(context.length > 0 ? { context } : {}),
+              startedAt: Date.now(),
+            }
+          })()
     const turn: MutableTurn = { id, items: [userItem], startedAt: Date.now() }
     this.#currentTurn = turn
     this.#host.emit({
@@ -3691,7 +3701,10 @@ class AcpSession implements AgentSession {
       preview:
         preview?.type === 'userMessage'
           ? // Named from the whole message, before the cut: a block cut short has no label to read (#186).
-            openingOf(preview.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n')).slice(0, 120) || null
+            openingOf([
+              ...(preview.context ?? []).map((block) => wrapContext(block.label, block.text)),
+              preview.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n'),
+            ].join('\n')).slice(0, 120) || null
           : // Loaded, not replayed: the agent's own record of how this
             // conversation opened stands in for turns this process never saw.
             this.#host.previewOf(this.id),
@@ -4298,6 +4311,7 @@ class AcpSession implements AgentSession {
 
   #finishTurn(turn: MutableTurn, stopReason?: AcpStopReason | string | null): void {
     if (this.#currentTurn?.id !== turn.id) return
+    const completedAt = Date.now()
     const reason = typeof stopReason === 'string' ? stopReason : stopReason == null ? 'end_turn' : String(stopReason)
     const status =
       reason === 'cancelled' ? 'interrupted' : reason === 'end_turn' ? 'completed' : 'failed'
@@ -4309,12 +4323,12 @@ class AcpSession implements AgentSession {
         ? { error: { message: `The agent stopped: ${reason.replace(/_/g, ' ')}.` } }
         : {}),
       startedAt: turn.startedAt,
-      completedAt: Date.now(),
+      completedAt,
       // Never actually null here -- `#finishTurn` only ever closes a live
       // turn (`send`'s own `Date.now()`), replay never reaches it -- but the
       // type is shared with a replayed turn's, so the arithmetic still has
       // to allow for it.
-      durationMs: turn.startedAt === null ? null : Date.now() - turn.startedAt,
+      durationMs: turn.startedAt === null ? null : completedAt - turn.startedAt,
     }
     this.#currentTurn = null
     this.#turns.push(finished)
@@ -4324,6 +4338,7 @@ class AcpSession implements AgentSession {
 
   #failTurn(turn: MutableTurn, message: string): void {
     if (this.#currentTurn?.id !== turn.id) return
+    const completedAt = Date.now()
     this.#currentTurn = null
     const finished: Turn = {
       id: turn.id,
@@ -4331,7 +4346,8 @@ class AcpSession implements AgentSession {
       status: 'failed',
       error: { message },
       startedAt: turn.startedAt,
-      completedAt: Date.now(),
+      completedAt,
+      durationMs: turn.startedAt === null ? null : completedAt - turn.startedAt,
     }
     this.#turns.push(finished)
     this.#host.emit({ type: 'turn/completed', sessionId: this.id, turn: finished })

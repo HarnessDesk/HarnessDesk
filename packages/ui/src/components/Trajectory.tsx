@@ -4,6 +4,7 @@ import type { AgentItem, Turn } from '@harnessdesk/protocol'
 
 import { ChartKey, ChartKeys, CodeText, ProgressStack, publicationVerb, SeriesDot, Separator, Text, type Tint, type Tone } from '../design'
 import { toolWords } from '../lib/tool-names'
+import { splitContext } from '../lib/context-envelope'
 import { useActiveSession } from '../state/context'
 import type { ReportFoot } from './Details'
 import { GroupLine, PanelEmpty, PanelRow, RowTime } from './Panel'
@@ -68,12 +69,18 @@ const KIND_LABEL: Record<string, string> = {
 }
 
 /*
- * A message as one line of the ledger. Not cut to a character count: the row
- * ellipsises at whatever width the panel has, and a label cut at 80 characters
- * ended mid-word with no ellipsis at all ("… Can you f"). The cap only keeps a
- * pasted log from becoming a megabyte of DOM.
+ * A compact label for names and paths. User and assistant prose keep their
+ * sentence layout and use the full text as their tooltip.
  */
 const oneLine = (text: string): string => text.slice(0, 400).replace(/\s+/g, ' ').trim()
+
+const reasoningSummary = (item: Extract<AgentItem, { type: 'reasoning' }>): string | undefined =>
+  item.summary.find((summary) => summary.trim().length > 0) ??
+  item.content
+    .join('\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.length > 0)
 
 const labelOf = (item: AgentItem): string => {
   switch (item.type) {
@@ -89,9 +96,9 @@ const labelOf = (item: AgentItem): string => {
         ? (item.changes[0]?.path.split('/').pop() ?? 'file')
         : `${item.changes.length} files`
     case 'assistantMessage':
-      return oneLine(item.text) || 'Response'
+      return item.text.trim() || 'Response'
     case 'reasoning':
-      return item.summary[0] ?? 'Thinking'
+      return reasoningSummary(item) ?? 'Thinking'
     case 'webSearch':
       return item.query
     case 'notice':
@@ -107,7 +114,7 @@ const labelOf = (item: AgentItem): string => {
       return `${publicationVerb(reference)} #${reference.number}${title}`
     }
     case 'userMessage':
-      return oneLine(item.content.find((part) => part.type === 'text')?.text ?? '') || 'Message'
+      return splitContext(item.content.find((part) => part.type === 'text')?.text ?? '').text.trim() || 'Message'
     default:
       return KIND_LABEL[item.type] ?? 'Step'
   }
@@ -146,25 +153,107 @@ const durationOf = (item: AgentItem): number | null =>
 const formatMs = (ms: number): string =>
   ms < 1000 ? `${Math.round(ms)}ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms / 60_000)}m`
 
-/** Aggregates measured time per item kind. Unmeasured items are simply absent. */
+const measuredWords: Record<string, string> = {
+  assistantMessage: 'responses',
+  reasoning: 'thinking',
+  command: 'commands',
+  fileChange: 'edits',
+  toolCall: 'tools',
+  webSearch: 'web searches',
+  plan: 'planning',
+  error: 'errors',
+}
+
+const measuredText = (ms: number, segments: readonly { kind: string }[]): string => {
+  const kinds = segments.map(({ kind }) => measuredWords[kind] ?? `${KIND_LABEL[kind] ?? 'other'} steps`)
+  return kinds.length === 0 ? '0m measured' : `${formatMs(ms)} in ${kinds.join(', ')}`
+}
+
+/** Measured item time is reconciled against summed turn wall time when known. */
 const summarise = (turns: readonly Turn[]) => {
   const totals = new Map<string, number>()
-  let measured = 0
+  let rawMeasured = 0
+  let wallTime = 0
+  let wallKnown = false
   for (const turn of turns) {
+    if (typeof turn.durationMs === 'number' && turn.durationMs >= 0) {
+      wallTime += turn.durationMs
+      wallKnown = true
+    }
     for (const item of turn.items) {
       const duration = durationOf(item)
       if (duration === null || duration <= 0) continue
       totals.set(item.type, (totals.get(item.type) ?? 0) + duration)
-      measured += duration
+      rawMeasured += duration
     }
   }
+  const wall = wallKnown ? wallTime : null
+  const measured = wall === null ? rawMeasured : Math.min(rawMeasured, wall)
+  const scale = rawMeasured > 0 ? measured / rawMeasured : 0
+  const segments = [...totals.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([kind, ms]) => ({ kind, ms: ms * scale, share: measured > 0 ? (ms * scale) / (wall ?? measured) : 0 }))
+    .filter((segment) => segment.ms > 0)
+  const remainder = wall === null ? 0 : Math.max(0, wall - measured)
+  if (remainder > 0) segments.push({ kind: 'modelWaiting', ms: remainder, share: remainder / wall! })
+  const kinds = [...totals.keys()].sort((a, b) => (totals.get(b) ?? 0) - (totals.get(a) ?? 0))
+  const headline = wall === null
+    ? `${formatMs(measured)} measured`
+    : kinds.length === 0
+      ? `${formatMs(wall)} · no measured steps`
+      : `${formatMs(wall)} · ${measuredText(measured, kinds.map((kind) => ({ kind })))}`
   return {
     measured,
-    segments: [...totals.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([kind, ms]) => ({ kind, ms, share: measured > 0 ? ms / measured : 0 })),
+    wall,
+    overlap: wall !== null && rawMeasured > wall,
+    headline,
+    segments,
   }
 }
+
+type DisplayRow = {
+  item: AgentItem
+  items: readonly AgentItem[]
+  label: string
+  duration: number | null
+}
+
+/** Fold only adjacent reasoning entries that have no reader-facing summary. */
+const displayRows = (items: readonly AgentItem[]): DisplayRow[] => {
+  const result: DisplayRow[] = []
+  for (let index = 0; index < items.length;) {
+    const item = items[index]!
+    if (item.type === 'reasoning' && reasoningSummary(item) === undefined) {
+      const start = index
+      let duration = 0
+      let hasDuration = false
+      while (index < items.length) {
+        const next = items[index]!
+        if (next.type !== 'reasoning' || reasoningSummary(next) !== undefined) break
+        const nextDuration = durationOf(next)
+        if (nextDuration !== null && nextDuration > 0) {
+          duration += nextDuration
+          hasDuration = true
+        }
+        index += 1
+      }
+      const folded = items.slice(start, index)
+      result.push({
+        item,
+        items: folded,
+        label: `${folded.length} step${folded.length === 1 ? '' : 's'}, no summary given`,
+        duration: hasDuration ? duration : null,
+      })
+      continue
+    }
+    result.push({ item, items: [item], label: labelOf(item), duration: durationOf(item) })
+    index += 1
+  }
+  return result
+}
+
+const rowRole = (row: DisplayRow): string =>
+  row.item.type === 'reasoning' && row.items.length > 1 ? 'Thinking' : roleOf(row.item)
 
 export const Trajectory = ({
   query,
@@ -185,29 +274,29 @@ export const Trajectory = ({
     return turns
       .map((turn) => ({
         turn,
-        items: turn.items.filter((item) => {
-          if (timedOnly && !durationOf(item)) return false
+        rows: displayRows(turn.items).filter((row) => {
+          if (timedOnly && !row.duration) return false
           if (needle.length === 0) return true
           return (
-            labelOf(item).toLowerCase().includes(needle) ||
-            roleOf(item).toLowerCase().includes(needle)
+            row.label.toLowerCase().includes(needle) ||
+            rowRole(row).toLowerCase().includes(needle)
           )
         }),
       }))
       // A turn with nothing left after filtering is noise, not a result.
-      .filter((entry) => entry.items.length > 0)
+      .filter((entry) => entry.rows.length > 0)
   }, [turns, query, timedOnly])
 
   const totalItems = turns.reduce((count, turn) => count + turn.items.length, 0)
 
-  const shownItems = filtered.reduce((count, entry) => count + entry.items.length, 0)
+  const shownItems = filtered.reduce((count, entry) => count + entry.rows.reduce((sum, row) => sum + row.items.length, 0), 0)
 
   useEffect(() => {
     onFoot(
       `${shownItems} step${shownItems === 1 ? '' : 's'}`,
-      overview.measured > 0 ? `${formatMs(overview.measured)} measured` : '',
+      overview.measured > 0 || overview.wall !== null ? overview.headline : '',
     )
-  }, [shownItems, overview.measured, onFoot])
+  }, [shownItems, overview.headline, overview.measured, overview.wall, onFoot])
 
   if (totalItems === 0) {
     return (
@@ -222,27 +311,21 @@ export const Trajectory = ({
     <>
       {overview.segments.length > 0 && (
         <section aria-label="Where the time went" className={styles.overview}>
-          <GroupLine left="Where the time went" right={`${formatMs(overview.measured)} measured`} />
+          <GroupLine left="Where the time went" right={overview.headline} />
           <ProgressStack
-            label="Measured time by kind of step"
+            label="Time by kind of step"
+            title={overview.overlap ? 'Some measured item times overlap turn wall time; displayed totals are capped at wall time.' : undefined}
             parts={overview.segments.map((segment) => ({
               id: segment.kind,
               value: segment.share * 100,
+              label: segment.kind === 'modelWaiting' ? 'Model and waiting' : undefined,
+              reading: segment.kind === 'modelWaiting' ? formatMs(segment.ms) : undefined,
               ...colourOfKind(segment.kind),
             }))}
           />
           <ChartKeys className={styles.keys}>
-            {overview.segments.map((segment) => (
-              <ChartKey
-                key={segment.kind}
-                {...colourOfKind(segment.kind)}
-                label={
-                  <>
-                    {KIND_LABEL[segment.kind] ?? 'Other'}
-                    <Text role="meta" numeric>{formatMs(segment.ms)}</Text>
-                  </>
-                }
-              />
+            {overview.segments.filter((segment) => segment.kind !== 'modelWaiting').map((segment) => (
+              <ChartKey key={segment.kind} {...colourOfKind(segment.kind)} label={<>{KIND_LABEL[segment.kind] ?? 'Other'}<Text role="meta" numeric>{formatMs(segment.ms)}</Text></>} />
             ))}
           </ChartKeys>
           <Separator className={styles.rule} />
@@ -250,7 +333,7 @@ export const Trajectory = ({
       )}
 
       {filtered.length === 0 && <PanelEmpty>No steps match that filter.</PanelEmpty>}
-      {filtered.map(({ turn, items }) => {
+      {filtered.map(({ turn, rows: turnRows }) => {
         const facts = [
           turn.durationMs ? formatMs(turn.durationMs) : null,
           turn.status !== 'completed' ? (TURN_STATE[turn.status] ?? turn.status) : null,
@@ -258,20 +341,22 @@ export const Trajectory = ({
         return (
           <div key={turn.id}>
             <GroupLine sticky left={`Turn ${turns.indexOf(turn) + 1}`} right={facts || undefined} />
-            {items.map((item) => {
-              const duration = durationOf(item)
-              const label = labelOf(item)
+            {turnRows.map((row) => {
+              const { item, label, duration } = row
               const colour = colourOfKind(item.type)
               return (
                 <PanelRow
                   key={item.id}
-                  lead={<span className={styles.role}>{roleOf(item)}</span>}
+                  lead={<span className={styles.role}>{rowRole(row)}</span>}
                   mark={colour.tone ? <SeriesDot tone={colour.tone} /> : <SeriesDot tint={colour.tint} />}
-                  title={
-                    item.type === 'command' || item.type === 'toolCall'
+                  title={row.items.length > 1
+                    ? <span className={styles.label}>{label}</span>
+                    : item.type === 'command' || item.type === 'toolCall'
                       ? <CodeText className={styles.label}>{label}</CodeText>
-                      : <span className={styles.label}>{label}</span>
-                  }
+                      : item.type === 'assistantMessage' || item.type === 'userMessage'
+                        ? <span className={`${styles.label} ${styles.messageLabel}`}>{label}</span>
+                        : <span className={styles.label}>{label}</span>}
+                  wrapTitle={row.items.length === 1 && (item.type === 'assistantMessage' || item.type === 'userMessage')}
                   trail={duration ? <RowTime>{formatMs(duration)}</RowTime> : undefined}
                   tooltip={label}
                 />

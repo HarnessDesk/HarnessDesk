@@ -54,6 +54,21 @@ test('user message content preserves text and mentions', () => {
   assert.deepEqual(mapped.content[1], { type: 'mention', name: 'README.md', path: '/w/README.md' })
 })
 
+test('peels HarnessDesk context envelopes from the Codex user text', () => {
+  const mapped = map({
+    type: 'userMessage',
+    id: 'user-context-envelope',
+    content: [{
+      type: 'text',
+      text: '<context source="Git">\nThe workspace is on git branch `main`.\n</context>\n\nBuild pong',
+    }],
+  } as Message)
+  assert.equal(mapped.type, 'userMessage')
+  if (mapped.type !== 'userMessage') return
+  assert.deepEqual(mapped.content, [{ type: 'text', text: 'Build pong' }])
+  assert.deepEqual(mapped.context, [{ label: 'Git', text: 'The workspace is on git branch `main`.' }])
+})
+
 test('assistant phase distinguishes commentary from the final answer', () => {
   const commentary = map(fixtures.agentCommentary)
   const final = map(fixtures.agentFinal)

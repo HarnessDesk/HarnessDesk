@@ -177,6 +177,15 @@ test('a message nobody wrapped is returned untouched', () => {
   assert.deepEqual(result.context, [])
 })
 
+test('the shared desk context envelope is peeled even when an adapter has no tags', () => {
+  const { text, context } = peelContext(
+    '<context source="Git">\nOn branch main\n</context>\n\nBuild pong',
+    { tags: {} },
+  )
+  assert.equal(text, 'Build pong')
+  assert.deepEqual(context, [{ label: 'Git', text: 'On branch main' }])
+})
+
 test('a sentence that merely sounds like the app’s note is kept', () => {
   // A note pattern is a bare sentence, and people type sentences. With no
   // envelope anywhere in the message and no picture beside it, every word
