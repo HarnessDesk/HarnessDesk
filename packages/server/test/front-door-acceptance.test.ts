@@ -50,6 +50,9 @@ const REVIEW_AGENTS: Readonly<Record<string, AgentSpec>> = {
   'api-reviewer': { ceiling: 'read', runtime: 'hold-b' },
 }
 
+// Measured 3.7s for all three claims under load; seats open one after another.
+const SPECIALIST_CLAIM_TIMEOUT_MS = 30_000
+
 const repo = async (): Promise<string> => {
   const dir = tempDir('hd-front-door-accept-repo-')
   await git(dir, 'init', '-q', '-b', 'main')
@@ -99,23 +102,35 @@ const soloDesk = async (t: TestContext, runtimeName: 'holdfake' | 'fake', agents
 }
 
 /** A short, bounded poll — every runtime here is a fake with no real I/O delay. */
-const waitUntil = async <T>(read: () => Promise<T | null>, what: string): Promise<T> => {
-  const deadline = Date.now() + 10_000
+const waitUntil = async <T>(read: () => Promise<T | null>, what: string, timeoutMs = 10_000): Promise<T> => {
+  const deadline = Date.now() + timeoutMs
+  const timeout = () => new Error(`nothing became ${what} in time`)
   for (;;) {
-    const value = await read()
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) throw timeout()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let value: T | null
+    try {
+      value = await Promise.race([
+        read(),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(timeout()), remaining) }),
+      ])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+    if (Date.now() >= deadline) throw timeout()
     if (value !== null) return value
-    if (Date.now() > deadline) throw new Error(`nothing became ${what} in time`)
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
 }
 
 const board = async (host: Host, goal: string): Promise<readonly Intent[]> => (await host.call('goal/read', { goal }) as GoalView).board.intents
 
-const claimedOf = async (host: Host, goal: string, role: string, count: number): Promise<readonly Intent[]> =>
+const claimedOf = async (host: Host, goal: string, role: string, count: number, timeoutMs?: number): Promise<readonly Intent[]> =>
   waitUntil(async () => {
     const cards = (await board(host, goal)).filter((one) => one.role === role && one.state !== 'done')
     return cards.length === count && cards.every((one) => one.state === 'claimed') ? cards : null
-  }, `${count} claimed ${role} card(s)`)
+  }, `${count} claimed ${role} card(s)`, timeoutMs)
 
 /** A person step's card: never claimed by a Seat, so it waits for "open", not "claimed". */
 const personCardOf = async (host: Host, goal: string, role: string): Promise<Intent> =>
@@ -148,7 +163,7 @@ test('a fresh desk with held-capable runtimes gives independent-review its build
   await git(work, 'commit', '-q', '-m', 'built')
   await host.call('team/intent', { room: run.goal, id: buildCard!.id, action: 'done', outcome: 'approve' } as never)
 
-  const specialistCards = await claimedOf(host, run.goal, 'specialists', 3)
+  const specialistCards = await claimedOf(host, run.goal, 'specialists', 3, SPECIALIST_CLAIM_TIMEOUT_MS)
   assert.deepEqual(holdB.createOptions.map((one) => one.requestedCeiling), ['read', 'read', 'read'])
   assert.ok(holdB.createOptions.every((one) => one.options?.['requestedCeiling'] === undefined), 'the read ceiling is a session request, not a Claude option pick')
   for (const card of specialistCards) await host.call('team/intent', { room: run.goal, id: card.id, action: 'done', outcome: 'approve' } as never)
@@ -303,7 +318,7 @@ test('one held-read runtime runs a fresh branch review: three held Seats, every 
   const run = await host.call('flow/start-goal', { root: work, source, token: preview.flow.token!, sentence: preview.sentence, vars: preview.vars }) as FlowExecution
   assert.equal(run.requireHeld, true)
   assert.deepEqual(run.target, { kind: 'branch', label: 'branch feature', base: null, head: feature, pr: null, dirty: false })
-  const cards = await claimedOf(host, run.goal, 'specialists', 3)
+  const cards = await claimedOf(host, run.goal, 'specialists', 3, SPECIALIST_CLAIM_TIMEOUT_MS)
   for (const card of cards) assert.match(card.title, new RegExp(feature), 'the card names the commit it reviews')
 
   const view = await host.call('goal/read', { goal: run.goal }) as GoalView
