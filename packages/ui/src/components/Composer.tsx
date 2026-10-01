@@ -191,21 +191,35 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   const drafts = draftsOf(store)
   const [text, setText] = useState(() => (key ? (drafts.live(key)?.text ?? '') : ''))
   const [attachments, setAttachments] = useState<Attachment[]>(() => (key ? [...(drafts.live(key)?.attachments ?? [])] : []))
-  /* Which conversation's draft `text` holds: words are only ever saved to
-     the conversation they were typed for. On a switch nothing is saved until
-     the new conversation's own draft has been read in. */
+  /* Which conversation's draft `text` holds, and whether this composer is
+     still drawn: words are only ever saved to — or put back into — the
+     conversation they were typed for. Layout effects, not passive ones: a
+     failed send's continuation is a microtask, and it must never find these
+     still naming the conversation the composer has just left — which a
+     passive effect, run after paint, would leave it a frame to do. Saving is
+     declared before loading, so on a switch nothing is saved until the new
+     conversation's own draft has been read in. */
   const draftOf = useRef(key)
   const mounted = useRef(true)
-  useEffect(() => {
+  useLayoutEffect(() => {
     mounted.current = true
     return () => {
       mounted.current = false
     }
   }, [])
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (key && draftOf.current === key) drafts.setLive(key, { text, attachments })
   }, [drafts, key, text, attachments])
-  useEffect(() => {
+  // A message put back by a composer that has gone (see `putBack`): shown
+  // here when this composer is drawing its conversation now.
+  useLayoutEffect(() => {
+    if (!key) return
+    return drafts.onPutBack(key, (draft) => {
+      setText((current) => (current.trim().length > 0 ? current : draft.text))
+      setAttachments((current) => (current.length > 0 ? current : [...draft.attachments]))
+    })
+  }, [drafts, key])
+  useLayoutEffect(() => {
     if (draftOf.current === key) return
     draftOf.current = key
     const held = key ? drafts.live(key) : null
@@ -722,11 +736,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
         setText((current) => (current.trim().length > 0 ? current : draft.text))
         setAttachments((current) => (current.length > 0 ? current : draft.attachments))
       } else if (key) {
-        const there = drafts.live(key)
-        drafts.setLive(key, {
-          text: there && there.text.trim().length > 0 ? there.text : draft.text,
-          attachments: there && there.attachments.length > 0 ? there.attachments : draft.attachments,
-        })
+        drafts.putBack(key, draft)
       }
     }
   }, [

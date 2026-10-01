@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { SessionKey } from '@harnessdesk/protocol'
 
@@ -39,5 +39,21 @@ describe('the live draft a conversation keeps', () => {
     expect(draftsOf(two).live(a)).toBeNull()
     const own = new Drafts()
     expect(draftsOf({ drafts: own })).toBe(own)
+  })
+})
+
+describe('a message put back into its conversation', () => {
+  it('keeps what was typed there since, field by field, and tells whoever is drawing it', () => {
+    const drafts = new Drafts()
+    const heard = vi.fn()
+    const stop = drafts.onPutBack(a, heard)
+    drafts.setLive(a, { text: 'typed since', attachments: [] })
+    drafts.putBack(a, { text: 'the failed one', attachments: [{ id: '1', name: 'a.ts', path: '/a.ts', kind: 'file' }] })
+    expect(drafts.live(a)?.text).toBe('typed since')
+    expect(drafts.live(a)?.attachments).toHaveLength(1)
+    expect(heard).toHaveBeenCalledWith(drafts.live(a))
+    stop()
+    drafts.putBack(a, { text: 'again', attachments: [] })
+    expect(heard).toHaveBeenCalledTimes(1)
   })
 })

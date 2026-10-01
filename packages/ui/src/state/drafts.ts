@@ -37,6 +37,7 @@ const isEmpty = (draft: Draft): boolean => draft.text.trim() === '' && draft.att
 
 export class Drafts {
   readonly #live = new Map<SessionKey, Draft>()
+  readonly #listeners = new Map<SessionKey, Set<(draft: Draft) => void>>()
 
   /** The draft typed into this conversation and not sent, or null. */
   live(key: SessionKey): Draft | null {
@@ -47,6 +48,33 @@ export class Drafts {
   setLive(key: SessionKey, draft: Draft): void {
     if (isEmpty(draft)) this.#live.delete(key)
     else this.#live.set(key, { text: draft.text, attachments: [...draft.attachments] })
+  }
+
+  /**
+   * Put a message back into its conversation — a send that failed after the
+   * composer that sent it moved on or went away. Whatever was typed there
+   * since wins, field by field, and any composer drawing that conversation
+   * now is told, so it shows the words rather than overwrite them.
+   */
+  putBack(key: SessionKey, draft: Draft): void {
+    const there = this.live(key)
+    const merged: Draft = {
+      text: there && there.text.trim().length > 0 ? there.text : draft.text,
+      attachments: there && there.attachments.length > 0 ? there.attachments : draft.attachments,
+    }
+    this.setLive(key, merged)
+    for (const listener of this.#listeners.get(key) ?? []) listener(merged)
+  }
+
+  /** Hear a message put back into this conversation. Returns the way to stop. */
+  onPutBack(key: SessionKey, listener: (draft: Draft) => void): () => void {
+    const set = this.#listeners.get(key) ?? new Set()
+    set.add(listener)
+    this.#listeners.set(key, set)
+    return () => {
+      set.delete(listener)
+      if (set.size === 0) this.#listeners.delete(key)
+    }
   }
 
   /** Forget a conversation's draft outright — the conversation itself is gone. */

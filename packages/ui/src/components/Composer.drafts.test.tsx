@@ -1,4 +1,4 @@
-import { act } from 'react'
+import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -76,16 +76,22 @@ beforeEach(() => {
   } as unknown as AppStore
 })
 
+let strict = false
+afterEach(() => { strict = false })
+// One stable wrapper: a new component per draw would remount the composer on
+// every draw, and a switch would no longer be a switch.
+const Plain = ({ children }: { children: React.ReactNode }) => <>{children}</>
 const draw = (key: SessionKey | null): void => {
+  const Wrap = strict ? StrictMode : Plain
   act(() => {
     root.render(
-      <StoreProvider store={store}>
+      <Wrap><StoreProvider store={store}>
         {key ? (
           <PaneProvider scope={{ paneId: 'p1', view: { kind: 'conversation', session: key }, sessionKey: key }}>
             <Composer onChooseProject={() => {}} />
           </PaneProvider>
         ) : null}
-      </StoreProvider>,
+      </StoreProvider></Wrap>,
     )
   })
 }
@@ -159,6 +165,44 @@ describe('a message whose send fails goes back to the conversation it was writte
     await act(async () => { settle(false) })
     draw(one)
     expect(textarea().value).toBe('still mine')
+  })
+
+  it('into the composer again when it has come back to that conversation', async () => {
+    draw(one)
+    type('round trip')
+    send()
+    await act(async () => {})
+    draw(two)
+    draw(one)
+    await act(async () => { settle(false) })
+    expect(textarea().value).toBe('round trip')
+    draw(two)
+    expect(textarea().value).toBe('')
+  })
+
+  it('the same way under StrictMode, whose replayed effects must not reset where it belongs', async () => {
+    strict = true
+    draw(one)
+    type('strict')
+    send()
+    await act(async () => {})
+    draw(two)
+    await act(async () => { settle(false) })
+    expect(textarea().value).toBe('')
+    draw(one)
+    expect(textarea().value).toBe('strict')
+  })
+
+  it('into a new composer already showing that conversation, which must not overwrite it', async () => {
+    draw(one)
+    type('sent from the old one')
+    send()
+    await act(async () => {})
+    draw(null)
+    draw(one)
+    expect(textarea().value).toBe('')
+    await act(async () => { settle(false) })
+    expect(textarea().value).toBe('sent from the old one')
   })
 
   it('back into the same composer when it is still showing that conversation', async () => {
