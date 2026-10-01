@@ -91,10 +91,11 @@ const focusedIndex = (target: ReturnType<typeof grid>) => target.evaluate((node)
 /** Keys reach a room only when focus is in it — a terminal elsewhere on the page eats them, as a terminal should. */
 const focusRoom = (page: Page, id: string) =>
   page.evaluate((frameId) => {
-    // A tile's composer: where a person types, and not a button an Enter would press.
-    const box = document.querySelector<HTMLElement>(`[data-frame-id="${frameId}"] [data-slot="side-by-side-tile"] textarea`)
-    if (!box) throw new Error(`no tile composer in ${frameId} to focus`)
-    box.focus()
+    // A tile on the grid has no composer of its own (one composer speaks for
+    // the grid), so the keys rest on the first tile itself.
+    const tile = document.querySelector<HTMLElement>(`[data-frame-id="${frameId}"] [data-slot="side-by-side-tile"]`)
+    if (!tile) throw new Error(`no tile in ${frameId} to focus`)
+    tile.focus()
   }, id)
 
 const returnedToGrid = (target: ReturnType<typeof grid>) => target.evaluate((node) =>
@@ -306,8 +307,24 @@ test('a name longer than the bar wraps whole, clear of the state chip and the ac
     return {
       whole: name.scrollWidth <= name.clientWidth,
       overlaps: others.filter((other) => named.right > other.left + 0.5 && named.left < other.right - 0.5 && named.bottom > other.top && named.top < other.bottom).length,
-      inside: named.right <= box(bar).right + 0.5,
+      inside: named.right <= box(bar).right + 0.5 && named.bottom <= box(bar).bottom + 0.5 && named.top >= box(bar).top - 0.5,
     }
   })
   expect(measured).toEqual({ whole: true, overlaps: 0, inside: true })
+  // A name three times as long still sits inside the bar, which grows for it.
+  await header.locator('[data-role="row"]').evaluate((node, text) => { node.textContent = text }, `${long} ${long} ${long}`)
+  expect(await header.evaluate((bar) => {
+    const name = bar.querySelector<HTMLElement>('[data-role="row"]')!.getBoundingClientRect()
+    const own = bar.getBoundingClientRect()
+    return name.bottom <= own.bottom + 0.5 && name.top >= own.top - 0.5
+  })).toBe(true)
+})
+
+test('a grid of tiles draws no composer in any tile, and an expanded tile draws its own', async ({ page }) => {
+  await gotoPreview(page)
+  await setWidth(page, 'side-by-side-two', 1200)
+  const target = grid(page, 'side-by-side-two')
+  expect(await target.locator('[data-slot="side-by-side-tile"] textarea').count()).toBe(0)
+  await target.locator('button[aria-label^="Expand "]').first().click()
+  await expect(target.locator('[data-slot="side-by-side-tile"]:not([data-hidden]) textarea')).toHaveCount(1)
 })

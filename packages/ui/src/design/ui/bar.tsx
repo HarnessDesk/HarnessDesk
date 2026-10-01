@@ -27,6 +27,9 @@ import { cn } from '@/lib/utils'
  *           shown at once (a room's Side by side tiles): its rule is drawn
  *           in the focus ink, so which pane a key will reach is visible
  *           without a ring around the whole pane.
+ *   grow    The bar's height is a floor, not a size: words on it that must
+ *           not truncate (a member's name) wrap, and the bar grows to hold
+ *           them rather than letting them spill into what it heads.
  *
  * `as="header"` is for a bar that names what is under it — a page's own top
  * row, a column's head — so a screen reader can find it as that region's
@@ -39,6 +42,7 @@ const Bar = ({
   corner = false,
   rule,
   active = false,
+  grow = false,
   ...props
 }: React.ComponentProps<'div'> & {
   as?: 'div' | 'header'
@@ -46,6 +50,7 @@ const Bar = ({
   corner?: boolean
   rule?: 'top' | 'bottom'
   active?: boolean
+  grow?: boolean
 }) => (
   <Element
     data-slot="bar"
@@ -55,6 +60,7 @@ const Bar = ({
     {...(active ? { 'data-active': '' } : {})}
     className={cn(
       'flex h-(--hd-bar-h) shrink-0 items-center gap-(--hd-bar-gap) pr-(--hd-bar-pad)',
+      grow && 'h-auto min-h-(--hd-bar-h) py-(--hd-space-1)',
       inset === 'box' && (corner ? 'pl-[max(var(--hd-bar-pad),var(--titlebar-inset,0px))]' : 'pl-(--hd-bar-pad)'),
       inset === 'ink' && (corner ? 'pl-[max(var(--hd-bar-ink),var(--titlebar-inset,0px))]' : 'pl-(--hd-bar-ink)'),
       rule === 'bottom' && 'border-b border-(--hd-border)',

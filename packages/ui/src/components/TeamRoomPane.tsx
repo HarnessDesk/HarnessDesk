@@ -451,6 +451,8 @@ export const TeamRoomPane = ({
         // Its tile goes with it: a tile for someone no longer in the room
         // would read "Member" over a conversation the room let go of.
         setGrid((was) => removeTile(was, key))
+        // Opened on its own, it goes back to the room's chat the same way.
+        setOpen((was) => (was === key ? 'room' : was))
         setFetched((was) =>
           was === null || was.room !== room
             ? was
@@ -765,6 +767,10 @@ export const TeamRoomPane = ({
     if (peers === null) return
     const present = new Set(roster.map((member) => member.key))
     setGrid((was) => forgetMissing(was, present))
+    // A member opened on its own who has left takes the body back to the chat.
+    setOpen((was) =>
+      was === 'board' || was === 'room' || was === 'findings' || was === 'side-by-side' || present.has(was as SessionKey) ? was : 'room',
+    )
   }, [peers, roster])
 
   /** Members whose conversation the desk actually has open. See the head. */
@@ -1249,7 +1255,11 @@ export const TeamRoomPane = ({
                 idleSaidAbove={idleShared}
                 onRemove={() => leave(member.key)}
                 onInbound={(mode) => setInbound(member.key, mode)}
-                selected={grid.tiles.includes(member.key)}
+                /* Selected means "what the body shows", as every other rail
+                   row means: the member opened on its own. A member on a
+                   tile is shown by the Side by side row, which is selected
+                   then instead. */
+                selected={open === member.key}
                 replaces={
                   grid.tiles.length > 0 && !grid.tiles.includes(member.key)
                     ? (memberOf(wouldReplace(member.key) as SessionKey)?.nickname ?? null)

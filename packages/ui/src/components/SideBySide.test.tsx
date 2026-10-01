@@ -8,10 +8,10 @@ import { emptySideBySide, type SideBySideState } from '../lib/side-by-side'
 import { SideBySide } from './SideBySide'
 
 vi.mock('./Conversation', () => ({
-  Conversation: ({ header }: { header?: boolean }) => {
+  Conversation: ({ header, composer }: { header?: boolean; composer?: boolean }) => {
     const pane = usePane()
     const here = useContext(KeyboardHereContext)
-    return <div data-testid="conversation-body" data-pane-id={pane?.paneId} data-session-key={pane?.sessionKey} data-header={String(header ?? true)} data-keyboard-here={String(here)}>
+    return <div data-testid="conversation-body" data-pane-id={pane?.paneId} data-session-key={pane?.sessionKey} data-header={String(header ?? true)} data-keyboard-here={String(here)} data-composer={String(composer ?? true)}>
       <textarea aria-label="Message" />
     </div>
   },
@@ -122,7 +122,8 @@ it('renders the member header, full nickname, state, expand control and grid men
   expect(name.className).not.toMatch(/truncate|text-ellipsis/)
   expect(text(header, 'Agent 1 · Model 1').dataset.role).toBe('meta')
   expect(text(header, 'Working')).toBeTruthy()
-  expect(header.querySelector('button[aria-label="Expand Alpha"]')?.getAttribute('aria-pressed')).toBe('false')
+  // The label carries the state (Expand / Collapse), so the button is not also a toggle.
+  expect(header.querySelector('button[aria-label="Expand Alpha"]')?.hasAttribute('aria-pressed')).toBe(false)
   click(header.querySelector('button[aria-label="Alpha actions"]')!)
   const menu = document.body.querySelector('[role="menu"]')!
   expect(text(menu, 'Open conversation')).toBeTruthy()
@@ -278,4 +279,33 @@ it('shows a member’s ceiling on its tile, the safety fact its own header used 
   } finally {
     entries.set(keys[0]!, was)
   }
+})
+
+it('says Waiting for you, not Working, when a member’s running turn is held on an approval', () => {
+  const was = entries.get(keys[0]!)!
+  entries.set(keys[0]!, { ...(was as Record<string, unknown>), busy: true, waitingForYou: true } as never)
+  try {
+    mount()
+    const header = document.querySelector('[data-slot="side-by-side-tile"] header')!
+    expect(header.textContent).toContain('Waiting for you')
+    expect(header.textContent).not.toContain('Working')
+  } finally {
+    entries.set(keys[0]!, was)
+  }
+})
+
+it('draws no composer in a tile on a grid of two or more, and one in a tile alone', () => {
+  mount()
+  const composers = () => [...document.querySelectorAll<HTMLElement>('[data-testid="conversation-body"]')].map((body) => body.dataset.composer)
+  expect(composers()).toEqual(['false', 'false'])
+  click(container.querySelector('button[aria-label="Expand Alpha"]')!)
+  expect(composers()[0]).toBe('true')
+})
+
+it('moves the keyboard even when the chord names the tile that already has the keys', () => {
+  mount()
+  const tile = () => document.querySelectorAll<HTMLElement>('[data-slot="side-by-side-tile"]')[0]!
+  ;(document.activeElement as HTMLElement | null)?.blur()
+  act(() => { window.dispatchEvent(new CustomEvent('hd-side-by-side', { detail: 'tile-1' })) })
+  expect(tile().contains(document.activeElement)).toBe(true)
 })

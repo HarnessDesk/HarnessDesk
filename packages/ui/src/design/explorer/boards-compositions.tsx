@@ -840,6 +840,13 @@ const ToolPaneBoard = () => {
             <Bar rule="bottom"><Text role="row">Beta · Model B</Text></Bar>
           </div>
         </Case>
+        <Case label="bar — grows for a name that must not truncate">
+          <div className="w-72">
+            <Bar rule="bottom" grow>
+              <Text role="row" className="min-w-0 [overflow-wrap:anywhere]">Alpha, the long-running reviewer of the checkout</Text>
+            </Bar>
+          </div>
+        </Case>
         <Case label="inspector panel">
           <PanelFrame>
             <PanelTools>

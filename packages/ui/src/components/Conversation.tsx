@@ -554,6 +554,7 @@ export const Conversation = ({
   onOpenUsage,
   onOpenRuntimes,
   header = true,
+  composer = true,
 }: {
   onChooseProject: () => void
   onSignIn: (runtime?: RuntimeId) => void
@@ -564,6 +565,9 @@ export const Conversation = ({
       second header under it would repeat the title and the plan meters in
       every tile. */
   header?: boolean
+  /** False where one composer elsewhere speaks for several conversations — a
+      Side by side grid of two or more tiles — so this one draws none. */
+  composer?: boolean
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -899,7 +903,7 @@ export const Conversation = ({
             folder has been deleted cannot be added to by anybody — so the box
             that implies it can is replaced by the note saying so, rather than
             left sitting there to be typed into and refused. */}
-        {folderGone && session ? (
+        {!composer ? null : folderGone && session ? (
           <FolderGone folder={session.cwd} said={folderGone} />
         ) : (
           <Composer onChooseProject={onChooseProject} />

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type CSSProperties, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type CSSProperties, type Dispatch, type SetStateAction } from 'react'
 import type { SessionKey } from '@harnessdesk/protocol'
 
 import {
@@ -82,6 +82,9 @@ export const SideBySide = ({
   const gridRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
   const focusedPane = useIsFocusedPane()
+  /* A tile never claims the keyboard that what encloses the grid says is
+     elsewhere; it can only narrow it to one tile. */
+  const keyboardAbove = useContext(KeyboardHereContext) !== false
   const shown = displayFor(state, width)
   /* Narrow is about the room's width, not about what is shown: an expanded
      tile in a narrow room keeps the strip, so the member can still be
@@ -90,17 +93,21 @@ export const SideBySide = ({
   /* The tile a chord just chose, whose composer takes the keyboard once it
      is drawn: a chord moves the keys, not only the highlight. */
   const typeInto = useRef<SessionKey | null>(null)
+  /* Counted, so a chord that changes no state (the tile it names already
+     has the keys) still runs the effect below — and every chord's request
+     is spent there, never left armed for a later, unrelated focus. */
+  const [chords, setChords] = useState(0)
   useEffect(() => {
     const key = typeInto.current
-    if (!key || state.focused !== key) return
     typeInto.current = null
+    if (!key || state.focused !== key) return
     // Compared, not selected: a session key carries a NUL, which
     // `CSS.escape` turns into U+FFFD, so no selector can name it.
     const tile = [...(gridRef.current?.querySelectorAll<HTMLElement>('[data-slot="side-by-side-tile"]') ?? [])]
       .find((one) => one.dataset.sessionKey === key)
     const target = tile?.querySelector<HTMLElement>('textarea') ?? tile
     target?.focus()
-  }, [state.focused, state.expanded])
+  }, [state.focused, state.expanded, chords])
 
   useLayoutEffect(() => {
     const grid = gridRef.current
@@ -120,9 +127,11 @@ export const SideBySide = ({
         const key = state.tiles[Number(action.slice(-1)) - 1]
         if (!key) return
         typeInto.current = key
+        setChords((count) => count + 1)
         onChange((was) => focusIndex(was, Number(action.slice(-1)) - 1))
       } else if (action === 'tile-expand' && state.focused) {
         typeInto.current = state.focused
+        setChords((count) => count + 1)
         onChange((was) => (was.focused ? expandTile(was, was.expanded === was.focused ? null : was.focused) : was))
       }
     }
@@ -218,12 +227,17 @@ export const SideBySide = ({
                       className={styles.tile}
               style={place(key)}
               tabIndex={-1}
+              aria-label={nickname}
               onClick={() => focus(key)}
               /* Keyboard entry counts as choosing the tile, the same as a
                  click: Tab into its composer and the keys are its keys. */
               onFocusCapture={() => focus(key)}
             >
-              <Bar as="header" rule="bottom" active={isFocused && shown.shown.length > 1} className={styles.header}>
+              <Bar as="header" rule="bottom" active={isFocused && shown.shown.length > 1}
+                /* A name longer than the bar wraps whole — it never truncates —
+                   and the bar grows to hold it. */
+                grow
+                className={styles.header}>
                 {card(key, (
                   <span className={styles.member}>
                     <span className={styles.mark}>
@@ -237,10 +251,14 @@ export const SideBySide = ({
                   </span>
                 ))}
                 {entry?.ceiling && <CeilingChip ceiling={entry.ceiling.ceiling} note={entry.ceiling.note} />}
-                {entry?.busy ? (
-                  <Chip state="ready" size="sm">Working</Chip>
-                ) : entry?.waitingForYou ? (
+                {/* Waiting outranks working, as it does everywhere a pane's
+                    state is told (`paneStatus`): a turn held on an approval
+                    is still in progress, and the question is what needs the
+                    person. */}
+                {entry?.waitingForYou ? (
                   <Chip tone="warning" size="sm">Waiting for you</Chip>
+                ) : entry?.busy ? (
+                  <Chip state="ready" size="sm">Working</Chip>
                 ) : entry?.ended === 'done' ? (
                   <Chip tone="neutral" size="sm">Done</Chip>
                 ) : entry?.ended === 'stopped' ? (
@@ -251,7 +269,6 @@ export const SideBySide = ({
                   variant="ghost"
                   size="icon-sm"
                   aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${nickname}`}
-                  aria-pressed={isExpanded}
                   title={isExpanded ? 'Return to the grid' : 'Expand tile'}
                   onClick={(event) => {
                     event.stopPropagation()
@@ -279,9 +296,12 @@ export const SideBySide = ({
                     panes to everything inside them — their composers take
                     no compose events, their approvals answer no keys and
                     take no focus — so one press reaches one member. */}
-                <KeyboardHereContext.Provider value={isFocused && !isHidden}>
+                <KeyboardHereContext.Provider value={keyboardAbove && isFocused && !isHidden}>
                   <PaneProvider scope={{ paneId: `${paneId}:${key}`, view: { kind: 'conversation', session: key }, sessionKey: key }}>
-                    <Conversation {...conversationProps} header={false} />
+                    {/* One tile alone on screen — expanded, or the narrow
+                        room's one tab — keeps its own composer; on a grid of
+                        two or more, one composer below speaks for them all. */}
+                    <Conversation {...conversationProps} header={false} composer={shown.shown.length < 2} />
                     <Approvals />
                   </PaneProvider>
                 </KeyboardHereContext.Provider>

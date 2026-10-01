@@ -1,9 +1,9 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { TeamRoomPane } from '../components/TeamRoomPane'
 import { shortcutFor } from '../lib/shortcuts'
 import { MountProvider } from '../panels/mount'
-import { StoreProvider } from '../state/context'
+import { KeyboardHereContext, StoreProvider } from '../state/context'
 import { Frame } from './main'
 import { PREVIEW_ROOM } from './harness'
 import { SIDE_BY_SIDE_KEYS, sideBySideStore } from './side-by-side-fixture'
@@ -21,6 +21,30 @@ const PreviewShortcutBridge = () => {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [])
   return null
+}
+
+/**
+ * The app has one focused pane; this page mounts three rooms, all of which
+ * would answer a window chord at once. Each frame says it has the keyboard
+ * only while the focus is inside it, the way the app's focused pane does.
+ */
+const FocusedWhileInside = ({ children }: { readonly children: ReactNode }) => {
+  const box = useRef<HTMLDivElement>(null)
+  const [inside, setInside] = useState(false)
+  useEffect(() => {
+    const update = () => setInside(Boolean(box.current?.contains(document.activeElement)))
+    document.addEventListener('focusin', update)
+    document.addEventListener('focusout', update)
+    return () => {
+      document.removeEventListener('focusin', update)
+      document.removeEventListener('focusout', update)
+    }
+  }, [])
+  return (
+    <div ref={box} className="contents">
+      <KeyboardHereContext.Provider value={inside}>{children}</KeyboardHereContext.Provider>
+    </div>
+  )
 }
 
 const SideBySideRoomFrame = ({
@@ -50,7 +74,9 @@ const SideBySideRoomFrame = ({
       <div data-side-by-side-container style={{ width: '100%', height: 520 }}>
         <StoreProvider store={store}>
           <MountProvider scope={{ area: 'main', id, view }}>
-            <TeamRoomPane room={PREVIEW_ROOM} />
+            <FocusedWhileInside>
+              <TeamRoomPane room={PREVIEW_ROOM} />
+            </FocusedWhileInside>
           </MountProvider>
         </StoreProvider>
       </div>

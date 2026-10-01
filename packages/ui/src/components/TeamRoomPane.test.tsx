@@ -937,6 +937,22 @@ it('clears a non-empty old watching list once it has become tiles', async () => 
   expect(store.lastView().sideBySide?.tiles).toEqual(['codex\u0000a', 'claude\u0000b'])
 })
 
+it('selects the row of the member opened on its own, and only that one', async () => {
+  const { pane } = await renderRoom({ members: ['codex\u0000a', 'claude\u0000b'] })
+  await clickRailOpen(pane, 'a')
+  const current = [...pane.querySelectorAll('[data-slot="list-row"][aria-current="true"]')].map((one) => one.textContent ?? '')
+  expect(current).toHaveLength(1)
+  expect(current[0]).toContain('a')
+})
+
+it('drops a tile whose member is missing from the room’s answer, with nothing left by hand', async () => {
+  const { pane } = await renderRoom({
+    members: ['codex\u0000a'],
+    view: { sideBySide: { tiles: ['codex\u0000a', 'claude\u0000gone'] as SessionKey[] } },
+  })
+  expect([...pane.querySelectorAll<HTMLElement>('[data-slot="side-by-side-tile"]')].map((tile) => tile.dataset.sessionKey)).toEqual(['codex\u0000a'])
+})
+
 it('Open shows one member’s full conversation, not a tile', async () => {
   const { pane } = await renderRoom({ members: ['codex\u0000a'] })
   await clickRailOpen(pane, 'a')
@@ -2670,6 +2686,32 @@ it('releases a Goal member from its card, and leaves the conversation alone', as
   // The conversation itself is untouched: nothing here closes or deletes it.
   expect(store.openSession).not.toHaveBeenCalled()
   vi.useRealTimers()
+})
+
+it('sends the body back to the chat when the member opened on its own is released', async () => {
+  const goal = {
+    goal: { id: ROOM, root: '/repo', cwd: '/repo', sentence: 'Checkout rewrite', state: 'open', revision: 1, checkout: 'shared', dependsOn: [], origin: { kind: 'person' }, createdAt: 1, updatedAt: 1, receipt: null },
+    activity: 'working', waitingOn: [],
+    members: [{ id: 'seat-1', closed: null, session: { runtime: 'codex', sessionId: 'c1' } }],
+    board: state, receipt: null, problem: null,
+  } as unknown as GoalView
+  const { store } = rig(undefined, undefined, {}, goal)
+  await render(store)
+  await act(async () => { row('Codex').click() })
+  expect(row('Codex').closest('[data-slot="list-row"]')?.getAttribute('aria-current')).toBe('true')
+
+  vi.useFakeTimers()
+  const trigger = row('Codex').closest('[data-slot="hover-card-trigger"]') as Element
+  act(() => {
+    trigger.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+    trigger.dispatchEvent(new MouseEvent('mouseenter'))
+  })
+  act(() => { vi.advanceTimersByTime(1000) })
+  const remove = [...document.body.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Take out of the room')!
+  vi.useRealTimers()
+  await act(async () => { remove.click() })
+  await act(async () => {})
+  expect(row('Chat').closest('[data-slot="list-row"]')?.getAttribute('aria-current')).toBe('true')
 })
 
 it('takes a released member’s tile off the grid with it', async () => {
