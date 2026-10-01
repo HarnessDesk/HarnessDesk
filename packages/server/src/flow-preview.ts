@@ -192,7 +192,22 @@ export class FlowPreviews {
         expires: this.#port.now() + TOKEN_TTL_MS, ...(retry ? { retryOf: retry } : {}), ...(frontDoor ? { frontDoor } : {}), consumed: false,
       })
     }
-    return { ...built, token }
+    const warnings: FlowProblem[] = []
+    if (token && this.#port.perToolMcpApproval) {
+      const warnedRoles = new Set<string>()
+      for (const seat of built.seats) {
+        if (seat.plan.blocked || seat.plan.winner === null || warnedRoles.has(seat.role)) continue
+        const selected = seat.plan.candidates[seat.plan.winner]
+        if (!selected || !this.#port.perToolMcpApproval(selected.seat.runtime)) continue
+        warnedRoles.add(seat.role)
+        warnings.push({
+          level: 'warning',
+          at: `roles.${seat.role}.seat`,
+          text: 'The first time, this agent asks once for each HarnessDesk tool it uses.',
+        })
+      }
+    }
+    return { ...built, problems: [...built.problems, ...warnings], token }
   }
 
   /**
@@ -394,13 +409,6 @@ export class FlowPreviews {
             level: 'error',
             at: `roles.${role.id}.seat`,
             text: toolProblem,
-          })
-        }
-        if (!plan.blocked && plan.winner !== null && this.#port.perToolMcpApproval?.(plan.candidates[plan.winner]!.seat.runtime)) {
-          problems.push({
-            level: 'warning',
-            at: `roles.${role.id}.seat`,
-            text: 'On a first run this seat asks once for each HarnessDesk tool it uses.',
           })
         }
         if (plan.blocked) {

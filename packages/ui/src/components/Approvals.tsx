@@ -4,6 +4,7 @@ import { FLOW_BOARD_TOOL_NAMES, type Approval, type ApprovalOption } from '@harn
 
 import { useIsFocusedPane, useRuntime, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { wholeFileOf } from '../lib/diff'
+import { boardToolPhrase } from '../lib/tool-names'
 import { boardToolNote } from '../lib/board-tool-note'
 import { folderShown } from '../lib/projects'
 import { DiffView } from './Diff'
@@ -128,9 +129,12 @@ const FileChangeBody = ({ approval }: { approval: Extract<Approval, { type: 'fil
   </>
 )
 
-const PermissionBody = ({ approval }: { approval: Extract<Approval, { type: 'permission' }> }) => (
+const PermissionBody = ({ approval, hideSummary = false }: {
+  approval: Extract<Approval, { type: 'permission' }>
+  hideSummary?: boolean
+}) => (
   <>
-    <ApprovalReason className={styles.reason}>{approval.summary}</ApprovalReason>
+    {!hideSummary && <ApprovalReason className={styles.reason}>{approval.summary}</ApprovalReason>}
     {/* Why the agent is asking, when it said. The summary is the tool it wants
         to run; a decision needs the sentence under it — "the file is outside
         the workspace" is the part that answers allow or reject. */}
@@ -264,10 +268,10 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false }: {
   const allowAlwaysOptions = options.filter((option) => option.intent === 'approveAlways')
   const approvalNote = explainBoardTool
     ? boardToolNote({
-      tool: namedBoardTool,
+      phrase: boardToolPhrase(namedBoardTool),
       runtimeName: runtime.presentation.name,
       permanentApprovalSetting: boardToolApproval.permanentApprovalSetting,
-      always: allowAlwaysOptions,
+      hasPermanentOption: allowAlwaysOptions.length > 0,
     })
     : null
 
@@ -352,7 +356,12 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false }: {
   ]
   const actions: ApprovalDialogAction[] = actionOptions.map((option) => ({
     id: option.id,
-    label: option.label,
+    label: explainBoardTool && option.intent === 'approveAlways' &&
+      boardToolApproval?.sessionOptionLabel &&
+      !/future sessions/i.test(`${option.label} ${option.description ?? ''}`) &&
+      /session/i.test(`${option.label} ${option.description ?? ''}`)
+      ? boardToolApproval.sessionOptionLabel
+      : option.label,
     description: option.description,
     icon: INTENT_ICON[option.intent],
     shortcut: options.indexOf(option) + 1,
@@ -385,8 +394,8 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false }: {
           )}
           {approval.type === 'fileChange' && <FileChangeBody approval={approval} />}
           {approval.type === 'permission' && <>
-            <PermissionBody approval={approval} />
-            {approvalNote && <ApprovalReason className={styles.reason}>{approvalNote}</ApprovalReason>}
+            <PermissionBody approval={approval} hideSummary={explainBoardTool} />
+            {approvalNote && <ApprovalReason className={styles.reason} title={approvalNote.title}>{approvalNote.text}</ApprovalReason>}
           </>}
           {approval.type === 'userInput' && (
             <UserInputBody

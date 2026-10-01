@@ -1699,12 +1699,12 @@ export const DialogBoard = () => {
             focusKey="catalog-board-tool-always"
             placement="docked"
             actions={[
-              { id: 'deny', label: 'Deny', placement: 'safe', onSelect: () => setOpen(null) },
-              { id: 'always', label: 'Allow tool for this session', description: 'Allows this tool for the rest of this session.', placement: 'safe', onSelect: () => setOpen(null) },
-              { id: 'once', label: 'Allow once', placement: 'proceed', onSelect: () => setOpen(null) },
+              { id: 'deny', label: 'Deny', shortcut: 1, placement: 'safe', onSelect: () => setOpen(null) },
+              { id: 'always', label: 'Allow for this session', description: 'Allows this tool for the rest of this session.', shortcut: 2, placement: 'safe', onSelect: () => setOpen(null) },
+              { id: 'once', label: 'Allow once', shortcut: 3, placement: 'proceed', onSelect: () => setOpen(null) },
             ]}
           >
-            <ApprovalReason>{boardToolApprovalNote({ label: 'Allow tool for this session', description: 'Allows this tool for the rest of this session.' })}</ApprovalReason>
+            {(() => { const note = boardToolApprovalNote(true); return <ApprovalReason title={note.title}>{note.text}</ApprovalReason> })()}
           </ApprovalDialog>
           </div>
           <div data-catalog-case="board-tool-approval-setting">
@@ -1715,11 +1715,11 @@ export const DialogBoard = () => {
             focusKey="catalog-board-tool-setting"
             placement="docked"
             actions={[
-              { id: 'deny', label: 'Deny', placement: 'safe', onSelect: () => setOpen(null) },
-              { id: 'once', label: 'Allow once', placement: 'proceed', onSelect: () => setOpen(null) },
+              { id: 'deny', label: 'Deny', shortcut: 1, placement: 'safe', onSelect: () => setOpen(null) },
+              { id: 'once', label: 'Allow once', shortcut: 2, placement: 'proceed', onSelect: () => setOpen(null) },
             ]}
           >
-            <ApprovalReason>{boardToolApprovalNote()}</ApprovalReason>
+            {(() => { const note = boardToolApprovalNote(); return <ApprovalReason title={note.title}>{note.text}</ApprovalReason> })()}
           </ApprovalDialog>
           </div>
         </div>

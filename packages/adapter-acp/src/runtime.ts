@@ -921,7 +921,9 @@ export class AcpRuntime implements AgentRuntime {
       provider: this.#provider,
       presentation: {
         name: this.#config.name,
-        ...(this.#config.perToolMcpApproval ? { boardToolApproval: this.#config.perToolMcpApproval } : {}),
+        ...(this.#config.perToolMcpApproval
+          ? { boardToolApproval: { ...this.#config.perToolMcpApproval, sessionOptionLabel: 'Allow for this session' } }
+          : {}),
         ...(this.#config.pluginToolsUnavailable ? { pluginToolsUnavailable: this.#config.pluginToolsUnavailable } : {}),
         // What an ACP agent declares are commands; some of them are skills
         // and some are `/compact`. The page says both rather than filing

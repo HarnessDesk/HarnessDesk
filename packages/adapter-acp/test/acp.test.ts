@@ -1287,7 +1287,7 @@ test('a permission request becomes an approval; the decision reaches the agent',
   }
 })
 
-test('the per-tool MCP adapter explains each Gemini approval scope', async () => {
+test('the per-tool MCP adapter presents the session label and preserves each Gemini approval scope', async () => {
   const runtime = new AcpRuntime({
     id: 'gemini',
     name: 'Gemini CLI',
@@ -1296,6 +1296,10 @@ test('the per-tool MCP adapter explains each Gemini approval scope', async () =>
     perToolMcpApproval: { permanentApprovalSetting: 'security.enablePermanentToolApproval' },
   })
   await runtime.start()
+  assert.deepEqual(runtime.info.presentation.boardToolApproval, {
+    permanentApprovalSetting: 'security.enablePermanentToolApproval',
+    sessionOptionLabel: 'Allow for this session',
+  })
   const tape = record(runtime)
   try {
     const session = await runtime.createSession({ cwd: '/tmp/w' })

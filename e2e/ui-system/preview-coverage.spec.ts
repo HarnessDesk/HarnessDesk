@@ -338,23 +338,27 @@ test.describe('preview coverage', () => {
     expect(staleExemptions, `EXEMPT entries that now render (remove them from EXEMPT): ${staleExemptions.join(', ')}`).toEqual([])
   })
 
-  test('preview shows both board-tool permission card states and keeps Always allow quiet', async ({ page }) => {
+  test('preview shows both board-tool permission card states and keeps session approval quiet', async ({ page }) => {
     await page.goto('/preview.html?board-tool-approvals')
     const offered = page.locator('#board-tool-approval-always [data-slot="approval-card"]')
     const unavailable = page.locator('#board-tool-approval-setting [data-slot="approval-card"]')
-    await expect(offered).toContainText('This asks for HarnessDesk\'s board tool `list_intents`.')
+    await expect(offered).toContainText("HarnessDesk's board wants to the shared board for this workspace: every intent (piece of work), its state — open, claimed, blocked, done — who holds it, the files it owns, and what depends on what.")
     await expect(offered).toContainText('HarnessDesk can\'t confirm which server is asking.')
-    await expect(offered.locator('button')).toHaveText(['Deny', 'Allow tool for this session', 'Allow once'])
-    await expect(offered.getByRole('button', { name: 'Allow tool for this session' })).toHaveAttribute('data-variant', 'quiet')
+    await expect(offered).not.toContainText('list_intents')
+    await expect(offered.locator('button')).toHaveText(['Deny1', 'Allow for this session2', 'Allow once3'])
+    await expect(offered.getByRole('button', { name: 'Allow for this session' })).toHaveAttribute('data-variant', 'quiet')
     await expect(offered.getByRole('button', { name: 'Allow once' })).toHaveAttribute('data-variant', 'default')
-    await expect(unavailable).toContainText('security.enablePermanentToolApproval')
-    await expect(unavailable.getByRole('button', { name: 'Allow tool for this session' })).toHaveCount(0)
+    await expect(offered.getByRole('button', { name: 'Allow for this session' })).toHaveAttribute('title', 'Allows this tool for the rest of this session.')
+    await expect(unavailable).toContainText("To always allow, turn on permanent tool approval in Gemini CLI's settings.")
+    await expect(unavailable).not.toContainText('security.enablePermanentToolApproval')
+    await expect(unavailable.locator('[data-slot="approval-reason"]')).toHaveAttribute('title', 'security.enablePermanentToolApproval')
+    await expect(unavailable.getByRole('button', { name: 'Allow for this session' })).toHaveCount(0)
 
     await page.goto('/design.html')
     await page.getByRole('button', { name: 'Dialog · ConfirmDialog', exact: true }).click()
     await page.getByRole('button', { name: 'Approval', exact: true }).click()
-    await expect(page.locator('[data-catalog-case="board-tool-approval-always"]')).toContainText('Always allow')
-    await expect(page.locator('[data-catalog-case="board-tool-approval-setting"]')).toContainText('security.enablePermanentToolApproval')
+    await expect(page.locator('[data-catalog-case="board-tool-approval-always"]')).toContainText('Allow for this session')
+    await expect(page.locator('[data-catalog-case="board-tool-approval-setting"]')).toContainText("To always allow, turn on permanent tool approval in Gemini CLI's settings.")
   })
 
   /**

@@ -41,6 +41,7 @@ const mount = (approval: Approval, runtimeInfo: RuntimeInfo = info) => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
+    contributions: [boardToolContribution],
     activeRuntime: RUNTIME,
     runtimes: [runtimeInfo],
     approvals: [{ key: KEY, approval }],
@@ -69,11 +70,17 @@ const mount = (approval: Approval, runtimeInfo: RuntimeInfo = info) => {
 const geminiInfo = {
   ...info,
   capabilities: { perToolMcpApproval: true },
-  presentation: { name: 'Gemini CLI', boardToolApproval: { permanentApprovalSetting: 'security.enablePermanentToolApproval' } },
+  presentation: { name: 'Gemini CLI', boardToolApproval: { permanentApprovalSetting: 'security.enablePermanentToolApproval', sessionOptionLabel: 'Allow for this session' } },
 } as unknown as RuntimeInfo
 
+const boardToolContribution = {
+  kind: 'tool', namespace: 'harnessdesk', name: 'list_intents',
+  description: 'The shared board for this workspace: every intent (piece of work), its state — open, claimed, blocked, done — who holds it, the files it owns, and what depends on what.',
+  id: 'team/list_intents', owner: 'team', revision: 1, scope: 'session', inputSchema: {},
+} as unknown as AppSnapshot['contributions'][number]
+
 const boardApproval = (summary: string, options: readonly ApprovalOption[]): Approval => ({
-  id: 'approval-board-tool',
+  id: 'approval-board-tool' as never,
   sessionId: SESSION as never,
   requestedAt: Date.now(),
   type: 'permission',
@@ -87,28 +94,34 @@ const BOARD_OPTIONS: readonly ApprovalOption[] = [
   { id: 'once', label: 'Allow once', intent: 'approve' },
 ]
 
-it('explains the named board tool and keeps Always allow quiet when Gemini offers it', () => {
+it('explains the board action without naming the wire tool and keeps session approval quiet', () => {
   mount(boardApproval('list_intents (harnessdesk MCP Server)', BOARD_OPTIONS), geminiInfo)
 
-  expect(container.textContent).toContain("This asks for HarnessDesk's board tool `list_intents`.")
+  expect(container.textContent).toContain("HarnessDesk's board wants to list the board's work items. HarnessDesk can't confirm which server is asking.")
+  expect(container.textContent).not.toContain('list_intents')
   expect(container.textContent).toContain("HarnessDesk can't confirm which server is asking.")
-  expect(container.textContent).toContain('If you trust this folder\'s Gemini CLI setup')
-  expect(container.textContent).toContain('“Allow tool for this session” — allows this tool for the rest of this session')
+  expect(container.textContent).not.toContain('list_intents')
+  expect(container.textContent).not.toContain('you can choose')
+  expect(container.textContent).not.toContain('Allows this tool for the rest of this session.')
   const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
-  expect(buttons.map((button) => button.textContent?.trim().replace(/\d+$/, ''))).toEqual(['Deny', 'Allow tool for this session', 'Allow once'])
-  expect(buttons.find((button) => button.textContent?.includes('Allow tool for this session'))?.getAttribute('data-variant')).toBe('secondary')
+  expect(buttons.map((button) => button.textContent?.trim().replace(/\d+$/, ''))).toEqual(['Deny', 'Allow for this session', 'Allow once'])
+  expect(buttons.find((button) => button.textContent?.includes('Allow for this session'))?.getAttribute('data-variant')).toBe('secondary')
   expect(buttons.find((button) => button.textContent?.includes('Allow once'))?.getAttribute('data-variant')).toBe('default')
-  expect(buttons.find((button) => button.textContent?.includes('Allow tool for this session'))).not.toBe(document.activeElement)
+  expect(buttons.find((button) => button.textContent?.includes('Allow for this session'))?.title).toBe('Allows this tool for the rest of this session.')
+  expect(buttons.find((button) => button.textContent?.includes('Allow for this session'))).not.toBe(document.activeElement)
 })
 
-it('explains when Gemini does not offer Always allow without changing its setting', () => {
+it('explains when Gemini offers no permanent option without exposing its setting key', () => {
   mount(boardApproval('list_intents (harnessdesk MCP Server)', [
     { id: 'deny', label: 'Deny', intent: 'deny' },
     { id: 'once', label: 'Allow once', intent: 'approve' },
   ]), geminiInfo)
 
   expect(container.textContent).toContain("HarnessDesk can't confirm which server is asking.")
-  expect(container.textContent).toContain('Gemini CLI offers permanent “Always allow” only when its own `security.enablePermanentToolApproval` setting is on.')
+  const note = container.querySelector('[data-slot="approval-reason"]')
+  expect(note?.textContent).toContain("To always allow, turn on permanent tool approval in Gemini CLI's settings.")
+  expect(note?.getAttribute('title')).toBe('security.enablePermanentToolApproval')
+  expect(container.textContent).not.toContain('security.enablePermanentToolApproval')
 })
 
 it('describes each Gemini allow-always scope in its offered order and leaves Allow once primary', () => {
@@ -121,16 +134,12 @@ it('describes each Gemini allow-always scope in its offered order and leaves All
   ]), geminiInfo)
 
   const note = Array.from(container.querySelectorAll('[data-slot="approval-reason"]')).at(-1)?.textContent ?? ''
-  const scopes = [
-    '“Allow all server tools for this session” — allows every tool from this server for this session',
-    '“Allow tool for this session” — allows this tool for the rest of this session',
-    '“Allow tool for all future sessions” — saves approval for this tool in future sessions',
-  ]
-  scopes.forEach((scope) => expect(note).toContain(scope))
-  expect(note.indexOf(scopes[0]!)).toBeLessThan(note.indexOf(scopes[1]!))
-  expect(note.indexOf(scopes[1]!)).toBeLessThan(note.indexOf(scopes[2]!))
   const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
   expect(buttons.map((button) => button.getAttribute('data-variant'))).toEqual(['destructive', 'secondary', 'secondary', 'secondary', 'default'])
+  expect(buttons[1]?.textContent).toContain('Allow for this session')
+  expect(buttons[2]?.textContent).toContain('Allow for this session')
+  expect(buttons[3]?.textContent).toContain('Allow tool for all future sessions')
+  expect(buttons[3]?.title).toBe('Saves approval for this tool in future sessions.')
   expect(buttons.at(-1)?.textContent).toContain('Allow once')
   expect(buttons.slice(1, 4)).not.toContain(document.activeElement)
 })

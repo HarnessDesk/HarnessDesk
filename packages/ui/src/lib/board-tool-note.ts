@@ -1,27 +1,32 @@
-/**
- * The note a permission card carries when an agent that asks per MCP tool names one of the desk's own board
- * tools. One function, so the card, the preview and the catalogue say the same sentence.
- *
- * It never claims the tool is verified: the agent's title can be imitated, so it says what the request names, that
- * the desk can't confirm which server asked, and what a permanent choice does, or how the agent turns one on.
- */
+/** One sentence shared by the real approval, the catalogue and the preview. */
 export interface BoardToolNoteInput {
-  readonly tool: string
+  /** What the tool does, as a verb phrase (`boardToolPhrase`). */
+  readonly phrase: string
   readonly runtimeName: string
   readonly permanentApprovalSetting: string
-  /** The agent's own permanent-grant options, in its words; empty when it offered none. */
-  readonly always: readonly { readonly label: string; readonly description?: string | undefined }[]
+  readonly hasPermanentOption: boolean
 }
 
-/** An option's own description as the tail of a sentence: no capital, no full stop. */
-const grantScope = (description: string | undefined): string | null =>
-  description ? description.replace(/\.$/, '').replace(/^./, (c) => c.toLowerCase()) : null
+export interface BoardToolNote {
+  readonly text: string
+  readonly title?: string
+}
 
-export const boardToolNote = ({ tool, runtimeName, permanentApprovalSetting, always }: BoardToolNoteInput): string => [
-  `This asks for HarnessDesk's board tool \`${tool}\`. HarnessDesk can't confirm which server is asking.`,
-  always.length
-    ? `If you trust this folder's ${runtimeName} setup, you can choose ${always
-      .map((option) => `“${option.label}” — ${grantScope(option.description) ?? `${runtimeName} stops asking for this tool`}`)
-      .join(' or ')}.`
-    : `${runtimeName} offers permanent “Always allow” only when its own \`${permanentApprovalSetting}\` setting is on.`,
-].join(' ')
+export const boardToolNote = ({
+  phrase,
+  runtimeName,
+  permanentApprovalSetting,
+  hasPermanentOption,
+}: BoardToolNoteInput): BoardToolNote => {
+  const sentence = phrase.trim().replace(/[.!?]+$/, '')
+  return {
+    text: [
+      `HarnessDesk's board wants to ${sentence.charAt(0).toLowerCase()}${sentence.slice(1)}.`,
+      "HarnessDesk can't confirm which server is asking.",
+      ...(!hasPermanentOption
+        ? [`To always allow, turn on permanent tool approval in ${runtimeName}'s settings.`]
+        : []),
+    ].join(' '),
+    ...(!hasPermanentOption ? { title: permanentApprovalSetting } : {}),
+  }
+}

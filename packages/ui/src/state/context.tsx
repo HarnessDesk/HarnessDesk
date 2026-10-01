@@ -171,6 +171,7 @@ const FALLBACK_RUNTIME: RuntimeInfo = {
     pluginTools: false,
     instructions: false,
     backgroundTasks: false,
+    perToolMcpApproval: false,
     archiveHistory: false,
   nameHistory: false,
     deleteHistory: false,

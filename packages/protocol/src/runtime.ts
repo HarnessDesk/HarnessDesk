@@ -326,7 +326,11 @@ export interface RuntimePresentation {
   /** The runtime's own explanation when it will withhold the desk's tool server in a folder. */
   readonly pluginToolsUnavailable?: string
   /** Adapter-authored wording for MCP tool approvals that the host cannot attribute. */
-  readonly boardToolApproval?: { readonly permanentApprovalSetting: string }
+  readonly boardToolApproval?: {
+    readonly permanentApprovalSetting: string
+    /** Agent option label to use when an approveAlways choice lasts only this session. */
+    readonly sessionOptionLabel?: string
+  }
   /**
    * Whose mark to draw beside the name: a lobe-icons key such as `codex`,
    * `claudecode`, `cursor`, `geminicli`, `githubcopilot`. Optional — the
