@@ -1,0 +1,81 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--side-by-side-columns), minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  gap: var(--hd-space-px);
+  background: var(--hd-border);
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--hd-background);
+}
+
+.tile[data-focused] {
+  box-shadow: var(--hd-hairline), inset 0 0 0 var(--hd-ring-width) var(--hd-ring);
+}
+
+.tile[data-hidden] {
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(-101%);
+  position: absolute;
+  inset: 0;
+}
+
+.header {
+  min-width: 0;
+}
+
+.member {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--hd-space-2);
+  min-width: 0;
+}
+
+.mark {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.nickname {
+  flex: none;
+}
+
+.model {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.strip {
+  flex: none;
+  min-width: 0;
+  overflow-x: auto;
+}
