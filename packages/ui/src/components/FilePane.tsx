@@ -64,7 +64,7 @@ type FileConflict =
   | { readonly kind: 'binary'; readonly size: number }
   | { readonly kind: 'tooLarge'; readonly size: number }
 
-export const FileConflictNotice = ({
+const FileConflictNotice = ({
   conflict,
   onTakeTheirs,
   onOverwrite,

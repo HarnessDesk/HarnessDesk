@@ -7,7 +7,7 @@ import { runtimeId } from '@harnessdesk/protocol'
 import { MountProvider } from '../panels/mount'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { FileConflictNotice, FilePane } from './FilePane'
+import { FilePane } from './FilePane'
 
 vi.mock('./CodeEditor', () => ({
   CodeEditor: ({ value, readOnly, onChange }: { value: string; readOnly: boolean; onChange: (value: string) => void }) => (
@@ -74,15 +74,6 @@ it('shows an explicit size state when the host refuses an oversized file', async
   expect(container.textContent).not.toContain('Create this file')
 })
 
-it('shows a binary save refusal without offering a text conflict overwrite', async () => {
-  act(() => root.render(
-    <FileConflictNotice conflict={{ kind: 'binary', size: 6 }} onTakeTheirs={vi.fn()} onOverwrite={vi.fn()} />,
-  ))
-  expect(container.textContent).toContain('This file is now binary. Your save was refused.')
-  expect(container.textContent).not.toContain('Overwrite with mine')
-  expect(container.textContent).not.toContain('Take theirs')
-})
-
 it.each([
   ['binary', { saved: false, reason: 'binary', size: 6 }, 'This file is now binary. Your save was refused.'],
   ['too large', { saved: false, reason: 'tooLarge', size: 2 * 1024 * 1024 + 1 }, 'This file is now too large to edit. Your save was refused.'],
@@ -126,6 +117,10 @@ it.each([
   expect(container.querySelector<HTMLTextAreaElement>('textarea[aria-label="file editor"]')?.value).toBe('person’s unsaved draft')
   expect(container.querySelector<HTMLTextAreaElement>('textarea[aria-label="file editor"]')?.readOnly).toBe(false)
   expect(container.textContent).toContain(message)
+  if (_label === 'binary') {
+    expect(container.textContent).not.toContain('Overwrite with mine')
+    expect(container.textContent).not.toContain('Take theirs')
+  }
 })
 
 it('previews a 2–10 MiB image from the single bounded read', async () => {
