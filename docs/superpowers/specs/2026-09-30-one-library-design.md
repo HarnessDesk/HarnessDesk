@@ -434,7 +434,9 @@ before it is called done.
    - *Option B:* give it a window of its own from the sidebar, as Agents has,
      with Settings linking to it.
    - *Recommendation:* B. Both reviews lean that way, because it is a
-     workspace. Either way, the fold happens in phase 2.
+     workspace. (Superseded: the owner chose a window; the fold of Skills and
+     Extensions into it happens in phase 1, after a parity test. See the
+     roadmap.)
 2. **The canonical rules format.**
    - *Recommendation:* `AGENTS.md` plus references, opt-in per place, so the
      desk invents no format of its own (rule 3).

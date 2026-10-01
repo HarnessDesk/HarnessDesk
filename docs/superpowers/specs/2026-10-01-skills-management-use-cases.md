@@ -605,8 +605,10 @@ tier label.
   *build* or *table* evidence. A seated Agent refuses to seat only when its
   runtime cannot be stopped from auto-loading unapproved content. Other
   unsupported declarations become per-item problems.
-- **If not:** the desk shows plainly what will load. It does not pretend it
-  can block it.
+- **If not:** the desk shows what is on disk in the repository and, for an
+  agent it can ask (Codex so far), what that agent reports loading. For every
+  other agent it says *on disk, not confirmed*. It does not pretend it can
+  block anything.
 - **Worked when:** a collaborator sees a committed script before their first
   conversation in that repository.
 - **Priority · needs:** must · U3, U6

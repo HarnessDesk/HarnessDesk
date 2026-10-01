@@ -57,7 +57,7 @@ written, with `writing-plans`, when the phase before it exits.
   - every state glyph.
 - **The phase 1 PR deletes the mockups.** These are `frames-library-dev.tsx`, `frames-library-options.tsx` and `library-options-fixture.ts`. They are replaced by frames of the real components, so no second copy of the design survives.
 - `pnpm verify` is green, unpiped.
-- The design audit adds no findings to its 20 pre-existing ones.
+- The design audit adds no findings beyond main's accounted baseline (the single-area primitives it already reports).
 - Every check-run on the final head is green before merge.
 
 ## Running each task
