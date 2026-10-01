@@ -530,12 +530,17 @@ budget: { rounds: 3, without-progress: 2 }
 
 A role's own file no longer carries an Agent's brief, answers or ceiling —
 those come from the resolved Agent named in `uses:`, the same one Settings ›
-Agents lists. `uses:` a list of Agents, or `seats:` a list of seat specs
-(`runtime=model/effort+`), never both — a scalar Agent plus a seat list opens
-one card per seat, a list of Agents plus zero or one seat opens one per
-Agent, and an explicit `count:` must agree with whichever list sets the
-round's width. A seat's actual ceiling is `narrower(Agent's own ceiling,
-this role's grant)`; an omitted `grant:` is `read`.
+Agents lists. Every agent role needs `uses:` to name at least one Agent.
+`seats:` is optional and supplies seat specs (`runtime=model/effort+`) for
+those Agents: one Agent can be paired with a list of seats to open one card
+per seat, or a list of Agents can be paired with zero or one seat to open one
+card per Agent. Two lists with more than one entry are refused; the role
+never expands them as a cross product. An explicit `count:` sets the width
+when neither list has multiple entries, and when a list has multiple entries
+it must match that list's length. Each list holds at most 32 entries, and
+`count:` is a whole number from 1 to 32. A seat's actual ceiling is
+`narrower(Agent's own ceiling, this role's grant)`; an omitted `grant:` is
+`read`.
 
 **A card never offers or accepts a word that belongs to another role.** The
 card's displayed instruction and what `complete_claim` actually accepts are

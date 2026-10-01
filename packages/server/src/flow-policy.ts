@@ -62,7 +62,10 @@ export interface Slot {
 /** Expand one role without turning two lists into a hidden Cartesian product. */
 export const expandSlots = (input: SlotInput): Slot[] => {
   const { uses, seats, count } = input
-  if (uses.length === 0 || uses.length > SLOT_LIMIT || seats.length > SLOT_LIMIT) {
+  if (uses.length === 0) {
+    throw new Error('An Agent role needs uses: to name an Agent.')
+  }
+  if (uses.length > SLOT_LIMIT || seats.length > SLOT_LIMIT) {
     throw new Error('A round needs between 1 and 32 Agents or seats.')
   }
   if (count !== undefined && (!Number.isSafeInteger(count) || count < 1 || count > SLOT_LIMIT)) {
