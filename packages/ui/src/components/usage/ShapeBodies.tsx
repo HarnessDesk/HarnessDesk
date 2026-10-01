@@ -8,8 +8,21 @@ import {
   SHAPE_LABEL,
   type PlanRow,
 } from '../../lib/plans-table'
+import { balanceSeries } from '../../lib/balance-series'
+import { dayLabelWithYear } from '../../lib/ledger'
 import { formatMoney } from '../../lib/usage'
-import { Chip, Progress, Separator, Text, ToolbarGap } from '../../design'
+import {
+  ChartAxis,
+  ChartCard,
+  ChartFrame,
+  DayColumns,
+  Chip,
+  Progress,
+  Separator,
+  Text,
+  ToolbarGap,
+  tintFor,
+} from '../../design'
 import { PlanFrame } from './PlanFrame'
 import styles from './usage.module.css'
 
@@ -143,6 +156,18 @@ export const BalanceBody = ({
   const report = row.report
   const balance = report.credits?.remaining ?? null
   const unit = report.credits?.unit ?? 'USD'
+  const history = report.balanceHistory
+  const historyDays = balanceSeries(history, now)
+  const chartUnit = history?.unit ?? unit
+  const formatBalance = (value: number): string =>
+    chartUnit === 'USD' ? (formatMoney(value) ?? `${value}`) : `${value.toLocaleString()} ${chartUnit}`
+  const historyBuckets = historyDays.map((day) => ({
+    label: dayLabelWithYear(day.day),
+    total: day.remaining,
+    parts: [day.remaining],
+    unknown: day.unknown,
+  }))
+  const historyCeiling = Math.max(0, ...historyDays.map((day) => day.remaining))
   const days = runwayDaysOf(report)
   const out = balance !== null && balance <= 0
   return (
@@ -177,7 +202,28 @@ export const BalanceBody = ({
           </div>
         </>
       )}
-      <Text as="div" role="meta">No balance history yet.</Text>
+      {history && history.points.length >= 2 ? (
+        <ChartFrame aria-label="Balance history">
+          <ChartCard>
+            <DayColumns
+              buckets={historyBuckets}
+              series={[{ key: 'balance', label: 'Balance', tint: tintFor('balance') }]}
+              format={formatBalance}
+              label={`Balance per day for the last ${historyDays.length} days`}
+              emptyLabel="No balance recorded"
+              mode="line"
+              today={historyBuckets.length - 1}
+              axisTicks={[0, historyCeiling / 2, historyCeiling]}
+            />
+            <ChartAxis
+              start={historyDays[0] ? dayLabelWithYear(historyDays[0].day) : ''}
+              end={historyDays.at(-1) ? dayLabelWithYear(historyDays.at(-1)!.day) : ''}
+            />
+          </ChartCard>
+        </ChartFrame>
+      ) : (
+        <Text as="div" role="meta">Balance history starts with the next reading</Text>
+      )}
     </PlanFrame>
   )
 }

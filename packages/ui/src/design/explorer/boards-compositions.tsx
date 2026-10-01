@@ -2320,6 +2320,13 @@ const PLANS_CASES = {
     runtime: PLANS_CODEX.id,
     account: 'balance@harnessdesk.app',
     credits: { remaining: 8.8, unit: 'USD' },
+    balanceHistory: {
+      unit: 'USD',
+      points: Array.from({ length: 22 }, (_, index) => ({
+        at: new Date(2026, 8, 5 + index, 12).getTime(),
+        remaining: Number((21 - index * 0.58).toFixed(2)),
+      })),
+    },
     spend: {
       currency: 'USD',
       todayCost: null,
