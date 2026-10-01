@@ -2032,6 +2032,11 @@ export class Host {
         requestsFor: (runtime, sinceMs) => this.#ledgerService.requestsFor(runtime, sinceMs),
         valueFor: (runtime, sinceMs) => this.#ledgerService.valueFor(runtime, sinceMs),
       },
+      balances: {
+        record: (runtime, account, at, remaining, unit, pruneAt) =>
+          this.#ledgerService.recordBalance(runtime, account, at, remaining, unit, pruneAt),
+        history: (runtime, account, since) => this.#ledgerService.balanceHistory(runtime, account, since),
+      },
       onReport: (report) => this.#push({ method: 'usage/updated', params: { report } }),
       log: (message, details) => this.#logger.warn(message, details),
       // Every report — cached, returned or pushed as `usage/updated` — folds

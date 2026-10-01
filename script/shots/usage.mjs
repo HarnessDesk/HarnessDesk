@@ -36,6 +36,13 @@ const lane = (id, label, usedPercent, windowMinutes, resetsInMinutes, extra = {}
 
 const day = (n, cost, tokens) => ({ day: Date.now() - n * 24 * 60 * MINUTE, cost, tokens })
 
+const accountActivityDays = () => Array.from({ length: 30 }, (_, index) => {
+  const date = new Date()
+  date.setHours(0, 0, 0, 0)
+  date.setDate(date.getDate() - (29 - index))
+  return { day: date.getTime(), tokens: 70_000 + index * 2_500 }
+})
+
 /** A week of spend that rises toward today, so the sparkline has a shape. */
 const week = (peak) =>
   [6, 5, 4, 3, 2, 1, 0].map((n, i) => day(n, Number((peak * (0.35 + i * 0.11)).toFixed(2)), Math.round(peak * (0.35 + i * 0.11) * 41_000)))
@@ -97,6 +104,15 @@ export const REPORTS = [
     // 40% left, behind pace on the 5-hour window: the third "What is left"
     // card, comfortable rather than low.
     lanes: [lane('session', '5-hour', 60, 300, 135), lane('weekly', 'Weekly', 41, 10_080, 5_020)],
+    // The account service sees work across machines, so this 30-day total
+    // exceeds the local transcript ledger's 1.71M-token window below.
+    accountActivity: {
+      days: accountActivityDays(),
+      lifetimeTokens: 68_400_000,
+      peakDailyTokens: 221_000,
+      currentStreakDays: 12,
+      longestStreakDays: 31,
+    },
     credits: null,
     spend: {
       currency: 'USD',

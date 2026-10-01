@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFileSync, spawn } from 'node:child_process'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -15,11 +16,104 @@ import { tempDir } from './scratch.js'
 const alive = (pid: number): boolean => {
   try {
     process.kill(pid, 0)
-    return true
-  } catch {
-    return false
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
+  }
+
+  // kill(pid, 0) still finds a killed child until launchd reaps it, while the
+  // run's own kill(-pgid, 0) already skips it (EPERM for a group of only such
+  // processes) and counts it gone. Under load it was measured as a zombie (Z),
+  // and as `?E 1 <pgid> (sleep)`: E is macOS ps(1)'s "trying to exit". A Z, an
+  // X (dead, on Linux) or an E process can never run again, so it is gone.
+  try {
+    const state = execFileSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' }).trim()
+    return state.length > 0 && !state.startsWith('Z') && !state.startsWith('X') && !state.includes('E')
+  } catch (error) {
+    // `ps` exits 1 and prints nothing when the pid is gone, reaped since the
+    // kill above. Any other failure (a sandbox, no `ps`) cannot tell a zombie
+    // from a live process, so it answers alive: "gone" is what tests assert.
+    const { status, stdout } = error as { status?: number; stdout?: string | Buffer }
+    return !(status === 1 && String(stdout ?? '').trim() === '')
   }
 }
+
+test('a child that has exited but is not yet reaped is gone, though kill(pid, 0) still finds it', async (t) => {
+  try {
+    execFileSync('python3', ['--version'], { stdio: 'ignore' })
+  } catch {
+    t.skip('python3 is not on PATH')
+    return
+  }
+
+  const parent = spawn('python3', [
+    '-c',
+    'import os, time\npid = os.fork()\nif pid == 0:\n    os._exit(0)\nwhile os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:\n    time.sleep(0.01)\nprint(pid, flush=True)\ntime.sleep(30)',
+  ], { stdio: ['ignore', 'pipe', 'ignore'] })
+  t.after(() => {
+    try {
+      process.kill(parent.pid!, 'SIGKILL')
+    } catch {
+      // Gone already.
+    }
+  })
+
+  let output = ''
+  const pidLine = new Promise<string>((resolve, reject) => {
+    parent.stdout!.setEncoding('utf8')
+    parent.stdout!.on('data', (chunk: string) => {
+      output += chunk
+      const newline = output.indexOf('\n')
+      if (newline !== -1) resolve(output.slice(0, newline))
+    })
+    parent.once('error', reject)
+    parent.once('exit', (code) => reject(new Error(`python3 exited before printing a child pid (${code})`)))
+  })
+  const zombie = Number(await pidLine)
+  assert.ok(Number.isInteger(zombie) && zombie > 0, 'python3 printed the forked child pid')
+
+  const deadline = Date.now() + 5_000
+  let state = ''
+  while (Date.now() < deadline) {
+    try {
+      state = execFileSync('ps', ['-o', 'stat=', '-p', String(zombie)], { encoding: 'utf8' }).trim()
+    } catch {
+      t.skip('ps cannot run here, so a zombie cannot be told from a live process')
+      return
+    }
+    if (state.startsWith('Z')) break
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  assert.ok(state.startsWith('Z'), `ps reports the unreaped child as a zombie; got ${JSON.stringify(state)}`)
+  assert.doesNotThrow(() => process.kill(zombie, 0), 'kill(pid, 0) still succeeds for this zombie')
+  assert.equal(alive(zombie), false, 'a zombie is gone even though kill(pid, 0) found it')
+})
+
+test('a process the test may not signal is not taken for gone', (t) => {
+  let code: string | undefined
+  try {
+    process.kill(1, 0)
+  } catch (error) {
+    code = (error as NodeJS.ErrnoException).code
+  }
+  if (code !== 'EPERM') {
+    t.skip('this user may signal pid 1, so EPERM cannot be shown here')
+    return
+  }
+  assert.equal(alive(1), true, 'only ESRCH proves a process is gone')
+})
+
+test('a live process is still alive when `ps` cannot run to tell it from a zombie', (t) => {
+  const live = spawn('sleep', ['30'], { stdio: 'ignore' })
+  const path = process.env['PATH']
+  t.after(() => {
+    if (path === undefined) delete process.env['PATH']
+    else process.env['PATH'] = path
+    live.kill('SIGKILL')
+  })
+  // An empty PATH is what a sandbox without `ps` looks like to the helper.
+  process.env['PATH'] = ''
+  assert.equal(alive(live.pid!), true, 'a check that cannot run never makes "gone" true')
+})
 
 test('a command exits with its status and the end of what it printed, both streams', async () => {
   const cwd = tempDir('hd-run-')
