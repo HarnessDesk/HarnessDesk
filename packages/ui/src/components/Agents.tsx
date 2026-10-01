@@ -8,7 +8,7 @@ import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import type { ReportFoot } from './Details'
 import { RuntimeMark } from './BrandIcons'
 import { AgentIcon } from './Icons'
-import { AccountMark } from '../design'
+import { IconTile } from '../design'
 import { PanelEmpty, PanelRow, RunDot } from './Panel'
 
 /**
@@ -114,12 +114,9 @@ export const Agents = ({ query, onFoot }: { query: string; onFoot: ReportFoot })
         <PanelRow
           key={agent.sessionId}
           mark={
-            <AccountMark
-              size="sm"
-              data-tint={defaultTint(agent.sessionId)}
-            >
+            <IconTile size="sm" shape="face" tint={defaultTint(agent.sessionId)}>
               {info ? <RuntimeMark runtime={info} size={12} /> : <AgentIcon size={12} />}
-            </AccountMark>
+            </IconTile>
           }
           title={
             <>

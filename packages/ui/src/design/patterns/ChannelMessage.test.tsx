@@ -105,7 +105,12 @@ it('a grouped message keeps the body, drops the header, and keeps its time in th
   expect(row().hasAttribute('data-grouped')).toBe(true)
   expect(row().querySelector('[data-slot="icon-tile"]')).toBeNull()
   expect(row().querySelector('[data-role="member"]')).toBeNull()
-  expect(row().querySelector('[data-slot="text"][data-role="meta"]')?.textContent).toBe('03:35 PM')
+  // The time is all that shows, but the delivery state stays reachable on it,
+  // hover and screen reader both, as on a full header.
+  const time = row().querySelector('[data-slot="text"][data-role="meta"]')
+  expect(time?.textContent).toBe('03:35 PM, delivered')
+  expect(time?.getAttribute('title')).toBe('delivered')
+  expect(time?.querySelector('.sr-only')?.textContent).toBe(', delivered')
   expect(row().textContent).toContain('And one more.')
 })
 

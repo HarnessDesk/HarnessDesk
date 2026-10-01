@@ -296,8 +296,10 @@ export const ChannelMessage = ({
             role="meta"
             numeric
             className="whitespace-nowrap opacity-0 select-none group-hover:opacity-100 group-focus-within:opacity-100"
+            title={whisper ?? undefined}
           >
             {at}
+            {whisper && <span className="sr-only">, {whisper}</span>}
           </Text>
         ) : (
           // The face is decoration — the header says who spoke in words. A
