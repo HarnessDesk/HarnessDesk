@@ -5399,11 +5399,11 @@ export class Host {
     try {
       live = await runtime.createSession({
         cwd: where.cwd,
+        ...(where.ceiling ? { requestedCeiling: where.ceiling } : {}),
         ...(environment ? { environment } : {}),
         ...(seat.model ? { model: seat.model } : {}),
         ...(where.attachments ? { attachments: where.attachments } : {}),
         options: {
-          ...(where.ceiling ? { requestedCeiling: where.ceiling } : {}),
           ...(seat.effort ? { effort: seat.effort } : {}),
           ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),
         },

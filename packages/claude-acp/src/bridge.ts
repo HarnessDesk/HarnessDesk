@@ -1,6 +1,6 @@
 import { closeSync, fstatSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { mkdirSync, rmSync } from 'node:fs'
 import {
   agent as acpAgent,
@@ -226,7 +226,7 @@ const parsedSettings = (raw: unknown): Record<string, unknown> => {
   if (typeof raw !== 'string' || raw === '') return {}
   try { const parsed: unknown = JSON.parse(raw); return typeof parsed === 'object' && parsed !== null ? parsed as Record<string, unknown> : {} } catch { return {} }
 }
-export const withOptions = (meta: Meta, values: Record<string, string>, abort: AbortController): Record<string, unknown> => {
+export const withOptions = (meta: Meta, values: Record<string, string>, abort: AbortController, cwd?: string): Record<string, unknown> => {
   const claudeCode = (meta?.['claudeCode'] ?? {}) as { options?: Record<string, unknown> }
   const options: Record<string, unknown> = { ...(claudeCode.options ?? {}), abortController: abort }
   const environment = environmentIn(meta)
@@ -260,6 +260,25 @@ export const withOptions = (meta: Meta, values: Record<string, string>, abort: A
       ...((options['disallowedTools'] as string[] | undefined) ?? []),
       'Write', 'Edit', 'MultiEdit', 'NotebookEdit',
     ])]
+    const configuredSettings = options['settings']
+    let flagSettings: Record<string, unknown> = {}
+    if (typeof configuredSettings === 'string') {
+      try {
+        flagSettings = JSON.parse(configuredSettings) as Record<string, unknown>
+      } catch {
+        flagSettings = JSON.parse(readFileSync(resolve(cwd ?? process.cwd(), configuredSettings), 'utf8')) as Record<string, unknown>
+      }
+    } else if (typeof configuredSettings === 'object' && configuredSettings !== null && !Array.isArray(configuredSettings)) {
+      flagSettings = configuredSettings as Record<string, unknown>
+    }
+    // The SDK's flag-settings tier is applied before the CLI starts hooks.
+    // SDK callback hooks (including our PreToolUse ceiling guard) remain active.
+    options['settings'] = { ...flagSettings, disableAllHooks: true }
+    const settingSources = options['settingSources']
+    options['settingSources'] = Array.isArray(settingSources)
+      ? settingSources.filter((source) => source === 'user')
+      : ['user']
+    options['strictMcpConfig'] = true
     const hooks = (options['hooks'] ?? {}) as Record<string, unknown>
     const preToolUse = (hooks['PreToolUse'] as unknown[] | undefined) ?? []
     options['hooks'] = {
@@ -275,20 +294,20 @@ export const withOptions = (meta: Meta, values: Record<string, string>, abort: A
   return next
 }
 
-const DESK_READ_TOOLS = new Set([
+export const DESK_READ_TOOLS = new Set([
   // Mirrors the read entries in server/src/ceilings/tools.ts; unknown names deliberately fail closed.
-  'git_status', 'git_diff', 'git_log', 'pr_view', 'pr_checks', 'issue_view', 'pr_review', 'pr_comment', 'issue_comment',
+  'git_status', 'git_diff', 'git_log', 'pr_view', 'pr_checks', 'issue_view',
   'read_file', 'list_directory', 'search_text', 'find_files', 'todo_write', 'todo_read',
   'list_intents', 'add_intent', 'claim_work', 'claim_next', 'await_work', 'await_member', 'check_conflicts',
-  'run_check', 'release_claim', 'get_context', 'get_team_status', 'agent_message', 'notify_person',
+  'release_claim', 'get_context', 'get_team_status',
   'review_candidates', 'record_review', 'raise_finding', 'repair_finding', 'decide_finding', 'list_findings',
-  'list_checkpoints', 'fetch_url', 'browser_open', 'browser_screenshot', 'browser_read_page', 'browser_click',
-  'browser_pointer', 'browser_key', 'browser_type', 'browser_fill', 'browser_page', 'browser_console',
-  'browser_network', 'browser_evaluate', 'browser_cdp', 'browser_close', 'ios_devices', 'ios_boot', 'ios_install',
-  'ios_launch', 'ios_screenshot', 'ios_tap', 'ios_open_url', 'ios_terminate', 'android_devices', 'android_install',
-  'android_launch', 'android_screenshot', 'android_tap', 'android_key', 'android_text', 'android_logcat',
+  'list_checkpoints', 'browser_screenshot', 'browser_read_page', 'browser_console', 'browser_network',
+  'ios_devices', 'ios_screenshot', 'android_devices', 'android_screenshot', 'android_logcat',
 ])
-const READ_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'NotebookRead', 'WebFetch', 'WebSearch', 'Task', 'Agent', 'TaskOutput', 'TaskStop'])
+const READ_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'NotebookRead', 'Task', 'Agent', 'TaskOutput'])
+
+export const forkedControls = (parent: Record<string, string>): Record<string, string> =>
+  parent['ceiling'] === 'read' ? { ceiling: 'read' } : {}
 const SHELL_WORD = /^[A-Za-z0-9_./:@%+=,-]+$/
 const SHELL_META = /[;&|<>`$(){}*?\\!"'\n\r\t]/
 
@@ -600,7 +619,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     const instructed = withInstructions(request)
     const { params, input, staged } = withAttachments(instructed, (key) => this.#stagingRoot(key))
     const values = optionsIn(params._meta)
-    const response = await super.newSession({ ...params, _meta: withOptions(params._meta, values, new AbortController()) })
+    const response = await super.newSession({ ...params, _meta: withOptions(params._meta, values, new AbortController(), params.cwd) })
     await this.#forceReadPermissionMode(response.sessionId, values)
     this.#suppliedMcpServers.set(response.sessionId, params.mcpServers?.map((server) => server.name) ?? [])
     this.#deletedSessions.delete(response.sessionId)
@@ -623,7 +642,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     this.#deletedSessions.delete(request.sessionId)
     const instructed = withInstructions(request)
     const { params, input, staged } = withAttachments(instructed, (key) => this.#stagingRoot(key))
-    const response = await super.loadSession({ ...params, _meta: withOptions(params._meta, remembered, new AbortController()) })
+    const response = await super.loadSession({ ...params, _meta: withOptions(params._meta, remembered, new AbortController(), params.cwd) })
     await this.#forceReadPermissionMode(request.sessionId, remembered)
     this.#suppliedMcpServers.set(request.sessionId, params.mcpServers?.map((server) => server.name) ?? [])
     this.#releaseAttachments(request.sessionId, input?.key)
@@ -642,7 +661,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
   }
   override async resumeSession(request: ResumeSessionRequest): Promise<ResumeSessionResponse> {
     const remembered = { ...this.#readControls(request.sessionId), ...optionsIn(request._meta) }
-    const response = await super.resumeSession({ ...request, _meta: withOptions(request._meta, remembered, new AbortController()) })
+    const response = await super.resumeSession({ ...request, _meta: withOptions(request._meta, remembered, new AbortController(), request.cwd) })
     await this.#forceReadPermissionMode(request.sessionId, remembered)
     const stored: StoredControlsWithRuntime = {
       values: remembered,
@@ -662,6 +681,13 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       throw RequestError.invalidParams('The read ceiling allows only the default and plan permission modes.')
     }
     return super.setSessionMode(params)
+  }
+  override async unstable_forkSession(params: Parameters<ClaudeAcpAgent['unstable_forkSession']>[0]): ReturnType<ClaudeAcpAgent['unstable_forkSession']> {
+    const result = await super.unstable_forkSession(params)
+    const parent = this.#controls.get(params.sessionId)?.values ?? this.#readControls(params.sessionId)
+    const inherited = forkedControls(parent)
+    if (inherited['ceiling'] === 'read') this.#writeControls(result.sessionId, inherited)
+    return result
   }
   override async setSessionConfigOption(params: SetSessionConfigOptionRequest): Promise<SetSessionConfigOptionResponse> {
     if (!CONTROL_IDS.includes(params.configId as typeof CONTROL_IDS[number])) {
@@ -827,7 +853,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       sessionId,
       cwd: stored.cwd,
       ...(creation?.mcpServers ? { mcpServers: creation.mcpServers } : {}),
-      _meta: withOptions({ ...(stored.meta ?? {}), claudeCode: { ...frozenClaudeCode, options: { ...frozenOptions, resume: sessionId } } }, stored.values, new AbortController()),
+      _meta: withOptions({ ...(stored.meta ?? {}), claudeCode: { ...frozenClaudeCode, options: { ...frozenOptions, resume: sessionId } } }, stored.values, new AbortController(), stored.cwd),
     })
     await this.#forceReadPermissionMode(sessionId, stored.values)
     const current = this.#controls.get(sessionId)
