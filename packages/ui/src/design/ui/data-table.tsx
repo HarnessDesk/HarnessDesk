@@ -3,6 +3,7 @@ import type * as React from 'react'
 
 import { ChevronIcon, SortNameIcon } from '@/components/Icons'
 import { cn } from '@/lib/utils'
+import { Button } from './button'
 import { Checkbox } from './checkbox'
 
 /**
@@ -171,6 +172,7 @@ const DataTablePagination = ({
 }) => (
   <div
     data-slot="data-table-pagination"
+    data-surface
     className={cn(
       'flex items-center gap-2 border-t border-(--hd-border) px-3 py-2 text-xs text-(--hd-muted-foreground)',
       className,
@@ -194,15 +196,19 @@ const DataTablePagination = ({
     >
       <ChevronIcon aria-hidden className="rotate-180" />
     </button>
-    <button
+    <Button
+      variant="ghost"
+      size="icon-xs"
+      edge="end"
+      edgeGlyph={12}
       type="button"
       aria-label="Next page"
       disabled={page >= pages}
       onClick={onNext}
-      className="inline-flex size-(--hd-icon-target) items-center justify-center rounded-(--hd-radius-sm) hover:bg-(--hd-hover) hover:text-(--hd-foreground) disabled:pointer-events-none disabled:opacity-40 [&_svg]:size-3"
+      className="rounded-(--hd-radius-sm) disabled:opacity-40 [&_svg]:size-3"
     >
       <ChevronIcon aria-hidden />
-    </button>
+    </Button>
   </div>
 )
 

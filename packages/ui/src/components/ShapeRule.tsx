@@ -93,6 +93,7 @@ export const ShapeRule = ({ rule, policy, onChange }: ShapeRuleProps) => {
                 return (
                   <Row
                     key={index}
+                    data-surface
                     title={GUARD_WORDS[kind]}
                     control={(
                       <span className="flex items-center gap-(--hd-space-2)">
@@ -111,7 +112,14 @@ export const ShapeRule = ({ rule, policy, onChange }: ShapeRuleProps) => {
                             <option value="merged">merged</option>
                           </NativeSelect>
                         )}
-                        <Button size="sm" variant="outline" aria-label={`Remove guard ${index + 1}`} onClick={() => removeGuard(index)}>
+                        <Button
+                          size="icon-sm"
+                          edge="end"
+                          edgeGlyph={14}
+                          variant="outline"
+                          aria-label={`Remove guard ${index + 1}`}
+                          onClick={() => removeGuard(index)}
+                        >
                           <CrossIcon size={14} />
                         </Button>
                       </span>
