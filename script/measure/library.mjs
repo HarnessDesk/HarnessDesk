@@ -244,36 +244,50 @@ export const safeEnv = (fixture, cwd = fixture.repo) => ({
 
 export function makeSandboxProfile(root, realHome = homedir()) {
   if (process.platform !== 'darwin' || !existsSync('/usr/bin/sandbox-exec')) return null
-  return sandboxProfileText(realpathSync(realHome), [join(realpathSync(root), 'sandbox-canary-home')])
+  return sandboxProfileText(realpathSync(realHome))
 }
 
 export function verifySandbox(profilePath, fixtureRoot) {
   const canaryHome = join(fixtureRoot, 'sandbox-canary-home')
-  const syntheticRoots = [
-    ...knownAgentHomeEntries().map(({ path }) => path.startsWith('~/') ? join(canaryHome, path.slice(2)) : join(canaryHome, path)),
-    ...CREDENTIAL_ROOTS.map((path) => join(canaryHome, path)),
-  ]
-  const canaryPaths = [...new Set(syntheticRoots)].map((path) => join(path, 'canary'))
+  mkdirSync(canaryHome, { recursive: true })
+  const canonicalCanaryHome = realpathSync(canaryHome)
+  const canaryProfilePath = join(fixtureRoot, 'canary-profile.sb')
+  const controlPath = join(fixtureRoot, 'control.sb')
+  const controlFile = join(canonicalCanaryHome, 'control-canary')
+  const profile = makeSandboxProfile(fixtureRoot)
+  if (!profile || readFileSync(profilePath, 'utf8') !== profile) return false
+  const realHome = realpathSync(homedir())
+  const canaryProfile = sandboxProfileText(canonicalCanaryHome)
+  if (profile.split(realHome).join(canonicalCanaryHome) !== canaryProfile) return false
+  writeFileSync(canaryProfilePath, canaryProfile)
+
+  const canaryRoots = [...new Set(deniedHomePaths(canonicalCanaryHome)
+    .filter((path) => isWithin(canonicalCanaryHome, path)))]
+  if (!canaryRoots.length) return false
+  const canaryPaths = canaryRoots.map((path, index) => join(path, `canary-${index}`))
   for (const path of canaryPaths) {
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, 'sandbox denial canary')
   }
-  const profile = makeSandboxProfile(fixtureRoot)
-  if (!profile || readFileSync(profilePath, 'utf8') !== profile) return false
-  const checkScript = `
+  writeFileSync(controlFile, 'sandbox control canary')
+  const runCanary = (script, path) => spawnSync('/usr/bin/sandbox-exec', [
+    '-f', canaryProfilePath, process.execPath, '-e', script, path,
+  ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5_000 })
+  const succeeded = (result) => Boolean(result && !result.error && !result.signal && result.status === 0)
+  const denyScript = `
     const fs = require('node:fs');
-    const paths = process.argv.slice(1);
-    for (const path of paths) {
-      let readDenied = false, writeDenied = false;
-      try { fs.readFileSync(path); } catch (error) { readDenied = ['EPERM', 'EACCES'].includes(error.code); }
-      try { fs.writeFileSync(path, 'must be denied'); } catch (error) { writeDenied = ['EPERM', 'EACCES'].includes(error.code); }
-      if (!readDenied || !writeDenied) process.exit(31);
-    }
+    const path = process.argv[1];
+    let readDenied = false, writeDenied = false;
+    try { fs.readFileSync(path); } catch (error) { readDenied = ['EPERM', 'EACCES'].includes(error.code); }
+    try { fs.writeFileSync(path, 'must be denied'); } catch (error) { writeDenied = ['EPERM', 'EACCES'].includes(error.code); }
+    if (!readDenied || !writeDenied) process.exit(31);
   `
-  const paths = spawnSync('/usr/bin/sandbox-exec', ['-f', profilePath, process.execPath, '-e', checkScript, ...canaryPaths], {
-    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5_000,
-  })
-  if (paths.error || paths.signal || paths.status !== 0) return false
+  for (const path of canaryPaths) if (!succeeded(runCanary(denyScript, path))) return false
+  const readableControl = runCanary(
+    `const fs = require('node:fs'); if (fs.readFileSync(process.argv[1], 'utf8') !== 'sandbox control canary') process.exit(32);`,
+    controlFile,
+  )
+  if (!succeeded(readableControl)) return false
 
   const service = `harnessdesk-measure-canary-${process.pid}`
   const keychain = join(fixtureRoot, 'canary.keychain-db')
@@ -283,14 +297,12 @@ export function verifySandbox(profilePath, fixtureRoot) {
   // lookup must succeed under the control and fail under the real profile:
   // that difference pins the refusal on the deny rule, not on the sandbox
   // environment, the keychain path, or an "item not found" for any other reason.
-  const controlPath = join(fixtureRoot, 'control.sb')
   writeFileSync(controlPath, readFileSync(profilePath, 'utf8').split('\n').filter((line) => !/mach-lookup/.test(line)).join('\n'))
   const security = (args, profile = null) => spawnSync(
     profile ? '/usr/bin/sandbox-exec' : '/usr/bin/security',
     profile ? ['-f', profile, '/usr/bin/security', ...args] : args,
     { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5_000 },
   )
-  const succeeded = (result) => Boolean(result && !result.error && !result.signal && result.status === 0)
   let passed = false
   try {
     const created = security(['create-keychain', '-p', keychainPassword, keychain])
@@ -319,6 +331,12 @@ export function sandboxProfileText(realHome, extraDeniedRoots = []) {
   const blocked = [...deniedHomePaths(realHome), ...extraDeniedRoots]
   const denies = blocked.map((path) => `(deny file-read* file-write* (subpath ${JSON.stringify(path)}))`).join('\n')
   return `(version 1)\n(allow default)\n${denies}\n(deny mach-lookup (global-name "com.apple.securityd"))\n(deny mach-lookup (global-name "com.apple.SecurityServer"))\n`
+}
+
+export function normalizeVersion(value) {
+  return typeof value === 'string' && value.length <= 40 && /^\d+(\.\d+){0,3}(-[0-9A-Za-z.]{1,24})?$/.test(value)
+    ? value
+    : 'unknown'
 }
 
 export async function prepareSandbox(fixture) {
@@ -390,8 +408,8 @@ export async function captureHelpVersion(agent, fixture) {
   const version = await run(agent.command, versionArgs, fixture)
   await write(join(fixture.root, 'captures', `${agent.id}.version.txt`), `${version.stdout}${version.stderr}`)
   const text = `${version.stdout}\n${version.stderr}`
-  const match = text.match(/\b\d+\.\d+(?:\.\d+)?(?:[-+][A-Za-z0-9.-]+)?\b/)
-  return { help, version, value: version.code === 0 ? match?.[0] ?? null : null }
+  const match = text.match(/\b\d+(?:\.\d+){0,3}(?:-[0-9A-Za-z.]{1,24})?(?:\+[0-9A-Za-z.-]+)?/)
+  return { help, version, value: normalizeVersion(version.code === 0 ? match?.[0] : null) }
 }
 
 export function redact(value, allowed, fixtureRoot) {
@@ -416,7 +434,7 @@ export function validateResult(result, fixture) {
     if (typeof result[key] !== 'string' || !result[key].trim()) throw new Error(`${key} is required`)
   }
   if (!knownAgentNames().has(result.agent) || !knownAgentIds().has(result.agentId)) throw new Error('agent identity is not allowlisted')
-  if (result.version !== 'unknown' && !/^\d+\.\d+(?:\.\d+)?(?:[-+][A-Za-z0-9.-]+)?$/.test(result.version)) throw new Error('version is not allowlisted')
+  if (result.version !== 'unknown' && (result.version.length > 40 || !/^\d+(\.\d+){0,3}(-[0-9A-Za-z.]{1,24})?$/.test(result.version))) throw new Error('version is not allowlisted')
   if (!/^\d{4}-\d{2}-\d{2}$/.test(result.measured)) throw new Error('measured must be a date')
   for (const key of ['interface', 'question']) if (!safeText(result[key], fixture)) throw new Error(`${key} is outside the fixture-derived allowlist`)
   if (!result.facts || typeof result.facts !== 'object' || Array.isArray(result.facts)) throw new Error('facts must be an object')

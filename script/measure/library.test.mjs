@@ -21,6 +21,7 @@ import {
   knownAgentHomeEntries,
   deniedHomePaths,
   agentHomeIsIsolated,
+  normalizeVersion,
 } from './library.mjs'
 
 const under = (root, path) => path.startsWith(`${root}/`) || path === root
@@ -91,6 +92,7 @@ test('sandbox profile blocks real agent homes, credentials, and keychain paths',
   assert.ok(profile.includes('(subpath "/System/Library/Keychains")'))
   assert.match(profile, /com\.apple\.securityd/)
   assert.match(profile, /com\.apple\.SecurityServer/)
+  assert.doesNotMatch(profile, /sandbox-canary-home/)
 })
 
 test('the actual run profile denies every independently listed known-agent home', async (t) => {
@@ -100,7 +102,7 @@ test('the actual run profile denies every independently listed known-agent home'
   const independentHomes = [...source.matchAll(/\bhome:\s*\{([\s\S]*?)^\s{4}\},/gm)]
     .map((match) => match[1].match(/^\s*path:\s*['"]([^'"]+)['"]/m)?.[1]).filter(Boolean)
   assert.deepEqual(knownAgentHomeEntries().map(({ path }) => path), independentHomes)
-  if (process.platform !== 'darwin' || !existsSync('/usr/bin/sandbox-exec')) return t.skip('actual macOS run profile unavailable')
+  if (process.platform !== 'darwin') return t.skip('macOS only')
   const profile = makeSandboxProfile(root)
   assert.ok(profile)
   const realHome = await import('node:fs/promises').then(({ realpath }) => realpath(homedir()))
@@ -112,14 +114,14 @@ test('the actual run profile denies every independently listed known-agent home'
 })
 
 test('sandbox preflight proves the exact run profile, fixture keychain and file denials', async (t) => {
-  if (process.platform !== 'darwin' || !existsSync('/usr/bin/sandbox-exec')) return t.skip('macOS sandbox-exec unavailable')
+  if (process.platform !== 'darwin') return t.skip('macOS only')
   const root = await mkdtemp('/tmp/hd-measure-sandbox-')
   t.after(() => rm(root, { recursive: true, force: true }))
   const fixture = await createFixture(root)
   const passed = await prepareSandbox(fixture)
   assert.equal(fixture.isolation.preflightPassed, passed)
   assert.equal(existsSync(join(root, 'canary.keychain-db')), false)
-  if (!passed) return t.skip('preflight could not prove an explicit securityd denial on this host')
+  assert.equal(passed, true, fixture.isolation.reason)
 })
 
 test('run refuses to launch before this fixture passes the sandbox preflight', async (t) => {
@@ -179,11 +181,30 @@ test('writeResult rejects unsafe strings in every persisted field', async (t) =>
   await assert.rejects(writeResult({ ...valid, unexpected: 'none' }, join(root, 'out'), fixture), /strict schema/)
 })
 
+test('build metadata is normalized before a version can reach writeResult', async (t) => {
+  const root = await mkdtemp('/tmp/hd-measure-version-')
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const fixture = await createFixture(root)
+  const discovered = '1.2.3+sk-live-abcdefgh123456'
+  const normalized = normalizeVersion(discovered)
+  assert.equal(normalized, 'unknown')
+  const result = {
+    agent: 'Codex', agentId: 'codex', version: normalized, measured: '2026-10-01',
+    interface: 'not selected', question: 'Which skill sentinel is loaded?', rawAnswer: '',
+    facts: {}, status: 'could-not-ask', reason: 'could not capture an exact version',
+  }
+  const path = await writeResult(result, join(root, 'out'), fixture)
+  const saved = await readFile(path, 'utf8')
+  assert.match(saved, /"version": "unknown"/)
+  assert.doesNotMatch(saved, /sk-live-abcdefgh123456/)
+})
+
 test('a missing probe persists a redacted could-not-ask result', async (t) => {
   const root = await mkdtemp('/tmp/hd-measure-result-')
   t.after(() => rm(root, { recursive: true, force: true }))
   const fixture = await createFixture(root)
-  if (!await prepareSandbox(fixture)) return t.skip('sandbox preflight unavailable on this host')
+  if (process.platform !== 'darwin') return t.skip('macOS only')
+  assert.equal(await prepareSandbox(fixture), true, fixture.isolation.reason)
   const result = await askAgent({ id: 'codex', name: 'Codex' }, fixture)
   assert.equal(result.status, 'could-not-ask')
   assert.match(result.reason, /no safe probe registered/)
@@ -200,7 +221,8 @@ test('subprocess environment contains only the allowlisted isolated values', asy
   process.env.MEASURE_SENTINEL_SECRET = 'placeholder-secret'
   t.after(() => { if (prior === undefined) delete process.env.MEASURE_SENTINEL_SECRET; else process.env.MEASURE_SENTINEL_SECRET = prior })
   const fixture = await createFixture(root)
-  if (!await prepareSandbox(fixture)) return t.skip('sandbox preflight unavailable on this host')
+  if (process.platform !== 'darwin') return t.skip('macOS only')
+  assert.equal(await prepareSandbox(fixture), true, fixture.isolation.reason)
   const result = await run(process.execPath, ['-e', 'process.stdout.write(JSON.stringify(process.env))'], fixture)
   assert.equal(result.code, 0)
   const env = JSON.parse(result.stdout)
