@@ -606,16 +606,16 @@ test('a Cursor conversation survives the bridge process', async () => {
 test('a title is the first line the user wrote, not the context block prepended for the model', () => {
   assert.equal(titleOf('Fix the bug\nmore detail'), 'Fix the bug')
   assert.equal(
-    titleOf('<context source="Handed off from Claude Code — “x”">\n## Goal\nstuff\n</context>\n\nAdd a New game button'),
+    titleOf(`${wrapContext('Handed off from Claude Code — “x”', '## Goal\nstuff')}\n\nAdd a New game button`),
     'Add a New game button',
   )
-  assert.equal(titleOf('<context source="x">only context</context>'), 'x')
+  assert.equal(titleOf(wrapContext('x', 'only context')), 'x')
 })
 
 test('a message that is only a context block is named by what the block says it is, never by its markup', () => {
   // #47: with nothing of the user's left, the title fell back to the raw envelope.
   assert.equal(
-    titleOf('<context source="Handed off from Claude Code — “x”">\n## Goal\nstuff\n</context>'),
+    titleOf(wrapContext('Handed off from Claude Code — “x”', '## Goal\nstuff')),
     'Handed off from Claude Code — “x”',
   )
   // An envelope with no label is one written with an empty `source`; a bare
@@ -641,13 +641,13 @@ test('a stored preview that says nothing gives way to the next turn\'s title', (
   assert.equal(previewFor('Earlier name', 'Fix the bug'), 'Earlier name')
 })
 
-test('a preview an older bridge stored as the envelope’s first line reads as its label', () => {
-  // Round 4 of #167: rows written before #47's fix kept `<context source="…">` as their name for good.
-  assert.equal(previewFor('<context source="Handed off from Claude Code — \\"x\\"">', 'Fix the bug'), 'Handed off from Claude Code — "x"')
-  assert.equal(previewFor('<context source="">', 'Fix the bug'), 'Fix the bug', 'an envelope with no label is no name')
+test('an unmarked legacy-looking context remains a stored name', () => {
+  // Without the desk marker, old markup cannot be distinguished from typed words.
+  assert.equal(previewFor('<context source="Handed off from Claude Code — \\"x\\"">', 'Fix the bug'), '<context source="Handed off from Claude Code — \\"x\\"">')
+  assert.equal(previewFor('<context source="">', 'Fix the bug'), '<context source="">')
   // #224: nothing writes a bare `<context>`, so a stored name that is one is a name.
   assert.equal(previewFor('<context>', 'Fix the bug'), '<context>')
-  assert.equal(previewFor('<context source="Handed off', 'Fix the bug'), 'Fix the bug', 'nor is a label cut short')
+  assert.equal(previewFor('<context source="Handed off', 'Fix the bug'), '<context source="Handed off')
   // #188: the envelope opens `<context` and a space or `>`, so words that only start with it are the user's own.
   assert.equal(previewFor('<context-free grammars, explained', 'Fix the bug'), '<context-free grammars, explained')
   assert.equal(titleOf('<context-free> grammar </context> is what I mean'), '<context-free> grammar </context> is what I mean')
@@ -728,10 +728,10 @@ test('a conversation is named through a turn: by its block\'s label, or by the n
   }
 })
 
-test('the list reads a stored name as a turn does: an old envelope by its label, one cut short as none, and <context- as the words it is (#188)', async () => {
+test('the list preserves unmarked context lookalikes and <context- as stored words', async () => {
   const dir = tempDir('cursor-acp-legacy-')
   const at = new Date().toISOString()
-  // Rows as an index written before #47's fix left them, and a prompt that only starts with the word.
+  // Old unmarked markup could have been typed by the person, so retain it verbatim.
   writeFileSync(
     join(dir, 'sessions.json'),
     JSON.stringify({
@@ -754,8 +754,8 @@ test('the list reads a stored name as a turn does: an old envelope by its label,
     const listed = await runtime.listSessions({ cwd: WORKDIR })
     const row = (id: string) => listed.data.find((one) => String(one.id) === id)
     assert.ok(row('legacy-cut'), 'the row cut short is listed')
-    assert.equal(row('legacy-whole')?.preview, 'Handed off from Claude Code')
-    assert.equal(row('legacy-cut')?.preview ?? null, null, 'a label cut short is no name')
+    assert.equal(row('legacy-whole')?.preview, '<context source="Handed off from Claude Code">')
+    assert.equal(row('legacy-cut')?.preview, '<context source="Handed off from Claude Code — the packet for the wid')
     assert.equal(row('grammar')?.preview, '<context-free grammars, explained')
   } finally {
     await runtime.dispose()
@@ -993,7 +993,7 @@ test('the ask a chat opened with is read from Cursor’s transcript, past the co
   // A context block HarnessDesk prepended is for the model, not a description.
   writeChat(home, cwd, 'chat-2', {
     messages: [
-      { role: 'user', text: '<user_query>\n<context source="Handed off">\ngoal\n</context>\n\nfinish the migration\n</user_query>' },
+      { role: 'user', text: `<user_query>\n${wrapContext('Handed off', 'goal')}\n\nfinish the migration\n</user_query>` },
     ],
   })
   assert.equal(readChatPreview('chat-2', cwd, home), 'finish the migration')

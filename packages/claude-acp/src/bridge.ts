@@ -20,6 +20,7 @@ import {
   type SetSessionConfigOptionResponse,
 } from '@agentclientprotocol/sdk'
 import { ClaudeAcpAgent, nodeToWebReadable, nodeToWebWritable } from '@agentclientprotocol/claude-agent-acp'
+import { peelDeskContextPrefix } from '@harnessdesk/protocol'
 
 import { sessionFiles, trash } from './store.js'
 import { DELEGATION_CAPABILITY, DELEGATION_LIST, DELEGATION_NOTIFICATION } from './delegation-wire.js'
@@ -69,7 +70,11 @@ const ANSI = /\u001b\[[0-9;]*m/g
 
 export const unwrap = (title: string | null | undefined): string | null => {
   let text = title ?? ''
-  for (const tag of WRAPPER_TAGS) text = text.replace(new RegExp(`<${tag}(?:\\s[^>]*)?>[\\s\\S]*?(?:</${tag}>|$)`, 'g'), ' ')
+  text = peelDeskContextPrefix(text)?.text ?? text
+  for (const tag of WRAPPER_TAGS) {
+    if (tag === 'context') continue
+    text = text.replace(new RegExp(`<${tag}(?:\\s[^>]*)?>[\\s\\S]*?(?:</${tag}>|$)`, 'g'), ' ')
+  }
   const cleaned = text.replace(/\s+/g, ' ').trim()
   return cleaned.length > 0 ? cleaned : null
 }

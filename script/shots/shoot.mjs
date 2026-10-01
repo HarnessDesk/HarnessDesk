@@ -349,7 +349,7 @@ try {
     await sleep(150)
   }
 
-  const shoot = async (name, expect = null, verify = null) => {
+  const shoot = async (name, expect = null, verify = null, panelSurvey = false) => {
     // This is a normal first-run offer, not a transient snapshot.notice.
     // Dismiss it through the same persisted policy as "Not now"; leave error
     // notices alone, because an error is evidence that a scene is not ready.
@@ -370,6 +370,11 @@ try {
     }
     await tildify()
     await audit(name)
+    if (panelSurvey && process.env['HD_SHOTS_PROBE'] === '1') {
+      const metrics = await cdp.json('window.__hdPanelSurveyProbe()')
+      metrics.frame = `${name}.png`
+      writeFileSync(`${OUT}/${name}.probe.json`, JSON.stringify(metrics, null, 2) + '\n')
+    }
     // Numeric/style facts accompany comparisons without recording user text.
     if (has('measure')) {
       const metrics = await cdp.json(`(() => {
@@ -997,6 +1002,57 @@ rules:
     await restoreRing()
   }
 
+  /**
+   * A right-panel scene starts with the exact conversation fixture above, then
+   * opens one registered view through the store verb the UI uses. The optional
+   * panel-state flag lets one fixture supply docked, content-expanded and
+   * window-zoomed photographs without forking the turn data.
+   */
+  const panelScene = (view, open, { area = 'right', expect = null, finish = null } = {}) => ({
+    leaveOverlay: true,
+    panelSurvey: true,
+    panelView: view,
+    panelArea: area,
+    panelState: flag('panel-state', area === 'main' ? 'main' : 'docked'),
+    ...(expect ? { expect } : {}),
+    ...(finish ? { finish } : {}),
+    run: async () => {
+      // A rig take may request several scenes in one process. Remove only its
+      // own mounted dock views first so a prior scene cannot add tabs, retain a
+      // zoom, or leave a terminal visible in this panel's frame.
+      await cdp.eval(`(() => {
+        const store = ${STORE}
+        const snapshot = store.getSnapshot()
+        const ids = []
+        const walk = node => node.kind === 'stack' ? ids.push(...node.views.map(view => view.id)) : (walk(node.first), walk(node.second))
+        for (const area of ['right', 'bottom', 'sidebar']) walk(snapshot.workbench[area].root)
+        for (const id of ids) store.closeView(id)
+        return ids.length
+      })()`)
+      await SCENES.conversation.run()
+      await open()
+      if (area === 'right' && flag('panel-state', 'docked') === 'expanded') {
+        const expanded = await cdp.eval(`(() => {
+          const button = [...document.querySelectorAll('button')].find(one => one.getAttribute('aria-label') === 'Give this panel the whole area')
+          if (!button) return false
+          button.click()
+          return true
+        })()`)
+        if (!expanded) throw new Error(`${view}: panel header had no accessible expand control`)
+      } else if (area === 'right' && flag('panel-state') === 'zoomed') {
+        // The workbench model supports window zoom for a dock, although its
+        // header intentionally offers the content-area scope only.
+        await cdp.eval(`${STORE}.zoomPanel('right', 'window'); true`)
+      }
+      if (process.env['HD_SHOTS_PROBE'] === '1') {
+        const probePath = join(dirname(fileURLToPath(import.meta.url)), 'panel-probe.js')
+        const source = readFileSync(probePath, 'utf8').trim()
+        await cdp.eval(`window.__hdPanelSurveyProbe = ${source}; true`)
+      }
+      await sleep(1000)
+    },
+  })
+
   const SCENES = {
     ...(PROVENANCE_SHOTS.length === 2 ? {
       'provenance-history': {
@@ -1100,6 +1156,61 @@ rules:
       if (folded === null) throw new Error('no "Worked for" fold on the turn')
       if (folded) await click('Worked for')
     } },
+
+    /** Session-backed inspectors, each sharing the same scripted turn. */
+    'panel-trajectory': panelScene('trajectory', () => cdp.eval(`${STORE}.showViewIn('right', { kind: 'trajectory' }); true`)),
+    'panel-changes': panelScene('changes', () => cdp.eval(`${STORE}.showViewIn('right', { kind: 'changes' }); true`)),
+    'panel-agents': panelScene('agents', () => cdp.eval(`${STORE}.showViewIn('right', { kind: 'agents' }); true`)),
+    'panel-activity': panelScene('activity', () => cdp.eval(`${STORE}.showViewIn('right', { kind: 'activity' }); true`)),
+    'panel-tasks': panelScene('tasks', () => cdp.eval(`${STORE}.showViewIn('right', { kind: 'tasks' }); true`)),
+
+    /** Tool views use their store open path, then retain the same conversation. */
+    'panel-git': panelScene('git', () => cdp.eval(`${STORE}.openGitHistory(${q(REPO)}); true`), { expect: 'History' }),
+    'panel-file': panelScene('file', async () => {
+      const path = join(REPO, 'package.json')
+      await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
+      await cdp.eval(`${STORE}.openFile(${q(path)}); true`)
+    }, { expect: 'package.json' }),
+    'panel-preview': panelScene('preview', async () => {
+      const path = join(REPO, 'package.json')
+      await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
+      await cdp.eval(`${STORE}.openPreview(${q(path)}); true`)
+    }),
+    'panel-browser': panelScene('browser', () => SCENES.browser.run(), {
+      finish: async () => {
+        await cdp.eval(`${STORE}.closeBrowser(); true`).catch(() => {})
+        await browserServer?.close()
+        browserServer = null
+      },
+    }),
+    'panel-terminal': panelScene('terminal', async () => {
+      await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
+      if (NATIVE_CODEX) await cdp.eval(`${STORE}.selectRuntime('codex')`, 60_000)
+      await cdp.eval(`(async () => {
+        await ${STORE}.openTerminal({ command: ['/bin/sh', '-i'] })
+        const root = ${STORE}.getSnapshot().workbench.bottom.root
+        const find = node => node.kind === 'stack' ? node.views.find(item => item.view.kind === 'terminal') : find(node.first) ?? find(node.second)
+        const mounted = find(root)
+        if (mounted) ${STORE}.moveView(mounted.id, 'right')
+        return Boolean(mounted)
+      })()`, 120_000)
+    }),
+
+    /** Room and board are room-scoped; the room is the main destination. */
+    'panel-room': panelScene('room', async () => {
+      const id = await stageRoom()
+      await cdp.eval(`${STORE}.openTeamRoom(${q(id)}); true`)
+    }, { area: 'main', expect: 'Agents' }),
+    'panel-board': panelScene('board', async () => {
+      const id = await stageRoom()
+      await cdp.eval(`${STORE}.openTeamBoard(${q(id)}); true`)
+    }),
+
+    /** A restored plugin tab whose provider is unavailable uses its honest empty state. */
+    'panel-plugin': panelScene('plugin', () => cdp.eval(`${STORE}.showViewIn('right', { kind: 'plugin', contribution: 'survey-missing-panel', label: 'Unavailable panel', mounts: ['right'] }); true`), { expect: 'not running' }),
+
+    /** The conversation view itself is the fixed main destination. */
+    'panel-conversation': panelScene('conversation', async () => {}, { area: 'main', expect: 'Worked for' }),
 
     /**
      * The composer's context ring, popped open and everything else on screen
@@ -2890,7 +3001,10 @@ rules:
             })()`))
           }
         }
-        await shoot(`${name}-${theme}`, scene.expect ?? null, scene.verify ?? null)
+        const frameName = scene.panelSurvey
+          ? `${scene.panelView}-${scene.panelState}-${WIDTH <= 1000 ? 'narrow' : 'wide'}-${theme}`
+          : `${name}-${theme}`
+        await shoot(frameName, scene.expect ?? null, scene.verify ?? null, scene.panelSurvey === true)
       },
     })
   }

@@ -394,7 +394,7 @@ const storedThreads = () => [
   thread({
     id: 'thread-3',
     name: null,
-    preview: '<context source="Uncommitted changes">\nStatus: ## main\n</context>\n\nReply with exactly: ok',
+    preview: '<context source="Uncommitted changes" data-hd-envelope="harnessdesk-v1">\nStatus: ## main\n</context>\n\nReply with exactly: ok',
   }),
   // A first message that is nothing but blocks, the adapter's own Git
   // preamble ahead of the chip the person attached.
@@ -402,7 +402,7 @@ const storedThreads = () => [
     id: 'thread-4',
     name: null,
     preview:
-      '<context source="Git">\nOn branch main.\n</context>\n\n<context source="Uncommitted changes">\nStatus: ## main\n</context>',
+      '<context source="Git" data-hd-envelope="harnessdesk-v1">\nOn branch main.\n</context>\n\n<context source="Uncommitted changes" data-hd-envelope="harnessdesk-v1">\nStatus: ## main\n</context>',
   }),
 ].filter((t) => !deletedThreads.has(t.id))
 

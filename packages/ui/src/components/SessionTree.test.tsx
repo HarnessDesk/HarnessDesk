@@ -6,6 +6,7 @@ import {
   runtimeId,
   sessionId,
   sessionKey,
+  wrapContext,
   type RuntimeInfo,
   type GoalView,
   type Session,
@@ -1220,7 +1221,7 @@ it('reads the ask past the context blocks the composer puts before it', () => {
           {
             type: 'userMessage',
             content: [
-              { type: 'text', text: '<context source="Page">\nthe page it was looking at\n</context>' },
+              { type: 'text', text: wrapContext('Page', 'the page it was looking at') },
               { type: 'text', text: 'Make the header sticky' },
             ],
           },
