@@ -1343,7 +1343,7 @@ export const TeamRoomPane = ({
                           </IconTile>
                           {entry?.busy && <Dot state="ready" variant="presence" pulse aria-hidden />}
                         </span>
-                        <Text role="row" className={styles.columnName}>{member?.nickname ?? 'Member'}</Text>
+                        <Text role="row" weight="semibold" className={styles.columnName}>{member?.nickname ?? 'Member'}</Text>
                         <Text role="meta" className={styles.columnSub}>
                           {[member?.agent === member?.nickname ? null : member?.agent, member?.model].filter(Boolean).join(' · ')}
                         </Text>
