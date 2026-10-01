@@ -17,11 +17,28 @@ const ANSWERS = [
   'Three attempts with a growing pause, and a 502 after the last one surfaces as it did before.',
 ] as const
 
-const exchange = (key: string, index: number): Session['turns'] =>
-  [
+type SideBySideFixtureOptions = {
+  /** Give Alpha an active turn and its held ceiling chip. */
+  readonly working?: boolean
+  /** Seed Beta's real pending approval. */
+  readonly waiting?: boolean
+  /** Give Gamma a turn that stopped before completion. */
+  readonly stopped?: boolean
+  /** Leave Delta without a prior turn, so its tile has no outcome badge. */
+  readonly ready?: boolean
+}
+
+const exchange = (key: string, index: number, options: SideBySideFixtureOptions): Session['turns'] =>
+  options.ready && index === 3
+    ? []
+    : [
     {
       id: `${key}-t1`,
-      status: (['inProgress', 'completed', 'completed', 'interrupted'] as const)[index] ?? 'completed',
+      status: index === 0 && options.working
+        ? 'inProgress'
+        : index === 2 && options.stopped
+          ? 'interrupted'
+          : 'completed',
       items: [
         { id: `${key}-u`, type: 'userMessage', content: [{ type: 'text', text: 'Make the client retry a 502 before giving up.' }] },
         { id: `${key}-a`, type: 'assistantMessage', phase: 'final', text: ANSWERS[index] },
@@ -31,7 +48,7 @@ const exchange = (key: string, index: number): Session['turns'] =>
 
 export const SIDE_BY_SIDE_KEYS = SIDE_BY_SIDE_MEMBERS.map((member) => sessionKey(member.runtime, member.id as SessionId)) as SessionKey[]
 
-export const sideBySideStore = (): AppStore => {
+export const sideBySideStore = (options: SideBySideFixtureOptions = {}): AppStore => {
   const base = previewStore()
   const snapshot = base.getSnapshot()
   const sessions = new Map<SessionKey, Session>()
@@ -51,13 +68,13 @@ export const sideBySideStore = (): AppStore => {
         cwd: prior.cwd,
         model: `model-${String.fromCharCode(97 + index)}`,
         agent: member.agent,
-        ...(index === 0 ? { ceiling: { level: 'edit' as const, hold: 'held' as const } } : {}),
+        ...(index === 0 && options.working ? { ceiling: { level: 'edit' as const, hold: 'held' as const } } : {}),
       },
       // The preview's own conversations carry real model names in their model
       // option; the tiles' frames are public, so the option is left out and
       // every tile's composer reads alike.
       options: (prior.options ?? []).filter((option) => option.category !== 'model'),
-      turns: exchange(member.id, index),
+      turns: exchange(member.id, index, options),
       itemsLoaded: true,
     })
   })
@@ -72,7 +89,7 @@ export const sideBySideStore = (): AppStore => {
     displayName: 'Model A',
     description: 'Preview model',
   }))
-  const approvals: AppSnapshot['approvals'] = [{
+  const approvals: AppSnapshot['approvals'] = options.waiting ? [{
     key: SIDE_BY_SIDE_KEYS[1]!,
     approval: {
       id: 'side-by-side-waiting-approval',
@@ -86,7 +103,7 @@ export const sideBySideStore = (): AppStore => {
         { id: 'no', label: 'Deny', intent: 'deny' },
       ],
     },
-  } as unknown as AppSnapshot['approvals'][number]]
+  } as unknown as AppSnapshot['approvals'][number]] : []
   const own = previewStore({ ...snapshot, sessions, runtimes, models, approvals } as Partial<AppSnapshot>)
   const peers: readonly TeamPeerInfo[] = SIDE_BY_SIDE_MEMBERS.map((member) => ({
     runtime: member.runtime,
