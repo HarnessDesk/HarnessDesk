@@ -205,9 +205,15 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
       getComputedStyle(saved.target).visibility !== 'hidden'
       ? saved.target
       : null
-    const composer = pane.querySelector<HTMLElement>('textarea:not(:disabled)')
+    const firstFocusable = [...pane.querySelectorAll<HTMLElement>(
+      'a[href], area[href], button, input, select, textarea, iframe, object, embed, summary, [contenteditable="true"], [tabindex]',
+    )].find((candidate) =>
+      candidate.tabIndex >= 0 && !candidate.matches(':disabled') &&
+      !candidate.closest('[data-hidden], [hidden], [inert]') &&
+      getComputedStyle(candidate).visibility !== 'hidden',
+    )
     store.focusPane(focused.id)
-    const back = target ?? composer ?? pane
+    const back = target ?? firstFocusable ?? pane
     back?.focus({ preventScroll: true })
   }, [rightPanelOverlay, snapshot.layout, store, workbench])
 
