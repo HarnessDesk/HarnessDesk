@@ -301,6 +301,8 @@ test('the rendered frames and boards hold the alignment census ceiling', async (
       ? [`${check}: recorded total ${table[check]?.count} does not match signature multiplicity ${Object.values(expected).reduce((sum, count) => sum + count, 0)}`] : []
     return [...newOnes, ...fixed, ...countError]
   })
+  // A check the table records and this spec no longer measures would hold nothing.
+  for (const check of Object.keys(table)) if (!CHECKS.includes(check as Check)) differences.push(`${check}: recorded but no longer measured`)
   await testInfo.attach('alignment-census', { body: JSON.stringify(all, null, 2), contentType: 'application/json' })
   expect(differences.join('\n\n') || 'every recorded signature is still present and no new ones appeared').toBe('every recorded signature is still present and no new ones appeared')
 })
