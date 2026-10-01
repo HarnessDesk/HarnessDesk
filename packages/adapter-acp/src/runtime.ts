@@ -749,7 +749,6 @@ const acpCategory = (id: string, category: string | null | undefined): OptionCat
 
 export class AcpRuntime implements AgentRuntime {
   readonly #config: AcpAgentConfig
-  readonly #searchRowLimit: number
   #searchListing: { readonly rows: readonly AcpSessionRow[]; readonly expiresAt: number } | null = null
   #searchListingGeneration = 0
   /**
@@ -843,9 +842,8 @@ export class AcpRuntime implements AgentRuntime {
    */
   #disposed = false
 
-  constructor(config: AcpAgentConfig, options: { readonly searchRowLimit?: number } = {}) {
+  constructor(config: AcpAgentConfig) {
     this.#config = config
-    this.#searchRowLimit = Math.max(1, Math.floor(options.searchRowLimit ?? SEARCH_SESSION_ROW_LIMIT))
     this.#providerRead = this.#refreshProvider()
     this.#account = config.account
       ? new CliAccount(
@@ -2692,7 +2690,7 @@ export class AcpRuntime implements AgentRuntime {
     const cached = this.#searchListing
     if (cached && cached.expiresAt > Date.now()) return cached.rows
     const generation = this.#searchListingGeneration
-    const rows = await this.#listedRows(undefined, this.#searchRowLimit)
+    const rows = await this.#listedRows()
     if (generation === this.#searchListingGeneration) {
       this.#searchListing = { rows, expiresAt: Date.now() + SEARCH_LISTING_CACHE_MS }
     }
@@ -3102,7 +3100,6 @@ interface AcpSessionPage {
  * a fresh next page forever.
  */
 const LISTING_PAGE_LIMIT = 1000
-const SEARCH_SESSION_ROW_LIMIT = 2000
 /** Reuses a recent listing across adjacent keystrokes; session changes invalidate it immediately. */
 const SEARCH_LISTING_CACHE_MS = 1500
 

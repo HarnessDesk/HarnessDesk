@@ -2363,24 +2363,25 @@ test('search walks listed history, matches title and preview, and excludes the d
   assert.equal(all.data.length, 60)
 })
 
-test('search caps the history rows it reads', async (t) => {
+test('search finds titles beyond the former history row cap', async (t) => {
   const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const dir = mkdtempSync(join(tmpdir(), 'acp-search-bound-'))
   const store = join(dir, 'store.json')
   const at = new Date().toISOString()
-  writeFileSync(store, JSON.stringify(Object.fromEntries(Array.from({ length: 8 }, (_, index) => {
-    const id = `bounded-${index + 1}`
+  writeFileSync(store, JSON.stringify(Object.fromEntries(Array.from({ length: 2005 }, (_, index) => {
+    const id = `bounded-${String(index + 1).padStart(4, '0')}`
     const cwd = folderIn(dir, id)
-    return [id, { sessionId: id, cwd, title: id, updatedAt: at, turns: [] }]
+    const title = index === 2004 ? 'Needle beyond the former cap' : id
+    return [id, { sessionId: id, cwd, title, updatedAt: at, turns: [] }]
   }))))
   const runtime = new AcpRuntime({
     id: 'fake-acp', name: 'Fake ACP Agent', command: process.execPath, args: [FAKE],
-    env: { FAKE_ACP_STORE: store, FAKE_ACP_LIST_PAGE: '1' },
-  }, { searchRowLimit: 3 })
+    env: { FAKE_ACP_STORE: store, FAKE_ACP_LIST_PAGE: '250' },
+  })
   t.after(async () => { await runtime.dispose(); rmSync(dir, { recursive: true, force: true }) })
   await runtime.start()
-  assert.equal((await runtime.searchSessions('bounded')).data.length, 3)
+  assert.deepEqual((await runtime.searchSessions('needle beyond')).data.map((row) => row.title), ['Needle beyond the former cap'])
 })
 
 /**

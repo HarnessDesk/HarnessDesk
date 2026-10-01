@@ -191,12 +191,17 @@ it('keeps the trailing values out of the label’s space', () => {
   render(
     <WindowNavItem
       icon={<span />}
-      label="Skills & commands"
+      label="A runtime supplied destination label long enough to reach the trailing status badge"
       count={25}
+      trail={<span>Ready</span>}
       selected={false}
       onClick={() => {}}
     />,
   )
+  const label = container.querySelector<HTMLElement>('[data-slot="sidebar-menu-label"]')
+  const content = container.querySelector<HTMLElement>('[data-slot="sidebar-menu-label-content"]')
+  expect(label?.className).toContain('sidebar-menu-label-fade')
+  expect(content?.className).toContain('pe-(--hd-space-8)')
   const count = container.querySelector<HTMLElement>('[class*="winNavCount"]')
   // `flex: none` on the count is what stops the shared trailing slot shrinking it.
   expect(getComputedStyle(count as HTMLElement).flexGrow).toBe('0')

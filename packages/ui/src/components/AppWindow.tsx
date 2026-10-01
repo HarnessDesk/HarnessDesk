@@ -170,6 +170,8 @@ export const WindowNavItem = ({
       <SidebarMenuButton
         icon={<Text role="meta" ink="navigation">{icon}</Text>}
         label={<Text role="navigation">{label}</Text>}
+        trailingOverlay={count !== undefined || Boolean(trail)}
+        labelTrailingContent={count !== undefined || Boolean(trail)}
         isActive={selected}
         aria-current={selected ? 'page' : undefined}
         onClick={onClick}
