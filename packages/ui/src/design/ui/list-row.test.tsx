@@ -69,6 +69,16 @@ it('keeps multiple lead marks beside rather than over one another', () => {
   expect(markup).toContain('gap-2')
 })
 
+it('gives a lead beside wrapped copy a box the height of its first line', () => {
+  const small = renderToStaticMarkup(<ListRow size="sm" lead={<span>mark</span>} title="Board" subtitle="A second line" />)
+  const regular = renderToStaticMarkup(<ListRow lead={<span>mark</span>} title="Workspace" subtitle="A second line" />)
+
+  expect(small).toContain('h-(--hd-line-sm)')
+  expect(regular).toContain('h-(--hd-line)')
+  expect(small).not.toContain('translate-y-(--hd-space-px)')
+  expect(regular).not.toContain('translate-y-(--hd-space-px)')
+})
+
 it('opens a row detail at the row\'s edges, or on the list\'s inner line when inset', () => {
   const edge = renderToStaticMarkup(<ListRowDetail>patch</ListRowDetail>)
   // A step under the row and a longer one before the next, no side inset.
@@ -115,16 +125,4 @@ it('hangs a detail under a row\'s own title, on the third inset step', () => {
   expect(text).toContain('ps-(--hd-space-6)')
   expect(title).toContain('pt-(--hd-space-0-5)')
   expect(title).toContain('pb-(--hd-space-1-5)')
-})
-
-it('boxes a two-line row’s lead at its title’s own line height, at either density', () => {
-  const lead = (markup: string) => markup.match(/data-slot="list-row-lead" class="([^"]*)"/)?.[1] ?? ''
-  const plain = renderToStaticMarkup(<ListRow lead={<span>icon</span>} title="Board" subtitle="1 unclaimed" />)
-  const small = renderToStaticMarkup(<ListRow size="sm" lead={<span>icon</span>} title="Board" subtitle="1 unclaimed" />)
-  const single = renderToStaticMarkup(<ListRow lead={<span>icon</span>} title="Board" />)
-
-  expect(lead(plain)).toContain('h-(--hd-line)')
-  expect(lead(small)).toContain('h-(--hd-line-sm)')
-  // A one-line row centres on the row, which is already the title's line.
-  expect(lead(single)).not.toContain('h-(--hd-line')
 })

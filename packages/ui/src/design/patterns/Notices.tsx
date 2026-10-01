@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 
 import { AlertIcon, ArrowLeftIcon, BellIcon, BellOffIcon, CheckAllIcon, ChevronIcon, CrossIcon, InfoIcon, ShieldAlertIcon, TrashIcon } from '../../components/Icons'
 import { ContextMenu, MenuItem, type MenuPoint } from './Menu'
@@ -71,12 +71,15 @@ const TONE_ICON: Record<NoticeTone, (props: { size: number }) => ReactNode> = {
  * square around its icon — so the ground under the words can stay calm; an
  * Agent's message puts that Agent's face in the tile instead.
  */
-const Lead = ({ message, size = 'md' }: { message: NoticeMessage; size?: 'sm' | 'md' }) => {
+const Lead = ({ message, size = 'md', line }: { message: NoticeMessage; size?: 'sm' | 'md'; line?: 'sm' | 'md' }) => {
   const tone = message.tone ?? 'neutral'
   const Glyph = TONE_ICON[tone]
+  const lineSize = line ?? size
   return (
-    <span className={styles.tile} data-tone={tone} data-size={size} aria-hidden>
-      {message.mark ?? <Glyph size={size === 'sm' ? 12 : 14} />}
+    <span className={cn('flex shrink-0 items-center overflow-visible', lineSize === 'sm' ? 'h-(--hd-line-sm)' : 'h-(--hd-line)')}>
+      <span className={styles.tile} data-tone={tone} data-size={size} aria-hidden>
+        {message.mark ?? <Glyph size={size === 'sm' ? 12 : 14} />}
+      </span>
     </span>
   )
 }
@@ -93,6 +96,8 @@ const Dismiss = ({ onDismiss, onMute }: { onDismiss: () => void; onMute?: (() =>
       <Button
         variant="ghost"
         size="icon-xs"
+        edge="end"
+        edgeGlyph={12}
         type="button"
         className={styles.dismiss}
         aria-label="Dismiss"
@@ -129,20 +134,45 @@ const usePager = (count: number) => {
   }
 }
 
-const Pager = ({ at, count, onPrevious, onNext }: { at: number; count: number; onPrevious: () => void; onNext: () => void }) =>
-  count > 1 ? (
-    <span className={styles.pager}>
-      <Button variant="ghost" size="icon-xs" type="button" aria-label="Previous message" disabled={at === 0} onClick={onPrevious}>
+const Pager = ({ at, count, onPrevious, onNext }: { at: number; count: number; onPrevious: () => void; onNext: () => void }) => {
+  const previousRef = useRef<HTMLButtonElement>(null)
+  const nextRef = useRef<HTMLButtonElement>(null)
+  const [active, setActive] = useState<'previous' | 'next'>(() => (at === 0 ? 'next' : 'previous'))
+  if (count <= 1) return null
+
+  const previousDisabled = at === 0
+  const nextDisabled = at === count - 1
+  const stop = active === 'previous' && !previousDisabled ? 'previous' : active === 'next' && !nextDisabled ? 'next' : previousDisabled ? 'next' : 'previous'
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+    const enabled = (['previous', 'next'] as const).filter((name) => name === 'previous' ? !previousDisabled : !nextDisabled)
+    const current = event.currentTarget === previousRef.current ? 'previous' : 'next'
+    const index = Math.max(0, enabled.indexOf(current))
+    const nextIndex = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? enabled.length - 1
+        : (index + (event.key === 'ArrowRight' ? 1 : -1) + enabled.length) % enabled.length
+    const target = enabled[nextIndex]!
+    setActive(target)
+    ;(target === 'previous' ? previousRef : nextRef).current?.focus()
+  }
+
+  return (
+    <span className={styles.pager} data-slot="notice-pager" role="toolbar" aria-label="Message pages">
+      <Button ref={previousRef} variant="ghost" size="icon-xs" type="button" aria-label="Previous message" disabled={previousDisabled} tabIndex={stop === 'previous' ? 0 : -1} onFocus={() => setActive('previous')} onKeyDown={onKeyDown} onClick={onPrevious}>
         <ArrowLeftIcon size={12} />
       </Button>
       <span className={styles.count}>
         {at + 1} of {count}
       </span>
-      <Button variant="ghost" size="icon-xs" type="button" aria-label="Next message" disabled={at === count - 1} onClick={onNext}>
+      <Button ref={nextRef} variant="ghost" size="icon-xs" edge="end" edgeGlyph={12} type="button" aria-label="Next message" disabled={nextDisabled} tabIndex={stop === 'next' ? 0 : -1} onFocus={() => setActive('next')} onKeyDown={onKeyDown} onClick={onNext}>
         <ChevronIcon size={12} />
       </Button>
     </span>
-  ) : null
+  )
+}
 
 const ActionButton = ({ action, variant, className }: { action: NoticeAct; variant: 'default' | 'outline'; className?: string }) => (
   <Button size="sm" variant={variant} type="button" className={className} onClick={action.onSelect}>
@@ -304,7 +334,7 @@ export const InboxList = ({
     const press = message.go ?? (onOpen && !message.read ? () => onOpen(message.id) : undefined)
     return (
       <li key={message.id} className={cn(styles.inboxItem, revealMotion)} {...(message.read ? {} : { 'data-unread': '' })}>
-        <Lead message={message} />
+        <Lead message={message} size="md" line="sm" />
         <div className={styles.inboxText}>
           <span className={styles.inboxTop}>
             {press ? (
@@ -345,7 +375,7 @@ export const InboxList = ({
     )
   }
   return (
-    <div className={styles.inbox} data-slot="inbox-list">
+    <div className={styles.inbox} data-slot="inbox-list" data-surface>
       <div className={styles.inboxHead}>
         <Text role="subject" data-part="inbox-heading">Inbox</Text>
         {messages.length > 0 ? (
@@ -369,7 +399,7 @@ export const InboxList = ({
           </Button>
         ) : null}
         {onClear && messages.length > 0 ? (
-          <Button variant="ghost" size="icon-sm" type="button" aria-label="Clear the inbox" title="Clear the inbox" onClick={onClear}>
+          <Button variant="ghost" size="icon-sm" edge="end" edgeGlyph={14} type="button" aria-label="Clear the inbox" title="Clear the inbox" onClick={onClear}>
             <TrashIcon size={14} />
           </Button>
         ) : null}

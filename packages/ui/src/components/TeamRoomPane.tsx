@@ -1160,7 +1160,7 @@ export const TeamRoomPane = ({
             <Text role="meta" numeric className={styles.count}>{roster.length}</Text>
             {goal ? <Button
               type="button"
-              variant="ghost" size="icon-sm" className={styles.railAdd}
+              variant="ghost" size="icon-sm" edge="end" edgeGlyph={13} className={styles.railAdd}
               aria-label="Seat an Agent in this Goal"
               title="Seat an Agent in this Goal"
               onClick={() => setAdding(true)}

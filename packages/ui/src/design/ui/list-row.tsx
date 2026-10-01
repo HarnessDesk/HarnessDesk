@@ -164,12 +164,9 @@ const ListRow = ({
         data-slot="list-row-lead"
         className={cn(
           'inline-flex shrink-0 items-center gap-2',
-          /* Pinned to the row's top edge in a box exactly one title line
-             tall, so the lead's centre is the title line's centre whatever
-             the lead's size: a lead taller than the line spills evenly
-             above and below it, into the row's own padding. A fixed nudge
-             only fitted one lead size and left the common 24px tile 3px
-             low. */
+          /* The lead slot is exactly the title's first line. A larger mark
+             overflows it evenly above and below instead of inheriting the
+             height of a wrapped description. */
           (subtitle != null || meta != null) && (size === 'sm' ? 'h-(--hd-line-sm)' : 'h-(--hd-line)'),
         )}
       >

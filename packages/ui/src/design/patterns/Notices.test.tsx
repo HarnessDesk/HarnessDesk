@@ -38,10 +38,54 @@ it('shows one card at a time, says how many wait, and pages between them', async
   expect(host.querySelector('[data-part="notice-title"][data-slot="text"][data-role="subject"]')?.textContent).toBe('Relaunch to update')
   expect(host.textContent).not.toContain('Skills to share')
   expect(host.textContent).toContain('1 of 2')
+  expect(host.querySelector('[data-slot="notice-pager"]')?.getAttribute('role')).toBe('toolbar')
   await act(() => button('Next message').click())
   expect(host.textContent).toContain('Skills to share')
   await act(() => button('Dismiss').click())
   expect(onDismiss).toHaveBeenCalledWith('offer')
+})
+
+it('uses one pager tab stop and moves it by toolbar keys, skipping disabled buttons', async () => {
+  await act(() => root.render(<NoticeCard messages={[update, offer, { ...offer, id: 'third' }]} onDismiss={() => {}} />))
+  const previous = button('Previous message')
+  const next = button('Next message')
+  const press = async (target: HTMLButtonElement, key: string) => {
+    await act(() => target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })))
+  }
+
+  expect([previous.tabIndex, next.tabIndex]).toEqual([-1, 0])
+  await press(next, 'ArrowLeft')
+  expect(document.activeElement).toBe(next) // Previous is disabled at the first page.
+  await act(() => next.click())
+  expect(host.textContent).toContain('2 of 3')
+
+  await press(next, 'Home')
+  expect(document.activeElement).toBe(previous)
+  expect([previous.tabIndex, next.tabIndex]).toEqual([0, -1])
+  await press(previous, 'End')
+  expect(document.activeElement).toBe(next)
+  await press(next, 'ArrowLeft')
+  expect(document.activeElement).toBe(previous)
+  await press(previous, 'ArrowLeft')
+  expect(document.activeElement).toBe(next)
+})
+
+it('keeps inbox notice leads full size in a first-line-height wrapper', async () => {
+  await act(() => root.render(<InboxList messages={[{ ...offer, read: false }]} />))
+  const lead = host.querySelector('[data-size="md"]')
+  expect(lead?.parentElement?.className).toContain('h-(--hd-line-sm)')
+  expect(lead?.querySelector('svg')?.getAttribute('width')).toBe('14')
+})
+
+it('pulls each trailing notice glyph to the surface text edge', async () => {
+  await act(() => root.render(<NoticeStrip messages={[update, offer]} onDismiss={() => {}} />))
+  for (const name of ['Next message', 'Dismiss']) {
+    expect(button(name).className).toContain('me-(--edge-pull)')
+  }
+
+  await act(() => root.render(<InboxList messages={[{ ...offer, read: false }]} onMarkAllRead={() => {}} onClear={() => {}} />))
+  expect(button('Clear the inbox').className).toContain('me-(--edge-pull)')
+  expect(host.querySelector('[data-slot="inbox-list"]')?.hasAttribute('data-surface')).toBe(true)
 })
 
 it('a single card has no pager, and its action carries its shortcut', async () => {
@@ -104,6 +148,7 @@ it('a message from an Agent leads with its face instead of the tone dot', async 
   await act(() => root.render(<ComposerNotice message={{ id: 'agent', title: 'Opus wants a decision.', mark: <span data-testid="face">O</span> }} />))
   expect(host.querySelector('[data-testid="face"]')).toBeTruthy()
   expect(host.querySelector('svg')).toBeNull()
+  expect(host.querySelector('[data-testid="face"]')?.parentElement?.parentElement?.className).toContain('h-(--hd-line)')
 })
 
 it('work that takes a moment is one toast that turns into how it ended', () => {
