@@ -7,11 +7,17 @@ import {
   Button,
   DialogPortal,
   DialogRoot,
-  NavigationGroupHeader,
+  GroupLabel,
   Search,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarMenu,
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem,
   Text,
 } from '../design'
-import { createContext, useContext, useRef, useState, type ReactNode } from 'react'
+import { createContext, useContext, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { Clipped } from '../design'
 
 import { ArrowLeftIcon } from './Icons'
@@ -34,6 +40,28 @@ import styles from './AppWindow.module.css'
 
 /** Embedded catalogs show several windows together without taking the desk. */
 export const AppWindowMode = createContext<'modal' | 'embedded'>('modal')
+
+const moveWindowRailFocus = (event: ReactKeyboardEvent<HTMLElement>) => {
+  const target = event.target
+  if (!(target instanceof HTMLButtonElement) || target.dataset.sidebar !== 'menu-button') return
+  if (event.key === 'Enter' || event.key === ' ') {
+    if (event.repeat) return
+    event.preventDefault()
+    target.click()
+    return
+  }
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+  const rows = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[data-sidebar="menu-button"]:not(:disabled)')]
+  const index = rows.indexOf(target)
+  if (index < 0 || rows.length < 2) return
+  const next = event.key === 'Home'
+    ? 0
+    : event.key === 'End'
+      ? rows.length - 1
+      : (index + (event.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length
+  event.preventDefault()
+  rows[next]?.focus()
+}
 
 export const AppWindow = ({ label, children }: { label: string; children: ReactNode }) => {
   const embedded = useContext(AppWindowMode) === 'embedded'
@@ -90,7 +118,7 @@ export const WindowNav = ({
   }
   children: ReactNode
 }) => (
-  <AppWindowRail className={styles.winNav} data-hd-density="comfortable">
+  <AppWindowRail className={styles.winNav} data-hd-density="comfortable" aria-label="Window navigation" onKeyDown={moveWindowRailFocus}>
     <AppWindowRailTop className={`${styles.winNavTop} hd-drag`}>
       <Button type="button" variant="navigation" size="navigation" className={`${styles.backRow} hd-no-drag`} onClick={onBack}>
         <Text role="meta" ink="navigation" className={styles.backIcon}>
@@ -113,10 +141,12 @@ export const WindowNav = ({
 )
 
 export const WindowGroup = ({ label, children }: { label: string; children: ReactNode }) => (
-  <div className={styles.winGroup}>
-    <NavigationGroupHeader label={label} inset="nav" />
-    {children}
-  </div>
+  <SidebarGroup className={styles.winGroup}>
+    <GroupLabel>{label}</GroupLabel>
+    <SidebarGroupContent>
+      {children}
+    </SidebarGroupContent>
+  </SidebarGroup>
 )
 
 export const WindowNavItem = ({
@@ -135,21 +165,25 @@ export const WindowNavItem = ({
   selected: boolean
   onClick: () => void
 }) => (
-  <Button
-    type="button"
-    variant="navigation" size="navigation" className={styles.winNavItem}
-    {...(selected ? { 'data-selected': '' } : {})}
-    onClick={onClick}
-  >
-    <Text role="meta" ink="navigation" className={styles.winNavIcon}>{icon}</Text>
-    {/* A nav is a list of equal rows, so the label takes what is left and cuts
-        rather than wrapping the row to two lines. The runtime names some of
-        these — "Skills & commands" is Claude's and Cursor's word — so the
-        longest one is not ours to choose. */}
-    <Text role="navigation" className={styles.winNavLabel}>{label}</Text>
-    {count !== undefined && <Text role="meta" ink="navigation" numeric className={styles.winNavCount}>{count}</Text>}
-    {trail}
-  </Button>
+  <SidebarMenu>
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        icon={<Text role="meta" ink="navigation">{icon}</Text>}
+        label={<Text role="navigation">{label}</Text>}
+        trailingOverlay={count !== undefined || Boolean(trail)}
+        labelTrailingContent={count !== undefined || Boolean(trail)}
+        isActive={selected}
+        aria-current={selected ? 'page' : undefined}
+        onClick={onClick}
+      />
+      {(count !== undefined || trail) && (
+        <SidebarMenuBadge className={styles.winNavBadge}>
+          {count !== undefined && <Text role="meta" ink="navigation" numeric className={styles.winNavCount}>{count}</Text>}
+          {trail}
+        </SidebarMenuBadge>
+      )}
+    </SidebarMenuItem>
+  </SidebarMenu>
 )
 
 /**
@@ -173,15 +207,18 @@ export const WindowNavIdentity = ({
   selected: boolean
   onClick: () => void
 }) => (
-  <Button
-    type="button"
-    variant="navigation" size="navigation" className={`${styles.winNavItem} ${styles.winIdentity}`}
-    {...(selected ? { 'data-selected': '' } : {})}
-    onClick={onClick}
-  >
-    {face}
-    <Clipped className={styles.winNavLabel}><Text role="row">{name}</Text></Clipped>
-  </Button>
+  <SidebarMenu>
+    <SidebarMenuItem className={styles.winIdentity}>
+      <SidebarMenuButton
+        icon={face}
+        iconSize="lg"
+        label={<Clipped className="block min-w-0 flex-1 truncate" title={typeof name === 'string' ? name : undefined}><Text role="row">{name}</Text></Clipped>}
+        isActive={selected}
+        aria-current={selected ? 'page' : undefined}
+        onClick={onClick}
+      />
+    </SidebarMenuItem>
+  </SidebarMenu>
 )
 
 export const WindowNavEmpty = ({ children }: { children: ReactNode }) => (

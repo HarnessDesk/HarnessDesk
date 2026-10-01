@@ -47,7 +47,7 @@ const setPreviewDials = async (page: Page, theme: 'light' | 'dark', look: 'desk'
 const gotoPreview = async (page: Page) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto('/preview.html')
-  await page.waitForSelector('[class*="rowWrap_"]')
+  await page.waitForSelector('[data-region="session-row"] [data-slot="sidebar-menu-button"]')
   await page.evaluate(async () => { await document.fonts.ready })
 }
 
@@ -338,19 +338,16 @@ test.describe('rule: group labels', () => {
  * Rule: destination rows
  *
  * A navigation row is `--hd-nav-h` tall wherever it appears: every one of
- * the sidebar's session rows (`components/SessionTree.tsx`, all of
- * `[class*="rowWrap_"] button` — selector reused from
- * `sidebar-roles.spec.ts`), every settings/usage rail row (`AppWindow.tsx`'s
- * `WindowNavItem`, all of `.winNavItem` — both windows share this file), and
- * a dropdown menu item (`design/ui/dropdown-menu.tsx`). The rail row and the
- * menu item both carry the Tailwind `size="navigation"` recipe
+ * the sidebar's session rows (`components/SessionTree.tsx`, every
+ * `[data-slot="sidebar-menu-button"]` inside its `[data-region="session-row"]`
+ * — the stable row slot reused from `sidebar-roles.spec.ts`), every
+ * settings/usage rail row (`AppWindow.tsx`'s `WindowNavItem`, every row in
+ * `[data-slot="app-window-nav"]` — both windows share this file), and
+ * a dropdown menu item (`design/ui/dropdown-menu.tsx`). All three carry the
+ * Tailwind `size="navigation"` recipe
  * (`min-h-(--hd-nav-h)`, `py-1`, `text-(length:--hd-text-sm)`,
- * `leading-(--hd-line-sm)`) with nothing else added; the sidebar's session
- * row carries that same recipe too, but its `Button` also carries
- * `Sidebar.module.css`'s own `.rowWrap`/`.row` rules (flex alignment, width,
- * gap — no height or padding of their own). So the three are not one
- * recipe repeated three times, but they render at one height because
- * nothing the sidebar's own sheet adds touches height.
+ * `leading-(--hd-line-sm)`). The Sidebar menu wrapper scopes the session
+ * list; selecting its button slot excludes the sibling hover action.
  *
  * Measured on every instance, not one sample per kind. Every row of every
  * kind is at least `--hd-nav-h` tall, every row of one kind agrees with its
@@ -387,8 +384,8 @@ const destinationRowViolations = (page: Page, menuHeight?: number, kindsAgree = 
         .filter(visible)
         .map((el) => Math.round(el.getBoundingClientRect().height))
       const groups = {
-        'sidebar session row': measure('[class*="rowWrap_"] button'),
-        'settings/usage rail row': measure('[class*="winNavItem"]'),
+        'sidebar session row': measure('[data-region="session-row"] [data-slot="sidebar-menu-button"]'),
+        'settings/usage rail row': measure('[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"]'),
       }
       if (menuH != null) groups['menu item'] = [menuH]
       const representative = {}
@@ -455,7 +452,7 @@ test.describe('rule: destination rows', () => {
     await setPreviewDials(page, 'light', 'desk')
     const before = await destinationRowViolations(page, undefined, false)
     expect(before.out).toEqual([])
-    await page.addStyleTag({ content: '[class*="winNavItem"] { min-height: 10px !important; height: 10px !important; padding-top: 0 !important; padding-bottom: 0 !important; }' })
+    await page.addStyleTag({ content: '[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"] { min-height: 10px !important; height: 10px !important; padding-top: 0 !important; padding-bottom: 0 !important; }' })
     const after = await destinationRowViolations(page, undefined, false)
     expect(after.out.some((f) => f.reason === 'shorter than --hd-nav-h')).toBe(true)
   })
@@ -466,7 +463,8 @@ test.describe('rule: destination rows', () => {
     const before = await destinationRowViolations(page, undefined, false)
     expect(before.out).toEqual([])
     // What the settings rail's identity row did with a 28px face in a 29px row.
-    await page.addStyleTag({ content: '[class*="winNavItem"]:first-of-type { min-height: calc(var(--hd-nav-h) + 1px) !important; }' })
+    await page.locator('[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"]').first().evaluate((row) => row.setAttribute('data-test-row-mutation', ''))
+    await page.addStyleTag({ content: '[data-test-row-mutation] { min-height: calc(var(--hd-nav-h) + 1px) !important; }' })
     const after = await destinationRowViolations(page, undefined, false)
     expect(after.out.some((f) => f.reason.includes("own rows disagree"))).toBe(true)
   })
@@ -480,7 +478,7 @@ test.describe('rule: destination rows', () => {
       expect(before.counts['settings/usage rail row']).toBeGreaterThan(0)
       // What Desk was before #1073, the other way round: one kind a pixel off
       // the others while agreeing with its own siblings.
-      await page.addStyleTag({ content: '[class*="winNavItem"] { min-height: calc(var(--hd-nav-h) + 1px) !important; }' })
+      await page.addStyleTag({ content: '[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"] { min-height: calc(var(--hd-nav-h) + 1px) !important; }' })
       const after = await destinationRowViolations(page)
       expect(after.out.some((f) => f.reason.startsWith('destination-row kinds disagree'))).toBe(true)
     })
@@ -602,7 +600,7 @@ test.describe('rule: fields', () => {
  * The catalogue rig proves the contract in the abstract; a second check
  * below proves it on two real destinations `/preview.html` already selects
  * by default — the sidebar's active session row (`data-active`) and the
- * settings rail's current page (`data-selected`, "General") — against an
+ * settings rail's current page (`aria-current="page", "General") — against an
  * unselected sibling of the same kind, in every theme and interface.
  */
 type SelectionFinding = { pair: string; reason: string }
@@ -623,13 +621,13 @@ const realSelectionViolations = (page: Page) =>
     }
     compare(
       'sidebar session row',
-      '[class*="rowWrap_"] button[data-active]',
-      '[class*="rowWrap_"] button:not([data-active])',
+      '[data-region="session-row"] [data-slot="sidebar-menu-button"][data-active="true"]',
+      '[data-region="session-row"] [data-slot="sidebar-menu-button"]:not([data-active])',
     )
     compare(
       'settings/usage rail row',
-      '[class*="winNavItem"][data-selected]',
-      '[class*="winNavItem"]:not([data-selected])',
+      '[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"][aria-current="page"]',
+      '[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"]:not([aria-current="page"])',
     )
     return { out, measured }
   })

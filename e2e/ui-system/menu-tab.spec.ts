@@ -147,7 +147,9 @@ test.describe('a context menu', () => {
   // leaving it goes back to where the focus was. Before, Tab stopped on the
   // guard after it; Shift+Tab and Escape dropped the focus on the page.
   const sessionRow = (page: Page) =>
-    page.locator('[class*="sidebar_"]').getByRole('button', { name: /^Duplicate Codex accounts/ })
+    page.locator('[data-region="session-row"] [data-slot="sidebar-menu-button"]')
+      .filter({ hasText: 'Duplicate Codex accounts logged in twice' })
+      .first()
 
   test('Tab, Shift+Tab and Escape each close it and give the focus back to its row', async ({ page }) => {
     await page.goto('/preview.html')
@@ -156,7 +158,7 @@ test.describe('a context menu', () => {
     for (const key of ['Tab', 'Shift+Tab', 'Escape']) {
       await session.focus()
       await page.keyboard.press('ContextMenu')
-      await expect(page.getByRole('menuitem', { name: 'Pin' })).toBeFocused()
+      await expect(page.getByRole('menu').getByRole('menuitem').first()).toBeFocused()
 
       await page.keyboard.press(key)
       expect(await onFocusGuard(page)).toBe(false)
@@ -172,7 +174,7 @@ test.describe('a context menu', () => {
     await session.scrollIntoViewIfNeeded()
     for (const key of ['Tab', 'Shift+Tab', 'Escape']) {
       await session.click({ button: 'right' })
-      await expect(page.getByRole('menuitem', { name: 'Pin' })).toBeFocused()
+      await expect(page.getByRole('menu').getByRole('menuitem').first()).toBeFocused()
 
       await page.keyboard.press(key)
       expect(await onFocusGuard(page)).toBe(false)

@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { TranscriptHit } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, type SessionSummary, type TranscriptHit } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -48,15 +48,27 @@ const HIT: TranscriptHit = {
   end: 12,
 } as unknown as TranscriptHit
 
-const mount = async (): Promise<{ request: ReturnType<typeof vi.fn> }> => {
+const LISTED_ACP: SessionSummary = {
+  id: sessionId('cline-older'),
+  runtime: runtimeId('acp-cline'),
+  title: 'Older listed ACP conversation',
+  preview: 'last week',
+  cwd: '/repo',
+  status: { type: 'notLoaded' },
+  createdAt: 1,
+  updatedAt: 2,
+}
+
+const mount = async (runtimes: AppSnapshot['runtimes'] = []): Promise<{ request: ReturnType<typeof vi.fn> }> => {
   const request = vi.fn(async (method: string) => {
     if (method === 'transcripts/search') return [HIT]
+    if (method === 'session/search') return { data: [LISTED_ACP], nextCursor: null }
     return { data: [], nextCursor: null }
   })
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
-    runtimes: [],
+    runtimes,
     history: [],
   } as AppSnapshot
   const store = {
@@ -123,4 +135,20 @@ it('nothing is asked for a single character', async () => {
     await new Promise((resolve) => setTimeout(resolve, 160))
   })
   expect(request).not.toHaveBeenCalledWith('transcripts/search', expect.anything())
+})
+
+it('searches listed ACP history through the runtime capability', async () => {
+  const { request } = await mount([{
+    id: 'acp-cline',
+    name: 'Agent',
+    capabilities: { searchHistory: true, listHistory: true },
+    presentation: { name: 'Agent' },
+  } as AppSnapshot['runtimes'][number]])
+  type('Older listed')
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 160))
+  })
+
+  expect(request).toHaveBeenCalledWith('session/search', { runtime: 'acp-cline', query: 'Older listed' })
+  expect(container.textContent).toContain('Older listed ACP conversation')
 })

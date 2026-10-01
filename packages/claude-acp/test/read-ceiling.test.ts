@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { optionsIn, readCeilingAllowsMode, readCeilingDecision, withOptions } from '../src/index.js'
-import { forkedControls } from '../src/bridge.js'
+import { DESK_READ_TOOLS, forkedControls } from '../src/bridge.js'
+import { DESK_TOOL_CEILINGS } from '@harnessdesk/protocol'
 
 const denied = (toolName: string, toolInput: unknown = {}) => readCeilingDecision(toolName, toolInput)
 
@@ -13,15 +14,21 @@ test('read ceiling denies Claude file and notebook mutation tools', () => {
 })
 
 test('read ceiling denies non-desk MCP tools and desk tools placed above read', () => {
+  const expectedReadTools = Object.values(DESK_TOOL_CEILINGS)
+    .flatMap((tools) => Object.entries(tools))
+    .filter(([, ceiling]) => ceiling === 'read')
+    .map(([name]) => name)
+    .sort()
+  assert.deepEqual([...DESK_READ_TOOLS].sort(), expectedReadTools, 'Claude read access is derived from the shared server ceiling table')
   assert.equal(denied('mcp__other__read_file')?.permissionDecision, 'deny')
   assert.equal(denied('mcp__harnessdesk__pr_create')?.permissionDecision, 'deny')
   for (const name of ['TaskStop', 'WebFetch', 'WebSearch', 'mcp__harnessdesk__pr_review', 'mcp__harnessdesk__pr_comment', 'mcp__harnessdesk__issue_comment', 'mcp__harnessdesk__browser_cdp']) {
     assert.equal(denied(name)?.permissionDecision, 'deny', name)
   }
-  for (const name of ['mcp__harnessdesk__agent_message', 'mcp__harnessdesk__notify_person', 'mcp__harnessdesk__browser_click', 'mcp__harnessdesk__browser_open', 'mcp__harnessdesk__ios_tap', 'mcp__harnessdesk__run_check', 'mcp__harnessdesk__fetch_url']) {
+  for (const name of ['mcp__harnessdesk__agent_message', 'mcp__harnessdesk__notify_person', 'mcp__harnessdesk__browser_click', 'mcp__harnessdesk__browser_open', 'mcp__harnessdesk__ios_tap', 'mcp__harnessdesk__run_tests']) {
     assert.equal(denied(name)?.permissionDecision, 'deny', name)
   }
-  for (const name of ['mcp__harnessdesk__todo_write', 'mcp__harnessdesk__claim_work', 'mcp__harnessdesk__record_review', 'mcp__harnessdesk__browser_read_page']) {
+  for (const name of ['mcp__harnessdesk__todo_read', 'mcp__harnessdesk__claim_work', 'mcp__harnessdesk__record_review', 'mcp__harnessdesk__browser_read_page', 'mcp__harnessdesk__fetch_url']) {
     assert.equal(denied(name), undefined, name)
   }
 })

@@ -6,7 +6,7 @@
     }
   },
   "trailing-glyph-off-column": {
-    "count": 17,
+    "count": 15,
     "signatures": {
       "design.html / code / trailing-glyph-off-column / [data-testid=diff-sample]": 1,
       "design.html / code / trailing-glyph-off-column / [data-testid=markdown-code-sample]": 1,
@@ -21,8 +21,6 @@
       "design.html / message / trailing-glyph-off-column / [data-testid=message-user-image]": 1,
       "design.html / message / trailing-glyph-off-column / [data-testid=message-user-long]": 1,
       "design.html / message / trailing-glyph-off-column / [data-testid=message-user-short]": 1,
-      "design.html / panels / trailing-glyph-off-column / [workbench-canvas] > [workbench-rail] > div > [navigation-group-header] > [button]": 1,
-      "design.html / panels / trailing-glyph-off-column / [workbench-rail] > div > [rail-section] > div > [refused-action]": 1,
       "design.html / tools / trailing-glyph-off-column / [tool-pane-header] > div > [tool-pane-tab-viewport] > [tool-pane-document-tab] > [button]": 1,
       "preview.html / conversation-composer / trailing-glyph-off-column / div > [composer-dock] > [pane-column] > [alert] > [button]": 1
     }

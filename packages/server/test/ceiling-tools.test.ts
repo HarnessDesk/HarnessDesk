@@ -43,13 +43,21 @@ test('every tool the desk ships has its line, and a tool it did not place, or di
     const plugin = plugins.find((one) => one.instanceId === tool.owner)
     assert.ok(plugin, tool.name)
     const placed = DESK_TOOLS[plugin.identity.id]?.[tool.name]
-    assert.ok(placed, `${plugin.identity.id}/${tool.name} ships with the desk and has no line in DESK_TOOLS`)
+    assert.ok(Object.hasOwn(DESK_TOOLS[plugin.identity.id] ?? {}, tool.name), `${plugin.identity.id}/${tool.name} ships with the desk and has no explicit line in DESK_TOOLS`)
     assert.equal(toolCeiling(tool, plugin), placed)
   }
   assert.deepEqual(
     ['pr_review', 'pr_comment', 'pr_create', 'pr_update', 'pr_merge'].map((name) => DESK_TOOLS['git']?.[name]),
-    ['read', 'read', 'publish', 'publish', 'merge'],
+    ['publish', 'publish', 'publish', 'publish', 'merge'],
   )
+  for (const name of ['agent_message', 'notify_person', 'browser_open', 'browser_click', 'browser_pointer', 'browser_key', 'browser_type', 'browser_fill', 'browser_page', 'browser_evaluate', 'browser_cdp', 'browser_close', 'ios_boot', 'ios_install', 'ios_launch', 'ios_tap', 'ios_open_url', 'ios_terminate', 'android_install', 'android_launch', 'android_tap', 'android_key', 'android_text']) {
+    const plugin = Object.entries(DESK_TOOLS).find(([, placed]) => Object.hasOwn(placed, name))
+    assert.ok(plugin, name)
+    assert.notEqual(plugin[1][name], 'read', `${plugin[0]}/${name} has an outward or mutating effect`)
+  }
+  assert.equal(DESK_TOOLS['team']?.record_review, 'read', 'a structured verdict recorded on the desk board is reviewer bookkeeping')
+  assert.equal(DESK_TOOLS['team']?.raise_finding, 'read', 'a structured finding recorded on the desk board is reviewer bookkeeping')
+  assert.equal(DESK_TOOLS['team']?.run_check, 'read', 'reviewers may run only the flow-declared check on their handed revision')
   const git = plugins.find((one) => one.identity.id === 'git')
   assert.equal(toolCeiling({ name: 'pr_rewrite' }, git), 'merge')
   assert.equal(toolCeiling({ name: 'git_status' }, undefined), 'merge')
