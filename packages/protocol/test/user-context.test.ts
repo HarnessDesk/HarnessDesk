@@ -186,8 +186,8 @@ test('the shared desk context envelope is peeled even when an adapter has no tag
   assert.deepEqual(context, [{ label: 'Git', text: 'On branch main' }])
 })
 
-test('the known pre-marker desk envelope is peeled from its original composer shape', () => {
-  const legacy = ' \n<context source="Git">\nOn branch main.\n</context>\n\nFix the stale branch filter.'
+test('a pre-marker desk envelope is peeled from its original composer shape', () => {
+  const legacy = '<context source="Git">\nOn branch main.\n</context>\n\nFix the stale branch filter.'
   const { text, context } = peelContext(legacy, { tags: {} })
   assert.equal(text, 'Fix the stale branch filter.')
   assert.deepEqual(context, [{ label: 'Git', text: 'On branch main.' }])

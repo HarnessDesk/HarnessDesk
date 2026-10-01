@@ -23,7 +23,7 @@ describe('sessionLabel', () => {
     expect(sessionLabel('Pong', 'build pong')).toBe('Pong')
   })
   it('names an untitled conversation by what the user wrote, not the context block', () => {
-    expect(sessionLabel(null, ' \n<context source="Handed off from X">\n## Goal\nx\n</context>\n\nAdd a New game button\nmore')).toBe(
+    expect(sessionLabel(null, '<context source="Handed off from X">\n## Goal\nx\n</context>\n\nAdd a New game button\nmore')).toBe(
       'Add a New game button',
     )
   })

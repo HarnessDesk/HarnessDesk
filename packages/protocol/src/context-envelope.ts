@@ -14,12 +14,11 @@
 
 export const CONTEXT_OPEN = '<context source='
 const DESK_MARKER = 'data-hd-envelope="harnessdesk-v1"'
-const PATTERN = new RegExp(`<context source="((?:[^"\\\\]|\\\\.)*)" ${DESK_MARKER}>\\n?([\\s\\S]*?)\\n?<\\/context>`, 'g')
 const PREFIX_PATTERN = new RegExp(`^<context source="((?:[^"\\\\]|\\\\.)*)" ${DESK_MARKER}>\\n?([\\s\\S]*?)\\n?<\\/context>`)
-// Before the marker was introduced, wrapContext wrote exactly this shape.
-// Only sources the desk itself used then are eligible for this compatibility
-// path; arbitrary user-authored `<context source="…">` remains text.
-const LEGACY_PREFIX_PATTERN = /^\s*<context source="((?:[^"\\]|\\.)*)">\n([\s\S]*?)\n<\/context>/
+// Before the marker was introduced, the composer wrote exactly this shape.
+// Its position and newline/attribute layout identify the old envelope; the
+// label is data, and can come from a plugin unknown to this version.
+const LEGACY_PREFIX_PATTERN = /^<context source="((?:[^"\\]|\\.)*)">\n([\s\S]*?)\n<\/context>/
 
 export interface ContextBlock {
   readonly label: string
@@ -70,29 +69,10 @@ const unquote = (label: string): string => {
   }
 }
 
-const LEGACY_DESK_SOURCES = new Set([
-  'Uncommitted changes',
-  'GitHub issue or PR',
-  'Git',
-  'Checkpoints',
-  'Team board',
-  'Current page screenshot',
-  'Last test run',
-  'Task list',
-  'Page annotations',
-  'Task list edited by the user',
-])
-
-const isLegacyDeskSource = (label: string): boolean =>
-  LEGACY_DESK_SOURCES.has(label) ||
-  [HANDOFF_PREFIX, AGENT_MESSAGE_PREFIX, 'Session: '].some((prefix) =>
-    label.startsWith(prefix) && label.length > prefix.length,
-  )
-
 const legacyLabel = (captured: string): string | null => {
   try {
     const parsed: unknown = JSON.parse(`"${captured}"`)
-    return typeof parsed === 'string' && isLegacyDeskSource(parsed) ? parsed : null
+    return typeof parsed === 'string' ? parsed : null
   } catch {
     return null
   }
@@ -100,12 +80,13 @@ const legacyLabel = (captured: string): string | null => {
 
 /**
  * Read only desk-authored context blocks at the beginning of a message.
- * The marker is written by `wrapContext`; the optional empty-tail mode is
- * for a content block followed by the person's text in a later ACP block.
+ * The marker is written by `wrapContext`; the empty-tail mode lets callers
+ * retain labels when a complete marked block is the whole message.
  */
 export const peelDeskContextPrefix = (raw: string, allowEmptyTail = false): SplitText | null => {
   let rest = raw
   const injections: ContextBlock[] = []
+  let sawLegacy = false
   for (;;) {
     const marked = PREFIX_PATTERN.exec(rest)
     if (marked) {
@@ -119,25 +100,15 @@ export const peelDeskContextPrefix = (raw: string, allowEmptyTail = false): Spli
     if (label === null) break
     injections.push({ label, text: (legacy[2] ?? '').replace(/<\\\/context>/g, '</context>') })
     rest = rest.slice(legacy[0].length).replace(/^(?:\r?\n)+/, '')
+    sawLegacy = true
   }
-  if (injections.length === 0 || (!allowEmptyTail && rest.trim().length === 0)) return null
+  if (injections.length === 0 || ((sawLegacy || !allowEmptyTail) && rest.trim().length === 0)) return null
   return { injections, text: rest.trim() }
 }
 
 export const splitContext = (raw: string): SplitText => {
-  const prefix = peelDeskContextPrefix(raw)
-  if (!prefix && !raw.includes(CONTEXT_OPEN)) return { injections: [], text: raw }
-
-  const injections: ContextBlock[] = [...(prefix?.injections ?? [])]
-  const text = (prefix?.text ?? raw)
-    .replace(PATTERN, (_whole, label: string, body: string) => {
-      injections.push({ label: unquote(label), text: body.replace(/<\\\/context>/g, '</context>') })
-      return ''
-    })
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-
-  return { injections, text }
+  const prefix = peelDeskContextPrefix(raw, true)
+  return prefix ?? { injections: [], text: raw }
 }
 
 /** The label every hand-off packet carries: `Handed off from <agent> — “<conversation>”`. */
@@ -146,9 +117,8 @@ export const HANDOFF_PREFIX = 'Handed off from '
 export const isHandoffSource = (label: string): boolean => label.startsWith(HANDOFF_PREFIX)
 
 /**
- * Whether a line opens a desk envelope, whole or not. `splitContext`
- * leaves a block cut off before it closed in the text, markup and all, and
- * nothing should read that as the person's words.
+ * Whether a complete desk envelope starts here. An incomplete opening or a
+ * complete block after the message has started remains ordinary text.
  *
  * One question, asked in one place. It was asked in four, in three different
  * spellings — here, in the Cursor bridge's `storedName`, in its
@@ -158,10 +128,10 @@ export const isHandoffSource = (label: string): boolean => label.startsWith(HAND
  * (#224).
  *
  * New messages require the exact marker opening `wrapContext` writes.
- * Pre-marker compatibility accepts only a complete prefix from the historical
- * source allow-list and exact body shape. Other legacy-looking and incomplete markup is the person's text:
+ * Pre-marker compatibility accepts only a complete prefix in the exact old
+ * composer layout, followed by typed text. Other legacy-looking and incomplete markup is the person's text:
  *
- * - an unmarked source not used by the desk;
+ * - an unmarked block in any other position or layout;
  * - an opening tag cut off before its matching close.
  */
 export const opensEnvelope = (text: string): boolean => peelDeskContextPrefix(text, true) !== null

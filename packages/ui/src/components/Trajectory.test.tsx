@@ -132,6 +132,27 @@ it('caps measured time at wall time and names overlapping measurements in the ti
   expect(onFoot).toHaveBeenLastCalledWith('1 step', '30m · 30m in commands')
 })
 
+it('caps overlap independently for completed turns with different overlap ratios', async () => {
+  const first = {
+    ...TURN,
+    id: turnId('first-overlap'),
+    status: 'completed',
+    durationMs: 10 * 60_000,
+    items: [item('first-command', { type: 'command', command: 'first', durationMs: 20 * 60_000 })],
+  } as unknown as Turn
+  const second = {
+    ...TURN,
+    id: turnId('second-overlap'),
+    status: 'completed',
+    durationMs: 20 * 60_000,
+    items: [item('second-command', { type: 'command', command: 'second', durationMs: 30 * 60_000 })],
+  } as unknown as Turn
+  await render([first, second])
+  const overview = container.querySelector('[aria-label="Where the time went"]')
+  expect(overview?.textContent).toContain('30m · 30m in commands')
+  expect(overview?.querySelector('[data-slot="progress-stack"]')?.getAttribute('title')).toMatch(/overlap/i)
+})
+
 it('keeps the item-based measured summary when turn wall time is unavailable', async () => {
   const timed = {
     ...TURN,
