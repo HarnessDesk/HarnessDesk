@@ -31,6 +31,23 @@ describe('the live draft a conversation keeps', () => {
     expect(drafts.live(a)).toBeNull()
   })
 
+  it('does not let a late refusal recreate drafts for a deleted conversation', () => {
+    const drafts = new Drafts()
+    drafts.setLive(a, { text: 'being sent', attachments: [] })
+    drafts.forget(a)
+
+    const late = drafts.addRecoverable(a, {
+      text: 'being sent',
+      attachments: [],
+      detail: 'Restore it.',
+    })
+
+    expect(late).toBeNull()
+    expect(drafts.live(a)).toBeNull()
+    expect(drafts.recoverable(a)).toEqual([])
+    expect(new Drafts().recoverable(a)).toEqual([])
+  })
+
   it('gives a store without its own drafts one of its own, never shared with another store', () => {
     const one = {}
     const two = {}
@@ -68,7 +85,7 @@ describe('draft reload storage', () => {
   it('removes restored and emptied drafts synchronously before a fresh store reads', () => {
     const drafts = new Drafts()
     const entry = drafts.addRecoverable(a, { text: 'refused', attachments: [], detail: 'Restore it.' })
-    drafts.restore(a, entry.id)
+    drafts.restore(a, entry!.id)
     const afterRestore = new Drafts()
     expect(afterRestore.recoverable(a)).toEqual([])
 
@@ -81,7 +98,7 @@ describe('draft reload storage', () => {
     const drafts = new Drafts()
     drafts.setLive(a, { text: 'typed meanwhile', attachments: [] })
     const entry = drafts.addRecoverable(a, { text: 'failed send', attachments: [], detail: 'Restore it.' })
-    const restored = drafts.restore(a, entry.id)
+    const restored = drafts.restore(a, entry!.id)
     expect(restored?.text).toBe('failed send')
     expect(drafts.live(a)?.text).toBe('failed send')
     expect(drafts.recoverable(a).map((item) => item.text)).toEqual(['typed meanwhile'])
@@ -111,6 +128,23 @@ describe('draft reload storage', () => {
     expect(restored.live(a)?.attachments.map((item) => item.kind)).toEqual(['file'])
     expect(restored.recoverable(a)[0]?.detail).toContain('Images are not kept across a reload.')
     expect(restored.recoverable(a)[0]?.attachments).toEqual([])
+  })
+
+  it('keeps a visible warning when a restored image is omitted from the reload mirror', () => {
+    const drafts = new Drafts()
+    const imagePath = 'data:image/png;base64,abc123'
+    const entry = drafts.addRecoverable(a, {
+      text: 'send this with the image',
+      attachments: [{ name: 'paste.png', path: imagePath, kind: 'image' }],
+      detail: 'Restore the refused message.',
+    })
+
+    const restored = drafts.restore(a, entry!.id)
+    const afterReload = new Drafts()
+
+    expect(restored?.imagesWillBeLostOnReload).toBe(true)
+    expect(afterReload.live(a)?.attachments).toEqual([])
+    expect(afterReload.live(a)?.imagesWillBeLostOnReload).toBe(true)
   })
 
   it('removes stale stored data and reports memory-only when storage still throws', () => {

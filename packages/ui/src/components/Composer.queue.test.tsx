@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { sessionKey, type RuntimeInfo, type Session, type SessionQueue } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
-import { draftsOf } from '../state/drafts'
+import { draftsOf, UNSCOPED_RECOVERY_KEY } from '../state/drafts'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { Composer } from './Composer'
 
@@ -475,8 +475,48 @@ describe('the composer while a turn is running', () => {
       await Promise.resolve()
     })
 
+    expect(textarea().value).toBe('')
+    const recovery = mountedSnapshot.recoverableDrafts.get(UNSCOPED_RECOVERY_KEY)?.[0]
+    expect(recovery).toMatchObject({
+      text: 'first message with a file',
+      attachments: [{ name: 'spec.md', kind: 'file' }],
+    })
+    const restore = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('Restore'))
+    expect(restore).toBeDefined()
+    act(() => restore?.click())
     expect(textarea().value).toBe('first message with a file')
     expect(container.textContent).toContain('spec.md')
+  })
+
+  it('keeps a refused first send out of a conversation selected while session creation is pending', async () => {
+    let refuse!: (delivered: boolean) => void
+    calls.queue.mockImplementationOnce(() => new Promise<boolean>((resolve) => { refuse = resolve }))
+    mount({ busy: false, key: null })
+    act(() => window.dispatchEvent(new CustomEvent('harnessdesk:compose', {
+      detail: { text: 'belongs to a new conversation', attachments: [] },
+    })))
+
+    await act(async () => {
+      enter()
+      await Promise.resolve()
+    })
+    mountedSnapshot = {
+      ...mountedSnapshot,
+      activeSessionKey: KEY,
+      sessions: new Map([[KEY, session(false)]]),
+    }
+    mountedListeners.forEach((listener) => listener())
+    expect(textarea().value).toBe('')
+
+    await act(async () => { refuse(false) })
+
+    expect(textarea().value).toBe('')
+    expect(mountedSnapshot.recoverableDrafts.get(UNSCOPED_RECOVERY_KEY)?.[0]?.text)
+      .toBe('belongs to a new conversation')
+    const restore = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('Restore'))
+    expect(restore).toBeDefined()
+    act(() => restore?.click())
+    expect(textarea().value).toBe('belongs to a new conversation')
   })
 
   it('shows an inline queue refusal as a recoverable draft without replacing the composer', () => {

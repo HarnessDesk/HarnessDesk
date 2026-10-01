@@ -147,6 +147,12 @@ describe('the queue in the store', () => {
     expect(store.getSnapshot().recoverableDrafts.has(KEY)).toBe(false)
     expect(store.drafts.live(KEY)).toBeNull()
     expect(JSON.parse(sessionStorage.getItem('harnessdesk:drafts:v1') ?? '{}')[KEY]).toBeUndefined()
+
+    // A send already in flight can refuse after the delete notification. Its
+    // callback must not recreate recovery for the conversation just deleted.
+    store.addRecoverableDraft(KEY, { text: 'late refusal', attachments: [], detail: 'Restore it.' })
+    expect(store.getSnapshot().recoverableDrafts.has(KEY)).toBe(false)
+    expect(JSON.parse(sessionStorage.getItem('harnessdesk:drafts:v1') ?? '{}')[KEY]).toBeUndefined()
   })
 
   it('explains when recovery could not be saved for a reload', () => {

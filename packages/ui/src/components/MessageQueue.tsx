@@ -85,7 +85,20 @@ export const MessageQueue = () => {
       setEditing(null)
       return
     }
-    if (messages.some((message) => message.id === editing.id)) return
+    const current = messages.find((message) => message.id === editing.id)
+    if (current && JSON.stringify(current.input) !== JSON.stringify(editing.input) && !saving) {
+      recoverEdit(
+        editing.id,
+        editing.attemptId,
+        editing.text,
+        editing.input,
+        'The queued message changed in another window. Your edit was not saved. Restore it to the composer.',
+        editing.key,
+      )
+      setEditing(null)
+      return
+    }
+    if (current) return
     // A same-conversation queue update does not say why a row left. Preserve
     // its unsaved revision on delivery, Discard all, or removal; a view switch
     // above is the one case where the original row is still elsewhere.
@@ -98,7 +111,7 @@ export const MessageQueue = () => {
       editing.key,
     )
     setEditing(null)
-  }, [editing, key, messages, recoverEdit])
+  }, [editing, key, messages, recoverEdit, saving])
 
   useLayoutEffect(() => {
     const previous = previouslyEditing.current

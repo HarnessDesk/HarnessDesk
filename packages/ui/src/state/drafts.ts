@@ -17,6 +17,8 @@ export interface DraftAttachment {
 export interface Draft {
   readonly text: string
   readonly attachments: readonly DraftAttachment[]
+  /** True when an image is present in memory but omitted from the reload mirror. */
+  readonly imagesWillBeLostOnReload?: boolean
 }
 
 export type RecoverableAttachment = Omit<DraftAttachment, 'id'> & { readonly id?: string }
@@ -55,8 +57,11 @@ const STORAGE_KEY = 'harnessdesk:drafts:v1'
 const LEGACY_STORAGE_KEY = 'harnessdesk:recoverable-drafts:v1'
 const WRITE_DELAY_MS = 250
 const MEMORY_ONLY = ' Not saved for a reload — it stays only while this window is open.'
+/** Recoveries from a refused first send have no conversation to own them yet. */
+export const UNSCOPED_RECOVERY_KEY = '\u0000new-session' as SessionKey
 
-const empty = (draft: Draft): boolean => draft.text.trim() === '' && draft.attachments.length === 0
+const empty = (draft: Draft): boolean =>
+  draft.text.trim() === '' && draft.attachments.length === 0 && !draft.imagesWillBeLostOnReload
 const defaultStorage = (): StorageLike | null => {
   try {
     return typeof sessionStorage === 'undefined' ? null : sessionStorage
@@ -65,7 +70,11 @@ const defaultStorage = (): StorageLike | null => {
   }
 }
 
-const copyDraft = (draft: Draft): Draft => ({ text: draft.text, attachments: [...draft.attachments] })
+const copyDraft = (draft: Draft): Draft => ({
+  text: draft.text,
+  attachments: [...draft.attachments],
+  ...(draft.imagesWillBeLostOnReload ? { imagesWillBeLostOnReload: true } : {}),
+})
 
 const parseDraft = (value: unknown): Draft | null => {
   if (!value || typeof value !== 'object') return null
@@ -79,6 +88,7 @@ const parseDraft = (value: unknown): Draft | null => {
         ? [{ ...item, id: typeof (item as DraftAttachment).id === 'string' ? (item as DraftAttachment).id : `restored-${index}` } as DraftAttachment]
         : [],
     ),
+    ...(candidate.imagesWillBeLostOnReload === true ? { imagesWillBeLostOnReload: true } : {}),
   }
 }
 
@@ -115,6 +125,7 @@ const safeAttachments = (attachments: readonly RecoverableAttachment[]): readonl
  */
 export class Drafts {
   readonly #entries = new Map<SessionKey, { live?: Draft; recoverable: RecoverableDraft[] }>()
+  readonly #forgotten = new Set<SessionKey>()
   readonly #recoverableListeners = new Set<() => void>()
   readonly #storage: StorageLike | null
   readonly #onMemoryOnly?: () => void
@@ -189,8 +200,18 @@ export class Drafts {
       const live = entry.live
       const recoverable = entry.recoverable
       if (!live && recoverable.length === 0) continue
+      const attachments = live ? safeAttachments(live.attachments) : []
+      const imageOmitted = Boolean(live && attachments.length !== live.attachments.length)
       result[key] = {
-        ...(live ? { live: { text: live.text, attachments: safeAttachments(live.attachments) } } : {}),
+        ...(live
+          ? {
+              live: {
+                text: live.text,
+                attachments,
+                ...(live.imagesWillBeLostOnReload || imageOmitted ? { imagesWillBeLostOnReload: true } : {}),
+              },
+            }
+          : {}),
         recoverable: recoverable.map((item) => {
           const attachments = safeAttachments(item.attachments)
           const droppedImage = attachments.length !== item.attachments.length
@@ -263,12 +284,16 @@ export class Drafts {
 
   /** Keep what is typed now. Empty drafts delete the mirror synchronously. */
   setLive(key: SessionKey, draft: Draft): void {
+    if (this.#forgotten.has(key)) return
     const entry = this.#entry(key)
     if (empty(draft)) {
       delete entry.live
       this.#writeImmediately()
     } else {
-      entry.live = copyDraft(draft)
+      const copied = copyDraft(draft)
+      entry.live = draft.attachments.some((attachment) => attachment.kind === 'image')
+        ? { ...copied, imagesWillBeLostOnReload: true }
+        : copied
       this.#scheduleWrite()
     }
     this.#prune(key, entry)
@@ -285,7 +310,8 @@ export class Drafts {
   }
 
   /** Add a refusal or displacement to this conversation's Restore list. */
-  addRecoverable(key: SessionKey, draft: NewRecoverableDraft): RecoverableDraft {
+  addRecoverable(key: SessionKey, draft: NewRecoverableDraft): RecoverableDraft | null {
+    if (this.#forgotten.has(key)) return null
     const id = draft.id ?? ++this.#nextId
     this.#nextId = Math.max(this.#nextId, id)
     const entry = this.#entry(key)
@@ -328,6 +354,7 @@ export class Drafts {
 
   /** Swap one recoverable draft with the current live draft without losing either. */
   restore(key: SessionKey, id: number): Draft | null {
+    if (this.#forgotten.has(key)) return null
     const entry = this.#entries.get(key)
     const selected = entry?.recoverable.find((draft) => draft.id === id)
     if (!entry || !selected) return null
@@ -338,6 +365,9 @@ export class Drafts {
         ...attachment,
         id: attachment.id ?? `restored-${id}-${index}`,
       })),
+      ...(selected.attachments.some((attachment) => attachment.kind === 'image')
+        ? { imagesWillBeLostOnReload: true }
+        : {}),
     }
     entry.recoverable = entry.recoverable.filter((draft) => draft.id !== id)
     if (displaced && !empty(displaced)) {
@@ -367,6 +397,7 @@ export class Drafts {
 
   /** A deleted conversation has no draft in memory or in the reload mirror. */
   forget(key: SessionKey): void {
+    this.#forgotten.add(key)
     this.#entries.delete(key)
     this.#emitRecoverableChange()
     this.#writeImmediately()

@@ -80,7 +80,7 @@ import {
 import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from './ComposerControls'
 import { ContextUsage } from './ContextUsage'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
-import { draftsOf } from '../state/drafts'
+import { draftsOf, UNSCOPED_RECOVERY_KEY } from '../state/drafts'
 import styles from './Composer.module.css'
 
 /**
@@ -200,6 +200,9 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   const drafts = draftsOf(store)
   const [text, setText] = useState(() => (key ? (drafts.live(key)?.text ?? '') : ''))
   const [attachments, setAttachments] = useState<Attachment[]>(() => (key ? [...(drafts.live(key)?.attachments ?? [])] : []))
+  const [imageReloadWarning, setImageReloadWarning] = useState(
+    () => key ? drafts.live(key)?.imagesWillBeLostOnReload === true : false,
+  )
   /* Which conversation's draft `text` holds, and whether this composer is
      still drawn: words are only ever saved to — or put back into — the
      conversation they were typed for. Layout effects, not passive ones: a
@@ -217,14 +220,19 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     }
   }, [])
   useLayoutEffect(() => {
-    if (key && draftOf.current === key) drafts.setLive(key, { text, attachments })
-  }, [drafts, key, text, attachments])
+    const imagesWillBeLostOnReload =
+      imageReloadWarning || attachments.some((attachment) => attachment.kind === 'image')
+    if (key && draftOf.current === key) {
+      drafts.setLive(key, { text, attachments, imagesWillBeLostOnReload })
+    }
+  }, [drafts, key, text, attachments, imageReloadWarning])
   useLayoutEffect(() => {
     if (draftOf.current === key) return
     draftOf.current = key
     const held = key ? drafts.live(key) : null
     setText(held?.text ?? '')
     setAttachments(held ? [...held.attachments] : [])
+    setImageReloadWarning(held?.imagesWillBeLostOnReload === true)
   }, [drafts, key])
   // Drag-and-drop: the counter survives the enter/leave pairs every child
   // fires as the pointer crosses it, so the highlight does not flicker.
@@ -587,20 +595,28 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       detail: 'Restore the refused message to the composer; your current draft stays available.',
       reason: 'refused',
     })
-    else {
-      setText(draft.text)
-      setAttachments([...draft.attachments])
-    }
+    else store.addRecoverableDraft(UNSCOPED_RECOVERY_KEY, {
+      text: draft.text,
+      attachments: draft.attachments,
+      detail: 'This message failed before a conversation was created. Restore it to the composer you choose.',
+      reason: 'refused',
+    })
   }, [store])
 
-  const storedRecoverable = key ? snapshot.recoverableDrafts.get(key) ?? [] : []
-  const restoreStoredDraft = useCallback((id: number) => {
-    if (!key) return
-    const restored = store.restoreRecoverableDraft(key, id)
+  const storedRecoverable = [
+    ...(key ? (snapshot.recoverableDrafts.get(key) ?? []).map((item) => ({ key, item })) : []),
+    ...(snapshot.recoverableDrafts.get(UNSCOPED_RECOVERY_KEY) ?? [])
+      .map((item) => ({ key: UNSCOPED_RECOVERY_KEY, item })),
+  ]
+  const restoreStoredDraft = useCallback((ownerKey: ReturnType<typeof sessionKey>, id: number) => {
+    const restored = store.restoreRecoverableDraft(ownerKey, id)
     if (!restored) return
     setText(restored.text)
     setAttachments(restored.attachments.map((attachment) => ({ ...attachment, id: nextAttachmentId() })))
-  }, [key, store])
+    setImageReloadWarning(
+      restored.imagesWillBeLostOnReload === true || restored.attachments.some((attachment) => attachment.kind === 'image'),
+    )
+  }, [store])
 
   const deliver = useCallback(async (mode: 'auto' | 'now' = 'auto', release: () => void = () => {}) => {
     // `/open src/a.ts` is a command with an argument, not a message that
@@ -1037,18 +1053,28 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       <ComposerNoticeStack>
         <NoticeStripOutlet host={isNoticeHost} />
         <ComposerNotices />
-        {storedRecoverable.map((item) => (
+        {storedRecoverable.map(({ key: ownerKey, item }) => (
           <ComposerNotice
-            key={`stored-${item.id}`}
+            key={`stored-${ownerKey}-${item.id}`}
             message={{
               id: `composer-stored-recoverable-draft-${item.id}`,
               tone: 'warning',
               title: item.reason === 'edit' ? 'Edit not saved.' : 'Message not sent.',
               body: item.detail,
-              action: { label: 'Restore', onSelect: () => restoreStoredDraft(item.id) },
+              action: { label: 'Restore', onSelect: () => restoreStoredDraft(ownerKey, item.id) },
             }}
           />
         ))}
+        {(imageReloadWarning || attachments.some((attachment) => attachment.kind === 'image')) && (
+          <ComposerNotice
+            message={{
+              id: 'composer-image-reload-warning',
+              tone: 'warning',
+              title: 'Image not saved for reload.',
+              body: 'Attach it again after reopening HarnessDesk.',
+            }}
+          />
+        )}
       </ComposerNoticeStack>
       <ComposerShell
         className={`${styles.shell} ${styles.anchor}`}

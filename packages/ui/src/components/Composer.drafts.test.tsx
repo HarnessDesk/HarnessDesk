@@ -152,6 +152,22 @@ describe('a draft belongs to its conversation, not to the composer drawing it', 
     draw(two)
     expect(textarea().value).toBe('for the second')
   })
+
+  it('warns that a restored image stays only in this window', () => {
+    draftsOf(store).addRecoverable(one, {
+      text: 'restore the image edit',
+      attachments: [{ name: 'paste.png', path: 'data:image/png;base64,abc123', kind: 'image' }],
+      detail: 'Restore the refused edit.',
+      reason: 'edit',
+    })
+    currentSnapshot = { ...snapshot, recoverableDrafts: draftsOf(store).recoverableSnapshot() }
+    draw(one)
+
+    restoreMessage('restore the image edit')
+
+    expect(container.textContent).toContain('Image not saved for reload.')
+    expect(container.textContent).toContain('Attach it again after reopening HarnessDesk.')
+  })
 })
 
 describe('a message whose send fails goes back to the conversation it was written for', () => {

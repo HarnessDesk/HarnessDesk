@@ -274,6 +274,21 @@ describe('MessageQueue', () => {
     expect(container.querySelector('textarea')).toBeNull()
   })
 
+  it('recovers a local edit when another window changes the same queued row', () => {
+    mount(waiting('original'))
+    click(button('Edit'))
+    typeIntoEditor('my local revision')
+
+    mount(waiting('revision from the other window'))
+
+    expect(calls.addRecoverableDraft).toHaveBeenCalledWith(KEY, expect.objectContaining({
+      text: 'my local revision',
+      detail: 'The queued message changed in another window. Your edit was not saved. Restore it to the composer.',
+    }))
+    expect(container.querySelector('textarea')).toBeNull()
+    expect(rows()[0]?.textContent).toContain('revision from the other window')
+  })
+
   it('recovers a revised head row when delivery removes it before Save', () => {
     mount(waiting('original'))
     click(button('Edit'))
