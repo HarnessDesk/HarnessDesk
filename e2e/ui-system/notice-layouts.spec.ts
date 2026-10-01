@@ -23,6 +23,7 @@ test('real Workbench and Panes put each notice in one mounted outlet', async ({ 
       'coverage-notice-folder-gone',
       'coverage-notice-zoomed-sidebar',
       'coverage-notice-zoomed-dock',
+      'coverage-notice-split-unfocused-composer',
     ]) {
       await layout(page, id).screenshot({ path: `${frameDir}/${prefix}-${id.replace('coverage-notice-', '')}.png` })
     }
