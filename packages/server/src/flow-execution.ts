@@ -664,6 +664,28 @@ const realPathOf = async (path: string): Promise<string> => {
 
 const done = (card: Intent | undefined): boolean => card?.state === 'done' || card?.state === 'abandoned'
 
+interface CardDispatch {
+  readonly run: string
+  readonly round: number
+  readonly slot: number
+}
+
+interface FlowCard {
+  readonly run: StoredFlowExecution
+  readonly round: FlowRoundState
+  readonly slot: number
+}
+
+const cardDispatch = (value: string | null | undefined): CardDispatch | null => {
+  const match = value?.match(/^(.+):(\d+):(\d+)$/)
+  if (!match) return null
+  const round = Number(match[2])
+  const slot = Number(match[3])
+  return Number.isSafeInteger(round) && Number.isSafeInteger(slot)
+    ? { run: match[1]!, round, slot }
+    : null
+}
+
 /** What a run records when its Seat's question on `card` went unanswered: one sentence, written and recognised here. */
 const questionStall = (card: number, reason: string): string => `Card #${card}: its Seat ${reason}. Its answer so far is kept.`
 
@@ -1230,9 +1252,11 @@ export class FlowExecutions {
       if (!card || done(card)) throw new Error(cardFinishedAnswer(kept.card))
       if (!seat || seat.closed) throw new Error(missingAnswerSeat(kept.card, Boolean(seat)))
       if (this.#port.busy?.(seat)) throw new Error(busyAnswerSeat(kept.card))
-      const round = now.rounds.find((one) => one.cards.includes(card.id))
-      const index = round ? round.cards.indexOf(card.id) : -1
-      const binding = round ? bindingsFor(now, round.role)[index] : undefined
+      const lookedUp = this.#cardOf(now.goal, card.id)
+      const found = lookedUp?.run.id === now.id ? lookedUp : null
+      const index = found?.slot ?? -1
+      const binding = found ? bindingsFor(now, found.round.role)[found.slot] : undefined
+      const round = found?.round
       if (!round || !binding) throw new Error(`Card #${card.id} no longer matches a Seat of its round, so it cannot be handed your answer.`)
       // A trigger's run sends nothing its gate would not, and a Seat is not reopened for an answer the gate would refuse.
       if (now.intake) {
@@ -1325,9 +1349,11 @@ export class FlowExecutions {
     }
     // A turn still ending — the one the question stopped, or one begun since — is never sent into: the answer waits for it.
     if (this.#port.busy?.(seat)) throw new Error(busyAnswerSeat(card.id))
-    const round = run.rounds.find((one) => one.cards.includes(card.id))
-    const index = round ? round.cards.indexOf(card.id) : -1
-    const binding = round ? bindingsFor(run, round.role)[index] : undefined
+    const lookedUp = this.#cardOf(run.goal, card.id)
+    const found = lookedUp?.run.id === run.id ? lookedUp : null
+    const index = found?.slot ?? -1
+    const binding = found ? bindingsFor(run, found.round.role)[found.slot] : undefined
+    const round = found?.round
     if (!round || !binding) throw new Error(`Card #${card.id} no longer matches a Seat of its round, so it cannot be handed your answer.`)
     const stall = questionStall(card.id, QUESTION_STOP)
     // Durable before the Seat hears anything, and before the person is told it was sent.
@@ -1434,8 +1460,31 @@ export class FlowExecutions {
     return goal === undefined ? null : this.#blocked.get(goal) ?? null
   }
 
+  #cardOf(goal: string, card: number): FlowCard | null {
+    for (const run of this.#runs.values()) {
+      if (run.goal !== goal) continue
+      const round = run.rounds.find((one) => one.cards.includes(card))
+      if (round) return { run, round, slot: round.cards.indexOf(card) }
+    }
+    const intent = this.#team.stateFor(goal).intents.find((one) => one.id === card)
+    const dispatch = cardDispatch(intent?.dispatch)
+    if (!dispatch) return null
+    const run = this.#runs.get(dispatch.run)
+    if (!run || run.goal !== goal) return null
+    const round = run.rounds.find((one) => one.n === dispatch.round && !one.cards.includes(card))
+    return round ? { run, round, slot: dispatch.slot } : null
+  }
+
   #runOfCard(goal: string, card: number): StoredFlowExecution | null {
-    return [...this.#runs.values()].find((run) => run.goal === goal && run.rounds.some((round) => round.cards.includes(card))) ?? null
+    return this.#cardOf(goal, card)?.run ?? null
+  }
+
+  /**
+   * A board card can arrive before its round journal. Resolve its dispatch in
+   * that window so callers can route it to the run.
+   */
+  ownsCard(goal: string, card: number): StoredFlowExecution | null {
+    return this.#runOfCard(goal, card)
   }
 
   /** The Seat bound to a card, from the run's own journal. */
@@ -1446,10 +1495,10 @@ export class FlowExecutions {
 
   /** Which conversation may take this card, or null for a card no v2 run bound. */
   bindingOf(goal: string, card: number): { readonly session: SeatRecord['session'] | null; readonly opening: boolean } | null {
-    const run = this.#runOfCard(goal, card)
-    if (!run) return null
-    const round = run.rounds.find((one) => one.cards.includes(card))
-    const role = run.document.format === 'agents' ? run.document.flow.roles.find((one) => one.id === round?.role) : undefined
+    const found = this.#cardOf(goal, card)
+    if (!found) return null
+    const { run, round } = found
+    const role = run.document.format === 'agents' ? run.document.flow.roles.find((one) => one.id === round.role) : undefined
     if (role?.kind !== 'agent') return null
     const { operation, seat } = this.#seatForCard(run, card)
     return { session: seat?.session ?? null, opening: operation?.state === 'started' && !operation.seat }
@@ -1460,13 +1509,14 @@ export class FlowExecutions {
   }
 
   refuseOutcome(goal: string, intent: Intent, outcome: string | null): string | null {
-    const run = this.#runOfCard(goal, intent.id)
+    const found = this.#cardOf(goal, intent.id)
+    const run = found?.run
     if (!run || run.document.format !== 'agents') return null
-    const round = run.rounds.find((one) => one.cards.includes(intent.id))!
+    const { round, slot } = found
     const role = run.document.flow.roles.find((one) => one.id === round.role)
     let answers: readonly string[] = []
     if (role?.kind === 'agent') {
-      const declared = bindingsFor(run, role.id)[round.cards.indexOf(intent.id)]?.agent.answers ?? []
+      const declared = bindingsFor(run, role.id)[slot]?.agent.answers ?? []
       answers = roleAnswers(policyOf(run), role.id, declared)
     } else if (role?.kind === 'person') answers = role.outcomes
     if (answers.length === 0) return null
@@ -1477,11 +1527,12 @@ export class FlowExecutions {
 
   /** Whether a card is a writer, whose head is a subject: its binding may change files, and its Agent does not judge. */
   #writer(run: StoredFlowExecution, card: number): boolean {
-    const round = run.rounds.find((one) => one.cards.includes(card))
-    if (!round || run.document.format !== 'agents') return false
+    const found = this.#cardOf(run.goal, card)
+    if (!found || found.run.id !== run.id || run.document.format !== 'agents') return false
+    const { round } = found
     const role = run.document.flow.roles.find((one) => one.id === round.role)
     if (role?.kind !== 'agent') return false
-    const binding = bindingsFor(run, role.id)[round.cards.indexOf(card)]
+    const binding = bindingsFor(run, role.id)[found.slot]
     // A card that judges is never judged: a reviewer's own checkout is not a
     // subject whatever its grant, exactly as `reviewBinding` offers it only
     // what it depends on.
@@ -1518,7 +1569,12 @@ export class FlowExecutions {
     const subjects: FlowSubject[] = []
     const unsettled: { card: number; why: string }[] = []
     for (const card of cards) {
-      const round = run.rounds.find((one) => one.cards.includes(card))!
+      const found = this.#cardOf(run.goal, card)
+      const round = found?.run.id === run.id ? found.round : null
+      if (!round) {
+        unsettled.push({ card, why: 'its round can no longer be read' })
+        continue
+      }
       const { seat } = this.#seatForCard(run, card)
       if (!seat) {
         unsettled.push({ card, why: 'its Seat can no longer be read' })
@@ -1534,7 +1590,7 @@ export class FlowExecutions {
 
   /** A finished round's subjects, read now. */
   async subjectsOf(goal: string, round: FlowRoundState): Promise<readonly FlowSubject[]> {
-    const run = round.cards.length > 0 ? this.#runOfCard(goal, round.cards[0]!) : null
+    const run = round.cards.length > 0 ? this.#cardOf(goal, round.cards[0]!)?.run ?? null : null
     return run ? (await this.#closure(run, round.cards)).subjects : []
   }
 
@@ -1570,13 +1626,12 @@ export class FlowExecutions {
 
   /** Whether this card's Seat is there to review (`reviewsIn`) — `complete_claim` alone cannot finish it then. */
   requiresReview(goal: string, card: number): boolean {
-    const run = this.#runOfCard(goal, card)
-    if (!run || run.document.format !== 'agents') return false
-    const round = run.rounds.find((one) => one.cards.includes(card))
-    const role = run.document.flow.roles.find((one) => one.id === round?.role)
+    const found = this.#cardOf(goal, card)
+    if (!found || found.run.document.format !== 'agents') return false
+    const { run, round } = found
+    const role = run.document.flow.roles.find((one) => one.id === round.role)
     if (role?.kind !== 'agent') return false
-    const index = round!.cards.indexOf(card)
-    const binding = bindingsFor(run, role.id)[index]
+    const binding = bindingsFor(run, role.id)[found.slot]
     return binding ? reviewsIn(binding) : false
   }
 
@@ -1616,13 +1671,12 @@ export class FlowExecutions {
    * `null`, logged (#1049).
    */
   async refuseDirty(goal: string, card: number): Promise<string | null> {
-    const run = this.#runOfCard(goal, card)
-    if (!run || run.document.format !== 'agents') return null
-    const round = run.rounds.find((one) => one.cards.includes(card))
-    const role = run.document.flow.roles.find((one) => one.id === round?.role)
+    const found = this.#cardOf(goal, card)
+    if (!found || found.run.document.format !== 'agents') return null
+    const { run, round } = found
+    const role = run.document.flow.roles.find((one) => one.id === round.role)
     if (role?.kind !== 'agent') return null
-    const index = round!.cards.indexOf(card)
-    const binding = bindingsFor(run, role.id)[index]
+    const binding = bindingsFor(run, role.id)[found.slot]
     if (!binding || !mayCommit(binding.agent, binding.grant)) return null
     const before = this.#team.dirtyPathsOf(goal, card)
     if (!before) return null
@@ -1661,12 +1715,12 @@ export class FlowExecutions {
    * finish to. Null for a card no v2 run bound, which is not this tool's.
    */
   async commitWork(goal: string, card: number, message: string): Promise<string | null> {
-    const run = this.#runOfCard(goal, card)
-    if (!run || run.document.format !== 'agents') return null
-    const round = run.rounds.find((one) => one.cards.includes(card))
-    const role = run.document.flow.roles.find((one) => one.id === round?.role)
+    const found = this.#cardOf(goal, card)
+    if (!found || found.run.document.format !== 'agents') return null
+    const { run, round } = found
+    const role = run.document.flow.roles.find((one) => one.id === round.role)
     if (role?.kind !== 'agent') return null
-    const binding = bindingsFor(run, role.id)[round!.cards.indexOf(card)]
+    const binding = bindingsFor(run, role.id)[found.slot]
     if (!binding || !mayCommit(binding.agent, binding.grant)) {
       return `Refused: the Seat for card #${card} may only read, so it cannot commit.`
     }
@@ -1744,16 +1798,16 @@ export class FlowExecutions {
    * Null for a card no v2 run bound, which is not this tool's.
    */
   async runCheckFor(goal: string, card: number, name: string | null, commit: string | null): Promise<string | null> {
-    const run = this.#runOfCard(goal, card)
-    if (!run || run.document.format !== 'agents') return null
-    const round = run.rounds.find((one) => one.cards.includes(card))
-    const role = run.document.flow.roles.find((one) => one.id === round?.role)
-    if (!round || role?.kind !== 'agent') return null
+    const found = this.#cardOf(goal, card)
+    if (!found || found.run.document.format !== 'agents') return null
+    const { run, round } = found
+    const role = run.document.flow.roles.find((one) => one.id === round.role)
+    if (role?.kind !== 'agent') return null
+    const index = found.slot
     if (run.state !== 'running' || run.intake?.dispatchHeld) {
       return 'Refused: this card’s flow run is paused or not running, so no check runs for it now.'
     }
-    const index = round.cards.indexOf(card)
-    const binding = bindingsFor(run, role.id)[index]
+    const binding = bindingsFor(run, role.id)[found.slot]
     if (!binding || mayCommit(binding.agent, binding.grant)) {
       return 'Refused: run_check is for Seats that only read; a Seat that can write has its work checked by the flow’s own check card.'
     }
@@ -1872,16 +1926,14 @@ export class FlowExecutions {
     readonly subjects: readonly FlowSubject[]
     readonly unsettled: readonly { readonly card: number; readonly why: string }[]
   } | null> {
-    const run = this.#runOfCard(goal, card)
-    if (!run) return null
-    const round = run.rounds.find((one) => one.cards.includes(card))
-    if (!round) return null
+    const found = this.#cardOf(goal, card)
+    if (!found) return null
+    const { run, round } = found
     const { seat } = this.#seatForCard(run, card)
     if (!seat || seat.closed || seat.session.runtime !== caller.runtime || seat.session.sessionId !== caller.sessionId) return null
     const role = run.document.format === 'agents' ? run.document.flow.roles.find((one) => one.id === round.role) : undefined
-    const index = round.cards.indexOf(card)
     const answers = role?.kind === 'agent'
-      ? roleAnswers(policyOf(run), role.id, bindingsFor(run, role.id)[index]?.agent.answers ?? [])
+      ? roleAnswers(policyOf(run), role.id, bindingsFor(run, role.id)[found.slot]?.agent.answers ?? [])
       : []
     const board = this.#team.stateFor(goal)
     const deps = board.intents.find((one) => one.id === card)?.dependsOn ?? []
@@ -1907,8 +1959,9 @@ export class FlowExecutions {
   async #personReviewBindingNow(runId: string, card: number): Promise<PersonReviewBinding | null> {
     const run = this.#runs.get(runId)
     if (!run || run.state !== 'running' || run.document.format !== 'agents') return null
-    const round = run.rounds.find((one) => one.cards.includes(card) && one.state === 'running')
-    if (!round) return null
+    const found = this.#cardOf(run.goal, card)
+    if (!found || found.run.id !== runId || found.round.state !== 'running') return null
+    const { round } = found
     const role = run.document.flow.roles.find((one) => one.id === round.role)
     if (!role || !isPersonReviewStep(run.document.flow, role.id)) return null
     const intent = this.#team.stateFor(run.goal).intents.find((one) => one.id === card)
@@ -1944,15 +1997,14 @@ export class FlowExecutions {
     readonly writer: boolean
     readonly held: boolean
   } | null {
-    const run = this.#runOfCard(goal, card)
-    if (!run || run.document.format !== 'agents') return null
-    const round = run.rounds.find((one) => one.cards.includes(card))
-    if (!round) return null
+    const found = this.#cardOf(goal, card)
+    if (!found || found.run.document.format !== 'agents') return null
+    const { run, round } = found
     const role = run.document.flow.roles.find((one) => one.id === round.role)
     if (role?.kind !== 'agent') return null
     const { seat } = this.#seatForCard(run, card)
     if (!seat || seat.closed || seat.restored || seat.session.runtime !== caller.runtime || seat.session.sessionId !== caller.sessionId) return null
-    const binding = bindingsFor(run, role.id)[round.cards.indexOf(card)]
+    const binding = bindingsFor(run, role.id)[found.slot]
     const intent = this.#team.stateFor(goal).intents.find((one) => one.id === card)
     return {
       run: run.id,
@@ -3137,7 +3189,8 @@ export class FlowExecutions {
 
   #cardOrder(run: StoredFlowExecution, card: Intent | undefined, binding: FlowBinding): string {
     const answers = roleAnswers(policyOf(run), binding.role, binding.agent.answers)
-    const round = card ? run.rounds.find((one) => one.cards.includes(card.id)) : undefined
+    const found = card ? this.#cardOf(run.goal, card.id) : null
+    const round = found?.run.id === run.id ? found.round : undefined
     const packet = round ? run.reviewPackets?.[String(round.n)]?.text ?? null : null
     const seating = round ? run.seatPlans?.[String(round.n)] : undefined
     const handed = !seating || seating.handed.length === 0 ? null : seating.base !== null
@@ -3310,12 +3363,12 @@ export class FlowExecutions {
   async retryCheck(id: string, card: number): Promise<FlowExecution> {
     return this.#queue.within(id, async () => {
       let run = this.#get(id)
-      const round = run.rounds.find((one) => one.cards.includes(card))
-      if (!round) throw new Error(`Card #${card} belongs to no round of this run.`)
+      const found = this.#cardOf(run.goal, card)
+      if (!found || found.run.id !== id) throw new Error(`Card #${card} belongs to no round of this run.`)
+      const { round } = found
       const role = policyOf(run).roles.find((one) => one.id === round.role)
       if (role?.kind !== 'check') throw new Error(`Card #${card} is not a check.`)
-      const index = round.cards.indexOf(card)
-      const key = `check:${round.n}:${index}`
+      const key = `check:${round.n}:${found.slot}`
       const operation = run.operations.find((one) => one.key === key)
       if (operation?.state !== 'uncertain') throw new Error('This check is not waiting to be run again.')
       if (run.intake?.dispatchHeld) throw new Error(DISPATCH_HELD)
@@ -3338,7 +3391,7 @@ export class FlowExecutions {
   // -------------------------------------------------------------- advance
 
   completed(goal: string, card: number): void {
-    const run = this.#runOfCard(goal, card)
+    const run = this.ownsCard(goal, card)
     if (!run) return
     void this.#queue.within(run.id, () => this.#advance(run.id)).catch((error: unknown) => {
       this.#port.log('a flow could not open its next round', { run: run.id, error: error instanceof Error ? error.message : String(error) })
@@ -3540,9 +3593,14 @@ export class FlowExecutions {
     }
     // Inside a turn is where a working Seat lives: there is nothing to hand it until that turn ends.
     if (this.#port.busy?.(seat)) return
-    const round = run.rounds.find((one) => one.cards.includes(card.id))!
-    const index = round.cards.indexOf(card.id)
-    const binding = bindingsFor(run, round.role)[index]
+    const found = this.#cardOf(run.goal, card.id)
+    if (!found || found.run.id !== run.id) {
+      if (why === 'relaunched') await this.#stall(id, `Card #${card.id} no longer matches a Seat of its round, so it was not handed back after the desk restarted.`)
+      return
+    }
+    const { round } = found
+    const index = found.slot
+    const binding = bindingsFor(run, round.role)[found.slot]
     if (!binding) {
       if (why === 'relaunched') await this.#stall(id, `Card #${card.id} no longer matches a Seat of its round, so it was not handed back after the desk restarted.`)
       return
@@ -3739,7 +3797,9 @@ export class FlowExecutions {
           seat.closed === null && seat.session.runtime === claim.runtime && seat.session.sessionId === claim.sessionId) : []
         if (holders.length === 1) {
           run = await this.#put(this.#operation(run, operation.key, { kind: 'seat', state: 'finished', card: operation.card, seat: String(holders[0]!.id) }))
-          const round = run.rounds.find((one) => one.cards.includes(operation.card!))!
+          const found = this.#cardOf(run.goal, operation.card!)
+          if (!found || found.run.id !== run.id) continue
+          const { round } = found
           if (!round.seats.includes(String(holders[0]!.id))) run = await this.#put(this.#round(run, { ...round, seats: [...round.seats, String(holders[0]!.id)] }))
           continue
         }
