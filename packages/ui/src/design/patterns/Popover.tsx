@@ -102,6 +102,7 @@ export const Popover = ({
   tone = 'calm',
   fullWidth = false,
   panelWidth = 'content',
+  tightTrigger = false,
   triggerClassName,
   triggerVariant,
   triggerEdge,
@@ -129,6 +130,8 @@ export const Popover = ({
   triggerRef?: Ref<HTMLButtonElement>
   /** Fill a row or column instead of shrinking the trigger to its label. */
   fullWidth?: boolean
+  /** Remove horizontal inset and keep icon marks full-size in a tight trigger. */
+  tightTrigger?: boolean
   /**
    * `trigger` draws the panel exactly as wide as the row that opened it, so a
    * menu opened from a full-width row reads as that row unfolding rather than
@@ -163,8 +166,13 @@ export const Popover = ({
   }
   const trigger = useRef<HTMLButtonElement>(null)
   const edge = triggerEdge ? buttonEdge('icon-sm', triggerEdge, triggerEdgeGlyph) : undefined
-  const triggerClasses = triggerEdge
-    ? cn(triggerVariant ? buttonVariants(triggerVariant) : (triggerClassName ?? styles.trigger), edge?.className)
+  const triggerClasses = triggerEdge || tightTrigger
+    ? cn(
+        triggerVariant ? buttonVariants(triggerVariant) : (triggerClassName ?? styles.trigger),
+        edge?.className,
+        // A tight composer slot: no horizontal inset, and the mark never shrinks.
+        tightTrigger && 'px-0 justify-center [&_svg]:shrink-0',
+      )
     : triggerVariant ? cn(buttonVariants(triggerVariant)) : (triggerClassName ?? styles.trigger)
   const triggerId = useId()
   const panel = useRef<HTMLDivElement>(null)
