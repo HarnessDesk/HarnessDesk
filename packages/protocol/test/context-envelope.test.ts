@@ -57,7 +57,7 @@ test('a label and a body that both need escaping do not interfere', () => {
 test('an envelope written by hand, with a broken escape, still sends', () => {
   /* A label is a caption. Whatever is in it, it must not be able to throw on
      the way through — the message is the thing that matters. */
-  const raw = '<context source="a\\q">\nbody\n</context>'
+  const raw = '<context source="a\\q" data-hd-envelope="harnessdesk-v1">\nbody\n</context>'
   const split = splitContext(raw)
   assert.equal(split.injections.length, 1)
   assert.equal(typeof split.injections[0]?.label, 'string')
@@ -70,6 +70,15 @@ test('text outside the envelope is what the user typed, with the block gone', ()
      go with it and `\n{3,}` only collapses a longer run. */
   assert.equal(split.text, 'before\n\nafter')
   assert.equal(split.injections[0]?.label, 'C:\\x')
+})
+
+test('the known legacy Git wrapper is read only in the old composer shape', () => {
+  const raw = ' \n<context source="Git">\nOn branch main.\n</context>\n\nFix the filter'
+  const split = splitContext(raw)
+  assert.deepEqual(split.injections, [{ label: 'Git', text: 'On branch main.' }])
+  assert.equal(split.text, 'Fix the filter')
+  const inlineBody = '<context source="Git">On branch main.</context>\nFix the filter'
+  assert.deepEqual(splitContext(inlineBody), { injections: [], text: inlineBody })
 })
 
 test('a message is called by its own words, or by its first block when that is all it is (#186)', () => {
@@ -104,9 +113,11 @@ test('an adapter passes over the blocks it wrote itself (review of #231)', () =>
 })
 
 test('a block cut off before it closed names nothing (review of #231)', () => {
-  assert.equal(openingOf('<context source="Handed off from Claude Code — “Migrate'), '')
-  assert.equal(openingOf(`${wrapContext('Git', 'On branch main.')}\n<context source="Handed off from Cla`), '')
-  assert.equal(opensEnvelope('<context source="x'), true)
+  const incomplete = '<context source="Handed off from Claude Code — “Migrate'
+  assert.equal(openingOf(incomplete), incomplete)
+  const afterDeskContext = '<context source="Handed off from Cla'
+  assert.equal(openingOf(`${wrapContext('Git', 'On branch main.')}\n${afterDeskContext}`), afterDeskContext)
+  assert.equal(opensEnvelope('<context source="x'), false)
   // A word that only starts with it is a word.
   assert.equal(opensEnvelope('<context-free grammars'), false)
 })

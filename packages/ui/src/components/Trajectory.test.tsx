@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { turnId, type AgentItem, type Session, type Turn } from '@harnessdesk/protocol'
+import { turnId, wrapContext, type AgentItem, type Session, type Turn } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -99,6 +99,7 @@ it('keeps a message whole and allows the sentence to wrap instead of ellipsising
 it('uses summed turn wall time and shows the waiting remainder beside measured commands', async () => {
   const timed = {
     ...TURN,
+    status: 'completed',
     durationMs: 60 * 60_000,
     items: [
       item('command-1', { type: 'command', command: 'first', durationMs: 20 * 60_000 }),
@@ -118,6 +119,7 @@ it('uses summed turn wall time and shows the waiting remainder beside measured c
 it('caps measured time at wall time and names overlapping measurements in the title', async () => {
   const timed = {
     ...TURN,
+    status: 'completed',
     durationMs: 30 * 60_000,
     items: [item('command-1', { type: 'command', command: 'long', durationMs: 45 * 60_000 })],
   } as unknown as Turn
@@ -137,8 +139,8 @@ it('keeps the item-based measured summary when turn wall time is unavailable', a
   } as unknown as Turn
   const onFoot = vi.fn()
   await render([timed], '', false, onFoot)
-  expect(container.querySelector('[aria-label="Where the time went"]')?.textContent).toContain('36m measured')
-  expect(onFoot).toHaveBeenLastCalledWith('1 step', '36m measured')
+  expect(container.querySelector('[aria-label="Where the time went"]')).toBeNull()
+  expect(onFoot).toHaveBeenLastCalledWith('1 step', '')
 })
 
 it('uses the ACP turn wall time as the remainder when ACP items have no durations', async () => {
@@ -146,6 +148,7 @@ it('uses the ACP turn wall time as the remainder when ACP items have no duration
   // wall clock duration from send() through completion.
   const acpTurn = {
     ...TURN,
+    status: 'completed',
     durationMs: 10 * 60_000,
     items: [
       item('acp-user', { type: 'userMessage', content: [{ type: 'text', text: 'inspect this issue' }] }),
@@ -155,8 +158,44 @@ it('uses the ACP turn wall time as the remainder when ACP items have no duration
   await render([acpTurn])
   const overview = container.querySelector('[aria-label="Where the time went"]')
   expect(overview?.textContent).toContain('10m · no measured steps')
-  expect(overview?.textContent).toContain('Model and waiting10m')
+  expect(overview?.textContent).toContain('Not measured10m')
   expect(overview?.textContent).not.toContain('0m measured')
+})
+
+it('keeps model and waiting as the remainder when every timeable step was timed', async () => {
+  const acpTurn = {
+    ...TURN,
+    status: 'completed',
+    durationMs: 10 * 60_000,
+    items: [
+      item('timed-tool', { type: 'toolCall', tool: 'Read', source: { kind: 'builtin' }, status: 'completed', durationMs: 2 * 60_000 }),
+    ],
+  } as unknown as Turn
+  await render([acpTurn])
+  const overview = container.querySelector('[aria-label="Where the time went"]')
+  expect(overview?.textContent).toContain('Model and waiting8m')
+  expect(overview?.textContent).not.toContain('Not measured')
+})
+
+it('keeps a running turn out of both sides of the time reconciliation', async () => {
+  const completed = {
+    ...TURN,
+    status: 'completed',
+    durationMs: 60 * 60_000,
+    items: [item('done-command', { type: 'command', command: 'completed', durationMs: 20 * 60_000 })],
+  } as unknown as Turn
+  const running = {
+    ...TURN,
+    id: turnId('running'),
+    status: 'inProgress',
+    durationMs: 8 * 60_000,
+    items: [item('running-command', { type: 'command', command: 'still running', durationMs: 8 * 60_000 })],
+  } as unknown as Turn
+  await render([completed, running])
+  const overview = container.querySelector('[aria-label="Where the time went"]')
+  expect(overview?.textContent).toContain('60m · 20m in commands')
+  expect(overview?.textContent).toContain('Model and waiting40m')
+  expect(overview?.textContent).not.toContain('68m')
 })
 
 it('shows the first line of an ACP thought body, and folds only empty thoughts', async () => {
@@ -198,7 +237,7 @@ it('filters and times folded reasoning rows while the footer counts their real i
   await render([turn], 'no summary', true, onFoot)
   expect(rows()).toHaveLength(1)
   expect(rows()[0]?.textContent).toContain('2 steps, no summary given')
-  expect(onFoot).toHaveBeenLastCalledWith('2 steps', '310ms measured')
+  expect(onFoot).toHaveBeenLastCalledWith('2 steps', '')
 })
 
 it('keeps each turn heading on the panel while its rows scroll, with its state in words', async () => {
@@ -227,7 +266,7 @@ it('strips shared context envelopes from user labels across runtime transcripts'
     ...TURN,
     items: [item('wrapped-user', {
       type: 'userMessage',
-      content: [{ type: 'text', text: '<context source="Git">\nOn branch main\n</context>\n\nFix the stale branch filter.' }],
+      content: [{ type: 'text', text: `${wrapContext('Git', 'On branch main')}\n\nFix the stale branch filter.` }],
     })],
   } as unknown as Turn
   await render([turn])

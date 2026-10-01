@@ -3097,11 +3097,13 @@ const ACP_ENVELOPE: PeelOptions = {
  * is a whole block rather than something spanning two.
  */
 const withUserContent = (item: UserMessageItem, block: AcpContentBlock): UserMessageItem => {
-  const { content, context } = peelUserContent([userContentOf(block)], ACP_ENVELOPE)
+  // Re-peel the accumulated blocks as one message. A desk wrapper may be its
+  // own ACP content block, with the person's sentence arriving afterwards.
+  const { content, context } = peelUserContent([...item.content, userContentOf(block)], ACP_ENVELOPE)
   const kept = [...item.context ?? [], ...context]
   return {
     ...item,
-    content: [...item.content, ...content],
+    content,
     ...(kept.length > 0 ? { context: kept } : {}),
   }
 }

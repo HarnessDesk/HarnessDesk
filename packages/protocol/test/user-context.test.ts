@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { peelContext, peelUserContent, type PeelOptions } from '../src/index.js'
+import { peelContext, peelUserContent, type PeelOptions, wrapContext } from '../src/index.js'
 
 /**
  * The peel, against the two envelopes it exists for.
@@ -179,11 +179,32 @@ test('a message nobody wrapped is returned untouched', () => {
 
 test('the shared desk context envelope is peeled even when an adapter has no tags', () => {
   const { text, context } = peelContext(
-    '<context source="Git">\nOn branch main\n</context>\n\nBuild pong',
+    `${wrapContext('Git', 'On branch main')}\n\nBuild pong`,
     { tags: {} },
   )
   assert.equal(text, 'Build pong')
   assert.deepEqual(context, [{ label: 'Git', text: 'On branch main' }])
+})
+
+test('the known pre-marker desk envelope is peeled from its original composer shape', () => {
+  const legacy = ' \n<context source="Git">\nOn branch main.\n</context>\n\nFix the stale branch filter.'
+  const { text, context } = peelContext(legacy, { tags: {} })
+  assert.equal(text, 'Fix the stale branch filter.')
+  assert.deepEqual(context, [{ label: 'Git', text: 'On branch main.' }])
+})
+
+test('literal context markup is kept unless it has the desk marker at the start', () => {
+  const messages = [
+    'Before this literal: <context source="Git">keep this</context> after it',
+    '<context source="Someone else">keep this</context>\n\nBuild pong',
+    '<context source="Git">keep this',
+    '<context source="Git">\nkeep this</context>\nBuild pong',
+  ]
+  for (const message of messages) {
+    const result = peelContext(message, { tags: {} })
+    assert.equal(result.text, message)
+    assert.deepEqual(result.context, [])
+  }
 })
 
 test('a sentence that merely sounds like the app’s note is kept', () => {

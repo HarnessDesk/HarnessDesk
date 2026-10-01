@@ -86,7 +86,7 @@ test('a live ACP user message peels the shared desk envelope around its typed se
     const session = await runtime.createSession({ cwd: '/tmp/w' })
     await session.send([{
       type: 'text',
-      text: '<context source="Git">\nOn branch main\n</context>\n\nFix the stale branch filter.',
+      text: `${wrapContext('Git', 'On branch main')}\n\nFix the stale branch filter.`,
     }])
     const completed = await tape.until((event) => event.type === 'turn/completed')
     const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
@@ -1416,7 +1416,7 @@ test('a stored conversation survives the agent and this process', async (t) => {
     // Three blocks — a context chip, an image, and the ask — the way the
     // composer sends them.
     await session.send([
-      { type: 'text', text: '<context source="x">ctx</context>' },
+      { type: 'text', text: wrapContext('x', 'ctx') },
       { type: 'image', url: 'data:image/png;base64,AAAA', name: 'dot.png' },
       { type: 'text', text: 'remember me' },
     ])
@@ -2789,7 +2789,7 @@ test('a conversation opened with only context blocks is called by the first one,
   }
 })
 
-test('a first message cut off inside a block names nothing (review of #231)', async (t) => {
+test('an unclosed context lookalike remains the person\'s words (review of #231)', async (t) => {
   const { mkdtemp, rm } = await import('node:fs/promises')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
@@ -2810,7 +2810,7 @@ test('a first message cut off inside a block names nothing (review of #231)', as
     await tape.until((event) => event.type === 'turn/completed')
     const row = (await runtime.listSessions()).data.find((entry) => entry.id === session.id)
     assert.ok(row)
-    assert.equal(row.preview, null)
+    assert.equal(row.preview, '<context source="Handed off from Claude Code — “Migrate the web')
   } finally {
     await runtime.dispose()
   }

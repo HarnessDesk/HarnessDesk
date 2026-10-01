@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { wrapContext } from '@harnessdesk/protocol'
 
 import { sessionLabel, shortLabel } from './sessions'
 
@@ -15,23 +16,23 @@ describe('sessionLabel', () => {
     // session" and the next turn renamed the conversation for good.
     expect(sessionLabel(null, '<context> what does this tag do?')).toBe('<context> what does this tag do?')
     // The control: the envelope a writer does produce still names nothing here.
-    expect(sessionLabel(null, '<context source="Uncommitted changes">')).toBe('Untitled session')
+    expect(sessionLabel(null, wrapContext('Uncommitted changes', 'Status: clean'))).toBe('Uncommitted changes')
   })
 
   it('prefers the title', () => {
     expect(sessionLabel('Pong', 'build pong')).toBe('Pong')
   })
   it('names an untitled conversation by what the user wrote, not the context block', () => {
-    expect(sessionLabel(null, '<context source="Handed off from X">\n## Goal\nx\n</context>\n\nAdd a New game button\nmore')).toBe(
+    expect(sessionLabel(null, ' \n<context source="Handed off from X">\n## Goal\nx\n</context>\n\nAdd a New game button\nmore')).toBe(
       'Add a New game button',
     )
   })
   it('cleans a title that was stored with the block in it', () => {
-    expect(sessionLabel('<context source="x">stuff</context>\nReal title', null)).toBe('Real title')
+    expect(sessionLabel(`${wrapContext('x', 'stuff')}\nReal title`, null)).toBe('Real title')
   })
-  it('treats a truncated, unterminated block as no name at all', () => {
-    expect(sessionLabel('<context source="Uncommitted changes">', null)).toBe('Untitled session')
-    expect(sessionLabel('<context source="Uncommitted changes">', 'hello there')).toBe('hello there')
+  it('keeps a truncated, unterminated block as typed', () => {
+    expect(sessionLabel('<context source="Uncommitted changes">', null)).toBe('<context source="Uncommitted changes">')
+    expect(sessionLabel('<context source="Uncommitted changes">', 'hello there')).toBe('<context source="Uncommitted changes">')
   })
   it('falls back when there is nothing to say', () => {
     expect(sessionLabel(null, '')).toBe('Untitled session')
@@ -80,7 +81,7 @@ describe('shortLabel', () => {
 describe('sessionLabel, for a message that is only blocks', () => {
   it('is called by its first block, the hand-off, in the list and in the header alike (#186)', () => {
     // A hand-off sent with a context chip and nothing typed: the packet first, then the chip.
-    const handOff = '<context source="Handed off from Claude — “Migrate”">\n## Goal\nMigrate\n</context>\n<context source="Git">\nOn main\n</context>'
+    const handOff = `${wrapContext('Handed off from Claude — “Migrate”', '## Goal\nMigrate')}\n${wrapContext('Git', 'On main')}`
     expect(sessionLabel(null, handOff)).toBe('Handed off from Claude — “Migrate”')
     expect(sessionLabel(null, handOff, 'New session')).toBe('Handed off from Claude — “Migrate”')
   })

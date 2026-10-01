@@ -66,6 +66,8 @@ const KIND_LABEL: Record<string, string> = {
   error: 'Error',
   subagent: 'Sub-agent',
   publication: 'Publication',
+  modelWaiting: 'Model and waiting',
+  notMeasured: 'Not measured',
 }
 
 /*
@@ -169,43 +171,61 @@ const measuredText = (ms: number, segments: readonly { kind: string }[]): string
   return kinds.length === 0 ? '0m measured' : `${formatMs(ms)} in ${kinds.join(', ')}`
 }
 
-/** Measured item time is reconciled against summed turn wall time when known. */
+/** Reconcile item time with wall time inside each completed turn. */
 const summarise = (turns: readonly Turn[]) => {
   const totals = new Map<string, number>()
-  let rawMeasured = 0
+  const remainders = new Map<string, number>()
+  let measured = 0
   let wallTime = 0
   let wallKnown = false
+  let overlap = false
   for (const turn of turns) {
-    if (typeof turn.durationMs === 'number' && turn.durationMs >= 0) {
-      wallTime += turn.durationMs
-      wallKnown = true
-    }
+    // Leave running turns out of both totals, so a changing wall clock never
+    // gets combined with a frozen item snapshot.
+    if (turn.status === 'inProgress') continue
+    if (typeof turn.durationMs !== 'number' || turn.durationMs < 0) continue
+    const turnWall = turn.durationMs
+    wallTime += turnWall
+    wallKnown = true
+    const turnTotals = new Map<string, number>()
+    let turnMeasured = 0
+    let hasUntimedStep = false
     for (const item of turn.items) {
+      if (measuredWords[item.type] && durationOf(item) === null) hasUntimedStep = true
       const duration = durationOf(item)
       if (duration === null || duration <= 0) continue
-      totals.set(item.type, (totals.get(item.type) ?? 0) + duration)
-      rawMeasured += duration
+      turnTotals.set(item.type, (turnTotals.get(item.type) ?? 0) + duration)
+      turnMeasured += duration
+    }
+    const turnCapped = Math.min(turnMeasured, turnWall)
+    if (turnMeasured > turnWall) overlap = true
+    const scale = turnMeasured > 0 ? turnCapped / turnMeasured : 0
+    for (const [kind, ms] of turnTotals) totals.set(kind, (totals.get(kind) ?? 0) + ms * scale)
+    measured += turnCapped
+    const remainder = Math.max(0, turnWall - turnCapped)
+    if (remainder > 0) {
+      const kind = hasUntimedStep ? 'notMeasured' : 'modelWaiting'
+      remainders.set(kind, (remainders.get(kind) ?? 0) + remainder)
     }
   }
   const wall = wallKnown ? wallTime : null
-  const measured = wall === null ? rawMeasured : Math.min(rawMeasured, wall)
-  const scale = rawMeasured > 0 ? measured / rawMeasured : 0
   const segments = [...totals.entries()]
     .sort((a, b) => b[1] - a[1])
-    .map(([kind, ms]) => ({ kind, ms: ms * scale, share: measured > 0 ? (ms * scale) / (wall ?? measured) : 0 }))
+    .map(([kind, ms]) => ({ kind, ms, share: wall !== null && wall > 0 ? ms / wall : 0 }))
     .filter((segment) => segment.ms > 0)
-  const remainder = wall === null ? 0 : Math.max(0, wall - measured)
-  if (remainder > 0) segments.push({ kind: 'modelWaiting', ms: remainder, share: remainder / wall! })
+  for (const [kind, ms] of remainders) {
+    if (wall !== null && wall > 0 && ms > 0) segments.push({ kind, ms, share: ms / wall })
+  }
   const kinds = [...totals.keys()].sort((a, b) => (totals.get(b) ?? 0) - (totals.get(a) ?? 0))
   const headline = wall === null
-    ? `${formatMs(measured)} measured`
+    ? ''
     : kinds.length === 0
       ? `${formatMs(wall)} · no measured steps`
       : `${formatMs(wall)} · ${measuredText(measured, kinds.map((kind) => ({ kind })))}`
   return {
     measured,
     wall,
-    overlap: wall !== null && rawMeasured > wall,
+    overlap,
     headline,
     segments,
   }
@@ -318,13 +338,13 @@ export const Trajectory = ({
             parts={overview.segments.map((segment) => ({
               id: segment.kind,
               value: segment.share * 100,
-              label: segment.kind === 'modelWaiting' ? 'Model and waiting' : undefined,
-              reading: segment.kind === 'modelWaiting' ? formatMs(segment.ms) : undefined,
+              label: segment.kind === 'modelWaiting' || segment.kind === 'notMeasured' ? KIND_LABEL[segment.kind] : undefined,
+              reading: segment.kind === 'modelWaiting' || segment.kind === 'notMeasured' ? formatMs(segment.ms) : undefined,
               ...colourOfKind(segment.kind),
             }))}
           />
           <ChartKeys className={styles.keys}>
-            {overview.segments.filter((segment) => segment.kind !== 'modelWaiting').map((segment) => (
+            {overview.segments.filter((segment) => segment.kind !== 'modelWaiting' && segment.kind !== 'notMeasured').map((segment) => (
               <ChartKey key={segment.kind} {...colourOfKind(segment.kind)} label={<>{KIND_LABEL[segment.kind] ?? 'Other'}<Text role="meta" numeric>{formatMs(segment.ms)}</Text></>} />
             ))}
           </ChartKeys>

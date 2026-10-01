@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { QueuedMessage } from '@harnessdesk/protocol'
+import { wrapContext, type QueuedMessage } from '@harnessdesk/protocol'
 
 import { describeQueued, queuedLabel } from './queue'
 
@@ -28,7 +28,7 @@ describe('describeQueued', () => {
 
   it('separates resolved context from the words, and keeps it whole', () => {
     const view = describeQueued([
-      { type: 'text', text: '<context source="Issue 12">\nthe body\n</context>\nfix this' },
+      { type: 'text', text: `${wrapContext('Issue 12', 'the body')}\nfix this` },
     ])
     expect(view.text).toBe('fix this')
     // Whole, because editing this message has to hand it back: a count could
@@ -61,7 +61,7 @@ describe('queuedLabel', () => {
   it('falls back to what the message carries when it has no words', () => {
     expect(queuedLabel(message([{ type: 'mention', name: 'a.ts', path: '/w/a.ts' }]))).toBe('a.ts')
     expect(
-      queuedLabel(message([{ type: 'text', text: '<context source="Issue 12">\nbody\n</context>' }])),
+      queuedLabel(message([{ type: 'text', text: wrapContext('Issue 12', 'body') }])),
     ).toBe('Context only')
     expect(queuedLabel(message([]))).toBe('Empty message')
   })

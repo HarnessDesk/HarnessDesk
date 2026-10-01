@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { AgentItem } from '@harnessdesk/protocol'
+import { wrapContext, type AgentItem } from '@harnessdesk/protocol'
 
 import { toCodexToolResponse } from '../src/capabilities.js'
 import { mapItem } from '../src/mapping/items.js'
@@ -60,11 +60,25 @@ test('peels HarnessDesk context envelopes from the Codex user text', () => {
     id: 'user-context-envelope',
     content: [{
       type: 'text',
-      text: '<context source="Git">\nThe workspace is on git branch `main`.\n</context>\n\nBuild pong',
+      text: `${wrapContext('Git', 'The workspace is on git branch `main`.')}\n\nBuild pong`,
     }],
   } as Message)
   assert.equal(mapped.type, 'userMessage')
   if (mapped.type !== 'userMessage') return
+  assert.deepEqual(mapped.content, [{ type: 'text', text: 'Build pong' }])
+  assert.deepEqual(mapped.context, [{ label: 'Git', text: 'The workspace is on git branch `main`.' }])
+})
+
+test('peels the known pre-marker Git envelope from Codex history', () => {
+  const mapped = map({
+    type: 'userMessage',
+    id: 'legacy-user-context-envelope',
+    content: [{
+      type: 'text',
+      text: '<context source="Git">\nThe workspace is on git branch `main`.\n</context>\n\nBuild pong',
+    }],
+  } as Message)
+  assert.ok(mapped.type === 'userMessage')
   assert.deepEqual(mapped.content, [{ type: 'text', text: 'Build pong' }])
   assert.deepEqual(mapped.context, [{ label: 'Git', text: 'The workspace is on git branch `main`.' }])
 })
