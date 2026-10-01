@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import {
   currentTurn,
@@ -25,6 +25,7 @@ import { goalRunOf, namedGoalRun } from '../lib/goal-run'
 import { shortSha } from '../lib/evidence'
 import { goalActions, goalName } from '../lib/goals'
 import { openExternal } from '../lib/desktop'
+import { forgetMissing, fromStored, MAX_TILES, placeTile, wouldReplace as modelWouldReplace, type SideBySideState } from '../lib/side-by-side'
 import { budgetMeterWords, formatMeterUsd, intakeStopWords, openTriggerWaits, originHoverWords, originSubject } from '../lib/intake'
 import { isPathInside } from '../lib/paths'
 import { folderName } from '../lib/projects'
@@ -54,6 +55,7 @@ import { AddMember } from './AddMember'
 import { MemberHoverCard, type MemberCardFacts } from './AgentCards'
 import { Approvals } from './Approvals'
 import { Conversation } from './Conversation'
+import { SideBySide, type TileEntry } from './SideBySide'
 import { ChannelStream, readChannel } from './Channel'
 import { RoomComposer, type RoomComposerHandle } from './RoomComposer'
 import { TeamBoardPane } from './TeamBoardPane'
@@ -366,34 +368,14 @@ export const TeamRoomPane = ({
       return nickname === one.nickname && inbound === one.inbound ? one : { ...one, nickname, inbound }
     })
   }, [fetched, room, pushed?.nicknames, pushed?.inbound])
-  /**
-   * What the right half is showing: the board, the chat, or *members*.
-   *
-   * Members is a list rather than one key, because reading a second harness
-   * while working with the first is a real need and this is the only place it
-   * is met — a conversation cannot be docked beside another any more, and the
-   * commit that withdrew that said this would replace it. One member is a list
-   * of one; the plural case is what that promise was about.
-   */
-  /* Restored from the view, so an arrangement of columns survives the middle
-     being given to something else and handed back by Back. */
-  const restored = mount?.view.kind === 'room' ? mount.view.watching : undefined
-  const [open, setOpen] = useState<'board' | 'room' | 'findings' | readonly SessionKey[]>(
-    restored && restored.length > 0 ? restored : 'room',
+  const [grid, setGrid] = useState<SideBySideState>(() => fromStored(
+    mount?.view.kind === 'room' ? mount.view.sideBySide : undefined,
+    mount?.view.kind === 'room' ? mount.view.watching : undefined,
+  ))
+  const restoredGrid = mount?.view.kind === 'room' ? fromStored(mount.view.sideBySide, mount.view.watching) : null
+  const [open, setOpen] = useState<'board' | 'room' | 'findings' | 'side-by-side' | SessionKey>(
+    restoredGrid?.tiles.length ? 'side-by-side' : 'room',
   )
-  /**
-   * Which column was read least recently, so a pick past the cap replaces
-   * *that* one rather than the one being looked at. Most-recent last.
-   */
-  const [seen, setSeen] = useState<readonly SessionKey[]>(restored ?? [])
-  /**
-   * How many columns fit. A transcript and its composer stop being readable
-   * together under about 420px, so the cap is the smaller of three and what
-   * the pane can actually hold — measured, because the room gives width up to
-   * the rail, the right dock and the window itself.
-   */
-  const [cap, setCap] = useState(3)
-  const watching = useRef<HTMLDivElement | null>(null)
   /* Which half a *narrow* room is showing. Two columns need width; when the
      pane has none — a three-way split, or the details panel open beside it —
      the room becomes one column at a time, the way every master/detail list
@@ -419,7 +401,7 @@ export const TeamRoomPane = ({
    */
   const [railTrouble, setRailTrouble] = useState<string | null>(null)
 
-  const show = (next: 'board' | 'room' | 'findings' | SessionKey): void => {
+  const show = (next: 'board' | 'room' | 'findings' | 'side-by-side' | SessionKey): void => {
     setOnRail(false)
     /* Written against the literals rather than narrowed: `SessionKey` is a
        branded string, so comparing it to `'board'` tells the compiler nothing
@@ -427,29 +409,13 @@ export const TeamRoomPane = ({
     if (next === 'board') return setOpen('board')
     if (next === 'room') return setOpen('room')
     if (next === 'findings') return setOpen('findings')
-    // A member opens as a list of one; the plural case is `watch`.
-    const key = next as SessionKey
-    setOpen([key])
-    setSeen((was) => [...was.filter((one) => one !== key), key])
+    if (next === 'side-by-side') return setOpen('side-by-side')
+    setOpen(next as SessionKey)
   }
 
-  /**
-   * Add a member beside the ones already up, or replace the least-recently-read
-   * column once the pane is full.
-   *
-   * Replacing the *focused* column would take away the one being read; the
-   * least-recently-read one is the honest victim, and the rail says which
-   * before the press rather than after.
-   */
   const watch = (key: SessionKey): void => {
-    setOpen((was) => {
-      const columns = Array.isArray(was) ? [...(was as readonly SessionKey[])] : []
-      if (columns.includes(key)) return columns
-      if (columns.length < cap) return [...columns, key]
-      const victim = seen.find((one) => columns.includes(one)) ?? columns[0]
-      return columns.map((one) => (one === victim ? key : one))
-    })
-    setSeen((was) => [...was.filter((one) => one !== key), key])
+    setGrid((was) => placeTile(was, key))
+    setOpen('side-by-side')
     setOnRail(false)
   }
 
@@ -476,7 +442,6 @@ export const TeamRoomPane = ({
          for good if the refetch had already landed by then. Filtering is both
          the smaller flicker and the one that cannot strand the rail. */
       .then(() => {
-        stopWatching(key)
         setFetched((was) =>
           was === null || was.room !== room
             ? was
@@ -531,27 +496,18 @@ export const TeamRoomPane = ({
       )
   }
 
-  /** Take one column down, leaving the rest up. The × and the card share it. */
-  const stopWatching = (key: SessionKey): void => {
-    setOpen((was) =>
-      Array.isArray(was) ? (was as readonly SessionKey[]).filter((one) => one !== key) : was,
-    )
-  }
-
   /* The other half of `restored`: what is up is written back to the view as it
      changes, because the view is what Back and the next launch will read. */
   const mountId = mount?.id
   useEffect(() => {
-    if (!mountId) return
-    store.setRoomWatching(mountId, Array.isArray(open) ? (open as readonly SessionKey[]) : [])
-  }, [store, mountId, open])
+    if (mountId) store.setRoomWatching(mountId, [])
+  }, [store, mountId])
+  useEffect(() => {
+    if (mountId) store.setRoomSideBySide(mountId, grid)
+  }, [store, mountId, grid])
 
   /** Which column a pick would take, so the rail can say so before it happens. */
-  const wouldReplace = (key: SessionKey): SessionKey | null => {
-    const columns = Array.isArray(open) ? (open as readonly SessionKey[]) : []
-    if (columns.includes(key) || columns.length < cap) return null
-    return seen.find((one) => columns.includes(one)) ?? columns[0] ?? null
-  }
+  const wouldReplace = (key: SessionKey): SessionKey | null => modelWouldReplace(grid, key)
 
   const team = snapshot.teams.get(room)
   const entries = team?.channel ?? NO_ENTRIES
@@ -624,7 +580,7 @@ export const TeamRoomPane = ({
 
   /* Narrowed once, here, so the provider below gets a `SessionKey` and not a
      union the compiler has to be argued with at the call site. */
-  const columns: readonly SessionKey[] = Array.isArray(open) ? (open as readonly SessionKey[]) : []
+  const singleMember: SessionKey | null = open === 'board' || open === 'room' || open === 'findings' || open === 'side-by-side' ? null : open
   /**
    * Open the conversation behind any column that has one.
    *
@@ -656,7 +612,7 @@ export const TeamRoomPane = ({
      else's traffic. */
   const openNow = useRef(snapshot.sessions)
   openNow.current = snapshot.sessions
-  const upFor = columns.join(' ')
+  const upFor = [...grid.tiles, ...(singleMember ? [singleMember] : [])].join(' ')
   useEffect(() => {
     for (const key of upFor === '' ? [] : (upFor.split(' ') as SessionKey[])) {
       if (openNow.current.has(key) || asked.current.has(key)) continue
@@ -785,6 +741,14 @@ export const TeamRoomPane = ({
     ],
   )
 
+  const checkedRosterFor = useRef(new Set<string>())
+  useEffect(() => {
+    if (peers === null || checkedRosterFor.current.has(room)) return
+    checkedRosterFor.current.add(room)
+    const present = new Set(roster.map((member) => member.key))
+    setGrid((was) => forgetMissing(was, present))
+  }, [peers, room, roster])
+
   /** Members whose conversation the desk actually has open. See the head. */
   const hereCount = roster.filter((one) => one.here).length
   /* The page's name: the Goal's own (`goalName` — for a trigger's Goal, its
@@ -849,29 +813,6 @@ export const TeamRoomPane = ({
   /* Whether the board caution belongs to the group rather than to each row:
      every row shown would say it, so it is said once above them. */
   const idleShared = shown.length > 1 && shown.every((member) => member.idleOnBoard)
-
-  /* The cap is measured, not assumed: the room gives width up to the rail, the
-     right dock and the window, so what fits is a fact about this pane right
-     now. A column dropped by a narrowing pane is the least recently read. */
-  useEffect(() => {
-    const node = watching.current
-    if (!node) return
-    const measure = (): void => {
-      const fits = Math.max(1, Math.min(3, Math.floor(node.getBoundingClientRect().width / 420)))
-      setCap(fits)
-      setOpen((was) => {
-        if (!Array.isArray(was) || was.length <= fits) return was
-        const keep = (was as readonly SessionKey[]).filter(
-          (one) => !seen.slice(0, was.length - fits).includes(one),
-        )
-        return keep.slice(-fits)
-      })
-    }
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [seen])
 
   return (
     <PaneSurface className={`${styles.pane} h-full`} data-showing={onRail ? 'rail' : 'body'}>
@@ -1160,6 +1101,23 @@ export const TeamRoomPane = ({
                 ) : undefined
               }
             />
+            <ListRow
+              as="button"
+              size="sm"
+              nav
+              interactive={grid.tiles.length > 0}
+              selected={open === 'side-by-side'}
+              onClick={grid.tiles.length > 0 ? () => show('side-by-side') : undefined}
+              aria-disabled={grid.tiles.length === 0}
+              title="Side by side"
+              subtitle={grid.tiles.length === 0 ? 'Watch a member to put it here' : undefined}
+              lead={
+                <IconTile size="sm" tint="violet">
+                  <TeamIcon />
+                </IconTile>
+              }
+              trail={grid.tiles.length > 0 ? <Text role="meta" numeric className={styles.count}>{grid.tiles.length}</Text> : undefined}
+            />
             {/* A Goal only: a plain conversation keeps no findings ledger, so
                 this room owns no destination for one and reads nothing here. */}
             {goal ? (
@@ -1273,17 +1231,14 @@ export const TeamRoomPane = ({
                 idleSaidAbove={idleShared}
                 onRemove={() => leave(member.key)}
                 onInbound={(mode) => setInbound(member.key, mode)}
-                selected={columns.includes(member.key)}
-                /* Said before the press, not after. A pick that will take a
-                   column away has to say which one while there is still time not
-                   to press it. */
+                selected={grid.tiles.includes(member.key)}
                 replaces={
-                  columns.length > 0 && !columns.includes(member.key)
+                  grid.tiles.length > 0 && !grid.tiles.includes(member.key)
                     ? (memberOf(wouldReplace(member.key) as SessionKey)?.nickname ?? null)
                     : null
                 }
-                cap={cap}
-                watching={columns.length > 0}
+                cap={MAX_TILES}
+                watching={grid.tiles.length > 0}
                 onOpen={() => show(member.key)}
                 onWatch={() => watch(member.key)}
               />
@@ -1308,49 +1263,46 @@ export const TeamRoomPane = ({
             <TeamBoardPane room={room} />
           ) : open === 'findings' ? (
             goal ? <GoalFindings goal={room} /> : null
-          ) : columns.length > 0 ? (
-            /* Members, side by side. Each column is the agent's *own*
-               conversation — scoped by a provider rather than reimplemented, so
-               it is the same transcript, composer and approvals the app renders
-               anywhere else. This is the one place two transcripts share a
-               screen, and it is a view rather than a loose pane: capped, headed
-               by whose it is, and reachable from nowhere but here. */
-            <div className={styles.columns} ref={watching} data-columns={columns.length}>
-              {columns.map((key, index) => {
+          ) : open === 'side-by-side' && grid.tiles.length > 0 ? (
+            <SideBySide
+              state={grid}
+              onChange={setGrid}
+              paneId={mount?.id ?? 'team-room'}
+              memberOf={(key) => {
                 const member = memberOf(key)
-                const entry = roster.find((one) => one.key === key) ?? null
-                return (
-                  <Fragment key={key}>
-                  {index > 0 && <Separator orientation="vertical" />}
+                return member ? { nickname: member.nickname, agent: member.agent, model: member.model ?? undefined } : undefined
+              }}
+              entryOf={(key): TileEntry | null => {
+                const entry = roster.find((one) => one.key === key)
+                return entry ? {
+                  tint: entry.tint,
+                  brand: entry.brand,
+                  busy: entry.busy,
+                  waitingForYou: snapshot.approvals.some((approval) => approval.key === key),
+                } : null
+              }}
+              onOpenMember={(key) => show(key)}
+              conversationProps={{ onChooseProject, onSignIn, onOpenUsage, onOpenRuntimes }}
+              card={(key, who) => (
+                <MemberCard
+                  entry={roster.find((one) => one.key === key) ?? null}
+                  side="bottom"
+                  className={styles.columnWho}
+                >
+                  {who}
+                </MemberCard>
+              )}
+            />
+          ) : singleMember ? (
+            (() => {
+              const key = singleMember
+              const member = memberOf(key)
+              const entry = roster.find((one) => one.key === key) ?? null
+              return (
+                <div className={styles.columns} data-columns="1">
                   <section className={styles.column}>
-                    {/* Whose column this is — drawn when the rail is not already
-                        saying it. One member watched, with the roster beside it,
-                        is the case where this row is pure repetition: the rail
-                        highlights the row it opened, the conversation's own
-                        header carries the title and the status, and the composer
-                        underneath names the agent and the model. Three of those
-                        four facts printed twice cost a 44px band across the top
-                        of the transcript. The stylesheet takes it away at one
-                        column and hands it straight back when the room is narrow
-                        enough to have dropped the rail. */}
                     <Bar as="header" rule="bottom" className={styles.columnHead}>
-                      {/* The mark, the name and what it runs, as one trigger:
-                          resting on the name asks what resting on the mark
-                          does. The ✕ stays outside, so reaching for it never
-                          opens a card. */}
-                      <MemberCard
-                        entry={entry}
-                        side="bottom"
-                        className={styles.columnWho}
-                        /* The column is already up, so there is no Open to
-                           offer; closing is the one verb this head has, and
-                           only while there is another column to be left with. */
-                        {...(columns.length > 1 ? { onClose: () => stopWatching(key) } : {})}
-                      >
-                        {/* Whose transcript this is, in the mark the reader already
-                            knows from the sign-in screen and the model picker — and
-                            wearing the same light as its row in the rail, so a
-                            column and its row are visibly the same member. */}
+                      <MemberCard entry={entry} side="bottom" className={styles.columnWho}>
                         <span className={styles.columnMark}>
                           <IconTile size="sm" tint={entry?.tint ?? 'blue'}>
                             {entry?.brand ? <BrandMark brand={entry.brand} size={13} /> : <AgentIcon />}
@@ -1358,59 +1310,21 @@ export const TeamRoomPane = ({
                           {entry?.busy && <Dot state="ready" variant="presence" pulse aria-hidden />}
                         </span>
                         <Text role="row" className={styles.columnName}>{member?.nickname ?? 'Member'}</Text>
-                        {/* What it runs, beside what it is called — two Cursor
-                            conversations on two models are told apart here or
-                            nowhere.
-
-                            The harness is dropped when it *is* the name: a room
-                            names its members after the model, and the default for
-                            the first Codex conversation on a board is "Codex", so
-                            the head read "Codex — Codex · gpt-5.6". A word printed
-                            twice in four is not context, it is noise. */}
                         <Text role="meta" className={styles.columnSub}>
-                          {[member?.agent === member?.nickname ? null : member?.agent, member?.model]
-                            .filter(Boolean)
-                            .join(' · ')}
+                          {[member?.agent === member?.nickname ? null : member?.agent, member?.model].filter(Boolean).join(' · ')}
                         </Text>
                       </MemberCard>
-                      {columns.length > 1 && (
-                        <Button
-                          type="button"
-                          variant="ghost" size="icon-sm" className={styles.columnClose}
-                          aria-label={`Stop watching ${member?.nickname ?? 'this member'}`}
-                          title={`Stop watching ${member?.nickname ?? 'this member'}`}
-                          onClick={() => stopWatching(key)}
-                        >
-                          <CrossIcon size={12} />
-                        </Button>
-                      )}
                     </Bar>
                     <div className={styles.columnBody}>
-                      <PaneProvider
-                        scope={{
-                          paneId: `${mount?.id ?? 'team-room'}:${key}`,
-                          view: { kind: 'conversation', session: key },
-                          sessionKey: key,
-                        }}
-                      >
-                        <Conversation
-                          onChooseProject={onChooseProject}
-                          onSignIn={onSignIn}
-                          onOpenUsage={onOpenUsage}
-                          onOpenRuntimes={onOpenRuntimes}
-                        />
-                        {/* An approval is a stop: the turn does not continue
-                            until it is answered. Every column mounts its own, or
-                            an agent asking for a command blocks with nowhere in
-                            this surface to say yes. */}
+                      <PaneProvider scope={{ paneId: `${mount?.id ?? 'team-room'}:${key}`, view: { kind: 'conversation', session: key }, sessionKey: key }}>
+                        <Conversation onChooseProject={onChooseProject} onSignIn={onSignIn} onOpenUsage={onOpenUsage} onOpenRuntimes={onOpenRuntimes} />
                         <Approvals />
                       </PaneProvider>
                     </div>
                   </section>
-                  </Fragment>
-                )
-              })}
-            </div>
+                </div>
+              )
+            })()
           ) : (
             <Room room={room} members={roster} loaded={peers !== null} onShow={show} pendingApproval={pendingApproval} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} />
           )}

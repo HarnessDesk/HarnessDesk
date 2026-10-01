@@ -37,3 +37,11 @@ it('is a header when it names what is under it, and a plain box otherwise', () =
   expect(head).toMatch(/^<header data-slot="bar"/)
   expect(classOf(head)).toContain('h-(--hd-bar-h)')
 })
+
+it('an active bar draws its rule in the focus ink, and only when it has a rule', () => {
+  const active = renderToStaticMarkup(<Bar rule="bottom" active>Tile</Bar>)
+  expect(active).toContain('data-active=""')
+  expect(active).toContain('border-(--hd-ring)')
+  const ruleless = renderToStaticMarkup(<Bar active>Tile</Bar>)
+  expect(ruleless).not.toContain('border-(--hd-ring)')
+})

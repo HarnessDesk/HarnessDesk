@@ -14,9 +14,10 @@ import {
   type TeamState,
 } from '@harnessdesk/protocol'
 
-import { MountProvider } from '../panels/mount'
+import { MountProvider, type MountScope } from '../panels/mount'
 import { views } from '../panels/views'
 import '../panels/builtins'
+import { toStored, type SideBySideState, type StoredSideBySide } from '../lib/side-by-side'
 import { StoreProvider, usePane } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { TeamRoomPane } from './TeamRoomPane'
@@ -48,7 +49,7 @@ import styles from './TeamRoomPane.module.css'
 vi.mock('./Conversation', () => ({
   Conversation: () => {
     const pane = usePane()
-    return <div data-testid="conversation">conversation for {String(pane?.sessionKey)}</div>
+    return <div data-testid="conversation">conversation for {String(pane?.sessionKey)}<div data-slot="composer" /></div>
   },
 }))
 
@@ -165,6 +166,7 @@ const rig = (
   } as unknown as Session
   let peers = roster
   let team = { ...state, ...board }
+  let savedView: { readonly watching?: readonly SessionKey[]; readonly sideBySide?: StoredSideBySide } = {}
   const snapshotOf = (): AppSnapshot =>
     ({
       ...emptySnapshot(),
@@ -192,10 +194,18 @@ const rig = (
     loadFlowRuns: vi.fn().mockResolvedValue(undefined),
     continueFlowAnswer: vi.fn().mockResolvedValue(undefined),
     loadBoardEvidence: vi.fn().mockResolvedValue(undefined),
-    setRoomWatching: vi.fn(),
+    setRoomWatching: vi.fn((_id: string, watching: readonly SessionKey[]) => {
+      savedView = { ...savedView, watching }
+    }),
+    setRoomSideBySide: vi.fn((_id: string, grid: SideBySideState) => {
+      const sideBySide = toStored(grid)
+      const { sideBySide: _old, ...rest } = savedView
+      savedView = sideBySide ? { ...rest, sideBySide } : rest
+    }),
+    lastView: () => savedView,
     releaseGoal: vi.fn().mockResolvedValue(undefined),
     setTeamInbound: vi.fn().mockResolvedValue(undefined),
-  } as unknown as AppStore
+  } as unknown as AppStore & { lastView: () => { readonly watching?: readonly SessionKey[]; readonly sideBySide?: StoredSideBySide } }
   /** Something new is said in the room, from outside this surface. */
   const says = async (text: string): Promise<void> => {
     team = {
@@ -362,6 +372,10 @@ const menuRow = (text: string): HTMLButtonElement => {
   if (!found) throw new Error(`no menu row containing ${text}`)
   return found
 }
+
+const clickElement = (element: Element): void => act(() => {
+  element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+})
 
 const row = (text: string): HTMLElement => {
   const found = [...container.querySelectorAll('[data-slot="list-row"]')].find((entry) =>
@@ -835,12 +849,95 @@ it('an empty roster says how many conversations it looked at', async () => {
 const paneWidth = (px: number): void => {
   const real = HTMLElement.prototype.getBoundingClientRect
   HTMLElement.prototype.getBoundingClientRect = function measured(this: HTMLElement) {
-    if (this.hasAttribute('data-columns')) return { width: px, height: 800 } as DOMRect
+    if (this.getAttribute('data-slot') === 'side-by-side-grid') return { width: px, height: 800 } as DOMRect
     return real.call(this)
   }
 }
 
-it('watches a second member beside the first, headed by whose it is', async () => {
+type RoomRenderOptions = {
+  readonly members?: readonly string[]
+  readonly width?: number
+  readonly view?: { readonly watching?: readonly SessionKey[]; readonly sideBySide?: StoredSideBySide }
+}
+
+const renderRoom = async ({ members, width = 1200, view = {} }: RoomRenderOptions = {}) => {
+  const peers = members?.map((value) => {
+    const [runtime = 'codex', id = value] = value.split('\u0000')
+    const base = runtime === 'codex' ? CODEX : runtime === 'claude' ? CLAUDE : { ...CLAUDE, runtime: runtime as never, agent: runtime }
+    return { ...base, runtime: runtime as never, sessionId: id, title: id, nickname: id }
+  })
+  const { store } = rig(peers)
+  paneWidth(width)
+  const scope: MountScope = {
+    area: 'main',
+    id: 'pane-1',
+    view: { kind: 'room', room: ROOM, ...view },
+  }
+  await act(async () => {
+    root.render(
+      <StoreProvider store={store}>
+        <MountProvider scope={scope}>
+          <TeamRoomPane room={ROOM} />
+        </MountProvider>
+      </StoreProvider>,
+    )
+  })
+  await act(async () => {})
+  return { pane: container, store }
+}
+
+const clickRailWatch = async (pane: HTMLElement, nickname: string): Promise<void> => {
+  const button = [...pane.querySelectorAll<HTMLButtonElement>('button')].find((one) =>
+    one.getAttribute('aria-label')?.startsWith(`Watch ${nickname} `),
+  )
+  if (!button) throw new Error(`no Watch control for ${nickname}`)
+  await act(async () => { button.click() })
+  await act(async () => {})
+}
+
+const clickRailOpen = async (pane: HTMLElement, nickname: string): Promise<void> => {
+  const watch = [...pane.querySelectorAll<HTMLButtonElement>('button[aria-label^="Watch "]')].find((one) =>
+    one.getAttribute('aria-label')?.startsWith(`Watch ${nickname} `),
+  )
+  const target = watch?.closest<HTMLElement>('[data-slot="list-row"]')
+  if (!target) throw new Error(`no room row for ${nickname}`)
+  act(() => target.click())
+  await act(async () => {})
+}
+
+it('Watch puts a member on a Side by side tile and opens the destination', async () => {
+  const { pane, store } = await renderRoom({ members: ['codex\u0000a', 'claude\u0000b'] })
+  await clickRailWatch(pane, 'a')
+  await clickRailWatch(pane, 'b')
+  expect(pane.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(2)
+  expect(store.lastView().sideBySide?.tiles).toEqual(['codex\u0000a', 'claude\u0000b'])
+})
+
+it('Open shows one member’s full conversation, not a tile', async () => {
+  const { pane } = await renderRoom({ members: ['codex\u0000a'] })
+  await clickRailOpen(pane, 'a')
+  expect(pane.querySelector('[data-slot="side-by-side-tile"]')).toBeNull()
+  expect(pane.querySelector('[data-slot="composer"]')).not.toBeNull()
+})
+
+it('a narrowed room keeps all four tiles in its view', async () => {
+  const { pane, store } = await renderRoom({
+    members: ['codex\u0000a', 'claude\u0000b', 'cursor\u0000c', 'acp\u0000d'],
+    width: 500,
+  })
+  for (const name of ['a', 'b', 'c', 'd']) await clickRailWatch(pane, name)
+  expect(store.lastView().sideBySide?.tiles).toHaveLength(4)
+})
+
+it('restores tiles from the view and migrates an old watching list', async () => {
+  const { pane } = await renderRoom({
+    members: ['codex\u0000a', 'claude\u0000b'],
+    view: { watching: ['codex\u0000a', 'claude\u0000b'] as SessionKey[] },
+  })
+  expect(pane.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(2)
+})
+
+it('Watch places members on Side by side tiles with their identities', async () => {
   paneWidth(1400)
   const { store } = rig()
   await render(store)
@@ -861,74 +958,44 @@ it('watches a second member beside the first, headed by whose it is', async () =
       .filter((label) => label.startsWith('Watch '))
   expect(watchVerbs()).toHaveLength(2)
 
-  act(() => row('API migration').click())
-  expect(container.querySelectorAll('[data-columns]')).toHaveLength(1)
-  expect(container.querySelector('[data-columns]')?.getAttribute('data-columns')).toBe('1')
+  // Each row can be watched directly; Open remains a separate verb.
+  await clickRailWatch(container, 'Opus')
 
-  // Now a second can join it, and the verb appears on the members that are not up.
-  const add = [...container.querySelectorAll('button')].find(
-    (one) => one.getAttribute('aria-label')?.startsWith('Watch Opus'),
-  )
-  expect(add, 'the members not on screen offer to join the ones that are').toBeDefined()
-  act(() => add?.click())
-
-  expect(container.querySelector('[data-columns]')?.getAttribute('data-columns')).toBe('2')
-  // Each column says whose it is — two conversations on one agent and one
-  // account are told apart here or nowhere.
-  expect(container.textContent).toContain('Codex')
+  expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(1)
+  await clickRailWatch(container, 'Codex')
+  expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(2)
+  expect(container.textContent).toContain('API migration')
   expect(container.textContent).toContain('Opus')
 })
 
-it('a column can be put away, and the last one keeps no close', async () => {
+it('a tile can be taken off the grid without closing its conversation', async () => {
   paneWidth(1400)
   const { store } = rig()
   await render(store)
-  act(() => row('API migration').click())
-  const add = [...container.querySelectorAll('button')].find((one) =>
-    one.getAttribute('aria-label')?.startsWith('Watch Opus'),
-  )
-  act(() => add?.click())
-
-  const close = [...container.querySelectorAll('button')].filter((one) =>
-    one.getAttribute('aria-label')?.startsWith('Stop watching'),
-  )
-  // Two columns, two ways to put one away; one column offers none, because
-  // closing the only thing on screen leaves the pane with nothing to say.
-  expect(close).toHaveLength(2)
-  act(() => close[1]?.click())
-  expect(container.querySelector('[data-columns]')?.getAttribute('data-columns')).toBe('1')
-  expect(
-    [...container.querySelectorAll('button')].filter((one) =>
-      one.getAttribute('aria-label')?.startsWith('Stop watching'),
-    ),
-  ).toHaveLength(0)
+  await clickRailWatch(container, 'Codex')
+  const actions = container.querySelector<HTMLButtonElement>('button[aria-label="Codex actions"]')!
+  clickElement(actions)
+  const menu = document.body.querySelector<HTMLElement>('[role="menu"]')!
+  const takeOff = [...menu.querySelectorAll<HTMLElement>('*')].find((one) => one.textContent?.trim() === 'Take off the grid')!
+  clickElement(takeOff)
+  expect(container.querySelector('[data-slot="side-by-side-tile"]')).toBeNull()
+  expect(container.textContent).toContain('Watch a member to put it here')
+  expect(store.getSnapshot().sessions.has(sessionKey('codex', 'c1'))).toBe(true)
 })
 
 /**
- * A pane too narrow for two says so by holding one.
- *
- * A transcript and its composer stop being readable together under about
- * 420px, so the cap is what the pane can actually hold rather than a constant.
- * Picking a second member in a pane with room for one replaces what is there —
- * it does not squeeze two into a width where neither can be read.
+ * A narrow pane changes what is displayed, not which tiles are kept.
  */
-it('holds one column when only one fits, and replaces rather than squeezes', async () => {
+it('keeps every watched tile in the view when the room is narrow', async () => {
   paneWidth(500)
   const { store } = rig()
   await render(store)
 
-  act(() => row('API migration').click())
-  expect(container.querySelector('[data-columns]')?.getAttribute('data-columns')).toBe('1')
-
-  const add = [...container.querySelectorAll('button')].find((one) =>
-    one.getAttribute('aria-label')?.startsWith('Watch Opus'),
-  )
-  act(() => add?.click())
-
-  // Still one column, and it is the newly picked member — not two unreadable
-  // halves, and not a press that silently did nothing.
-  expect(container.querySelector('[data-columns]')?.getAttribute('data-columns')).toBe('1')
-  expect(container.textContent).toContain('Opus')
+  const watch = (name: string) => row(name).querySelector<HTMLButtonElement>('button[aria-label^="Watch"]')!
+  act(() => watch('API migration').click())
+  act(() => watch('Opus').click())
+  expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(2)
+  expect(container.querySelectorAll('[data-slot="side-by-side-tile"][data-hidden]')).toHaveLength(1)
 })
 
 /**
@@ -939,7 +1006,7 @@ it('holds one column when only one fits, and replaces rather than squeezes', asy
  * arranged on purpose were thrown away by the next click, and Back — which
  * exists so the slot does not lose your place — handed back an empty room.
  */
-it('opens the members the view says it was watching', async () => {
+it('opens the tiles stored in the room view', async () => {
   paneWidth(1400)
   const { store } = rig()
   const scope = {
@@ -948,7 +1015,7 @@ it('opens the members the view says it was watching', async () => {
     view: {
       kind: 'room' as const,
       room: ROOM,
-      watching: [sessionKey('codex', 'c1'), sessionKey('claude', 'k1')],
+      sideBySide: { tiles: [sessionKey('codex', 'c1'), sessionKey('claude', 'k1')] },
     },
   }
   await act(async () => {
@@ -962,14 +1029,15 @@ it('opens the members the view says it was watching', async () => {
   })
   await act(async () => { await Promise.resolve() })
 
-  expect(container.querySelector('[data-columns]')?.getAttribute('data-columns')).toBe('2')
+  expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(2)
   expect(container.textContent).toContain('API migration')
 })
 
-it('writes what it is watching back to the view', async () => {
+it('clears the old watching field once and writes the grid to the room view', async () => {
   const { store } = rig()
   const setRoomWatching = vi.fn()
-  const withWriter = { ...store, setRoomWatching } as unknown as AppStore
+  const setRoomSideBySide = vi.fn()
+  const withWriter = { ...store, setRoomWatching, setRoomSideBySide } as unknown as AppStore
   const scope = { area: 'main' as const, id: 'pane-1', view: { kind: 'room' as const, room: ROOM } }
   await act(async () => {
     root.render(
@@ -982,8 +1050,11 @@ it('writes what it is watching back to the view', async () => {
   })
   await act(async () => { await Promise.resolve() })
 
-  act(() => row('API migration').click())
-  expect(setRoomWatching).toHaveBeenCalledWith('pane-1', [sessionKey('codex', 'c1')])
+  const watch = row('API migration').querySelector<HTMLButtonElement>('button[aria-label^="Watch"]')!
+  act(() => watch.click())
+  expect(setRoomWatching).toHaveBeenCalledTimes(1)
+  expect(setRoomWatching).toHaveBeenCalledWith('pane-1', [])
+  expect(setRoomSideBySide).toHaveBeenLastCalledWith('pane-1', expect.objectContaining({ tiles: [sessionKey('codex', 'c1')] }))
 })
 
 /**
@@ -1143,13 +1214,13 @@ it('starts a different room fresh, rather than wearing the last one’s', async 
   const Room = views.get('room')?.component
   if (!Room) throw new Error('the room view is not registered')
 
-  const mount = (room: string, watching: readonly SessionKey[]) => ({
+  const mount = (room: string, tiles: readonly SessionKey[]) => ({
     area: 'main' as const,
     id: 'pane-1',
-    view: { kind: 'room' as const, room, watching },
+    view: { kind: 'room' as const, room, sideBySide: { tiles } },
   })
 
-  // Room A, watching one of its conversations.
+  // Room A, showing one of its conversations as a tile.
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
@@ -1160,7 +1231,7 @@ it('starts a different room fresh, rather than wearing the last one’s', async 
     )
   })
   await act(async () => {})
-  expect(container.querySelector('[data-columns]')?.getAttribute('data-columns')).toBe('1')
+  expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(1)
 
   /* The same pane id, pointed at another room *in the same project* — the
      case a root key was blind to. Without the key React keeps the instance
@@ -1176,7 +1247,7 @@ it('starts a different room fresh, rather than wearing the last one’s', async 
   })
   await act(async () => {})
 
-  expect(container.querySelector('[data-columns]')).toBeNull()
+  expect(container.querySelector('[data-slot="side-by-side-tile"]')).toBeNull()
   expect(container.textContent).not.toContain('conversation for')
 })
 
@@ -1298,7 +1369,7 @@ it('says which members are working on their rows, and keeps one presence fact in
  * with nothing on screen there is nothing to sit beside — which is true of the
  * second column and false of the first.
  */
-it('offers “watch beside” before anything is being watched', async () => {
+it('offers Watch before anything is being watched', async () => {
   const { store } = rig()
   await render(store)
 
@@ -1309,7 +1380,7 @@ it('offers “watch beside” before anything is being watched', async () => {
 
   act(() => (watch[1] as HTMLButtonElement).click())
   await act(async () => {})
-  expect(container.querySelector('[data-columns]')?.getAttribute('data-columns')).toBe('1')
+  expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(1)
 })
 
 /**
@@ -2798,7 +2869,7 @@ it('pressing a member opens it and takes its card away', async () => {
  * that sentence would be saying something else. So resting on it summons no
  * card, reaching it puts an open one away — and pressing it still watches.
  */
-it('the plus beside a member opens no card, puts an open one away, and still watches', async () => {
+it('the Watch control opens no card and puts the member on the grid', async () => {
   vi.useFakeTimers()
   const { store } = rig()
   await render(store)
@@ -2827,7 +2898,7 @@ it('the plus beside a member opens no card, puts an open one away, and still wat
     vi.advanceTimersByTime(1000)
   })
   expect(trigger?.hasAttribute('data-popup-open') ?? false).toBe(false)
-  expect(container.querySelector('[data-columns]')?.getAttribute('data-columns')).toBe('1')
+  expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(1)
   vi.useRealTimers()
 })
 
@@ -2913,17 +2984,17 @@ it('a rail row is one tab stop, and that stop is its plus', async () => {
   expect(stops[0]).toBe(watch)
 })
 
-it('opens a column’s card from the name at its head, as from its mark', async () => {
+it('opens the room member card from a tile identity', async () => {
   vi.useFakeTimers()
   const { store } = rig()
   await render(store)
 
-  act(() => row('Opus').click())
+  act(() => row('Opus').querySelector<HTMLButtonElement>('button[aria-label^="Watch"]')?.click())
   await act(async () => {})
-  const head = [...container.querySelectorAll('section header')].find((one) =>
+  const head = [...container.querySelectorAll('[data-slot="side-by-side-tile"] header')].find((one) =>
     one.textContent?.includes('Opus'),
   )
-  if (!head) throw new Error('no column head for Opus')
+  if (!head) throw new Error('no tile head for Opus')
 
   rest(textAt(head, 'Opus'))
   expect(document.querySelector('[data-slot="agent-card"]')?.textContent).toContain('Opus')

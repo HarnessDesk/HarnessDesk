@@ -29,6 +29,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   IconTile,
+  Separator,
   Tabs,
   TabsList,
   TabsTrigger,
@@ -108,7 +109,39 @@ export const SideBySide = ({
   }, [onChange, state])
 
   const focus = (key: SessionKey) => onChange(focusTile(state, key))
-  const gridStyle = { '--side-by-side-columns': shown.columns } as CSSProperties
+  /*
+   * Where each shown tile sits. The grid's tracks alternate tiles and one-
+   * hairline seams, and the system's Separator draws each seam — the screen
+   * places, it never paints. Every tile stays a direct child of the grid in
+   * tile order, whatever is shown: moving one into a row of its own would
+   * remount it, and a remount loses a transcript's scroll and reloads a page.
+   * A short last row's last tile spans to the grid's end.
+   */
+  const columns = shown.columns
+  const rows = Math.max(1, Math.ceil(shown.shown.length / columns))
+  const track = (count: number) =>
+    Array.from({ length: count }, () => 'minmax(0, 1fr)').join(' var(--hd-space-px) ')
+  const gridStyle = { gridTemplateColumns: track(columns), gridTemplateRows: track(rows) } as CSSProperties
+  const place = (key: SessionKey): CSSProperties | undefined => {
+    const at = shown.shown.indexOf(key)
+    if (at < 0) return undefined
+    const row = Math.floor(at / columns)
+    const column = at % columns
+    const inRow = Math.min(columns, shown.shown.length - row * columns)
+    const lastOfShortRow = inRow < columns && column === inRow - 1
+    return {
+      gridRow: row * 2 + 1,
+      gridColumn: lastOfShortRow ? `${column * 2 + 1} / -1` : column * 2 + 1,
+    }
+  }
+  const seams: { key: string; orientation: 'vertical' | 'horizontal'; style: CSSProperties }[] = []
+  for (let row = 0; row < rows; row++) {
+    const inRow = Math.min(columns, shown.shown.length - row * columns)
+    for (let column = 1; column < inRow; column++) {
+      seams.push({ key: `v${row}:${column}`, orientation: 'vertical', style: { gridRow: row * 2 + 1, gridColumn: column * 2 } })
+    }
+    if (row > 0) seams.push({ key: `h${row}`, orientation: 'horizontal', style: { gridRow: row * 2, gridColumn: '1 / -1' } })
+  }
 
   return (
     <div className={styles.root} onKeyDown={onKeyDown}>
@@ -142,10 +175,11 @@ export const SideBySide = ({
               {...(isFocused ? { 'data-focused': '' } : {})}
               {...(isHidden ? { 'data-hidden': '' } : {})}
               className={styles.tile}
+              style={place(key)}
               onClick={() => focus(key)}
               onKeyDown={onKeyDown}
             >
-              <Bar as="header" rule="bottom" className={styles.header}>
+              <Bar as="header" rule="bottom" active={isFocused && shown.shown.length > 1} className={styles.header}>
                 {card(key, (
                   <span className={styles.member}>
                     <span className={styles.mark}>
@@ -196,6 +230,9 @@ export const SideBySide = ({
             </section>
           )
         })}
+        {seams.map((seam) => (
+          <Separator key={seam.key} orientation={seam.orientation} style={seam.style} />
+        ))}
       </div>
     </div>
   )

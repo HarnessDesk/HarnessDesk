@@ -23,6 +23,10 @@ import { cn } from '@/lib/utils'
  *           `--titlebar-inset` in `app.css`.
  *   rule    The one hairline that separates the bar from what it heads
  *           (`bottom`) or closes (`top`).
+ *   active  The bar heads the pane that has the keyboard among several
+ *           shown at once (a room's Side by side tiles): its rule is drawn
+ *           in the focus ink, so which pane a key will reach is visible
+ *           without a ring around the whole pane.
  *
  * `as="header"` is for a bar that names what is under it — a page's own top
  * row, a column's head — so a screen reader can find it as that region's
@@ -34,24 +38,28 @@ const Bar = ({
   inset = 'box',
   corner = false,
   rule,
+  active = false,
   ...props
 }: React.ComponentProps<'div'> & {
   as?: 'div' | 'header'
   inset?: 'box' | 'ink'
   corner?: boolean
   rule?: 'top' | 'bottom'
+  active?: boolean
 }) => (
   <Element
     data-slot="bar"
     data-inset={inset}
     {...(corner ? { 'data-corner': '' } : {})}
     {...(rule ? { 'data-rule': rule } : {})}
+    {...(active ? { 'data-active': '' } : {})}
     className={cn(
       'flex h-(--hd-bar-h) shrink-0 items-center gap-(--hd-bar-gap) pr-(--hd-bar-pad)',
       inset === 'box' && (corner ? 'pl-[max(var(--hd-bar-pad),var(--titlebar-inset,0px))]' : 'pl-(--hd-bar-pad)'),
       inset === 'ink' && (corner ? 'pl-[max(var(--hd-bar-ink),var(--titlebar-inset,0px))]' : 'pl-(--hd-bar-ink)'),
       rule === 'bottom' && 'border-b border-(--hd-border)',
       rule === 'top' && 'border-t border-(--hd-border)',
+      active && rule && 'border-(--hd-ring)',
       className,
     )}
     {...props}
