@@ -45,6 +45,38 @@ it('shows one card at a time, says how many wait, and pages between them', async
   expect(onDismiss).toHaveBeenCalledWith('offer')
 })
 
+it('uses one pager tab stop and moves it by toolbar keys, skipping disabled buttons', async () => {
+  await act(() => root.render(<NoticeCard messages={[update, offer, { ...offer, id: 'third' }]} onDismiss={() => {}} />))
+  const previous = button('Previous message')
+  const next = button('Next message')
+  const press = async (target: HTMLButtonElement, key: string) => {
+    await act(() => target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })))
+  }
+
+  expect([previous.tabIndex, next.tabIndex]).toEqual([-1, 0])
+  await press(next, 'ArrowLeft')
+  expect(document.activeElement).toBe(next) // Previous is disabled at the first page.
+  await act(() => next.click())
+  expect(host.textContent).toContain('2 of 3')
+
+  await press(next, 'Home')
+  expect(document.activeElement).toBe(previous)
+  expect([previous.tabIndex, next.tabIndex]).toEqual([0, -1])
+  await press(previous, 'End')
+  expect(document.activeElement).toBe(next)
+  await press(next, 'ArrowLeft')
+  expect(document.activeElement).toBe(previous)
+  await press(previous, 'ArrowLeft')
+  expect(document.activeElement).toBe(next)
+})
+
+it('keeps inbox notice leads full size in a first-line-height wrapper', async () => {
+  await act(() => root.render(<InboxList messages={[{ ...offer, read: false }]} />))
+  const lead = host.querySelector('[data-size="md"]')
+  expect(lead?.parentElement?.className).toContain('h-(--hd-line-sm)')
+  expect(lead?.querySelector('svg')?.getAttribute('width')).toBe('14')
+})
+
 it('pulls each trailing notice glyph to the surface text edge', async () => {
   await act(() => root.render(<NoticeStrip messages={[update, offer]} onDismiss={() => {}} />))
   for (const name of ['Next message', 'Dismiss']) {
