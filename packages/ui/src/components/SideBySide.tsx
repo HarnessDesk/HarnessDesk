@@ -223,7 +223,7 @@ export const SideBySide = ({
               </Bar>
               <div className={styles.body}>
                 <PaneProvider scope={{ paneId: `${paneId}:${key}`, view: { kind: 'conversation', session: key }, sessionKey: key }}>
-                  <Conversation {...conversationProps} />
+                  <Conversation {...conversationProps} header={false} />
                   <Approvals />
                 </PaneProvider>
               </div>

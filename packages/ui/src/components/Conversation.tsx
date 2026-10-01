@@ -553,11 +553,17 @@ export const Conversation = ({
   onSignIn,
   onOpenUsage,
   onOpenRuntimes,
+  header = true,
 }: {
   onChooseProject: () => void
   onSignIn: (runtime?: RuntimeId) => void
   onOpenUsage: (runtime: RuntimeId) => void
   onOpenRuntimes: () => void
+  /** False where something else already heads this conversation — a Side
+      by side tile's own bar names the member, its state and its ⋯, and a
+      second header under it would repeat the title and the plan meters in
+      every tile. */
+  header?: boolean
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -683,82 +689,84 @@ export const Conversation = ({
           itself, and that was wrong twice over — it indented this header when
           a tool pane was in the corner instead, and it left every other header
           in the app printing its title under the buttons. */}
-      <Bar as="header" corner inset="ink" rule="bottom" className={`${styles.header} hd-drag`}>
-        {/* The window's own controls, whenever the sidebar is not standing
-            beside this header to carry them: put away, or floating over the
-            conversation in a narrow window. Only the middle's own header takes
-            them — a conversation docked beside it, or a member's column in a
-            room, drew a second set a few inches from the first. */}
-        {pane && findPane(snapshot.layout, pane.paneId) && sidebarPlacement(snapshot) !== 'column' && (
-          <WindowControls />
-        )}
-        <HeaderTitle session={session} />
-        {/* Folds at a phone's width, same as the idle status and the rule:
-            the title is the one name in this row and must win the space.
-            The ceiling itself is not lost — it is still read from the seat's
-            own card (AgentCards, opened from Settings › Agents or this
-            conversation's own ⋯ › Save as an Agent…). */}
-        {session && (
-          <span className={`${styles.ceilingWrap} hd-no-drag inline-flex flex-none`} data-slot="ceiling-wrap">
-            <HeaderCeiling session={session} />
-          </span>
-        )}
-        {session && (
-          <Chip
-            tone={STATUS_PILL_TONE[status]}
-            dotTone={STATUS_TONE[status]}
-            dotPulse={status === 'running'}
-            className={`hd-no-drag${status === 'idle' ? ` ${styles.statusIdle}` : ''}`}
-            title={STATUS_LABEL[status]}
-          >
-            {status !== 'idle' && <span className={styles.statusLabel}>{STATUS_LABEL[status]}</span>}
-          </Chip>
-        )}
-        {session && <TasksChip />}
-        <div className="hd-no-drag">
-          <GitControl
-            onRemoveWorktree={() => setRemovingWorktree(true)}
-            onBringHome={() => setBringingHome(true)}
-          />
-        </div>
-        {/* Empty when nothing is registered — and an empty box in a flex row
-            still takes the row's gap, which left a hole in the header that
-            looked like a control had failed to draw. */}
-        <div className={`${styles.headerSlot} hd-no-drag`}>
-          <Slot name="session.header" />
-        </div>
-        {/* What every signed-in plan has left. Ambient, so it sits with the
-            status rather than with the buttons that do something. */}
-        <PlanMeters onOpen={onOpenUsage} onSignIn={onSignIn} />
-        {/* Everything to the left of this states a fact; everything to the
-            right does something — the tool header's own divider, drawn for
-            the same reason between a tool's controls and its panel's. Wrapped
-            only so the phone-width fold below can hide it: the shared marker
-            takes no className of its own. */}
-        {pane && (
-          <span className={styles.headerRuleWrap}>
-            <ToolPaneHeaderDivider />
-          </span>
-        )}
-        {/* A door to a view folds into ⋯ › View at a phone's width — where
-            there is a ⋯ to fold into. A draft has none, so its browser button
-            stays: folded, it was a door closed with nothing in its place. */}
-        {pane && (
-          <span className={styles.headerButtonWrap} {...(session ? { 'data-folds': '' } : {})}>
-            <Button
-            variant="ghost" size="icon-sm" className={`${styles.headerButton} hd-no-drag`}
-            {...(session ? { 'data-folds': '' } : {})}
-            onClick={() => store.openBrowser()}
-            title="Open the browser beside this conversation — the page agents' browser tools drive"
-            aria-label="Open browser"
-          >
-            <GlobeIcon size={14} />
-            </Button>
-          </span>
-        )}
-        {pane && session && <TerminalToggle folds />}
-        {session && <ConversationMenu />}
-      </Bar>
+      {header && (
+        <Bar as="header" corner inset="ink" rule="bottom" className={`${styles.header} hd-drag`}>
+          {/* The window's own controls, whenever the sidebar is not standing
+              beside this header to carry them: put away, or floating over the
+              conversation in a narrow window. Only the middle's own header takes
+              them — a conversation docked beside it, or a member's column in a
+              room, drew a second set a few inches from the first. */}
+          {pane && findPane(snapshot.layout, pane.paneId) && sidebarPlacement(snapshot) !== 'column' && (
+            <WindowControls />
+          )}
+          <HeaderTitle session={session} />
+          {/* Folds at a phone's width, same as the idle status and the rule:
+              the title is the one name in this row and must win the space.
+              The ceiling itself is not lost — it is still read from the seat's
+              own card (AgentCards, opened from Settings › Agents or this
+              conversation's own ⋯ › Save as an Agent…). */}
+          {session && (
+            <span className={`${styles.ceilingWrap} hd-no-drag inline-flex flex-none`} data-slot="ceiling-wrap">
+              <HeaderCeiling session={session} />
+            </span>
+          )}
+          {session && (
+            <Chip
+              tone={STATUS_PILL_TONE[status]}
+              dotTone={STATUS_TONE[status]}
+              dotPulse={status === 'running'}
+              className={`hd-no-drag${status === 'idle' ? ` ${styles.statusIdle}` : ''}`}
+              title={STATUS_LABEL[status]}
+            >
+              {status !== 'idle' && <span className={styles.statusLabel}>{STATUS_LABEL[status]}</span>}
+            </Chip>
+          )}
+          {session && <TasksChip />}
+          <div className="hd-no-drag">
+            <GitControl
+              onRemoveWorktree={() => setRemovingWorktree(true)}
+              onBringHome={() => setBringingHome(true)}
+            />
+          </div>
+          {/* Empty when nothing is registered — and an empty box in a flex row
+              still takes the row's gap, which left a hole in the header that
+              looked like a control had failed to draw. */}
+          <div className={`${styles.headerSlot} hd-no-drag`}>
+            <Slot name="session.header" />
+          </div>
+          {/* What every signed-in plan has left. Ambient, so it sits with the
+              status rather than with the buttons that do something. */}
+          <PlanMeters onOpen={onOpenUsage} onSignIn={onSignIn} />
+          {/* Everything to the left of this states a fact; everything to the
+              right does something — the tool header's own divider, drawn for
+              the same reason between a tool's controls and its panel's. Wrapped
+              only so the phone-width fold below can hide it: the shared marker
+              takes no className of its own. */}
+          {pane && (
+            <span className={styles.headerRuleWrap}>
+              <ToolPaneHeaderDivider />
+            </span>
+          )}
+          {/* A door to a view folds into ⋯ › View at a phone's width — where
+              there is a ⋯ to fold into. A draft has none, so its browser button
+              stays: folded, it was a door closed with nothing in its place. */}
+          {pane && (
+            <span className={styles.headerButtonWrap} {...(session ? { 'data-folds': '' } : {})}>
+              <Button
+              variant="ghost" size="icon-sm" className={`${styles.headerButton} hd-no-drag`}
+              {...(session ? { 'data-folds': '' } : {})}
+              onClick={() => store.openBrowser()}
+              title="Open the browser beside this conversation — the page agents' browser tools drive"
+              aria-label="Open browser"
+            >
+              <GlobeIcon size={14} />
+              </Button>
+            </span>
+          )}
+          {pane && session && <TerminalToggle folds />}
+          {session && <ConversationMenu />}
+        </Bar>
+      )}
 
       <div className={styles.body}>
         {/* Beside the transcript, not in it: the rail is a picture of the

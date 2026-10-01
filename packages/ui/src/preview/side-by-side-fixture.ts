@@ -9,6 +9,26 @@ export const SIDE_BY_SIDE_MEMBERS = [
   { runtime: runtimeId('cursor'), id: 'x1', nickname: 'Gamma', agent: 'Assistant C', model: 'Model C' },
   { runtime: runtimeId('codex'), id: 's1', nickname: 'Delta', agent: 'Assistant D', model: 'Model D' },
 ] as const
+/** What each member answered the shared brief with, so every tile reads as a member at work rather than an empty conversation. */
+const ANSWERS = [
+  'Retrying on a 502 inside the client keeps the caller simple; the test covers three attempts.',
+  'I moved the retry into a small wrapper so every request path gets it, with a budget of three.',
+  'The retry belongs at the call site that knows the request is safe to repeat; I added it there.',
+  'Three attempts with a growing pause, and a 502 after the last one surfaces as it did before.',
+] as const
+
+const exchange = (key: string, index: number): Session['turns'] =>
+  [
+    {
+      id: `${key}-t1`,
+      status: 'completed',
+      items: [
+        { id: `${key}-u`, type: 'userMessage', content: [{ type: 'text', text: 'Make the client retry a 502 before giving up.' }] },
+        { id: `${key}-a`, type: 'assistantMessage', phase: 'final', text: ANSWERS[index] },
+      ],
+    },
+  ] as unknown as Session['turns']
+
 export const SIDE_BY_SIDE_KEYS = SIDE_BY_SIDE_MEMBERS.map((member) => sessionKey(member.runtime, member.id as SessionId)) as SessionKey[]
 
 export const sideBySideStore = (): AppStore => {
@@ -32,7 +52,7 @@ export const sideBySideStore = (): AppStore => {
       // option; the tiles' frames are public, so the option is left out and
       // every tile's composer reads alike.
       options: (prior.options ?? []).filter((option) => option.category !== 'model'),
-      turns: [],
+      turns: exchange(member.id, index),
       itemsLoaded: true,
     })
   })
