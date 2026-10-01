@@ -1256,14 +1256,16 @@ test('through the host: an id the roster never listed is refused by every verb, 
 test("through the host: an Agent's file opens in the desk's editor, and only this machine's is written", async (t) => {
   const { client, revealed } = await desk(t)
   const shipped = ((await client.call('agent/read', { id: 'judge' })) as AgentEntry).path
-  const read = (await client.call('workspace/readFile', { path: shipped })) as { content: string; hash: string }
+  const read = (await client.call('workspace/readFile', { path: shipped })) as { kind: 'text'; content: string; hash: string }
+  assert.equal(read.kind, 'text')
   assert.match(read.content, /^---\nname: Judge/)
   await assert.rejects(
     client.call('file/save', { path: shipped, content: 'x', expectedHash: read.hash }),
     /outside every open workspace/,
   )
   const mine = (await client.call('agent/create', { name: 'Scout', ceiling: 'edit', seat, to: 'user' })) as AgentEntry
-  const before = (await client.call('workspace/readFile', { path: mine.path })) as { content: string; hash: string }
+  const before = (await client.call('workspace/readFile', { path: mine.path })) as { kind: 'text'; content: string; hash: string }
+  assert.equal(before.kind, 'text')
   const saved = (await client.call('file/save', {
     path: mine.path,
     content: `${before.content}\nLook twice.\n`,
@@ -1291,13 +1293,15 @@ test("through the host: this machine's linked Agent is edited in place, while th
   const linked = join(user, 'linked')
   await symlink(real, linked)
   const path = join(linked, 'AGENT.md')
-  const before = (await client.call('workspace/readFile', { path })) as { content: string; hash: string }
+  const before = (await client.call('workspace/readFile', { path })) as { kind: 'text'; content: string; hash: string }
+  assert.equal(before.kind, 'text')
   assert.match(before.content, /name: Linked/)
   await client.call('file/save', { path, content: before.content.replace('Look.', 'Look twice.'), expectedHash: before.hash })
   assert.match(await readFile(join(real, 'AGENT.md'), 'utf8'), /Look twice\./)
 
   const shipped = ((await client.call('agent/read', { id: 'judge' })) as AgentEntry).path
-  const builtin = (await client.call('workspace/readFile', { path: shipped })) as { content: string; hash: string }
+  const builtin = (await client.call('workspace/readFile', { path: shipped })) as { kind: 'text'; content: string; hash: string }
+  assert.equal(builtin.kind, 'text')
   await assert.rejects(
     client.call('file/save', { path: shipped, content: builtin.content, expectedHash: builtin.hash }),
     /outside every open workspace/,
