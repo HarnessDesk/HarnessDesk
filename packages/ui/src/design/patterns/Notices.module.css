@@ -146,7 +146,7 @@
 
 .composer {
   display: flex;
-  align-items: center;
+  align-items: flex-start; /* desk: center → flex-start, the wrapped notice lead sits on its first line */
   gap: var(--hd-space-2-5);
   min-height: var(--hd-space-10);
   padding: var(--hd-space-1-5) var(--hd-space-1-5) var(--hd-space-1-5) var(--hd-space-2);
@@ -210,6 +210,7 @@
   display: flex;
   flex-direction: column;
   width: min(calc(var(--hd-space-16) * 5.5), calc(100vw - var(--hd-space-8)));
+  padding-inline-end: var(--hd-space-1);
   /* Inside the panel's own inset, on the same 10px text edge a menu row
      keeps, so a list opened from the seat lines up like every other menu. */
   font-size: var(--hd-text-sm);
@@ -220,7 +221,7 @@
   display: flex;
   align-items: center;
   gap: var(--hd-space-2);
-  padding: var(--hd-space-1-5) var(--hd-space-1) var(--hd-space-1) var(--hd-space-2-5);
+  padding: var(--hd-space-1-5) 0 var(--hd-space-1) var(--hd-space-2-5); /* desk: right inset 4 → 0, edge-pulled clear glyph meets the inbox edge */
 }
 
 /* All / Unread: a small segmented pair beside the heading. */
@@ -327,10 +328,6 @@
   align-items: flex-start;
   gap: var(--hd-space-0-5);
   min-width: 0;
-  /* The tile is taller than a line of text: drop the words by half the
-     difference so the tile centres on the title's first line, not on the
-     top of the block. */
-  padding-top: calc((var(--hd-space-6) - var(--hd-line-sm)) / 2);
 }
 
 .inboxTop {

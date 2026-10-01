@@ -89,6 +89,18 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     const rect = [...range.getClientRects()].find(rect => rect.width > 0 && rect.height > 0)
     return rect ? { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom } : null
   }
+  const firstTextLine = (element: Element) => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+    while (walker.nextNode()) {
+      const node = walker.currentNode
+      if (!node.textContent?.trim() || (node.parentElement && hidden(node.parentElement))) continue
+      const range = document.createRange()
+      range.selectNodeContents(node)
+      const rect = [...range.getClientRects()].find(rect => rect.width > 0 && rect.height > 0)
+      if (rect) return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
+    }
+    return null
+  }
   const boxSurface = (element: Element) => {
     const style = getComputedStyle(element)
     const rect = element.getBoundingClientRect()
@@ -143,10 +155,10 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     const lead = children[0]!
     const text = children[1]!
     const leadRect = lead.getBoundingClientRect()
-    const line = firstLine(text)
+    const line = firstTextLine(text)
     const iconLike = (lead.tagName.toLowerCase() === 'svg' || lead.tagName.toLowerCase() === 'img' ||
       (leadRect.width <= 40 && leadRect.height <= 40 && hasIcon(lead) && !hasText(lead)))
-    if (iconLike && hasText(text) && line && line.left >= leadRect.left && line.left - leadRect.right < row.getBoundingClientRect().width) {
+    if (iconLike && hasText(text) && !boxSurface(text) && line && line.left >= leadRect.left && line.left - leadRect.right < row.getBoundingClientRect().width) {
       const delta = Math.abs((leadRect.top + leadRect.bottom) / 2 - (line.top + line.bottom) / 2)
       const rowStyle = getComputedStyle(row)
       const firstLineAligned = rowStyle.alignItems === 'flex-start' || rowStyle.alignItems === 'start'
@@ -162,14 +174,14 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     if (hasText(button) || !button.querySelector('svg') || [...button.children].some(child => child.tagName.toLowerCase() !== 'svg')) continue
     let row: Element | null = button.parentElement
     while (row && row !== root && !(getComputedStyle(row).display === 'flex' && getComputedStyle(row).flexDirection === 'row')) row = row.parentElement
-    if (!row || row === root || row.closest('[data-slot$="bar"], [role="toolbar"]')) continue
+    if (!row || row === root || row.closest('[data-slot$="bar"], [data-slot="notice-pager"], [role="toolbar"]')) continue
     const controls = [...row.querySelectorAll('button, input, select, [role="button"], [data-slot$="ctl"]')].filter(control => !hidden(control))
     if (controls.at(-1) !== button) continue
     let branch: Element = button
     while (branch.parentElement && branch.parentElement !== row) branch = branch.parentElement
     if (!visibleChildren(row).slice(0, visibleChildren(row).indexOf(branch)).some(hasText)) continue
     let surface: Element | null = button.parentElement
-    while (surface && surface !== root && !boxSurface(surface)) surface = surface.parentElement
+    while (surface && surface !== root && !surface.matches('[data-slot="inbox-list"]') && !boxSurface(surface)) surface = surface.parentElement
     if (!surface || surface === root) continue
     const surfaceRect = surface.getBoundingClientRect()
     const surfaceStyle = getComputedStyle(surface)
@@ -270,6 +282,18 @@ test('the rendered frames and boards hold the alignment census ceiling', async (
     testInfo.annotations.push({ type: 'measured', description: CHECKS.map(check => `${check}: ${all[check].length} occurrences`).join(', ') })
     return
   }
+
+  const ownedPartRegressions = [
+    ...all['lead-off-line'].filter(signature =>
+      (signature.startsWith('design.html / group /') && signature.includes('[data-testid=group-run-')) ||
+      signature === 'design.html / dialog / lead-off-line / div > [agent-card] > div > span' ||
+      signature === 'design.html / notices / lead-off-line / div' ||
+      signature === 'design.html / notices / lead-off-line / div > section > ul > li > span'),
+    ...all['trailing-glyph-off-column'].filter(signature =>
+      signature.startsWith('design.html / notices / trailing-glyph-off-column /') ||
+      signature === 'preview.html / coverage-notices / trailing-glyph-off-column / div > [notice-strip] > [button]'),
+  ]
+  expect(ownedPartRegressions, ownedPartRegressions.map(signature => diagnostics.get(signature)).join(' | ')).toEqual([])
 
   const table = recorded()
   const differences = CHECKS.flatMap(check => {

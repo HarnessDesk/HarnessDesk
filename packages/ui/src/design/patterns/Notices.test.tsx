@@ -44,6 +44,16 @@ it('shows one card at a time, says how many wait, and pages between them', async
   expect(onDismiss).toHaveBeenCalledWith('offer')
 })
 
+it('pulls each trailing notice glyph to the surface text edge', async () => {
+  await act(() => root.render(<NoticeStrip messages={[update, offer]} onDismiss={() => {}} />))
+  for (const name of ['Next message', 'Dismiss']) {
+    expect(button(name).className).toContain('me-(--edge-pull)')
+  }
+
+  await act(() => root.render(<InboxList messages={[{ ...offer, read: false }]} onMarkAllRead={() => {}} onClear={() => {}} />))
+  expect(button('Clear the inbox').className).toContain('me-(--edge-pull)')
+})
+
 it('a single card has no pager, and its action carries its shortcut', async () => {
   await act(() => root.render(<NoticeCard messages={[update]} onDismiss={() => {}} />))
   expect(host.textContent).not.toContain('1 of 1')
@@ -104,6 +114,7 @@ it('a message from an Agent leads with its face instead of the tone dot', async 
   await act(() => root.render(<ComposerNotice message={{ id: 'agent', title: 'Opus wants a decision.', mark: <span data-testid="face">O</span> }} />))
   expect(host.querySelector('[data-testid="face"]')).toBeTruthy()
   expect(host.querySelector('svg')).toBeNull()
+  expect(host.querySelector('[data-testid="face"]')?.parentElement?.parentElement?.className).toContain('h-(--hd-line)')
 })
 
 it('work that takes a moment is one toast that turns into how it ended', () => {

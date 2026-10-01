@@ -75,8 +75,10 @@ const Lead = ({ message, size = 'md' }: { message: NoticeMessage; size?: 'sm' | 
   const tone = message.tone ?? 'neutral'
   const Glyph = TONE_ICON[tone]
   return (
-    <span className={styles.tile} data-tone={tone} data-size={size} aria-hidden>
-      {message.mark ?? <Glyph size={size === 'sm' ? 12 : 14} />}
+    <span className={cn('flex shrink-0 items-center overflow-visible', size === 'sm' ? 'h-(--hd-line-sm)' : 'h-(--hd-line)')}>
+      <span className={styles.tile} data-tone={tone} data-size={size} aria-hidden>
+        {message.mark ?? <Glyph size={size === 'sm' ? 12 : 14} />}
+      </span>
     </span>
   )
 }
@@ -93,6 +95,8 @@ const Dismiss = ({ onDismiss, onMute }: { onDismiss: () => void; onMute?: (() =>
       <Button
         variant="ghost"
         size="icon-xs"
+        edge="end"
+        edgeGlyph={12}
         type="button"
         className={styles.dismiss}
         aria-label="Dismiss"
@@ -131,14 +135,14 @@ const usePager = (count: number) => {
 
 const Pager = ({ at, count, onPrevious, onNext }: { at: number; count: number; onPrevious: () => void; onNext: () => void }) =>
   count > 1 ? (
-    <span className={styles.pager}>
+    <span className={styles.pager} data-slot="notice-pager" role="group" aria-label="Message pages">
       <Button variant="ghost" size="icon-xs" type="button" aria-label="Previous message" disabled={at === 0} onClick={onPrevious}>
         <ArrowLeftIcon size={12} />
       </Button>
       <span className={styles.count}>
         {at + 1} of {count}
       </span>
-      <Button variant="ghost" size="icon-xs" type="button" aria-label="Next message" disabled={at === count - 1} onClick={onNext}>
+      <Button variant="ghost" size="icon-xs" edge="end" edgeGlyph={12} type="button" aria-label="Next message" disabled={at === count - 1} onClick={onNext}>
         <ChevronIcon size={12} />
       </Button>
     </span>
@@ -369,7 +373,7 @@ export const InboxList = ({
           </Button>
         ) : null}
         {onClear && messages.length > 0 ? (
-          <Button variant="ghost" size="icon-sm" type="button" aria-label="Clear the inbox" title="Clear the inbox" onClick={onClear}>
+          <Button variant="ghost" size="icon-sm" edge="end" edgeGlyph={14} type="button" aria-label="Clear the inbox" title="Clear the inbox" onClick={onClear}>
             <TrashIcon size={14} />
           </Button>
         ) : null}
