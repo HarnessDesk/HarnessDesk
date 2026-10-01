@@ -1,5 +1,11 @@
+import {
+  RuntimeFileTooLargeError,
+  WORKSPACE_BINARY_LIMIT_BYTES,
+  WORKSPACE_TEXT_LIMIT_BYTES,
+} from '@harnessdesk/protocol'
+
 import { within, type Within } from '../seat-reads.js'
-import { asText, browseDirectories, confine, sha256 } from '../workspace.js'
+import { asText, browseDirectories, confine, isBinaryFile, isMissingWorkspaceFileError, sha256 } from '../workspace.js'
 import type { MethodsUnder } from './context.js'
 
 /**
@@ -118,12 +124,48 @@ export const workspaceMethods = {
 
   'workspace/readFile': async (ctx, params) => {
     const path = confine(params.path, ctx.workspaces.fileRoots('read'))
-    const bytes = await ctx.runtimes.files(params.runtime).read(path)
-    const hash = sha256(bytes)
-    if (params.encoding === 'base64') {
-      return { content: Buffer.from(bytes).toString('base64'), truncated: false, hash }
+    const files = ctx.runtimes.files(params.runtime)
+    let metadata
+    try {
+      metadata = await files.stat(path)
+    } catch (thrown) {
+      if (isMissingWorkspaceFileError(thrown)) return { kind: 'missing' as const }
+      return { kind: 'unreadable' as const, message: thrown instanceof Error ? thrown.message : String(thrown) }
     }
-    return { ...asText(bytes, params.maxBytes), hash }
+
+    if (metadata.size !== undefined && metadata.size > WORKSPACE_BINARY_LIMIT_BYTES) {
+      return { kind: 'tooLarge' as const, size: metadata.size }
+    }
+    // One bounded read serves both the text editor and image preview. Binary
+    // content is classified before the smaller text limit is applied below.
+    const readLimit = WORKSPACE_BINARY_LIMIT_BYTES
+    let bytes: Uint8Array
+    try {
+      // Read one byte over the hard limit so a service without size metadata
+      // can still distinguish an exact-limit file from an oversized one.
+      bytes = await files.read(path, readLimit + 1)
+    } catch (thrown) {
+      if (thrown instanceof RuntimeFileTooLargeError) return { kind: 'tooLarge' as const, size: thrown.size }
+      if (isMissingWorkspaceFileError(thrown)) return { kind: 'missing' as const }
+      return { kind: 'unreadable' as const, message: thrown instanceof Error ? thrown.message : String(thrown) }
+    }
+    const size = metadata.size ?? bytes.byteLength
+    if (bytes.byteLength > WORKSPACE_BINARY_LIMIT_BYTES) {
+      return { kind: 'tooLarge' as const, size: Math.max(size, bytes.byteLength) }
+    }
+    if (isBinaryFile(bytes)) {
+      return {
+        kind: 'binary' as const,
+        ...(params.encoding === 'base64' ? { content: Buffer.from(bytes).toString('base64') } : {}),
+        size,
+        ...(bytes.byteLength <= WORKSPACE_TEXT_LIMIT_BYTES && size <= WORKSPACE_TEXT_LIMIT_BYTES ? { hash: sha256(bytes) } : {}),
+      }
+    }
+    if (bytes.byteLength > WORKSPACE_TEXT_LIMIT_BYTES || size > WORKSPACE_TEXT_LIMIT_BYTES) {
+      return { kind: 'tooLarge' as const, size: Math.max(size, bytes.byteLength) }
+    }
+    const maxBytes = Math.min(params.maxBytes ?? WORKSPACE_TEXT_LIMIT_BYTES, WORKSPACE_TEXT_LIMIT_BYTES)
+    return { kind: 'text' as const, ...asText(bytes, maxBytes), hash: sha256(bytes) }
   },
 
   'workspace/stat': (ctx, params) =>
@@ -140,13 +182,48 @@ export const workspaceMethods = {
     const path = confine(params.path, ctx.workspaces.fileRoots('write'))
     const files = ctx.runtimes.files(params.runtime)
     if (!files.write) throw new Error('This runtime cannot write files from the interface.')
+    // A failed stat/read is not permission to create over a file the host
+    // could not inspect. Only ENOENT is the empty-hash creation case.
+    let metadata
+    try {
+      metadata = await files.stat(path)
+    } catch (thrown) {
+      if (!isMissingWorkspaceFileError(thrown)) throw thrown
+      if (params.expectedHash !== '') throw new Error('This file no longer exists; refusing to recreate it.')
+      metadata = null
+    }
+    if (metadata?.size !== undefined && metadata.size > WORKSPACE_BINARY_LIMIT_BYTES) {
+      return { saved: false as const, reason: 'tooLarge' as const, size: metadata.size }
+    }
+
     // Compare before writing. Not atomic — no filesystem offers that
     // through these calls — but the window is the write itself, and the
     // alternative is overwriting whatever an agent just saved.
-    const current = await files.read(path).catch(() => null)
-    const hash = current ? sha256(current) : ''
-    if (current && hash !== params.expectedHash) {
-      return { saved: false, conflict: { content: asText(current).content, hash } }
+    let current: Uint8Array | null = null
+    if (metadata !== null) {
+      try {
+        current = await files.read(path, WORKSPACE_TEXT_LIMIT_BYTES + 1)
+      } catch (thrown) {
+        if (thrown instanceof RuntimeFileTooLargeError) {
+          return { saved: false as const, reason: 'tooLarge' as const, size: thrown.size }
+        }
+        if (!isMissingWorkspaceFileError(thrown)) throw thrown
+        if (params.expectedHash !== '') throw new Error('This file no longer exists; refusing to recreate it.')
+      }
+    }
+    if (current) {
+      if (current.byteLength > WORKSPACE_BINARY_LIMIT_BYTES) {
+        return { saved: false as const, reason: 'tooLarge' as const, size: current.byteLength }
+      }
+      const size = metadata?.size ?? current.byteLength
+      if (isBinaryFile(current)) return { saved: false as const, reason: 'binary' as const, size }
+      if (current.byteLength > WORKSPACE_TEXT_LIMIT_BYTES || size > WORKSPACE_TEXT_LIMIT_BYTES) {
+        return { saved: false as const, reason: 'tooLarge' as const, size: Math.max(size, current.byteLength) }
+      }
+      const hash = sha256(current)
+      if (hash !== params.expectedHash) {
+        return { saved: false as const, conflict: { content: asText(current).content, hash } }
+      }
     }
     const bytes = Buffer.from(params.content, 'utf8')
     await files.write(path, bytes)

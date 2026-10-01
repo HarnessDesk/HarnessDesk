@@ -81,6 +81,7 @@ import type { ConfigOption, OptionValue } from './options.js'
 import type {
   AccountStatus,
   FileMetadata,
+  WorkspaceReadFileResult,
   HookInfo,
   ListSessionsQuery,
   LoginStart,
@@ -1550,15 +1551,10 @@ export interface HostMethods {
       readonly path: string
       readonly maxBytes?: number
       readonly runtime?: RuntimeId
-      /** `base64` for binary content — a PDF for the preview. Text otherwise. */
+      /** `base64` for a binary image preview. Text otherwise. */
       readonly encoding?: 'utf8' | 'base64'
     }
-    result: {
-      readonly content: string
-      readonly truncated: boolean
-      /** SHA-256 of the bytes read, for `file/save` to detect a write that raced. */
-      readonly hash: string
-    }
+    result: WorkspaceReadFileResult
   }
   /**
    * A single-use, short-lived ticket for `GET /preview-frame`. The preview
@@ -1590,6 +1586,7 @@ export interface HostMethods {
     result:
       | { readonly saved: true; readonly hash: string }
       | { readonly saved: false; readonly conflict: { readonly content: string; readonly hash: string } }
+      | { readonly saved: false; readonly reason: 'binary' | 'tooLarge'; readonly size: number }
   }
 
   /**

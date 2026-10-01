@@ -28,6 +28,8 @@ import {
   reopenRefusedByAgent,
   SessionGoneError,
   SessionBusyError,
+  RuntimeFileTooLargeError,
+  WORKSPACE_BINARY_LIMIT_BYTES,
   sessionId as makeSessionId,
   sessionKey,
   splitSessionKey,
@@ -305,6 +307,13 @@ export interface ModelRouteRecord {
  * pointing at the wrong binary is an ordinary mistake, and before this it
  * cost the whole app — no window, no error, nothing to read.
  */
+export class PreviewFileTooLargeError extends Error {
+  constructor(readonly size: number) {
+    super(`Preview file exceeds the ${WORKSPACE_BINARY_LIMIT_BYTES}-byte limit.`)
+    this.name = 'PreviewFileTooLargeError'
+  }
+}
+
 const START_TIMEOUT_MS = 15_000
 const HELD_ALLOW = 'allow'
 const HELD_REFUSE = 'refuse'
@@ -4062,7 +4071,19 @@ export class Host {
     this.#previewTickets.delete(ticket)
     if (!entry || entry.expiresAt < Date.now()) return null
     const path = confine(entry.path, this.#fileRoots('read'))
-    const bytes = await this.#files(entry.runtime).read(path)
+    const files = this.#files(entry.runtime)
+    const metadata = await files.stat(path)
+    if (metadata.size !== undefined && metadata.size > WORKSPACE_BINARY_LIMIT_BYTES) {
+      throw new PreviewFileTooLargeError(metadata.size)
+    }
+    let bytes: Uint8Array
+    try {
+      bytes = await files.read(path, WORKSPACE_BINARY_LIMIT_BYTES + 1)
+    } catch (thrown) {
+      if (thrown instanceof RuntimeFileTooLargeError) throw new PreviewFileTooLargeError(thrown.size)
+      throw thrown
+    }
+    if (bytes.byteLength > WORKSPACE_BINARY_LIMIT_BYTES) throw new PreviewFileTooLargeError(bytes.byteLength)
     const extension = path.split('.').pop()?.toLowerCase()
     const contentType =
       extension === 'pdf'
