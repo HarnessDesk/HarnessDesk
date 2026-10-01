@@ -229,16 +229,29 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     // Start at the heading's first text glyph so a decorative mark before it is not measured as the heading.
     const heading = header.matches(headingSelector) ? header : header.querySelector(headingSelector) ?? header
     const headerText = firstTextLine(heading)
-    let bodyText: ReturnType<typeof firstTextLine> = null
+    let bodyLeft: number | null = null
     for (const child of children.slice(1)) {
+      const rows = child.matches('[data-slot="rows"]') ? child : child.querySelector('[data-slot="rows"]')
+      if (rows) {
+        const firstRow = visibleChildren(rows).find(element => element.matches('[data-slot="row"], button'))
+        if (firstRow) {
+          const mark = firstRow.querySelector('[data-slot="row-mark"]')
+          const markRect = mark && !hidden(mark) ? mark.getBoundingClientRect() : null
+          const textLine = firstTextLine(firstRow)
+          // docs/design.md, “Where a label lands”: a SectionHead over Rows shares the row lead,
+          // which is its mark when present and otherwise its first text glyph; bar/column labels share text columns.
+          bodyLeft = markRect?.left ?? textLine?.left ?? null
+        }
+        if (bodyLeft !== null) break
+      }
       const candidates = [child, ...child.querySelectorAll('*')].filter(element =>
         hasText(element) && !element.closest('button, [data-slot="alert"]') && !element.querySelector('button, [data-slot="alert"]'),
       )
       // Use body glyphs, skipping nested controls and alerts whose own insets do not define this surface's text column.
-      bodyText = candidates.map(firstTextLine).find(rect => rect !== null) ?? null
-      if (bodyText) break
+      bodyLeft = candidates.map(firstTextLine).find(rect => rect !== null)?.left ?? null
+      if (bodyLeft !== null) break
     }
-    if (headerText && bodyText && Math.abs(headerText.left - bodyText.left) >= 2) {
+    if (headerText && bodyLeft !== null && Math.abs(headerText.left - bodyLeft) >= 2) {
       record('header-off-body', header)
     }
   }

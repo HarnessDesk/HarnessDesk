@@ -28,7 +28,7 @@
     }
   },
   "header-off-body": {
-    "count": 14,
+    "count": 13,
     "signatures": {
       "design.html / chart / header-off-body / div > [chart-frame] > [chart-card]": 1,
       "design.html / group / header-off-body / [data-testid=group-run-kept-answer-seat-gone]": 1,
@@ -38,7 +38,6 @@
       "design.html / group / header-off-body / [data-testid=group-run-stopped-with-a-release-pending]": 1,
       "design.html / group / header-off-body / div > [pane-surface] > [bar]": 1,
       "design.html / panels / header-off-body / div > [workbench-canvas] > div > [dock-panel] > [dock-panel-bar]": 1,
-      "design.html / plans-table / header-off-body / [table] > [table-body] > [table-row] > [table-cell] > div": 1,
       "design.html / tool-pane / header-off-body / div > [tool-pane] > [tool-pane-header]": 1,
       "design.html / tools / header-off-body / div > [tool-pane] > [tool-pane-header]": 2,
       "preview.html / board-empty / header-off-body / div > [tool-pane] > [tool-pane-header]": 1,
