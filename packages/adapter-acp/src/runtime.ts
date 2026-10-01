@@ -313,6 +313,10 @@ export interface AcpAgentConfig {
      */
     readonly onOpen?: (token: string) => void
   }
+  /** Folder-specific policy the agent applies before starting a configured MCP server. */
+  readonly pluginToolsAvailableAt?: (cwd: string) => boolean | Promise<boolean>
+  /** Runtime-authored guidance shown if that folder policy withholds the desk tools. */
+  readonly pluginToolsUnavailable?: string
   /**
    * The desk's standing instruction for the agent, read when a session is
    * opened and put in `session/new`'s and `session/load`'s `_meta` under
@@ -897,6 +901,7 @@ export class AcpRuntime implements AgentRuntime {
       provider: this.#provider,
       presentation: {
         name: this.#config.name,
+        ...(this.#config.pluginToolsUnavailable ? { pluginToolsUnavailable: this.#config.pluginToolsUnavailable } : {}),
         // What an ACP agent declares are commands; some of them are skills
         // and some are `/compact`. The page says both rather than filing
         // half the list under the wrong word.
@@ -2308,6 +2313,10 @@ export class AcpRuntime implements AgentRuntime {
       })
       return null
     }
+  }
+
+  pluginToolsAvailableAt(cwd: string): Promise<boolean> {
+    return Promise.resolve(this.#config.pluginToolsAvailableAt?.(cwd) ?? true)
   }
 
   async createSession(options: SessionOptions): Promise<AgentSession> {

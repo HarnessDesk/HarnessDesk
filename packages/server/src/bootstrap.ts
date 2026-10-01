@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 import { chmodSync, existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 
-import { AcpRuntime, type AcpAgentConfig } from '@harnessdesk/adapter-acp'
+import { AcpRuntime, geminiTrustsFolder, type AcpAgentConfig } from '@harnessdesk/adapter-acp'
 import { runtimeId, sessionId, type RuntimeInfo } from '@harnessdesk/protocol'
 import { CodexRuntime, CODEX_RUNTIME_ID } from '@harnessdesk/adapter-codex'
 import { ExtensionKernel, setBrowserEngine, type BrowserEngine } from '@harnessdesk/cordis-host'
@@ -472,6 +472,12 @@ export const createDefaultHost = (
       // Entries written before templates carried brands have none; the
       // template's is what they would say today. See `templateBrandFor`.
       ...(agent.brand ? {} : templateBrandFor(agent.id) ? { brand: templateBrandFor(agent.id) } : {}),
+      ...(agent.id === 'gemini'
+        ? {
+            pluginToolsAvailableAt: (cwd: string) => geminiTrustsFolder(cwd, { env: { ...process.env, ...agent.env } }),
+            pluginToolsUnavailable: "Gemini doesn't trust this folder, so it can't use the board. Open Gemini here, run /permissions trust, and start again.",
+          }
+        : {}),
       ...(executable ? { executable } : {}),
       env: agentEnvironment(socketPath, agent.env, agent.id),
       ...(toolServer

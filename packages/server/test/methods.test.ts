@@ -31,6 +31,41 @@ test('a name that is not a method is refused, even one the prototype would answe
   await assert.rejects(dispatch(ctx, 'git/statsu' as never, {} as never), /Unknown method/)
 })
 
+test('opening in a folder without runtime board tools sends a session-linked notice', async () => {
+  const root = tempDir('hd-untrusted-open-')
+  const pushed: unknown[] = []
+  const session = { id: sessionId('s1'), runtime: runtimeId('gemini'), cwd: root }
+  const runtime = {
+    info: {
+      id: runtimeId('gemini'),
+      capabilities: { pluginTools: true },
+      presentation: { name: 'Gemini CLI', pluginToolsUnavailable: 'Open Gemini here, run /permissions trust, and start again.' },
+    },
+    pluginToolsAvailableAt: async () => false,
+    createSession: async () => ({ id: session.id }),
+  } as unknown as AgentRuntime
+  const ctx = contextWith({
+    runtimes: { resolve: () => runtime },
+    laneEnvironment: { forCheckout: () => undefined },
+    sessions: { attach: async () => session },
+    push: (notification: unknown) => pushed.push(notification),
+  })
+  const opened = await dispatch(ctx, 'session/create', { runtime: runtime.info.id, options: { cwd: root } })
+  assert.equal(opened, session)
+  assert.equal(pushed.length, 1)
+  assert.deepEqual(pushed[0], {
+    method: 'person/notice',
+    params: { notice: {
+      id: (pushed[0] as { params: { notice: { id: string } } }).params.notice.id,
+      where: 'inbox',
+      title: 'Board tools are unavailable in this folder',
+      body: 'Open Gemini here, run /permissions trust, and start again.',
+      from: { runtime: 'gemini', sessionId: 's1', name: 'Gemini CLI' },
+      at: (pushed[0] as { params: { notice: { at: number } } }).params.notice.at,
+    } },
+  })
+})
+
 const fakeRuntime = (id: string, options: { processes?: boolean; ready?: boolean } = {}): AgentRuntime =>
   ({
     info: { id: runtimeId(id), presentation: { name: `Agent ${id}` } },

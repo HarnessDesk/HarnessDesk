@@ -44,6 +44,8 @@ export interface FlowPreviewPort {
   agents(root: string): Promise<readonly AgentEntry[]>
   /** One Agent's seat plan for the exact seats and grant a role names; `requireHeld` passes over every seat that cannot hold. */
   previewAgent(root: string, agent: string, seats: readonly FlowSeat[], grant: CeilingLevel, options?: { readonly unattended?: boolean; readonly requireHeld?: true }): Promise<SeatPlan>
+  /** Predicts whether this candidate will get HarnessDesk's tool server in its actual flow checkout. */
+  pluginToolsProblem?(runtime: string, root: string, isolate: boolean): Promise<string | null>
   /**
    * A front-door target read again from the host, as the canonical facts it
    * was bound to — commits, a diff, a working tree's snapshot. Asked at
@@ -249,6 +251,15 @@ export class FlowPreviews {
             role: role.id, index: binding.index, agent: binding.agent.id, plan, isolate: role.isolate,
             ...(atPredecessor.has(role.id) ? { atPredecessor: atPredecessor.get(role.id)! } : {}), reviews: reviewsIn(binding),
           })
+          if (!plan.blocked && plan.winner !== null && this.#port.pluginToolsProblem) {
+            const selected = plan.candidates[plan.winner]!
+            const toolProblem = await this.#port.pluginToolsProblem(selected.seat.runtime, root, role.isolate)
+            if (toolProblem) problems.push({
+              level: 'error',
+              at: `roles.${role.id}.seat`,
+              text: toolProblem,
+            })
+          }
           if (plan.blocked) {
             problems.push({ level: 'error', at: `roles.${role.id}`, text: plan.blocked })
           } else if (plan.winner === null) {

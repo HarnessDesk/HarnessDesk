@@ -239,6 +239,12 @@ const runPrompt = async (id, params) => {
   const say = (chunk) =>
     update(state.id, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: chunk } })
 
+  if (text.includes('run a tool in this session')) {
+    const { execFileSync } = await import('node:child_process')
+    say(execFileSync('/bin/pwd', { cwd: state.cwd, encoding: 'utf8' }).trim())
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
   if (process.env.FAKE_ACP_PROMPT_AUTH_REQUIRED === '1') {
     send({
       jsonrpc: '2.0',

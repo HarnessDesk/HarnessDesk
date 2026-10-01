@@ -320,6 +320,8 @@ export const NO_CAPABILITIES: RuntimeCapabilities = {
 export interface RuntimePresentation {
   /** What to call it in the interface. */
   readonly name: string
+  /** The runtime's own explanation when it will withhold the desk's tool server in a folder. */
+  readonly pluginToolsUnavailable?: string
   /**
    * Whose mark to draw beside the name: a lobe-icons key such as `codex`,
    * `claudecode`, `cursor`, `geminicli`, `githubcopilot`. Optional — the
@@ -947,6 +949,9 @@ export interface AgentRuntime {
    * read that way is unknown.
    */
   providerAt?(cwd: string): Promise<string | null | undefined>
+
+  /** Whether the runtime will start the desk's tool server for a session in this folder. */
+  pluginToolsAvailableAt?(cwd: string): Promise<boolean>
 
   /** Bring the runtime up. Safe to call more than once. */
   start(): Promise<void>

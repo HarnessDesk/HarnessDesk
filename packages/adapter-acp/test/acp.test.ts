@@ -1084,13 +1084,14 @@ test('every open carries a caller token, and the map learns whose it is', async 
   const dir = await mkdtemp(join(tmpdir(), 'hd-caller-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
   const dump = join(dir, 'servers.json')
+  const opens = join(dir, 'opens.jsonl')
   const claims: [string, string][] = []
   const runtime = new AcpRuntime({
     id: 'fake-acp',
     name: 'Fake ACP Agent',
     command: process.execPath,
     args: [FAKE],
-    env: { FAKE_ACP_DUMP_SERVERS: dump },
+    env: { FAKE_ACP_DUMP_SERVERS: dump, FAKE_ACP_OPENS: opens },
     toolServer: {
       name: 'harnessdesk',
       command: process.execPath,
@@ -1101,14 +1102,37 @@ test('every open carries a caller token, and the map learns whose it is', async 
   })
   await runtime.start()
   try {
-    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    const session = await runtime.createSession({ cwd: dir })
     const claim = claims.find(([, id]) => id === String(session.id))
     assert.ok(claim, 'the open announced which session its token names')
 
+    const opened = (await readFile(opens, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { sessionId: string; cwd: string })
+    assert.equal(
+      opened.find((entry) => entry.sessionId === String(session.id))?.cwd,
+      dir,
+      'the peer receives the session working directory',
+    )
+    const tape = record(runtime)
+    await session.send([{ type: 'text', text: 'run a tool in this session' }])
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
+    assert.ok(
+      turn.items.some((item) => item.type === 'assistantMessage' && item.text.includes(dir)),
+      'the fake tool runs from the opened session directory',
+    )
+
     const dumped = JSON.parse(await readFile(dump, 'utf8')) as {
+      name: string
+      command: string
       env?: { name: string; value: string }[]
     }[]
-    const env = dumped.at(-1)?.env ?? []
+    const server = dumped.at(-1)
+    assert.equal(server?.name, 'harnessdesk', 'the peer receives the board tools MCP server')
+    assert.equal(server?.command, process.execPath)
+    const env = server?.env ?? []
     const carried = env.find((entry) => entry.name === 'HD_TOOLS_CALLER')
     assert.equal(carried?.value, claim[0], 'the bridge env carries the very token that was claimed')
     assert.ok(

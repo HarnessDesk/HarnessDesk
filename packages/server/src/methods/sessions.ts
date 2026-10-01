@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import {
   folderGoneOf,
   isFolderGone,
@@ -82,7 +83,23 @@ export const sessionMethods = {
     // go only to a runtime that can take them per session (`laneEnvironmentFor`).
     const environment = laneEnvironmentFor(runtime, ctx.laneEnvironment.forCheckout(options.cwd))
     const live = await runtime.createSession({ ...options, ...(environment ? { environment } : {}) })
-    return ctx.sessions.attach(runtime, live.id, live)
+    const session = await ctx.sessions.attach(runtime, live.id, live)
+    if (runtime.info.capabilities.pluginTools && runtime.pluginToolsAvailableAt &&
+        !(await runtime.pluginToolsAvailableAt(session.cwd))) {
+      const body = runtime.info.presentation.pluginToolsUnavailable
+      if (body) ctx.push({
+        method: 'person/notice',
+        params: { notice: {
+          id: randomUUID(),
+          where: 'inbox',
+          title: 'Board tools are unavailable in this folder',
+          body,
+          from: { runtime: String(runtime.info.id), sessionId: String(session.id), name: runtime.info.presentation.name },
+          at: Date.now(),
+        } },
+      })
+    }
+    return session
   },
 
   'session/resume': async (ctx, params) => {

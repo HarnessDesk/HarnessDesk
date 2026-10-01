@@ -110,6 +110,13 @@ export const worktreeHome = async (repoRoot: string, stateDir: string): Promise<
   return join(await canonical(join(stateDir, 'worktrees')), `${basename(root)}-${hash}`)
 }
 
+/** The managed worktree container, without creating it; previews use this to predict future checkouts. */
+export const worktreeHomePath = async (repoRoot: string, stateDir: string): Promise<string> => {
+  const root = await canonical(repoRoot)
+  const hash = createHash('sha256').update(root).digest('hex').slice(0, 10)
+  return join(await canonical(join(stateDir, 'worktrees')), `${basename(root)}-${hash}`)
+}
+
 /** The main checkout for any path inside a repository or one of its worktrees. */
 export const repositoryRoot = async (path: string): Promise<string | null> =>
   (await repositoryOf(path))?.root ?? null
