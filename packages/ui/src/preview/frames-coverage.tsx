@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { runtimeId } from '@harnessdesk/protocol'
+import { runtimeId, type UsageReport } from '@harnessdesk/protocol'
 
 import { AgentPageSections, FieldEditDialog, PreferFieldDialog } from '../components/AgentFields'
 import { HandoffSheet, ModeControl, MoreControl, PermissionControl } from '../components/ComposerControls'
@@ -10,7 +10,7 @@ import { ConfirmDialog } from '../components/GitDialogs'
 import { AddWorktreeDialog } from '../components/GitWorktrees'
 import { PlanSteps, StepNameScope } from '../components/Items'
 import { ImportDialog, LibraryFlows, LibraryHistory, PlanDialog, ResolveDialog } from '../components/LibraryActions'
-import { Notices, NoticeStripOutlet, SidebarNotices } from '../components/Notices'
+import { ComposerNotices, Notices, NoticeStripOutlet, SidebarNotices } from '../components/Notices'
 import { Publication } from '../components/Publication'
 import { Deliverables, JobsBar } from '../components/SessionBars'
 import { AddAgents, PlanSection, UsageMeter, UsageSection } from '../components/SettingsAgents'
@@ -21,7 +21,8 @@ import { Dial, Frame } from './main'
 import { libraryColumnsFor, LIBRARY, PREVIEW_AGENTS, PREVIEW_SESSION_KEY, previewStore, store } from './harness'
 import { PREVIEW_ROOT, previewUsage } from './sidebar-fixture'
 import { ShellProvider } from '../panels/views'
-import { StoreProvider } from '../state/context'
+import { PaneProvider, StoreProvider } from '../state/context'
+import { emptyWorkbench } from '../state/workbench'
 
 const COLUMNS = libraryColumnsFor(LIBRARY.runtimes)
 const base = store.getSnapshot()
@@ -35,6 +36,53 @@ const coverageStore = previewStore({
     ...active,
     turns: [...active.turns, { status: 'inProgress', items: [{ id: 'coverage-command', type: 'command', status: 'inProgress', command: 'pnpm verify', startedAt: Date.now() - 12_000, actions: [] }] }],
   } as never]]),
+})
+const noticeBase = store.getSnapshot()
+const noticeWorkbench = (() => {
+  const workbench = emptyWorkbench()
+  return {
+    ...workbench,
+    main: {
+      root: { kind: 'pane' as const, id: 'notice-pane', view: { kind: 'conversation' as const, session: PREVIEW_SESSION_KEY } },
+      focused: 'notice-pane',
+      expanded: null,
+    },
+    right: {
+      ...workbench.right,
+      root: {
+        kind: 'stack' as const,
+        id: 'notice-overlay',
+        views: [{ id: 'notice-overlay-view', view: { kind: 'activity' as const } }],
+        active: 'notice-overlay-view',
+      },
+    },
+  }
+})()
+const noticePace: UsageReport = {
+  runtime: runtimeId('codex'),
+  account: null,
+  plan: null,
+  lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 40, windowMinutes: 10_080, resetsAt: Date.now() + 6.5 * 24 * 60 * 60_000, usageKnown: true }],
+  credits: null,
+  spend: null,
+  reached: null,
+  source: { kind: 'api', label: 'from the preview fixture' },
+  fetchedAt: Date.now(),
+  staleAfterMs: 60_000,
+  error: null,
+}
+const noticePlacementStore = previewStore({
+  ...noticeBase,
+  status: 'open',
+  activeRuntime: runtimeId('codex'),
+  activeSessionKey: PREVIEW_SESSION_KEY,
+  account: null,
+  accountsByRuntime: {},
+  agentNotices: [],
+  noticePolicy: { muted: [], records: {}, seen: [], surfaces: {}, kept: [] },
+  narrowWindow: true,
+  usage: [noticePace],
+  workbench: noticeWorkbench,
 })
 const DIALOGS = ['off', 'edit agent', 'prefer agent', 'handoff', 'confirm', 'worktree', 'import', 'resolve', 'plan', 'library flow', 'add agents'] as const
 type Dialog = (typeof DIALOGS)[number]
@@ -95,6 +143,18 @@ export const CoverageFrames = () => {
       <Frame id="coverage-notices" title="Notices — strip, inbox and toast">
         <StoreProvider store={coverageStore}>
           <div className="p-4"><Notices /><NoticeStripOutlet host /><SidebarNotices /></div>
+        </StoreProvider>
+      </Frame>
+      <Frame id="coverage-notice-placement" title="Notice placement — narrow window, composer covered by the right panel">
+        <StoreProvider store={noticePlacementStore}>
+          <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
+            <div className="flex flex-col gap-3 p-4">
+              <NoticeStripOutlet host />
+              <PaneProvider scope={{ paneId: 'notice-pane' as never, view: { kind: 'conversation', session: PREVIEW_SESSION_KEY }, sessionKey: PREVIEW_SESSION_KEY }}>
+                <ComposerNotices />
+              </PaneProvider>
+            </div>
+          </ShellProvider>
         </StoreProvider>
       </Frame>
       <Frame id="coverage-library" title="Library — changes made from here">

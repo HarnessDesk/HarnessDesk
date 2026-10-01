@@ -786,6 +786,10 @@ const NOTICE_STRIP: NoticeMessage[] = [
   { id: 'pace', tone: 'warning', title: 'Claude Code is on course to run out in 51m.', action: { label: 'Switch agent', onSelect: () => {} } },
   { id: 'signin', tone: 'danger', title: 'Cursor is not signed in.', action: { label: 'Sign in', onSelect: () => {} } },
 ]
+const NOTICE_STRIP_MANY: NoticeMessage[] = [
+  { id: 'strip-limit', tone: 'warning', title: 'Agent B has reached its weekly limit.' },
+  { id: 'strip-signin', tone: 'danger', title: 'Agent C is not signed in.' },
+]
 const NOTICE_INBOX: InboxMessage[] = [
   { id: 'i0', tone: 'info', from: 'Reviewer', title: 'Keep the old retry count, or raise it to five?', body: 'Five covers the documented flaps; three matches the other clients.', action: { label: 'Start as a task', onSelect: () => {} }, at: NOTICE_NOW - 60_000 },
   { id: 'i1', tone: 'warning', title: 'On course to run out', body: 'Claude Code will run out in 51m, before the window resets.', action: { label: 'Switch agent', onSelect: () => {} }, at: NOTICE_NOW - 4 * 60_000 },
@@ -828,6 +832,13 @@ const NOTICE_ASK: NoticeMessage = {
   body: 'Five covers the documented flaps; three matches the other clients.',
 }
 
+const NOTICE_COMPOSER: NoticeMessage = {
+  id: 'composer-limit',
+  tone: 'warning',
+  title: 'This conversation cannot start until its agent reconnects.',
+  body: 'The current conversation stays here while the connection is restored.',
+}
+
 /* Every surface in every state the app can put it in, drawn by the shipped
    components with the props the app passes: one message and several, with and
    without an action, dismissable and not, the second dismissal's "Stop showing
@@ -852,12 +863,10 @@ const NoticesBoard = () => {
           <NoticeCard messages={NOTICE_CARD.slice(1)} onDismiss={() => {}} onMute={() => () => {}} />
         </div>
       </Case>
-      <Case label="composer: each tone, with and without an action or a dismiss">
+      <Case label="composer: a standing condition, in the outlet for its visible conversation">
         <div style={{ width: 'min(var(--hd-column), 100%)' }}>
           <ComposerNoticeStack>
-            <ComposerNotice message={NOTICE_STRIP[0]!} onDismiss={() => {}} />
-            <ComposerNotice message={{ ...NOTICE_STRIP[1]!, id: 'signin-2' }} />
-            <ComposerNotice message={{ id: 'plain', title: 'Reconnecting to the host…' }} />
+            <ComposerNotice message={NOTICE_COMPOSER} onDismiss={() => {}} />
           </ComposerNoticeStack>
         </div>
       </Case>
@@ -869,11 +878,11 @@ const NoticesBoard = () => {
           </ComposerNoticeStack>
         </div>
       </Case>
-      <Case label="strip: one message">
-        <NoticeStrip messages={NOTICE_STRIP.slice(0, 1)} onDismiss={() => {}} />
+      <Case label="strip: one message, when its composer is covered">
+        <NoticeStrip messages={[NOTICE_STRIP[0]!]} onDismiss={() => {}} />
       </Case>
       <Case label="strip: several, paged">
-        <NoticeStrip messages={NOTICE_STRIP} onDismiss={() => {}} />
+        <NoticeStrip messages={NOTICE_STRIP_MANY} onDismiss={() => {}} />
       </Case>
       <Case label="inbox: the bell and its panel; unread tints the bell">
         <div className="flex items-start gap-(--hd-space-4)">
