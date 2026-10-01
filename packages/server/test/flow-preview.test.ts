@@ -141,6 +141,58 @@ test('a flow preview refuses a selected seat whose runtime will withhold the boa
   assert.deepEqual(checked, [false, true], 'the preview also predicts the managed checkout for an isolated seat')
 })
 
+test('an independent role explains same-provider and ceiling refusals on each candidate', async () => {
+  const state = rig()
+  state.agentsRoster = [
+    AGENT('writer'),
+    { ...AGENT('reviewer'), definition: { ...AGENT('reviewer').definition!, prefer: [{ runtime: 'codex' }, { runtime: 'claude-code' }] } },
+  ]
+  const source = `
+version: 2
+name: Independent preview
+roles:
+  writer: { kind: agent, uses: writer, grant: edit }
+  reviewer: { kind: agent, uses: reviewer, grant: read, independentOf: [writer] }
+seed: { role: writer, title: Write }
+rules:
+  - { id: review, on: writer, when: { every: [done] }, then: { role: reviewer, title: Review } }
+`
+  const plan = (agent: string, seats: readonly FlowSeat[], grant: CeilingLevel): SeatPlan => ({
+    id: agent, from: 'prefer', winner: 0, blocked: null, ceiling: { level: grant, hold: 'asked' },
+    candidates: seats.map((seat, index) => ({
+      seat, label: seat.runtime, runtimeName: seat.runtime,
+      state: index === 0 ? 'taken' : 'untried',
+      reason: null, fix: null,
+    })),
+  })
+  const port = {
+    ...state.port,
+    previewAgent: async (_root, agent, _seats, grant) => {
+      if (agent === 'reviewer') {
+        const base = plan(agent, [{ runtime: 'codex' }, { runtime: 'claude-code' }], grant)
+        return {
+          ...base,
+          candidates: [
+            { ...base.candidates[0]!, state: 'taken' },
+            {
+              ...base.candidates[1]!, state: 'passed',
+              reason: { kind: 'unheld', level: 'read', detail: null }, fix: { kind: 'ceilings' },
+            },
+          ],
+        }
+      }
+      return plan(agent, [{ runtime: 'alpha' }], grant)
+    },
+    providerOf: async (runtime: string) => runtime === 'codex' || runtime === 'alpha' ? 'openai' : 'anthropic',
+  } as FlowPreviewPort
+  const preview = await new FlowPreviews(port).freeze('/repo', source)
+  const reviewer = preview.seats.find((seat) => seat.role === 'reviewer')!.plan
+  assert.equal(reviewer.winner, null)
+  assert.equal(reviewer.candidates[0]?.reason?.kind, 'sameProvider')
+  assert.equal(reviewer.candidates[1]?.reason?.kind, 'unheld')
+  assert.ok(preview.problems.some((problem) => problem.at === 'roles.reviewer' && problem.level === 'error'))
+})
+
 test('a trigger again round keeps a mixed predecessor role conditional in the dry run', async () => {
   const state = rig()
   state.agentsRoster = [AGENT('writer'), AGENT('target')]

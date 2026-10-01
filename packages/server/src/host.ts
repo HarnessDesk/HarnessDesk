@@ -1502,6 +1502,7 @@ export class Host {
       // `this.#context` is assigned once the whole constructor has run; every
       // wire call this preview port answers happens long after that.
       previewAgent: (root, agent, seats, grant, options) => previewAgent(this.#context, root, agent, seats, grant, options),
+      providerOf: (runtime, cwd) => this.#providerOf(runtime, cwd),
       pluginToolsProblem: async (runtimeName, root, isolate) => {
         const runtime = this.#runtimes.get(runtimeId(runtimeName))
         if (!runtime || !runtime.info.capabilities.pluginTools) return null

@@ -13,6 +13,7 @@ import {
   type FlowSeat,
   type FlowStartTarget,
   type SeatPlan,
+  type SeatReason,
   type StartContext,
 } from '@harnessdesk/protocol'
 
@@ -44,6 +45,8 @@ export interface FlowPreviewPort {
   agents(root: string): Promise<readonly AgentEntry[]>
   /** One Agent's seat plan for the exact seats and grant a role names; `requireHeld` passes over every seat that cannot hold. */
   previewAgent(root: string, agent: string, seats: readonly FlowSeat[], grant: CeilingLevel, options?: { readonly unattended?: boolean; readonly requireHeld?: true }): Promise<SeatPlan>
+  /** Reads the provider a runtime would use in this checkout; null means independence cannot be proven. */
+  providerOf?(runtime: string, cwd: string): Promise<string | null>
   /** Predicts whether this candidate will get HarnessDesk's tool server in its actual flow checkout. */
   pluginToolsProblem?(runtime: string, root: string, isolate: boolean): Promise<string | null>
   /**
@@ -239,6 +242,12 @@ export class FlowPreviews {
     const seats: FlowPreviewSeat[] = []
     if (compiled.document.format === 'agents') {
       const atPredecessor = rolesAtPredecessor(compiled, againRole)
+      type AgentRole = Extract<(typeof compiled.document.flow.roles)[number], { readonly kind: 'agent' }>
+      const raw: {
+        readonly role: AgentRole
+        readonly binding: (typeof compiled.bindings)[number]
+        readonly plan: SeatPlan
+      }[] = []
       for (const role of compiled.document.flow.roles) {
         if (role.kind !== 'agent') continue
         const bindings = compiled.bindings.filter((one) => one.role === role.id).sort((a, b) => a.index - b.index)
@@ -247,25 +256,85 @@ export class FlowPreviews {
             ...(unattended ? { unattended: true } : {}),
             ...(requireHeld ? { requireHeld: true as const } : {}),
           })
-          seats.push({
-            role: role.id, index: binding.index, agent: binding.agent.id, plan, isolate: role.isolate,
-            ...(atPredecessor.has(role.id) ? { atPredecessor: atPredecessor.get(role.id)! } : {}), reviews: reviewsIn(binding),
+          raw.push({ role, binding, plan })
+        }
+      }
+      const providerCache = new Map<string, Promise<string | null>>()
+      const provider = (runtime: string): Promise<string | null> => {
+        let pending = providerCache.get(runtime)
+        if (!pending) {
+          pending = this.#port.providerOf?.(runtime, root).catch(() => null) ?? Promise.resolve(null)
+          providerCache.set(runtime, pending)
+        }
+        return pending
+      }
+      const providersByRole = new Map<string, (string | null)[]>()
+      for (const { role, plan } of raw) {
+        if (plan.winner === null) {
+          providersByRole.set(role.id, [...(providersByRole.get(role.id) ?? []), null])
+          continue
+        }
+        const selected = plan.candidates[plan.winner]
+        providersByRole.set(role.id, [
+          ...(providersByRole.get(role.id) ?? []),
+          selected ? await provider(selected.seat.runtime) : null,
+        ])
+      }
+      for (const { role, binding, plan: originalPlan } of raw) {
+        let plan = originalPlan
+        if (role.independentOf.length > 0 && !plan.blocked) {
+          const writerProviders = role.independentOf.flatMap((id) => providersByRole.get(id) ?? [null])
+          const unknownWriter = writerProviders.length === 0 || writerProviders.some((value) => value === null)
+          const knownWriters = new Set(writerProviders.filter((value): value is string => value !== null))
+          const candidates = [...plan.candidates]
+          let winner: number | null = null
+          for (let index = 0; index < candidates.length; index += 1) {
+            const candidate = candidates[index]!
+            const ownProvider = await provider(candidate.seat.runtime)
+            const reason: SeatReason | null = unknownWriter || ownProvider === null
+              ? { kind: 'unknownProvider' }
+              : knownWriters.has(ownProvider) ? { kind: 'sameProvider' } : null
+            if (!reason) {
+              if (candidate.state !== 'passed') {
+                winner = index
+                break
+              }
+              continue
+            }
+            const additional = candidate.reason ? [...(candidate.alsoPassed ?? []), reason] : candidate.alsoPassed ?? []
+            candidates[index] = {
+              ...candidate,
+              state: 'passed',
+              reason: candidate.reason ?? reason,
+              fix: candidate.reason ? candidate.fix : { kind: 'seats' },
+              ...(additional.length ? { alsoPassed: additional } : {}),
+            }
+          }
+          plan = {
+            ...plan,
+            candidates,
+            winner,
+            ceiling: winner === null ? null : candidates[winner]?.ceiling ?? plan.ceiling,
+          }
+        }
+        seats.push({
+          role: role.id, index: binding.index, agent: binding.agent.id, plan, isolate: role.isolate,
+          ...(atPredecessor.has(role.id) ? { atPredecessor: atPredecessor.get(role.id)! } : {}), reviews: reviewsIn(binding),
+        })
+        if (!plan.blocked && plan.winner !== null && this.#port.pluginToolsProblem) {
+          const selected = plan.candidates[plan.winner]!
+          const toolProblem = await this.#port.pluginToolsProblem(selected.seat.runtime, root, role.isolate)
+          if (toolProblem) problems.push({
+            level: 'error',
+            at: `roles.${role.id}.seat`,
+            text: toolProblem,
           })
-          if (!plan.blocked && plan.winner !== null && this.#port.pluginToolsProblem) {
-            const selected = plan.candidates[plan.winner]!
-            const toolProblem = await this.#port.pluginToolsProblem(selected.seat.runtime, root, role.isolate)
-            if (toolProblem) problems.push({
-              level: 'error',
-              at: `roles.${role.id}.seat`,
-              text: toolProblem,
-            })
-          }
-          if (plan.blocked) {
-            problems.push({ level: 'error', at: `roles.${role.id}`, text: plan.blocked })
-          } else if (plan.winner === null) {
-            // Every candidate passed over now: a fact about this machine at this moment, not about the flow.
-            problems.push({ level: 'error', at: `roles.${role.id}`, text: `No seat could be opened for “${binding.agent.id}”.`, availability: true })
-          }
+        }
+        if (plan.blocked) {
+          problems.push({ level: 'error', at: `roles.${role.id}`, text: plan.blocked })
+        } else if (plan.winner === null) {
+          // Every candidate passed over now: a fact about this machine at this moment, not about the flow.
+          problems.push({ level: 'error', at: `roles.${role.id}`, text: `No seat could be opened for “${binding.agent.id}”.`, availability: true })
         }
       }
     }

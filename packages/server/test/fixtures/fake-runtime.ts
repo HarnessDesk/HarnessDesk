@@ -296,6 +296,8 @@ export class FakeRuntime implements AgentRuntime {
       brand?: string
       /** Which vendor its models come from, as an adapter would report it (`RuntimeInfo.provider`). */
       provider?: string | null
+      /** Models this fixture offers, for seat-spec tests. */
+      models?: readonly ModelInfo[]
     } = {},
   ) {
     this.info = {
@@ -313,6 +315,10 @@ export class FakeRuntime implements AgentRuntime {
     }
     this.sessionStore = identity.sessionStore ?? null
     this.accountLabel = identity.accountLabel ?? 'API key'
+    this.models = identity.models ?? [
+      { id: 'fake-1', displayName: 'Fake One', reasoningLevels: [], supportsImages: false, isDefault: true },
+      { id: 'fake-2', displayName: 'Fake Two', reasoningLevels: [], supportsImages: false },
+    ]
     if (identity.accountActivity !== undefined) {
       this.getAccountActivity = async () => identity.accountActivity ?? null
     }
@@ -320,6 +326,7 @@ export class FakeRuntime implements AgentRuntime {
 
   readonly sessionStore: string | null
   readonly accountLabel: string
+  readonly models: readonly ModelInfo[]
 
   readonly info: RuntimeInfo = {
     id: FAKE_RUNTIME_ID,
@@ -407,16 +414,7 @@ export class FakeRuntime implements AgentRuntime {
   }
 
   async listModels(): Promise<readonly ModelInfo[]> {
-    return [
-      {
-        id: 'fake-1',
-        displayName: 'Fake One',
-        reasoningLevels: [],
-        supportsImages: false,
-        isDefault: true,
-      },
-      { id: 'fake-2', displayName: 'Fake Two', reasoningLevels: [], supportsImages: false },
-    ]
+    return this.models
   }
 
   /** One runtime-wide toggle, so the runtime-scope path is exercised too. */
