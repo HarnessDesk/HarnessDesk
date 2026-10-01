@@ -83,12 +83,6 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     return tops.sort((a, b) => a - b)
       .filter((top, index, sorted) => sorted.findIndex(candidate => Math.abs(candidate - top) < 1) === index).length
   }
-  const firstLine = (element: Element) => {
-    const range = document.createRange()
-    range.selectNodeContents(element)
-    const rect = [...range.getClientRects()].find(rect => rect.width > 0 && rect.height > 0)
-    return rect ? { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom } : null
-  }
   const firstTextLine = (element: Element) => {
     // A range over nested block content can return its full container bounds,
     // not a line fragment; compare leads with the first visible text node's first fragment.
@@ -102,6 +96,12 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
       if (rect) return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
     }
     return null
+  }
+  const firstLine = (element: Element) => {
+    const range = document.createRange()
+    range.selectNodeContents(element)
+    const rect = [...range.getClientRects()].find(rect => rect.width > 0 && rect.height > 0)
+    return rect ? { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom } : null
   }
   const boxSurface = (element: Element) => {
     const style = getComputedStyle(element)
@@ -203,14 +203,28 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     const children = visibleChildren(surface)
     if (children.length < 2) continue
     const header = children[0]!
-    const headerish = header.matches('header, h1, h2, h3, [data-slot$="title"], [data-slot="section-name"]') ||
-      !!header.querySelector('h1, h2, h3, [data-slot$="title"], [data-slot="section-name"]')
+    // `row-title` names one entry, not the surface. A Rows card's first entry
+    // must not be promoted to a header just because its slot ends in "title".
+    const headingSelector = 'h1, h2, h3, [data-slot$="title"]:not([data-slot="row-title"]), [data-slot="section-name"]'
+    const headerish = header.matches(`header, ${headingSelector}`) || !!header.querySelector(headingSelector)
     if (!headerish) continue
-    const headerText = header.matches('h1,h2,h3') ? firstLine(header) : firstLine(header.querySelector('h1,h2,h3,[data-slot$="title"],[data-slot="section-name"]') ?? header)
+    const boardColumn = surface.matches('[data-slot="board-column"]')
+    // A board column adds a decorative mark before its heading and nests cards
+    // in the body, so compare the header/body inset boxes rather than their text.
+    const headerText = boardColumn
+      ? { left: header.getBoundingClientRect().left }
+      : header.matches('h1,h2,h3')
+        ? firstLine(header)
+        : firstLine(header.querySelector(headingSelector) ?? header)
     let bodyText: ReturnType<typeof firstLine> = null
     for (const child of children.slice(1)) {
-      const candidates = [child, ...child.querySelectorAll('*')].filter(hasText)
-      bodyText = candidates.map(firstLine).find(rect => rect !== null) ?? null
+      if (boardColumn) {
+        const rect = child.getBoundingClientRect()
+        bodyText = { left: rect.left }
+      } else {
+        const candidates = [child, ...child.querySelectorAll('*')].filter(hasText)
+        bodyText = candidates.map(firstLine).find(rect => rect !== null) ?? null
+      }
       if (bodyText) break
     }
     if (headerText && bodyText && Math.abs(headerText.left - bodyText.left) >= 2) {

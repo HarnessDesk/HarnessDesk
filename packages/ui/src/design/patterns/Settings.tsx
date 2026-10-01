@@ -882,9 +882,7 @@ export const Rows = ({
       {...(inDialog ? { 'data-context': 'dialog' } : {})}
       {...props}
     >
-      <RowsCardContext.Provider value>
-        <div className={styles.rowsBody} data-slot="rows-body">{children}</div>
-      </RowsCardContext.Provider>
+      <RowsCardContext.Provider value>{children}</RowsCardContext.Provider>
     </div>
   )
 }

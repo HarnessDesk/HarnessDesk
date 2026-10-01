@@ -985,10 +985,6 @@
   margin-bottom: var(--hd-space-1-5);
 }
 
-.rowsBody {
-  display: contents;
-}
-
 /* In a dialog the form stack spaces its cards. */
 .rows[data-context='dialog'] {
   margin-bottom: 0;
