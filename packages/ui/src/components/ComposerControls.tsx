@@ -226,16 +226,19 @@ const RefusedComposerControl = ({
   label,
   reason,
   narrow = false,
+  tight = false,
   children,
-}: { label: string; reason: string; narrow?: boolean; children?: ReactNode }) => (
+}: { label: string; reason: string; narrow?: boolean; tight?: boolean; children?: ReactNode }) => (
   <RefusedAction reason={reason}>
     <Button
       type="button"
       variant="ghost"
-      size="sm"
+      size={tight ? 'icon-xs' : 'sm'}
       title={narrow ? `${label} — ${reason}` : reason}
       aria-label={label}
-      className="w-full min-w-0 justify-start overflow-hidden"
+      className={tight
+        ? 'w-full [&_svg]:shrink-0'
+        : 'w-full min-w-0 justify-start overflow-hidden'}
     >
       {children}
       {!narrow && <Text role="row" className="truncate">{label}</Text>}
@@ -442,7 +445,7 @@ export const PermissionControl = () => {
     return (
       <ComposerTrack name="permissions" folded={folded} tight={tight}>
         <InToolbar refer={ref}>
-          <RefusedComposerControl label="Permissions" reason="This agent has no permission setting" narrow={folded}>
+          <RefusedComposerControl label="Permissions" reason="This agent has no permission setting" narrow={folded} tight={tight}>
             <ShieldIcon size={13} />
           </RefusedComposerControl>
         </InToolbar>
@@ -461,6 +464,7 @@ export const PermissionControl = () => {
       <InToolbar refer={ref}>
         <Popover
           fullWidth
+          tightTrigger={tight}
           title={folded && current ? `${current} — what the agent may do` : 'What the agent may do'}
           drop="up"
           align="left"
@@ -553,7 +557,7 @@ export const ModelControl = () => {
     return (
       <ComposerTrack name="model" folded={folded} tight={tight}>
         <InToolbar refer={ref}>
-          <RefusedComposerControl label="Model" reason="This agent has no model setting" narrow={folded}>
+          <RefusedComposerControl label="Model" reason="This agent has no model setting" narrow={folded} tight={tight}>
             <ModelIcon size={13} />
           </RefusedComposerControl>
         </InToolbar>
@@ -593,6 +597,7 @@ export const ModelControl = () => {
         {dialog}
         <Popover
           fullWidth
+          tightTrigger={tight}
           /* Narrow, the words go to the hover text — and so, with nothing else
              to name the trigger, to its accessible name. */
           title={
@@ -797,7 +802,7 @@ export const ModeControl = () => {
     return (
       <ComposerTrack name="mode" folded={folded} tight={tight}>
         <InToolbar refer={ref}>
-          <RefusedComposerControl label="Mode" reason="This agent has no mode setting" narrow={folded}>
+          <RefusedComposerControl label="Mode" reason="This agent has no mode setting" narrow={folded} tight={tight}>
             <ZapIcon size={13} />
           </RefusedComposerControl>
         </InToolbar>
@@ -812,6 +817,7 @@ export const ModeControl = () => {
       <InToolbar refer={ref}>
         <Popover
           fullWidth
+          tightTrigger={tight}
           title={folded ? `${label} — ${mode.description ?? mode.label}` : mode.description ?? mode.label}
           drop="up"
           align="left"
@@ -848,6 +854,7 @@ export const MoreControl = () => {
         {others.length > 0 && (
           <Popover
             fullWidth
+            tightTrigger={tight}
             title="More options"
             drop="up"
             label={
@@ -935,7 +942,7 @@ export const AgentControl = () => {
     return (
       <ComposerTrack name="agent" folded={folded} tight={tight}>
         <InToolbar refer={ref}>
-          <RefusedComposerControl label={owner?.presentation.name ?? 'Agent'} reason={reason} narrow={folded}>
+          <RefusedComposerControl label={owner?.presentation.name ?? 'Agent'} reason={reason} narrow={folded} tight={tight}>
             {owner ? <RuntimeMark runtime={owner} size={13} /> : <AgentIcon size={13} />}
           </RefusedComposerControl>
         </InToolbar>
@@ -955,6 +962,7 @@ export const AgentControl = () => {
       <InToolbar refer={ref}>
         <Popover
           fullWidth
+          tightTrigger={tight}
           title={folded
             ? `${seated?.name ?? brandOf(owner.presentation.name)} — ${session ? `This conversation is with ${owner.presentation.name}` : 'Which agent starts this conversation'}`
             : seated
@@ -1246,6 +1254,7 @@ export const PlaceControl = () => {
       <InToolbar refer={ref}>
         <Popover
           fullWidth
+          tightTrigger={tight}
           title={folded ? `${word} — ${title}` : title}
           drop="up"
           align="left"

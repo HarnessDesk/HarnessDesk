@@ -277,3 +277,13 @@ it('keeps the chevrons while there is room for them, and folds them at a phoneâ€
   expect(glyphs()).toEqual([2, 2])
   expect(model().textContent).toContain('Small')
 })
+
+it('centres tight controls without letting their glyphs shrink', () => {
+  draw(342)
+
+  for (const trigger of triggers()) {
+    expect(trigger.className).toContain('px-0')
+    expect(trigger.className).toContain('justify-center')
+    expect(trigger.className).toContain('[&_svg]:shrink-0')
+  }
+})

@@ -90,6 +90,30 @@ const toolsDoNotOverflow = (page: Page, width: string, layout: 'draft' | 'live')
   return tools.length === shapes.length && tools.every((toolbar) => toolbar.scrollWidth <= toolbar.clientWidth)
 }, { width, layout, shapes })
 
+const tightGlyphsMeetTarget = (page: Page, width: '360' | '320', layout: 'draft' | 'live') => page.evaluate(({ width, layout, shapes }) => {
+  return shapes.every((shape) => {
+    const toolbar = document.querySelector<HTMLElement>(
+      `[data-composer-width="${width}"] [data-composer-shape="${shape}"] [data-composer-layout="${layout}"]`,
+    )
+    if (!toolbar) return false
+    const requiredSlots = slots.filter((slot) => layout === 'draft' || slot !== 'work-in')
+    return requiredSlots.every((slot) => {
+      const track = toolbar.querySelector<HTMLElement>(`[data-composer-track="${slot}"]`)
+      if (!track) return false
+      const buttons = [...track.querySelectorAll<HTMLButtonElement>('button')]
+      if (slot !== 'extension' && buttons.length === 0) return false
+      const targetsFit = buttons.every((button) => {
+        const bounds = button.getBoundingClientRect()
+        return bounds.width >= 24
+      })
+      const glyphsFit = [...track.querySelectorAll<SVGSVGElement>('svg')].every((glyph) =>
+        glyph.getBoundingClientRect().width >= 12,
+      )
+      return targetsFit && glyphsFit
+    })
+  })
+}, { width, layout, shapes })
+
 const contextRingsUnclipped = (page: Page) => page.evaluate(() => {
   const tracks = [...document.querySelectorAll<HTMLElement>('[data-composer-track="context"]')]
   return tracks.length > 0 && tracks.every((track) => {
@@ -124,6 +148,12 @@ test('composer slots keep their tracks aligned across agent shapes', async ({ pa
     }
   }
 
+  for (const width of ['360', '320'] as const) {
+    for (const layout of ['draft', 'live'] as const) {
+      expect(await tightGlyphsMeetTarget(page, width, layout), `${layout} glyphs and targets at ${width}px`).toBe(true)
+    }
+  }
+
   const widened = page.locator('[data-composer-width="560"]')
   await widened.evaluate((node) => {
     const box = node as HTMLElement
@@ -143,6 +173,12 @@ test('composer slots keep their tracks aligned across agent shapes', async ({ pa
   expect(await toolsDoNotOverflow(page, '320', 'draft'), 'a minimum width on the flexible gap must cause overflow').toBe(false)
   await gap.evaluate((node) => { (node as HTMLElement).style.removeProperty('min-width') })
   expect(await toolsDoNotOverflow(page, '320', 'draft')).toBe(true)
+
+  const smallGlyph = page.locator('[data-composer-width="320"] [data-composer-shape="Assistant A"] [data-composer-layout="draft"] [data-composer-track="work-in"] svg').first()
+  await smallGlyph.evaluate((node) => { (node as SVGSVGElement).style.width = '8px' })
+  expect(await tightGlyphsMeetTarget(page, '320', 'draft'), 'an undersized glyph must fail the tight glyph check').toBe(false)
+  await smallGlyph.evaluate((node) => { (node as SVGSVGElement).style.removeProperty('width') })
+  expect(await tightGlyphsMeetTarget(page, '320', 'draft')).toBe(true)
 
   const refused = page.locator('[data-composer-width="composer"] [data-composer-shape="Assistant C"] [data-composer-layout="live"] [aria-disabled="true"]')
   await expect(refused.first()).toBeVisible()
