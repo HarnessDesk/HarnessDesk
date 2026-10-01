@@ -537,7 +537,8 @@ per seat, or a list of Agents can be paired with zero or one seat to open one
 card per Agent. Two lists with more than one entry are refused; the role
 never expands them as a cross product. An explicit `count:` sets the width
 when neither list has multiple entries, and when a list has multiple entries
-it must match that list's length. A seat's actual ceiling is
+it must match that list's length. Each list holds at most 32 entries, and
+`count:` is a whole number from 1 to 32. A seat's actual ceiling is
 `narrower(Agent's own ceiling, this role's grant)`; an omitted `grant:` is
 `read`.
 
