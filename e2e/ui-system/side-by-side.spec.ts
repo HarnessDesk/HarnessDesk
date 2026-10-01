@@ -320,12 +320,15 @@ test('⌥⌘1–⌥⌘4 focus each tile by header; ⌥⌘↵ expands and returns
 })
 
 test('a tile chord immediately after focus survives CPU throttling', async ({ page }) => {
+  // Throttled only for the race itself — focus, then a chord at once. Loading
+  // the whole preview page at 6× ran a CI runner out of the test's budget.
+  test.setTimeout(90_000)
+  await gotoPreview(page)
+  await setPreviewDials(page, 'light', 'studio')
+  const target = grid(page, 'side-by-side-four')
   const cdp = await page.context().newCDPSession(page)
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 })
   try {
-    await gotoPreview(page)
-    await setPreviewDials(page, 'light', 'studio')
-    const target = grid(page, 'side-by-side-four')
     await focusRoom(page, 'side-by-side-four')
     // Deliberately send the chord without waiting for the frame's focus
     // context to render. SideBySide must consult live DOM focus at receipt.
