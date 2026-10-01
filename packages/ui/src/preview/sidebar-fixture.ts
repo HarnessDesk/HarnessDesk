@@ -615,6 +615,7 @@ export const previewTurns = [
   {
     id: 't1' as never,
     status: 'completed',
+    durationMs: 6 * 60_000,
     startedAt: minutes(32),
     completedAt: minutes(26),
     items: [
@@ -646,9 +647,15 @@ export const previewTurns = [
           'The porcelain output is the local registry, so a branch deleted upstream still has a row. The check belongs next to the parse rather than inside it.',
         ],
       }),
+      item('i2c', {
+        type: 'reasoning',
+        summary: [],
+        content: ['The remote refs provide the independent evidence for whether that local branch still resolves.'],
+      }),
       item('i3', {
         type: 'command',
         command: 'git worktree list --porcelain',
+        durationMs: 80_000,
         cwd: '/Users/shane/code/harnessdesk',
         origin: 'agent',
         status: 'completed',

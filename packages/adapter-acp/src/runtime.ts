@@ -64,6 +64,7 @@ import {
   SessionGoneError,
   openingOf,
   laneEnvironmentOf,
+  wrapContext,
 } from '@harnessdesk/protocol'
 import {
   AcpConnection,
@@ -313,6 +314,11 @@ export interface AcpAgentConfig {
      */
     readonly onOpen?: (token: string) => void
   }
+  /** Folder-specific policy the agent applies before starting a configured MCP server. */
+  readonly pluginToolsAvailableAt?: (cwd: string) => boolean | Promise<boolean>
+  readonly pluginToolsProblemAt?: (cwd: string) => string | null | Promise<string | null>
+  /** Runtime-authored guidance shown if that folder policy withholds the desk tools. */
+  readonly pluginToolsUnavailable?: string
   /**
    * The desk's standing instruction for the agent, read when a session is
    * opened and put in `session/new`'s and `session/load`'s `_meta` under
@@ -897,6 +903,7 @@ export class AcpRuntime implements AgentRuntime {
       provider: this.#provider,
       presentation: {
         name: this.#config.name,
+        ...(this.#config.pluginToolsUnavailable ? { pluginToolsUnavailable: this.#config.pluginToolsUnavailable } : {}),
         // What an ACP agent declares are commands; some of them are skills
         // and some are `/compact`. The page says both rather than filing
         // half the list under the wrong word.
@@ -2310,6 +2317,14 @@ export class AcpRuntime implements AgentRuntime {
     }
   }
 
+  pluginToolsAvailableAt(cwd: string): Promise<boolean> {
+    return Promise.resolve(this.#config.pluginToolsAvailableAt?.(cwd) ?? true)
+  }
+
+  pluginToolsProblemAt(cwd: string): Promise<string | null> {
+    return Promise.resolve(this.#config.pluginToolsProblemAt?.(cwd) ?? null)
+  }
+
   async createSession(options: SessionOptions): Promise<AgentSession> {
     /* `SessionOptions` is `Partial<SessionSettings> & …`, so `model` is legal
        to write — and it used to be read by nobody here, which made "start this
@@ -3096,11 +3111,13 @@ const ACP_ENVELOPE: PeelOptions = {
  * is a whole block rather than something spanning two.
  */
 const withUserContent = (item: UserMessageItem, block: AcpContentBlock): UserMessageItem => {
-  const { content, context } = peelUserContent([userContentOf(block)], ACP_ENVELOPE)
+  // Re-peel the accumulated blocks as one message. A desk wrapper may be its
+  // own ACP content block, with the person's sentence arriving afterwards.
+  const { content, context } = peelUserContent([...item.content, userContentOf(block)], ACP_ENVELOPE)
   const kept = [...item.context ?? [], ...context]
   return {
     ...item,
-    content: [...item.content, ...content],
+    content,
     ...(kept.length > 0 ? { context: kept } : {}),
   }
 }
@@ -3560,7 +3577,16 @@ class AcpSession implements AgentSession {
     const userItem: AgentItem =
       opts?.recordAs === 'notice'
         ? { id: itemId(`${id}-user`), type: 'notice', text: plainTextOf(input), startedAt: Date.now() }
-        : { id: itemId(`${id}-user`), type: 'userMessage', content: input, startedAt: Date.now() }
+        : (() => {
+            const { content, context } = peelUserContent(input, ACP_ENVELOPE)
+            return {
+              id: itemId(`${id}-user`),
+              type: 'userMessage',
+              content,
+              ...(context.length > 0 ? { context } : {}),
+              startedAt: Date.now(),
+            }
+          })()
     const turn: MutableTurn = { id, items: [userItem], startedAt: Date.now() }
     this.#currentTurn = turn
     this.#host.emit({
@@ -3691,7 +3717,10 @@ class AcpSession implements AgentSession {
       preview:
         preview?.type === 'userMessage'
           ? // Named from the whole message, before the cut: a block cut short has no label to read (#186).
-            openingOf(preview.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n')).slice(0, 120) || null
+            openingOf([
+              ...(preview.context ?? []).map((block) => wrapContext(block.label, block.text)),
+              preview.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n'),
+            ].join('\n')).slice(0, 120) || null
           : // Loaded, not replayed: the agent's own record of how this
             // conversation opened stands in for turns this process never saw.
             this.#host.previewOf(this.id),
@@ -4298,6 +4327,7 @@ class AcpSession implements AgentSession {
 
   #finishTurn(turn: MutableTurn, stopReason?: AcpStopReason | string | null): void {
     if (this.#currentTurn?.id !== turn.id) return
+    const completedAt = Date.now()
     const reason = typeof stopReason === 'string' ? stopReason : stopReason == null ? 'end_turn' : String(stopReason)
     const status =
       reason === 'cancelled' ? 'interrupted' : reason === 'end_turn' ? 'completed' : 'failed'
@@ -4309,12 +4339,12 @@ class AcpSession implements AgentSession {
         ? { error: { message: `The agent stopped: ${reason.replace(/_/g, ' ')}.` } }
         : {}),
       startedAt: turn.startedAt,
-      completedAt: Date.now(),
+      completedAt,
       // Never actually null here -- `#finishTurn` only ever closes a live
       // turn (`send`'s own `Date.now()`), replay never reaches it -- but the
       // type is shared with a replayed turn's, so the arithmetic still has
       // to allow for it.
-      durationMs: turn.startedAt === null ? null : Date.now() - turn.startedAt,
+      durationMs: turn.startedAt === null ? null : completedAt - turn.startedAt,
     }
     this.#currentTurn = null
     this.#turns.push(finished)
@@ -4324,6 +4354,7 @@ class AcpSession implements AgentSession {
 
   #failTurn(turn: MutableTurn, message: string): void {
     if (this.#currentTurn?.id !== turn.id) return
+    const completedAt = Date.now()
     this.#currentTurn = null
     const finished: Turn = {
       id: turn.id,
@@ -4331,7 +4362,8 @@ class AcpSession implements AgentSession {
       status: 'failed',
       error: { message },
       startedAt: turn.startedAt,
-      completedAt: Date.now(),
+      completedAt,
+      durationMs: turn.startedAt === null ? null : completedAt - turn.startedAt,
     }
     this.#turns.push(finished)
     this.#host.emit({ type: 'turn/completed', sessionId: this.id, turn: finished })

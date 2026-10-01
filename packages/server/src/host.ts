@@ -125,7 +125,7 @@ import { CredentialBroker, plainCipher, type CredentialCipher } from './credenti
 import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
 import { canonicalDestination } from './git-worktree.js'
-import { Worktrees, createDetached, openRepositoryRoot, remove as removeWorktree, removeCheckoutsLeftBehind, repositoryOf } from './worktree.js'
+import { Worktrees, createDetached, managedWorktreePath, openRepositoryRoot, remove as removeWorktree, removeCheckoutsLeftBehind, repositoryOf } from './worktree.js'
 import { commitCardWork } from './card-commit.js'
 import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 import { LibraryUsageReader } from './library-usage.js'
@@ -1467,6 +1467,17 @@ export class Host {
       // `this.#context` is assigned once the whole constructor has run; every
       // wire call this preview port answers happens long after that.
       previewAgent: (root, agent, seats, grant, options) => previewAgent(this.#context, root, agent, seats, grant, options),
+      pluginToolsProblem: async (runtimeName, root, isolate) => {
+        const runtime = this.#runtimes.get(runtimeId(runtimeName))
+        if (!runtime || !runtime.info.capabilities.pluginTools) return null
+        const cwd = isolate
+          ? await managedWorktreePath(root, this.#state.directory, 'lane-preview').catch(() => root)
+          : root
+        if (await (runtime.pluginToolsAvailableAt?.(cwd) ?? Promise.resolve(true))) return null
+        const problem = await runtime.pluginToolsProblemAt?.(cwd)
+        if (problem) return problem
+        return runtime.info.presentation.pluginToolsUnavailable ?? `${runtime.info.presentation.name} cannot use HarnessDesk's tools in this checkout, so it cannot claim a card`
+      },
       storedRun: async (run) => this.#flows.storedRun(run),
       // A front-door token's target, read again from git and the forge at Start: never the facts the preview saw.
       resolveTarget: async (context) => {

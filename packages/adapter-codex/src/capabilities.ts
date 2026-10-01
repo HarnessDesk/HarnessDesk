@@ -6,6 +6,7 @@ import type {
   ToolContribution,
   ToolResult,
 } from '@harnessdesk/protocol'
+import { wrapContext } from '@harnessdesk/protocol'
 
 /**
  * Projecting plugin contributions into Codex.
@@ -170,6 +171,6 @@ export const contextPreamble = (
 ): string | null => {
   if (entries.length === 0) return null
   return entries
-    .map((entry) => `<context source=${JSON.stringify(entry.label)}>\n${entry.text}\n</context>`)
+    .map((entry) => wrapContext(entry.label, entry.text))
     .join('\n\n')
 }

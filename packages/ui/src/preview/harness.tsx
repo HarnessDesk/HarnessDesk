@@ -49,6 +49,7 @@ import {
 
 import { AppWindowMode } from '../components/AppWindow'
 import { EMPTY_FINDINGS_STATE, findingDetail, findingsListState } from './findings-fixture'
+import { focus as focusPaneIn } from '../state/layout'
 import type { FindingFilter } from '../lib/findings'
 import { Boundary } from './boundary'
 import { StoreProvider } from '../state/context'
@@ -1214,6 +1215,10 @@ class PreviewStore {
   focusView(id: MountedId | null): void {
     if ((this.#snapshot.workbench.focus ?? null) === (id ?? null)) return
     this.#workbench(focusView(this.#snapshot.workbench, id))
+  }
+  focusPane(paneId: string): void {
+    const workbench = this.#snapshot.workbench
+    this.#workbench(focusView({ ...workbench, main: focusPaneIn(workbench.main, paneId) }, null))
   }
 
   /* The sidebar's verbs, answered as the app's store answers them

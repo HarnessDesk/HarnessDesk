@@ -1,9 +1,11 @@
 import { act, type ReactNode } from 'react'
+import { runtimeId, sessionKey, type SessionId } from '@harnessdesk/protocol'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { ContextMenu, MenuItem, Popover } from '../design'
 import { StoreProvider } from '../state/context'
+import { expand as expandLayout, panes as layoutPanes, split as splitLayout } from '../state/layout'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { dock, emptyWorkbench, type Workbench as Model } from '../state/workbench'
 import { Workbench } from './Workbench'
@@ -29,23 +31,47 @@ import './builtins'
    the kind a conversation's header has, to be open when something lies over it. */
 vi.mock('../components/Panes', async () => {
   const { Popover: Menu } = await import('../design')
+  const { useSnapshot } = await import('../state/context')
+  const { panes } = await import('../state/layout')
   return {
-    Panes: () => (
-      <>
-        <button type="button" data-testid="in-the-conversation">
-          the conversation
-        </button>
-        <Menu label="Branch" title="Branch">
-          {() => <input aria-label="Filter branches" />}
-        </Menu>
+    Panes: () => {
+      const snapshot = useSnapshot()
+      return <>
+        {panes(snapshot.layout.root).map((pane, index) => (
+          <section
+            key={pane.id}
+            data-pane-id={pane.id}
+            tabIndex={-1}
+            {...(snapshot.layout.expanded !== null && snapshot.layout.expanded !== pane.id ? { 'data-hidden': '' } : {})}
+          >
+            <button
+              type="button"
+              disabled={pane.view.kind === 'conversation' && pane.view.session !== null}
+              data-testid={pane.view.kind === 'conversation'
+                ? index === 0 ? 'in-the-conversation' : `pane-target-${pane.id}`
+                : `file-action-${pane.id}`}
+            >
+              {pane.view.kind === 'conversation' ? 'the conversation' : 'file action'}
+            </button>
+            {pane.view.kind === 'conversation' && (
+              <textarea
+                aria-label="Conversation composer"
+                data-testid={index === 0 ? 'conversation-composer' : `conversation-composer-${pane.id}`}
+              />
+            )}
+            {index === 0 && pane.view.kind === 'conversation' && (
+              <Menu label="Branch" title="Branch">{() => <input aria-label="Filter branches" />}</Menu>
+            )}
+          </section>
+        ))}
       </>
-    ),
+    },
   }
 })
 
 const changes = views.get('changes')
 if (!changes) throw new Error('changes is not registered')
-views.register({ ...changes, component: () => <div data-testid="view-changes">changes</div> })
+views.register({ ...changes, component: () => <button type="button" data-testid="view-changes">changes</button> })
 // The registry is the module's, so the real definition goes back when this file is done.
 afterAll(() => views.register(changes))
 
@@ -81,7 +107,15 @@ const rig = (extra: Partial<AppSnapshot> = {}, workbench: Model = emptyWorkbench
     closeFloatingSidebar: vi.fn(() => patch({ sidebarFloating: false })),
     // What ⌘B runs, in a narrow window.
     toggleSidebar: vi.fn(() => patch({ sidebarFloating: !snapshot.sidebarFloating })),
-    focusView: vi.fn(),
+    focusPane: vi.fn((paneId: string) => patch({
+      layout: { ...snapshot.layout, focused: paneId },
+      workbench: {
+        ...snapshot.workbench,
+        main: { ...snapshot.workbench.main, focused: paneId },
+        focus: null,
+      },
+    })),
+    focusView: vi.fn((id: string | null) => patch({ workbench: { ...snapshot.workbench, focus: id } })),
     activateView: vi.fn(),
   } as unknown as AppStore & { closeFloatingSidebar: ReturnType<typeof vi.fn> }
   return { store, patch }
@@ -364,13 +398,132 @@ it('a panel on the right that covers the conversation puts it out of reach, and 
   render(wide.store)
   // The control: beside the conversation, nothing is covered.
   expect(conversation()?.closest('[inert]')).toBeNull()
+  expect(conversation()?.closest('[data-right-panel-overlay]')).toBeNull()
 
   const narrow = rig({ narrowWindow: true }, docked)
   render(narrow.store)
   expect(conversation()?.closest('[inert]')).not.toBeNull()
+  expect(conversation()?.closest('[data-right-panel-overlay]')).not.toBeNull()
 
   narrow.patch({ workbench: { ...docked, right: { ...docked.right, collapsed: true } } })
   expect(conversation()?.closest('[inert]')).toBeNull()
+  expect(conversation()?.closest('[data-right-panel-overlay]')).toBeNull()
+})
+
+it('returns focus to the conversation target, or its composer when that target is gone', () => {
+  const docked = dock(emptyWorkbench(), 'right', { kind: 'changes' })
+  const { store, patch } = rig({}, docked)
+  render(store)
+  const opener = container.querySelector<HTMLButtonElement>('[data-testid="in-the-conversation"]')
+  const composer = container.querySelector<HTMLTextAreaElement>('[data-testid="conversation-composer"]')
+  const view = container.querySelector<HTMLButtonElement>('[data-testid="view-changes"]')
+  expect(opener).not.toBeNull()
+  expect(composer).not.toBeNull()
+  expect(view).not.toBeNull()
+
+  opener!.focus()
+  patch({ narrowWindow: true })
+  expect(opener?.closest('[inert]')).not.toBeNull()
+  view!.focus()
+  patch({ workbench: { ...docked, right: { ...docked.right, collapsed: true } } })
+  expect(document.activeElement).toBe(opener)
+
+  // A stale opener must not strand focus when its node was removed/disabled.
+  patch({ workbench: docked })
+  opener!.disabled = false
+  opener!.focus()
+  patch({ narrowWindow: true })
+  opener!.disabled = true
+  view!.focus()
+  patch({ workbench: { ...docked, right: { ...docked.right, collapsed: true } } })
+  expect(document.activeElement).toBe(composer)
+})
+
+it('restores into the currently focused expanded pane and returns logical focus to main', () => {
+  const docked = dock(emptyWorkbench(), 'right', { kind: 'changes' })
+  const { store, patch } = rig({}, docked)
+  render(store)
+  const initialLayout = store.getSnapshot().layout
+  const originalPane = layoutPanes(initialLayout.root)[0]!
+  const originalTarget = container.querySelector<HTMLElement>(`[data-pane-id="${originalPane.id}"] button`)
+  const panelView = container.querySelector<HTMLButtonElement>('[data-testid="view-changes"]')
+  originalTarget!.focus()
+  patch({ narrowWindow: true })
+  panelView!.focus()
+  expect(store.getSnapshot().workbench.focus).not.toBeNull()
+
+  const divided = splitLayout(initialLayout, originalPane.id, 'row', {
+    kind: 'file', path: '/project/visible.ts', runtime: runtimeId('codex'),
+  })
+  const expandedPane = layoutPanes(divided.root).find((pane) => pane.view.kind === 'file')!
+  const expanded = expandLayout(divided, expandedPane.id)
+  patch({ layout: expanded, workbench: { ...store.getSnapshot().workbench, main: expanded } })
+  expect(originalTarget?.closest('[data-hidden]')).not.toBeNull()
+
+  patch({ workbench: { ...store.getSnapshot().workbench, right: { ...docked.right, collapsed: true } } })
+  const fileAction = container.querySelector<HTMLElement>(`[data-testid="file-action-${expandedPane.id}"]`)
+  expect(container.querySelector(`[data-pane-id="${expandedPane.id}"] textarea`)).toBeNull()
+  expect(document.activeElement).toBe(fileAction)
+  expect(document.activeElement).not.toBe(document.body)
+  expect(document.activeElement).not.toBe(container.querySelector(`[data-pane-id="${originalPane.id}"] textarea`))
+  expect(store.getSnapshot().workbench.focus).toBeNull()
+  expect(store.getSnapshot().layout.focused).toBe(expandedPane.id)
+  expect((store.focusPane as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(expandedPane.id)
+})
+
+it('falls back to the focused file pane when its conversation target and composer are gone', () => {
+  const docked = dock(emptyWorkbench(), 'right', { kind: 'changes' })
+  const { store, patch } = rig({}, docked)
+  render(store)
+  const layout = store.getSnapshot().layout
+  const pane = layoutPanes(layout.root)[0]!
+  const opener = container.querySelector<HTMLElement>(`[data-pane-id="${pane.id}"] button`)
+  const dockedView = container.querySelector<HTMLButtonElement>('[data-testid="view-changes"]')
+  opener!.focus()
+  patch({ narrowWindow: true })
+  dockedView!.focus()
+
+  const fileLayout = {
+    ...layout,
+    root: { ...pane, view: { kind: 'file' as const, path: '/project/readme.ts', runtime: runtimeId('codex') } },
+  }
+  patch({ layout: fileLayout, workbench: { ...store.getSnapshot().workbench, main: fileLayout } })
+  patch({ workbench: { ...store.getSnapshot().workbench, right: { ...docked.right, collapsed: true } } })
+
+  const fileAction = container.querySelector<HTMLElement>(`[data-testid="file-action-${pane.id}"]`)
+  expect(container.querySelector(`[data-pane-id="${pane.id}"] textarea`)).toBeNull()
+  expect(document.activeElement).toBe(fileAction)
+  expect(fileAction?.closest('[data-pane-id]')).toBe(container.querySelector(`[data-pane-id="${pane.id}"]`))
+  expect(document.activeElement).not.toBe(document.body)
+})
+
+it('does not restore a saved node after its pane switches to another view', () => {
+  const docked = dock(emptyWorkbench(), 'right', { kind: 'changes' })
+  const { store, patch } = rig({}, docked)
+  render(store)
+  const layout = store.getSnapshot().layout
+  const pane = layoutPanes(layout.root)[0]!
+  const savedTarget = container.querySelector<HTMLElement>(`[data-pane-id="${pane.id}"] button`)
+  const dockedView = container.querySelector<HTMLButtonElement>('[data-testid="view-changes"]')
+  act(() => savedTarget!.focus())
+  patch({ narrowWindow: true })
+  act(() => dockedView!.focus())
+
+  const changedLayout = {
+    ...layout,
+    root: {
+      ...pane,
+      view: { kind: 'conversation' as const, session: sessionKey(runtimeId('codex'), 'replacement' as SessionId) },
+    },
+  }
+  patch({ layout: changedLayout, workbench: { ...store.getSnapshot().workbench, main: changedLayout } })
+  patch({ workbench: { ...store.getSnapshot().workbench, right: { ...docked.right, collapsed: true } } })
+
+  const composer = container.querySelector<HTMLElement>(`[data-pane-id="${pane.id}"] textarea`)
+  expect(composer).not.toBeNull()
+  expect(document.activeElement).toBe(composer)
+  expect(document.activeElement).not.toBe(savedTarget)
+  expect(document.activeElement).not.toBe(document.body)
 })
 
 it('a panel on the right takes the conversation’s width in a narrow window, and has no seam', () => {

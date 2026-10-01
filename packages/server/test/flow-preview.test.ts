@@ -121,6 +121,26 @@ test('a flow with an error mints no token, and names the problem', async () => {
   assert.ok(broken.problems.some((one) => one.level === 'error'))
 })
 
+test('a flow preview refuses a selected seat whose runtime will withhold the board tools in its checkout', async () => {
+  const state = rig()
+  const checked: boolean[] = []
+  const port: FlowPreviewPort = {
+    ...state.port,
+    pluginToolsProblem: async (runtime, root, isolate) => {
+      assert.equal(runtime, 'alpha')
+      assert.equal(root, '/repo')
+      checked.push(isolate)
+      return "Gemini doesn't trust this folder, so it can't use the board. Open Gemini here, run /permissions trust, and start again."
+    },
+  }
+  const preview = await new FlowPreviews(port).preview('/repo', FLOW, {})
+  assert.equal(preview.token, null)
+  assert.ok(preview.problems.some((problem) => problem.level === 'error' && problem.text.includes('Gemini doesn\'t trust this folder')))
+  const isolatedSource = FLOW.replace('kind: agent, uses: writer', 'kind: agent, uses: writer, isolate: true')
+  await new FlowPreviews(port).preview('/repo', isolatedSource, {})
+  assert.deepEqual(checked, [false, true], 'the preview also predicts the managed checkout for an isolated seat')
+})
+
 test('a trigger again round keeps a mixed predecessor role conditional in the dry run', async () => {
   const state = rig()
   state.agentsRoster = [AGENT('writer'), AGENT('target')]

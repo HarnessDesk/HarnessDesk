@@ -19,7 +19,7 @@ import { basename, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 
-import { laneEnvironmentOf, opensEnvelope } from '@harnessdesk/protocol'
+import { laneEnvironmentOf, openingOf } from '@harnessdesk/protocol'
 
 import { childEnvironment, environmentAck, environmentIn } from './lane-environment.js'
 import {
@@ -519,29 +519,9 @@ export const titleOf = (text: string): string => {
   return stripped ? firstLine(stripped) : contextLabel(text)
 }
 
-/**
- * A stored name, read. Before #47's fix, a conversation that opened with only
- * a context block was stored under the envelope's first line,
- * `<context source="…">`, for good. That line is read as its label now, and an
- * envelope whose label can't be read as no name at all, so the next turn names
- * it (review, round 4). What opens an envelope is the protocol's to say, and
- * it says `<context source="`, the only way `wrapContext` writes one: a name
- * that only starts with the word, a prompt about `<context-free grammars>` or
- * `<context switching`, is the user's own, and read as an envelope it was
- * renamed by the next turn (#188, and the review of #207). A pattern of this
- * file's own was one of four copies of that question (#224).
- */
-const storedName = (stored: string | null | undefined): string | null => {
-  if (!stored) return null
-  if (!opensEnvelope(stored)) return stored
-  const quoted = /^<context source=("(?:[^"\\]|\\.)*")/.exec(stored)?.[1]
-  if (quoted === undefined) return null
-  try {
-    return firstLine(JSON.parse(quoted) as string) || null
-  } catch {
-    return null
-  }
-}
+/** Read a stored first message by the shared protocol rules. */
+const storedName = (stored: string | null | undefined): string | null =>
+  stored ? openingOf(stored) || null : null
 
 /**
  * What a conversation's row is called: what it was called before, if that

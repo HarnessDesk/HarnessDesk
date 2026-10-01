@@ -300,7 +300,7 @@ test('a thread working on its first turn is in the list, under its ask', async (
   )
 
   await session.send([
-    { type: 'text', text: '<context source="Uncommitted changes">\nStatus: ## main\n</context>' },
+    { type: 'text', text: wrapContext('Uncommitted changes', 'Status: ## main') },
     { type: 'text', text: 'Count slowly from 1 to 30, one number per line.' },
   ])
   const during = await runtime.listSessions({ pageSize: 10 })
@@ -613,7 +613,7 @@ test('setting a title round-trips through the runtime', async (t) => {
 
 test('a thread name is the person\'s words, cut on a word', () => {
   assert.equal(
-    nameFromMessage('<context source="Git">on branch x</context>\n\nAdd a New game button'),
+    nameFromMessage(`${wrapContext('Git', 'on branch x')}\n\nAdd a New game button`),
     'Add a New game button',
   )
   // Only the first line: the rest is the request, not its name.
@@ -623,7 +623,7 @@ test('a thread name is the person\'s words, cut on a word', () => {
     'Rewrite the sidebar grouping logic the sidebar grouping…',
   )
   // Nothing but envelope is nothing to call it.
-  assert.equal(nameFromMessage('<context source="Git">on branch x</context>'), null)
+  assert.equal(nameFromMessage(wrapContext('Git', 'on branch x')), null)
 })
 
 test('a first message with HarnessDesk\'s own envelope names the thread; a plain one does not', async (t) => {
@@ -637,7 +637,7 @@ test('a first message with HarnessDesk\'s own envelope names the thread; a plain
   // through Codex's own call and both windows read the same.
   const enveloped = await runtime.createSession({ cwd: '/w' })
   await enveloped.send([
-    { type: 'text', text: '<context source="Uncommitted changes">\nStatus: ## main\n</context>' },
+    { type: 'text', text: wrapContext('Uncommitted changes', 'Status: ## main') },
     { type: 'text', text: 'Reply with exactly: ok' },
   ])
   await tape.until((events) =>
