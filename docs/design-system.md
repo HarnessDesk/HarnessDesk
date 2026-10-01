@@ -74,7 +74,7 @@ Geist carries the interface, bundled at packages/ui/src/assets/fonts and never f
 | `--hd-chart-heat-2` | `color-mix(in srgb, rgb(52, 88, 240) 46%, rgb(245, 245, 245))` |
 | `--hd-chart-heat-3` | `color-mix(in srgb, rgb(52, 88, 240) 70%, rgb(245, 245, 245))` |
 | `--hd-chart-heat-4` | `rgb(52, 88, 240)` |
-| `--hd-chart-heat-not-scanned` | `repeating-linear-gradient( 135deg, rgb(255, 255, 255) 0 2px, color-mix(in srgb, rgb(107, 107, 107) 45%, rgb(255, 255, 255)) 2px 3px )` |
+| `--hd-chart-heat-not-scanned` | `repeating-linear-gradient( 135deg, rgb(255, 255, 255) 0 2px, color-mix(in srgb, rgb(71, 71, 71) 45%, rgb(255, 255, 255)) 2px 3px )` |
 | `--hd-danger` | `rgb(228, 68, 62)` |
 | `--hd-danger-dim` | `rgba(228, 68, 62, 0.12)` |
 | `--hd-success` | `rgb(65, 189, 111)` |
@@ -360,7 +360,7 @@ A navigation column is its own small design system, and shadcn treats it as one:
 | `--hd-sidebar` | `rgb(249, 249, 249)` |
 | `--hd-sidebar-foreground` | `rgb(27, 27, 27)` |
 | `--hd-sidebar-selected` | `color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)` |
-| `--hd-sidebar-muted-foreground` | `rgb(107, 107, 107)` |
+| `--hd-sidebar-muted-foreground` | `rgb(71, 71, 71)` |
 | `--hd-sidebar-border` | `rgba(9, 12, 17, 0.05)` |
 | `--hd-sidebar-hover` | `rgba(9, 12, 17, 0.05)` |
 | `--sidebar-width` | `` |
@@ -414,6 +414,8 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-surface-shadow` | `0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(9, 12, 17, 0.12)` |
 | `--hd-scrim` | `rgba(7, 9, 14, 0.28)` |
 | `--hd-external-canvas` | `rgb(255, 255, 255)` |
+| `--hd-secondary-foreground` | `rgb(49, 49, 49)` |
+| `--hd-tertiary-foreground` | `rgb(71, 71, 71)` |
 | `--hd-sidebar-plate` | `rgb(249, 249, 249)` |
 | `--hd-chip-fill-hover` | `color-mix(in srgb, rgb(245, 245, 245) 92%, rgb(27, 27, 27))` |
 | `--hd-shadow-xs` | `0 1px 2px rgba(0, 0, 0, 0.05)` |
