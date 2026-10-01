@@ -215,6 +215,10 @@ export interface Dock {
 export const MIN_RATIO = 0.15
 export const MAX_RATIO = 0.85
 
+/** Smallest useful width and height for either half of a dock split. */
+export const MIN_SPLIT_HALF = 220
+export const MIN_SPLIT_HALF_H = 160
+
 const clampRatio = (ratio: number): number => Math.min(MAX_RATIO, Math.max(MIN_RATIO, ratio))
 
 /**
