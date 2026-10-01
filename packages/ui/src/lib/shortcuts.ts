@@ -32,8 +32,12 @@ export interface Shortcut {
   readonly label: string
   /** The letter or punctuation, lower-case; matched against `event.key`. */
   readonly key: string
+  /** The physical key code, used where a modifier changes the reported key. */
+  readonly code?: string
   /** Whether Shift is part of the chord. Absent means it must not be held. */
   readonly shift?: boolean
+  /** Whether Option is part of the chord. Absent means it must not be held. */
+  readonly alt?: boolean
   /** Which group it belongs to on the shortcuts page. */
   readonly group: 'Sessions' | 'Window' | 'Finding things'
 }
@@ -52,6 +56,11 @@ export const SHORTCUTS: readonly Shortcut[] = [
      capture phase and stops the event, so a focused page still wins. */
   { action: 'nav-back', label: 'Back', key: '[', group: 'Window' },
   { action: 'nav-forward', label: 'Forward', key: ']', group: 'Window' },
+  { action: 'tile-1', label: 'Focus tile 1', key: '1', code: 'Digit1', alt: true, group: 'Window' },
+  { action: 'tile-2', label: 'Focus tile 2', key: '2', code: 'Digit2', alt: true, group: 'Window' },
+  { action: 'tile-3', label: 'Focus tile 3', key: '3', code: 'Digit3', alt: true, group: 'Window' },
+  { action: 'tile-4', label: 'Focus tile 4', key: '4', code: 'Digit4', alt: true, group: 'Window' },
+  { action: 'tile-expand', label: 'Expand or return the focused tile', key: 'enter', code: 'Enter', alt: true, group: 'Window' },
   { action: 'show-changes', label: 'Show changes', key: 'd', shift: true, group: 'Window' },
   { action: 'settings', label: 'Settings', key: ',', group: 'Window' },
   { action: 'usage', label: 'Dashboard', key: 'u', group: 'Window' },
@@ -78,6 +87,8 @@ export const shortcutFor = (event: {
   readonly metaKey: boolean
   readonly ctrlKey: boolean
   readonly shiftKey: boolean
+  readonly altKey: boolean
+  readonly code?: string
   readonly defaultPrevented?: boolean
 }): Shortcut | null => {
   if (event.defaultPrevented) return null
@@ -85,11 +96,14 @@ export const shortcutFor = (event: {
   const key = event.key.toLowerCase()
   return (
     SHORTCUTS.find(
-      (shortcut) => shortcut.key === key && Boolean(shortcut.shift) === event.shiftKey,
+      (shortcut) =>
+        Boolean(shortcut.alt) === event.altKey &&
+        Boolean(shortcut.shift) === event.shiftKey &&
+        (shortcut.alt ? event.code === shortcut.code : shortcut.key === key),
     ) ?? null
   )
 }
 
-/** How a chord is written where a person reads it: ⇧⌘D, ⌘,. */
+/** How a chord is written where a person reads it: ⌥⌘1, ⇧⌘D, ⌘,. */
 export const chordOf = (shortcut: Shortcut): string =>
-  `${shortcut.shift ? '⇧' : ''}⌘${shortcut.key === ',' ? ',' : shortcut.key.toUpperCase()}`
+  `${shortcut.alt ? '⌥' : ''}${shortcut.shift ? '⇧' : ''}⌘${shortcut.key === ',' ? ',' : shortcut.key === 'enter' ? '↵' : shortcut.key.toUpperCase()}`

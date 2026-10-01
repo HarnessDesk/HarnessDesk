@@ -144,6 +144,7 @@ import { buildHandoff, type Carry } from '../lib/handoff'
 import { livePlanEdits, withPlanEdit, type PlanEdit } from '../lib/plan-edits'
 import type { Todo } from '../lib/todos'
 import { crossings, toastName, usageAccount } from '../lib/usage-alerts'
+import { toStored, type SideBySideState } from '../lib/side-by-side'
 import { anyOpened, blockedWords, refusalOf, seatAgentKey } from '../lib/agents'
 import { kept as keptInInbox, markedRead, readInbox, type InboxEntry } from '../lib/inbox'
 import {
@@ -3131,6 +3132,16 @@ export class AppStore {
     this.#setWorkbench(
       replaceViewIn(this.#snapshot.workbench, id, { ...current, watching: [...watching] }),
     )
+  }
+
+  /** The room's Side by side tiles, written back to its view as they change. */
+  setRoomSideBySide(id: string, state: SideBySideState): void {
+    const current = viewAt(this.#snapshot.workbench, id)
+    if (current?.kind !== 'room') return
+    const next = toStored(state)
+    if (JSON.stringify(current.sideBySide ?? null) === JSON.stringify(next ?? null)) return
+    const { sideBySide: _old, ...rest } = current
+    this.#setWorkbench(replaceViewIn(this.#snapshot.workbench, id, next ? { ...rest, sideBySide: next } : rest))
   }
 
   /**

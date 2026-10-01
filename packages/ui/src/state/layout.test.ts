@@ -222,6 +222,15 @@ describe('one conversation at a time', () => {
     expect((junk.root as { view: { watching?: unknown } }).view.watching).toBeUndefined()
   })
 
+  test('reads a room view with its side-by-side tiles', () => {
+    const view = readView({ kind: 'room', room: 'r1', sideBySide: { tiles: ['codex\u0000a', 'claude\u0000b'], expanded: 'claude\u0000b' } })
+    expect(view).toEqual({ kind: 'room', room: 'r1', sideBySide: { tiles: ['codex\u0000a', 'claude\u0000b'], focused: 'codex\u0000a', expanded: 'claude\u0000b' } })
+  })
+
+  test('drops a malformed side-by-side record rather than restoring junk', () => {
+    expect(readView({ kind: 'room', room: 'r1', sideBySide: 'four' })).toEqual({ kind: 'room', room: 'r1' })
+  })
+
   test('a root-keyed pane whose root did not survive is not restored as a board of nothing', () => {
     for (const kind of ['git', 'board', 'room'] as const) {
       const layout = readLayout({
