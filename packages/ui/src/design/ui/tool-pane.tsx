@@ -137,7 +137,7 @@ const ToolPaneBody = ({
   <div
     data-slot="tool-pane-body"
     {...(bleed ? { 'data-bleed': '' } : {})}
-    className={cn('min-h-0 flex-1 overflow-auto', bleed ? 'p-0' : 'p-2.5', className)}
+    className={cn('min-h-0 flex-1 overflow-auto', bleed ? 'p-0' : 'p-(--hd-bar-pad)', className)}
     {...props}
   />
 )

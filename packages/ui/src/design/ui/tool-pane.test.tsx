@@ -53,6 +53,17 @@ it('owns the integrated pane frame and the window-corner header', () => {
   expect(container.querySelector('[data-slot="tool-pane-body"]')?.hasAttribute('data-bleed')).toBe(true)
 })
 
+it('uses the header inset for a padded body so their content starts together', () => {
+  act(() => root.render(
+    <ToolPane>
+      <ToolPaneHeader title="Board" />
+      <ToolPaneBody>body</ToolPaneBody>
+    </ToolPane>,
+  ))
+  expect(container.querySelector('[data-slot="tool-pane-header"]')?.className).toContain('px-(--hd-bar-pad)')
+  expect(container.querySelector('[data-slot="tool-pane-body"]')?.className).toContain('p-(--hd-bar-pad)')
+})
+
 it('owns the bars, messages, document tabs and activity anatomy', () => {
   act(() => root.render(
     <ToolPane>
