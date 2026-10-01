@@ -8,7 +8,7 @@ import { scratch } from './scratch.js'
 
 import { AcpRuntime } from '@harnessdesk/adapter-acp'
 import { describeAdapterConformance } from '@harnessdesk/adapter-testkit'
-import type { AgentEvent, AgentItem, AgentSession, ConfigOption } from '@harnessdesk/protocol'
+import { wrapContext, type AgentEvent, type AgentItem, type AgentSession, type ConfigOption } from '@harnessdesk/protocol'
 
 import { acpSafeToolContent, classifyReplayed, commandsFor, optionsIn, storedTitle, unwrap, withOptions } from '../src/index.js'
 
@@ -569,7 +569,7 @@ test('plumbing is never a name', () => {
   )
   assert.equal(unwrap('<local-command-caveat>Caveat: the block was cut at 128 charac'), null, 'truncated, too')
   assert.equal(unwrap('<command-name>/compact</command-name> then fix the grouping'), 'then fix the grouping')
-  assert.equal(unwrap('<context source="Git">on branch x</context>\nWrite the commit message'), 'Write the commit message')
+  assert.equal(unwrap(`${wrapContext('Git', 'on branch x')}\nWrite the commit message`), 'Write the commit message')
   // Verbatim from a transcript on disk: the desktop app's note about a
   // screenshot someone drew on. A session is named for the ask under it.
   assert.equal(unwrap(`${ANNOTATION}\nto here.`), 'to here.')
@@ -663,8 +663,8 @@ test('a replayed user message is speech, housekeeping, or nothing', () => {
     { kind: 'prompt', text: 'and what does the score read?' },
     'a reminder around speech leaves the speech',
   )
-  // HarnessDesk's own envelope is not Claude Code's plumbing: the client
-  // renders it as the "Context added" row, so it has to survive the sieve.
+  // This classifier leaves HarnessDesk's envelope alone; the shared ACP
+  // adapter peels it after replay, so both parts reach the transcript.
   const withContext = classifyReplayed('<context source="notes">the score is 3</context>\nis that right?')
   assert.equal(withContext?.kind, 'prompt')
   assert.match(withContext?.text ?? '', /<context source="notes">/)
@@ -804,7 +804,7 @@ test('a reopened conversation replays what was said, not the plumbing around it'
       isCompactSummary: true,
       message: { role: 'user', content: 'This session is being continued from a previous conversation…\n\nSummary:\n1. Primary Request…' },
     },
-    said('<context source="notes">the score is 3</context>\nis that right?<system-reminder>be nice</system-reminder>'),
+    said(`${wrapContext('notes', 'the score is 3')}\nis that right?<system-reminder>be nice</system-reminder>`),
   ])
 
   const runtime = make({ CLAUDE_CONFIG_DIR: config })
@@ -822,10 +822,14 @@ test('a reopened conversation replays what was said, not the plumbing around it'
         ['notice: Interrupted'],
         ['notice: Claude Code added: Approach this as the design lead at a small studio.'],
         ['notice: Continued from a previous conversation'],
-        ['userMessage: <context source="notes">the score is 3</context>\nis that right?'],
+        ['userMessage: is that right?'],
       ],
       'the caveat, the command echo and the image note are gone; the injected template is attributed, not speech',
     )
+    const lastUser = turns.at(-1)?.items.find((item) => item.type === 'userMessage')
+    assert.deepEqual(lastUser?.type === 'userMessage' ? lastUser.context : [], [
+      { label: 'notes', text: 'the score is 3' },
+    ])
   } finally {
     await runtime.dispose()
   }

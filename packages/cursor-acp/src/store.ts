@@ -325,7 +325,9 @@ export const readChatPreview = (
       }
       if (message.role !== 'user') continue
       const body = messageText(message.content)
-      const asked = /<user_query>([\s\S]*?)<\/user_query>/.exec(body)?.[1]
+      // Cursor's wrapper puts its structural newline after `<user_query>`;
+      // remove that boundary before the start-anchored desk-envelope reader.
+      const asked = /<user_query>([\s\S]*?)<\/user_query>/.exec(body)?.[1]?.replace(/^\r?\n/, '')
       const said = asked ?? (body.includes('<user_info>') ? null : body)
       if (said === null) continue
       const line = stripEnvelope(said).replace(/\s+/g, ' ').trim()

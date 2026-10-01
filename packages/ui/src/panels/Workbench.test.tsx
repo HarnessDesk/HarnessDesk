@@ -197,6 +197,13 @@ const control = (label: string): HTMLButtonElement => {
   return found
 }
 
+const expectOnlyPanelActionAtEnd = (actions: HTMLButtonElement[], edgeButton: HTMLButtonElement): void => {
+  for (const action of actions) {
+    expect(action.className.includes('me-(--edge-pull)'), action.getAttribute('aria-label') ?? 'panel action edge treatment')
+      .toBe(action === edgeButton)
+  }
+}
+
 it('an area with nothing docked draws no panel at all', () => {
   const { store } = rig()
   render(store)
@@ -209,6 +216,9 @@ it('a docked view gets a tab and a body', () => {
   render(store)
   expect(tabs()).toEqual(['Changes'])
   expect(container.querySelector('[data-testid="view-changes"]')).not.toBeNull()
+  const zoom = control('Give this panel the whole area')
+  const collapse = control('Hide this panel')
+  expectOnlyPanelActionAtEnd([zoom, collapse], collapse)
 })
 
 it('every view in a panel stays mounted; the ones off screen are hidden', () => {
@@ -505,6 +515,30 @@ it('a lone self-framing view gets no strip, and carries the verbs itself', () =>
   expect(container.querySelectorAll('[aria-label^="Close "]')).toHaveLength(1)
 })
 
+it('the main area gives its edge to zoom when it cannot close', () => {
+  const { store } = rig((start) => ({
+    ...start,
+    main: {
+      ...start.main,
+      root: { ...start.main.root, view: { kind: 'git' as const, root: '/repo' } },
+    },
+  }))
+  const pane = store.getSnapshot().layout.root
+  if (pane.kind !== 'pane') throw new Error('the initial main area is a single pane')
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <MountProvider scope={{ area: 'main', id: pane.id, view: pane.view }}>
+          <PanelActions />
+        </MountProvider>
+      </StoreProvider>,
+    )
+  })
+  expect(container.querySelectorAll('[aria-label^="Close "]')).toHaveLength(0)
+  const zoom = control('Fill the window')
+  expectOnlyPanelActionAtEnd([zoom], zoom)
+})
+
 it('a tab in a shared stack carries the only close', () => {
   const { store } = rig((start) =>
     dock(dock(start, 'right', { kind: 'changes' }), 'right', { kind: 'activity' }),
@@ -653,6 +687,10 @@ it('a tool dropped into the main area keeps its verbs', () => {
   // And a close, because the main area has no tab carrying one. Without this
   // the panel could be dragged to the middle and never got rid of.
   expect(container.querySelectorAll('[aria-label^="Close "]')).toHaveLength(1)
+  const zoom = control('Fill the window')
+  const close = container.querySelector<HTMLButtonElement>('button[aria-label^="Close "]')
+  if (!close) throw new Error('no close action in the main area')
+  expectOnlyPanelActionAtEnd([zoom, close], close)
 })
 
 it('a tab in a shared stack carries the only close', () => {
@@ -1200,4 +1238,3 @@ it('a second pointer on an area seam leaves no suppression behind (#252)', () =>
   pointFrom(seam, 'pointerup', 1, 0, 400)
   expect(windowResizing()).toBeNull()
 })
-

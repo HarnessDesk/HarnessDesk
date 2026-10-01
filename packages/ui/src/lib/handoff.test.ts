@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { Session } from '@harnessdesk/protocol'
+import { wrapContext, type Session } from '@harnessdesk/protocol'
 
 import { splitContext } from './context-envelope'
 import { buildHandoff, lineageLine } from './handoff'
@@ -49,7 +49,7 @@ const source = { agentName: 'Claude Code', session: session() }
 describe('buildHandoff', () => {
   it('carries the goal, the state, the files, the open plan and the commit in a summary', () => {
     const packet = buildHandoff(source, 'summary')!
-    expect(packet).toContain('<context source="Handed off from Claude Code — “Build the pong game”">')
+    expect(packet).toContain('<context source="Handed off from Claude Code — “Build the pong game”" data-hd-envelope="harnessdesk-v1">')
     expect(packet).toContain('## Goal\nBuild pong in index.html')
     expect(packet).toContain('Claude Code answered: Pong is playable. Scoring is next.')
     expect(packet).not.toContain('Working on it.')
@@ -356,7 +356,7 @@ describe('buildHandoff', () => {
               content: [
                 {
                   type: 'text',
-                  text: '<context source="Git">\nThe workspace is on git branch `main`.\n</context>\nBuild pong',
+                  text: `${wrapContext('Git', 'The workspace is on git branch `main`.')}\nBuild pong`,
                 },
               ],
             },
@@ -384,7 +384,7 @@ describe('buildHandoff', () => {
               content: [
                 {
                   type: 'text',
-                  text: '<context source="Handed off from Codex — “Build the pong game”">\n## Goal\nBuild pong in index.html\n\n## Ground truth\nWorking folder: `/Users/a/code/pong`\n</context>\nTake it from here.',
+                  text: `${wrapContext('Handed off from Codex — “Build the pong game”', '## Goal\nBuild pong in index.html\n\n## Ground truth\nWorking folder: `/Users/a/code/pong`')}\nTake it from here.`,
                 },
               ],
             },
@@ -463,7 +463,7 @@ describe('the lineage of a chain', () => {
   it('and the packet a chained hand-off builds carries that label', () => {
     const chained = session({ title: 'Handed off from Claude Code — “Build the pong game”' })
     expect(buildHandoff({ agentName: 'Gemini CLI', session: chained }, 'summary')!).toContain(
-      '<context source="Handed off from Gemini CLI — “Build the pong game” (via Claude Code)">',
+      '<context source="Handed off from Gemini CLI — “Build the pong game” (via Claude Code)" data-hd-envelope="harnessdesk-v1">',
     )
   })
 

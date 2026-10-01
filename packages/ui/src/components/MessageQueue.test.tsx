@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { sessionKey, type Session, type SessionQueue } from '@harnessdesk/protocol'
+import { sessionKey, wrapContext, type Session, type SessionQueue } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -338,8 +338,33 @@ describe('MessageQueue', () => {
     typeIntoEditor('fix it carefully')
     await act(async () => click(button('Save')))
     expect(calls.updateQueued).toHaveBeenCalledWith('q0', [
-      { type: 'text', text: '<context source="Issue 12">\nbody\n</context>\n\nfix it carefully' },
+      { type: 'text', text: `${wrapContext('Issue 12', 'body')}\n\nfix it carefully` },
     ], KEY)
+  })
+
+  it('keeps a carried context chip intact while editing the queued row', async () => {
+    const compose = vi.fn()
+    window.addEventListener('harnessdesk:compose', compose)
+    mount({
+      status: 'waiting',
+      reason: null,
+      messages: [{
+        id: 'q0', queuedAt: 0, state: 'queued',
+        input: [{ type: 'text', text: `${wrapContext('Issue 12', 'body')}\nfix it` }],
+      }],
+    })
+    click(button('Edit'))
+    expect(editor().value).toBe('fix it')
+    expect(container.querySelector('[aria-label="Carried with this message"]')?.textContent).toContain('Issue 12')
+    typeIntoEditor('fix it carefully')
+    await act(async () => click(button('Save')))
+    window.removeEventListener('harnessdesk:compose', compose)
+
+    expect(calls.updateQueued).toHaveBeenCalledWith('q0', [
+      { type: 'text', text: `${wrapContext('Issue 12', 'body')}\n\nfix it carefully` },
+    ], KEY)
+    expect(calls.unqueue).not.toHaveBeenCalled()
+    expect(compose).not.toHaveBeenCalled()
   })
 
   it('cancel restores the original row and leaves its chips and composer alone', async () => {
