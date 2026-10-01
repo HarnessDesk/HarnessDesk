@@ -233,7 +233,7 @@ test('a refresh parked mid-restart when the app quits spawns no bridge behind th
   /* The refresher's own call. It stops the agent — the family is reaped and
      gone before the gap below opens — and starts it again. */
   const refresh = runtime.refreshCatalog()
-  await arrived
+  await within(arrived, 30_000, 'the refresh reaching its new-start lookup')
   await within(first.gone, 30_000, 'the first bridge closed its lifeline')
 
   // The quit, landing in the gap. Nothing is in flight for it to wait on:
@@ -285,7 +285,7 @@ test('a secret reload parked mid-restart when the app quits spawns no bridge eit
 
   const arrived = park()
   const reloading = runtime.reloadSecrets()
-  await arrived
+  await within(arrived, 30_000, 'the secret reload reaching its new-start lookup')
   await within(first.gone, 30_000, 'the first bridge closed its lifeline')
 
   await runtime.dispose()
