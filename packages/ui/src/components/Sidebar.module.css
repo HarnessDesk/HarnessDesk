@@ -168,7 +168,7 @@
 
 .iconButton {
   flex: none;
-  width: var(--hd-target-min);
+  width: var(--hd-btn-h-sm);
 }
 
 .triage {

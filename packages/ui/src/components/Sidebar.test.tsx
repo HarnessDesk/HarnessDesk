@@ -163,7 +163,7 @@ it('keeps the workbench-owned header, one content scroller, and footer as plain 
   const header = container.querySelector('[data-region="sidebar-header"]')!
   const content = container.querySelector('[data-region="sidebar-content"]')!
   const footer = container.querySelector('[data-region="sidebar-footer"]')!
-  expect(header.querySelector('button[aria-label="Search everything (⌘K)"]')).not.toBeNull()
+  expect(header.querySelector('button[aria-label="Search everything"]')).not.toBeNull()
   expect(content.querySelector('[data-slot="navigation-group-label"]')?.textContent).toContain('Projects')
   expect(footer.childElementCount).toBeGreaterThan(0)
 })
@@ -219,7 +219,9 @@ describe('sidebar destinations', () => {
 
   it('keeps everything-search and list-filter names distinct and calls the group Projects', () => {
     mount()
-    expect(container.querySelector('button[aria-label="Search everything (⌘K)"]')).not.toBeNull()
+    const search = container.querySelector<HTMLButtonElement>('button[aria-label="Search everything"]')!
+    expect(search.getAttribute('aria-keyshortcuts')).toBe('Meta+K')
+    expect(search.title).toBe('Search everything (⌘K)')
     expect(container.querySelector('input[aria-label="Filter this list"]')).not.toBeNull()
     expect(container.querySelector('[data-slot="navigation-group-label"]')?.textContent).toContain('Projects')
   })

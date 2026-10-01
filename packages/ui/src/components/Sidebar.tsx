@@ -142,7 +142,7 @@ export const Sidebar = ({
           <Text role="wordmark" truncate className={styles.workspaceName} title={snapshot.workspace?.path ?? undefined}>HarnessDesk</Text>
           <Button
             variant="ghost" size="icon-sm" edge="end" edgeGlyph={13} className={`${styles.iconButton} hd-no-drag`}
-            onClick={onSearch} title="Search everything (⌘K)" aria-label="Search everything (⌘K)"
+            onClick={onSearch} title="Search everything (⌘K)" aria-label="Search everything" aria-keyshortcuts="Meta+K"
           ><SearchIcon size={13} /></Button>
         </Bar>
         {starting && <NewSessionChoice initialKind={starting} onClose={() => setStarting(undefined)} />}
