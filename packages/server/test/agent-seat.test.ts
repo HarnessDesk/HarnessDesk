@@ -2715,6 +2715,11 @@ test('through the host: a seat passed over is deleted where its runtime keeps it
     2_000,
     'session/removed for the seat passed over',
   )
+  const removed = client.notifications.find(
+    (one) => 'method' in one && one.method === 'session/removed' && String(one.params.sessionId) === String(passed.id),
+  )
+  assert.ok(removed && 'method' in removed && removed.method === 'session/removed')
+  assert.equal(removed.params.deleted, true)
   // The kept seat is untouched.
   assert.ok(harness.host.registry.get(runtimeId('seatfake'), kept.id))
 })
@@ -3029,6 +3034,11 @@ for (const [archiveHistory, where] of [
     assert.equal(await nameOn(harness.stateDir, 'refuser', opened.id), 'Reviewer')
     assert.equal(harness.host.registry.get(runtimeId('refuser'), opened.id), undefined)
     await client.until(() => removedFor(client, opened.id) === 1, 2_000, 'session/removed for it')
+    const removed = client.notifications.find(
+      (one) => 'method' in one && one.method === 'session/removed' && String(one.params.sessionId) === String(opened.id),
+    )
+    assert.ok(removed && 'method' in removed && removed.method === 'session/removed')
+    assert.equal(removed.params.deleted, false)
   })
 }
 

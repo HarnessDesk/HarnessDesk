@@ -12,6 +12,7 @@ import type {
   GitWorktreeCheckout,
   HostMethodName,
   WireError,
+  WireNotification,
   WireRequest,
 } from './wire.js'
 import {
@@ -34,7 +35,7 @@ import type { FlowPermission, FlowSeat, FlowThen } from './flow.js'
 import type { FlowAgentRole, FlowEvidenceGuard, FlowPolicy, FlowPolicyRole, FlowPolicyRule } from './flow-policy.js'
 import type { UserContent } from './items.js'
 import type { LibraryIntent, LibraryPlannedOp } from './library.js'
-import { runtimeId, type RuntimeId } from './ids.js'
+import { runtimeId, type RuntimeId, type SessionId } from './ids.js'
 import type { ReviewRequest } from './runtime.js'
 
 /**
@@ -1436,6 +1437,19 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
 }
 
 export const knownMethods = Object.keys(paramsValidators) as HostMethodName[]
+
+const sessionRemovedParamsValidator: Validator<Extract<WireNotification, { method: 'session/removed' }>['params']> =
+  shape({
+    runtime: isString as Validator<RuntimeId>,
+    sessionId: isString as Validator<SessionId>,
+    deleted: isBoolean,
+  })
+
+/** Validates the host's deletion outcome before the renderer prunes recovery. */
+export const parseSessionRemovedParams = (
+  raw: unknown,
+): Extract<WireNotification, { method: 'session/removed' }>['params'] =>
+  sessionRemovedParamsValidator(raw, 'notification.params')
 
 export const isKnownMethod = (method: string): method is HostMethodName =>
   Object.prototype.hasOwnProperty.call(paramsValidators, method)

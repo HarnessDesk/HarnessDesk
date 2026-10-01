@@ -126,7 +126,7 @@ describe('the queue in the store', () => {
     })
   })
 
-  it('prunes recovery-only state on conversation removal, but keeps it through archive and unarchive', async () => {
+  it('keeps recovery for a pass-over archived after removal, and prunes it on confirmed delete', async () => {
     vi.spyOn(store.transport, 'request').mockResolvedValue(null)
     store.addRecoverableDraft(KEY, { text: 'keep me until delete', attachments: [], detail: 'Restore it.' })
     await store.archiveSession(sessionId('s1'), RUNTIME)
@@ -134,7 +134,11 @@ describe('the queue in the store', () => {
     expect(store.getSnapshot().recoverableDrafts.get(KEY)).toHaveLength(1)
 
     const transport = store.transport as unknown as { handlers: TransportEvents }
-    transport.handlers.onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: sessionId('s1') } })
+    transport.handlers.onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: sessionId('s1'), deleted: false } })
+    expect(store.getSnapshot().recoverableDrafts.get(KEY)).toHaveLength(1)
+    expect(JSON.parse(sessionStorage.getItem('harnessdesk:recoverable-drafts:v1') ?? '{}')[KEY]).toHaveLength(1)
+
+    transport.handlers.onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: sessionId('s1'), deleted: true } })
     expect(store.getSnapshot().recoverableDrafts.has(KEY)).toBe(false)
     expect(sessionStorage.getItem('harnessdesk:recoverable-drafts:v1')).toBe('{}')
   })
@@ -142,6 +146,8 @@ describe('the queue in the store', () => {
   it('explains when recovery could not be saved for a reload', () => {
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota') })
     store.addRecoverableDraft(KEY, { text: 'memory only', attachments: [], detail: 'Restore it.' })
-    expect(store.getSnapshot().recoverableDrafts.get(KEY)?.[0]?.detail).toContain('it could not be saved for a reload')
+    expect(store.getSnapshot().recoverableDrafts.get(KEY)?.[0]?.detail).toBe(
+      "Restore it. Not saved for a reload — it stays only while this window is open.",
+    )
   })
 })

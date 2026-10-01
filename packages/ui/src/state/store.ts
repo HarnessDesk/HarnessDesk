@@ -676,7 +676,10 @@ export class AppStore {
           if (this.#agentsRequested) void this.loadAgentPlans()
         }
         if (notification.method === 'session/removed') {
-          this.#dropRemoved(sessionKey(notification.params.runtime, notification.params.sessionId))
+          this.#dropRemoved(
+            sessionKey(notification.params.runtime, notification.params.sessionId),
+            notification.params.deleted,
+          )
         }
         if (notification.method === 'agent/changed') {
           /* A file under the roster moved, or this machine's seats did. Read
@@ -716,7 +719,10 @@ export class AppStore {
           }
         }
         if (notification.method === 'session/removed') {
-          this.#dropRemoved(sessionKey(notification.params.runtime, notification.params.sessionId))
+          this.#dropRemoved(
+            sessionKey(notification.params.runtime, notification.params.sessionId),
+            notification.params.deleted,
+          )
         }
         if (notification.method === 'usage/updated') {
           // One account at a time, so a slow source never holds up a fast one.
@@ -2827,10 +2833,12 @@ export class AppStore {
    * (`#deleting`). Nothing is asked of the host for it: the host has already
    * let it go.
    *
-   * A window that never held it is left exactly as it was — no new snapshot,
-   * so nothing on screen draws again for a conversation it never showed.
+   * Recoveries are pruned only when `session/removed` confirms deletion:
+   * pass-over can archive a conversation instead. A window that never held it
+   * is left exactly as it was — no new snapshot, so nothing on screen draws
+   * again for a conversation it never showed.
    */
-  #dropRemoved(key: SessionKey): void {
+  #dropRemoved(key: SessionKey, deleted: boolean): void {
     const { sessions, queues, tasks, history, approvals, recoverableDrafts } = this.#snapshot
     const shown = panes(this.#snapshot.layout.root).filter((pane) => sessionOf(pane) === key)
     const docked = mountedViewsIn(this.#snapshot.workbench).filter(
@@ -2839,7 +2847,7 @@ export class AppStore {
     const listed = history.some((entry) => sessionKey(entry.runtime, entry.id) === key)
     const waiting = approvals.some((entry) => entry.key === key)
     const held = sessions.has(key) || queues.has(key) || tasks.has(key) || listed || waiting ||
-      shown.length > 0 || docked.length > 0 || recoverableDrafts.has(key)
+      shown.length > 0 || docked.length > 0 || (deleted && recoverableDrafts.has(key))
     if (!held) return
     // Where it was on screen first, so the focus moves with the panes rather
     // than being left on a conversation nothing can open any more.
@@ -2856,7 +2864,7 @@ export class AppStore {
     nextSessions.delete(key)
     nextQueues.delete(key)
     nextTasks.delete(key)
-    nextRecoverableDrafts.delete(key)
+    if (deleted) nextRecoverableDrafts.delete(key)
     this.#patch({
       sessions: nextSessions,
       queues: nextQueues,
@@ -2865,7 +2873,7 @@ export class AppStore {
       history: listed ? history.filter((entry) => sessionKey(entry.runtime, entry.id) !== key) : history,
       approvals: waiting ? approvals.filter((entry) => entry.key !== key) : approvals,
     })
-    writeRecoverableDrafts(nextRecoverableDrafts)
+    if (deleted) writeRecoverableDrafts(nextRecoverableDrafts)
   }
 
   async renameSession(title: string, key = this.#snapshot.activeSessionKey): Promise<void> {
@@ -5696,7 +5704,7 @@ export class AppStore {
     if (!writeRecoverableDrafts(recoverableDrafts)) {
       const current = recoverableDrafts.get(key) ?? []
       recoverableDrafts.set(key, current.map((item) => item.id === id
-        ? { ...item, detail: `${item.detail} Kept until you close this window's view — it could not be saved for a reload.` }
+        ? { ...item, detail: `${item.detail} Not saved for a reload — it stays only while this window is open.` }
         : item))
     }
     this.#patch({ recoverableDrafts })
