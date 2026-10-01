@@ -34,6 +34,7 @@
 }
 
 .workspaceName {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -54,7 +55,6 @@
 
 .nav {
   flex: none;
-  container: sidebar-nav / inline-size;
 }
 
 .nav > * + * {
@@ -77,45 +77,9 @@
   min-width: 0;
 }
 
-.navLinks {
-  display: flex;
-  width: 100%;
-  justify-content: space-between;
-  gap: var(--hd-space-2);
-}
-
-.navLink {
-  flex: none;
-  justify-content: center;
-}
-
-.navLabel {
-  min-width: 0;
-  white-space: nowrap;
-}
-
-@container sidebar-nav (width < 14rem) {
-  .navLabel {
-    display: none;
-  }
-
-  .navLink {
-    flex: 1;
-    min-width: 0;
-  }
-}
-
 .newSession,
 .accountRow {
   width: 100%;
-}
-
-.navLink {
-  gap: var(--hd-space-0-5); /* desk: 8px → 2px, keep each compact icon and label together. */
-}
-
-.navCount {
-  margin-left: auto;
 }
 
 .navSecondary {
@@ -229,6 +193,11 @@
 .accountName,
 .youName {
   gap: var(--hd-space-1-5);
+}
+
+.accountName {
+  flex: 1;
+  min-width: 0;
 }
 
 .youText {

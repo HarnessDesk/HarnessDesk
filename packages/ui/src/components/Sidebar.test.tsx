@@ -49,7 +49,7 @@ const readyHealth: RuntimeHealth = {
   state: 'ready',
 }
 
-const mount = (overrides: Partial<AppSnapshot> = {}) => {
+const mount = (overrides: Partial<AppSnapshot> = {}, activeDestination: 'agents' | 'dashboard' | 'plugins' | null = null) => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -90,6 +90,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
           onBrowseFolders={() => {}}
           onSignIn={() => {}}
           onSearch={() => {}}
+          activeDestination={activeDestination}
         />
       </StoreProvider>,
     )
@@ -168,33 +169,47 @@ it('keeps the workbench-owned header, one content scroller, and footer as plain 
 })
 
 /**
- * The plain path's one new row (the owner's rule, 2026-09-18): always there,
- * reading nothing of its own — it counts whatever roster another surface has
- * already asked for, and wears the Dashboard badge's own warn tone rather
- * than a rule drawn just for this row.
+ * Main's three full navigation rows: counts follow each destination and labels
+ * remain present at the minimum sidebar width.
  */
-describe('compact sidebar destinations', () => {
-  it('renders three named navigation buttons without roster or plugin counts', () => {
+describe('sidebar destinations', () => {
+  it('renders three separate, labelled design-system rows with main counts at 200px', () => {
+    container.style.width = '200px'
     mount({
       agents: [{ id: 'a', origin: 'builtin', path: '/a/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'a', name: 'A', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], prefer: [], brief: '' } }],
-      plugins: [{ id: 'one' }, { id: 'two' }],
+      plugins: [
+        { instanceId: 'one', identity: { id: 'one', name: 'One', source: { kind: 'builtin' } } },
+        { instanceId: 'two', identity: { id: 'two', name: 'Two', source: { kind: 'builtin' } } },
+      ],
+      usage: [{ runtime: CLAUDE, account: null, plan: null, lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 90, windowMinutes: 10080, resetsAt: null }], credits: null, spend: null, reached: null, source: { kind: 'runtime', label: 'API' }, fetchedAt: 1, staleAfterMs: 1, error: null }],
     } as unknown as Partial<AppSnapshot>)
     const group = container.querySelector('[aria-label="Main sections"]')!
-    expect([...group.querySelectorAll<HTMLButtonElement>('button')].map((one) => one.getAttribute('aria-label'))).toEqual(['Agents', 'Dashboard', 'Plugins'])
-    expect([...group.querySelectorAll('button')].map((one) => one.textContent?.trim())).toEqual(['Agents', 'Dashboard', 'Plugins'])
-    expect(group.querySelector('[class*="navCount"]')).toBeNull()
+    const rows = [...group.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')]
+    expect(rows).toHaveLength(3)
+    expect(rows.map((one) => one.getAttribute('aria-label'))).toEqual(['Agents', 'Dashboard', 'Plugins'])
+    expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-label-content"]')?.textContent)).toEqual(['Agents', 'Dashboard', 'Plugins'])
+    expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-icon"]'))).toHaveLength(3)
+    expect(rows.map((one) => one.parentElement?.querySelector('[data-slot="sidebar-menu-badge"]')?.textContent?.trim())).toEqual(['1', '1', '2'])
+  })
+
+  it('fills the active row when its destination window is open', () => {
+    mount({}, 'plugins')
+    const plugins = container.querySelector<HTMLButtonElement>('button[aria-label="Plugins"]')!
+    expect(plugins.dataset.active).toBe('true')
+    expect(plugins.getAttribute('aria-current')).toBe('page')
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="Agents"]')?.dataset.active).toBeUndefined()
   })
 
   it('shows a Dashboard badge only when an agent needs attention', () => {
     mount()
     const dashboard = container.querySelector<HTMLButtonElement>('button[aria-label="Dashboard"]')!
-    expect(dashboard.querySelector('[class*="navCount"]')).toBeNull()
+    expect(dashboard.parentElement?.querySelector('[data-slot="sidebar-menu-badge"]')).toBeNull()
 
     mount({
       usage: [{ runtime: CLAUDE, account: null, plan: null, lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 90, windowMinutes: 10080, resetsAt: null }], credits: null, spend: null, reached: null, source: { kind: 'runtime', label: 'API' }, fetchedAt: 1, staleAfterMs: 1, error: null }],
     } as unknown as Partial<AppSnapshot>)
     const needsAttention = container.querySelector<HTMLButtonElement>('button[aria-label="Dashboard"]')!
-    expect(needsAttention.querySelector('[class*="navCount"]')?.textContent).toBe('1')
+    expect(needsAttention.parentElement?.querySelector('[data-slot="sidebar-menu-badge"]')?.textContent?.trim()).toBe('1')
   })
 
   it('keeps everything-search and list-filter names distinct and calls the group Projects', () => {

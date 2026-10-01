@@ -213,10 +213,19 @@ const SidebarBoard = () => (
           <SidebarMenuAction aria-label="More ways to start" title="More ways to start"><CaretIcon size={14} /></SidebarMenuAction>
           </SidebarMenuItem>
         </SidebarMenu>
-        <SidebarMenu horizontal>
-          <SidebarMenuItem className="flex-1 list-none"><Button variant="ghost" size="sidebar-nav" aria-label="Agents" title="Agents" className="min-w-0 flex-1 justify-center"><BriefIcon size={14} /><Text role="navigation" className={styles.sidebarTopLabel}>Agents</Text></Button></SidebarMenuItem>
-          <SidebarMenuItem className="flex-1 list-none"><Button variant="ghost" size="sidebar-nav" aria-label="Dashboard" title="Dashboard" className="min-w-0 flex-1 justify-center"><UsageIcon size={14} /><Text role="navigation" className={styles.sidebarTopLabel}>Dashboard</Text><Text role="meta">2</Text></Button></SidebarMenuItem>
-          <SidebarMenuItem className="flex-1 list-none"><Button variant="ghost" size="sidebar-nav" aria-label="Plugins" title="Plugins" className="min-w-0 flex-1 justify-center"><PluginIcon size={14} /><Text role="navigation" className={styles.sidebarTopLabel}>Plugins</Text></Button></SidebarMenuItem>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton size="sm" icon={<BriefIcon size={16} />} label="Agents" />
+            <SidebarMenuBadge><Text role="meta" numeric>3</Text></SidebarMenuBadge>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton size="sm" icon={<UsageIcon size={16} />} label="Dashboard" />
+            <SidebarMenuBadge><Text role="meta" numeric>2</Text></SidebarMenuBadge>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton size="sm" icon={<PluginIcon size={16} />} label="Plugins" />
+            <SidebarMenuBadge><Text role="meta" numeric>12</Text></SidebarMenuBadge>
+          </SidebarMenuItem>
         </SidebarMenu>
       </div>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-(--hd-space-0) overflow-x-hidden overflow-y-auto">

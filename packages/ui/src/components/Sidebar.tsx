@@ -41,6 +41,8 @@ import {
 } from '../design'
 import { accountKey, accountName, accountIdentity, agentKey, tintOf, type AccountPrefs } from '../lib/accounts'
 import { folderName } from '../lib/projects'
+import { anyBroken, inForce } from '../lib/agents'
+import { livePlugins } from '../lib/plugins'
 import { brandOf } from '../lib/identity'
 import { profileName } from '../lib/profile'
 import { READINESS_LABEL, readinessOf, type Readiness } from '../lib/readiness'
@@ -74,6 +76,7 @@ export const Sidebar = ({
   onBrowseFolders,
   onSignIn,
   onSearch,
+  activeDestination = null,
 }: {
   onOpenSettings: (section?: Section) => void
   onOpenPlugins: () => void
@@ -85,6 +88,7 @@ export const Sidebar = ({
   /** Opens the sign-in screen, on one runtime when the caller knows which. */
   onSignIn: (runtime?: RuntimeId) => void
   onSearch: () => void
+  activeDestination?: 'agents' | 'dashboard' | 'plugins' | null
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -122,8 +126,13 @@ export const Sidebar = ({
   const runtime = useRuntime()
   const health = useRuntimeHealth()
   const ready = health?.state === 'ready' || health?.state === 'idle'
+  // These counts match the destinations' own definitions on their windows.
   // Not `plugins.length`: an installed copy a built-in has taken over is off,
   // and counting it here made the sidebar promise one more than the page lists.
+  const agentsRoster = snapshot.agents ?? []
+  const agentsCount = inForce(agentsRoster).length
+  const agentsBroken = anyBroken(agentsRoster)
+  const pluginCount = livePlugins(snapshot.plugins).length
   return (
     <div className={styles.sidebar}>
       <div className={styles.header} data-region="sidebar-header">
@@ -131,7 +140,6 @@ export const Sidebar = ({
         <Bar inset="ink">
           <Text role="subject" className={styles.brandMark} aria-hidden><HarnessMark size={14} /></Text>
           <Text role="prose" truncate className={styles.workspaceName} title={snapshot.workspace?.path ?? undefined}>HarnessDesk</Text>
-          <span style={{ flex: 1 }} />
           <Button
             variant="ghost" size="icon-sm" className={`${styles.iconButton} hd-no-drag`}
             onClick={onSearch} title="Search everything (⌘K)" aria-label="Search everything (⌘K)"
@@ -150,22 +158,33 @@ export const Sidebar = ({
             </Button>
             <WorktreeMenu onChoose={(kind) => setStarting(kind)} />
           </div>
-          <SidebarMenu horizontal className={styles.navLinks} role="group" aria-label="Main sections">
-            <SidebarMenuItem className="flex-1 list-none">
-            <Button variant="ghost" size="sidebar-nav" className={`${styles.navLink} min-w-0 flex-1`} onClick={onOpenAgents} aria-label="Agents" title="Agents">
-              <BriefIcon size={14} /><Text role="navigation" className={styles.navLabel}>Agents</Text>
-            </Button>
+          <SidebarMenu role="group" aria-label="Main sections">
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                icon={<BriefIcon size={14} />} label="Agents" aria-label="Agents" title="Agents"
+                trailingOverlay={agentsCount > 0} labelTrailingContent={agentsCount > 0}
+                isActive={activeDestination === 'agents'} aria-current={activeDestination === 'agents' ? 'page' : undefined}
+                onClick={onOpenAgents}
+              />
+              {agentsCount > 0 && <SidebarMenuBadge title={`${agentsCount} Agents${agentsBroken ? ', some unavailable' : ''}`}><Text role="meta" numeric tone={agentsBroken ? 'warning' : undefined}>{agentsCount}</Text></SidebarMenuBadge>}
             </SidebarMenuItem>
-            <SidebarMenuItem className="flex-1 list-none">
-            <Button variant="ghost" size="sidebar-nav" className={`${styles.navLink} min-w-0 flex-1`} onClick={() => onOpenUsage()} aria-label="Dashboard" title="Dashboard">
-              <UsageIcon size={14} /><Text role="navigation" className={styles.navLabel}>Dashboard</Text>
-              {lowAgents > 0 && <Text role="meta" numeric className={styles.navCount}>{lowAgents}</Text>}
-            </Button>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                icon={<UsageIcon size={14} />} label="Dashboard" aria-label="Dashboard" title="Dashboard"
+                trailingOverlay={lowAgents > 0} labelTrailingContent={lowAgents > 0}
+                isActive={activeDestination === 'dashboard'} aria-current={activeDestination === 'dashboard' ? 'page' : undefined}
+                onClick={() => onOpenUsage()}
+              />
+              {lowAgents > 0 && <SidebarMenuBadge title={`${lowAgents} Agents need attention`}><Text role="meta" numeric>{lowAgents}</Text></SidebarMenuBadge>}
             </SidebarMenuItem>
-            <SidebarMenuItem className="flex-1 list-none">
-            <Button variant="ghost" size="sidebar-nav" className={`${styles.navLink} min-w-0 flex-1`} onClick={onOpenPlugins} aria-label="Plugins" title="Plugins">
-              <PluginIcon size={14} /><Text role="navigation" className={styles.navLabel}>Plugins</Text>
-            </Button>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                icon={<PluginIcon size={14} />} label="Plugins" aria-label="Plugins" title="Plugins"
+                trailingOverlay={pluginCount > 0} labelTrailingContent={pluginCount > 0}
+                isActive={activeDestination === 'plugins'} aria-current={activeDestination === 'plugins' ? 'page' : undefined}
+                onClick={onOpenPlugins}
+              />
+              {pluginCount > 0 && <SidebarMenuBadge title={`${pluginCount} Plugins`}><Text role="meta" numeric>{pluginCount}</Text></SidebarMenuBadge>}
             </SidebarMenuItem>
           </SidebarMenu>
         </RailSection>

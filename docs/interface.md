@@ -186,7 +186,7 @@ so the composer, a filter box and an empty desk all still navigate.
 ## The sidebar
 
 The sidebar column has three parts: a **header** with the title bar, brand and
-everything-search, then New session and a compact navigation row; one scrolling
+everything-search, then New session and three navigation rows; one scrolling
 **content** area for the list controls and conversations; and a **footer** for
 docked panels, notices and the seat.
 
@@ -198,11 +198,13 @@ until its first message. Goal, Flow and Team reuse their existing chooser and
 start screens. The plain path stays plain until somebody chooses another way
 to work.
 
-**Agents**, **Dashboard** and **Plugins** share one compact row under New
-session. At the narrow sidebar width their labels give way to icons, with the
-name retained for assistive technology and on hover. The Dashboard shows an
-attention count only while an agent needs attention; the other destinations
-carry no counts.
+**Agents**, **Dashboard** and **Plugins** each have a full row under New
+session: the same icon, label and trailing badge grammar as the conversation
+list. Their labels truncate with the rest of the row when space is short; they
+remain visible at the sidebar's 200px minimum. Agents shows its in-force count
+when the roster has been read, Plugins shows the live plugin count, and
+Dashboard shows an attention count only while an agent needs attention. A row
+fills when its destination window is open.
 
 The magnifier beside the brand says **Search everything (⌘K)** and opens the
 search palette across sessions, files, agents and commands. The funnel beside
@@ -246,8 +248,11 @@ folder belongs to, until the agent's history catches up. The active row is
 scrolled into view when it changes: a list long enough to hold a month of
 rooms kept it thousands of pixels below the fold.
 
-The **Projects** row also carries the display controls (density, agent filter,
-collapse or expand all projects, sort) and the folder browse button. The funnel
+The **Projects** row also carries display controls: **Sort projects** opens
+Recency and Name, **Density** opens Comfortable and Compact, and **Show agents**
+opens All agents and one row per agent. Collapse all and Expand all follow after
+a separator, with the unavailable action's reason on its title. The folder
+browse button stays beside them. The funnel
 is the row's own field — one click opens it to full width and the label steps
 aside, because a 200px sidebar has room for the word or for a field you can
 read what you typed in, not both. It stays open while it holds a query even
@@ -255,6 +260,13 @@ unfocused; Escape clears it back to the icon. The row and list scroll together,
 while the header actions remain reachable. The display-controls button wears a
 dot when a filter is hiding rows, because a filtered list must never read as
 missing data.
+
+Project actions are grouped as starts, folder tools, arrangement and project
+removal. Pin or Unpin sits beside a **Move** flyout for Move up, Move down or
+Back to automatic order. Copy path shows a home-shortened path and copies the
+absolute path. Conversation actions are Rename and Pin, then Open on the right,
+Branch from here and Copy, then Archive and Delete; Delete keeps its refusal
+reason on the disabled row.
 
 **The footer holds the docks, notices and seat: you, and the agent you will pick up next.** The seat row
 is your identity — your profile's face and name, which are the house mark and
