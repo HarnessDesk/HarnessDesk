@@ -80,6 +80,7 @@ const LayoutSwitchCase = () => {
 
 const ExtensionWidthCase = () => (
   <section data-extension-width-case className="grid w-(--hd-composer-slots-preview-narrow) max-w-full gap-1">
+    <h3 className="text-sm font-medium">Extension — empty and populated</h3>
     <SlotToolbar shape={0} live={false} />
     <SlotToolbar shape={0} live={false} extensionAction />
   </section>
@@ -93,7 +94,8 @@ const ComposerWidthExtensionCase = () => (
 
 const EmptyMoreCase = () => (
   <section data-empty-more-case className="grid w-(--hd-composer-slots-preview-narrow) max-w-full gap-1">
-    <span className="text-xs text-(--hd-muted-foreground)">More — no options</span>
+    <h3 className="text-sm font-medium">Empty slots</h3>
+    <span className="text-xs text-(--hd-muted-foreground)">More — no options · Extension — no actions · Context — No usage yet</span>
     <SlotToolbar shape={4} live={false} />
   </section>
 )
