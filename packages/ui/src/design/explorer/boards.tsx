@@ -14,7 +14,7 @@ import { PublicationCard } from '../../components/Publication'
 import { QuestionWaitSection } from '../../components/SettingsQuestionWait'
 import { Mount } from '../../preview/harness'
 import { StoreProvider } from '../../state/context'
-import { emptySnapshot, type AppStore } from '../../state/store'
+import { emptySnapshot, type AppSnapshot, type AppStore } from '../../state/store'
 import {
   AccountMark,
   ComposerNotice,
@@ -1016,46 +1016,71 @@ const QUEUE_BOARD_QUEUE: SessionQueue = {
     { id: 'queue-board-3', state: 'queued', queuedAt: 2, input: [{ type: 'text', text: 'Open a pull request' }] },
   ],
 } as unknown as SessionQueue
-let queueBoardSnapshot = {
-  ...emptySnapshot(),
-  activeSessionKey: QUEUE_BOARD_KEY,
-  queues: new Map([[QUEUE_BOARD_KEY, QUEUE_BOARD_QUEUE]]),
+type QueueBoardStore = Pick<AppStore,
+  'subscribe' | 'getSnapshot' | 'moveQueued' | 'updateQueued' | 'unqueue' | 'clearQueue' |
+  'flushQueue' | 'addRecoverableDraft'
+>
+
+/** An isolated MessageQueue store for one explorer board mount. */
+export const createQueueBoardStore = (): QueueBoardStore => {
+  let snapshot: AppSnapshot = {
+    ...emptySnapshot(),
+    activeSessionKey: QUEUE_BOARD_KEY,
+    queues: new Map([[QUEUE_BOARD_KEY, QUEUE_BOARD_QUEUE]]),
+  }
+  const listeners = new Set<() => void>()
+  const publish = (queue: SessionQueue) => {
+    snapshot = { ...snapshot, queues: new Map([[QUEUE_BOARD_KEY, queue]]) }
+    listeners.forEach((listener) => listener())
+  }
+  const matchingQueue = (key?: typeof QUEUE_BOARD_KEY | null) => key === QUEUE_BOARD_KEY
+    ? snapshot.queues.get(QUEUE_BOARD_KEY)
+    : undefined
+
+  return {
+    subscribe: (listener) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    getSnapshot: () => snapshot,
+    moveQueued: async (id, to, key) => {
+      const queue = matchingQueue(key)
+      if (!queue) return
+      const from = queue.messages.findIndex((message) => message.id === id)
+      if (from < 0 || to < 0 || to >= queue.messages.length || from === to) return
+      const messages = [...queue.messages]
+      const [message] = messages.splice(from, 1)
+      if (!message) return
+      messages.splice(to, 0, message)
+      publish({ ...queue, messages })
+    },
+    updateQueued: async (id, input, key) => {
+      const queue = matchingQueue(key)
+      if (!queue) return
+      const index = queue.messages.findIndex((message) => message.id === id)
+      if (index < 0) return
+      const messages = [...queue.messages]
+      messages[index] = { ...messages[index]!, input }
+      publish({ ...queue, messages })
+    },
+    unqueue: async (id, key) => {
+      const queue = matchingQueue(key)
+      if (!queue) return
+      const messages = queue.messages.filter((message) => message.id !== id)
+      if (messages.length === queue.messages.length) return
+      publish({ ...queue, messages })
+    },
+    clearQueue: async (key) => {
+      const queue = matchingQueue(key)
+      if (!queue || queue.messages.length === 0) return
+      publish({ ...queue, messages: [] })
+    },
+    // These actions have no catalogue-side effect; the real app records the
+    // recovery draft and asks the host to flush the queue.
+    flushQueue: async () => {},
+    addRecoverableDraft: () => {},
+  }
 }
-const queueBoardListeners = new Set<() => void>()
-const queueBoardStore = {
-  subscribe: (listener: () => void) => {
-    queueBoardListeners.add(listener)
-    return () => queueBoardListeners.delete(listener)
-  },
-  getSnapshot: () => queueBoardSnapshot,
-  moveQueued: async (id: string, to: number, key?: string) => {
-    if (!key || key !== QUEUE_BOARD_KEY) return
-    const queue = queueBoardSnapshot.queues.get(QUEUE_BOARD_KEY)
-    if (!queue) return
-    const from = queue.messages.findIndex((message) => message.id === id)
-    if (from < 0 || to < 0 || to >= queue.messages.length || from === to) return
-    const messages = [...queue.messages]
-    const [message] = messages.splice(from, 1)
-    if (!message) return
-    messages.splice(to, 0, message)
-    queueBoardSnapshot = {
-      ...queueBoardSnapshot,
-      queues: new Map([[QUEUE_BOARD_KEY, { ...queue, messages }]]),
-    }
-    queueBoardListeners.forEach((listener) => listener())
-  },
-  updateQueued: async (id: string, input: SessionQueue['messages'][number]['input'], key?: string) => {
-    if (!key || key !== QUEUE_BOARD_KEY) return
-    const queue = queueBoardSnapshot.queues.get(QUEUE_BOARD_KEY)
-    if (!queue) return
-    const messages = queue.messages.map((message) => message.id === id ? { ...message, input } : message)
-    queueBoardSnapshot = {
-      ...queueBoardSnapshot,
-      queues: new Map([[QUEUE_BOARD_KEY, { ...queue, messages }]]),
-    }
-    queueBoardListeners.forEach((listener) => listener())
-  },
-} as unknown as AppStore
 
 const QUEUE_RECOVERY_NOTICES = [
   {
@@ -1087,13 +1112,22 @@ const QUEUE_RECOVERY_NOTICES = [
   },
 ]
 
+const QueueBoardQueue = () => {
+  const [queueBoardStore] = useState(createQueueBoardStore)
+  // Mount currently accepts AppStore rather than the exact store surface
+  // consumed by MessageQueue; the stub itself stays typed to that surface.
+  return (
+    <Mount with={queueBoardStore as AppStore}><MessageQueue /></Mount>
+  )
+}
+
 const QueueBoard = () => (
   <>
     <Specimen caption="The shipped queue, its row editor, and recovery notices">
     <div className={styles.stack}>
       <Case label="inline edit · select Edit to open; clear text to disable Save: Remove this message instead of saving it empty">
         <div className="w-full" data-catalog-case="sortable-list">
-          <Mount with={queueBoardStore}><MessageQueue /></Mount>
+          <QueueBoardQueue />
         </div>
       </Case>
       <Case label="recovery · restore a message or edit">

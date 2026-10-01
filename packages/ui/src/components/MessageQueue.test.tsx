@@ -2,8 +2,9 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { sessionKey, wrapContext, type Session, type SessionQueue } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey, wrapContext, type Session, type SessionQueue } from '@harnessdesk/protocol'
 
+import { createQueueBoardStore } from '../design/explorer/boards'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { MessageQueue } from './MessageQueue'
@@ -595,5 +596,48 @@ describe('dragging a queued message', () => {
       rows()[2]?.dispatchEvent(dragEvent('drop', data))
     })
     expect(calls.moveQueued).toHaveBeenCalledWith('q0', 2, KEY)
+  })
+
+  it('backs the explorer queue with an isolated, complete local store', async () => {
+    const boardKey = sessionKey(runtimeId('codex'), sessionId('catalogue-queue'))
+    const store = createQueueBoardStore()
+    const listener = vi.fn()
+    store.subscribe(listener)
+
+    expect(store.getSnapshot().queues.get(boardKey)?.messages.map(({ id }) => id)).toEqual([
+      'queue-board-1', 'queue-board-2', 'queue-board-3',
+    ])
+    await store.moveQueued('queue-board-3', 0, boardKey)
+    await store.updateQueued('queue-board-1', [{ type: 'text', text: 'Edited message' }], boardKey)
+    expect(store.getSnapshot().queues.get(boardKey)?.messages.map(({ id }) => id)).toEqual([
+      'queue-board-3', 'queue-board-1', 'queue-board-2',
+    ])
+    expect(store.getSnapshot().queues.get(boardKey)?.messages[1]?.input).toEqual([
+      { type: 'text', text: 'Edited message' },
+    ])
+    await store.unqueue('queue-board-1', boardKey)
+    expect(store.getSnapshot().queues.get(boardKey)?.messages.map(({ id }) => id)).toEqual([
+      'queue-board-3', 'queue-board-2',
+    ])
+    await store.clearQueue(boardKey)
+    expect(store.getSnapshot().queues.get(boardKey)?.messages).toEqual([])
+    expect(listener).toHaveBeenCalledTimes(4)
+
+    const untouched = createQueueBoardStore()
+    const untouchedSnapshot = untouched.getSnapshot()
+    const untouchedListener = vi.fn()
+    untouched.subscribe(untouchedListener)
+    await untouched.updateQueued('missing', [{ type: 'text', text: 'ignored' }], boardKey)
+    await untouched.unqueue('missing', boardKey)
+    await untouched.moveQueued('missing', 0, boardKey)
+    await untouched.moveQueued('queue-board-1', 3, boardKey)
+    await untouched.updateQueued('queue-board-1', [], sessionKey(runtimeId('codex'), sessionId('other')))
+    expect(untouched.getSnapshot()).toBe(untouchedSnapshot)
+    expect(untouchedListener).not.toHaveBeenCalled()
+
+    const remounted = createQueueBoardStore()
+    expect(remounted.getSnapshot().queues.get(boardKey)?.messages.map(({ id }) => id)).toEqual([
+      'queue-board-1', 'queue-board-2', 'queue-board-3',
+    ])
   })
 })
