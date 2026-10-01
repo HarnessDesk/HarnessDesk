@@ -18,18 +18,22 @@ for (const scheme of ['light', 'dark'] as const) {
 
     const strips: number[] = []
     for (const height of [201, 263, 300]) {
+      const before = await terminal.evaluate((xterm) => xterm.querySelector('.xterm-scrollable-element')!.getBoundingClientRect().height)
       // The pane's own host decides the height xterm fits itself into.
       await terminal.evaluate((xterm, px) => {
         const host = xterm.parentElement!
         host.style.flex = 'none'
         host.style.height = `${px}px`
       }, height)
-      // Wait for xterm's own refit: its rows fit inside the new height, with less than a row left over.
-      await expect.poll(() => terminal.evaluate((xterm) => {
+      // Wait for xterm's own refit: its rows have moved off the last height, fit inside the new one, and leave less
+      // than one row over. Each step changes the height by more than a row, so stale geometry cannot pass.
+      await expect.poll(() => terminal.evaluate((xterm, previous) => {
         const rows = xterm.querySelector('.xterm-scrollable-element')!.getBoundingClientRect()
+        const count = xterm.querySelectorAll('.xterm-rows > div').length
+        const row = count > 0 ? rows.height / count : Infinity
         const box = xterm.getBoundingClientRect()
-        return rows.height <= box.height && box.height - rows.height < 40
-      })).toBe(true)
+        return rows.height !== previous && rows.height <= box.height && box.height - rows.height < row
+      }, before)).toBe(true)
       const found = await terminal.evaluate((xterm) => {
         const themed = xterm.querySelector('.xterm-scrollable-element')!
         const expected = getComputedStyle(themed).backgroundColor
