@@ -1093,6 +1093,14 @@ const catalogueTurnFilesStore = {
   setDetailsTab: () => {},
   openFile: () => {},
 } as unknown as AppStore
+const catalogueRefusedTurnFilesStore = {
+  ...catalogueTurnFilesStore,
+  revertTurn: async () => ({ done: false, unrecoverable: true, partial: false }),
+} as unknown as AppStore
+const cataloguePartialTurnFilesStore = {
+  ...catalogueTurnFilesStore,
+  revertTurn: async () => ({ done: false, unrecoverable: false, partial: true }),
+} as unknown as AppStore
 const CATALOGUE_TURN: Turn = { id: turnId('catalogue-turn'), items: [], status: 'completed', diff: null }
 const CATALOGUE_TURN_ONE: readonly FileChange[] = [
   { path: '/workspace/src/checkout.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-old\n+new\n' },
@@ -1107,6 +1115,14 @@ const CatalogueRevertedTurnFiles = () => {
   useEffect(() => {
     // This board's host stub resolves Undo successfully to show the real
     // component's protected Redo state, without contacting a host service.
+    host.current?.querySelector<HTMLButtonElement>('button[title^="Put these files back"]')?.click()
+  }, [])
+  return <div ref={host}><TurnFiles turn={CATALOGUE_TURN} changes={CATALOGUE_TURN_SEVERAL} root="/workspace" /></div>
+}
+const CatalogueUndoTurnFiles = () => {
+  const host = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    // Resolve the real card's Undo action through the staged store answer.
     host.current?.querySelector<HTMLButtonElement>('button[title^="Put these files back"]')?.click()
   }, [])
   return <div ref={host}><TurnFiles turn={CATALOGUE_TURN} changes={CATALOGUE_TURN_SEVERAL} root="/workspace" /></div>
@@ -1335,6 +1351,16 @@ const CodeBoard = () => (
     <Case label="put back: Close greyed until Redo or keep">
       <StoreProvider store={catalogueTurnFilesStore}>
         <CatalogueRevertedTurnFiles />
+      </StoreProvider>
+    </Case>
+    <Case label="Undo refused: the unrecoverable file is named and the rest can be put back">
+      <StoreProvider store={catalogueRefusedTurnFilesStore}>
+        <CatalogueUndoTurnFiles />
+      </StoreProvider>
+    </Case>
+    <Case label="partial Undo: Close stays greyed until the half changed turn is resolved">
+      <StoreProvider store={cataloguePartialTurnFilesStore}>
+        <CatalogueUndoTurnFiles />
       </StoreProvider>
     </Case>
     <Case label="a runtime's own command record, unwrapped as the command plate">

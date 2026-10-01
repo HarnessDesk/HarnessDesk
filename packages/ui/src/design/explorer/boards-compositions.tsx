@@ -226,8 +226,8 @@ import { PlanCard } from '../patterns/PlanCard'
  */
 
 /** A labelled cell in a state matrix, drawn the way the primitive boards draw one. */
-const Case = ({ label, children }: { label: string; children: React.ReactNode }) => (
-  <div className={styles.case}>
+const Case = ({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) => (
+  <div className={className ? `${styles.case} ${className}` : styles.case}>
     <div className={styles.caseLabel}>{label}</div>
     <div className={styles.caseBody}>{children}</div>
   </div>
@@ -933,7 +933,14 @@ const SideBySideBoard = () => {
         memberOf={memberOf}
         entryOf={(key) => {
           const index = SIDE_BY_SIDE_KEYS.indexOf(key)
-          return index < 0 ? null : { tint: index % 2 === 0 ? 'blue' : 'violet', busy: false }
+          if (index < 0) return null
+          return {
+            tint: index % 2 === 0 ? 'blue' : 'violet',
+            ...(index === 0 ? { busy: true, ceiling: { ceiling: { level: 'edit' as const, hold: 'held' as const }, note: null } } : {}),
+            ...(index === 1 ? { waitingForYou: true } : {}),
+            ...(index === 2 ? { ended: 'done' as const } : {}),
+            ...(index === 3 ? { ended: 'stopped' as const } : {}),
+          }
         }}
         onOpenMember={() => {}}
         conversationProps={{ onChooseProject: () => {}, onSignIn: () => {}, onOpenUsage: () => {}, onOpenRuntimes: () => {} }}
@@ -943,8 +950,36 @@ const SideBySideBoard = () => {
   return (
     <StoreProvider store={store}>
       <div className={styles.matrix}>
-        <Case label="room — Side by side · two members">{grid(two, setTwo, 'catalog-side-by-side-two')}</Case>
-        <Case label="room — Side by side · four members">{grid(four, setFour, 'catalog-side-by-side-four')}</Case>
+        <Case label="room rail — Side by side · disabled with its reason">
+          <div className="w-full max-w-80">
+            <ListRows>
+              <ListRow
+                as="button"
+                size="sm"
+                nav
+                aria-disabled="true"
+                data-refused
+                title="Side by side"
+                subtitle="Watch a member to put it here"
+                lead={<IconTile size="sm" tint="violet"><AgentIcon /></IconTile>}
+              />
+            </ListRows>
+          </div>
+        </Case>
+        <Case className="col-span-full" label="room — Side by side · two members, grid without a composer">{grid(two, setTwo, 'catalog-side-by-side-two')}</Case>
+        <Case className="col-span-full" label="room — Side by side · four members, tile states and ceiling">{grid(four, setFour, 'catalog-side-by-side-four')}</Case>
+        <Case label="room — Side by side · narrow tabs with a waiting mark">
+          <div className="w-80 max-w-full">
+            <Tabs value={SIDE_BY_SIDE_KEYS[1]}>
+              <TabsList aria-label="Side by side tiles">
+                <TabsTrigger value={SIDE_BY_SIDE_KEYS[0]!}>Alpha</TabsTrigger>
+                <TabsTrigger value={SIDE_BY_SIDE_KEYS[1]!}>Beta <Dot tone="warning" aria-label="waiting for you" /></TabsTrigger>
+                <TabsTrigger value={SIDE_BY_SIDE_KEYS[2]!}>Gamma</TabsTrigger>
+                <TabsTrigger value={SIDE_BY_SIDE_KEYS[3]!}>Delta</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+        </Case>
       </div>
       <Rule>A room keeps the members you chose as tiles. Width changes the arrangement; focus stays visible in the tile header.</Rule>
     </StoreProvider>

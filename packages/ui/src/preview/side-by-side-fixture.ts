@@ -42,6 +42,10 @@ export const sideBySideStore = (): AppStore => {
     sessions.set(key, {
       ...prior,
       title: `${member.nickname} conversation`,
+      // Keep the catalogue's tile states about side by side itself. The
+      // shared base fixture carries an unrelated active-goal bar, whose
+      // dismiss action belongs to a separate preview story.
+      goal: null,
       settings: {
         ...prior.settings,
         cwd: prior.cwd,
