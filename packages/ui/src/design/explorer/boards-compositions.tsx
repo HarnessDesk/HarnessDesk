@@ -924,9 +924,9 @@ const SideBySideBoard = () => {
   const [two, setTwo] = useState(() => sideBySideState(2))
   const [four, setFour] = useState(() => sideBySideState(4))
   const [narrow, setNarrow] = useState(() => sideBySideState(4))
-  const plainStore = useMemo(() => sideBySideStore(), [])
-  const waitingStore = useMemo(() => sideBySideStore({ waiting: true }), [])
-  const statesStore = useMemo(() => sideBySideStore({ working: true, stopped: true, ready: true }), [])
+  const plainStore = useMemo(() => sideBySideStore({ noGoal: true }), [])
+  const waitingStore = useMemo(() => sideBySideStore({ noGoal: true, waiting: true }), [])
+  const statesStore = useMemo(() => sideBySideStore({ noGoal: true, working: true, stopped: true, ready: true }), [])
   const memberOf = (key: (typeof SIDE_BY_SIDE_KEYS)[number]) => {
     const member = SIDE_BY_SIDE_MEMBERS[SIDE_BY_SIDE_KEYS.indexOf(key)]
     return member ? { nickname: member.nickname, agent: member.agent, model: member.model } : undefined

@@ -26,6 +26,8 @@ type SideBySideFixtureOptions = {
   readonly stopped?: boolean
   /** Leave Delta without a prior turn, so its tile has no outcome badge. */
   readonly ready?: boolean
+  /** Drop the base fixture's active-goal bar, which belongs to a separate preview story, so a catalogue case shows only side by side's own states. */
+  readonly noGoal?: boolean
 }
 
 const exchange = (key: string, index: number, options: SideBySideFixtureOptions): Session['turns'] =>
@@ -59,10 +61,7 @@ export const sideBySideStore = (options: SideBySideFixtureOptions = {}): AppStor
     sessions.set(key, {
       ...prior,
       title: `${member.nickname} conversation`,
-      // Keep the catalogue's tile states about side by side itself. The
-      // shared base fixture carries an unrelated active-goal bar, whose
-      // dismiss action belongs to a separate preview story.
-      goal: null,
+      ...(options.noGoal ? { goal: null } : {}),
       settings: {
         ...prior.settings,
         cwd: prior.cwd,
