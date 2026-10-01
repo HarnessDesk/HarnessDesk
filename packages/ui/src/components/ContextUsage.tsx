@@ -12,6 +12,7 @@ import {
 } from '../lib/context-usage'
 import { describeLimits, formatReset } from '../lib/limits'
 import { useActiveSession, useRuntime, useSnapshot } from '../state/context'
+import { ComposerTrack } from './ComposerControls'
 import styles from './ContextUsage.module.css'
 import {
   KeyValue,
@@ -55,105 +56,127 @@ export const ContextUsage = () => {
   const metered = runtime.capabilities.metered && runtime.id === snapshot.activeRuntime
   const limits = metered ? describeLimits(snapshot.limits) : null
 
-  if (!view) return null
+  if (!view) {
+    return (
+      <ComposerTrack name="context">
+        <Popover
+          fullWidth
+          title="No usage yet"
+          drop="up"
+          align="right"
+          label={<Ring fill={null} size={16} label="No usage yet" />}
+        >
+          {(close) => <Menu close={close}><MenuNote>No usage yet</MenuNote></Menu>}
+        </Popover>
+      </ComposerTrack>
+    )
+  }
   const { fill, last, total, cost, delegated, composition } = view
 
   return (
-    <Popover title={view.title} drop="up" align="right" label={<Ring fill={fill} size={16} label={view.title} />}>
-      {(close) => (
-        <Menu close={close}>
-          <div className={styles.panel}>
-            <ListRow
-              size="sm"
-              lead={<Ring fill={fill} size={28} />}
-              title={
-                <Text role="subject" tone={toneOf(fill?.tone)} numeric>
-                  {fill ? `${fill.percent}% full` : 'Context window unknown'}
-                </Text>
-              }
-              // Without a window the line is a sentence, and an earned
-              // sentence wraps whole rather than ending in an ellipsis.
-              wrapSubtitle={!fill}
-              subtitle={
-                fill
-                  ? `${formatTokens(fill.used)} of ${formatTokens(fill.size)} tokens in context`
-                  : `${agent} does not report its context window size.`
-              }
-            />
-            {fill && (
-              <Progress
-                className={styles.headProgress}
-                value={fill.percent}
-                tone={toneOf(fill.tone)}
+    <ComposerTrack name="context">
+      <Popover
+        fullWidth
+        title={view.title}
+        drop="up"
+        align="right"
+        label={<Ring fill={fill} size={16} label={view.title} />}
+      >
+        {(close) => (
+          <Menu close={close}>
+            <div className={styles.panel}>
+              <ListRow
                 size="sm"
-                label={false}
-                aria-label="Context window"
+                lead={<Ring fill={fill} size={28} />}
+                title={
+                  <Text role="subject" tone={toneOf(fill?.tone)} numeric>
+                    {fill ? `${fill.percent}% full` : 'Context window unknown'}
+                  </Text>
+                }
+                // Without a window the line is a sentence, and an earned
+                // sentence wraps whole rather than ending in an ellipsis.
+                wrapSubtitle={!fill}
+                subtitle={
+                  fill
+                    ? `${formatTokens(fill.used)} of ${formatTokens(fill.size)} tokens in context`
+                    : `${agent} does not report its context window size.`
+                }
               />
-            )}
-
-            {composition && <Composition composition={composition} />}
-
-            {last && (
-              <>
-                <MenuLabel>Last turn</MenuLabel>
-                {/* The hint is a cache *verdict* where the agent reports both
-                    halves, and the share it can vouch for where it reports
-                    only hits — see `lib/cache-health.ts` for why those must
-                    not read the same. */}
-                <Row
-                  label="Input"
-                  value={formatTokens(last.inputTokens)}
-                  hint={cache ? <span title={cache.title}>{cache.label}</span> : null}
+              {fill && (
+                <Progress
+                  className={styles.headProgress}
+                  value={fill.percent}
+                  tone={toneOf(fill.tone)}
+                  size="sm"
+                  label={false}
+                  aria-label="Context window"
                 />
-                <Row label="Output" value={formatTokens(last.outputTokens)} />
-                {last.reasoningOutputTokens > 0 && <Row label="Thinking" value={formatTokens(last.reasoningOutputTokens)} />}
-              </>
-            )}
+              )}
 
-            {(total || cost) && (
-              <>
-                <MenuLabel>This session</MenuLabel>
-                {total && (
+              {composition && <Composition composition={composition} />}
+
+              {last && (
+                <>
+                  <MenuLabel>Last turn</MenuLabel>
+                  {/* The hint is a cache *verdict* where the agent reports both
+                      halves, and the share it can vouch for where it reports
+                      only hits — see `lib/cache-health.ts` for why those must
+                      not read the same. */}
                   <Row
-                    label="Tokens"
-                    value={formatTokens(total.totalTokens)}
-                    hint={total.outputTokens > 0 ? `${formatTokens(total.outputTokens)} out` : null}
+                    label="Input"
+                    value={formatTokens(last.inputTokens)}
+                    hint={cache ? <span title={cache.title}>{cache.label}</span> : null}
                   />
-                )}
-                {cost && <Row label="Cost" value={formatCost(cost)} />}
-                {/* Delegated spend is a *split* of the tokens above and never
-                    an addition to them: the runtimes that attribute a child's
-                    usage have already folded it into the session's own
-                    counts. Shown as a share so a session that handed most of
-                    its work away says so. */}
-                {delegated && total && (
-                  <Row
-                    label="Delegated"
-                    value={formatTokens(delegated.totalTokens)}
-                    hint={
-                      total.totalTokens > 0
-                        ? `${Math.round((delegated.totalTokens / total.totalTokens) * 100)}% of the session`
-                        : null
-                    }
-                  />
-                )}
-              </>
-            )}
+                  <Row label="Output" value={formatTokens(last.outputTokens)} />
+                  {last.reasoningOutputTokens > 0 && <Row label="Thinking" value={formatTokens(last.reasoningOutputTokens)} />}
+                </>
+              )}
 
-            {limits && limits.windows.length > 0 && (
-              <>
-                <MenuLabel>Plan usage</MenuLabel>
-                {limits.windows.map((window) => (
-                  <WindowRow key={window.label} window={window} />
-                ))}
-              </>
-            )}
+              {(total || cost) && (
+                <>
+                  <MenuLabel>This session</MenuLabel>
+                  {total && (
+                    <Row
+                      label="Tokens"
+                      value={formatTokens(total.totalTokens)}
+                      hint={total.outputTokens > 0 ? `${formatTokens(total.outputTokens)} out` : null}
+                    />
+                  )}
+                  {cost && <Row label="Cost" value={formatCost(cost)} />}
+                  {/* Delegated spend is a *split* of the tokens above and never
+                      an addition to them: the runtimes that attribute a child's
+                      usage have already folded it into the session's own
+                      counts. Shown as a share so a session that handed most of
+                      its work away says so. */}
+                  {delegated && total && (
+                    <Row
+                      label="Delegated"
+                      value={formatTokens(delegated.totalTokens)}
+                      hint={
+                        total.totalTokens > 0
+                          ? `${Math.round((delegated.totalTokens / total.totalTokens) * 100)}% of the session`
+                          : null
+                      }
+                    />
+                  )}
+                </>
+              )}
 
-            <MenuNote>Reported by {agent}.</MenuNote>
-          </div>
-        </Menu>
-      )}
-    </Popover>
+              {limits && limits.windows.length > 0 && (
+                <>
+                  <MenuLabel>Plan usage</MenuLabel>
+                  {limits.windows.map((window) => (
+                    <WindowRow key={window.label} window={window} />
+                  ))}
+                </>
+              )}
+
+              <MenuNote>Reported by {agent}.</MenuNote>
+            </div>
+          </Menu>
+        )}
+      </Popover>
+    </ComposerTrack>
   )
 }
 

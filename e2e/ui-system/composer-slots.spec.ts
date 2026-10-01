@@ -1,0 +1,170 @@
+import { expect, test, type Page } from '@playwright/test'
+
+const shapes = ['Assistant A', 'Assistant B', 'Assistant C', 'Assistant D']
+const slots = ['add', 'work-in', 'agent', 'permissions', 'mode', 'extension', 'more', 'context', 'model', 'send']
+
+const aligned = (page: Page, width: string, layout: 'draft' | 'live') => page.evaluate(({ width, layout, shapes, slots }) => {
+  const testedSlots = layout === 'draft' ? slots : slots.filter((slot) => slot !== 'work-in')
+  const positions: Record<string, number[]> = Object.fromEntries(testedSlots.map((slot) => [slot, []]))
+  for (const shape of shapes) {
+    const section = document.querySelector<HTMLElement>(`[data-composer-width="${width}"] [data-composer-shape="${shape}"]`)
+    const toolbar = section?.querySelector<HTMLElement>(`[data-composer-layout="${layout}"]`)
+    if (!toolbar) return { aligned: false, positions }
+    for (const slot of testedSlots) {
+      const track = toolbar.querySelector<HTMLElement>(`[data-composer-track="${slot}"]`)
+      if (track) positions[slot]?.push(Math.round(track.getBoundingClientRect().left))
+    }
+  }
+  return {
+    aligned: Object.values(positions).every((xs) => xs.length === shapes.length && new Set(xs).size === 1),
+    positions,
+  }
+}, { width, layout, shapes, slots })
+
+const labelsUntruncated = (page: Page, width: string, layout: 'draft' | 'live') => page.evaluate(({ width, layout }) => {
+  const labels = document.querySelectorAll<HTMLElement>(`[data-composer-width="${width}"] [data-composer-layout="${layout}"] [data-slot="text"]`)
+  return [...labels].every((label) => label.scrollWidth <= label.clientWidth)
+}, { width, layout })
+
+const boxGeometry = (page: Page) => page.evaluate(() => {
+  const column = Number.parseFloat(getComputedStyle(document.body).getPropertyValue('--hd-column'))
+  const boxes = [...document.querySelectorAll<HTMLElement>('[data-composer-width]')]
+  const widths = Object.fromEntries(boxes.map((box) => {
+    const name = box.dataset.composerWidth!
+    const expected = name === 'composer' ? column : Number(name)
+    return [name, { actual: box.getBoundingClientRect().width, expected }]
+  }))
+  return {
+    widths,
+    valid: boxes.length === 4 && Object.values(widths).every(({ actual, expected }) => Math.abs(actual - expected) <= 2),
+  }
+})
+
+const expectedFolds = {
+  composer: {
+    draft: ['agent', 'work-in'],
+    live: [],
+    tight: false,
+  },
+  '560': {
+    draft: ['agent', 'work-in', 'more', 'mode', 'permissions', 'model'],
+    live: ['agent', 'more', 'mode', 'permissions'],
+    tight: false,
+  },
+  '360': {
+    draft: ['agent', 'work-in', 'more', 'mode', 'permissions', 'model'],
+    live: ['agent', 'more', 'mode', 'permissions', 'model'],
+    tight: true,
+  },
+  '320': {
+    draft: ['agent', 'work-in', 'more', 'mode', 'permissions', 'model'],
+    live: ['agent', 'more', 'mode', 'permissions', 'model'],
+    tight: true,
+  },
+} as const
+
+type ComposerWidth = keyof typeof expectedFolds
+
+const foldsMatch = (page: Page, width: ComposerWidth) => page.evaluate(({ width, shapes, slots, expected }) => {
+  const folds = expected[width]
+  return shapes.every((shape) => (['draft', 'live'] as const).every((layout) => {
+    const selector = '[data-composer-width="' + width + '"] [data-composer-shape="' + shape + '"] [data-composer-layout="' + layout + '"]'
+    const toolbar = document.querySelector<HTMLElement>(selector)
+    if (!toolbar) return false
+    const expectedFolded = folds[layout]
+    const checkedSlots = layout === 'draft' ? slots : slots.filter((slot) => slot !== 'work-in')
+    return checkedSlots.every((slot) => {
+      const track = toolbar.querySelector<HTMLElement>('[data-composer-track="' + slot + '"]')
+      if (!track) return false
+      const shouldFold = expectedFolded.includes(slot as never)
+      const shouldTight = folds.tight && ['agent', 'work-in', 'more', 'mode', 'permissions', 'model'].includes(slot)
+      return track.hasAttribute('data-folded') === shouldFold && track.hasAttribute('data-tight') === shouldTight
+    })
+  }))
+}, { width, shapes, slots, expected: expectedFolds })
+
+const toolsDoNotOverflow = (page: Page, width: string, layout: 'draft' | 'live') => page.evaluate(({ width, layout, shapes }) => {
+  const tools = [...document.querySelectorAll<HTMLElement>(
+    '[data-composer-width="' + width + '"] [data-composer-layout="' + layout + '"]',
+  )]
+  return tools.length === shapes.length && tools.every((toolbar) => toolbar.scrollWidth <= toolbar.clientWidth)
+}, { width, layout, shapes })
+
+const contextRingsUnclipped = (page: Page) => page.evaluate(() => {
+  const tracks = [...document.querySelectorAll<HTMLElement>('[data-composer-track="context"]')]
+  return tracks.length > 0 && tracks.every((track) => {
+    const ring = track.querySelector<HTMLElement>('[data-slot="progress-ring"]')
+    if (!ring) return false
+    const bounds = track.getBoundingClientRect()
+    const rect = ring.getBoundingClientRect()
+    return rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1 && rect.top >= bounds.top - 1 && rect.bottom <= bounds.bottom + 1
+  })
+})
+
+test('composer slots keep their tracks aligned across agent shapes', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1600 })
+  await page.goto('/preview.html?composer-slots')
+  await page.waitForSelector('[data-composer-width="composer"] [data-composer-layout="live"] [data-composer-track="model"]')
+
+  expect(await boxGeometry(page), 'preview boxes must match their width labels and composer token').toMatchObject({ valid: true })
+  const composerToolbar = await page.locator('[data-composer-width="composer"] [data-composer-layout="draft"]').first().boundingBox()
+  expect(composerToolbar?.width).toBeGreaterThanOrEqual(713)
+  expect(composerToolbar?.width).toBeLessThanOrEqual(736)
+
+  for (const width of ['composer', '560', '360', '320'] as const) {
+    expect(await foldsMatch(page, width), 'folds at ' + width + 'px').toBe(true)
+    for (const layout of ['draft', 'live'] as const) {
+      expect(await aligned(page, width, layout), `${layout} slots at ${width}px`).toMatchObject({ aligned: true })
+    }
+  }
+
+  for (const width of ['composer', '560', '360', '320'] as const) {
+    for (const layout of ['draft', 'live'] as const) {
+      expect(await toolsDoNotOverflow(page, width, layout), layout + ' toolbar overflows at ' + width + 'px').toBe(true)
+    }
+  }
+
+  const widened = page.locator('[data-composer-width="560"]')
+  await widened.evaluate((node) => {
+    const box = node as HTMLElement
+    box.style.width = '1374px'
+    box.style.maxWidth = 'none'
+  })
+  await expect.poll(async () => foldsMatch(page, '560')).toBe(false)
+  await widened.evaluate((node) => {
+    const box = node as HTMLElement
+    box.style.width = 'var(--hd-composer-slots-preview-narrow)'
+    box.style.removeProperty('max-width')
+  })
+  await expect.poll(async () => foldsMatch(page, '560')).toBe(true)
+
+  const gap = page.locator('[data-composer-width="320"] [data-composer-shape="Assistant A"] [data-composer-layout="draft"] [data-slot="composer-gap"]')
+  await gap.evaluate((node) => { (node as HTMLElement).style.minWidth = '120px' })
+  expect(await toolsDoNotOverflow(page, '320', 'draft'), 'a minimum width on the flexible gap must cause overflow').toBe(false)
+  await gap.evaluate((node) => { (node as HTMLElement).style.removeProperty('min-width') })
+  expect(await toolsDoNotOverflow(page, '320', 'draft')).toBe(true)
+
+  const refused = page.locator('[data-composer-width="composer"] [data-composer-shape="Assistant C"] [data-composer-layout="live"] [aria-disabled="true"]')
+  await expect(refused.first()).toBeVisible()
+  await expect(refused.first()).toHaveAttribute('title', /.+/)
+  expect(await labelsUntruncated(page, 'composer', 'live'), 'live labels at the real composer width').toBe(true)
+  expect(await contextRingsUnclipped(page), 'context ring must fit its track at every width').toBe(true)
+
+  const contextMutation = page.locator('[data-composer-width="360"] [data-composer-shape="Assistant A"] [data-composer-layout="draft"] [data-composer-track="context"]')
+  await contextMutation.evaluate((node) => { (node as HTMLElement).style.width = '8px' })
+  expect(await contextRingsUnclipped(page), 'a too narrow context track must fail the ring check').toBe(false)
+  await contextMutation.evaluate((node) => { (node as HTMLElement).style.removeProperty('width') })
+  expect(await contextRingsUnclipped(page)).toBe(true)
+
+  const alignmentMutation = page.locator('[data-composer-width="composer"] [data-composer-shape="Assistant B"] [data-composer-layout="draft"] [data-composer-track="mode"]')
+  await alignmentMutation.evaluate((node) => { (node as HTMLElement).style.width = '240px' })
+  expect((await aligned(page, 'composer', 'draft')).aligned, 'width mutation must break the alignment check').toBe(false)
+  await alignmentMutation.evaluate((node) => { (node as HTMLElement).style.removeProperty('width') })
+  expect((await aligned(page, 'composer', 'draft')).aligned).toBe(true)
+
+  const truncationMutation = page.locator('[data-composer-width="composer"] [data-composer-shape="Assistant A"] [data-composer-layout="live"] [data-composer-track="mode"]')
+  await truncationMutation.evaluate((node) => { (node as HTMLElement).style.width = '20px' })
+  expect(await labelsUntruncated(page, 'composer', 'live'), 'narrow mode mutation must be caught by the truncation assertion').toBe(false)
+  await truncationMutation.evaluate((node) => { (node as HTMLElement).style.removeProperty('width') })
+  expect(await labelsUntruncated(page, 'composer', 'live')).toBe(true)
+})

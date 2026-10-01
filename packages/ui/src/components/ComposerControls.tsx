@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { ConfigOption, OptionChoice, RuntimeId, RuntimeInfo, SeatAttachmentsRecord, SelectOption } from '@harnessdesk/protocol'
-import { optionsIn } from '@harnessdesk/protocol'
 
 import { Button, CodeText, Dialog, RowChoice, Search, Text } from '../design'
 import { Badge } from '../design'
@@ -14,8 +13,10 @@ import { matchPreset, presetsFor } from '../state/presets'
 import { describeChecked, describeUpdate, describeVersion } from '../lib/versions'
 import { useActiveSession, useRuntime, useSnapshot, useStore } from '../state/context'
 import { useSeatAgent } from '../state/seat-agent'
+import { optionsBySlot } from '../lib/composer-slots'
 import {
   AlertIcon,
+  AgentIcon,
   BrainIcon,
   BranchIcon,
   ChevronIcon,
@@ -41,7 +42,7 @@ import {
   ZapIcon,
 } from './Icons'
 import { ModelMark, RuntimeMark } from './BrandIcons'
-import { Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, Submenu } from '../design'
+import { Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, RefusedAction, Submenu } from '../design'
 import { useOptionConfirm } from './OptionConfirm'
 import { Popover } from '../design'
 import sheet from './ComposerControls.module.css'
@@ -64,30 +65,43 @@ import sheet from './ComposerControls.module.css'
 
 const Chevron = () => <ChevronIcon size={11} style={{ transform: 'rotate(90deg)' }} />
 
-/**
- * Below this toolbar width the controls keep their glyph and drop their
- * words. Five labelled controls and a send button need about 560px; the
- * window can go to 720 with the sidebar open, and a control whose icon says
- * what it is — a shield, a chip — can afford to be quiet there. The full
- * label stays in the trigger's title, and in the menu.
- *
- * The model's name folds with the rest. It used to stay, as the one word a
- * mark cannot carry — and at a phone's width it was then the one word clipped
- * to its first letters, which carries less than the mark does.
- */
-const NARROW_TOOLBAR = 560
+const FOLD_ORDER = ['agent', 'work-in', 'more', 'mode', 'permissions', 'model'] as const
+type FoldableTrack = (typeof FOLD_ORDER)[number]
+type ToolbarStep = { folded: number; tight: boolean }
 
-/**
- * Below this — a phone's width — the glyph is all a control keeps: the chevron
- * that says "this opens a menu" folds too. Glyph, chevron and padding for six
- * controls, a send coin and the gaps between them come to about 310px, while
- * the toolbar's content box is 293px in a 375px window and 238px in a 320px
- * one; squeezed into that, the Add button came to 20px and the context ring
- * was clipped. The width measured here is that content box.
- */
-const TIGHT_TOOLBAR = 320
+const trackToken = (track: string, size: 'wide' | 'folded' | 'tight'): string =>
+  `--hd-composer-track-${track}${size === 'wide' ? '' : `-${size}`}`
 
-type ToolbarWidth = 'wide' | 'narrow' | 'tight'
+const px = (value: string): number => Number.parseFloat(value) || 0
+
+/** Read the active foundation once and measure fold steps from its tracks and gaps. */
+const toolbarStepper = (toolbar: HTMLElement): ((width: number) => ToolbarStep) => {
+  const style = getComputedStyle(toolbar)
+  const layout = toolbar.dataset.composerLayout
+  const tracks = ['add', ...(layout === 'live' ? [] : ['work-in']), 'agent', 'permissions', 'mode', 'extension', 'more', 'context', 'model', 'send']
+  const wideWidths = new Map(tracks.map((track) => [
+    track,
+    px(style.getPropertyValue(track === 'extension' ? '--hd-composer-track-extension-empty' : trackToken(track, 'wide'))),
+  ]))
+  const gap = px(style.columnGap) || px(style.gap)
+  // ComposerGap is itself a flex child between the tracks, so there is one
+  // more flex gap than there are spaces between the named tracks.
+  const gaps = tracks.length * gap
+  const total = (widths: ReadonlyMap<string, number>): number =>
+    [...widths.values()].reduce((sum, trackWidth) => sum + trackWidth, gaps)
+  const order = FOLD_ORDER.filter((track) => layout !== 'live' || track !== 'work-in')
+  const foldedWidths = new Map(order.map((track) => [track, px(style.getPropertyValue(trackToken(track, 'folded')))]))
+  return (width) => {
+    const widths = new Map(wideWidths)
+    let folded = 0
+    for (const track of order) {
+      if (width >= total(widths)) break
+      widths.set(track, foldedWidths.get(track) ?? 0)
+      folded += 1
+    }
+    return { folded, tight: folded === order.length && width < total(widths) }
+  }
+}
 
 /**
  * How narrow the toolbar this control sits in is. The control renders a
@@ -96,27 +110,31 @@ type ToolbarWidth = 'wide' | 'narrow' | 'tight'
  * nothing — its options arrive after the runtime does — and starts watching
  * only once it has drawn something.
  */
-const useNarrowToolbar = (): {
+const useNarrowToolbar = (name: FoldableTrack): {
   ref: (node: HTMLSpanElement | null) => void
-  narrow: boolean
+  folded: boolean
   tight: boolean
 } => {
   const [toolbar, setToolbar] = useState<HTMLElement | null>(null)
-  const ref = useCallback((node: HTMLSpanElement | null) => setToolbar(node?.parentElement ?? null), [])
+  const ref = useCallback((node: HTMLSpanElement | null) => {
+    setToolbar(node?.closest<HTMLElement>('[data-slot="composer-tools"]') ?? node?.parentElement ?? null)
+  }, [])
   // A step, not a width: set on every frame of a resize, a width would draw
   // the control again on every frame; a step only when one is crossed.
-  const [step, setStep] = useState<ToolbarWidth>('wide')
+  const [step, setStep] = useState<ToolbarStep>({ folded: 0, tight: false })
   useEffect(() => {
     if (!toolbar || typeof ResizeObserver === 'undefined') return
+    const stepForWidth = toolbarStepper(toolbar)
     const observer = new ResizeObserver(([entry]) => {
       if (!entry) return
-      const width = entry.contentRect.width
-      setStep(width < TIGHT_TOOLBAR ? 'tight' : width < NARROW_TOOLBAR ? 'narrow' : 'wide')
+      const next = stepForWidth(entry.contentRect.width)
+      setStep((current) => current.folded === next.folded && current.tight === next.tight ? current : next)
     })
     observer.observe(toolbar)
     return () => observer.disconnect()
   }, [toolbar])
-  return { ref, narrow: step !== 'wide', tight: step === 'tight' }
+  const order = FOLD_ORDER.filter((track) => toolbar?.dataset.composerLayout !== 'live' || track !== 'work-in')
+  return { ref, folded: step.folded >= order.indexOf(name) + 1, tight: step.tight }
 }
 
 /** A control's wrapper: no box of its own, just a way to reach the toolbar. */
@@ -138,6 +156,92 @@ const useComposerOptions = (): readonly ConfigOption[] | undefined => {
   if (session) return session.options
   return snapshot.draftOptions ?? undefined
 }
+
+export type ComposerTrackName =
+  | 'add'
+  | 'work-in'
+  | 'agent'
+  | 'permissions'
+  | 'mode'
+  | 'extension'
+  | 'more'
+  | 'context'
+  | 'model'
+  | 'send'
+
+const wideTrackClass: Record<ComposerTrackName, string> = {
+  add: sheet.trackAdd!,
+  'work-in': sheet.trackWorkIn!,
+  agent: sheet.trackAgent!,
+  permissions: sheet.trackPermissions!,
+  mode: sheet.trackMode!,
+  extension: sheet.trackExtension!,
+  more: sheet.trackMore!,
+  context: sheet.trackContext!,
+  model: sheet.trackModel!,
+  send: sheet.trackSend!,
+}
+
+const foldedTrackClass: Partial<Record<ComposerTrackName, string>> = {
+  'work-in': sheet.trackWorkInFolded!,
+  agent: sheet.trackAgentFolded!,
+  permissions: sheet.trackPermissionsFolded!,
+  mode: sheet.trackModeFolded!,
+  more: sheet.trackMoreFolded!,
+  model: sheet.trackModelFolded!,
+}
+
+const tightTrackClass: Partial<Record<ComposerTrackName, string>> = {
+  'work-in': sheet.trackWorkInTight!,
+  agent: sheet.trackAgentTight!,
+  permissions: sheet.trackPermissionsTight!,
+  mode: sheet.trackModeTight!,
+  more: sheet.trackMoreTight!,
+  model: sheet.trackModelTight!,
+}
+
+/** One named, token-sized position in the composer's toolbar. */
+export const ComposerTrack = ({
+  name,
+  folded = false,
+  tight = false,
+  children,
+}: {
+  name: ComposerTrackName
+  folded?: boolean
+  tight?: boolean
+  children?: ReactNode
+}) => (
+  <div
+    data-composer-track={name}
+    data-folded={folded || undefined}
+    data-tight={tight || undefined}
+    className={`${sheet.track} ${wideTrackClass[name]} ${folded ? foldedTrackClass[name] ?? '' : ''} ${tight ? tightTrackClass[name] ?? '' : ''}`}
+  >
+    {children}
+  </div>
+)
+
+const RefusedComposerControl = ({
+  label,
+  reason,
+  narrow = false,
+  children,
+}: { label: string; reason: string; narrow?: boolean; children?: ReactNode }) => (
+  <RefusedAction reason={reason}>
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      title={narrow ? `${label} — ${reason}` : reason}
+      aria-label={label}
+      className="w-full min-w-0 justify-start overflow-hidden"
+    >
+      {children}
+      {!narrow && <Text role="row" className="truncate">{label}</Text>}
+    </Button>
+  </RefusedAction>
+)
 
 /**
  * The glyph for a choice, read off what the protocol says about it. A
@@ -330,10 +434,21 @@ const currentLabel = (option: SelectOption): string =>
 export const PermissionControl = () => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const { ref, narrow, tight } = useNarrowToolbar()
+  const { ref, folded, tight } = useNarrowToolbar('permissions')
   const all = useComposerOptions()
-  const options = optionsIn(all, '_permissions')
-  if (options.length === 0) return null
+  const options = optionsBySlot(all).permissions
+
+  if (options.length === 0) {
+    return (
+      <ComposerTrack name="permissions" folded={folded} tight={tight}>
+        <InToolbar refer={ref}>
+          <RefusedComposerControl label="Permissions" reason="This agent has no permission setting" narrow={folded}>
+            <ShieldIcon size={13} />
+          </RefusedComposerControl>
+        </InToolbar>
+      </ComposerTrack>
+    )
+  }
 
   const presets = presetsFor(snapshot.activeRuntime, snapshot.customPresets)
   const preset = matchPreset(snapshot.activeRuntime ?? '', all, presets)
@@ -342,44 +457,47 @@ export const PermissionControl = () => {
   const current = first?.type === 'select' ? currentLabel(first) : first?.label
 
   return (
-    <InToolbar refer={ref}>
-      <Popover
-        title={narrow && current ? `${current} — what the agent may do` : 'What the agent may do'}
-        drop="up"
-        align="left"
-        tone={tone}
-        label={
-          <>
-            {shieldFor(tone)}
-            {!narrow && current}
-            {!tight && <Chevron />}
-          </>
-        }
-      >
-        {(close) => (
-          <Menu close={close}>
-            {presets.length > 0 && (
-              <>
-                <MenuLabel>Preset</MenuLabel>
-                {presets.map((entry) => (
-                  <MenuItem
-                    key={entry.id}
-                    icon={<PresetIcon size={14} />}
-                    selected={entry.id === preset?.id}
-                    label={entry.name}
-                    hint={entry.description}
-                    onSelect={() => void store.applyPreset(entry)}
-                  />
-                ))}
-              </>
-            )}
-            {options.map((option) => (
-              <OptionRows key={option.id} option={option} />
-            ))}
-          </Menu>
-        )}
-      </Popover>
-    </InToolbar>
+    <ComposerTrack name="permissions" folded={folded} tight={tight}>
+      <InToolbar refer={ref}>
+        <Popover
+          fullWidth
+          title={folded && current ? `${current} — what the agent may do` : 'What the agent may do'}
+          drop="up"
+          align="left"
+          tone={tone}
+          label={
+            <>
+              {shieldFor(tone)}
+              {!folded && <Text role="row" className="truncate">{current}</Text>}
+              {!tight && <Chevron />}
+            </>
+          }
+        >
+          {(close) => (
+            <Menu close={close}>
+              {presets.length > 0 && (
+                <>
+                  <MenuLabel>Preset</MenuLabel>
+                  {presets.map((entry) => (
+                    <MenuItem
+                      key={entry.id}
+                      icon={<PresetIcon size={14} />}
+                      selected={entry.id === preset?.id}
+                      label={entry.name}
+                      hint={entry.description}
+                      onSelect={() => void store.applyPreset(entry)}
+                    />
+                  ))}
+                </>
+              )}
+              {options.map((option) => (
+                <OptionRows key={option.id} option={option} />
+              ))}
+            </Menu>
+          )}
+        </Popover>
+      </InToolbar>
+    </ComposerTrack>
   )
 }
 
@@ -408,14 +526,15 @@ const FOLD_FROM = FEATURED_MODELS + 2
 export const ModelControl = () => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const { ref, narrow, tight } = useNarrowToolbar()
+  const { ref, folded, tight } = useNarrowToolbar('model')
   const session = useActiveSession()
   const agent = brandForRuntime(useRuntime())
   const all = useComposerOptions()
   const { ask, dialog } = useOptionConfirm()
   const runtime = useRuntime()?.id
-  const models = optionsIn(all, 'model')
-  const levels = optionsIn(all, 'thought_level')
+  const slots = optionsBySlot(all)
+  const models = slots.model.filter((option) => option.category === 'model')
+  const levels = slots.model.filter((option) => option.category === 'thought_level')
   // The picker offers what Settings left in it. The model a session is
   // already on is never hidden from its own control — a row you cannot see
   // is a setting you cannot read back.
@@ -430,7 +549,17 @@ export const ModelControl = () => {
           ),
         }
       : first
-  if (!model) return null
+  if (!model) {
+    return (
+      <ComposerTrack name="model" folded={folded} tight={tight}>
+        <InToolbar refer={ref}>
+          <RefusedComposerControl label="Model" reason="This agent has no model setting" narrow={folded}>
+            <ModelIcon size={13} />
+          </RefusedComposerControl>
+        </InToolbar>
+      </ComposerTrack>
+    )
+  }
   const levelSelects = levels.filter((option): option is SelectOption => option.type === 'select')
   const levelToggles = levels.filter((option) => option.type === 'boolean')
   const firstLevel = levelSelects[0]
@@ -459,152 +588,155 @@ export const ModelControl = () => {
   }
 
   return (
-    <InToolbar refer={ref}>
-      {dialog}
-      <Popover
-        /* Narrow, the words go to the hover text — and so, with nothing else
-           to name the trigger, to its accessible name. */
-        title={
-          narrow ? `${[name, effort].filter(Boolean).join(' · ')} — model and reasoning` : 'Model and reasoning'
-        }
-        drop="up"
-        label={
-          <>
-            {!session && activeRoute ? (
-              <RouteIcon size={13} />
-            ) : model.type === 'select' && selectedChoice(model) ? (
-              <ModelMark
-                model={`${selectedChoice(model)?.value ?? ''} ${currentLabel(model)}`}
-                agent={agent}
-                size={13}
-              />
-            ) : (
-              <ModelIcon size={13} />
-            )}
-            {/* The model reads as the subject, its effort as the qualifier. */}
-            {!narrow && <Text role="row">{name}</Text>}
-            {effort && !narrow && <Text ink="muted">{effort}</Text>}
-            {!tight && <Chevron />}
-          </>
-        }
-      >
-        {(close) => (
-          <Menu close={close}>
-            {model.type === 'select' ? (
-              <>
-                {model.disabled && <MenuNote>{model.disabled}</MenuNote>}
-                {/* What the runtime wants said about this list — a configured
-                    model it cannot serve, say — sits above the list it explains. */}
-                {!model.disabled && model.description && <MenuNote>{model.description}</MenuNote>}
-                <ChoiceRows option={model} choices={featured} />
-              </>
-            ) : (
-              <OptionRows option={model} />
-            )}
-            {/* Other model selects a runtime might declare — rare, but declared is declared. */}
-            {models.slice(1).map((option) => (
-              <OptionRows key={option.id} option={option} />
-            ))}
+    <ComposerTrack name="model" folded={folded} tight={tight}>
+      <InToolbar refer={ref}>
+        {dialog}
+        <Popover
+          fullWidth
+          /* Narrow, the words go to the hover text — and so, with nothing else
+             to name the trigger, to its accessible name. */
+          title={
+            folded ? `${[name, effort].filter(Boolean).join(' · ')} — model and reasoning` : 'Model and reasoning'
+          }
+          drop="up"
+          label={
+            <>
+              {!session && activeRoute ? (
+                <RouteIcon size={13} />
+              ) : model.type === 'select' && selectedChoice(model) ? (
+                <ModelMark
+                  model={`${selectedChoice(model)?.value ?? ''} ${currentLabel(model)}`}
+                  agent={agent}
+                  size={13}
+                />
+              ) : (
+                <ModelIcon size={13} />
+              )}
+              {/* The model reads as the subject, its effort as the qualifier. */}
+              {!folded && <Text role="row">{name}</Text>}
+              {effort && !folded && <Text ink="muted">{effort}</Text>}
+              {!tight && <Chevron />}
+            </>
+          }
+        >
+          {(close) => (
+            <Menu close={close}>
+              {model.type === 'select' ? (
+                <>
+                  {model.disabled && <MenuNote>{model.disabled}</MenuNote>}
+                  {/* What the runtime wants said about this list — a configured
+                      model it cannot serve, say — sits above the list it explains. */}
+                  {!model.disabled && model.description && <MenuNote>{model.description}</MenuNote>}
+                  <ChoiceRows option={model} choices={featured} />
+                </>
+              ) : (
+                <OptionRows option={model} />
+              )}
+              {/* Other model selects a runtime might declare — rare, but declared is declared. */}
+              {models.slice(1).map((option) => (
+                <OptionRows key={option.id} option={option} />
+              ))}
 
-            {(levels.length > 0 || rest.length > 0 || routes.length > 0) && <MenuSeparator />}
+              {(levels.length > 0 || rest.length > 0 || routes.length > 0) && <MenuSeparator />}
 
-            {levelSelects.map((option, index) => (
-              <Submenu
-                key={option.id}
-                icon={<BrainIcon size={14} />}
-                label={option.label}
-                value={currentLabel(option)}
-                disabled={option.disabled}
-                width={280}
-              >
-                {option.description && <MenuNote>{option.description}</MenuNote>}
-                <ChoiceRows option={option} />
-                {/* Switches about thinking ride with the first effort select. */}
-                {index === 0 && levelToggles.length > 0 && <MenuSeparator />}
-                {index === 0 &&
-                  levelToggles.map((toggle) =>
-                    toggle.type === 'boolean' ? (
-                      <MenuToggle
-                        key={toggle.id}
-                        label={toggle.label}
-                        hint={toggle.description}
-                        checked={toggle.currentValue}
-                        disabled={toggle.disabled}
-                        onChange={(next) =>
-                          ask(toggle, next, () => void store.setOption(toggle.id, next))
-                        }
-                      />
-                    ) : null,
-                  )}
-              </Submenu>
-            ))}
-            {levelSelects.length === 0 &&
-              levelToggles.map((toggle) =>
-                toggle.type === 'boolean' ? (
-                  <MenuToggle
-                    key={toggle.id}
-                    label={toggle.label}
-                    hint={toggle.description}
-                    checked={toggle.currentValue}
-                    disabled={toggle.disabled}
-                    onChange={(next) => ask(toggle, next, () => void store.setOption(toggle.id, next))}
-                  />
-                ) : null,
+              {levelSelects.map((option, index) => (
+                <Submenu
+                  key={option.id}
+                  icon={<BrainIcon size={14} />}
+                  label={option.label}
+                  value={currentLabel(option)}
+                  disabled={option.disabled}
+                  width={280}
+                >
+                  {option.description && <MenuNote>{option.description}</MenuNote>}
+                  <ChoiceRows option={option} />
+                  {/* Switches about thinking ride with the first effort select. */}
+                  {index === 0 && levelToggles.length > 0 && <MenuSeparator />}
+                  {index === 0 &&
+                    levelToggles.map((toggle) =>
+                      toggle.type === 'boolean' ? (
+                        <MenuToggle
+                          key={toggle.id}
+                          label={toggle.label}
+                          hint={toggle.description}
+                          checked={toggle.currentValue}
+                          disabled={toggle.disabled}
+                          onChange={(next) =>
+                            ask(toggle, next, () => void store.setOption(toggle.id, next))
+                          }
+                        />
+                      ) : null,
+                    )}
+                </Submenu>
+              ))}
+              {levelSelects.length === 0 &&
+                levelToggles.map((toggle) =>
+                  toggle.type === 'boolean' ? (
+                    <MenuToggle
+                      key={toggle.id}
+                      label={toggle.label}
+                      hint={toggle.description}
+                      checked={toggle.currentValue}
+                      disabled={toggle.disabled}
+                      onChange={(next) => ask(toggle, next, () => void store.setOption(toggle.id, next))}
+                    />
+                  ) : null,
+                )}
+
+              {/* Cursor's own picker ends in "Add Models"; this is the same
+                  door. It is the only honest answer when the model you want is
+                  not on the list — the list is a setting, not the catalogue. */}
+              {runtime && (
+                <MenuItem
+                  icon={<SlidersIcon size={14} />}
+                  label="Manage models…"
+                  title="Choose which of this agent's models the picker offers."
+                  onSelect={() => store.askSettings('models')}
+                />
+              )}
+              {rest.length > 0 && model.type === 'select' && (
+                <Submenu icon={<ModelIcon size={14} />} label="More models" value={`${rest.length}`} width={300}>
+                  <FilterableChoices option={{ ...model, choices: rest }} close={close} />
+                </Submenu>
               )}
 
-            {/* Cursor's own picker ends in "Add Models"; this is the same
-                door. It is the only honest answer when the model you want is
-                not on the list — the list is a setting, not the catalogue. */}
-            {runtime && (
-              <MenuItem
-                icon={<SlidersIcon size={14} />}
-                label="Manage models…"
-                title="Choose which of this agent's models the picker offers."
-                onSelect={() => store.askSettings('models')}
-              />
-            )}
-            {rest.length > 0 && model.type === 'select' && (
-              <Submenu icon={<ModelIcon size={14} />} label="More models" value={`${rest.length}`} width={300}>
-                <FilterableChoices option={{ ...model, choices: rest }} close={close} />
-              </Submenu>
-            )}
-
-            {routes.length > 0 && (
-              <Submenu
-                icon={<RouteIcon size={14} />}
-                label="Model route"
-                value={activeRoute ? activeRoute.name : 'Direct'}
-                width={300}
-              >
-                <MenuItem
-                  selected={snapshot.draftRouteId === null}
-                  label="Direct"
-                  hint="The backend's own provider and account."
-                  onSelect={() => store.setDraftRoute(null)}
-                />
-                {routes.map((route) => (
+              {routes.length > 0 && (
+                <Submenu
+                  icon={<RouteIcon size={14} />}
+                  label="Model route"
+                  value={activeRoute ? activeRoute.name : 'Direct'}
+                  width={300}
+                >
                   <MenuItem
-                    key={route.id}
-                    selected={snapshot.draftRouteId === route.id}
-                    label={route.name}
-                    hint={route.usable === false ? route.reason : route.endpoint}
-                    disabled={route.usable === false ? route.reason : false}
-                    onSelect={() => store.setDraftRoute(route.id)}
+                    selected={snapshot.draftRouteId === null}
+                    label="Direct"
+                    hint="The backend's own provider and account."
+                    onSelect={() => store.setDraftRoute(null)}
                   />
-                ))}
-                <MenuNote>
-                  On another provider the agent loses web search, subagent fan-out and
-                  reasoning display, and its system prompt is tuned for its own models.
-                  Expect rougher results.
-                </MenuNote>
-              </Submenu>
-            )}
+                  {routes.map((route) => (
+                    <MenuItem
+                      key={route.id}
+                      selected={snapshot.draftRouteId === route.id}
+                      label={route.name}
+                      hint={route.usable === false ? route.reason : route.endpoint}
+                      disabled={route.usable === false ? route.reason : false}
+                      onSelect={() => store.setDraftRoute(route.id)}
+                    />
+                  ))}
+                  <MenuNote>
+                    On another provider the agent loses web search, subagent fan-out and
+                    reasoning display, and its system prompt is tuned for its own models.
+                    Expect rougher results.
+                  </MenuNote>
+                </Submenu>
+              )}
 
-            <RuntimeBuildNote />
-          </Menu>
-        )}
-      </Popover>
-    </InToolbar>
+              <RuntimeBuildNote />
+            </Menu>
+          )}
+        </Popover>
+      </InToolbar>
+    </ComposerTrack>
   )
 }
 
@@ -657,69 +789,86 @@ const RuntimeBuildNote = () => {
 
 /** The runtime's collaboration modes — plan first, act directly, whatever it offers. */
 export const ModeControl = () => {
-  const { ref, narrow, tight } = useNarrowToolbar()
+  const { ref, folded, tight } = useNarrowToolbar('mode')
   const all = useComposerOptions()
-  const modes = optionsIn(all, 'mode')
+  const modes = optionsBySlot(all).mode
   const mode = modes[0]
-  if (!mode) return null
+  if (!mode) {
+    return (
+      <ComposerTrack name="mode" folded={folded} tight={tight}>
+        <InToolbar refer={ref}>
+          <RefusedComposerControl label="Mode" reason="This agent has no mode setting" narrow={folded}>
+            <ZapIcon size={13} />
+          </RefusedComposerControl>
+        </InToolbar>
+      </ComposerTrack>
+    )
+  }
   const current = mode.type === 'select' ? selectedChoice(mode) : undefined
   const label = mode.type === 'select' ? currentLabel(mode) : mode.label
 
   return (
-    <InToolbar refer={ref}>
-      <Popover
-        title={narrow ? `${label} — ${mode.description ?? mode.label}` : mode.description ?? mode.label}
-        drop="up"
-        align="left"
-        label={
-          <>
-            {current ? choiceIcon(mode, current) : <ZapIcon size={13} />}
-            {!narrow && label}
-            {!tight && <Chevron />}
-          </>
-        }
-      >
-        {(close) => (
-          <Menu close={close}>
-            {modes.map((option) => (
-              <OptionRows key={option.id} option={option} />
-            ))}
-          </Menu>
-        )}
-      </Popover>
-    </InToolbar>
+    <ComposerTrack name="mode" folded={folded} tight={tight}>
+      <InToolbar refer={ref}>
+        <Popover
+          fullWidth
+          title={folded ? `${label} — ${mode.description ?? mode.label}` : mode.description ?? mode.label}
+          drop="up"
+          align="left"
+          label={
+            <>
+              {current ? choiceIcon(mode, current) : <ZapIcon size={13} />}
+              {!folded && <Text role="row" className="truncate">{label}</Text>}
+              {!tight && <Chevron />}
+            </>
+          }
+        >
+          {(close) => (
+            <Menu close={close}>
+              {modes.map((option) => (
+                <OptionRows key={option.id} option={option} />
+              ))}
+            </Menu>
+          )}
+        </Popover>
+      </InToolbar>
+    </ComposerTrack>
   )
 }
 
 /** Everything the runtime declared that has no dedicated place. */
 export const MoreControl = () => {
-  const { ref, narrow, tight } = useNarrowToolbar()
+  const { ref, folded, tight } = useNarrowToolbar('more')
   const all = useComposerOptions()
-  const others = optionsIn(all, 'other')
-  if (others.length === 0) return null
+  const others = optionsBySlot(all).more
 
   return (
-    <InToolbar refer={ref}>
-      <Popover
-        title="More options"
-        drop="up"
-        label={
-          <>
-            <SlidersIcon size={13} />
-            {!narrow && 'More'}
-            {!tight && <Chevron />}
-          </>
-        }
-      >
-        {(close) => (
-          <Menu close={close}>
-            {others.map((option) => (
-              <OptionRows key={option.id} option={option} />
-            ))}
-          </Menu>
+    <ComposerTrack name="more" folded={folded} tight={tight}>
+      <InToolbar refer={ref}>
+        {others.length > 0 && (
+          <Popover
+            fullWidth
+            title="More options"
+            drop="up"
+            label={
+              <>
+                <SlidersIcon size={13} />
+                {!folded && <Text role="row" className="truncate">More</Text>}
+                {!tight && <Chevron />}
+              </>
+            }
+          >
+            {(close) => (
+              <Menu close={close}>
+                {others.map((option) => (
+                  <OptionRows key={option.id} option={option} />
+                ))}
+              </Menu>
+            )}
+          </Popover>
         )}
-      </Popover>
-    </InToolbar>
+      </InToolbar>
+    </ComposerTrack>
   )
 }
 
@@ -772,7 +921,7 @@ const useSeatAttachmentsHint = (session: ReturnType<typeof useActiveSession>, se
 export const AgentControl = () => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const { ref, narrow, tight } = useNarrowToolbar()
+  const { ref, folded, tight } = useNarrowToolbar('agent')
   const session = useActiveSession()
   const seated = useSeatAgent(session)
   const attachmentsHintText = useSeatAttachmentsHint(session, seated !== null)
@@ -781,7 +930,18 @@ export const AgentControl = () => {
   const owner = snapshot.runtimes.find((entry) => entry.id === ownerId)
   /* A conversation seated as an Agent says who it is and the seat it took even
      on a desk with one runtime, where there is otherwise nothing to choose. */
-  if (!owner || (snapshot.runtimes.length < 2 && !seated)) return null
+  if (!owner || (snapshot.runtimes.length < 2 && !seated)) {
+    const reason = owner ? 'Only one agent is available' : 'No agent is available'
+    return (
+      <ComposerTrack name="agent" folded={folded} tight={tight}>
+        <InToolbar refer={ref}>
+          <RefusedComposerControl label={owner?.presentation.name ?? 'Agent'} reason={reason} narrow={folded}>
+            {owner ? <RuntimeMark runtime={owner} size={13} /> : <AgentIcon size={13} />}
+          </RefusedComposerControl>
+        </InToolbar>
+      </ComposerTrack>
+    )
+  }
   const seat = session?.settings?.seatLabel ?? owner.presentation.name
   const others = snapshot.runtimes.filter((entry) => entry.id !== owner.id)
   const target = handoff ? snapshot.runtimes.find((entry) => entry.id === handoff) ?? null : null
@@ -791,60 +951,62 @@ export const AgentControl = () => {
     runtimeLabel(entry, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs)
 
   return (
-    <InToolbar refer={ref}>
-      <Popover
-        title={
-          seated
-            ? `Seated as ${seated.name ?? 'an Agent'} on ${seat}`
-            : session
-              ? `This conversation is with ${owner.presentation.name}`
-              : 'Which agent starts this conversation'
-        }
-        drop="up"
-        align="left"
-        label={
+    <ComposerTrack name="agent" folded={folded} tight={tight}>
+      <InToolbar refer={ref}>
+        <Popover
+          fullWidth
+          title={folded
+            ? `${seated?.name ?? brandOf(owner.presentation.name)} — ${session ? `This conversation is with ${owner.presentation.name}` : 'Which agent starts this conversation'}`
+            : seated
+              ? `Seated as ${seated.name ?? 'an Agent'} on ${seat}`
+              : session
+                ? `This conversation is with ${owner.presentation.name}`
+                : 'Which agent starts this conversation'}
+          drop="up"
+          align="left"
+          label={
           <>
             <RuntimeMark runtime={owner} size={13} />
-            {!narrow && <Text role="row">{seated?.name ?? brandOf(owner.presentation.name)}</Text>}
+            {!folded && <Text role="row">{seated?.name ?? brandOf(owner.presentation.name)}</Text>}
             {!tight && <Chevron />}
           </>
         }
-      >
-        {(close) => (
-          <Menu close={close}>
-            {session ? (
-              <>
-                <MenuItem
-                  icon={<RuntimeMark runtime={owner} />}
-                  selected
-                  label={seated ? `As ${seated.name ?? 'an Agent'}, on ${seat}` : `Reply here with ${owner.presentation.name}`}
-                  title={
-                    seated
-                      ? 'The seat it took, as read back when it opened. Replies continue it.'
-                      : 'This conversation belongs to it; replies continue it.'
-                  }
-                  hint={attachmentsHintText}
-                  onSelect={() => undefined}
-                />
-                {/* What a hand-off does is said once, over the group, rather
-                    than repeated under every agent in it: the sentence is the
-                    same for all of them, so N copies of it are N times the
-                    height and none of the information. One runtime has
-                    nowhere to hand off to. */}
-                {others.length > 0 && (
-                  <>
-                    <MenuLabel>Hand off</MenuLabel>
-                    <MenuNote>Starts a new conversation there with what happened here.</MenuNote>
-                    {others.map((entry) => (
-                      <MenuItem
-                        key={entry.id}
-                        icon={<RuntimeMark runtime={entry} />}
-                        label={`Hand off to ${label(entry)}…`}
-                        onSelect={() => setHandoff(entry.id)}
-                      />
-                    ))}
-                  </>
-                )}
+        >
+          {(close) => (
+            <Menu close={close}>
+              {session ? (
+                <>
+                  <MenuItem
+                    icon={<RuntimeMark runtime={owner} />}
+                    selected
+                    label={seated ? `As ${seated.name ?? 'an Agent'}, on ${seat}` : `Reply here with ${owner.presentation.name}`}
+                    title={
+                      seated
+                        ? 'The seat it took, as read back when it opened. Replies continue it.'
+                        : 'This conversation belongs to it; replies continue it.'
+                    }
+                    hint={attachmentsHintText}
+                    onSelect={() => undefined}
+                  />
+                  {/* What a hand-off does is said once, over the group, rather
+                      than repeated under every agent in it: the sentence is the
+                      same for all of them, so N copies of it are N times the
+                      height and none of the information. One runtime has
+                      nowhere to hand off to. */}
+                  {others.length > 0 && (
+                    <>
+                      <MenuLabel>Hand off</MenuLabel>
+                      <MenuNote>Starts a new conversation there with what happened here.</MenuNote>
+                      {others.map((entry) => (
+                        <MenuItem
+                          key={entry.id}
+                          icon={<RuntimeMark runtime={entry} />}
+                          label={`Hand off to ${label(entry)}…`}
+                          onSelect={() => setHandoff(entry.id)}
+                        />
+                      ))}
+                    </>
+                  )}
               </>
             ) : (
               <>
@@ -879,7 +1041,8 @@ export const AgentControl = () => {
             )}
           </Menu>
         )}
-      </Popover>
+        </Popover>
+      </InToolbar>
       {target && session && (
         <HandoffSheet
           from={owner.presentation.name}
@@ -891,7 +1054,7 @@ export const AgentControl = () => {
           }}
         />
       )}
-    </InToolbar>
+    </ComposerTrack>
   )
 }
 
@@ -988,9 +1151,16 @@ export const PlaceControl = () => {
   const store = useStore()
   const snapshot = useSnapshot()
   const session = useActiveSession()
-  const { ref, narrow } = useNarrowToolbar()
+  const { ref, folded, tight } = useNarrowToolbar('work-in')
   const workspace = snapshot.workspace
-  if (session || !workspace) return null
+  if (session) return null
+  if (!workspace) {
+    return (
+      <ComposerTrack name="work-in" folded={folded} tight={tight}>
+        <InToolbar refer={ref}>{null}</InToolbar>
+      </ComposerTrack>
+    )
+  }
 
   const place = snapshot.draftPlace
   const folder = workspace.path.split('/').filter(Boolean).at(-1) ?? workspace.path
@@ -1072,14 +1242,16 @@ export const PlaceControl = () => {
   const tagged = !armed && !chosenMain && (chosen !== null || linked)
 
   return (
-    <InToolbar refer={ref}>
-      <Popover
-        title={title}
-        drop="up"
-        align="left"
-        onOpenChange={(open) => open && void store.loadWorktrees()}
-        label={
-          <>
+    <ComposerTrack name="work-in" folded={folded} tight={tight}>
+      <InToolbar refer={ref}>
+        <Popover
+          fullWidth
+          title={folded ? `${word} — ${title}` : title}
+          drop="up"
+          align="left"
+          onOpenChange={(open) => open && void store.loadWorktrees()}
+          label={
+            <>
             {armed ? (
               <Text role="row" tone="brand"><NewWorktreeIcon size={13} /></Text>
             ) : tagged ? (
@@ -1087,38 +1259,38 @@ export const PlaceControl = () => {
             ) : (
               <LocalIcon size={13} />
             )}
-            {!narrow && (
+            {!folded && (
               armed
                 ? <Text role="row" tone="brand" className={sheet.word}>{word}</Text>
                 : <Text role="row" className={sheet.word}>{word}</Text>
             )}
-            {!narrow && tagged && <Badge variant="secondary">worktree</Badge>}
-            <Chevron />
+            {!folded && tagged && <Badge variant="secondary">worktree</Badge>}
+            {!tight && <Chevron />}
           </>
         }
-      >
-        {(close) => (
-          <Menu close={close}>
-            <MenuLabel>Work in</MenuLabel>
-            <MenuItem
-              icon={linked ? <BranchIcon size={14} /> : <LocalIcon size={14} />}
-              label={linked ? 'This worktree' : 'Local'}
-              value={branch ?? undefined}
-              title={branch ? `${branch} — ${workspace.path}` : workspace.path}
-              selected={place === null}
-              onSelect={() => store.startDraftIn(null)}
-            />
-            {main && (
+        >
+          {(close) => (
+            <Menu close={close}>
+              <MenuLabel>Work in</MenuLabel>
               <MenuItem
-                icon={<LocalIcon size={14} />}
-                label="Main checkout"
-                value={main.branch ?? undefined}
-                title={`${main.branch ?? '(detached)'} — ${main.path}`}
-                selected={chosenMain}
-                disabled={gone(main.path)}
-                onSelect={() => store.startDraftIn({ kind: 'existing', path: main.path, branch: main.branch })}
+                icon={linked ? <BranchIcon size={14} /> : <LocalIcon size={14} />}
+                label={linked ? 'This worktree' : 'Local'}
+                value={branch ?? undefined}
+                title={branch ? `${branch} — ${workspace.path}` : workspace.path}
+                selected={place === null}
+                onSelect={() => store.startDraftIn(null)}
               />
-            )}
+              {main && (
+                <MenuItem
+                  icon={<LocalIcon size={14} />}
+                  label="Main checkout"
+                  value={main.branch ?? undefined}
+                  title={`${main.branch ?? '(detached)'} — ${main.path}`}
+                  selected={chosenMain}
+                  disabled={gone(main.path)}
+                  onSelect={() => store.startDraftIn({ kind: 'existing', path: main.path, branch: main.branch })}
+                />
+              )}
             <MenuItem
               icon={<NewWorktreeIcon size={14} />}
               label={armed ? 'New worktree' : 'New worktree…'}
@@ -1152,7 +1324,8 @@ export const PlaceControl = () => {
             )}
           </Menu>
         )}
-      </Popover>
-    </InToolbar>
+        </Popover>
+      </InToolbar>
+    </ComposerTrack>
   )
 }

@@ -286,20 +286,20 @@ describe('what the action button says about when the message goes', () => {
    * beside it. Both are position claims, so both are asserted as position.
    */
   const corner = (): Element | null =>
-    container.querySelector('[data-slot="composer-tools"]')?.lastElementChild ?? null
+    container.querySelector('[data-composer-track="send"]')
 
   it('gives the corner to whatever acts on the turn right now', () => {
     mount({ busy: false })
     type('go')
-    expect(corner()).toBe(action('Send'))
+    expect(corner()?.firstElementChild).toBe(action('Send'))
     mount({ busy: true })
-    expect(corner()).toBe(container.querySelector('[aria-label="Stop"]'))
+    expect(corner()?.lastElementChild).toBe(container.querySelector('[aria-label="Stop"]'))
   })
 
   it('keeps Stop in the corner when the next message appears beside it', () => {
     mount({ busy: true })
     type('go')
-    expect(corner()).toBe(container.querySelector('[aria-label="Stop"]'))
-    expect(action('Queue').nextElementSibling).toBe(corner())
+    expect(corner()?.lastElementChild).toBe(container.querySelector('[aria-label="Stop"]'))
+    expect(action('Queue').nextElementSibling).toBe(container.querySelector('[aria-label="Stop"]'))
   })
 })

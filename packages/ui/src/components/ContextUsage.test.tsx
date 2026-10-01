@@ -109,11 +109,14 @@ const open = (): void => {
 const panelText = (): string => document.querySelector('[role="menu"]')?.textContent ?? ''
 
 describe('ContextUsage', () => {
-  it('is absent until the runtime has reported anything', () => {
-    mount(withSession(runtime('alpha', 'Alpha Agent', false), null))
-    expect(container.querySelector('button')).toBeNull()
+  it('draws an empty ring until the runtime has reported usage', () => {
+    mount(withSession(runtime('alpha', 'Assistant A', false), null))
+    const trigger = container.querySelector<HTMLButtonElement>('button')
+    expect(trigger?.title).toBe('No usage yet')
+    expect(ring()?.getAttribute('aria-label')).toBe('No usage yet')
     mount({})
-    expect(container.querySelector('button')).toBeNull()
+    expect(container.querySelector('button')).not.toBeNull()
+    expect(container.querySelector<HTMLButtonElement>('button')?.title).toBe('No usage yet')
   })
 
   it('fills from contextUsed over contextWindow, never the session total', () => {
