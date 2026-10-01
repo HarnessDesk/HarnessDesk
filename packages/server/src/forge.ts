@@ -91,7 +91,7 @@ export const ghOnPath: GhRunner = async (args) => {
  * that already knows `gh` understands the trade.
  */
 export const FORGE_INSTRUCTION =
-  'Open, update, review and merge pull requests with the HarnessDesk pr_create, pr_update, pr_review and pr_merge tools rather than gh: they sign the pull request for this seat, put it in the conversation, and hold the seat to its ceiling.'
+  'Use the HarnessDesk pr_create, pr_update, pr_review and pr_merge tools for forge work, never gh; each is held to this seat’s ceiling. A board reviewer records its verdict with record_review; when the round closes, the desk handles publication according to the person’s posting setting. A read-ceiling reviewer cannot post a forge review or comment; return a standalone review to the person to publish.'
 
 const DEFAULT_IDENTITY_TTL_MS = 5 * 60_000
 

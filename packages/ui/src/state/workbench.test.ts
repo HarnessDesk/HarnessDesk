@@ -534,6 +534,10 @@ describe('size and visibility', () => {
     // The right panel holds a document, so its floor is a readable column
     // rather than a shell's eighty rows — the bounds are per area on purpose.
     expect(resizeDock(workbench, 'right', 10).right.size).toBe(280)
+    expect(resizeDock(workbench, 'sidebar', 120).sidebar.size).toBe(200)
+    const saved = JSON.parse(JSON.stringify(workbench))
+    saved.sidebar.size = 120
+    expect(readWorkbench(saved)?.sidebar.size).toBe(200)
   })
 
   test('collapsing keeps the views; closing takes them', () => {

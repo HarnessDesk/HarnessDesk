@@ -816,6 +816,7 @@ export const TextMark = ({
 export const NavigationGroupHeader = ({
   label,
   filtering = false,
+  keepLabelWhenFiltering = false,
   inset = 'bar',
   className,
   children,
@@ -823,6 +824,8 @@ export const NavigationGroupHeader = ({
 }: HTMLAttributes<HTMLDivElement> & {
   label: ReactNode
   filtering?: boolean
+  /** Keep an active-state label beside a filter when that state must stay visible. */
+  keepLabelWhenFiltering?: boolean
   /**
    * Which row's left column this header's label answers to. `'bar'` — the
    * default — is the sidebar's, whose own filter bar carries a padding this
@@ -837,6 +840,7 @@ export const NavigationGroupHeader = ({
     {...props}
     data-slot="navigation-group-header"
     {...(filtering ? { 'data-filtering': '' } : {})}
+    {...(keepLabelWhenFiltering ? { 'data-keep-label': '' } : {})}
     {...(inset === 'nav' ? { 'data-inset': 'nav' } : {})}
     className={cx(styles.navigationGroupHeader, className)}
   >
@@ -1223,13 +1227,14 @@ export const Face = ({
  * whether the text overflows its box right then. The ellipsis is the
  * caller's class: `overflow: hidden`, `text-overflow: ellipsis`, `nowrap`.
  */
-export const Clipped = ({ className, children }: { readonly className?: string; readonly children: ReactNode }) => (
+export const Clipped = ({ className, title, children }: { readonly className?: string; readonly title?: string; readonly children: ReactNode }) => (
   <span
     className={className}
+    title={title}
     onMouseEnter={(event) => {
       const node = event.currentTarget
       if (node.scrollWidth > node.clientWidth) node.title = node.textContent ?? ''
-      else node.removeAttribute('title')
+      else if (!title) node.removeAttribute('title')
     }}
   >
     {children}

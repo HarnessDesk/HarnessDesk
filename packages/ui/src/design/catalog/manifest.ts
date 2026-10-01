@@ -1,6 +1,6 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
 export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page' | 'summary' | 'start' | 'end'
-export type CatalogSize = 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'table-row' | 'bare' | 'composer'
+export type CatalogSize = 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'table-row' | 'bare' | 'composer' | 'sidebar-nav'
 export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out'
 
 export type CatalogEntry = {
@@ -91,10 +91,11 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
   'toggle-group': 'packages/ui/src/components/Library.tsx',
   'tool-pane': 'packages/ui/src/components/BrowserPane.tsx',
   tone: 'packages/ui/src/components/usage/shared.tsx',
-  tooltip: 'packages/ui/src/components/Sidebar.tsx',
+  tooltip: 'packages/ui/src/components/ConversationMap.tsx',
 }
 
 const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  sidebar: 'packages/ui/src/design/explorer/boards.tsx',
   'heat-grid': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   /* Shown on the compositions board, beside the panes it resizes. Its example
      used to be `showcase/PanelPlayground.tsx`, where coloured rectangles stood
@@ -185,6 +186,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   'scroll-area': ['default'],
   section: ['card', 'plain', 'quiet', 'panel', 'page'],
   select: ['default'],
+  sidebar: ['default'],
   separator: ['horizontal', 'vertical'],
   'sortable-list': ['default'],
   bar: ['default'],
@@ -311,6 +313,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   Notices: ['default', 'populated', 'empty', 'warning', 'error', 'open', 'closed'],
   Checklist: ['default', 'active', 'inactive', 'success', 'empty'],
   'heat-grid': ['default', 'empty', 'populated'],
+  sidebar: ['default', 'hover', 'active', 'populated'],
   PaneColumn: ['default'],
   // empty: no fee set, nothing suggested. derived: a suggestion offered.
   // populated: a fee is set. warning: a key/metered account's budget row.
@@ -323,7 +326,7 @@ const SIZES: Record<string, readonly CatalogSize[]> = Object.fromEntries(
   Object.keys(VARIANTS).map((name) => [name, DEFAULT_SIZE]),
 )
 Object.assign(SIZES, {
-  button: ['default', 'xs', 'sm', 'icon', 'icon-xs', 'icon-sm', 'content', 'content-min', 'inline-link', 'table-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'],
+  button: ['default', 'xs', 'sm', 'sidebar-nav', 'icon', 'icon-xs', 'icon-sm', 'content', 'content-min', 'inline-link', 'table-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'],
   card: ['default', 'compact'],
   input: ['default', 'compact', 'bare', 'row'],
   attachment: ['sm', 'default', 'lg'],
@@ -333,6 +336,7 @@ Object.assign(SIZES, {
   switch: ['default', 'sm'],
   textarea: ['default', 'compact', 'composer'],
   'toggle-group': ['default', 'sm', 'lg'],
+  sidebar: ['sm', 'default', 'lg'],
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
@@ -449,6 +453,7 @@ export const CANONICAL_UI_MODULES = [
   ['breadcrumb', 'adopted', 'Hierarchical location trail'],
   ['bubble', 'message', 'What a chat message part’s words stand on'],
   ['button', 'button', 'All action and icon buttons'],
+  ['sidebar', 'sidebar', 'Navigation column anatomy, with one fixed row and trailing slot'],
   ['card', 'adopted', 'Generic grouped surface'],
   ['chart', 'chart', 'Panel-sized quantitative charts'],
   ['composer', 'composer', 'Shared composer presentation shell'],

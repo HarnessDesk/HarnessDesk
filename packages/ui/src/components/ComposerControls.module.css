@@ -13,3 +13,35 @@
 .word {
   max-width: 16ch;
 }
+
+.track {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  overflow: hidden;
+}
+
+.trackAdd { width: var(--hd-composer-track-add); }
+.trackWorkIn { width: var(--hd-composer-track-work-in); }
+.trackWorkInFolded { width: var(--hd-composer-track-work-in-folded); }
+.trackWorkInTight { width: var(--hd-composer-track-work-in-tight); }
+.trackAgent { width: var(--hd-composer-track-agent); }
+.trackAgentFolded { width: var(--hd-composer-track-agent-folded); }
+.trackAgentTight { width: var(--hd-composer-track-agent-tight); }
+.trackPermissions { width: var(--hd-composer-track-permissions); }
+.trackPermissionsFolded { width: var(--hd-composer-track-permissions-folded); }
+.trackPermissionsTight { width: var(--hd-composer-track-permissions-tight); }
+.trackMode { width: var(--hd-composer-track-mode); }
+.trackModeFolded { width: var(--hd-composer-track-mode-folded); }
+.trackModeTight { width: var(--hd-composer-track-mode-tight); }
+.trackExtension { width: var(--hd-composer-track-extension); }
+.trackExtension:empty { width: var(--hd-composer-track-extension-empty); }
+.trackMore { width: var(--hd-composer-track-more); }
+.trackMoreFolded { width: var(--hd-composer-track-more-folded); }
+.trackMoreTight { width: var(--hd-composer-track-more-tight); }
+.trackContext { width: var(--hd-composer-track-context); }
+.trackModel { width: var(--hd-composer-track-model); }
+.trackModelFolded { width: var(--hd-composer-track-model-folded); }
+.trackModelTight { width: var(--hd-composer-track-model-tight); }
+.trackSend { width: var(--hd-composer-track-send); }

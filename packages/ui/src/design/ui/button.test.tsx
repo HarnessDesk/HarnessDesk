@@ -141,6 +141,14 @@ describe('the canonical button', () => {
     expect(navigation).toContain('[&_[data-chevron][data-open]]:rotate-90')
   })
 
+  it('sizes a compact sidebar destination from the navigation type and target tokens', () => {
+    const compact = buttonVariants({ size: 'sidebar-nav' })
+    expect(compact).toContain('h-(--hd-btn-h-sm)')
+    expect(compact).toContain('gap-(--hd-space-0-5)')
+    expect(compact).toContain('p-0')
+    expect(compact).toContain('text-(length:--hd-text-sm)')
+  })
+
   it('owns borderless and default-cursor row postures without a feature override', () => {
     const markup = renderToStaticMarkup(
       <Button variant="row" bordered={false} cursor="default">History row</Button>,

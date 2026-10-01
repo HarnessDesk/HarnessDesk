@@ -184,6 +184,15 @@ it('@ addresses a member, and the token it matched leaves the words', () => {
   expect(menu()).toBeNull()
 })
 
+it('keeps the room toolbar and flexible gap shrinkable in a narrow composer column', () => {
+  container.style.width = 'var(--hd-composer-slots-preview-tight)'
+  rig()
+  const toolbar = container.querySelector<HTMLElement>('[data-slot="composer-tools"]')
+  const gap = container.querySelector<HTMLElement>('[data-slot="composer-gap"]')
+  expect(toolbar?.className.split(/\s+/)).toContain('min-w-0')
+  expect(gap?.className.split(/\s+/)).toContain('min-w-0')
+})
+
 it('an @ that matches nobody says so rather than offering everybody', () => {
   rig()
   act(() => type('@nobody'))
