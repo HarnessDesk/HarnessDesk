@@ -2447,6 +2447,14 @@ const PLANS_CASES = {
     runtime: PLANS_CODEX.id,
     account: 'balance-negative@harnessdesk.app',
     credits: { remaining: -2.15, unit: 'USD' },
+    balanceHistory: {
+      unit: 'USD',
+      points: [
+        { at: new Date(2026, 8, 5, 12).getTime(), remaining: 4.2 },
+        { at: new Date(2026, 8, 14, 12).getTime(), remaining: 0 },
+        { at: new Date(2026, 8, 26, 12).getTime(), remaining: -2.15 },
+      ],
+    },
     billing: { kinds: ['balance'] },
   }),
   'balance-no-draw': plansReport({

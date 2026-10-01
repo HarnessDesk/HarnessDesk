@@ -409,6 +409,38 @@ describe('PlansTable', () => {
     expect(document.querySelector('[data-slot="day-columns"]')).toBeNull()
   })
 
+  it('renders a signed chart for a Balance history that crosses zero', () => {
+    const balance = info('balance-agent', 'Balance Agent')
+    const crossing = report({
+      runtime: balance.id,
+      account: 'bal@example.com',
+      billing: billing(['balance']),
+      credits: { remaining: -1, unit: 'USD' },
+      balanceHistory: {
+        unit: 'USD',
+        points: [
+          { at: NOW - 2 * DAY, remaining: 2 },
+          { at: NOW - DAY, remaining: -1 },
+        ],
+      },
+    })
+    mount(
+      <PlansTable
+        rows={rowsFor([crossing])}
+        byId={byIdOf(balance)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+      />,
+    )
+    act(() => rowFor('bal@example.com').click())
+    expect(document.querySelector('[data-zero-line]')).not.toBeNull()
+    expect(document.querySelector('svg path[stroke="var(--hd-accent)"]')?.getAttribute('d')).toContain('0.00')
+  })
+
   // No limit is "never full, never empty" (docs/usage-dashboard.md) — Free, a
   // Key with no budget, and a shape-less "not reporting" row all leave
   // `leftOf`'s own percent null, and the table's Left cell must draw no

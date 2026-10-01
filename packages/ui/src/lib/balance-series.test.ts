@@ -33,6 +33,55 @@ describe('balanceSeries', () => {
     expect(series.map(({ remaining }) => remaining)).toEqual([0, 7, 7])
   })
 
+  it('carries forward a reading from before the visible window', () => {
+    const now = new Date(2026, 8, 26, 12).getTime()
+    const series = balanceSeries(
+      { unit: 'USD', points: [{ at: new Date(2026, 8, 22, 18).getTime(), remaining: 12 }] },
+      now,
+      3,
+    )
+    expect(series.map(({ remaining, unknown }) => [remaining, unknown])).toEqual([
+      [12, false], [12, false], [12, false],
+    ])
+  })
+
+  it('sorts unsorted readings before choosing the last one in each day', () => {
+    const now = new Date(2026, 8, 26, 12).getTime()
+    const series = balanceSeries(
+      {
+        unit: 'USD',
+        points: [
+          { at: new Date(2026, 8, 25, 19).getTime(), remaining: 8 },
+          { at: new Date(2026, 8, 24, 17).getTime(), remaining: 10 },
+          { at: new Date(2026, 8, 24, 8).getTime(), remaining: 11 },
+        ],
+      },
+      now,
+      3,
+    )
+    expect(series.map(({ remaining, unknown }) => [remaining, unknown])).toEqual([
+      [10, false], [8, false], [8, false],
+    ])
+  })
+
+  it('ignores a future reading', () => {
+    const now = new Date(2026, 8, 26, 12).getTime()
+    const series = balanceSeries(
+      {
+        unit: 'USD',
+        points: [
+          { at: new Date(2026, 8, 25, 12).getTime(), remaining: 10 },
+          { at: new Date(2026, 8, 26, 18).getTime(), remaining: 1 },
+        ],
+      },
+      now,
+      2,
+    )
+    expect(series.map(({ remaining, unknown }) => [remaining, unknown])).toEqual([
+      [10, false], [10, false],
+    ])
+  })
+
   it('uses local calendar midnights across daylight saving changes', () => {
     const now = new Date(2026, 2, 10, 12).getTime()
     const series = balanceSeries(

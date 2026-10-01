@@ -167,7 +167,11 @@ export const BalanceBody = ({
     parts: [day.remaining],
     unknown: day.unknown,
   }))
-  const historyCeiling = Math.max(0, ...historyDays.map((day) => day.remaining))
+  const knownHistoryValues = historyDays.filter((day) => !day.unknown).map((day) => day.remaining)
+  const historyDomain = {
+    min: knownHistoryValues.length ? Math.min(...knownHistoryValues) : 0,
+    max: knownHistoryValues.length ? Math.max(...knownHistoryValues) : 0,
+  }
   const days = runwayDaysOf(report)
   const out = balance !== null && balance <= 0
   return (
@@ -213,7 +217,7 @@ export const BalanceBody = ({
               emptyLabel="No balance recorded"
               mode="line"
               today={historyBuckets.length - 1}
-              axisTicks={[0, historyCeiling / 2, historyCeiling]}
+              domain={historyDomain}
             />
             <ChartAxis
               start={historyDays[0] ? dayLabelWithYear(historyDays[0].day) : ''}
