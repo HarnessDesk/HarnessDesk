@@ -1,4 +1,4 @@
-import { act, type ReactNode } from 'react'
+import { act, type ComponentType, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
@@ -297,4 +297,17 @@ describe('Escape', () => {
     expect(escape.defaultPrevented).toBe(true)
     expect(document.body.querySelector('[data-slot="popover-popup"]')).toBeNull()
   })
+})
+
+it('aligns a trailing icon trigger to the row text column', () => {
+  const EdgePopover = Popover as ComponentType<Record<string, unknown>>
+  act(() => root.render(
+    <EdgePopover label={<span aria-hidden="true">⌕</span>} title="Display controls"
+      triggerVariant={{ variant: 'muted', size: 'icon-sm' }} triggerEdge="end" triggerEdgeGlyph={13}>
+      {() => <span>Controls</span>}
+    </EdgePopover>,
+  ))
+  const button = trigger()
+  expect(button.className).toContain('me-(--edge-pull)')
+  expect(button.style.getPropertyValue('--edge-pull')).toBe('calc((var(--hd-btn-h-sm) - 13px) / -2)')
 })

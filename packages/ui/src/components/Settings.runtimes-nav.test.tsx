@@ -78,7 +78,8 @@ const mount = (accountsByRuntime: AppSnapshot['accountsByRuntime']): void => {
 const runtimesRow = (): HTMLElement | undefined =>
   [...container.querySelectorAll('button')].find((node) => node.textContent?.trim().startsWith('Runtimes'))
 
-const dotOf = (row: HTMLElement | undefined): Element | null => row?.querySelector('[data-slot="dot"]') ?? null
+const dotOf = (row: HTMLElement | undefined): Element | null =>
+  row?.closest('[data-slot="sidebar-menu-item"]')?.querySelector('[data-slot="dot"]') ?? null
 
 it('does not light for an agent that has not answered yet', () => {
   // Absent from accountsByRuntime altogether: still loading, or a read that

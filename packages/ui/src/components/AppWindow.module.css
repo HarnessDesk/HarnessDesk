@@ -73,45 +73,12 @@
   margin-bottom: var(--hd-page-group-gap, var(--hd-space-4)); /* desk: canonical One UI System scale */
 }
 
-.winNavItem {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  gap: 10px;
-  width: 100%;
-
-  text-align: left;
-
+.winNavBadge {
+  width: auto; /* desk: let the shared trailing badge size to its contents. */
+  gap: var(--hd-space-1); /* desk: keep state marks compact inside that slot. */
 }
 
-/*
- * The page you are on.
- *
- * This one was worse than the sidebar's. It read
- * `--hd-hover-solid` — which is, by name and by value,
- * the hover fill — so selected and hovered were the same paint, and running
- * the pointer down this column lit rows indistinguishable from the one being
- * read. Both interfaces now take the sidebar's answer to the question, and
- * Studio's is the brand.
- */
-
-.winNavIcon {
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-}
-
-/* The icon and count riding in a selected row. Tertiary grey survives a grey
-   wash and is unreadable on the brand blue, so the quieter ink is its own
-   token and both interfaces answer it. */
-.winNavLabel {
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
 .winNavCount {
-  margin-left: auto;
   flex: none;
 }
 

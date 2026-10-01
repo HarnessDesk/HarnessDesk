@@ -38,7 +38,7 @@ it('keeps Archive self-explanatory without a subtitle', () => {
   const runtime = {
     id: 'agent',
     name: 'Agent',
-    capabilities: { deleteHistory: true },
+    capabilities: {},
     presentation: { name: 'Agent' },
   } as unknown as RuntimeInfo
   const summary = {
@@ -58,7 +58,7 @@ it('keeps Archive self-explanatory without a subtitle', () => {
     activeRuntime: runtime.id,
     runtimes: [runtime],
     history: [summary],
-  } as AppSnapshot
+  } as unknown as AppSnapshot
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
@@ -86,6 +86,237 @@ it('keeps Archive self-explanatory without a subtitle', () => {
     (button) => button.textContent?.startsWith('Archive'),
   )
   expect(archive?.textContent).toBe('Archive')
+})
+
+it('keeps one tab stop and moves row focus with arrows, Home, End, and type-ahead', () => {
+  const runtime = { id: 'agent', name: 'Agent', capabilities: {}, presentation: { name: 'Agent' } } as unknown as RuntimeInfo
+  const summary = (id: string, title: string): SessionSummary => ({
+    id, runtime: runtime.id, title, preview: null, cwd: '/repo',
+    status: { type: 'notLoaded' }, createdAt: 1, updatedAt: 2, archived: false,
+  }) as unknown as SessionSummary
+  const snapshot = { ...emptySnapshot(), status: 'open', activeRuntime: runtime.id,
+    runtimes: [runtime], history: [summary('one', 'Alpha'), summary('two', 'Bravo'), summary('three', 'Charlie')] } as unknown as AppSnapshot
+  const openSession = vi.fn()
+  const toggleCollapsed = vi.fn()
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, openSession, toggleCollapsed } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
+  const rows = [...container.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')]
+  expect(rows[0]!.tabIndex).toBe(0)
+  const alpha = rows.find((row) => row.textContent?.trim() === 'Alpha')!
+  const bravo = rows.find((row) => row.textContent?.trim() === 'Bravo')!
+  const charlie = rows.find((row) => row.textContent?.trim() === 'Charlie')!
+  expect(bravo.tabIndex).toBe(-1)
+  expect(container.querySelector('[data-slot="sidebar-menu-action"]')?.getAttribute('tabindex')).toBe('-1')
+
+  act(() => rows[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })))
+  expect(document.activeElement).toBe(alpha)
+  act(() => alpha.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true })))
+  expect(document.activeElement).toBe(rows[0])
+
+  act(() => alpha.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })))
+  expect(document.activeElement).toBe(bravo)
+  act(() => bravo.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', bubbles: true })))
+  expect(document.activeElement).toBe(charlie)
+  act(() => charlie.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true })))
+  expect(document.activeElement).toBe(rows[0])
+  act(() => (document.activeElement as HTMLButtonElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })))
+  expect(document.activeElement).toBe(charlie)
+  act(() => charlie.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
+  expect(openSession).toHaveBeenCalledWith('three', { runtime: runtime.id })
+  act(() => rows[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })))
+  expect(toggleCollapsed).toHaveBeenCalled()
+})
+
+it('keeps room opening separate from its disclosure in the tree keyboard model', () => {
+  const member = summary({ id: 'room-member' })
+  const key = String(sessionKey(member.runtime, member.id))
+  const roomEntry = room({ id: 'room', name: 'Build', members: [key] })
+  const { container: tree, store } = treeWith([roomEntry], [member], [], { collapsed: ['room'] })
+  const opener = roomRow(tree, 'Build') as HTMLButtonElement
+  const disclosure = [...tree.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-action"]')].find((one) => one.getAttribute('aria-label')?.includes('agents in Build'))!
+  expect(opener.hasAttribute('aria-expanded')).toBe(false)
+  expect(disclosure.getAttribute('aria-expanded')).toBe('false')
+
+  act(() => opener.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
+  expect(store.openTeamRoom).toHaveBeenCalledWith('room')
+  act(() => opener.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })))
+  expect(store.openTeamRoom).toHaveBeenCalledTimes(1)
+  expect(store.toggleCollapsed).toHaveBeenCalledWith('room')
+})
+
+it('ArrowLeft collapses an expanded room from its opening row', () => {
+  const member = summary({ id: 'room-member' })
+  const key = String(sessionKey(member.runtime, member.id))
+  const { container: tree, store } = treeWith([room({ id: 'room', name: 'Build', members: [key] })], [member])
+  const opener = roomRow(tree, 'Build') as HTMLButtonElement
+  act(() => opener.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true })))
+  expect(store.toggleCollapsed).toHaveBeenCalledWith('room')
+  expect(store.openTeamRoom).not.toHaveBeenCalled()
+})
+
+it('ArrowLeft from a room member focuses the room row before collapsing it', () => {
+  const member = summary({ id: 'room-member' })
+  const key = String(sessionKey(member.runtime, member.id))
+  let updateSnapshot: ((patch: Partial<AppSnapshot>) => void) | undefined
+  let focusedWhenCollapsed: Element | null = null
+  const toggleCollapsed = vi.fn((id: string) => {
+    focusedWhenCollapsed = document.activeElement
+    updateSnapshot?.({ listPrefs: { ...emptySnapshot().listPrefs, collapsed: [id] } })
+  })
+  const { container: tree, store, update } = treeWith(
+    [room({ id: 'room', name: 'Build', members: [key] })],
+    [member],
+    [],
+    {},
+    undefined,
+    null,
+    new Map(),
+    { toggleCollapsed },
+  )
+  updateSnapshot = update
+  const opener = roomRow(tree, 'Build') as HTMLButtonElement
+  const memberRow = [...tree.querySelectorAll<HTMLButtonElement>('[data-nested="true"] [data-slot="sidebar-menu-button"]')]
+    .find((row) => row.textContent?.trim() === 'room-member')!
+  memberRow.focus()
+  expect(document.activeElement).toBe(memberRow)
+
+  act(() => memberRow.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true })))
+
+  expect(store.toggleCollapsed).toHaveBeenCalledWith('room')
+  expect(focusedWhenCollapsed).toBe(opener)
+  expect(document.activeElement).toBe(opener)
+  expect(tree.querySelector('[data-nested="true"] [data-slot="sidebar-menu-button"]')).toBeNull()
+  expect(tree.querySelector('[data-slot="sidebar-menu-action"][aria-label*="agents in Build"]')?.getAttribute('aria-expanded')).toBe('false')
+})
+
+it('uses each nested room member as its own navigation row inside a virtual project', () => {
+  const first = summary({ id: 'first-member', updatedAt: 1000 })
+  const second = summary({ id: 'second-member', updatedAt: 999 })
+  const members = [String(sessionKey(first.runtime, first.id)), String(sessionKey(second.runtime, second.id))]
+  const loose = Array.from({ length: 51 }, (_, index) => summary({ id: `loose-${index}`, updatedAt: 500 - index }))
+  const { container: tree } = treeWith([room({ id: 'virtual-room', name: 'Virtual room', updatedAt: 2000, members })], [first, second, ...loose])
+  for (let page = 0; page < 2; page += 1) {
+    const more = [...tree.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')].find((one) => /more$/.test(one.textContent?.trim() ?? ''))!
+    act(() => more.click())
+  }
+  const mounted = tree.querySelector<HTMLButtonElement>('[data-virtual-index] [data-slot="sidebar-menu-button"]')!
+  act(() => mounted.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true })))
+  const labels = [...tree.querySelectorAll<HTMLElement>('[data-slot="sidebar-menu-label"]')].map((one) => one.textContent?.trim())
+  expect(labels).toContain('first-member')
+  const firstButton = [...tree.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')].find((one) => one.textContent?.trim() === 'first-member')!
+  act(() => firstButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })))
+  expect(document.activeElement?.textContent?.trim()).toBe('second-member')
+})
+
+it('uses the rendered room and live session names for virtual type-ahead', () => {
+  const renamed = summary({ id: 'renamed', title: 'Old title', updatedAt: 1000 })
+  const rest = Array.from({ length: 51 }, (_, index) => summary({ id: `other-${index}`, updatedAt: 500 - index }))
+  const board = room({ id: 'goal-room', name: 'Old room name', updatedAt: 2000 })
+  const baseGoal = triggerGoalView(board)
+  const goal: GoalView = { ...baseGoal, goal: { ...baseGoal.goal, sentence: 'Visible Goal Title' } }
+  const snapshot = {
+    ...emptySnapshot(), status: 'open', workspace: { path: '/repo', name: 'repo', lastOpenedAt: 1 },
+    workspaces: [{ path: '/repo', name: 'repo', lastOpenedAt: 1 }], history: [renamed, ...rest],
+    sessions: new Map([[sessionKey(renamed.runtime, renamed.id), { ...renamed, title: 'Live renamed title' }]]),
+    teams: new Map([[board.id, board]]), goals: new Map([[board.id, goal]]),
+  } as unknown as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
+  for (let page = 0; page < 2; page += 1) {
+    const more = [...container.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')].find((one) => /more$/.test(one.textContent?.trim() ?? ''))!
+    act(() => more.click())
+  }
+  const project = container.querySelector<HTMLElement>('[data-virtual-project="true"][data-virtual-labels]')!
+  const labels = JSON.parse(project.dataset.virtualLabels ?? '[]') as string[]
+  expect(labels).toContain('Live renamed title')
+  expect(labels).toContain('Visible Goal Title')
+})
+
+it('uses a plain fallback when a history row outlives its runtime', () => {
+  const row = summary({ id: 'orphan', runtime: runtimeId('removed-runtime-id'), title: 'Orphan conversation' })
+  const { container: tree } = treeWith([], [row])
+  const button = [...tree.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')].find((one) => one.textContent?.trim() === 'Orphan conversation')!
+  expect(button.title).not.toContain('removed-runtime-id')
+  act(() => button.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })))
+  const refusal = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((one) => one.textContent?.includes('Delete'))!
+  expect(refusal.textContent).not.toContain('removed-runtime-id')
+})
+
+it('moves into an unmounted windowed conversation and mounts it before focusing', () => {
+  const runtime = { id: 'agent', name: 'Agent', capabilities: {}, presentation: { name: 'Agent' } } as unknown as RuntimeInfo
+  const summary = (index: number): SessionSummary => ({
+    id: `session-${index}`, runtime: runtime.id, title: `Session${index}`, preview: null, cwd: '/repo',
+    status: { type: 'notLoaded' }, createdAt: 1, updatedAt: index, archived: false,
+  }) as unknown as SessionSummary
+  const snapshot = { ...emptySnapshot(), status: 'open', activeRuntime: runtime.id,
+    runtimes: [runtime], history: Array.from({ length: 60 }, (_, index) => summary(index)) } as unknown as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
+
+  const more = () => [...container.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')]
+    .find((button) => /more$/.test(button.textContent?.trim() ?? ''))!
+  for (let page = 0; page < 2; page += 1) {
+    const button = more()
+    act(() => button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
+  }
+
+  const target = container.querySelector<HTMLButtonElement>('[data-virtual-index="30"] [data-slot="sidebar-menu-button"]')
+  expect(target).not.toBeNull()
+  expect(target?.closest('[data-virtual-count]')?.getAttribute('data-virtual-count')).toBe('55')
+  const windowed = container.querySelector('[data-virtual-project="true"]')!
+  const focusRow = (key: string) => {
+    const active = document.activeElement as HTMLButtonElement
+    act(() => active.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })))
+  }
+  act(() => target!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true })))
+  expect((document.activeElement as HTMLElement).closest('[data-virtual-index]')?.getAttribute('data-virtual-index')).toBe('54')
+  act(() => (document.activeElement as HTMLButtonElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true })))
+  expect((document.activeElement as HTMLElement).closest('[data-virtual-index]')?.getAttribute('data-virtual-index')).toBe('0')
+  act(() => (document.activeElement as HTMLButtonElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true })))
+  for (const key of 'Session59') focusRow(key)
+  expect((document.activeElement as HTMLElement).closest('[data-virtual-index]')?.getAttribute('data-virtual-index')).toBe('0')
+
+  const mounted = [...windowed.querySelectorAll<HTMLElement>('[data-virtual-index]')]
+  const lastIndex = Number(mounted.at(-1)?.dataset.virtualIndex)
+  const next = lastIndex + 1
+  expect(windowed.querySelector(`[data-virtual-index="${next}"]`)).toBeNull()
+  const lastButton = mounted.at(-1)?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')!
+  act(() => lastButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })))
+  const focused = document.activeElement as HTMLElement
+  expect(focused.closest('[data-virtual-index]')?.getAttribute('data-virtual-index')).toBe(String(next))
+  expect(windowed.querySelector(`[data-virtual-index="${next}"]`)).not.toBeNull()
+})
+
+it('uses one fixed trailing slot for conversation state and actions', () => {
+  const runtime = { id: 'agent', name: 'Agent', capabilities: {}, presentation: { name: 'Agent' } } as unknown as RuntimeInfo
+  const summary = (id: string, status: 'idle' | 'active'): SessionSummary => ({
+    id, runtime: runtime.id, title: id, preview: null, cwd: '/repo',
+    status: { type: status }, createdAt: 1, updatedAt: 2, archived: false,
+  }) as unknown as SessionSummary
+  const waiting = summary('waiting', 'idle')
+  const waitingKey = sessionKey(runtime.id, sessionId('waiting'))
+  const snapshot = { ...emptySnapshot(), status: 'open', activeRuntime: runtime.id,
+    runtimes: [runtime], history: [summary('quiet', 'idle'), summary('busy', 'active'), waiting],
+    sessions: new Map([[waitingKey, { ...waiting, turns: [] } as unknown as Session]]),
+    approvals: [{ key: waitingKey, approval: {} }],
+  } as unknown as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
+  const rows = [...container.querySelectorAll<HTMLElement>('[data-slot="sidebar-menu-item"]')]
+  const quiet = rows.find((row) => row.textContent?.includes('quiet'))!
+  const busy = rows.find((row) => row.textContent?.includes('busy'))!
+  const needsYou = rows.filter((row) => row.textContent?.includes('waiting'))
+  expect(quiet.querySelector('[data-slot="sidebar-menu-badge"]')).toBeNull()
+  expect(busy.querySelectorAll('[data-slot="sidebar-menu-badge"]')).toHaveLength(1)
+  expect(needsYou.length).toBeGreaterThan(0)
+  for (const row of needsYou) expect(row.querySelectorAll('[data-slot="sidebar-menu-badge"]')).toHaveLength(1)
+  const label = busy.querySelector('[data-slot="sidebar-menu-label"]')!
+  const classes = label.className
+  const action = busy.querySelector<HTMLElement>('[data-slot="sidebar-menu-action"]')!
+  expect(action.parentElement).toBe(busy)
+  action.focus()
+  expect(busy.querySelector('[data-slot="sidebar-menu-label"]')).toBe(label)
+  expect(label.className).toBe(classes)
 })
 
 it('a conversation with work still running in the background wears a green glyph, and says so on hover', () => {
@@ -143,11 +374,11 @@ it('a conversation with work still running in the background wears a green glyph
     if (!found) throw new Error(`no row called ${title}`)
     return found as HTMLButtonElement
   }
-  const glyph = (title: string): HTMLElement | null => row(title).querySelector('[data-slot="dot"]')
+  const glyph = (title: string): HTMLElement | null => row(title).parentElement?.querySelector('[data-slot="dot"]') ?? null
   expect(glyph('Busy one')?.hasAttribute('data-tasks')).toBe(true)
   expect(row('Busy one').title).toContain('running in the background')
   // Finished work is not a reason to look: only running work earns the dot.
-  expect(glyph('Quiet one')?.hasAttribute('data-tasks')).toBe(false)
+  expect(glyph('Quiet one')).toBeNull()
   expect(row('Quiet one').title).not.toContain('background')
 })
 
@@ -213,8 +444,8 @@ it('two flow seats of one role, on different runtimes, read apart on their own l
     button.textContent?.includes('Code reviewer'),
   )
   expect(rows).toHaveLength(2)
-  expect([...rows[0]!.querySelectorAll('[data-slot="chip"]')].map((chip) => chip.textContent)).toEqual(['Claude'])
-  expect([...rows[1]!.querySelectorAll('[data-slot="chip"]')].map((chip) => chip.textContent)).toEqual(['DeepSeek'])
+  expect(rows[0]!.querySelector('[aria-label="Claude"]')).not.toBeNull()
+  expect(rows[1]!.querySelector('[aria-label="DeepSeek"]')).not.toBeNull()
   for (const row of rows) expect(row.querySelector('[class*="rowMeta"]')).toBeNull()
 
   // A title only one row wears already says which conversation it is: no
@@ -261,6 +492,7 @@ const room = (over: {
   root?: string
   realRoot?: string
   intents?: { state: string }[]
+  channel?: { kind: string; state: string }[]
 }) =>
   ({
     id: over.id,
@@ -271,7 +503,7 @@ const room = (over: {
     members: over.members ?? [],
     messaging: true,
     intents: over.intents ?? [],
-    channel: [],
+    channel: over.channel ?? [],
   }) as unknown as TeamState
 
 const treeWith = (
@@ -290,8 +522,8 @@ const treeWith = (
   goals: ReadonlyMap<string, GoalView> = new Map(),
   /** Extra store methods a test needs answered — `RoomOrigin`'s `triggerGoal`, say. */
   storeOverrides: Partial<AppStore> = {},
-): { container: HTMLElement; store: AppStore } => {
-  const snapshot = {
+): { container: HTMLElement; store: AppStore; update: (patch: Partial<AppSnapshot>) => void } => {
+  let snapshot = {
     ...emptySnapshot(),
     status: 'open',
     workspace: open,
@@ -303,8 +535,12 @@ const treeWith = (
     teams: new Map(rooms.map((one) => [one.id, one])),
     goals,
   } as unknown as AppSnapshot
+  const listeners = new Set<() => void>()
   const store = {
-    subscribe: () => () => {},
+    subscribe: (listener: () => void) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
     getSnapshot: () => snapshot,
     toggleCollapsed: vi.fn(),
     setOthersOpen: vi.fn(),
@@ -320,8 +556,89 @@ const treeWith = (
       </StoreProvider>,
     )
   })
-  return { container, store }
+  return {
+    container,
+    store,
+    update: (patch: Partial<AppSnapshot>) => {
+      snapshot = { ...snapshot, ...patch } as typeof snapshot
+      act(() => listeners.forEach((listener) => listener()))
+    },
+  }
 }
+
+it('draws a Working conversation once and removes it from the project count', () => {
+  const active = summary({
+    id: 'session-active',
+    status: { type: 'active' },
+  }) as SessionSummary & { turns: unknown[] }
+  active.turns = [{ id: 't1', status: 'inProgress', items: [{ type: 'reasoning', text: 'working' }] }]
+  const others = Array.from({ length: 5 }, (_, index) => summary({ id: `session-${index}` }))
+  const { container: tree } = treeWith([], [active, ...others], [active], {}, undefined, sessionKey('codex', sessionId(active.id)))
+
+  expect(rowTitles(tree).filter((title) => title === 'session-active')).toHaveLength(1)
+  expect(tree.querySelector('[data-tone="working"]')).toBeTruthy()
+  expect([...tree.querySelectorAll('button')].some((button) => button.textContent?.endsWith('more'))).toBe(false)
+  expect(tree.querySelectorAll('[data-active="true"]')).toHaveLength(1)
+})
+
+it('keeps a lifted room member out of the nested room copy', () => {
+  const active = summary({
+    id: 'session-room-member',
+    status: { type: 'active' },
+  }) as SessionSummary & { turns: unknown[] }
+  active.turns = [{ id: 't1', status: 'inProgress', items: [{ type: 'reasoning', text: 'working' }] }]
+  const { container: tree } = treeWith(
+    [room({ id: 'r1', name: 'Release room', members: [sessionKey('codex', active.id)] })],
+    [active],
+    [active],
+  )
+
+  expect(rowTitles(tree).filter((title) => title === 'session-room-member')).toHaveLength(1)
+  expect(roomRow(tree, 'Release room')).toBeTruthy()
+})
+
+it('returns a Working conversation to its project when its turn ends', () => {
+  const active = summary({
+    id: 'session-active',
+    status: { type: 'active' },
+  }) as SessionSummary & { turns: unknown[] }
+  active.turns = [{ id: 't1', status: 'inProgress', items: [{ type: 'reasoning', text: 'working' }] }]
+  const view = treeWith([], [active], [active])
+  expect(rowTitles(view.container).filter((title) => title === 'session-active')).toHaveLength(1)
+  const completed = {
+    ...active,
+    status: { type: 'idle' },
+    turns: [{ id: 't1', status: 'completed', items: [] }],
+  } as unknown as SessionSummary
+  view.update({
+    sessions: new Map(),
+    history: [completed],
+  })
+  const project = view.container.querySelector('[class*="nested"]')
+  expect(project && rowTitles(project as HTMLElement)).toEqual(['session-active'])
+  expect(view.container.querySelector('[data-tone="working"]')).toBeNull()
+})
+
+it('draws a pinned conversation once in Pinned, preserving pin order and hiding the empty group', () => {
+  const first = summary({ id: 'session-first' })
+  const second = summary({ id: 'session-second' })
+  const working = summary({ id: 'session-working', status: { type: 'active' } }) as SessionSummary & { turns: unknown[] }
+  working.turns = [{ id: 't1', status: 'inProgress', items: [{ type: 'reasoning', text: 'working' }] }]
+  const empty = treeWith([], [first])
+  expect(empty.container.querySelector('[data-sidebar-band="pinned"]')).toBeNull()
+
+  const view = treeWith([], [first, second, working], [working], {
+    pinnedSessions: [sessionKey('codex', second.id), sessionKey('codex', first.id)],
+  })
+  const pinned = view.container.querySelector('[data-sidebar-band="pinned"]')
+  expect(pinned).toBeTruthy()
+  expect(rowTitles(pinned as HTMLElement)).toEqual(['session-second', 'session-first'])
+  const workingBand = view.container.querySelector('[data-tone="working"]')
+  expect(Boolean(workingBand!.compareDocumentPosition(pinned!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
+  expect(rowTitles(view.container).filter((title) => title === 'session-first')).toHaveLength(1)
+  expect(rowTitles(view.container).filter((title) => title === 'session-second')).toHaveLength(1)
+  expect(view.container.querySelectorAll('[data-active="true"]')).toHaveLength(0)
+})
 
 it('reveals the active session in a collapsed project', () => {
   const active = summary({ id: 'active' })
@@ -354,6 +671,70 @@ it('opens Other projects when the active session belongs to a far project', () =
   )
 
   expect(store.setOthersOpen).toHaveBeenCalledWith(true)
+  const fold = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.startsWith('Other projects'))
+  expect(fold?.querySelector('[data-slot="sidebar-menu-icon"]')).not.toBeNull()
+  expect(fold?.closest('[data-sidebar="group"]')).toBeNull()
+  expect(fold?.parentElement?.querySelector('[data-slot="sidebar-menu-badge"]')?.textContent).toBe('4')
+})
+
+it('aligns the N more row with the project and conversation label column', () => {
+  const sessions = Array.from({ length: 6 }, (_, index) => summary({ id: `session-${index + 1}`, updatedAt: index + 1 }))
+  const { container: tree } = treeWith([], sessions)
+  const more = [...tree.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === '1 more')
+  expect(more?.querySelector('[data-slot="sidebar-menu-icon"]')).not.toBeNull()
+})
+
+it('reveals 25 conversations at a time and reports how many remain', () => {
+  const sessions = Array.from({ length: 40 }, (_, index) => summary({ id: `session-${index + 1}`, updatedAt: index + 1 }))
+  const { container: tree } = treeWith([], sessions)
+  const rows = () => tree.querySelectorAll('[data-region="session-row"]').length
+  const more = () => [...tree.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === '35 more')
+
+  expect(rows()).toBe(5)
+  expect(more()).toBeTruthy()
+  act(() => more()!.click())
+  expect(rows()).toBe(30)
+  expect([...tree.querySelectorAll<HTMLButtonElement>('button')].some((button) => button.textContent?.trim() === '10 more')).toBe(true)
+  act(() => [...tree.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === '10 more')!.click())
+  expect(rows()).toBe(40)
+  expect([...tree.querySelectorAll<HTMLButtonElement>('button')].some((button) => button.textContent?.trim() === 'more')).toBe(false)
+})
+
+it('windows a project after the revealed list grows past 50 rows', () => {
+  const sessions = Array.from({ length: 70 }, (_, index) => summary({ id: `session-${index + 1}`, updatedAt: index + 1 }))
+  const { container: tree } = treeWith([], sessions)
+  const clickMore = (label: string) => act(() => {
+    [...tree.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === label)!.click()
+  })
+
+  clickMore('65 more')
+  clickMore('40 more')
+  expect([...tree.querySelectorAll('[data-region="session-row"]')].length).toBeLessThan(55)
+  expect([...tree.querySelectorAll<HTMLButtonElement>('button')].some((button) => button.textContent?.trim() === '15 more')).toBe(true)
+})
+
+it('only mutates the row whose selected conversation slice changed', () => {
+  const sessions = [summary({ id: 'changed' }), summary({ id: 'untouched' })]
+  const { container: tree, update } = treeWith([], sessions)
+  const changed = tree.querySelector<HTMLElement>('[data-region="session-row"] button')!
+  const untouched = [...tree.querySelectorAll<HTMLElement>('[data-region="session-row"] button')][1]!
+  const changedMutations: MutationRecord[] = []
+  const untouchedMutations: MutationRecord[] = []
+  const changedObserver = new MutationObserver((records) => changedMutations.push(...records))
+  const untouchedObserver = new MutationObserver((records) => untouchedMutations.push(...records))
+  changedObserver.observe(changed, { attributes: true, childList: true, characterData: true, subtree: true })
+  untouchedObserver.observe(untouched, { attributes: true, childList: true, characterData: true, subtree: true })
+
+  update({ activeSessionKey: sessionKey('codex', sessionId('changed')) })
+  // The active row is selected and gains aria-current. The other row's DOM is
+  // unchanged, proving the store event did not fan out through every row.
+  return Promise.resolve().then(() => {
+    expect(changed.getAttribute('aria-current')).toBe('page')
+    expect(changedMutations.length).toBeGreaterThan(0)
+    expect(untouchedMutations).toHaveLength(0)
+    changedObserver.disconnect()
+    untouchedObserver.disconnect()
+  })
 })
 
 it('expands the active session beyond the five-row preview', () => {
@@ -377,6 +758,27 @@ it('expands the active session beyond the five-row preview', () => {
     (button) => button.textContent === 'active',
   )
   expect(row?.hasAttribute('data-active')).toBe(true)
+})
+
+it('reveals and scrolls an active session beyond the next 25 rows', () => {
+  const scrollIntoView = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {})
+  try {
+    const active = summary({ id: 'active-far', updatedAt: 1 })
+    const sessions = [
+      ...Array.from({ length: 35 }, (_, index) => summary({ id: `session-${index + 1}`, updatedAt: index + 3 })),
+      active,
+    ]
+    const { container: tree } = treeWith(
+      [], sessions, [], {}, undefined,
+      sessionKey('codex', sessionId('active-far')),
+    )
+
+    expect(tree.querySelectorAll('[data-region="session-row"]')).toHaveLength(36)
+    expect(tree.querySelector('button[data-active]')?.textContent).toBe('active-far')
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+  } finally {
+    scrollIntoView.mockRestore()
+  }
 })
 
 it('scrolls the active session row into view', () => {
@@ -459,7 +861,7 @@ it('names each “Needs you” row by its Goal, with a short reason as a chip on
 
   const waiting = container.querySelector('[data-tone="waiting"]')
   if (!waiting) throw new Error('no Needs you band rendered')
-  const rows = [...waiting.querySelectorAll<HTMLElement>('[class*="rowHead"]')]
+  const rows = [...waiting.querySelectorAll<HTMLElement>('[data-slot="sidebar-menu-label"]')]
   expect(rows.map((one) => one.textContent)).toEqual(['Issue #42Approval', 'Issue #43Approval'])
   expect(waiting.textContent).not.toContain('from trigger')
   expect(waiting.textContent).not.toContain('Triager')
@@ -485,7 +887,7 @@ it('draws a trigger Goal’s row on one line: its subject and one state chip, no
   await act(async () => { await Promise.resolve() })
 
   const row = roomRow(tree, 'Issue #43')
-  const head = row.querySelector('[class*="rowHead"]')
+  const head = row.querySelector('[data-slot="sidebar-menu-label"]')
   expect(head?.textContent).toBe('Issue #43Working')
   expect(row.querySelectorAll('[data-slot="chip"]')).toHaveLength(1)
   expect(row.querySelector('[class*="rowMeta"]')).toBeNull()
@@ -504,11 +906,10 @@ it('a room is a row under its project, and its members hang off it', () => {
 
   const row = roomRow(tree, 'Checkout rewrite')
   expect(row.textContent).toContain('Checkout rewrite')
-  expect(row.getAttribute('data-slot')).toBe('button')
-  expect(row.getAttribute('data-variant')).toBe('navigation')
-  expect(row.tagName).toBe('DIV')
+  expect(row.getAttribute('data-slot')).toBe('sidebar-menu-button')
+  expect(row.tagName).toBe('BUTTON')
   // The member is inside the room's own block; the loose one is not.
-  const nested = row.parentElement?.querySelector('[class*="nested"]')
+  const nested = row.closest('[data-slot="sidebar-menu-item"]')?.querySelector('[data-slot="sidebar-menu"]')
   expect(nested?.textContent).toContain('session-1')
   expect(nested?.textContent).not.toContain('session-2')
 })
@@ -557,20 +958,19 @@ it('the twisty hides the members without opening the room', () => {
     [room({ id: 'r1', name: 'Checkout rewrite', members: [sessionKey('codex', sessionId('session-1'))] })],
     [summary({ id: 'session-1' })],
   )
-  const twisty = roomRow(tree, 'Checkout rewrite').querySelector('button')
+  const twisty = roomRow(tree, 'Checkout rewrite').parentElement?.querySelector('[data-slot="sidebar-menu-action"]')
   act(() => (twisty as HTMLButtonElement).click())
 
   expect(store.toggleCollapsed).toHaveBeenCalledWith('r1')
   expect(store.openTeamRoom).not.toHaveBeenCalled()
 })
 
-/* The room row is a `div` wearing the navigation button, not a native button,
-   so the keys a button answers for free are its own code, and its nested
-   twisty's keys bubble through it. Each is pinned here. */
+/* The row and the disclosure are sibling buttons; each answers its own keys. */
 it('the room row answers its own keys and leaves the twisty theirs', () => {
   const { container: tree, store } = treeWith([room({ id: 'r1', name: 'Checkout rewrite' })])
   const row = roomRow(tree, 'Checkout rewrite')
-  expect(row.tabIndex).toBe(0)
+  expect([...tree.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')][0]!.tabIndex).toBe(0)
+  expect(row.tabIndex).toBe(-1)
 
   // Enter and Space open the room, and Space does not also scroll the list.
   for (const key of ['Enter', ' ']) {
@@ -581,9 +981,8 @@ it('the room row answers its own keys and leaves the twisty theirs', () => {
   expect(store.openTeamRoom).toHaveBeenCalledTimes(2)
   expect(store.openTeamRoom).toHaveBeenLastCalledWith('r1')
 
-  // The twisty's own Enter and Space bubble to the row; they must not open the
-  // room, and the row must not cancel them, or the twisty's click is lost.
-  const twisty = row.querySelector<HTMLButtonElement>('button[aria-expanded]')!
+  // The disclosure's keys must not open the room.
+  const twisty = row.parentElement?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-action"]')!
   for (const key of ['Enter', ' ']) {
     const press = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
     act(() => { twisty.dispatchEvent(press) })
@@ -595,15 +994,12 @@ it('the room row answers its own keys and leaves the twisty theirs', () => {
 })
 
 it('the twisty answers the keyboard too, and the row does not answer for it', () => {
-  /* The chevron is a nested button, so its Enter or Space keydown bubbles to
-     the row — focusing it and pressing either opened the room, and Space's
-     `preventDefault` on the row also swallowed the click that would have
-     toggled. The earlier test only sent `.click()` and missed all of it. */
+  /* The disclosure is a sibling button, so its keys stay separate. */
   const { container: tree, store } = treeWith(
     [room({ id: 'r1', name: 'Checkout rewrite', members: [sessionKey('codex', sessionId('session-1'))] })],
     [summary({ id: 'session-1' })],
   )
-  const twisty = roomRow(tree, 'Checkout rewrite').querySelector('button') as HTMLButtonElement
+  const twisty = roomRow(tree, 'Checkout rewrite').parentElement?.querySelector('[data-slot="sidebar-menu-action"]') as HTMLButtonElement
 
   for (const key of ['Enter', ' ']) {
     act(() => {
@@ -655,7 +1051,7 @@ it('orders rooms and loose conversations together by recency', () => {
   expect(rows).toEqual(['Room Alpha', 'Loose', 'Room Zeta'])
 })
 
-it('puts pinned conversations before rooms and keeps their pin order', () => {
+it('moves pinned conversations out of the project while leaving the room row', () => {
   const first = summary({ id: 'Pinned first', updatedAt: 10 })
   const second = summary({ id: 'Pinned second', updatedAt: 100 })
   const { container: tree } = treeWith(
@@ -672,7 +1068,7 @@ it('puts pinned conversations before rooms and keeps their pin order', () => {
     if (roomRow) return roomRow.getAttribute('aria-label')
     return child.querySelector('button')?.textContent?.trim() ?? null
   })
-  expect(rows).toEqual(['Pinned second', 'Pinned first', 'Room Recent room'])
+  expect(rows).toEqual(['Room Recent room'])
 })
 
 it('a room in a project the tree was not already showing still gets a row', () => {
@@ -857,14 +1253,11 @@ it('a room in a project the tree drew for its own sake keeps its members under a
   // No history at all, so this project is in the tree only because the room is.
   const { container: tree } = treeWith([both], [], [codex, claude], { agent: runtimeId('codex') })
   const row = roomRow(tree, 'Checkout rewrite')
-  expect(row.parentElement?.textContent).not.toContain('No agents in here yet')
+  expect(row.closest('[data-slot="sidebar-menu-item"]')?.textContent).not.toContain('No agents in here yet')
   // The filter still decides *which* members: Codex's is kept, Claude's is not.
-  expect(rowTitles(row.parentElement as HTMLElement)).toEqual(['session-1'])
-  const count = [...tree.querySelectorAll('[class*="groupCount"]')].find(
-    (one) => one.closest('[class*="roomRow"]') !== null,
-  )
-  expect(count?.textContent).toBe('1')
-  expect(count?.getAttribute('title')).toBe(
+  expect(rowTitles(row.closest('[data-slot="sidebar-menu-item"]') as HTMLElement)).toEqual(['session-1'])
+  const disclosure = row.parentElement?.querySelector('[data-slot="sidebar-menu-action"]')
+  expect(disclosure?.getAttribute('title')).toBe(
     "1 of this room's conversations match the agent filter",
   )
 })
@@ -912,12 +1305,12 @@ it('a room keyed at the repository belongs to the row homed at the subfolder you
  * reading "Working" at the same time. The row's own trailing count already
  * says 0, which is what a tree shows for empty — nothing more.
  */
-it('says a room is empty by its own count, never by a sentence in the tree', () => {
+it('keeps an empty room quiet without a zero or empty-state sentence', () => {
   const { container: tree } = treeWith([room({ id: 'r1', name: 'Checkout rewrite' })])
   const row = roomRow(tree, 'Checkout rewrite')
   expect(row.parentElement?.textContent).not.toContain('No agents in here yet')
-  const count = row.querySelector('[class*="groupCount"]')
-  expect(count?.textContent).toBe('0')
+  expect(row.parentElement?.querySelector('[data-slot="sidebar-menu-badge"]')).toBeNull()
+  expect(row.parentElement?.textContent).not.toContain('0')
 })
 
 it('lists a member the history has not caught up with', () => {
@@ -931,7 +1324,7 @@ it('lists a member the history has not caught up with', () => {
     [],
     [fresh],
   )
-  const block = roomRow(tree, 'Checkout rewrite').parentElement
+  const block = roomRow(tree, 'Checkout rewrite').closest('[data-slot="sidebar-menu-item"]')
   expect(block?.textContent).not.toContain('No agents in here yet')
   expect(block?.textContent).toContain('Untitled session')
 })
@@ -949,31 +1342,23 @@ it('a filtered list does not smuggle a member back in through the live map', () 
     { agent: runtimeId('codex') },
   )
   const row = roomRow(tree, 'Checkout rewrite')
-  const block = row.parentElement
+  const block = row.closest('[data-slot="sidebar-menu-item"]')
   expect(block?.textContent).not.toContain('No agents in here yet')
   expect(block?.textContent).not.toContain('Filtered away')
-  expect(row.querySelector('[class*="groupCount"]')?.textContent).toBe('0')
+  expect(row.parentElement?.querySelector('[data-slot="sidebar-menu-action"]')?.getAttribute('title')).toBe(
+    "0 of this room's conversations match the agent filter",
+  )
 })
 
-it('a room says what each of its numbers counts', () => {
-  /* The row carries a state and a size. Drawn as two bare counts it read
-     "1 0" — the same grey, the same size, a gap apart, and the member count
-     with nothing on it at all to say what it was. Whatever the row shows, a
-     reader must be able to find out what it means without leaving the row. */
+it('a room reserves its trailing badge for messages and explains other counts on hover', () => {
   const { container: tree } = treeWith([
-    room({ id: 'r1', name: 'Checkout rewrite', intents: [{ state: 'claimed' }, { state: 'open' }] }),
+    room({ id: 'r1', name: 'Checkout rewrite', intents: [{ state: 'claimed' }, { state: 'open' }], channel: [{ kind: 'message', state: 'held' }] }),
   ])
-  const counts = [...tree.querySelectorAll('[class*="roomClaimed"], [class*="groupCount"]')].filter(
-    (el) => el.closest('[class*="roomRow"]') !== null,
-  )
-  expect(counts.length).toBeGreaterThan(0)
-  for (const count of counts) expect(count.getAttribute('title')).toBeTruthy()
-
-  // And the state is not another plain number beside the size: it is drawn
-  // with the glyph the board gives that column.
-  const claimed = tree.querySelector('[class*="roomClaimed"]')
-  expect(claimed?.textContent).toBe('1')
-  expect(claimed?.querySelector('svg')).not.toBeNull()
+  const row = roomRow(tree, 'Checkout rewrite')
+  expect(row.title).toContain('1 claimed job')
+  const badge = row.parentElement?.querySelector('[data-slot="sidebar-menu-badge"]')
+  expect(badge?.textContent).toBe('1')
+  expect(badge?.getAttribute('title')).toContain('1 held message')
 })
 
 it('a filtered room row says the number is filtered', () => {
@@ -989,15 +1374,11 @@ it('a filtered room row says the number is filtered', () => {
   ] })
 
   const plain = treeWith([both], [codex, claude])
-  const plainCount = [...plain.container.querySelectorAll('[class*="groupCount"]')]
-    .find((el) => el.closest('[class*="roomRow"]') !== null)
-  expect(plainCount?.textContent).toBe('2')
+  const plainCount = roomRow(plain.container, 'Checkout rewrite').parentElement?.querySelector('[data-slot="sidebar-menu-action"]')
   expect(plainCount?.getAttribute('title')).toBe('2 conversations in this room')
 
   const filtered = treeWith([both], [codex], [], { agent: runtimeId('codex') })
-  const filteredCount = [...filtered.container.querySelectorAll('[class*="groupCount"]')]
-    .find((el) => el.closest('[class*="roomRow"]') !== null)
-  expect(filteredCount?.textContent).toBe('1')
+  const filteredCount = roomRow(filtered.container, 'Checkout rewrite').parentElement?.querySelector('[data-slot="sidebar-menu-action"]')
   expect(filteredCount?.getAttribute('title')).toBe(
     "1 of this room's conversations match the agent filter",
   )
@@ -1438,6 +1819,16 @@ it('renames an inactive session without opening it or changing active session (#
     menuB!.click()
   })
 
+  const menu = document.querySelector('[role="menu"]')!
+  expect([...menu.querySelectorAll<HTMLElement>(':scope > [role="menuitem"]')]
+    .map((item) => item.querySelector('[class*="title"]')?.textContent?.trim()))
+    .toEqual(['Rename', 'Pin', 'Open on the right', 'Branch from here', 'Copy', 'Archive', 'Delete…'])
+  expect(menu.querySelectorAll('[role="separator"]')).toHaveLength(2)
+  const deleteOption = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .find((item) => item.textContent?.includes('Delete…'))!
+  expect(deleteOption.getAttribute('aria-disabled')).toBe('true')
+  expect(deleteOption.getAttribute('title')).toBe('Agent keeps no way to delete one.')
+
   // Click Rename in context menu
   const renameOption = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
     item.textContent?.includes('Rename'),
@@ -1446,7 +1837,7 @@ it('renames an inactive session without opening it or changing active session (#
 
   // The row as it stands, two lines tall (a comfortable row's second line):
   // the rename box must hold that height, or every row below moves up.
-  const rowB = menuB!.closest('[class*="rowWrap"]')!.querySelector<HTMLButtonElement>('button[data-density]')!
+  const rowB = menuB!.closest('[class*="rowWrap"]')!.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')!
   rowB.getBoundingClientRect = () => ({ height: 55 }) as DOMRect
 
   act(() => {

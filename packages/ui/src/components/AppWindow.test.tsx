@@ -2,7 +2,7 @@ import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { AppWindow, AppWindowMode, WindowNav, WindowNavItem } from './AppWindow'
+import { AppWindow, AppWindowMode, WindowGroup, WindowNav, WindowNavIdentity, WindowNavItem } from './AppWindow'
 import { Menu, MenuItem, Popover, useEscapeSurface } from '../design'
 
 /**
@@ -146,29 +146,72 @@ it('cuts a label the runtime chose rather than wrapping its row', () => {
       onClick={() => {}}
     />,
   )
-  const label = [...container.querySelectorAll('span')].find(
-    (span) => span.textContent === 'Skills & commands',
-  )
+  const label = container.querySelector<HTMLElement>('[data-slot="sidebar-menu-label"]')
   expect(label).toBeDefined()
-  const style = getComputedStyle(label as HTMLElement)
-  expect(style.whiteSpace).toBe('nowrap')
-  expect(style.textOverflow).toBe('ellipsis')
-  expect(style.overflow).toBe('hidden')
+  expect(label?.className).toContain('min-w-0')
+  expect(label?.className).toContain('truncate')
+})
+
+it('renders window destinations with the shared sidebar row parts and one current destination', () => {
+  render(
+    <WindowGroup label="Views">
+      <WindowNavItem icon={<span aria-hidden="true" />} label="Overview" selected onClick={() => {}} />
+      <WindowNavItem icon={<span aria-hidden="true" />} label="Activity" selected={false} onClick={() => {}} />
+    </WindowGroup>,
+  )
+
+  const group = container.querySelector('[data-sidebar="group"]')
+  const rows = [...(group?.querySelectorAll('[data-sidebar="menu-button"]') ?? [])]
+  expect(group?.querySelector('[data-slot="group-label"]')?.textContent).toBe('Views')
+  expect(rows).toHaveLength(2)
+  expect(rows.filter(row => row.getAttribute('aria-current') === 'page')).toHaveLength(1)
+  expect(rows.filter(row => row.getAttribute('data-active') === 'true')).toHaveLength(1)
+  expect(rows.map(row => row.getAttribute('type'))).toEqual(['button', 'button'])
+})
+
+it('moves keyboard focus between AppWindow destinations with the arrow keys', () => {
+  const selected: string[] = []
+  render(
+    <WindowNav onBack={() => {}}>
+      <WindowGroup label="Views">
+        <WindowNavItem icon={<span />} label="Overview" selected onClick={() => selected.push('Overview')} />
+        <WindowNavItem icon={<span />} label="Activity" selected={false} onClick={() => selected.push('Activity')} />
+      </WindowGroup>
+    </WindowNav>,
+  )
+  const rows = [...container.querySelectorAll<HTMLButtonElement>('[data-sidebar="menu-button"]')]
+  rows[0]!.focus()
+  rows[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }))
+  expect(document.activeElement).toBe(rows[1])
+  rows[1]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+  expect(selected).toEqual(['Activity'])
 })
 
 it('keeps the trailing values out of the label’s space', () => {
   render(
     <WindowNavItem
       icon={<span />}
-      label="Skills & commands"
+      label="A runtime supplied destination label long enough to reach the trailing status badge"
       count={25}
+      trail={<span>Ready</span>}
       selected={false}
       onClick={() => {}}
     />,
   )
-  const count = [...container.querySelectorAll('span')].find((span) => span.textContent === '25')
-  // `flex: none` on the count is what stops the browser shrinking the number
-  // instead of the label it sits beside.
+  const label = container.querySelector<HTMLElement>('[data-slot="sidebar-menu-label"]')
+  const content = container.querySelector<HTMLElement>('[data-slot="sidebar-menu-label-content"]')
+  expect(label?.className).toContain('sidebar-menu-label-fade')
+  expect(content?.className).toContain('pe-(--hd-space-8)')
+  const count = container.querySelector<HTMLElement>('[class*="winNavCount"]')
+  // `flex: none` on the count is what stops the shared trailing slot shrinking it.
   expect(getComputedStyle(count as HTMLElement).flexGrow).toBe('0')
   expect(getComputedStyle(count as HTMLElement).flexShrink).toBe('0')
+})
+
+it('gives a clipped long identity name its full title', () => {
+  render(<WindowNavIdentity face={<span />} name="A very long profile name that cannot fit in the narrow navigation row" selected={false} onClick={() => {}} />)
+  const label = container.querySelector<HTMLElement>('[data-role="row"]')!
+  const clipped = label.parentElement as HTMLElement
+  clipped.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }))
+  expect(clipped.title).toBe('A very long profile name that cannot fit in the narrow navigation row')
 })

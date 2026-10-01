@@ -470,11 +470,17 @@ try {
           const text = range.getBoundingClientRect()
           if (text.left - box.left < parseFloat(css.paddingLeft) - 1 || box.right - text.right < parseFloat(css.paddingRight) - 1) faults.push('Settings segment label overflows its option')
         }
-        for (const row of document.querySelectorAll('[class*="groupHead"]:hover, [class*="rowWrap"]:hover')) {
-          const action = row.querySelector('[class*="groupAdd"], button[aria-haspopup="menu"]')
+        for (const row of document.querySelectorAll('[data-slot="sidebar-menu-item"]:hover')) {
+          const action = row.querySelector('[data-slot="sidebar-menu-action"][aria-haspopup="menu"]')
           if (!action || !visible(action)) continue
-          for (const mark of row.querySelectorAll('[class*="groupPin"], [class*="groupCount"], [class*="rowGone"], [class*="rowWorktree"]')) {
-            if (mark.getBoundingClientRect().right > action.getBoundingClientRect().left) faults.push('sidebar hover action overlaps metadata')
+          const actionBox = action.getBoundingClientRect()
+          for (const badge of row.querySelectorAll('[data-slot="sidebar-menu-badge"]')) {
+            const badgeBox = badge.getBoundingClientRect()
+            // Badges and the hover action intentionally share the fixed trailing slot.
+            if (Math.abs(badgeBox.left - actionBox.left) > 1 || Math.abs(badgeBox.right - actionBox.right) > 1) faults.push('sidebar badge left its hover action slot')
+          }
+          for (const mark of row.querySelectorAll('[role="img"][aria-label^="Folder is gone"], [role="img"][aria-label^="Worktree "]')) {
+            if (mark.getBoundingClientRect().right > actionBox.left) faults.push('sidebar hover action overlaps metadata')
           }
         }
         // A popup on its way out (Base UI marks it \`data-ending-style\` for the
@@ -623,6 +629,27 @@ try {
     })()`)
     await sleep(200)
     return click(text, within)
+  }
+
+  /** Opens the non-default start kind from the sidebar's secondary start menu. */
+  const openStartingKind = async (kind) => {
+    const opened = await cdp.eval(`(() => {
+      const trigger = document.querySelector('nav[aria-label="Workspace actions"] button[title="More ways to start"]')
+      if (!trigger) return false
+      trigger.click()
+      return true
+    })()`)
+    if (!opened) throw new Error('no More ways to start control in the sidebar')
+    if (!(await click(`${kind}…`, '[role="menu"]'))) throw new Error(`no ${kind}… choice in More ways to start`)
+    const chooser = '[role="dialog"][aria-label="What are you starting?"]'
+    await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(chooser)}) !== null`), Boolean)
+    const selected = await cdp.eval(`(() => {
+      const root = document.querySelector(${q(chooser)})
+      return [...(root?.querySelectorAll('[role="radio"]') ?? [])]
+        .some((one) => one.getAttribute('aria-checked') === 'true' && (one.textContent ?? '').trim().startsWith(${q(kind)}))
+    })()`)
+    if (!selected) throw new Error(`${kind} was not selected in the New session dialog`)
+    return chooser
   }
 
   /**
@@ -1127,7 +1154,7 @@ rules:
     } : {}),
 
     /** The desk itself: twelve agents, three projects, work in the sidebar. */
-    desk: { expect: 'Workspaces', run: async () => {
+    desk: { expect: 'Projects', run: async () => {
       await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
       await sleep(1500)
     } },
@@ -1491,33 +1518,10 @@ rules:
     flow: { expect: 'Checkout hardening', run: async () => {
       await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
       await sleep(1200)
-      // Scoped to the sidebar's own action row: a Goal staged by an earlier
-      // scene (`board`, `room`) leaves its "New job" button standing in the
-      // sidebar's Goal group for as long as this desk runs, and `click`
-      // prefers the *shortest* matching text — "New job" is shorter than
-      // "New session" — so an unscoped search silently opened the board's own
-      // composer instead of the session/Goal chooser this scene means to
-      // drive. Scoping to the one row that actually holds the sidebar's own
-      // trigger is what makes this scene independent of whatever an earlier
-      // scene left behind (#928 review).
-      if (!(await click('New session', '[aria-label="Workspace actions"]'))) {
-        throw new Error('no New session button in the sidebar')
-      }
-      await sleep(700)
-      // The chooser opens with "Session" selected in its radiogroup
-      // (`NewSessionChoice.tsx`'s `ChoiceList`), which is "one Tab stop, and
-      // the arrows choose" (`DialogForm.tsx`'s `stepRadio`): a plain Tab
-      // leaves the group entirely, landing on the footer's own "Start"
-      // button rather than moving between answers, which silently starts a
-      // plain session and closes the dialog before the Goal form this scene
-      // wants ever opens — the "What finishes this?" field then never
-      // appears, and the snapshot wait below used to time out. One
-      // ArrowDown moves the selection from "Session" to "Goal" within the
-      // group; the capture handler on the surrounding form
-      // (`onKeyDownCapture`) then treats Enter as the dialog's one filled
-      // act and opens `GoalCreate`.
-      await pressKey('ArrowDown')
-      await pressKey('Enter')
+      // New session now opens a draft directly. The Goal… menu item enters
+      // the same chooser with Goal selected, then Continue opens GoalCreate.
+      const chooser = await openStartingKind('Goal')
+      if (!(await clickScrolled('Continue', chooser))) throw new Error('no Continue button in the Goal chooser')
       await waitForSnapshot(() => cdp.eval(`document.querySelector('input[aria-label="What finishes this?"]') !== null`), Boolean)
       if (!(await fill('What finishes this?', 'Checkout hardening'))) throw new Error('no Goal sentence field')
       if (!(await click('Create Goal'))) throw new Error('no Create Goal button')
@@ -1551,30 +1555,10 @@ rules:
     'front-door': { expect: 'Ship it once every specialist approves', run: async () => {
       await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
       await sleep(1200)
-      if (!(await click('New session', '[aria-label="Workspace actions"]'))) {
-        throw new Error('no New session button in the sidebar')
-      }
-      const chooser = '[role="dialog"][aria-label="What are you starting?"]'
-      await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(chooser)}) !== null`), Boolean)
-      // Two shapes of the same door, read rather than assumed: today a plain
-      // row, "Start with a team"; a redesign in flight (not yet merged) turns
-      // the chooser into a radiogroup, a "Team" radio beside a "Continue"
-      // button. Asking which is actually on screen, by its role and label,
-      // is what keeps this scene working across that redesign rather than
-      // pinned to whichever layout happened to be current when it was written.
-      const hasTeamRadio = await cdp.eval(`(() => {
-        const root = document.querySelector(${q(chooser)})
-        if (!root) return false
-        return [...root.querySelectorAll('[role="radio"]')].some((one) => (one.textContent ?? '').trim().startsWith('Team'))
-      })()`)
-      if (hasTeamRadio) {
-        if (!(await clickScrolled('Team', chooser))) throw new Error('no "Team" radio in the New session dialog')
-        if (!(await clickScrolled('Continue', chooser))) throw new Error('no "Continue" button in the New session dialog')
-      } else if (!(await clickScrolled('Start with a team', chooser))) {
-        throw new Error('no "Start with a team" choice in the New session dialog')
-      }
-      // The front door itself, whichever door it came through: no shape is
-      // chosen yet, so its dialog is titled "Start a team".
+      // Team starts live behind More ways to start; that menu opens this same
+      // chooser with Team selected, and Continue opens the front door.
+      const chooser = await openStartingKind('Team')
+      if (!(await clickScrolled('Continue', chooser))) throw new Error('no Continue button in the Team chooser')
       await waitForSnapshot(
         () => cdp.eval(`document.querySelector('[role="dialog"][aria-label="Start a team"]') !== null`),
         Boolean,
@@ -1903,7 +1887,7 @@ rules:
     await drawFrames(30)
     say(`Shift+Tab from a row: the focus is on ${await focusLine()}`)
   } }
-  const SESSION_ROW = `document.querySelector('[class*="rowWrap"] [data-slot="button"][data-variant="navigation"]')`
+  const SESSION_ROW = `document.querySelector('[data-region="session-row"] [data-slot="sidebar-menu-button"]')`
   SCENES['session-menu-tab'] = { leaveOverlay: true, run: async () => {
     await SCENES.desk.run()
     await reach('session-menu-tab', 'a session row in the sidebar', () => cdp.eval(`Boolean(${SESSION_ROW})`))
@@ -1977,7 +1961,7 @@ rules:
   const hover = async (selector) => {
     // Hover-only actions have no box until their row is entered.
     const rowPoint = await cdp.json(`(() => {
-      const node = document.querySelector(${q(selector)})?.closest('[class*="groupHead"], [class*="rowWrap"]')
+      const node = document.querySelector(${q(selector)})?.closest('[data-slot="sidebar-menu-item"]')
       if (!node) throw new Error('missing hover row')
       const rect = node.getBoundingClientRect()
       return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
@@ -1993,13 +1977,13 @@ rules:
     await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
     await sleep(250)
   }
-  SCENES['workspace-hover'] = { leaveOverlay: true, hover: '[class*="groupHead"] button[aria-haspopup="menu"]', run: async () => {
+  SCENES['workspace-hover'] = { leaveOverlay: true, hover: '[data-slot="sidebar-menu-item"]:has(> [data-slot="sidebar-menu-button"][aria-expanded]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]', run: async () => {
     await stageSidebarMarks()
-    await hover('[class*="groupHead"] button[aria-haspopup="menu"]')
+    await hover('[data-slot="sidebar-menu-item"]:has(> [data-slot="sidebar-menu-button"][aria-expanded]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]')
   } }
-  SCENES['session-hover'] = { leaveOverlay: true, hover: '[class*="rowWrap"]:has([class*="rowGone"]) button[aria-haspopup="menu"]', run: async () => {
+  SCENES['session-hover'] = { leaveOverlay: true, hover: '[data-slot="sidebar-menu-item"]:has([role="img"][aria-label^="Folder is gone"]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]', run: async () => {
     await stageSidebarMarks()
-    const selector = '[class*="rowWrap"]:has([class*="rowGone"]) button[aria-haspopup="menu"]'
+    const selector = '[data-slot="sidebar-menu-item"]:has([role="img"][aria-label^="Folder is gone"]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]'
     await hover(selector)
   } }
   /**
@@ -2595,17 +2579,15 @@ rules:
       await sleep(1400)
     } },
 
-    /** The new-session dialog: four kinds, and the Agents under Session's "Run as". */
+    /** The new-session dialog's Session option and its "Run as" choices. */
     'new-session-agents': { leaveOverlay: true, expect: 'Run as', run: async () => {
       await openStorefront()
-      // See the `flow` scene's own comment: scoped to the sidebar's action
-      // row so a Goal an earlier scene staged, and its shorter-text "New job"
-      // button, cannot win the match instead (#928 review).
-      if (!(await click('New session', '[aria-label="Workspace actions"]'))) {
-        throw new Error('no New session button in the sidebar')
-      }
-      await sleep(1200)
-      if (!(await cdp.eval(`[...document.querySelectorAll('select option')].some((one) => one.textContent === 'Plain session')`))) throw new Error('the dialog offers no Run as')
+      // Reach the chooser from the supported secondary start route, then
+      // select Session to photograph its Run as control without starting it.
+      const chooser = await openStartingKind('Team')
+      if (!(await clickScrolled('Session', chooser))) throw new Error('no Session choice in the New session dialog')
+      await waitForSnapshot(() => cdp.eval(`document.querySelector('${chooser} select') !== null`), Boolean)
+      if (!(await cdp.eval(`Boolean(document.querySelector('${chooser} select option[value="plain"]')?.textContent === 'Default agent')`))) throw new Error('the dialog offers no Default agent choice under Run as')
     } },
 
     /** Command palette, through the sidebar's magnifier: an Agent to start as. */
