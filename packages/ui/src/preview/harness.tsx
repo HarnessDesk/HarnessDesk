@@ -1729,7 +1729,7 @@ class PreviewStore {
     // second account wedged into this shared fixture (BLOCKING 3's fix: a
     // runtime only ever carries one account's report, so a second account
     // here would show nothing real).
-    [this.#planKey('claude', 'shane@harnessdesk.app'), { fee: { amount: 200, currency: 'USD', period: 'month', source: 'user', setAt: Date.now() } }],
+    [this.#planKey('claude', 'dev@example.com'), { fee: { amount: 200, currency: 'USD', period: 'month', source: 'user', setAt: Date.now() } }],
   ])
   readonly #planSuggestions: PlanSuggestion[] = [
     { runtime: runtimeId('claude'), planMatch: 'Pro', amount: 20, currency: 'USD', period: 'month', sourceUrl: 'https://claude.com/pricing', checkedAt: '2026-09-26' },

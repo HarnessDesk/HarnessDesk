@@ -1812,7 +1812,7 @@ it('renames an inactive session without opening it or changing active session (#
   // Find the menu button for session B
   const menuButtons = [...container.querySelectorAll<HTMLButtonElement>('button[aria-haspopup="menu"]')]
   expect(menuButtons.length).toBeGreaterThanOrEqual(2)
-  const menuB = menuButtons.find((btn) => btn.getAttribute('title')?.includes('Inactive Conversation'))
+  const menuB = menuButtons.find((btn) => btn.getAttribute('aria-label')?.includes('Inactive Conversation'))
   expect(menuB).toBeDefined()
 
   act(() => {

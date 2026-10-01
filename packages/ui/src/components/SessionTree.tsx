@@ -19,6 +19,9 @@ import {
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
   Submenu,
   Text,
   buttonVariants,
@@ -69,6 +72,13 @@ import { RuntimeMark } from './BrandIcons'
 import { DeleteSession } from './DeleteSession'
 import { WorkspaceMenu } from './WorkspaceMenu'
 import styles from './Sidebar.module.css'
+
+const SidebarMenuState = ({ label, compact, children }: { label: string; compact: ReactNode; children: ReactNode }) => (
+  <span data-slot="sidebar-menu-state" role="img" aria-label={label} title={label} className="inline-flex min-w-0 items-center">
+    <span data-sidebar-menu-state-full aria-hidden="true" className="inline-flex min-w-0 group-hover/menu-item:hidden group-focus-within/menu-item:hidden">{children}</span>
+    <span data-sidebar-menu-state-compact aria-hidden="true" className="hidden shrink-0 group-hover/menu-item:inline-flex group-focus-within/menu-item:inline-flex">{compact}</span>
+  </span>
+)
 
 /**
  * The session list, grouped by the folder each session belongs to.
@@ -239,7 +249,10 @@ const SessionRow = memo(({
             <SidebarMenuButton
               ref={rowRef}
               trailingOverlay
-              labelTrailingContent={Boolean(need || worktree || folderGone)}
+              // A chip is inline content and earns a fixed trailing gap. The
+              // worktree/folder mark is in the absolute shared end rail, so
+              // reserving its width inside the label would shorten every title.
+              labelTrailingContent={Boolean(need)}
               size={density === 'compact' ? 'sm' : 'default'}
               isActive={active}
               data-active={active ? 'true' : undefined}
@@ -270,23 +283,22 @@ const SessionRow = memo(({
                 <span className="flex min-w-0 items-center gap-(--hd-space-1)" title={label}>
                   <span className="min-w-0 truncate">{label}</span>
                   {need && <Chip tone="warning">{need.reason}</Chip>}
-                  {worktree && (
-                    <span className="inline-flex shrink-0" role="img"
-                      aria-label={`Worktree ${summary.git?.branch ?? folderName(summary.cwd)}`}
-                      title={`Worktree · ${summary.git?.branch ?? folderName(summary.cwd)}\n${summary.cwd}`}>
-                      <Text role="meta"><BranchIcon size={11} /></Text>
-                    </span>
-                  )}
-                  {folderGone && (
-                    <span className="inline-flex shrink-0" role="img"
-                      aria-label={`Folder is gone — ${folderName(summary.cwd)}`}
-                      title={`${folderGone}\nThe transcript can be read; nothing more can be sent to it.`}>
-                      <Text role="meta"><FolderGoneIcon size={11} /></Text>
-                    </span>
-                  )}
                 </span>
               }
             />
+            {folderGone ? (
+              <SidebarMenuBadge role="img"
+                aria-label={`Folder is gone — ${folderName(summary.cwd)}`}
+                title={`${folderGone}\nThe transcript can be read; nothing more can be sent to it.`}>
+                <Text role="meta"><FolderGoneIcon size={11} /></Text>
+              </SidebarMenuBadge>
+            ) : worktree ? (
+              <SidebarMenuBadge role="img"
+                aria-label={`Worktree ${summary.git?.branch ?? folderName(summary.cwd)}`}
+                title={`Worktree · ${summary.git?.branch ?? folderName(summary.cwd)}\n${summary.cwd}`}>
+                <Text role="meta"><BranchIcon size={11} /></Text>
+              </SidebarMenuBadge>
+            ) : null}
             {(backgrounded > 0 || traceShown || summary.status.type === 'active') && (
               <SidebarMenuBadge aria-label={backgrounded > 0 ? 'Background tasks running' : traceShown ? TRACE_LABEL[trace] : 'Working'}>
                 <Dot state={dotState} variant="navigation"
@@ -297,13 +309,18 @@ const SessionRow = memo(({
                   aria-hidden="true" />
               </SidebarMenuBadge>
             )}
-            <SidebarMenuAction showOnHover
-              data-state={menu.at ? 'open' : undefined}
-              aria-haspopup="menu" aria-expanded={menu.at !== null}
-              onClick={menu.open}
-              title={`Actions for ${label}`} aria-label={`Actions for ${label}`}>
-              <MoreIcon size={12} />
-            </SidebarMenuAction>
+            <Tooltip>
+              <TooltipTrigger data-slot="sidebar-menu-action" render={
+                <SidebarMenuAction showOnHover
+                  data-state={menu.at ? 'open' : undefined}
+                  aria-haspopup="menu" aria-expanded={menu.at !== null}
+                  onClick={menu.open}
+                  aria-label={`Actions for ${label}`}>
+                  <MoreIcon size={12} />
+                </SidebarMenuAction>
+              } />
+              <TooltipContent>Actions for {label}</TooltipContent>
+            </Tooltip>
           </>
         )}
       </SidebarMenuItem>
@@ -556,17 +573,27 @@ const GroupHead = ({
             </span>}
           />
           {pinned && <SidebarMenuBadge title="Pinned" aria-label="Pinned"><PinIcon size={11} /></SidebarMenuBadge>}
-          <SidebarMenuAction showOnHover className="end-(--hd-space-8)"
-            onClick={() => void store.startSessionIn(actualRoot)}
-            title={`New session in ${group.name}`} aria-label={`New session in ${group.name}`}>
-            <PlusIcon size={12} />
-          </SidebarMenuAction>
-          <SidebarMenuAction showOnHover data-state={menu.at ? 'open' : undefined}
-            aria-haspopup="menu" aria-expanded={menu.at !== null}
-            onClick={menu.open}
-            title={`Actions for ${group.name}`} aria-label={`Actions for ${group.name}`}>
-            <MoreIcon size={12} />
-          </SidebarMenuAction>
+          <Tooltip>
+            <TooltipTrigger data-slot="sidebar-menu-action" render={
+              <SidebarMenuAction showOnHover className="end-(--hd-space-8)"
+                onClick={() => void store.startSessionIn(actualRoot)}
+                aria-label={`New session in ${group.name}`}>
+                <PlusIcon size={12} />
+              </SidebarMenuAction>
+            } />
+            <TooltipContent>New session in {group.name}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger data-slot="sidebar-menu-action" render={
+              <SidebarMenuAction showOnHover data-state={menu.at ? 'open' : undefined}
+                aria-haspopup="menu" aria-expanded={menu.at !== null}
+                onClick={menu.open}
+                aria-label={`Actions for ${group.name}`}>
+                <MoreIcon size={12} />
+              </SidebarMenuAction>
+            } />
+            <TooltipContent>Actions for {group.name}</TooltipContent>
+          </Tooltip>
         </SidebarMenuItem>
       </SidebarMenu>
       <WorkspaceMenu
@@ -697,9 +724,13 @@ const RoomRow = ({
           icon={<Text role="meta"><TeamIcon size={14} /></Text>}
           label={<span className="flex min-w-0 items-center gap-(--hd-space-1)">
             <span className="min-w-0 truncate">{name}</span>
-            {goal && <Chip tone={waiting ? 'warning' : goalWords({ goal: goal.goal, activity: goal.activity }).tone}>
-              {waiting ? 'Needs you' : goalWords({ goal: goal.goal, activity: goal.activity }).label}
-            </Chip>}
+            {goal && (waiting
+              ? <SidebarMenuState label="Needs you" compact={<Dot state="limit" variant="navigation" />}>
+                  <Chip tone="warning">Needs you</Chip>
+                </SidebarMenuState>
+              : <Chip tone={goalWords({ goal: goal.goal, activity: goal.activity }).tone}>
+                  {goalWords({ goal: goal.goal, activity: goal.activity }).label}
+                </Chip>)}
           </span>}
         />
         {held > 0 && <SidebarMenuBadge title={`${held} held ${held === 1 ? 'message' : 'messages'} waiting for you`}>

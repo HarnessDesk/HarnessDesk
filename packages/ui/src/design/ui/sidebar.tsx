@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils'
  */
 
 const sidebarMenuTrailingSlotClass =
-  'sidebar-menu-trailing-slot absolute end-(--hd-space-1) top-1/2 z-10 inline-flex size-(--hd-icon-target) -translate-y-1/2 items-center justify-center rounded-md text-sidebar-foreground transition-colors'
+  'sidebar-menu-trailing-slot absolute end-(--hd-sidebar-end-rail) top-1/2 z-10 inline-flex size-(--hd-icon-target) -translate-y-1/2 items-center justify-center rounded-md text-sidebar-foreground transition-colors'
 
 const SidebarGroup = ({ className, ...props }: React.ComponentProps<'section'>) => (
   <section data-slot="sidebar-group" data-sidebar="group" className={cn('relative flex w-full min-w-0 flex-col px-(--hd-space-2)', className)} {...props} />
@@ -34,7 +34,7 @@ const SidebarMenu = ({ className, nested = false, horizontal = false, ...props }
     className={cn(
       'flex w-full min-w-0 gap-(--hd-space-0-5)',
       horizontal ? 'flex-row items-center gap-(--hd-space-1) px-(--hd-space-2)' : 'flex-col',
-      nested && 'ms-5 border-s border-sidebar-border ps-(--hd-space-2)',
+      nested && 'ms-5 w-[calc(100%-var(--hd-space-5))] border-s border-sidebar-border ps-(--hd-space-2)',
       className,
     )}
     {...props}
@@ -42,7 +42,18 @@ const SidebarMenu = ({ className, nested = false, horizontal = false, ...props }
 )
 
 const SidebarMenuItem = ({ className, ...props }: React.ComponentProps<'li'>) => (
-  <li data-slot="sidebar-menu-item" data-sidebar="menu-item" className={cn('group/menu-item relative min-w-0', className)} {...props} />
+  <li
+    data-slot="sidebar-menu-item"
+    data-sidebar="menu-item"
+    className={cn(
+      'group/menu-item relative min-w-0',
+      'has-[[data-slot=sidebar-menu-action][data-show-on-hover]]:hover:[&_[data-slot=sidebar-menu-badge]]:-translate-x-(--hd-icon-target)',
+      'has-[[data-slot=sidebar-menu-action][data-show-on-hover]]:focus-within:[&_[data-slot=sidebar-menu-badge]]:-translate-x-(--hd-icon-target)',
+      'has-[[data-slot=sidebar-menu-action][data-show-on-hover][data-state=open]]:[&_[data-slot=sidebar-menu-badge]]:-translate-x-(--hd-icon-target)',
+      className,
+    )}
+    {...props}
+  />
 )
 
 const sidebarMenuButtonVariants = cva(
@@ -109,6 +120,7 @@ const SidebarMenuAction = ({ className, showOnHover = false, type = 'button', ..
     type={type}
     data-slot="sidebar-menu-action"
     data-sidebar="menu-action"
+    {...(showOnHover ? { 'data-show-on-hover': '' } : {})}
     className={cn(
       sidebarMenuTrailingSlotClass,
       'bg-sidebar hover:bg-sidebar-accent focus-visible:bg-sidebar-accent',
@@ -123,7 +135,7 @@ const SidebarMenuBadge = ({ className, ...props }: React.ComponentProps<'span'>)
   <span
     data-slot="sidebar-menu-badge"
     data-sidebar="menu-badge"
-    className={cn(sidebarMenuTrailingSlotClass, 'pointer-events-none whitespace-nowrap px-(--hd-space-1) text-xs tabular-nums', className)}
+    className={cn(sidebarMenuTrailingSlotClass, 'pointer-events-none whitespace-nowrap px-(--hd-space-1) text-xs tabular-nums transition-transform', className)}
     {...props}
   />
 )

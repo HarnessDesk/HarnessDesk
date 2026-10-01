@@ -1,7 +1,7 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
 export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page' | 'summary' | 'start' | 'end'
 export type CatalogSize = 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'table-row' | 'bare' | 'composer' | 'sidebar-nav'
-export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out'
+export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out' | 'trailing-glyph-rest' | 'trailing-glyph-action' | 'working' | 'needs-you' | 'pinned' | 'worktree' | 'folder-gone' | 'long-title' | 'room-folded' | 'room-expanded' | 'more-sessions' | 'other-projects' | 'filtered' | 'menu-open' | 'folded-state' | 'nested-rail'
 
 export type CatalogEntry = {
   readonly id: string
@@ -313,7 +313,12 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   Notices: ['default', 'populated', 'empty', 'warning', 'error', 'open', 'closed'],
   Checklist: ['default', 'active', 'inactive', 'success', 'empty'],
   'heat-grid': ['default', 'empty', 'populated'],
-  sidebar: ['default', 'hover', 'active', 'populated'],
+  sidebar: [
+    'default', 'hover', 'active', 'populated', 'working', 'needs-you', 'pinned',
+    'worktree', 'folder-gone', 'trailing-glyph-rest', 'trailing-glyph-action',
+    'long-title', 'room-folded', 'room-expanded',
+    'more-sessions', 'other-projects', 'filtered', 'menu-open', 'folded-state', 'nested-rail',
+  ],
   PaneColumn: ['default'],
   // empty: no fee set, nothing suggested. derived: a suggestion offered.
   // populated: a fee is set. warning: a key/metered account's budget row.

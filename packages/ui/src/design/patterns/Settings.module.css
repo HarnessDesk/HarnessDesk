@@ -139,7 +139,7 @@
   padding: var(--hd-label-space, var(--hd-space-1-5)) var(--hd-bar-pad) var(--hd-space-1) var(--hd-bar-ink);
   /* The trailing control's glyph is the rail's content edge; the button's
      own edge pull supplies its hit-target inset. */
-  padding-inline-end: var(--hd-space-0);
+  padding-inline-end: calc(var(--hd-sidebar-end-rail) + var(--hd-space-3) + var(--hd-space-2)); /* desk: 0 → calc(var(--hd-sidebar-end-rail) + var(--hd-space-3) + var(--hd-space-2)), align header actions to the row end rail */
 }
 
 /* A rail with no filter bar of its own — the app window's nav — has no

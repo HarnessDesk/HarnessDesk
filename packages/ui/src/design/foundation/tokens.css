@@ -216,6 +216,7 @@ body {
   --hd-space-2: 8px;
   --hd-space-2-5: 10px;
   --hd-space-3: 12px;
+  --hd-sidebar-end-rail: var(--hd-space-3);
   --hd-space-4: 16px;
   --hd-space-5: 20px;
   --hd-space-6: 24px;
