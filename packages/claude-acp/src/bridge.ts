@@ -22,7 +22,7 @@ import {
   type SetSessionConfigOptionResponse,
 } from '@agentclientprotocol/sdk'
 import { ClaudeAcpAgent, nodeToWebReadable, nodeToWebWritable } from '@agentclientprotocol/claude-agent-acp'
-import { peelDeskContextPrefix } from '@harnessdesk/protocol'
+import { DESK_TOOL_CEILINGS, peelDeskContextPrefix } from '@harnessdesk/protocol'
 
 import { sessionFiles, trash } from './store.js'
 import { DELEGATION_CAPABILITY, DELEGATION_LIST, DELEGATION_NOTIFICATION } from './delegation-wire.js'
@@ -294,16 +294,12 @@ export const withOptions = (meta: Meta, values: Record<string, string>, abort: A
   return next
 }
 
-export const DESK_READ_TOOLS = new Set([
-  // Mirrors the read entries in server/src/ceilings/tools.ts; unknown names deliberately fail closed.
-  'git_status', 'git_diff', 'git_log', 'pr_view', 'pr_checks', 'issue_view',
-  'read_file', 'list_directory', 'search_text', 'find_files', 'todo_write', 'todo_read',
-  'list_intents', 'add_intent', 'claim_work', 'claim_next', 'await_work', 'await_member', 'check_conflicts',
-  'release_claim', 'get_context', 'get_team_status',
-  'review_candidates', 'record_review', 'raise_finding', 'repair_finding', 'decide_finding', 'list_findings',
-  'list_checkpoints', 'browser_screenshot', 'browser_read_page', 'browser_console', 'browser_network',
-  'ios_devices', 'ios_screenshot', 'android_devices', 'android_screenshot', 'android_logcat',
-])
+export const DESK_READ_TOOLS = new Set(
+  Object.values(DESK_TOOL_CEILINGS)
+    .flatMap((tools) => Object.entries(tools))
+    .filter(([, ceiling]) => ceiling === 'read')
+    .map(([name]) => name),
+)
 const READ_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'NotebookRead', 'Task', 'Agent', 'TaskOutput'])
 
 export const forkedControls = (parent: Record<string, string>): Record<string, string> =>
