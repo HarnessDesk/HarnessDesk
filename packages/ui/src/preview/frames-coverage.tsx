@@ -10,7 +10,7 @@ import { ConfirmDialog } from '../components/GitDialogs'
 import { AddWorktreeDialog } from '../components/GitWorktrees'
 import { PlanSteps, StepNameScope } from '../components/Items'
 import { ImportDialog, LibraryFlows, LibraryHistory, PlanDialog, ResolveDialog } from '../components/LibraryActions'
-import { ComposerNotices, Notices, NoticeStripOutlet, SidebarNotices } from '../components/Notices'
+import { Notices, NoticeStripOutlet, SidebarNotices } from '../components/Notices'
 import { Publication } from '../components/Publication'
 import { Deliverables, JobsBar } from '../components/SessionBars'
 import { AddAgents, PlanSection, UsageMeter, UsageSection } from '../components/SettingsAgents'
@@ -18,13 +18,15 @@ import { AsleepAlert, Runway } from '../components/usage/shared'
 import { UncommittedFiles, WorktreeProblem } from '../components/WorktreeAlerts'
 import { Boundary } from './boundary'
 import { Dial, Frame } from './main'
-import { libraryColumnsFor, LIBRARY, PREVIEW_AGENTS, PREVIEW_SESSION_KEY, previewStore, store } from './harness'
+import { libraryColumnsFor, LIBRARY, PREVIEW_AGENTS, PREVIEW_ROOM, PREVIEW_SESSION_KEY, previewStore, store } from './harness'
 import { PREVIEW_ROOT, previewUsage } from './sidebar-fixture'
 import { GEMINI_UNTRUSTED_PREVIEW, REVIEWER_REASONS_PREVIEW } from './flow-fixture'
 import { ShellProvider } from '../panels/views'
-import { PaneProvider, StoreProvider } from '../state/context'
+import { StoreProvider } from '../state/context'
 import type { AppStore } from '../state/store'
+import type { LayoutNode } from '../state/layout'
 import { emptyWorkbench } from '../state/workbench'
+import { Workbench } from '../panels/Workbench'
 
 const COLUMNS = libraryColumnsFor(LIBRARY.runtimes)
 const base = store.getSnapshot()
@@ -64,7 +66,7 @@ const noticePace: UsageReport = {
   runtime: runtimeId('codex'),
   account: null,
   plan: null,
-  lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 40, windowMinutes: 10_080, resetsAt: Date.now() + 6.5 * 24 * 60 * 60_000, usageKnown: true }],
+  lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 90, windowMinutes: 10_080, resetsAt: Date.now() + 3.5 * 24 * 60 * 60_000, usageKnown: true }],
   credits: null,
   spend: null,
   reached: null,
@@ -73,19 +75,69 @@ const noticePace: UsageReport = {
   staleAfterMs: 60_000,
   error: null,
 }
-const noticePlacementStore = previewStore({
-  ...noticeBase,
-  status: 'open',
-  activeRuntime: runtimeId('codex'),
-  activeSessionKey: PREVIEW_SESSION_KEY,
-  account: null,
-  accountsByRuntime: {},
-  agentNotices: [],
-  noticePolicy: { muted: [], records: {}, seen: [], surfaces: {}, kept: [] },
-  narrowWindow: true,
-  usage: [noticePace],
-  workbench: noticeWorkbench,
-})
+const noticeLayoutStore = (id: string, options: {
+  readonly view?: Extract<LayoutNode, { kind: 'pane' }>['view']
+  readonly narrow?: boolean
+  readonly zoom?: 'sidebar' | 'right' | 'bottom' | null
+  readonly split?: boolean
+  readonly splitBoardFocus?: boolean
+  readonly folderGone?: boolean
+} = {}) => {
+  const paneId = `${id}-pane`
+  const view = options.view ?? { kind: 'conversation' as const, session: PREVIEW_SESSION_KEY }
+  const second = options.split ? {
+    kind: 'pane' as const,
+    id: `${id}-other`,
+    view: options.splitBoardFocus ? { kind: 'activity' as const } : { kind: 'conversation' as const, session: PREVIEW_SESSION_KEY },
+  } : null
+  const root = second ? {
+    kind: 'split' as const, id: `${id}-split`, direction: 'row' as const, ratio: 0.5,
+        first: { kind: 'pane' as const, id: paneId, view }, second,
+  } : { kind: 'pane' as const, id: paneId, view }
+  const workbench = {
+    ...noticeWorkbench,
+    main: { root, focused: second ? second.id : paneId, expanded: null },
+    ...(options.zoom === 'sidebar' ? {
+      sidebar: {
+        ...noticeWorkbench.sidebar,
+        root: { kind: 'stack' as const, id: `${id}-sidebar`, views: [{ id: `${id}-sidebar-view`, view: { kind: 'activity' as const } }], active: `${id}-sidebar-view` },
+      },
+    } : {}),
+    ...(options.zoom === 'right' ? { zoom: { area: 'right' as const, scope: 'window' as const } } : {}),
+    ...(options.zoom === 'sidebar' ? { zoom: { area: 'sidebar' as const, scope: 'window' as const } } : {}),
+  }
+  const active = noticeBase.sessions.get(PREVIEW_SESSION_KEY)!
+  const result = previewStore({
+    ...noticeBase,
+    status: 'open',
+    activeRuntime: runtimeId('codex'),
+    activeSessionKey: PREVIEW_SESSION_KEY,
+    account: null,
+    accountsByRuntime: {},
+    agentNotices: [],
+    noticePolicy: { muted: [], records: {}, seen: [], surfaces: {}, kept: [] },
+    narrowWindow: options.narrow ?? false,
+    usage: [noticePace],
+    workbench,
+    layout: { ...noticeBase.layout, root, focused: second ? second.id : paneId, expanded: null },
+    sessions: new Map([[PREVIEW_SESSION_KEY, active]]),
+    ...(options.folderGone ? { foldersGone: new Map([[active.cwd, 'The preview folder is unavailable.']]) } : {}),
+  } as never)
+  if (options.narrow) result.setNarrowWindow(true)
+  return result
+}
+
+const NoticeLayoutFrame = ({ id, title, options }: { readonly id: string; readonly title: string; readonly options?: Parameters<typeof noticeLayoutStore>[1] }) => (
+  <Frame id={id} title={title}>
+    <div className="h-[620px] min-w-0 overflow-hidden border">
+      <StoreProvider store={noticeLayoutStore(id, options)}>
+        <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
+          <Workbench sidebar={<div className="p-2">Preview sidebar</div>} />
+        </ShellProvider>
+      </StoreProvider>
+    </div>
+  </Frame>
+)
 const DIALOGS = ['off', 'edit agent', 'prefer agent', 'handoff', 'confirm', 'worktree', 'import', 'resolve', 'plan', 'library flow', 'add agents'] as const
 type Dialog = (typeof DIALOGS)[number]
 
@@ -184,18 +236,13 @@ export const CoverageFrames = () => {
           <div className="p-4"><Notices /><NoticeStripOutlet host /><SidebarNotices /></div>
         </StoreProvider>
       </Frame>
-      <Frame id="coverage-notice-placement" title="Notice placement — narrow window, composer covered by the right panel">
-        <StoreProvider store={noticePlacementStore}>
-          <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
-            <div className="flex flex-col gap-3 p-4">
-              <NoticeStripOutlet host />
-              <PaneProvider scope={{ paneId: 'notice-pane' as never, view: { kind: 'conversation', session: PREVIEW_SESSION_KEY }, sessionKey: PREVIEW_SESSION_KEY }}>
-                <ComposerNotices />
-              </PaneProvider>
-            </div>
-          </ShellProvider>
-        </StoreProvider>
-      </Frame>
+      <NoticeLayoutFrame id="coverage-notice-narrow-overlay" title="Notice placement — narrow window overlay" options={{ narrow: true }} />
+      <NoticeLayoutFrame id="coverage-notice-room-board" title="Notice placement — room board without a composer" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never }} />
+      <NoticeLayoutFrame id="coverage-notice-folder-gone" title="Notice placement — folder-gone conversation" options={{ folderGone: true }} />
+      <NoticeLayoutFrame id="coverage-notice-zoomed-sidebar" title="Notice placement — zoomed sidebar" options={{ zoom: 'sidebar' }} />
+      <NoticeLayoutFrame id="coverage-notice-zoomed-dock" title="Notice placement — zoomed dock" options={{ zoom: 'right' }} />
+      <NoticeLayoutFrame id="coverage-notice-split-composers" title="Notice placement — split with two composers" options={{ split: true }} />
+      <NoticeLayoutFrame id="coverage-notice-split-unfocused-composer" title="Notice placement — visible composer beside focused activity" options={{ split: true, splitBoardFocus: true }} />
       <Frame id="coverage-library" title="Library — changes made from here">
         <div className="p-4"><LibraryHistory refreshedAt={0} home="/home/u" onFlow={() => {}} /></div>
       </Frame>
