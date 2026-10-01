@@ -72,6 +72,8 @@ interface AgentTemplate {
   readonly brand?: string
   readonly tagline?: string
   readonly bridge?: string
+  /** Its bridge proves which MCP server asked for a permission; see `AcpAgentConfig.trustsBridgeProvenance`. */
+  readonly provesToolProvenance?: boolean
   readonly command?: string
   readonly args?: readonly string[]
   readonly env?: Readonly<Record<string, string>>
@@ -94,6 +96,9 @@ const TEMPLATES: readonly AgentTemplate[] = [
     brand: 'claudecode',
     tagline: "Anthropic's coding agent, through the bridge that ships with HarnessDesk.",
     bridge: 'claude-acp',
+    // The bridge marks a permission request with the MCP server that really
+    // asked; only this template's expansion is trusted to say so.
+    provesToolProvenance: true,
     // The bridge must not believe it is running inside a Claude Code session.
     env: { CLAUDECODE: '' },
     account: {
@@ -239,18 +244,6 @@ const bridgeEntryOf = (template: AgentTemplate): string | null => {
   return existsSync(entry) ? entry : null
 }
 
-/**
- * Whether this command line launches a bridge HarnessDesk itself ships, so a
- * claim in its structured `_meta` (a request's tool provenance) is the
- * desk's own code speaking, not the agent's.
- */
-export const isShippedBridge = (command: string, args: readonly string[] | undefined): boolean =>
-  command === process.execPath &&
-  TEMPLATES.some((template) => {
-    const entry = bridgeEntryOf(template)
-    return entry !== null && args?.[0] === entry
-  })
-
 /** The full config a stored template entry stands for. Null when this build cannot serve it. */
 const expandTemplate = (
   template: AgentTemplate,
@@ -279,6 +272,7 @@ const expandTemplate = (
       ...base,
       command: process.execPath,
       args: [bridgeEntry],
+      ...(template.provesToolProvenance ? { trustsBridgeProvenance: true } : {}),
       env: {
         ...(template.env ?? {}),
         // In the packaged app `process.execPath` is Electron, which runs a
@@ -443,7 +437,10 @@ export class AgentRegistryStore {
         continue
       }
       seen.add(entry['id'] as string)
-      out.push(entry as unknown as AcpAgentConfig)
+      // Only a shipped template's expansion may vouch for its bridge's
+      // provenance claims; a hand-written row never can.
+      const { trustsBridgeProvenance: _vouched, ...own } = entry
+      out.push(own as unknown as AcpAgentConfig)
     }
     return out
   }
