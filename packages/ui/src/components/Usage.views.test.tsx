@@ -137,8 +137,9 @@ describe('the Dashboard rail lists views', () => {
   it('shows "N low" on Plans, in the warn tone, when an account is spent or low', async () => {
     await render('overview')
     const plans = railButton('Plans')
-    expect(plans.textContent).toContain('1 low')
-    const figure = plans.querySelector('[data-tone="warning"]')
+    const badge = plans.closest('[data-slot="sidebar-menu-item"]')?.querySelector('[data-slot="sidebar-menu-badge"]')
+    expect(badge?.textContent).toContain('1 low')
+    const figure = badge?.querySelector('[data-tone="warning"]')
     expect(figure).not.toBeNull()
   })
 

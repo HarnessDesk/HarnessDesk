@@ -158,7 +158,7 @@ test.describe('a context menu', () => {
     for (const key of ['Tab', 'Shift+Tab', 'Escape']) {
       await session.focus()
       await page.keyboard.press('ContextMenu')
-      await expect(page.getByRole('menuitem', { name: 'Pin' })).toBeFocused()
+      await expect(page.getByRole('menu').getByRole('menuitem').first()).toBeFocused()
 
       await page.keyboard.press(key)
       expect(await onFocusGuard(page)).toBe(false)
@@ -174,7 +174,7 @@ test.describe('a context menu', () => {
     await session.scrollIntoViewIfNeeded()
     for (const key of ['Tab', 'Shift+Tab', 'Escape']) {
       await session.click({ button: 'right' })
-      await expect(page.getByRole('menuitem', { name: 'Pin' })).toBeFocused()
+      await expect(page.getByRole('menu').getByRole('menuitem').first()).toBeFocused()
 
       await page.keyboard.press(key)
       expect(await onFocusGuard(page)).toBe(false)
