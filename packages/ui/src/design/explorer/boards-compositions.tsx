@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 
 import {
   NO_CAPABILITIES,
@@ -898,7 +898,7 @@ const SideBySideBoard = () => {
     const member = SIDE_BY_SIDE_MEMBERS[SIDE_BY_SIDE_KEYS.indexOf(key)]
     return member ? { nickname: member.nickname, agent: member.agent, model: member.model } : undefined
   }
-  const grid = (state: SideBySideState, onChange: (next: SideBySideState) => void, paneId: string) => (
+  const grid = (state: SideBySideState, onChange: Dispatch<SetStateAction<SideBySideState>>, paneId: string) => (
     <div className="h-96 w-full min-w-0">
       <SideBySide
         state={state}

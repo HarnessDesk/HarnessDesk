@@ -417,7 +417,7 @@ export const TeamRoomPane = ({
        to give, and opening it unchanged would read as the member having
        gone up. The row's own Watch is greyed with the same reason. */
     if (!canPlace(grid, key)) {
-      setRailTrouble(`Every tile is pinned. Unpin one to make room for ${memberOf(key)?.nickname ?? 'this member'}.`)
+      setRailTrouble(`No tile is free: the others are pinned. Unpin one to make room for ${memberOf(key)?.nickname ?? 'this member'}.`)
       return
     }
     setGrid((was) => placeTile(was, key))
@@ -749,6 +749,13 @@ export const TeamRoomPane = ({
       entries.length,
     ],
   )
+
+  /* The last tile gone — taken off, or its member left — leaves nothing for
+     the destination to show; the room's chat is where the pane goes, so
+     the rail and the body agree on what is open. */
+  useEffect(() => {
+    if (open === 'side-by-side' && grid.tiles.length === 0) setOpen('room')
+  }, [open, grid.tiles.length])
 
   /* Every answer about who is in the room, not only the first: a member can
      leave from elsewhere — another window, the room's own Goal wrapping —
@@ -1293,6 +1300,7 @@ export const TeamRoomPane = ({
                   brand: entry.brand,
                   busy: entry.busy,
                   waitingForYou: snapshot.approvals.some((approval) => approval.key === key),
+                  ceiling: entry.ceiling,
                   ...(last === 'completed' ? { ended: 'done' as const } : last === 'interrupted' || last === 'failed' ? { ended: 'stopped' as const } : {}),
                 }
               }}
@@ -1584,7 +1592,7 @@ const MemberRow = ({
   /** Whose column this pick would take, when the pane is already full. */
   replaces: string | null
   cap: number
-  /** Every other tile is pinned, so Watch has no place to put this member. */
+  /** No tile is free (the others are pinned), so Watch has no place to put this member. */
   full: boolean
   watching: boolean
   onOpen: () => void
@@ -1709,14 +1717,14 @@ const MemberRow = ({
           {...(full ? { 'aria-disabled': true } : {})}
           aria-label={
             full
-              ? `Watch ${peer.nickname}: every tile is pinned`
+              ? `Watch ${peer.nickname}: no tile is free`
               : replaces
               ? `Watch ${peer.nickname} in place of ${replaces}`
               : `Watch ${peer.nickname} beside the others`
           }
           title={
             full
-              ? `Every tile is pinned — unpin one to make room for ${peer.nickname}`
+              ? `No tile is free: the others are pinned — unpin one to make room for ${peer.nickname}`
               : replaces
               ? /* Said before the press, not after. A pick that will take a
                    column away has to say which one while there is still time

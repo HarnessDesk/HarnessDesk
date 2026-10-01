@@ -113,7 +113,8 @@ test('room tiles choose columns by count and width, keep 420px, and show the nar
   const mutatedTwo = await measure(grid(page, 'side-by-side-two'))
   expect(mutatedTwo.columns === 2 && mutatedTwo.rows === 1).toBe(false)
 
-  await setWidth(page, 'side-by-side-four', 1260)
+  // Three 420px tiles and two one-pixel seams: 1262px, the narrowest that holds three.
+  await setWidth(page, 'side-by-side-four', 1262)
   const fourWide = await measure(grid(page, 'side-by-side-four'))
   expect(fourWide).toMatchObject({ all: 4, shown: 4, columns: 2, rows: 2 })
   expect(fourWide.widths.every((width) => width >= 420)).toBe(true)
@@ -143,9 +144,15 @@ test('room tiles choose columns by count and width, keep 420px, and show the nar
   expect(widths.widths.length).toBeGreaterThan(0)
   expect(widths.widths.every((width) => width >= 420)).toBe(true)
 
-  await setWidth(page, 'side-by-side-four', 840)
+  await setWidth(page, 'side-by-side-four', 1261)
+  expect(await measure(grid(page, 'side-by-side-four'))).toMatchObject({ all: 3, shown: 3, columns: 2, rows: 2 })
+  // Two tiles and a seam: 841px holds two, 840px holds one.
+  await setWidth(page, 'side-by-side-four', 841)
   const fourGrid = await measure(grid(page, 'side-by-side-four'))
   expect(fourGrid).toMatchObject({ all: 3, shown: 3, columns: 2, rows: 2 })
+  expect(fourGrid.widths.every((width) => width >= 420)).toBe(true)
+  await setWidth(page, 'side-by-side-four', 840)
+  expect(await measure(grid(page, 'side-by-side-four'))).toMatchObject({ all: 3, shown: 1, columns: 1, rows: 1 })
   await setWidth(page, 'side-by-side-four', 800)
   const narrow = await measure(grid(page, 'side-by-side-four'))
   const strip = frame(page, 'side-by-side-four').getByRole('tablist', { name: 'Side by side tiles' })
@@ -259,9 +266,18 @@ test('a narrow tile keeps the full nickname, and bare ⌘1 is not a grid chord',
   await page.keyboard.press('Meta+Digit1')
   expect(await focusedIndex(target)).toBe(before)
   // And with the room focused: bare ⌘1 is the browser's tab key, never a tile key.
+  // Entering a tile's composer gives that tile the keys, so the baseline is read after.
   await focusRoom(page, 'side-by-side-two')
+  const entered = await focusedIndex(target)
   await page.keyboard.press('Meta+Digit1')
-  expect(await focusedIndex(target)).toBe(before)
+  expect(await focusedIndex(target)).toBe(entered)
+  await page.keyboard.press('Alt+Meta+Digit2')
+  await expect.poll(() => focusedIndex(target)).toBe(1)
+  // The chord moved the keys, not only the highlight: typing goes to tile 2.
+  expect(await target.evaluate((node) => {
+    const tiles = [...node.querySelectorAll('[data-slot="side-by-side-tile"]')]
+    return tiles.findIndex((tile) => tile.contains(document.activeElement))
+  })).toBe(1)
   // The mutation routes bare ⌘1 to the grid while the room is focused, and the check bites.
   await page.evaluate(() => {
     // On window's capture phase: the browser pane takes bare ⌘1 on document's.

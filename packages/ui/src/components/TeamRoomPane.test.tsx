@@ -913,17 +913,17 @@ it('Watch puts a member on a Side by side tile and opens the destination', async
   expect(store.lastView().sideBySide?.tiles).toEqual(['codex\u0000a', 'claude\u0000b'])
 })
 
-it('greys Watch, and says why, when every other tile is pinned', async () => {
+it('greys Watch, and says why, when no tile is free', async () => {
   const keys = ['codex\u0000a', 'claude\u0000b', 'cursor\u0000c', 'acp\u0000d'] as SessionKey[]
   const { pane, store } = await renderRoom({
     members: [...keys, 'codex\u0000e'],
     view: { sideBySide: { tiles: keys, pinned: keys.slice(0, 3), focused: keys[3] } },
   })
-  const watch = pane.querySelector<HTMLButtonElement>('button[aria-label="Watch e: every tile is pinned"]')
+  const watch = pane.querySelector<HTMLButtonElement>('button[aria-label="Watch e: no tile is free"]')
   expect(watch?.getAttribute('aria-disabled')).toBe('true')
   await act(async () => { watch!.click() })
   expect(pane.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(4)
-  expect(pane.textContent).toContain('Every tile is pinned. Unpin one to make room for e.')
+  expect(pane.textContent).toContain('No tile is free: the others are pinned. Unpin one to make room for e.')
   expect(store.lastView().sideBySide?.tiles ?? keys).toEqual(keys)
 })
 
@@ -2698,6 +2698,8 @@ it('takes a released member’s tile off the grid with it', async () => {
   await act(async () => {})
   expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(0)
   expect(store.lastView().sideBySide).toBeUndefined()
+  // The rail and the body agree: the room's chat is open, not an empty Side by side.
+  expect(row('Chat').closest('[data-slot="list-row"]')?.getAttribute('aria-current')).toBe('true')
 })
 
 /**

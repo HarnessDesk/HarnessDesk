@@ -5,6 +5,7 @@ import type { SessionKey } from '@harnessdesk/protocol'
 import {
   MAX_TILES,
   canPlace,
+  columnsThatFit,
   displayFor,
   emptySideBySide,
   expandTile,
@@ -206,13 +207,23 @@ describe('review round 1', () => {
     expect(fromStored({ tiles: 'a' } as never).tiles).toEqual([])
   })
 
-  it('puts two tiles side by side at exactly twice the floor and one below it', () => {
+  it('counts the seams: two tiles need 841px, three need 1262px', () => {
     const two = placeTile(placeTile(emptySideBySide(), k('a')), k('b'))
-    expect(displayFor(two, 840).layout).toBe('grid')
-    expect(displayFor(two, 839).layout).toBe('single')
+    expect(displayFor(two, 841).layout).toBe('grid')
+    expect(displayFor(two, 840).layout).toBe('single')
     expect(displayFor(two, 0).shown).toEqual([k('b')])
     const three = placeTile(two, k('c'))
-    expect(displayFor(three, 1260).columns).toBe(3)
-    expect(displayFor(three, 1259).columns).toBe(2)
+    expect(displayFor(three, 1262).columns).toBe(3)
+    expect(displayFor(three, 1261).columns).toBe(2)
+    // Each of n tracks really is at least the floor at the width that admits n.
+    for (const width of [841, 1262, 1683]) {
+      const n = columnsThatFit(width)
+      expect((width - (n - 1) * 1) / n).toBeGreaterThanOrEqual(420)
+    }
+  })
+
+  it('restores an expanded tile with the keys, whatever focus the record names', () => {
+    const s = fromStored({ tiles: [k('a'), k('b')], focused: k('a'), expanded: k('b') })
+    expect(s.focused).toBe(k('b'))
   })
 })

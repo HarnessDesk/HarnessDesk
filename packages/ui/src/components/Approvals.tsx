@@ -304,10 +304,6 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false }: {
       // Escape puts it away rather than denying a command nobody can see, and
       // a digit typed into its filter is a digit, not an answer.
       if (scope.current?.closest('[inert]')) return
-      // Nor while it sits in a pane beside the one with the keyboard — one of
-      // several Side by side tiles — where a digit answers that pane's own
-      // card, not every card on screen at once.
-      if (scope.current?.closest('[data-pane-unfocused]')) return
       if (event.key === 'Escape') {
         event.preventDefault()
         const deny = options.find((option) => option.intent === 'deny') ?? options[options.length - 1]

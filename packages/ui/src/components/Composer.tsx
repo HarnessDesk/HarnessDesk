@@ -826,6 +826,10 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      // ⌥⌘↵ is the window's (expand or return a Side by side tile), not a
+      // send and not a completion pick: left untouched here, before either
+      // reads Enter, it reaches the shortcut runner.
+      if (event.key === 'Enter' && event.altKey && (event.metaKey || event.ctrlKey)) return
       if (menuOpen && items.length > 0) {
         if (event.key === 'ArrowDown') {
           event.preventDefault()
@@ -851,9 +855,6 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
         setTrigger({ kind: 'none' })
         return
       }
-      // ⌥⌘↵ is the window's (expand or return a Side by side tile), not a
-      // send: left untouched here, it reaches the shortcut runner.
-      if (event.key === 'Enter' && event.altKey && (event.metaKey || event.ctrlKey)) return
       if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
         event.preventDefault()
         // ⌘↵ / Ctrl+↵ adds to the running turn where the agent can take it;

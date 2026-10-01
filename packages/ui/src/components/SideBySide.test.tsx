@@ -1,17 +1,18 @@
-import { act, useState } from 'react'
+import { act, useContext, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { sessionKey, type SessionKey } from '@harnessdesk/protocol'
-import { PaneProvider, usePane } from '../state/context'
+import { KeyboardHereContext, PaneProvider, usePane } from '../state/context'
 import { emptySideBySide, type SideBySideState } from '../lib/side-by-side'
 import { SideBySide } from './SideBySide'
 
 vi.mock('./Conversation', () => ({
   Conversation: ({ header }: { header?: boolean }) => {
     const pane = usePane()
-    return <div data-testid="conversation-body" data-pane-id={pane?.paneId} data-session-key={pane?.sessionKey} data-header={String(header ?? true)}>
-      <input aria-label="Message" />
+    const here = useContext(KeyboardHereContext)
+    return <div data-testid="conversation-body" data-pane-id={pane?.paneId} data-session-key={pane?.sessionKey} data-header={String(header ?? true)} data-keyboard-here={String(here)}>
+      <textarea aria-label="Message" />
     </div>
   },
 }))
@@ -156,7 +157,7 @@ it('clicking a tile focuses it without taking focus from an input inside it', ()
   const tiles = [...document.querySelectorAll<HTMLElement>('[data-slot="side-by-side-tile"]')]
   click(tiles[1]!)
   expect(tiles[1]?.hasAttribute('data-focused')).toBe(true)
-  const input = tiles[0]!.querySelector<HTMLInputElement>('input[aria-label="Message"]')!
+  const input = tiles[0]!.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')!
   input.focus()
   click(input)
   expect(document.activeElement).toBe(input)
@@ -211,17 +212,42 @@ it('ignores the tile keys while another pane has the keyboard', () => {
   expect(tiles[1]?.hasAttribute('data-focused')).toBe(false)
 })
 
-it('makes a hidden tile inert and marks a shown tile without the keyboard', () => {
+it('gives the keyboard to one tile: the others, and hidden ones, read as unfocused panes', () => {
   mount(baseState(keys))
-  let tiles = [...document.querySelectorAll<HTMLElement>('[data-slot="side-by-side-tile"]')]
-  // Three shown, the first focused: the other two hold their approvals' keys.
-  expect(tiles.map((tile) => tile.hasAttribute('data-pane-unfocused'))).toEqual([false, true, true])
-  expect(tiles.some((tile) => tile.hasAttribute('inert'))).toBe(false)
+  const here = () => [...document.querySelectorAll<HTMLElement>('[data-testid="conversation-body"]')].map((body) => body.dataset.keyboardHere)
+  const inert = () => [...document.querySelectorAll<HTMLElement>('[data-slot="side-by-side-tile"]')].map((tile) => tile.hasAttribute('inert'))
+  expect(here()).toEqual(['true', 'false', 'false'])
+  expect(inert()).toEqual([false, false, false])
   act(() => { window.dispatchEvent(new CustomEvent('hd-side-by-side', { detail: 'tile-expand' })) })
-  tiles = [...document.querySelectorAll<HTMLElement>('[data-slot="side-by-side-tile"]')]
-  expect(tiles.map((tile) => tile.hasAttribute('inert'))).toEqual([false, true, true])
-  // Alone on screen, the expanded tile has the keys and nothing beside it.
-  expect(tiles.some((tile) => tile.hasAttribute('data-pane-unfocused'))).toBe(false)
+  expect(inert()).toEqual([false, true, true])
+  expect(here()).toEqual(['true', 'false', 'false'])
+})
+
+it('moves the keyboard with a tile chord, and a tile entered by keyboard takes the keys', () => {
+  mount(baseState(keys))
+  const tiles = () => [...document.querySelectorAll<HTMLElement>('[data-slot="side-by-side-tile"]')]
+  const composer = (at: number) => tiles()[at]!.querySelector<HTMLTextAreaElement>('textarea')!
+  composer(0).focus()
+  act(() => { window.dispatchEvent(new CustomEvent('hd-side-by-side', { detail: 'tile-2' })) })
+  expect(document.activeElement).toBe(composer(1))
+  act(() => { composer(2).focus() })
+  expect(tiles()[2]!.hasAttribute('data-focused')).toBe(true)
+})
+
+it('leaves Esc to an approval waiting in the expanded tile', () => {
+  mount()
+  click(container.querySelector('button[aria-label="Expand Beta"]')!)
+  const beta = document.querySelectorAll<HTMLElement>('[data-slot="side-by-side-tile"]')[1]!
+  const press = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+  act(() => { beta.dispatchEvent(press) })
+  expect(press.defaultPrevented).toBe(false)
+  expect(document.querySelectorAll('[data-slot="side-by-side-tile"]')[0]!.hasAttribute('data-hidden')).toBe(true)
+})
+
+it('keeps the narrow strip while a tile is expanded, so another member is one tab away', () => {
+  mount(baseState(keys), { width: 600 })
+  act(() => { window.dispatchEvent(new CustomEvent('hd-side-by-side', { detail: 'tile-expand' })) })
+  expect(document.querySelector('[role="tablist"]')).not.toBeNull()
 })
 
 it('marks the tab of a member waiting for you in the narrow strip', () => {
@@ -238,5 +264,18 @@ it('says how a member’s last turn ended when it is neither working nor waiting
     expect(text(document.body, 'Stopped')).toBeTruthy()
   } finally {
     entries.set(keys[2]!, was)
+  }
+})
+
+it('shows a member’s ceiling on its tile, the safety fact its own header used to carry', () => {
+  const was = entries.get(keys[0]!)!
+  entries.set(keys[0]!, { ...(was as Record<string, unknown>), ceiling: { ceiling: { level: 'read', hold: 'asked' }, note: null } } as never)
+  try {
+    mount()
+    const tile = document.querySelectorAll('[data-slot="side-by-side-tile"]')[0]!
+    expect(tile.querySelector('header [data-ceiling="read"]')).not.toBeNull()
+    expect(document.querySelectorAll('[data-slot="side-by-side-tile"]')[1]!.querySelector('[data-ceiling]')).toBeNull()
+  } finally {
+    entries.set(keys[0]!, was)
   }
 })

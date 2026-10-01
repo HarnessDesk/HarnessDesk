@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type CSSProperties } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type CSSProperties, type Dispatch, type SetStateAction } from 'react'
 import type { SessionKey } from '@harnessdesk/protocol'
 
 import {
+  columnsThatFit,
   displayFor,
   expandTile,
   focusIndex,
@@ -10,9 +11,11 @@ import {
   removeTile,
   type SideBySideState,
 } from '../lib/side-by-side'
-import { PaneProvider, useIsFocusedPane } from '../state/context'
+import { KeyboardHereContext, PaneProvider, useIsFocusedPane } from '../state/context'
 import { Approvals } from './Approvals'
+import type { SeatCeilingShown } from '../lib/ceilings'
 import { BrandMark } from './BrandIcons'
+import { CeilingChip } from './CeilingChip'
 import { Conversation } from './Conversation'
 import {
   AgentIcon,
@@ -46,6 +49,8 @@ export type TileEntry = {
   readonly waitingForYou?: boolean
   /** How its last turn ended, while it is neither working nor waiting: done, or stopped short. */
   readonly ended?: 'done' | 'stopped'
+  /** What it may do unasked, when held under a ceiling — the safety fact the conversation's own header carried. */
+  readonly ceiling?: SeatCeilingShown | null
 }
 type ConversationProps = ComponentProps<typeof Conversation>
 
@@ -60,7 +65,8 @@ export const SideBySide = ({
   card = (_key, who) => who,
 }: {
   state: SideBySideState
-  onChange: (next: SideBySideState) => void
+  /** Takes an update, so two chords before a render both land. */
+  onChange: Dispatch<SetStateAction<SideBySideState>>
   paneId: string
   memberOf: (key: SessionKey) => { readonly nickname: string; readonly agent?: string; readonly model?: string } | undefined
   entryOf: (key: SessionKey) => TileEntry | null
@@ -77,7 +83,24 @@ export const SideBySide = ({
   const [width, setWidth] = useState(0)
   const focusedPane = useIsFocusedPane()
   const shown = displayFor(state, width)
-  const narrow = shown.layout === 'single' && state.expanded === null
+  /* Narrow is about the room's width, not about what is shown: an expanded
+     tile in a narrow room keeps the strip, so the member can still be
+     switched without first pressing Esc. */
+  const narrow = state.tiles.length > 1 && columnsThatFit(width) < 2
+  /* The tile a chord just chose, whose composer takes the keyboard once it
+     is drawn: a chord moves the keys, not only the highlight. */
+  const typeInto = useRef<SessionKey | null>(null)
+  useEffect(() => {
+    const key = typeInto.current
+    if (!key || state.focused !== key) return
+    typeInto.current = null
+    // Compared, not selected: a session key carries a NUL, which
+    // `CSS.escape` turns into U+FFFD, so no selector can name it.
+    const tile = [...(gridRef.current?.querySelectorAll<HTMLElement>('[data-slot="side-by-side-tile"]') ?? [])]
+      .find((one) => one.dataset.sessionKey === key)
+    const target = tile?.querySelector<HTMLElement>('textarea') ?? tile
+    target?.focus()
+  }, [state.focused, state.expanded])
 
   useLayoutEffect(() => {
     const grid = gridRef.current
@@ -94,9 +117,13 @@ export const SideBySide = ({
     const onCommand = (event: Event): void => {
       const action = (event as CustomEvent<string>).detail
       if (action === 'tile-1' || action === 'tile-2' || action === 'tile-3' || action === 'tile-4') {
-        onChange(focusIndex(state, Number(action.slice(-1)) - 1))
+        const key = state.tiles[Number(action.slice(-1)) - 1]
+        if (!key) return
+        typeInto.current = key
+        onChange((was) => focusIndex(was, Number(action.slice(-1)) - 1))
       } else if (action === 'tile-expand' && state.focused) {
-        onChange(expandTile(state, state.expanded === state.focused ? null : state.focused))
+        typeInto.current = state.focused
+        onChange((was) => (was.focused ? expandTile(was, was.expanded === was.focused ? null : was.focused) : was))
       }
     }
     window.addEventListener('hd-side-by-side', onCommand)
@@ -104,13 +131,16 @@ export const SideBySide = ({
   }, [focusedPane, onChange, state])
 
   const onKeyDown = useCallback((event: React.KeyboardEvent<HTMLElement>) => {
-    if (event.key === 'Escape' && !event.defaultPrevented && state.expanded) {
-      event.preventDefault()
-      onChange(expandTile(state, null))
-    }
-  }, [onChange, state])
+    if (event.key !== 'Escape' || event.defaultPrevented || !state.expanded) return
+    /* An approval waiting in the expanded tile answers Esc itself (deny),
+       from the window after this; collapsing first would spend the press
+       and leave the question open behind a grid that moved. */
+    if (entryOf(state.expanded)?.waitingForYou) return
+    event.preventDefault()
+    onChange((was) => expandTile(was, null))
+  }, [entryOf, onChange, state.expanded])
 
-  const focus = (key: SessionKey) => onChange(focusTile(state, key))
+  const focus = (key: SessionKey) => onChange((was) => focusTile(was, key))
   /*
    * Where each shown tile sits. The grid's tracks alternate tiles and one-
    * hairline seams, and the system's Separator draws each seam — the screen
@@ -185,13 +215,13 @@ export const SideBySide = ({
                  of it and is what `Approvals` reads before it answers a key,
                  so a hidden member's approval cannot be answered unseen. */
               {...(isHidden ? { inert: true } : {})}
-              /* Several tiles up, one has the keyboard: the others' approvals
-                 wait for theirs rather than all answering one digit. */
-              {...(!isHidden && !isFocused && shown.shown.length > 1 ? { 'data-pane-unfocused': '' } : {})}
-              className={styles.tile}
+                      className={styles.tile}
               style={place(key)}
+              tabIndex={-1}
               onClick={() => focus(key)}
-              onKeyDown={onKeyDown}
+              /* Keyboard entry counts as choosing the tile, the same as a
+                 click: Tab into its composer and the keys are its keys. */
+              onFocusCapture={() => focus(key)}
             >
               <Bar as="header" rule="bottom" active={isFocused && shown.shown.length > 1} className={styles.header}>
                 {card(key, (
@@ -206,6 +236,7 @@ export const SideBySide = ({
                     {model && <Text role="meta" className={styles.model} truncate>{model}</Text>}
                   </span>
                 ))}
+                {entry?.ceiling && <CeilingChip ceiling={entry.ceiling.ceiling} note={entry.ceiling.note} />}
                 {entry?.busy ? (
                   <Chip state="ready" size="sm">Working</Chip>
                 ) : entry?.waitingForYou ? (
@@ -224,7 +255,7 @@ export const SideBySide = ({
                   title={isExpanded ? 'Return to the grid' : 'Expand tile'}
                   onClick={(event) => {
                     event.stopPropagation()
-                    onChange(expandTile(state, isExpanded ? null : key))
+                    onChange((was) => expandTile(was, isExpanded ? null : key))
                   }}
                 >
                   {isExpanded ? <CollapseIcon size={14} /> : <ExpandIcon size={14} />}
@@ -235,19 +266,25 @@ export const SideBySide = ({
                     <DropdownMenuItem onClick={(event) => { event.stopPropagation(); onOpenMember(key) }}>Open conversation</DropdownMenuItem>
                     <DropdownMenuItem onClick={(event) => {
                       event.stopPropagation()
-                      onChange(pinTile(state, key, !state.pinned.includes(key)))
+                      onChange((was) => pinTile(was, key, !was.pinned.includes(key)))
                     }}>
                       {state.pinned.includes(key) ? 'Unpin' : 'Pin to the grid'}
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={(event) => { event.stopPropagation(); onChange(removeTile(state, key)) }}>Take off the grid</DropdownMenuItem>
+                    <DropdownMenuItem onClick={(event) => { event.stopPropagation(); onChange((was) => removeTile(was, key)) }}>Take off the grid</DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </Bar>
               <div className={styles.body}>
-                <PaneProvider scope={{ paneId: `${paneId}:${key}`, view: { kind: 'conversation', session: key }, sessionKey: key }}>
-                  <Conversation {...conversationProps} header={false} />
-                  <Approvals />
-                </PaneProvider>
+                {/* One tile has the keyboard. The others read as unfocused
+                    panes to everything inside them — their composers take
+                    no compose events, their approvals answer no keys and
+                    take no focus — so one press reaches one member. */}
+                <KeyboardHereContext.Provider value={isFocused && !isHidden}>
+                  <PaneProvider scope={{ paneId: `${paneId}:${key}`, view: { kind: 'conversation', session: key }, sessionKey: key }}>
+                    <Conversation {...conversationProps} header={false} />
+                    <Approvals />
+                  </PaneProvider>
+                </KeyboardHereContext.Provider>
               </div>
             </section>
           )

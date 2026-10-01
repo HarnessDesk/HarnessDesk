@@ -32,6 +32,12 @@ export interface StoredSideBySide {
 
 export const MAX_TILES = 4
 export const MIN_TILE_WIDTH = 420
+/** The hairline between two tiles (`--hd-space-px`), which the grid draws as a track of its own. */
+export const SEAM_WIDTH = 1
+
+/** How many tiles of at least `MIN_TILE_WIDTH` fit across, seams between them included. */
+export const columnsThatFit = (width: number): number =>
+  Math.max(0, Math.floor((width + SEAM_WIDTH) / (MIN_TILE_WIDTH + SEAM_WIDTH)))
 
 export const emptySideBySide = (): SideBySideState => ({
   tiles: [],
@@ -141,7 +147,7 @@ export const displayFor = (
 ): { readonly layout: 'grid' | 'single'; readonly columns: number; readonly shown: readonly SessionKey[] } => {
   const lone = state.focused ?? state.tiles[0] ?? null
   if (state.expanded) return { layout: 'single', columns: 1, shown: [state.expanded] }
-  const fits = Math.floor(width / MIN_TILE_WIDTH)
+  const fits = columnsThatFit(width)
   const count = state.tiles.length
   if (count <= 1) return { layout: 'grid', columns: 1, shown: state.tiles }
   if (fits < 2) return { layout: 'single', columns: 1, shown: lone ? [lone] : [] }
@@ -184,7 +190,8 @@ export const fromStored = (
     tiles,
     pinned: [...new Set(list(stored?.pinned).filter(within))],
     modes,
-    focused: within(stored?.focused) ? stored!.focused! : (tiles[0] ?? null),
+    // An expanded tile is the only one drawn, so it is the one with the keys.
+    focused: within(stored?.expanded) ? stored!.expanded! : within(stored?.focused) ? stored!.focused! : (tiles[0] ?? null),
     expanded: within(stored?.expanded) ? stored!.expanded! : null,
     seen: tiles,
   }

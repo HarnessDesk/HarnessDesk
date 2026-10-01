@@ -224,7 +224,8 @@ describe('one conversation at a time', () => {
 
   test('reads a room view with its side-by-side tiles', () => {
     const view = readView({ kind: 'room', room: 'r1', sideBySide: { tiles: ['codex\u0000a', 'claude\u0000b'], expanded: 'claude\u0000b' } })
-    expect(view).toEqual({ kind: 'room', room: 'r1', sideBySide: { tiles: ['codex\u0000a', 'claude\u0000b'], focused: 'codex\u0000a', expanded: 'claude\u0000b' } })
+    // The expanded tile is the only one drawn, so it is restored with the keys.
+    expect(view).toEqual({ kind: 'room', room: 'r1', sideBySide: { tiles: ['codex\u0000a', 'claude\u0000b'], focused: 'claude\u0000b', expanded: 'claude\u0000b' } })
   })
 
   test('drops a malformed side-by-side record rather than restoring junk', () => {
