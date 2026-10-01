@@ -339,8 +339,10 @@ export const ChannelMessage = ({
                 In a narrow room it wraps a whole fact at a time, never "04:54"
                 on one line and "AM" on the next. */}
             <MetaList className="min-w-0 whitespace-nowrap">
-              <span>{at}</span>
-              {whisper && <span>{whisper}</span>}
+              <span title={whisper ?? undefined}>
+                {at}
+                {whisper && <span className="sr-only">, {whisper}</span>}
+              </span>
             </MetaList>
           </div>
         )}

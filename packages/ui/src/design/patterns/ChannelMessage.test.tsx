@@ -65,20 +65,24 @@ it('reads the attribution as one run at the left: name, who it reached, when, ho
   const text = row().textContent ?? ''
   expect(text.indexOf('Reviewer')).toBeLessThan(text.indexOf('to Builder'))
   expect(text.indexOf('to Builder')).toBeLessThan(text.indexOf('03:35 PM'))
-  // The time and the outcome are one list of facts, in that order.
+  // Delivery stays available on the timestamp but leaves the visible line.
   const facts = row().querySelector('[data-slot="meta-list"]')
-  expect([...(facts?.children ?? [])].map((one) => one.textContent)).toEqual(['03:35 PM', 'delivered'])
+  expect([...(facts?.children ?? [])].map((one) => one.textContent)).toEqual(['03:35 PM, delivered'])
+  expect(facts?.querySelector('span')?.getAttribute('title')).toBe('delivered')
+  expect(facts?.querySelector('.sr-only')?.textContent).toBe(', delivered')
 })
 
 it('delivery is said out loud, and an answer says where it landed', () => {
   render(<ChannelMessage from="R" at="1" state="delivered" text="x" />)
-  expect(row().textContent).toContain('delivered')
+  expect(row().querySelector('[data-slot="meta-list"]')?.textContent).toContain('delivered')
+  expect(row().querySelector('[data-slot="meta-list"] > span')?.getAttribute('title')).toBe('delivered')
 
   render(<ChannelMessage from="R" at="1" state="shown" text="x" />)
   // `shown` is the loop guard working, not a delivery that failed: the answer
   // is recorded here on purpose. Naming it by what it is not made three
   // working replies read as three errors in a live run.
-  expect(row().textContent).toContain('in the room')
+  expect(row().querySelector('[data-slot="meta-list"] > span')?.getAttribute('title')).toBe('in the room')
+  expect(row().querySelector('.sr-only')?.textContent).toBe(', in the room')
   expect(row().textContent).not.toContain('not sent')
 })
 

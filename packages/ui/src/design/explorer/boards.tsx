@@ -1907,7 +1907,8 @@ const ChannelBoard = () => (
     </Case>
 
     <p className={styles.rule}>
-      One density, and the transcript&rsquo;s parts. Each row is a transcript
+      One density, and the transcript&rsquo;s parts. Sender names are semibold; expected delivery
+      stays off the visible header line and is available from the timestamp title and screen-reader text. Each row is a transcript
       item &mdash; a grouped message and a board event are its light register
       &mdash; the face is the room&rsquo;s identity tile on the sender&rsquo;s
       tint, the attribution is one run of facts at the left (name, who it
