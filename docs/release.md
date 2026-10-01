@@ -114,7 +114,9 @@ that both the head and base branch tip stayed put
 before it asks GitHub to squash-merge that exact head. This avoids the stale
 result `gh pr checks` can show immediately after a push. Use it for every
 landing, whether the merge is initiated by a human or an agent seat; use
-`--dry-run` to print the decision without merging. A single failed
+`--dry-run` to print the decision without merging. Exit 4 means GitHub added
+the PR to its merge queue; it is not merged until a later run confirms the
+`MERGED` state and merge commit. A single failed
 job that reproduces the exact "document default font-size" signature this
 codebase has fought before (the measured number matches the browser's
 default rather than the app's own, with the element's box sized correctly

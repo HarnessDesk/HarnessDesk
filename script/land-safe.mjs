@@ -10,6 +10,7 @@ export const REQUIRED_CHECKS = Object.freeze([
   'UI system browser integration',
   'UI system native integration',
 ])
+const REQUIRED_CHECK_APP = 'github-actions'
 
 const usage = 'Usage: node script/land-safe.mjs <pr> [--repo owner/name] [--dry-run]'
 
@@ -34,9 +35,10 @@ const newestFirst = (a, b) => {
 }
 
 /** Pure check-run decision. Only the newest run of each name is considered. */
-export const assessCheckRuns = (checkRuns, requiredNames = REQUIRED_CHECKS) => {
+export const assessCheckRuns = (checkRuns, headSha, requiredNames = REQUIRED_CHECKS) => {
   const newest = new Map()
   for (const check of checkRuns) {
+    if (check.head_sha !== headSha || check.app?.slug !== REQUIRED_CHECK_APP) continue
     const current = newest.get(check.name)
     if (!current || newestFirst(check, current) < 0) newest.set(check.name, check)
   }
@@ -51,7 +53,7 @@ export const assessCheckRuns = (checkRuns, requiredNames = REQUIRED_CHECKS) => {
 const run = (runner, args) => String(runner(args) ?? '').trim()
 
 const readPr = (runner, pr, repo) => {
-  const args = ['pr', 'view', String(pr), '--json', 'headRefOid,baseRefName,state']
+  const args = ['pr', 'view', String(pr), '--json', 'headRefOid,baseRefName,state,isDraft,mergeCommit']
   if (repo) args.push('--repo', repo)
   return JSON.parse(run(runner, args))
 }
@@ -97,12 +99,13 @@ export const landSafe = async (
   try {
     if (!repo) repo = run(runner, ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'])
     const initial = readPr(runner, pr, repo)
-    if (initial.state !== 'OPEN') throw new Error(`PR ${pr} is ${initial.state}, not open`)
+    if (initial.isDraft) throw new Error(`PR ${pr} is a draft; refusing to land`)
+    if (initial.state !== 'OPEN') throw new Error(`PR ${pr} is ${String(initial.state).toLowerCase()}, not open`)
     const sha = initial.headRefOid
     if (!sha || !initial.baseRefName) throw new Error('GitHub did not return the PR head SHA and base branch')
 
     const baseTip = readBaseTip(runner, repo, initial.baseRefName)
-    const decision = assessCheckRuns(readCheckRuns(runner, repo, sha))
+    const decision = assessCheckRuns(readCheckRuns(runner, repo, sha), sha)
     printReport(io, decision)
     if (!decision.green) {
       write(io.stdout, `DECISION: not green; PR ${pr} was not merged.`)
@@ -110,6 +113,8 @@ export const landSafe = async (
     }
 
     const current = readPr(runner, pr, repo)
+    if (current.isDraft) throw new Error(`PR ${pr} became a draft; refusing to land`)
+    if (current.state !== 'OPEN') throw new Error(`PR ${pr} is ${String(current.state).toLowerCase()}, not open`)
     if (current.headRefOid !== sha) {
       write(io.stdout, `DECISION: head moved from ${sha} to ${current.headRefOid}; re-run.`)
       return 3
@@ -129,8 +134,16 @@ export const landSafe = async (
       return 0
     }
     run(runner, ['pr', 'merge', String(pr), '--repo', repo, '--squash', '--match-head-commit', sha])
-    write(io.stdout, `DECISION: merged PR ${pr} at ${sha}.`)
-    return 0
+    const afterMerge = readPr(runner, pr, repo)
+    if (afterMerge.state === 'MERGED' && afterMerge.mergeCommit?.oid) {
+      write(io.stdout, `DECISION: merged PR ${pr} at ${sha}; merge commit ${afterMerge.mergeCommit.oid}.`)
+      return 0
+    }
+    if (afterMerge.state === 'OPEN') {
+      write(io.stdout, `DECISION: queued PR ${pr}; it has not merged yet.`)
+      return 4
+    }
+    throw new Error(`merge was not confirmed for PR ${pr}: state ${afterMerge.state ?? 'unknown'}, merge commit ${afterMerge.mergeCommit?.oid ?? 'missing'}`)
   } catch (error) {
     write(io.stderr, `land-safe: ${error instanceof Error ? error.message : String(error)}`)
     return 1
