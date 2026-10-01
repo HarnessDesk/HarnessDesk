@@ -74,6 +74,14 @@ export interface FlowPolicy {
   readonly layout?: unknown
 }
 
+/** A person role is a review step only when its outgoing rule reads a review fact. */
+export const isPersonReviewStep = (policy: FlowPolicy, roleId: string): boolean => {
+  if (policy.roles.find((role) => role.id === roleId)?.kind !== 'person') return false
+  return policy.rules?.some((rule) =>
+    rule.on === roleId && rule.when?.evidence?.some((guard) => 'review' in guard) === true,
+  ) ?? false
+}
+
 export type FlowDocument =
   | { readonly format: 'legacy'; readonly flow: Flow }
   | { readonly format: 'agents'; readonly flow: FlowPolicy }
@@ -238,6 +246,8 @@ export interface ReviewCandidate {
   readonly at: string
   readonly branch: string | null
   readonly evidence: readonly string[]
+  /** The Agent name that held this attempt, when the flow opened one. */
+  readonly holder?: string
 }
 
 /** What `record_review` takes: a structured verdict against one observed candidate, never prose. */

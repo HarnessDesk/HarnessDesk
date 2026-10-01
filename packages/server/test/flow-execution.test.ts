@@ -41,7 +41,7 @@ roles:
   judge:  { kind: agent, uses: decider }
 seed: { role: verify, title: Check the attempt }
 rules:
-  - { id: to-judge, on: verify, when: { any: [pass] }, then: { role: judge, title: Pick the better attempt } }
+  - { id: to-judge, on: verify, when: { any: [pass] }, then: { role: judge, title: Pick the best attempt } }
 `
 
 test('a mixed round only opens the judge once every one of its cards has finished, not on the first pass', async (t) => {
@@ -63,6 +63,59 @@ test('a mixed round only opens the judge once every one of its cards has finishe
     rig.board(run.goal).intents.some((one) => one.role === 'judge'),
     'once the round closes, `any: [pass]` is satisfied — one card passed, the other failed',
   )
+})
+
+test('a person review step gets predecessor candidates and advances the referee from the same review fact', async (t) => {
+  const rig = await goalRig(t)
+  const source = `
+version: 2
+name: Person judge
+roles:
+  competitor: { kind: agent, uses: [writer-a, writer-b], count: 2, isolate: true, grant: edit, independentOf: [] }
+  verify: { kind: check, run: "pnpm verify", exits: { "0": pass }, otherwise: fail }
+  judge: { kind: person, outcomes: [picked, rejected] }
+  referee: { kind: person, outcomes: [merged] }
+seed: { role: competitor, title: Attempt }
+rules:
+  - { id: check, on: competitor, then: { role: verify, title: Check attempt } }
+  - { id: judge, on: verify, when: { any: [pass] }, then: { role: judge, title: Pick the best attempt } }
+  - { id: referee, on: judge, when: { every: [picked], evidence: [{ review: picked }] }, then: { role: referee, title: Merge, detail: "Merge {{evidence.review.at}}" } }
+budget: { rounds: 4, without-progress: 2 }
+`
+  const run = await rig.start(source, [agent('writer-a', ['done']), agent('writer-b', ['done'])])
+  await rig.flows.flush()
+  rig.heads.set(rig.seats.get('seat-1')!.checkout.cwd, { at: 'a'.repeat(40), dirty: false })
+  rig.heads.set(rig.seats.get('seat-2')!.checkout.cwd, { at: 'b'.repeat(40), dirty: false })
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.team.complete(2, { outcome: 'done' }, rig.sessionOf('seat-2'))
+  await rig.flows.flush()
+  const judge = rig.board(run.goal).intents.find((one) => one.role === 'judge')
+  assert.ok(judge, JSON.stringify({ execution: rig.flows.executionsFor(run.goal), board: rig.board(run.goal).intents, events: rig.events, facts: rig.facts.get(run.goal) }))
+  assert.deepEqual(await rig.flows.personReviewCandidates(run.id, 1), [], 'agent cards are not person review steps')
+  await assert.rejects(() => rig.flows.decidePersonReview(run.id, 1, 'candidate', 'picked'), /not an open person review step/)
+  assert.equal(rig.facts.get(run.goal)?.some((one) => one.fact.kind === 'review'), false)
+  const candidates = await rig.flows.personReviewCandidates(run.id, judge.id)
+  assert.equal(candidates.length, 2)
+  assert.ok(candidates.every((one) => one.evidence.length > 0), JSON.stringify({ candidates, facts: rig.facts.get(run.goal) }))
+  const picked = candidates[1]!
+  await assert.rejects(() => rig.flows.decidePersonReview(run.id, judge.id, picked.id, 'unknown'), /not an answer this step accepts/)
+  await assert.rejects(() => rig.flows.decidePersonReview(run.id, judge.id, 'unknown', 'picked'), /no longer being offered/)
+  assert.equal(rig.facts.get(run.goal)?.some((one) => one.fact.kind === 'review'), false)
+  assert.equal(rig.board(run.goal).intents.find((one) => one.id === judge.id)?.state, 'open')
+  const decided = await rig.flows.decidePersonReview(run.id, judge.id, picked.id, 'picked')
+  await rig.flows.flush()
+  assert.equal(rig.board(run.goal).intents.find((one) => one.id === judge.id)?.outcome, 'picked')
+  const record = rig.facts.get(run.goal)?.find((one) => one.fact.kind === 'review')
+  assert.equal(record?.fact.kind === 'review' ? record.fact.by : null, '00000000-0000-4000-8000-000000000001')
+  assert.equal(record?.seat, '00000000-0000-4000-8000-000000000001')
+  await assert.rejects(() => rig.flows.decidePersonReview(run.id, judge.id, picked.id, 'rejected'), /not an open person review step/)
+  assert.ok(rig.flows.executionsFor(run.goal)[0]?.rounds.some((one) => one.role === 'referee'), JSON.stringify({ execution: rig.flows.executionsFor(run.goal), board: rig.board(run.goal).intents, facts: rig.facts.get(run.goal) }))
+  const referee = rig.board(run.goal).intents.find((one) => one.role === 'referee')
+  assert.ok(referee, JSON.stringify({ execution: rig.flows.executionsFor(run.goal), board: rig.board(run.goal).intents }))
+  assert.match(referee.detail ?? '', new RegExp(picked.at))
+  assert.deepEqual(await rig.flows.personReviewCandidates(run.id, referee.id), [], 'a person step without a review guard is not a review step')
+  await assert.rejects(() => rig.flows.decidePersonReview(run.id, referee.id, picked.id, 'merged'), /not an open person review step/)
+  assert.equal(rig.facts.get(run.goal)?.filter((one) => one.fact.kind === 'review').length, 1)
 })
 
 test('only current round seats and every seat is durable before order', async (t) => {

@@ -3,6 +3,7 @@ import type { FlowRole, FlowRun } from './flow.js'
 import type { FlowExecution } from './flow-policy.js'
 import type { Intent } from './team.js'
 
+import { isPersonReviewStep } from './flow-policy.js'
 import { checkPassed, ciVerdict, isCurrent } from './evidence-status.js'
 
 export type FactColumn = 'todo' | 'working' | 'needs' | 'review' | 'ready' | 'aside'
@@ -62,6 +63,10 @@ export interface FlowStep {
    * for good. See `PlaceInput.live`.
    */
   readonly live: boolean
+  /** Present only when this person's answer is also required to write a review fact. */
+  readonly review?: true
+  /** The run whose candidates this card may choose. */
+  readonly run?: string
 }
 
 /**
@@ -113,6 +118,9 @@ export const flowStepOf = (
       outcomes: role.kind === 'person' ? role.outcomes : [],
       stopped: execution.state === 'stalled',
       live: execution.state === 'running' || execution.state === 'stalled',
+      ...(role.kind === 'person' && isPersonReviewStep(execution.document.flow, role.id)
+        ? { review: true as const, run: execution.id }
+        : {}),
     }
   }
   return null

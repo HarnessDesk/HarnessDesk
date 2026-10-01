@@ -159,6 +159,10 @@ export const flowMethods = {
 
   'flow/answer/continue': (ctx, params) => ctx.flows.continueAnswer(params.run),
 
+  'flow/review/candidates': (ctx, params) => ctx.flows.personReviewCandidates(params.run, params.card),
+
+  'flow/review/decide': (ctx, params) => ctx.flows.decidePersonReview(params.run, params.card, params.candidate, params.verdict),
+
   'flow/update/preview': (ctx, params) => ctx.flowUpdates.preview(params.root, params.id),
 
   'flow/update/apply': (ctx, params) => ctx.flowUpdates.apply(params.root, params.token),

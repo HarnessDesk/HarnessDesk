@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { parseClientMessage, ValidationError } from '../src/index.js'
+import { isPersonReviewStep, parseClientMessage, ValidationError, type FlowPolicy } from '../src/index.js'
 
 /*
  * The v2 flow wire refuses forged authority before any handler runs: a
@@ -46,6 +46,35 @@ test('flow/answer/continue accepts only a non-empty run id', () => {
   assert.throws(() => request('flow/answer/continue', { run: '' }), ValidationError)
   assert.throws(() => request('flow/answer/continue', { run: 'run-1', origin: 'user' }), ValidationError)
   assert.doesNotThrow(() => request('flow/answer/continue', { run: 'run-1' }))
+})
+
+test('person review candidate methods validate their complete request shapes', () => {
+  assert.throws(() => request('flow/review/candidates', { run: '', card: 1 }), ValidationError)
+  assert.throws(() => request('flow/review/candidates', { run: 'run-1', card: 0 }), ValidationError)
+  assert.throws(() => request('flow/review/candidates', { run: 'run-1', card: 1, seat: 'forged' }), ValidationError)
+  assert.doesNotThrow(() => request('flow/review/candidates', { run: 'run-1', card: 1 }))
+  for (const params of [
+    { run: '', card: 1, candidate: 'candidate-1', verdict: 'picked' },
+    { run: 'run-1', card: 0, candidate: 'candidate-1', verdict: 'picked' },
+    { run: 'run-1', card: 1, candidate: '', verdict: 'picked' },
+    { run: 'run-1', card: 1, candidate: 'candidate-1', verdict: '' },
+    { run: 'run-1', card: 1, candidate: 'candidate-1', verdict: 'picked', seat: 'forged' },
+  ]) assert.throws(() => request('flow/review/decide', params), ValidationError)
+  assert.doesNotThrow(() => request('flow/review/decide', { run: 'run-1', card: 1, candidate: 'candidate-1', verdict: 'picked' }))
+})
+
+test('person review policy is one shared predicate over the role and its review-guarded rules', () => {
+  const policy = {
+    roles: [{ id: 'judge', kind: 'person', outcomes: ['picked'] }, { id: 'referee', kind: 'person', outcomes: ['merged'] }],
+    rules: [
+      { id: 'referee-step', on: 'judge', when: { every: ['picked'], evidence: [{ review: 'picked' }] }, then: { role: 'referee', title: 'Merge' } },
+      { id: 'ordinary', on: 'referee', when: { every: ['merged'] }, then: { role: 'next', title: 'Next' } },
+    ],
+  } as unknown as FlowPolicy
+  assert.equal(isPersonReviewStep(policy, 'judge'), true)
+  assert.equal(isPersonReviewStep(policy, 'referee'), false)
+  assert.equal(isPersonReviewStep(policy, 'missing'), false)
+  assert.equal(isPersonReviewStep({ ...policy, roles: [{ id: 'judge', kind: 'agent' }] } as unknown as FlowPolicy, 'judge'), false)
 })
 
 test('a token field never accepts anything but a filled string — no object, number or cross-type value stands in for it', () => {

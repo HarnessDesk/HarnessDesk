@@ -44,6 +44,7 @@ import type {
   FlowExecution,
   FlowPolicy,
   FlowPreview,
+  ReviewCandidate,
   FlowStartRequest,
   FlowUpdatePreview,
   FlowUpdateResult,
@@ -1867,6 +1868,10 @@ export interface HostMethods {
   'flow/check/retry': { params: { readonly run: string; readonly card: number; readonly token: string }; result: FlowExecution }
   /** Hands a stopped run's kept answer (`FlowExecution.keptAnswer`) to the same Seat again, and the run goes on; refused, the answer still kept, while it cannot be delivered. */
   'flow/answer/continue': { params: { readonly run: string }; result: FlowExecution }
+  /** Observed predecessor subjects a person review card may choose from. */
+  'flow/review/candidates': { params: { readonly run: string; readonly card: number }; result: readonly ReviewCandidate[] }
+  /** Records a person's structured review and answers the same person card with its verdict. */
+  'flow/review/decide': { params: { readonly run: string; readonly card: number; readonly candidate: string; readonly verdict: string }; result: FlowExecution }
   /** What updating this project flow to the Agent format would write, previewed before anything is touched. */
   'flow/update/preview': { params: { readonly root: string; readonly id: string }; result: FlowUpdatePreview }
   /** Applies a previously previewed update, exactly as shown. */

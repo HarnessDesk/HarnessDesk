@@ -1087,6 +1087,10 @@ export class Host {
           subjects: bound.subjects, unsettled: bound.unsettled,
         }
       },
+      personBindingFor: async (run, card) => {
+        const bound = await this.#flows.personReviewBinding(run, card)
+        return bound ? { ...bound, seat: bound.seat as SeatId } : null
+      },
       facts: async (goal) => {
         const state = this.#goalState(goal)
         return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))

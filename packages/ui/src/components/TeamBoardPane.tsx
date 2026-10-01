@@ -6,11 +6,12 @@ import {
   type CardEvidence,
   type CheckUnseen,
   type Intent,
+  type ReviewCandidate,
   type SessionId,
   type TeamPeerInfo,
 } from '@harnessdesk/protocol'
 
-import { Dialog, Field, Input, Note, Text } from '../design'
+import { Chip, Dialog, Field, Input, Note, RowChoice, Rows, Text } from '../design'
 import { runtimeTint } from '../lib/accounts'
 import { FACT_COLUMNS, flowStepOf, placeCard, type FactColumn, type Placement } from '../lib/board-facts'
 import { brandForRuntime } from '../lib/brands'
@@ -759,7 +760,15 @@ const IntentCard = ({
   /** `outcome` is what the person answered, on a card a flow addressed to them. */
   onAct: (verb: Verb, outcome?: string) => void
 }) => {
+  const store = useStore()
   const snapshot = useSnapshot()
+  const [reviewDialog, setReviewDialog] = useState<{
+    readonly run: string
+    readonly candidates: readonly ReviewCandidate[]
+    readonly selected: string | null
+    readonly pending: boolean
+    readonly error: string | null
+  } | null>(null)
 
   /* The role this card was addressed to, as the running flow defines it.
      A room with no flow has no entry here at all, which is every room that
@@ -776,6 +785,38 @@ const IntentCard = ({
       ),
     [intent, room, snapshot.flowRuns, snapshot.flowExecutions],
   )
+
+  const openReviewDialog = async (): Promise<void> => {
+    if (!role?.review || !role.run) return
+    setReviewDialog({ run: role.run, candidates: [], selected: null, pending: true, error: null })
+    try {
+      const candidates = await store.flowReviewCandidates(role.run, intent.id)
+      setReviewDialog({ run: role.run, candidates, selected: candidates[0]?.id ?? null, pending: false, error: null })
+    } catch (error) {
+      setReviewDialog({
+        run: role.run,
+        candidates: [],
+        selected: null,
+        pending: false,
+        error: error instanceof Error && error.message ? error.message : 'The host could not load review candidates.',
+      })
+    }
+  }
+
+  const confirmReview = async (): Promise<void> => {
+    if (!reviewDialog?.selected) return
+    setReviewDialog({ ...reviewDialog, pending: true, error: null })
+    try {
+      await store.decideFlowReview(reviewDialog.run, intent.id, reviewDialog.selected, 'picked')
+      setReviewDialog(null)
+    } catch (error) {
+      setReviewDialog({
+        ...reviewDialog,
+        pending: false,
+        error: error instanceof Error && error.message ? error.message : 'The host did not record this review.',
+      })
+    }
+  }
 
   const runtime = intent.claim
     ? (snapshot.runtimes.find((one) => one.id === intent.claim?.runtime) ?? null)
@@ -853,6 +894,7 @@ const IntentCard = ({
     label: string
     danger?: boolean
     outcome?: string
+    review?: true
   }[] = [
     /* A card a flow addressed to *the person* is a step, not an absence: the
        round opened, the loop is waiting, and what they answer is what the next
@@ -863,7 +905,9 @@ const IntentCard = ({
        has nothing to "Answer", but the person still needs a way to finish the
        card, so this falls back to "Mark done" rather than leaving the menu
        with no finishing verb at all. */
-    ...(role?.kind === 'person' && role.outcomes.length > 0 && intent.state !== 'done' && intent.state !== 'abandoned'
+    ...(role?.kind === 'person' && role.review && role.outcomes.length > 0 && intent.state !== 'done' && intent.state !== 'abandoned'
+      ? [{ verb: 'done' as const, label: 'Pick an attempt…', review: true as const }]
+      : role?.kind === 'person' && role.outcomes.length > 0 && intent.state !== 'done' && intent.state !== 'abandoned'
       ? role.outcomes.map((word) => ({
           verb: 'done' as const,
           label: `Answer ${word}`,
@@ -921,6 +965,7 @@ const IntentCard = ({
         ]
 
   return (
+    <>
     <BoardCard
       title={
         <>
@@ -1107,7 +1152,7 @@ const IntentCard = ({
                     key={one.outcome ? `${one.verb}:${one.outcome}` : one.verb}
                     label={one.label}
                     danger={one.danger}
-                    onSelect={() => onAct(one.verb, one.outcome)}
+                    onSelect={() => one.review ? void openReviewDialog() : onAct(one.verb, one.outcome)}
                   />
                 ))}
               </Menu>
@@ -1116,5 +1161,63 @@ const IntentCard = ({
         ) : undefined
       }
     />
+    {reviewDialog && (
+      <Dialog
+        title="Pick the best attempt"
+        subhead="Choose a checked revision for this run."
+        flush
+        onClose={() => setReviewDialog(null)}
+        footer={(
+          <>
+            <Button variant="quiet" onClick={() => setReviewDialog(null)}>Cancel</Button>
+            <Button variant="default" disabled={!reviewDialog.selected || reviewDialog.pending} onClick={() => void confirmReview()}>
+              {reviewDialog.pending ? 'Saving…' : 'Pick this attempt'}
+            </Button>
+          </>
+        )}
+      >
+        {reviewDialog.error && <Note tone="bad">{reviewDialog.error}</Note>}
+        {reviewDialog.pending && reviewDialog.candidates.length === 0
+          ? <Note>Loading attempts…</Note>
+          : reviewDialog.candidates.length === 0
+            ? <Note>No attempts are available to pick yet.</Note>
+            : (
+              <Rows role="radiogroup" aria-label="Attempts">
+                {reviewDialog.candidates.map((candidate) => {
+                  const attempt = snapshot.teams.get(room)?.intents.find((one) => one.id === candidate.card)
+                  const candidateHolder = candidate.holder ?? (attempt?.claim
+                    ? nicknameOf(snapshot.teams.get(room)?.nicknames, attempt.claim) ??
+                      snapshot.sessions.get(sessionKey(attempt.claim.runtime, attempt.claim.sessionId as SessionId))?.title ??
+                      snapshot.runtimes.find((one) => one.id === attempt.claim?.runtime)?.presentation.name ??
+                      'Unknown holder'
+                    : 'No holder')
+                  const evidenceIds = new Set(candidate.evidence)
+                  const checkFacts = (snapshot.boardEvidence.get(room)?.cards.flatMap((one) => one.facts) ?? [])
+                    .filter((view) => evidenceIds.has(view.record.id) && view.record.fact.kind === 'check')
+                  return (
+                    <RowChoice
+                      key={candidate.id}
+                      title={(
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="truncate">{attempt?.title ?? `Card #${candidate.card}`} · {candidateHolder}</span>
+                          {checkFacts.map((view) => {
+                            if (view.record.fact.kind !== 'check') return null
+                            const result = view.record.fact.timedOut ? 'Timed out' : view.record.fact.exit === 0 ? 'Pass' : 'Fail'
+                            return <Chip key={view.record.id} tone={result === 'Pass' ? 'success' : 'danger'}>{`${view.record.fact.name}: ${result}`}</Chip>
+                          })}
+                        </span>
+                      )}
+                      desc={`${candidate.branch ?? 'detached'} · ${shortSha(candidate.at)}`}
+                      truncateDesc
+                      selected={reviewDialog.selected === candidate.id}
+                      onClick={() => setReviewDialog({ ...reviewDialog, selected: candidate.id, error: null })}
+                    />
+                  )
+                })}
+              </Rows>
+            )}
+      </Dialog>
+    )}
+    </>
   )
 }

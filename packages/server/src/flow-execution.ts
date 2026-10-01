@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, open, readdir, readFile, realpath, rename, unlink } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 
-import { DEFAULT_FLOW_BUDGET } from '@harnessdesk/protocol'
+import { DEFAULT_FLOW_BUDGET, isPersonReviewStep } from '@harnessdesk/protocol'
 import type {
   CompiledFlow,
   EvidenceView,
@@ -38,6 +38,7 @@ import { cardVars, guardHolds } from './flow.js'
 import { SeatBusyRefusal } from './goals/plane.js'
 import {
   evidenceValues, namesEvidence, readyGuard, renderCardTemplate, type FindingsGate, type FlowEvidenceContext, type FlowSubject,
+  PERSON_REVIEWER_ID,
 } from './flow-evidence.js'
 import { decideLoop, QUESTION_STOP } from './findings/rounds.js'
 import { handedCheckout, writes } from './flow-handed.js'
@@ -1878,6 +1879,38 @@ export class FlowExecutions {
     // a review judges its predecessors' revisions, never its own checkout.
     const closure = await this.#closure(run, deps)
     return { seat: String(seat.id), answers, round: round.n, subjects: closure.subjects, unsettled: closure.unsettled }
+  }
+
+  /** The open person card and predecessor subjects when a review guard makes it a judge. */
+  async personReviewBinding(runId: string, card: number): Promise<{
+    readonly goal: string
+    readonly seat: string
+    readonly answers: readonly string[]
+    readonly round: number
+    readonly subjects: readonly FlowSubject[]
+    readonly unsettled: readonly { readonly card: number; readonly why: string }[]
+  } | null> {
+    const run = this.#runs.get(runId)
+    if (!run || run.state !== 'running' || run.document.format !== 'agents') return null
+    const round = run.rounds.find((one) => one.cards.includes(card) && one.state === 'running')
+    if (!round) return null
+    const role = run.document.flow.roles.find((one) => one.id === round.role)
+    if (!role || !isPersonReviewStep(run.document.flow, role.id)) return null
+    const intent = this.#team.stateFor(run.goal).intents.find((one) => one.id === card)
+    if (!intent || intent.state !== 'open' || intent.role !== role.id) return null
+    const closure = await this.#closure(run, intent.dependsOn)
+    const subjects = closure.subjects.map((subject) => {
+      const { seat } = this.#seatForCard(run, subject.card)
+      return seat?.agent?.name ? { ...subject, holder: seat.agent.name } : subject
+    })
+    return {
+      goal: run.goal,
+      seat: PERSON_REVIEWER_ID,
+      answers: role.kind === 'person' ? role.outcomes : [],
+      round: round.n,
+      subjects,
+      unsettled: closure.unsettled,
+    }
   }
 
   /**

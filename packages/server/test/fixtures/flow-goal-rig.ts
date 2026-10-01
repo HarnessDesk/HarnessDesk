@@ -440,6 +440,10 @@ export const goalRig = async (
       if (!bound) return null
       return { goal, seat: bound.seat as SeatRecord['id'], answers: bound.answers, round: bound.round, subjects: bound.subjects, unsettled: bound.unsettled }
     },
+    personBindingFor: async (run, card) => {
+      const bound = await rig.flows.personReviewBinding(run, card)
+      return bound ? { ...bound, seat: bound.seat as SeatRecord['id'] } : null
+    },
     facts: async (goal) => viewsFor(goal),
     // The same compare-and-merge `FakePort` in flow-review.test.ts proves against a bare port: an
     // identical repeat is a no-op, a different verdict for the same (round,card,seat,at) conflicts.
