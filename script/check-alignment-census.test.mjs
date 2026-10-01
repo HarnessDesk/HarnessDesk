@@ -37,6 +37,11 @@ test('a risen signature and a risen total both fail', () => {
   assert.deepEqual(compareTables(base, head), ['header-off-body: total rose 1 → 3', 'header-off-body: rose 1 → 3  a'])
 })
 
+test('a check dropped from the table fails', () => {
+  const base = table({ 'header-off-body': { a: 1 }, 'lead-off-line': {} })
+  assert.deepEqual(compareTables(base, table({ 'lead-off-line': {} })), ['header-off-body: the check is gone from the table'])
+})
+
 test('a new check with findings fails; one with none does not', () => {
   assert.equal(compareTables({}, table({ x: { a: 1 } })).length, 1)
   assert.deepEqual(compareTables({}, table({ x: {} })), [])

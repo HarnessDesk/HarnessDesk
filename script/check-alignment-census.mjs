@@ -35,6 +35,8 @@ const TABLE = 'packages/ui/src/design/alignment-census.json'
 /** Every way `head` records more than `base`, one line each; empty when it records no more. */
 export const compareTables = (base, head) => {
   const problems = []
+  // A check the table stops recording is a dimension the census stopped measuring.
+  for (const check of Object.keys(base)) if (!head[check]) problems.push(`${check}: the check is gone from the table`)
   for (const [check, entry] of Object.entries(head)) {
     const was = base[check]
     if (!was) {
@@ -64,13 +66,24 @@ const main = () => {
     console.error(`alignment census: no merge base with ${base}; fetch it (a CI checkout needs fetch-depth: 0).`)
     process.exit(1)
   }
-  let before
+  // On the base branch itself (CI's push to main) the merge base is HEAD, and
+  // the table would be compared with itself; the commit answers to its parent.
+  if (start === git('rev-parse', 'HEAD').trim()) {
+    try {
+      start = git('rev-parse', '--verify', '--quiet', 'HEAD^1').trim()
+    } catch {
+      console.log('alignment census: a root commit has nothing to hold it to.')
+      return
+    }
+  }
   try {
-    before = JSON.parse(git('show', `${start}:${TABLE}`))
+    git('cat-file', '-e', `${start}:${TABLE}`)
   } catch {
-    console.log(`alignment census: the merge base with ${base} had no table yet; nothing to hold.`)
+    console.log(`alignment census: ${start.slice(0, 9)} had no table yet; nothing to hold.`)
     return
   }
+  // Past this point a failure to read or parse either table fails the gate.
+  const before = JSON.parse(git('show', `${start}:${TABLE}`))
   const after = JSON.parse(readFileSync(path.join(root, TABLE), 'utf8'))
   const problems = compareTables(before, after)
   if (problems.length === 0) {
@@ -79,7 +92,7 @@ const main = () => {
     return
   }
   console.error(
-    `alignment census: ${TABLE} rose against ${start.slice(0, 9)}, the merge base with ${base}.\n` +
+    `alignment census: ${TABLE} rose against ${start.slice(0, 9)}, the table this commit started from.\n` +
       'Re-recording is for a fall. Fix the part that renders these instead:\n\n' +
       problems.map((p) => `  ${p}`).join('\n') +
       '\n',
