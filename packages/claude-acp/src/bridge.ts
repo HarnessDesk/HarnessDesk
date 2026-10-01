@@ -354,8 +354,9 @@ const readCeilingHook = async (input: { readonly tool_name: string; readonly too
   if (decision) return { hookSpecificOutput: { hookEventName: 'PreToolUse', ...decision } }
   if (input.tool_name === 'Bash' && typeof input.tool_input === 'object' && input.tool_input !== null) {
     const toolInput = input.tool_input as Record<string, unknown>
-    const command = toolInput['command']
-    if (typeof command === 'string' && /^git +/.test(command)) {
+    // The same trimmed text the allowlist judged, so leading space can't skip the rewrite.
+    const command = typeof toolInput['command'] === 'string' ? toolInput['command'].trim() : undefined
+    if (command !== undefined && /^git\s+/.test(command)) {
       return {
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
@@ -661,6 +662,9 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
   }
   override async resumeSession(request: ResumeSessionRequest): Promise<ResumeSessionResponse> {
     const remembered = { ...this.#readControls(request.sessionId), ...optionsIn(request._meta) }
+    // Only a read seat needs its ceiling re-applied here; every other resume
+    // stays exactly the wrapper's own.
+    if (remembered['ceiling'] !== 'read') return super.resumeSession(request)
     const response = await super.resumeSession({ ...request, _meta: withOptions(request._meta, remembered, new AbortController(), request.cwd) })
     await this.#forceReadPermissionMode(request.sessionId, remembered)
     const stored: StoredControlsWithRuntime = {

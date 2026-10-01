@@ -80,6 +80,11 @@ test('read ceiling options force a non-bypass mode and install a pre-tool hook',
   }
   assert.equal(allowedHook.hookSpecificOutput.permissionDecision, undefined)
   assert.match(allowedHook.hookSpecificOutput.updatedInput.command, /^git --no-optional-locks --no-pager -c core\.fsmonitor=false status --short$/)
+  // Leading space is judged and rewritten as the same trimmed command, never run as typed.
+  const spaced = await hooks.PreToolUse[0]!.hooks[0]!({ tool_name: 'Bash', tool_input: { command: '  git diff' } }) as {
+    hookSpecificOutput: { updatedInput: { command: string } }
+  }
+  assert.match(spaced.hookSpecificOutput.updatedInput.command, /^git --no-optional-locks --no-pager -c core\.fsmonitor=false/)
   assert.equal(meta.harnessdesk.ceiling, 'read')
 })
 
