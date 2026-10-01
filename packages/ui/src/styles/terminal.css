@@ -15,3 +15,10 @@
 .terminal.xterm .xterm-viewport {
   background-color: var(--hd-surface-fill);
 }
+
+/* The same sheet paints its IME composition view black with white text; it
+   sits over the rows while a person composes, so it takes the rows' colours. */
+.terminal.xterm .composition-view.active {
+  background-color: var(--hd-surface-fill);
+  color: var(--hd-foreground);
+}

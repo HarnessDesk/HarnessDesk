@@ -16,6 +16,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await terminal.waitFor()
     await terminal.scrollIntoViewIfNeeded()
 
+    const strips: number[] = []
     for (const height of [201, 263, 300]) {
       // The pane's own host decides the height xterm fits itself into.
       await terminal.evaluate((xterm, px) => {
@@ -23,7 +24,12 @@ for (const scheme of ['light', 'dark'] as const) {
         host.style.flex = 'none'
         host.style.height = `${px}px`
       }, height)
-      await page.waitForTimeout(300)
+      // Wait for xterm's own refit: its rows fit inside the new height, with less than a row left over.
+      await expect.poll(() => terminal.evaluate((xterm) => {
+        const rows = xterm.querySelector('.xterm-scrollable-element')!.getBoundingClientRect()
+        const box = xterm.getBoundingClientRect()
+        return rows.height <= box.height && box.height - rows.height < 40
+      })).toBe(true)
       const found = await terminal.evaluate((xterm) => {
         const themed = xterm.querySelector('.xterm-scrollable-element')!
         const expected = getComputedStyle(themed).backgroundColor
@@ -47,6 +53,18 @@ for (const scheme of ['light', 'dark'] as const) {
         return { expected, strip: Math.floor(box.bottom) - Math.ceil(rows.bottom), off: off.slice(0, 5) }
       })
       expect(found.off, `at ${height}px the ${found.strip}px strip under the last row is not ${found.expected}`).toEqual([])
+      strips.push(found.strip)
     }
+    // An empty strip at every height would measure nothing: at least one height must leave one to check.
+    expect(Math.max(...strips), `no dock height left a strip to measure: ${strips.join(', ')}`).toBeGreaterThan(0)
+
+    // A palette switch with the terminal open: xterm's rows and the viewport under them move together.
+    await page.evaluate(() => document.body.setAttribute('data-hd-palette', 'editorial'))
+    await expect.poll(() => terminal.evaluate((xterm) => {
+      const rows = getComputedStyle(xterm.querySelector('.xterm-scrollable-element')!).backgroundColor
+      const viewport = getComputedStyle(xterm.querySelector('.xterm-viewport')!).backgroundColor
+      const surface = getComputedStyle(document.body).getPropertyValue('--hd-surface-fill').trim()
+      return { same: rows === viewport, moved: surface !== '' }
+    })).toEqual({ same: true, moved: true })
   })
 }
