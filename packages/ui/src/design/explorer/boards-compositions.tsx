@@ -835,8 +835,7 @@ const ToolPaneBoard = () => {
           </ToolPane>
         </Case>
         <Case label="integrated tool — page failed to load">
-          <ToolPane variant="integrated" className="@container/browser h-56 w-full" data-catalog-variant="integrated" data-catalog-state="failure">
-            <ToolPaneHeader variant="window" title="Browser" subtitle="http://127.0.0.1:9/" />
+          <ToolPane variant="integrated" className="@container/browser h-56 w-full" data-catalog-case="tool-pane-failure">
             <ToolPaneBar variant="address">http://127.0.0.1:9/</ToolPaneBar>
             <ToolPaneBody bleed>
               <EmptyState
