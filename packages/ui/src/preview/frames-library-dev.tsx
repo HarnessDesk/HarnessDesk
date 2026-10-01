@@ -57,9 +57,7 @@ const SKILLS: readonly Item[] = [
 
 const SELECTED = SKILLS[0]!
 
-const SKILL_MD = `# brainstorming
-
-Use before any creative work — a feature, a component, a change in behaviour.
+const SKILL_MD = `Use before any creative work — a feature, a component, a change in behaviour.
 
 1. Read the project context first.
 2. Ask one question at a time until the purpose and constraints are clear.
@@ -106,7 +104,7 @@ const KindTabs = () => (
 const Toolbar = () => (
   <div className="flex items-center justify-between gap-4 border-b px-5 pt-4">
     <div className="flex items-end gap-6">
-      <Text role="page" as="h2" className="pb-2">Library</Text>
+      <Text role="page" as="h2" className="ml-6 pb-2 pl-0.5">Library</Text>
       <KindTabs />
     </div>
     <div className="flex items-center gap-2 pb-2">
@@ -225,8 +223,7 @@ const ReceiptBar = () => (
 const DetailPane = ({ applied }: { applied: boolean }) => (
   <div className="min-w-0 space-y-6 p-6">
     <header className="flex items-start justify-between gap-4">
-      <div className="flex min-w-0 items-start gap-3">
-        <IconTile size="lg"><SparkIcon size={18} /></IconTile>
+      <div className="min-w-0">
         <div className="min-w-0 space-y-1">
           <Text role="page" as="h2">{SELECTED.name}</Text>
           <Text role="muted" as="p">{SELECTED.description}</Text>
