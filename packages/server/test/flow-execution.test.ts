@@ -539,6 +539,32 @@ rules:
   assert.deepEqual(readback.rig.events.filter((one) => one.startsWith('release:')), ['release:seat-2'])
 })
 
+test('a post-open provider clash stalls without trying the next otherwise-independent seat', async (t) => {
+  const rig = await goalRig(t)
+  rig.providers.set('alpha', 'first').set('alpha-two', 'first').set('beta', 'second').set('beta-two', 'second')
+  rig.opensAs = (asked) => asked === 'beta' ? 'alpha-two' : asked
+  const run = await rig.start(`
+version: 2
+name: Provider changes in checkout
+roles:
+  author: { kind: agent, uses: writer, seats: [alpha] }
+  reviewer: { kind: agent, uses: reviewer, seats: [beta, beta-two], independentOf: [author] }
+seed: { role: author, title: Write }
+rules:
+  - { id: review, on: author, when: { every: [done] }, then: { role: reviewer, title: Review } }
+`, [agent('writer', ['done']), agent('reviewer', ['approve'])])
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+
+  const execution = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(execution.state, 'stalled')
+  assert.equal(execution.reason, INDEPENDENT)
+  assert.equal(rig.seats.get('seat-2')?.session.runtime, 'alpha-two')
+  assert.deepEqual(opens(rig.events), ['open:seat-1', 'open:seat-2'], 'beta-two is not opened after beta returns on the writer provider')
+  assert.deepEqual(orders(rig.events), ['order:seat-1'], 'the clashing opened Seat receives no review turn')
+})
+
 /*
  * A predecessor whose provider is unknown makes the round unprovable
  * (the #1019 stall). What the stall says once it happens depends on whether

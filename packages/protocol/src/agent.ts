@@ -198,6 +198,10 @@ export type SeatReason =
   | { readonly kind: 'openedOtherwise'; readonly differences: readonly SeatDifference[] }
   /** `required`: the start itself — a front-door one — needs a held ceiling, whatever this Mac's own setting says. */
   | { readonly kind: 'unheld'; readonly level: CeilingLevel; readonly detail: string | null; readonly required?: true }
+  /** This candidate uses a provider already used by a role it must be independent of. */
+  | { readonly kind: 'sameProvider' }
+  /** A provider needed for the independence check could not be read. */
+  | { readonly kind: 'unknownProvider' }
 
 /**
  * What removes a reason, as a thing a surface can offer. Never a sentence:
@@ -290,6 +294,10 @@ export interface SeatCandidate {
   readonly reason: SeatReason | null
   /** What removes the reason; null unless `state` is `passed`. */
   readonly fix: SeatFix | null
+  /** Additional preview-only constraints that also passed over this candidate. */
+  readonly alsoPassed?: readonly SeatReason[]
+  /** The effective ceiling on this candidate, when a plan can report it. */
+  readonly ceiling?: SeatCeiling | null
   /** What opening it left behind; only on a candidate passed over after it was opened. */
   readonly left?: SeatLeft | null
 }

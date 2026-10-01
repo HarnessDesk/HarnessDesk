@@ -13,10 +13,12 @@ import {
   type FlowSeat,
   type FlowStartTarget,
   type SeatPlan,
+  type SeatReason,
   type StartContext,
 } from '@harnessdesk/protocol'
 
 import { rolesAtPredecessor } from './flow-handed.js'
+import { INDEPENDENT_PROVIDER, independentProviderReason } from './flow-provider.js'
 import { checkGuardNames, compileFlowPolicy, parseFlowPolicy, reviewsIn } from './flow-policy.js'
 
 /**
@@ -43,9 +45,13 @@ export interface FlowPreviewPort {
   /** The Agent roster this preview resolves against, project-first. */
   agents(root: string): Promise<readonly AgentEntry[]>
   /** One Agent's seat plan for the exact seats and grant a role names; `requireHeld` passes over every seat that cannot hold. */
-  previewAgent(root: string, agent: string, seats: readonly FlowSeat[], grant: CeilingLevel, options?: { readonly unattended?: boolean; readonly requireHeld?: true }): Promise<SeatPlan>
+  previewAgent(root: string, agent: string, seats: readonly FlowSeat[], grant: CeilingLevel, options?: { readonly unattended?: boolean; readonly requireHeld?: true; readonly includeCandidateCeilings?: true }): Promise<SeatPlan>
+  /** Reads the provider a runtime would use in this checkout; null means independence cannot be proven. */
+  providerOf?(runtime: string, cwd: string): Promise<string | null>
+  /** The checkout whose runtime configuration an opened role would read. */
+  checkoutPath?(root: string, lane: boolean): Promise<string>
   /** Predicts whether this candidate will get HarnessDesk's tool server in its actual flow checkout. */
-  pluginToolsProblem?(runtime: string, root: string, isolate: boolean): Promise<string | null>
+  pluginToolsProblem?(runtime: string, root: string, lane: boolean): Promise<string | null>
   /**
    * A front-door target read again from the host, as the canonical facts it
    * was bound to — commits, a diff, a working tree's snapshot. Asked at
@@ -239,6 +245,12 @@ export class FlowPreviews {
     const seats: FlowPreviewSeat[] = []
     if (compiled.document.format === 'agents') {
       const atPredecessor = rolesAtPredecessor(compiled, againRole)
+      type AgentRole = Extract<(typeof compiled.document.flow.roles)[number], { readonly kind: 'agent' }>
+      const raw: {
+        readonly role: AgentRole
+        readonly binding: (typeof compiled.bindings)[number]
+        readonly plan: SeatPlan
+      }[] = []
       for (const role of compiled.document.flow.roles) {
         if (role.kind !== 'agent') continue
         const bindings = compiled.bindings.filter((one) => one.role === role.id).sort((a, b) => a.index - b.index)
@@ -246,26 +258,147 @@ export class FlowPreviews {
           const plan = await this.#port.previewAgent(root, binding.agent.id, binding.seats, binding.grant, {
             ...(unattended ? { unattended: true } : {}),
             ...(requireHeld ? { requireHeld: true as const } : {}),
+            includeCandidateCeilings: true,
           })
-          seats.push({
-            role: role.id, index: binding.index, agent: binding.agent.id, plan, isolate: role.isolate,
-            ...(atPredecessor.has(role.id) ? { atPredecessor: atPredecessor.get(role.id)! } : {}), reviews: reviewsIn(binding),
+          raw.push({ role, binding, plan })
+        }
+      }
+      const providerCache = new Map<string, Promise<string | null>>()
+      const provider = (runtime: string, cwd: string): Promise<string | null> => {
+        const key = `${runtime}\u0000${cwd}`
+        let pending = providerCache.get(key)
+        if (!pending) {
+          pending = this.#port.providerOf?.(runtime, cwd).catch(() => null) ?? Promise.resolve(null)
+          providerCache.set(key, pending)
+        }
+        return pending
+      }
+      const providersByRole = new Map<string, (string | null)[]>()
+      const rawByRole = new Map<string, typeof raw>()
+      for (const entry of raw) rawByRole.set(entry.role.id, [...(rawByRole.get(entry.role.id) ?? []), entry])
+      // A role may be listed before its independent predecessor. Resolve those
+      // dependencies first so later checks see each predecessor's final winner.
+      const ordered: typeof raw = []
+      const visited = new Set<string>()
+      const visiting = new Set<string>()
+      const visit = (id: string): void => {
+        if (visited.has(id) || visiting.has(id)) return
+        visiting.add(id)
+        const role = rawByRole.get(id)?.[0]?.role
+        for (const dependency of role?.independentOf ?? []) visit(dependency)
+        visiting.delete(id)
+        visited.add(id)
+        ordered.push(...(rawByRole.get(id) ?? []))
+      }
+      for (const { role } of raw) visit(role.id)
+      for (const { role, binding, plan: originalPlan } of ordered) {
+        let plan = originalPlan
+        // `rolesAtPredecessor` uses the same `handedCheckout` rule as a run;
+        // either an isolated role or a role opened on handed work reads its lane.
+        const lane = role.isolate || atPredecessor.has(role.id)
+        const checkout = await this.#port.checkoutPath?.(root, lane) ?? root
+        // A lane does not exist until the run opens it, so nothing can read its
+        // configuration yet; it is cut from this project, whose own is the best
+        // prediction. Where the lane's turns out different, the run stops at the
+        // seat with that reason rather than trying another candidate.
+        const providerRoot = root
+        if (role.independentOf.length > 0 && !plan.blocked) {
+          const writerProviders = role.independentOf.flatMap((id) => providersByRole.get(id) ?? [null])
+          // When no predecessor provider can be read at all, the runner makes the
+          // independence decision when this role is reached; the preview warns
+          // rather than refusing a start it cannot judge.
+          const canJudgeIndependence = writerProviders.some((one) => one !== null)
+          if (!canJudgeIndependence) problems.push({
+            level: 'warning',
+            at: `roles.${role.id}`,
+            text: `Can’t read which provider ${role.independentOf.join(', ')} uses here, so independence is checked when this step is reached.`,
           })
-          if (!plan.blocked && plan.winner !== null && this.#port.pluginToolsProblem) {
-            const selected = plan.candidates[plan.winner]!
-            const toolProblem = await this.#port.pluginToolsProblem(selected.seat.runtime, root, role.isolate)
-            if (toolProblem) problems.push({
-              level: 'error',
-              at: `roles.${role.id}.seat`,
-              text: toolProblem,
+          const knownWriters = new Set<string | null>(writerProviders.length === 0 ? [null] : writerProviders)
+          const warned = new Set<string>()
+          const warnUnknown = (label: string) => {
+            if (warned.has(label)) return
+            warned.add(label)
+            problems.push({
+              level: 'warning',
+              at: `roles.${role.id}`,
+              text: `Can’t confirm that ${label} uses a different provider from ${role.independentOf.join(', ')}, so independence is checked when this step is reached.`,
             })
           }
-          if (plan.blocked) {
-            problems.push({ level: 'error', at: `roles.${role.id}`, text: plan.blocked })
-          } else if (plan.winner === null) {
-            // Every candidate passed over now: a fact about this machine at this moment, not about the flow.
-            problems.push({ level: 'error', at: `roles.${role.id}`, text: `No seat could be opened for “${binding.agent.id}”.`, availability: true })
+          const candidates = [...plan.candidates]
+          let winner: number | null = canJudgeIndependence ? null : plan.winner
+          for (let index = 0; canJudgeIndependence && index < candidates.length; index += 1) {
+            const candidate = candidates[index]!
+            if (candidate.state === 'passed') continue
+            // Match execution's pre-open candidate filter, which reads the
+            // Goal checkout before the selected Seat is opened.
+            const ownProvider = await provider(candidate.seat.runtime, root)
+            const reason = independentProviderReason(ownProvider, knownWriters)
+            // An unreadable provider is not a known clash: the start may go
+            // ahead, warned, and the run decides when the step is reached —
+            // independence is judged at that step, not in the opening plan.
+            if (!reason || reason.kind === 'unknownProvider') {
+              if (reason) warnUnknown(candidate.label)
+              winner = index
+              break
+            }
+            const additional = candidate.reason ? [...(candidate.alsoPassed ?? []), reason] : candidate.alsoPassed ?? []
+            candidates[index] = {
+              ...candidate,
+              state: 'passed',
+              reason: candidate.reason ?? reason,
+              fix: candidate.reason ? candidate.fix : { kind: 'seats' },
+              ...(additional.length ? { alsoPassed: additional } : {}),
+            }
           }
+          let postOpenStall = false
+          if (canJudgeIndependence && winner !== null) {
+            const selected = candidates[winner]!
+            const actualProvider = await provider(selected.seat.runtime, providerRoot)
+            const reason = independentProviderReason(actualProvider, knownWriters)
+            if (reason?.kind === 'unknownProvider') warnUnknown(selected.label)
+            else if (reason) {
+              candidates[winner] = {
+                ...selected,
+                state: 'passed',
+                reason: selected.reason ?? reason,
+                fix: selected.reason ? selected.fix : { kind: 'seats' },
+                ...(selected.reason ? { alsoPassed: [...(selected.alsoPassed ?? []), reason] } : {}),
+              }
+              winner = null
+              postOpenStall = true
+            }
+          }
+          plan = {
+            ...plan,
+            candidates,
+            winner,
+            ...(postOpenStall ? { blocked: INDEPENDENT_PROVIDER } : {}),
+            ceiling: winner === null ? null : candidates[winner]?.ceiling ?? plan.ceiling,
+          }
+        }
+        const selected = plan.winner === null ? null : plan.candidates[plan.winner]
+        providersByRole.set(role.id, [
+          ...(providersByRole.get(role.id) ?? []),
+          selected ? await provider(selected.seat.runtime, providerRoot) : null,
+        ])
+        seats.push({
+          role: role.id, index: binding.index, agent: binding.agent.id, plan, isolate: role.isolate,
+          ...(atPredecessor.has(role.id) ? { atPredecessor: atPredecessor.get(role.id)! } : {}), reviews: reviewsIn(binding),
+        })
+        if (!plan.blocked && plan.winner !== null && this.#port.pluginToolsProblem) {
+          const selected = plan.candidates[plan.winner]!
+          const toolProblem = await this.#port.pluginToolsProblem(selected.seat.runtime, root, lane)
+          if (toolProblem) problems.push({
+            level: 'error',
+            at: `roles.${role.id}.seat`,
+            text: toolProblem,
+          })
+        }
+        if (plan.blocked) {
+          problems.push({ level: 'error', at: `roles.${role.id}`, text: plan.blocked })
+        } else if (plan.winner === null) {
+          // Every candidate passed over now: a fact about this machine at this moment, not about the flow.
+          problems.push({ level: 'error', at: `roles.${role.id}`, text: `No seat could be opened for “${binding.agent.id}”.`, availability: true })
         }
       }
     }

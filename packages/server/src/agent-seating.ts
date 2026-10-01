@@ -308,6 +308,10 @@ export const sentenceOf = (runtime: string, reason: SeatReason): string => {
       return `${runtime} runs it ${reason.differences.map(fragmentOf).join(', and ')}`
     case 'unheld':
       return `${runtime} cannot hold ${reason.level}${reason.detail ? ` — ${quoted(reason.detail)}` : ''}, and ${reason.required ? 'a start from the front door needs every Seat to hold its ceiling' : 'this Mac refuses a seat whose ceiling is only asked'}`
+    case 'sameProvider':
+      return `${runtime} uses the same provider as the writer`
+    case 'unknownProvider':
+      return `cannot confirm that ${runtime} uses a different provider from the writer`
   }
 }
 
@@ -341,6 +345,9 @@ export const fixOf = (runtime: string, reason: SeatReason): SeatFix => {
     case 'unheld':
       // A front-door start's own requirement is met by a seat that can hold, never by loosening this Mac's setting.
       return reason.required ? { kind: 'seats' } : { kind: 'ceilings' }
+    case 'sameProvider':
+    case 'unknownProvider':
+      return { kind: 'seats' }
   }
 }
 
@@ -646,6 +653,7 @@ export const planSeats = (
   words: SeatWords,
   from: SeatPlan['from'] = 'prefer',
   need?: CeilingNeed,
+  options: { readonly includeCandidateCeilings?: boolean } = {},
 ): SeatPlan => {
   const chosen = chooseSeat(candidates, offers, need)
   const winner = chosen.seat === null ? null : chosen.passed.length
@@ -662,6 +670,12 @@ export const planSeats = (
     candidates: candidates.map((seat, index): SeatCandidate => {
       const passed = chosen.passed[index]
       if (passed) return candidateOf(passed, words)
+      const ceiling: SeatCandidate['ceiling'] = options.includeCandidateCeilings && need
+        ? {
+            level: need.level,
+            hold: (offers.find((offer) => offer.runtime === seat.runtime)?.holds ?? []).includes(need.level) ? 'held' : 'asked',
+          }
+        : null
       return {
         seat,
         label: describeSeat(seat, words),
@@ -669,6 +683,7 @@ export const planSeats = (
         state: index === winner ? 'taken' : 'untried',
         reason: null,
         fix: null,
+        ...(ceiling ? { ceiling } : {}),
       }
     }),
   }
