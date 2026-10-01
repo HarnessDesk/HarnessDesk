@@ -1040,7 +1040,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
             message={{
               id: `composer-stored-recoverable-draft-${item.id}`,
               tone: 'warning',
-              title: item.sourceId ? `Queued edit ${item.sourceId} not saved.` : 'Message not sent.',
+              title: item.reason === 'edit' ? 'Edit not saved.' : 'Message not sent.',
               body: item.detail,
               action: { label: 'Restore', onSelect: () => restoreStoredDraft(item.id) },
             }}

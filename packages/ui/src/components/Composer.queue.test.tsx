@@ -402,6 +402,24 @@ describe('the composer while a turn is running', () => {
     expect(container.textContent).toContain('it could not be saved for a reload')
   })
 
+  it('uses plain words for an unsaved queued edit instead of its internal row id', () => {
+    const queueRowId = 'queue-internal-77'
+    mockRecoveries = new Map([[KEY, [{
+      id: 100,
+      createdAt: 100,
+      reason: 'edit',
+      sourceId: queueRowId,
+      text: 'recovered edit',
+      attachments: [],
+      detail: "Your edit wasn't saved — the original was already sent. Restore it to the composer.",
+    }]]])
+    mount({ busy: false })
+
+    expect(container.textContent).toContain('Edit not saved.')
+    expect(container.textContent).toContain("Your edit wasn't saved — the original was already sent.")
+    expect(container.textContent).not.toContain(queueRowId)
+  })
+
   it('keeps a refused steer and its chips in recovery when the composer is empty', async () => {
     calls.steer.mockImplementationOnce(async () => false)
     mount({ busy: true, steer: true })
