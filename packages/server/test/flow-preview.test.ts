@@ -1,3 +1,4 @@
+import { independentProviderReason } from '../src/flow-provider.js'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
@@ -457,4 +458,11 @@ rules:
   const final = preview.seats.find((seat) => seat.role === 'final')!.plan
   assert.equal(final.winner, 0, 'gamma reads as another vendor in the project, so the preview seats it')
   assert.ok(checked.every((entry) => entry.endsWith(':/repo')), `no provider is read in a checkout that does not exist yet: ${checked.join(', ')}`)
+})
+
+test('a known same-provider clash is refused even when another writer\'s provider is unreadable', () => {
+  assert.deepEqual(independentProviderReason('openai', new Set(['openai', null])), { kind: 'sameProvider' })
+  assert.deepEqual(independentProviderReason('anthropic', new Set(['openai', null])), { kind: 'unknownProvider' })
+  assert.deepEqual(independentProviderReason(null, new Set(['openai'])), { kind: 'unknownProvider' })
+  assert.equal(independentProviderReason('anthropic', new Set(['openai'])), null)
 })

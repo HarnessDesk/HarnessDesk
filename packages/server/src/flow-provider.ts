@@ -8,6 +8,8 @@ export const independentProviderReason = (
   candidate: string | null,
   writers: ReadonlySet<string | null>,
 ): SeatReason | null => {
+  // A known clash is named first: an unreadable second writer never hides it.
+  if (candidate !== null && writers.has(candidate)) return { kind: 'sameProvider' }
   if (writers.has(null) || candidate === null) return { kind: 'unknownProvider' }
-  return writers.has(candidate) ? { kind: 'sameProvider' } : null
+  return null
 }
