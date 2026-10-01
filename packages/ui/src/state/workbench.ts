@@ -909,6 +909,14 @@ export const rightPanelDrawn = (workbench: Workbench): boolean =>
   dockViews(workbench.right).length > 0 && areaVisible(workbench, 'right') && !workbench.right.collapsed
 
 /**
+ * Whether a narrow window lays the right panel over the whole main area —
+ * the one rule `Workbench` hides and inerts the middle by, and the corner and
+ * the notice strip follow (#1179).
+ */
+export const rightPanelOverlays = (workbench: Workbench, narrow: boolean): boolean =>
+  narrow && rightPanelDrawn(workbench) && areaVisible(workbench, 'main')
+
+/**
  * The area the strip above the panes rides (`NoticeStripOutlet`): the one
  * being read at full size, never one a zoom or an overlay has taken off the
  * screen.
@@ -925,7 +933,7 @@ export const rightPanelDrawn = (workbench: Workbench): boolean =>
 export const noticeArea = (workbench: Workbench, narrow: boolean): 'main' | 'right' | 'bottom' | null => {
   const zoom = workbench.zoom
   if (zoom !== null && zoom.area !== 'main') return zoom.area === 'sidebar' ? null : zoom.area
-  if (narrow && rightPanelDrawn(workbench)) return 'right'
+  if (rightPanelOverlays(workbench, narrow)) return 'right'
   return 'main'
 }
 
@@ -1059,13 +1067,13 @@ export const areaVisible = (workbench: Workbench, area: AreaId): boolean => {
 export const cornerArea = (workbench: Workbench, sidebarShown: boolean, narrow = false): AreaId =>
   sidebarShown
     ? 'sidebar'
-    : areaVisible(workbench, 'main')
-      ? narrow && rightPanelDrawn(workbench)
-        ? 'right'
-        : 'main'
-      : areaVisible(workbench, 'right') && dockViews(workbench.right).length > 0
-        ? 'right'
-        : 'bottom'
+    : rightPanelOverlays(workbench, narrow)
+      ? 'right'
+      : areaVisible(workbench, 'main')
+        ? 'main'
+        : areaVisible(workbench, 'right') && dockViews(workbench.right).length > 0
+          ? 'right'
+          : 'bottom'
 
 // ---------------------------------------------------------- narrow windows
 

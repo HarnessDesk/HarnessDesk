@@ -36,6 +36,7 @@ import {
   areaOfMount,
   areaVisible,
   cornerArea,
+  rightPanelOverlays,
   dockLimits,
   dockViews,
   MAX_RATIO,
@@ -175,7 +176,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   const showSidebar = placement !== 'away'
   const floating = placement === 'floating'
   const column = placement === 'column'
-  const rightPanelOverlay = narrow && rightPanelDrawn(workbench) && areaVisible(workbench, 'main')
+  const rightPanelOverlay = rightPanelOverlays(workbench, narrow)
 
   useLayoutEffect(() => {
     if (rightPanelDrawn(workbench)) {
