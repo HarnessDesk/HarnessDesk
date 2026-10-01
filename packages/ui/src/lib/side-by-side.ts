@@ -53,22 +53,38 @@ export const wouldReplace = (state: SideBySideState, key: SessionKey): SessionKe
   return state.seen.find(movable) ?? state.tiles.find(movable) ?? null
 }
 
+/**
+ * Whether Watch can put this member up: it is up already, there is a free
+ * place, or some tile is free to give its place up. False only when every
+ * other tile is pinned or focused, which `placeTile` would leave unchanged.
+ */
+export const canPlace = (state: SideBySideState, key: SessionKey): boolean =>
+  state.tiles.includes(key) || state.tiles.length < MAX_TILES || wouldReplace(state, key) !== null
+
+/**
+ * Move the keyboard to a tile that is up. An expanded tile follows it: the
+ * expanded tile is the only one drawn, so focusing another while one fills
+ * the grid would otherwise move the keys to a tile nobody can see.
+ */
+const follow = (state: SideBySideState, key: SessionKey): SideBySideState => ({
+  ...state,
+  focused: key,
+  expanded: state.expanded === null ? null : key,
+  seen: seenNow(state.seen, key),
+})
+
 export const placeTile = (state: SideBySideState, key: SessionKey): SideBySideState => {
-  if (state.tiles.includes(key)) return { ...state, focused: key, seen: seenNow(state.seen, key) }
-  if (state.tiles.length < MAX_TILES) {
-    return { ...state, tiles: [...state.tiles, key], focused: key, seen: seenNow(state.seen, key) }
-  }
+  if (state.tiles.includes(key)) return focusTile(state, key)
+  if (state.tiles.length < MAX_TILES) return follow({ ...state, tiles: [...state.tiles, key] }, key)
   const victim = wouldReplace(state, key)
   if (!victim) return state
   const { [victim]: _dropped, ...modes } = state.modes
-  return {
+  return follow({
     ...state,
     tiles: state.tiles.map((one) => (one === victim ? key : one)),
     modes,
-    focused: key,
-    expanded: state.expanded === victim ? null : state.expanded,
-    seen: seenNow(state.seen.filter((one) => one !== victim), key),
-  }
+    seen: state.seen.filter((one) => one !== victim),
+  }, key)
 }
 
 export const removeTile = (state: SideBySideState, key: SessionKey): SideBySideState => {
@@ -88,8 +104,13 @@ export const removeTile = (state: SideBySideState, key: SessionKey): SideBySideS
   }
 }
 
-export const focusTile = (state: SideBySideState, key: SessionKey): SideBySideState =>
-  state.tiles.includes(key) ? { ...state, focused: key, seen: seenNow(state.seen, key) } : state
+export const focusTile = (state: SideBySideState, key: SessionKey): SideBySideState => {
+  if (!state.tiles.includes(key)) return state
+  // Unchanged is returned as itself, so a click inside the focused tile
+  // re-renders nothing and writes nothing.
+  if (state.focused === key && state.seen.at(-1) === key && (state.expanded === null || state.expanded === key)) return state
+  return follow(state, key)
+}
 
 export const focusIndex = (state: SideBySideState, index: number): SideBySideState => {
   const key = state.tiles[index]
@@ -99,7 +120,7 @@ export const focusIndex = (state: SideBySideState, index: number): SideBySideSta
 export const expandTile = (state: SideBySideState, key: SessionKey | null): SideBySideState => {
   if (key === null) return { ...state, expanded: null }
   if (!state.tiles.includes(key)) return state
-  return { ...focusTile(state, key), expanded: key }
+  return { ...focusTile(state, key), focused: key, expanded: key }
 }
 
 export const pinTile = (state: SideBySideState, key: SessionKey, pinned: boolean): SideBySideState => {
@@ -148,17 +169,20 @@ export const fromStored = (
   stored: StoredSideBySide | undefined,
   watching: readonly SessionKey[] = [],
 ): SideBySideState => {
-  const tiles = (stored?.tiles ?? watching).filter(isKey).slice(0, MAX_TILES)
+  // Read from disk, so every field is checked rather than trusted: a field
+  // of the wrong shape is dropped, never thrown on while the desk restores.
+  const list = (value: unknown): readonly unknown[] => (Array.isArray(value) ? value : [])
+  const tiles = [...new Set(list(stored?.tiles ?? watching).filter(isKey))].slice(0, MAX_TILES)
   const within = (key: unknown): key is SessionKey => isKey(key) && tiles.includes(key)
   const modes = Object.fromEntries(
-    Object.entries(stored?.modes ?? {}).filter(
+    Object.entries(stored?.modes && typeof stored.modes === 'object' && !Array.isArray(stored.modes) ? stored.modes : {}).filter(
       // Conversation is the default and is not stored; anything else unknown is dropped.
       ([key, mode]) => within(key) && mode === 'browser',
     ),
   ) as Record<string, TileMode>
   return {
     tiles,
-    pinned: (stored?.pinned ?? []).filter(within),
+    pinned: [...new Set(list(stored?.pinned).filter(within))],
     modes,
     focused: within(stored?.focused) ? stored!.focused! : (tiles[0] ?? null),
     expanded: within(stored?.expanded) ? stored!.expanded! : null,

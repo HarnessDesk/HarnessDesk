@@ -49,11 +49,16 @@
 }
 
 .nickname {
-  flex: none;
+  /* The name never truncates. The model beside it gives its width up first
+     (it shrinks a thousand times faster); only a name longer than the whole
+     bar then wraps — onto a second line, never under the chip or the menu. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .model {
-  flex: 1 1 auto;
+  flex: 1 1000 auto;
   min-width: 0;
 }
 

@@ -44,6 +44,8 @@ export type TileEntry = {
   readonly brand?: ComponentProps<typeof BrandMark>['brand'] | null
   readonly busy?: boolean
   readonly waitingForYou?: boolean
+  /** How its last turn ended, while it is neither working nor waiting: done, or stopped short. */
+  readonly ended?: 'done' | 'stopped'
 }
 type ConversationProps = ComponentProps<typeof Conversation>
 
@@ -152,7 +154,12 @@ export const SideBySide = ({
           <Tabs value={state.focused ?? state.tiles[0] ?? ''} onValueChange={(next) => focus(next as SessionKey)}>
             <TabsList aria-label="Side by side tiles">
               {state.tiles.map((key) => (
-                <TabsTrigger key={key} value={key}>{memberOf(key)?.nickname ?? 'Member'}</TabsTrigger>
+                <TabsTrigger key={key} value={key}>
+                  {memberOf(key)?.nickname ?? 'Member'}
+                  {/* The tab is all a narrow room shows of a member it is not
+                      showing, so a member waiting on the person says so here. */}
+                  {entryOf(key)?.waitingForYou && <Dot tone="warning" aria-label="waiting for you" />}
+                </TabsTrigger>
               ))}
             </TabsList>
           </Tabs>
@@ -174,6 +181,13 @@ export const SideBySide = ({
               data-session-key={key}
               {...(isFocused ? { 'data-focused': '' } : {})}
               {...(isHidden ? { 'data-hidden': '' } : {})}
+              /* A tile nobody can see takes no keys: `inert` keeps focus out
+                 of it and is what `Approvals` reads before it answers a key,
+                 so a hidden member's approval cannot be answered unseen. */
+              {...(isHidden ? { inert: true } : {})}
+              /* Several tiles up, one has the keyboard: the others' approvals
+                 wait for theirs rather than all answering one digit. */
+              {...(!isHidden && !isFocused && shown.shown.length > 1 ? { 'data-pane-unfocused': '' } : {})}
               className={styles.tile}
               style={place(key)}
               onClick={() => focus(key)}
@@ -192,7 +206,15 @@ export const SideBySide = ({
                     {model && <Text role="meta" className={styles.model} truncate>{model}</Text>}
                   </span>
                 ))}
-                {entry?.busy ? <Chip state="ready" size="sm">Working</Chip> : entry?.waitingForYou ? <Chip tone="warning" size="sm">Waiting for you</Chip> : null}
+                {entry?.busy ? (
+                  <Chip state="ready" size="sm">Working</Chip>
+                ) : entry?.waitingForYou ? (
+                  <Chip tone="warning" size="sm">Waiting for you</Chip>
+                ) : entry?.ended === 'done' ? (
+                  <Chip tone="neutral" size="sm">Done</Chip>
+                ) : entry?.ended === 'stopped' ? (
+                  <Chip tone="neutral" size="sm">Stopped</Chip>
+                ) : null}
                 <Button
                   type="button"
                   variant="ghost"

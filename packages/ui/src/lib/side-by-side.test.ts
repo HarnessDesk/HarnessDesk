@@ -4,10 +4,12 @@ import type { SessionKey } from '@harnessdesk/protocol'
 
 import {
   MAX_TILES,
+  canPlace,
   displayFor,
   emptySideBySide,
   expandTile,
   focusIndex,
+  focusTile,
   forgetMissing,
   fromStored,
   pinTile,
@@ -143,5 +145,74 @@ describe('stored tiles', () => {
     expect(back.tiles).toEqual([k('a')])
     expect(back.modes).toEqual({})
     expect(back.focused).toBe(k('a'))
+  })
+})
+
+describe('review round 1', () => {
+  const four = () => ['a', 'b', 'c', 'd'].reduce((state, name) => placeTile(state, k(name)), emptySideBySide())
+
+  it('replaces the least recently seen tile, not the first one up', () => {
+    // Seen in the order c, d, a, b, with b focused: c is the oldest movable
+    // tile, although a is the first tile on the grid.
+    const s = focusTile(focusTile(four(), k('a')), k('b'))
+    expect(placeTile(s, k('e')).tiles).toEqual([k('a'), k('b'), k('e'), k('d')])
+  })
+
+  it('moves an expanded tile with the focus, so the keys never land on a tile nobody can see', () => {
+    const expanded = expandTile(four(), k('a'))
+    const focused = focusIndex(expanded, 1)
+    expect(focused.focused).toBe(k('b'))
+    expect(focused.expanded).toBe(k('b'))
+    expect(displayFor(focused, 1600).shown).toEqual([k('b')])
+  })
+
+  it('shows a newly watched member when a tile is expanded, rather than adding it hidden', () => {
+    const expanded = expandTile(placeTile(placeTile(emptySideBySide(), k('a')), k('b')), k('a'))
+    const placed = placeTile(expanded, k('c'))
+    expect(placed.expanded).toBe(k('c'))
+    expect(displayFor(placed, 1600).shown).toEqual([k('c')])
+  })
+
+  it('returns the same state for a click on the tile that already has the keys', () => {
+    const s = four()
+    expect(focusTile(s, k('d'))).toBe(s)
+  })
+
+  it('cannot place a member when every other tile is pinned or focused, and says so', () => {
+    let s = four()
+    for (const name of ['a', 'b', 'c']) s = pinTile(s, k(name), true)
+    expect(canPlace(s, k('e'))).toBe(false)
+    expect(placeTile(s, k('e'))).toBe(s)
+    expect(canPlace(s, k('a'))).toBe(true)
+    expect(canPlace(pinTile(s, k('c'), false), k('e'))).toBe(true)
+  })
+
+  it('drops the focused and the expanded tile when its member leaves', () => {
+    const s = expandTile(four(), k('b'))
+    const left = forgetMissing(s, new Set([k('a'), k('c'), k('d')]))
+    expect(left.tiles).toEqual([k('a'), k('c'), k('d')])
+    expect(left.expanded).toBeNull()
+    expect(left.focused).toBe(k('c'))
+  })
+
+  it('restores a malformed record without throwing, dropping what is the wrong shape', () => {
+    const bad = { tiles: ['a', 'a', 'b', 7, '', 'c', 'd', 'e'], pinned: 'b', modes: ['browser'], focused: 3, expanded: 'zz' } as never
+    const s = fromStored(bad)
+    expect(s.tiles).toEqual([k('a'), k('b'), k('c'), k('d')])
+    expect(s.pinned).toEqual([])
+    expect(s.modes).toEqual({})
+    expect(s.focused).toBe(k('a'))
+    expect(s.expanded).toBeNull()
+    expect(fromStored({ tiles: 'a' } as never).tiles).toEqual([])
+  })
+
+  it('puts two tiles side by side at exactly twice the floor and one below it', () => {
+    const two = placeTile(placeTile(emptySideBySide(), k('a')), k('b'))
+    expect(displayFor(two, 840).layout).toBe('grid')
+    expect(displayFor(two, 839).layout).toBe('single')
+    expect(displayFor(two, 0).shown).toEqual([k('b')])
+    const three = placeTile(two, k('c'))
+    expect(displayFor(three, 1260).columns).toBe(3)
+    expect(displayFor(three, 1259).columns).toBe(2)
   })
 })

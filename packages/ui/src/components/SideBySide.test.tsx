@@ -19,8 +19,9 @@ vi.mock('./Conversation', () => ({
 vi.mock('./Approvals', () => ({ Approvals: () => <div data-testid="approvals" /> }))
 vi.mock('../state/context', async (load) => {
   const actual = await load<typeof import('../state/context')>()
-  return { ...actual, useIsFocusedPane: () => true }
+  return { ...actual, useIsFocusedPane: () => paneFocused }
 })
+let paneFocused = true
 
 let measuredWidth = 1200
 const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
@@ -37,6 +38,7 @@ afterEach(() => {
   root = null
   container?.remove()
   rect.mockClear()
+  paneFocused = true
 })
 
 const keys = [sessionKey('codex', 'one'), sessionKey('claude', 'two'), sessionKey('cursor', 'three')] as SessionKey[]
@@ -198,4 +200,42 @@ it('routes tile keys to focus and toggle expansion only while mounted', () => {
   act(() => view.root.unmount())
   act(() => { window.dispatchEvent(new CustomEvent('hd-side-by-side', { detail: 'tile-1' })) })
   expect(document.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(0)
+})
+
+it('ignores the tile keys while another pane has the keyboard', () => {
+  paneFocused = false
+  mount()
+  act(() => { window.dispatchEvent(new CustomEvent('hd-side-by-side', { detail: 'tile-2' })) })
+  const tiles = document.querySelectorAll('[data-slot="side-by-side-tile"]')
+  expect(tiles[0]?.hasAttribute('data-focused')).toBe(true)
+  expect(tiles[1]?.hasAttribute('data-focused')).toBe(false)
+})
+
+it('makes a hidden tile inert and marks a shown tile without the keyboard', () => {
+  mount(baseState(keys))
+  let tiles = [...document.querySelectorAll<HTMLElement>('[data-slot="side-by-side-tile"]')]
+  // Three shown, the first focused: the other two hold their approvals' keys.
+  expect(tiles.map((tile) => tile.hasAttribute('data-pane-unfocused'))).toEqual([false, true, true])
+  expect(tiles.some((tile) => tile.hasAttribute('inert'))).toBe(false)
+  act(() => { window.dispatchEvent(new CustomEvent('hd-side-by-side', { detail: 'tile-expand' })) })
+  tiles = [...document.querySelectorAll<HTMLElement>('[data-slot="side-by-side-tile"]')]
+  expect(tiles.map((tile) => tile.hasAttribute('inert'))).toEqual([false, true, true])
+  // Alone on screen, the expanded tile has the keys and nothing beside it.
+  expect(tiles.some((tile) => tile.hasAttribute('data-pane-unfocused'))).toBe(false)
+})
+
+it('marks the tab of a member waiting for you in the narrow strip', () => {
+  mount(baseState(keys), { width: 600 })
+  const waiting = [...document.querySelectorAll('[role="tab"]')].filter((tab) => tab.querySelector('[aria-label="waiting for you"]'))
+  expect(waiting.map((tab) => tab.textContent?.trim())).toEqual(['Beta'])
+})
+
+it('says how a member’s last turn ended when it is neither working nor waiting', () => {
+  entries.set(keys[2]!, { ...(entries.get(keys[2]!) as object), busy: false, waitingForYou: false, ended: 'stopped' } as never)
+  try {
+    mount(baseState([keys[2]!]))
+    expect(text(document.body, 'Stopped')).toBeTruthy()
+  } finally {
+    entries.set(keys[2]!, { ...(entries.get(keys[2]!) as object), ended: undefined } as never)
+  }
 })

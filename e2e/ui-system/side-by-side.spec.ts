@@ -275,3 +275,23 @@ test('a narrow tile keeps the full nickname, and bare ⌘1 is not a grid chord',
   await page.keyboard.press('Meta+Digit1')
   expect(await focusedIndex(target)).toBe(0)
 })
+
+test('a name longer than the bar wraps whole, clear of the state chip and the actions', async ({ page }) => {
+  await gotoPreview(page)
+  await setWidth(page, 'side-by-side-two', 420)
+  const header = frame(page, 'side-by-side-two').locator('[data-slot="side-by-side-tile"] header').first()
+  const long = 'Alpha the long-running reviewer of everything in the checkout'
+  await header.locator('[data-role="row"]').evaluate((node, text) => { node.textContent = text }, long)
+  const measured = await header.evaluate((bar) => {
+    const name = bar.querySelector<HTMLElement>('[data-role="row"]')!
+    const box = (node: Element) => node.getBoundingClientRect()
+    const others = [...bar.querySelectorAll('[data-slot="chip"], button')].map(box)
+    const named = box(name)
+    return {
+      whole: name.scrollWidth <= name.clientWidth,
+      overlaps: others.filter((other) => named.right > other.left + 0.5 && named.left < other.right - 0.5 && named.bottom > other.top && named.top < other.bottom).length,
+      inside: named.right <= box(bar).right + 0.5,
+    }
+  })
+  expect(measured).toEqual({ whole: true, overlaps: 0, inside: true })
+})

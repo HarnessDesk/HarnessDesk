@@ -913,6 +913,30 @@ it('Watch puts a member on a Side by side tile and opens the destination', async
   expect(store.lastView().sideBySide?.tiles).toEqual(['codex\u0000a', 'claude\u0000b'])
 })
 
+it('greys Watch, and says why, when every other tile is pinned', async () => {
+  const keys = ['codex\u0000a', 'claude\u0000b', 'cursor\u0000c', 'acp\u0000d'] as SessionKey[]
+  const { pane, store } = await renderRoom({
+    members: [...keys, 'codex\u0000e'],
+    view: { sideBySide: { tiles: keys, pinned: keys.slice(0, 3), focused: keys[3] } },
+  })
+  const watch = pane.querySelector<HTMLButtonElement>('button[aria-label="Watch e: every tile is pinned"]')
+  expect(watch?.getAttribute('aria-disabled')).toBe('true')
+  await act(async () => { watch!.click() })
+  expect(pane.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(4)
+  expect(pane.textContent).toContain('Every tile is pinned. Unpin one to make room for e.')
+  expect(store.lastView().sideBySide?.tiles ?? keys).toEqual(keys)
+})
+
+it('clears a non-empty old watching list once it has become tiles', async () => {
+  const { store } = await renderRoom({
+    members: ['codex\u0000a', 'claude\u0000b'],
+    view: { watching: ['codex\u0000a', 'claude\u0000b'] as SessionKey[] },
+  })
+  expect(store.setRoomWatching).toHaveBeenCalledTimes(1)
+  expect(store.lastView().watching).toEqual([])
+  expect(store.lastView().sideBySide?.tiles).toEqual(['codex\u0000a', 'claude\u0000b'])
+})
+
 it('Open shows one member’s full conversation, not a tile', async () => {
   const { pane } = await renderRoom({ members: ['codex\u0000a'] })
   await clickRailOpen(pane, 'a')
@@ -2646,6 +2670,34 @@ it('releases a Goal member from its card, and leaves the conversation alone', as
   // The conversation itself is untouched: nothing here closes or deletes it.
   expect(store.openSession).not.toHaveBeenCalled()
   vi.useRealTimers()
+})
+
+it('takes a released member’s tile off the grid with it', async () => {
+  const goal = {
+    goal: { id: ROOM, root: '/repo', cwd: '/repo', sentence: 'Checkout rewrite', state: 'open', revision: 1, checkout: 'shared', dependsOn: [], origin: { kind: 'person' }, createdAt: 1, updatedAt: 1, receipt: null },
+    activity: 'working', waitingOn: [],
+    members: [{ id: 'seat-1', closed: null, session: { runtime: 'codex', sessionId: 'c1' } }],
+    board: state, receipt: null, problem: null,
+  } as unknown as GoalView
+  const { store } = rig(undefined, undefined, {}, goal)
+  await render(store)
+  const watch = row('Codex').querySelector<HTMLButtonElement>('button[aria-label^="Watch"]')!
+  await act(async () => { watch.click() })
+  expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(1)
+
+  vi.useFakeTimers()
+  const trigger = row('Codex').closest('[data-slot="hover-card-trigger"]') as Element
+  act(() => {
+    trigger.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+    trigger.dispatchEvent(new MouseEvent('mouseenter'))
+  })
+  act(() => { vi.advanceTimersByTime(1000) })
+  const remove = [...document.body.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Take out of the room')!
+  vi.useRealTimers()
+  await act(async () => { remove.click() })
+  await act(async () => {})
+  expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(0)
+  expect(store.lastView().sideBySide).toBeUndefined()
 })
 
 /**

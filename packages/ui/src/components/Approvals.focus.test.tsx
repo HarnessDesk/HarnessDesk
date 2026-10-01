@@ -143,6 +143,22 @@ it('leaves the keys alone while something covers the card', () => {
   expect(store.respondToApproval).toHaveBeenCalledWith(KEY, 'ask-1', { type: 'option', optionId: 'no' })
 })
 
+it('leaves the keys to the pane beside it that has the keyboard', () => {
+  /* One of several Side by side tiles, not the focused one: a digit answers
+     the focused tile's own card, not every card on screen at once. */
+  const store = mount('pane-1')
+  container.setAttribute('data-pane-unfocused', '')
+  for (const key of ['1', 'Escape']) {
+    const press = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+    act(() => {
+      document.dispatchEvent(press)
+    })
+    expect(press.defaultPrevented).toBe(false)
+  }
+  expect(store.respondToApproval).not.toHaveBeenCalled()
+  container.removeAttribute('data-pane-unfocused')
+})
+
 it('leaves an Escape alone that something else has already spent', () => {
   /* A menu open elsewhere — the sidebar's account menu, beside a pending
      approval in a wide window — takes Escape to close itself and says so. On

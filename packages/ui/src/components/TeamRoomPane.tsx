@@ -25,7 +25,7 @@ import { goalRunOf, namedGoalRun } from '../lib/goal-run'
 import { shortSha } from '../lib/evidence'
 import { goalActions, goalName } from '../lib/goals'
 import { openExternal } from '../lib/desktop'
-import { forgetMissing, fromStored, MAX_TILES, placeTile, wouldReplace as modelWouldReplace, type SideBySideState } from '../lib/side-by-side'
+import { canPlace, forgetMissing, fromStored, MAX_TILES, placeTile, removeTile, wouldReplace as modelWouldReplace, type SideBySideState } from '../lib/side-by-side'
 import { budgetMeterWords, formatMeterUsd, intakeStopWords, openTriggerWaits, originHoverWords, originSubject } from '../lib/intake'
 import { isPathInside } from '../lib/paths'
 import { folderName } from '../lib/projects'
@@ -372,9 +372,8 @@ export const TeamRoomPane = ({
     mount?.view.kind === 'room' ? mount.view.sideBySide : undefined,
     mount?.view.kind === 'room' ? mount.view.watching : undefined,
   ))
-  const restoredGrid = mount?.view.kind === 'room' ? fromStored(mount.view.sideBySide, mount.view.watching) : null
   const [open, setOpen] = useState<'board' | 'room' | 'findings' | 'side-by-side' | SessionKey>(
-    restoredGrid?.tiles.length ? 'side-by-side' : 'room',
+    () => (grid.tiles.length > 0 ? 'side-by-side' : 'room'),
   )
   /* Which half a *narrow* room is showing. Two columns need width; when the
      pane has none — a three-way split, or the details panel open beside it —
@@ -414,6 +413,13 @@ export const TeamRoomPane = ({
   }
 
   const watch = (key: SessionKey): void => {
+    /* Every other tile pinned (or holding the keys): the grid has no place
+       to give, and opening it unchanged would read as the member having
+       gone up. The row's own Watch is greyed with the same reason. */
+    if (!canPlace(grid, key)) {
+      setRailTrouble(`Every tile is pinned. Unpin one to make room for ${memberOf(key)?.nickname ?? 'this member'}.`)
+      return
+    }
     setGrid((was) => placeTile(was, key))
     setOpen('side-by-side')
     setOnRail(false)
@@ -442,6 +448,9 @@ export const TeamRoomPane = ({
          for good if the refetch had already landed by then. Filtering is both
          the smaller flicker and the one that cannot strand the rail. */
       .then(() => {
+        // Its tile goes with it: a tile for someone no longer in the room
+        // would read "Member" over a conversation the room let go of.
+        setGrid((was) => removeTile(was, key))
         setFetched((was) =>
           was === null || was.room !== room
             ? was
@@ -741,13 +750,15 @@ export const TeamRoomPane = ({
     ],
   )
 
-  const checkedRosterFor = useRef(new Set<string>())
+  /* Every answer about who is in the room, not only the first: a member can
+     leave from elsewhere — another window, the room's own Goal wrapping —
+     and its tile must not outlive its membership. `peers` is null until the
+     room has answered, and an unanswered room says nothing about anyone. */
   useEffect(() => {
-    if (peers === null || checkedRosterFor.current.has(room)) return
-    checkedRosterFor.current.add(room)
+    if (peers === null) return
     const present = new Set(roster.map((member) => member.key))
     setGrid((was) => forgetMissing(was, present))
-  }, [peers, room, roster])
+  }, [peers, roster])
 
   /** Members whose conversation the desk actually has open. See the head. */
   const hereCount = roster.filter((one) => one.here).length
@@ -1238,6 +1249,7 @@ export const TeamRoomPane = ({
                     : null
                 }
                 cap={MAX_TILES}
+                full={!canPlace(grid, member.key)}
                 watching={grid.tiles.length > 0}
                 onOpen={() => show(member.key)}
                 onWatch={() => watch(member.key)}
@@ -1274,12 +1286,15 @@ export const TeamRoomPane = ({
               }}
               entryOf={(key): TileEntry | null => {
                 const entry = roster.find((one) => one.key === key)
-                return entry ? {
+                if (!entry) return null
+                const last = snapshot.sessions.get(key)?.turns.at(-1)?.status
+                return {
                   tint: entry.tint,
                   brand: entry.brand,
                   busy: entry.busy,
                   waitingForYou: snapshot.approvals.some((approval) => approval.key === key),
-                } : null
+                  ...(last === 'completed' ? { ended: 'done' as const } : last === 'interrupted' || last === 'failed' ? { ended: 'stopped' as const } : {}),
+                }
               }}
               onOpenMember={(key) => show(key)}
               conversationProps={{ onChooseProject, onSignIn, onOpenUsage, onOpenRuntimes }}
@@ -1551,6 +1566,7 @@ const MemberRow = ({
   selected,
   replaces,
   cap,
+  full,
   watching,
   onOpen,
   onWatch,
@@ -1568,6 +1584,8 @@ const MemberRow = ({
   /** Whose column this pick would take, when the pane is already full. */
   replaces: string | null
   cap: number
+  /** Every other tile is pinned, so Watch has no place to put this member. */
+  full: boolean
   watching: boolean
   onOpen: () => void
   onWatch: () => void
@@ -1688,17 +1706,22 @@ const MemberRow = ({
              an open one away. See `AgentHoverCard`. */
           data-no-card=""
           className="flex"
+          {...(full ? { 'aria-disabled': true } : {})}
           aria-label={
-            replaces
+            full
+              ? `Watch ${peer.nickname}: every tile is pinned`
+              : replaces
               ? `Watch ${peer.nickname} in place of ${replaces}`
               : `Watch ${peer.nickname} beside the others`
           }
           title={
-            replaces
+            full
+              ? `Every tile is pinned — unpin one to make room for ${peer.nickname}`
+              : replaces
               ? /* Said before the press, not after. A pick that will take a
                    column away has to say which one while there is still time
                    not to press it. */
-                `Watch ${peer.nickname} in place of ${replaces} — ${cap} fit at this width`
+                `Watch ${peer.nickname} in place of ${replaces} — the grid holds ${cap}`
               : watching
                 ? `Watch ${peer.nickname} beside the others`
                 : `Watch ${peer.nickname} — opens beside anything you add next`

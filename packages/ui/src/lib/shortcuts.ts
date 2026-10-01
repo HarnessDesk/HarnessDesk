@@ -90,9 +90,14 @@ export const shortcutFor = (event: {
   readonly altKey: boolean
   readonly code?: string
   readonly defaultPrevented?: boolean
+  readonly getModifierState?: (key: string) => boolean
 }): Shortcut | null => {
   if (event.defaultPrevented) return null
   if (!(event.metaKey || event.ctrlKey)) return null
+  // On Windows AltGr arrives as Ctrl+Alt, and AltGr with a digit is how
+  // several keyboards type a character (Spanish ¡ @ #, Portuguese £ §). That
+  // is typing, never one of our chords.
+  if (event.altKey && !event.metaKey && event.getModifierState?.('AltGraph')) return null
   const key = event.key.toLowerCase()
   return (
     SHORTCUTS.find(

@@ -68,6 +68,13 @@ describe('the shortcut table', () => {
     expect(shortcutFor({ ...base, key: 'k', altKey: true, code: 'KeyK' })).toBeNull()
     expect(shortcutFor({ ...base, key: 'Enter', altKey: true, code: 'Enter' })?.action).toBe('tile-expand')
   })
+
+  it('leaves AltGr with a digit to type its character, where Windows reports it as Ctrl+Alt', () => {
+    const altGr = { metaKey: false, ctrlKey: true, shiftKey: false, altKey: true, code: 'Digit1' }
+    expect(shortcutFor({ ...altGr, key: '|', getModifierState: (key) => key === 'AltGraph' })).toBeNull()
+    // Ctrl+Alt held as themselves, not as AltGr, is still the chord.
+    expect(shortcutFor({ ...altGr, key: '1', getModifierState: () => false })?.action).toBe('tile-1')
+  })
 })
 
 describe('the handler behind the table', () => {
