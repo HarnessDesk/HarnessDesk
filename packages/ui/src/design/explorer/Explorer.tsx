@@ -32,7 +32,6 @@ const ConversationMapDenseSurface = lazy(() => import('../surfaces/surfaces').th
 const ConversationMapPreviewOpenSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ConversationMapPreviewOpenSurface })))
 const GitSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.GitSurface })))
 const GroupSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.GroupSurface })))
-const TeamSolidSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.TeamSolidSurface })))
 const PanelsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.PanelsSurface })))
 const RailSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.RailSurface })))
 const SeatRowsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.SeatRowsSurface })))
@@ -143,13 +142,6 @@ const SURFACES = [
     about:
       'The team board and the room it belongs to, side by side — the shipped `TeamBoardPane` and `TeamRoomPane` on the preview\'s Checkout rewrite room: five columns of work, the claimed card naming the agent session that holds it, and the room\'s chat and members beside. Below it, a Goal whose run stopped on its Seat\'s unanswered question: the header reads Needs you, and the board draws that Seat\'s card in Needs you and counts it — beside a reviewer\'s card that already answered on the same run, which stays in Ready with its outcome rather than being swept in too. Then a run stalled because the first Seat of its round would not open: its two cards wait unclaimed, and the room\'s live line gives the host\'s own reason — the refusal, the sibling the round held back, and the way on. Where the room stands in the workspace list is on the Left bar tab.',
     render: GroupSurface,
-  },
-  {
-    id: 'team-solid',
-    title: 'Team · solid A/B',
-    about:
-      "The shipped `TeamRoomPane` on the preview's Checkout rewrite team, twice. A is the app as it ships. B is the same screen under the variants switched on above it — solid faces, heavier names, darker ink, a quieter message header, a clamp that fades instead of cutting, a status strip over the composer — each one a token override on B's frame or a rule keyed on B's own variant list, so switching one off takes exactly that change away. An experiment for judging which change carries a solid reading; whichever wins moves into the system and this tab goes. The shape of a face is not a switch here: it is the Faces dial above, the same setting Settings › Appearance writes, so it turns both sides at once.",
-    render: TeamSolidSurface,
   },
   {
     id: 'conversation',
