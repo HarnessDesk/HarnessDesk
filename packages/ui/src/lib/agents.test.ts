@@ -112,6 +112,22 @@ const plan = (over: Partial<SeatPlan> = {}): SeatPlan => ({
 })
 
 describe('agents in words', () => {
+  it('keeps candidates carrying provider independence reasons in refusal data', () => {
+    const candidates = refusalOf({
+      code: 'seatRefused',
+      data: {
+        candidates: [
+          { seat: { runtime: 'alpha' }, label: 'Alpha', runtimeName: 'Alpha', state: 'passed', reason: { kind: 'sameProvider' }, fix: { kind: 'seats' } },
+          { seat: { runtime: 'beta' }, label: 'Beta', runtimeName: 'Beta', state: 'passed', reason: { kind: 'unknownProvider' }, fix: { kind: 'seats' } },
+        ],
+      },
+    })
+    expect(candidates?.map((candidate) => candidate.reason)).toEqual([
+      { kind: 'sameProvider' },
+      { kind: 'unknownProvider' },
+    ])
+  })
+
   it("says an Agent's ceiling as its word on the ladder, and a seat's with whether its runtime holds it", () => {
     expect(['read', 'edit', 'publish', 'merge'].map((level) => ceilingWords(level as CeilingLevel))).toEqual([
       'Read',

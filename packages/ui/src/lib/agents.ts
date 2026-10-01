@@ -252,6 +252,10 @@ export const reasonWords = (reason: SeatReason, runtime: string, modelLabel?: Mo
         ? `${runtime} cannot hold ${level}${detail}, and a start from here needs every Seat to hold its ceiling`
         : `${runtime} cannot hold ${level}${detail}, and this Mac refuses a seat whose ceiling is only asked`
     }
+    case 'sameProvider':
+      return 'Same provider as the writer'
+    case 'unknownProvider':
+      return 'Can’t confirm a different provider from the writer'
   }
 }
 
@@ -325,6 +329,9 @@ const asReason = (value: unknown): SeatReason | null => {
       return { kind: 'unknownRuntime' }
     case 'signedOut':
       return { kind: 'signedOut' }
+    case 'sameProvider':
+    case 'unknownProvider':
+      return { kind: raw.kind }
     case 'spent':
       return { kind: 'spent' }
     case 'unavailable':

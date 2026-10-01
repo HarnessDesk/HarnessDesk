@@ -1492,6 +1492,9 @@ export class Host {
         await this.#flows.stopForQuestion(runtime, sessionId, reason)
       },
     })
+    const previewCheckout = async (root: string, lane: boolean): Promise<string> => lane
+      ? await managedWorktreePath(root, this.#state.directory, 'lane-preview').catch(() => root)
+      : root
     this.#flowPreviews = new FlowPreviews({
       confine: (root) => this.#confineRoom(root),
       // `root` here is already a confined, real project path — the same one
@@ -1502,12 +1505,12 @@ export class Host {
       // `this.#context` is assigned once the whole constructor has run; every
       // wire call this preview port answers happens long after that.
       previewAgent: (root, agent, seats, grant, options) => previewAgent(this.#context, root, agent, seats, grant, options),
-      pluginToolsProblem: async (runtimeName, root, isolate) => {
+      providerOf: (runtime, cwd) => this.#providerOf(runtime, cwd),
+      checkoutPath: previewCheckout,
+      pluginToolsProblem: async (runtimeName, root, lane) => {
         const runtime = this.#runtimes.get(runtimeId(runtimeName))
         if (!runtime || !runtime.info.capabilities.pluginTools) return null
-        const cwd = isolate
-          ? await managedWorktreePath(root, this.#state.directory, 'lane-preview').catch(() => root)
-          : root
+        const cwd = await previewCheckout(root, lane)
         if (await (runtime.pluginToolsAvailableAt?.(cwd) ?? Promise.resolve(true))) return null
         const problem = await runtime.pluginToolsProblemAt?.(cwd)
         if (problem) return problem
