@@ -1510,12 +1510,16 @@ rl.on('line', (line) => {
         send({ id, error: { code: -32600, message: 'Invalid request: AbsolutePathBuf deserialized without a base path' } })
         return
       }
+      const largeFileBytes = Number(process.env['FAKE_CODEX_LARGE_FILE_BYTES'])
       const content = FILES[params.path]
-      if (content === undefined) {
+      if (content === undefined && !(params.path === '/w/large.bin' && Number.isSafeInteger(largeFileBytes) && largeFileBytes >= 0)) {
         send({ id, error: { code: -32600, message: 'No such file or directory (os error 2)' } })
         return
       }
-      send({ id, result: { dataBase64: Buffer.from(content).toString('base64') } })
+      const bytes = params.path === '/w/large.bin'
+        ? Buffer.alloc(largeFileBytes, 0x61)
+        : Buffer.from(content)
+      send({ id, result: { dataBase64: bytes.toString('base64') } })
       return
     }
 
@@ -1610,7 +1614,8 @@ rl.on('line', (line) => {
       return
 
     case 'fs/getMetadata': {
-      const isFile = params.path in FILES
+      const largeFileBytes = Number(process.env['FAKE_CODEX_LARGE_FILE_BYTES'])
+      const isFile = params.path in FILES || (params.path === '/w/large.bin' && Number.isSafeInteger(largeFileBytes) && largeFileBytes >= 0)
       const isDirectory = DIRECTORIES.includes(params.path)
       if (!isFile && !isDirectory) {
         send({ id, error: { code: -32600, message: 'No such file or directory (os error 2)' } })

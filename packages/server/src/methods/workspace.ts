@@ -1,4 +1,8 @@
-import { WORKSPACE_BINARY_LIMIT_BYTES, WORKSPACE_TEXT_LIMIT_BYTES } from '@harnessdesk/protocol'
+import {
+  RuntimeFileTooLargeError,
+  WORKSPACE_BINARY_LIMIT_BYTES,
+  WORKSPACE_TEXT_LIMIT_BYTES,
+} from '@harnessdesk/protocol'
 
 import { within, type Within } from '../seat-reads.js'
 import { asText, browseDirectories, confine, isBinaryFile, isMissingWorkspaceFileError, sha256 } from '../workspace.js'
@@ -139,6 +143,7 @@ export const workspaceMethods = {
       // metadata can still distinguish an exact-limit file from an oversized one.
       bytes = await files.read(path, readLimit + 1)
     } catch (thrown) {
+      if (thrown instanceof RuntimeFileTooLargeError) return { kind: 'tooLarge' as const, size: thrown.size }
       if (isMissingWorkspaceFileError(thrown)) return { kind: 'missing' as const }
       return { kind: 'unreadable' as const, message: thrown instanceof Error ? thrown.message : String(thrown) }
     }
@@ -199,6 +204,9 @@ export const workspaceMethods = {
       try {
         current = await files.read(path, WORKSPACE_TEXT_LIMIT_BYTES + 1)
       } catch (thrown) {
+        if (thrown instanceof RuntimeFileTooLargeError) {
+          return { saved: false as const, reason: 'tooLarge' as const, size: thrown.size }
+        }
         if (!isMissingWorkspaceFileError(thrown)) throw thrown
         if (params.expectedHash !== '') throw new Error('This file no longer exists; refusing to recreate it.')
       }

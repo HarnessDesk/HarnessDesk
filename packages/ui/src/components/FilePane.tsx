@@ -104,7 +104,10 @@ export const FilePane = () => {
 
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [readProblem, setReadProblem] = useState<
-    { kind: 'missing' } | { kind: 'unreadable'; message: string } | { kind: 'tooLarge'; size: number } | null
+    { kind: 'missing' }
+    | { kind: 'unreadable'; message: string }
+    | { kind: 'tooLarge'; size: number }
+    | null
   >(null)
   const [binary, setBinary] = useState<{ size: number; imageSrc: string | null } | null>(null)
   const [draft, setDraft] = useState<string | null>(null)
@@ -240,10 +243,6 @@ export const FilePane = () => {
           store.notice('info', `Saved ${path.split('/').pop()}.`)
         } else if ('reason' in result) {
           setConflict({ kind: result.reason, size: result.size })
-          setDraft(null)
-          setLoaded(null)
-          setBinary(result.reason === 'binary' ? { size: result.size, imageSrc: null } : null)
-          setReadProblem(result.reason === 'tooLarge' ? { kind: 'tooLarge', size: result.size } : null)
         } else {
           setConflict({ kind: 'text', ...result.conflict })
         }
@@ -274,6 +273,20 @@ export const FilePane = () => {
               variant="ghost"
               size="sm"
               onClick={() => {
+                if (conflict?.kind === 'binary') {
+                  setDraft(null)
+                  setLoaded(null)
+                  setBinary({ size: conflict.size, imageSrc: null })
+                  setConflict(null)
+                  return
+                }
+                if (conflict?.kind === 'tooLarge') {
+                  setDraft(null)
+                  setLoaded(null)
+                  setReadProblem({ kind: 'tooLarge', size: conflict.size })
+                  setConflict(null)
+                  return
+                }
                 setDraft(null)
                 setConflict(null)
                 if (changedOnDisk) void load()
@@ -283,7 +296,7 @@ export const FilePane = () => {
             </Button>
             <Button
               size="sm"
-              disabled={!dirty || saving || !loaded}
+              disabled={!dirty || saving || !loaded || conflict?.kind === 'binary' || conflict?.kind === 'tooLarge'}
               onClick={() => loaded && void save(loaded.hash)}
             >
               {saving ? 'Saving…' : 'Save'}

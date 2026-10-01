@@ -14,6 +14,7 @@ import {
   isBusy,
   itemId,
   runtimeId,
+  RuntimeFileTooLargeError,
   sessionId,
   turnId,
   type AgentEvent,
@@ -1458,6 +1459,31 @@ test('workspace reads refuse text just over 2 MiB and files just over 10 MiB', a
   assert.deepEqual(await client.call('workspace/readFile', {
     path: runtimeBytesPath, runtime: FAKE_RUNTIME_ID, encoding: 'base64',
   }), { kind: 'tooLarge', size: fileLimit + 1 })
+})
+
+test('bounded runtime reads report oversized files and saves preserve them', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  await client.call('workspace/open', { path: harness.stateDir })
+  const path = join(harness.stateDir, 'runtime-unknown-size.txt')
+  harness.runtime.files.tree[path] = 'current file'
+  const originalRead = harness.runtime.files.read.bind(harness.runtime.files)
+  harness.runtime.files.read = async (candidate) => {
+    if (candidate === path) throw new RuntimeFileTooLargeError(12 * 1024 * 1024)
+    return originalRead(candidate)
+  }
+  const writes: string[] = []
+  Object.assign(harness.runtime.files, { write: async (candidate: string) => { writes.push(candidate) } })
+
+  assert.deepEqual(await client.call('workspace/readFile', { path, runtime: FAKE_RUNTIME_ID }), { kind: 'tooLarge', size: 12 * 1024 * 1024 })
+  const { ticket } = await client.call('preview/ticket', { path, runtime: FAKE_RUNTIME_ID }) as { ticket: string }
+  await assert.rejects(harness.host.redeemPreviewTicket(ticket), /exceeds the .*byte limit/i)
+  assert.deepEqual(await client.call('file/save', {
+    path, content: 'replacement', expectedHash: 'loaded-hash', runtime: FAKE_RUNTIME_ID,
+  }), { saved: false, reason: 'tooLarge', size: 12 * 1024 * 1024 })
+  assert.deepEqual(writes, [])
 })
 
 test('a read outside every open workspace is refused by the host, whichever reader would serve it', async (t) => {

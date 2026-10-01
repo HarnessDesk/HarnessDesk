@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { isUtf8 } from 'node:buffer'
-import { lstat, open, readFile, readdir, stat, watch as fsWatch, writeFile } from 'node:fs/promises'
+import { lstat, open, readdir, stat, watch as fsWatch, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
@@ -231,10 +231,9 @@ export class LocalFiles implements RuntimeFiles {
       .slice(0, limit)
   }
 
-  async read(path: string, maxBytes?: number): Promise<Uint8Array> {
+  async read(path: string, maxBytes: number): Promise<Uint8Array> {
     const info = await stat(path)
     if (!info.isFile()) throw new Error(`${path} is not a file`)
-    if (maxBytes === undefined) return readFile(path)
     const handle = await open(path, 'r')
     try {
       const buffer = Buffer.alloc(Math.max(0, maxBytes))

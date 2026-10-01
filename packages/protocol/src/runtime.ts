@@ -700,6 +700,16 @@ export type WorkspaceReadFileResult =
 export const WORKSPACE_TEXT_LIMIT_BYTES = 2 * 1024 * 1024
 export const WORKSPACE_BINARY_LIMIT_BYTES = 10 * 1024 * 1024
 
+/** The runtime can identify that a bounded read exceeded its requested limit. */
+export class RuntimeFileTooLargeError extends Error {
+  readonly kind = 'tooLarge' as const
+
+  constructor(readonly size: number) {
+    super(`File exceeds the requested read limit (${size} bytes).`)
+    this.name = 'RuntimeFileTooLargeError'
+  }
+}
+
 /**
  * Files as the runtime sees them.
  *
@@ -718,8 +728,8 @@ export const WORKSPACE_BINARY_LIMIT_BYTES = 10 * 1024 * 1024
 export interface RuntimeFiles {
   /** Ranked by the runtime's own matcher. An empty query may return nothing. */
   search(roots: readonly string[], query: string, limit: number): Promise<readonly FileMatch[]>
-  /** An optional cap for readers that can stop before loading the whole file. */
-  read(path: string, maxBytes?: number): Promise<Uint8Array>
+  /** Every file read is explicitly bounded; readers must refuse if they cannot honor the cap. */
+  read(path: string, maxBytes: number): Promise<Uint8Array>
   /** Absent for a runtime whose view is read-only. */
   write?(path: string, data: Uint8Array): Promise<void>
   list(path: string): Promise<readonly FileEntry[]>

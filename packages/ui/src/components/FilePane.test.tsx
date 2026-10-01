@@ -9,6 +9,12 @@ import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { FileConflictNotice, FilePane } from './FilePane'
 
+vi.mock('./CodeEditor', () => ({
+  CodeEditor: ({ value, readOnly, onChange }: { value: string; readOnly: boolean; onChange: (value: string) => void }) => (
+    <textarea aria-label="file editor" value={value} readOnly={readOnly} onChange={(event) => onChange(event.currentTarget.value)} />
+  ),
+}))
+
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let container: HTMLDivElement
@@ -75,6 +81,51 @@ it('shows a binary save refusal without offering a text conflict overwrite', asy
   expect(container.textContent).toContain('This file is now binary. Your save was refused.')
   expect(container.textContent).not.toContain('Overwrite with mine')
   expect(container.textContent).not.toContain('Take theirs')
+})
+
+it.each([
+  ['binary', { saved: false, reason: 'binary', size: 6 }, 'This file is now binary. Your save was refused.'],
+  ['too large', { saved: false, reason: 'tooLarge', size: 2 * 1024 * 1024 + 1 }, 'This file is now too large to edit. Your save was refused.'],
+] as const)('keeps the editable draft after a %s save refusal', async (_label, refusal, message) => {
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    reportEditor: vi.fn(),
+    notice: vi.fn(),
+    transport: { request: vi.fn(async (method: string) => {
+      if (method === 'workspace/readFile') return { kind: 'text', content: 'original', hash: 'old-hash', truncated: false }
+      if (method === 'file/save') return refusal
+      return { kind: 'file', isSymlink: false, modifiedAt: 1 }
+    }) },
+  } as unknown as AppStore
+  act(() => root.render(
+    <StoreProvider store={store}>
+      <MountProvider scope={{ area: 'main', id: 'file-test', view: { kind: 'file', path: '/work/notes.txt', runtime: runtimeId('claude') } }}>
+        <FilePane />
+      </MountProvider>
+    </StoreProvider>,
+  ))
+  await settle()
+  const edit = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Edit')
+  if (!edit) throw new Error('Edit button is missing')
+  act(() => edit.click())
+  const editor = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="file editor"]')
+  if (!editor) throw new Error('Editor is missing')
+  act(() => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+    setter?.call(editor, 'person’s unsaved draft')
+    editor.dispatchEvent(new Event('input', { bubbles: true }))
+    editor.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await settle()
+  const save = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Save')
+  if (!save) throw new Error('Save button is missing')
+  await act(async () => { save.click() })
+  await settle()
+  expect(Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Save')?.disabled).toBe(true)
+  expect(container.querySelector<HTMLTextAreaElement>('textarea[aria-label="file editor"]')?.value).toBe('person’s unsaved draft')
+  expect(container.querySelector<HTMLTextAreaElement>('textarea[aria-label="file editor"]')?.readOnly).toBe(false)
+  expect(container.textContent).toContain(message)
 })
 
 it('shows a too-large state if an image crosses the cap before its preview read', async () => {
