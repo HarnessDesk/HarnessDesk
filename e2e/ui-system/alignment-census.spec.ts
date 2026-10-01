@@ -233,12 +233,16 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     for (const child of children.slice(1)) {
       const rows = child.matches('[data-slot="rows"]') ? child : child.querySelector('[data-slot="rows"]')
       if (rows) {
-        const firstRow = visibleChildren(rows).find(element => element.matches('[data-slot="row"], button'))
+        const firstRow = visibleChildren(rows)
+          .map(element => element.matches('[data-slot="row-folding"]')
+            ? visibleChildren(element).find(opener => opener.matches('button')) ?? null
+            : element)
+          .find(element => element?.matches('[data-slot="row"], button'))
         if (firstRow) {
           const mark = firstRow.querySelector('[data-slot="row-mark"]')
           const markRect = mark && !hidden(mark) ? mark.getBoundingClientRect() : null
           const textLine = firstTextLine(firstRow)
-          // docs/design.md, “Where a label lands”: a SectionHead over Rows shares the row lead,
+          // docs/design.md, “Where a label lands”: a SectionHead over Rows shares the first row's lead,
           // which is its mark when present and otherwise its first text glyph; bar/column labels share text columns.
           bodyLeft = markRect?.left ?? textLine?.left ?? null
         }
@@ -290,6 +294,21 @@ test('the rendered frames and boards hold the alignment census ceiling', async (
     for (const [signature, title] of Object.entries(observed.diagnostics)) diagnostics.set(signature, title)
     for (const check of CHECKS) all[check].push(...observed.findings[check])
   }
+
+  // The catalog's Settings row-fold specimen starts with a marked folding
+  // opener and reveals an unmarked row. Exercise both states so the census's
+  // first-row wrapper handling remains covered by a mixed-mark example.
+  await page.goto('/design.html?view=row')
+  await settle(page)
+  const rowFoldCase = page.locator('[data-catalog-case="row-fold"][data-slot="rows"]')
+  await expect(rowFoldCase.locator('[data-slot="row-folding"] > button [data-slot="row-mark"]'),
+    'the first folding row is marked').toHaveCount(1)
+  await rowFoldCase.locator('[aria-label$="accounts under Codex"]').click()
+  const revealedPlainRow = rowFoldCase.locator('[data-slot="row-folding"] + button')
+  await expect(revealedPlainRow,
+    'the folding opener reveals the following row').toHaveCount(1)
+  await expect(revealedPlainRow.locator('[data-slot="row-mark"]'),
+    'the revealed following row is unmarked').toHaveCount(0)
 
   await page.goto('/design.html')
   await settle(page)

@@ -187,15 +187,17 @@ const DataTablePagination = ({
     <span className="shrink-0 tabular-nums">
       Page {page} of {pages}
     </span>
-    <button
+    <Button
+      variant="ghost"
+      size="icon-xs"
       type="button"
       aria-label="Previous page"
       disabled={page <= 1}
       onClick={onPrevious}
-      className="inline-flex size-(--hd-icon-target) items-center justify-center rounded-(--hd-radius-sm) hover:bg-(--hd-hover) hover:text-(--hd-foreground) disabled:pointer-events-none disabled:opacity-40 [&_svg]:size-3"
+      className="rounded-(--hd-radius-sm) disabled:opacity-40 [&_svg]:size-3"
     >
       <ChevronIcon aria-hidden className="rotate-180" />
-    </button>
+    </Button>
     <Button
       variant="ghost"
       size="icon-xs"
