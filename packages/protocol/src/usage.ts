@@ -133,6 +133,12 @@ export interface AccountActivity {
   readonly longestStreakDays: number | null
 }
 
+/** The host's own readings of one account's prepaid balance, in one unit. */
+export interface UsageBalanceHistory {
+  readonly unit: string
+  readonly points: readonly { readonly at: number; readonly remaining: number }[]
+}
+
 /** How a cost figure was produced. Display-time accounting, never a bill. */
 export type SpendProvenance =
   /** Token counts priced at public API rates. */
@@ -259,6 +265,12 @@ export interface UsageReport {
   readonly plan: string | null
   readonly lanes: readonly UsageLane[]
   readonly credits: UsageCredits | null
+  /**
+   * The host's own readings for this account over the last 30 days. They are
+   * stored at most once an hour unless the balance changed; this is not a
+   * vendor-provided history.
+   */
+  readonly balanceHistory?: UsageBalanceHistory
   readonly spend: SpendSummary | null
   /** Set when a limit has actually been hit, naming which. */
   readonly reached: string | null
