@@ -953,6 +953,27 @@ export class FakeSession implements AgentSession {
     })
   }
 
+  /** Raises an ACP-style permission request with the tool's title as its subject. */
+  askPermission(id: ApprovalId, summary: string): Promise<ApprovalDecision> {
+    const approval: Approval = {
+      id,
+      sessionId: this.id,
+      ...(this.#activeTurn ? { turnId: this.#activeTurn } : {}),
+      requestedAt: Date.now(),
+      type: 'permission',
+      summary,
+      options: [
+        { id: 'allow-once', label: 'Allow once', intent: 'approve' },
+        { id: 'allow-always', label: 'Always allow', intent: 'approveAlways' },
+        { id: 'reject', label: 'Reject', intent: 'deny' },
+      ],
+    }
+    return new Promise((resolve) => {
+      this.#pendingApproval = { id, resolve }
+      this.host.emit({ type: 'approval/requested', approval })
+    })
+  }
+
   /**
    * Asks the person a question inside the running turn, as an agent's own
    * question tool does, and settles when it is answered. Like a real agent

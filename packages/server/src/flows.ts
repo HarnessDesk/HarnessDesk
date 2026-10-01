@@ -727,6 +727,11 @@ export class Flows implements TeamFlows {
     return null
   }
 
+  /** A conversation owned by either a legacy or v2 flow that still governs its Seat. */
+  governs(runtime: string, sessionId: string): boolean {
+    return this.seatOf(runtime, sessionId) !== null || this.#executions?.seated(runtime, sessionId) === true
+  }
+
   // ------------------------------------------------------------------ reading
 
   /**

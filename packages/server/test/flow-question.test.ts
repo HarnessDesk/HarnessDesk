@@ -79,6 +79,38 @@ test('on a run a person started, a Seat’s question has no deadline: it waits f
   assert.equal(now.operations.some((one) => one.key.includes(':answer:')), false, 'no answer is handed over in a turn of its own')
 })
 
+test('a flow Seat answers its own board tool permissions, while other servers and outside writes still reach the person', E2E, async (t) => {
+  const d = await desk(t)
+  const run = await start(d, FLOW, TASK)
+  const [card] = await claimed(d, run.goal, 'fixer', 1)
+  const runtime = d.runtimes.find((one) => one.info.id === card!.claim!.runtime)!
+  const session = runtime.sessions.get(card!.claim!.sessionId)!
+  const board = session.askPermission('flow-board-tool' as never, 'mcp__harnessdesk__claim_next')
+  const boardAnswer = await Promise.race([
+    board,
+    new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('flow board tool approval did not resolve')), 5_000)),
+  ])
+  assert.deepEqual(boardAnswer, { type: 'option', optionId: 'allow-once' })
+  assert.equal(d.host.registry.hasApproval(runtime.info.id, session.id, 'flow-board-tool' as never), false,
+    'the flow tool permission never waits in the person approval queue')
+
+  for (const [id, summary] of [
+    ['flow-other-server', 'mcp__other__claim_next'],
+    ['flow-outside-write', 'Write /elsewhere/outside.txt'],
+  ] as const) {
+    const pending = session.askPermission(id as never, summary)
+    await whenChanged(d, () => d.host.registry.hasApproval(runtime.info.id, session.id, id as never) ? true : null,
+      `${summary} reaches the person approval queue`)
+    const before = session.decisions.length
+    await d.host.call('approval/respond', {
+      runtime: runtime.info.id, sessionId: session.id, approvalId: id as never,
+      decision: { type: 'option', optionId: 'allow-once' },
+    })
+    assert.equal(session.decisions.length, before + 1, 'the request takes the explicit person answer')
+    assert.deepEqual(await pending, { type: 'option', optionId: 'allow-once' })
+  }
+})
+
 // ---------------------------------------------------------------- a trigger's run
 
 const TRIAGE = `- id: triage
