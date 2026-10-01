@@ -108,6 +108,93 @@ const byIdOf = (...infos: readonly RuntimeInfo[]): ReadonlyMap<RuntimeId, Runtim
   new Map(infos.map((one) => [one.id, one]))
 
 describe('PlansTable', () => {
+  it('draws account activity only on its expanded Plans row and omits null figures', () => {
+    const windows = info('activity-agent', 'Activity Agent')
+    const active = report({
+      runtime: windows.id,
+      account: 'activity@example.com',
+      billing: billing(['windows']),
+      accountActivity: {
+        days: [{ day: new Date(2026, 8, 26).getTime(), tokens: 1_234_567 }],
+        lifetimeTokens: 1_234_567_890,
+        peakDailyTokens: null,
+        currentStreakDays: 9,
+        longestStreakDays: null,
+      },
+    })
+    const activeRow = rowsFor([active])[0]!
+    mount(
+      <PlansTable
+        rows={[activeRow]}
+        byId={byIdOf(windows)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+        initialExpanded={activeRow.key}
+      />,
+    )
+
+    expect(host.textContent).toContain('All machines')
+    expect(host.textContent).toContain('1.2M tokens · 30d')
+    expect(host.textContent).toContain('9-day streak')
+    expect(host.textContent).toContain('1.2B lifetime')
+    expect(host.querySelector('[data-slot="sparkline"]')).toBeNull()
+
+    act(() => root.unmount())
+    root = createRoot(host)
+    const withoutActivity = report({ runtime: windows.id, account: 'local@example.com', billing: billing(['windows']) })
+    const localRow = rowsFor([withoutActivity])[0]!
+    mount(
+      <PlansTable
+        rows={[localRow]}
+        byId={byIdOf(windows)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+        initialExpanded={localRow.key}
+      />,
+    )
+    expect(host.querySelector('[data-slot="account-activity"]')).toBeNull()
+
+    act(() => root.unmount())
+    root = createRoot(host)
+    const partial = report({
+      runtime: windows.id,
+      account: 'partial@example.com',
+      billing: billing(['windows']),
+      accountActivity: {
+        days: [{ day: new Date(2026, 8, 26).getTime(), tokens: 25 }],
+        lifetimeTokens: null,
+        peakDailyTokens: null,
+        currentStreakDays: null,
+        longestStreakDays: null,
+      },
+    })
+    const partialRow = rowsFor([partial])[0]!
+    mount(
+      <PlansTable
+        rows={[partialRow]}
+        byId={byIdOf(windows)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+        initialExpanded={partialRow.key}
+      />,
+    )
+    expect(host.textContent).toContain('25 tokens · 30d')
+    expect(host.textContent).not.toContain('streak')
+    expect(host.textContent).not.toContain('lifetime')
+  })
+
   it('expands a row on Enter and collapses it on Escape', () => {
     const codex = info('codex', 'OpenAI Codex')
     const reports = [report({ runtime: codex.id, account: 'me@example.com', lanes: [lane({ id: 'weekly', usedPercent: 40 })], billing: billing(['windows']) })]
