@@ -1,8 +1,9 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const RESULT_DIR = new URL('../../docs/verification/library-measurements/', import.meta.url)
@@ -14,19 +15,37 @@ const VENDOR_HOMES = [
   'GEMINI_HOME', 'DSH_HOME', 'OPENCLAW_CONFIG_PATH', 'OPENCODE_CONFIG_DIR',
 ]
 const PROBES = new Map()
+const VERIFIED_FIXTURES = new WeakMap()
+const KNOWN_AGENTS_SOURCE = new URL('../../packages/server/src/installs/known-agents.ts', import.meta.url)
 const KNOWN_SKILL_ROOTS = {
   claudecode: { user: ['~/.claude/skills'], project: ['.claude/skills'] },
   cursor: { user: ['~/.cursor/skills', '~/.cursor/skills-cursor'], project: ['.cursor/skills'] },
   geminicli: { user: ['~/.gemini/skills'], project: ['.gemini/skills'] },
   deepseek: { user: ['~/.dsh/skills'], project: ['.dsh/skills'] },
 }
-const REAL_HOME_BLOCKS = [
-  '.harnessdesk', '.claude', '.claude.json', '.codex', '.cursor', '.gemini', '.agents', '.dsh',
-  '.openclaw', '.hermes', '.codebuddy', '.kimi', '.pi', '.grok', '.copilot',
-  '.antigravity', '.devin', '.cline', '.local/share', '.config', '.ssh', '.aws',
+const CREDENTIAL_ROOTS = [
+  '.harnessdesk', '.codex', '.claude.json', '.agents', '.local/share', '.config', '.ssh', '.aws',
   '.azure', '.kube', '.netrc', '.npmrc', '.npm', '.docker', '.gnupg', '.pki',
   '.git-credentials', 'Library/Keychains', 'Library/Application Support',
 ]
+const FACT_KEYS = new Set(['rulesFiles', 'catalogue', 'precedence', 'rejections', 'skillRoots', 'refresh', 'mcp', 'signedOutCatalogue'])
+const SAFE_FACT_STRINGS = new Set([
+  'user', 'project', 'unknown', 'asked', 'could-not-ask', 'none', 'live', 'restart', 'available', 'empty',
+  'connected', 'disconnected', 'accepted', 'rejected', 'enabled', 'disabled', 'loaded', 'not-loaded',
+  'true', 'false', 'fixture', 'read', 'not-read', 'reported', 'not-reported', 'visible', 'not-visible',
+])
+const SAFE_TEXT_WORDS = new Set([
+  'a', 'an', 'and', 'agent', 'available', 'app-server', 'are', 'as', 'build', 'catalogue', 'codex',
+  'could', 'cursor', 'deepseek', 'denied', 'does', 'doesnt', 'empty', 'for', 'fixture', 'from', 'gemini',
+  'harness', 'if', 'in', 'installed', 'interface', 'is', 'it', 'loaded', 'mcp', 'measurement', 'not',
+  'of', 'or', 'probe', 'project', 'read', 'refresh', 'rules', 'safe', 'sentinel', 'signed', 'skill',
+  'skills', 'status', 'the', 'through', 'to', 'user', 'visible', 'which', 'while', 'with', 'unknown',
+  'supports', 'reports', 'rejections', 'precedence', 'roots', 'limits', 'question', 'server', 'launch',
+  'selected', 'launched', 'own', 'available', 'and', 'not', 'registered', 'unregistered', 'binary', 'isolated', 'isolate', 'test',
+  'failed', 'safely', 'privacy', 'allowlist', 'parsed', 'facts', 'answer', 'needs', 'sign-in', 'measured', 'is',
+  'exact', 'version', 'changed', 'during', 'discovery', 'couldnt', 'capture', 'an', 'installed', 'available', 'its', 'list',
+  'openai', 'claude', 'opencode', 'cline', 'hermes', 'codebuddy', 'kimi', 'pi', 'grok', 'copilot', 'antigravity', 'devin',
+])
 
 const write = async (path, body) => {
   await mkdir(dirname(path), { recursive: true })
@@ -36,6 +55,65 @@ const write = async (path, body) => {
 const skillBody = (name, description, extra = '') =>
   `---\nname: ${name}\n${description === null ? '' : `description: ${description}\n`}---\n\n${extra || `Fixture for ${name}.`}\n`
 
+export function knownAgentHomeEntries(source = readFileSync(KNOWN_AGENTS_SOURCE, 'utf8')) {
+  return [...source.matchAll(/\bhome:\s*\{([\s\S]*?)^\s{4}\},/gm)].flatMap((match) => {
+    const path = match[1].match(/^\s*path:\s*['"]([^'"]+)['"]/m)?.[1]
+    if (!path) return []
+    const env = match[1].match(/^\s*env:\s*['"]([^'"]+)['"]/m)?.[1]
+    return [{ path, ...(env ? { env } : {}) }]
+  })
+}
+
+function knownAgentWords() {
+  const source = readFileSync(KNOWN_AGENTS_SOURCE, 'utf8')
+  return new Set([...source.matchAll(/^\s*name:\s*['"]([^'"]+)['"]/gm)]
+    .flatMap((match) => match[1].toLowerCase().split(/[^a-z0-9+-]+/).filter(Boolean)))
+}
+
+function knownAgentIds() {
+  return new Set(['codex', ...readFileSync(KNOWN_AGENTS_SOURCE, 'utf8').matchAll(/^\s{4}id:\s*['"]([^'"]+)['"]/gm)].map((entry) => Array.isArray(entry) ? entry[1] : entry))
+}
+
+function knownAgentNames() {
+  return new Set(['Codex', 'Test Agent', ...readFileSync(KNOWN_AGENTS_SOURCE, 'utf8').matchAll(/^\s{4}name:\s*['"]([^'"]+)['"]/gm)].map((entry) => Array.isArray(entry) ? entry[1] : entry))
+}
+
+export function deniedHomePaths(realHome = homedir()) {
+  const expand = (path) => path.startsWith('~/') ? join(realHome, path.slice(2)) : path
+  return [...new Set([
+    ...knownAgentHomeEntries().map(({ path }) => expand(path)),
+    ...CREDENTIAL_ROOTS.map((path) => join(realHome, path)),
+    '/Library/Keychains',
+    '/System/Library/Keychains',
+  ])]
+}
+
+const fixtureTokens = (fixture) => [...new Set([
+  ...Object.values(fixture.ruleSentinels),
+  ...Object.values(fixture.skills).map((path) => basename(path)),
+  'measure-with-auxiliary', 'AUXILIARY_FILE_SENTINEL', 'USER_COPY_SENTINEL', 'PROJECT_COPY_SENTINEL',
+])]
+
+const sensitiveString = /(?:[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|(?:sk|gh[pousr]?|xox[baprs])-[-A-Za-z0-9_]{8,}|eyJ[A-Za-z0-9_-]{16,}|Jane Doe|access[_-]?token|refresh[_-]?token|id[_-]?token|api[_-]?key|authorization|bearer\s|password|cookie|secret|\/(?:Users|home|tmp|private|var|Library|System)\/|(?:^|\s)~\/|[A-Z]:\\Users\\)/i
+
+function safeText(value, fixture) {
+  if (typeof value !== 'string' || !value.trim() || value.length > 512 || sensitiveString.test(value)) return false
+  const fixtureWords = new Set(fixtureTokens(fixture).flatMap((token) => token.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)))
+  const fixedWords = knownAgentWords()
+  return [...value.toLowerCase().matchAll(/[a-z][a-z0-9+-]*/g)].every(([word]) => SAFE_TEXT_WORDS.has(word) || fixtureWords.has(word) || fixedWords.has(word))
+}
+
+function safeFact(value, fixture, depth = 0) {
+  if (depth > 8) return false
+  if (value === null || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) return true
+  if (typeof value === 'string') return fixtureTokens(fixture).includes(value) || SAFE_FACT_STRINGS.has(value)
+  if (Array.isArray(value)) return value.length <= 500 && value.every((item) => safeFact(item, fixture, depth + 1))
+  if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    return Object.entries(value).length <= 500 && Object.entries(value).every(([key, item]) => /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(key) && !/(?:account|token|secret|email|path|credential|password|cookie|auth)/i.test(key) && safeFact(item, fixture, depth + 1))
+  }
+  return false
+}
+
 export async function createFixture(root) {
   root ??= await mkdtemp('/tmp/hd-measure-')
   const home = join(root, 'home')
@@ -44,7 +122,13 @@ export async function createFixture(root) {
   const fixture = {
     root, home, repo, nested,
     harnessHome: join(home, 'harnessdesk'),
-    isolation: { available: process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exec'), reason: '' },
+    isolation: {
+      available: false,
+      preflightPassed: false,
+      reason: 'preflight required',
+      profilePath: join(root, 'probe.sb'),
+      profileText: null,
+    },
     skills: {
       user: join(home, '.codex/skills/measure-user'),
       project: join(repo, '.codex/skills/measure-project'),
@@ -97,7 +181,6 @@ export async function createFixture(root) {
   await write(fixture.mcp[1], JSON.stringify({ mcpServers: { measure_fixture: { command: 'node', args: [fixture.mcpPeer] } } }, null, 2))
   await write(join(root, 'tmp/.keep'), '')
   for (const roots of Object.values(KNOWN_SKILL_ROOTS)) await populateSkillRoots(fixture, roots)
-  fixture.isolation.reason = fixture.isolation.available ? '' : 'cannot isolate: macOS sandbox-exec unavailable'
   return fixture
 }
 
@@ -161,18 +244,22 @@ export const safeEnv = (fixture, cwd = fixture.repo) => ({
 
 export function makeSandboxProfile(root, realHome = homedir()) {
   if (process.platform !== 'darwin' || !existsSync('/usr/bin/sandbox-exec')) return null
-  return sandboxProfileText(realpathSync(realHome))
+  return sandboxProfileText(realpathSync(realHome), [join(realpathSync(root), 'sandbox-canary-home')])
 }
 
 export function verifySandbox(profilePath, fixtureRoot) {
   const canaryHome = join(fixtureRoot, 'sandbox-canary-home')
-  const canaryPaths = REAL_HOME_BLOCKS.map((part) => join(canaryHome, part, 'canary'))
+  const syntheticRoots = [
+    ...knownAgentHomeEntries().map(({ path }) => path.startsWith('~/') ? join(canaryHome, path.slice(2)) : join(canaryHome, path)),
+    ...CREDENTIAL_ROOTS.map((path) => join(canaryHome, path)),
+  ]
+  const canaryPaths = [...new Set(syntheticRoots)].map((path) => join(path, 'canary'))
   for (const path of canaryPaths) {
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, 'sandbox denial canary')
   }
-  const canaryProfile = join(fixtureRoot, 'sandbox-canary.sb')
-  writeFileSync(canaryProfile, sandboxProfileText(realpathSync(canaryHome)))
+  const profile = makeSandboxProfile(fixtureRoot)
+  if (!profile || readFileSync(profilePath, 'utf8') !== profile) return false
   const checkScript = `
     const fs = require('node:fs');
     const paths = process.argv.slice(1);
@@ -183,45 +270,102 @@ export function verifySandbox(profilePath, fixtureRoot) {
       if (!readDenied || !writeDenied) process.exit(31);
     }
   `
-  const paths = spawnSync('/usr/bin/sandbox-exec', ['-f', canaryProfile, process.execPath, '-e', checkScript, ...canaryPaths], {
+  const paths = spawnSync('/usr/bin/sandbox-exec', ['-f', profilePath, process.execPath, '-e', checkScript, ...canaryPaths], {
     encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5_000,
   })
-  if (paths.status !== 0) return false
-  // A canary that does not exist fails with or without the sandbox, which
-  // proves nothing. Plant a real item, prove it reads outside the sandbox,
-  // prove it is refused inside, and always remove it.
+  if (paths.error || paths.signal || paths.status !== 0) return false
+
   const service = `harnessdesk-measure-canary-${process.pid}`
-  const security = (args, sandboxed) => spawnSync(
-    sandboxed ? '/usr/bin/sandbox-exec' : '/usr/bin/security',
-    sandboxed ? ['-f', profilePath, '/usr/bin/security', ...args] : args,
+  const keychain = join(fixtureRoot, 'canary.keychain-db')
+  const keychainPassword = randomBytes(32).toString('base64url')
+  const itemPassword = randomBytes(32).toString('base64url')
+  // The control profile is the real one minus its securityd denials. The same
+  // lookup must succeed under the control and fail under the real profile:
+  // that difference pins the refusal on the deny rule, not on the sandbox
+  // environment, the keychain path, or an "item not found" for any other reason.
+  const controlPath = join(fixtureRoot, 'control.sb')
+  writeFileSync(controlPath, readFileSync(profilePath, 'utf8').split('\n').filter((line) => !/mach-lookup/.test(line)).join('\n'))
+  const security = (args, profile = null) => spawnSync(
+    profile ? '/usr/bin/sandbox-exec' : '/usr/bin/security',
+    profile ? ['-f', profile, '/usr/bin/security', ...args] : args,
     { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5_000 },
   )
-  if (security(['add-generic-password', '-s', service, '-a', 'canary', '-w', 'canary'], false).status !== 0) return false
+  const succeeded = (result) => Boolean(result && !result.error && !result.signal && result.status === 0)
+  let passed = false
   try {
-    const outside = security(['find-generic-password', '-s', service], false)
-    const inside = security(['find-generic-password', '-s', service], true)
-    if (outside.status !== 0) return false
-    return inside.status !== 0
+    const created = security(['create-keychain', '-p', keychainPassword, keychain])
+    if (!succeeded(created)) return false
+    const unlocked = security(['unlock-keychain', '-p', keychainPassword, keychain])
+    if (!succeeded(unlocked)) return false
+    const added = security(['add-generic-password', '-s', service, '-a', 'canary', '-w', itemPassword, keychain])
+    if (!succeeded(added)) return false
+    const outside = security(['find-generic-password', '-s', service, keychain])
+    if (!succeeded(outside)) return false
+    const control = security(['find-generic-password', '-s', service, keychain], controlPath)
+    if (!succeeded(control)) return false
+    const inside = security(['find-generic-password', '-s', service, keychain], profilePath)
+    const deniedBySandbox = Boolean(inside) && !inside.error && !inside.signal && inside.status !== 0
+    passed = deniedBySandbox
   } finally {
-    security(['delete-generic-password', '-s', service], false)
+    if (existsSync(keychain)) {
+      const deleted = security(['delete-keychain', keychain])
+      if (!succeeded(deleted)) passed = false
+    }
   }
+  return passed
 }
 
-export function sandboxProfileText(realHome) {
-  const blocked = [...REAL_HOME_BLOCKS.map((path) => join(realHome, path)), '/Library/Keychains', '/System/Library/Keychains']
+export function sandboxProfileText(realHome, extraDeniedRoots = []) {
+  const blocked = [...deniedHomePaths(realHome), ...extraDeniedRoots]
   const denies = blocked.map((path) => `(deny file-read* file-write* (subpath ${JSON.stringify(path)}))`).join('\n')
   return `(version 1)\n(allow default)\n${denies}\n(deny mach-lookup (global-name "com.apple.securityd"))\n(deny mach-lookup (global-name "com.apple.SecurityServer"))\n`
 }
 
+export async function prepareSandbox(fixture) {
+  fixture.isolation.preflightPassed = false
+  fixture.isolation.available = false
+  VERIFIED_FIXTURES.delete(fixture)
+  if (process.platform !== 'darwin' || !existsSync('/usr/bin/sandbox-exec')) {
+    fixture.isolation.reason = 'cannot isolate: macOS sandbox-exec unavailable'
+    return false
+  }
+  const profile = makeSandboxProfile(fixture.root)
+  if (!profile) {
+    fixture.isolation.reason = 'cannot isolate: sandbox profile unavailable'
+    return false
+  }
+  await writeFile(fixture.isolation.profilePath, profile, 'utf8')
+  fixture.isolation.profileText = profile
+  fixture.isolation.preflightPassed = verifySandbox(fixture.isolation.profilePath, fixture.root)
+  fixture.isolation.available = fixture.isolation.preflightPassed
+  fixture.isolation.reason = fixture.isolation.preflightPassed ? '' : 'cannot isolate: sandbox profile preflight failed'
+  if (fixture.isolation.preflightPassed) VERIFIED_FIXTURES.set(fixture, profile)
+  return fixture.isolation.preflightPassed
+}
+
+export function agentHomeIsIsolated(agent, fixture) {
+  if (!fixture.isolation.preflightPassed || VERIFIED_FIXTURES.get(fixture) !== fixture.isolation.profileText) return false
+  const declared = agent.id === 'codex' ? { path: '~/.codex' } : agent.home
+  if (!declared?.path) return false
+  const realHome = realpathSync(homedir())
+  const home = declared.path.startsWith('~/') ? join(realHome, declared.path.slice(2)) : resolve(realHome, declared.path)
+  const homeDenied = fixture.isolation.profileText.includes(`(subpath ${JSON.stringify(home)})`)
+  if (!homeDenied) return false
+  if (!declared.env) return true
+  if (!VENDOR_HOMES.includes(declared.env)) return false
+  const override = safeEnv(fixture)[declared.env]
+  return Boolean(override && isWithin(fixture.root, override))
+}
+
 export function run(command, args, fixture, { cwd = fixture.repo, timeoutMs = 60_000, input = '', envOverrides = {}, allowedEnv = [] } = {}) {
+  if (!fixture.isolation.preflightPassed || !fixture.isolation.profileText || VERIFIED_FIXTURES.get(fixture) !== fixture.isolation.profileText) throw new Error('cannot isolate: sandbox preflight has not passed in this process')
   if (Object.keys(envOverrides).some((name) => !allowedEnv.includes(name))) throw new Error('subprocess environment override is not allowlisted')
   const env = { ...safeEnv(fixture), ...envOverrides, cwd }
   assertIsolatedEnv(env, fixture.root)
-  const profile = makeSandboxProfile(fixture.root)
-  if (!profile) throw new Error('cannot isolate')
-  const profilePath = join(fixture.root, 'probe.sb')
+  const profilePath = fixture.isolation.profilePath
+  if (readFileSync(profilePath, 'utf8') !== fixture.isolation.profileText || makeSandboxProfile(fixture.root) !== fixture.isolation.profileText) throw new Error('cannot isolate: verified sandbox profile changed')
   const sandboxEnv = { ...env, cwd: fixture.repo }
-  return writeFile(profilePath, profile).then(() => new Promise((resolveRun, rejectRun) => {
+  return new Promise((resolveRun, rejectRun) => {
     const child = spawn('/usr/bin/sandbox-exec', ['-f', profilePath, command, ...args], {
       cwd: fixture.repo, env: sandboxEnv, stdio: ['pipe', 'pipe', 'pipe'], shell: false,
     })
@@ -236,7 +380,7 @@ export function run(command, args, fixture, { cwd = fixture.repo, timeoutMs = 60
       clearTimeout(timer)
       resolveRun({ code, signal, stdout, stderr })
     })
-  }))
+  })
 }
 
 export async function captureHelpVersion(agent, fixture) {
@@ -264,18 +408,24 @@ export function normalizeFixtureTokens(value, allowed) {
   return [...new Set(hits.map((hit) => hit.token))].join('\n')
 }
 
-export function validateResult(result) {
+export function validateResult(result, fixture) {
+  if (!fixture || !Array.isArray(fixtureTokens(fixture))) throw new Error('fixture-derived result allowlist is required')
+  const allowedKeys = new Set(['agent', 'agentId', 'version', 'measured', 'interface', 'question', 'rawAnswer', 'facts', 'status', 'reason'])
+  if (!result || typeof result !== 'object' || Array.isArray(result) || Object.keys(result).some((key) => !allowedKeys.has(key))) throw new Error('result has fields outside the strict schema')
   for (const key of ['agent', 'agentId', 'version', 'measured', 'interface', 'question']) {
-    if (typeof result?.[key] !== 'string' || !result[key].trim()) throw new Error(`${key} is required`)
+    if (typeof result[key] !== 'string' || !result[key].trim()) throw new Error(`${key} is required`)
   }
+  if (!knownAgentNames().has(result.agent) || !knownAgentIds().has(result.agentId)) throw new Error('agent identity is not allowlisted')
+  if (result.version !== 'unknown' && !/^\d+\.\d+(?:\.\d+)?(?:[-+][A-Za-z0-9.-]+)?$/.test(result.version)) throw new Error('version is not allowlisted')
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(result.measured)) throw new Error('measured must be a date')
+  for (const key of ['interface', 'question']) if (!safeText(result[key], fixture)) throw new Error(`${key} is outside the fixture-derived allowlist`)
   if (!result.facts || typeof result.facts !== 'object' || Array.isArray(result.facts)) throw new Error('facts must be an object')
+  if (Object.keys(result.facts).some((key) => !FACT_KEYS.has(key)) || !safeFact(result.facts, fixture)) throw new Error('facts are outside the fixture-derived allowlist')
   if (result.status !== 'asked' && result.status !== 'could-not-ask') throw new Error('status must be asked or could-not-ask')
   if (typeof result.rawAnswer !== 'string' || (result.status === 'asked' && !result.rawAnswer.trim())) throw new Error('rawAnswer is required for asked results')
-  if (result.rawAnswer && result.rawAnswer.split('\n').some((line) => !/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/.test(line))) throw new Error('rawAnswer must contain normalized fixture tokens')
+  if (result.rawAnswer && result.rawAnswer.split('\n').some((line) => !fixtureTokens(fixture).includes(line))) throw new Error('rawAnswer must contain only fixture-derived tokens')
   if (result.status === 'could-not-ask' && result.rawAnswer !== '') throw new Error('could-not-ask results cannot persist an answer')
-  if (/(?:Jane Doe|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|access[_-]?token|refresh[_-]?token|id[_-]?token|api[_-]?key|authorization|bearer\s|password|cookie|secret|\/(?:Users|home|tmp|private|var)\/)/i.test(JSON.stringify(result.facts))) throw new Error('sensitive facts are forbidden')
-  if (result.status === 'could-not-ask' && (typeof result.reason !== 'string' || !result.reason.trim())) throw new Error('reason is required for could-not-ask')
-  if (result.status === 'could-not-ask' && /(?:Jane Doe|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|access[_-]?token|refresh[_-]?token|api[_-]?key|authorization|bearer\s|password|cookie|secret|\/(?:Users|home|tmp|private|var)\/)/i.test(result.reason)) throw new Error('sensitive reason is forbidden')
+  if (result.status === 'could-not-ask' && (typeof result.reason !== 'string' || !safeText(result.reason, fixture))) throw new Error('reason is outside the fixture-derived allowlist')
   if (result.status === 'asked' && result.reason !== undefined) throw new Error('reason is only valid for could-not-ask')
   return result
 }
@@ -287,38 +437,38 @@ export function registerProbe(agentId, probe) {
 
 export async function askAgent(agent, fixture) {
   const base = { agent: agent.name, agentId: agent.id, version: agent.version ?? 'unknown', measured: new Date().toISOString().slice(0, 10), interface: 'not selected', question: 'Probe the agent through its own interface', rawAnswer: '', facts: {}, fixtureRoot: fixture.root }
-  if (!fixture.isolation.available) return validateResult({ ...base, status: 'could-not-ask', reason: 'cannot isolate' })
+  if (!fixture.isolation.preflightPassed || !agentHomeIsIsolated(agent, fixture)) return { ...base, status: 'could-not-ask', reason: 'cannot isolate' }
   const probe = PROBES.get(agent.id)
-  if (!probe) return validateResult({ ...base, status: 'could-not-ask', reason: `no safe probe registered for ${agent.id}` })
+  if (!probe) return { ...base, status: 'could-not-ask', reason: 'no safe probe registered' }
   try {
     const answer = await probe(agent, fixture)
     if (answer.status === 'could-not-ask') {
-      const reason = typeof answer.reason === 'string' && !/(?:Jane Doe|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|access[_-]?token|refresh[_-]?token|api[_-]?key|authorization|bearer\s|password|cookie|secret|\/(?:Users|home|tmp|private|var)\/)/i.test(answer.reason)
-        ? answer.reason : 'probe declined safely'
-      return validateResult({ ...base, interface: answer.interface ?? base.interface, question: answer.question ?? base.question, status: 'could-not-ask', reason })
+      return { ...base, interface: base.interface, question: base.question, status: 'could-not-ask', reason: 'probe declined safely' }
     }
-    const normalizedRaw = redact(answer.rawAnswer ?? '', answer.allowedRawTokens ?? [], fixture.root)
-    if (!normalizedRaw) return validateResult({ ...base, status: 'could-not-ask', reason: 'answer failed the fixture-only privacy allowlist' })
+    const normalizedRaw = redact(answer.rawAnswer ?? '', fixtureTokens(fixture), fixture.root)
+    if (!normalizedRaw) return { ...base, status: 'could-not-ask', reason: 'answer failed the fixture-only privacy allowlist' }
     const facts = answer.facts ?? {}
-    if (/(?:Jane Doe|access[_-]?token|refresh[_-]?token|id[_-]?token|api[_-]?key|authorization|bearer\s|password|cookie|secret|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|\/Users\/)/i.test(JSON.stringify(facts))) {
-      return validateResult({ ...base, status: 'could-not-ask', reason: 'parsed facts failed the privacy allowlist' })
-    }
-    return validateResult({
+    const result = {
       ...base,
-      interface: answer.interface ?? base.interface,
-      question: answer.question ?? base.question,
+      interface: safeText(answer.interface ?? base.interface, fixture) ? answer.interface ?? base.interface : base.interface,
+      question: safeText(answer.question ?? base.question, fixture) ? answer.question ?? base.question : base.question,
       rawAnswer: normalizedRaw,
       facts,
       status: answer.status ?? 'asked',
-    })
-  } catch (error) {
-    return validateResult({ ...base, status: 'could-not-ask', reason: `probe failed safely (${error instanceof Error ? error.name : 'unknown error'})` })
+    }
+    try {
+      return validateResult(result, fixture)
+    } catch {
+      return { ...base, status: 'could-not-ask', reason: 'parsed facts failed the privacy allowlist' }
+    }
+  } catch {
+    return { ...base, status: 'could-not-ask', reason: 'probe failed safely' }
   }
 }
 
-export async function writeResult(result, directory = RESULT_DIR_PATH) {
+export async function writeResult(result, directory = RESULT_DIR_PATH, fixture) {
   const { fixtureRoot = '', ...publicResult } = result
-  const safe = validateResult(publicResult)
+  const safe = validateResult(publicResult, fixture)
   const agentSlug = String(safe.agentId).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
   const versionSlug = String(safe.version).replace(/[^A-Za-z0-9.+_-]/g, '-')
   const path = join(directory, `${agentSlug}-${versionSlug}.json`)
@@ -334,8 +484,8 @@ export async function findAgentInstall(agent, fixture) {
     : agent.cli
   const locateOptions = { home: homedir(), env: { PATH: process.env.PATH ?? '' } }
   const candidates = candidatePaths(spec, locateOptions).filter(existsSync)
-  const protectedRoots = REAL_HOME_BLOCKS.map((path) => join(homedir(), path))
-    .concat(['/Library/Keychains', '/System/Library/Keychains'])
+  if (!agentHomeIsIsolated(agent, fixture)) return { chosen: null, cannotIsolate: true }
+  const protectedRoots = deniedHomePaths(realpathSync(homedir()))
   const candidateNeedsDeniedAccess = candidates.some((path) => {
     let real = path
     try { real = realpathSync(path) } catch {}
@@ -365,17 +515,9 @@ export async function main(args = process.argv.slice(2)) {
     const root = await mkdtemp('/tmp/hd-measure-')
     try {
       const fixture = await createFixture(root)
-      if (process.platform !== 'darwin' || !existsSync('/usr/bin/sandbox-exec')) {
-        fixture.isolation.available = false
-        fixture.isolation.reason = 'cannot isolate: sandbox-exec unavailable'
-      }
-      const profilePath = join(root, 'probe.sb')
-      if (fixture.isolation.available) {
-        await writeFile(profilePath, makeSandboxProfile(root))
-        fixture.isolation.available = verifySandbox(profilePath, root)
-        if (!fixture.isolation.available) fixture.isolation.reason = 'cannot isolate: sandbox profile preflight failed'
-      }
-      const installResult = fixture.isolation.available ? await findAgentInstall(agent, fixture) : { chosen: null, cannotIsolate: true }
+      await prepareSandbox(fixture)
+      const homeSafe = fixture.isolation.preflightPassed && agentHomeIsIsolated(agent, fixture)
+      const installResult = homeSafe ? await findAgentInstall(agent, fixture) : { chosen: null, cannotIsolate: true }
       const install = installResult.chosen
       const command = install?.path
       const discovered = command
@@ -383,13 +525,13 @@ export async function main(args = process.argv.slice(2)) {
         : null
       const result = command && discovered?.value && discovered.value === install.version
         ? await askAgent({ ...agent, command, version: discovered.value }, fixture)
-        : validateResult({
+        : {
             agent: agent.name, agentId: agent.id, version: 'unknown', measured: new Date().toISOString().slice(0, 10),
             interface: 'not launched', question: 'Is an installed build available?', rawAnswer: '', facts: {},
             status: 'could-not-ask',
             reason: !fixture.isolation.available || installResult.cannotIsolate ? 'cannot isolate' : !install ? 'binary not installed' : !discovered?.value ? 'could not capture an exact version' : 'installed version changed during discovery',
-          })
-      await writeResult(result)
+          }
+      await writeResult(result, RESULT_DIR_PATH, fixture)
       process.stdout.write(`${result.status}: ${agent.id} ${result.version}\n`)
     } finally {
       await rm(root, { recursive: true, force: true })

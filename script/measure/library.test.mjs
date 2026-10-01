@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
-import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { existsSync, readFileSync } from 'node:fs'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -13,11 +13,14 @@ import {
   redact,
   sandboxProfileText,
   makeSandboxProfile,
-  verifySandbox,
   validateResult,
   writeResult,
   registerProbe,
   run,
+  prepareSandbox,
+  knownAgentHomeEntries,
+  deniedHomePaths,
+  agentHomeIsIsolated,
 } from './library.mjs'
 
 const under = (root, path) => path.startsWith(`${root}/`) || path === root
@@ -79,9 +82,9 @@ test('isolation guard rejects missing and out-of-root home, vendor home, and cwd
   }
 })
 
-test('macOS sandbox profile blocks real agent homes, credentials, and the login keychain', () => {
+test('sandbox profile blocks real agent homes, credentials, and keychain paths', () => {
   const profile = sandboxProfileText('/Users/dev')
-  for (const path of ['.harnessdesk', '.claude', '.claude.json', '.codex', '.cursor', '.gemini', '.agents', '.copilot', '.config', '.ssh', '.aws', '.netrc', '.npmrc', '.npm', '.docker', '.gnupg', '.pki', '.git-credentials', 'Library/Keychains', 'Library/Application Support']) {
+  for (const path of ['.harnessdesk', '.claude', '.claude.json', '.codex', '.cursor', '.gemini', '.agents', '.copilot', '.cline', '.kimi', '.devin', '.config', '.ssh', '.aws', '.netrc', '.npmrc', '.npm', '.docker', '.gnupg', '.pki', '.git-credentials', 'Library/Keychains', 'Library/Application Support']) {
     assert.ok(profile.includes(`(subpath "/Users/dev/${path}")`), `${path} is denied`)
   }
   assert.ok(profile.includes('(subpath "/Library/Keychains")'))
@@ -90,13 +93,41 @@ test('macOS sandbox profile blocks real agent homes, credentials, and the login 
   assert.match(profile, /com\.apple\.SecurityServer/)
 })
 
-test('sandbox preflight proves file denials and refuses unless keychain access fails', async (t) => {
+test('the actual run profile denies every independently listed known-agent home', async (t) => {
+  const root = await mkdtemp('/tmp/hd-measure-homes-')
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const source = readFileSync(new URL('../../packages/server/src/installs/known-agents.ts', import.meta.url), 'utf8')
+  const independentHomes = [...source.matchAll(/\bhome:\s*\{([\s\S]*?)^\s{4}\},/gm)]
+    .map((match) => match[1].match(/^\s*path:\s*['"]([^'"]+)['"]/m)?.[1]).filter(Boolean)
+  assert.deepEqual(knownAgentHomeEntries().map(({ path }) => path), independentHomes)
+  if (process.platform !== 'darwin' || !existsSync('/usr/bin/sandbox-exec')) return t.skip('actual macOS run profile unavailable')
+  const profile = makeSandboxProfile(root)
+  assert.ok(profile)
+  const realHome = await import('node:fs/promises').then(({ realpath }) => realpath(homedir()))
+  for (const home of independentHomes) {
+    const expanded = home.startsWith('~/') ? join(realHome, home.slice(2)) : home
+    assert.ok(profile.includes(`(subpath ${JSON.stringify(expanded)})`), `${home} is denied in run profile`)
+  }
+  for (const path of deniedHomePaths(realHome)) assert.ok(profile.includes(`(subpath ${JSON.stringify(path)})`), `${path} is denied`)
+})
+
+test('sandbox preflight proves the exact run profile, fixture keychain and file denials', async (t) => {
   if (process.platform !== 'darwin' || !existsSync('/usr/bin/sandbox-exec')) return t.skip('macOS sandbox-exec unavailable')
   const root = await mkdtemp('/tmp/hd-measure-sandbox-')
   t.after(() => rm(root, { recursive: true, force: true }))
-  const profilePath = join(root, 'real-home-profile.sb')
-  await import('node:fs/promises').then(({ writeFile }) => writeFile(profilePath, makeSandboxProfile(root)))
-  assert.equal(verifySandbox(profilePath, root), true)
+  const fixture = await createFixture(root)
+  const passed = await prepareSandbox(fixture)
+  assert.equal(fixture.isolation.preflightPassed, passed)
+  assert.equal(existsSync(join(root, 'canary.keychain-db')), false)
+  if (!passed) return t.skip('preflight could not prove an explicit securityd denial on this host')
+})
+
+test('run refuses to launch before this fixture passes the sandbox preflight', async (t) => {
+  const root = await mkdtemp('/tmp/hd-measure-run-gate-')
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const fixture = await createFixture(root)
+  fixture.isolation.available = true
+  assert.throws(() => run(process.execPath, ['-e', 'process.exit(0)'], fixture), /preflight has not passed/)
 })
 
 test('result validation requires an answer only for asked results', () => {
@@ -104,12 +135,13 @@ test('result validation requires an answer only for asked results', () => {
     agent: 'Codex', agentId: 'codex', version: '0.149.0', measured: '2026-10-01', interface: 'codex app-server skills/list',
     question: 'Which skill sentinel is loaded?', rawAnswer: 'measure-sentinel', facts: { catalogue: ['measure-sentinel'] }, status: 'asked',
   }
-  assert.deepEqual(validateResult(valid), valid)
-  assert.throws(() => validateResult({ ...valid, rawAnswer: '' }), /rawAnswer/)
-  assert.throws(() => validateResult({ ...valid, rawAnswer: '', status: 'could-not-ask' }), /reason/)
-  assert.throws(() => validateResult({ ...valid, status: 'could-not-ask', reason: 'needs sign-in, not measured' }), /cannot persist an answer/)
-  assert.equal(validateResult({ ...valid, rawAnswer: '', status: 'could-not-ask', reason: 'needs sign-in, not measured' }).status, 'could-not-ask')
-  assert.throws(() => validateResult({ ...valid, rawAnswer: '', status: 'asked' }), /rawAnswer/)
+  const fixture = { ruleSentinels: {}, skills: { sentinel: '/tmp/measure-sentinel' } }
+  assert.deepEqual(validateResult(valid, fixture), valid)
+  assert.throws(() => validateResult({ ...valid, rawAnswer: '' }, fixture), /rawAnswer/)
+  assert.throws(() => validateResult({ ...valid, rawAnswer: '', status: 'could-not-ask' }, fixture), /reason/)
+  assert.throws(() => validateResult({ ...valid, status: 'could-not-ask', reason: 'needs sign-in, not measured' }, fixture), /cannot persist an answer/)
+  assert.equal(validateResult({ ...valid, rawAnswer: '', status: 'could-not-ask', reason: 'needs sign-in, not measured' }, fixture).status, 'could-not-ask')
+  assert.throws(() => validateResult({ ...valid, rawAnswer: '', status: 'asked' }, fixture), /rawAnswer/)
 })
 
 test('raw-answer allowlist rejects account names, structured secrets, and outside paths', () => {
@@ -117,19 +149,45 @@ test('raw-answer allowlist rejects account names, structured secrets, and outsid
   assert.equal(redact(unsafe, ['HOME_AGENTS_SENTINEL', 'measure-sentinel'], '/tmp/fixture'), '')
   assert.equal(redact('HOME_AGENTS_SENTINEL and Jane Doe', ['HOME_AGENTS_SENTINEL'], '/tmp/fixture'), '')
   const valid = { agent: 'Codex', agentId: 'codex', version: '0.149.0', measured: '2026-10-01', interface: 'skills/list', question: 'Which skill?', facts: {}, status: 'asked' }
-  assert.throws(() => validateResult({ ...valid, rawAnswer: 'Jane Doe' }), /normalized fixture tokens/)
-  assert.throws(() => validateResult({ ...valid, rawAnswer: 'measure-sentinel', facts: { access_token: 'secret' } }), /sensitive facts/)
+  const fixture = { ruleSentinels: {}, skills: { sentinel: '/tmp/measure-sentinel' } }
+  assert.throws(() => validateResult({ ...valid, rawAnswer: 'Jane Doe', facts: {} }, fixture), /fixture-derived tokens/)
+  assert.throws(() => validateResult({ ...valid, rawAnswer: 'measure-sentinel', facts: { catalogue: { access_token: 'secret' } } }, fixture), /fixture-derived allowlist/)
+})
+
+test('writeResult rejects unsafe strings in every persisted field', async (t) => {
+  const root = await mkdtemp('/tmp/hd-measure-write-')
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const fixture = await createFixture(root)
+  const valid = {
+    agent: 'Codex', agentId: 'codex', version: '0.149.0', measured: '2026-10-01',
+    interface: 'codex app-server skills/list', question: 'Which skill sentinel is loaded?',
+    rawAnswer: 'measure-sentinel', facts: { catalogue: ['measure-sentinel'] }, status: 'asked',
+  }
+  for (const unsafe of [
+    { agent: 'Jane Doe' },
+    { agentId: 'account-owner' },
+    { version: 'sk-live-abcdefgh123456' },
+    { interface: 'Jane Doe' },
+    { question: 'token sk-live-abcdefgh123456' },
+    { facts: { catalogue: ['/Users/owner/.claude/config.json'] } }, // hd-secrets-ok: synthetic path must be rejected by the writer
+    { facts: { account_name: 'none' } },
+    { rawAnswer: 'SENTINEL_SUPPLIED_BY_PROBE' },
+    { status: 'could-not-ask', reason: 'Jane Doe', rawAnswer: '' },
+  ]) {
+    await assert.rejects(writeResult({ ...valid, ...unsafe }, join(root, 'out'), fixture))
+  }
+  await assert.rejects(writeResult({ ...valid, unexpected: 'none' }, join(root, 'out'), fixture), /strict schema/)
 })
 
 test('a missing probe persists a redacted could-not-ask result', async (t) => {
   const root = await mkdtemp('/tmp/hd-measure-result-')
   t.after(() => rm(root, { recursive: true, force: true }))
   const fixture = await createFixture(root)
-  fixture.isolation.available = true
-  const result = await askAgent({ id: 'unregistered-test-agent', name: 'Test Agent' }, fixture)
+  if (!await prepareSandbox(fixture)) return t.skip('sandbox preflight unavailable on this host')
+  const result = await askAgent({ id: 'codex', name: 'Codex' }, fixture)
   assert.equal(result.status, 'could-not-ask')
   assert.match(result.reason, /no safe probe registered/)
-  const path = await writeResult(result, join(root, 'results'))
+  const path = await writeResult(result, join(root, 'results'), fixture)
   const saved = await readFile(path, 'utf8')
   assert.match(saved, /could-not-ask/)
   assert.doesNotMatch(saved, /sk-live|@example\.com|\/Users\//)
@@ -142,7 +200,7 @@ test('subprocess environment contains only the allowlisted isolated values', asy
   process.env.MEASURE_SENTINEL_SECRET = 'placeholder-secret'
   t.after(() => { if (prior === undefined) delete process.env.MEASURE_SENTINEL_SECRET; else process.env.MEASURE_SENTINEL_SECRET = prior })
   const fixture = await createFixture(root)
-  if (!fixture.isolation.available) return t.skip('sandbox-exec is unavailable on this host')
+  if (!await prepareSandbox(fixture)) return t.skip('sandbox preflight unavailable on this host')
   const result = await run(process.execPath, ['-e', 'process.stdout.write(JSON.stringify(process.env))'], fixture)
   assert.equal(result.code, 0)
   const env = JSON.parse(result.stdout)
@@ -151,20 +209,34 @@ test('subprocess environment contains only the allowlisted isolated values', asy
   assert.equal(env.MEASURE_SENTINEL_SECRET, undefined)
 })
 
-test('signed-out and cannot-isolate outcomes are recorded before a probe starts', async (t) => {
+test('unprepared fixtures refuse registered probes before launch', async (t) => {
   const root = await mkdtemp('/tmp/hd-measure-refusal-')
   t.after(() => rm(root, { recursive: true, force: true }))
   const fixture = await createFixture(root)
   let launches = 0
   registerProbe('unsafe-test-agent', async () => { launches += 1; throw new Error('must not launch') })
-  fixture.isolation.available = false
   const unsafe = await askAgent({ id: 'unsafe-test-agent', name: 'Test Agent' }, fixture)
   assert.equal(unsafe.status, 'could-not-ask')
   assert.match(unsafe.reason, /cannot isolate/)
   assert.equal(launches, 0)
-  fixture.isolation.available = true
-  registerProbe('signed-out-test-agent', async () => ({ status: 'could-not-ask', reason: 'needs sign-in, not measured', rawAnswer: '' }))
-  const signedOut = await askAgent({ id: 'signed-out-test-agent', name: 'Test Agent' }, fixture)
-  assert.equal(signedOut.status, 'could-not-ask')
-  assert.match(signedOut.reason, /needs sign-in/)
+  assert.equal(agentHomeIsIsolated({ id: 'claude', home: { path: '~/.claude', env: 'CLAUDE_CONFIG_DIR' } }, fixture), false)
+})
+
+test('versioned measurement records are linked from the tier table', async () => {
+  const directory = new URL('../../docs/verification/library-measurements/', import.meta.url)
+  const readme = await readFile(new URL('README.md', directory), 'utf8')
+  const names = (await readdir(directory)).filter((name) => name.endsWith('.json'))
+  assert.ok(names.length > 0)
+  for (const name of names) {
+    const result = JSON.parse(await readFile(new URL(name, directory), 'utf8'))
+    assert.equal(result.status, 'could-not-ask')
+    assert.ok(result.agent && result.agentId && result.version && result.measured && result.interface && result.question)
+    assert.equal(result.rawAnswer, '')
+    assert.ok(result.reason)
+    assert.match(readme, new RegExp(`\\(${name.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\)`))
+    assert.deepEqual(Object.keys(result.facts).sort(), ['catalogue','mcp','precedence','refresh','rejections','rulesFiles','signedOutCatalogue','skillRoots'].sort())
+  }
+  for (const heading of ['rules', 'catalogue', 'precedence', 'limits', 'roots', 'refresh', 'MCP', 'signed out']) {
+    assert.ok(readme.toLowerCase().includes(heading.toLowerCase()), `tier table includes ${heading}`)
+  }
 })
