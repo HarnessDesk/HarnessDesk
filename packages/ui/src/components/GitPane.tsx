@@ -219,6 +219,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
   const [search, setSearch] = useState<GitLogSearch>('message')
   const [selected, setSelected] = useState<string | null>(null)
   const [activeSha, setActiveSha] = useState<string | null>(null)
+  const activeIndexRef = useRef<number | null>(null)
   const [selectedProvenance, setSelectedProvenance] = useState<import('@harnessdesk/protocol').CommitProvenance | undefined>()
   const [railOpen, setRailOpen] = useState(true)
   const [railError, setRailError] = useState<string | null>(null)
@@ -601,8 +602,22 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
   const total = commits.length
   const first = Math.max(0, Math.floor(scrollTop / ROW) - OVERSCAN)
   const last = Math.min(total, Math.ceil((scrollTop + viewport) / ROW) + OVERSCAN)
-  const activeDescendant = activeSha !== null && commits.slice(first, last).some((commit) => commit.sha === activeSha)
-    ? `git-commit-${activeSha}`
+  const activeIndex = activeSha === null ? -1 : commits.findIndex((commit) => commit.sha === activeSha)
+  const hasActiveCommit = activeSha !== null || activeIndexRef.current !== null
+  const reconciledIndex = activeIndex >= 0
+    ? activeIndex
+    : Math.max(0, Math.min(activeIndexRef.current ?? 0, total - 1))
+  const currentActiveSha = activeIndex >= 0
+    ? activeSha
+    : hasActiveCommit
+      ? commits[reconciledIndex]?.sha ?? null
+      : null
+  useEffect(() => {
+    if (activeSha !== currentActiveSha) setActiveSha(currentActiveSha)
+    if (currentActiveSha !== null) activeIndexRef.current = commits.findIndex((commit) => commit.sha === currentActiveSha)
+  }, [activeSha, commits, currentActiveSha])
+  const activeDescendant = currentActiveSha !== null && commits.slice(first, last).some((commit) => commit.sha === currentActiveSha)
+    ? `git-commit-${currentActiveSha}`
     : undefined
   // What the graph would like, before anyone drags it.
   const wanted = searching ? 0 : Math.min(lanes, LANE_CAP) * LANE_W + GUTTER_PAD
@@ -684,7 +699,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
       if (total === 0) return
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
         event.preventDefault()
-        const at = commits.findIndex((commit) => commit.sha === (activeSha ?? selected))
+        const at = commits.findIndex((commit) => commit.sha === (currentActiveSha ?? selected))
         const next = event.key === 'Home'
           ? 0
           : event.key === 'End'
@@ -694,6 +709,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
               : Math.max(0, at < 0 ? total - 1 : at - 1)
         const commit = commits[next]
         if (commit) {
+          activeIndexRef.current = next
           setActiveSha(commit.sha)
           scrollToIndex(next)
         }
@@ -701,15 +717,16 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
       }
       if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return
       event.preventDefault()
-      const sha = activeSha ?? selected ?? commits[0]?.sha
+      const sha = currentActiveSha ?? selected ?? commits[0]?.sha
       if (!sha) return
       const index = commits.findIndex((commit) => commit.sha === sha)
       if (index < 0) return
+      activeIndexRef.current = index
       setActiveSha(sha)
       scrollToIndex(index)
       select(selected === sha ? null : sha)
     },
-    [activeSha, commits, selected, total, select, scrollToIndex],
+    [commits, currentActiveSha, selected, total, select, scrollToIndex],
   )
 
   if (!root) return null
@@ -999,9 +1016,10 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
                       fit={fit}
                       remotes={remoteNames}
                       selected={selected === commit.sha}
-                      active={activeSha === commit.sha}
+                      active={currentActiveSha === commit.sha}
                       now={Date.now()}
                       onSelect={() => {
+                        activeIndexRef.current = commits.findIndex((candidate) => candidate.sha === commit.sha)
                         setActiveSha(commit.sha)
                         select(selected === commit.sha ? null : commit.sha)
                       }}

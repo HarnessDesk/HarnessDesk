@@ -81,6 +81,7 @@ const DETAIL: GitCommitDetail = {
 
 interface Script {
   readonly log?: readonly GitLogCommit[]
+  readonly logResponses?: readonly (readonly GitLogCommit[])[]
   readonly refs?: GitRefsSummary | null
   readonly status?: GitStatus | null
   readonly worktrees?: readonly GitWorktree[]
@@ -99,6 +100,7 @@ interface Script {
 
 const mount = async (script: Script) => {
   const repo = script.root ?? '/repo/app'
+  let logRead = 0
   const request = vi.fn(async (method: string) => {
     if (script.on && method in script.on) {
       const answer = script.on[method]
@@ -109,7 +111,10 @@ const mount = async (script: Script) => {
     }
     switch (method) {
       case 'git/log':
-        return { commits: script.log ?? [], hasMore: false }
+        return {
+          commits: script.logResponses?.[Math.min(logRead++, script.logResponses.length - 1)] ?? script.log ?? [],
+          hasMore: false,
+        }
       case 'git/refs':
         return script.refs === undefined ? REFS : script.refs
       case 'git/status':
@@ -1242,4 +1247,50 @@ it('navigates and activates commits from the one-stop listbox', async () => {
   press(' ')
   expect(container.querySelector('#git-commit-aaaa111')?.getAttribute('aria-selected')).toBe('false')
   expect(document.activeElement).toBe(list)
+})
+
+it('reconciles and activates the nearest commit after a search removes the active row', async () => {
+  await mount({ logResponses: [
+    [commit('aaaa111', 'First'), commit('bbbb222', 'Second'), commit('cccc333', 'Third')],
+    [commit('aaaa111', 'First'), commit('cccc333', 'Third')],
+  ] })
+  const list = container.querySelector<HTMLElement>('[role="listbox"][aria-label="Commits"]')!
+  list.focus()
+  const press = (key: string) => act(() => list.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })))
+  press('ArrowDown')
+  press('ArrowDown')
+  expect(list.getAttribute('aria-activedescendant')).toBe('git-commit-bbbb222')
+
+  const search = container.querySelector<HTMLInputElement>('input[aria-label="Search history"]')!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(search, 'needle')
+    search.dispatchEvent(new Event('input', { bubbles: true }))
+    await new Promise((resolve) => setTimeout(resolve, 300))
+  })
+  expect(container.querySelector('#git-commit-bbbb222')).toBeNull()
+  expect(list.getAttribute('aria-activedescendant')).toBe('git-commit-cccc333')
+  press('Enter')
+  expect(container.querySelector('#git-commit-cccc333')?.getAttribute('aria-selected')).toBe('true')
+})
+
+it('reconciles and activates the first commit after a history refresh removes the active row', async () => {
+  await mount({ logResponses: [
+    [commit('aaaa111', 'First'), commit('bbbb222', 'Second')],
+    [commit('cccc333', 'New first')],
+  ] })
+  const list = container.querySelector<HTMLElement>('[role="listbox"][aria-label="Commits"]')!
+  list.focus()
+  const press = (key: string) => act(() => list.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })))
+  press('ArrowDown')
+  press('ArrowDown')
+  expect(list.getAttribute('aria-activedescendant')).toBe('git-commit-bbbb222')
+
+  await act(async () => {
+    window.dispatchEvent(new Event('focus'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+  expect(container.querySelector('#git-commit-bbbb222')).toBeNull()
+  expect(list.getAttribute('aria-activedescendant')).toBe('git-commit-cccc333')
+  press(' ')
+  expect(container.querySelector('#git-commit-cccc333')?.getAttribute('aria-selected')).toBe('true')
 })
