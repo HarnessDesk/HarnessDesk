@@ -34,7 +34,7 @@ const group = (root: string, name: string): ProjectGroup => ({ root, name, sessi
 
 /** A store that answers a move the way the real one does: the pinned run is the order. */
 const mount = (pinned: string[], subject: ProjectGroup) => {
-  let snapshot = { ...emptySnapshot(), home: '/home/runner', listPrefs: { ...emptySnapshot().listPrefs, pinned } } as AppSnapshot
+  let snapshot = { ...emptySnapshot(), home: '/home/dev', listPrefs: { ...emptySnapshot().listPrefs, pinned } } as AppSnapshot
   const listeners = new Set<() => void>()
   const store = {
     subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
@@ -116,10 +116,10 @@ it('says nothing when the store has not moved anything', async () => {
 
 it('groups project choices by task and puts movement in the Move flyout', async () => {
   const project = {
-    ...group('/home/runner/work/project', 'project'),
+    ...group('/home/dev/work/project', 'project'),
     sessions: [{ id: 's', runtime: 'agent', title: 'Conversation', git: { branch: 'main' } } as unknown as SessionSummary],
   }
-  mount(['/a', '/home/runner/work/project', '/other'], project)
+  mount(['/a', '/home/dev/work/project', '/other'], project)
   const menu = document.querySelector('[role="menu"]')!
   const labels = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((item) => item.querySelector('[class*="title"]')?.textContent?.trim())
   expect(labels).toEqual([
@@ -152,7 +152,7 @@ it('keeps the first project Move up refusal reason in the flyout', async () => {
 it('shows a home-shortened path hint and copies the absolute project path', async () => {
   const writeText = vi.fn(async () => {})
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
-  const absolute = '/home/runner/work/project'
+  const absolute = '/home/dev/work/project'
   mount([], group(absolute, 'project'))
   const path = row('Copy path')
   expect(path.querySelector('[class*="hint"]')?.textContent).toBe('~/work/project')
