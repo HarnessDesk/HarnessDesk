@@ -51,13 +51,15 @@ const Stepper = ({ className, steps, current, orientation = 'horizontal', ...pro
             'flex min-w-0',
             orientation === 'horizontal'
               ? cn('flex-col items-center gap-1.5 text-center', !last && 'flex-1')
-              : 'gap-3 pb-4 last:pb-0',
+              : cn('relative items-start gap-3 pb-4 last:pb-0', !last && 'before:absolute before:left-3 before:top-[calc((var(--hd-line-xs)+var(--hd-space-6))/2)] before:bottom-[calc(0px_-_var(--hd-space-4))] before:w-px before:bg-(--hd-border)'),
           )}
         >
           <div
             className={cn(
               'flex items-center',
-              orientation === 'horizontal' ? 'w-full' : 'flex-col self-stretch',
+              orientation === 'horizontal'
+                ? 'w-full'
+                : 'relative mt-[calc((var(--hd-line-xs)-var(--hd-space-6))/2)] flex size-6 shrink-0 items-center justify-center',
             )}
           >
             {/* A spacer mirroring the connector, so the marker sits on the
@@ -82,9 +84,6 @@ const Stepper = ({ className, steps, current, orientation = 'horizontal', ...pro
             </span>
             {orientation === 'horizontal' && (
               <span aria-hidden className={cn('h-px flex-1', last && 'invisible')} style={{ background: 'var(--hd-border)' }} />
-            )}
-            {orientation === 'vertical' && !last && (
-              <span aria-hidden className="w-px flex-1 bg-(--hd-border)" />
             )}
           </div>
           <div className={cn('min-w-0', orientation === 'vertical' && 'pb-2')}>
