@@ -1875,8 +1875,8 @@ class PreviewStore {
       if (method === 'workspace/readFile') {
         const path = (params as { path?: string } | undefined)?.path ?? ''
         if (path.endsWith('lib/brands.ts'))
-          return { content: editorSource, truncated: false, hash: `len-${editorSource.length}` }
-        return null
+          return { kind: 'text', content: editorSource, truncated: false, hash: `len-${editorSource.length}` }
+        return { kind: 'missing' }
       }
       if (method === 'workspace/stat') return { kind: 'file', isSymlink: false, modifiedAt: now }
       /** `FolderPicker`'s own listing — one folder deep, plain names, so the dialog has something to click into. */

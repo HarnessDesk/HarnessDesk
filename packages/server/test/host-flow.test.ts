@@ -76,9 +76,11 @@ test('hello → create → send-or-queue → tasks → confined read → routes 
 
   // A file inside the conversation's folder reads; one outside every open root does not.
   const read = (await client.call('workspace/readFile', { runtime: FAKE_RUNTIME_ID, path: '/w/README.md' })) as {
+    kind: 'text'
     content: string
     hash: string
   }
+  assert.equal(read.kind, 'text')
   assert.equal(read.content, 'from the fake runtime')
   assert.match(read.hash, /^[0-9a-f]{64}$/)
   await assert.rejects(

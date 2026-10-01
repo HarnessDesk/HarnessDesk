@@ -80,7 +80,11 @@ export const PreviewPane = () => {
         .then(([file, meta]) => {
           if (cancelled) return
           modifiedAt.current = meta?.modifiedAt ?? null
-          setContent(file.content)
+          if (file.kind === 'text') setContent(file.content)
+          else if (file.kind === 'missing') setError(`${path.split('/').pop()} does not exist yet.`)
+          else if (file.kind === 'unreadable') setError(file.message)
+          else if (file.kind === 'tooLarge') setError(`File too large — ${(file.size / (1024 * 1024)).toFixed(1)} MB`)
+          else setError('This binary file does not have a text preview.')
         })
         .catch((thrown: unknown) => {
           if (!cancelled) setError(thrown instanceof Error ? thrown.message : String(thrown))
