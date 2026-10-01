@@ -663,7 +663,7 @@ body {
   --hd-muted: var(--hdp-alias-bg-module-platform);
   /* Counts, times and keyboard hints use the platform palette's quiet ink,
      exposed here so product CSS never reaches into the private tier. */
-  --hd-tertiary-foreground: var(--hdp-alias-label-tertiary);
+  --hd-tertiary-foreground: var(--hdp-static-grey-750);
   --hd-muted-foreground: var(--hd-tertiary-foreground);
 
   /* A nested sheet, a loading placeholder, and the quietest legible label.
@@ -674,7 +674,7 @@ body {
   --hd-placeholder-foreground: var(--hdp-alias-label-quaternary, var(--hd-muted-foreground));
 
   /* Secondary text: present, readable, not the point of the sentence. */
-  --hd-secondary-foreground: var(--hdp-alias-label-secondary);
+  --hd-secondary-foreground: var(--hdp-static-grey-800);
 
   /* The brand, and what reads on top of it. `--hd-accent` is the same colour
      under its older name; write `--hd-primary` in new work. */
@@ -1270,6 +1270,9 @@ body {
  * prompted the measurement. That is the point of having had a token layer.
  */
 body[data-hd-dark-theme] {
+  /* Keep all three ink tiers legible and visibly distinct on dark grounds. */
+  --hd-secondary-foreground: var(--hdp-static-grey-200);
+  --hd-tertiary-foreground: var(--hdp-static-grey-300);
   --hd-sidebar-plate: var(--hdp-static-grey-850); /* desk: black → a plate above the page, the direction the column reads in */
 
   /* A lighter grey needs a longer step to read as one: the same 8% on a dark
