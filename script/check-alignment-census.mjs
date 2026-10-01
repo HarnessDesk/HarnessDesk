@@ -12,6 +12,8 @@
  *
  *   node script/check-alignment-census.mjs [--base origin/main] [--since <sha>]
  *
+ * `--since` may also come from ALIGNMENT_CENSUS_SINCE, which is how CI passes it.
+ *
  * So the table is compared with the one this branch started from: the merge
  * base with `--base`, not its tip. Against the tip, a branch that never
  * touched the census would fail the moment main fixed something, for a table
@@ -60,7 +62,7 @@ const main = () => {
   }
   const base = option('--base') ?? 'origin/main'
   // CI passes the push's `before`, so a push of several commits answers for all of them.
-  const since = option('--since')
+  const since = option('--since') ?? (process.env.ALIGNMENT_CENSUS_SINCE || undefined)
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
   const git = (...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
 
