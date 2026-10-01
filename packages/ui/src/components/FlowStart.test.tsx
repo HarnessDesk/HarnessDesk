@@ -139,10 +139,15 @@ it('renders independent-provider and held-ceiling refusal reasons for candidates
           seat: { runtime: 'claude-code', model: 'sonnet' },
           reason: { kind: 'unheld', level: 'read', detail: null }, fix: { kind: 'ceilings' },
         }),
+        candidate({
+          label: 'Cursor · Gamma', runtimeName: 'Cursor', seat: { runtime: 'cursor' },
+          reason: { kind: 'unknownProvider' }, fix: { kind: 'seats' },
+        }),
       ],
     } as SeatPlan,
   }
-  const preview: FlowPreview = { ...emptyPreview(), seats: [reviewer] }
+  const warning = 'Can’t confirm that Cursor uses a different provider from fixer, so independence is checked when this step is reached.'
+  const preview: FlowPreview = { ...emptyPreview(), seats: [reviewer], problems: [{ level: 'warning', at: 'roles.reviewer', text: warning }] }
   const theStore = store({
     entries: [ENTRY('fix')], agents: [AGENT('reviewer', 'Reviewer')],
     source: () => 'version: 2\n', preview: () => preview,
@@ -154,6 +159,8 @@ it('renders independent-provider and held-ceiling refusal reasons for candidates
 
   expect(container.textContent).toContain('Same provider as the writer')
   expect(container.textContent).toContain('cannot hold read')
+  expect(container.textContent).toContain('Can’t confirm a different provider from the writer')
+  expect(container.textContent).toContain(warning)
 })
 
 // #1053: a reading step handed an isolated step's one commit gets a worktree of its own, and the dry run says so.
