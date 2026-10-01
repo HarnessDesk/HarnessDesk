@@ -834,6 +834,25 @@ const ToolPaneBoard = () => {
             </Bar>
           </ToolPane>
         </Case>
+        <Case label="integrated tool — page failed to load">
+          <ToolPane variant="integrated" className="@container/browser h-56 w-full" data-catalog-case="tool-pane-failure">
+            <ToolPaneBar variant="address">http://127.0.0.1:9/</ToolPaneBar>
+            <ToolPaneBody bleed>
+              <EmptyState
+                title="Couldn't reach 127.0.0.1 — the connection was refused"
+                description="http://127.0.0.1:9/"
+                className="h-full justify-center py-0"
+              >
+                <Button variant="secondary" size="sm">Try again</Button>
+              </EmptyState>
+            </ToolPaneBody>
+            <Bar rule="top">
+              <Text role="meta">Page failed to load</Text>
+              <ToolbarGap />
+              <Text role="meta" className="hidden @[18rem]/browser:inline">Framed pages only — the desktop app runs a real browser</Text>
+            </Bar>
+          </ToolPane>
+        </Case>
         <Case label="bar — focused pane among several">
           <div className="flex flex-col gap-3">
             <Bar rule="bottom" active><Text role="row">Alpha · Model A</Text></Bar>
