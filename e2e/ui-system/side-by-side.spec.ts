@@ -118,6 +118,34 @@ const focusRoom = (page: Page, id: string) =>
     tile.focus()
   }, id)
 
+let keyReceiptId = 0
+const pressAndObserveKeydown = async (page: Page, chord: string, code: string) => {
+  const marker = `__hdSideBySideKeyReceipt${++keyReceiptId}`
+  await page.evaluate(({ marker, code }) => {
+    const listener = (event: KeyboardEvent) => {
+      if (event.code !== code) return
+      const registry = window as unknown as Record<string, { code: string; defaultPrevented: boolean }>
+      registry[marker] = { code: event.code, defaultPrevented: event.defaultPrevented }
+      window.removeEventListener('keydown', listener)
+    }
+    // Window bubble runs after the preview bridge and the document handlers.
+    window.addEventListener('keydown', listener)
+  }, { marker, code })
+  await page.keyboard.press(chord)
+  await expect.poll(() => page.evaluate((key) => {
+    const registry = window as unknown as Record<string, { code: string; defaultPrevented: boolean } | undefined>
+    return registry[key]?.code
+  }, marker), { timeout: 10_000 }).toBe(code)
+  const receipt = await page.evaluate((key) => {
+    const registry = window as unknown as Record<string, { code: string; defaultPrevented: boolean } | undefined>
+    const value = registry[key]
+    delete registry[key]
+    return value
+  }, marker)
+  if (!receipt) throw new Error(`No ${code} keydown receipt`)
+  return receipt
+}
+
 const returnedToGrid = (target: ReturnType<typeof grid>) => target.evaluate((node) =>
   [...node.querySelectorAll('[data-slot="side-by-side-tile"]')].every((tile) => !tile.hasAttribute('data-hidden')),
 )
@@ -137,9 +165,10 @@ test('room tiles choose columns by count and width, keep 420px, and show the nar
   expect(two).toMatchObject(expectedLayout(two.grid.width, 2))
 
   // A 1-column mutation must make the same geometry contract fail.
-  await page.addStyleTag({ content: '[data-frame-id="side-by-side-two"] [data-slot="side-by-side-tile"] { grid-column: 1 !important; }' })
+  const twoLayoutMutation = await page.addStyleTag({ content: '[data-frame-id="side-by-side-two"] [data-slot="side-by-side-tile"] { grid-column: 1 !important; }' })
   const mutatedTwo = await measure(grid(page, 'side-by-side-two'))
   expect(mutatedTwo).not.toMatchObject(expectedLayout(mutatedTwo.grid.width, 2))
+  await twoLayoutMutation.evaluate((style) => style.remove())
 
   // Three 420px tiles and two one-pixel seams: 1262px, the narrowest that holds three.
   await setWidth(page, 'side-by-side-four', 1262)
@@ -190,16 +219,18 @@ test('room tiles choose columns by count and width, keep 420px, and show the nar
   await expect(strip).toBeVisible()
   await expect(strip.getByRole('tab')).toHaveCount(3)
 
-  await page.addStyleTag({ content: '[data-frame-id="side-by-side-four"] [role="tablist"] { display: none !important; }' })
+  const hiddenStripMutation = await page.addStyleTag({ content: '[data-frame-id="side-by-side-four"] [role="tablist"] { display: none !important; }' })
   // By CSS, not by role: a role lookup cannot see an element under display: none.
   const stripVisible = await frame(page, 'side-by-side-four').locator('[role="tablist"]').evaluate((node) => getComputedStyle(node).display !== 'none')
   expect(stripVisible).toBe(false)
+  await hiddenStripMutation.evaluate((style) => style.remove())
 
   // Force four equal tracks: the shown tile widths must fall below the floor.
   await setWidth(page, 'side-by-side-four', 1262)
-  await page.addStyleTag({ content: '[data-frame-id="side-by-side-four"] [data-slot="side-by-side-tile"]:not([data-hidden]) { width: 300px !important; }' })
+  const shortTileMutation = await page.addStyleTag({ content: '[data-frame-id="side-by-side-four"] [data-slot="side-by-side-tile"]:not([data-hidden]) { width: 300px !important; }' })
   const thin = await measure(grid(page, 'side-by-side-four'))
   expect(thin.widths.every((width) => width >= 420)).toBe(false)
+  await shortTileMutation.evaluate((style) => style.remove())
 })
 
 test('expansion fills the grid, keeps hidden tiles mounted and offscreen, and Escape returns', async ({ page }) => {
@@ -213,15 +244,15 @@ test('expansion fills the grid, keeps hidden tiles mounted and offscreen, and Es
   expect(expanded).toMatchObject({ all: 4, shown: 1, hidden: 3, fills: true })
   expect(expanded.hiddenStates.every((tile) => tile.visibility === 'hidden' && tile.transform !== 'none' && tile.outside)).toBe(true)
 
-  await page.addStyleTag({ content: '[data-frame-id="side-by-side-four"] [data-slot="side-by-side-tile"][data-hidden] { transform: none !important; }' })
+  const movedMutation = await page.addStyleTag({ content: '[data-frame-id="side-by-side-four"] [data-slot="side-by-side-tile"][data-hidden] { transform: none !important; }' })
   const moved = await expandedGeometry(target)
   expect(moved.hiddenStates.every((tile) => tile.outside)).toBe(false)
-  await page.addStyleTag({ content: '[data-frame-id="side-by-side-four"] [data-slot="side-by-side-tile"][data-hidden] { transform: translateX(-101%) !important; }' })
+  await movedMutation.evaluate((style) => style.remove())
 
-  await page.addStyleTag({ content: '[data-frame-id="side-by-side-four"] [data-slot="side-by-side-tile"][data-hidden] { visibility: visible !important; }' })
+  const visibleMutation = await page.addStyleTag({ content: '[data-frame-id="side-by-side-four"] [data-slot="side-by-side-tile"][data-hidden] { visibility: visible !important; }' })
   const visibleHidden = await expandedGeometry(target)
   expect(visibleHidden.hiddenStates.every((tile) => tile.visibility === 'hidden')).toBe(false)
-  await page.addStyleTag({ content: '[data-frame-id="side-by-side-four"] [data-slot="side-by-side-tile"][data-hidden] { visibility: hidden !important; }' })
+  await visibleMutation.evaluate((style) => style.remove())
 
   const narrowed = await page.addStyleTag({ content: '[data-frame-id="side-by-side-four"] [data-slot="side-by-side-tile"]:not([data-hidden]) { width: 120px !important; }' })
   const notFilling = await expandedGeometry(target)
@@ -238,8 +269,9 @@ test('expansion fills the grid, keeps hidden tiles mounted and offscreen, and Es
       if (event.key === 'Escape') event.preventDefault()
     }, { capture: true, once: true })
   })
-  await page.keyboard.press('Escape')
-  await expect.poll(() => returnedToGrid(target), { timeout: 10_000 }).toBe(false)
+  const blockedEscape = await pressAndObserveKeydown(page, 'Escape', 'Escape')
+  expect(blockedEscape.defaultPrevented).toBe(true)
+  expect(await returnedToGrid(target)).toBe(false)
 
   // Still expanded (the Escape above was taken first): take a hidden tile away.
   await target.locator('[data-slot="side-by-side-tile"][data-hidden]').first().evaluate((tile) => tile.remove())
@@ -278,7 +310,8 @@ test('⌥⌘1–⌥⌘4 focus each tile by header; ⌥⌘↵ expands and returns
     }
     document.addEventListener('keydown', block, true)
   })
-  await page.keyboard.press('Alt+Meta+Enter')
+  const blockedExpand = await pressAndObserveKeydown(page, 'Alt+Meta+Enter', 'Enter')
+  expect(blockedExpand.defaultPrevented).toBe(true)
   await expectExpansion(target, 4)
 })
 
@@ -308,8 +341,9 @@ test('a narrow tile keeps the full nickname, and bare ⌘1 is not a grid chord',
   const alphaName = frame(page, 'side-by-side-two').locator('[data-slot="side-by-side-tile"] [data-role="row"]').first()
   const nameFits = () => alphaName.evaluate((node) => node.scrollWidth === node.clientWidth)
   expect(await nameFits()).toBe(true)
-  await page.addStyleTag({ content: '[data-frame-id="side-by-side-two"] [data-slot="side-by-side-tile"] [data-role="row"] { width: 2px !important; max-width: 2px !important; overflow: hidden !important; white-space: nowrap !important; }' })
+  const narrowNameMutation = await page.addStyleTag({ content: '[data-frame-id="side-by-side-two"] [data-slot="side-by-side-tile"] [data-role="row"] { width: 2px !important; max-width: 2px !important; overflow: hidden !important; white-space: nowrap !important; }' })
   expect(await nameFits()).toBe(false)
+  await narrowNameMutation.evaluate((style) => style.remove())
 
   await setWidth(page, 'side-by-side-two', 1200)
   await focusRoom(page, 'side-by-side-two')
@@ -317,13 +351,17 @@ test('a narrow tile keeps the full nickname, and bare ⌘1 is not a grid chord',
   await expect.poll(() => focusedIndex(target), { timeout: 10_000 }).toBe(1)
   const before = await focusedIndex(target)
   await frame(page, 'tools-browser').getByRole('textbox').first().focus()
-  await page.keyboard.press('Meta+Digit1')
+  // No grid control changes for bare Cmd+1 here, so confirm its keydown
+  // reached the window after the browser pane's handlers before checking.
+  await pressAndObserveKeydown(page, 'Meta+Digit1', 'Digit1')
   await expect.poll(() => focusedIndex(target), { timeout: 10_000 }).toBe(before)
   // And with the room focused: bare ⌘1 is the browser's tab key, never a tile key.
   // Entering a tile's composer gives that tile the keys, so the baseline is read after.
   await focusRoom(page, 'side-by-side-two')
+  await expect.poll(() => focusedIndex(target), { timeout: 10_000 }).toBe(0)
   const entered = await focusedIndex(target)
-  await page.keyboard.press('Meta+Digit1')
+  // The room receives the bare chord, but it has no grid action for it.
+  await pressAndObserveKeydown(page, 'Meta+Digit1', 'Digit1')
   await expect.poll(() => focusedIndex(target), { timeout: 10_000 }).toBe(entered)
   await page.keyboard.press('Alt+Meta+Digit2')
   await expect.poll(() => focusedIndex(target), { timeout: 10_000 }).toBe(1)
