@@ -443,7 +443,7 @@ const OptionD = () => {
 }
 
 export const LibraryOptionFrames = () => (
-  <div role="group" aria-label="Library UX options" className="mt-8 space-y-6">
+  <section aria-label="Library UX options" className="mt-8 space-y-6">
     <Text role="section" as="h2">Library — UX options</Text>
     <div className="grid grid-cols-1 gap-6">
       <OptionA />
@@ -451,5 +451,5 @@ export const LibraryOptionFrames = () => (
       <OptionC />
       <OptionD />
     </div>
-  </div>
+  </section>
 )
