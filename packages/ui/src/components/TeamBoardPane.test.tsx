@@ -140,6 +140,8 @@ const rig = (intents: readonly unknown[], extra: Partial<TeamState> = {}, eviden
     openFrontDoor: vi.fn(),
     closeFrontDoor: vi.fn(),
     flowCatalog: vi.fn().mockResolvedValue([]),
+    flowReviewCandidates: vi.fn().mockResolvedValue([]),
+    decideFlowReview: vi.fn().mockResolvedValue(undefined),
     agentsIn: vi.fn().mockResolvedValue([]),
     openGoal: vi.fn(),
   } as unknown as AppStore
@@ -827,6 +829,39 @@ it('displays the card role when the flow run is stalled (#557)', async () => {
   expect(labels).toContain('Answer approve')
 })
 
+it('a person review step offers the attempt picker instead of a direct outcome', async () => {
+  const card = intent({ id: 1, state: 'open', role: 'judge', title: 'Pick the best attempt' })
+  const { store } = rig([card])
+  const execution = {
+    id: 'flow-run-person-judge', goal: ROOM, version: 2, state: 'running', operations: [], legacyRun: null,
+    document: { format: 'agents', flow: {
+      roles: [{ id: 'judge', kind: 'person', outcomes: ['picked'] }],
+      rules: [{ id: 'to-referee', on: 'judge', when: { every: ['picked'], evidence: [{ review: 'picked' }] }, then: { role: 'referee', title: 'Merge' } }],
+    } },
+    rounds: [{ n: 1, role: 'judge', cards: [1], seats: [], evidence: [], state: 'running', cause: 'cause' }],
+  }
+  const snapshot = { ...store.getSnapshot(), flowExecutions: new Map([[execution.id, execution]]) }
+  await render({ ...store, getSnapshot: () => snapshot } as unknown as AppStore)
+  const labels = (await menuItems(1)).map((one) => one.textContent?.trim())
+  expect(labels).toContain('Pick an attempt…')
+  expect(labels).not.toContain('Answer picked')
+})
+
+it('an ordinary person step still offers its declared answer', async () => {
+  const card = intent({ id: 1, state: 'open', role: 'person' })
+  const { store } = rig([card])
+  const execution = {
+    id: 'flow-run-ordinary-person', goal: ROOM, version: 2, state: 'running', operations: [], legacyRun: null,
+    document: { format: 'agents', flow: {
+      roles: [{ id: 'person', kind: 'person', outcomes: ['approve'] }], rules: [],
+    } },
+    rounds: [{ n: 1, role: 'person', cards: [1], seats: [], evidence: [], state: 'running', cause: 'cause' }],
+  }
+  const snapshot = { ...store.getSnapshot(), flowExecutions: new Map([[execution.id, execution]]) }
+  await render({ ...store, getSnapshot: () => snapshot } as unknown as AppStore)
+  expect((await menuItems(1)).map((one) => one.textContent?.trim())).toContain('Answer approve')
+})
+
 it('a person role that declares no outcomes still lets the person finish its card (UC1 referee)', async () => {
   const cardWithRole = intent({ id: 1, state: 'open', role: 'referee' })
   const { store } = rig([cardWithRole])
@@ -903,6 +938,83 @@ const observed = (checks: readonly string[], cards: BoardEvidence['cards']): Boa
   refused: [],
   unreadable: null,
   cards,
+})
+
+it('the attempt dialog asks for both an attempt and a declared answer before recording a person review', async () => {
+  const judge = intent({ id: 1, state: 'open', role: 'judge', title: 'Pick the best attempt' })
+  const attempt = intent({ id: 2, state: 'done', role: 'competitor', title: 'Implement checkout', outcome: 'pass' })
+  const check = checkView({ card: 2 })
+  const { store, snapshot } = rig([judge, attempt], {}, observed(['verify'], [cardEvidence(2, [check])]))
+  const candidates = [{ id: 'candidate-one', card: 2, at: 'abcdef0123456789', branch: 'attempt-one', evidence: [check.record.id] }]
+  vi.mocked(store.flowReviewCandidates).mockResolvedValue(candidates)
+  vi.mocked(store.decideFlowReview).mockRejectedValue(new Error('That candidate has moved on. Ask for review candidates again.'))
+  const execution = {
+    id: 'flow-run-person-judge', goal: ROOM, version: 2, state: 'running', operations: [], legacyRun: null,
+    document: { format: 'agents', flow: {
+      roles: [{ id: 'judge', kind: 'person', outcomes: ['picked', 'rejected'] }],
+      rules: [{ id: 'to-referee', on: 'judge', when: { every: ['picked'], evidence: [{ review: 'picked' }] }, then: { role: 'referee', title: 'Merge' } }],
+    } },
+    rounds: [{ n: 1, role: 'judge', cards: [1], seats: [], evidence: [], state: 'running', cause: 'cause' }],
+  }
+  const withRun = { ...snapshot, flowExecutions: new Map([[execution.id, execution]]) }
+  await render({ ...store, getSnapshot: () => withRun } as unknown as AppStore)
+  await pick(1, 'Pick an attempt…')
+  expect(store.flowReviewCandidates).toHaveBeenCalledWith(execution.id, 1)
+  expect(document.body.textContent).toContain('Pick the best attempt')
+  expect(document.body.textContent).toContain('Choose the attempt this step answers for.')
+  expect(document.body.textContent).toContain('Implement checkout')
+  expect(document.body.textContent).toContain('attempt-one · abcdef0')
+  expect(document.body.textContent).toContain('Pass')
+  expect(document.body.textContent).not.toContain('Fail')
+  const row = document.querySelector<HTMLElement>('[role="radio"]')
+  expect(row).not.toBeNull()
+  const confirm = [...document.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Record answer')
+  expect(confirm).toBeDefined()
+  expect(confirm!.disabled).toBe(true)
+  act(() => row!.click())
+  await act(async () => {})
+  expect(confirm!.disabled).toBe(true)
+  const answer = [...document.querySelectorAll<HTMLElement>('[role="radio"]')].find((one) => one.textContent?.trim() === 'picked')
+  expect(answer).toBeDefined()
+  act(() => answer!.click())
+  await act(async () => {})
+  expect(confirm!.disabled).toBe(false)
+  await act(async () => confirm!.click())
+  expect(store.decideFlowReview).toHaveBeenCalledWith(execution.id, 1, 'candidate-one', 'picked')
+  expect(document.body.textContent).toContain('That candidate has moved on. Ask for review candidates again.')
+})
+
+it('a one-outcome person review uses its only answer without adding an answer control', async () => {
+  const judge = intent({ id: 1, state: 'open', role: 'judge', title: 'Choose a route' })
+  const attempt = intent({ id: 2, state: 'done', role: 'competitor', title: 'Implement checkout', outcome: 'pass' })
+  const { store, snapshot } = rig([judge, attempt], {}, observed([], [cardEvidence(2, [])]))
+  vi.mocked(store.flowReviewCandidates).mockResolvedValue([
+    { id: 'candidate-one', card: 2, at: 'abcdef0123456789', branch: 'attempt-one', evidence: [] },
+  ])
+  const execution = {
+    id: 'flow-run-single-person-answer', goal: ROOM, version: 2, state: 'running', operations: [], legacyRun: null,
+    document: { format: 'agents', flow: {
+      roles: [{ id: 'judge', kind: 'person', outcomes: ['picked'] }],
+      rules: [{ id: 'judge-review', on: 'judge', when: { every: ['picked'], evidence: [{ review: 'picked' }] }, then: { role: 'next', title: 'Next' } }],
+    } },
+    rounds: [{ n: 1, role: 'judge', cards: [1], seats: [], evidence: [], state: 'running', cause: 'cause' }],
+  }
+  const reviewSnapshot = { ...snapshot, flowExecutions: new Map([[execution.id, execution]]) }
+  await render({ ...store, getSnapshot: () => reviewSnapshot } as unknown as AppStore)
+  await pick(1, 'Pick an attempt…')
+  expect(document.body.textContent).toContain('Choose a route')
+  expect(document.body.textContent).toContain('Choose the attempt this step answers for.')
+  expect(document.body.textContent).not.toContain('checked revision')
+  expect(document.body.querySelector('[role="radiogroup"][aria-label="Answer"]')).toBeNull()
+  expect(document.body.querySelector('[data-slot="chip"]')).toBeNull()
+  const attemptRow = document.querySelector<HTMLElement>('[role="radio"]')
+  expect(attemptRow).not.toBeNull()
+  act(() => attemptRow!.click())
+  await act(async () => {})
+  const confirm = [...document.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Record answer')
+  expect(confirm?.disabled).toBe(false)
+  await act(async () => confirm!.click())
+  expect(store.decideFlowReview).toHaveBeenCalledWith(execution.id, 1, 'candidate-one', 'picked')
 })
 
 /**

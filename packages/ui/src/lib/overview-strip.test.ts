@@ -93,6 +93,11 @@ describe('agentCoverage', () => {
     expect(coverage.total).toBe(2)
   })
 
+  it('uses hour-known runtimes with the same distinct-runtime denominator', () => {
+    const coverage = agentCoverage({ hoursKnownFor: [CODEX] } as never, [CODEX, CLAUDE], 'hoursKnownFor')
+    expect(coverage).toEqual({ known: 1, total: 2, partial: true })
+  })
+
   it('is not partial with nothing in scope', () => {
     expect(agentCoverage(null, []).partial).toBe(false)
   })

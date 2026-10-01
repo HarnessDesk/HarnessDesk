@@ -97,6 +97,8 @@ export interface FlowSubject {
   readonly round: number
   readonly checkout: { readonly cwd: string; readonly branch: string | null }
   readonly at: string
+  /** Agent name that held the attempt, used by a person's candidate chooser. */
+  readonly holder?: string
 }
 
 /** What a finished round's rule sees: its subjects, the cards whose facts may speak for them, and those facts. */
@@ -425,6 +427,8 @@ export type ReviewAppendOutcome =
 export interface ReviewSubjectPort {
   /** Null when this scope holds no live claim a review may be recorded against. */
   bindingFor(intent: number, scope: TeamCallScope): Promise<ReviewBinding | null>
+  /** Null unless this run's open card is a person step whose next rule requires a review. */
+  personBindingFor?(run: string, card: number): Promise<ReviewBinding | null>
   /** This Goal's raw facts, each already carrying its computed freshness. */
   facts(goal: string): Promise<readonly EvidenceView[]>
   /**
@@ -439,6 +443,17 @@ export interface ReviewSubjectPort {
 
 const CANDIDATE_TTL_MS = 10 * 60_000
 
+/** Valid stable evidence identity for a person reviewer; person decisions have no runtime Seat. */
+export const PERSON_REVIEWER_ID: SeatId = '00000000-0000-4000-8000-000000000001'
+
+const candidateEvidence = (facts: readonly EvidenceView[], subject: FlowSubject, includeChecks = false): readonly string[] =>
+  facts
+    .filter((view) =>
+      view.freshness.state === 'fresh' && !view.record.restored &&
+      (view.record.card?.id === subject.card || (includeChecks && view.record.fact.kind === 'check' && view.record.fact.at === subject.at)),
+    )
+    .map((view) => view.record.id)
+
 interface HeldCandidate {
   readonly candidate: ReviewCandidate
   readonly checkout: FlowSubject['checkout']
@@ -446,6 +461,7 @@ interface HeldCandidate {
   readonly card: number
   readonly round: number
   readonly seat: SeatId
+  readonly run?: string
   readonly expires: number
 }
 
@@ -469,6 +485,7 @@ export interface FlowReviewPort {
 export class FlowReview implements FlowReviewPort {
   readonly #port: ReviewSubjectPort
   readonly #candidates = new Map<string, HeldCandidate>()
+  readonly #personCardLocks = new Map<string, Promise<void>>()
 
   constructor(port: ReviewSubjectPort) {
     this.#port = port
@@ -522,11 +539,12 @@ export class FlowReview implements FlowReviewPort {
     const facts = await this.#port.facts(bound.goal)
     const out: ReviewCandidate[] = []
     for (const subject of bound.subjects) {
-      const evidence = facts
-        .filter((view) => view.record.card?.id === subject.card && view.freshness.state === 'fresh' && !view.record.restored)
-        .map((view) => view.record.id)
+      const evidence = candidateEvidence(facts, subject)
       const id = mintId()
-      const candidate: ReviewCandidate = { id, card: subject.card, at: subject.at, branch: subject.checkout.branch, evidence }
+      const candidate: ReviewCandidate = {
+        id, card: subject.card, at: subject.at, branch: subject.checkout.branch, evidence,
+        ...(subject.holder ? { holder: subject.holder } : {}),
+      }
       this.#candidates.set(id, {
         candidate, checkout: subject.checkout, goal: bound.goal, card: intent, round: bound.round, seat: bound.seat,
         expires: this.#port.now() + CANDIDATE_TTL_MS,
@@ -534,6 +552,130 @@ export class FlowReview implements FlowReviewPort {
       out.push(candidate)
     }
     return out
+  }
+
+  /** Candidates for an open person card whose outgoing rule requires a review fact. */
+  async personCandidates(run: string, card: number): Promise<readonly ReviewCandidate[]> {
+    this.#sweep()
+    const bound = await this.#port.personBindingFor?.(run, card)
+    if (!bound) return []
+    const facts = await this.#port.facts(bound.goal)
+    const out: ReviewCandidate[] = []
+    for (const subject of bound.subjects) {
+      const evidence = candidateEvidence(facts, subject, true)
+      const id = mintId()
+      const candidate: ReviewCandidate = {
+        id, card: subject.card, at: subject.at, branch: subject.checkout.branch, evidence,
+        ...(subject.holder ? { holder: subject.holder } : {}),
+      }
+      this.#candidates.set(id, {
+        candidate, checkout: subject.checkout, goal: bound.goal, card, round: bound.round, seat: bound.seat,
+        run, expires: this.#port.now() + CANDIDATE_TTL_MS,
+      })
+      out.push(candidate)
+    }
+    return out
+  }
+
+  /** Records a person’s verdict against a currently offered predecessor and returns the durable fact. */
+  async recordPerson(run: string, card: number, candidate: string, verdict: string): Promise<EvidenceRecord> {
+    this.#sweep()
+    const held = this.#candidates.get(candidate)
+    const bound = await this.#port.personBindingFor?.(run, card)
+    const goal = bound?.goal ?? (held?.run === run && held.card === card ? held.goal : null)
+    if (!goal) throw new Error('This card is not an open person review step of this run.')
+    return this.#withPersonCardLock(goal, card, () => this.#recordPersonLocked(run, card, candidate, verdict, goal))
+  }
+
+  /** Records and answers under the same card lock, so a competing person decision cannot interleave between them. */
+  async decidePerson<T>(
+    goal: string,
+    run: string,
+    card: number,
+    candidate: string,
+    verdict: string,
+    answer: (record: EvidenceRecord) => Promise<T>,
+  ): Promise<T> {
+    this.#sweep()
+    return this.#withPersonCardLock(goal, card, async () => {
+      const record = await this.#recordPersonLocked(run, card, candidate, verdict, goal)
+      return answer(record)
+    })
+  }
+
+  async #withPersonCardLock<T>(goal: string, card: number, operation: () => Promise<T>): Promise<T> {
+    const key = `${goal}\u0000${card}`
+    const previous = this.#personCardLocks.get(key)
+    let release!: () => void
+    const current = new Promise<void>((resolve) => { release = resolve })
+    this.#personCardLocks.set(key, current)
+    if (previous) await previous
+    try {
+      return await operation()
+    } finally {
+      release()
+      if (this.#personCardLocks.get(key) === current) this.#personCardLocks.delete(key)
+    }
+  }
+
+  async #recordPersonLocked(run: string, card: number, candidate: string, verdict: string, goal: string): Promise<EvidenceRecord> {
+    const bound = await this.#port.personBindingFor?.(run, card)
+    const held = this.#candidates.get(candidate)
+    if (!bound) {
+      if (!held || held.goal !== goal || held.card !== card || held.run !== run) {
+        throw new Error('This card is not an open person review step of this run.')
+      }
+      const facts = await this.#port.facts(goal)
+      const existing = facts.find((view) =>
+        view.record.fact.kind === 'review' &&
+        view.record.fact.by === held.seat &&
+        view.record.card?.id === card &&
+        view.record.round === held.round &&
+        !view.record.restored,
+      )
+      if (existing?.record.fact.kind === 'review' && existing.record.fact.at === held.candidate.at && existing.record.fact.verdict === verdict) {
+        return existing.record
+      }
+      if (existing) throw new Error('A different verdict is already recorded for this card. Reopen it in a new round to change it.')
+      throw new Error('This card is not an open person review step of this run.')
+    }
+    if (!bound.answers.includes(verdict)) {
+      throw new Error(`"${verdict}" is not an answer this step accepts. It accepts ${bound.answers.join(', ')}.`)
+    }
+    if (!held || held.goal !== bound.goal || held.card !== card || held.run !== run || held.seat !== bound.seat) {
+      throw new Error('That candidate is no longer being offered. Ask for review candidates again.')
+    }
+    if (!bound.subjects.some((one) => one.card === held.candidate.card && one.at === held.candidate.at)) {
+      throw new Error('That candidate has moved on. Ask for review candidates again.')
+    }
+    const facts = await this.#port.facts(bound.goal)
+    const existing = facts.find((view) =>
+      view.record.fact.kind === 'review' &&
+      view.record.fact.by === bound.seat &&
+      view.record.card?.id === card &&
+      view.record.round === bound.round &&
+      !view.record.restored,
+    )
+    if (existing?.record.fact.kind === 'review') {
+      if (existing.record.fact.at === held.candidate.at && existing.record.fact.verdict === verdict) return existing.record
+      throw new Error('A different verdict is already recorded for this card. Reopen it in a new round to change it.')
+    }
+    const record: EvidenceRecord = {
+      id: mintId(),
+      fact: { kind: 'review', verdict, by: bound.seat, at: held.candidate.at },
+      card: { board: bound.goal, id: card },
+      checkout: { cwd: held.checkout.cwd, branch: held.checkout.branch },
+      seat: null,
+      round: held.round,
+      observedAt: this.#port.now(),
+      posted: null,
+    }
+    if (evidenceRecordOf(JSON.parse(JSON.stringify(record))) === null) throw new Error(UNREADABLE_REVIEW)
+    const outcome = await this.#port.append(bound.goal, record)
+    if (outcome.outcome === 'conflict') {
+      throw new Error('A different verdict is already recorded for this card. Reopen it in a new round to change it.')
+    }
+    return outcome.record
   }
 
   /**

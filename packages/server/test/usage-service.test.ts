@@ -5,6 +5,8 @@ import { runtimeId, type AgentRuntime, type RuntimeId, type SpendSummary, type U
 
 import { UsageService } from '../src/usage/service.js'
 import { MeterAuthError, type MeterReading, type UsageMeter } from '../src/usage/meter.js'
+import { FakeRuntime } from './fixtures/fake-runtime.js'
+import { LedgerStore } from '../src/ledger/store.js'
 
 /**
  * What the service does when the ledger finishes after the screen is open.
@@ -124,6 +126,62 @@ test('a source that fails keeps the last good reading, with the failure beside i
   usage.dispose()
 })
 
+test('synchronous runtime throws are isolated and do not prevent the usage report', async () => {
+  const throwing: AgentRuntime = {
+    info: { id: METERED, name: 'metered', capabilities: { metered: true }, presentation: { name: 'metered' } },
+    getRateLimits: () => { throw new Error('sync limits failure') },
+    getAccountActivity: () => { throw new Error('sync activity failure') },
+    getAccount: async () => ({ accounts: [], signInMethods: [] }),
+  } as unknown as AgentRuntime
+  const usage = new UsageService({
+    runtimes: () => [throwing],
+    meters: new Map(),
+    spend: { spendFor: () => null },
+    onReport: () => undefined,
+  })
+
+  const [report] = await usage.reports()
+  assert.equal(report?.error?.message, 'sync limits failure')
+  assert.equal(Object.hasOwn(report ?? {}, 'accountActivity'), false)
+  usage.dispose()
+})
+
+test('account activity is attached for supporting runtimes and absent for others', async () => {
+  const activity = {
+    days: [{ day: new Date(2026, 8, 29).getTime(), tokens: 123 }],
+    lifetimeTokens: 456,
+    peakDailyTokens: null,
+    currentStreakDays: 2,
+    longestStreakDays: null,
+  }
+  let activityReads = 0
+  const supporting = new FakeRuntime({
+    id: METERED,
+    name: 'metered',
+    capabilities: { metered: true },
+    accountActivity: activity,
+  })
+  const readActivity = supporting.getAccountActivity!
+  supporting.getAccountActivity = async () => { activityReads += 1; return readActivity() }
+  const legacy = new FakeRuntime({ id: SILENT, name: 'silent', capabilities: { metered: true } })
+  const activityOnly = new FakeRuntime({ id: runtimeId('activity-only'), name: 'activity-only', accountActivity: activity })
+  const readActivityOnly = activityOnly.getAccountActivity!
+  activityOnly.getAccountActivity = async () => { activityReads += 1; return readActivityOnly() }
+  const usage = new UsageService({
+    runtimes: () => [supporting, legacy, activityOnly],
+    meters: new Map(),
+    spend: { spendFor: () => null },
+    onReport: () => undefined,
+  })
+
+  const reports = await usage.reports()
+  assert.deepEqual((reports[0] as unknown as { accountActivity?: unknown }).accountActivity, activity)
+  assert.equal(Object.hasOwn(reports[1] ?? {}, 'accountActivity'), false)
+  assert.deepEqual((reports[2] as unknown as { accountActivity?: unknown }).accountActivity, activity)
+  assert.equal(activityReads, 2)
+  usage.dispose()
+})
+
 /** A meter that answers from a script, one step per read, and throws on a string. */
 const scriptedMeter = (steps: (MeterReading | string | Error | null)[]): UsageMeter => ({
   id: 'scripted',
@@ -192,6 +250,146 @@ test('a meter that has never answered but says the key itself is wrong is a card
   assert.equal(report?.error?.needsSignIn, true)
   assert.equal(report?.error?.message, 'sign in, or check the API key')
   usage.dispose()
+})
+
+const creditsReading = (
+  remaining: number | null,
+  unit: string,
+  fetchedAt: number,
+  unlimited = false,
+): MeterReading => ({
+  ...weekly(20, fetchedAt),
+  account: null,
+  credits: { remaining, unit, unlimited },
+})
+
+test('a balance report records the current reading and attaches only same-unit history with two points', async () => {
+  let now = 1_000_000
+  const recorded: unknown[][] = []
+  let overlaySawHistory = false
+  let historySince: number | undefined
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, scriptedMeter([creditsReading(8, 'USD', 1)])]]),
+    onReport: () => undefined,
+    now: () => now,
+    balances: {
+      record: (...args: [RuntimeId, string, number, number, string, number]) => { recorded.push(args) },
+      history: (_runtime, _account, since) => {
+        historySince = since
+        return [
+          { at: now - 3_000, remaining: 12, unit: 'USD' },
+          { at: now - 2_000, remaining: 9, unit: 'credits' },
+          { at: now - 1_000, remaining: 8, unit: 'USD' },
+        ]
+      },
+    },
+    overlay: async (report) => {
+      overlaySawHistory = report.balanceHistory !== undefined
+      return { ...report, plan: 'Overlay' }
+    },
+  })
+  try {
+    const [report] = await usage.refresh(METERED)
+    assert.deepEqual(recorded, [[METERED, '', 1, 8, 'USD', now]])
+    assert.equal(historySince, now - 30 * 86_400_000)
+    assert.deepEqual(report?.balanceHistory, {
+      unit: 'USD',
+      points: [{ at: now - 3_000, remaining: 12 }, { at: now - 1_000, remaining: 8 }],
+    })
+    assert.equal(overlaySawHistory, true, 'the overlay receives the report after history is attached')
+    assert.equal(report?.plan, 'Overlay')
+  } finally { usage.dispose() }
+})
+
+test('a cached balance restated more than an hour later is not recorded as a new reading', async () => {
+  const fetchedAt = Date.parse('2026-08-22T12:00:00Z')
+  let now = fetchedAt
+  let ledgerHasSpend = false
+  const store = new LedgerStore(':memory:')
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, scriptedMeter([creditsReading(8, 'USD', fetchedAt)])]]),
+    spend: { spendFor: () => ledgerHasSpend ? money(1) : null },
+    onReport: () => undefined,
+    now: () => now,
+    balances: {
+      record: (id, account, at, remaining, unit, pruneAt) => store.recordBalance(id, account, at, remaining, unit, pruneAt),
+      history: (id, account, since) => store.balanceHistory(id, account, since),
+    },
+  })
+  try {
+    const [first] = await usage.refresh(METERED)
+    assert.equal(first?.fetchedAt, fetchedAt)
+    now += 2 * 60 * 60 * 1_000
+    ledgerHasSpend = true
+    await usage.settleLedger()
+    const restated = usage.cached(METERED)
+    assert.equal(restated?.fetchedAt, fetchedAt, 'the cached figure keeps its original observation time')
+    assert.deepEqual(store.balanceHistory(METERED, '', fetchedAt).map(({ at, remaining }) => [at, remaining]), [[fetchedAt, 8]])
+  } finally {
+    usage.dispose()
+    store.close()
+  }
+})
+
+test('a balance report does not attach a single historical point', async () => {
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, scriptedMeter([creditsReading(8, 'USD', 1)])]]),
+    onReport: () => undefined,
+    now: () => 1_000,
+    balances: {
+      record: () => undefined,
+      history: () => [{ at: 500, remaining: 9, unit: 'USD' }],
+    },
+  })
+  try {
+    const [report] = await usage.refresh(METERED)
+    assert.equal(report?.balanceHistory, undefined)
+  } finally { usage.dispose() }
+})
+
+test('unlimited and unknown balances are not recorded', async () => {
+  const recorded: unknown[][] = []
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, scriptedMeter([
+      creditsReading(8, 'USD', 1, true),
+      creditsReading(null, 'USD', 2),
+    ])]]),
+    onReport: () => undefined,
+    now: () => 2_000,
+    balances: {
+      record: (...args: [RuntimeId, string, number, number, string]) => { recorded.push(args) },
+      history: () => [],
+    },
+  })
+  try {
+    await usage.refresh(METERED)
+    await usage.refresh(METERED)
+    assert.deepEqual(recorded, [])
+  } finally { usage.dispose() }
+})
+
+test('a balance history write failure is logged without breaking the report', async () => {
+  const logged: string[] = []
+  const usage = new UsageService({
+    runtimes: () => [runtime(METERED)],
+    meters: new Map([[METERED, scriptedMeter([creditsReading(8, 'USD', 1)])]]),
+    onReport: () => undefined,
+    log: (message) => logged.push(message),
+    now: () => 2_000,
+    balances: {
+      record: () => { throw new Error('database unavailable') },
+      history: () => [],
+    },
+  })
+  try {
+    const [report] = await usage.refresh(METERED)
+    assert.equal(report?.credits?.remaining, 8)
+    assert.deepEqual(logged, ['a prepaid balance could not be recorded'])
+  } finally { usage.dispose() }
 })
 
 test('a meter with a good reading that later says the key is wrong keeps the reading, with needsSignIn on the failure', async () => {

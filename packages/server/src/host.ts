@@ -1087,6 +1087,10 @@ export class Host {
           subjects: bound.subjects, unsettled: bound.unsettled,
         }
       },
+      personBindingFor: async (run, card) => {
+        const bound = await this.#flows.personReviewBinding(run, card)
+        return bound ? { ...bound, seat: bound.seat as SeatId } : null
+      },
       facts: async (goal) => {
         const state = this.#goalState(goal)
         return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
@@ -2031,6 +2035,11 @@ export class Host {
         turnsFor: (runtime, sinceMs) => this.#ledgerService.turnsFor(runtime, sinceMs),
         requestsFor: (runtime, sinceMs) => this.#ledgerService.requestsFor(runtime, sinceMs),
         valueFor: (runtime, sinceMs) => this.#ledgerService.valueFor(runtime, sinceMs),
+      },
+      balances: {
+        record: (runtime, account, at, remaining, unit, pruneAt) =>
+          this.#ledgerService.recordBalance(runtime, account, at, remaining, unit, pruneAt),
+        history: (runtime, account, since) => this.#ledgerService.balanceHistory(runtime, account, since),
       },
       onReport: (report) => this.#push({ method: 'usage/updated', params: { report } }),
       log: (message, details) => this.#logger.warn(message, details),

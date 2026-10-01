@@ -108,6 +108,133 @@ const byIdOf = (...infos: readonly RuntimeInfo[]): ReadonlyMap<RuntimeId, Runtim
   new Map(infos.map((one) => [one.id, one]))
 
 describe('PlansTable', () => {
+  it('draws account activity only on its expanded Plans row and omits null figures', () => {
+    const windows = info('activity-agent', 'Activity Agent')
+    const active = report({
+      runtime: windows.id,
+      account: 'activity@example.com',
+      billing: billing(['windows']),
+      accountActivity: {
+        days: [{ day: new Date(2026, 8, 26).getTime(), tokens: 1_234_567 }],
+        lifetimeTokens: 1_234_567_890,
+        peakDailyTokens: null,
+        currentStreakDays: 9,
+        longestStreakDays: null,
+      },
+    })
+    const activeRow = rowsFor([active])[0]!
+    mount(
+      <PlansTable
+        rows={[activeRow]}
+        byId={byIdOf(windows)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+        initialExpanded={activeRow.key}
+      />,
+    )
+
+    expect(host.textContent).toContain('All machines')
+    expect(host.textContent).toContain('1.2M tokens · 30d')
+    expect(host.textContent).toContain('9-day streak')
+    expect(host.textContent).toContain('1.2B lifetime')
+    expect(host.querySelector('[data-slot="sparkline"]')).toBeNull()
+
+    act(() => root.unmount())
+    root = createRoot(host)
+    const withoutActivity = report({ runtime: windows.id, account: 'local@example.com', billing: billing(['windows']) })
+    const localRow = rowsFor([withoutActivity])[0]!
+    mount(
+      <PlansTable
+        rows={[localRow]}
+        byId={byIdOf(windows)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+        initialExpanded={localRow.key}
+      />,
+    )
+    expect(host.querySelector('[data-slot="account-activity"]')).toBeNull()
+
+    act(() => root.unmount())
+    root = createRoot(host)
+    const partial = report({
+      runtime: windows.id,
+      account: 'partial@example.com',
+      billing: billing(['windows']),
+      accountActivity: {
+        days: [{ day: new Date(2026, 8, 26).getTime(), tokens: 25 }],
+        lifetimeTokens: null,
+        peakDailyTokens: null,
+        currentStreakDays: null,
+        longestStreakDays: null,
+      },
+    })
+    const partialRow = rowsFor([partial])[0]!
+    mount(
+      <PlansTable
+        rows={[partialRow]}
+        byId={byIdOf(windows)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+        initialExpanded={partialRow.key}
+      />,
+    )
+    expect(host.textContent).toContain('25 tokens · 30d')
+    expect(host.textContent).not.toContain('streak')
+    expect(host.textContent).not.toContain('lifetime')
+  })
+
+  it('does not show an activity band for hidden summary fields alone', () => {
+    const windows = info('activity-agent', 'Activity Agent')
+    const mountActivity = (account: string, activity: NonNullable<UsageReport['accountActivity']>) => {
+      const one = report({ runtime: windows.id, account, billing: billing(['windows']), accountActivity: activity })
+      const row = rowsFor([one])[0]!
+      mount(
+        <PlansTable
+          rows={[row]}
+          byId={byIdOf(windows)}
+          now={NOW}
+          filter="all"
+          preferenceFor={() => ({})}
+          onRefreshAccount={() => {}}
+          onStopTracking={() => {}}
+          onOpenPlanSettings={() => {}}
+          initialExpanded={row.key}
+        />,
+      )
+    }
+    const hiddenOnly = [
+      {
+        days: [], lifetimeTokens: null, peakDailyTokens: 10,
+        currentStreakDays: null, longestStreakDays: null,
+      },
+      {
+        days: [], lifetimeTokens: null, peakDailyTokens: null,
+        currentStreakDays: null, longestStreakDays: 8,
+      },
+    ] as const
+
+    hiddenOnly.forEach((activity, index) => {
+      if (index > 0) {
+        act(() => root.unmount())
+        root = createRoot(host)
+      }
+      mountActivity(`hidden-${index}@example.com`, activity)
+      expect(host.querySelector('[data-slot="account-activity"]')).toBeNull()
+    })
+  })
+
   it('expands a row on Enter and collapses it on Escape', () => {
     const codex = info('codex', 'OpenAI Codex')
     const reports = [report({ runtime: codex.id, account: 'me@example.com', lanes: [lane({ id: 'weekly', usedPercent: 40 })], billing: billing(['windows']) })]
@@ -181,7 +308,19 @@ describe('PlansTable', () => {
         lanes: [lane({ id: 'monthly', usedPercent: 62.4, unit: 'requests', used: 312, limit: 500 })],
         turns: { count: 40, unitsPerTurn: 3.2, since: NOW - 14 * DAY },
       }),
-      report({ runtime: balance.id, account: 'bal@example.com', billing: billing(['balance']), credits: { remaining: 0.88, unit: 'USD' } }),
+      report({
+        runtime: balance.id,
+        account: 'bal@example.com',
+        billing: billing(['balance']),
+        credits: { remaining: 0.88, unit: 'USD' },
+        balanceHistory: {
+          unit: 'USD',
+          points: [
+            { at: NOW - 3 * DAY, remaining: 1.1 },
+            { at: NOW - DAY, remaining: 0.95 },
+          ],
+        },
+      }),
       report({
         runtime: key.id,
         account: 'k@example.com',
@@ -218,7 +357,12 @@ describe('PlansTable', () => {
 
     act(() => rowFor('bal@example.com').click())
     expect(host.textContent ?? '').toContain('$0.88')
-    expect(host.textContent ?? '').toContain('No balance history yet.')
+    const balanceChart = document.querySelector<HTMLElement>('[data-slot="day-columns"] [role="group"][aria-label^="Balance per day"]')
+    expect(balanceChart).not.toBeNull()
+    expect(document.querySelector('svg path[stroke="var(--hd-accent)"]')).not.toBeNull()
+    act(() => balanceChart?.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true })))
+    expect(host.textContent ?? '').toContain('$0.95')
+    expect(document.querySelector('[data-slot="day-columns"] > div > div[aria-hidden="true"]')?.textContent ?? '').toContain('$')
     act(() => rowFor('bal@example.com').click())
 
     act(() => rowFor('k@example.com').click())
@@ -236,6 +380,100 @@ describe('PlansTable', () => {
     expect(freeFrame).not.toBeNull()
     expect(freeFrame?.querySelector('[data-slot="segment-meter"]')).toBeNull()
     expect(freeFrame?.querySelector('[role="progressbar"]')).toBeNull()
+  })
+
+  it('shows the next-reading message when balance history has fewer than two points', () => {
+    const balance = info('balance-agent', 'Balance Agent')
+    const onlyPoint = report({
+      runtime: balance.id,
+      account: 'bal@example.com',
+      billing: billing(['balance']),
+      credits: { remaining: 0.88, unit: 'USD' },
+      balanceHistory: { unit: 'USD', points: [{ at: NOW - DAY, remaining: 0.95 }] },
+    })
+
+    mount(
+      <PlansTable
+        rows={rowsFor([onlyPoint])}
+        byId={byIdOf(balance)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+      />,
+    )
+    act(() => rowFor('bal@example.com').click())
+    expect(host.textContent ?? '').toContain('Balance history starts with the next reading')
+    expect(document.querySelector('[data-slot="day-columns"]')).toBeNull()
+  })
+
+  it('renders a signed chart for a Balance history that crosses zero', () => {
+    const balance = info('balance-agent', 'Balance Agent')
+    const crossing = report({
+      runtime: balance.id,
+      account: 'bal@example.com',
+      billing: billing(['balance']),
+      credits: { remaining: -1, unit: 'USD' },
+      balanceHistory: {
+        unit: 'USD',
+        points: [
+          { at: NOW - 2 * DAY, remaining: 2 },
+          { at: NOW - DAY, remaining: -1 },
+        ],
+      },
+    })
+    mount(
+      <PlansTable
+        rows={rowsFor([crossing])}
+        byId={byIdOf(balance)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+      />,
+    )
+    act(() => rowFor('bal@example.com').click())
+    expect(document.querySelector('[data-zero-line]')).not.toBeNull()
+    expect(document.querySelector('svg path[stroke="var(--hd-accent)"]')?.getAttribute('d')).toContain('0.00')
+  })
+
+  it('keeps $0 on the axis for a balance that never reached it, so money left never reads as out', () => {
+    const balance = info('balance-agent', 'Balance Agent')
+    const healthy = report({
+      runtime: balance.id,
+      account: 'bal@example.com',
+      billing: billing(['balance']),
+      credits: { remaining: 5, unit: 'USD' },
+      balanceHistory: {
+        unit: 'USD',
+        points: [
+          { at: NOW - 2 * DAY, remaining: 10 },
+          { at: NOW - DAY, remaining: 5 },
+        ],
+      },
+    })
+    mount(
+      <PlansTable
+        rows={rowsFor([healthy])}
+        byId={byIdOf(balance)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+      />,
+    )
+    act(() => rowFor('bal@example.com').click())
+    const chart = document.querySelector('[data-slot="day-columns"]')
+    // The axis reads top, middle, bottom: the bottom tick is $0, not the
+    // lowest reading ($5.00), which would draw money left at the floor.
+    expect(chart?.textContent).toMatch(/^\$10\.00\$5\.00\$0\$/)
+    expect(document.querySelector('[data-zero-line]')).toBeNull()
   })
 
   // No limit is "never full, never empty" (docs/usage-dashboard.md) — Free, a

@@ -4,8 +4,8 @@ import { test } from 'node:test'
 
 import type { EvidenceRecord, EvidenceView, ReviewInput } from '@harnessdesk/protocol'
 
-import { FlowReview, type ReviewAppendOutcome, type ReviewBinding, type ReviewSubjectPort } from '../src/flow-evidence.js'
-import { factOf } from '../src/evidence/records.js'
+import { FlowReview, PERSON_REVIEWER_ID, type ReviewAppendOutcome, type ReviewBinding, type ReviewSubjectPort } from '../src/flow-evidence.js'
+import { evidenceRecordOf, factOf } from '../src/evidence/records.js'
 import type { TeamCallScope } from '../src/team.js'
 
 /*
@@ -25,6 +25,7 @@ const SHA_B = 'f'.repeat(40)
 class FakePort implements ReviewSubjectPort {
   readonly facts_ = new Map<string, EvidenceRecord[]>()
   bindings = new Map<string, ReviewBinding>()
+  personBindings = new Map<string, ReviewBinding>()
   now_ = 1
 
   key(runtime: string | undefined, sessionId: string | undefined): string {
@@ -33,6 +34,10 @@ class FakePort implements ReviewSubjectPort {
 
   async bindingFor(intent: number, scope: TeamCallScope): Promise<ReviewBinding | null> {
     return this.bindings.get(`${intent}\u0000${this.key(scope.runtime, scope.sessionId)}`) ?? null
+  }
+
+  async personBindingFor(run: string, card: number): Promise<ReviewBinding | null> {
+    return this.personBindings.get(`${run}\u0000${card}`) ?? null
   }
 
   async facts(goal: string): Promise<readonly EvidenceView[]> {
@@ -170,6 +175,59 @@ test('candidates offered for a card with no binding are empty, and recording aga
   const scope = scopeOf('alpha', 's1')
   assert.deepEqual(await review.candidates(9, scope), [])
   await assert.rejects(() => review.record({ intent: 9, candidate: 'anything', verdict: 'approve' }, scope), /do not hold this card/)
+})
+
+test('a person review records the stable person marker on a held candidate and refuses stale, unknown, and conflicting choices', async () => {
+  const port = new FakePort()
+  const binding: ReviewBinding = {
+    goal: 'goal-1', seat: PERSON_REVIEWER_ID, answers: ['picked', 'rejected'], round: 4,
+    subjects: [{ card: 7, round: 2, checkout: { cwd: '/repo/attempt', branch: 'attempt-one' }, at: SHA_A }],
+  }
+  port.personBindings.set('run-1\u00005', binding)
+  port.facts_.set('goal-1', [{
+    id: 'check-evidence', fact: { kind: 'check', name: 'verify', run: 'test -s attempt.txt', exit: 0, timedOut: false, at: SHA_A, dirty: false, tail: '' },
+    card: { board: 'goal-1', id: 7 }, observedAt: 1, posted: null,
+  }])
+  const review = new FlowReview(port)
+  const candidates = await review.personCandidates('run-1', 5)
+  assert.equal(candidates.length, 1)
+  assert.deepEqual(candidates[0], { ...candidates[0], card: 7, at: SHA_A, branch: 'attempt-one', evidence: ['check-evidence'] })
+
+  port.personBindings.set('run-2\u00005', { ...binding, goal: 'goal-2' })
+  await assert.rejects(() => review.recordPerson('run-2', 5, candidates[0]!.id, 'picked'), /no longer being offered/)
+  await assert.rejects(() => review.recordPerson('run-1', 5, 'unknown', 'picked'), /no longer being offered/)
+  await assert.rejects(() => review.recordPerson('run-1', 5, candidates[0]!.id, 'approve'), /not an answer this step accepts/)
+
+  const record = await review.recordPerson('run-1', 5, candidates[0]!.id, 'picked')
+  assert.equal(record.fact.kind, 'review')
+  if (record.fact.kind === 'review') assert.equal(record.fact.by, PERSON_REVIEWER_ID)
+  assert.equal(record.seat, null)
+  assert.ok(evidenceRecordOf(JSON.parse(JSON.stringify(record))))
+  await assert.rejects(
+    () => review.recordPerson('run-1', 5, candidates[0]!.id, 'rejected'),
+    /A different verdict is already recorded/,
+    'the compare-and-swap path reports a second conflicting verdict without another append',
+  )
+  assert.equal(port.facts_.get('goal-1')?.length, 2)
+})
+
+test('a person review candidate that moved after it was offered is refused with the agent-review wording', async () => {
+  const port = new FakePort()
+  port.personBindings.set('run-1\u00005', {
+    goal: 'goal-1', seat: PERSON_REVIEWER_ID, answers: ['picked'], round: 4,
+    subjects: [{ card: 7, round: 2, checkout: { cwd: '/repo/attempt', branch: 'attempt-one' }, at: SHA_A }],
+  })
+  const review = new FlowReview(port)
+  const [candidate] = await review.personCandidates('run-1', 5)
+  port.personBindings.set('run-1\u00005', {
+    goal: 'goal-1', seat: PERSON_REVIEWER_ID, answers: ['picked'], round: 4,
+    subjects: [{ card: 7, round: 2, checkout: { cwd: '/repo/attempt', branch: 'attempt-one' }, at: SHA_B }],
+  })
+  await assert.rejects(
+    () => review.recordPerson('run-1', 5, candidate!.id, 'picked'),
+    /That candidate has moved on\. Ask for review candidates again\./,
+  )
+  assert.equal(port.facts_.get('goal-1')?.length ?? 0, 0)
 })
 
 /*

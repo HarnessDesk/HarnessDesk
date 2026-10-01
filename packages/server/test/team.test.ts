@@ -4335,3 +4335,23 @@ test('wire rooms carry a resolved root for links without changing the saved room
   assert.equal(realRootOf(reloaded.stateFor(linked.id)), undefined)
   await reloaded.flush()
 })
+
+test('answering a done card the same way again is a quiet repeat, but a new context package still replaces the handoff', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  await team.addIntent({ title: 'Pick one' }, codex)
+
+  await team.intentAction(room, 1, 'done', undefined, 'picked', 'the first note')
+  const signals = () => team.stateFor(room).channel.filter((one) => one.kind === 'signal' && one.signal === 'completed').length
+  const once = signals()
+  assert.equal(team.stateFor(room).intents[0]?.handoff, 'the first note')
+
+  // A retry with the same answer, and no new note: nothing is said twice.
+  await team.intentAction(room, 1, 'done', undefined, 'picked')
+  assert.equal(signals(), once)
+  assert.equal(team.stateFor(room).intents[0]?.handoff, 'the first note')
+
+  // The same answer with a different note is not a repeat: the handoff is the new one.
+  await team.intentAction(room, 1, 'done', undefined, 'picked', 'a better note')
+  assert.equal(team.stateFor(room).intents[0]?.handoff, 'a better note')
+})

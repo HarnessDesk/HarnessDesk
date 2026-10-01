@@ -16,6 +16,7 @@ import {
 import {
   Button,
   Card as SurfaceCard,
+  CardContent,
   Chip,
   EmptyState,
   Segmented,
@@ -28,6 +29,8 @@ import {
   TableRow,
   Text,
 } from '../../design'
+import { formatTokens } from '../../lib/context-usage'
+import { accountActivitySummary, type AccountActivitySummary } from '../../lib/usage'
 import { RuntimeMark } from '../BrandIcons'
 import { Card } from './shared'
 import { AllowanceBody, BalanceBody, FreeBody, KeyBody } from './ShapeBodies'
@@ -314,33 +317,68 @@ const ExpandedBody = ({
   onStopTracking: () => void
   onOpenPlanSettings: () => void
 }) => {
-  switch (row.shape) {
-    case 'windows':
-      // The existing card body, reused rather than redrawn — see `Card`'s own
-      // `shapeChip`/`moneyRow` slots, added for exactly this frame.
-      return (
-        <Card
-          report={row.raw}
-          info={info}
-          preference={preference}
-          now={now}
-          onRefresh={onRefresh}
-          onStopTracking={onStopTracking}
-          shapeChip={<ShapeChip shape={row.shape} />}
-          moneyRow={<MoneyRowView money={moneyRowOf(row.report, now)} onOpenPlanSettings={onOpenPlanSettings} />}
-        />
-      )
-    case 'allowance':
-      return <AllowanceBody row={row} info={info} now={now} onRefresh={onRefresh} />
-    case 'balance':
-      return <BalanceBody row={row} info={info} now={now} onRefresh={onRefresh} />
-    case 'metered':
-      return <KeyBody row={row} info={info} now={now} onRefresh={onRefresh} onOpenPlanSettings={onOpenPlanSettings} />
-    case 'free':
-      return <FreeBody row={row} info={info} now={now} />
-    case 'none':
-      return info ? (
-        <NotReportingList entries={entriesFromReports([row.report], new Map([[row.report.runtime, info]]), onRefresh)} />
-      ) : null
-  }
+  const body = (() => {
+    switch (row.shape) {
+      case 'windows':
+        // The existing card body, reused rather than redrawn — see `Card`'s own
+        // `shapeChip`/`moneyRow` slots, added for exactly this frame.
+        return (
+          <Card
+            report={row.raw}
+            info={info}
+            preference={preference}
+            now={now}
+            onRefresh={onRefresh}
+            onStopTracking={onStopTracking}
+            shapeChip={<ShapeChip shape={row.shape} />}
+            moneyRow={<MoneyRowView money={moneyRowOf(row.report, now)} onOpenPlanSettings={onOpenPlanSettings} />}
+          />
+        )
+      case 'allowance':
+        return <AllowanceBody row={row} info={info} now={now} onRefresh={onRefresh} />
+      case 'balance':
+        return <BalanceBody row={row} info={info} now={now} onRefresh={onRefresh} />
+      case 'metered':
+        return <KeyBody row={row} info={info} now={now} onRefresh={onRefresh} onOpenPlanSettings={onOpenPlanSettings} />
+      case 'free':
+        return <FreeBody row={row} info={info} now={now} />
+      case 'none':
+        return info ? (
+          <NotReportingList entries={entriesFromReports([row.report], new Map([[row.report.runtime, info]]), onRefresh)} />
+        ) : null
+    }
+  })()
+
+  const activity = row.report.accountActivity
+  const summary = activity ? accountActivitySummary(activity, now) : null
+  return (
+    <>
+      {body}
+      {summary && <AccountActivityBand summary={summary} />}
+    </>
+  )
 }
+
+export const AccountActivityBand = ({ summary }: { summary: AccountActivitySummary }) => (
+  <SurfaceCard variant="muted" data-slot="account-activity">
+    <CardContent className="flex flex-col gap-(--hd-space-2)">
+      <Text
+        role="meta"
+        title="The account's own count across every machine; the figures above come from this machine's transcripts."
+      >
+        All machines
+      </Text>
+      <div className="flex flex-wrap items-baseline gap-x-(--hd-space-3) gap-y-(--hd-space-1-5)">
+        {summary.last30 !== null && (
+          <Text role="value" numeric>{formatTokens(summary.last30)} tokens · 30d</Text>
+        )}
+        {summary.streak !== null && (
+          <Text role="value" numeric>{summary.streak}-day streak</Text>
+        )}
+        {summary.lifetime !== null && (
+          <Text role="value" numeric>{formatTokens(summary.lifetime)} lifetime</Text>
+        )}
+      </div>
+    </CardContent>
+  </SurfaceCard>
+)

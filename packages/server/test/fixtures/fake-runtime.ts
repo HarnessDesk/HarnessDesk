@@ -6,6 +6,7 @@ import {
   sessionId,
   turnId,
   type AccountStatus,
+  type AccountActivity,
   type AgentEvent,
   type AgentRuntime,
   type AgentSession,
@@ -202,6 +203,7 @@ class FakeProcess implements RuntimeProcess {
 }
 
 export class FakeRuntime implements AgentRuntime {
+  getAccountActivity?: () => Promise<AccountActivity | null>
   readonly files = new FakeFiles()
   readonly spawned: FakeProcess[] = []
   readonly processes: RuntimeProcesses = {
@@ -277,6 +279,8 @@ export class FakeRuntime implements AgentRuntime {
       sessionStore?: string
       /** What `getAccount` calls this identity, so two accounts can be told apart. */
       accountLabel?: string
+      /** Opts this fixture into the account-wide activity runtime contract. */
+      accountActivity?: AccountActivity | null
       /**
        * Phase 12's stronger session contract. Absent by default — exactly
        * like a runtime never measured against it — so a test that wants a
@@ -309,6 +313,9 @@ export class FakeRuntime implements AgentRuntime {
     }
     this.sessionStore = identity.sessionStore ?? null
     this.accountLabel = identity.accountLabel ?? 'API key'
+    if (identity.accountActivity !== undefined) {
+      this.getAccountActivity = async () => identity.accountActivity ?? null
+    }
   }
 
   readonly sessionStore: string | null

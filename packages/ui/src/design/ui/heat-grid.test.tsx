@@ -155,4 +155,11 @@ describe('HeatLegend', () => {
       expect(element.className.length).toBeGreaterThan(0)
     }
   })
+
+  it('omits the not-scanned hatch for grids that have no unknown cells', () => {
+    mount(<HeatLegend levelTitle={(level) => `Level ${level}`} showNotScanned={false} />)
+    expect(container.querySelectorAll('[data-level]')).toHaveLength(5)
+    expect(container.querySelector('[data-state="not-scanned"]')).toBeNull()
+    expect(container.textContent).not.toContain('No record yet')
+  })
 })

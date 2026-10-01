@@ -73,6 +73,30 @@ const renderBand = async (ledger = vi.fn(async () => ledgerReport())): Promise<{
   return { ledger }
 }
 
+const groupedLedgerReport = (hourly?: LedgerReport['hourly'], hoursKnownFor: readonly RuntimeId[] = [CLAUDE]): LedgerReport => {
+  const report = ledgerReport()
+  return {
+    ...report,
+    // A runtime-grouped report has one aggregate row, while its daily entries
+    // retain runtime attribution for the heatmap.
+    rows: [{ key: 'all', label: 'All agents', runtime: null, tokens: report.totalTokens, cost: report.totalCost, hasUnpriced: false }],
+    coverage: { ...report.coverage, hoursKnownFor },
+    ...(hourly === undefined ? {} : { hourly }),
+  }
+}
+
+const renderSuppliedReport = async (report: LedgerReport): Promise<void> => {
+  const store = { subscribe: () => () => {}, getSnapshot: () => ({}), ledger: vi.fn(async () => report) } as unknown as AppStore
+  await act(async () => {
+    root.render(
+      <StoreProvider store={store}>
+        <UsageActivity byId={byId} scope={null} now={NOW} report={report} />
+      </StoreProvider>,
+    )
+    await Promise.resolve()
+  })
+}
+
 const findButton = (text: string): HTMLElement | undefined =>
   [...container.querySelectorAll('button')].find((button) => button.textContent?.trim() === text)
 
@@ -137,6 +161,46 @@ it('switches the measure from tokens to cost, changing what the facts read', asy
   await act(async () => void cost?.click())
   const after = container.textContent ?? ''
   expect(after).toContain('$')
+})
+
+it('counts hour coverage from daily runtime attribution on a runtime-grouped report', async () => {
+  await renderSuppliedReport(groupedLedgerReport([{ runtime: CLAUDE, weekday: 1, hour: 10, requests: 2, tokens: 100 }]))
+  await act(async () => void findButton('By hour')?.click())
+  expect(container.textContent).toContain('known for 1 of 2 agents')
+})
+
+it('keeps hourly figures unknown when hourly is absent, but shows a quiet year for an empty hourly array', async () => {
+  await renderBand()
+  await act(async () => void findButton('By hour')?.click())
+  expect(container.querySelector('[data-role="metric"]')?.textContent).toBe('—')
+  expect(container.textContent).toContain('No hours recorded yet')
+  expect(container.querySelector('[role="group"]')).toBeNull()
+
+  await renderSuppliedReport(groupedLedgerReport([], [CLAUDE, CODEX]))
+  await act(async () => void findButton('By hour')?.click())
+  expect(container.querySelector('[data-role="metric"]')?.textContent).toBe('0')
+  expect(container.textContent).not.toContain('No hours recorded yet')
+  expect(container.querySelector('[role="group"]')).not.toBeNull()
+})
+
+it('keeps day and hour measures independently when switching views', async () => {
+  await renderSuppliedReport(groupedLedgerReport([{ runtime: CLAUDE, weekday: 1, hour: 10, requests: 2, tokens: 100 }]))
+  await act(async () => void findButton('Cost')?.click())
+  await act(async () => void findButton('By hour')?.click())
+  expect(container.textContent).toContain('tokens this year')
+  await act(async () => void findButton('Calls')?.click())
+  expect(container.textContent).toContain('calls this year')
+  await act(async () => void findButton('Year')?.click())
+  expect(container.textContent).toContain('$')
+  await act(async () => void findButton('By hour')?.click())
+  expect(container.textContent).toContain('calls this year')
+})
+
+it('does not show the not-recorded swatch in the hour view', async () => {
+  await renderBand()
+  expect(container.textContent).toContain('No record yet')
+  await act(async () => void findButton('By hour')?.click())
+  expect(container.textContent).not.toContain('No record yet')
 })
 
 it("reads a scope no day can be priced for as \"unpriced\", never \"$0\" (#990 item 6)", async () => {

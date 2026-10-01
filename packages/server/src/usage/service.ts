@@ -3,6 +3,7 @@ import { watch, type FSWatcher } from 'node:fs'
 import {
   bindingLane,
   type AgentRuntime,
+  type AccountActivity,
   type RateLimits,
   type RuntimeId,
   type SpendSummary,
@@ -15,6 +16,7 @@ import {
 import { MeterAuthError, type MeterReading, type UsageMeter } from './meter.js'
 
 const DAY_MS = 86_400_000
+const DEFAULT_BALANCE_HISTORY_DAYS = 30
 /** "The current billing cycle when the report knows one, else the last 14 days" — "Turns", `docs/usage-dashboard.md`. */
 const FALLBACK_TURNS_WINDOW_DAYS = 14
 /** `UsageReport.turns.unitsPerTurn` needs this many turns in the window before it says a rate; fewer reports the count with a null rate. */
@@ -55,6 +57,11 @@ export interface UsageServiceOptions {
   /** Meters bound to a runtime id by the registry, or inferred at bootstrap. */
   readonly meters: ReadonlyMap<RuntimeId, UsageMeter>
   readonly spend?: SpendSource | null
+  /** The host's own persisted balance readings, scoped to one account. */
+  readonly balances?: {
+    record(runtime: RuntimeId, account: string, at: number, remaining: number, unit: string, pruneAt: number): void
+    history(runtime: RuntimeId, account: string, since: number): readonly { readonly at: number; readonly remaining: number; readonly unit: string }[]
+  }
   /** Called for each report as it lands, so a slow source never delays a fast one. */
   readonly onReport: (report: UsageReport) => void
   readonly log?: (message: string, details?: Record<string, unknown>) => void
@@ -173,7 +180,38 @@ export class UsageService {
    * never skipped on one path while another remembers it.
    */
   async #finish(id: RuntimeId, report: UsageReport): Promise<UsageReport> {
-    const overlaid = this.#options.overlay ? await this.#options.overlay(report) : report
+    let complete = report
+    const balances = this.#options.balances
+    if (balances) {
+      const { balanceHistory: _previousHistory, ...withoutHistory } = report
+      complete = withoutHistory
+      const credits = report.credits
+      if (credits && typeof credits.remaining === 'number' && Number.isFinite(credits.remaining) && !credits.unlimited) {
+        const now = this.#now()
+        const account = report.account ?? ''
+        try {
+          balances.record(id, account, report.fetchedAt, credits.remaining, credits.unit, now)
+        } catch (error) {
+          this.#options.log?.('a prepaid balance could not be recorded', {
+            runtime: id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+        try {
+          const since = now - DEFAULT_BALANCE_HISTORY_DAYS * DAY_MS
+          const points = balances.history(id, account, since)
+            .filter((point) => point.unit === credits.unit && point.at >= since)
+            .map(({ at: pointAt, remaining }) => ({ at: pointAt, remaining }))
+          if (points.length >= 2) complete = { ...complete, balanceHistory: { unit: credits.unit, points } }
+        } catch (error) {
+          this.#options.log?.('prepaid balance history could not be read', {
+            runtime: id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+    }
+    const overlaid = this.#options.overlay ? await this.#options.overlay(complete) : complete
     this.#cache.set(id, overlaid)
     if (!this.#disposed) this.#options.onReport(overlaid)
     return overlaid
@@ -239,13 +277,27 @@ export class UsageService {
     let error: UsageReport['error'] = null
     let unverified: UnverifiedUsage | null = null
     let billing: UsageBilling | undefined
+    let accountActivity: AccountActivity | undefined
     // Another sign-in's source failing, kept apart from the agent's own error.
     let unverifiedFailure: string | null = null
 
     // The runtime first: it is the only source that can be live.
-    if (runtime.info.capabilities.metered) {
-      try {
-        const limits = await runtime.getRateLimits()
+    if (runtime.info.capabilities.metered || runtime.getAccountActivity) {
+      const [limitsResult, activityResult] = await Promise.all([
+        runtime.info.capabilities.metered
+          ? Promise.resolve().then(() => runtime.getRateLimits())
+            .then((limits) => ({ limits }), (cause: unknown) => ({ error: cause }))
+          : Promise.resolve({ limits: null as RateLimits | null }),
+        runtime.getAccountActivity
+          ? Promise.resolve().then(() => runtime.getAccountActivity!())
+            .then((activity) => ({ activity }), () => ({ activity: null }))
+          : Promise.resolve({ activity: null }),
+      ])
+      if ('error' in limitsResult) {
+        const cause = limitsResult.error
+        error = { message: cause instanceof Error ? cause.message : String(cause) }
+      } else {
+        const limits = limitsResult.limits
         if (limits) {
           lanes = lanesFrom(limits)
           plan = limits.planType ?? null
@@ -256,9 +308,8 @@ export class UsageService {
           if (limits.source) source = limits.source
           if (limits.billing) billing = limits.billing
         }
-      } catch (cause) {
-        error = { message: cause instanceof Error ? cause.message : String(cause) }
       }
+      accountActivity = activityResult.activity ?? undefined
     }
 
     // A meter fills in for a runtime that cannot answer; it never overwrites
@@ -335,7 +386,7 @@ export class UsageService {
       return this.#finish(id, kept)
     }
 
-    if (lanes.length === 0 && !credits && !spend && !error && !unverified) {
+    if (lanes.length === 0 && !credits && !spend && !error && !unverified && !accountActivity) {
       // Nothing to say about this agent. A card with no content is worse than
       // no card, and the screen names the roster from the runtimes anyway. A
       // balance counts as something: pay-as-you-go has no window to run out
@@ -367,6 +418,7 @@ export class UsageService {
       ...(unverified ? { unverified } : {}),
       ...(billing ? { billing } : {}),
       ...(turns ? { turns } : {}),
+      ...(accountActivity ? { accountActivity } : {}),
     }
     return this.#finish(id, report)
   }

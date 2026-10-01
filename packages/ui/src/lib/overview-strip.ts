@@ -99,7 +99,7 @@ export const ledgerRuntimeIds = (ledger: LedgerReport | null | undefined): reado
 
 /**
  * "Known for N of M agents" — how many of the distinct runtimes actually in
- * scope are ones `SpendCoverage.turnsKnownFor` names. `runtimes` should be
+ * scope are ones the requested coverage field names. `runtimes` should be
  * `ledgerRuntimeIds(ledger)` — the runtimes this window has rows for — not
  * every account in scope, so an account with nothing recorded this window
  * is neither known nor unknown; it just is not counted.
@@ -107,9 +107,10 @@ export const ledgerRuntimeIds = (ledger: LedgerReport | null | undefined): reado
 export const agentCoverage = (
   coverage: LedgerReport['coverage'] | null | undefined,
   runtimes: readonly RuntimeId[],
+  knownFor: 'turnsKnownFor' | 'hoursKnownFor' = 'turnsKnownFor',
 ): AgentCoverage => {
   const distinct = [...new Set(runtimes)]
-  const knownSet = new Set(coverage?.turnsKnownFor ?? [])
+  const knownSet = new Set(coverage?.[knownFor] ?? [])
   const known = distinct.filter((runtime) => knownSet.has(runtime)).length
   return { known, total: distinct.length, partial: distinct.length > 0 && known < distinct.length }
 }
