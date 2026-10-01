@@ -95,6 +95,16 @@ it('a row button and a row choice carry no utility that ties with the row box', 
   }
 })
 
+it('gives marked rows and marked row buttons the same stable mark slot', () => {
+  const markup = renderToStaticMarkup(
+    <Rows>
+      <Row mark={<i />} title="Marked row" />
+      <RowButton mark={<i />} title="Marked button row" onClick={() => {}} />
+    </Rows>,
+  )
+  expect(markup.match(/data-slot="row-mark"/g)).toHaveLength(2)
+})
+
 it('the pattern size brings the behaviour and the variant, and none of the box', () => {
   // The guard on the guard: the sheet says the box and the ink, so a tie on
   // any of them would be found.

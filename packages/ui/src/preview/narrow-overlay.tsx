@@ -5,6 +5,8 @@ import { Workbench } from '../panels/Workbench'
 import '../panels/builtins'
 import { StoreProvider } from '../state/context'
 import { dock, emptyWorkbench } from '../state/workbench'
+import { BLANK } from '../state/layout'
+import { runtimeId } from '@harnessdesk/protocol'
 import { AppWindowMode } from '../components/AppWindow'
 import { PREVIEW_SESSION_KEY, previewStore } from './harness'
 import '../styles/app.css'
@@ -19,7 +21,20 @@ const main = {
   focused: paneId,
   expanded: null,
 }
-const workbench = { ...dock(emptyWorkbench(), 'right', { kind: 'trajectory' }), main }
+const requestedView = new URLSearchParams(location.search).get('view') ?? 'trajectory'
+const projectRoot = '/work/project'
+const views = {
+  trajectory: { kind: 'trajectory' },
+  git: { kind: 'git', root: projectRoot },
+  terminal: { kind: 'terminal', terminalId: 'preview-terminal', runtime: runtimeId('codex'), cwd: projectRoot },
+  browser: { kind: 'browser', tabs: [{ id: 'preview-browser', url: BLANK }], active: 'preview-browser', driven: 'preview-browser' },
+  file: { kind: 'file', path: `${projectRoot}/README.md`, runtime: runtimeId('codex') },
+  changes: { kind: 'changes' },
+  agents: { kind: 'agents' },
+  tasks: { kind: 'tasks' },
+} as const
+const panelView = views[requestedView as keyof typeof views] ?? views.trajectory
+const workbench = { ...dock(emptyWorkbench(), 'right', panelView as never), main }
 const usage = previewStore().getSnapshot().usage.map((report) =>
   report.source.kind === 'file'
     ? {

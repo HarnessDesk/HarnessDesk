@@ -5,7 +5,20 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { errnoOf } from '../src/errno.js'
-import { LocalFiles } from '../src/workspace.js'
+import { isBinaryFile, isMissingWorkspaceFileError, LocalFiles } from '../src/workspace.js'
+
+test('UTF-8 source stays text while invalid UTF-8 and NUL bytes are binary', () => {
+  assert.equal(isBinaryFile(Buffer.from('const привет = "ok";\n')), false)
+  assert.equal(isBinaryFile(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff])), true)
+  assert.equal(isBinaryFile(Buffer.from('text\0with nul')), true)
+})
+
+test('missing reads use explicit host and Codex app-server error shapes', () => {
+  assert.equal(isMissingWorkspaceFileError(Object.assign(new Error('missing'), { code: 'ENOENT' })), true)
+  assert.equal(isMissingWorkspaceFileError({ rpcCode: -32600, message: 'No such file or directory (os error 2)' }), true)
+  assert.equal(isMissingWorkspaceFileError({ rpcCode: -32600, message: 'Invalid request' }), false)
+  assert.equal(isMissingWorkspaceFileError(Object.assign(new Error('Permission denied'), { code: 'EACCES' })), false)
+})
 
 /**
  * #77: `stat` follows links, so `isSymlink` was false for every link, and a
@@ -30,6 +43,17 @@ test("a link says it is one, and its kind is its target's", { skip: process.plat
   assert.deepEqual(await described('to-folder'), { kind: 'directory', isSymlink: true })
   assert.deepEqual(await described('to-file'), { kind: 'file', isSymlink: true })
   assert.deepEqual(await described('dangling'), { kind: 'other', isSymlink: true })
+})
+
+test('LocalFiles reads at most the requested byte bound and reports file size from stat', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-local-files-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const path = join(dir, 'bounded.txt')
+  await writeFile(path, Buffer.alloc(4096, 0x61))
+  const files = new LocalFiles()
+
+  assert.equal((await files.stat(path)).size, 4096)
+  assert.equal((await files.read(path, 128)).byteLength, 128)
 })
 
 /*
