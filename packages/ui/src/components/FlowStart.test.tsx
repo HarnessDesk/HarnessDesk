@@ -164,6 +164,8 @@ it('renders provider warnings, held-ceiling refusals, and additional provider re
 
   expect(container.textContent).toContain('Same provider as the writer')
   expect(container.textContent).toContain('cannot hold read')
+  // Delta's alsoPassed reason renders beside its primary one; Alpha's alone would not prove it.
+  expect(container.textContent).toMatch(/only asked — Same provider as the writer/)
   expect(container.textContent).not.toContain('Can’t confirm a different provider from the writer')
   expect(container.textContent).toContain('Picked')
   expect(container.textContent).toContain(warning)
