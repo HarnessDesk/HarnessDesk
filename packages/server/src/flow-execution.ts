@@ -42,6 +42,7 @@ import {
 } from './flow-evidence.js'
 import { decideLoop, QUESTION_STOP } from './findings/rounds.js'
 import { handedCheckout, writes } from './flow-handed.js'
+import { INDEPENDENT_PROVIDER, independentProviderReason } from './flow-provider.js'
 import { mayCommit, resolveCheckGuard, reviewsIn } from './flow-policy.js'
 import type { FindingJournal, FindingJournalEntry } from './findings/journal.js'
 import type { PublicationEntry, PublicationJournal, StoredPublication } from './findings/publication.js'
@@ -522,7 +523,7 @@ export interface FlowClosure {
   readonly cards: readonly number[]
 }
 
-export const INDEPENDENT = 'This step needs an independent provider. Choose a seat from another provider.'
+export const INDEPENDENT = INDEPENDENT_PROVIDER
 export const BRIEF_CHANGED = 'The Agent brief changed. Start a new run to use it.'
 /** How many `run_check` runs one card may ask for in one turn, and in all (#1082). */
 export const RUN_CHECK_PER_TURN = 3
@@ -3081,7 +3082,7 @@ export class FlowExecutions {
         if (!known.has(null)) {
           for (const seat of offered) {
             const provider = await this.#port.providerOf(seat.runtime, board.cwd ?? board.root)
-            if (provider !== null && !known.has(provider)) kept.push(seat)
+            if (!independentProviderReason(provider, known)) kept.push(seat)
           }
         }
         candidates = kept
@@ -3115,7 +3116,7 @@ export class FlowExecutions {
       if (record.briefDigest !== binding.digest) return fail(BRIEF_CHANGED)
       if (writers) {
         const actual = await this.#port.providerOf(record.session.runtime, record.checkout.cwd)
-        if (actual === null || writers.has(actual)) return fail(INDEPENDENT)
+        if (independentProviderReason(actual, writers)) return fail(INDEPENDENT)
       }
       if (isolate || base !== null) {
         const lane = this.#port.laneOf(record)
