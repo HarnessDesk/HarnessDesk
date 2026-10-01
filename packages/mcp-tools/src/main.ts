@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { connect, type Socket } from 'node:net'
-import { createInterface } from 'node:readline'
+import { createInterface, type Interface } from 'node:readline'
 
 import { buildToolIndex, toMcpContent, type GatewayResult, type GatewayTool } from './content.js'
+import { orphanedAtStart } from './lifecycle.js'
 
 /**
  * HarnessDesk's plugin tools as a stdio MCP server.
@@ -47,6 +48,8 @@ const AGENT = process.env['HD_TOOLS_AGENT']
 const PARENT_PID = process.ppid
 let shuttingDown = false
 let inFlight = 0
+/** Closed on shutdown, so a parent-watch exit stops taking new lines from a stdin something else still holds. */
+let lines: Interface | null = null
 
 const finishShutdown = (): void => {
   if (!shuttingDown || inFlight !== 0) return
@@ -57,6 +60,7 @@ const finishShutdown = (): void => {
 const shutdown = (): void => {
   if (shuttingDown) return
   shuttingDown = true
+  lines?.close()
   socket?.destroy()
   socket = null
   setTimeout(() => process.exit(0), 1_000)
@@ -280,10 +284,10 @@ const handleLine = async (line: string): Promise<void> => {
     if (id !== undefined) fail(id, -32603, error instanceof Error ? error.message : String(error))
   }
 }
-createInterface({ input: process.stdin })
+lines = createInterface({ input: process.stdin })
   .on('close', shutdown)
   .on('line', (line) => {
-    if (line.trim() === '') return
+    if (shuttingDown || line.trim() === '') return
     inFlight += 1
     void handleLine(line).finally(() => {
       inFlight -= 1
@@ -291,8 +295,5 @@ createInterface({ input: process.stdin })
     })
   })
 
-// Already a child of launchd or init at start: the agent died between
-// spawning this bridge and the line above that recorded its parent, so the
-// watch would compare against pid 1 forever (and `kill(1, 0)` answers EPERM,
-// not ESRCH). Nobody can be speaking to a stdio server in that state.
-if (PARENT_PID === 1) shutdown()
+// Orphaned before it could record its parent: see `orphanedAtStart`.
+if (orphanedAtStart(PARENT_PID, process.platform)) shutdown()

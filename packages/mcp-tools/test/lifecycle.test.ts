@@ -9,9 +9,11 @@ import { createInterface, type Interface } from 'node:readline'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import { orphanedAtStart } from '../src/lifecycle.js'
+
 const MAIN = fileURLToPath(new URL('../src/main.js', import.meta.url))
 
-const listenForGateway = async (): Promise<{ server: Server; path: string }> => {
+const listenForGateway = async (options: { readonly hold?: Promise<void>; readonly asked?: () => void } = {}): Promise<{ server: Server; path: string }> => {
   const path = join(tmpdir(), `hdt-${randomUUID().slice(0, 8)}.sock`)
   if (existsSync(path)) unlinkSync(path)
   const server = createServer((socket) => {
@@ -25,7 +27,10 @@ const listenForGateway = async (): Promise<{ server: Server; path: string }> => 
         buffer = buffer.slice(newline + 1)
         const request = JSON.parse(line) as { id: number; method: string }
         if (request.method === 'server/info') {
-          socket.write(`${JSON.stringify({ id: request.id, result: { instructions: 'ready' } })}\n`)
+          options.asked?.()
+          void (options.hold ?? Promise.resolve()).then(() => {
+            if (!socket.destroyed) socket.write(`${JSON.stringify({ id: request.id, result: { instructions: 'ready' } })}\n`)
+          })
         }
       }
     })
@@ -81,16 +86,20 @@ const waitForGone = async (pid: number, timeoutMs = 4_000): Promise<void> => {
   assert.fail(`Process ${pid} still exists after ${timeoutMs}ms`)
 }
 
-test('stdin EOF exits successfully after the in-flight reply is written', async () => {
-  const { server, path } = await listenForGateway()
+test('stdin EOF writes the reply still in flight, then exits successfully', async () => {
+  let asked!: () => void
+  const askedGateway = new Promise<void>((resolve) => { asked = resolve })
+  // The gateway never answers on its own: the reply can only come from the drain on EOF.
+  const { server, path } = await listenForGateway({ hold: new Promise<void>(() => {}), asked })
   const proc = spawnMain(path)
   const rl = createInterface({ input: proc.stdout! })
   try {
     proc.stdin!.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })}\n`)
+    await askedGateway
+    proc.stdin!.end()
     const response = JSON.parse(await readLine(rl)) as { id: number; result?: { serverInfo?: { name?: string } } }
     assert.equal(response.id, 1)
     assert.equal(response.result?.serverInfo?.name, 'harnessdesk')
-    proc.stdin!.end()
     assert.equal(await waitForExit(proc), 0)
   } finally {
     proc.kill()
@@ -118,14 +127,19 @@ test('parent death exits the server even when another process keeps stdin open',
   const { server, path } = await listenForGateway()
   const parentSource = `
     const { spawn } = require('node:child_process');
+    const { createInterface } = require('node:readline');
     const child = spawn(process.execPath, [${JSON.stringify(MAIN)}], {
       env: { ...process.env, HD_TOOLS_SOCKET: ${JSON.stringify(path)} },
-      stdio: ['pipe', 'ignore', 'ignore'],
+      stdio: ['pipe', 'pipe', 'ignore'],
     });
-    const keeper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
-      stdio: [child.stdin, 'ignore', 'ignore'],
+    // Handshake first: a bridge that answered has recorded this process as its parent.
+    child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }) + '\\n');
+    createInterface({ input: child.stdout }).once('line', () => {
+      const keeper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+        stdio: [child.stdin, 'ignore', 'ignore'],
+      });
+      process.stdout.write(JSON.stringify({ child: child.pid, keeper: keeper.pid }) + '\\n');
     });
-    process.stdout.write(JSON.stringify({ child: child.pid, keeper: keeper.pid }) + '\\n');
     setInterval(() => {}, 1000);
   `
   const parent = spawn(process.execPath, ['-e', parentSource], { stdio: ['ignore', 'pipe', 'ignore'] })
@@ -150,4 +164,10 @@ test('parent death exits the server even when another process keeps stdin open',
     server.close()
     if (existsSync(path)) unlinkSync(path)
   }
+})
+
+test('only macOS reads pid 1 at start as orphaned: on Linux an agent CLI can itself be pid 1', () => {
+  assert.equal(orphanedAtStart(1, 'darwin'), true)
+  assert.equal(orphanedAtStart(4242, 'darwin'), false)
+  assert.equal(orphanedAtStart(1, 'linux'), false)
 })
