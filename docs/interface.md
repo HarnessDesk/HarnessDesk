@@ -136,6 +136,15 @@ still a thing you do; *fill the window* takes that too. Pressing the same
 scope again hands the room back. Nothing is unmounted while it is out of
 sight — a diff mid-read, a shell's screen and a page's history all survive.
 
+The **sidebar gives way first** when the window cannot fit its column, a
+400px reading column and the drawn right panel at its committed width. The
+sidebar floats through the same button, ⌘B and palette path as in a narrow
+window. The right panel then covers the main area only when fewer than 400px
+would remain beside it. At 720px with a 280px panel, the sidebar is away and
+the conversation keeps 440px beside the panel; at 700px it keeps 420px, and
+below 680px the panel covers it. Dragging the right seam also preserves 400px
+for main while the sidebar column stands. Zoom still takes its existing area.
+
 Collapsing keeps the views and shows the tab strip, which is the way back. The
 right panel is the exception: a column has no resting state as a horizontal
 strip, so putting it away hides it, and the control that opened it is the way
@@ -710,15 +719,14 @@ up with ten sizes.
 
 ## Windows that are not wide
 
-The desktop window stops at 720px, and at its ordinary zoom every width it can
-take keeps the layout above. A browser goes narrower — a phone, a tab dragged
-thin — and so does the desktop app zoomed in, whose window is measured in CSS
-pixels. Below that line (`NARROW_WINDOW` in `state/workbench.ts`) a 240px
-column left the conversation 135px, so a narrow window stops standing things
-beside the conversation and lays them over it instead:
+The desktop window stops at 720px, but its layout responds to the columns that
+are actually standing. A browser goes narrower — a phone, a tab dragged thin
+— and so does the desktop app zoomed in, whose window is measured in CSS
+pixels. A 400px reading column is protected in this order:
 
-- **The sidebar floats.** It leaves the row and the conversation takes the
-  whole width. The header's sidebar button, ⌘B and the palette open it over
+- **The sidebar floats first.** It leaves its column when the window is below
+  `NARROW_WINDOW` (720px), or when sidebar + drawn right panel + 400px would
+  not fit. The header's sidebar button, ⌘B and the palette open it over
   the conversation, which dims — with the notices floating over it — and
   cannot be reached until it goes. A menu the conversation had open closes as
   it opens, as one does for a dialog, and its own menus go with it when it
@@ -731,9 +739,11 @@ beside the conversation and lays them over it instead:
   column comes back as it was left: put away in a wide window, it is still
   put away when the window is wide again. Open, it clears the macOS window
   buttons as the row under it does.
-- **A panel on the right takes the conversation's width** while it is open,
-  with no seam to drag, and the conversation beneath it is out of reach as it
-  is under the floating sidebar. Putting it away gives the conversation back.
+- **The right panel takes the conversation's width second.** With the sidebar
+  away, it covers main only if less than 400px would remain beside it. At
+  700px with a 280px panel, main and panel stand side by side with 420px for
+  reading. When the panel covers main, that conversation is out of reach as it
+  is under the floating sidebar; putting the panel away gives it back.
 - **A header folds by its own width, not the window's**, so a narrow pane in
   a wide window folds the same way. At 520px the branch's name, the status's
   word and the tasks chip's words fold to their marks — still read out, and
@@ -751,8 +761,9 @@ beside the conversation and lays them over it instead:
 - A banner's actions take a line of their own under its words, and an
   approval's answers wrap onto as many lines as the card needs.
 
-The reading column never collapses, and nothing is unmounted on the way: the
-floating sidebar is the same sidebar, and a panel over the conversation leaves
+The reading column never falls below 400px while the sidebar and panel stand
+beside it, and nothing is unmounted on the way: the floating sidebar is the
+same sidebar, and a panel over the conversation leaves
 it exactly where it was.
 
 ## Provenance

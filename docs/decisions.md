@@ -341,6 +341,38 @@ chosen rather than defaulted:
 **The rule:** a window too narrow for a column covers the conversation rather
 than squeezing it, and only when asked.
 
+## The reading column is protected: the sidebar gives way first
+
+*Scope: the same renderer; this amends the entry above.* A window wider than
+720px could still squeeze the conversation: at 720px, a 240px sidebar and a
+280px right panel left it 198px, two words a line. Measured beside two
+reference apps, one keeps its sidebar and hides its side panel, the other puts
+its sidebar away and keeps the pane — and neither protects the reading width.
+
+So the window keeps a 400px reading column (`MIN_READING`), and things give way
+in a fixed order:
+
+- **The sidebar goes first.** It loses its column below 720px, as before, and
+  also whenever its width, a drawn right panel and 400px do not fit. It then
+  takes exactly the floating form the entry above describes — the same state,
+  the same Escape, the same way back — so there is one narrow sidebar, not two.
+  The sidebar's own width counts even while its column is put away, so the
+  line does not move when it is toggled.
+- **The panel goes second.** It covers the conversation only once fewer than
+  400px would be left beside it, no longer merely because the window is under
+  720px: at 700px a 280px panel and a 420px conversation stand side by side.
+- **A seam cannot undo it.** While two columns stand, the right seam stops
+  where the conversation would drop under 400px.
+
+Every predicate reads committed sizes, never a drag in progress, so a line is
+not crossed under the pointer. At 920px, 240 + 280 + 400 fit exactly; at
+900px the sidebar floats and the conversation keeps 620px beside the panel; at
+680px the panel covers it.
+
+**The rule:** navigation gives way before the thing being consulted, and the
+thing being consulted before the work; the work never stands beside anything
+narrower than 400px.
+
 ## Capabilities are negotiated, not normalised
 
 `RuntimeCapabilities` is a flat set of booleans an adapter declares about

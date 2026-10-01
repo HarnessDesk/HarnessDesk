@@ -556,14 +556,17 @@ export interface AppSnapshot {
   readonly draftPlace: DraftPlace | null
   /** The sidebar's column is put away — a wide window's choice. See `sidebarPlacement`. */
   readonly sidebarCollapsed: boolean
+  /** The window's width in CSS pixels, known before the first frame and once per resize frame. */
+  readonly windowWidth: number
   /**
-   * The window is narrower than `NARROW_WINDOW`, too narrow to give the
-   * sidebar a column. A fact about the window rather than a choice, kept here
-   * because `toggleSidebar` has to know which of the two sidebar states it is
-   * flipping.
+   * The sidebar cannot have a column — a window under `NARROW_WINDOW`, or one
+   * too narrow for it, a drawn right panel and `MIN_READING` (see
+   * `sidebarCannotHaveColumn`). A fact derived from the window and the
+   * workbench rather than a choice, kept here because `toggleSidebar` has to
+   * know which of the two sidebar states it is flipping.
    */
   readonly narrowWindow: boolean
-  /** In a narrow window, the sidebar is open over the conversation. */
+  /** While the sidebar has no column, it is open over the conversation. */
   readonly sidebarFloating: boolean
   readonly theme: 'light' | 'dark' | 'system'
   /**
@@ -864,6 +867,7 @@ const EMPTY: AppSnapshot = {
   draftHandoff: null,
   draftPlace: null,
   sidebarCollapsed: false,
+  windowWidth: 1440,
   narrowWindow: false,
   sidebarFloating: false,
   theme: 'system',

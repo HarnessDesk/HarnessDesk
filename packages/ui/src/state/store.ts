@@ -202,8 +202,8 @@ import {
 } from './layout'
 import {
   DOCKS,
-  NARROW_WINDOW,
   areaVisible,
+  sidebarCannotHaveColumn,
   sidebarPlacement,
   activate as activateIn,
   activeTerminal,
@@ -6167,29 +6167,38 @@ export class AppStore {
   }
 
   /**
-   * The window crossed `NARROW_WINDOW`. Either way a floating sidebar is put
-   * away: narrowing a window is not a request to cover the conversation, and
+   * The window's width changed. `#patch` derives `narrowWindow` from it and the
+   * workbench, and puts a floating sidebar away whenever that line is crossed:
+   * narrowing a window is not a request to cover the conversation, and
    * widening one gives back the column as it was left.
    */
-  setNarrowWindow(narrow: boolean): void {
-    if (narrow === this.#snapshot.narrowWindow) return
-    this.#patch({ narrowWindow: narrow, sidebarFloating: false })
+  setWindowWidth(width: number): void {
+    if (width === this.#snapshot.windowWidth) return
+    this.#patch({ windowWidth: width })
   }
-
   /**
-   * Whether the window can afford the sidebar a column, known before the
-   * first frame. Learned after the first paint instead, the window would draw
-   * a column and then fold it away in front of the reader.
+   * The window's width, known before the first frame. Learned after the first
+   * paint instead, the window would draw a column and then fold it away in
+   * front of the reader. A media query can no longer answer it alone — the
+   * line moves with the docks — so the width itself is kept, once per frame.
    *
    * The window's width rather than the workbench's: the workbench is the whole
-   * window in every place it is mounted, and a media query answers before
-   * there is a box to measure.
+   * window in every place it is mounted, and `innerWidth` answers before there
+   * is a box to measure.
    */
   #watchWindowWidth(): void {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
-    const query = window.matchMedia(`(max-width: ${NARROW_WINDOW - 0.02}px)`)
-    this.#snapshot = { ...this.#snapshot, narrowWindow: query.matches }
-    query.addEventListener?.('change', (event) => this.setNarrowWindow(event.matches))
+    if (typeof window === 'undefined') return
+    const width = window.innerWidth
+    const narrowWindow = sidebarCannotHaveColumn(this.#snapshot.workbench, width)
+    this.#snapshot = { ...this.#snapshot, windowWidth: width, narrowWindow }
+    let frame: number | null = null
+    window.addEventListener('resize', () => {
+      if (frame !== null) return
+      frame = window.requestAnimationFrame(() => {
+        frame = null
+        this.#patch({ windowWidth: window.innerWidth })
+      })
+    })
   }
 
   /**
@@ -6920,6 +6929,15 @@ export class AppStore {
    */
   #patch(patch: Partial<AppSnapshot>): void {
     const next = { ...this.#snapshot, ...patch }
+    // Whether the sidebar can have a column follows the window and the docks,
+    // so it is settled here, where both change, rather than by each caller.
+    if (patch.windowWidth !== undefined || patch.workbench !== undefined) {
+      const narrowWindow = sidebarCannotHaveColumn(next.workbench, next.windowWidth)
+      if (narrowWindow !== next.narrowWindow) {
+        next.narrowWindow = narrowWindow
+        next.sidebarFloating = false
+      }
+    }
     // The focused conversation: the focused pane's, or — when a tool pane has
     // focus — the conversation it belongs to, so the composer's commands and
     // the details column stay on the work the tool was opened for.

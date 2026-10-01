@@ -23,12 +23,14 @@ import {
   moveView,
   noticeArea,
   readWorkbench,
+  rightPanelOverlays,
   removeAt,
   replaceView,
   resizeDock,
   viewAt,
   resizeDockSplit,
   settle,
+  sidebarCannotHaveColumn,
   splitDock,
   stackOf,
   stackView,
@@ -477,6 +479,53 @@ describe('docking something that is already here', () => {
   })
 })
 
+describe('protecting the reading column', () => {
+  const right = (size = 280): Workbench => {
+    const docked = dock(emptyWorkbench(), 'right', CHANGES)
+    return { ...docked, right: { ...docked.right, size } }
+  }
+
+  test('keeps three columns at 1440 and keeps the sidebar at the 920px equality boundary', () => {
+    expect(sidebarCannotHaveColumn(right(460), 1440)).toBe(false)
+    expect(sidebarCannotHaveColumn(right(), 920)).toBe(false)
+  })
+
+  test.each([
+    [900, false, 620],
+    [720, false, 440],
+    [700, false, 420],
+  ])('%i keeps the panel beside main with %s overlay state and %i main pixels', (width, overlay, main) => {
+    const workbench = right()
+    expect(sidebarCannotHaveColumn(workbench, width)).toBe(true)
+    expect(rightPanelOverlays(workbench, width)).toBe(overlay)
+    expect(width - workbench.right.size).toBe(main)
+  })
+
+  test('at 679 the panel covers main after the sidebar has gone', () => {
+    const workbench = right()
+    expect(sidebarCannotHaveColumn(workbench, 679)).toBe(true)
+    expect(rightPanelOverlays(workbench, 679)).toBe(true)
+  })
+
+  test('collapsed or empty right docks do not take the sidebar column at 900', () => {
+    const drawn = right()
+    expect(sidebarCannotHaveColumn({ ...drawn, right: { ...drawn.right, collapsed: true } }, 900)).toBe(false)
+    expect(sidebarCannotHaveColumn(emptyWorkbench(), 900)).toBe(false)
+  })
+
+  test('uses the sidebar width even while its column is collapsed', () => {
+    const workbench = right()
+    expect(sidebarCannotHaveColumn(workbench, 919)).toBe(true)
+    expect(sidebarCannotHaveColumn({ ...workbench, sidebar: { ...workbench.sidebar, size: 220 } }, 900)).toBe(false)
+  })
+
+  test('zoom keeps its existing area visibility rules', () => {
+    const workbench = zoomArea(right(600), 'right', 'content')
+    expect(sidebarCannotHaveColumn(workbench, 900)).toBe(false)
+    expect(rightPanelOverlays(workbench, 400)).toBe(false)
+  })
+})
+
 describe('size and visibility', () => {
   test('a size is held inside the area’s own bounds', () => {
     const workbench = dock(emptyWorkbench(), 'bottom', TERM)
@@ -507,22 +556,24 @@ describe('size and visibility', () => {
 
 describe('noticeArea — which area the strip above the panes rides', () => {
   test('the main area, normally, whatever sits beside it', () => {
-    expect(noticeArea(emptyWorkbench(), false)).toBe('main')
-    expect(noticeArea(dock(emptyWorkbench(), 'right', CHANGES), false)).toBe('main')
-    expect(noticeArea(dock(emptyWorkbench(), 'bottom', TERM), false)).toBe('main')
+    expect(noticeArea(emptyWorkbench(), 1440)).toBe('main')
+    expect(noticeArea(dock(emptyWorkbench(), 'right', CHANGES), 1440)).toBe('main')
+    expect(noticeArea(dock(emptyWorkbench(), 'bottom', TERM), 1440)).toBe('main')
   })
 
   test('a zoomed right or bottom panel takes the notices with the room', () => {
-    expect(noticeArea(zoomArea(dock(emptyWorkbench(), 'right', CHANGES), 'right', 'content'), false)).toBe('right')
-    expect(noticeArea(zoomArea(dock(emptyWorkbench(), 'bottom', TERM), 'bottom', 'window'), false)).toBe('bottom')
-    expect(noticeArea(zoomArea(emptyWorkbench(), 'main', 'content'), false)).toBe('main')
+    expect(noticeArea(zoomArea(dock(emptyWorkbench(), 'right', CHANGES), 'right', 'content'), 1440)).toBe('right')
+    expect(noticeArea(zoomArea(dock(emptyWorkbench(), 'bottom', TERM), 'bottom', 'window'), 1440)).toBe('bottom')
+    expect(noticeArea(zoomArea(emptyWorkbench(), 'main', 'content'), 1440)).toBe('main')
   })
 
-  test('a narrow window’s right panel, laid over the main area, takes them too — but only while it is drawn', () => {
-    const right = dock(emptyWorkbench(), 'right', CHANGES)
-    expect(noticeArea(right, true)).toBe('right')
-    expect(noticeArea(collapseDock(right, 'right', true), true)).toBe('main')
-    expect(noticeArea(emptyWorkbench(), true)).toBe('main')
+  test('the right panel takes notices only when its overlay covers the main area', () => {
+    const placed = dock(emptyWorkbench(), 'right', CHANGES)
+    const right: Workbench = { ...placed, right: { ...placed.right, size: 280 } }
+    expect(noticeArea(right, 679)).toBe('right')
+    expect(noticeArea(right, 700)).toBe('main')
+    expect(noticeArea(collapseDock(right, 'right', true), 679)).toBe('main')
+    expect(noticeArea(emptyWorkbench(), 679)).toBe('main')
   })
 })
 
@@ -545,7 +596,7 @@ describe('mainNoticeHost — which pane in the split tree carries the strip', ()
     }
     // Never the focused pane — a click into the second half must not move
     // the strip onto it, or opening that half in the first place would have.
-    expect(mainNoticeHost(workbench, false)).toBe('p1')
+    expect(mainNoticeHost(workbench, 1440)).toBe('p1')
   })
 
   test('the expanded pane, when one has taken the split’s room', () => {
@@ -564,14 +615,16 @@ describe('mainNoticeHost — which pane in the split tree carries the strip', ()
         expanded: 'p2',
       },
     }
-    expect(mainNoticeHost(workbench, false)).toBe('p2')
+    expect(mainNoticeHost(workbench, 1440)).toBe('p2')
   })
 
   test('null whenever noticeArea answers anything but main', () => {
     const zoomed = zoomArea(dock(emptyWorkbench(), 'right', CHANGES), 'right', 'content')
-    expect(mainNoticeHost(zoomed, false)).toBeNull()
-    const narrowRight = dock(emptyWorkbench(), 'right', CHANGES)
-    expect(mainNoticeHost(narrowRight, true)).toBeNull()
+    expect(mainNoticeHost(zoomed, 1440)).toBeNull()
+    const placed = dock(emptyWorkbench(), 'right', CHANGES)
+    const overlaidRight: Workbench = { ...placed, right: { ...placed.right, size: 280 } }
+    expect(mainNoticeHost(overlaidRight, 679)).toBeNull()
+    expect(mainNoticeHost(overlaidRight, 700)).not.toBeNull()
   })
 })
 
@@ -582,33 +635,34 @@ describe('focusedComposerVisible — whether the focused mount is a composer tha
   })
 
   test('a conversation with a session, or a room, focused and visible', () => {
-    expect(focusedComposerVisible(withMain({ kind: 'conversation', session: A }), false)).toBe(true)
-    expect(focusedComposerVisible(withMain({ kind: 'room', room: 'r1' }), false)).toBe(true)
+    expect(focusedComposerVisible(withMain({ kind: 'conversation', session: A }), 1440)).toBe(true)
+    expect(focusedComposerVisible(withMain({ kind: 'room', room: 'r1' }), 1440)).toBe(true)
   })
 
   test('an empty conversation pane, or a tool, is not a composer', () => {
-    expect(focusedComposerVisible(withMain({ kind: 'conversation', session: null }), false)).toBe(false)
-    expect(focusedComposerVisible(withMain(CHANGES), false)).toBe(false)
+    expect(focusedComposerVisible(withMain({ kind: 'conversation', session: null }), 1440)).toBe(false)
+    expect(focusedComposerVisible(withMain(CHANGES), 1440)).toBe(false)
   })
 
   test('a docked composer counts too, as long as its panel is on screen', () => {
     const docked = dock(dock(emptyWorkbench(), 'right', { kind: 'conversation', session: B }), 'bottom', TERM)
     const id = mountIds(docked, 'right')[0]!
     const focused = focusView(docked, id)
-    expect(focusedComposerVisible(focused, false)).toBe(true)
+    expect(focusedComposerVisible(focused, 1440)).toBe(true)
     // Zoomed elsewhere, that same panel is off screen, and so is the composer in it.
-    expect(focusedComposerVisible(zoomArea(focused, 'bottom', 'window'), false)).toBe(false)
+    expect(focusedComposerVisible(zoomArea(focused, 'bottom', 'window'), 1440)).toBe(false)
   })
 
   test('a composer in the main area is not visible when a zoom has taken the room from it', () => {
     const workbench = zoomArea(dock(withMain({ kind: 'room', room: 'r1' }), 'right', CHANGES), 'right', 'content')
-    expect(focusedComposerVisible(workbench, false)).toBe(false)
+    expect(focusedComposerVisible(workbench, 1440)).toBe(false)
   })
 
-  test('a narrow window’s right panel covers the main area even with no zoom at all', () => {
-    const workbench = dock(withMain({ kind: 'conversation', session: A }), 'right', CHANGES)
-    expect(focusedComposerVisible(workbench, false)).toBe(true)
-    expect(focusedComposerVisible(workbench, true)).toBe(false)
+  test('a right panel below 400px of remaining width covers main even with no zoom', () => {
+    const placed = dock(withMain({ kind: 'conversation', session: A }), 'right', CHANGES)
+    const workbench: Workbench = { ...placed, right: { ...placed.right, size: 280 } }
+    expect(focusedComposerVisible(workbench, 700)).toBe(true)
+    expect(focusedComposerVisible(workbench, 679)).toBe(false)
   })
 })
 
@@ -687,20 +741,20 @@ describe('the window buttons', () => {
     expect(cornerArea(emptyWorkbench(), true)).toBe('sidebar')
     // Even zoomed, as long as the scope leaves the sidebar standing.
     const zoomed = zoomArea(dock(emptyWorkbench(), 'right', GIT), 'right', 'content')
-    expect(cornerArea(zoomed, true)).toBe('sidebar')
+    expect(cornerArea(zoomed, true, 1440)).toBe('sidebar')
   })
 
   test('with the sidebar away it passes to the main area', () => {
-    expect(cornerArea(emptyWorkbench(), false)).toBe('main')
+    expect(cornerArea(emptyWorkbench(), false, 1440)).toBe('main')
     // A zoom on the middle is still the middle.
-    expect(cornerArea(zoomArea(emptyWorkbench(), 'main', 'window'), false)).toBe('main')
+    expect(cornerArea(zoomArea(emptyWorkbench(), 'main', 'window'), false, 1440)).toBe('main')
   })
 
   test('a panel zoomed to fill the window takes the corner with it', () => {
     const right = zoomArea(dock(emptyWorkbench(), 'right', GIT), 'right', 'window')
-    expect(cornerArea(right, false)).toBe('right')
+    expect(cornerArea(right, false, 1440)).toBe('right')
     const bottom = zoomArea(dock(emptyWorkbench(), 'bottom', TERM), 'bottom', 'window')
-    expect(cornerArea(bottom, false)).toBe('bottom')
+    expect(cornerArea(bottom, false, 1440)).toBe('bottom')
   })
 
   test('the fallback to the bottom is never a panel with nothing in it', () => {
@@ -711,12 +765,12 @@ describe('the window buttons', () => {
      * are asserted, because the fallback is only safe while both hold.
      */
     expect(zoomArea(emptyWorkbench(), 'right', 'window').zoom).toBeNull()
-    expect(cornerArea(zoomArea(emptyWorkbench(), 'right', 'window'), false)).toBe('main')
+    expect(cornerArea(zoomArea(emptyWorkbench(), 'right', 'window'), false, 1440)).toBe('main')
 
     // And the reachable one: the bottom panel, alone, filling the window.
     const bottom = zoomArea(dock(emptyWorkbench(), 'bottom', TERM), 'bottom', 'window')
     expect(dockViews(bottom.right)).toEqual([])
-    expect(cornerArea(bottom, false)).toBe('bottom')
+    expect(cornerArea(bottom, false, 1440)).toBe('bottom')
 
     /*
      * The path that could have got round all of it: a zoom is persisted, and
@@ -728,13 +782,13 @@ describe('the window buttons', () => {
     const save = (workbench: Workbench): unknown => JSON.parse(JSON.stringify(workbench))
     const emptied = readWorkbench(save({ ...emptyWorkbench(), zoom: { area: 'right', scope: 'window' } }))!
     expect(emptied.zoom).toBeNull()
-    expect(cornerArea(emptied, false)).toBe('main')
+    expect(cornerArea(emptied, false, 1440)).toBe('main')
 
     // And the same document with the panel still occupied, so the assertion
     // above is `settle` dropping a zoom rather than the reader never seeing one.
     const kept = readWorkbench(save({ ...dock(emptyWorkbench(), 'right', CHANGES), zoom: { area: 'right', scope: 'window' } }))!
     expect(kept.zoom).toEqual({ area: 'right', scope: 'window' })
-    expect(cornerArea(kept, false)).toBe('right')
+    expect(cornerArea(kept, false, 1440)).toBe('right')
   })
 
   test('and a collapsed sidebar under a content zoom leaves the panel in it', () => {
@@ -743,20 +797,18 @@ describe('the window buttons', () => {
     // all. The two conditions are separate and both have to be asked.
     const workbench = zoomArea(dock(emptyWorkbench(), 'right', GIT), 'right', 'content')
     expect(areaVisible(workbench, 'sidebar')).toBe(true)
-    expect(cornerArea(workbench, false)).toBe('right')
+    expect(cornerArea(workbench, false, 1440)).toBe('right')
   })
 
-  test('a narrow window lays the right panel over the middle, and the corner goes with it', () => {
-    // Below the narrow line the right panel takes the whole content row from
-    // the window's left edge, so its tab strip was printing "Browser" under
-    // the buttons while the corner was still given to the hidden middle.
-    const right = dock(emptyWorkbench(), 'right', GIT)
-    expect(cornerArea(right, false, true)).toBe('right')
-    // Wide, it stands beside the middle and leaves the corner where it was.
-    expect(cornerArea(right, false, false)).toBe('main')
+  test('the right panel takes the corner only when it covers the middle', () => {
+    // The panel covers main only when fewer than 400px remain beside it.
+    const placed = dock(emptyWorkbench(), 'right', GIT)
+    const right: Workbench = { ...placed, right: { ...placed.right, size: 280 } }
+    expect(cornerArea(right, false, 679)).toBe('right')
+    expect(cornerArea(right, false, 700)).toBe('main')
     // A collapsed or empty right panel lays nothing over the middle.
-    expect(cornerArea({ ...right, right: { ...right.right, collapsed: true } }, false, true)).toBe('main')
-    expect(cornerArea(emptyWorkbench(), false, true)).toBe('main')
+    expect(cornerArea({ ...right, right: { ...right.right, collapsed: true } }, false, 679)).toBe('main')
+    expect(cornerArea(emptyWorkbench(), false, 679)).toBe('main')
     // And the floating sidebar never stands as a column, so it is not asked here.
   })
 })

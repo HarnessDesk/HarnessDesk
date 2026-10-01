@@ -94,7 +94,7 @@ describe('the store', () => {
     store.toggleSidebar()
     expect(state()).toEqual({ narrowWindow: false, sidebarCollapsed: false, sidebarFloating: false })
 
-    store.setNarrowWindow(true)
+    store.setWindowWidth(700)
     store.toggleSidebar()
     // The column's own choice is not what a narrow window flips.
     expect(state()).toEqual({ narrowWindow: true, sidebarCollapsed: false, sidebarFloating: true })
@@ -104,25 +104,25 @@ describe('the store', () => {
 
   it('does not open over the conversation because the window got narrow', () => {
     // The column was up, and the window narrowed under it.
-    store.setNarrowWindow(true)
+    store.setWindowWidth(700)
     expect(state().sidebarFloating).toBe(false)
   })
 
   it('crossing the line either way puts a floating sidebar away, and the column is as it was left', () => {
     store.toggleSidebar()
-    store.setNarrowWindow(true)
+    store.setWindowWidth(700)
     store.toggleSidebar()
     expect(state().sidebarFloating).toBe(true)
 
-    store.setNarrowWindow(false)
+    store.setWindowWidth(1440)
     expect(state()).toEqual({ narrowWindow: false, sidebarCollapsed: true, sidebarFloating: false })
 
-    store.setNarrowWindow(true)
+    store.setWindowWidth(700)
     expect(state().sidebarFloating).toBe(false)
   })
 
   it('is put away by choosing where to go', async () => {
-    store.setNarrowWindow(true)
+    store.setWindowWidth(700)
 
     store.toggleSidebar()
     store.newDraft()
@@ -142,7 +142,7 @@ describe('the store', () => {
   })
 
   it('is put away by a panel given the whole window, rather than left open where nothing is drawn', () => {
-    store.setNarrowWindow(true)
+    store.setWindowWidth(700)
     store.toggleSidebar()
     expect(state().sidebarFloating).toBe(true)
 
@@ -154,7 +154,7 @@ describe('the store', () => {
     for (const narrow of [false, true]) {
       const desk = new AppStore('ws://localhost:0/')
       vi.spyOn(desk.transport, 'request').mockImplementation((async () => null) as never)
-      desk.setNarrowWindow(narrow)
+      desk.setWindowWidth(narrow ? 700 : 1440)
       desk.zoomPanel('main', 'window')
       expect(sidebarPlacement(desk.getSnapshot())).toBe('away')
 
@@ -174,7 +174,7 @@ describe('the store', () => {
     for (const narrow of [true, false]) {
       const desk = new AppStore('ws://localhost:0/')
       vi.spyOn(desk.transport, 'request').mockImplementation((async () => null) as never)
-      desk.setNarrowWindow(narrow)
+      desk.setWindowWidth(narrow ? 700 : 1440)
       desk.showViewIn('sidebar', { kind: 'tasks' })
       if (narrow) desk.toggleSidebar()
       desk.zoomPanel('sidebar', 'content')
@@ -194,7 +194,7 @@ describe('the store', () => {
   it('is left open by a conversation read in for a room, which goes nowhere', async () => {
     answers['session/read'] = session()
     answers['session/resume'] = session()
-    store.setNarrowWindow(true)
+    store.setWindowWidth(700)
     store.toggleSidebar()
     await store.openSession(ID, { runtime: RUNTIME, reveal: false })
     expect(state().sidebarFloating).toBe(true)
@@ -211,29 +211,32 @@ describe('the line', () => {
 })
 
 describe('the width, from the first frame', () => {
-  const original = window.matchMedia
+  const originalWidth = window.innerWidth
   afterEach(() => {
-    window.matchMedia = original
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+    vi.restoreAllMocks()
   })
 
-  it('is known before anything is drawn, and followed as the window moves', () => {
-    const asked: string[] = []
-    const listeners: ((event: { matches: boolean }) => void)[] = []
-    window.matchMedia = ((media: string) => {
-      asked.push(media)
-      return {
-        media,
-        matches: true,
-        addEventListener: (_type: string, listener: (event: { matches: boolean }) => void) => listeners.push(listener),
-        removeEventListener: () => undefined,
-      }
-    }) as unknown as typeof window.matchMedia
+  it('samples width before first paint and coalesces resize work to animation frames', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 700 })
+    const callbacks: FrameRequestCallback[] = []
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      callbacks.push(callback)
+      return callbacks.length
+    })
 
-    const narrow = new AppStore('ws://localhost:0/')
-    expect(asked).toContain(`(max-width: ${NARROW_WINDOW - 0.02}px)`)
-    expect(narrow.getSnapshot().narrowWindow).toBe(true)
+    const store = new AppStore('ws://localhost:0/')
+    expect(store.getSnapshot().windowWidth).toBe(700)
+    expect(store.getSnapshot().narrowWindow).toBe(true)
 
-    for (const listener of listeners) listener({ matches: false })
-    expect(narrow.getSnapshot().narrowWindow).toBe(false)
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1440 })
+    window.dispatchEvent(new Event('resize'))
+    const scheduled = frame.mock.calls.length
+    window.dispatchEvent(new Event('resize'))
+    expect(scheduled).toBeGreaterThan(0)
+    expect(frame).toHaveBeenCalledTimes(scheduled)
+    for (const callback of callbacks) callback(0)
+    expect(store.getSnapshot().windowWidth).toBe(1440)
+    expect(store.getSnapshot().narrowWindow).toBe(false)
   })
 })

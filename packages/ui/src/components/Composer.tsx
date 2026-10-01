@@ -181,7 +181,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   // Whether this composer is the one the strip above the panes rides — the
   // layout's own answer (`mainNoticeHost`), not a mount racing another for
   // the title: a docked conversation's `mount.id` never matches a main pane's.
-  const isNoticeHost = mainNoticeHost(snapshot.workbench, snapshot.narrowWindow) === mount?.id
+  const isNoticeHost = mainNoticeHost(snapshot.workbench, snapshot.windowWidth) === mount?.id
   const textarea = useRef<HTMLTextAreaElement>(null)
   const filePicker = useRef<HTMLInputElement>(null)
 
