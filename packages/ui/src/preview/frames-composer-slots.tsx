@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { runtimeId, sessionId, sessionKey, type ConfigOption, type RuntimeInfo, type Session } from '@harnessdesk/protocol'
 
 import { AgentControl, ComposerTrack, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from '../components/ComposerControls'
@@ -25,7 +26,7 @@ const optionsFor = (shape: number): ConfigOption[] => {
 
 const SHAPES = ['Assistant A', 'Assistant B', 'Assistant C', 'Assistant D'] as const
 
-const SlotToolbar = ({ shape, live }: { shape: number; live: boolean }) => {
+const SlotToolbar = ({ shape, live, extensionAction = false }: { shape: number; live: boolean; extensionAction?: boolean }) => {
   const runtime = { id: runtimeId(`preview-${shape}`), name: SHAPES[shape], capabilities: { metered: false }, presentation: { name: SHAPES[shape] } } as unknown as RuntimeInfo
   const key = sessionKey(runtime.id, sessionId(`composer-slots-${shape}`))
   const options = optionsFor(shape)
@@ -46,7 +47,7 @@ const SlotToolbar = ({ shape, live }: { shape: number; live: boolean }) => {
       <AgentControl />
       <PermissionControl />
       <ModeControl />
-      <ComposerTrack name="extension" />
+      <ComposerTrack name="extension">{extensionAction && <Button variant="ghost" size="sm" title="Plugin action" aria-label="Plugin action">◇</Button>}</ComposerTrack>
       <ComposerGap />
       <MoreControl />
       <ContextUsage />
@@ -56,14 +57,33 @@ const SlotToolbar = ({ shape, live }: { shape: number; live: boolean }) => {
   )
   return (
     <StoreProvider store={state}>
-      {live ? (
-        <PaneProvider scope={{ paneId: `composer-slots-${shape}` as never, view: { kind: 'conversation', session: key } as never, sessionKey: key }}>
-          {toolbar}
-        </PaneProvider>
-      ) : toolbar}
+      <PaneProvider scope={{ paneId: `composer-slots-${shape}` as never, view: { kind: 'conversation', session: key } as never, sessionKey: key }}>
+        {toolbar}
+      </PaneProvider>
     </StoreProvider>
   )
 }
+
+const LayoutSwitchCase = () => {
+  const [live, setLive] = useState(false)
+  return (
+    <section data-layout-switch-case>
+      <Button variant="outline" size="sm" data-layout-switch onClick={() => setLive((current) => !current)}>
+        Switch to {live ? 'draft' : 'live'}
+      </Button>
+      <div className="w-(--hd-composer-slots-preview-narrow) max-w-full">
+        <SlotToolbar shape={0} live={live} />
+      </div>
+    </section>
+  )
+}
+
+const ExtensionWidthCase = () => (
+  <section data-extension-width-case className="grid w-(--hd-composer-slots-preview-narrow) max-w-full gap-1">
+    <SlotToolbar shape={0} live={false} />
+    <SlotToolbar shape={0} live={false} extensionAction />
+  </section>
+)
 
 const widths = [
   { name: 'composer', width: 'var(--hd-column)' },
@@ -97,6 +117,8 @@ export const ComposerSlotsFrames = () => (
           </div>
         </section>
       ))}
+      <LayoutSwitchCase />
+      <ExtensionWidthCase />
     </div>
   </Frame>
 )

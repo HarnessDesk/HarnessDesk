@@ -42,8 +42,9 @@ const boxGeometry = (page: Page) => page.evaluate(() => {
 
 const expectedFolds = {
   composer: {
-    draft: ['agent', 'work-in'],
-    live: [],
+    draft: ['agent', 'work-in', 'more'],
+    // Live folds Agent below 738px once the reserved Extension track is counted.
+    live: ['agent'],
     tight: false,
   },
   '560': {
@@ -125,10 +126,43 @@ const contextRingsUnclipped = (page: Page) => page.evaluate(() => {
   })
 })
 
+const extensionCaseMatches = (page: Page) => page.evaluate(() => {
+  const toolbars = [...document.querySelectorAll<HTMLElement>('[data-extension-width-case] [data-composer-layout="draft"]')]
+  if (toolbars.length !== 2) return { valid: false, overflow: true, positions: [] }
+  const positions = toolbars.map((toolbar) => ['more', 'context', 'model', 'send'].map((slot) => {
+    const track = toolbar.querySelector<HTMLElement>(`[data-composer-track="${slot}"]`)
+    return track ? Math.round(track.getBoundingClientRect().left) : -1
+  }))
+  return {
+    valid: positions[0]?.every((x, index) => x === positions[1]?.[index]) === true,
+    overflow: toolbars.some((toolbar) => toolbar.scrollWidth > toolbar.clientWidth),
+    positions,
+  }
+})
+
+// Present or absent, never a value: `data-folded` is written as `folded || undefined`.
+const switchCaseModelFolded = async (page: Page) =>
+  (await page.locator('[data-layout-switch-case] [data-composer-track="model"]').getAttribute('data-folded')) !== null
+
 test('composer slots keep their tracks aligned across agent shapes', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1600 })
   await page.goto('/preview.html?composer-slots')
   await page.waitForSelector('[data-composer-width="composer"] [data-composer-layout="live"] [data-composer-track="model"]')
+
+  const switchCase = page.locator('[data-layout-switch-case]')
+  await expect.poll(() => switchCaseModelFolded(page)).toBe(true)
+  await switchCase.locator('[data-layout-switch]').click()
+  await expect.poll(() => switchCaseModelFolded(page)).toBe(false)
+  await switchCase.locator('[data-layout-switch]').click()
+  await expect.poll(() => switchCaseModelFolded(page)).toBe(true)
+
+  const extensionCase = page.locator('[data-extension-width-case] [data-composer-layout="draft"]').last()
+  await expect.poll(async () => extensionCaseMatches(page)).toMatchObject({ valid: true, overflow: false })
+  const extensionTrack = extensionCase.locator('[data-composer-track="extension"]')
+  await extensionTrack.evaluate((node) => { (node as HTMLElement).style.width = 'var(--hd-composer-track-model)' })
+  expect(await extensionCaseMatches(page), 'a widened populated Extension must break its aligned, overflow-free layout').toMatchObject({ valid: false, overflow: true })
+  await extensionTrack.evaluate((node) => { (node as HTMLElement).style.removeProperty('width') })
+  await expect.poll(async () => extensionCaseMatches(page)).toMatchObject({ valid: true, overflow: false })
 
   expect(await boxGeometry(page), 'preview boxes must match their width labels and composer token').toMatchObject({ valid: true })
   const composerToolbar = await page.locator('[data-composer-width="composer"] [data-composer-layout="draft"]').first().boundingBox()

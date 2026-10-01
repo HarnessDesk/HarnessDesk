@@ -119,6 +119,12 @@ describe('ContextUsage', () => {
     expect(container.querySelector<HTMLButtonElement>('button')?.title).toBe('No usage yet')
   })
 
+  it('opens the empty context popover to No usage yet', () => {
+    mount({})
+    open()
+    expect(panelText()).toContain('No usage yet')
+  })
+
   it('fills from contextUsed over contextWindow, never the session total', () => {
     mount(
       withSession(runtime('alpha', 'Alpha Agent', false), {

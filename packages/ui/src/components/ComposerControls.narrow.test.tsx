@@ -2,11 +2,11 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { ConfigOption, RuntimeInfo } from '@harnessdesk/protocol'
+import { sessionId, sessionKey, type ConfigOption, type RuntimeInfo, type Session } from '@harnessdesk/protocol'
 
 import foundationTokens from '../design/foundation/tokens.css?raw'
-import { StoreProvider } from '../state/context'
-import { ComposerTools } from '../design'
+import { PaneProvider, StoreProvider } from '../state/context'
+import { ComposerGap, ComposerTools } from '../design'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { ModelControl, PermissionControl } from './ComposerControls'
 
@@ -36,7 +36,7 @@ const toolbarGap = tokenValue('--hd-space-1-5')
 const foldThreshold = (target: string): number => {
   const widths = new Map(wideTracks.map((track) => [
     track,
-    tokenValue(track === 'extension' ? '--hd-composer-track-extension-empty' : `--hd-composer-track-${track}`),
+    tokenValue(`--hd-composer-track-${track}`),
   ]))
   const gaps = wideTracks.length * toolbarGap
   for (const track of foldOrder) {
@@ -142,27 +142,40 @@ const options: readonly ConfigOption[] = [
   },
 ] as unknown as readonly ConfigOption[]
 
-const draw = (at: number): void => {
+const draw = (at: number, layout: 'draft' | 'live' = 'draft', populatedExtension = false): void => {
   width = at
+  const key = sessionKey(agent.id, sessionId('narrow-test'))
+  const liveSession = {
+    id: sessionId('narrow-test'), runtime: agent.id, cwd: '/repo', status: { type: 'idle' },
+    createdAt: 1, updatedAt: 1, turns: [], itemsLoaded: true, options,
+  } as unknown as Session
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
     runtimes: [agent],
     activeRuntime: agent.id,
     draftOptions: options,
+    ...(layout === 'live' ? { activeSessionKey: key, sessions: new Map([[key, liveSession]]) } : {}),
   }
   testStore = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     setOption: vi.fn(async () => {}),
   } as unknown as AppStore
+  const toolbar = (
+    <ComposerTools data-composer-layout={layout} style={{ gap: `${toolbarGap}px` }}>
+      <PermissionControl />
+      <span data-composer-track="extension">{populatedExtension ? '◇' : null}</span>
+      <ComposerGap />
+      <ModelControl />
+    </ComposerTools>
+  )
   act(() => {
     root.render(
       <StoreProvider store={testStore}>
-        <ComposerTools data-composer-layout="draft" style={{ gap: `${toolbarGap}px` }}>
-          <PermissionControl />
-          <ModelControl />
-        </ComposerTools>
+        <PaneProvider scope={{ paneId: 'narrow-test', view: { kind: 'conversation', session: key }, sessionKey: key }}>
+          {toolbar}
+        </PaneProvider>
       </StoreProvider>,
     )
   })
@@ -222,6 +235,26 @@ it('folds Permissions and then Model at the sums of their preceding tracks', () 
   // The step moves back when the toolbar widens again.
   resize(modelAt)
   expect(model().textContent).toContain('Small')
+})
+
+it('recomputes fold steps when one toolbar switches between draft and live at a fixed width', () => {
+  draw(560, 'draft')
+  expect(model().textContent?.trim()).toBe('')
+
+  draw(560, 'live')
+  expect(model().textContent).toContain('Small')
+
+  draw(560, 'draft')
+  expect(model().textContent?.trim()).toBe('')
+})
+
+it('reserves the populated Extension track width even when the track is empty', () => {
+  const at = 560
+  draw(at, 'draft', false)
+  const emptyFolded = triggers().map((trigger) => trigger.textContent?.trim())
+  draw(at, 'draft', true)
+  const populatedFolded = triggers().map((trigger) => trigger.textContent?.trim())
+  expect(populatedFolded).toEqual(emptyFolded)
 })
 
 /**

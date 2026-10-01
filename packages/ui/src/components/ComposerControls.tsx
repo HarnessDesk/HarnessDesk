@@ -79,9 +79,11 @@ const toolbarStepper = (toolbar: HTMLElement): ((width: number) => ToolbarStep) 
   const style = getComputedStyle(toolbar)
   const layout = toolbar.dataset.composerLayout
   const tracks = ['add', ...(layout === 'live' ? [] : ['work-in']), 'agent', 'permissions', 'mode', 'extension', 'more', 'context', 'model', 'send']
+  // Reserve the populated Extension width regardless of whether an action is
+  // present; its presence varies by agent, but the fold steps must not.
   const wideWidths = new Map(tracks.map((track) => [
     track,
-    px(style.getPropertyValue(track === 'extension' ? '--hd-composer-track-extension-empty' : trackToken(track, 'wide'))),
+    px(style.getPropertyValue(trackToken(track, 'wide'))),
   ]))
   const gap = px(style.columnGap) || px(style.gap)
   // ComposerGap is itself a flex child between the tracks, so there is one
@@ -115,6 +117,7 @@ const useNarrowToolbar = (name: FoldableTrack): {
   folded: boolean
   tight: boolean
 } => {
+  const layout = useActiveSession() ? 'live' : 'draft'
   const [toolbar, setToolbar] = useState<HTMLElement | null>(null)
   const ref = useCallback((node: HTMLSpanElement | null) => {
     setToolbar(node?.closest<HTMLElement>('[data-slot="composer-tools"]') ?? node?.parentElement ?? null)
@@ -123,16 +126,32 @@ const useNarrowToolbar = (name: FoldableTrack): {
   // the control again on every frame; a step only when one is crossed.
   const [step, setStep] = useState<ToolbarStep>({ folded: 0, tight: false })
   useEffect(() => {
-    if (!toolbar || typeof ResizeObserver === 'undefined') return
-    const stepForWidth = toolbarStepper(toolbar)
-    const observer = new ResizeObserver(([entry]) => {
-      if (!entry) return
-      const next = stepForWidth(entry.contentRect.width)
+    if (!toolbar) return
+    const update = (width = toolbar.getBoundingClientRect().width) => {
+      const next = toolbarStepper(toolbar)(width)
       setStep((current) => current.folded === next.folded && current.tight === next.tight ? current : next)
+    }
+    update()
+    const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(([entry]) => {
+      if (entry) update(entry.contentRect.width)
     })
-    observer.observe(toolbar)
-    return () => observer.disconnect()
-  }, [toolbar])
+    resizeObserver?.observe(toolbar)
+    // Layout, foundation and viewport changes can alter the threshold without
+    // changing this element's width. Re-read and render only across a step.
+    const mutationObserver = typeof MutationObserver === 'undefined' ? null : new MutationObserver(() => {
+      update()
+    })
+    const onViewportResize = () => update()
+    window.addEventListener('resize', onViewportResize)
+    mutationObserver?.observe(toolbar, { attributes: true })
+    if (document.documentElement) mutationObserver?.observe(document.documentElement, { attributes: true })
+    if (document.body) mutationObserver?.observe(document.body, { attributes: true })
+    return () => {
+      resizeObserver?.disconnect()
+      mutationObserver?.disconnect()
+      window.removeEventListener('resize', onViewportResize)
+    }
+  }, [toolbar, layout])
   const order = FOLD_ORDER.filter((track) => toolbar?.dataset.composerLayout !== 'live' || track !== 'work-in')
   return { ref, folded: step.folded >= order.indexOf(name) + 1, tight: step.tight }
 }
