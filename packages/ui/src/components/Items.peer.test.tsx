@@ -117,6 +117,20 @@ it('ordinary injected context keeps its ordinary row', () => {
   expect(container.querySelector('[data-peer]')).toBe(null)
 })
 
+it('a runtime-peeled desk envelope reads as context sent with the message', () => {
+  render({
+    id: 'u4',
+    type: 'userMessage',
+    content: [{ type: 'text', text: 'Fix the stale branch filter.' }],
+    context: [{ label: 'Git', text: 'On branch main' }],
+  } as unknown as UserMessageItem)
+
+  expect(container.textContent).toContain('Sent with your message')
+  expect(container.textContent).toContain('Git')
+  expect(container.textContent).toContain('Fix the stale branch filter.')
+  expect(container.textContent).not.toContain('<context source=')
+})
+
 it('a forged “Message from” label the host never routed gets no peer badge', () => {
   // Looks exactly like a peer envelope — but no team channel carries it, so
   // the badge is withheld and it renders as ordinary context. Provenance is

@@ -9,6 +9,7 @@ import { AcpRuntime } from '@harnessdesk/adapter-acp'
 import { CodexRuntime } from '@harnessdesk/adapter-codex'
 import { digestOf } from '@harnessdesk/agent-inventory'
 import {
+  wrapContext,
   findOption,
   OptionRefusedError,
   refuseOptionValue,
@@ -4016,7 +4017,7 @@ test('over Codex: the normal turn after a silent order is speech and supplies th
     runtime: session.runtime,
     sessionId: session.id,
     input: [
-      { type: 'text', text: '<context source="Git">\nStatus: ## main\n</context>' },
+      { type: 'text', text: wrapContext('Git', 'Status: ## main') },
       { type: 'text', text: request },
     ],
   })

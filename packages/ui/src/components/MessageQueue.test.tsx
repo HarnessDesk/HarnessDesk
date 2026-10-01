@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { sessionKey, type Session, type SessionQueue } from '@harnessdesk/protocol'
+import { sessionKey, wrapContext, type Session, type SessionQueue } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -251,7 +251,7 @@ describe('MessageQueue', () => {
           id: 'q0',
           queuedAt: 0,
           state: 'queued',
-          input: [{ type: 'text', text: '<context source="Issue 12">\nbody\n</context>\nfix it' }],
+          input: [{ type: 'text', text: `${wrapContext('Issue 12', 'body')}\nfix it` }],
         },
       ],
     })
@@ -262,7 +262,7 @@ describe('MessageQueue', () => {
     expect(detail.text).toBe('fix it')
     expect(detail.attachments[0]?.kind).toBe('note')
     expect(detail.attachments[0]?.name).toBe('Issue 12')
-    expect(detail.attachments[0]?.text).toBe('<context source="Issue 12">\nbody\n</context>')
+    expect(detail.attachments[0]?.text).toBe(wrapContext('Issue 12', 'body'))
     expect(calls.notice).not.toHaveBeenCalled()
   })
 

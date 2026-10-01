@@ -13,7 +13,12 @@
  */
 
 export const CONTEXT_OPEN = '<context source='
-const PATTERN = /<context source="((?:[^"\\]|\\.)*)">\n?([\s\S]*?)\n?<\/context>/g
+const DESK_MARKER = 'data-hd-envelope="harnessdesk-v1"'
+const PREFIX_PATTERN = new RegExp(`^<context source="((?:[^"\\\\]|\\\\.)*)" ${DESK_MARKER}>\\n?([\\s\\S]*?)\\n?<\\/context>`)
+// Before the marker was introduced, the composer wrote exactly this shape.
+// Its position and newline/attribute layout identify the old envelope; the
+// label is data, and can come from a plugin unknown to this version.
+const LEGACY_PREFIX_PATTERN = /^<context source="((?:[^"\\]|\\.)*)">\n([\s\S]*?)\n<\/context>/
 
 export interface ContextBlock {
   readonly label: string
@@ -34,7 +39,7 @@ export interface SplitText {
  * nothing, because a match always starts at the outermost one.
  */
 export const wrapContext = (label: string, text: string): string =>
-  `<context source=${JSON.stringify(label)}>\n${text.replace(/<\/context>/g, '<\\/context>')}\n</context>`
+  `<context source=${JSON.stringify(label)} ${DESK_MARKER}>\n${text.replace(/<\/context>/g, '<\\/context>')}\n</context>`
 
 /**
  * The label, back exactly as `wrapContext` was given it.
@@ -64,19 +69,46 @@ const unquote = (label: string): string => {
   }
 }
 
-export const splitContext = (raw: string): SplitText => {
-  if (!raw.includes(CONTEXT_OPEN)) return { injections: [], text: raw }
+const legacyLabel = (captured: string): string | null => {
+  try {
+    const parsed: unknown = JSON.parse(`"${captured}"`)
+    return typeof parsed === 'string' ? parsed : null
+  } catch {
+    return null
+  }
+}
 
+/**
+ * Read only desk-authored context blocks at the beginning of a message.
+ * The marker is written by `wrapContext`; the empty-tail mode lets callers
+ * retain labels when a complete marked block is the whole message.
+ */
+export const peelDeskContextPrefix = (raw: string, allowEmptyTail = false): SplitText | null => {
+  let rest = raw
   const injections: ContextBlock[] = []
-  const text = raw
-    .replace(PATTERN, (_whole, label: string, body: string) => {
-      injections.push({ label: unquote(label), text: body.replace(/<\\\/context>/g, '</context>') })
-      return ''
-    })
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
+  let sawLegacy = false
+  for (;;) {
+    const marked = PREFIX_PATTERN.exec(rest)
+    if (marked) {
+      injections.push({ label: unquote(marked[1] ?? ''), text: (marked[2] ?? '').replace(/<\\\/context>/g, '</context>') })
+      rest = rest.slice(marked[0].length).replace(/^(?:\r?\n)+/, '')
+      continue
+    }
+    const legacy = LEGACY_PREFIX_PATTERN.exec(rest)
+    if (!legacy) break
+    const label = legacyLabel(legacy[1] ?? '')
+    if (label === null) break
+    injections.push({ label, text: (legacy[2] ?? '').replace(/<\\\/context>/g, '</context>') })
+    rest = rest.slice(legacy[0].length).replace(/^(?:\r?\n)+/, '')
+    sawLegacy = true
+  }
+  if (injections.length === 0 || ((sawLegacy || !allowEmptyTail) && rest.trim().length === 0)) return null
+  return { injections, text: rest.trim() }
+}
 
-  return { injections, text }
+export const splitContext = (raw: string): SplitText => {
+  const prefix = peelDeskContextPrefix(raw, true)
+  return prefix ?? { injections: [], text: raw }
 }
 
 /** The label every hand-off packet carries: `Handed off from <agent> — “<conversation>”`. */
@@ -85,9 +117,8 @@ export const HANDOFF_PREFIX = 'Handed off from '
 export const isHandoffSource = (label: string): boolean => label.startsWith(HANDOFF_PREFIX)
 
 /**
- * Whether a line opens an envelope, whole or not. `splitContext` leaves a
- * block that was cut off before it closed in the text, markup and all, and
- * nothing should read that as the person's words.
+ * Whether a complete desk envelope starts here. An incomplete opening or a
+ * complete block after the message has started remains ordinary text.
  *
  * One question, asked in one place. It was asked in four, in three different
  * spellings — here, in the Cursor bridge's `storedName`, in its
@@ -96,22 +127,14 @@ export const isHandoffSource = (label: string): boolean => label.startsWith(HAND
  * was a divergence between two of the copies, and nothing stopped a fifth
  * (#224).
  *
- * It is `CONTEXT_OPEN` plus the quote, so the predicate and `PATTERN` cannot
- * drift: an envelope is what `wrapContext` writes and nothing else. Two
- * shapes that used to pass here are the user's own words now, and both were
- * read by one copy and unreadable to another:
+ * New messages require the exact marker opening `wrapContext` writes.
+ * Pre-marker compatibility accepts only a complete prefix in the exact old
+ * composer layout, followed by typed text. Other legacy-looking and incomplete markup is the person's text:
  *
- * - `<context\nsource="x">` — any whitespace before `source=`. `stripEnvelope`
- *   cut the block out; `splitContext` could not read its label, so a
- *   conversation opening with one was named nothing at all.
- * - `<context>` bare. Nothing writes it — `wrapContext` and the Codex
- *   adapter's preamble both write `source=` — so it only ever stood in for
- *   "an envelope with no label", which `<context source="` cut short already
- *   covers. Keeping it cost a prompt that is literally `<context> what does
- *   this tag do?` its name: the row read "Untitled session", and the next
- *   turn renamed the conversation for good.
+ * - an unmarked block in any other position or layout;
+ * - an opening tag cut off before its matching close.
  */
-export const opensEnvelope = (text: string): boolean => text.startsWith(`${CONTEXT_OPEN}"`)
+export const opensEnvelope = (text: string): boolean => peelDeskContextPrefix(text, true) !== null
 
 /**
  * What a conversation's first message is called, before it's cut to a row's
