@@ -2,6 +2,7 @@ import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 
 import {
   NO_CAPABILITIES,
+  isBusy,
   runtimeId,
   type FindingRunView,
   type LedgerDay,
@@ -14,7 +15,7 @@ import {
   type UsageReport,
 } from '@harnessdesk/protocol'
 import { FindingDecision } from '../../components/FindingDecision'
-import { SideBySide } from '../../components/SideBySide'
+import { SideBySide, sideBySideTileEntry } from '../../components/SideBySide'
 import { OverviewStrip, type StripMetric } from '../../components/usage/OverviewStrip'
 
 import {
@@ -166,6 +167,9 @@ import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppStore } from '../../state/store'
 import { emptySideBySide, type SideBySideState } from '../../lib/side-by-side'
 import { SIDE_BY_SIDE_KEYS, SIDE_BY_SIDE_MEMBERS, sideBySideStore } from '../../preview/side-by-side-fixture'
+import { runtimeTint } from '../../lib/accounts'
+import { brandForRuntime } from '../../lib/brands'
+import { seatCeilingOf } from '../../lib/ceilings'
 import { planRows, shapeCountsOf, type PlanRow } from '../../lib/plans-table'
 import {
   Counts,
@@ -920,28 +924,37 @@ const SideBySideBoard = () => {
   const [two, setTwo] = useState(() => sideBySideState(2))
   const [four, setFour] = useState(() => sideBySideState(4))
   const store = useMemo(sideBySideStore, [])
+  const snapshot = store.getSnapshot()
   const memberOf = (key: (typeof SIDE_BY_SIDE_KEYS)[number]) => {
     const member = SIDE_BY_SIDE_MEMBERS[SIDE_BY_SIDE_KEYS.indexOf(key)]
     return member ? { nickname: member.nickname, agent: member.agent, model: member.model } : undefined
   }
-  const grid = (state: SideBySideState, onChange: Dispatch<SetStateAction<SideBySideState>>, paneId: string) => (
-    <div className="h-96 w-full min-w-0">
+  const entryOf = (key: (typeof SIDE_BY_SIDE_KEYS)[number]) => {
+    const session = snapshot.sessions.get(key)
+    if (!session) return null
+    const runtime = snapshot.runtimes.find((entry) => entry.id === session.runtime) ?? null
+    return sideBySideTileEntry({
+      tint: runtimeTint(session.runtime, snapshot.accountsByRuntime, snapshot.accountPrefs),
+      brand: runtime ? brandForRuntime(runtime) : null,
+      busy: isBusy(session),
+      waitingForYou: snapshot.approvals.some((approval) => approval.key === key),
+      ceiling: seatCeilingOf(session.settings, [], session.runtime, session.id),
+      lastTurnStatus: session.turns.at(-1)?.status,
+    })
+  }
+  const grid = (
+    state: SideBySideState,
+    onChange: Dispatch<SetStateAction<SideBySideState>>,
+    paneId: string,
+    widthClass = 'h-96 w-full min-w-0',
+  ) => (
+    <div className={widthClass}>
       <SideBySide
         state={state}
         onChange={onChange}
         paneId={paneId}
         memberOf={memberOf}
-        entryOf={(key) => {
-          const index = SIDE_BY_SIDE_KEYS.indexOf(key)
-          if (index < 0) return null
-          return {
-            tint: index % 2 === 0 ? 'blue' : 'violet',
-            ...(index === 0 ? { busy: true, ceiling: { ceiling: { level: 'edit' as const, hold: 'held' as const }, note: null } } : {}),
-            ...(index === 1 ? { waitingForYou: true } : {}),
-            ...(index === 2 ? { ended: 'done' as const } : {}),
-            ...(index === 3 ? { ended: 'stopped' as const } : {}),
-          }
-        }}
+        entryOf={entryOf}
         onOpenMember={() => {}}
         conversationProps={{ onChooseProject: () => {}, onSignIn: () => {}, onOpenUsage: () => {}, onOpenRuntimes: () => {} }}
       />

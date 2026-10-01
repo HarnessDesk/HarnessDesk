@@ -21,7 +21,7 @@ const exchange = (key: string, index: number): Session['turns'] =>
   [
     {
       id: `${key}-t1`,
-      status: 'completed',
+      status: (['inProgress', 'completed', 'completed', 'interrupted'] as const)[index] ?? 'completed',
       items: [
         { id: `${key}-u`, type: 'userMessage', content: [{ type: 'text', text: 'Make the client retry a 502 before giving up.' }] },
         { id: `${key}-a`, type: 'assistantMessage', phase: 'final', text: ANSWERS[index] },
@@ -51,6 +51,7 @@ export const sideBySideStore = (): AppStore => {
         cwd: prior.cwd,
         model: `model-${String.fromCharCode(97 + index)}`,
         agent: member.agent,
+        ...(index === 0 ? { ceiling: { level: 'edit' as const, hold: 'held' as const } } : {}),
       },
       // The preview's own conversations carry real model names in their model
       // option; the tiles' frames are public, so the option is left out and
@@ -71,7 +72,22 @@ export const sideBySideStore = (): AppStore => {
     displayName: 'Model A',
     description: 'Preview model',
   }))
-  const own = previewStore({ ...snapshot, sessions, runtimes, models } as Partial<AppSnapshot>)
+  const approvals: AppSnapshot['approvals'] = [{
+    key: SIDE_BY_SIDE_KEYS[1]!,
+    approval: {
+      id: 'side-by-side-waiting-approval',
+      type: 'command',
+      kind: 'shell',
+      command: 'pnpm test',
+      cwd: '/workspace',
+      reason: 'Runs the project tests before work continues.',
+      options: [
+        { id: 'yes', label: 'Allow', intent: 'approve' },
+        { id: 'no', label: 'Deny', intent: 'deny' },
+      ],
+    },
+  } as AppSnapshot['approvals'][number]]
+  const own = previewStore({ ...snapshot, sessions, runtimes, models, approvals } as Partial<AppSnapshot>)
   const peers: readonly TeamPeerInfo[] = SIDE_BY_SIDE_MEMBERS.map((member) => ({
     runtime: member.runtime,
     sessionId: member.id,
