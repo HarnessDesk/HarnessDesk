@@ -130,8 +130,9 @@ export const REVIEWER_REASONS_PREVIEW: FlowPreview = {
       ceiling: { level: 'read', hold: 'held' },
       candidates: [
         { seat: { runtime: 'alpha' }, label: 'Alpha', runtimeName: 'Alpha', state: 'passed', reason: { kind: 'sameProvider' }, fix: { kind: 'seats' } },
-        { seat: { runtime: 'beta' }, label: 'Beta', runtimeName: 'Beta', state: 'passed', reason: { kind: 'unknownProvider' }, fix: { kind: 'seats' } },
+        { seat: { runtime: 'beta' }, label: 'Beta', runtimeName: 'Beta', state: 'taken', reason: null, fix: null },
         { seat: { runtime: 'gamma' }, label: 'Gamma', runtimeName: 'Gamma', state: 'passed', reason: { kind: 'unheld', level: 'read', detail: null }, fix: { kind: 'ceilings' } },
+        { seat: { runtime: 'delta' }, label: 'Delta', runtimeName: 'Delta', state: 'passed', reason: { kind: 'unheld', level: 'read', detail: null }, fix: { kind: 'ceilings' }, alsoPassed: [{ kind: 'sameProvider' }] },
       ],
     },
   }],
@@ -143,6 +144,7 @@ export const REVIEWER_REASONS_PREVIEW: FlowPreview = {
 
 export const GEMINI_UNTRUSTED_PREVIEW: FlowPreview = {
   ...FIX_PREVIEW,
+  token: null,
   commands: [],
   problems: [{
     level: 'error', at: 'roles.reviewer.seat',

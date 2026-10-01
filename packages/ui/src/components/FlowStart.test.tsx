@@ -123,7 +123,7 @@ it('every candidate and effective ceiling remains visible', async () => {
   expect(chips).toEqual(expect.arrayContaining(['Edit · held', 'Read · asked']))
 })
 
-it('renders independent-provider and held-ceiling refusal reasons for candidates', async () => {
+it('renders provider warnings, held-ceiling refusals, and additional provider reasons', async () => {
   const reviewer: FlowPreviewSeat = {
     role: 'reviewer', index: 0, agent: 'reviewer', isolate: false, reviews: true,
     plan: {
@@ -141,7 +141,12 @@ it('renders independent-provider and held-ceiling refusal reasons for candidates
         }),
         candidate({
           label: 'Cursor · Gamma', runtimeName: 'Cursor', seat: { runtime: 'cursor' },
-          reason: { kind: 'unknownProvider' }, fix: { kind: 'seats' },
+          state: 'taken', reason: null, fix: null,
+        }),
+        candidate({
+          label: 'Cursor · Delta', runtimeName: 'Cursor', seat: { runtime: 'cursor' },
+          reason: { kind: 'unheld', level: 'read', detail: null }, fix: { kind: 'ceilings' },
+          alsoPassed: [{ kind: 'sameProvider' }],
         }),
       ],
     } as SeatPlan,
@@ -159,7 +164,8 @@ it('renders independent-provider and held-ceiling refusal reasons for candidates
 
   expect(container.textContent).toContain('Same provider as the writer')
   expect(container.textContent).toContain('cannot hold read')
-  expect(container.textContent).toContain('Can’t confirm a different provider from the writer')
+  expect(container.textContent).not.toContain('Can’t confirm a different provider from the writer')
+  expect(container.textContent).toContain('Picked')
   expect(container.textContent).toContain(warning)
 })
 
