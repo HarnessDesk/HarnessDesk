@@ -382,3 +382,38 @@ for (const value of [
     assert.ok(h.calls.some(isPost))
   })
 }
+
+// Round 6: the same secrets in the other forms a log or a config dump prints them.
+const secretForms = [
+  `{"Coo${'kie'}":"sessionid=a8f3k2m9x4Zq"}`,
+  `{"Author${'ization'}":"${['opaque', 'key', '81732'].join('-')}"}`,
+  `Author${'ization'}: "${['opaque', 'key', '81732'].join('-')}"`,
+  `X-Access-${'Token'}: ${['opaque', 'key', '81732'].join('-')}`,
+  `pass${'word'}=${['hunter2', 'hunter2'].join('')}`,
+  `"api_${'key'}": "Zk3Qw9Xv2Lm8Rt5Y"`,
+  `session_${'id'}: 7f3a9c2e81b4`,
+]
+for (const value of secretForms) {
+  test(`refuses a secret-named field in a serialized or quoted form, in both posts: ${value.slice(0, 18)}`, async () => {
+    for (const mode of ['review', 'fixes']) {
+      const h = harness()
+      const options = mode === 'review'
+        ? { pr: '42', round: '1', by: 'Codex', body: value, repo: 'owner/repo' }
+        : { pr: '42', fixes: value, repo: 'owner/repo' }
+      assert.equal(await postReview(options, h.runner, h.io), 2)
+      assert.equal(h.calls.some(isPost), false)
+      assert.doesNotMatch(h.output().stderr, /a8f3k2m9|opaque|hunter2|Zk3Qw9Xv|7f3a9c2e/, 'the refusal must not echo the value')
+    }
+  })
+}
+
+for (const value of [
+  'token: redacted', 'password: ********', 'api_key=process.env.KEY', 'set token=... in the config', 'secret: required',
+  'The session-id handling and cookie jar are covered by tests',
+]) {
+  test(`a placeholder or plain prose about a secret-named field still posts: ${value.slice(0, 28)}`, async () => {
+    const h = harness()
+    assert.equal(await postReview({ pr: '42', round: '1', by: 'Codex', body: value, repo: 'owner/repo' }, h.runner, h.io), 0)
+    assert.ok(h.calls.some(isPost))
+  })
+}

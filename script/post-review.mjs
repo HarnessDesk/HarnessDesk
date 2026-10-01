@@ -116,16 +116,21 @@ const privateLines = (body) => {
  * to the terminal log this refusal exists to protect.
  */
 /**
- * Headers that carry a secret, quoted from a log: the value is opaque, so there is no vendor prefix
- * to match. A value that reads as a placeholder (angle brackets, braces, `$VAR`, an ellipsis) is fine.
+ * A secret-named key with an opaque value, in any form a log or a config dump prints it:
+ * `Cookie: v`, `api_key=v`, `"Authorization": "v"`, `{'X-Access-Token': 'v'}`. There is no vendor prefix to match,
+ * so the key name carries it. A value that reads as a placeholder (an angle-bracket name, a variable, an
+ * ellipsis, a plain word like redacted or none) is fine. A false refusal costs a minute; a leaked token
+ * costs a rotation.
  */
-const SECRET_HEADER = /\b(?:proxy-)?authorization|\bcookie|\bset-cookie|\bx-api-key|\bx-auth-token/i
+const SECRET_KEY = '[A-Za-z0-9_.-]*(?:authorization|cookie|token|secret|passw(?:or)?d|pwd|api[-_ ]?key|access[-_ ]?key|private[-_ ]?key|credential|session[-_ ]?id|bearer)[A-Za-z0-9_.-]*'
+const KEY_VALUE = new RegExp(`["']?\\b(${SECRET_KEY})["']?\\s*[:=]\\s*["']?(?:(?:bearer|basic|token)\\s+)?([^\\s"',;}\\])]+)`, 'gi')
+const PLACEHOLDER_VALUE = /^(?:[<{[$%]|\.{2,}|…|\*+|x{3,}|-+|<.*>)|^(?:redacted|none|null|undefined|true|false|string|object|array|number|required|optional|empty|unset|hidden|masked|omitted|secret|token|password|value|example|placeholder|changeme|your[-_a-z]*|env|process\.env\S*)$/i
 const headerCredentialLines = (source) => source.split(/\r?\n/).flatMap((line, index) => {
-  const header = line.match(/\b((?:proxy-)?authorization|set-cookie|cookie|x-api-key|x-auth-token)\s*[:=]\s*(?:(?:bearer|basic|token)\s+)?([^\s'",;]+)/i)
-  if (!header || !SECRET_HEADER.test(header[1])) return []
-  const value = header[2]
-  const placeholder = /^[<{[$]|^(?:\.{3}|…|\*+|x{4,}|redacted|none|null|true|false)$/i.test(value) || /[<{]/.test(value[0] ?? '')
-  return value.length >= 8 && !placeholder ? [`line ${index + 1}  [credential in a header]`] : []
+  for (const match of line.matchAll(KEY_VALUE)) {
+    const value = match[2]
+    if (value.length >= 8 && !PLACEHOLDER_VALUE.test(value)) return [`line ${index + 1}  [credential in a secret-named field]`]
+  }
+  return []
 })
 const bearerLines = (source) => source.split(/\r?\n/).flatMap((line, index) =>
   /\bbearer\s+(?![<{[$])[A-Za-z0-9._~+/=-]{20,}/i.test(line) ? [`line ${index + 1}  [bearer token]`] : [])
