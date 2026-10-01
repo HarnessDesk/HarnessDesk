@@ -126,3 +126,14 @@ if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
     }),
   })
 }
+
+// A draft typed in one test is mirrored to `sessionStorage` (state/drafts);
+// left there, the next test's fresh store would read it back in.
+import { afterEach } from 'vitest'
+afterEach(() => {
+  try {
+    globalThis.sessionStorage?.clear()
+  } catch {
+    // No session storage here: nothing was mirrored.
+  }
+})

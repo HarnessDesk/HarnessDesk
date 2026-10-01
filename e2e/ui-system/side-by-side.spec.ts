@@ -328,3 +328,17 @@ test('a grid of tiles draws no composer in any tile, and an expanded tile draws 
   await target.locator('button[aria-label^="Expand "]').first().click()
   await expect(target.locator('[data-slot="side-by-side-tile"]:not([data-hidden]) textarea')).toHaveCount(1)
 })
+
+test('a draft typed in an expanded tile is waiting when the tile is expanded again', async ({ page }) => {
+  await gotoPreview(page)
+  await setWidth(page, 'side-by-side-two', 1200)
+  const target = grid(page, 'side-by-side-two')
+  const expand = target.locator('button[aria-label="Expand Alpha"]')
+  await expand.click()
+  const box = target.locator('[data-slot="side-by-side-tile"]:not([data-hidden]) textarea')
+  await box.fill('half a thought, kept')
+  await target.locator('button[aria-label="Collapse Alpha"]').click()
+  expect(await target.locator('[data-slot="side-by-side-tile"] textarea').count()).toBe(0)
+  await expand.click()
+  await expect(box).toHaveValue('half a thought, kept')
+})

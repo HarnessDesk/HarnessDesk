@@ -79,6 +79,7 @@ import {
 import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from './ComposerControls'
 import { ContextUsage } from './ContextUsage'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
+import { draftsOf } from '../state/drafts'
 import styles from './Composer.module.css'
 
 /**
@@ -184,8 +185,26 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   const textarea = useRef<HTMLTextAreaElement>(null)
   const filePicker = useRef<HTMLInputElement>(null)
 
-  const [text, setText] = useState('')
-  const [attachments, setAttachments] = useState<Attachment[]>([])
+  /* The draft belongs to the conversation, not to this composer: a tile
+     returned to the grid, a tab switched or a window reloaded draws a new
+     composer, and what was typed is waiting for it. See state/drafts. */
+  const drafts = draftsOf(store)
+  const [text, setText] = useState(() => (key ? (drafts.live(key)?.text ?? '') : ''))
+  const [attachments, setAttachments] = useState<Attachment[]>(() => (key ? [...(drafts.live(key)?.attachments ?? [])] : []))
+  /* Which conversation's draft `text` holds: words are only ever saved to
+     the conversation they were typed for. On a switch nothing is saved until
+     the new conversation's own draft has been read in. */
+  const draftOf = useRef(key)
+  useEffect(() => {
+    if (key && draftOf.current === key) drafts.setLive(key, { text, attachments })
+  }, [drafts, key, text, attachments])
+  useEffect(() => {
+    if (draftOf.current === key) return
+    draftOf.current = key
+    const held = key ? drafts.live(key) : null
+    setText(held?.text ?? '')
+    setAttachments(held ? [...held.attachments] : [])
+  }, [drafts, key])
   // Drag-and-drop: the counter survives the enter/leave pairs every child
   // fires as the pointer crosses it, so the highlight does not flicker.
   const dragDepth = useRef(0)
