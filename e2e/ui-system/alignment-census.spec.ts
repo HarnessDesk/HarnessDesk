@@ -186,15 +186,33 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     while (branch.parentElement && branch.parentElement !== row) branch = branch.parentElement
     if (!visibleChildren(row).slice(0, visibleChildren(row).indexOf(branch)).some(hasText)) continue
     let surface: Element | null = button.parentElement
-    while (surface && surface !== root && !boxSurface(surface)) surface = surface.parentElement
+    // A Row owns its inset even when its container draws the visible card edge.
+    while (surface && surface !== root && !surface.matches('[data-slot="row"]') && !boxSurface(surface)) surface = surface.parentElement
     if (!surface || surface === root) continue
     const surfaceRect = surface.getBoundingClientRect()
     const surfaceStyle = getComputedStyle(surface)
     const rightInset = parseFloat(surfaceStyle.paddingRight) + parseFloat(surfaceStyle.borderRightWidth)
     const columnRight = surfaceRect.right - rightInset
+    const buttonRect = button.getBoundingClientRect()
+    const buttonStyle = getComputedStyle(button)
+    const visibleColor = (color: string) => {
+      if (color === 'transparent') return false
+      const alpha = color.match(/,\s*([\d.]+)\s*\)$/)
+      return !alpha || Number(alpha[1]) > 0
+    }
+    const visibleBorder = ['Top', 'Right', 'Bottom', 'Left'].some(side => {
+      const width = parseFloat(buttonStyle[`border${side}Width` as 'borderTopWidth'])
+      const style = buttonStyle[`border${side}Style` as 'borderTopStyle']
+      const color = buttonStyle[`border${side}Color` as 'borderTopColor']
+      return width > 0 && style !== 'none' && visibleColor(color)
+    })
+    const visibleFill = visibleColor(buttonStyle.backgroundColor)
+    const visibleBox = visibleBorder || visibleFill
     const glyph = button.querySelector('svg')!.getBoundingClientRect()
-    // The content edge is the right edge shared by the surface's text column; the hit target may hang past it.
-    if (columnRight - glyph.right >= 2 && surfaceRect.right - button.getBoundingClientRect().right <= 48) {
+    // docs/design.md, “What the engine checks”: trailing actions align to the surface text column.
+    // A visible border/fill makes the button box its edge; a ghost button has no visible box, so align its glyph.
+    const trailingEdge = visibleBox ? buttonRect.right : glyph.right
+    if (Math.abs(columnRight - trailingEdge) >= 2 && surfaceRect.right - buttonRect.right <= 48) {
       record('trailing-glyph-off-column', button)
     }
   }
