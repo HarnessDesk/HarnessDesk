@@ -106,7 +106,17 @@ default can produce a unix socket path in a test fixture that overruns
 macOS's 104-byte `sun_path` limit and crashes the runtime rather than failing
 the test cleanly.
 
-Open the PR, wait for CI, and squash-merge once it is green. A single failed
+Open the PR, wait for CI, and land it through `node script/land-safe.mjs
+<pr> [--repo owner/name]`. The script reads check-runs for the PR's current
+head SHA, requires `Build, typecheck, test`, `UI system browser integration`
+and `UI system native integration` to have completed successfully, and checks
+that both the head and base branch tip stayed put
+before it asks GitHub to squash-merge that exact head. This avoids the stale
+result `gh pr checks` can show immediately after a push. Use it for every
+landing, whether the merge is initiated by a human or an agent seat; use
+`--dry-run` to print the decision without merging. Exit 4 means GitHub added
+the PR to its merge queue; it is not merged until a later run confirms the
+`MERGED` state and merge commit. A single failed
 job that reproduces the exact "document default font-size" signature this
 codebase has fought before (the measured number matches the browser's
 default rather than the app's own, with the element's box sized correctly
