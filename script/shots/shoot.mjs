@@ -634,13 +634,13 @@ try {
   /** Opens the non-default start kind from the sidebar's secondary start menu. */
   const openStartingKind = async (kind) => {
     const opened = await cdp.eval(`(() => {
-      const trigger = document.querySelector('button[title="More ways to start"]')
+      const trigger = document.querySelector('nav[aria-label="Workspace actions"] button[title="More ways to start"]')
       if (!trigger) return false
       trigger.click()
       return true
     })()`)
     if (!opened) throw new Error('no More ways to start control in the sidebar')
-    if (!(await click(`${kind}…`))) throw new Error(`no ${kind}… choice in More ways to start`)
+    if (!(await click(`${kind}…`, '[role="menu"]'))) throw new Error(`no ${kind}… choice in More ways to start`)
     const chooser = '[role="dialog"][aria-label="What are you starting?"]'
     await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(chooser)}) !== null`), Boolean)
     const selected = await cdp.eval(`(() => {
