@@ -189,15 +189,12 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     while (surface && surface !== root && !boxSurface(surface)) surface = surface.parentElement
     if (!surface || surface === root) continue
     const surfaceRect = surface.getBoundingClientRect()
-    const column = row.matches('[data-slot="navigation-group-header"]') ? row : surface
-    const columnRect = column.getBoundingClientRect()
-    const columnStyle = getComputedStyle(column)
-    const rightInset = parseFloat(columnStyle.paddingRight) + parseFloat(columnStyle.borderRightWidth)
-    const columnRight = columnRect.right - rightInset
-    const buttonRect = button.getBoundingClientRect()
+    const surfaceStyle = getComputedStyle(surface)
+    const rightInset = parseFloat(surfaceStyle.paddingRight) + parseFloat(surfaceStyle.borderRightWidth)
+    const columnRight = surfaceRect.right - rightInset
     const glyph = button.querySelector('svg')!.getBoundingClientRect()
     // The content edge is the right edge shared by the surface's text column; the hit target may hang past it.
-    if (columnRight - glyph.right >= 2 && surfaceRect.right - buttonRect.right <= 48) {
+    if (columnRight - glyph.right >= 2 && surfaceRect.right - button.getBoundingClientRect().right <= 48) {
       record('trailing-glyph-off-column', button)
     }
   }

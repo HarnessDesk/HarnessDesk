@@ -1358,7 +1358,10 @@ export const SessionTree = ({ now }: { now: number }) => {
       const roomOpener = room?.querySelector<HTMLButtonElement>('[aria-label^="Room "]')
       const disclosure = room?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-action"][aria-label*="agents in"]')
       if (nested && roomOpener && disclosure) {
-        if (disclosure.getAttribute('aria-expanded') === 'true') disclosure.click()
+        if (disclosure.getAttribute('aria-expanded') === 'true') {
+          focus(roomOpener)
+          disclosure.click()
+        }
         else focus(roomOpener)
       } else if (target.parentElement?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-action"][aria-label*="agents in"]')?.getAttribute('aria-expanded') === 'true') {
         target.parentElement.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-action"][aria-label*="agents in"]')?.click()

@@ -153,6 +153,41 @@ it('ArrowLeft collapses an expanded room from its opening row', () => {
   expect(store.openTeamRoom).not.toHaveBeenCalled()
 })
 
+it('ArrowLeft from a room member focuses the room row before collapsing it', () => {
+  const member = summary({ id: 'room-member' })
+  const key = String(sessionKey(member.runtime, member.id))
+  let updateSnapshot: ((patch: Partial<AppSnapshot>) => void) | undefined
+  let focusedWhenCollapsed: Element | null = null
+  const toggleCollapsed = vi.fn((id: string) => {
+    focusedWhenCollapsed = document.activeElement
+    updateSnapshot?.({ listPrefs: { ...emptySnapshot().listPrefs, collapsed: [id] } })
+  })
+  const { container: tree, store, update } = treeWith(
+    [room({ id: 'room', name: 'Build', members: [key] })],
+    [member],
+    [],
+    {},
+    undefined,
+    null,
+    new Map(),
+    { toggleCollapsed },
+  )
+  updateSnapshot = update
+  const opener = roomRow(tree, 'Build') as HTMLButtonElement
+  const memberRow = [...tree.querySelectorAll<HTMLButtonElement>('[data-nested="true"] [data-slot="sidebar-menu-button"]')]
+    .find((row) => row.textContent?.trim() === 'room-member')!
+  memberRow.focus()
+  expect(document.activeElement).toBe(memberRow)
+
+  act(() => memberRow.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true })))
+
+  expect(store.toggleCollapsed).toHaveBeenCalledWith('room')
+  expect(focusedWhenCollapsed).toBe(opener)
+  expect(document.activeElement).toBe(opener)
+  expect(tree.querySelector('[data-nested="true"] [data-slot="sidebar-menu-button"]')).toBeNull()
+  expect(tree.querySelector('[data-slot="sidebar-menu-action"][aria-label*="agents in Build"]')?.getAttribute('aria-expanded')).toBe('false')
+})
+
 it('uses each nested room member as its own navigation row inside a virtual project', () => {
   const first = summary({ id: 'first-member', updatedAt: 1000 })
   const second = summary({ id: 'second-member', updatedAt: 999 })
