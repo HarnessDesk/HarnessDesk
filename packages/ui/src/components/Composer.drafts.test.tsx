@@ -61,12 +61,17 @@ const snapshot: AppSnapshot = {
   workspace: { path: '/w', name: 'w' } as AppSnapshot['workspace'],
   sessions: new Map([[one, session('s-1')], [two, session('s-2')]]),
 }
-const store = {
-  subscribe: () => () => {},
-  getSnapshot: () => snapshot,
-  transport: { request: vi.fn() },
-  notice: vi.fn(),
-} as unknown as AppStore
+/* A fresh store per test: the drafts are the store's, so one test's words
+   can never be waiting in the next test's composer. */
+let store: AppStore
+beforeEach(() => {
+  store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    transport: { request: vi.fn() },
+    notice: vi.fn(),
+  } as unknown as AppStore
+})
 
 const draw = (key: SessionKey | null): void => {
   act(() => {

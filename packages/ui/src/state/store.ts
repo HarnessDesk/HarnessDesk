@@ -307,14 +307,14 @@ export type {
   SeatRefusal,
   StoredCredential,
 } from './snapshot'
-import { appDrafts } from './drafts'
+import { Drafts } from './drafts'
 export { emptySnapshot } from './snapshot'
 
 export type UnheldCeilings = 'seat' | 'refuse'
 
 export class AppStore {
   /** What each conversation has typed and not sent. See `state/drafts`. */
-  readonly drafts = appDrafts()
+  readonly drafts = new Drafts()
   #captureEpoch = 0
   #captureList = 0
   /**
