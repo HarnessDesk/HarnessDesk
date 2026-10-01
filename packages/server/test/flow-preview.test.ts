@@ -193,6 +193,85 @@ rules:
   assert.ok(preview.problems.some((problem) => problem.at === 'roles.reviewer' && problem.level === 'error'))
 })
 
+test('independence follows the final fallback winner through a chain of roles', async () => {
+  const state = rig()
+  state.agentsRoster = ['writer', 'middle', 'final'].map((id) => AGENT(id))
+  const source = `
+version: 2
+name: Chained independence
+roles:
+  writer: { kind: agent, uses: writer, grant: edit }
+  final: { kind: agent, uses: final, grant: read, independentOf: [middle] }
+  middle: { kind: agent, uses: middle, grant: read, independentOf: [writer] }
+seed: { role: writer, title: Write }
+rules:
+  - { id: middle, on: writer, when: { every: [done] }, then: { role: middle, title: Middle } }
+  - { id: final, on: middle, when: { every: [done] }, then: { role: final, title: Final } }
+`
+  const candidates: Record<string, FlowSeat[]> = {
+    writer: [{ runtime: 'alpha' }],
+    middle: [{ runtime: 'alpha' }, { runtime: 'beta' }],
+    final: [{ runtime: 'beta' }, { runtime: 'gamma' }],
+  }
+  const port: FlowPreviewPort = {
+    ...state.port,
+    previewAgent: async (_root, agent, _seats, grant) => {
+      const list = candidates[agent]!
+      return {
+        id: agent, from: 'prefer', winner: 0, blocked: null,
+        ceiling: { level: grant, hold: 'asked' },
+        candidates: list.map((seat, index) => ({
+          seat, label: seat.runtime, runtimeName: seat.runtime,
+          state: index === 0 ? 'taken' : 'untried', reason: null, fix: null,
+        })),
+      }
+    },
+    providerOf: async (runtime) => runtime === 'alpha' ? 'openai' : 'anthropic',
+  }
+  const preview = await new FlowPreviews(port).freeze('/repo', source)
+  const middle = preview.seats.find((seat) => seat.role === 'middle')!.plan
+  const final = preview.seats.find((seat) => seat.role === 'final')!.plan
+  assert.equal(middle.winner, 1, 'the fallback provider wins after alpha is filtered')
+  assert.equal(middle.candidates[0]?.reason?.kind, 'sameProvider')
+  assert.equal(final.winner, null, 'the final role compares with middle’s seated beta provider')
+  assert.deepEqual(final.candidates.map((candidate) => candidate.reason?.kind), ['sameProvider', 'sameProvider'])
+})
+
+test('an isolated checkout provider clash predicts the run stall without choosing a fallback', async () => {
+  const state = rig()
+  state.agentsRoster = [AGENT('writer'), AGENT('reviewer')]
+  const source = `
+version: 2
+name: Isolated provider
+roles:
+  writer: { kind: agent, uses: writer, grant: edit }
+  reviewer: { kind: agent, uses: reviewer, grant: read, isolate: true, independentOf: [writer] }
+seed: { role: writer, title: Write }
+rules:
+  - { id: review, on: writer, when: { every: [done] }, then: { role: reviewer, title: Review } }
+`
+  const port: FlowPreviewPort = {
+    ...state.port,
+    previewAgent: async (_root, agent, _seats, grant) => {
+      const seats = agent === 'writer' ? [{ runtime: 'alpha' }] : [{ runtime: 'beta' }, { runtime: 'gamma' }]
+      return {
+        id: agent, from: 'prefer', winner: 0, blocked: null,
+        ceiling: { level: grant, hold: 'asked' },
+        candidates: seats.map((seat, index) => ({ seat, label: seat.runtime, runtimeName: seat.runtime, state: index ? 'untried' : 'taken', reason: null, fix: null })),
+      }
+    },
+    providerOf: async (runtime, cwd) => runtime === 'alpha' ? 'openai' : cwd === '/repo/lane-preview' ? 'openai' : 'anthropic',
+    checkoutPath: async (root, isolate) => isolate ? `${root}/lane-preview` : root,
+  } as FlowPreviewPort & { checkoutPath: (root: string, isolate: boolean) => Promise<string> }
+  const preview = await new FlowPreviews(port).freeze('/repo', source)
+  const reviewer = preview.seats.find((seat) => seat.role === 'reviewer')!.plan
+  assert.equal(reviewer.winner, null)
+  assert.equal(reviewer.blocked, 'This step needs an independent provider. Choose a seat from another provider.')
+  assert.equal(reviewer.candidates[0]?.reason?.kind, 'sameProvider')
+  assert.equal(reviewer.candidates[1]?.state, 'untried', 'runtime will stall after opening beta instead of trying gamma')
+  assert.ok(preview.problems.some((problem) => problem.at === 'roles.reviewer' && problem.text.includes('independent provider')))
+})
+
 test('a trigger again round keeps a mixed predecessor role conditional in the dry run', async () => {
   const state = rig()
   state.agentsRoster = [AGENT('writer'), AGENT('target')]

@@ -329,6 +329,9 @@ const asReason = (value: unknown): SeatReason | null => {
       return { kind: 'unknownRuntime' }
     case 'signedOut':
       return { kind: 'signedOut' }
+    case 'sameProvider':
+    case 'unknownProvider':
+      return { kind: raw.kind }
     case 'spent':
       return { kind: 'spent' }
     case 'unavailable':
