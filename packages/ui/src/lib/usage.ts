@@ -1,4 +1,5 @@
 import {
+  type AccountActivity,
   bindingLane,
   isBlocked,
   isLaneKnown,
@@ -28,6 +29,54 @@ const DAY = 24 * HOUR
 
 /** The Dashboard's initial spend window, shared with per-row accounting. */
 export const DEFAULT_RANGE = 30
+
+export interface AccountActivitySummary {
+  readonly last30: number | null
+  readonly streak: number | null
+  readonly lifetime: number | null
+  /** Retained for a future chart; one value per local day, oldest first. */
+  readonly series: number[]
+}
+
+/**
+ * Summarize the vendor's account-wide activity over the last 30 local days.
+ * Dates are normalized by local calendar fields so DST days remain one day.
+ * The zero-filled series stays available for a later chart.
+ */
+export const accountActivitySummary = (
+  activity: AccountActivity,
+  now: number,
+): AccountActivitySummary | null => {
+  const today = new Date(now)
+  const first = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (DEFAULT_RANGE - 1))
+  const buckets = new Map<number, number>()
+  for (const entry of activity.days) {
+    const date = new Date(entry.day)
+    const key = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+    buckets.set(key, (buckets.get(key) ?? 0) + entry.tokens)
+  }
+
+  const series = Array.from({ length: DEFAULT_RANGE }, (_, index) => {
+    const date = new Date(first.getFullYear(), first.getMonth(), first.getDate() + index)
+    return buckets.get(date.getTime()) ?? 0
+  })
+  const last30 = activity.days.length === 0
+    ? null
+    : series.reduce((sum, tokens) => sum + tokens, 0)
+
+  if (
+    last30 === null &&
+    activity.currentStreakDays === null &&
+    activity.lifetimeTokens === null
+  ) return null
+
+  return {
+    last30,
+    streak: activity.currentStreakDays,
+    lifetime: activity.lifetimeTokens,
+    series,
+  }
+}
 
 /** Below this, a lane is amber. At or below zero it is spent. */
 const LOW_AT = 20

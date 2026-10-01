@@ -1199,6 +1199,16 @@ rules:
       await sleep(1200)
     } },
 
+    /** The same Plans view, opened on the account whose report includes cross-machine activity. */
+    'dashboard-plans-activity': { leaveOverlay: true, expect: 'Plans', run: async () => {
+      if (!(await click('Dashboard'))) throw new Error('no Dashboard row in the sidebar')
+      await sleep(1600)
+      if (!(await click('Plans'))) throw new Error('no Plans row in the Dashboard nav')
+      await sleep(1600)
+      if (!(await click('dev@acme.dev'))) throw new Error('no dev@acme.dev row in Plans')
+      await sleep(1200)
+    } },
+
     /** The rebuilt settings patterns, reached through the same store request features use. */
     settings: { leaveOverlay: true, expect: 'Appearance', run: async () => {
       await cdp.eval(`${STORE}.askSettings('appearance'); true`)

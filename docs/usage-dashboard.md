@@ -836,6 +836,11 @@ in place into that account's own shape body, drawn as a full-width row of its
 own; Escape collapses it, whether focus is on the row or inside the body
 itself (moving focus back to the row's own button); one is open at a time.
 
+When the account provides its own activity history, the expanded Plans row
+adds an **All machines** band: its daily token counts cover the account across
+every machine, so the 30-day total can exceed the figures above, which come
+only from this machine's transcripts.
+
 **Each shape's bar means something different, because the shapes are not the
 same kind of fact.** Windows and Allowance draw the binding lane's own percent
 left — the same figure the card's headline promotes. Balance has no window at

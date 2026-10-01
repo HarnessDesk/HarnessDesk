@@ -2280,6 +2280,16 @@ const PLANS_CASES = {
     account: 'windows@harnessdesk.app',
     plan: 'Max 20x',
     lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 42, windowMinutes: 10_080, resetsAt: PLANS_NOW + 2 * PLANS_DAY }],
+    accountActivity: {
+      days: [
+        { day: new Date(2026, 8, 24).getTime(), tokens: 320_000 },
+        { day: new Date(2026, 8, 26).getTime(), tokens: 510_000 },
+      ],
+      lifetimeTokens: 82_000_000,
+      peakDailyTokens: 1_400_000,
+      currentStreakDays: 6,
+      longestStreakDays: 18,
+    },
     spend: {
       currency: 'USD', todayCost: null, windowCost: 50, windowDays: 30,
       todayTokens: null, windowTokens: null, provenance: 'listPrice', coverage: null,
