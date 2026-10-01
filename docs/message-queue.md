@@ -216,8 +216,9 @@ and editing never changes the composer or its draft.
   sentence.
 - **No persistence across a host restart.** See above — a dead session cannot
   deliver, and a stale message firing later is worse than a lost draft.
-- Refused-draft recovery stays in `sessionStorage` for the window's lifetime
-  and is lost when the app restarts.
+- Refused drafts remain in memory until restored or removed, and are mirrored
+  to `sessionStorage` when available; reload recovery needs working browser
+  storage, and an app restart loses them.
 - **Action commands bypass the queue.** Inline workbench commands (`/open`)
   execute locally upon pressing Enter; they never wait behind an agent turn.
 - **Context chips stay note chips on edit.** An edited message preserves

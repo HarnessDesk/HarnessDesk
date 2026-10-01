@@ -223,7 +223,26 @@ describe('the composer while a turn is running', () => {
     type('do not lose me')
     enter()
     await act(async () => {})
-    expect(textarea().value).toBe('do not lose me')
+    expect(textarea().value).toBe('')
+    expect(calls.addRecoverableDraft).toHaveBeenCalledWith(KEY, expect.objectContaining({ text: 'do not lose me' }))
+    expect(container.textContent).toContain('Message not sent')
+  })
+
+  it('keeps an empty-composer refusal recoverable after the Composer remounts', async () => {
+    calls.queue.mockImplementationOnce(async () => false)
+    mount({ busy: true })
+    type('recover me after reload')
+    enter()
+    await act(async () => {})
+    expect(textarea().value).toBe('')
+    expect(mockRecoveries.get(KEY)?.map((draft) => draft.text)).toContain('recover me after reload')
+
+    act(() => root.unmount())
+    root = createRoot(container)
+    mount({ busy: false })
+    expect(textarea().value).toBe('')
+    expect(mockRecoveries.get(KEY)?.map((draft) => draft.text)).toContain('recover me after reload')
+    expect(container.textContent).toContain('Restore')
   })
 
   it('keeps a refused steer recoverable without replacing a newer draft', async () => {
@@ -268,7 +287,18 @@ describe('the composer while a turn is running', () => {
     expect(textarea().value).toBe('A private draft')
   })
 
-  it('restores a refused steer with its chips when the composer is empty', async () => {
+  it('shows when a refused draft could not be saved for a reload', () => {
+    mockRecoveries = new Map([[KEY, [{
+      id: 99,
+      text: 'memory-only recovery',
+      attachments: [],
+      detail: "Restore it. Kept until you close this window's view — it could not be saved for a reload.",
+    }]]])
+    mount({ busy: false })
+    expect(container.textContent).toContain('it could not be saved for a reload')
+  })
+
+  it('keeps a refused steer and its chips in recovery when the composer is empty', async () => {
     calls.steer.mockImplementationOnce(async () => false)
     mount({ busy: true, steer: true })
     act(() => window.dispatchEvent(new CustomEvent('harnessdesk:compose', {
@@ -278,8 +308,12 @@ describe('the composer while a turn is running', () => {
       enter({ meta: true })
       await Promise.resolve()
     })
-    expect(textarea().value).toBe('steer me')
-    expect(container.textContent).toContain('spec.md')
+    expect(textarea().value).toBe('')
+    expect(mockRecoveries.get(KEY)?.[0]).toMatchObject({
+      text: 'steer me',
+      attachments: [{ name: 'spec.md', kind: 'file' }],
+    })
+    expect(container.textContent).toContain('Restore')
   })
 
   it('keeps a refused queue recoverable without replacing a newer draft', async () => {

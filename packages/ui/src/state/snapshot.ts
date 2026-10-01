@@ -207,6 +207,8 @@ export interface PendingApproval {
 /** A refused or unsaved draft that belongs to one conversation in this window. */
 export interface RecoverableDraft {
   readonly id: number
+  /** Queue-row id when this recovery came from a refused edit. */
+  readonly sourceId?: string
   readonly text: string
   readonly attachments: readonly {
     readonly name: string

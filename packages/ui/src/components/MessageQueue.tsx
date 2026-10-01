@@ -44,19 +44,22 @@ export const MessageQueue = () => {
     readonly text: string
     readonly input: readonly UserContent[]
     readonly key: typeof key
+    readonly attemptId: number
   } | null>(null)
   const [saving, setSaving] = useState(false)
   const previouslyEditing = useRef<string | null>(null)
+  const nextEditAttempt = useRef(0)
   const recoveredEdits = useRef(new Set<string>())
 
-  const recoverEdit = useCallback((id: string, text: string, input: readonly UserContent[], detail: string, originKey: typeof key) => {
+  const recoverEdit = useCallback((id: string, attemptId: number, text: string, input: readonly UserContent[], detail: string, originKey: typeof key) => {
     if (!originKey) return
-    const recoveryId = `${originKey}:${id}`
+    const recoveryId = `${originKey}:${attemptId}`
     if (recoveredEdits.current.has(recoveryId)) return
     recoveredEdits.current.add(recoveryId)
     const editedInput = withEditedText(input, text)
     const view = describeQueued(editedInput)
     store.addRecoverableDraft(originKey, {
+      sourceId: id,
       text: view.text,
       attachments: [
         ...view.attachments.map((attachment) => ({
@@ -79,6 +82,7 @@ export const MessageQueue = () => {
     if (!editing || messages.some((message) => message.id === editing.id)) return
     recoverEdit(
       editing.id,
+      editing.attemptId,
       editing.text,
       editing.input,
       'Your edit wasn’t saved — the original was already sent. Restore it to the composer.',
@@ -109,7 +113,7 @@ export const MessageQueue = () => {
       await store.updateQueued(id, editedInput, editing.key ?? undefined)
       setEditing(null)
     } catch (error) {
-      recoverEdit(id, editing.text, editing.input,
+      recoverEdit(id, editing.attemptId, editing.text, editing.input,
         `Could not save the queued edit: ${error instanceof Error ? error.message : String(error)} Restore it to the composer.`, editing.key)
       setEditing(null)
     } finally {
@@ -223,7 +227,7 @@ export const MessageQueue = () => {
                   aria-label="Edit"
                   title={editing ? 'Save or cancel the current edit first' : 'Edit this waiting message in its row'}
                   disabled={Boolean(editing) || saving}
-                  onClick={() => setEditing({ id: message.id, text: describeQueued(message.input).text, input: message.input, key })}
+                  onClick={() => setEditing({ id: message.id, text: describeQueued(message.input).text, input: message.input, key, attemptId: ++nextEditAttempt.current })}
                 >
                   <PencilIcon size={13} />
                 </Button>

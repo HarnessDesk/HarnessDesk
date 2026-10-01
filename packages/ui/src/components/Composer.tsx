@@ -560,14 +560,10 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
    * something is, so the two states cannot disagree across a round trip.
    */
   const recoverDraft = useCallback((draft: Draft, originKey: ReturnType<typeof sessionKey> | null) => {
-    const current = currentDraft.current
-    if (originKey === key && current.text.trim().length === 0 && current.attachments.length === 0) {
-      setText(draft.text)
-      setAttachments([...draft.attachments])
-      return
-    }
     // The store scopes this to the originating conversation, so a late reply
     // cannot put one conversation's words into a reused composer for another.
+    // Every refusal takes this path, including an empty composer, so it survives
+    // a remount. Restoring transfers it to the composer and removes the record.
     if (originKey) store.addRecoverableDraft(originKey, {
       text: draft.text,
       attachments: draft.attachments,
@@ -1056,7 +1052,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
             message={{
               id: `composer-stored-recoverable-draft-${item.id}`,
               tone: 'warning',
-              title: 'Message not sent.',
+              title: item.sourceId ? `Queued edit ${item.sourceId} not saved.` : 'Message not sent.',
               body: item.detail,
               action: { label: 'Restore', onSelect: () => restoreStoredDraft(item.id) },
             }}

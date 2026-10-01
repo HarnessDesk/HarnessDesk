@@ -125,4 +125,23 @@ describe('the queue in the store', () => {
       attachments: [{ name: 'plan.md', kind: 'file' }],
     })
   })
+
+  it('prunes recovery-only state on conversation removal, but keeps it through archive and unarchive', async () => {
+    vi.spyOn(store.transport, 'request').mockResolvedValue(null)
+    store.addRecoverableDraft(KEY, { text: 'keep me until delete', attachments: [], detail: 'Restore it.' })
+    await store.archiveSession(sessionId('s1'), RUNTIME)
+    await store.unarchiveSession(sessionId('s1'), RUNTIME)
+    expect(store.getSnapshot().recoverableDrafts.get(KEY)).toHaveLength(1)
+
+    const transport = store.transport as unknown as { handlers: TransportEvents }
+    transport.handlers.onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: sessionId('s1') } })
+    expect(store.getSnapshot().recoverableDrafts.has(KEY)).toBe(false)
+    expect(sessionStorage.getItem('harnessdesk:recoverable-drafts:v1')).toBe('{}')
+  })
+
+  it('explains when recovery could not be saved for a reload', () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota') })
+    store.addRecoverableDraft(KEY, { text: 'memory only', attachments: [], detail: 'Restore it.' })
+    expect(store.getSnapshot().recoverableDrafts.get(KEY)?.[0]?.detail).toContain('it could not be saved for a reload')
+  })
 })

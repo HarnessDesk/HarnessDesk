@@ -335,12 +335,14 @@ const readRecoverableDrafts = (): ReadonlyMap<SessionKey, readonly RecoverableDr
   }
 }
 
-const writeRecoverableDrafts = (drafts: ReadonlyMap<SessionKey, readonly RecoverableDraft[]>): void => {
+const writeRecoverableDrafts = (drafts: ReadonlyMap<SessionKey, readonly RecoverableDraft[]>): boolean => {
   try {
-    if (typeof sessionStorage === 'undefined') return
+    if (typeof sessionStorage === 'undefined') return false
     sessionStorage.setItem(RECOVERABLE_DRAFTS_STORAGE_KEY, JSON.stringify(Object.fromEntries(drafts)))
+    return true
   } catch {
     // Storage can be disabled or full; recovery still works until this store closes.
+    return false
   }
 }
 
@@ -2829,15 +2831,15 @@ export class AppStore {
    * so nothing on screen draws again for a conversation it never showed.
    */
   #dropRemoved(key: SessionKey): void {
-    const { sessions, queues, tasks, history, approvals } = this.#snapshot
+    const { sessions, queues, tasks, history, approvals, recoverableDrafts } = this.#snapshot
     const shown = panes(this.#snapshot.layout.root).filter((pane) => sessionOf(pane) === key)
     const docked = mountedViewsIn(this.#snapshot.workbench).filter(
       (entry) => entry.mounted.view.kind === 'conversation' && entry.mounted.view.session === key,
     )
     const listed = history.some((entry) => sessionKey(entry.runtime, entry.id) === key)
     const waiting = approvals.some((entry) => entry.key === key)
-    const held =
-      sessions.has(key) || queues.has(key) || tasks.has(key) || listed || waiting || shown.length > 0 || docked.length > 0
+    const held = sessions.has(key) || queues.has(key) || tasks.has(key) || listed || waiting ||
+      shown.length > 0 || docked.length > 0 || recoverableDrafts.has(key)
     if (!held) return
     // Where it was on screen first, so the focus moves with the panes rather
     // than being left on a conversation nothing can open any more.
@@ -2850,16 +2852,20 @@ export class AppStore {
     const nextSessions = new Map(sessions)
     const nextQueues = new Map(queues)
     const nextTasks = new Map(tasks)
+    const nextRecoverableDrafts = new Map(recoverableDrafts)
     nextSessions.delete(key)
     nextQueues.delete(key)
     nextTasks.delete(key)
+    nextRecoverableDrafts.delete(key)
     this.#patch({
       sessions: nextSessions,
       queues: nextQueues,
       tasks: nextTasks,
+      recoverableDrafts: nextRecoverableDrafts,
       history: listed ? history.filter((entry) => sessionKey(entry.runtime, entry.id) !== key) : history,
       approvals: waiting ? approvals.filter((entry) => entry.key !== key) : approvals,
     })
+    writeRecoverableDrafts(nextRecoverableDrafts)
   }
 
   async renameSession(title: string, key = this.#snapshot.activeSessionKey): Promise<void> {
@@ -5685,9 +5691,15 @@ export class AppStore {
   ): void {
     const id = ++this.#nextRecoverableDraftId
     const recoverableDrafts = new Map(this.#snapshot.recoverableDrafts)
-    recoverableDrafts.set(key, [...(recoverableDrafts.get(key) ?? []), { ...draft, id }])
+    const entry = { ...draft, id }
+    recoverableDrafts.set(key, [...(recoverableDrafts.get(key) ?? []), entry])
+    if (!writeRecoverableDrafts(recoverableDrafts)) {
+      const current = recoverableDrafts.get(key) ?? []
+      recoverableDrafts.set(key, current.map((item) => item.id === id
+        ? { ...item, detail: `${item.detail} Kept until you close this window's view — it could not be saved for a reload.` }
+        : item))
+    }
     this.#patch({ recoverableDrafts })
-    writeRecoverableDrafts(recoverableDrafts)
   }
 
   removeRecoverableDraft(key: SessionKey, id: number): void {

@@ -350,6 +350,21 @@ describe('MessageQueue', () => {
     }])
   })
 
+  it('keeps two refused edits of the same row as separate recoveries in order', async () => {
+    calls.updateQueued.mockRejectedValueOnce(new Error('delivering')).mockRejectedValueOnce(new Error('delivering'))
+    mount(waiting('original'))
+    click(button('Edit'))
+    typeIntoEditor('first refused revision')
+    await act(async () => click(button('Save')))
+    click(button('Edit'))
+    typeIntoEditor('second refused revision')
+    await act(async () => click(button('Save')))
+
+    const recoveries = calls.addRecoverableDraft.mock.calls.map(([, draft]) => draft)
+    expect(recoveries.map((draft) => draft.text)).toEqual(['first refused revision', 'second refused revision'])
+    expect(recoveries.map((draft) => draft.sourceId)).toEqual(['q0', 'q0'])
+  })
+
   it('Escape cancels and Enter or Meta+Enter saves', async () => {
     mount(waiting('one', 'two'))
     click(button('Edit'))
