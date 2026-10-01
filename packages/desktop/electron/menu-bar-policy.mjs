@@ -1,9 +1,22 @@
+import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-/** Whether this shell should create its macOS menu bar status item. */
-export const showsMenuBarItem = ({ stateDir, defaultDir, env }) => {
-  const override = env?.['HARNESSDESK_MENU_BAR']
-  if (override === 'on' || override === '1') return true
-  if (override === 'off' || override === '0') return false
-  return resolve(stateDir) === resolve(defaultDir)
+const canonicalPath = (path) => {
+  try {
+    return realpathSync(path)
+  } catch (error) {
+    if (error?.code === 'ENOENT') return resolve(path)
+    throw error
+  }
 }
+
+/** Whether this shell should create its macOS menu bar status item, and why. */
+export const menuBarItemDecision = ({ stateDir, defaultDir, env }) => {
+  const override = env?.['HARNESSDESK_MENU_BAR']
+  if (override === 'on' || override === '1') return { show: true, reason: 'enabled by HARNESSDESK_MENU_BAR' }
+  if (override === 'off' || override === '0') return { show: false, reason: 'disabled by HARNESSDESK_MENU_BAR' }
+  if (canonicalPath(stateDir) === canonicalPath(defaultDir)) return { show: true, reason: 'default home' }
+  return { show: false, reason: 'home is not the default' }
+}
+
+export const showsMenuBarItem = (options) => menuBarItemDecision(options).show

@@ -16,7 +16,7 @@ import { attachAppUpdates } from './app-updates.mjs'
 import { decide, relevant } from './notifications.mjs'
 import { createIntakeNotifier } from './intake-notifications.mjs'
 import { createDockIconSetter, defaultIconPath } from './dock-icon.mjs'
-import { showsMenuBarItem } from './menu-bar-policy.mjs'
+import { menuBarItemDecision } from './menu-bar-policy.mjs'
 
 import { readWindowState, writeWindowState } from './window-state.mjs'
 import { isAppNavigation } from './navigation.mjs'
@@ -469,11 +469,9 @@ const buildTrayMenu = () =>
 
 const createTray = () => {
   if (process.platform !== 'darwin' || tray) return
-  if (!showsMenuBarItem({ stateDir, defaultDir: defaultStateDir, env: process.env })) {
-    const forcedOff = ['off', '0'].includes(process.env['HARNESSDESK_MENU_BAR'])
-    logger?.debug('menu bar item skipped', {
-      reason: forcedOff ? 'disabled by HARNESSDESK_MENU_BAR' : 'home is not the default',
-    })
+  const decision = menuBarItemDecision({ stateDir, defaultDir: defaultStateDir, env: process.env })
+  if (!decision.show) {
+    logger?.debug('menu bar item skipped', { reason: decision.reason })
     return
   }
   const image = nativeImage.createFromPath(join(assetsDir, 'trayTemplate.png'))
