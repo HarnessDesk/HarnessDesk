@@ -302,6 +302,27 @@ try {
     return Boolean(hit)
   }
 
+  /** Opens the non-default start kind from the sidebar's secondary start menu. */
+  const openStartingKind = async (kind) => {
+    const opened = await cdp.eval(`(() => {
+      const trigger = document.querySelector('button[title="More ways to start"]')
+      if (!trigger) return false
+      trigger.click()
+      return true
+    })()`)
+    if (!opened) throw new Error('no More ways to start control in the sidebar')
+    if (!(await click(`${kind}…`))) throw new Error(`no ${kind}… choice in More ways to start`)
+    const chooser = '[role="dialog"][aria-label="What are you starting?"]'
+    await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(chooser)}) !== null`), Boolean)
+    const selected = await cdp.eval(`(() => {
+      const root = document.querySelector(${q(chooser)})
+      return [...(root?.querySelectorAll('[role="radio"]') ?? [])]
+        .some((one) => one.getAttribute('aria-checked') === 'true' && (one.textContent ?? '').trim().startsWith(${q(kind)}))
+    })()`)
+    if (!selected) throw new Error(`${kind} was not selected in the New session dialog`)
+    return chooser
+  }
+
   /** Types into an input found by its label — `shoot.mjs`'s own `fill`, copied for the same reason as `click`. */
   const fill = (label, value) =>
     cdp.eval(`(() => {
@@ -459,22 +480,8 @@ try {
   // has reached its useful destination. Starting the camera one click earlier
   // left a few empty-conversation frames at the loop seam.
   if (SCENARIO === 'front-door') {
-    if (!(await click('New session', '[aria-label="Workspace actions"]'))) {
-      throw new Error('no New session button in the sidebar')
-    }
-    const chooser = '[role="dialog"][aria-label="What are you starting?"]'
-    await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(chooser)}) !== null`), Boolean)
-    const hasTeamRadio = await cdp.eval(`(() => {
-      const root = document.querySelector(${q(chooser)})
-      return Boolean(root) && [...root.querySelectorAll('[role="radio"]')]
-        .some((one) => (one.textContent ?? '').trim().startsWith('Team'))
-    })()`)
-    if (hasTeamRadio) {
-      if (!(await click('Team', chooser))) throw new Error('no Team radio in the New session dialog')
-      if (!(await click('Continue', chooser))) throw new Error('no Continue button in the New session dialog')
-    } else if (!(await click('Start with a team', chooser))) {
-      throw new Error('no "Start with a team" choice in the New session dialog')
-    }
+    const chooser = await openStartingKind('Team')
+    if (!(await click('Continue', chooser))) throw new Error('no Continue button in the Team chooser')
     await waitForSnapshot(
       () => cdp.eval(`document.querySelector('[role="dialog"][aria-label="Start a team"]') !== null`),
       Boolean,
@@ -668,28 +675,11 @@ try {
     })()`)
     if (!frontDoorCrop) throw new Error('the front-door dry run has no crop target')
   } else if (SCENARIO === 'flow') {
-    // Beat 1: the real New Goal dialog — "Start with a team" (or the redesign's
-    // "Team" radio, whichever this build has, exactly `front-door`'s own
-    // check in `shoot.mjs`), the "Fix and review" shape this file wrote into
-    // `.harnessdesk/flows` above, and its dry run held on screen before
-    // Start is ever clicked — the beat the rejected take skipped straight
-    // past.
-    if (!(await click('New session', '[aria-label="Workspace actions"]'))) {
-      throw new Error('no New session button in the sidebar')
-    }
-    const chooser = '[role="dialog"][aria-label="What are you starting?"]'
-    await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(chooser)}) !== null`), Boolean)
-    const hasTeamRadio = await cdp.eval(`(() => {
-      const root = document.querySelector(${q(chooser)})
-      if (!root) return false
-      return [...root.querySelectorAll('[role="radio"]')].some((one) => (one.textContent ?? '').trim().startsWith('Team'))
-    })()`)
-    if (hasTeamRadio) {
-      if (!(await click('Team', chooser))) throw new Error('no Team radio in the New session dialog')
-      if (!(await click('Continue', chooser))) throw new Error('no Continue button in the New session dialog')
-    } else if (!(await click('Start with a team', chooser))) {
-      throw new Error('no "Start with a team" choice in the New session dialog')
-    }
+    // Beat 1: the real front door from More ways to start → Team…, the
+    // "Fix and review" shape this file wrote into `.harnessdesk/flows`, and
+    // its dry run held on screen before Start is clicked.
+    const chooser = await openStartingKind('Team')
+    if (!(await click('Continue', chooser))) throw new Error('no Continue button in the Team chooser')
     await waitForSnapshot(
       () => cdp.eval(`document.querySelector('[role="dialog"][aria-label="Start a team"]') !== null`),
       Boolean,
