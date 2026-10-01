@@ -324,7 +324,7 @@ test('pr_merge merges only at the commit that was reviewed, squashes unless told
   assert.equal(forge.calls().filter((args) => args[0] === 'pr' && args[1] === 'merge').length, 5)
 })
 
-const checkRun = (name: string, id: number, started_at: string, status: string, conclusion: string | null) => ({
+const checkRun = (name: string, id: number, started_at: string | null, status: string, conclusion: string | null) => ({
   name,
   id,
   started_at,
@@ -354,6 +354,17 @@ test('pr_merge refuses when CI is in progress or failed, naming the offending ch
   const failureSaid = await failed.run('pr_merge', { number: 7, head })
   assert.match(failureSaid, /“lint” failed/)
   assertNoMergeCall(failed)
+})
+
+test('pr_merge refuses when a rerun is still queued behind an older success', async (t) => {
+  const forge = await rig(t)
+  setCheckRuns(forge, [
+    checkRun('Build, typecheck, test', 1, '2026-09-30T10:00:00Z', 'completed', 'success'),
+    checkRun('Build, typecheck, test', 2, null, 'queued', null),
+  ])
+  const said = await forge.run('pr_merge', { number: 7, head: '0123456789abcdef0123456789abcdef01234567' })
+  assert.match(said, /“Build, typecheck, test” is queued/)
+  assertNoMergeCall(forge)
 })
 
 test('pr_merge refuses when no CI has reported on the reviewed commit', async (t) => {

@@ -11,8 +11,14 @@ export interface CheckRunsAssessment {
   readonly reason: string
 }
 
+/* A run that has not started has no `started_at`, and it is the latest
+   attempt there is: a rerun still queued must hide the older success it is
+   about to replace, never sit behind it. So a missing start time sorts as
+   newest, and the id settles runs that tie. */
+const startedAt = (run: CheckRun): string => run.started_at ?? '\uffff'
+
 const newestFirst = (a: CheckRun, b: CheckRun): number => {
-  const time = String(b.started_at ?? '').localeCompare(String(a.started_at ?? ''))
+  const time = startedAt(b).localeCompare(startedAt(a))
   if (time !== 0) return time
   return Number(b.id ?? 0) - Number(a.id ?? 0)
 }
