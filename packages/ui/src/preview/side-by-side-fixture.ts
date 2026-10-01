@@ -86,7 +86,7 @@ export const sideBySideStore = (): AppStore => {
         { id: 'no', label: 'Deny', intent: 'deny' },
       ],
     },
-  } as AppSnapshot['approvals'][number]]
+  } as unknown as AppSnapshot['approvals'][number]]
   const own = previewStore({ ...snapshot, sessions, runtimes, models, approvals } as Partial<AppSnapshot>)
   const peers: readonly TeamPeerInfo[] = SIDE_BY_SIDE_MEMBERS.map((member) => ({
     runtime: member.runtime,
