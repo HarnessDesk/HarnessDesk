@@ -992,7 +992,7 @@ test('(F10) a live watch, a linked folder, a pending notice and a pending retry,
     // never called: none may be the reason the process is still here after it.
     setTimeout(() => {}, 900)
   `
-  // The 4s child timeout catches any held timer: settle, rescan and retry delays are at least 5s.
+  // The 4s child timeout catches a held settle or rescan timer, or a retry whose backoff keeps rescheduling.
   execFileSync(process.execPath, ['--input-type=module', '-e', script], { timeout: 4_000 })
 })
 

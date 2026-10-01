@@ -104,10 +104,22 @@ const soloDesk = async (t: TestContext, runtimeName: 'holdfake' | 'fake', agents
 /** A short, bounded poll — every runtime here is a fake with no real I/O delay. */
 const waitUntil = async <T>(read: () => Promise<T | null>, what: string, timeoutMs = 10_000): Promise<T> => {
   const deadline = Date.now() + timeoutMs
+  const timeout = () => new Error(`nothing became ${what} in time`)
   for (;;) {
-    const value = await read()
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) throw timeout()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let value: T | null
+    try {
+      value = await Promise.race([
+        read(),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(timeout()), remaining) }),
+      ])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+    if (Date.now() >= deadline) throw timeout()
     if (value !== null) return value
-    if (Date.now() > deadline) throw new Error(`nothing became ${what} in time`)
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
 }
