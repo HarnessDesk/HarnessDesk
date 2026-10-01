@@ -328,8 +328,10 @@ export interface RuntimePresentation {
   /** Adapter-authored wording for MCP tool approvals that the host cannot attribute. */
   readonly boardToolApproval?: {
     readonly permanentApprovalSetting: string
-    /** Agent option label to use when an approveAlways choice lasts only this session. */
+    /** The label for the one tool-scoped session grant (`grant: 'session-tool'`). */
     readonly sessionOptionLabel?: string
+    /** The label for the plain approve choice, which agents word differently ("Allow"). */
+    readonly onceOptionLabel?: string
   }
   /**
    * Whose mark to draw beside the name: a lobe-icons key such as `codex`,

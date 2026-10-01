@@ -1299,6 +1299,7 @@ test('the per-tool MCP adapter presents the session label and preserves each Gem
   assert.deepEqual(runtime.info.presentation.boardToolApproval, {
     permanentApprovalSetting: 'security.enablePermanentToolApproval',
     sessionOptionLabel: 'Allow for this session',
+    onceOptionLabel: 'Allow once',
   })
   const tape = record(runtime)
   try {
@@ -1307,6 +1308,14 @@ test('the per-tool MCP adapter presents the session label and preserves each Gem
     const requested = await tape.until((event) => event.type === 'approval/requested')
     const approval = (requested as Extract<AgentEvent, { type: 'approval/requested' }>).approval
     assert.equal(approval.type, 'permission')
+    // The adapter types each grant's scope from the agent's own option ids, so a card never parses its English.
+    assert.deepEqual(approval.options.map(({ id, grant }) => [id, grant]), [
+      ['proceed_always_server', 'session-server'],
+      ['proceed_always_tool', 'session-tool'],
+      ['proceed_always_and_save', 'permanent'],
+      ['proceed_once', undefined],
+      ['reject_once', undefined],
+    ])
     assert.deepEqual(approval.options.map(({ label, description }) => [label, description]), [
       ['Allow all server tools for this session', 'Allows every tool from this server for this session.'],
       ['Allow tool for this session', 'Allows this tool for the rest of this session.'],

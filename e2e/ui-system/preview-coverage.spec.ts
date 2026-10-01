@@ -348,14 +348,16 @@ test.describe('preview coverage', () => {
     await expect(session).toContainText("HarnessDesk's board wants to list the board's work items.")
     await expect(session).toContainText("HarnessDesk can't confirm which server is asking.")
     await expect(session).not.toContainText('list_intents')
-    await expect(session.locator('button')).toHaveText(['Deny1', 'Allow for this session2', 'Allow once3'])
+    // Gemini's own order decides the numbers; the card draws the refusal first and the plain yes last.
+    await expect(session.locator('button')).toHaveText(['Reject4', 'Allow all server tools for this session1', 'Allow for this session2', 'Allow once3'])
+    await expect(session.getByRole('button', { name: 'Allow all server tools for this session' })).toHaveAttribute('data-variant', 'quiet')
     await expect(session.getByRole('button', { name: 'Allow for this session' })).toHaveAttribute('data-variant', 'quiet')
     await expect(session.getByRole('button', { name: 'Allow once' })).toHaveAttribute('data-variant', 'default')
     await expect(session.getByRole('button', { name: 'Allow for this session' })).toHaveAttribute('title', 'Allows this tool for the rest of this session.')
     // Every grant on offer ends with the session, so the card says how to turn on a lasting one.
     await expect(session).toContainText(guidance)
 
-    await expect(permanent.locator('button')).toHaveText(['Deny1', 'Allow for this session2', 'Allow tool for all future sessions3', 'Allow once4'])
+    await expect(permanent.locator('button')).toHaveText(['Reject5', 'Allow all server tools for this session1', 'Allow for this session2', 'Allow tool for all future sessions3', 'Allow once4'])
     await expect(permanent.getByRole('button', { name: 'Allow tool for all future sessions' })).toHaveAttribute('data-variant', 'quiet')
     await expect(permanent.getByRole('button', { name: 'Allow once' })).toHaveAttribute('data-variant', 'default')
     await expect(permanent).not.toContainText('To always allow')
@@ -364,6 +366,7 @@ test.describe('preview coverage', () => {
     await expect(none).not.toContainText('security.enablePermanentToolApproval')
     await expect(none.locator('[data-slot="approval-reason"]')).toHaveAttribute('title', 'security.enablePermanentToolApproval')
     await expect(none.getByRole('button', { name: 'Allow for this session' })).toHaveCount(0)
+    await expect(none.locator('button')).toHaveText(['Reject2', 'Allow once1'])
 
     await page.goto('/design.html')
     await page.getByRole('button', { name: 'Dialog · ConfirmDialog', exact: true }).click()

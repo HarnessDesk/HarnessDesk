@@ -5,6 +5,7 @@ import { FLOW_BOARD_TOOL_NAMES, type Approval, type ApprovalOption } from '@harn
 import { useIsFocusedPane, useRuntime, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { wholeFileOf } from '../lib/diff'
 import { boardToolPhrase } from '../lib/tool-names'
+import { approvalChoiceOrder } from '../lib/approval-order'
 import { boardToolLabel, boardToolNote, boardToolPlacement, offersPermanentGrant } from '../lib/board-tool-note'
 import { folderShown } from '../lib/projects'
 import { DiffView } from './Diff'
@@ -23,18 +24,6 @@ import {
   type ApprovalDialogAction,
 } from '../design'
 import styles from './Approvals.module.css'
-
-/**
- * Where the two approving answers sit relative to each other.
- *
- * The rest of the app puts the proceeding action rightmost, nearest the thumb.
- * Here that is the plain yes: `approveAlways` says yes *and* stops asking, so
- * it changes what happens the next time too, and an answer with a tail should
- * not get the easiest target on the row. The runtime's own order still decides
- * the shortcut numbers — this only decides which one your hand lands on.
- */
-const approvingLast = (a: ApprovalOption, b: ApprovalOption): number =>
-  (a.intent === 'approveAlways' ? 0 : 1) - (b.intent === 'approveAlways' ? 0 : 1)
 
 const boardToolNamedBy = (approval: Approval | undefined): string | null => {
   if (approval?.type !== 'permission') return null
@@ -347,16 +336,14 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false }: {
 
   if (!approval) return null
 
-  const actionOptions = [
-    ...options.filter((option) => option.intent === 'deny' || option.intent === 'cancel'),
-    ...options
-      .filter((option) => option.intent === 'approve' || option.intent === 'approveAlways')
-      .sort(approvingLast),
-  ]
+  const actionOptions = approvalChoiceOrder(options)
   const actions: ApprovalDialogAction[] = actionOptions.map((option) => ({
     id: option.id,
-    label: explainBoardTool && boardToolApproval?.sessionOptionLabel
-      ? boardToolLabel(option, options, boardToolApproval.sessionOptionLabel)
+    label: explainBoardTool
+      ? boardToolLabel(option, options, {
+        session: boardToolApproval?.sessionOptionLabel,
+        once: boardToolApproval?.onceOptionLabel,
+      })
       : option.label,
     description: option.description,
     icon: INTENT_ICON[option.intent],

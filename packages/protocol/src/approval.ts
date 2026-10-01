@@ -122,6 +122,12 @@ export interface ApprovalOption {
   readonly label: string
   readonly description?: string
   readonly intent: 'approve' | 'approveAlways' | 'deny' | 'cancel'
+  /**
+   * For an `approveAlways` choice an adapter can scope: one tool for this session, a whole server for this session,
+   * or beyond the session. Typed by the adapter from the agent's own option ids, so a card reads data and never
+   * parses an agent's English.
+   */
+  readonly grant?: 'session-tool' | 'session-server' | 'permanent'
 }
 
 export type ApprovalDecision =

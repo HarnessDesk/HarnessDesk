@@ -922,7 +922,7 @@ export class AcpRuntime implements AgentRuntime {
       presentation: {
         name: this.#config.name,
         ...(this.#config.perToolMcpApproval
-          ? { boardToolApproval: { ...this.#config.perToolMcpApproval, sessionOptionLabel: 'Allow for this session' } }
+          ? { boardToolApproval: { ...this.#config.perToolMcpApproval, sessionOptionLabel: 'Allow for this session', onceOptionLabel: 'Allow once' } }
           : {}),
         ...(this.#config.pluginToolsUnavailable ? { pluginToolsUnavailable: this.#config.pluginToolsUnavailable } : {}),
         // What an ACP agent declares are commands; some of them are skills
@@ -4367,17 +4367,17 @@ class AcpSession implements AgentSession {
       // `write`. A decision needs the sentence, not the verb.
       ...(permissionReason(request.toolCall) ? { reason: permissionReason(request.toolCall) } : {}),
       options: request.options.map((option) => {
-        const geminiScope = this.#host.info.capabilities.perToolMcpApproval && option.kind === 'allow_always'
+        const geminiGrant = this.#host.info.capabilities.perToolMcpApproval && option.kind === 'allow_always'
           ? ({
-              proceed_always_server: 'Allows every tool from this server for this session.',
-              proceed_always_tool: 'Allows this tool for the rest of this session.',
-              proceed_always_and_save: 'Saves approval for this tool in future sessions.',
+              proceed_always_server: { grant: 'session-server', description: 'Allows every tool from this server for this session.' },
+              proceed_always_tool: { grant: 'session-tool', description: 'Allows this tool for the rest of this session.' },
+              proceed_always_and_save: { grant: 'permanent', description: 'Saves approval for this tool in future sessions.' },
             } as const)[option.optionId as 'proceed_always_server' | 'proceed_always_tool' | 'proceed_always_and_save']
           : undefined
         return {
           id: option.optionId,
           label: option.name,
-          ...(geminiScope ? { description: geminiScope } : {}),
+          ...(geminiGrant ? { description: geminiGrant.description, grant: geminiGrant.grant } : {}),
           intent:
             option.kind === 'allow_once'
               ? ('approve' as const)

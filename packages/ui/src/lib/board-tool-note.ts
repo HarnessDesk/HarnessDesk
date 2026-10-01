@@ -31,36 +31,44 @@ export const boardToolNote = ({
   }
 }
 
-/** The agent's own words for an option: what it says and what it says it does. */
+/** An agent's choice as a card reads it. The adapter types an `approveAlways` choice's scope in `grant`. */
 export interface GrantOption {
   readonly id: string
   readonly label: string
   readonly description?: string | undefined
   readonly intent: string
+  readonly grant?: 'session-tool' | 'session-server' | 'permanent' | undefined
 }
-const wordsOf = (option: GrantOption): string => `${option.label} ${option.description ?? ''}`
-
-/** Whether the agent says a permanent grant outlives this session. Read from its own label and description. */
-export const outlivesSession = (option: GrantOption): boolean =>
-  option.intent === 'approveAlways' && /future sessions|all sessions|permanent|\bsaves?\b/i.test(wordsOf(option))
 
 /** Whether the agent offers any grant that outlives the session; if not, the card says how to turn that on. */
-export const offersPermanentGrant = (options: readonly GrantOption[]): boolean => options.some(outlivesSession)
+export const offersPermanentGrant = (options: readonly GrantOption[]): boolean =>
+  options.some((option) => option.grant === 'permanent')
 
 /**
- * The one option the card may relabel "Allow for this session": the agent offers exactly one grant that ends with
- * the session, and it covers a single tool. Where it offers a server-wide or a second session grant, the agent's
- * own labels stay, so a broader grant is never softened to read like a narrow one.
+ * The one grant the card may relabel "Allow for this session": the agent's tool-scoped session grant, when there is
+ * exactly one. A server-wide grant beside it keeps the agent's own explicit label, so a broader grant is never
+ * softened to read like the narrow one, and the two never share a name.
  */
 export const sessionOptionToRelabel = (options: readonly GrantOption[]): GrantOption | null => {
-  const session = options.filter((option) => option.intent === 'approveAlways' && !outlivesSession(option))
-  const only = session.length === 1 ? session[0]! : null
-  return only && !/\bserver\b|\bevery\b|\ball\b/i.test(wordsOf(only)) ? only : null
+  const tool = options.filter((option) => option.grant === 'session-tool')
+  return tool.length === 1 ? tool[0]! : null
 }
 
-/** The label a button carries: only the one tool-scoped session grant is relabelled; every other label is the agent's own. */
-export const boardToolLabel = (option: GrantOption, options: readonly GrantOption[], sessionLabel: string): string =>
-  sessionOptionToRelabel(options)?.id === option.id ? sessionLabel : option.label
+/** The plain approve choice, when there is exactly one: agents word it differently ("Allow"). */
+export const onceOptionToRelabel = (options: readonly GrantOption[]): GrantOption | null => {
+  const once = options.filter((option) => option.intent === 'approve')
+  return once.length === 1 ? once[0]! : null
+}
+
+/** The label a button carries. Only these two choices are relabelled, and only when the adapter declared the words. */
+export const boardToolLabel = (
+  option: GrantOption,
+  options: readonly GrantOption[],
+  labels: { readonly session?: string | undefined; readonly once?: string | undefined },
+): string =>
+  labels.session && sessionOptionToRelabel(options)?.id === option.id ? labels.session
+    : labels.once && onceOptionToRelabel(options)?.id === option.id ? labels.once
+      : option.label
 
 /** Where a button sits when the card explains a board-tool request: grants stay quiet and apart from the plain Allow. */
 export const boardToolPlacement = (option: GrantOption): 'safe' | 'proceed' =>
