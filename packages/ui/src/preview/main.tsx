@@ -64,6 +64,8 @@ import { CoverageFrames } from './frames-coverage'
 import { PersonReviewBoard } from '../design/surfaces/surfaces'
 import { SettingsFrames } from './frames-settings'
 import { TranscriptFrames } from './frames-transcript'
+import { LibraryDevFrames } from './frames-library-dev'
+import { LibraryOptionFrames } from './frames-library-options'
 import '../styles/app.css'
 
 const SHOW_COMPOSER = new URLSearchParams(window.location.search).has('composer')
@@ -937,6 +939,8 @@ const Preview = () => {
           <LibrarySection />
         </div>
       </Frame>
+      <LibraryDevFrames />
+      <LibraryOptionFrames />
       <Frame id="settings-appearance" title="Settings › Appearance">
         <div className="p-4">
           <AppearanceSection />
