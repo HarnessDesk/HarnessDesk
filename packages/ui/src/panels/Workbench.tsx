@@ -25,7 +25,7 @@ import {
 } from '../design'
 import { Menu, MenuItem, MenuLabel, Popover, dismissOverlays } from '../design'
 import { CaretIcon, ExpandIcon, MoreIcon, RestoreIcon } from '../components/Icons'
-import { NoticeStripOutlet } from '../components/Notices'
+import { ComposerMountsProvider, NoticeStripOutlet } from '../components/Notices'
 import { Panes } from '../components/Panes'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
 import { findPane, sameView, type PaneView } from '../state/layout'
@@ -244,6 +244,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   useFloatingSidebar(floating, sidebarBox, content)
 
   return (
+    <ComposerMountsProvider>
     <DragContext.Provider value={{ dragging, setDragging }}>
     <ShellContext.Provider value={shell}>
     <WorkbenchCanvas
@@ -311,6 +312,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
             column where a person looks for it. That slot is the plugin
             mounting point too, which is the arrangement worth keeping: the
             app's own panels arrive by the same door a plugin's will. */}
+        {noticeArea(workbench, snapshot.narrowWindow) === 'sidebar' && <NoticeStripOutlet host />}
         {sidebar}
         <DropZone area="sidebar" />
       </WorkbenchRail>
@@ -352,6 +354,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
               if (pane) mainFocus.current = { target: event.target, paneId: pane.id, view: pane.view }
             }}
           >
+            {noticeArea(workbench, snapshot.narrowWindow) === 'main' && <NoticeStripOutlet host />}
             <Panes />
             <DropZone area="main" />
           </div>
@@ -362,6 +365,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
     </WorkbenchCanvas>
     </ShellContext.Provider>
     </DragContext.Provider>
+    </ComposerMountsProvider>
   )
 }
 
@@ -390,7 +394,7 @@ const RightPanel = () => {
   // for the same reason it goes in a zoom: nothing beside it to trade with.
   const sized = !zoomed && !snapshot.narrowWindow
   // Zoomed, or laid over a narrow window's main area, this is the panel being
-  // read, and the strip above the panes rides here instead of the main area.
+  // read, and the strip rides here instead of the main area.
   const noticeHost = noticeArea(workbench, snapshot.narrowWindow) === 'right'
   return (
     <>
@@ -411,14 +415,14 @@ const RightPanel = () => {
 
 const BottomPanel = () => {
   const store = useStore()
-  const workbench = useSnapshot().workbench
+  const snapshot = useSnapshot()
+  const workbench = snapshot.workbench
   const dock = workbench.bottom
   const shown = areaVisible(workbench, 'bottom')
   if (dockViews(dock).length === 0 || !shown) return <EdgeDropZone area="bottom" />
   const zoomed = workbench.zoom?.area === 'bottom'
   const height = dock.collapsed || zoomed ? undefined : 'var(--panel-bottom)'
-  // Zoomed is the one place `noticeArea` ever answers `bottom`.
-  const noticeHost = zoomed
+  const noticeHost = noticeArea(workbench, snapshot.narrowWindow) === 'bottom'
   return (
     <>
       {!dock.collapsed && !zoomed && (

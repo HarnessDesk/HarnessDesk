@@ -6,7 +6,6 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react'
 
-import { NoticeStripOutlet } from './Notices'
 import { PaneSurface, ResizeHandle, Text } from '../design'
 import { DockPanelActions, DockPanelBar } from '../design'
 import { beginResize, endResize, markDragging } from '../lib/resizing'
@@ -15,7 +14,6 @@ import { PanelActions } from '../panels/PanelActions'
 import { ViewHost, useViewTitle, views } from '../panels/views'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
 import { sessionOf, type LayoutNode, type Pane as PaneNode, type Split } from '../state/layout'
-import { mainNoticeHost } from '../state/workbench'
 import styles from './Panes.module.css'
 
 /**
@@ -37,15 +35,9 @@ import styles from './Panes.module.css'
 
 export const Panes = () => {
   const snapshot = useSnapshot()
-  // The pane the strip above the panes rides (`NoticeStripOutlet`), while the
-  // main area hosts it — `null` whenever it does not, because a dock or
-  // nobody is hosting it instead. `mainNoticeHost` is pure layout state, so
-  // this is the one place a pane is chosen, never a mount racing another for
-  // the title.
-  const host = mainNoticeHost(snapshot.workbench, snapshot.narrowWindow)
   return (
     <div className={styles.root}>
-      <Node node={snapshot.layout.root} primary={host} />
+      <Node node={snapshot.layout.root} />
     </div>
   )
 }
@@ -57,10 +49,10 @@ export const Panes = () => {
 const needsStrip = (view: PaneNode['view']): boolean =>
   view.kind !== 'conversation' && views.get(view.kind)?.ownsChrome !== true
 
-const Node = ({ node, primary }: { node: LayoutNode; primary: string | null }) =>
-  node.kind === 'pane' ? <PaneView pane={node} primary={primary} /> : <SplitView split={node} primary={primary} />
+const Node = ({ node }: { node: LayoutNode }) =>
+  node.kind === 'pane' ? <PaneView pane={node} /> : <SplitView split={node} />
 
-const PaneView = ({ pane, primary }: { pane: PaneNode; primary: string | null }) => {
+const PaneView = ({ pane }: { pane: PaneNode }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const titleOf = useViewTitle()
@@ -108,10 +100,6 @@ const PaneView = ({ pane, primary }: { pane: PaneNode; primary: string | null })
               </DockPanelActions>
             </DockPanelBar>
           )}
-          {/* The notice strip, for a view with no header of its own: under the
-              pane's bar, in the primary pane only. A conversation draws its
-              strip above its own composer instead, below its own header. */}
-          {needsStrip(pane.view) && pane.id === primary && <NoticeStripOutlet host />}
           <div className={styles.screen}>
             <ViewHost view={pane.view} />
           </div>
@@ -137,7 +125,7 @@ const contains = (node: LayoutNode, paneId: string): boolean =>
  * until the pointer comes up; see `lib/resizing.ts` for what else a drag has
  * to hold still.
  */
-const SplitView = ({ split, primary }: { split: Split; primary: string | null }) => {
+const SplitView = ({ split }: { split: Split }) => {
   const store = useStore()
   const container = useRef<HTMLDivElement>(null)
   const grab = useRef<{ readonly at: number; readonly ratio: number; readonly span: number } | null>(
@@ -262,7 +250,7 @@ const SplitView = ({ split, primary }: { split: Split; primary: string | null })
         {...(zoom === 'second' ? { 'data-hidden': '' } : {})}
         style={basis('first')}
       >
-        <Node node={split.first} primary={primary} />
+        <Node node={split.first} />
       </div>
       {/* The handle is the design system's now. The drag stays here, because
           the ratio belongs to the layout store; what the component adds is the
@@ -290,7 +278,7 @@ const SplitView = ({ split, primary }: { split: Split; primary: string | null })
         {...(zoom === 'first' ? { 'data-hidden': '' } : {})}
         style={basis('second')}
       >
-        <Node node={split.second} primary={primary} />
+        <Node node={split.second} />
       </div>
     </div>
   )

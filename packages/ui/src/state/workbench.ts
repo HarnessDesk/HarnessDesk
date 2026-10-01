@@ -922,9 +922,9 @@ export const rightPanelDrawn = (workbench: Workbench): boolean =>
  * carries a composer-bound notice instead, and nothing stands in for one
  * that belongs on the strip until the sidebar is unzoomed.
  */
-export const noticeArea = (workbench: Workbench, narrow: boolean): 'main' | 'right' | 'bottom' | null => {
+export const noticeArea = (workbench: Workbench, narrow: boolean): 'main' | 'right' | 'bottom' | 'sidebar' => {
   const zoom = workbench.zoom
-  if (zoom !== null && zoom.area !== 'main') return zoom.area === 'sidebar' ? null : zoom.area
+  if (zoom !== null && zoom.area !== 'main') return zoom.area
   if (narrow && rightPanelDrawn(workbench)) return 'right'
   return 'main'
 }

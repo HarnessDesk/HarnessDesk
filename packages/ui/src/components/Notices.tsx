@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { RuntimeMark } from './BrandIcons'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
@@ -30,7 +30,8 @@ import { describeLimits } from '../lib/limits'
 import { conditionFor } from '../lib/usage-alerts'
 import { isSilenced, offersMute, surfaceFor, wasKept, type NoticeIdentity, type NoticePolicy, type NoticeSurface } from '../lib/notice-policy'
 import { useShell, type ShellActions } from '../panels/views'
-import { focusedComposerVisible } from '../state/workbench'
+import { useMount } from '../panels/mount'
+import { areaVisible, focusedComposerVisible, noticeArea, visibleViews, type AreaId } from '../state/workbench'
 import { useImportOffer } from './ImportOffer'
 
 /**
@@ -148,6 +149,7 @@ const identify = (notice: Notice): NoticeIdentity => ({
 interface Standing {
   readonly message: NoticeMessage
   readonly identity: NoticeIdentity
+  readonly runtime: RuntimeId
   /** The plain-text form of `message.body`, for the inbox copy (see `Notice.inboxBody`). */
   readonly inboxBody?: string
   /** See `Notice.inboxOpen`. */
@@ -273,6 +275,7 @@ const useStanding = (): Standing | null => {
       ...(notice.action ? { action: notice.action } : {}),
     },
     identity,
+    runtime: runtime.id,
     ...(notice.inboxBody !== undefined ? { inboxBody: notice.inboxBody } : {}),
     ...(notice.inboxOpen !== undefined ? { inboxOpen: notice.inboxOpen } : {}),
     dismiss: () => {
@@ -287,6 +290,85 @@ const useStanding = (): Standing | null => {
 const placeOf = (policy: NoticePolicy, standing: Standing): NoticeSurface | null =>
   standing.identity.kind === 'link' ? 'strip' : surfaceFor(policy, standing.identity.kind)
 
+interface ComposerMount {
+  readonly key: string
+  readonly paneId: string
+  readonly session: string | null
+  readonly roomMembers: readonly string[]
+  readonly runtime: RuntimeId
+  readonly area: AreaId
+  readonly mountId: string
+  readonly focused: boolean
+  readonly visible: boolean
+}
+
+interface ComposerMountRecord extends ComposerMount {
+  readonly token: number
+}
+
+interface ComposerMountRegistry {
+  readonly mounts: readonly ComposerMountRecord[]
+  readonly register: (mount: ComposerMount) => () => void
+}
+
+const ComposerMountsContext = createContext<ComposerMountRegistry | null>(null)
+const NO_ROOM_MEMBERS: readonly string[] = []
+
+const sameMount = (left: ComposerMountRecord, right: ComposerMount): boolean =>
+  left.key === right.key && left.paneId === right.paneId && left.session === right.session &&
+  left.runtime === right.runtime && left.area === right.area && left.mountId === right.mountId &&
+  left.focused === right.focused && left.visible === right.visible &&
+  left.roomMembers.length === right.roomMembers.length && left.roomMembers.every((key, index) => key === right.roomMembers[index])
+
+/** Wraps the real workbench so only composer instances that actually mounted can claim a notice. */
+export const ComposerMountsProvider = ({ children }: { readonly children: ReactNode }) => {
+  const [mounts, setMounts] = useState<readonly ComposerMountRecord[]>([])
+  const sequence = useRef(0)
+  const register = useCallback((mount: ComposerMount) => {
+    const token = ++sequence.current
+    setMounts((current) => {
+      const previous = current.find((entry) => entry.key === mount.key)
+      return previous && sameMount(previous, mount)
+        ? current
+        : [...current.filter((entry) => entry.key !== mount.key), { ...mount, token }]
+    })
+    return () => setMounts((current) => current.filter((entry) => entry.key !== mount.key || entry.token !== token))
+  }, [])
+  const value = useMemo(() => ({ mounts, register }), [mounts, register])
+  return <ComposerMountsContext.Provider value={value}>{children}</ComposerMountsContext.Provider>
+}
+
+const chosenMount = (mounts: readonly ComposerMountRecord[]): ComposerMountRecord | null => {
+  const visible = mounts.filter((mount) => mount.visible)
+  const focused = visible.find((mount) => mount.focused)
+  return focused ?? (visible.length === 1 ? visible[0]! : null)
+}
+
+const standingComposer = (mounts: readonly ComposerMountRecord[], runtime: RuntimeId): ComposerMountRecord | null =>
+  chosenMount(mounts.filter((mount) => mount.runtime === runtime))
+
+const agentComposer = (mounts: readonly ComposerMountRecord[], notice: AppSnapshot['agentNotices'][number]): ComposerMountRecord | null => {
+  const session = sessionKey(notice.from.runtime, notice.from.sessionId as SessionId)
+  return chosenMount(mounts.filter((mount) => mount.session === session || mount.roomMembers.includes(session)))
+}
+
+const composerVisible = (snapshot: AppSnapshot, area: AreaId, mountId: string): boolean => {
+  const workbench = snapshot.workbench
+  if (!areaVisible(workbench, area)) return false
+  if (area === 'main') {
+    if (snapshot.layout.expanded !== null && snapshot.layout.expanded !== mountId) return false
+    return noticeArea(workbench, snapshot.narrowWindow) === 'main'
+  }
+  const dock = workbench[area]
+  return !dock.collapsed && visibleViews(dock).some((entry) => entry.id === mountId)
+}
+
+const useRegisterComposerMount = (mount: ComposerMount): void => {
+  const registry = useContext(ComposerMountsContext)
+  const register = registry?.register
+  useLayoutEffect(() => register?.(mount), [register, mount])
+}
+
 /**
  * Resolve the shared notice's outlet from its configured surface and the
  * current layout once. A focused composer can remain mounted behind a narrow
@@ -294,9 +376,11 @@ const placeOf = (policy: NoticePolicy, standing: Standing): NoticeSurface | null
  * the visible strip instead. Both outlets use this answer, so their rules
  * cannot drift apart and draw the same fact twice.
  */
-const standingOutlet = (snapshot: AppSnapshot, standing: Standing): NoticeSurface | null => {
+const standingOutlet = (snapshot: AppSnapshot, standing: Standing, mounts: readonly ComposerMountRecord[], hasRegistry: boolean): NoticeSurface | null => {
   const place = placeOf(snapshot.noticePolicy, standing)
-  if (place === 'composer' && !focusedComposerVisible(snapshot.workbench, snapshot.narrowWindow)) return 'strip'
+  if (place === 'composer' && (hasRegistry
+    ? standingComposer(mounts, standing.runtime) === null
+    : !focusedComposerVisible(snapshot.workbench, snapshot.narrowWindow))) return 'strip'
   return place
 }
 
@@ -395,14 +479,42 @@ export const ComposerNotices = () => {
   const store = useStore()
   const snapshot = useSnapshot()
   const pane = usePane()
+  const mount = useMount()
   const focused = useIsFocusedPane()
   const sessionKeyOfPane = useSessionKey()
+  const runtime = useRuntime()
+  const registry = useContext(ComposerMountsContext)
   const standing = useStanding()
-  const outlet = standing ? standingOutlet(snapshot, standing) : null
-  const showStanding = focused && outlet === 'composer' && standing !== null
+  const roomForMount = pane?.view.kind === 'room' ? pane.view.room : null
+  const roomMembers = roomForMount !== null ? (snapshot.teams.get(roomForMount)?.members ?? NO_ROOM_MEMBERS) : NO_ROOM_MEMBERS
+  const mountArea = mount?.area ?? 'main'
+  const mountId = mount?.id ?? pane?.paneId ?? 'global'
+  const mountKey = `${mountArea}:${mountId}:${pane?.paneId ?? 'global'}`
+  const composerMount = useMemo<ComposerMount>(() => ({
+    key: mountKey,
+    paneId: pane?.paneId ?? mountId,
+    session: sessionKeyOfPane,
+    roomMembers,
+    runtime: runtime.id,
+    area: mountArea,
+    mountId,
+    focused,
+    visible: mount ? composerVisible(snapshot, mountArea, mountId) : focused,
+  }), [mountKey, pane?.paneId, mountId, sessionKeyOfPane, roomMembers, runtime.id, mountArea, focused, mount, snapshot.narrowWindow, snapshot.workbench, snapshot.layout.expanded])
+  useRegisterComposerMount(composerMount)
+  const mounts = registry?.mounts ?? []
+  const outlet = standing ? standingOutlet(snapshot, standing, mounts, registry !== null) : null
+  const selectedStanding = standing && registry
+    ? standingComposer(mounts, standing.runtime)?.key === composerMount.key
+    : focused && (standing ? focusedComposerVisible(snapshot.workbench, snapshot.narrowWindow) : false)
+  const showStanding = selectedStanding && outlet === 'composer' && standing !== null
   const room = pane?.view.kind === 'room' ? pane.view.room : null
   const members = room !== null ? (snapshot.teams.get(room)?.members ?? []) : null
-  const asking = focused ? snapshot.agentNotices.filter((notice) => {
+  const asking = registry ? snapshot.agentNotices.filter((notice) => {
+    if (agentComposer(mounts, notice)?.key !== composerMount.key) return false
+    const from = sessionKey(notice.from.runtime, notice.from.sessionId as SessionId)
+    return members !== null ? members.includes(from) : sessionKeyOfPane !== null && from === sessionKeyOfPane
+  }) : focused ? snapshot.agentNotices.filter((notice) => {
     const from = sessionKey(notice.from.runtime, notice.from.sessionId as SessionId)
     return members !== null ? members.includes(from) : sessionKeyOfPane !== null && from === sessionKeyOfPane
   }) : []
@@ -444,13 +556,14 @@ export const ComposerNotices = () => {
  */
 export const NoticeStripOutlet = ({ host }: { readonly host: boolean }) => {
   const snapshot = useSnapshot()
+  const registry = useContext(ComposerMountsContext)
   const standing = useStanding()
   const offer = useImportOffer()
   if (!host) return null
   const messages: NoticeMessage[] = []
   const dismissals = new Map<string, () => void>()
   if (standing) {
-    if (standingOutlet(snapshot, standing) === 'strip') {
+    if (standingOutlet(snapshot, standing, registry?.mounts ?? [], registry !== null) === 'strip') {
       messages.push(standing.message)
       dismissals.set(standing.message.id, standing.dismiss)
     }
