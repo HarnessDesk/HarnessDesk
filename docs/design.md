@@ -1001,6 +1001,14 @@ When adding a control, row or surface to HarnessDesk:
   of the rows around it.
 - An icon that labels a row belongs on the row's first line, not centred against
   the title *and* its description.
+- A one-line notice centres its visible text by cap height: the air above the
+  capitals and below their baseline is equal to within 1px. Measure the glyph
+  box, not the line box. Give the text block a `min-height` matching the tallest
+  control in that row and trim its text box to the cap and alphabetic edges.
+  The lead shares that centre while the copy is one line; when it wraps, the
+  lead moves to the first line and the action and dismiss stay on the row's
+  centre. Trailing notice buttons use `edge="end"` so the glyph, not the hit
+  target, lands on the surface edge.
 - Write the label so the second line is not needed. A verb and its object beat a
   verb and a paragraph.
 - Default to no second line. Add one only when you can name which of the three
