@@ -1127,7 +1127,7 @@ rules:
     } : {}),
 
     /** The desk itself: twelve agents, three projects, work in the sidebar. */
-    desk: { expect: 'Workspaces', run: async () => {
+    desk: { expect: 'Projects', run: async () => {
       await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
       await sleep(1500)
     } },
