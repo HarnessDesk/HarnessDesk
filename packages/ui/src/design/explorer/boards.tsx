@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 
 import { runtimeId, sessionKey, sessionId, turnId, type AgentItem, type FileChange, type Turn } from '@harnessdesk/protocol'
 
-import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, PluginIcon, TerminalIcon, TodoPendingIcon } from '../../components/Icons'
+import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, PencilIcon, PluginIcon, TerminalIcon, TodoPendingIcon } from '../../components/Icons'
 import { RuntimeMark } from '../../components/BrandIcons'
 import { DiffView } from '../../components/Diff'
 import { TurnFiles } from '../../components/TurnFiles'
@@ -879,7 +879,7 @@ const BannerBoard = () => (
  */
 const QueueRows = () => {
   const [ids, setIds] = useState(['Run the focused tests again', 'Then write the release note', 'Open a pull request'])
-  const [editing, setEditing] = useState(true)
+  const [editing, setEditing] = useState(false)
   const sortable = useSortable({
     ids,
     name: (id) => `“${id}”`,
@@ -912,6 +912,11 @@ const QueueRows = () => {
             )}
             {index === 0 ? <Text role="meta" tone="brand">next</Text> : null}
             <span data-slot="sortable-actions" className="flex shrink-0 items-center">
+              {index === 0 && !editing ? (
+                <Button type="button" variant="ghost" size="icon-sm" aria-label="Edit queued message" onClick={() => setEditing(true)}>
+                  <PencilIcon size={13} />
+                </Button>
+              ) : null}
               <Button variant="ghost" size="icon-sm" aria-label="Remove"><CrossIcon size={13} /></Button>
             </span>
           </li>
