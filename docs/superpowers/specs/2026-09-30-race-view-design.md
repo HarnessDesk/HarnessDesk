@@ -171,7 +171,16 @@ it (seen in the mock frames).
 - Its structured verdict appears as a **verdict band** above the grid (the
   pick, and a line per attempt), and the picked tile's header gets a chip.
   The band's action is the flow's person step — **Merge this attempt** —
-  which stays a person's decision.
+  which stays a person's decision. The picked attempt's name is never what
+  truncates: on a narrow header the "Picked" chip becomes a mark beside the
+  name first.
+- **After the verdict the shared composer stays.** It still addresses the
+  room (the person may ask the picked attempt to polish, or ask all of them
+  a question before deciding); its audience defaults to Everyone as before.
+  The decision itself is never made through the composer — only through the
+  band's action. Once the person has merged, the composer stays for the
+  room's ordinary use; the race's own bands collapse to one line ("Merged
+  Gamma's attempt") that reopens the verdict.
 - **No independent judge available**: the judge needs a runtime that holds
   a read-only ceiling (today only one does, #1132) and a provider none of
   the competitors use. Today the flow's preview refuses such a race (its
