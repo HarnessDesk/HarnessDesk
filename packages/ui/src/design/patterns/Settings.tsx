@@ -654,6 +654,12 @@ const TEXT_ROLE = {
   // A page band's heading, below the page title and above a subject.
   section: 'text-(length:--hd-text-lg) leading-(--hd-line-lg) font-semibold',
   subject: 'text-base leading-(--hd-line) font-medium',
+  // The name of someone — an agent at work or a person — wherever a face is
+  // drawn: a chat's sender, a member named inside a sentence. Heavier than a
+  // subject because a face and its name are one thing, and the name is what
+  // the eye lands on first. The only name role in semibold besides the three
+  // that title a page.
+  member: 'text-base leading-(--hd-line) font-semibold',
   row: 'text-sm leading-(--hd-line-sm) font-medium',
   navigation: 'text-sm leading-(--hd-line-sm) font-normal',
   muted: 'text-sm leading-(--hd-line-sm) font-normal',
@@ -677,6 +683,7 @@ const TEXT_ROLE_INK = {
   page: undefined,
   section: 'text-(--hd-foreground)',
   subject: 'text-(--hd-foreground)',
+  member: 'text-(--hd-foreground)',
   row: 'text-(--hd-foreground)',
   navigation: 'text-(--hd-foreground)',
   muted: 'text-(--hd-secondary-foreground)',

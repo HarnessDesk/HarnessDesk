@@ -152,6 +152,7 @@ are doing; screens do not invent a new spelling for the same job:
 | section | 16 / semibold | a page band's heading (a Dashboard band) — below the page title, above a subject (#1122) |
 | group label | 13 / normal, secondary ink | the word over a group — a card of rows, a rail's list, a section of a page (`GroupLabel`). Sentence case, always: no label outside a `Keycap` is set in capitals |
 | subject | 14 / medium | the name of the thing a pane, a dialog or a card is about |
+| member | 14 / semibold | the name of someone — an agent at work or a person — beside its face: a chat's sender, a member named inside a sentence (`MemberName`) |
 | row | 13 / medium | the title of a setting, and the word above a control |
 | navigation | 13 / normal | the name of one thing in a navigable list |
 | muted | 13 / normal | a description under a name, and chrome that labels rather than names |
@@ -800,9 +801,10 @@ difference is a deliberate interface choice; the sections below say which.
 Every element wearing a name role — `Text role=…` (`design/patterns/
 Settings.tsx`) or `PageHead`'s own title — computes one of the pairs the
 "Named text roles" table above states: wordmark and page at 20/600, section at
-16/600, subject at 14/500, row at 13/500, navigation and muted at 13/400.
-Section is the one role at 16px; section, wordmark and page are the only name
-roles in semibold. The dashboard
+16/600, subject at 14/500, member at 14/600, row at 13/500, navigation and
+muted at 13/400. Section is the one role at 16px; section, wordmark, page and
+member are the only name roles in semibold, and member is the only one that
+names someone. The dashboard
 readouts `Text` also draws (`meta`, `figure`, `metric`, `value`, `prose`) are
 not names and sit outside the rule; `figure`/`metric` are deliberately
 semibold.
@@ -810,7 +812,7 @@ semibold.
 Enforced by `rules.spec.ts` ("rule: names"), reading every `Text` role and
 `data-slot="page-title"` across mounted screens against that role's pair. It
 also checks every visible h1-h4 and `*-title` slot outside `Text` against the
-same five pairs, without guessing a role from the tag or slot. A readout is
+same pairs, without guessing a role from the tag or slot. A readout is
 declared, never read off its text: `ChartTitle`'s `figure` marks itself
 `data-figure` and is left to its own role, while a title that merely reads as
 a number is still a name. The preview harness marks its own caption with

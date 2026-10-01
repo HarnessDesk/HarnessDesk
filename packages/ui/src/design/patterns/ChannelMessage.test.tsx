@@ -48,8 +48,8 @@ it('a message is a transcript item with the sender’s identity tile for a face'
   const tile = row().querySelector('[data-slot="icon-tile"]')
   expect(tile?.getAttribute('data-tint')).toBe('green')
   expect(tile?.getAttribute('aria-hidden')).toBe('true')
-  // The name is the subject of the row, said in words beside the face.
-  expect(row().querySelector('[data-slot="text"][data-role="subject"]')?.textContent).toBe('Reviewer')
+  // The name is a member's, said in words beside the face.
+  expect(row().querySelector('[data-slot="text"][data-role="member"]')?.textContent).toBe('Reviewer')
 })
 
 it('reads the attribution as one run at the left: name, who it reached, when, how it went', () => {
@@ -104,7 +104,7 @@ it('a grouped message keeps the body, drops the header, and keeps its time in th
   render(<ChannelMessage from="Reviewer" at="03:35 PM" state="delivered" text="And one more." grouped />)
   expect(row().hasAttribute('data-grouped')).toBe(true)
   expect(row().querySelector('[data-slot="icon-tile"]')).toBeNull()
-  expect(row().querySelector('[data-role="subject"]')).toBeNull()
+  expect(row().querySelector('[data-role="member"]')).toBeNull()
   expect(row().querySelector('[data-slot="text"][data-role="meta"]')?.textContent).toBe('03:35 PM')
   expect(row().textContent).toContain('And one more.')
 })

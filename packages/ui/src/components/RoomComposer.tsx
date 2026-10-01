@@ -526,6 +526,11 @@ export const RoomComposer = ({
       </TurnWorkLive>
     )}
     </ComposerTail>
+    {/* The box and what is stacked over it are hidden under an approval's card,
+        on a plain wrapper: `ComposerShell` is `display: flex`, which beats the
+        `hidden` attribute, so hiding the shell itself left the textarea on
+        screen. */}
+    <div hidden={suspended}>
     {/* A dropped link, whatever the person moved to the strip, and — same as
         a conversation's own composer — what stops a turn here and what an
         Agent in this room is waiting on someone to decide, over the room's
@@ -534,7 +539,7 @@ export const RoomComposer = ({
       <NoticeStripOutlet host={isNoticeHost} />
       <ComposerNotices />
     </ComposerNoticeStack>
-    <ComposerShell className="relative" hidden={suspended}>
+    <ComposerShell className="relative">
       {mention && (
         <TriggerMenu
           title="Address"
@@ -691,6 +696,7 @@ export const RoomComposer = ({
         </ComposerSend>
       </ComposerTools>
     </ComposerShell>
+    </div>
     </>
   )
 }

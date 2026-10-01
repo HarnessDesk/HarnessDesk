@@ -512,6 +512,6 @@ export const MemberName = ({
     <IconTile aria-hidden="true" size="xs" shape="face" tint={tint}>
       {mark}
     </IconTile>
-    <Text role="subject" weight="semibold">{name}</Text>
+    <Text role="member">{name}</Text>
   </span>
 )

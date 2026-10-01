@@ -325,7 +325,7 @@ export const ChannelMessage = ({
       <Message align="start" className="items-stretch gap-0">
         {!grouped && (
           <div className="mb-px flex items-baseline gap-1.5">
-            {wrap(<Text role="subject" weight="semibold" truncate>{from}</Text>)}
+            {wrap(<Text role="member" truncate>{from}</Text>)}
             {/* `min-w-0`, or `truncate` is decoration: a flex item will not
                 shrink below its content without it, and a recipient list of
                 138 names ran off the row and gave the channel a scrollbar. */}
