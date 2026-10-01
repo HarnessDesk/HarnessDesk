@@ -123,7 +123,7 @@ it('every candidate and effective ceiling remains visible', async () => {
   expect(chips).toEqual(expect.arrayContaining(['Edit · held', 'Read · asked']))
 })
 
-it('renders independent-provider and held-ceiling refusal reasons for candidates', async () => {
+it('renders provider warnings, held-ceiling refusals, and additional provider reasons', async () => {
   const reviewer: FlowPreviewSeat = {
     role: 'reviewer', index: 0, agent: 'reviewer', isolate: false, reviews: true,
     plan: {
@@ -139,10 +139,20 @@ it('renders independent-provider and held-ceiling refusal reasons for candidates
           seat: { runtime: 'claude-code', model: 'sonnet' },
           reason: { kind: 'unheld', level: 'read', detail: null }, fix: { kind: 'ceilings' },
         }),
+        candidate({
+          label: 'Cursor · Gamma', runtimeName: 'Cursor', seat: { runtime: 'cursor' },
+          state: 'taken', reason: null, fix: null,
+        }),
+        candidate({
+          label: 'Cursor · Delta', runtimeName: 'Cursor', seat: { runtime: 'cursor' },
+          reason: { kind: 'unheld', level: 'read', detail: null }, fix: { kind: 'ceilings' },
+          alsoPassed: [{ kind: 'sameProvider' }],
+        }),
       ],
     } as SeatPlan,
   }
-  const preview: FlowPreview = { ...emptyPreview(), seats: [reviewer] }
+  const warning = 'Can’t confirm that Cursor uses a different provider from fixer, so independence is checked when this step is reached.'
+  const preview: FlowPreview = { ...emptyPreview(), seats: [reviewer], problems: [{ level: 'warning', at: 'roles.reviewer', text: warning }] }
   const theStore = store({
     entries: [ENTRY('fix')], agents: [AGENT('reviewer', 'Reviewer')],
     source: () => 'version: 2\n', preview: () => preview,
@@ -154,6 +164,11 @@ it('renders independent-provider and held-ceiling refusal reasons for candidates
 
   expect(container.textContent).toContain('Same provider as the writer')
   expect(container.textContent).toContain('cannot hold read')
+  // Delta's alsoPassed reason renders beside its primary one; Alpha's alone would not prove it.
+  expect(container.textContent).toMatch(/only asked — Same provider as the writer/)
+  expect(container.textContent).not.toContain('Can’t confirm a different provider from the writer')
+  expect(container.textContent).toContain('Picked')
+  expect(container.textContent).toContain(warning)
 })
 
 // #1053: a reading step handed an isolated step's one commit gets a worktree of its own, and the dry run says so.
