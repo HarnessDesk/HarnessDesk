@@ -57,6 +57,12 @@ if (verb === 'pr view') { process.stdout.write(JSON.stringify(pr())); process.ex
 if (verb === 'pr checks') { process.stdout.write(JSON.stringify([{ name: 'build', state: 'SUCCESS', bucket: 'pass', link: 'https://ci/1', workflow: 'CI' }, { name: 'lint', state: 'FAILURE', bucket: 'fail', link: 'https://ci/2' }, { name: 'deploy', state: 'PENDING', bucket: 'pending' }])); process.exit(8) }
 if (verb === 'issue view') { process.stdout.write(JSON.stringify({ number: 42, title: 'Widgets wobble', state: 'OPEN', url: 'https://github.com/acme/widgets/issues/42', author: { login: 'octocat' }, body: 'They wobble.', labels: [{ name: 'bug' }], comments: [{ author: { login: 'hubot' }, body: 'Confirmed.', createdAt: '2026-09-10T00:00:00Z' }] })); process.exit(0) }
 if (verb === 'issue comment') { process.stdout.write('https://github.com/acme/widgets/issues/42#issuecomment-2\n'); process.exit(0) }
+if (verb.startsWith('api') && (args[1] ?? '').includes('/check-runs?')) {
+  if (fs.existsSync(path.join(home, 'checks-fail'))) { process.stderr.write('gh: HTTP 502\n'); process.exit(1) }
+  const file = path.join(home, 'checks.ndjson')
+  process.stdout.write(fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '')
+  process.exit(0)
+}
 if (verb.startsWith('api') && /^repos\/[^/]+\/[^/]+$/.test(args[1] ?? '')) {
   // The repository's own merge-commit settings, as GitHub answers them; a test writes repo.json to change them.
   const file = path.join(home, 'repo.json')
@@ -93,6 +99,7 @@ const rig = async (t: { after(fn: () => void | Promise<void>): void }, config: R
   const repo = join(root, 'repo')
   const remote = join(root, 'remote.git')
   execFileSync('mkdir', ['-p', home, bin, repo])
+  writeFileSync(join(home, 'checks.ndjson'), JSON.stringify({ name: 'Build, typecheck, test', id: 1, started_at: '2026-09-30T10:00:00Z', status: 'completed', conclusion: 'success' }) + '\n')
   writeFileSync(join(bin, 'gh'), FAKE_GH)
   chmodSync(join(bin, 'gh'), 0o755)
   const git = (...args: string[]): string =>
@@ -315,6 +322,83 @@ test('pr_merge merges only at the commit that was reviewed, squashes unless told
   const invalid = await forge.run('pr_merge', { number: 7, head: 'short' })
   assert.match(invalid, /whole commit/)
   assert.equal(forge.calls().filter((args) => args[0] === 'pr' && args[1] === 'merge').length, 5)
+})
+
+const checkRun = (name: string, id: number, started_at: string, status: string, conclusion: string | null) => ({
+  name,
+  id,
+  started_at,
+  status,
+  conclusion,
+})
+
+const setCheckRuns = (forge: Rig, runs: unknown[]): void => {
+  writeFileSync(join(forge.home, 'checks.ndjson'), runs.map((run) => JSON.stringify(run)).join('\n') + (runs.length > 0 ? '\n' : ''))
+}
+
+const assertNoMergeCall = (forge: Rig): void => {
+  assert.equal(forge.calls().some((args) => args[0] === 'pr' && args[1] === 'merge'), false)
+}
+
+test('pr_merge refuses when CI is in progress or failed, naming the offending check', async (t) => {
+  const head = '0123456789abcdef0123456789abcdef01234567'
+  const inProgress = await rig(t)
+  setCheckRuns(inProgress, [checkRun('Build, typecheck, test', 1, '2026-09-30T10:00:00Z', 'in_progress', null)])
+  const progressSaid = await inProgress.run('pr_merge', { number: 7, head })
+  assert.match(progressSaid, /Not merged: CI is not green on 0123456\./)
+  assert.match(progressSaid, /“Build, typecheck, test” is in progress/)
+  assertNoMergeCall(inProgress)
+
+  const failed = await rig(t)
+  setCheckRuns(failed, [checkRun('lint', 2, '2026-09-30T10:00:00Z', 'completed', 'failure')])
+  const failureSaid = await failed.run('pr_merge', { number: 7, head })
+  assert.match(failureSaid, /“lint” failed/)
+  assertNoMergeCall(failed)
+})
+
+test('pr_merge refuses when no CI has reported on the reviewed commit', async (t) => {
+  const forge = await rig(t)
+  setCheckRuns(forge, [])
+  const said = await forge.run('pr_merge', { number: 7, head: '0123456789abcdef0123456789abcdef01234567' })
+  assert.match(said, /Not merged: no CI has reported on this commit/)
+  assertNoMergeCall(forge)
+})
+
+test('pr_merge fails closed when the CI state cannot be read', async (t) => {
+  const forge = await rig(t)
+  writeFileSync(join(forge.home, 'checks-fail'), '')
+  const said = await forge.run('pr_merge', { number: 7, head: '0123456789abcdef0123456789abcdef01234567' })
+  assert.match(said, /Not merged: CI state could not be read on 0123456/)
+  assertNoMergeCall(forge)
+})
+
+test('pr_merge accepts success, skipped and neutral, using only each check name’s newest run', async (t) => {
+  const forge = await rig(t)
+  setCheckRuns(forge, [
+    checkRun('build', 1, '2026-09-30T10:00:00Z', 'completed', 'failure'),
+    checkRun('build', 2, '2026-09-30T11:00:00Z', 'completed', 'success'),
+    checkRun('lint', 3, '2026-09-30T11:00:00Z', 'completed', 'skipped'),
+    checkRun('test', 4, '2026-09-30T11:00:00Z', 'completed', 'neutral'),
+  ])
+  const head = '0123456789abcdef0123456789abcdef01234567'
+  assert.match(await forge.run('pr_merge', { number: 7, head }), /Merged pull request #7/)
+  assert.ok(forge.calls().some((args) => args[0] === 'pr' && args[1] === 'merge'))
+
+  const newerFailure = await rig(t)
+  setCheckRuns(newerFailure, [
+    checkRun('build', 1, '2026-09-30T10:00:00Z', 'completed', 'success'),
+    checkRun('build', 2, '2026-09-30T11:00:00Z', 'completed', 'failure'),
+  ])
+  const said = await newerFailure.run('pr_merge', { number: 7, head })
+  assert.match(said, /“build” failed/)
+  assertNoMergeCall(newerFailure)
+
+  const tied = await rig(t)
+  setCheckRuns(tied, [
+    checkRun('build', 1, '2026-09-30T11:00:00Z', 'completed', 'failure'),
+    checkRun('build', 2, '2026-09-30T11:00:00Z', 'completed', 'success'),
+  ])
+  assert.match(await tied.run('pr_merge', { number: 7, head }), /Merged pull request #7/)
 })
 
 test('pr_review opens with the review line; pr_comment is unsigned', async (t) => {
