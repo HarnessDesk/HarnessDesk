@@ -49,9 +49,9 @@ export interface FlowPreviewPort {
   /** Reads the provider a runtime would use in this checkout; null means independence cannot be proven. */
   providerOf?(runtime: string, cwd: string): Promise<string | null>
   /** The checkout whose runtime configuration an opened role would read. */
-  checkoutPath?(root: string, isolate: boolean): Promise<string>
+  checkoutPath?(root: string, lane: boolean): Promise<string>
   /** Predicts whether this candidate will get HarnessDesk's tool server in its actual flow checkout. */
-  pluginToolsProblem?(runtime: string, root: string, isolate: boolean): Promise<string | null>
+  pluginToolsProblem?(runtime: string, root: string, lane: boolean): Promise<string | null>
   /**
    * A front-door target read again from the host, as the canonical facts it
    * was bound to — commits, a diff, a working tree's snapshot. Asked at
@@ -292,6 +292,10 @@ export class FlowPreviews {
       for (const { role } of raw) visit(role.id)
       for (const { role, binding, plan: originalPlan } of ordered) {
         let plan = originalPlan
+        // `rolesAtPredecessor` uses the same `handedCheckout` rule as a run;
+        // either an isolated role or a role opened on handed work reads its lane.
+        const lane = role.isolate || atPredecessor.has(role.id)
+        const checkout = await this.#port.checkoutPath?.(root, lane) ?? root
         if (role.independentOf.length > 0 && !plan.blocked) {
           const writerProviders = role.independentOf.flatMap((id) => providersByRole.get(id) ?? [null])
           const knownWriters = new Set<string | null>(writerProviders.length === 0 ? [null] : writerProviders)
@@ -300,6 +304,8 @@ export class FlowPreviews {
           for (let index = 0; index < candidates.length; index += 1) {
             const candidate = candidates[index]!
             if (candidate.state === 'passed') continue
+            // Match execution's pre-open candidate filter, which reads the
+            // Goal checkout before the selected Seat is opened.
             const ownProvider = await provider(candidate.seat.runtime, root)
             const reason = independentProviderReason(ownProvider, knownWriters)
             if (!reason) {
@@ -315,7 +321,6 @@ export class FlowPreviews {
               ...(additional.length ? { alsoPassed: additional } : {}),
             }
           }
-          const checkout = await this.#port.checkoutPath?.(root, role.isolate) ?? root
           let postOpenStall = false
           if (winner !== null) {
             const selected = candidates[winner]!
@@ -342,7 +347,6 @@ export class FlowPreviews {
           }
         }
         const selected = plan.winner === null ? null : plan.candidates[plan.winner]
-        const checkout = await this.#port.checkoutPath?.(root, role.isolate) ?? root
         providersByRole.set(role.id, [
           ...(providersByRole.get(role.id) ?? []),
           selected ? await provider(selected.seat.runtime, checkout) : null,
@@ -353,7 +357,7 @@ export class FlowPreviews {
         })
         if (!plan.blocked && plan.winner !== null && this.#port.pluginToolsProblem) {
           const selected = plan.candidates[plan.winner]!
-          const toolProblem = await this.#port.pluginToolsProblem(selected.seat.runtime, root, role.isolate)
+          const toolProblem = await this.#port.pluginToolsProblem(selected.seat.runtime, root, lane)
           if (toolProblem) problems.push({
             level: 'error',
             at: `roles.${role.id}.seat`,

@@ -272,6 +272,49 @@ rules:
   assert.ok(preview.problems.some((problem) => problem.at === 'roles.reviewer' && problem.text.includes('independent provider')))
 })
 
+test('independence reads providers in each role predecessor-lane checkout', async () => {
+  const state = rig()
+  state.agentsRoster = ['writer', 'reviewer', 'final'].map((id) => AGENT(id))
+  const source = `
+version: 2
+name: Predecessor provider configuration
+roles:
+  writer: { kind: agent, uses: writer, grant: edit, isolate: true }
+  reviewer: { kind: agent, uses: reviewer, grant: read, independentOf: [writer] }
+  final: { kind: agent, uses: final, grant: read, independentOf: [reviewer] }
+seed: { role: writer, title: Write }
+rules:
+  - { id: review, on: writer, when: { every: [done] }, then: { role: reviewer, title: Review } }
+  - { id: final, on: reviewer, when: { every: [done] }, then: { role: final, title: Final } }
+`
+  const checked: string[] = []
+  const port: FlowPreviewPort = {
+    ...state.port,
+    previewAgent: async (_root, agent, _seats, grant) => ({
+      id: agent, from: 'prefer', winner: 0, blocked: null,
+      ceiling: { level: grant, hold: 'asked' },
+      candidates: [{ seat: { runtime: agent === 'writer' ? 'alpha' : agent === 'reviewer' ? 'beta' : 'gamma' }, label: agent, runtimeName: agent, state: 'taken', reason: null, fix: null }],
+    }),
+    providerOf: async (runtime, cwd) => {
+      checked.push(`${runtime}:${cwd}`)
+      if (runtime === 'alpha') return 'openai'
+      // The predecessor checkout has a different account configuration from the root.
+      if (runtime === 'beta') return 'anthropic'
+      return cwd === '/repo/lane-preview' ? 'anthropic' : 'openai'
+    },
+    checkoutPath: async (root, lane) => lane ? `${root}/lane-preview` : root,
+  }
+  const preview = await new FlowPreviews(port).freeze('/repo', source)
+  const reviewer = preview.seats.find((seat) => seat.role === 'reviewer')!.plan
+  const final = preview.seats.find((seat) => seat.role === 'final')!.plan
+  assert.equal(reviewer.winner, 0, 'beta is independent in the checkout the reviewer opens')
+  assert.equal(final.winner, null, 'downstream compares against beta’s provider in that checkout')
+  assert.equal(final.candidates[0]?.reason?.kind, 'sameProvider')
+  assert.equal(final.blocked, 'This step needs an independent provider. Choose a seat from another provider.', 'the selected gamma seat clashes only after opening in its lane')
+  assert.ok(checked.includes('beta:/repo/lane-preview'), 'reviewer selection is verified in its lane')
+  assert.ok(checked.includes('gamma:/repo/lane-preview'), 'downstream selection is verified in its lane')
+})
+
 test('a trigger again round keeps a mixed predecessor role conditional in the dry run', async () => {
   const state = rig()
   state.agentsRoster = [AGENT('writer'), AGENT('target')]
