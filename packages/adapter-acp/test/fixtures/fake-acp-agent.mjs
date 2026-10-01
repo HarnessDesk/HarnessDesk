@@ -350,6 +350,17 @@ const runPrompt = async (id, params) => {
     return reply(id, { stopReason: 'end_turn' })
   }
 
+  if (text.includes('use the desk tool with provenance')) {
+    const { outcome } = await request('session/request_permission', {
+      sessionId: state.id,
+      toolCall: { toolCallId: 'tc-desk', title: 'Mcp', kind: 'other' },
+      options: [{ optionId: 'yes', name: 'Allow once', kind: 'allow_once' }],
+      _meta: { harnessdesk: { flowBoardTool: { server: 'harnessdesk', tool: 'mcp__harnessdesk__claim_next' } } },
+    })
+    say(outcome.outcome === 'selected' ? 'allowed.' : 'denied.')
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
   if (text.includes('use the tool')) {
     update(state.id, {
       sessionUpdate: 'tool_call',
