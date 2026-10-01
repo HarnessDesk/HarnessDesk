@@ -2338,7 +2338,8 @@ const Room = ({
           with the words because choosing it is part of writing the message. */}
       <ComposerDock>
         {/* The thread's own failures, docked with the composer in the same
-            reading column the stream hangs in. `problem` is the host's:
+            reading column the stream hangs in (its live line is the first
+            line of the composer's tail, below). `problem` is the host's:
             it could not keep the board, so what is on screen may not survive
             a restart — the person needs to know before they act on it.
             `trouble` is this surface's: the last thing you pressed did not
@@ -2377,14 +2378,20 @@ const Room = ({
               <Approvals placement="docked" takeFocus={takeFocus} />
             </PaneProvider>
           )}
-          {/* The composer stays mounted while an approval occupies its slot;
-              an approval arriving mid-sentence must not throw away the words
-              or the audience being written. */}
+          {/* Mounted whatever holds the slot, and only hidden under the
+              card (`suspended`): an approval arriving mid-sentence must not
+              throw away the words or the audience being written — they are
+              this component's own state, and unmounting it was the loss.
+              The live line rides in with it (`statusLine`) so the tail over
+              the box is one strip, and it stays visible under an approval,
+              where it says who is waiting. */}
           <RoomComposer
             /* Keyed by the room, so moving between rooms is a new box rather
                than the old one being talked out of its state. The audience
-               prunes itself against the new roster either way, but the words
-               must not come along to a different room. */
+               prunes itself against the new roster either way, but the
+               *words* would have come along — a half-written line to one
+               room appearing in another, one keystroke from being sent
+               there. */
             key={room}
             ref={composer}
             room={room}
@@ -2392,6 +2399,11 @@ const Room = ({
             messaging={messaging}
             statusLine={<RoomLiveLine members={members} snapshot={snapshot} now={now} triggerStatus={triggerStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} />}
             suspended={pendingApproval !== null}
+            /* The same card the rail and the chat draw, off the same one
+               reader. `Open` is the only verb worth offering on a chip: the
+               member is already addressed, so Message would be the greyed
+               verb the card refuses to draw, and removing them is the ✕ they
+               already carry. */
             card={(key, node) => {
               const entry = members.find((one) => one.key === key)
               if (!entry) return node

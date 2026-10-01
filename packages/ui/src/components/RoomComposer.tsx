@@ -518,7 +518,9 @@ export const RoomComposer = ({
         the same box, size and ink as who is working above it — so the tail
         speaks in one voice and the box holds only the words and the ways to
         send them. It changes only when the audience does. */}
-    {notice && (
+    {/* Hidden with the box while an approval holds the slot: what sending
+        would do is moot until there is a box to send from. */}
+    {notice && !suspended && (
       <TurnWorkLive settled data-slot="room-composer-notice">
         {notice.tone === 'warn' ? <Text role="prose" tone="warning">{notice.text}</Text> : notice.text}
       </TurnWorkLive>
