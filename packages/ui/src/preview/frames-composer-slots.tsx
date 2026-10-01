@@ -4,6 +4,7 @@ import { runtimeId, sessionId, sessionKey, type ConfigOption, type RuntimeInfo, 
 import { AgentControl, ComposerTrack, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from '../components/ComposerControls'
 import { ContextUsage } from '../components/ContextUsage'
 import { ComposerGap, ComposerSend, ComposerTools, Button } from '../design'
+import { Frame } from './main'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot } from '../state/store'
 import { previewStore } from './harness'
@@ -139,8 +140,7 @@ export const ComposerSlotsContent = () => (
 )
 
 export const ComposerSlotsFrames = () => (
-  <section data-frame-id="composer-slots" className="min-w-0">
-    <h2 data-preview-caption="" className="mb-2 text-sm font-semibold text-muted-foreground">Composer — fixed slots</h2>
-    <div className="overflow-hidden rounded-lg border bg-background"><ComposerSlotsContent /></div>
-  </section>
+  <Frame id="composer-slots" title="Composer — fixed slots">
+    <ComposerSlotsContent />
+  </Frame>
 )
