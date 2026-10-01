@@ -92,6 +92,33 @@ const lifeline = async (t: TestContext): Promise<Lifeline> => {
 }
 
 /**
+ * A bridge's lifeline closing, waited for with a bound.
+ *
+ * A socket's close is delivered asynchronously, so "gone" is the awaited
+ * close, never `alive()` sampled the instant the host answers: a bridge that
+ * died a moment ago would still read alive. A bridge that survives keeps the
+ * close pending, and the bound turns that into a failure that names it rather
+ * than a run with no timeout of its own (the root `pnpm test`) hanging. It is
+ * a hang guard, not a measurement.
+ */
+const within = async (promise: Promise<void>, timeoutMs: number, label: string): Promise<void> => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`timed out waiting for ${label} after ${timeoutMs}ms`)),
+          timeoutMs,
+        )
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+/**
  * The smallest thing that is both a real process family and a real ACP agent.
  *
  * The order inside is the point. It checks in on the lifeline, writes that
@@ -207,9 +234,7 @@ test('a refresh parked mid-restart when the app quits spawns no bridge behind th
      gone before the gap below opens — and starts it again. */
   const refresh = runtime.refreshCatalog()
   await arrived
-  // The refresh reached its new-start lookup only after stop finished. Wait
-  // for the asynchronous close event rather than sampling alive() at once.
-  await first.gone
+  await within(first.gone, 30_000, 'the first bridge closed its lifeline')
 
   // The quit, landing in the gap. Nothing is in flight for it to wait on:
   // the connection has no child and no reap, so this returns at once.
@@ -217,8 +242,8 @@ test('a refresh parked mid-restart when the app quits spawns no bridge behind th
   release()
 
   /* Settled either way before anything is asked. A bridge that spawned has
-     already claimed a workspace and answered the handshake this awaits, so
-     the count below is a fact rather than a race. */
+     already recorded its lifeline check-in and answered the handshake this
+     awaits, so the count below is a fact rather than a race. */
   const outcome = await refresh.then(
     () => 'the runtime reported a restart',
     (error: unknown) => String(error),
@@ -261,8 +286,7 @@ test('a secret reload parked mid-restart when the app quits spawns no bridge eit
   const arrived = park()
   const reloading = runtime.reloadSecrets()
   await arrived
-  // reloadSecrets reached its new-start lookup only after stop finished.
-  await first.gone
+  await within(first.gone, 30_000, 'the first bridge closed its lifeline')
 
   await runtime.dispose()
   release()
@@ -290,9 +314,7 @@ test('a runtime the host has finished with will not start again', async (t) => {
   assert.deepEqual(born.length, 1)
 
   await runtime.dispose()
-  // Socket close is asynchronous; waiting for it avoids treating delivery
-  // latency as a live generation while still failing if the process survives.
-  await first.gone
+  await within(first.gone, 30_000, 'the first bridge closed its lifeline')
   await assert.rejects(runtime.start(), /has been shut down/)
 
   assert.deepEqual(await generations(desks), born, 'no bridge was spawned to find that out')
