@@ -308,6 +308,32 @@ export interface ModelRouteRecord {
 const START_TIMEOUT_MS = 15_000
 const HELD_ALLOW = 'allow'
 const HELD_REFUSE = 'refuse'
+
+// Claude Code can ask for permission before calling an MCP tool. These are
+// the named tools on the desk's own team server; their handlers still enforce
+// caller attribution and the flow Seat's ceiling. Keep external person
+// notifications out of this list, and never match another MCP server.
+const FLOW_BOARD_TOOLS = new Set([
+  'mcp__harnessdesk__list_intents',
+  'mcp__harnessdesk__add_intent',
+  'mcp__harnessdesk__claim_work',
+  'mcp__harnessdesk__claim_next',
+  'mcp__harnessdesk__await_work',
+  'mcp__harnessdesk__await_member',
+  'mcp__harnessdesk__check_conflicts',
+  'mcp__harnessdesk__complete_claim',
+  'mcp__harnessdesk__commit_work',
+  'mcp__harnessdesk__run_check',
+  'mcp__harnessdesk__release_claim',
+  'mcp__harnessdesk__get_context',
+  'mcp__harnessdesk__get_team_status',
+  'mcp__harnessdesk__review_candidates',
+  'mcp__harnessdesk__record_review',
+  'mcp__harnessdesk__raise_finding',
+  'mcp__harnessdesk__repair_finding',
+  'mcp__harnessdesk__decide_finding',
+  'mcp__harnessdesk__list_findings',
+])
 const HELD_WAIT_SEC = 45
 /**
  * How long a send may count as busy without the agent having accepted it.
@@ -5848,6 +5874,7 @@ export class Host {
     // question reaches a human. A matched approval never renders: it is
     // answered here, audited here, and reported as a notice.
     if (event.type === 'approval/requested') {
+      if (this.#answerFlowBoardTool(runtime, event.approval)) return
       const verdict = this.#applyPolicy(runtime, event.approval)
       if (verdict) return
       // A question, not a yes/no: from a Seat nobody watches, it gets a deadline.
@@ -6266,6 +6293,48 @@ export class Host {
       return true
     }
     return false
+  }
+
+  /**
+   * A flow cannot do its job if its own board tools stop for a person. The
+   * tool server still checks attribution and the Seat's ceiling, so answer
+   * only its explicitly named tools and only with the one-call approval.
+   */
+  #answerFlowBoardTool(runtime: RuntimeId, approval: Approval): boolean {
+    if (approval.type !== 'permission' || approval.flowBoardTool?.server !== 'harnessdesk' || !FLOW_BOARD_TOOLS.has(approval.flowBoardTool.tool)) return false
+    if (!this.#flows.governs(String(runtime), String(approval.sessionId))) return false
+    const option = approval.options.find((entry) => entry.intent === 'approve')
+    const record = this.registry.get(runtime, approval.sessionId)
+    if (!option || !record?.live) return false
+
+    void Promise.resolve()
+      .then(async () => {
+        await record.live!.respondToApproval(approval.id, { type: 'option', optionId: option.id })
+        this.#audit.append({
+          at: Date.now(),
+          runtime,
+          sessionId: String(approval.sessionId),
+          ...(record.session.cwd ? { cwd: record.session.cwd } : {}),
+          kind: 'approval/autoDecided',
+          approvalType: approval.type,
+          decision: 'approve',
+          rule: 'flow board tool',
+        })
+      })
+      .catch((error: unknown) => {
+        this.#logger.warn('failed to answer a flow board tool permission, falling back to human approval', {
+          runtime,
+          approvalId: approval.id,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        const approvalEvent: AgentEvent = { type: 'approval/requested', approval }
+        this.registry.apply(runtime, approvalEvent)
+        this.#audit.record(runtime, approvalEvent, (sessionId) =>
+          this.registry.get(runtime, makeSessionId(sessionId))?.session.cwd,
+        )
+        this.#push({ method: 'event', params: { runtime, event: approvalEvent } })
+      })
+    return true
   }
 
   /** The runtime's own description, plus whatever the host has learned about it since. */
