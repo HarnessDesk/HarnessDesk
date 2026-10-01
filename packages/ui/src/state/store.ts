@@ -5945,6 +5945,9 @@ export class AppStore {
         preferences['corners'] === 'round'
           ? { corners: preferences['corners'] }
           : {}),
+        ...(preferences['faces'] === 'square' || preferences['faces'] === 'round'
+          ? { faces: preferences['faces'] }
+          : {}),
         ...(preferences['look'] === 'desk' || preferences['look'] === 'studio'
           ? { look: preferences['look'] }
           : {}),
@@ -6264,6 +6267,11 @@ export class AppStore {
   setAccent(accent: AppSnapshot['accent']): void {
     this.#patch({ accent })
     void this.#writePreference({ accent }, 'The accent colour')
+  }
+
+  setFaces(faces: AppSnapshot['faces']): void {
+    this.#patch({ faces })
+    void this.#writePreference({ faces }, 'The shape of faces')
   }
 
   setCorners(corners: AppSnapshot['corners']): void {

@@ -654,6 +654,25 @@ What stayed, and why:
 | Clear browsing data | Names its blast radius: this pane, not your browser. |
 | Every disabled row's reason | A tooltip on a disabled control is unreachable. |
 
+## Shapes say what a mark is
+
+Three shapes, and each one means something wherever it appears:
+
+| Shape | What it is | Examples |
+| --- | --- | --- |
+| Face | Someone: an agent at work or a person | A sender in the chat, a member on a team's rail, a board card's holder, a session or member card, your seat, a name inside a sentence |
+| Ring | An account | The seat menu's account marks, an account card |
+| Square | A thing or a category | A plugin, a skill, a file, a harness, a section |
+
+A face takes its corner from `--hd-face-radius` and never from the tile it sits
+in. It is square by default, and a person can make every face round in
+Settings › Appearance › Faces (`body[data-hd-faces='round']`). Draw a face with
+`IconTile shape="face"` or `Face`, and an agent named inside a sentence with
+`MemberName`. A face drawn as a bare `square` tile would be the one face that
+ignores the setting. The ring and the square do not move with Faces: an
+account was already round, and a thing staying square is how a round face
+still reads as someone.
+
 ## Motion
 
 Motion says where a thing came from and where it went, and nothing else. It is

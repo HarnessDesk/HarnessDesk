@@ -8,7 +8,8 @@ import { Face } from './Settings'
  * A person's face. Pinned: a face this build ships draws its picture;
  * anything else the profile may hold — a later build's face, a picture it
  * keeps, garbage — draws the house mark rather than a broken image; the tile
- * is squared and sized by its prop, or fills the box it is put in.
+ * wears the face shape (whatever Faces is set to) and is sized by its prop,
+ * or fills the box it is put in.
  */
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -43,9 +44,9 @@ it('draws the picture for a face this build ships, and the mark for anything els
   }
 })
 
-it('is squared and sized by its prop, or fills the box it is put in', () => {
+it('wears the face shape and is sized by its prop, or fills the box it is put in', () => {
   const sized = render(<Face avatar={null} size={44} />)
-  expect(sized.dataset['shape']).toBe('square')
+  expect(sized.dataset['shape']).toBe('face')
   expect(sized.dataset['size']).toBe('m')
   expect(sized.style.width).toBe('44px')
   const filling = render(<Face avatar={null} />)

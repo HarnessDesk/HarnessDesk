@@ -10,6 +10,10 @@
       "implementationPath": "packages/ui/src/components/TeamBoardPane.tsx"
     },
     {
+      "id": "surface.team-solid",
+      "implementationPath": "packages/ui/src/components/TeamRoomPane.tsx"
+    },
+    {
       "id": "surface.conversation",
       "implementationPath": "packages/ui/src/components/Conversation.tsx"
     },

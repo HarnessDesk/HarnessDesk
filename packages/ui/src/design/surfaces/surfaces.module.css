@@ -112,3 +112,101 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Team · solid A/B. B is the shipped team under a list of variants; every rule
+   below is keyed on one word of that list, so switching one off takes exactly
+   its own change away and nothing else. Token references only. */
+
+.solidPage {
+  display: grid;
+  gap: var(--hd-space-4);
+  min-width: 0;
+}
+
+.solidControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hd-space-2) var(--hd-space-5);
+}
+
+.solidControl {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  cursor: pointer;
+}
+
+.solidPair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--hd-space-4);
+  min-width: 0;
+}
+
+.solidSide {
+  display: grid;
+  gap: var(--hd-space-2);
+  align-content: start;
+  min-width: 0;
+}
+
+.solid {
+  min-width: 0;
+}
+
+/* Solid faces: the identity hue becomes the ground, and the mark or initial on
+   it takes the ink an accent carries. Each tint names its own hue once. */
+.solid[data-solid~='faces'] :is([data-channel], [data-slot='member-name']) [data-slot='icon-tile'][data-tint] {
+  background: var(--solid-face);
+  color: var(--hd-accent-foreground);
+}
+.solid[data-solid~='faces'] :is([data-channel], [data-slot='member-name']) [data-slot='icon-tile'][data-tint='blue'] { --solid-face: var(--hd-tint-blue-ink); }
+.solid[data-solid~='faces'] :is([data-channel], [data-slot='member-name']) [data-slot='icon-tile'][data-tint='green'] { --solid-face: var(--hd-tint-green-ink); }
+.solid[data-solid~='faces'] :is([data-channel], [data-slot='member-name']) [data-slot='icon-tile'][data-tint='amber'] { --solid-face: var(--hd-tint-amber-ink); }
+.solid[data-solid~='faces'] :is([data-channel], [data-slot='member-name']) [data-slot='icon-tile'][data-tint='violet'] { --solid-face: var(--hd-tint-violet-ink); }
+.solid[data-solid~='faces'] :is([data-channel], [data-slot='member-name']) [data-slot='icon-tile'][data-tint='rose'] { --solid-face: var(--hd-tint-rose-ink); }
+.solid[data-solid~='faces'] :is([data-channel], [data-slot='member-name']) [data-slot='icon-tile'][data-tint='teal'] { --solid-face: var(--hd-tint-teal-ink); }
+.solid[data-solid~='faces'] :is([data-channel], [data-slot='member-name']) [data-slot='icon-tile'][data-tint='orange'] { --solid-face: var(--hd-tint-orange-ink); }
+.solid[data-solid~='faces'] :is([data-channel], [data-slot='member-name']) [data-slot='icon-tile'][data-tint='sky'] { --solid-face: var(--hd-tint-sky-ink); }
+
+/* Heavier names: the sender of a message, and a collaborator's name on the rail. */
+.solid[data-solid~='names'] [data-channel='message'] [data-role='subject'],
+.solid[data-solid~='names'] [data-role='row'] {
+  font-weight: var(--hd-weight-semibold);
+}
+
+/* Quiet header: the time stays, the delivery whisper after it goes. */
+.solid[data-solid~='quiet'] [data-channel='message'] [data-slot='meta-list'] > span + span {
+  display: none;
+}
+
+/* Fade the clamp: the box still stops where it stops, but its last line
+   fades out rather than showing the top half of a row of letters. */
+.solid[data-solid~='fade'] [data-channel='message']:has([data-slot='channel-more'][aria-expanded='false']) [data-slot='channel-body'] {
+  mask-image: linear-gradient(to bottom, var(--hd-foreground) calc(100% - var(--hd-line) * 2), transparent);
+}
+
+/* Status strip: the tail over the composer — who is working, what sending
+   does besides send — reads as one tinted part rather than loose sentences
+   on the page's own ground. */
+.solid[data-solid~='strip'] [data-slot='composer-dock'] :is([data-slot='room-live-line'], [data-slot='room-composer-notice']) {
+  min-height: var(--hd-control-h);
+  margin-bottom: var(--hd-space-1-5);
+  padding-inline: var(--hd-space-3);
+  border-radius: var(--hd-radius);
+  background: var(--hd-muted);
+  font-size: var(--hd-text-sm);
+  color: var(--hd-secondary-foreground);
+}
+/* Two lines of the tail are one strip, not two bars: they meet with no gap and
+   only the outer corners round. */
+.solid[data-solid~='strip'] [data-slot='composer-dock']:has([data-slot='room-composer-notice']) [data-slot='room-live-line'] {
+  margin-bottom: 0;
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+}
+.solid[data-solid~='strip'] [data-slot='composer-dock']:has([data-slot='room-live-line']) [data-slot='room-composer-notice'] {
+  border-start-start-radius: 0;
+  border-start-end-radius: 0;
+}

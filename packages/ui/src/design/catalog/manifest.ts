@@ -550,6 +550,7 @@ export const CANONICAL_PATTERN_MODULES = [
 export const PRODUCT_SURFACES = [
   ['surface.dashboard', 'dashboard', 'Plan usage, cost and limits', 'packages/ui/src/components/Usage.tsx', false, 'packages/ui/src/app/App.tsx', 'DashboardSurface'],
   ['surface.group', 'group', 'Room, board and agent collaboration', 'packages/ui/src/components/TeamBoardPane.tsx', false, 'packages/ui/src/panels/builtins.tsx', 'GroupSurface'],
+  ['surface.team-solid', 'team-solid', 'Team chat as shipped beside a solid variant', 'packages/ui/src/components/TeamRoomPane.tsx', false, 'packages/ui/src/panels/builtins.tsx', 'TeamSolidSurface'],
   ['surface.conversation', 'conversation', 'Complete transcript and approval', 'packages/ui/src/components/Conversation.tsx', false, 'packages/ui/src/panels/builtins.tsx', 'ConversationSurface'],
   ['surface.composer', 'composer', 'Composer states and overflow', 'packages/ui/src/components/Composer.tsx', false, 'packages/ui/src/components/Conversation.tsx', 'ComposerSurface'],
   ['surface.rail', 'rail', 'Sidebar and navigation rows', 'packages/ui/src/components/Sidebar.tsx', false, 'packages/ui/src/app/App.tsx', 'RailSurface'],

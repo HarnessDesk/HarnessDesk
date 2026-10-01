@@ -46,6 +46,7 @@ import {
   Card,
   ChangeStats,
   AgentCard,
+  MemberName,
   ApprovalCode,
   ApprovalDialog,
   ApprovalMeta,
@@ -1740,6 +1741,17 @@ export const DialogBoard = () => {
                 }} />
               </div>
             ))}
+          </div>
+        </Case>
+        <Case label="member name: a member inside a sentence wears its face and the strong ink">
+          <div className={styles.stack} data-catalog-case="member-name">
+            <span>
+              <MemberName name="Alpha" tint="violet" mark={<PluginIcon size={10} />} /> is working
+            </span>
+            <span>
+              <MemberName name="Alpha" tint="violet" mark={<PluginIcon size={10} />} />,{' '}
+              <MemberName name="Beta" tint="green" mark={<PluginIcon size={10} />} /> are not open; sending opens them too.
+            </span>
           </div>
         </Case>
         <Case label="publication card">

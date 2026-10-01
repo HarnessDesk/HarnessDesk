@@ -269,6 +269,18 @@ body {
      and two sheets doing this arithmetic separately is how they drift. */
   --hd-radius-matted: calc(var(--hd-radius-lg) - var(--hd-space-0-5));
 
+  /* The shape of a face: an agent's mark on its plate, a person's picture.
+     Faces are one object wherever they are drawn (the chat, a team's rail, a
+     board card's holder, the agent card, the seat, a name inside a sentence),
+     so they take their corner from here rather than from the tile they sit
+     in. Square by default, on the radius scale the way every mark is, with
+     the larger face a rung up so 24px and 44px read as one object at two
+     sizes. A person may choose round (Settings > Appearance > Faces), which
+     `body[data-hd-faces='round']` writes in shadcn-themes.css. An account's
+     ring is not a face and stays a ring whichever is chosen. */
+  --hd-face-radius: var(--hd-radius-sm);
+  --hd-face-radius-lg: var(--hd-radius);
+
   /* A hairline is one device pixel, not one CSS pixel, so it stays a hairline
      on the retina displays this app actually runs on. */
   --hd-border-width: 1px;

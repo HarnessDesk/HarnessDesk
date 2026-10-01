@@ -117,6 +117,19 @@ export type AgentCardMeter = {
   readonly tone?: 'warning' | 'danger'
 }
 
+/**
+ * The crest's corner follows what the subject is, so the card wears the same
+ * shape its subject wears everywhere else: a harness is a thing (square), an
+ * account a ring (round, the seat's menu draws it so), and a session or a
+ * member is someone (a face, at the corner the person chose for faces).
+ */
+const CREST_SHAPE: Readonly<Record<AgentCardKind, 'square' | 'round' | 'face'>> = {
+  agent: 'square',
+  account: 'round',
+  session: 'face',
+  member: 'face',
+}
+
 export type AgentCardSubject = {
   readonly kind: AgentCardKind
   /** What it is called here — the nickname in a room, the session's title elsewhere. */
@@ -299,7 +312,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
     <CardShell slot="agent-card" kind={subject.kind}>
       <CardCrest>
         <span className="relative flex-none">
-          <IconTile tint={subject.tint}>{subject.mark}</IconTile>
+          <IconTile shape={CREST_SHAPE[subject.kind]} tint={subject.tint}>{subject.mark}</IconTile>
           {/* Working is a light, not a word — the same dot the rail draws, in
               the same corner. Announced in words on the name, where a screen
               reader gets a sentence rather than a colour. */}
@@ -470,3 +483,35 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
   )
 }
 AgentCard.displayName = 'AgentCard'
+
+
+/**
+ * A member named inside a sentence: "Alpha is working", "Beta is not open;
+ * sending opens it too".
+ *
+ * The name is what the line is about, so it does not sit in the sentence as
+ * one more grey word. It wears the member's own face, the small one the rail
+ * and the chat draw, and the strong ink. The rest of the sentence keeps the
+ * line's own voice, so a glance finds who first and reads what second.
+ * Inside a live line that shimmers, the name stays still: the motion is the
+ * work, and the name is not what is moving.
+ *
+ * `mark` is the caller's, a brand mark or the generic agent glyph, because the
+ * pattern does not know which harness a member sits on, and must not.
+ */
+export const MemberName = ({
+  name,
+  mark,
+  tint = 'blue',
+}: {
+  readonly name: string
+  readonly mark: ReactNode
+  readonly tint?: Tint
+}) => (
+  <span data-slot="member-name" className="inline-flex items-center gap-(--hd-space-1) whitespace-nowrap align-bottom">
+    <IconTile aria-hidden="true" size="xs" shape="face" tint={tint}>
+      {mark}
+    </IconTile>
+    <Text role="subject">{name}</Text>
+  </span>
+)

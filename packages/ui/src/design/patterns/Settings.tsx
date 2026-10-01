@@ -1172,9 +1172,11 @@ export const DetailHead = ({
  * not.
  *
  * It is the avatar above — the plate and the hairline the account marks wear —
- * squared, because a person is not an account: account marks are rings, the
- * avatars were drawn as squared tiles (`assets/avatars/README.md`), and the
- * seat reads as "you, and the pen you will pick up" because the two differ.
+ * in the face shape, because a person is not an account: account marks are
+ * rings, a face is whatever the person chose for faces (`--hd-face-radius`,
+ * squared unless they picked round; the avatars were drawn as squared tiles,
+ * `assets/avatars/README.md`), and it is the same corner the agents' marks
+ * beside it wear.
  * The corner steps up the radius scale with the size, so the seat's 24px and
  * the profile page's 44px read as one object at two sizes.
  *
@@ -1201,7 +1203,7 @@ export const Face = ({
   return (
     <span
       className={className ? `${styles.avatar} ${className}` : styles.avatar}
-      data-shape="square"
+      data-shape="face"
       {...(size === undefined
         ? { 'data-fill': '' }
         : { 'data-size': size > 32 ? 'm' : 's', style: { width: size, height: size } })}

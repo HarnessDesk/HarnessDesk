@@ -81,6 +81,7 @@ import {
   HoverCardContent,
   HoverCardTrigger,
   IconTile,
+  MemberName,
   KeyValue,
   KeyValueRow,
   ListRow,
@@ -1337,7 +1338,7 @@ export const TeamRoomPane = ({
                     <Bar as="header" rule="bottom" className={styles.columnHead}>
                       <MemberCard entry={entry} side="bottom" className={styles.columnWho}>
                         <span className={styles.columnMark}>
-                          <IconTile size="sm" tint={entry?.tint ?? 'blue'}>
+                          <IconTile size="sm" shape="face" tint={entry?.tint ?? 'blue'}>
                             {entry?.brand ? <BrandMark brand={entry.brand} size={13} /> : <AgentIcon />}
                           </IconTile>
                           {entry?.busy && <Dot state="ready" variant="presence" pulse aria-hidden />}
@@ -1631,7 +1632,7 @@ const MemberRow = ({
            the second line, and to a screen reader below; the dimming is the
            glance. */
         <span className={styles.memberMark} {...(member.here ? {} : { 'data-away': '' })}>
-          <IconTile size="sm" tint={member.tint}>
+          <IconTile size="sm" shape="face" tint={member.tint}>
             {member.brand ? <BrandMark brand={member.brand} size={13} /> : <AgentIcon />}
           </IconTile>
           {/* Working is a light, not a word. Announced to a screen reader on
@@ -1952,7 +1953,12 @@ const RoomLiveLine = ({
           data-slot="room-live-line"
           {...(elapsed !== null ? { trail: ` · ${formatDuration(elapsed)}` } : {})}
         >
-          {subject.peer.nickname} is working
+          <MemberName
+            name={subject.peer.nickname}
+            tint={subject.tint}
+            mark={subject.brand ? <BrandMark brand={subject.brand} size={10} /> : <AgentIcon size={10} />}
+          />{' '}
+          is working
         </TurnWorkLive>
       )
     }
@@ -1964,7 +1970,12 @@ const RoomLiveLine = ({
       >
         <Dot state="limit" pulse />
         <span>
-          {subject.peer.nickname} is waiting for your approval
+          <MemberName
+            name={subject.peer.nickname}
+            tint={subject.tint}
+            mark={subject.brand ? <BrandMark brand={subject.brand} size={10} /> : <AgentIcon size={10} />}
+          />{' '}
+          is waiting for your approval
           {allWaiting.length > 1 && ` · ${allWaiting.length - 1} more`}
         </span>
       </TurnWorkLive>

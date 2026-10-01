@@ -622,7 +622,10 @@ account, a preset — is a dialog with labelled fields, never a stack of
 placeholder-only inputs inline in the page; and every removal confirms in a
 dialog whose red button is the step that cannot be taken back. Appearance
 leads with three theme cards and a live code sample, so the rows under it need
-no sentence explaining what they would do.
+no sentence explaining what they would do. Faces, the one row that keeps a sentence, sets the
+shape of every agent's and person's face, square or round. The sentence is
+there because the label cannot say that an account's ring and a thing's tile
+keep their own shape.
 
 **Agents** is a top-level window of its own, opened from the sidebar or ⌘K: the
 open project's own Agents, yours, and the ones that ship. Its overview names

@@ -19,9 +19,13 @@ import { softTint, softTone, type Tint, type Tone } from './tone'
  * ground, which is the right answer for a glyph that is pure decoration — a
  * service logo, a file type.
  *
- * `shape` is a real choice and not a style: a circle reads as a person or an
- * account, a rounded square as a thing or a category. The app already holds that
- * rule for avatars; this keeps the two consistent.
+ * `shape` is a real choice and not a style. `face` is someone: an agent's mark
+ * or a person's picture, at whatever corner the person chose for faces
+ * (`--hd-face-radius`, square unless they picked round), so every face in the
+ * app is one shape. `round` is an account's ring or a status coin, `square` a
+ * thing or a category. A tile that holds an agent's mark is a face, never a
+ * bare `square`: a thing's tile does not follow the setting, and a face that
+ * does not would be the one face in the app with the wrong corner.
  *
  * A listing that brings its own mark — a plugin's or a skill's logo — puts the
  * `<img>` inside, and the tile crops it to its corner. One that brings only its
@@ -44,6 +48,7 @@ const tileVariants = cva(
       shape: {
         square: 'rounded-(--hd-radius-sm)',
         round: 'rounded-full',
+        face: 'rounded-(--hd-face-radius)',
       },
     },
     defaultVariants: { size: 'default', shape: 'square' },

@@ -162,6 +162,8 @@ Four radii carry the whole interface, and a fifth name says "pill". `sm` is a sm
 | `--hd-radius-xl` | `16px` |
 | `--hd-radius-full` | `9999px` |
 | `--hd-radius-matted` | `calc(14px - 2px)` |
+| `--hd-face-radius` | `6px` |
+| `--hd-face-radius-lg` | `10px` |
 | `--hd-border-width` | `1px` |
 
 ### Type
@@ -876,6 +878,23 @@ anatomy — crest, bands, verbs — for the reason its own doc comment gives,
 and its bands were redrawing this one privately (their own `border-t
 border-(--hd-border-strong) px-3 py-2`, a hairline off this one's `py-2.5`).
 Exported so both compose the one band rather than two close drawings of it.
+
+### `MemberName`
+
+`packages/ui/src/design/patterns/AgentCard.tsx`
+
+A member named inside a sentence: "Alpha is working", "Beta is not open;
+sending opens it too".
+
+The name is what the line is about, so it does not sit in the sentence as
+one more grey word. It wears the member's own face, the small one the rail
+and the chat draw, and the strong ink. The rest of the sentence keeps the
+line's own voice, so a glance finds who first and reads what second.
+Inside a live line that shimmers, the name stays still: the motion is the
+work, and the name is not what is moving.
+
+`mark` is the caller's, a brand mark or the generic agent glyph, because the
+pattern does not know which harness a member sits on, and must not.
 
 ### `AppWindowSurface`
 
@@ -1778,9 +1797,11 @@ A person's face: the picture they chose, or the house mark when they have
 not.
 
 It is the avatar above — the plate and the hairline the account marks wear —
-squared, because a person is not an account: account marks are rings, the
-avatars were drawn as squared tiles (`assets/avatars/README.md`), and the
-seat reads as "you, and the pen you will pick up" because the two differ.
+in the face shape, because a person is not an account: account marks are
+rings, a face is whatever the person chose for faces (`--hd-face-radius`,
+squared unless they picked round; the avatars were drawn as squared tiles,
+`assets/avatars/README.md`), and it is the same corner the agents' marks
+beside it wear.
 The corner steps up the radius scale with the size, so the seat's 24px and
 the profile page's 44px read as one object at two sizes.
 

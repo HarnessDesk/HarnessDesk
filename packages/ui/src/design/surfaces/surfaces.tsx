@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 
 import { activityOf, flowStepOf, placeCard, type BoardEvidence, type FlowExecution, type FlowPolicy, type Intent, type Session, type TeamState } from '@harnessdesk/protocol'
 
@@ -11,6 +11,7 @@ import { SignIn } from '../../components/SignIn'
 import { Sidebar } from '../../components/Sidebar'
 import { TeamBoardPane } from '../../components/TeamBoardPane'
 import { TeamRoomPane } from '../../components/TeamRoomPane'
+import { Chip, Switch, Text } from '..'
 import { TerminalSurface as TerminalPane } from '../../components/TerminalPane'
 import { Usage } from '../../components/Usage'
 import { MountProvider } from '../../panels/mount'
@@ -943,3 +944,124 @@ export const SignInSurface = () => (
     </Frame>
   </Mount>
 )
+
+/**
+ * The team's chat twice, as shipped and with the changes a "solid" reading
+ * asks for — each one switchable, so the page answers which of them carries
+ * the feeling rather than arguing for all of them at once.
+ *
+ * Both sides mount the same shipped `TeamRoomPane` on the same fixture. B
+ * changes nothing in the screen: every variant is either a token override on
+ * B's own frame (the mechanism a foundation already uses, scoped to one frame
+ * instead of `body`) or a rule in this directory's stylesheet keyed on B's
+ * `data-solid` list. An experiment, not a proposal: whichever wins moves into
+ * the system — a token, a pattern's prop — and leaves this page.
+ */
+const SOLID_VARIANTS = [
+  { id: 'faces', label: 'Solid faces', about: 'Each sender is a filled tile in its own colour, the mark in white on it.' },
+  { id: 'names', label: 'Heavier names', about: 'The sender at semibold instead of medium.' },
+  { id: 'ink', label: 'Darker ink', about: 'Secondary and muted text each one tier darker.' },
+  { id: 'quiet', label: 'Quiet header', about: 'The header keeps the name and the time; the delivery whisper goes.' },
+  { id: 'fade', label: 'Fade the clamp', about: 'A clamped message fades out over its last line instead of cutting through it.' },
+  { id: 'strip', label: 'Status strip', about: "The lines over the composer — who is working, who sending opens — sit in a tinted strip of their own instead of standing loose on the page.", candidate: true },
+] as const
+
+type SolidVariant = (typeof SOLID_VARIANTS)[number]['id']
+
+/* Each tier up one: what was muted reads as secondary, what was secondary as
+   primary. Token references only, so it follows the theme. */
+const INK_UP: Record<string, string> = {
+  '--hd-muted-foreground': 'var(--hd-secondary-foreground)',
+  '--hd-tertiary-foreground': 'var(--hd-secondary-foreground)',
+  '--hd-secondary-foreground': 'var(--hd-foreground)',
+}
+
+
+/* The team as a real review reads: one long, structured request — the kind
+   whose clamp the eye catches cutting through a row of letters — and a short
+   answer. Appended to the preview team's own channel, so A and B share it. */
+const LONG_REVIEW = [
+  'Deep code review, please — yours alone. Nobody else is reviewing this with you, so nothing here is a second opinion but yours.',
+  '',
+  'Pull request to review:',
+  '',
+  '- #1192 — The left sidebar on one row grammar: one-click New session, one row per conversation, complete search, fast large histories',
+  '',
+  'For each one:',
+  '',
+  '1. Read the whole diff — `gh pr diff <url>` — and then the files it touches in this checkout. The question is not whether the diff looks tidy but whether the behaviour it claims is the behaviour it ships.',
+  '2. Run the tests it adds and the ones beside them, and say which you ran.',
+  '3. Leave every finding as a review comment on the line it is about, blocking or not.',
+  '4. End with one verdict: approve, or request changes with the list.',
+].join('\n')
+
+const solidTeamStore = (): AppStore => {
+  const base = previewStore().getSnapshot()
+  const teams = new Map(base.teams)
+  const team = teams.get(PREVIEW_ROOM)
+  if (team) {
+    const last = team.channel[team.channel.length - 1]?.at ?? Date.now()
+    const codex = { kind: 'agent', runtime: 'codex', sessionId: 'c1', title: 'API migration' }
+    teams.set(PREVIEW_ROOM, {
+      ...team,
+      channel: [
+        ...team.channel,
+        { id: 'r1', at: last + 60_000, kind: 'message', from: { kind: 'user' }, to: { runtime: 'codex', sessionId: 'c1', title: 'API migration' }, text: LONG_REVIEW, state: 'delivered', reason: null, envelope: null },
+        { id: 'r2', at: last + 360_000, kind: 'message', from: codex, text: '1192 — approve — 2 comments, none blocking.', state: 'shown', reason: null, envelope: null },
+      ] as unknown as typeof team.channel,
+    })
+  }
+  return previewStore({ teams })
+}
+
+const SOLID_TEAM_STORE = solidTeamStore()
+
+export const TeamSolidSurface = () => {
+  const [on, setOn] = useState<ReadonlySet<SolidVariant>>(
+    () => new Set(SOLID_VARIANTS.filter((one) => !('candidate' in one)).map((one) => one.id)),
+  )
+  const toggle = (id: SolidVariant, checked: boolean): void =>
+    setOn((current) => {
+      const next = new Set(current)
+      if (checked) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  return (
+    <div className={styles.solidPage}>
+      <div className={styles.solidControls} role="group" aria-label="Variants on B">
+        {SOLID_VARIANTS.map((one) => (
+          <label key={one.id} className={styles.solidControl} title={one.about}>
+            <Switch checked={on.has(one.id)} onCheckedChange={(checked) => toggle(one.id, checked)} />
+            <Text role="row">{one.label}</Text>
+            {'candidate' in one && <Chip tone="info">new</Chip>}
+          </label>
+        ))}
+      </div>
+      <div className={styles.solidPair}>
+        <div className={styles.solidSide}>
+          <Text role="section">A · as shipped</Text>
+          <Mount with={SOLID_TEAM_STORE}>
+            <Frame height="page">
+              <TeamRoomPane room={PREVIEW_ROOM} />
+            </Frame>
+          </Mount>
+        </div>
+        <div className={styles.solidSide}>
+          <Text role="section">B · {on.size === 0 ? 'nothing switched on' : `${on.size} of ${SOLID_VARIANTS.length} variants`}</Text>
+          <div
+            className={styles.solid}
+            data-solid={[...on].join(' ')}
+            style={on.has('ink') ? (INK_UP as CSSProperties) : undefined}
+          >
+            <Mount with={SOLID_TEAM_STORE}>
+              <Frame height="page">
+                <TeamRoomPane room={PREVIEW_ROOM} />
+              </Frame>
+            </Mount>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

@@ -303,9 +303,9 @@ export const ChannelMessage = ({
           // The face is decoration — the header says who spoke in words. A
           // picture brings its own plate, so the tint is not painted under it.
           face ? (
-            <IconTile aria-hidden="true" tone="neutral">{face}</IconTile>
+            <IconTile aria-hidden="true" shape="face" tone="neutral">{face}</IconTile>
           ) : (
-            <IconTile aria-hidden="true" tint={tint}>
+            <IconTile aria-hidden="true" shape="face" tint={tint}>
               {brand ? <BrandMark brand={brand} size={16} /> : <Monogram>{INITIALS(from)}</Monogram>}
             </IconTile>
           )
