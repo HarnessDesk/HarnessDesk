@@ -606,9 +606,10 @@ tier label.
   runtime cannot be stopped from auto-loading unapproved content. Other
   unsupported declarations become per-item problems.
 - **If not:** the desk shows what is on disk in the repository and, for an
-  agent it can ask (Codex so far), what that agent reports loading. For every
-  other agent it says *on disk, not confirmed*. It does not pretend it can
-  block anything.
+  agent it can ask (Codex so far), what that agent reports loading. For a tier
+  B agent, whose folders are known from its build, it says *on disk, not
+  confirmed*. For a tier C agent, whose folders are unknown, it says *not
+  measured*. It does not pretend it can block anything.
 - **Worked when:** a collaborator sees a committed script before their first
   conversation in that repository.
 - **Priority · needs:** must · U3, U6
