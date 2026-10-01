@@ -588,7 +588,7 @@ it('a panel on the right overlays only below 400px remaining and otherwise keeps
   expect(container.querySelector('[data-right-panel-overlay]')).toBeNull()
   expect(container.querySelector('[data-testid="in-the-conversation"]')?.closest('[inert]')).toBeNull()
   act(() => seam('Resize the right panel')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })))
-  expect(narrow.store.getSnapshot().workbench.right.size).toBe(300)
+  expect(narrow.store.getSnapshot().workbench.right.size).toBe(299)
   const boxes = [...container.querySelectorAll<HTMLElement>('[style]')].filter(
     (box) => box.style.width === 'var(--panel-right)',
   )
@@ -613,5 +613,5 @@ it('clamps the right seam so the standing sidebar and conversation keep 400px ea
   const handle = seam('Resize the right panel')!
   act(() => handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })))
   expect(store.resizePanel).toHaveBeenCalled()
-  expect(store.getSnapshot().workbench.right.size).toBe(560)
+  expect(store.getSnapshot().workbench.right.size).toBe(558)
 })

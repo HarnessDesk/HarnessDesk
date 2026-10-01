@@ -485,9 +485,11 @@ describe('protecting the reading column', () => {
     return { ...docked, right: { ...docked.right, size } }
   }
 
-  test('keeps three columns at 1440 and keeps the sidebar at the 920px equality boundary', () => {
+  test('keeps three columns at 1440 and keeps the sidebar at the 922px equality boundary', () => {
     expect(sidebarCannotHaveColumn(right(460), 1440)).toBe(false)
-    expect(sidebarCannotHaveColumn(right(), 920)).toBe(false)
+    // 240 + 280 + 400, and the two dividers the live window measured.
+    expect(sidebarCannotHaveColumn(right(), 922)).toBe(false)
+    expect(sidebarCannotHaveColumn(right(), 921)).toBe(true)
   })
 
   test.each([
@@ -499,6 +501,13 @@ describe('protecting the reading column', () => {
     expect(sidebarCannotHaveColumn(workbench, width)).toBe(true)
     expect(rightPanelOverlays(workbench, width)).toBe(overlay)
     expect(width - workbench.right.size).toBe(main)
+  })
+
+  test('the divider is counted: the panel covers main from 680, not 679', () => {
+    const workbench = right()
+    // 280 + 1 + 400 fit at 681; the live window measured 399px at 680 without the divider.
+    expect(rightPanelOverlays(workbench, 681)).toBe(false)
+    expect(rightPanelOverlays(workbench, 680)).toBe(true)
   })
 
   test('at 679 the panel covers main after the sidebar has gone', () => {
@@ -515,8 +524,8 @@ describe('protecting the reading column', () => {
 
   test('uses the sidebar width even while its column is collapsed', () => {
     const workbench = right()
-    expect(sidebarCannotHaveColumn(workbench, 919)).toBe(true)
-    expect(sidebarCannotHaveColumn({ ...workbench, sidebar: { ...workbench.sidebar, size: 220 } }, 900)).toBe(false)
+    expect(sidebarCannotHaveColumn(workbench, 921)).toBe(true)
+    expect(sidebarCannotHaveColumn({ ...workbench, sidebar: { ...workbench.sidebar, size: 220 } }, 902)).toBe(false)
   })
 
   test('zoom keeps its existing area visibility rules', () => {

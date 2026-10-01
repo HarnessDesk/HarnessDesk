@@ -39,6 +39,7 @@ import {
   rightPanelOverlays,
   dockLimits,
   MIN_READING,
+  SEAM,
   dockViews,
   MAX_RATIO,
   MIN_RATIO,
@@ -401,7 +402,10 @@ const RightPanel = () => {
     min,
     Math.min(
       dockLimits('right').max,
-      snapshot.windowWidth - (sidebarPlacement(snapshot) === 'column' ? workbench.sidebar.size : 0) - MIN_READING,
+      snapshot.windowWidth -
+        (sidebarPlacement(snapshot) === 'column' ? workbench.sidebar.size + SEAM : 0) -
+        SEAM -
+        MIN_READING,
     ),
   )
   return (

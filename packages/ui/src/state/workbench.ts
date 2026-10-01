@@ -926,7 +926,7 @@ export const sidebarCannotHaveColumn = (workbench: Workbench, windowWidth: numbe
   windowWidth < NARROW_WINDOW ||
   (workbench.zoom === null &&
     rightPanelDrawn(workbench) &&
-    workbench.sidebar.size + workbench.right.size + MIN_READING > windowWidth)
+    workbench.sidebar.size + workbench.right.size + MIN_READING + 2 * SEAM > windowWidth)
 
 /**
  * Whether the right panel leaves less than the reading width beside it and
@@ -935,7 +935,7 @@ export const sidebarCannotHaveColumn = (workbench: Workbench, windowWidth: numbe
  * the notice strip follow (#1179).
  */
 export const rightPanelOverlays = (workbench: Workbench, windowWidth: number): boolean =>
-  windowWidth - workbench.right.size < MIN_READING && rightPanelDrawn(workbench) && areaVisible(workbench, 'main')
+  windowWidth - workbench.right.size - SEAM < MIN_READING && rightPanelDrawn(workbench) && areaVisible(workbench, 'main')
 
 /**
  * The area the strip above the panes rides (`NoticeStripOutlet`): the one
@@ -1123,6 +1123,14 @@ export const NARROW_WINDOW = 720
  * consulted, and that before the work. See docs/decisions.md.
  */
 export const MIN_READING = 400
+
+/**
+ * The divider between two columns, which is taken from one of them. Measured
+ * in the live window: with the arithmetic done on sizes alone the
+ * conversation stood at 398px beside a sidebar and a panel, and at 399px
+ * beside the panel alone — never the 400 it promised.
+ */
+export const SEAM = 1
 
 /**
  * Where the sidebar is drawn.
