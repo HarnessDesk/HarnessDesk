@@ -335,8 +335,12 @@ const treeWith = (
     teams: new Map(rooms.map((one) => [one.id, one])),
     goals,
   } as unknown as AppSnapshot
+  const listeners = new Set<() => void>()
   const store = {
-    subscribe: () => () => {},
+    subscribe: (listener: () => void) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
     getSnapshot: () => snapshot,
     toggleCollapsed: vi.fn(),
     setOthersOpen: vi.fn(),
@@ -357,7 +361,7 @@ const treeWith = (
     store,
     update: (patch: Partial<AppSnapshot>) => {
       snapshot = { ...snapshot, ...patch } as typeof snapshot
-      act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
+      act(() => listeners.forEach((listener) => listener()))
     },
   }
 }
@@ -480,6 +484,59 @@ it('aligns the N more row with the project and conversation label column', () =>
   expect(more?.querySelector('[data-slot="sidebar-menu-icon"]')).not.toBeNull()
 })
 
+it('reveals 25 conversations at a time and reports how many remain', () => {
+  const sessions = Array.from({ length: 40 }, (_, index) => summary({ id: `session-${index + 1}`, updatedAt: index + 1 }))
+  const { container: tree } = treeWith([], sessions)
+  const rows = () => tree.querySelectorAll('[data-region="session-row"]').length
+  const more = () => [...tree.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === '35 more')
+
+  expect(rows()).toBe(5)
+  expect(more()).toBeTruthy()
+  act(() => more()!.click())
+  expect(rows()).toBe(30)
+  expect([...tree.querySelectorAll<HTMLButtonElement>('button')].some((button) => button.textContent?.trim() === '10 more')).toBe(true)
+  act(() => [...tree.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === '10 more')!.click())
+  expect(rows()).toBe(40)
+  expect([...tree.querySelectorAll<HTMLButtonElement>('button')].some((button) => button.textContent?.trim() === 'more')).toBe(false)
+})
+
+it('windows a project after the revealed list grows past 50 rows', () => {
+  const sessions = Array.from({ length: 70 }, (_, index) => summary({ id: `session-${index + 1}`, updatedAt: index + 1 }))
+  const { container: tree } = treeWith([], sessions)
+  const clickMore = (label: string) => act(() => {
+    [...tree.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === label)!.click()
+  })
+
+  clickMore('65 more')
+  clickMore('40 more')
+  expect([...tree.querySelectorAll('[data-region="session-row"]')].length).toBeLessThan(55)
+  expect([...tree.querySelectorAll<HTMLButtonElement>('button')].some((button) => button.textContent?.trim() === '15 more')).toBe(true)
+})
+
+it('only mutates the row whose selected conversation slice changed', () => {
+  const sessions = [summary({ id: 'changed' }), summary({ id: 'untouched' })]
+  const { container: tree, update } = treeWith([], sessions)
+  const changed = tree.querySelector<HTMLElement>('[data-region="session-row"] button')!
+  const untouched = [...tree.querySelectorAll<HTMLElement>('[data-region="session-row"] button')][1]!
+  const changedMutations: MutationRecord[] = []
+  const untouchedMutations: MutationRecord[] = []
+  const changedObserver = new MutationObserver((records) => changedMutations.push(...records))
+  const untouchedObserver = new MutationObserver((records) => untouchedMutations.push(...records))
+  changedObserver.observe(changed, { attributes: true, childList: true, characterData: true, subtree: true })
+  untouchedObserver.observe(untouched, { attributes: true, childList: true, characterData: true, subtree: true })
+
+  update({ activeSessionKey: sessionKey('codex', sessionId('changed')) })
+  // The active row is selected and gains aria-current. The other row's DOM is
+  // unchanged, proving the store event did not fan out through every row.
+  return Promise.resolve().then(() => {
+    expect(changed.getAttribute('aria-current')).toBe('page')
+    expect(changedMutations.length).toBeGreaterThan(0)
+    expect(untouchedMutations).toHaveLength(0)
+    changedObserver.disconnect()
+    untouchedObserver.disconnect()
+  })
+})
+
 it('expands the active session beyond the five-row preview', () => {
   const active = summary({ id: 'active', updatedAt: 1 })
   const sessions = [
@@ -501,6 +558,27 @@ it('expands the active session beyond the five-row preview', () => {
     (button) => button.textContent === 'active',
   )
   expect(row?.hasAttribute('data-active')).toBe(true)
+})
+
+it('reveals and scrolls an active session beyond the next 25 rows', () => {
+  const scrollIntoView = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {})
+  try {
+    const active = summary({ id: 'active-far', updatedAt: 1 })
+    const sessions = [
+      ...Array.from({ length: 35 }, (_, index) => summary({ id: `session-${index + 1}`, updatedAt: index + 3 })),
+      active,
+    ]
+    const { container: tree } = treeWith(
+      [], sessions, [], {}, undefined,
+      sessionKey('codex', sessionId('active-far')),
+    )
+
+    expect(tree.querySelectorAll('[data-region="session-row"]')).toHaveLength(36)
+    expect(tree.querySelector('button[data-active]')?.textContent).toBe('active-far')
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+  } finally {
+    scrollIntoView.mockRestore()
+  }
 })
 
 it('scrolls the active session row into view', () => {

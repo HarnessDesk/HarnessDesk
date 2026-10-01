@@ -24,7 +24,7 @@ import {
   buttonVariants,
   useContextMenu,
 } from '../design'
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type ReactNode } from 'react'
 
 import { openingOf, sessionKey, type Session, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
 
@@ -36,7 +36,7 @@ import { goalName, goalWords } from '../lib/goals'
 import { ACTIVE_STATES, TRACE_LABEL, traceOf } from '../lib/trace'
 import { panes, sessionOf } from '../state/layout'
 
-import { useSnapshot, useStore } from '../state/context'
+import { useSnapshot, useSnapshotSelector, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
 import {
   ArchiveIcon,
@@ -92,11 +92,32 @@ const relativeTime = (timestamp: number, now: number): string => {
   return new Date(timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-const SessionRow = ({
+type SessionRowSlice = {
+  openInPane: boolean
+  runtime: AppSnapshot['runtimes'][number] | undefined
+  density: AppSnapshot['listPrefs']['density']
+  pinned: boolean
+  liveTitle: string | null | undefined
+  trace: ReturnType<typeof traceOf> | null
+  backgrounded: number
+  folderGone: string | null
+  active: boolean
+  needsYou: boolean
+}
+
+const sameSessionRowSlice = (left: SessionRowSlice, right: SessionRowSlice): boolean =>
+  left.openInPane === right.openInPane && left.runtime === right.runtime &&
+  left.density === right.density && left.pinned === right.pinned &&
+  left.liveTitle === right.liveTitle && left.trace === right.trace &&
+  left.backgrounded === right.backgrounded && left.folderGone === right.folderGone &&
+  left.active === right.active && left.needsYou === right.needsYou
+
+const SessionRow = memo(({
   summary,
   now,
   onDelete,
   need,
+  virtualKey,
 }: {
   summary: SessionSummary
   now: number
@@ -112,45 +133,46 @@ const SessionRow = ({
    * is one hover away, in the row's title.
    */
   need?: NeedsYou
+  virtualKey?: string
 }) => {
   const store = useStore()
-  const snapshot = useSnapshot()
   const menu = useContextMenu()
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState('')
-  const openInPane = panes(snapshot.layout.root).some(
-    (pane) => sessionOf(pane) === sessionKey(summary.runtime, summary.id),
-  )
-  const runtime = snapshot.runtimes.find((entry) => entry.id === summary.runtime)
-  const agentName = runtime?.presentation.name ?? summary.runtime
-  // Whether this agent can actually delete a stored conversation. Codex can;
-  // a bridge that knows where its agent writes can; anything else is offered
-  // a disabled row with the reason rather than a Delete that throws.
-  const deletable = runtime?.capabilities.deleteHistory ?? false
-  // A live conversation says what it is doing; a stored one says when it was.
   const key = sessionKey(summary.runtime, summary.id)
-  const pinned = snapshot.listPrefs.pinnedSessions.includes(String(key))
-  const live = snapshot.sessions.get(key)
-  // A queue the host stopped is a conversation waiting on a decision, exactly
-  // as an approval is: the messages are safe, and nothing moves until someone
-  // says so. Reading both through one flag keeps the sidebar honest.
-  const needsYou =
-    snapshot.approvals.some((entry) => entry.key === key) ||
-    snapshot.queues.get(key)?.status === 'paused'
-  const trace = live ? traceOf(live, needsYou) : null
+  const {
+    openInPane, runtime, density, pinned, liveTitle, trace, backgrounded,
+    folderGone, active, needsYou,
+  } = useSnapshotSelector((snapshot): SessionRowSlice => {
+    const live = snapshot.sessions.get(key)
+    const needsYou = snapshot.approvals.some((entry) => entry.key === key) ||
+      snapshot.queues.get(key)?.status === 'paused'
+    return {
+      openInPane: panes(snapshot.layout.root).some((pane) => sessionOf(pane) === key),
+      runtime: snapshot.runtimes.find((entry) => entry.id === summary.runtime),
+      density: snapshot.listPrefs.density,
+      pinned: snapshot.listPrefs.pinnedSessions.includes(String(key)),
+      liveTitle: live?.title,
+      trace: live ? traceOf(live, needsYou) : null,
+      backgrounded: (snapshot.tasks.get(key) ?? []).filter((task) => task.state === 'running').length,
+      folderGone: snapshot.foldersGone.get(summary.cwd) ?? null,
+      active: snapshot.activeSessionKey === key,
+      needsYou,
+    }
+  }, sameSessionRowSlice)
+  const agentName = runtime?.presentation.name ?? summary.runtime
   /* The name the person just gave it, before the history list has caught up.
      A rename patches the open session at once and re-reads the history after;
      138 renames in a row left the sidebar saying "Untitled session" down the
      whole list for the better part of a minute while the room's rail already
      read every name. The live session is the fresher record when it exists. */
-  const ownLabel = sessionLabel(live?.title ?? summary.title, summary.preview)
+  const ownLabel = sessionLabel(liveTitle ?? summary.title, summary.preview)
   const label = need?.name ?? ownLabel
   const traceShown = trace !== null && (ACTIVE_STATES.has(trace) || trace === 'waiting' || trace === 'failed')
   // Work the agent sent to the background and walked away from: the turn is
   // over, the row would read idle, and something is still running. The glyph
   // says so, in green, so a person browsing other conversations knows this
   // one has something to look at — the Background tasks panel, once opened.
-  const backgrounded = (snapshot.tasks.get(key) ?? []).filter((task) => task.state === 'running').length
   const dotState =
     backgrounded > 0
       ? 'ready'
@@ -162,8 +184,6 @@ const SessionRow = ({
             ? 'signin'
             : 'available'
   const worktree = isWorktreeSession(summary)
-  const folderGone = snapshot.foldersGone.get(summary.cwd) ?? null
-  const active = snapshot.activeSessionKey === key
   const rowRef = useRef<HTMLButtonElement>(null)
   /* Brought on screen when it becomes the active one. A list long enough to
      hold a month of review rooms keeps the conversation being typed into
@@ -192,7 +212,7 @@ const SessionRow = ({
   }, [draft, key, store, summary.title])
 
   return (
-    <SidebarMenu className={styles.rowWrap} data-region="session-row" onContextMenu={menu.open}>
+    <SidebarMenu className={styles.rowWrap} data-region="session-row" data-virtual-key={virtualKey} onContextMenu={menu.open}>
       <SidebarMenuItem className="list-none" data-menu-open={menu.at ? '' : undefined}>
         {renaming ? (
           <Input
@@ -216,7 +236,7 @@ const SessionRow = ({
               ref={rowRef}
               trailingOverlay
               labelTrailingContent={Boolean(need || worktree || folderGone)}
-              size={snapshot.listPrefs.density === 'compact' ? 'sm' : 'default'}
+              size={density === 'compact' ? 'sm' : 'default'}
               isActive={active}
               data-active={active ? 'true' : undefined}
               aria-current={active ? 'page' : undefined}
@@ -333,13 +353,13 @@ const SessionRow = ({
           icon={<TrashIcon size={13} />}
           label="Delete…"
           danger
-          disabled={deletable ? false : `${agentName} keeps no way to delete one.`}
+          disabled={menu.at && !store.getSnapshot().runtimes.find((entry) => entry.id === summary.runtime)?.capabilities.deleteHistory ? `${agentName} keeps no way to delete one.` : false}
           onSelect={() => onDelete(summary)}
         />
       </ContextMenu>
     </SidebarMenu>
   )
-}
+})
 
 /**
  * The list's display controls, in one place the way Claude Code desktop and
@@ -605,6 +625,7 @@ const RoomRow = ({
   onToggle,
   onDelete,
   hiddenKeys,
+  virtualKey,
 }: {
   readonly room: TeamState
   /** The project's conversations — members are matched against these. */
@@ -614,6 +635,7 @@ const RoomRow = ({
   readonly onToggle: () => void
   readonly onDelete: (summary: SessionSummary) => void
   readonly hiddenKeys: ReadonlySet<string>
+  readonly virtualKey?: string
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -644,7 +666,7 @@ const RoomRow = ({
   ).length
 
   return (
-    <SidebarMenu>
+    <SidebarMenu data-virtual-key={virtualKey}>
       <SidebarMenuItem>
         <div className="relative min-w-0">
           <SidebarMenuButton
@@ -698,6 +720,143 @@ const RoomRow = ({
 
 /** How many sessions a workspace shows before "Show more". */
 const COLLAPSED_LIMIT = 5
+const EXPANSION_STEP = 25
+
+type ProjectRow =
+  | { kind: 'room'; room: TeamState; updatedAt: number; pinnedIndex: null }
+  | { kind: 'session'; summary: SessionSummary; updatedAt: number; pinnedIndex: number | null }
+
+const WindowedProjectRows = ({
+  rows,
+  enabled,
+  targetIndex,
+  density,
+  className,
+  footer,
+  renderRow,
+}: {
+  rows: readonly ProjectRow[]
+  enabled: boolean
+  targetIndex: number
+  density: AppSnapshot['listPrefs']['density']
+  className?: string
+  footer?: ReactNode
+  renderRow: (row: ProjectRow, index: number) => ReactNode
+}) => {
+  const root = useRef<HTMLDivElement>(null)
+  const [viewport, setViewport] = useState({ top: 0, height: 0, origin: 0 })
+  const [heights, setHeights] = useState<ReadonlyMap<number, number>>(() => new Map())
+  const scroller = useRef<HTMLElement | null>(null)
+  const lastTarget = useRef<number | null>(null)
+  const keyIndexes = useRef(new Map<string, number>())
+  keyIndexes.current = new Map(rows.map((row, index) => [row.kind === 'room' ? `room:${row.room.id}` : `session:${row.summary.runtime}:${row.summary.id}`, index]))
+  const estimate = density === 'compact' ? 34 : 46
+
+  useEffect(() => {
+    if (!enabled || !root.current) return
+    let parent = root.current.parentElement
+    while (parent && parent !== document.body) {
+      const overflow = getComputedStyle(parent).overflowY
+      if (overflow === 'auto' || overflow === 'scroll') break
+      parent = parent.parentElement
+    }
+    const scrollElement = parent ?? document.scrollingElement
+    if (!scrollElement) return
+    scroller.current = scrollElement as HTMLElement
+
+    const refresh = () => {
+      const element = root.current
+      const scroll = scroller.current
+      if (!element || !scroll) return
+      const rootRect = element.getBoundingClientRect()
+      const scrollRect = scroll === document.scrollingElement
+        ? { top: 0, height: window.innerHeight }
+        : scroll.getBoundingClientRect()
+      setViewport({
+        top: scroll.scrollTop,
+        height: scroll.clientHeight || scrollRect.height,
+        origin: rootRect.top - scrollRect.top + scroll.scrollTop,
+      })
+    }
+    const observer = new ResizeObserver((entries) => {
+      setHeights((current) => {
+        const next = new Map(current)
+        let changed = false
+      for (const entry of entries) {
+        const key = (entry.target as HTMLElement).dataset.virtualKey
+        const index = key === undefined ? NaN : keyIndexes.current.get(key) ?? NaN
+        if (!Number.isInteger(index)) continue
+        const row = entry.target as HTMLElement
+        const gap = Number.parseFloat(getComputedStyle(row).marginTop) || 0
+          const height = entry.contentRect.height + gap
+          if (next.get(index) !== height) {
+            next.set(index, height)
+            changed = true
+          }
+        }
+        return changed ? next : current
+      })
+    })
+    for (const child of [...root.current.children]) {
+      if ((child as HTMLElement).dataset.virtualKey !== undefined) observer.observe(child)
+    }
+    const mutations = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of [...record.addedNodes]) {
+          if (node instanceof HTMLElement && node.dataset.virtualKey !== undefined) observer.observe(node)
+        }
+      }
+    })
+    mutations.observe(root.current, { childList: true })
+    scrollElement.addEventListener('scroll', refresh, { passive: true })
+    const resize = new ResizeObserver(refresh)
+    resize.observe(scrollElement)
+    resize.observe(root.current)
+    refresh()
+    return () => {
+      observer.disconnect()
+      mutations.disconnect()
+      resize.disconnect()
+      scrollElement.removeEventListener('scroll', refresh)
+      scroller.current = null
+    }
+  }, [enabled])
+
+  const itemHeight = (index: number) => heights.get(index) ?? estimate
+  let start = 0
+  let beforeHeight = 0
+  const minY = Math.max(0, viewport.top - viewport.origin - 500)
+  while (start < rows.length && beforeHeight + itemHeight(start) < minY) {
+    beforeHeight += itemHeight(start++)
+  }
+  let end = start
+  let throughHeight = beforeHeight
+  const maxY = viewport.top + viewport.height - viewport.origin + 500
+  while (end < rows.length && throughHeight < maxY) throughHeight += itemHeight(end++)
+  const afterHeight = rows.slice(end).reduce((total, _row, index) => total + itemHeight(end + index), 0)
+
+  useEffect(() => {
+    if (!enabled || targetIndex < 0 || lastTarget.current === targetIndex) return
+    lastTarget.current = targetIndex
+    const scroll = scroller.current
+    const element = root.current
+    if (!scroll || !element) return
+    const offset = rows.slice(0, targetIndex).reduce((total, _row, index) => total + itemHeight(index), 0)
+    scroll.scrollTop = viewport.origin + offset
+    const event = new Event('scroll')
+    scroll.dispatchEvent(event)
+  }, [enabled, targetIndex, rows, viewport.origin, heights])
+
+  if (!enabled) return <div ref={root} className={className}>{rows.map(renderRow)}{footer}</div>
+  return (
+    <div ref={root} className={className}>
+      {start > 0 && <div aria-hidden="true" style={{ height: beforeHeight }} />}
+      {rows.slice(start, end).map((row, index) => renderRow(row, start + index))}
+      {afterHeight > 0 && <div aria-hidden="true" style={{ height: afterHeight }} />}
+      {footer}
+    </div>
+  )
+}
 
 /** Where a dragged project would land: above or below the row under the pointer. */
 interface DropTarget {
@@ -958,6 +1117,7 @@ export const SessionTree = ({ now }: { now: number }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
+  const [revealedCount, setRevealedCount] = useState<ReadonlyMap<string, number>>(() => new Map())
   const collapsed = useMemo(
     () => new Set(migratedRoots(snapshot.listPrefs.collapsed, snapshot.workspace)),
     [snapshot.listPrefs.collapsed, snapshot.workspace],
@@ -1063,13 +1223,11 @@ export const SessionTree = ({ now }: { now: number }) => {
     const activeIndex = loose.findIndex(
       (summary) => String(sessionKey(summary.runtime, summary.id)) === activeKey,
     )
-    if (activeIndex >= COLLAPSED_LIMIT) {
-      setExpanded((current) => {
-        if (current.has(activeGroup.root)) return current
-        return new Set(current).add(activeGroup.root)
-      })
+    const visibleCount = revealedCount.get(activeGroup.root) ?? COLLAPSED_LIMIT
+    if (activeIndex >= visibleCount) {
+      setRevealedCount((current) => new Map(current).set(activeGroup.root, activeIndex + 1))
     }
-  }, [activeGroup, activeKey, collapsed, far, liftedKeys, othersOpen, roomsByProject, store])
+  }, [activeGroup, activeKey, collapsed, far, liftedKeys, othersOpen, revealedCount, roomsByProject, store])
 
   const anyOpen = groups.some((group) => !collapsed.has(group.root))
   const toggleAll = useCallback(
@@ -1165,7 +1323,8 @@ export const SessionTree = ({ now }: { now: number }) => {
       },
     )
     const projectSessions = group.sessions.filter((summary) => !liftedKeys.has(String(sessionKey(summary.runtime, summary.id))))
-    const shown = expanded.has(group.root) ? loose : loose.slice(0, COLLAPSED_LIMIT)
+    const visibleCount = Math.min(loose.length, revealedCount.get(group.root) ?? COLLAPSED_LIMIT)
+    const shown = loose.slice(0, visibleCount)
     const pinnedIndexes = new Map(
       snapshot.listPrefs.pinnedSessions.map((key, index) => [String(key), index]),
     )
@@ -1191,6 +1350,9 @@ export const SessionTree = ({ now }: { now: number }) => {
       }
       return b.updatedAt - a.updatedAt
     })
+    const activeRowIndex = rows.findIndex(
+      (row) => row.kind === 'session' && String(sessionKey(row.summary.runtime, row.summary.id)) === activeKey,
+    )
     return (
       <div key={group.root}>
         <GroupHead
@@ -1207,8 +1369,22 @@ export const SessionTree = ({ now }: { now: number }) => {
           </Text>
         )}
         {open && (allRooms.length > 0 || loose.length > 0) && (
-          <div className={styles.nested}>
-            {rows.map((row) =>
+          <WindowedProjectRows
+            rows={rows}
+            enabled={rows.length > 50}
+            targetIndex={activeRowIndex}
+            density={snapshot.listPrefs.density}
+            className={styles.nested}
+            footer={loose.length > visibleCount ? (
+              <SidebarMenu><SidebarMenuItem>
+                <SidebarMenuButton size="sm" icon={<span aria-hidden="true" />} label={`${loose.length - visibleCount} more`}
+                  onClick={() => setRevealedCount((current) => {
+                    const shown = current.get(group.root) ?? COLLAPSED_LIMIT
+                    return new Map(current).set(group.root, Math.min(loose.length, shown + EXPANSION_STEP))
+                  })} />
+              </SidebarMenuItem></SidebarMenu>
+            ) : undefined}
+            renderRow={(row) =>
               row.kind === 'room' ? (
                 <RoomRow
                   key={row.room.id}
@@ -1219,17 +1395,16 @@ export const SessionTree = ({ now }: { now: number }) => {
                   onToggle={() => toggle(row.room.id)}
                   onDelete={setDeleting}
                   hiddenKeys={liftedKeys}
+                  virtualKey={`room:${row.room.id}`}
                 />
               ) : (
-                <SessionRow key={row.summary.id} summary={row.summary} now={now} onDelete={setDeleting} />
-              ),
-            )}
-            {!expanded.has(group.root) && loose.length > COLLAPSED_LIMIT && (
-              <SidebarMenu><SidebarMenuItem>
-                <SidebarMenuButton size="sm" icon={<span aria-hidden="true" />} label={`${loose.length - COLLAPSED_LIMIT} more`}
-                  onClick={() => setExpanded((current) => new Set(current).add(group.root))} />
-              </SidebarMenuItem></SidebarMenu>
-            )}
+                <SessionRow key={row.summary.id} summary={row.summary} now={now} onDelete={setDeleting} virtualKey={`session:${row.summary.runtime}:${row.summary.id}`} />
+              )
+            }
+          />
+        )}
+        {open && wrapped.length > 0 && (
+          <div className={styles.nested}>
             {wrapped.length > 0 ? (
               <>
                 <SidebarMenu><SidebarMenuItem><SidebarMenuButton size="sm"

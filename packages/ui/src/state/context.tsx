@@ -1,7 +1,9 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useMemo,
+  useRef,
   useSyncExternalStore,
   type ReactNode,
 } from 'react'
@@ -53,6 +55,35 @@ export const useSnapshot = (): AppSnapshot => {
 export const useSelect = <T,>(select: (snapshot: AppSnapshot) => T): T => {
   const snapshot = useSnapshot()
   return useMemo(() => select(snapshot), [snapshot, select])
+}
+
+/** Selects an external-store slice and keeps its previous identity while equal. */
+export const useSnapshotSelector = <T,>(
+  select: (snapshot: AppSnapshot) => T,
+  equal: (left: T, right: T) => boolean = Object.is,
+): T => {
+  const store = useStore()
+  const selectRef = useRef(select)
+  const equalRef = useRef(equal)
+  const cached = useRef<{ snapshot: AppSnapshot; value: T } | null>(null)
+  selectRef.current = select
+  equalRef.current = equal
+
+  const getSelection = useCallback(() => {
+    const snapshot = store.getSnapshot()
+    const previous = cached.current
+    if (previous && Object.is(previous.snapshot, snapshot)) return previous.value
+
+    const next = selectRef.current(snapshot)
+    if (previous && equalRef.current(previous.value, next)) {
+      cached.current = { snapshot, value: previous.value }
+      return previous.value
+    }
+    cached.current = { snapshot, value: next }
+    return next
+  }, [store])
+
+  return useSyncExternalStore(store.subscribe, getSelection, getSelection)
 }
 
 /**
