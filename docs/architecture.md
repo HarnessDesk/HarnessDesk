@@ -61,6 +61,8 @@ Eighteen packages make up the repository:
 | `packages/responses-gateway` | Per-route loopback proxy for model routing | Zero dependencies |
 | `packages/agent-inventory` | Standalone cross-agent skill and MCP scanner | `protocol`, Node built-ins |
 
+The shell creates a macOS menu bar item only for the default `~/.harnessdesk` home; `HARNESSDESK_MENU_BAR=on` or `1` forces it on, and `off` or `0` forces it off.
+
 ## The agent plane
 
 `packages/protocol` is the vocabulary every other package speaks: sessions,
