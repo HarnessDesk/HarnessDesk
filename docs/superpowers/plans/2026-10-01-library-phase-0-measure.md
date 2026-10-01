@@ -131,9 +131,9 @@ test('isolation guard rejects missing and out-of-root home, vendor home, and cwd
 })
 
 test('macOS sandbox profile blocks real agent homes, credentials, and the login keychain', () => {
-  const profile = sandboxProfileText('/Users/Jane Doe')
+  const profile = sandboxProfileText('/Users/dev')
   for (const path of ['.harnessdesk', '.claude', '.claude.json', '.codex', '.cursor', '.gemini', '.agents', '.copilot', '.config', '.ssh', '.aws', '.netrc', '.npmrc', '.npm', '.docker', '.gnupg', '.pki', '.git-credentials', 'Library/Keychains', 'Library/Application Support']) {
-    assert.ok(profile.includes(`(subpath "/Users/Jane Doe/${path}")`), `${path} is denied`)
+    assert.ok(profile.includes(`(subpath "/Users/dev/${path}")`), `${path} is denied`)
   }
   assert.ok(profile.includes('(subpath "/Library/Keychains")'))
   assert.ok(profile.includes('(subpath "/System/Library/Keychains")'))
@@ -164,7 +164,7 @@ test('result validation requires an answer only for asked results', () => {
 })
 
 test('raw-answer allowlist rejects account names, structured secrets, and outside paths', () => {
-  const unsafe = 'Signed in as Jane Doe {"access_token":"eyJhbGciOiJIUzI1NiJ9","refresh_token":"r1"} /Users/private/.claude/config.json'
+  const unsafe = 'Signed in as Jane Doe {"access_token":"eyJhbGciOiJIUzI1NiJ9","refresh_token":"r1"} /Users/dev/.claude/config.json' // hd-secrets-ok: a deliberate lookalike the redactor must reject
   assert.equal(redact(unsafe, ['HOME_AGENTS_SENTINEL', 'measure-sentinel'], '/tmp/fixture'), '')
   assert.equal(redact('HOME_AGENTS_SENTINEL and Jane Doe', ['HOME_AGENTS_SENTINEL'], '/tmp/fixture'), '')
   const valid = { agent: 'Codex', agentId: 'codex', version: '0.149.0', measured: '2026-10-01', interface: 'skills/list', question: 'Which skill?', facts: {}, status: 'asked' }
