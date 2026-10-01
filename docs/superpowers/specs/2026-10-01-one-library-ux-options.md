@@ -1,7 +1,10 @@
 # One Library: three UX options
 
-*2026-10-01. A draft for the owner to choose from. Nothing here is approved.
-Built on [the use cases](2026-10-01-skills-management-use-cases.md) and
+*2026-10-01. The options the owner chose from. The owner picked the hero
+journey **keep my kit right**, and then, after seeing the first mockups,
+**Option E**, which is specified in
+[the Library design](2026-10-01-library-design.md). Options A–D stay here as
+the record of what was weighed. Built on [the use cases](2026-10-01-skills-management-use-cases.md) and
 [the one-library design](2026-09-30-one-library-design.md). The owner chose
 the hero journey: **keep my kit right**. The first screen is the inventory —
 every agent, skill and scope with honest reach — and the options differ in how

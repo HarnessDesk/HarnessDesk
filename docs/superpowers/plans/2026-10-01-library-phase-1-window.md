@@ -11,6 +11,7 @@
 ## Global Constraints
 
 - Phase 1 is read-only; no new write paths, pending bar, apply flow, receipt, source/update action, or enabled Installed in checkbox.
+- **"What applies here" in phase 1 shows presence and measured reach, not load order.** `LibraryRuleFile` and `LibraryRuleReach` carry a path, a place and a reach state; they have no selected folder and no order. The window lists the rules files at the chosen folder and above it with each agent's reach and basis, and the order line says *Order not measured*. A load-order view needs phase 0's measurement 1 and its own read-model field, and belongs to a later phase.
 - Reuse Option E composition in `packages/ui/src/preview/frames-library-dev.tsx`: `ListRow`, `IconTile`, `Tabs variant="line"`, `Segmented`, `Search`, `Checkbox`, `RuntimeMark`, and `Markdown document`.
 - The Library window has no rail. Its list and detail panes sit below the toolbar inside `AppWindow`.
 - A wire method is three edits in fixed order: declare it in `packages/protocol/src/wire.ts`, validate params in `packages/protocol/src/wire-validators.ts`, answer it in `packages/server/src/methods/<domain>.ts`. `library/read` already exists; preserve its params and extend its result type and implementation only.
@@ -23,7 +24,7 @@
 - Use public design exports only; add no screen-owned `--hd-*` tokens, literals where design tokens exist, overlays, or cross-screen CSS imports. `node script/design-audit.mjs --strict` must add nothing.
 - Preserve rule 9: variable descriptions may be subtitles; paraphrases and fixed explanatory sentences belong in `title` or a group `MenuNote`.
 - Tasks run in a Codex workspace sandbox. It cannot commit or bind ports, and Vitest runs only in write mode. Write commit steps normally; the parent runs them. Keep each task's working set small enough for a 258k-token context.
-- The root package has `pnpm build:node` but protocol and agent-inventory have no package `test` scripts. For Node tests run `pnpm build:node && node --test packages/<package>/dist/test/<file>.test.js`; for UI tests run `pnpm --filter @harnessdesk/ui test -- <file>.test.tsx`. Every task ends with UI typecheck, relevant tests, and `node script/design-audit.mjs --strict`; audit acceptance is no new findings (the repository already has 20 findings). Do not claim the four-agent live rig was run from the workspace sandbox.
+- The root package has `pnpm build:node` but protocol and agent-inventory have no package `test` scripts. For Node tests run `pnpm build:node && node --test packages/<package>/dist/test/<file>.test.js`; for UI tests run `pnpm --filter @harnessdesk/ui test -- <file>.test.tsx`. Every task ends with UI typecheck, relevant tests, and `node script/design-audit.mjs --strict`; audit acceptance is no new findings (the repository already reports 20 single-area findings, the accounted baseline of the UI-consistency work; this plan neither adds nor fixes them). Do not claim the four-agent live rig was run from the workspace sandbox.
 - Follow `AGENTS.md` testing conventions: protocol and inventory use `node:test`; UI uses Vitest with jsdom. Public preview identities must be the existing synthetic demo personas.
 
 - **Definition of done (owner):**

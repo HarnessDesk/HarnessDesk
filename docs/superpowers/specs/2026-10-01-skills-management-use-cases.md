@@ -2,11 +2,12 @@
 
 *2026-10-01. The complete list of what a person can do with skills across the
 agents on their desk. It follows the order they meet things, starting from the
-moment their agents are signed in. It is the input to the UX design that comes
-next. It extends
+moment their agents are signed in. It was the input to the UX design, which is
+[the Library design](2026-10-01-library-design.md). It extends
 [2026-09-30-one-library-design.md](2026-09-30-one-library-design.md), which
-holds the goal, the principles and the phase order. A survey of other tools sits
-behind it; that survey is kept out of the repository, as
+holds the goal and the principles; the phases are in
+[the roadmap](../plans/2026-10-01-library-roadmap.md). Analysis of other
+people's products is kept out of the repository, as
 [VISION.md](../../../VISION.md) requires. Rules files and MCP servers appear
 only where their journey differs from a skill's.*
 
@@ -598,8 +599,10 @@ tier label.
   trusting it.
 - **Desk:** *new.* *This repository brings…* shows each skill with I5's
   review. Committed skills are present, which is not the same as agreed.
-- **Agents today:** an agent loads project skills by itself, and the desk
-  cannot stop that (rule 3). A seated Agent refuses to seat only when its
+- **Agents today:** an agent that reads project folders loads what it finds
+  there by itself, and the desk cannot stop that (rule 3). Which agents read
+  which project folders is *asked* only for Codex so far; for the others it is
+  *build* or *table* evidence. A seated Agent refuses to seat only when its
   runtime cannot be stopped from auto-loading unapproved content. Other
   unsupported declarations become per-item problems.
 - **If not:** the desk shows plainly what will load. It does not pretend it

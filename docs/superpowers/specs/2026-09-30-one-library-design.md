@@ -4,8 +4,14 @@
 what has to change, and the journeys a person takes. The survey of other tools
 behind these choices is analysis of other people's products, so it is kept out
 of the repository, as [VISION.md](../../../VISION.md) requires. A second-vendor
-design review has been folded in. Nothing here is built yet. Engineering plans
-follow once the decisions at the end are made.*
+design review has been folded in. Nothing here is built yet.*
+
+> **Superseded in part.** The chosen page design is
+> [the Library design](2026-10-01-library-design.md), and the phases are in
+> [the roadmap](../plans/2026-10-01-library-roadmap.md) (phases 0–4). The
+> six-phase list at the end of this document is the earlier order and no
+> longer applies. The goal, the principles and the evidence rule below still
+> do.
 
 ## The goal
 
@@ -29,15 +35,11 @@ Three kinds of thing count as what an agent knows:
 4. **Nothing is lost.** Every write is previewed and audited, and a copy
    someone else wrote is never overwritten without asking.
 
-The tools people use today each do one slice of this:
-
-- Installers fetch skills from a source. Some pin versions; some do not.
-- Compilers turn one rules file into each agent's format, and lose meaning
-  silently on the way.
-- Registries list MCP servers, but never touch your configuration.
-
-None of them can tell whether an agent actually loaded the result. The desk can,
-because it runs the agents. That is the advantage this design is built around.
+Today nothing shows a person what each agent has actually loaded, only what
+sits in its folders. The desk hosts the agents, so it can ask the ones that
+answer, and it can say *loads* only where an agent said so. For an agent that
+cannot answer, it says what it can see on disk and labels the rest *not
+measured*. That is the advantage this design is built around.
 
 ## Principles
 

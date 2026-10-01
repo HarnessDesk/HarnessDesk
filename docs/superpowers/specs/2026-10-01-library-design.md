@@ -173,7 +173,13 @@ These tabs use the same list and detail.
 | **Rules** | a file at a place (home, repository root, nested folder), suffixed with its place | *Read by this agent*, *Probably read (build)* or *Not measured* | Read-only until phase 4, when *Make one source…* arrives |
 
 On the Rules tab, the detail pane renders the file. The pane's *Applies here*
-section shows the load order for one chosen folder and agent.
+section takes one chosen folder and agent and lists the rules files that exist
+at that folder and above it, with whether that agent reads each one and the
+basis for that. It shows a **load order** only for an agent whose order has
+been measured (phase 0, measurement 1); until then the section says *Order not
+measured* and never implies one. The phase 1 read model carries presence and
+reach, not order, so the order view arrives with the measurement that supplies
+it.
 
 ## The state sentences and glyphs
 
