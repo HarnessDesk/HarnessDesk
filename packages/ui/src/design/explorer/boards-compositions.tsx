@@ -924,6 +924,7 @@ const sideBySideState = (count: 2 | 4): SideBySideState => {
 const SideBySideBoard = () => {
   const [two, setTwo] = useState(() => sideBySideState(2))
   const [four, setFour] = useState(() => sideBySideState(4))
+  const [narrow, setNarrow] = useState(() => sideBySideState(4))
   const store = useMemo(sideBySideStore, [])
   const snapshot = store.getSnapshot()
   const memberOf = (key: (typeof SIDE_BY_SIDE_KEYS)[number]) => {
@@ -982,16 +983,7 @@ const SideBySideBoard = () => {
         <Case className="col-span-full" label="room — Side by side · two members, grid without a composer">{grid(two, setTwo, 'catalog-side-by-side-two')}</Case>
         <Case className="col-span-full" label="room — Side by side · four members, tile states and ceiling">{grid(four, setFour, 'catalog-side-by-side-four')}</Case>
         <Case label="room — Side by side · narrow tabs with a waiting mark">
-          <div className="w-80 max-w-full">
-            <Tabs value={SIDE_BY_SIDE_KEYS[1]}>
-              <TabsList aria-label="Side by side tiles">
-                <TabsTrigger value={SIDE_BY_SIDE_KEYS[0]!}>Alpha</TabsTrigger>
-                <TabsTrigger value={SIDE_BY_SIDE_KEYS[1]!}>Beta <Dot tone="warning" aria-label="waiting for you" /></TabsTrigger>
-                <TabsTrigger value={SIDE_BY_SIDE_KEYS[2]!}>Gamma</TabsTrigger>
-                <TabsTrigger value={SIDE_BY_SIDE_KEYS[3]!}>Delta</TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </div>
+          <div className="w-80 max-w-full">{grid(narrow, setNarrow, 'catalog-side-by-side-narrow')}</div>
         </Case>
       </div>
       <Rule>A room keeps the members you chose as tiles. Width changes the arrangement; focus stays visible in the tile header.</Rule>
