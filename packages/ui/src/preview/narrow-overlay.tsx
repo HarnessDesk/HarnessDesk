@@ -21,7 +21,7 @@ const main = {
 }
 const workbench = { ...dock(emptyWorkbench(), 'right', { kind: 'trajectory' }), main }
 const usage = previewStore().getSnapshot().usage.map((report) =>
-  report.runtime === 'claude'
+  report.source.kind === 'file'
     ? {
         ...report,
         lanes: [{ id: 'session', label: 'Session', usedPercent: 100, windowMinutes: 300, resetsAt: Date.now() + 60 * 60_000 }],
