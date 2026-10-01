@@ -27,6 +27,7 @@ import {
   PlusIcon,
   SearchIcon,
   ShieldAlertIcon,
+  TeamIcon,
   TerminalIcon,
   UsageIcon,
 } from '../../components/Icons'
@@ -971,10 +972,9 @@ const SideBySideBoard = () => {
                 size="sm"
                 nav
                 aria-disabled="true"
-                data-refused
                 title="Side by side"
                 subtitle="Watch a member to put it here"
-                lead={<IconTile size="sm" tint="violet"><AgentIcon /></IconTile>}
+                lead={<IconTile size="sm" tint="violet"><TeamIcon /></IconTile>}
               />
             </ListRows>
           </div>
