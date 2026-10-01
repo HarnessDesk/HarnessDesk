@@ -51,12 +51,24 @@ test('assessCheckRuns treats a rerun that has not started as the newest run', ()
   ]).green, false, 'the order the runs arrive in does not matter')
 })
 
+test('assessCheckRuns lets the higher id win between two runs that have not started', () => {
+  assert.equal(assessCheckRuns([
+    run('build', 3, null, 'queued', null),
+    run('build', 4, null, 'completed', 'success'),
+  ]).green, true, 'the later attempt passed')
+  assert.equal(assessCheckRuns([
+    run('build', 3, null, 'completed', 'success'),
+    run('build', 4, null, 'queued', null),
+  ]).green, false, 'the later attempt is still queued')
+})
+
 test('assessCheckRuns refuses every other state that is not a finished pass', () => {
   for (const [status, conclusion] of [
     ['queued', null],
     ['in_progress', null],
     ['waiting', null],
     ['pending', null],
+    ['requested', null],
     ['completed', 'failure'],
     ['completed', 'cancelled'],
     ['completed', 'timed_out'],

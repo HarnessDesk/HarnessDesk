@@ -13,13 +13,17 @@ export interface CheckRunsAssessment {
 
 /* A run that has not started has no `started_at`, and it is the latest
    attempt there is: a rerun still queued must hide the older success it is
-   about to replace, never sit behind it. So a missing start time sorts as
-   newest, and the id settles runs that tie. */
-const startedAt = (run: CheckRun): string => run.started_at ?? '\uffff'
-
+   about to replace, never sit behind it. So a run without a start time is
+   newer than any run with one, and the id settles runs that tie. */
 const newestFirst = (a: CheckRun, b: CheckRun): number => {
-  const time = startedAt(b).localeCompare(startedAt(a))
-  if (time !== 0) return time
+  const aStarted = a.started_at ?? null
+  const bStarted = b.started_at ?? null
+  if (aStarted === null && bStarted !== null) return -1
+  if (aStarted !== null && bStarted === null) return 1
+  if (aStarted !== null && bStarted !== null) {
+    const time = bStarted.localeCompare(aStarted)
+    if (time !== 0) return time
+  }
   return Number(b.id ?? 0) - Number(a.id ?? 0)
 }
 
