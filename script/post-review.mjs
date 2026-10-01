@@ -39,6 +39,9 @@ const codePoint = (value, radix = 10) => {
     : null
 }
 
+/** Zero-width, bidi-control, joiner and soft-hyphen characters, plus the BOM. */
+const INVISIBLE = /[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0]/g
+
 const decodePrivateText = (value) => {
   let text = String(value ?? '')
   for (let pass = 0; pass < 64; pass += 1) {
@@ -52,6 +55,8 @@ const decodePrivateText = (value) => {
     text = text.replace(/\\u\{([\da-f]{1,6})\}|\\u([\da-f]{4})|\\x([\da-f]{2})/gi, (escape, braced, unicode, byte) => {
       return codePoint(braced ?? unicode ?? byte, 16) ?? escape
     })
+    // Characters that draw nothing can hide a path from a pattern (a zero-width space inside "Users").
+    text = text.replace(INVISIBLE, '')
     if (text === before) return { text, stable: true }
   }
   return { text, stable: false }
@@ -70,6 +75,7 @@ const scrubLocalPaths = (input) => {
     .replace(/\bfile:\/\/[^\s)\]}>'"`]+/gi, '<local path>')
     .replace(/~[^/\s]*\/[^\s)\]}>'"`]+/g, '<local path>')
     .replace(/\b[A-Za-z]:[\\/]+Users[\\/]+[^\s)\]}>'"`]+/gi, '<local path>')
+    .replace(/(?<![\\\w])\\{2,}[\w.$-]{2,}\\+[^\s)\]}>'"`]+/g, '<local path>')
     .replace(/\/Users\/[^\s)\]}>"'`]+/g, '<local path>')
     .replace(/\/home\/[^\s)\]}>"'`]+/g, '<local path>')
     .replace(/\/private\/[^\s)\]}>"'`]+/g, '<local path>')
@@ -93,7 +99,7 @@ const privateLines = (body) => {
   const emailPattern = /\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})\b/gi
   const sources = [String(body), decodePrivateText(body).text]
   return [...new Set(sources.flatMap((source) => source.split(/\r?\n/).flatMap((line, index) => {
-    const pathIssue = /(?:~[^/\s]*\/|\/Users\/|\/home\/[^/\s]+|\/private\/|\/tmp\/|\/var\/folders\/|\bfile:\/\/|\b[A-Za-z]:[\\/]+Users[\\/]+)/i.test(line)
+    const pathIssue = /(?:~[^/\s]*\/|\/Users\/|\/home\/[^/\s]+|\/private\/|\/tmp\/|\/var\/folders\/|\bfile:\/\/|\b[A-Za-z]:[\\/]+Users[\\/]+|(?<![\\\w])\\{2,}[\w.$-]{2,}\\+\S)/i.test(line)
     const emailIssue = [...line.matchAll(emailPattern)].some((match) =>
       !PLACEHOLDER_EMAIL_DOMAINS.includes(match[1].toLowerCase()),
     )

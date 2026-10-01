@@ -261,3 +261,42 @@ function harness({ author = 'contributor', viewer = 'viewer' } = {}) {
   }
   return { calls, bodies, runner, io, output: () => ({ stdout, stderr }) }
 }
+
+// Round 3: UNC shares, and characters that draw nothing inside a path or an address.
+const zeroWidth = String.fromCharCode(0x200b)
+const wordJoiner = String.fromCharCode(0x2060)
+const hiddenPathValues = [
+  '\\\\fileserver\\share\\Users\\alice\\notes.txt',
+  '\\\\\\\\fileserver\\\\share\\\\Users\\\\alice\\\\notes.txt',
+  `/Us${zeroWidth}ers/alice/notes.txt`,
+  `C:\\Us${wordJoiner}ers\\alice\\notes.txt`,
+]
+for (const value of hiddenPathValues) {
+  test(`redacts a UNC or invisible-character path in review and fixes posts: ${JSON.stringify(value)}`, async () => {
+    for (const mode of ['review', 'fixes']) {
+      const h = harness()
+      const options = mode === 'review'
+        ? { pr: '42', round: '1', by: 'Codex', body: `Found ${value}`, repo: 'owner/repo' }
+        : { pr: '42', fixes: `Found ${value}`, repo: 'owner/repo' }
+      assert.equal(await postReview(options, h.runner, h.io), 0)
+      assert.doesNotMatch(h.bodies[0], /fileserver|share|Users|alice|notes/i)
+      assert.doesNotMatch(h.bodies[0], new RegExp(`[${zeroWidth}${wordJoiner}]`))
+    }
+  })
+}
+
+test('an invisible character inside an email domain does not hide the address', async () => {
+  for (const mode of ['review', 'fixes']) {
+    const h = harness()
+    const hidden = `jane${String.fromCharCode(64)}private${zeroWidth}.example`
+    const options = mode === 'review'
+      ? { pr: '42', round: '1', by: 'Codex', body: hidden, repo: 'owner/repo' }
+      : { pr: '42', fixes: hidden, repo: 'owner/repo' }
+    assert.equal(await postReview(options, h.runner, h.io), 2)
+    assert.equal(h.calls.some(isPost), false)
+  }
+})
+
+test('escaped newlines and tabs in ordinary text are not mistaken for a network share', () => {
+  assert.equal(sanitizeBody('first\\\\n second\\\\t third'), 'first\\\\n second\\\\t third')
+})
