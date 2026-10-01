@@ -10,7 +10,7 @@
  * how #1161 took `header-off-body` from 80 to 92 a few hours after the census
  * landed, with every check green.
  *
- *   node script/check-alignment-census.mjs [--base origin/main]
+ *   node script/check-alignment-census.mjs [--base origin/main] [--since <sha>]
  *
  * So the table is compared with the one this branch started from: the merge
  * base with `--base`, not its tip. Against the tip, a branch that never
@@ -54,21 +54,26 @@ export const compareTables = (base, head) => {
 }
 
 const main = () => {
-  const arg = process.argv.indexOf('--base')
-  const base = arg > -1 ? process.argv[arg + 1] : 'origin/main'
+  const option = (name) => {
+    const at = process.argv.indexOf(name)
+    return at > -1 ? process.argv[at + 1] : undefined
+  }
+  const base = option('--base') ?? 'origin/main'
+  // CI passes the push's `before`, so a push of several commits answers for all of them.
+  const since = option('--since')
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
   const git = (...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
 
   let start
   try {
-    start = git('merge-base', 'HEAD', base).trim()
+    start = since && !/^0+$/.test(since) ? git('rev-parse', '--verify', `${since}^{commit}`).trim() : git('merge-base', 'HEAD', base).trim()
   } catch {
-    console.error(`alignment census: no merge base with ${base}; fetch it (a CI checkout needs fetch-depth: 0).`)
+    console.error(`alignment census: cannot resolve ${since ? since : `a merge base with ${base}`}; fetch it (a CI checkout needs fetch-depth: 0).`)
     process.exit(1)
   }
   // On the base branch itself (CI's push to main) the merge base is HEAD, and
   // the table would be compared with itself; the commit answers to its parent.
-  if (start === git('rev-parse', 'HEAD').trim()) {
+  if (!since && start === git('rev-parse', 'HEAD').trim()) {
     try {
       start = git('rev-parse', '--verify', '--quiet', 'HEAD^1').trim()
     } catch {
@@ -76,9 +81,8 @@ const main = () => {
       return
     }
   }
-  try {
-    git('cat-file', '-e', `${start}:${TABLE}`)
-  } catch {
+  // An empty listing is the one bootstrap; any other git failure throws and fails the gate.
+  if (!git('ls-tree', '--name-only', start, '--', TABLE).trim()) {
     console.log(`alignment census: ${start.slice(0, 9)} had no table yet; nothing to hold.`)
     return
   }

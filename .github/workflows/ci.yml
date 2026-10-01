@@ -173,7 +173,8 @@ jobs:
         run: node script/check-interface-drift.mjs
 
       - name: Alignment census
-        run: node script/check-alignment-census.mjs
+        # A push to main answers for the whole pushed range, not its last commit.
+        run: node script/check-alignment-census.mjs ${{ github.event_name == 'push' && format('--since {0}', github.event.before) || '' }}
 
       - name: Design doc
         run: node script/design-doc.mjs --check
