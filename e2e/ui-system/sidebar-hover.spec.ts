@@ -5,6 +5,34 @@ const workspace = (page: Page) => page.locator('[data-region="sidebar-content"] 
   has: page.locator('button[aria-label="Actions for HarnessDesk"]'),
 })
 
+test('conversation labels reach the row rail without changing box width on hover', async ({ page }) => {
+  await page.goto('/design.html?view=sidebar')
+  const example = page.locator('[data-catalog-example="sidebar"]')
+  const panel = example.locator(':scope > div').first()
+  for (const width of [240, 200]) {
+    await panel.evaluate((node, width) => {
+      ;(node as HTMLElement).style.width = `${width}px`
+      ;(node as HTMLElement).style.maxWidth = 'none'
+    }, width)
+    for (const kind of ['empty', 'badge'] as const) {
+      const row = example.locator(`[data-catalog-label-case="${kind}"]`)
+      const button = row.locator('[data-slot="sidebar-menu-button"]')
+      const label = row.locator('[data-slot="sidebar-menu-label"]')
+      const action = row.locator('[data-slot="sidebar-menu-action"]')
+      const rest = await label.boundingBox()
+      const buttonBox = await button.boundingBox()
+      expect(rest).not.toBeNull()
+      expect(buttonBox).not.toBeNull()
+      expect(Math.abs(rest!.x + rest!.width - buttonBox!.x - buttonBox!.width)).toBeLessThanOrEqual(1)
+      if (kind === 'badge') await expect(row.locator('[data-slot="sidebar-menu-badge"]')).toBeVisible()
+      await row.hover()
+      await expect(action).toBeVisible()
+      const hover = await label.boundingBox()
+      expect(hover).toEqual(rest)
+    }
+  }
+})
+
 async function setWidth(page: Page, width: number) {
   await sidebar(page).evaluate((node, width) => {
     node.parentElement!.style.width = `${width}px`

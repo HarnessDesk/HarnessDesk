@@ -67,6 +67,7 @@ type SidebarMenuButtonProps = Omit<React.ComponentProps<'button'>, 'children'> &
     iconSize?: 'default' | 'lg'
     label?: React.ReactNode
     trailingOverlay?: boolean
+    labelTrailingContent?: boolean
     isActive?: boolean
     trailingActions?: 1 | 2
   }
@@ -78,6 +79,7 @@ const SidebarMenuButton = ({
   iconSize = 'default',
   label,
   trailingOverlay = false,
+  labelTrailingContent = false,
   children,
   isActive = false,
   trailingActions = 1,
@@ -94,7 +96,9 @@ const SidebarMenuButton = ({
     {...props}
   >
     {icon === undefined ? null : <span data-slot="sidebar-menu-icon" data-size={iconSize} className={cn('inline-flex shrink-0 items-center justify-center', iconSize === 'lg' ? 'size-6' : 'size-4')}>{icon}</span>}
-    <span data-slot="sidebar-menu-label" className={cn('block min-w-0 flex-1 truncate', (trailingOverlay || trailingActions === 2) && 'sidebar-menu-label-fade [mask-image:linear-gradient(to_right,black_calc(100%-var(--hd-space-8)),transparent)]')}>{label ?? children}</span>
+    <span data-slot="sidebar-menu-label" className={cn('block min-w-0 flex-1 truncate', (trailingOverlay || trailingActions === 2) && 'sidebar-menu-label-fade [mask-image:linear-gradient(to_right,black_calc(100%-var(--hd-space-8)),transparent)]')}>
+      <span data-slot="sidebar-menu-label-content" className={cn('block min-w-0 truncate', labelTrailingContent && 'pe-(--hd-space-8)')}>{label ?? children}</span>
+    </span>
   </button>
 )
 

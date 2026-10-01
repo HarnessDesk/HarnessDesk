@@ -221,6 +221,14 @@ stored session says when it last ran instead. This is the one element that
 makes parallel agents legible at a glance, so it must never say something the
 items do not support.
 
+Each conversation has exactly one row. A row moves into **Needs you** or
+**Working** while it needs attention or its turn is running; it leaves its
+project or room until that state ends. **Pinned** follows those bands and
+appears only when it has rows. Pins keep their chosen order and stay out of
+their project and room; when a band state ends, a pinned conversation returns
+to Pinned, otherwise it returns to its project or room. Project overflow counts
+include only conversations still shown there.
+
 **Projects, not folders.** Sessions group by repository (`lib/projects.ts`):
 Codex gives every "in a worktree" thread its own checkout under
 `~/.codex/worktrees/<id>/<name>`, and grouped by folder one project became a

@@ -66,6 +66,18 @@ it('lets an empty trailing slot use the whole row for its label', () => {
   expect(markup).not.toContain('pe-(--hd-space-8)')
 })
 
+it('reserves the trailing overlay inside label content without shrinking the label box', () => {
+  const markup = renderToStaticMarkup(
+    <SidebarMenuButton label={<span>Needs you</span>} trailingOverlay labelTrailingContent />,
+  )
+  const label = markup.match(/data-slot="sidebar-menu-label" class="([^"]+)"/)?.[1]
+  const content = markup.match(/data-slot="sidebar-menu-label-content" class="([^"]+)"/)?.[1]
+  expect(label).toContain('flex-1')
+  expect(label).toContain('sidebar-menu-label-fade')
+  expect(label).not.toContain('pe-(--hd-space-8)')
+  expect(content).toContain('pe-(--hd-space-8)')
+})
+
 it('aligns navigation segments to the sidebar row inset and shares their width', () => {
   const markup = renderToStaticMarkup(<SidebarMenu horizontal><SidebarMenuItem className="flex-1"><button>Agents</button></SidebarMenuItem><SidebarMenuItem className="flex-1"><button>Dashboard</button></SidebarMenuItem><SidebarMenuItem className="flex-1"><button>Plugins</button></SidebarMenuItem></SidebarMenu>)
   expect(markup).toContain('px-(--hd-space-2)')

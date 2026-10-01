@@ -804,7 +804,7 @@
     "text": 14,
     "weight": "400",
     "line": 20,
-    "pad": "0 32 0 8",
+    "pad": "0 0 0 8",
     "radius": 10
   },
   "sidebar/sidebar-menu-button/size/lg": {
@@ -812,7 +812,7 @@
     "text": 14,
     "weight": "400",
     "line": 20,
-    "pad": "0 32 0 8",
+    "pad": "0 0 0 8",
     "radius": 10
   },
   "sidebar/sidebar-menu-button/size/sm": {
@@ -820,7 +820,7 @@
     "text": 14,
     "weight": "400",
     "line": 20,
-    "pad": "0 32 0 8",
+    "pad": "0 0 0 8",
     "radius": 10
   },
   "stat/stat/variant/bordered": {

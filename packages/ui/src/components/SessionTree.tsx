@@ -213,6 +213,8 @@ const SessionRow = ({
           <>
             <SidebarMenuButton
               ref={rowRef}
+              trailingOverlay
+              labelTrailingContent={Boolean(need || worktree || folderGone)}
               size={snapshot.listPrefs.density === 'compact' ? 'sm' : 'default'}
               isActive={active}
               data-active={active ? 'true' : undefined}
@@ -237,6 +239,9 @@ const SessionRow = ({
                 </SessionHoverCard>
               }
               label={
+                /* The outer label keeps its full-width geometry. A trailing
+                   state/action overlays the rail, but these earned chips and
+                   glyphs must remain readable beside it. */
                 <span className="flex min-w-0 items-center gap-(--hd-space-1)" title={label}>
                   <span className="min-w-0 truncate">{label}</span>
                   {need && <Chip tone="warning">{need.reason}</Chip>}
@@ -578,6 +583,7 @@ const roomMembers = (
   room: TeamState,
   sessions: readonly SessionSummary[],
   snapshot: AppSnapshot,
+  hiddenKeys: ReadonlySet<string>,
 ): SessionSummary[] => {
   const shown = new Map(
     sessions.map((summary) => [String(sessionKey(summary.runtime, summary.id)), summary]),
@@ -586,6 +592,7 @@ const roomMembers = (
   return room.members
     .map((key) => shown.get(String(key)) ?? snapshot.sessions.get(key))
     .filter((one): one is SessionSummary => one !== undefined)
+    .filter((one) => !hiddenKeys.has(String(sessionKey(one.runtime, one.id))))
     .filter(
       (one) => !filtered || agentKeyOf(one.runtime, snapshot.runtimes) === snapshot.listPrefs.agent,
     )
@@ -598,6 +605,7 @@ const RoomRow = ({
   open,
   onToggle,
   onDelete,
+  hiddenKeys,
 }: {
   readonly room: TeamState
   /** The project's conversations — members are matched against these. */
@@ -606,6 +614,7 @@ const RoomRow = ({
   readonly open: boolean
   readonly onToggle: () => void
   readonly onDelete: (summary: SessionSummary) => void
+  readonly hiddenKeys: ReadonlySet<string>
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -629,7 +638,7 @@ const RoomRow = ({
      under a filter its members matched. Saying which conversations the
      filter keeps is the rule; where they were found is not. */
   const filtered = snapshot.listPrefs.agent !== null
-  const members = roomMembers(room, sessions, snapshot)
+  const members = roomMembers(room, sessions, snapshot, hiddenKeys)
   const claimed = room.intents.filter((one) => one.state === 'claimed').length
   const held = room.channel.filter(
     (entry) => entry.kind === 'message' && entry.state === 'held',
@@ -639,8 +648,9 @@ const RoomRow = ({
     <SidebarMenu>
       <SidebarMenuItem>
         <div className="relative min-w-0">
-        <SidebarMenuButton
-          role="button"
+          <SidebarMenuButton
+            trailingOverlay
+            role="button"
           aria-label={`Room ${name}`}
           title={`${name} — ${held > 0 ? `${held} held ${held === 1 ? 'message' : 'messages'} waiting for you` : 'the board, the chat, and who is here'}${claimed > 0 ? ` · ${claimed} claimed ${claimed === 1 ? 'job' : 'jobs'}` : ''}`}
           data-held={held > 0 ? '' : undefined}
@@ -975,6 +985,20 @@ export const SessionTree = ({ now }: { now: number }) => {
     }
     return { waiting, working }
   }, [snapshot.history, snapshot.sessions, snapshot.approvals, snapshot.queues])
+  const triageKeys = useMemo(
+    () => new Set([...triage.waiting, ...triage.working].map((summary) => String(sessionKey(summary.runtime, summary.id)))),
+    [triage],
+  )
+  const pinnedRows = useMemo(() => {
+    const byKey = new Map(groups.flatMap((group) => group.sessions).map((summary) => [String(sessionKey(summary.runtime, summary.id)), summary]))
+    return snapshot.listPrefs.pinnedSessions
+      .map((key) => byKey.get(String(key)))
+      .filter((summary): summary is SessionSummary => summary !== undefined && !triageKeys.has(String(sessionKey(summary.runtime, summary.id))))
+  }, [groups, snapshot.listPrefs.pinnedSessions, triageKeys])
+  const liftedKeys = useMemo(
+    () => new Set([...triageKeys, ...pinnedRows.map((summary) => String(sessionKey(summary.runtime, summary.id)))]),
+    [pinnedRows, triageKeys],
+  )
 
   /* The rooms in each project, so a room can be drawn where it belongs.
      There used to be one line above the whole tree reading "Room · 2 open · 1
@@ -1025,7 +1049,7 @@ export const SessionTree = ({ now }: { now: number }) => {
   )
 
   useEffect(() => {
-    if (!activeKey || !activeGroup) return
+    if (!activeKey || !activeGroup || liftedKeys.has(activeKey)) return
     if (collapsed.has(activeGroup.root)) store.toggleCollapsed(activeGroup.root)
     if (!othersOpen && far.some((group) => group.root === activeGroup.root)) store.setOthersOpen(true)
 
@@ -1046,7 +1070,7 @@ export const SessionTree = ({ now }: { now: number }) => {
         return new Set(current).add(activeGroup.root)
       })
     }
-  }, [activeGroup, activeKey, collapsed, far, othersOpen, roomsByProject, store])
+  }, [activeGroup, activeKey, collapsed, far, liftedKeys, othersOpen, roomsByProject, store])
 
   const anyOpen = groups.some((group) => !collapsed.has(group.root))
   const toggleAll = useCallback(
@@ -1136,8 +1160,12 @@ export const SessionTree = ({ now }: { now: number }) => {
        that could be dragged, pinned or deleted. */
     const inRooms = new Set(allRooms.flatMap((room) => room.members.map(String)))
     const loose = group.sessions.filter(
-      (summary) => !inRooms.has(String(sessionKey(summary.runtime, summary.id))),
+      (summary) => {
+        const key = String(sessionKey(summary.runtime, summary.id))
+        return !inRooms.has(key) && !liftedKeys.has(key)
+      },
     )
+    const projectSessions = group.sessions.filter((summary) => !liftedKeys.has(String(sessionKey(summary.runtime, summary.id))))
     const shown = expanded.has(group.root) ? loose : loose.slice(0, COLLAPSED_LIMIT)
     const pinnedIndexes = new Map(
       snapshot.listPrefs.pinnedSessions.map((key, index) => [String(key), index]),
@@ -1186,11 +1214,12 @@ export const SessionTree = ({ now }: { now: number }) => {
                 <RoomRow
                   key={row.room.id}
                   room={row.room}
-                  sessions={group.sessions}
+                  sessions={projectSessions}
                   now={now}
                   open={!collapsed.has(row.room.id)}
                   onToggle={() => toggle(row.room.id)}
                   onDelete={setDeleting}
+                  hiddenKeys={liftedKeys}
                 />
               ) : (
                 <SessionRow key={row.summary.id} summary={row.summary} now={now} onDelete={setDeleting} />
@@ -1218,11 +1247,12 @@ export const SessionTree = ({ now }: { now: number }) => {
                   <RoomRow
                     key={room.id}
                     room={room}
-                    sessions={group.sessions}
+                    sessions={projectSessions}
                     now={now}
                     open={!collapsed.has(room.id)}
                     onToggle={() => toggle(room.id)}
                     onDelete={setDeleting}
+                    hiddenKeys={liftedKeys}
                   />
                 )) : null}
               </>
@@ -1266,6 +1296,17 @@ export const SessionTree = ({ now }: { now: number }) => {
               onDelete={setDeleting}
             />
           ))}
+          </SidebarGroupContent>
+          <Separator />
+        </SidebarGroup>
+      )}
+      {pinnedRows.length > 0 && (
+        <SidebarGroup className={styles.triage} data-sidebar-band="pinned">
+          <GroupLabel>Pinned · {pinnedRows.length}</GroupLabel>
+          <SidebarGroupContent>
+            {pinnedRows.map((summary) => (
+              <SessionRow key={`p-${summary.runtime}-${summary.id}`} summary={summary} now={now} onDelete={setDeleting} />
+            ))}
           </SidebarGroupContent>
           <Separator />
         </SidebarGroup>

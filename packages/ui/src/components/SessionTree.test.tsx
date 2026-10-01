@@ -322,8 +322,8 @@ const treeWith = (
   goals: ReadonlyMap<string, GoalView> = new Map(),
   /** Extra store methods a test needs answered — `RoomOrigin`'s `triggerGoal`, say. */
   storeOverrides: Partial<AppStore> = {},
-): { container: HTMLElement; store: AppStore } => {
-  const snapshot = {
+): { container: HTMLElement; store: AppStore; update: (patch: Partial<AppSnapshot>) => void } => {
+  let snapshot = {
     ...emptySnapshot(),
     status: 'open',
     workspace: open,
@@ -352,8 +352,89 @@ const treeWith = (
       </StoreProvider>,
     )
   })
-  return { container, store }
+  return {
+    container,
+    store,
+    update: (patch: Partial<AppSnapshot>) => {
+      snapshot = { ...snapshot, ...patch } as typeof snapshot
+      act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
+    },
+  }
 }
+
+it('draws a Working conversation once and removes it from the project count', () => {
+  const active = summary({
+    id: 'session-active',
+    status: { type: 'active' },
+  }) as SessionSummary & { turns: unknown[] }
+  active.turns = [{ id: 't1', status: 'inProgress', items: [{ type: 'reasoning', text: 'working' }] }]
+  const others = Array.from({ length: 5 }, (_, index) => summary({ id: `session-${index}` }))
+  const { container: tree } = treeWith([], [active, ...others], [active], {}, undefined, sessionKey('codex', sessionId(active.id)))
+
+  expect(rowTitles(tree).filter((title) => title === 'session-active')).toHaveLength(1)
+  expect(tree.querySelector('[data-tone="working"]')).toBeTruthy()
+  expect([...tree.querySelectorAll('button')].some((button) => button.textContent?.endsWith('more'))).toBe(false)
+  expect(tree.querySelectorAll('[data-active="true"]')).toHaveLength(1)
+})
+
+it('keeps a lifted room member out of the nested room copy', () => {
+  const active = summary({
+    id: 'session-room-member',
+    status: { type: 'active' },
+  }) as SessionSummary & { turns: unknown[] }
+  active.turns = [{ id: 't1', status: 'inProgress', items: [{ type: 'reasoning', text: 'working' }] }]
+  const { container: tree } = treeWith(
+    [room({ id: 'r1', name: 'Release room', members: [sessionKey('codex', active.id)] })],
+    [active],
+    [active],
+  )
+
+  expect(rowTitles(tree).filter((title) => title === 'session-room-member')).toHaveLength(1)
+  expect(roomRow(tree, 'Release room')).toBeTruthy()
+})
+
+it('returns a Working conversation to its project when its turn ends', () => {
+  const active = summary({
+    id: 'session-active',
+    status: { type: 'active' },
+  }) as SessionSummary & { turns: unknown[] }
+  active.turns = [{ id: 't1', status: 'inProgress', items: [{ type: 'reasoning', text: 'working' }] }]
+  const view = treeWith([], [active], [active])
+  expect(rowTitles(view.container).filter((title) => title === 'session-active')).toHaveLength(1)
+  const completed = {
+    ...active,
+    status: { type: 'idle' },
+    turns: [{ id: 't1', status: 'completed', items: [] }],
+  } as unknown as SessionSummary
+  view.update({
+    sessions: new Map(),
+    history: [completed],
+  })
+  const project = view.container.querySelector('[class*="nested"]')
+  expect(project && rowTitles(project as HTMLElement)).toEqual(['session-active'])
+  expect(view.container.querySelector('[data-tone="working"]')).toBeNull()
+})
+
+it('draws a pinned conversation once in Pinned, preserving pin order and hiding the empty group', () => {
+  const first = summary({ id: 'session-first' })
+  const second = summary({ id: 'session-second' })
+  const working = summary({ id: 'session-working', status: { type: 'active' } }) as SessionSummary & { turns: unknown[] }
+  working.turns = [{ id: 't1', status: 'inProgress', items: [{ type: 'reasoning', text: 'working' }] }]
+  const empty = treeWith([], [first])
+  expect(empty.container.querySelector('[data-sidebar-band="pinned"]')).toBeNull()
+
+  const view = treeWith([], [first, second, working], [working], {
+    pinnedSessions: [sessionKey('codex', second.id), sessionKey('codex', first.id)],
+  })
+  const pinned = view.container.querySelector('[data-sidebar-band="pinned"]')
+  expect(pinned).toBeTruthy()
+  expect(rowTitles(pinned as HTMLElement)).toEqual(['session-second', 'session-first'])
+  const workingBand = view.container.querySelector('[data-tone="working"]')
+  expect(Boolean(workingBand!.compareDocumentPosition(pinned!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
+  expect(rowTitles(view.container).filter((title) => title === 'session-first')).toHaveLength(1)
+  expect(rowTitles(view.container).filter((title) => title === 'session-second')).toHaveLength(1)
+  expect(view.container.querySelectorAll('[data-active="true"]')).toHaveLength(0)
+})
 
 it('reveals the active session in a collapsed project', () => {
   const active = summary({ id: 'active' })
@@ -691,7 +772,7 @@ it('orders rooms and loose conversations together by recency', () => {
   expect(rows).toEqual(['Room Alpha', 'Loose', 'Room Zeta'])
 })
 
-it('puts pinned conversations before rooms and keeps their pin order', () => {
+it('moves pinned conversations out of the project while leaving the room row', () => {
   const first = summary({ id: 'Pinned first', updatedAt: 10 })
   const second = summary({ id: 'Pinned second', updatedAt: 100 })
   const { container: tree } = treeWith(
@@ -708,7 +789,7 @@ it('puts pinned conversations before rooms and keeps their pin order', () => {
     if (roomRow) return roomRow.getAttribute('aria-label')
     return child.querySelector('button')?.textContent?.trim() ?? null
   })
-  expect(rows).toEqual(['Pinned second', 'Pinned first', 'Room Recent room'])
+  expect(rows).toEqual(['Room Recent room'])
 })
 
 it('a room in a project the tree was not already showing still gets a row', () => {

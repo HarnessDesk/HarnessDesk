@@ -266,6 +266,15 @@ const SidebarBoard = () => (
                 <SidebarMenuButton trailingOverlay size="default" icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="A very long conversation label that truncates when the sidebar is narrow" />
                 <SidebarMenuAction aria-label="More actions" showOnHover className="opacity-100"><MoreIcon size={14} /></SidebarMenuAction>
               </SidebarMenuItem>
+              <SidebarMenuItem data-catalog-label-case="empty">
+                <SidebarMenuButton icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="An empty trailing slot lets this long title reach the rail" />
+                <SidebarMenuAction aria-label="Empty slot actions" showOnHover><MoreIcon size={14} /></SidebarMenuAction>
+              </SidebarMenuItem>
+              <SidebarMenuItem data-catalog-label-case="badge">
+                <SidebarMenuButton trailingOverlay icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="A badge overlays the end of this long conversation title" />
+                <SidebarMenuBadge>Working</SidebarMenuBadge>
+                <SidebarMenuAction aria-label="Badge row actions" showOnHover><MoreIcon size={14} /></SidebarMenuAction>
+              </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton icon={<TeamIcon size={16} />} label="Release room" />
                 <SidebarMenuBadge>2</SidebarMenuBadge>
