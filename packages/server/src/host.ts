@@ -45,6 +45,7 @@ import {
   type BackupReport,
   type ExtensionEvent,
   type Page,
+  type ListSessionsQuery,
   type HostMethodName,
   type HostParams,
   type HostResult,
@@ -436,6 +437,8 @@ export interface HostOptions {
    * waiting for it. See `START_TIMEOUT_MS`.
    */
   readonly startTimeoutMs?: number
+  /** How long an ACP helper can remain unused before its process is stopped. */
+  readonly idleStopMs?: number
   /**
    * How long a direct send counts the conversation as busy while the agent
    * has not yet accepted it. See `SEND_ACCEPT_DEADLINE_MS`.
@@ -550,6 +553,12 @@ export type Broadcast = (notification: WireNotification) => void
  * costs a person a refused post. See `Host#teamLive`.
  */
 const REOPEN_REFUSALS_TO_LET_GO = 2
+const IDLE_STOP_MS = 10 * 60_000
+const LIVE_RUNTIME_METHODS = new Set<PropertyKey>([
+  'createSession', 'resumeSession', 'forkSession', 'readSession', 'searchSessions', 'archiveSession',
+  'deleteSession', 'setOption', 'setSkillEnabled', 'login', 'cancelLogin', 'submitLoginCode',
+  'logout', 'refreshCatalog', 'checkInstallation', 'getRateLimits', 'listSkills', 'listSkillProblems',
+])
 
 /** Why a Goal takes no person decision on its findings now, or null while it is open. A snapshot read of the Goal store. */
 const findingDecisionRefusal = (store: GoalStore, goal: string): string | null => {
@@ -575,6 +584,11 @@ export class Host {
 
   readonly registry = new SessionRegistry()
   readonly #runtimes = new Map<string, AgentRuntime>()
+  readonly #startingRuntimes = new Map<string, Promise<void>>()
+  readonly #stoppingRuntimes = new Map<string, Promise<boolean>>()
+  readonly #runtimeActivity = new Map<string, number>()
+  readonly #idleSince = new Map<string, number>()
+  #idleReaper: ReturnType<typeof setInterval> | null = null
   readonly #subscriptions: Unsubscribe[] = []
   /** Kept apart from `#subscriptions` so one runtime can be dropped alone. */
   readonly #runtimeSubscriptions = new Map<string, Unsubscribe[]>()
@@ -1895,8 +1909,25 @@ export class Host {
       this.#catalogs.forget(id)
       this.#updates.delete(id)
     }
-    this.#runtimes.set(id, runtime)
-    this.#catalogs.watch(runtime)
+    const managed = new Proxy(runtime, {
+      get: (target, key) => {
+        const member = Reflect.get(target, key, target) as unknown
+        if (typeof member !== 'function') return member
+        if (key === 'listSessions') {
+          return (...args: unknown[]) => Promise.resolve(Reflect.apply(member, target, args) as Promise<Page<SessionSummary>>)
+            .then((page) => this.#withHostHistory(target.info.id, page, args[0] as ListSessionsQuery | undefined))
+        }
+        if (LIVE_RUNTIME_METHODS.has(key)) {
+          return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
+            await this.#ensureStarted(target)
+            return Reflect.apply(member, target, args)
+          })
+        }
+        return member.bind(target)
+      },
+    })
+    this.#runtimes.set(id, managed)
+    this.#catalogs.watch(managed)
     this.#runtimeSubscriptions.set(id, [
       runtime.subscribe((event) => this.#onEvent(id, event)),
       runtime.onHealthChange((health) => this.#onHealthChange(id, health)),
@@ -1932,6 +1963,7 @@ export class Host {
     this.#runtimeSubscriptions.delete(id)
     this.#catalogs.forget(id)
     this.#runtimes.delete(id)
+    this.#idleSince.delete(String(id))
     this.#updates.delete(id)
     this.#meters.delete(id)
     try {
@@ -2222,6 +2254,7 @@ export class Host {
       await this.#flows.resume('triggered')
     })().catch(resumeFailed)
     if ((this.options.catalogRefreshMs ?? 1) > 0) this.#catalogs.start()
+    this.#startIdleReaper()
   }
 
   /**
@@ -2232,27 +2265,7 @@ export class Host {
    */
   async #startOne(runtime: AgentRuntime, prepared = false): Promise<void> {
     const limit = this.options.startTimeoutMs ?? START_TIMEOUT_MS
-    // A gateway account's loopback port is new on every start, so this has to
-    // happen before the process reads its config, not once at creation.
-    //
-    // `prepared` is for the one caller that had to do it earlier than this:
-    // adding an account points the gateway *before* the row is registered, so
-    // that a turn can never reach a Codex which has not been told where to
-    // send it. Doing it twice was harmless — `ensure` returns the running
-    // child — but four reviewers stopped on it, and a caller saying "already
-    // done" reads better than a comment explaining why a repeat is free.
-    if (!prepared) await this.#prepareGateway(runtime)
-    const attempt = runtime.start().then(
-      () => true,
-      (error: unknown) => {
-        // Health carries the reason; the UI renders it as first-run guidance.
-        this.#logger.warn('runtime failed to start', {
-          runtime: runtime.info.id,
-          error: String(error),
-        })
-        return false
-      },
-    )
+    const attempt = this.#beginRuntimeStart(runtime, prepared).then(() => true, () => false)
     let timer: ReturnType<typeof setTimeout> | undefined
     const deadline = new Promise<'timeout'>((resolve) => {
       // Not unref'd: a runtime that never settles is the case this deadline is
@@ -2268,12 +2281,118 @@ export class Host {
         runtime: runtime.info.id,
         afterMs: limit,
       })
-      void attempt.then((ready) => {
-        if (ready) this.#announceReady(runtime)
-      })
       return
     }
-    if (outcome) this.#announceReady(runtime)
+  }
+
+  #beginRuntimeStart(runtime: AgentRuntime, prepared: boolean): Promise<void> {
+    const id = String(runtime.info.id)
+    const existing = this.#startingRuntimes.get(id)
+    if (existing) return existing
+    // Registration stays eager for now. True lazy start can omit the #startOne
+    // loop in Host.start(); every later live operation already enters here.
+    const attempt = Promise.resolve().then(async () => {
+      if (!prepared) await this.#prepareGateway(runtime)
+      await runtime.start()
+      this.#announceReady(runtime)
+    }).catch((error: unknown) => {
+      this.#logger.warn('runtime failed to start', { runtime: runtime.info.id, error: String(error) })
+      throw error
+    }).finally(() => {
+      if (this.#startingRuntimes.get(id) === attempt) this.#startingRuntimes.delete(id)
+    })
+    this.#startingRuntimes.set(id, attempt)
+    return attempt
+  }
+
+  async #ensureStarted(runtime: AgentRuntime): Promise<void> {
+    if (this.#disposed) throw new Error('The desk is closing.')
+    const id = String(runtime.info.id)
+    const stopping = this.#stoppingRuntimes.get(id)
+    if (stopping) await stopping
+    if (runtime.health().state === 'ready') return
+    await this.#beginRuntimeStart(runtime, false)
+  }
+
+  async #withRuntimeActivity<T>(runtime: AgentRuntime, operation: () => Promise<T>): Promise<T> {
+    const id = String(runtime.info.id)
+    this.#runtimeActivity.set(id, (this.#runtimeActivity.get(id) ?? 0) + 1)
+    this.#idleSince.delete(id)
+    try {
+      return await operation()
+    } finally {
+      const active = (this.#runtimeActivity.get(id) ?? 1) - 1
+      if (active === 0) {
+        this.#runtimeActivity.delete(id)
+        if (runtime.health().state === 'ready' && this.#runtimeIsIdle(runtime.info.id)) this.#idleSince.set(id, Date.now())
+      } else this.#runtimeActivity.set(id, active)
+    }
+  }
+
+  #startIdleReaper(): void {
+    const delay = this.options.idleStopMs ?? IDLE_STOP_MS
+    if (delay <= 0 || this.#idleReaper !== null) return
+    const cadence = Math.max(10, Math.min(1_000, delay))
+    this.#idleReaper = setInterval(() => {
+      for (const runtime of this.#runtimes.values()) void this.#reapIdleRuntime(runtime, delay)
+    }, cadence)
+    this.#idleReaper.unref?.()
+  }
+
+  #runtimeIsIdle(id: RuntimeId): boolean {
+    if ((this.#runtimeActivity.get(String(id)) ?? 0) > 0) return false
+    if (this.registry.all().some((record) => record.runtime === id && (
+      record.live !== null || record.running.size > 0 || record.approvals.size > 0 ||
+      record.tasks.some((task) => task.state === 'running')
+    ))) return false
+    return !this.#evidence.seats.all().some((seat) => seat.session.runtime === id && seat.closed === null && !seat.restored)
+  }
+
+  #withHostHistory(id: RuntimeId, page: Page<SessionSummary>, query?: ListSessionsQuery): Page<SessionSummary> {
+    if (query?.cursor) return page
+    const rows = new Map(page.data.map((row) => [String(row.id), row]))
+    for (const record of this.registry.all()) {
+      const session = record.session
+      if (record.runtime !== id || rows.has(String(session.id)) || (query?.cwd && query.cwd !== session.cwd)) continue
+      rows.set(String(session.id), {
+        id: session.id,
+        runtime: id,
+        title: session.title,
+        preview: session.preview,
+        cwd: session.cwd,
+        status: record.live ? { type: 'active' } : { type: 'notLoaded' },
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+        git: session.git,
+      })
+    }
+    return { ...page, data: [...rows.values()].sort((a, b) => b.updatedAt - a.updatedAt) }
+  }
+
+  async #reapIdleRuntime(runtime: AgentRuntime, delay: number): Promise<void> {
+    const id = String(runtime.info.id)
+    if (!runtime.stopForIdle || runtime.health().state !== 'ready' || !this.#runtimeIsIdle(runtime.info.id)) {
+      this.#idleSince.delete(id)
+      return
+    }
+    const since = this.#idleSince.get(id) ?? Date.now()
+    this.#idleSince.set(id, since)
+    if (Date.now() - since < delay || this.#stoppingRuntimes.has(id)) return
+    // Publish the barrier before the process stop can yield. A live operation
+    // arriving now waits for this reap, then shares the next start.
+    const stopping = Promise.resolve().then(async () => {
+      if (!this.#runtimeIsIdle(runtime.info.id) || runtime.health().state !== 'ready') return false
+      return runtime.stopForIdle!()
+    })
+    this.#stoppingRuntimes.set(id, stopping)
+    try {
+      await stopping
+    } catch (error) {
+      this.#logger.warn('an idle runtime did not stop cleanly', { runtime: runtime.info.id, error: String(error) })
+    } finally {
+      if (this.#stoppingRuntimes.get(id) === stopping) this.#stoppingRuntimes.delete(id)
+      this.#idleSince.delete(id)
+    }
   }
 
   #announceReady(runtime: AgentRuntime): void {
@@ -2284,6 +2403,8 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    if (this.#idleReaper !== null) clearInterval(this.#idleReaper)
+    this.#idleReaper = null
     // No Seat reaches a server past this point: every live grant is revoked,
     // every exchange in flight is aborted, and the gateway's socket is closed.
     // (Synchronous: nothing here may yield before every runtime is told, below.)
@@ -6625,7 +6746,7 @@ export class Host {
   }
 
   #onHealthChange(runtime: RuntimeId, health: RuntimeHealth): void {
-    if (health.state !== 'ready') {
+    if (health.state !== 'ready' && health.state !== 'idle') {
       this.#invalidateDelegations(runtime)
       for (const record of this.registry.detachAll(runtime)) this.#pushQueue(record)
       this.#terminals.detachAll(runtime)
