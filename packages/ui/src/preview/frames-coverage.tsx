@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-import { runtimeId, type UsageReport } from '@harnessdesk/protocol'
+import { runtimeId, type FlowPreview, type UsageReport } from '@harnessdesk/protocol'
 
 import { AgentPageSections, FieldEditDialog, PreferFieldDialog } from '../components/AgentFields'
 import { HandoffSheet, ModeControl, MoreControl, PermissionControl } from '../components/ComposerControls'
@@ -20,8 +20,10 @@ import { Boundary } from './boundary'
 import { Dial, Frame } from './main'
 import { libraryColumnsFor, LIBRARY, PREVIEW_AGENTS, PREVIEW_SESSION_KEY, previewStore, store } from './harness'
 import { PREVIEW_ROOT, previewUsage } from './sidebar-fixture'
+import { GEMINI_UNTRUSTED_PREVIEW, REVIEWER_REASONS_PREVIEW } from './flow-fixture'
 import { ShellProvider } from '../panels/views'
 import { PaneProvider, StoreProvider } from '../state/context'
+import type { AppStore } from '../state/store'
 import { emptyWorkbench } from '../state/workbench'
 
 const COLUMNS = libraryColumnsFor(LIBRARY.runtimes)
@@ -87,6 +89,37 @@ const noticePlacementStore = previewStore({
 const DIALOGS = ['off', 'edit agent', 'prefer agent', 'handoff', 'confirm', 'worktree', 'import', 'resolve', 'plan', 'library flow', 'add agents'] as const
 type Dialog = (typeof DIALOGS)[number]
 
+const flowSceneStore = (preview: FlowPreview): AppStore => new Proxy(store, {
+  get(target, property, receiver) {
+    if (property === 'flowGeneration') return () => 0
+    if (property === 'flowCatalog') return async () => [{ id: 'preview-state', origin: 'project', path: 'flow.yml', name: 'Preview flow', description: null, format: 'agents', problem: null, shadows: [] }]
+    if (property === 'agentsIn') return async () => PREVIEW_AGENTS
+    if (property === 'flowSource') return async () => 'version: 2\n'
+    if (property === 'previewFlow') return async () => preview
+    const value = Reflect.get(target, property, receiver)
+    return typeof value === 'function' ? value.bind(target) : value
+  },
+}) as AppStore
+
+const SelectedFlowPreview = ({ preview }: { readonly preview: FlowPreview }) => {
+  const host = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const select = host.current?.querySelector<HTMLSelectElement>('select')
+      if (!select || select.disabled) return
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, 'preview-state')
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+      window.clearInterval(timer)
+    }, 10)
+    return () => window.clearInterval(timer)
+  }, [])
+  return (
+    <StoreProvider store={flowSceneStore(preview)}>
+      <div ref={host} className="p-4"><FlowStart root={PREVIEW_ROOT} disabled={false} onChange={() => {}} /></div>
+    </StoreProvider>
+  )
+}
+
 /**
  * State-gated exports get a truthful fixture here rather than a file-wide
  * pass from a sibling. Dialogs begin closed and the coverage test sweeps the
@@ -121,6 +154,12 @@ export const CoverageFrames = () => {
       </Frame>
       <Frame id="coverage-goal-flow" title="Goal — choose a flow">
         <div className="p-4"><FlowStart root={PREVIEW_ROOT} disabled={false} onChange={() => {}} /></div>
+      </Frame>
+      <Frame id="coverage-flow-review-reasons" title="Flow — reviewer candidate reasons and provider warning">
+        <SelectedFlowPreview preview={REVIEWER_REASONS_PREVIEW} />
+      </Frame>
+      <Frame id="coverage-flow-gemini-trust" title="Flow — a seat that cannot use the board in this folder">
+        <SelectedFlowPreview preview={GEMINI_UNTRUSTED_PREVIEW} />
       </Frame>
       <Frame id="coverage-session-background" title="Session — background work and deliverables">
         <StoreProvider store={coverageStore}><div className="p-4"><JobsBar /><Deliverables /></div></StoreProvider>
