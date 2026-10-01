@@ -92,8 +92,9 @@ const waiting = (...lines: string[]): SessionQueue => ({
 
 const rows = (): HTMLLIElement[] => [...container.querySelectorAll('li')]
 const button = (label: string, index = 0): HTMLButtonElement => {
+  const accessibleLabel = label === 'Edit' ? 'Edit queued message' : label
   const found = [...container.querySelectorAll('button')].filter(
-    (element) => element.getAttribute('aria-label') === label || element.textContent === label,
+    (element) => element.getAttribute('aria-label') === accessibleLabel || element.textContent === label,
   )
   const element = found[index]
   if (!element) throw new Error(`no ${label} button`)

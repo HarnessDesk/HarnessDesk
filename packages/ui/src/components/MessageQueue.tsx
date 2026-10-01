@@ -119,7 +119,7 @@ export const MessageQueue = () => {
     if (previous && !editing) {
       const row = [...document.querySelectorAll<HTMLElement>('[data-queue-id]')]
         .find((element) => element.dataset.queueId === previous)
-      row?.querySelector<HTMLButtonElement>('[aria-label="Edit"]')?.focus()
+      row?.querySelector<HTMLButtonElement>('[aria-label="Edit queued message"]')?.focus()
     }
   }, [editing])
 
@@ -246,7 +246,7 @@ export const MessageQueue = () => {
                 <Button
                   type="button"
                   variant="ghost" size="icon-sm"
-                  aria-label="Edit"
+                  aria-label="Edit queued message"
                   title={editing ? 'Save or cancel the current edit first' : 'Edit this waiting message in its row'}
                   disabled={Boolean(editing) || saving}
                   onClick={() => setEditing({ id: message.id, text: describeQueued(message.input).text, input: message.input, key, attemptId: ++nextEditAttempt.current })}
