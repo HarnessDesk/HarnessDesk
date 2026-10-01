@@ -127,8 +127,12 @@ const KEY_VALUE = new RegExp(`["']?\\b(${SECRET_KEY})["']?\\s*[:=]\\s*["']?(?:(?
 const PLACEHOLDER_VALUE = /^(?:[<{[$%]|\.{2,}|…|\*+|x{3,}|-+|<.*>)|^(?:redacted|none|null|undefined|true|false|string|object|array|number|required|optional|empty|unset|hidden|masked|omitted|secret|token|password|value|example|placeholder|changeme|your[-_a-z]*|env|process\.env\S*)$/i
 const headerCredentialLines = (source) => source.split(/\r?\n/).flatMap((line, index) => {
   for (const match of line.matchAll(KEY_VALUE)) {
-    const value = match[2]
-    if (value.length >= 8 && !PLACEHOLDER_VALUE.test(value)) return [`line ${index + 1}  [credential in a secret-named field]`]
+    // Prose wraps values in backticks and ends sentences after them: judge the value itself.
+    const value = match[2].replace(/^`+|[`.]+$/g, '')
+    // A value made only of lowercase letters and hyphens reads as prose ("token: refresh", "secret: handling").
+    // Real secrets nearly always carry a digit, a capital or a symbol. An all-lowercase secret is a known limit.
+    const looksSecret = /[\dA-Z]|[^a-z-]/.test(value)
+    if (value.length >= 4 && looksSecret && !PLACEHOLDER_VALUE.test(value)) return [`line ${index + 1}  [credential in a secret-named field]`]
   }
   return []
 })

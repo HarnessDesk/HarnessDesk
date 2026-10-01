@@ -417,3 +417,40 @@ for (const value of [
     assert.ok(h.calls.some(isPost))
   })
 }
+
+// Round 7: short secrets, and lowercase prose after a secret-named key.
+for (const value of ['password: hunter2', 'token=abc123', 'pwd=Ab1!', 'secret: s3cr3t', 'api_key=Zk3Q']) {
+  test(`refuses a short secret-looking value after a secret-named key: ${value}`, async () => {
+    for (const mode of ['review', 'fixes']) {
+      const h = harness()
+      const options = mode === 'review'
+        ? { pr: '42', round: '1', by: 'Codex', body: value, repo: 'owner/repo' }
+        : { pr: '42', fixes: value, repo: 'owner/repo' }
+      assert.equal(await postReview(options, h.runner, h.io), 2)
+      assert.equal(h.calls.some(isPost), false)
+    }
+  })
+}
+
+for (const value of ['token: refresh', 'secret: sauce', 'the token: handling is covered', 'cookie: jar', 'a secret: nothing-special-here']) {
+  test(`lowercase prose after a secret-named key still posts: ${value}`, async () => {
+    const h = harness()
+    assert.equal(await postReview({ pr: '42', round: '1', by: 'Codex', body: value, repo: 'owner/repo' }, h.runner, h.io), 0)
+    assert.ok(h.calls.some(isPost))
+  })
+}
+
+test('a placeholder wrapped in backticks or ending a sentence is still a placeholder', async () => {
+  for (const value of ['The fixture has `token: null` for the error preview.', 'Set `password: redacted`.', 'with `secret: required`, fine']) {
+    const h = harness()
+    assert.equal(await postReview({ pr: '42', round: '1', by: 'Codex', body: value, repo: 'owner/repo' }, h.runner, h.io), 0, value)
+    assert.ok(h.calls.some(isPost))
+  }
+})
+
+test('a path split by a line break after its home directory is still refused', async () => {
+  const split = ['Found ', 'Users', ''].join('/').replace('Found /', 'Found /') + '\nalice/notes.txt'
+  const h = harness()
+  assert.equal(await postReview({ pr: '42', round: '1', by: 'Codex', body: split, repo: 'owner/repo' }, h.runner, h.io), 2)
+  assert.equal(h.calls.some(isPost), false)
+})

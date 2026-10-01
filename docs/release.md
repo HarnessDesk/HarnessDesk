@@ -136,8 +136,9 @@ never the value), and supports `--dry-run` to inspect the body and command
 before posting.
 
 It is a safety net on top of a human read, not a replacement for one. Known
-limits: names and handles are not machine-checked, and a determined evasion
-(look-alike characters, a bespoke encoding) can get past a pattern check. The
+limits: names and handles are not machine-checked, an all-lowercase
+value after a secret-named key reads as prose and is not recognised as a secret, and a determined
+evasion (look-alike characters, a bespoke encoding) can get past a pattern check. The
 poster reads the text before posting.
 
 **Prove the merge changed nothing**, so the build below doesn't have to wait
