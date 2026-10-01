@@ -26,6 +26,7 @@ import { COMPOSITION_BOARDS } from './boards-compositions'
  * every tab then looks like it loads all of them.
  */
 const ComposerSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ComposerSurface })))
+const ComposerSlotsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ComposerSlotsSurface })))
 const DashboardSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.DashboardSurface })))
 const ConversationSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ConversationSurface })))
 const ConversationMapDenseSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ConversationMapDenseSurface })))
@@ -155,6 +156,13 @@ const SURFACES = [
     about:
       'The shipped composer alone, at the width the conversation gives it, resting on an idle session. Its other states — carrying attachments, running, queued behind a turn, nearly out of context — need a session in that state, and the fixture has none yet.',
     render: ComposerSurface,
+  },
+  {
+    id: 'composer-fixed-slots',
+    title: 'Composer — fixed slots',
+    about:
+      'The shipped composer controls in draft and live layouts, across agent shapes and at composer, 560px and 360px widths. Refused slots retain their reason; empty More and Extension slots, and the empty Context ring, stay visible where their positions depend on them.',
+    render: ComposerSlotsSurface,
   },
   {
     id: 'rail',

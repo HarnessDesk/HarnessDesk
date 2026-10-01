@@ -3,7 +3,6 @@ import { runtimeId, sessionId, sessionKey, type ConfigOption, type RuntimeInfo, 
 
 import { AgentControl, ComposerTrack, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from '../components/ComposerControls'
 import { ContextUsage } from '../components/ContextUsage'
-import { Frame } from './main'
 import { ComposerGap, ComposerSend, ComposerTools, Button } from '../design'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot } from '../state/store'
@@ -19,7 +18,8 @@ const optionsFor = (shape: number): ConfigOption[] => {
   switch (shape) {
     case 0: return [mode, model, reasoning, permissions, other]
     case 1: return [mode, model, modelConfig, reasoning]
-    case 2: return [mode, other]
+    case 2: return [other]
+    case 4: return []
     default: return [mode, model, reasoning, permissions, other]
   }
 }
@@ -91,6 +91,13 @@ const ComposerWidthExtensionCase = () => (
   </section>
 )
 
+const EmptyMoreCase = () => (
+  <section data-empty-more-case className="grid w-(--hd-composer-slots-preview-narrow) max-w-full gap-1">
+    <span className="text-xs text-(--hd-muted-foreground)">More — no options</span>
+    <SlotToolbar shape={4} live={false} />
+  </section>
+)
+
 const widths = [
   { name: 'composer', width: 'var(--hd-column)' },
   { name: '560', width: 'var(--hd-composer-slots-preview-narrow)' },
@@ -98,8 +105,7 @@ const widths = [
   { name: '320', width: 320 },
 ] as const
 
-export const ComposerSlotsFrames = () => (
-  <Frame id="composer-slots" title="Composer — fixed slots">
+export const ComposerSlotsContent = () => (
     <div className="grid gap-4 p-4" data-composer-slots-preview>
       {widths.map(({ name, width }) => (
         <section key={name} className="grid gap-2">
@@ -126,6 +132,13 @@ export const ComposerSlotsFrames = () => (
       <LayoutSwitchCase />
       <ExtensionWidthCase />
       <ComposerWidthExtensionCase />
+      <EmptyMoreCase />
     </div>
-  </Frame>
+)
+
+export const ComposerSlotsFrames = () => (
+  <section data-frame-id="composer-slots" className="min-w-0">
+    <h2 data-preview-caption="" className="mb-2 text-sm font-semibold text-muted-foreground">Composer — fixed slots</h2>
+    <div className="overflow-hidden rounded-lg border bg-background"><ComposerSlotsContent /></div>
+  </section>
 )
