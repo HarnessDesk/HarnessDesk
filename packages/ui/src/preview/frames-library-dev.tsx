@@ -1,5 +1,3 @@
-import type { ReactNode } from 'react'
-
 import { RuntimeMark } from '../components/BrandIcons'
 import { AlertIcon, CheckIcon, DiffIcon, FileIcon, ServerIcon, SparkIcon } from '../components/Icons'
 import { Markdown } from '../components/Markdown'
@@ -17,7 +15,7 @@ import {
   Text,
 } from '../design'
 import { Frame } from './main'
-import { LIBRARY_AGENTS } from './library-options-fixture'
+import { LIBRARY_AGENTS, LIBRARY_SKILLS, type SkillFact } from './library-options-fixture'
 
 /*
  * Option E — the Library as a developer's package manager.
@@ -34,28 +32,9 @@ import { LIBRARY_AGENTS } from './library-options-fixture'
 
 const noop = (): void => {}
 
-type Presence = 'loads' | 'on-disk' | 'differs' | 'rejected' | 'absent'
-type Item = {
-  readonly name: string
-  readonly description: string
-  readonly version?: string
-  readonly scope: 'User' | 'Project'
-  readonly presence: readonly Presence[]
-  readonly issue?: string
-}
-
-const SKILLS: readonly Item[] = [
-  { name: 'brainstorming', description: 'Shape an idea into a reviewable design before implementation.', version: '4.2.1', scope: 'User', presence: ['loads', 'on-disk', 'differs', 'absent'], issue: 'Copies differ' },
-  { name: 'code-review', description: 'Review a change against the repository rules.', scope: 'Project', presence: ['loads', 'on-disk', 'on-disk', 'on-disk'] },
-  { name: 'deploy-check', description: 'Check a deploy plan before anything ships.', scope: 'Project', presence: ['rejected', 'on-disk', 'on-disk', 'absent'], issue: 'Rejected by one agent' },
-  { name: 'pr-summary', description: 'Turn the diff and test evidence into a concise summary.', version: '2.8.0', scope: 'User', presence: ['loads', 'on-disk', 'on-disk', 'on-disk'] },
-  { name: 'release-check', description: 'Check release notes, version and packaging before a tag.', scope: 'User', presence: ['loads', 'on-disk', 'absent', 'absent'] },
-  { name: 'migration-map', description: 'Map old entry points to the new package layout.', scope: 'Project', presence: ['loads', 'absent', 'absent', 'absent'] },
-  { name: 'test-plan', description: 'Write the test plan a change needs before it is built.', scope: 'User', presence: ['absent', 'on-disk', 'on-disk', 'absent'] },
-  { name: 'ui-review', description: 'Compare a screen against the design system and report drift.', version: '1.0.3', scope: 'User', presence: ['loads', 'on-disk', 'on-disk', 'on-disk'] },
-]
-
-const SELECTED = SKILLS[0]!
+type Item = (typeof LIBRARY_SKILLS)[number]
+const SKILLS: readonly Item[] = LIBRARY_SKILLS
+const SELECTED = SKILLS.find((skill) => skill.name === 'brainstorming')!
 
 const SKILL_MD = `# brainstorming
 
@@ -67,30 +46,31 @@ Use before any creative work — a feature, a component, a change in behaviour.
 4. Write the agreed design to \`docs/specs/\` and stop for review.
 `
 
-/** One small mark per agent: full where it has the item, faint where it does not. */
-const PresenceStrip = ({ presence }: { presence: readonly Presence[] }) => (
+/** One mark per agent, derived from the shared evidence fixture. */
+const PresenceStrip = ({ facts }: { facts: readonly SkillFact[] }) => (
   <span className="flex items-center gap-1.5">
     {LIBRARY_AGENTS.map((agent, index) => {
-      const state = presence[index] ?? 'absent'
+      const fact = facts[index] ?? { kind: 'not-measured' as const, basis: 'Table · no observation', words: 'Not measured' }
       return (
         <span
           key={agent.id}
-          title={`${agent.presentation.name}: ${PRESENCE_WORDS[state]}`}
-          className={state === 'absent' ? 'opacity-25' : undefined}
+          title={`${agent.presentation.name}: ${fact.words} · ${fact.basis}`}
+          className={fact.kind === 'absent' ? 'opacity-25' : undefined}
         >
-          <RuntimeMark runtime={agent} size={14} />
+          {fact.kind === 'absent' ? null : <RuntimeMark runtime={agent} size={14} />}
         </span>
       )
     })}
   </span>
 )
 
-const PRESENCE_WORDS: Record<Presence, string> = {
-  loads: 'loads it',
-  'on-disk': 'on disk, not confirmed',
-  differs: 'copy differs',
-  rejected: 'rejected',
-  absent: 'not installed',
+const factLine = (fact: SkillFact): string => {
+  switch (fact.kind) {
+    case 'asked-loads': return `Loads it · ${fact.basis}`
+    case 'build-unconfirmed': return `On disk · can't confirm until it restarts · ${fact.basis}`
+    case 'copies-differ': return `Its copy differs · ${fact.basis}`
+    default: return `${fact.words} · ${fact.basis}`
+  }
 }
 
 const KindTabs = () => (
@@ -134,7 +114,7 @@ const ListPane = () => (
     <div className="divide-y">
       {SKILLS.map((skill) => (
         <ListRow
-          key={skill.name}
+          key={`${skill.name}:${skill.source}`}
           interactive
           selected={skill === SELECTED}
           className="px-4"
@@ -142,56 +122,45 @@ const ListPane = () => (
           title={
             <span className="flex items-center gap-2">
               <span>{skill.name}</span>
-              {skill.issue ? <AlertIcon size={13} aria-label={skill.issue} /> : null}
+              {skill.facts.some((fact) => fact.kind === 'copies-differ' || fact.kind === 'rejected')
+                ? <AlertIcon size={13} aria-label={skill.note} />
+                : null}
             </span>
           }
           subtitle={skill.description}
-          trail={<PresenceStrip presence={skill.presence} />}
+          trail={<PresenceStrip facts={skill.facts} />}
         />
       ))}
     </div>
   </div>
 )
 
-type AgentLine = {
-  readonly status: ReactNode
-  readonly installed: boolean
-  readonly pending?: boolean
-  readonly action?: ReactNode
-}
-
-const AGENT_LINES: readonly AgentLine[] = [
-  { status: <><CheckIcon size={13} /> Loads it · asked 2 min ago</>, installed: true },
-  { status: 'On disk · this agent can’t confirm until it restarts', installed: true },
-  {
-    status: <><DiffIcon size={13} /> Its copy differs from 4.2.1 · edited 3 days ago</>,
-    installed: true,
-    action: <Button size="sm" variant="outline">Compare…</Button>,
-  },
-  { status: 'Not installed', installed: false, pending: true },
-]
-
 const InstalledIn = ({ applied }: { applied: boolean }) => (
   <section className="space-y-2">
     <div className="flex items-baseline justify-between">
       <Text role="section" as="h3">Installed in</Text>
-      <Text role="meta">User scope · ~/.&lt;agent&gt;/skills/brainstorming</Text>
+      <Text role="meta">{SELECTED.scope} scope · ~/.&lt;agent&gt;/skills/{SELECTED.name}</Text>
     </div>
     <div className="divide-y rounded-lg border">
       {LIBRARY_AGENTS.map((agent, index) => {
-        const line = AGENT_LINES[index]!
-        const checked = applied ? true : line.installed || Boolean(line.pending)
-        const status = applied && line.pending
-          ? 'Written · this agent can’t confirm until it restarts'
-          : line.status
+        const fact = SELECTED.facts[index]!
+        const pending = fact.kind === 'absent'
+        const checked = applied || !pending
+        const status = applied && pending
+          ? agent.support.reportsCatalogue ? 'Written · load confirmation pending' : "Written · this agent can't confirm"
+          : factLine(fact)
         return (
           <div key={agent.id} className="flex items-center gap-3 px-4 py-2.5">
             <Checkbox checked={checked} aria-label={`Installed in ${agent.presentation.name}`} />
             <RuntimeMark runtime={agent} size={16} />
             <Text role="row" className="w-32 shrink-0">{agent.presentation.name}</Text>
-            <Text role="muted" className="flex min-w-0 flex-1 items-center gap-1.5">{status}</Text>
-            {!applied && line.pending ? <Chip size="sm" tone="info">Will install</Chip> : null}
-            {line.action ?? null}
+            <Text role="muted" className="flex min-w-0 flex-1 items-center gap-1.5">
+              {fact.kind === 'asked-loads' ? <CheckIcon size={13} /> : null}
+              {fact.kind === 'copies-differ' ? <DiffIcon size={13} /> : null}
+              {status}
+            </Text>
+            {!applied && pending ? <Chip size="sm" tone="info">Will install</Chip> : null}
+            {fact.kind === 'copies-differ' ? <Button size="sm" variant="outline">Compare…</Button> : null}
           </div>
         )
       })}
@@ -201,7 +170,7 @@ const InstalledIn = ({ applied }: { applied: boolean }) => (
 
 const PendingBar = () => (
   <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/40 px-4 py-3">
-    <Text role="row">1 change · install for {LIBRARY_AGENTS[3]?.presentation.name} at user scope</Text>
+    <Text role="row">1 change · install for {LIBRARY_AGENTS[SELECTED.facts.findIndex((fact) => fact.kind === 'absent')]?.presentation.name} at {SELECTED.scope.toLowerCase()} scope</Text>
     <div className="flex items-center gap-2">
       <Button size="sm" variant="ghost">Discard</Button>
       <Button size="sm">Review and apply…</Button>
@@ -213,11 +182,13 @@ const ReceiptBar = () => (
   <div className="flex items-center justify-between gap-3 rounded-lg border px-4 py-3">
     <span className="flex items-center gap-2">
       <CheckIcon size={14} />
-      <Text role="row">Written for {LIBRARY_AGENTS[3]?.presentation.name} · it will pick it up on its next restart</Text>
+      <Text role="row">Written for {LIBRARY_AGENTS[SELECTED.facts.findIndex((fact) => fact.kind === 'absent')]?.presentation.name} · this agent can't confirm</Text>
     </span>
     <div className="flex items-center gap-2">
       <Button size="sm" variant="ghost">Undo</Button>
-      <Button size="sm" variant="outline">Restart it now</Button>
+      {LIBRARY_AGENTS[SELECTED.facts.findIndex((fact) => fact.kind === 'absent')]?.support.catalogueRefresh === 'restart'
+        ? <Button size="sm" variant="outline">Restart it now</Button>
+        : null}
     </div>
   </div>
 )
@@ -231,9 +202,9 @@ const DetailPane = ({ applied }: { applied: boolean }) => (
           <Text role="page" as="h2">{SELECTED.name}</Text>
           <Text role="muted" as="p">{SELECTED.description}</Text>
           <div className="flex flex-wrap items-center gap-2 pt-1">
-            <Chip tone="neutral" size="sm">community-kit · 4.2.1</Chip>
+            <Chip tone="neutral" size="sm">{SELECTED.sourceVersion ? `${SELECTED.source.split('@')[0]} · ${SELECTED.sourceVersion}` : SELECTED.source}</Chip>
             <Chip size="sm" tone="info">4.3.0 available</Chip>
-            <Text role="meta">github.com/acme/community-kit · pinned to v4.2.1</Text>
+            <Text role="meta">{SELECTED.source} · pinned{SELECTED.sourceVersion ? ` to v${SELECTED.sourceVersion}` : ''}</Text>
           </div>
         </div>
       </div>

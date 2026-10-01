@@ -308,12 +308,14 @@ const InventoryMark = ({ fact, item, agent }: { fact: MatrixFact; item: string; 
       ? <DiffIcon size={13} />
       : fact.kind === 'rejected'
         ? <AlertIcon size={13} />
-        : fact.kind === 'not-measured'
-          ? <TodoPendingIcon size={10} />
-          : fact.kind === 'build-unconfirmed'
-            ? <Dot state="available" />
-            : fact.kind === 'server-ready'
-              ? <Dot state="ready" />
+          : fact.kind === 'not-measured'
+            ? <TodoPendingIcon size={10} />
+            : fact.kind === 'build-unconfirmed'
+              ? <Dot state="available" />
+              : fact.kind === 'absent'
+                ? null
+              : fact.kind === 'server-ready'
+                ? <Dot state="ready" />
               : fact.kind === 'server-signin'
                 ? <AlertIcon size={13} />
                 : fact.kind === 'command'
@@ -321,7 +323,7 @@ const InventoryMark = ({ fact, item, agent }: { fact: MatrixFact; item: string; 
                   : <Text role="meta">—</Text>
   return (
     <Text role="meta" ink="muted" className="inline-flex w-full items-center justify-center">
-      <span role="img" aria-label={label} title={`${fact.basis} · ${fact.words}`} className="inline-flex items-center justify-center">{mark}</span>
+      <span role={fact.kind === 'absent' ? undefined : 'img'} aria-label={fact.kind === 'absent' ? undefined : label} title={`${fact.basis} · ${fact.words}`} className={`inline-flex items-center justify-center${fact.kind === 'absent' ? ' opacity-25' : ''}`}>{mark}</span>
     </Text>
   )
 }
