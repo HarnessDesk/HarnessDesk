@@ -2768,7 +2768,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   {
     id: 'tile',
     title: 'IconTile',
-    about: 'A glyph on a soft ground of its own, and the tone/tint line drawn where it bites.',
+    about: 'A glyph on its own ground: soft for things and categories, solid for faces, with tone and tint kept distinct.',
     render: TileBoard,
   },
   {

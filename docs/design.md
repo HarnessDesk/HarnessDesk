@@ -673,6 +673,10 @@ ignores the setting. The ring and the square do not move with Faces: an
 account was already round, and a thing staying square is how a round face
 still reads as someone.
 
+A tinted face is filled with its tint's ink and uses the accent foreground for
+its mark or initials. Other tinted tiles, including square and round ones,
+keep the soft tint wash.
+
 ## Motion
 
 Motion says where a thing came from and where it went, and nothing else. It is

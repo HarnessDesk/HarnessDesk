@@ -2,7 +2,7 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
-import { softTint, softTone, type Tint, type Tone } from './tone'
+import { softTint, softTone, solidTint, type Tint, type Tone } from './tone'
 
 /**
  * A glyph on a soft ground of its own.
@@ -76,7 +76,7 @@ const IconTile = ({ className, size, shape, tone, tint, color, style, ...props }
       color
         ? 'bg-(--tile-color) text-(--hd-accent-foreground)'
         : tint
-          ? softTint({ tint })
+          ? shape === 'face' ? solidTint({ tint }) : softTint({ tint })
           : softTone({ tone }),
       className,
     )}
