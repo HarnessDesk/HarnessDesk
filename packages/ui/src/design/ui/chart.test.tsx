@@ -315,6 +315,71 @@ describe('DayColumns', () => {
     expect(d).toMatch(/^M[\d.]+,100L(?:[\d.]+,[\d.]+L)*[\d.]+,100Z$/)
   })
 
+  it('keeps the Spend line unsigned and treats a known zero as empty without a domain', () => {
+    mount(
+      <DayColumns
+        buckets={[{ label: 'Mon', total: 0, parts: [0] }, { label: 'Tue', total: 4, parts: [4] }]}
+        series={[SERIES[0]!]}
+        format={(value) => `$${value.toFixed(2)}`}
+        label="Spend per day"
+        mode="line"
+      />,
+    )
+    press('Home')
+    expect(announced()).toBe('Mon: Nothing spent')
+    expect(container.querySelector('svg path[stroke="var(--hd-accent)"]')?.getAttribute('d')).toContain('25.00,100.00')
+  })
+
+  it('plots signed values around zero and formats a negative value in the tooltip', () => {
+    mount(
+      <DayColumns
+        buckets={[
+          { label: 'Sun', total: 0, parts: [0], unknown: true },
+          { label: 'Mon', total: -5, parts: [-5] },
+          { label: 'Tue', total: 5, parts: [5] },
+        ]}
+        series={[SERIES[0]!]}
+        format={(value) => `$${value.toFixed(2)}`}
+        label="Balance per day"
+        mode="line"
+        domain={{ min: -10, max: 10 }}
+      />,
+    )
+    const line = container.querySelector('svg path[stroke="var(--hd-accent)"]')
+    expect(line?.getAttribute('d')).toContain('50.00,75.00L83.33,25.00')
+    expect(container.querySelector('[data-zero-line]')?.getAttribute('y1')).toBe('50.00')
+    press('Home')
+    expect(tip()?.textContent).toContain('No record yet')
+    expect(tip()?.textContent).not.toContain('Nothing spent')
+    press('ArrowRight')
+    expect(tip()?.textContent).toContain('$-5.00')
+    expect(tip()?.textContent).not.toContain('Nothing spent')
+    expect(announced()).toBe('Mon: $-5.00')
+    expect(container.querySelector('ul.sr-only')?.textContent).toContain('Mon: $-5.00')
+  })
+
+  it('formats a known zero and expands an equal-value domain to distinct ticks', () => {
+    mount(
+      <DayColumns
+        buckets={[{ label: 'Mon', total: 0, parts: [0] }]}
+        series={[SERIES[0]!]}
+        format={(value) => `$${value.toFixed(2)}`}
+        label="Balance per day"
+        mode="line"
+        domain={{ min: 0, max: 0 }}
+      />,
+    )
+    const ticks = [...container.querySelectorAll('[data-slot="day-columns"] > div > div[aria-hidden="true"] > span')]
+      .map((tick) => tick.textContent)
+    expect(new Set(ticks).size).toBe(3)
+    expect(ticks).toContain('$0.00')
+    press('Home')
+    expect(tip()?.textContent).toContain('$0.00')
+    expect(tip()?.textContent).not.toContain('Nothing spent')
+    expect(announced()).toBe('Mon: $0.00')
+    expect(container.querySelector('ul.sr-only')?.textContent).toContain('Mon: $0.00')
+  })
+
   it('draws a y-axis of three round ticks when given one', () => {
     mount(
       <DayColumns

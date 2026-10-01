@@ -883,8 +883,9 @@ lane, and never a yearly fee divided by a monthly limit). **Balance** is
 the days the report actually covers, zero days included, rather than only
 the days something was spent — leaving idle days out overstated the draw),
 and the daily rate; negative reads Out, with "top up to continue," and says
-plainly it has no balance history yet — there is no balance-history store
-behind this PR (see "What's left," below). Its footer is "Refresh": no
+plainly when the history is waiting for its next reading. The host records
+balance readings itself at most hourly, keeps them for 400 days, and the row
+charts the last 30 local days. Its footer is "Refresh": no
 adapter reports a real top-up URL today, so a "Top up ↗" that only refreshed
 was a promise the row could not keep. **Key** is spend this month, the
 budget bar when one is set (or "Spend not known yet" when it is set but the

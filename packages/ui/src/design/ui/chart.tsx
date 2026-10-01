@@ -645,6 +645,7 @@ const DayColumns = ({
   ghost,
   today,
   axisTicks,
+  domain,
   previousLabel = 'Previous',
   ...props
 }: Omit<React.ComponentProps<'div'>, 'children'> & {
@@ -676,13 +677,37 @@ const DayColumns = ({
    * did before either mode had one.
    */
   axisTicks?: readonly [number, number, number]
+  /** Signed value range for a line chart. Supplies a matching three-tick y-axis. */
+  domain?: { readonly min: number; readonly max: number }
   /** What the ghost line's tip row is called. */
   previousLabel?: string
 }) => {
   const [active, setActive] = useState<number | null>(null)
   const gradientId = useId()
   const peak = buckets.reduce((high, bucket) => Math.max(high, bucket.total), 0)
-  const ceiling = axisTicks ? axisTicks[2] : peak
+  const requestedLineDomain =
+    mode === 'line' &&
+    domain !== undefined &&
+    Number.isFinite(domain.min) &&
+    Number.isFinite(domain.max) &&
+    domain.min <= domain.max
+      ? domain
+      : null
+  const lineDomain = requestedLineDomain
+    ? requestedLineDomain.min === requestedLineDomain.max
+      ? {
+          min: requestedLineDomain.min - Math.max(Math.abs(requestedLineDomain.min) * 0.05, 0.01),
+          max: requestedLineDomain.max + Math.max(Math.abs(requestedLineDomain.max) * 0.05, 0.01),
+        }
+      : requestedLineDomain
+    : null
+  const lineTicks: readonly [number, number, number] | undefined = lineDomain
+    ? lineDomain.min < 0 && lineDomain.max > 0
+      ? [lineDomain.min, 0, lineDomain.max]
+      : [lineDomain.min, (lineDomain.min + lineDomain.max) / 2, lineDomain.max]
+    : undefined
+  const visibleAxisTicks = lineTicks ?? axisTicks
+  const ceiling = lineDomain ? lineDomain.max : axisTicks ? axisTicks[2] : peak
   const shown = active !== null && active >= 0 && active < buckets.length ? buckets[active] : null
   const at = buckets.length > 1 && active !== null ? (active + 0.5) / buckets.length : 0.5
   const previousShown = active !== null ? (ghost?.[active] ?? null) : null
@@ -693,7 +718,9 @@ const DayColumns = ({
   const count = buckets.length
   const plotX = (index: number): number => (count > 1 ? ((index + 0.5) / count) * 100 : 50)
   const plotY = (value: number): number =>
-    ceiling > 0 ? 100 - Math.min(100, Math.max(0, (value / ceiling) * 100)) : 100
+    lineDomain
+      ? 100 - Math.min(100, Math.max(0, ((value - lineDomain.min) / (lineDomain.max - lineDomain.min)) * 100))
+      : ceiling > 0 ? 100 - Math.min(100, Math.max(0, (value / ceiling) * 100)) : 100
   const runsWhere = (known: (index: number) => boolean): number[][] => {
     const runs: number[][] = []
     let run: number[] = []
@@ -726,11 +753,14 @@ const DayColumns = ({
     const last = indices[indices.length - 1] as number
     // Baseline up to the first point, the line itself (its own leading `M`
     // dropped for `L`), then back down to the baseline and closed.
-    return `M${plotX(first).toFixed(2)},100L${lineOf(indices, valueAt).slice(1)}L${plotX(last).toFixed(2)},100Z`
+    const baseline =
+      lineDomain && lineDomain.min <= 0 && lineDomain.max >= 0 ? plotY(0).toFixed(2) : '100'
+    return `M${plotX(first).toFixed(2)},${baseline}L${lineOf(indices, valueAt).slice(1)}L${plotX(last).toFixed(2)},${baseline}Z`
   }
   const valueRuns = mode === 'line' ? runsWhere((index) => !buckets[index]?.unknown) : []
   const ghostRuns = ghost ? runsWhere((index) => !buckets[index]?.unknown && ghost[index] != null) : []
   const todayKnown = today !== undefined && today >= 0 && today < count && !buckets[today]?.unknown
+  const signedLine = lineDomain !== null
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (buckets.length === 0) return
@@ -763,7 +793,7 @@ const DayColumns = ({
   return (
     <div data-slot="day-columns" className={cn('relative', className)} {...props}>
       <div className="flex items-stretch gap-2">
-        {axisTicks && (
+        {visibleAxisTicks && (
           <div
             aria-hidden
             className="relative shrink-0 text-right text-xs text-(--hd-muted-foreground) tabular-nums"
@@ -773,11 +803,11 @@ const DayColumns = ({
                 width of its own any more — this invisible copy, still in
                 normal flow, is what reserves the gutter's width instead. */}
             <div aria-hidden className="invisible flex flex-col pb-px">
-              <span>{format(axisTicks[2])}</span>
-              <span>{format(axisTicks[1])}</span>
-              <span>{format(axisTicks[0])}</span>
+              <span>{format(visibleAxisTicks[2])}</span>
+              <span>{format(visibleAxisTicks[1])}</span>
+              <span>{format(visibleAxisTicks[0])}</span>
             </div>
-            {axisTicks.map((value, index) => (
+            {visibleAxisTicks.map((value, index) => (
               <span
                 key={index}
                 className="absolute inset-x-0 -translate-y-1/2"
@@ -909,6 +939,17 @@ const DayColumns = ({
                     vectorEffect="non-scaling-stroke"
                   />
                 ))}
+              {signedLine && lineDomain.min < 0 && lineDomain.max > 0 && (
+                <line
+                  data-zero-line
+                  x1="0"
+                  x2="100"
+                  y1={plotY(0).toFixed(2)}
+                  y2={plotY(0).toFixed(2)}
+                  stroke="var(--hd-border)"
+                  vectorEffect="non-scaling-stroke"
+                />
+              )}
               {/* The keyboard and hover cursor draws no mark of its own in
                   line mode — the bar columns underneath dim everywhere but
                   the active one, but a line has no columns to dim. Without
@@ -984,13 +1025,13 @@ const DayColumns = ({
               <div className="mb-1 font-medium">{shown.label}</div>
               {shown.unknown ? (
                 <div className="text-(--hd-muted-foreground)">No record yet</div>
-              ) : shown.total <= 0 ? (
+              ) : shown.total <= 0 && !signedLine ? (
                 <div className="text-(--hd-muted-foreground)">{emptyLabel}</div>
               ) : (
                 <>
                   {series.map((entry, index) => {
                     const value = shown.parts[index] ?? 0
-                    if (value <= 0) return null
+                    if (value <= 0 && !signedLine) return null
                     return (
                       <ChartTipRow
                         key={entry.key}
@@ -1027,13 +1068,13 @@ const DayColumns = ({
 
       <span aria-live="polite" className="sr-only">
         {shown
-          ? `${shown.label}: ${shown.unknown ? 'No record yet' : shown.total > 0 ? format(shown.total) : emptyLabel}`
+          ? `${shown.label}: ${shown.unknown ? 'No record yet' : signedLine || shown.total > 0 ? format(shown.total) : emptyLabel}`
           : ''}
       </span>
       <ul className="sr-only">
         {buckets.map((bucket, index) => (
           <li key={index}>
-            {`${bucket.label}: ${bucket.unknown ? 'No record yet' : bucket.total > 0 ? format(bucket.total) : emptyLabel}`}
+            {`${bucket.label}: ${bucket.unknown ? 'No record yet' : signedLine || bucket.total > 0 ? format(bucket.total) : emptyLabel}`}
           </li>
         ))}
       </ul>

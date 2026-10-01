@@ -308,7 +308,19 @@ describe('PlansTable', () => {
         lanes: [lane({ id: 'monthly', usedPercent: 62.4, unit: 'requests', used: 312, limit: 500 })],
         turns: { count: 40, unitsPerTurn: 3.2, since: NOW - 14 * DAY },
       }),
-      report({ runtime: balance.id, account: 'bal@example.com', billing: billing(['balance']), credits: { remaining: 0.88, unit: 'USD' } }),
+      report({
+        runtime: balance.id,
+        account: 'bal@example.com',
+        billing: billing(['balance']),
+        credits: { remaining: 0.88, unit: 'USD' },
+        balanceHistory: {
+          unit: 'USD',
+          points: [
+            { at: NOW - 3 * DAY, remaining: 1.1 },
+            { at: NOW - DAY, remaining: 0.95 },
+          ],
+        },
+      }),
       report({
         runtime: key.id,
         account: 'k@example.com',
@@ -345,7 +357,12 @@ describe('PlansTable', () => {
 
     act(() => rowFor('bal@example.com').click())
     expect(host.textContent ?? '').toContain('$0.88')
-    expect(host.textContent ?? '').toContain('No balance history yet.')
+    const balanceChart = document.querySelector<HTMLElement>('[data-slot="day-columns"] [role="group"][aria-label^="Balance per day"]')
+    expect(balanceChart).not.toBeNull()
+    expect(document.querySelector('svg path[stroke="var(--hd-accent)"]')).not.toBeNull()
+    act(() => balanceChart?.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true })))
+    expect(host.textContent ?? '').toContain('$0.95')
+    expect(document.querySelector('[data-slot="day-columns"] > div > div[aria-hidden="true"]')?.textContent ?? '').toContain('$')
     act(() => rowFor('bal@example.com').click())
 
     act(() => rowFor('k@example.com').click())
@@ -363,6 +380,100 @@ describe('PlansTable', () => {
     expect(freeFrame).not.toBeNull()
     expect(freeFrame?.querySelector('[data-slot="segment-meter"]')).toBeNull()
     expect(freeFrame?.querySelector('[role="progressbar"]')).toBeNull()
+  })
+
+  it('shows the next-reading message when balance history has fewer than two points', () => {
+    const balance = info('balance-agent', 'Balance Agent')
+    const onlyPoint = report({
+      runtime: balance.id,
+      account: 'bal@example.com',
+      billing: billing(['balance']),
+      credits: { remaining: 0.88, unit: 'USD' },
+      balanceHistory: { unit: 'USD', points: [{ at: NOW - DAY, remaining: 0.95 }] },
+    })
+
+    mount(
+      <PlansTable
+        rows={rowsFor([onlyPoint])}
+        byId={byIdOf(balance)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+      />,
+    )
+    act(() => rowFor('bal@example.com').click())
+    expect(host.textContent ?? '').toContain('Balance history starts with the next reading')
+    expect(document.querySelector('[data-slot="day-columns"]')).toBeNull()
+  })
+
+  it('renders a signed chart for a Balance history that crosses zero', () => {
+    const balance = info('balance-agent', 'Balance Agent')
+    const crossing = report({
+      runtime: balance.id,
+      account: 'bal@example.com',
+      billing: billing(['balance']),
+      credits: { remaining: -1, unit: 'USD' },
+      balanceHistory: {
+        unit: 'USD',
+        points: [
+          { at: NOW - 2 * DAY, remaining: 2 },
+          { at: NOW - DAY, remaining: -1 },
+        ],
+      },
+    })
+    mount(
+      <PlansTable
+        rows={rowsFor([crossing])}
+        byId={byIdOf(balance)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+      />,
+    )
+    act(() => rowFor('bal@example.com').click())
+    expect(document.querySelector('[data-zero-line]')).not.toBeNull()
+    expect(document.querySelector('svg path[stroke="var(--hd-accent)"]')?.getAttribute('d')).toContain('0.00')
+  })
+
+  it('keeps $0 on the axis for a balance that never reached it, so money left never reads as out', () => {
+    const balance = info('balance-agent', 'Balance Agent')
+    const healthy = report({
+      runtime: balance.id,
+      account: 'bal@example.com',
+      billing: billing(['balance']),
+      credits: { remaining: 5, unit: 'USD' },
+      balanceHistory: {
+        unit: 'USD',
+        points: [
+          { at: NOW - 2 * DAY, remaining: 10 },
+          { at: NOW - DAY, remaining: 5 },
+        ],
+      },
+    })
+    mount(
+      <PlansTable
+        rows={rowsFor([healthy])}
+        byId={byIdOf(balance)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+      />,
+    )
+    act(() => rowFor('bal@example.com').click())
+    const chart = document.querySelector('[data-slot="day-columns"]')
+    // The axis reads top, middle, bottom: the bottom tick is $0, not the
+    // lowest reading ($5.00), which would draw money left at the floor.
+    expect(chart?.textContent).toMatch(/^\$10\.00\$5\.00\$0\$/)
+    expect(document.querySelector('[data-zero-line]')).toBeNull()
   })
 
   // No limit is "never full, never empty" (docs/usage-dashboard.md) — Free, a
