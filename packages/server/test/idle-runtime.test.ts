@@ -132,16 +132,14 @@ test('reads during an idle stop wait for the stop and use runtime caches without
   runtime.holdNextStop()
   while (runtime.stops === 0) await new Promise((resolve) => setTimeout(resolve, 1))
 
-  let historyDone = false
-  const history = host.call('session/list', { runtime: runtime.info.id, archived: 'exclude' }).then((value) => {
-    historyDone = true
-    return value
-  })
-  const models = host.call('runtime/models', { runtime: runtime.info.id })
-  const options = host.call('runtime/options', { runtime: runtime.info.id })
-  const defaults = host.call('runtime/sessionDefaults', { runtime: runtime.info.id, cwd: '/w' })
+  const done = new Set<string>()
+  const watch = <T>(name: string, call: Promise<T>): Promise<T> => call.then((value) => { done.add(name); return value })
+  const history = watch('history', host.call('session/list', { runtime: runtime.info.id, archived: 'exclude' }))
+  const models = watch('models', host.call('runtime/models', { runtime: runtime.info.id }))
+  const options = watch('options', host.call('runtime/options', { runtime: runtime.info.id }))
+  const defaults = watch('defaults', host.call('runtime/sessionDefaults', { runtime: runtime.info.id, cwd: '/w' }))
   await new Promise((resolve) => setTimeout(resolve, 10))
-  assert.equal(historyDone, false, 'history waits for the stop barrier')
+  assert.deepEqual([...done], [], 'every read waits for the stop barrier')
   assert.equal(runtime.starts, 1, 'read-only calls do not start an idle runtime')
 
   runtime.continueStop()

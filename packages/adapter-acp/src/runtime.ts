@@ -1519,9 +1519,9 @@ export class AcpRuntime implements AgentRuntime {
     // reach column does, and `reported` outranks the disk there) would
     // otherwise read a dead process as "loaded nothing", and every skill on
     // disk would show as unreachable for it.
-    if (!this.#commandsKnown && this.#health.state === 'idle') {
-      await this.start()
-    }
+    // A read never wakes an idle agent: with nothing known yet, the idle
+    // case throws below ("has not said what it loaded"), which callers read
+    // as unknown, never as "none".
     if (!this.#commandsKnown && this.#health.state !== 'ready') {
       throw new Error(
         this.#health.state === 'starting'
