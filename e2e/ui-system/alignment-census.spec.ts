@@ -208,23 +208,13 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     const headingSelector = 'h1, h2, h3, [data-slot$="title"]:not([data-slot="row-title"]), [data-slot="section-name"]'
     const headerish = header.matches(`header, ${headingSelector}`) || !!header.querySelector(headingSelector)
     if (!headerish) continue
-    const boardColumn = surface.matches('[data-slot="board-column"]')
-    // A board column adds a decorative mark before its heading and nests cards
-    // in the body, so compare the header/body inset boxes rather than their text.
-    const headerText = boardColumn
-      ? { left: header.getBoundingClientRect().left }
-      : header.matches('h1,h2,h3')
-        ? firstLine(header)
-        : firstLine(header.querySelector(headingSelector) ?? header)
+    const headerText = header.matches('h1,h2,h3')
+      ? firstLine(header)
+      : firstLine(header.querySelector(headingSelector) ?? header)
     let bodyText: ReturnType<typeof firstLine> = null
     for (const child of children.slice(1)) {
-      if (boardColumn) {
-        const rect = child.getBoundingClientRect()
-        bodyText = { left: rect.left }
-      } else {
-        const candidates = [child, ...child.querySelectorAll('*')].filter(hasText)
-        bodyText = candidates.map(firstLine).find(rect => rect !== null) ?? null
-      }
+      const candidates = [child, ...child.querySelectorAll('*')].filter(hasText)
+      bodyText = candidates.map(firstLine).find(rect => rect !== null) ?? null
       if (bodyText) break
     }
     if (headerText && bodyText && Math.abs(headerText.left - bodyText.left) >= 2) {

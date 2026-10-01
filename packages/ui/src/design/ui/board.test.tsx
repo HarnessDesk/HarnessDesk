@@ -232,8 +232,28 @@ describe('a card under content that does not fit', () => {
     )
     expect(container.querySelector('[data-slot="board-column"] header > span')?.className).toContain('size-1.5')
     const empty = container.querySelector<HTMLElement>('[data-slot="board-empty"]')
-    expect(empty?.className).toContain('ps-3')
+    expect(empty?.className).toContain('ps-0')
     expect(empty?.className).toContain('text-left')
+  })
+
+  it('aligns the heading with card text while the tint stays in the panel inset', () => {
+    const board = draw(
+      <Board>
+        <BoardColumn title="Ready">
+          <BoardCard title="First card" />
+        </BoardColumn>
+      </Board>,
+    )
+    const column = board.querySelector('[data-slot="board-column"]')
+    const header = column?.querySelector(':scope > header')
+    const marker = header?.querySelector('span[aria-hidden]')
+    const body = column?.querySelector(':scope > [data-slot="board-column-body"]')
+
+    expect(header?.className).toContain('relative')
+    expect(marker?.className).toContain('absolute')
+    expect(marker?.className).toContain('-left-2.5')
+    expect(body?.className).toContain('[&>[data-slot=board-card]]:ps-0')
+    expect(body?.querySelector(':scope > [data-slot="board-card"]')).not.toBeNull()
   })
 })
 
