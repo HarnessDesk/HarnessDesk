@@ -330,6 +330,45 @@ const DAILY = LEDGER_ROWS.flatMap((row) => {
   }))
 })
 
+/*
+ * The hour view covers the same annual totals as the ledger. Work clusters
+ * on weekdays from 9am to 7pm, with lighter shoulder hours, a little late
+ * work and weekends. The deterministic hourly split keeps every runtime's
+ * token and call sums exact, just like DAILY above.
+ */
+const hourWeight = (weekday, hour) => {
+  const weekend = weekday === 0 || weekday === 6
+  const dayShape = hour >= 9 && hour < 19 ? 1 : hour >= 7 && hour < 22 ? 0.42 : 0.16
+  const weekdayShape = weekend ? 0.24 : weekday === 1 || weekday === 5 ? 0.86 : 1
+  const wobble = 0.88 + 0.12 * Math.sin((weekday + 1) * 1.7 + hour * 0.73)
+  return dayShape * weekdayShape * wobble
+}
+const HOUR_WEIGHTS = Array.from({ length: 7 * 24 }, (_, index) => hourWeight(Math.floor(index / 24), index % 24))
+const HOUR_WEIGHT_SUM = HOUR_WEIGHTS.reduce((sum, weight) => sum + weight, 0)
+const spreadHours = (total) => {
+  const exact = HOUR_WEIGHTS.map(weight => total * weight / HOUR_WEIGHT_SUM)
+  const parts = exact.map(Math.floor)
+  const remainderOrder = exact.map((value, index) => ({ index, remainder: value - Math.floor(value) }))
+    .sort((a, b) => b.remainder - a.remainder)
+  const remainder = total - parts.reduce((sum, value) => sum + value, 0)
+  for (let index = 0; index < remainder; index += 1) {
+    const target = remainderOrder[index]
+    if (target) parts[target.index] = (parts[target.index] ?? 0) + 1
+  }
+  return parts
+}
+const HOURLY = LEDGER_ROWS.flatMap((row) => {
+  const tokens = spreadHours(row.tokens ?? 0)
+  const requests = spreadHours(row.turns ?? 0)
+  return HOUR_WEIGHTS.map((_, index) => ({
+    runtime: row.runtime,
+    weekday: Math.floor(index / 24),
+    hour: index % 24,
+    tokens: tokens[index],
+    requests: requests[index],
+  }))
+})
+
 export const LEDGER = {
   days: DAYS,
   currency: 'USD',
@@ -347,9 +386,11 @@ export const LEDGER = {
     // the Overview strip's "Turns" cell reads this to say "known for N of M
     // agents" rather than leaving every card unattributed (aa4a38fbf, #1068).
     turnsKnownFor: LEDGER_ROWS.map(row => rigRuntimeId(row.runtime)),
+    hoursKnownFor: LEDGER_ROWS.map(row => rigRuntimeId(row.runtime)),
   },
   rows: LEDGER_ROWS.map(row => ({ ...row, key: rigRuntimeId(row.key), runtime: rigRuntimeId(row.runtime) })),
   daily: DAILY.map(row => ({ ...row, runtime: rigRuntimeId(row.runtime) })),
+  hourly: HOURLY.map(row => ({ ...row, runtime: rigRuntimeId(row.runtime) })),
   scannedAt: Date.now() - 12 * MINUTE,
   totals: {
     input: Math.round(TOTAL_TOKENS * 0.05),

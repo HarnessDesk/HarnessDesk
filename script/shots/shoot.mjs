@@ -1175,6 +1175,16 @@ rules:
       }
     } },
 
+    /** The same Activity band, showing calls and tokens by local weekday/hour. */
+    'dashboard-activity-hour': { leaveOverlay: true, expect: 'When it ran', run: async () => {
+      if (!(await click('Dashboard'))) throw new Error('no Dashboard row in the sidebar')
+      await sleep(1600)
+      if (!(await click('Activity'))) throw new Error('no Activity row in the Dashboard nav')
+      await sleep(1600)
+      if (!(await click('By hour'))) throw new Error('no By hour toggle in Activity')
+      await sleep(1200)
+    } },
+
     /**
      * The Plans view: one row per account, each drawn by its own billing
      * shape, with the money row (Paid, Value, the fee as set) under the head.

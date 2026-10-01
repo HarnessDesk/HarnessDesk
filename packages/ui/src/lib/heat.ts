@@ -19,6 +19,7 @@ import { formatMoney } from './usage'
  */
 
 export type HeatMetric = 'tokens' | 'cost'
+export type HourMetric = 'tokens' | 'calls'
 export type HeatLevel = 0 | 1 | 2 | 3 | 4
 
 /** One agent's share of one day. */
@@ -200,6 +201,67 @@ export interface AgentRow {
   readonly runtime: RuntimeId
   readonly total: number
   readonly cells: readonly HeatCell[]
+}
+
+export interface HourCell {
+  /** Monday-first row index, 0..6. */
+  readonly weekday: number
+  readonly hour: number
+  readonly requests: number
+  readonly tokens: number
+  readonly value: number
+}
+
+export interface HourGrid {
+  /** Seven Monday-first rows, each with 24 local-hour cells. */
+  readonly cells: readonly (readonly HourCell[])[]
+  readonly available: boolean
+  readonly levelOf: (value: number) => HeatLevel
+}
+
+/** Calls and tokens by Monday-first weekday and local hour, across runtimes. */
+export const buildHourGrid = (ledger: LedgerReport | null, metric: HourMetric): HourGrid => {
+  const source = ledger?.hourly
+  const totals = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => ({ requests: 0, tokens: 0 })))
+  for (const entry of source ?? []) {
+    const weekday = (entry.weekday + 6) % 7
+    const bucket = totals[weekday]?.[entry.hour]
+    if (!bucket) continue
+    bucket.requests += entry.requests
+    bucket.tokens += entry.tokens
+  }
+  const cells = totals.map((row, weekday) => row.map((bucket, hour) => ({
+    weekday,
+    hour,
+    requests: bucket.requests,
+    tokens: bucket.tokens,
+    value: metric === 'tokens' ? bucket.tokens : bucket.requests,
+  })))
+  const levelOf = quartileLevels(cells.flat().map((cell) => cell.value))
+  return { cells, available: source !== undefined, levelOf }
+}
+
+/** A local-hour label such as "Tuesday 10–11 AM". */
+export const hourSlotLabel = (weekday: number, hour: number): string => {
+  const period = (value: number): string => (value < 12 ? 'AM' : 'PM')
+  const clock = (value: number): string => `${value % 12 || 12}`
+  const nextHour = (hour + 1) % 24
+  const slot = period(hour) === period(nextHour) ? `${clock(hour)}–${clock(nextHour)} ${period(hour)}` : `${clock(hour)} ${period(hour)}–${clock(nextHour)} ${period(nextHour)}`
+  return `${WEEKDAY_NAMES[weekday] ?? WEEKDAY_NAMES[0]} ${slot}`
+}
+
+/** Same tooltip contract as `toGridCell`, with the slot's two recorded figures. */
+export const toHourGridCell = (cell: HourCell, levelOf: (value: number) => HeatLevel): HeatGridCell => {
+  const title = hourSlotLabel(cell.weekday, cell.hour)
+  const calls = `${cell.requests.toLocaleString()} ${cell.requests === 1 ? 'call' : 'calls'}`
+  const figures = `${formatTokens(cell.tokens)} tokens · ${calls}`
+  return {
+    key: `${cell.weekday}:${cell.hour}`,
+    level: cell.value > 0 ? levelOf(cell.value) : 0,
+    state: cell.value > 0 ? 'filled' : 'empty',
+    ariaLabel: `${title}: ${figures}`,
+    tooltip: { title, footer: { label: 'Total', value: figures } },
+  }
 }
 
 /** One row per agent over `cells`, most-total first, by whichever metric leads. */
