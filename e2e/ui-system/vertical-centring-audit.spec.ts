@@ -1,11 +1,13 @@
 import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { expect, test } from '@playwright/test'
 
-// Investigation artifact location supplied by the audit brief.
-const OUT = '/private/tmp/claude-502/-Users-aivilo-code-shane-HarnessDesk--claude-worktrees-harness-desk-design-review-1e6d98/7f46203f-9228-45b5-9119-6ea20d866c0c/scratchpad/vcentre'
 const ROOT = fileURLToPath(new URL('../../', import.meta.url))
+const OUT = resolve(ROOT, process.env.VCENTRE_AUDIT_OUT ?? 'test-results/vertical-centring')
+
+test.skip(process.env.VCENTRE_AUDIT !== '1', 'Set VCENTRE_AUDIT=1 to run the investigation-only audit.')
 
 type Sample = {
   key: string
