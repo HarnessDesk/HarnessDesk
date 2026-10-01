@@ -24,7 +24,7 @@ import {
   buttonVariants,
   useContextMenu,
 } from '../design'
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 
 import { openingOf, sessionKey, type Session, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
 
@@ -118,6 +118,8 @@ const SessionRow = memo(({
   onDelete,
   need,
   virtualKey,
+  virtualIndex,
+  virtualCount,
 }: {
   summary: SessionSummary
   now: number
@@ -134,6 +136,8 @@ const SessionRow = memo(({
    */
   need?: NeedsYou
   virtualKey?: string
+  virtualIndex?: number
+  virtualCount?: number
 }) => {
   const store = useStore()
   const menu = useContextMenu()
@@ -212,7 +216,7 @@ const SessionRow = memo(({
   }, [draft, key, store, summary.title])
 
   return (
-    <SidebarMenu className={styles.rowWrap} data-region="session-row" data-virtual-key={virtualKey} onContextMenu={menu.open}>
+    <SidebarMenu className={styles.rowWrap} data-region="session-row" data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount} onContextMenu={menu.open}>
       <SidebarMenuItem className="list-none" data-menu-open={menu.at ? '' : undefined}>
         {renaming ? (
           <Input
@@ -626,6 +630,8 @@ const RoomRow = ({
   onDelete,
   hiddenKeys,
   virtualKey,
+  virtualIndex,
+  virtualCount,
 }: {
   readonly room: TeamState
   /** The project's conversations — members are matched against these. */
@@ -636,6 +642,8 @@ const RoomRow = ({
   readonly onDelete: (summary: SessionSummary) => void
   readonly hiddenKeys: ReadonlySet<string>
   readonly virtualKey?: string
+  readonly virtualIndex?: number
+  readonly virtualCount?: number
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -666,13 +674,14 @@ const RoomRow = ({
   ).length
 
   return (
-    <SidebarMenu data-virtual-key={virtualKey}>
+    <SidebarMenu data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount}>
       <SidebarMenuItem>
         <div className="relative min-w-0">
           <SidebarMenuButton
             trailingOverlay
             role="button"
           aria-label={`Room ${name}`}
+          aria-expanded={open}
           title={`${name} — ${held > 0 ? `${held} held ${held === 1 ? 'message' : 'messages'} waiting for you` : 'the board, the chat, and who is here'}${claimed > 0 ? ` · ${claimed} claimed ${claimed === 1 ? 'job' : 'jobs'}` : ''}`}
           data-held={held > 0 ? '' : undefined}
           onClick={() => store.openTeamRoom(room.id)}
@@ -680,6 +689,7 @@ const RoomRow = ({
             if (event.target !== event.currentTarget) return
             if (event.key === 'Enter' || event.key === ' ') {
               event.preventDefault()
+              event.stopPropagation()
               store.openTeamRoom(room.id)
             }
           }}
@@ -730,6 +740,7 @@ const WindowedProjectRows = ({
   rows,
   enabled,
   targetIndex,
+  navigationIndex,
   density,
   className,
   footer,
@@ -738,6 +749,7 @@ const WindowedProjectRows = ({
   rows: readonly ProjectRow[]
   enabled: boolean
   targetIndex: number
+  navigationIndex: number | null
   density: AppSnapshot['listPrefs']['density']
   className?: string
   footer?: ReactNode
@@ -748,9 +760,12 @@ const WindowedProjectRows = ({
   const [heights, setHeights] = useState<ReadonlyMap<number, number>>(() => new Map())
   const scroller = useRef<HTMLElement | null>(null)
   const lastTarget = useRef<number | null>(null)
+  const lastNavigationTarget = useRef<number | null>(null)
   const keyIndexes = useRef(new Map<string, number>())
   keyIndexes.current = new Map(rows.map((row, index) => [row.kind === 'room' ? `room:${row.room.id}` : `session:${row.summary.runtime}:${row.summary.id}`, index]))
   const estimate = density === 'compact' ? 34 : 46
+  const scrollTarget = navigationIndex ?? targetIndex
+  const virtualLabels = JSON.stringify(rows.map((row) => row.kind === 'room' ? row.room.name : sessionLabel(row.summary.title, row.summary.preview)))
 
   useEffect(() => {
     if (!enabled || !root.current) return
@@ -833,26 +848,45 @@ const WindowedProjectRows = ({
   let throughHeight = beforeHeight
   const maxY = viewport.top + viewport.height - viewport.origin + 500
   while (end < rows.length && throughHeight < maxY) throughHeight += itemHeight(end++)
-  const afterHeight = rows.slice(end).reduce((total, _row, index) => total + itemHeight(end + index), 0)
+  const keyboardOutsideWindow = navigationIndex !== null && (navigationIndex < start || navigationIndex >= end)
+  const renderStart = keyboardOutsideWindow ? Math.max(0, navigationIndex - 5) : start
+  const renderEnd = keyboardOutsideWindow ? Math.min(rows.length, navigationIndex + 20) : end
+  const renderBeforeHeight = rows.slice(0, renderStart).reduce((total, _row, index) => total + itemHeight(index), 0)
+  const renderAfterHeight = rows.slice(renderEnd).reduce((total, _row, index) => total + itemHeight(renderEnd + index), 0)
 
   useEffect(() => {
-    if (!enabled || targetIndex < 0 || lastTarget.current === targetIndex) return
-    lastTarget.current = targetIndex
+    if (!enabled || scrollTarget < 0) return
+    if (navigationIndex !== null) {
+      if (lastNavigationTarget.current === navigationIndex) return
+      lastNavigationTarget.current = navigationIndex
+    } else {
+      lastNavigationTarget.current = null
+      if (lastTarget.current === scrollTarget) return
+      lastTarget.current = scrollTarget
+    }
     const scroll = scroller.current
     const element = root.current
     if (!scroll || !element) return
-    const offset = rows.slice(0, targetIndex).reduce((total, _row, index) => total + itemHeight(index), 0)
+    const offset = rows.slice(0, scrollTarget).reduce((total, _row, index) => total + itemHeight(index), 0)
     scroll.scrollTop = viewport.origin + offset
     const event = new Event('scroll')
     scroll.dispatchEvent(event)
-  }, [enabled, targetIndex, rows, viewport.origin, heights])
+  }, [enabled, scrollTarget, navigationIndex, rows, viewport.origin, heights])
 
-  if (!enabled) return <div ref={root} className={className}>{rows.map(renderRow)}{footer}</div>
+  useEffect(() => {
+    if (navigationIndex === null) return
+    const row = root.current?.querySelector<HTMLElement>(`[data-virtual-index="${navigationIndex}"] [data-slot="sidebar-menu-button"]`)
+    row?.focus()
+    row?.scrollIntoView?.({ block: 'nearest' })
+  }, [navigationIndex, renderStart, renderEnd])
+
+  if (!enabled) return <div ref={root} className={className} data-virtual-project="true">{rows.map(renderRow)}{footer}</div>
   return (
-    <div ref={root} className={className}>
-      {start > 0 && <div aria-hidden="true" style={{ height: beforeHeight }} />}
-      {rows.slice(start, end).map((row, index) => renderRow(row, start + index))}
-      {afterHeight > 0 && <div aria-hidden="true" style={{ height: afterHeight }} />}
+    <div ref={root} className={className} data-virtual-project="true"
+      data-virtual-labels={virtualLabels}>
+      {renderStart > 0 && <div aria-hidden="true" style={{ height: renderBeforeHeight }} />}
+      {rows.slice(renderStart, renderEnd).map((row, index) => renderRow(row, renderStart + index))}
+      {renderAfterHeight > 0 && <div aria-hidden="true" style={{ height: renderAfterHeight }} />}
       {footer}
     </div>
   )
@@ -1116,6 +1150,9 @@ export const useProjectGroups = (): ProjectGroup[] => {
 export const SessionTree = ({ now }: { now: number }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const treeRef = useRef<HTMLDivElement>(null)
+  const typeahead = useRef({ text: '', timer: 0 })
+  const [navigationTarget, setNavigationTarget] = useState<{ root: string; index: number } | null>(null)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const [revealedCount, setRevealedCount] = useState<ReadonlyMap<string, number>>(() => new Map())
   const collapsed = useMemo(
@@ -1197,6 +1234,134 @@ export const SessionTree = ({ now }: { now: number }) => {
   const far = groups.filter((group) => !near.includes(group))
 
   const activeKey = snapshot.activeSessionKey ? String(snapshot.activeSessionKey) : null
+  useEffect(() => {
+    const tree = treeRef.current
+    if (!tree) return
+    const rows = [...tree.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')]
+    const held = rows.find((row) => row === document.activeElement)
+    const active = rows.find((row) => row.hasAttribute('aria-current'))
+    tree.querySelectorAll<HTMLButtonElement>('button').forEach((button) => {
+      if (button.tabIndex !== -1) button.tabIndex = -1
+    })
+    const entry = held ?? active ?? rows[0]
+    if (entry && entry.tabIndex !== 0) entry.tabIndex = 0
+  })
+
+  const onTreeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const target = event.target
+    if (!(target instanceof HTMLButtonElement) || !target.matches('[data-slot="sidebar-menu-button"]')) return
+    if (event.altKey || event.ctrlKey || event.metaKey && event.key !== '.') return
+    const rows = [...(treeRef.current?.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]') ?? [])]
+    const index = rows.indexOf(target)
+    if (index < 0) return
+    const focus = (row: HTMLButtonElement | undefined) => {
+      if (!row) return false
+      treeRef.current?.querySelectorAll<HTMLButtonElement>('button').forEach((entry) => { entry.tabIndex = -1 })
+      row.tabIndex = 0
+      row.focus()
+      row.scrollIntoView?.({ block: 'nearest' })
+      return true
+    }
+    if (event.key === 'ContextMenu' || event.key === 'F10' && event.shiftKey || event.key === '.' && event.metaKey) {
+      event.preventDefault()
+      target.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 0, clientY: 0 }))
+      return
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      target.click()
+      return
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const direction = event.key === 'ArrowDown' ? 1 : -1
+      const virtual = target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
+      const project = target.closest<HTMLElement>('[data-virtual-project="true"]')
+      const current = Number(virtual?.dataset.virtualIndex)
+      const count = Number(virtual?.dataset.virtualCount)
+      if (virtual && project && Number.isInteger(current) && Number.isInteger(count)) {
+        const nextIndex = current + direction
+        if (nextIndex >= 0 && nextIndex < count) {
+          const root = project.parentElement?.dataset.projectRoot
+          if (root) setNavigationTarget({ root, index: nextIndex })
+          const mounted = project.querySelector<HTMLButtonElement>(`[data-virtual-index="${nextIndex}"] [data-slot="sidebar-menu-button"]`)
+          if (mounted) focus(mounted)
+          return
+        }
+      }
+      const next = rows[index + direction]
+      if (focus(next)) return
+      return
+    }
+    if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault()
+      const virtual = target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
+      const project = target.closest<HTMLElement>('[data-virtual-project="true"]')
+      const windowedProject = project?.hasAttribute('data-virtual-labels') ? project : null
+      if (virtual && windowedProject) {
+        const count = Number(virtual.dataset.virtualCount)
+        const targetIndex = event.key === 'Home' ? 0 : count - 1
+        const root = windowedProject.parentElement?.dataset.projectRoot
+        if (root && Number.isInteger(targetIndex) && targetIndex >= 0) {
+          setNavigationTarget({ root, index: targetIndex })
+          const mounted = windowedProject.querySelector<HTMLButtonElement>(`[data-virtual-index="${targetIndex}"] [data-slot="sidebar-menu-button"]`)
+          if (mounted) focus(mounted)
+        }
+        return
+      }
+      const row = event.key === 'Home' ? rows[0] : rows[rows.length - 1]
+      if (row) focus(row)
+      return
+    }
+    if (event.key === 'ArrowRight' && target.hasAttribute('aria-expanded')) {
+      event.preventDefault()
+      if (target.getAttribute('aria-expanded') !== 'true') {
+        target.click()
+        window.requestAnimationFrame(() => {
+          const next = treeRef.current?.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')[index + 1]
+          focus(next)
+        })
+      }
+      else focus(rows[index + 1])
+      return
+    }
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault()
+      if (target.getAttribute('aria-expanded') === 'true') target.click()
+      else {
+        const parent = rows.slice(0, index).reverse().find((row) => row.getAttribute('aria-expanded') === 'true')
+        focus(parent)
+      }
+      return
+    }
+    if (event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      typeahead.current.text += event.key.toLocaleLowerCase()
+      window.clearTimeout(typeahead.current.timer)
+      typeahead.current.timer = window.setTimeout(() => { typeahead.current.text = '' }, 500)
+      const query = typeahead.current.text
+      const virtual = target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
+      const project = target.closest<HTMLElement>('[data-virtual-project="true"]')
+      const windowedProject = project?.hasAttribute('data-virtual-labels') ? project : null
+      const labels: string[] = virtual && windowedProject
+        ? JSON.parse(windowedProject.dataset.virtualLabels ?? '[]') as string[]
+        : rows.map((candidate) => candidate.querySelector('[data-slot="sidebar-menu-label"]')?.textContent?.trim() ?? candidate.textContent?.trim() ?? '')
+      const current = windowedProject && virtual ? Number(virtual.dataset.virtualIndex) : index
+      for (let offset = 1; offset <= labels.length; offset += 1) {
+        const nextIndex = (current + offset) % labels.length
+        if (!labels[nextIndex]?.toLocaleLowerCase().startsWith(query)) continue
+        event.preventDefault()
+        if (virtual && windowedProject) {
+          const root = windowedProject.parentElement?.dataset.projectRoot
+          if (root) {
+            setNavigationTarget({ root, index: nextIndex })
+            const mounted = windowedProject.querySelector<HTMLButtonElement>(`[data-virtual-index="${nextIndex}"] [data-slot="sidebar-menu-button"]`)
+            if (mounted) focus(mounted)
+          }
+        } else focus(rows[nextIndex])
+        break
+      }
+    }
+  }, [])
   const activeGroup = useMemo(
     () =>
       activeKey === null
@@ -1354,7 +1519,7 @@ export const SessionTree = ({ now }: { now: number }) => {
       (row) => row.kind === 'session' && String(sessionKey(row.summary.runtime, row.summary.id)) === activeKey,
     )
     return (
-      <div key={group.root}>
+      <div key={group.root} data-project-root={group.root}>
         <GroupHead
           group={group}
           open={open}
@@ -1373,18 +1538,20 @@ export const SessionTree = ({ now }: { now: number }) => {
             rows={rows}
             enabled={rows.length > 50}
             targetIndex={activeRowIndex}
+            navigationIndex={navigationTarget?.root === group.root ? navigationTarget.index : null}
             density={snapshot.listPrefs.density}
             className={styles.nested}
             footer={loose.length > visibleCount ? (
               <SidebarMenu><SidebarMenuItem>
                 <SidebarMenuButton size="sm" icon={<span aria-hidden="true" />} label={`${loose.length - visibleCount} more`}
-                  onClick={() => setRevealedCount((current) => {
-                    const shown = current.get(group.root) ?? COLLAPSED_LIMIT
-                    return new Map(current).set(group.root, Math.min(loose.length, shown + EXPANSION_STEP))
-                  })} />
+                  onClick={() => {
+                    const shown = revealedCount.get(group.root) ?? COLLAPSED_LIMIT
+                    setNavigationTarget({ root: group.root, index: rows.length })
+                    setRevealedCount((current) => new Map(current).set(group.root, Math.min(loose.length, shown + EXPANSION_STEP)))
+                  }} />
               </SidebarMenuItem></SidebarMenu>
             ) : undefined}
-            renderRow={(row) =>
+            renderRow={(row, index) =>
               row.kind === 'room' ? (
                 <RoomRow
                   key={row.room.id}
@@ -1396,9 +1563,11 @@ export const SessionTree = ({ now }: { now: number }) => {
                   onDelete={setDeleting}
                   hiddenKeys={liftedKeys}
                   virtualKey={`room:${row.room.id}`}
+                  virtualIndex={index}
+                  virtualCount={rows.length}
                 />
               ) : (
-                <SessionRow key={row.summary.id} summary={row.summary} now={now} onDelete={setDeleting} virtualKey={`session:${row.summary.runtime}:${row.summary.id}`} />
+                <SessionRow key={row.summary.id} summary={row.summary} now={now} onDelete={setDeleting} virtualKey={`session:${row.summary.runtime}:${row.summary.id}`} virtualIndex={index} virtualCount={rows.length} />
               )
             }
           />
@@ -1438,7 +1607,11 @@ export const SessionTree = ({ now }: { now: number }) => {
   }
 
   return (
-    <>
+    <div ref={treeRef} onKeyDown={onTreeKeyDown} onFocusCapture={(event) => {
+      const row = (event.target as HTMLElement).closest<HTMLElement>('[data-virtual-index]')
+      const root = row?.closest<HTMLElement>('[data-project-root]')?.dataset.projectRoot
+      if (root && row) setNavigationTarget({ root, index: Number(row.dataset.virtualIndex) })
+    }} role="group" aria-label="Conversations" data-region="session-tree">
       {/* Triage first: what needs the developer, then what is working — every
           workspace, one list. The words come from the live trace. */}
       {triage.waiting.length > 0 && (
@@ -1522,6 +1695,6 @@ export const SessionTree = ({ now }: { now: number }) => {
       <div className="sr-only" role="status" aria-live="polite">
         {announcement}
       </div>
-    </>
+    </div>
   )
 }

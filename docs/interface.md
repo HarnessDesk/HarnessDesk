@@ -239,6 +239,18 @@ says where it actually ran. Agents that report no git join the project another
 session placed their folder in. The current project stays open; the rest fold
 under **Other projects**.
 
+The conversation list has one Tab stop: it enters at the active conversation,
+or the first row when none is active, and the next Tab leaves the list. Use ↑ / ↓
+to move through its visible rows, including project headings, rooms, members
+and overflow rows; Home and End go to the first and last visible rows. On a
+project, room or **Other projects** row, → expands it (or moves to its first
+child) and ← collapses it (or returns to its parent). Enter or Space opens a
+conversation or toggles a group; on **N more** it reveals another page and
+moves to the first new row. Type a title prefix to jump to a matching row.
+Shift+F10 or the ContextMenu key opens the focused row's actions; Escape
+returns focus to that row. Large project lists mount rows as keyboard focus
+reaches them and keep the focused row in view.
+
 **Every open conversation has a row.** The rows are the agents' own history
 read through them, and an agent with no `session/list` — Gemini CLI — lists
 nothing, so the conversation being typed into had no row anywhere in the tree.

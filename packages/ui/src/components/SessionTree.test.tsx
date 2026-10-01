@@ -87,6 +87,90 @@ it('keeps Archive self-explanatory without a subtitle', () => {
   expect(archive?.textContent).toBe('Archive')
 })
 
+it('keeps one tab stop and moves row focus with arrows, Home, End, and type-ahead', () => {
+  const runtime = { id: 'agent', name: 'Agent', capabilities: {}, presentation: { name: 'Agent' } } as unknown as RuntimeInfo
+  const summary = (id: string, title: string): SessionSummary => ({
+    id, runtime: runtime.id, title, preview: null, cwd: '/repo',
+    status: { type: 'notLoaded' }, createdAt: 1, updatedAt: 2, archived: false,
+  }) as unknown as SessionSummary
+  const snapshot = { ...emptySnapshot(), status: 'open', activeRuntime: runtime.id,
+    runtimes: [runtime], history: [summary('one', 'Alpha'), summary('two', 'Bravo'), summary('three', 'Charlie')] } as unknown as AppSnapshot
+  const openSession = vi.fn()
+  const toggleCollapsed = vi.fn()
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, openSession, toggleCollapsed } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
+  const rows = [...container.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')]
+  expect(rows[0]!.tabIndex).toBe(0)
+  const alpha = rows.find((row) => row.textContent?.trim() === 'Alpha')!
+  const bravo = rows.find((row) => row.textContent?.trim() === 'Bravo')!
+  const charlie = rows.find((row) => row.textContent?.trim() === 'Charlie')!
+  expect(bravo.tabIndex).toBe(-1)
+  expect(container.querySelector('[data-slot="sidebar-menu-action"]')?.getAttribute('tabindex')).toBe('-1')
+
+  act(() => rows[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })))
+  expect(document.activeElement).toBe(alpha)
+  act(() => alpha.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true })))
+  expect(document.activeElement).toBe(rows[0])
+
+  act(() => alpha.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })))
+  expect(document.activeElement).toBe(bravo)
+  act(() => bravo.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', bubbles: true })))
+  expect(document.activeElement).toBe(charlie)
+  act(() => charlie.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true })))
+  expect(document.activeElement).toBe(rows[0])
+  act(() => (document.activeElement as HTMLButtonElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })))
+  expect(document.activeElement).toBe(charlie)
+  act(() => charlie.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
+  expect(openSession).toHaveBeenCalledWith('three', { runtime: runtime.id })
+  act(() => rows[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })))
+  expect(toggleCollapsed).toHaveBeenCalled()
+})
+
+it('moves into an unmounted windowed conversation and mounts it before focusing', () => {
+  const runtime = { id: 'agent', name: 'Agent', capabilities: {}, presentation: { name: 'Agent' } } as unknown as RuntimeInfo
+  const summary = (index: number): SessionSummary => ({
+    id: `session-${index}`, runtime: runtime.id, title: `Session${index}`, preview: null, cwd: '/repo',
+    status: { type: 'notLoaded' }, createdAt: 1, updatedAt: index, archived: false,
+  }) as unknown as SessionSummary
+  const snapshot = { ...emptySnapshot(), status: 'open', activeRuntime: runtime.id,
+    runtimes: [runtime], history: Array.from({ length: 60 }, (_, index) => summary(index)) } as unknown as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
+
+  const more = () => [...container.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')]
+    .find((button) => /more$/.test(button.textContent?.trim() ?? ''))!
+  for (let page = 0; page < 2; page += 1) {
+    const button = more()
+    act(() => button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
+  }
+
+  const target = container.querySelector<HTMLButtonElement>('[data-virtual-index="30"] [data-slot="sidebar-menu-button"]')
+  expect(target).not.toBeNull()
+  expect(target?.closest('[data-virtual-count]')?.getAttribute('data-virtual-count')).toBe('55')
+  const windowed = container.querySelector('[data-virtual-project="true"]')!
+  const focusRow = (key: string) => {
+    const active = document.activeElement as HTMLButtonElement
+    act(() => active.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })))
+  }
+  act(() => target!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true })))
+  expect((document.activeElement as HTMLElement).closest('[data-virtual-index]')?.getAttribute('data-virtual-index')).toBe('54')
+  act(() => (document.activeElement as HTMLButtonElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true })))
+  expect((document.activeElement as HTMLElement).closest('[data-virtual-index]')?.getAttribute('data-virtual-index')).toBe('0')
+  act(() => (document.activeElement as HTMLButtonElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true })))
+  for (const key of 'Session59') focusRow(key)
+  expect((document.activeElement as HTMLElement).closest('[data-virtual-index]')?.getAttribute('data-virtual-index')).toBe('0')
+
+  const mounted = [...windowed.querySelectorAll<HTMLElement>('[data-virtual-index]')]
+  const lastIndex = Number(mounted.at(-1)?.dataset.virtualIndex)
+  const next = lastIndex + 1
+  expect(windowed.querySelector(`[data-virtual-index="${next}"]`)).toBeNull()
+  const lastButton = mounted.at(-1)?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')!
+  act(() => lastButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })))
+  const focused = document.activeElement as HTMLElement
+  expect(focused.closest('[data-virtual-index]')?.getAttribute('data-virtual-index')).toBe(String(next))
+  expect(windowed.querySelector(`[data-virtual-index="${next}"]`)).not.toBeNull()
+})
+
 it('uses one fixed trailing slot for conversation state and actions', () => {
   const runtime = { id: 'agent', name: 'Agent', capabilities: {}, presentation: { name: 'Agent' } } as unknown as RuntimeInfo
   const summary = (id: string, status: 'idle' | 'active'): SessionSummary => ({
@@ -769,7 +853,8 @@ it('the twisty hides the members without opening the room', () => {
 it('the room row answers its own keys and leaves the twisty theirs', () => {
   const { container: tree, store } = treeWith([room({ id: 'r1', name: 'Checkout rewrite' })])
   const row = roomRow(tree, 'Checkout rewrite')
-  expect(row.tabIndex).toBe(0)
+  expect([...tree.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')][0]!.tabIndex).toBe(0)
+  expect(row.tabIndex).toBe(-1)
 
   // Enter and Space open the room, and Space does not also scroll the list.
   for (const key of ['Enter', ' ']) {
