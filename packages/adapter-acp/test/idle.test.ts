@@ -38,12 +38,14 @@ test('an idle stop reaps the bridge and serves cached models, account, and histo
   const options = await runtime.defaultSessionOptions()
   assert.ok(options.length > 0)
   const account = await runtime.getAccount()
-  const info = runtime.info
   const history = await runtime.listSessions()
   assert.equal(history.data[0]?.title, 'Earlier session')
   const pid = Number(runtime.info.version)
   assert.ok(Number.isInteger(pid) && pid > 0)
 
+  // Taken at the stop, not earlier: the agent's command list (which sets `skills`) arrives on its own schedule after the
+  // session starts, and once the process is gone this snapshot is exactly what the idle runtime must keep serving.
+  const info = runtime.info
   assert.equal(await runtime.stopForIdle(), true)
   assert.equal(runtime.health().state, 'idle')
   await new Promise((resolve) => setTimeout(resolve, 40))
