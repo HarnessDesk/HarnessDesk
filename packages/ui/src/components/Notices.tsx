@@ -15,6 +15,7 @@ import {
   useSnapshot,
   useStore,
 } from '../state/context'
+import type { AppSnapshot } from '../state/store'
 import {
   ComposerNotice,
   NoticeCard,
@@ -287,6 +288,19 @@ const placeOf = (policy: NoticePolicy, standing: Standing): NoticeSurface | null
   standing.identity.kind === 'link' ? 'strip' : surfaceFor(policy, standing.identity.kind)
 
 /**
+ * Resolve the shared notice's outlet from its configured surface and the
+ * current layout once. A focused composer can remain mounted behind a narrow
+ * window's overlay or a zoomed dock; in those layouts its notice belongs in
+ * the visible strip instead. Both outlets use this answer, so their rules
+ * cannot drift apart and draw the same fact twice.
+ */
+const standingOutlet = (snapshot: AppSnapshot, standing: Standing): NoticeSurface | null => {
+  const place = placeOf(snapshot.noticePolicy, standing)
+  if (place === 'composer' && !focusedComposerVisible(snapshot.workbench, snapshot.narrowWindow)) return 'strip'
+  return place
+}
+
+/**
  * Keeps, once, a notice whose kind the person moved to "Inbox only". Keyed by
  * the notice's own key, so the same condition is one kept message however
  * often the window draws it, and it is not made unread again by redrawing.
@@ -384,14 +398,14 @@ export const ComposerNotices = () => {
   const focused = useIsFocusedPane()
   const sessionKeyOfPane = useSessionKey()
   const standing = useStanding()
-  const place = standing ? placeOf(snapshot.noticePolicy, standing) : null
-  const showStanding = focused && place === 'composer' && standing !== null
+  const outlet = standing ? standingOutlet(snapshot, standing) : null
+  const showStanding = focused && outlet === 'composer' && standing !== null
   const room = pane?.view.kind === 'room' ? pane.view.room : null
   const members = room !== null ? (snapshot.teams.get(room)?.members ?? []) : null
-  const asking = snapshot.agentNotices.filter((notice) => {
+  const asking = focused ? snapshot.agentNotices.filter((notice) => {
     const from = sessionKey(notice.from.runtime, notice.from.sessionId as SessionId)
     return members !== null ? members.includes(from) : sessionKeyOfPane !== null && from === sessionKeyOfPane
-  })
+  }) : []
   if (!showStanding && asking.length === 0) return null
   return (
     <>
@@ -436,13 +450,7 @@ export const NoticeStripOutlet = ({ host }: { readonly host: boolean }) => {
   const messages: NoticeMessage[] = []
   const dismissals = new Map<string, () => void>()
   if (standing) {
-    const place = placeOf(snapshot.noticePolicy, standing)
-    // A kind that belongs on the composer still has to reach someone: when
-    // the focused mount is not a composer that is actually visible — a
-    // board-only layout, a folder that is gone where the composer would be,
-    // a zoomed dock, the narrow window's overlay — the strip this outlet
-    // hosts is the fallback rather than the message going unseen.
-    if (place === 'strip' || (place === 'composer' && !focusedComposerVisible(snapshot.workbench, snapshot.narrowWindow))) {
+    if (standingOutlet(snapshot, standing) === 'strip') {
       messages.push(standing.message)
       dismissals.set(standing.message.id, standing.dismiss)
     }
