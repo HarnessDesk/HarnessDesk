@@ -231,11 +231,12 @@ it('marks the tab of a member waiting for you in the narrow strip', () => {
 })
 
 it('says how a member’s last turn ended when it is neither working nor waiting', () => {
-  entries.set(keys[2]!, { ...(entries.get(keys[2]!) as object), busy: false, waitingForYou: false, ended: 'stopped' } as never)
+  const was = entries.get(keys[2]!)!
+  entries.set(keys[2]!, { ...(was as Record<string, unknown>), busy: false, waitingForYou: false, ended: 'stopped' } as never)
   try {
     mount(baseState([keys[2]!]))
     expect(text(document.body, 'Stopped')).toBeTruthy()
   } finally {
-    entries.set(keys[2]!, { ...(entries.get(keys[2]!) as object), ended: undefined } as never)
+    entries.set(keys[2]!, was)
   }
 })
