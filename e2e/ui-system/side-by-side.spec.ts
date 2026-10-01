@@ -11,7 +11,7 @@ const setPreviewDials = async (page: Page, theme: 'light' | 'dark', look: 'desk'
 
 const gotoPreview = async (page: Page) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
-  await page.goto('/preview.html')
+  await page.goto('/preview.html?side-by-side')
   await page.waitForSelector('[class*="rowWrap_"]')
   await page.waitForSelector('[data-frame-id="side-by-side-four"] [data-slot="side-by-side-grid"]')
   await page.evaluate(async () => { await document.fonts.ready })

@@ -8,9 +8,9 @@ import { emptySideBySide, type SideBySideState } from '../lib/side-by-side'
 import { SideBySide } from './SideBySide'
 
 vi.mock('./Conversation', () => ({
-  Conversation: () => {
+  Conversation: ({ header }: { header?: boolean }) => {
     const pane = usePane()
-    return <div data-testid="conversation-body" data-pane-id={pane?.paneId} data-session-key={pane?.sessionKey}>
+    return <div data-testid="conversation-body" data-pane-id={pane?.paneId} data-session-key={pane?.sessionKey} data-header={String(header ?? true)}>
       <input aria-label="Message" />
     </div>
   },
@@ -145,6 +145,8 @@ it('mounts the existing conversation and approvals in each tile scope', () => {
   expect(bodies.map((body) => body.dataset.paneId)).toEqual(keys.slice(0, 2).map((key) => `room-pane:${key}`))
   expect(bodies.map((body) => body.dataset.sessionKey)).toEqual(keys.slice(0, 2))
   expect(document.querySelectorAll('[data-testid="approvals"]')).toHaveLength(2)
+  // The tile's bar is its one header; the conversation's own is left out.
+  expect(bodies.map((body) => body.dataset.header)).toEqual(['false', 'false'])
 })
 
 it('clicking a tile focuses it without taking focus from an input inside it', () => {
