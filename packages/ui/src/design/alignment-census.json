@@ -50,9 +50,10 @@
     }
   },
   "header-off-body": {
-    "count": 80,
+    "count": 92,
     "signatures": {
       "design.html / chart / header-off-body / div > [chart-frame] > [chart-card]": 1,
+      "design.html / group / header-off-body / [data-testid=group-person-review-step]": 6,
       "design.html / group / header-off-body / [data-testid=group-run-kept-answer-seat-gone]": 1,
       "design.html / group / header-off-body / [data-testid=group-run-kept-answer]": 1,
       "design.html / group / header-off-body / [data-testid=group-run-stalled-on-a-seat]": 1,
@@ -77,6 +78,8 @@
       "preview.html / board-empty / header-off-body / div > [tool-pane] > [tool-pane-header]": 1,
       "preview.html / board-observed / header-off-body / [tool-pane] > [tool-pane-body] > [board] > [board-column] > header": 6,
       "preview.html / board-observed / header-off-body / div > [tool-pane] > [tool-pane-header]": 1,
+      "preview.html / board-person-review / header-off-body / [tool-pane] > [tool-pane-body] > [board] > [board-column] > header": 5,
+      "preview.html / board-person-review / header-off-body / div > [tool-pane] > [tool-pane-header]": 1,
       "preview.html / board-populated / header-off-body / [tool-pane] > [tool-pane-body] > [board] > [board-column] > header": 5,
       "preview.html / board-populated / header-off-body / div > [tool-pane] > [tool-pane-header]": 1,
       "preview.html / coverage-row-alerts / header-off-body / div > [row] > span": 1,

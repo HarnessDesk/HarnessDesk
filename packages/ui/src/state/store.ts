@@ -74,6 +74,7 @@ import {
   type FlowDryRun,
   type FlowEntry,
   type FlowExecution,
+  type ReviewCandidate,
   type FlowFile,
   type FlowOrigin,
   type FlowPreview,
@@ -4528,6 +4529,18 @@ export class AppStore {
       this.notice('warning', describe(error))
       return null
     }
+  }
+
+  async flowReviewCandidates(run: string, card: number): Promise<readonly ReviewCandidate[]> {
+    return this.transport.request('flow/review/candidates', { run, card })
+  }
+
+  async decideFlowReview(run: string, card: number, candidate: string, verdict: string): Promise<FlowExecution> {
+    const execution = await this.transport.request('flow/review/decide', { run, card, candidate, verdict })
+    const flowExecutions = new Map(this.#snapshot.flowExecutions)
+    flowExecutions.set(execution.id, execution)
+    this.#patch({ flowExecutions })
+    return execution
   }
 
   // ------------------------------------------------------------- front door

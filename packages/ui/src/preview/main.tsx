@@ -61,6 +61,7 @@ import { MessageQueue } from '../components/MessageQueue'
 import { GoalFrames } from './frames-goals'
 import { PanelFrames } from './frames-panels'
 import { CoverageFrames } from './frames-coverage'
+import { PersonReviewBoard } from '../design/surfaces/surfaces'
 import { SettingsFrames } from './frames-settings'
 import { TranscriptFrames } from './frames-transcript'
 import { SideBySideFrames } from './frames-side-by-side'
@@ -563,6 +564,11 @@ const Preview = () => {
       <Frame id="board-populated" title="Board — the pane, with work on it">
         <div className="h-[560px]">
           <TeamBoardPane room={PREVIEW_ROOM} />
+        </div>
+      </Frame>
+      <Frame id="board-person-review" title="Board — choose an attempt for the person judge">
+        <div className="h-[560px]">
+          <PersonReviewBoard />
         </div>
       </Frame>
       <Frame id="board-observed" title="Board — what the desk observed">
