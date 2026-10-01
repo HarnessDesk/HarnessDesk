@@ -314,6 +314,18 @@ export interface AcpAgentConfig {
      */
     readonly onOpen?: (token: string) => void
   }
+  /** Folder-specific policy the agent applies before starting a configured MCP server. */
+  readonly pluginToolsAvailableAt?: (cwd: string) => boolean | Promise<boolean>
+  readonly pluginToolsProblemAt?: (cwd: string) => string | null | Promise<string | null>
+  /** Runtime-authored guidance shown if that folder policy withholds the desk tools. */
+  readonly pluginToolsUnavailable?: string
+  /**
+   * True only when `command` is a bridge HarnessDesk ships. Then, and only
+   * then, a permission request's `_meta.harnessdesk.flowBoardTool` is the
+   * bridge's own proof of which MCP server asked; from any other peer it is
+   * the agent's say-so and is ignored.
+   */
+  readonly trustsBridgeProvenance?: boolean
   /**
    * The desk's standing instruction for the agent, read when a session is
    * opened and put in `session/new`'s and `session/load`'s `_meta` under
@@ -898,6 +910,7 @@ export class AcpRuntime implements AgentRuntime {
       provider: this.#provider,
       presentation: {
         name: this.#config.name,
+        ...(this.#config.pluginToolsUnavailable ? { pluginToolsUnavailable: this.#config.pluginToolsUnavailable } : {}),
         // What an ACP agent declares are commands; some of them are skills
         // and some are `/compact`. The page says both rather than filing
         // half the list under the wrong word.
@@ -2311,6 +2324,14 @@ export class AcpRuntime implements AgentRuntime {
     }
   }
 
+  pluginToolsAvailableAt(cwd: string): Promise<boolean> {
+    return Promise.resolve(this.#config.pluginToolsAvailableAt?.(cwd) ?? true)
+  }
+
+  pluginToolsProblemAt(cwd: string): Promise<string | null> {
+    return Promise.resolve(this.#config.pluginToolsProblemAt?.(cwd) ?? null)
+  }
+
   async createSession(options: SessionOptions): Promise<AgentSession> {
     /* `SessionOptions` is `Partial<SessionSettings> & …`, so `model` is legal
        to write — and it used to be read by nobody here, which made "start this
@@ -2636,6 +2657,11 @@ export class AcpRuntime implements AgentRuntime {
 
   get connection(): AcpConnection {
     return this.#connection
+  }
+
+  /** Whether this peer is a bridge HarnessDesk ships; see `AcpAgentConfig.trustsBridgeProvenance`. */
+  get trustsBridgeProvenance(): boolean {
+    return this.#config.trustsBridgeProvenance === true
   }
 
   get agentName(): string {
@@ -3206,6 +3232,17 @@ const questionOf = (
         : {}),
     })),
   }
+}
+
+/** Reads only the bridge's structured claim; titles and raw tool text never confer provenance. */
+const flowBoardToolOf = (request: AcpPermissionRequest): { readonly server: 'harnessdesk'; readonly tool: string } | null => {
+  const marker = request._meta?.['harnessdesk'] as { flowBoardTool?: unknown } | undefined
+  const value = marker?.flowBoardTool
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+  const shaped = value as { server?: unknown; tool?: unknown }
+  return shaped.server === 'harnessdesk' && typeof shaped.tool === 'string' && shaped.tool.startsWith('mcp__harnessdesk__')
+    ? { server: 'harnessdesk', tool: shaped.tool }
+    : null
 }
 
 const noticeOf = (update: Extract<AcpSessionUpdate, { sessionUpdate: 'user_message_chunk' }>): string | null => {
@@ -4233,6 +4270,7 @@ class AcpSession implements AgentSession {
         this.#host.emit({ type: 'approval/requested', approval })
       })
     }
+    const flowBoardTool = this.#host.trustsBridgeProvenance ? flowBoardToolOf(request) : null
     const approval: Approval = {
       id,
       sessionId: this.id,
@@ -4241,6 +4279,7 @@ class AcpSession implements AgentSession {
       requestedAt: Date.now(),
       type: 'permission',
       summary: request.toolCall.title ?? 'The agent asks permission to continue.',
+      ...(flowBoardTool ? { flowBoardTool } : {}),
       // Why the agent is asking, when the agent said. ACP carries that on the
       // request's own tool call, and reading only the title threw it away:
       // DeepSeek Harness sends "escalate sandbox to danger-full-access: the

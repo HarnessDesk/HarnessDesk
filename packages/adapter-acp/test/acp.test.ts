@@ -1105,13 +1105,14 @@ test('every open carries a caller token, and the map learns whose it is', async 
   const dir = await mkdtemp(join(tmpdir(), 'hd-caller-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
   const dump = join(dir, 'servers.json')
+  const opens = join(dir, 'opens.jsonl')
   const claims: [string, string][] = []
   const runtime = new AcpRuntime({
     id: 'fake-acp',
     name: 'Fake ACP Agent',
     command: process.execPath,
     args: [FAKE],
-    env: { FAKE_ACP_DUMP_SERVERS: dump },
+    env: { FAKE_ACP_DUMP_SERVERS: dump, FAKE_ACP_OPENS: opens },
     toolServer: {
       name: 'harnessdesk',
       command: process.execPath,
@@ -1122,14 +1123,37 @@ test('every open carries a caller token, and the map learns whose it is', async 
   })
   await runtime.start()
   try {
-    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    const session = await runtime.createSession({ cwd: dir })
     const claim = claims.find(([, id]) => id === String(session.id))
     assert.ok(claim, 'the open announced which session its token names')
 
+    const opened = (await readFile(opens, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { sessionId: string; cwd: string })
+    assert.equal(
+      opened.find((entry) => entry.sessionId === String(session.id))?.cwd,
+      dir,
+      'the peer receives the session working directory',
+    )
+    const tape = record(runtime)
+    await session.send([{ type: 'text', text: 'run a tool in this session' }])
+    const completed = await tape.until((event) => event.type === 'turn/completed')
+    const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
+    assert.ok(
+      turn.items.some((item) => item.type === 'assistantMessage' && item.text.includes(dir)),
+      'the fake tool runs from the opened session directory',
+    )
+
     const dumped = JSON.parse(await readFile(dump, 'utf8')) as {
+      name: string
+      command: string
       env?: { name: string; value: string }[]
     }[]
-    const env = dumped.at(-1)?.env ?? []
+    const server = dumped.at(-1)
+    assert.equal(server?.name, 'harnessdesk', 'the peer receives the board tools MCP server')
+    assert.equal(server?.command, process.execPath)
+    const env = server?.env ?? []
     const carried = env.find((entry) => entry.name === 'HD_TOOLS_CALLER')
     assert.equal(carried?.value, claim[0], 'the bridge env carries the very token that was claimed')
     assert.ok(
@@ -1247,6 +1271,47 @@ test('a permission request becomes an approval; the decision reaches the agent',
     assert.equal(turn.status, 'completed')
     const tool = turn.items.find((item) => item.type === 'toolCall')
     assert.ok(tool && tool.type === 'toolCall' && tool.status === 'completed')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+const askForDeskTool = async (runtime: AcpRuntime) => {
+  await runtime.start()
+  const tape = record(runtime)
+  const session = await runtime.createSession({ cwd: '/tmp/w' })
+  await session.send([{ type: 'text', text: 'use the desk tool with provenance' }])
+  const requested = await tape.until((event) => event.type === 'approval/requested')
+  const approval = (requested as Extract<AgentEvent, { type: 'approval/requested' }>).approval
+  await session.respondToApproval(approval.id, { type: 'option', optionId: 'yes' })
+  await tape.until((event) => event.type === 'turn/completed')
+  return approval
+}
+
+test('a desk tool marker from a peer that is not a shipped bridge is the agent\'s say-so, and is dropped', async () => {
+  const runtime = make()
+  try {
+    const approval = await askForDeskTool(runtime)
+    assert.equal(approval.type, 'permission')
+    assert.equal(approval.flowBoardTool, undefined)
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a bridge-proven desk tool permission keeps its structured provenance on the Approval', async () => {
+  const runtime = new AcpRuntime({ id: 'fake-acp', name: 'Fake ACP Agent', command: process.execPath, args: [FAKE], trustsBridgeProvenance: true })
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: '/tmp/w' })
+    await session.send([{ type: 'text', text: 'use the desk tool with provenance' }])
+    const requested = await tape.until((event) => event.type === 'approval/requested')
+    const approval = (requested as Extract<AgentEvent, { type: 'approval/requested' }>).approval
+    assert.equal(approval.type, 'permission')
+    assert.deepEqual(approval.flowBoardTool, { server: 'harnessdesk', tool: 'mcp__harnessdesk__claim_next' })
+    await session.respondToApproval(approval.id, { type: 'option', optionId: 'yes' })
+    await tape.until((event) => event.type === 'turn/completed')
   } finally {
     await runtime.dispose()
   }
