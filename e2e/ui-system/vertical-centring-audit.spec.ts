@@ -128,6 +128,7 @@ const measureRoot = async (page: import('@playwright/test').Page, rootSelector: 
     if (!text || textElement.closest('textarea,[contenteditable="true"]')) continue
     const owner = componentFor(textElement)
     if (hidden(owner)) continue
+    if (lineCount(owner) > 1) continue
     // Beyond this height the parent is a multiline card/section rather than
     // the one-line row/control edge asked for by this audit.
     if (owner.getBoundingClientRect().height > 64) continue
