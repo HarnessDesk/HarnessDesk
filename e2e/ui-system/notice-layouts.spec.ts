@@ -11,11 +11,24 @@ const expectOneNotice = async (frame: Locator, surface: 'composer' | 'strip'): P
 
 test('real Workbench and Panes put each notice in one mounted outlet', async ({ page }) => {
   await page.goto('/preview.html')
-
-  await expectOneNotice(layout(page, 'coverage-notice-narrow-overlay'), 'strip')
-
   const room = layout(page, 'coverage-notice-room-board')
   await room.getByRole('button', { name: /Board/ }).click()
+
+  const frameDir = process.env.NOTICE_FRAME_DIR
+  if (frameDir) {
+    const prefix = process.env.NOTICE_FRAME_PREFIX ?? 'after'
+    for (const id of [
+      'coverage-notice-narrow-overlay',
+      'coverage-notice-room-board',
+      'coverage-notice-folder-gone',
+      'coverage-notice-zoomed-sidebar',
+      'coverage-notice-zoomed-dock',
+    ]) {
+      await layout(page, id).screenshot({ path: `${frameDir}/${prefix}-${id.replace('coverage-notice-', '')}.png` })
+    }
+  }
+
+  await expectOneNotice(layout(page, 'coverage-notice-narrow-overlay'), 'strip')
   await expectOneNotice(room, 'strip')
 
   await expectOneNotice(layout(page, 'coverage-notice-folder-gone'), 'strip')
@@ -24,16 +37,4 @@ test('real Workbench and Panes put each notice in one mounted outlet', async ({ 
   await expectOneNotice(layout(page, 'coverage-notice-split-composers'), 'composer')
   await expectOneNotice(layout(page, 'coverage-notice-split-unfocused-composer'), 'composer')
 
-  const frameDir = process.env.NOTICE_FRAME_DIR
-  if (frameDir) {
-    for (const id of [
-      'coverage-notice-narrow-overlay',
-      'coverage-notice-room-board',
-      'coverage-notice-folder-gone',
-      'coverage-notice-zoomed-sidebar',
-      'coverage-notice-zoomed-dock',
-    ]) {
-      await layout(page, id).screenshot({ path: `${frameDir}/after-${id.replace('coverage-notice-', '')}.png` })
-    }
-  }
 })
