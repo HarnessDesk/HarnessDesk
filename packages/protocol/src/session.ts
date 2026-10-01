@@ -1,6 +1,6 @@
 import type { SeatCandidate } from './agent.js'
 import type { SessionAttachments } from './attachments.js'
-import type { SeatCeiling } from './evidence.js'
+import type { CeilingLevel, SeatCeiling } from './evidence.js'
 import type { FlowPermission } from './flow.js'
 import type { RuntimeId, SessionId, TurnId } from './ids.js'
 import type { AgentItem, UserContent } from './items.js'
@@ -90,6 +90,8 @@ export interface ResolvedModelRoute {
 
 export type SessionOptions = Partial<SessionSettings> & {
   readonly cwd: string
+  /** Host-only ceiling request applied before a seat opens; never accepted from wire input. */
+  readonly requestedCeiling?: CeilingLevel
   readonly environment?: Readonly<Record<string, string>>
   /**
    * Run this conversation against another model endpoint. Resolved by the
