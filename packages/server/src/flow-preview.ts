@@ -296,6 +296,11 @@ export class FlowPreviews {
         // either an isolated role or a role opened on handed work reads its lane.
         const lane = role.isolate || atPredecessor.has(role.id)
         const checkout = await this.#port.checkoutPath?.(root, lane) ?? root
+        // A lane does not exist until the run opens it, so nothing can read its
+        // configuration yet; it is cut from this project, whose own is the best
+        // prediction. Where the lane's turns out different, the run stops at the
+        // seat with that reason rather than trying another candidate.
+        const providerRoot = root
         if (role.independentOf.length > 0 && !plan.blocked) {
           const writerProviders = role.independentOf.flatMap((id) => providersByRole.get(id) ?? [null])
           const knownWriters = new Set<string | null>(writerProviders.length === 0 ? [null] : writerProviders)
@@ -324,7 +329,7 @@ export class FlowPreviews {
           let postOpenStall = false
           if (winner !== null) {
             const selected = candidates[winner]!
-            const actualProvider = await provider(selected.seat.runtime, checkout)
+            const actualProvider = await provider(selected.seat.runtime, providerRoot)
             const reason = independentProviderReason(actualProvider, knownWriters)
             if (reason) {
               candidates[winner] = {
@@ -349,7 +354,7 @@ export class FlowPreviews {
         const selected = plan.winner === null ? null : plan.candidates[plan.winner]
         providersByRole.set(role.id, [
           ...(providersByRole.get(role.id) ?? []),
-          selected ? await provider(selected.seat.runtime, checkout) : null,
+          selected ? await provider(selected.seat.runtime, providerRoot) : null,
         ])
         seats.push({
           role: role.id, index: binding.index, agent: binding.agent.id, plan, isolate: role.isolate,

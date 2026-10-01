@@ -627,6 +627,10 @@ Start. When none qualifies, the preview lists each candidate it passed over
 with its reason — it cannot hold the ceiling, it has the same provider as the
 writer, its provider can't be confirmed, it is spent, its model is missing —
 so the fix is visible before the run starts.
+A checkout the run has not opened yet, an isolated lane or a predecessor's,
+is judged by the project's own configuration, since that is what it is cut
+from; if the opened checkout reads as a different vendor, the run stops at that
+seat and says why.
 
 Codex's read is scoped to the configuration actually *in force* for the
 session that runs, merged across every layer it reads (its home
