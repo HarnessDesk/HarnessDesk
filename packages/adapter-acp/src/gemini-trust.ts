@@ -113,7 +113,9 @@ export const geminiTrustsFolderStatus = (target: string, options: GeminiTrustOpt
   if (!folderTrustEnabled) return { trusted: true, unavailable: false }
 
   const trustedPath = env['GEMINI_CLI_TRUSTED_FOLDERS_PATH'] || join(home, '.gemini', 'trustedFolders.json')
-  if (!existsFile(trustedPath)) return { trusted: false, unavailable: false }
+  // Gemini treats anything at that path as its file and fails to read a
+  // directory; only nothing at all there means "no folders trusted yet".
+  if (!existsPath(trustedPath)) return { trusted: false, unavailable: false }
   let parsed: unknown
   try {
     parsed = JSON.parse(withoutComments(readFileSync(trustedPath, 'utf8'))) as unknown
@@ -142,6 +144,7 @@ export const geminiTrustsFolderStatus = (target: string, options: GeminiTrustOpt
 export const geminiTrustsFolder = (target: string, options: GeminiTrustOptions = {}): boolean =>
   geminiTrustsFolderStatus(target, options).trusted
 
-const existsFile = (path: string): boolean => {
-  try { return statSync(path).isFile() } catch { return false }
+
+const existsPath = (path: string): boolean => {
+  try { statSync(path); return true } catch { return false }
 }

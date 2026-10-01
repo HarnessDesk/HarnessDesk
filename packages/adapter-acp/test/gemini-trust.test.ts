@@ -86,6 +86,16 @@ test('an unreadable trusted-folders file is distinguished from an untrusted fold
   })
 })
 
+test('a directory where the trusted-folders file belongs is unreadable, not absent', (t) => {
+  const f = fixture(t)
+  f.settings({ security: { folderTrust: { enabled: true } } })
+  mkdirSync(join(f.gemini, 'trustedFolders.json'))
+  assert.deepEqual(geminiTrustsFolderStatus(f.project, { env: f.env() }), {
+    trusted: false,
+    unavailable: true,
+  })
+})
+
 test('Gemini trust-file folder rules apply to descendants, with the longest matching rule winning', (t) => {
   const f = fixture(t)
   f.settings({ security: { folderTrust: { enabled: true } } })

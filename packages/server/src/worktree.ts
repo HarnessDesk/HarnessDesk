@@ -339,7 +339,7 @@ export const create = async (
     attempt += 1
     slug = `${slugify(options.name)}-${attempt}`
   }
-  const path = join(await worktreeHome(main, options.stateDir), slug)
+  const path = join(home, slug)
   const branch = `harnessdesk/${slug}`
   await git(main, ['worktree', 'add', '-b', branch, path, options.base ?? 'HEAD'])
   return { path, branch, head: (await git(path, ['rev-parse', 'HEAD'])).trim(), isMain: false, managed: true }
