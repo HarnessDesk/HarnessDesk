@@ -116,3 +116,15 @@ it('hangs a detail under a row\'s own title, on the third inset step', () => {
   expect(title).toContain('pt-(--hd-space-0-5)')
   expect(title).toContain('pb-(--hd-space-1-5)')
 })
+
+it('boxes a two-line row’s lead at its title’s own line height, at either density', () => {
+  const lead = (markup: string) => markup.match(/data-slot="list-row-lead" class="([^"]*)"/)?.[1] ?? ''
+  const plain = renderToStaticMarkup(<ListRow lead={<span>icon</span>} title="Board" subtitle="1 unclaimed" />)
+  const small = renderToStaticMarkup(<ListRow size="sm" lead={<span>icon</span>} title="Board" subtitle="1 unclaimed" />)
+  const single = renderToStaticMarkup(<ListRow lead={<span>icon</span>} title="Board" />)
+
+  expect(lead(plain)).toContain('h-(--hd-line)')
+  expect(lead(small)).toContain('h-(--hd-line-sm)')
+  // A one-line row centres on the row, which is already the title's line.
+  expect(lead(single)).not.toContain('h-(--hd-line')
+})

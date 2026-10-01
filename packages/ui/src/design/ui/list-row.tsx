@@ -164,11 +164,13 @@ const ListRow = ({
         data-slot="list-row-lead"
         className={cn(
           'inline-flex shrink-0 items-center gap-2',
-          /* Pinned to the row's top edge and dropped by half the gap between
-             the title's line and a 16–20px lead — the common IconTile and
-             Avatar sizes at this row's two densities — so the lead's own
-             centre lands on the title's centre instead of the taller block's. */
-          (subtitle != null || meta != null) && 'translate-y-(--hd-space-px)',
+          /* Pinned to the row's top edge in a box exactly one title line
+             tall, so the lead's centre is the title line's centre whatever
+             the lead's size: a lead taller than the line spills evenly
+             above and below it, into the row's own padding. A fixed nudge
+             only fitted one lead size and left the common 24px tile 3px
+             low. */
+          (subtitle != null || meta != null) && (size === 'sm' ? 'h-(--hd-line-sm)' : 'h-(--hd-line)'),
         )}
       >
         {lead}
