@@ -284,9 +284,13 @@ test('⌥⌘1–⌥⌘4 focus each tile by header; ⌥⌘↵ expands and returns
   await setPreviewDials(page, 'light', 'studio')
   const target = grid(page, 'side-by-side-four')
   await focusRoom(page, 'side-by-side-four')
-  for (let index = 0; index < 4; index++) {
+  for (const index of [1, 2, 3, 0]) {
     await page.keyboard.press(`Alt+Meta+Digit${index + 1}`)
     await expect.poll(() => focusedIndex(target), { timeout: 10_000 }).toBe(index)
+    await expect.poll(() => target.evaluate((node, at) => {
+      const tiles = [...node.querySelectorAll<HTMLElement>('[data-slot="side-by-side-tile"]')]
+      return tiles[at]?.contains(document.activeElement) ?? false
+    }, index), { timeout: 10_000 }).toBe(true)
   }
 
   await page.evaluate(() => document.querySelector('[data-frame-id="side-by-side-four"] header[data-active]')?.removeAttribute('data-active'))
