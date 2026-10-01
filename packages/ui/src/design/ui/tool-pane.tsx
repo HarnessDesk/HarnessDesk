@@ -91,7 +91,7 @@ const ToolPaneHeader = ({
          one off the bar in the panel beside it, which was 47 by the same
          arithmetic. */
       'flex h-(--hd-bar-h) shrink-0 items-center gap-(--hd-bar-gap) border-b border-(--hd-border)',
-      variant === 'default' && 'px-(--hd-bar-pad)',
+      variant === 'default' && 'px-2.5',
       variant === 'window' && 'pr-3 pl-4',
       corner && 'pl-[max(var(--hd-space-4),var(--titlebar-inset,0px))]',
       className,
@@ -137,7 +137,7 @@ const ToolPaneBody = ({
   <div
     data-slot="tool-pane-body"
     {...(bleed ? { 'data-bleed': '' } : {})}
-    className={cn('min-h-0 flex-1 overflow-auto', bleed ? 'p-0' : 'p-(--hd-bar-pad)', className)}
+    className={cn('min-h-0 flex-1 overflow-auto', bleed ? 'p-0' : 'p-2.5', className)}
     {...props}
   />
 )

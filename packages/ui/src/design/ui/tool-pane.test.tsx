@@ -60,8 +60,8 @@ it('uses the header inset for a padded body so their content starts together', (
       <ToolPaneBody>body</ToolPaneBody>
     </ToolPane>,
   ))
-  expect(container.querySelector('[data-slot="tool-pane-header"]')?.className).toContain('px-(--hd-bar-pad)')
-  expect(container.querySelector('[data-slot="tool-pane-body"]')?.className).toContain('p-(--hd-bar-pad)')
+  expect(container.querySelector('[data-slot="tool-pane-header"]')?.className).toContain('px-2.5')
+  expect(container.querySelector('[data-slot="tool-pane-body"]')?.className).toContain('p-2.5')
 })
 
 it('owns the bars, messages, document tabs and activity anatomy', () => {

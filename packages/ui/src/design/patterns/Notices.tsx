@@ -135,7 +135,7 @@ const usePager = (count: number) => {
 
 const Pager = ({ at, count, onPrevious, onNext }: { at: number; count: number; onPrevious: () => void; onNext: () => void }) =>
   count > 1 ? (
-    <span className={styles.pager} data-slot="notice-pager" role="group" aria-label="Message pages">
+    <span className={styles.pager} data-slot="notice-pager" role="toolbar" aria-label="Message pages">
       <Button variant="ghost" size="icon-xs" type="button" aria-label="Previous message" disabled={at === 0} onClick={onPrevious}>
         <ArrowLeftIcon size={12} />
       </Button>
@@ -308,7 +308,7 @@ export const InboxList = ({
     const press = message.go ?? (onOpen && !message.read ? () => onOpen(message.id) : undefined)
     return (
       <li key={message.id} className={cn(styles.inboxItem, revealMotion)} {...(message.read ? {} : { 'data-unread': '' })}>
-        <Lead message={message} />
+        <Lead message={message} size="sm" />
         <div className={styles.inboxText}>
           <span className={styles.inboxTop}>
             {press ? (
@@ -349,7 +349,7 @@ export const InboxList = ({
     )
   }
   return (
-    <div className={styles.inbox} data-slot="inbox-list">
+    <div className={styles.inbox} data-slot="inbox-list" data-surface>
       <div className={styles.inboxHead}>
         <Text role="subject" data-part="inbox-heading">Inbox</Text>
         {messages.length > 0 ? (

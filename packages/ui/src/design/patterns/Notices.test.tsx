@@ -38,6 +38,7 @@ it('shows one card at a time, says how many wait, and pages between them', async
   expect(host.querySelector('[data-part="notice-title"][data-slot="text"][data-role="subject"]')?.textContent).toBe('Relaunch to update')
   expect(host.textContent).not.toContain('Skills to share')
   expect(host.textContent).toContain('1 of 2')
+  expect(host.querySelector('[data-slot="notice-pager"]')?.getAttribute('role')).toBe('toolbar')
   await act(() => button('Next message').click())
   expect(host.textContent).toContain('Skills to share')
   await act(() => button('Dismiss').click())
@@ -52,6 +53,7 @@ it('pulls each trailing notice glyph to the surface text edge', async () => {
 
   await act(() => root.render(<InboxList messages={[{ ...offer, read: false }]} onMarkAllRead={() => {}} onClear={() => {}} />))
   expect(button('Clear the inbox').className).toContain('me-(--edge-pull)')
+  expect(host.querySelector('[data-slot="inbox-list"]')?.hasAttribute('data-surface')).toBe(true)
 })
 
 it('a single card has no pager, and its action carries its shortcut', async () => {
