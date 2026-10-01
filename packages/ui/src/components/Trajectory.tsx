@@ -71,8 +71,8 @@ const KIND_LABEL: Record<string, string> = {
 }
 
 /*
- * A compact label for names and paths. User and assistant prose keep their
- * sentence layout and use the full text as their tooltip.
+ * A compact label for names and paths. User, assistant and thought prose keep
+ * their sentence layout and use the full text as their tooltip.
  */
 const oneLine = (text: string): string => text.slice(0, 400).replace(/\s+/g, ' ').trim()
 
@@ -373,10 +373,10 @@ export const Trajectory = ({
                     ? <span className={styles.label}>{label}</span>
                     : item.type === 'command' || item.type === 'toolCall'
                       ? <CodeText className={styles.label}>{label}</CodeText>
-                      : item.type === 'assistantMessage' || item.type === 'userMessage'
+                      : item.type === 'assistantMessage' || item.type === 'userMessage' || item.type === 'reasoning'
                         ? <span className={`${styles.label} ${styles.messageLabel}`}>{label}</span>
                         : <span className={styles.label}>{label}</span>}
-                  wrapTitle={row.items.length === 1 && (item.type === 'assistantMessage' || item.type === 'userMessage')}
+                  wrapTitle={row.items.length === 1 && (item.type === 'assistantMessage' || item.type === 'userMessage' || item.type === 'reasoning')}
                   trail={duration ? <RowTime>{formatMs(duration)}</RowTime> : undefined}
                   tooltip={label}
                 />
