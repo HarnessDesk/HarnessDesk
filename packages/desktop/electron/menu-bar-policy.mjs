@@ -4,9 +4,10 @@ import { resolve } from 'node:path'
 const canonicalPath = (path) => {
   try {
     return realpathSync(path)
-  } catch (error) {
-    if (error?.code === 'ENOENT') return resolve(path)
-    throw error
+  } catch {
+    // A home that does not exist yet (a first launch) or cannot be read is
+    // compared as written: deciding about a menu bar item never stops a launch.
+    return resolve(path)
   }
 }
 
