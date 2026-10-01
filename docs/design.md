@@ -673,6 +673,15 @@ A tinted face is filled with its tint's ink and uses the accent foreground for
 its mark or initials. Other tinted tiles, including square and round ones,
 keep the soft tint wash.
 
+## The Team composer tail
+
+Short live activity and a notice about what sending does sit in one tinted
+strip above the Team composer. `TurnWorkTail` gives those lines the muted
+ground, rounded outside corners, smaller secondary text, and joined edges
+when both are present. The conversation composer has queued notices and
+actionable alerts rather than this live-and-room-state pair, so it keeps its
+own notice stack.
+
 ## Motion
 
 Motion says where a thing came from and where it went, and nothing else. It is

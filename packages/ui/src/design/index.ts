@@ -138,6 +138,7 @@ export {
   TurnWorkHeaderLabel,
   TurnWorkBody,
   TurnWorkLive,
+  TurnWorkTail,
   type TurnWorkState,
 } from './patterns/TurnWork'
 export { PaneColumn, useComposerHeightVar, type PaneColumnProps, type PaneColumnInset } from './patterns/PaneColumn'

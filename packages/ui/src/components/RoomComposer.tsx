@@ -36,7 +36,7 @@ import {
 } from '../design'
 import { BrandMark } from './BrandIcons'
 import { AgentIcon, SendIcon, TeamIcon } from './Icons'
-import { ComposerNoticeStack, MemberName, Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, Popover } from '../design'
+import { ComposerNoticeStack, MemberName, Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, Popover, TurnWorkTail } from '../design'
 import { ComposerNotices, NoticeStripOutlet } from './Notices'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
 
@@ -171,6 +171,8 @@ export const RoomComposer = ({
   members,
   messaging,
   card,
+  statusLine,
+  suspended = false,
   onTrouble,
   onPosted,
 }: {
@@ -194,6 +196,10 @@ export const RoomComposer = ({
    * paints over the list and races the pick.
    */
   readonly card?: (key: SessionKey, node: ReactNode) => ReactNode
+  /** The Team's live activity line, joined with this composer's state notice. */
+  readonly statusLine?: ReactNode
+  /** Keep the composer state mounted while an approval occupies its slot. */
+  readonly suspended?: boolean
   readonly onTrouble: (message: string | null) => void
   /** A post of your own always brings the reader back to the floor. */
   readonly onPosted: () => void
@@ -505,6 +511,8 @@ export const RoomComposer = ({
 
   return (
     <>
+    <TurnWorkTail>
+    {statusLine}
     {/* What sending will do, said over the box rather than inside it, as one
         more line of the room's tail: the transcript's live line, settled —
         the same box, size and ink as who is working above it — so the tail
@@ -515,6 +523,7 @@ export const RoomComposer = ({
         {notice.tone === 'warn' ? <Text role="prose" tone="warning">{notice.text}</Text> : notice.text}
       </TurnWorkLive>
     )}
+    </TurnWorkTail>
     {/* A dropped link, whatever the person moved to the strip, and — same as
         a conversation's own composer — what stops a turn here and what an
         Agent in this room is waiting on someone to decide, over the room's
@@ -523,7 +532,7 @@ export const RoomComposer = ({
       <NoticeStripOutlet host={isNoticeHost} />
       <ComposerNotices />
     </ComposerNoticeStack>
-    <ComposerShell className="relative">
+    <ComposerShell className="relative" hidden={suspended}>
       {mention && (
         <TriggerMenu
           title="Address"

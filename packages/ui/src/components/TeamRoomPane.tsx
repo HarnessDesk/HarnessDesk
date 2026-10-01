@@ -2337,15 +2337,13 @@ const Room = ({
           different is what is genuinely different: the audience, which lives
           with the words because choosing it is part of writing the message. */}
       <ComposerDock>
-        {/* The thread's own tail, docked with the composer in the same
-            reading column the stream hangs in: one live line, then two
-            different failures, both said out loud. `problem` is the host's:
+        {/* The thread's own failures, docked with the composer in the same
+            reading column the stream hangs in. `problem` is the host's:
             it could not keep the board, so what is on screen may not survive
             a restart — the person needs to know before they act on it.
             `trouble` is this surface's: the last thing you pressed did not
             land. */}
         <div className={styles.tail}>
-          <RoomLiveLine members={members} snapshot={snapshot} now={now} triggerStatus={triggerStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} />
           {/* A failure is the conversation's own drawing for an action
               that did not land in the tail: one role, one drawing. */}
           {problem && <ActionError>{problem}</ActionError>}
@@ -2379,44 +2377,36 @@ const Room = ({
               <Approvals placement="docked" takeFocus={takeFocus} />
             </PaneProvider>
           )}
-          {/* Mounted whatever holds the slot, and only hidden under the
-              card: an approval arriving mid-sentence must not throw away
-              the words or the audience being written — they are this
-              component's own state, and unmounting it was the loss. */}
-          <div hidden={pendingApproval !== null}>
-              <RoomComposer
-                /* Keyed by the room, so moving between rooms is a new box
-                   rather than the old one being talked out of its state. The
-                   audience prunes itself against the new roster either way,
-                   but the *words* would have come along — a half-written
-                   line to one room appearing in another, one keystroke from
-                   being sent there. */
-                key={room}
-                ref={composer}
-                room={room}
-                members={loaded ? members : null}
-                messaging={messaging}
-                /* The same card the rail and the chat draw, off the same one
-                   reader. `Open` is the only verb worth offering on a chip:
-                   the member is already addressed, so Message would be the
-                   greyed verb the card refuses to draw, and removing them is
-                   the ✕ they already carry. */
-                card={(key, node) => {
-                  const entry = members.find((one) => one.key === key)
-                  if (!entry) return node
-                  return (
-                    <MemberHoverCard
-                      member={cardFacts(entry)}
-                      actions={[{ label: 'Open', onSelect: () => onShow(entry.key), primary: true }]}
-                    >
-                      {node}
-                    </MemberHoverCard>
-                  )
-                }}
-                onTrouble={setTrouble}
-                onPosted={toFloor}
-              />
-          </div>
+          {/* The composer stays mounted while an approval occupies its slot;
+              an approval arriving mid-sentence must not throw away the words
+              or the audience being written. */}
+          <RoomComposer
+            /* Keyed by the room, so moving between rooms is a new box rather
+               than the old one being talked out of its state. The audience
+               prunes itself against the new roster either way, but the words
+               must not come along to a different room. */
+            key={room}
+            ref={composer}
+            room={room}
+            members={loaded ? members : null}
+            messaging={messaging}
+            statusLine={<RoomLiveLine members={members} snapshot={snapshot} now={now} triggerStatus={triggerStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} />}
+            suspended={pendingApproval !== null}
+            card={(key, node) => {
+              const entry = members.find((one) => one.key === key)
+              if (!entry) return node
+              return (
+                <MemberHoverCard
+                  member={cardFacts(entry)}
+                  actions={[{ label: 'Open', onSelect: () => onShow(entry.key), primary: true }]}
+                >
+                  {node}
+                </MemberHoverCard>
+              )
+            }}
+            onTrouble={setTrouble}
+            onPosted={toFloor}
+          />
           {/* The footer strip stays put under whichever of the two holds the
               slot: what a run has left to spend is as true while it waits on
               a person as while it works. */}
