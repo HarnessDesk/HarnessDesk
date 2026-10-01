@@ -439,6 +439,21 @@ it('returns focus to the conversation target, or its composer when that target i
   expect(document.activeElement).toBe(composer)
 })
 
+it('returns focus after a wide right panel is hidden', () => {
+  const docked = dock(emptyWorkbench(), 'right', { kind: 'changes' })
+  const { store, patch } = rig({}, docked)
+  render(store)
+  const opener = container.querySelector<HTMLButtonElement>('[data-testid="in-the-conversation"]')
+  const view = container.querySelector<HTMLButtonElement>('[data-testid="view-changes"]')
+  expect(opener).not.toBeNull()
+  expect(view).not.toBeNull()
+
+  opener!.focus()
+  view!.focus()
+  patch({ workbench: { ...docked, right: { ...docked.right, collapsed: true } } })
+  expect(document.activeElement).toBe(opener)
+})
+
 it('restores into the currently focused expanded pane and returns logical focus to main', () => {
   const docked = dock(emptyWorkbench(), 'right', { kind: 'changes' })
   const { store, patch } = rig({}, docked)

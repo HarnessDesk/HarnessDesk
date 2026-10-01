@@ -158,7 +158,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   const shell = useRef<HTMLDivElement>(null)
   const main = useRef<HTMLDivElement>(null)
   const mainFocus = useRef<{ target: HTMLElement; paneId: string; view: PaneView } | null>(null)
-  const wasRightPanelOverlay = useRef(false)
+  const wasRightPanelDrawn = useRef(false)
 
   /*
    * Where the sidebar is, and whether it is on screen at all. A narrow window
@@ -177,16 +177,15 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   const rightPanelOverlay = narrow && rightPanelDrawn(workbench) && areaVisible(workbench, 'main')
 
   useLayoutEffect(() => {
-    if (rightPanelOverlay) {
-      wasRightPanelOverlay.current = true
+    if (rightPanelDrawn(workbench)) {
+      wasRightPanelDrawn.current = true
       return
     }
-    if (!wasRightPanelOverlay.current) return
-    wasRightPanelOverlay.current = false
-    // Widening the window stops the overlay but leaves the panel open; focus
-    // can stay in its controls. Closing or collapsing removes the panel, so
-    // return focus to the covered conversation target instead.
-    if (rightPanelDrawn(workbench)) return
+    if (!wasRightPanelDrawn.current) return
+    wasRightPanelDrawn.current = false
+    // A right panel has no resting strip, so hiding it returns focus to the
+    // conversation target it displaced. This covers both wide docks and the
+    // narrow overlay; widening alone leaves the panel drawn.
     const saved = mainFocus.current
     mainFocus.current = null
     const focused = findPane(snapshot.layout, snapshot.layout.focused)
@@ -215,7 +214,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
     store.focusPane(focused.id)
     const back = target ?? firstFocusable ?? pane
     back?.focus({ preventScroll: true })
-  }, [rightPanelOverlay, snapshot.layout, store, workbench])
+  }, [snapshot.layout, store, workbench])
 
   /*
    * Which area the macOS window buttons are sitting over, named on the shell

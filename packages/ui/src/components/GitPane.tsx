@@ -1721,6 +1721,7 @@ const CommitRow = ({
       style={{ top }}
       {...(selected ? { 'data-selected': '' } : {})}
       {...(merge ? { 'data-merge': '' } : {})}
+      tabIndex={-1}
       role="option"
       aria-selected={selected}
       onClick={onSelect}

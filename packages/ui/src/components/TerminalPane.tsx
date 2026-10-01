@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
@@ -66,9 +66,12 @@ export const TerminalSurface = () => {
       <ToolPaneBar
         variant="terminal"
         title={
-          runtime
-            ? `Runs inside ${runtime.presentation.name}'s sandbox${view.session ? ', with this conversation’s permissions' : ''}.`
-            : undefined
+          [
+            runtime
+              ? `Runs inside ${runtime.presentation.name}'s sandbox${view.session ? ', with this conversation’s permissions' : ''}.`
+              : undefined,
+            'Press Escape, then Tab to focus the panel controls.',
+          ].filter(Boolean).join(' ')
         }
       >
         <Text role="meta" truncate className="min-w-0 [direction:rtl]" title={view.cwd}>
@@ -107,6 +110,26 @@ const TerminalScreen = ({ view }: { view: TerminalView }) => {
   const [exitCode, setExitCode] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const terminalId = view.terminalId
+  const escapeToTabDeadline = useRef(0)
+
+  const onKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === 'Escape') {
+      escapeToTabDeadline.current = Date.now() + 1500
+      return
+    }
+    if (event.key !== 'Tab') {
+      escapeToTabDeadline.current = 0
+      return
+    }
+    if (Date.now() > escapeToTabDeadline.current) return
+    escapeToTabDeadline.current = 0
+    event.preventDefault()
+    event.stopPropagation()
+    const panel = event.currentTarget.closest<HTMLElement>('[data-slot="dock-panel"]')
+    panel?.querySelector<HTMLElement>(
+      '[aria-label="Hide this panel"], [aria-label="Collapse to the tabs"]',
+    )?.focus()
+  }
 
   useEffect(() => {
     const element = host.current
@@ -203,7 +226,7 @@ const TerminalScreen = ({ view }: { view: TerminalView }) => {
       {/* The pane's own body keeps the inset, so the element xterm measures
           to fit its rows and columns is exactly the room it has. */}
       <ToolPaneBody className={styles.terminalBody}>
-        <div className={styles.terminalHost} ref={host} />
+        <div className={styles.terminalHost} ref={host} onKeyDownCapture={onKeyDownCapture} />
       </ToolPaneBody>
       {(exitCode !== null || error) && (
         <ToolPaneNotice placement="bottom">

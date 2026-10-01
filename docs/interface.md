@@ -141,6 +141,9 @@ right panel is the exception: a column has no resting state as a horizontal
 strip, so putting it away hides it, and the control that opened it is the way
 back.
 
+In the terminal, Tab belongs to shell completion. Press Escape, then Tab to
+move focus to the panel controls; Tab without Escape stays in the terminal.
+
 Sizes and arrangement are saved per project.
 [the panel decision](decisions.md#one-panel-system-and-a-feature-never-knows-where-it-is) has why this replaced four
 separate layout mechanisms, and what was learned from VS Code, JetBrains and

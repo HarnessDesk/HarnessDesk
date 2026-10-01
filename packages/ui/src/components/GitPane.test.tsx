@@ -1204,3 +1204,13 @@ it('the row pitch and its named token cannot drift apart (#835)', () => {
   expect(rowConst, 'GitPane.tsx states ROW as a literal, documented against the token').not.toBeNull()
   expect(Number(rowConst![1])).toBe(Number(declared![1]))
 })
+
+it('keeps commit options out of the Tab order so the listbox is one stop', async () => {
+  await mount({ log: [commit('aaaa111', 'First'), commit('bbbb222', 'Second')] })
+  const list = container.querySelector<HTMLElement>('[role="listbox"][aria-label="Commits"]')
+  expect(list?.tabIndex).toBe(0)
+  const options = [...container.querySelectorAll<HTMLElement>('[role="option"]')]
+  expect(options).toHaveLength(2)
+  expect(options.map((option) => option.tabIndex)).toEqual([-1, -1])
+  expect(options.every((option) => option.getAttribute('aria-selected') === 'false')).toBe(true)
+})
