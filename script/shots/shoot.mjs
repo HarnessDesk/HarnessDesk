@@ -470,11 +470,17 @@ try {
           const text = range.getBoundingClientRect()
           if (text.left - box.left < parseFloat(css.paddingLeft) - 1 || box.right - text.right < parseFloat(css.paddingRight) - 1) faults.push('Settings segment label overflows its option')
         }
-        for (const row of document.querySelectorAll('[class*="groupHead"]:hover, [class*="rowWrap"]:hover')) {
-          const action = row.querySelector('[class*="groupAdd"], button[aria-haspopup="menu"]')
+        for (const row of document.querySelectorAll('[data-slot="sidebar-menu-item"]:hover')) {
+          const action = row.querySelector('[data-slot="sidebar-menu-action"][aria-haspopup="menu"]')
           if (!action || !visible(action)) continue
-          for (const mark of row.querySelectorAll('[class*="groupPin"], [class*="groupCount"], [class*="rowGone"], [class*="rowWorktree"]')) {
-            if (mark.getBoundingClientRect().right > action.getBoundingClientRect().left) faults.push('sidebar hover action overlaps metadata')
+          const actionBox = action.getBoundingClientRect()
+          for (const badge of row.querySelectorAll('[data-slot="sidebar-menu-badge"]')) {
+            const badgeBox = badge.getBoundingClientRect()
+            // Badges and the hover action intentionally share the fixed trailing slot.
+            if (Math.abs(badgeBox.left - actionBox.left) > 1 || Math.abs(badgeBox.right - actionBox.right) > 1) faults.push('sidebar badge left its hover action slot')
+          }
+          for (const mark of row.querySelectorAll('[role="img"][aria-label^="Folder is gone"], [role="img"][aria-label^="Worktree "]')) {
+            if (mark.getBoundingClientRect().right > actionBox.left) faults.push('sidebar hover action overlaps metadata')
           }
         }
         // A popup on its way out (Base UI marks it \`data-ending-style\` for the
@@ -1903,7 +1909,7 @@ rules:
     await drawFrames(30)
     say(`Shift+Tab from a row: the focus is on ${await focusLine()}`)
   } }
-  const SESSION_ROW = `document.querySelector('[class*="rowWrap"] [data-slot="button"][data-variant="navigation"]')`
+  const SESSION_ROW = `document.querySelector('[data-region="session-row"] [data-slot="sidebar-menu-button"]')`
   SCENES['session-menu-tab'] = { leaveOverlay: true, run: async () => {
     await SCENES.desk.run()
     await reach('session-menu-tab', 'a session row in the sidebar', () => cdp.eval(`Boolean(${SESSION_ROW})`))
@@ -1977,7 +1983,7 @@ rules:
   const hover = async (selector) => {
     // Hover-only actions have no box until their row is entered.
     const rowPoint = await cdp.json(`(() => {
-      const node = document.querySelector(${q(selector)})?.closest('[class*="groupHead"], [class*="rowWrap"]')
+      const node = document.querySelector(${q(selector)})?.closest('[data-slot="sidebar-menu-item"]')
       if (!node) throw new Error('missing hover row')
       const rect = node.getBoundingClientRect()
       return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
@@ -1993,13 +1999,13 @@ rules:
     await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
     await sleep(250)
   }
-  SCENES['workspace-hover'] = { leaveOverlay: true, hover: '[class*="groupHead"] button[aria-haspopup="menu"]', run: async () => {
+  SCENES['workspace-hover'] = { leaveOverlay: true, hover: '[data-slot="sidebar-menu-item"]:has(> [data-slot="sidebar-menu-button"][aria-expanded]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]', run: async () => {
     await stageSidebarMarks()
-    await hover('[class*="groupHead"] button[aria-haspopup="menu"]')
+    await hover('[data-slot="sidebar-menu-item"]:has(> [data-slot="sidebar-menu-button"][aria-expanded]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]')
   } }
-  SCENES['session-hover'] = { leaveOverlay: true, hover: '[class*="rowWrap"]:has([class*="rowGone"]) button[aria-haspopup="menu"]', run: async () => {
+  SCENES['session-hover'] = { leaveOverlay: true, hover: '[data-slot="sidebar-menu-item"]:has([role="img"][aria-label^="Folder is gone"]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]', run: async () => {
     await stageSidebarMarks()
-    const selector = '[class*="rowWrap"]:has([class*="rowGone"]) button[aria-haspopup="menu"]'
+    const selector = '[data-slot="sidebar-menu-item"]:has([role="img"][aria-label^="Folder is gone"]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]'
     await hover(selector)
   } }
   /**
