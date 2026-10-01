@@ -1,9 +1,11 @@
 import { act, type ReactNode } from 'react'
+import { runtimeId, sessionKey, type SessionId } from '@harnessdesk/protocol'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { ContextMenu, MenuItem, Popover } from '../design'
 import { StoreProvider } from '../state/context'
+import { expand as expandLayout, panes as layoutPanes, split as splitLayout } from '../state/layout'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { dock, emptyWorkbench, type Workbench as Model } from '../state/workbench'
 import { Workbench } from './Workbench'
@@ -29,18 +31,30 @@ import './builtins'
    the kind a conversation's header has, to be open when something lies over it. */
 vi.mock('../components/Panes', async () => {
   const { Popover: Menu } = await import('../design')
+  const { useSnapshot } = await import('../state/context')
+  const { panes } = await import('../state/layout')
   return {
-    Panes: () => (
-    <>
-      <button type="button" data-testid="in-the-conversation">
-        the conversation
-      </button>
-      <textarea aria-label="Conversation composer" data-testid="conversation-composer" />
-      <Menu label="Branch" title="Branch">
-          {() => <input aria-label="Filter branches" />}
-        </Menu>
+    Panes: () => {
+      const snapshot = useSnapshot()
+      return <>
+        {panes(snapshot.layout.root).map((pane, index) => (
+          <section
+            key={pane.id}
+            data-pane-id={pane.id}
+            {...(snapshot.layout.expanded !== null && snapshot.layout.expanded !== pane.id ? { 'data-hidden': '' } : {})}
+          >
+            <button type="button" data-testid={index === 0 ? 'in-the-conversation' : `pane-target-${pane.id}`}>
+              the conversation
+            </button>
+            <textarea
+              aria-label="Conversation composer"
+              data-testid={index === 0 ? 'conversation-composer' : `conversation-composer-${pane.id}`}
+            />
+            {index === 0 && <Menu label="Branch" title="Branch">{() => <input aria-label="Filter branches" />}</Menu>}
+          </section>
+        ))}
       </>
-    ),
+    },
   }
 })
 
@@ -82,7 +96,15 @@ const rig = (extra: Partial<AppSnapshot> = {}, workbench: Model = emptyWorkbench
     closeFloatingSidebar: vi.fn(() => patch({ sidebarFloating: false })),
     // What ⌘B runs, in a narrow window.
     toggleSidebar: vi.fn(() => patch({ sidebarFloating: !snapshot.sidebarFloating })),
-    focusView: vi.fn(),
+    focusPane: vi.fn((paneId: string) => patch({
+      layout: { ...snapshot.layout, focused: paneId },
+      workbench: {
+        ...snapshot.workbench,
+        main: { ...snapshot.workbench.main, focused: paneId },
+        focus: null,
+      },
+    })),
+    focusView: vi.fn((id: string | null) => patch({ workbench: { ...snapshot.workbench, focus: id } })),
     activateView: vi.fn(),
   } as unknown as AppStore & { closeFloatingSidebar: ReturnType<typeof vi.fn> }
   return { store, patch }
@@ -404,6 +426,63 @@ it('returns focus to the conversation target, or its composer when that target i
   view!.focus()
   patch({ workbench: { ...docked, right: { ...docked.right, collapsed: true } } })
   expect(document.activeElement).toBe(composer)
+})
+
+it('restores into the currently focused expanded pane and returns logical focus to main', () => {
+  const docked = dock(emptyWorkbench(), 'right', { kind: 'changes' })
+  const { store, patch } = rig({}, docked)
+  render(store)
+  const initialLayout = store.getSnapshot().layout
+  const originalPane = layoutPanes(initialLayout.root)[0]!
+  const originalTarget = container.querySelector<HTMLElement>(`[data-pane-id="${originalPane.id}"] button`)
+  const panelView = container.querySelector<HTMLButtonElement>('[data-testid="view-changes"]')
+  originalTarget!.focus()
+  patch({ narrowWindow: true })
+  panelView!.focus()
+  expect(store.getSnapshot().workbench.focus).not.toBeNull()
+
+  const divided = splitLayout(initialLayout, originalPane.id, 'row', {
+    kind: 'file', path: '/project/visible.ts', runtime: runtimeId('codex'),
+  })
+  const expandedPane = layoutPanes(divided.root).find((pane) => pane.view.kind === 'file')!
+  const expanded = expandLayout(divided, expandedPane.id)
+  patch({ layout: expanded, workbench: { ...store.getSnapshot().workbench, main: expanded } })
+  expect(originalTarget?.closest('[data-hidden]')).not.toBeNull()
+
+  patch({ workbench: { ...store.getSnapshot().workbench, right: { ...docked.right, collapsed: true } } })
+  const targetComposer = container.querySelector<HTMLElement>(`[data-pane-id="${expandedPane.id}"] textarea`)
+  expect(document.activeElement).toBe(targetComposer)
+  expect(document.activeElement).not.toBe(container.querySelector(`[data-pane-id="${originalPane.id}"] textarea`))
+  expect(store.getSnapshot().workbench.focus).toBeNull()
+  expect(store.getSnapshot().layout.focused).toBe(expandedPane.id)
+  expect((store.focusPane as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(expandedPane.id)
+})
+
+it('does not restore a saved node after its pane switches to another view', () => {
+  const docked = dock(emptyWorkbench(), 'right', { kind: 'changes' })
+  const { store, patch } = rig({}, docked)
+  render(store)
+  const layout = store.getSnapshot().layout
+  const pane = layoutPanes(layout.root)[0]!
+  const savedTarget = container.querySelector<HTMLElement>(`[data-pane-id="${pane.id}"] button`)
+  const dockedView = container.querySelector<HTMLButtonElement>('[data-testid="view-changes"]')
+  savedTarget!.focus()
+  patch({ narrowWindow: true })
+  dockedView!.focus()
+
+  const changedLayout = {
+    ...layout,
+    root: {
+      ...pane,
+      view: { kind: 'conversation' as const, session: sessionKey(runtimeId('codex'), 'replacement' as SessionId) },
+    },
+  }
+  patch({ layout: changedLayout, workbench: { ...store.getSnapshot().workbench, main: changedLayout } })
+  patch({ workbench: { ...store.getSnapshot().workbench, right: { ...docked.right, collapsed: true } } })
+
+  const composer = container.querySelector<HTMLElement>(`[data-pane-id="${pane.id}"] textarea`)
+  expect(document.activeElement).toBe(composer)
+  expect(document.activeElement).not.toBe(savedTarget)
 })
 
 it('a panel on the right takes the conversation’s width in a narrow window, and has no seam', () => {

@@ -10,7 +10,16 @@ import { PREVIEW_SESSION_KEY, previewStore } from './harness'
 import '../styles/app.css'
 
 const paneId = 'narrow-overlay-conversation'
-const workbench = dock(emptyWorkbench(), 'right', { kind: 'trajectory' })
+const main = {
+  root: {
+    kind: 'pane' as const,
+    id: paneId,
+    view: { kind: 'conversation' as const, session: PREVIEW_SESSION_KEY },
+  },
+  focused: paneId,
+  expanded: null,
+}
+const workbench = { ...dock(emptyWorkbench(), 'right', { kind: 'trajectory' }), main }
 const usage = previewStore().getSnapshot().usage.map((report) =>
   report.runtime === 'claude'
     ? {
@@ -22,18 +31,14 @@ const usage = previewStore().getSnapshot().usage.map((report) =>
 )
 const store = previewStore({
   layout: {
-    root: {
-      kind: 'pane',
-      id: paneId,
-      view: { kind: 'conversation', session: PREVIEW_SESSION_KEY },
-    },
-    focused: paneId,
-    expanded: null,
+    ...main,
   },
   workbench,
   sidebarCollapsed: true,
   usage,
 })
+
+;(window as Window & { __narrowOverlayStore?: typeof store }).__narrowOverlayStore = store
 
 const root = document.getElementById('root')
 if (!root) throw new Error('#root is missing from narrow-overlay.html')

@@ -28,7 +28,7 @@ import { CaretIcon, ExpandIcon, MoreIcon, RestoreIcon } from '../components/Icon
 import { NoticeStripOutlet } from '../components/Notices'
 import { Panes } from '../components/Panes'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
-import type { PaneView } from '../state/layout'
+import { findPane, sameView, type PaneView } from '../state/layout'
 import {
   AREA_EDGE,
   AREA_NAME,
@@ -157,7 +157,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   const [dragging, setDragging] = useState<Dragging>(null)
   const shell = useRef<HTMLDivElement>(null)
   const main = useRef<HTMLDivElement>(null)
-  const mainFocus = useRef<HTMLElement | null>(null)
+  const mainFocus = useRef<{ target: HTMLElement; paneId: string; view: PaneView } | null>(null)
   const wasRightPanelOverlay = useRef(false)
 
   /*
@@ -187,14 +187,29 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
     // can stay in its controls. Closing or collapsing removes the panel, so
     // return focus to the covered conversation target instead.
     if (rightPanelDrawn(workbench)) return
-    const target = mainFocus.current
+    const saved = mainFocus.current
     mainFocus.current = null
-    const composer = main.current?.querySelector<HTMLElement>('textarea:not(:disabled)') ?? null
-    const back = target?.isConnected && !target.hasAttribute('disabled') && !target.closest('[inert]')
-      ? target
-      : composer
+    const focused = findPane(snapshot.layout, snapshot.layout.focused)
+    if (!focused || (snapshot.layout.expanded !== null && snapshot.layout.expanded !== focused.id)) return
+    const pane = [...(main.current?.querySelectorAll<HTMLElement>('[data-pane-id]') ?? [])]
+      .find((candidate) => candidate.dataset.paneId === focused.id) ?? null
+    if (!pane || pane.closest('[data-hidden]') || getComputedStyle(pane).visibility === 'hidden') return
+    const savedViewStillOwnsTarget = saved !== null && saved.paneId === focused.id && (
+      sameView(saved.view, focused.view) || (
+        saved.view.kind === 'conversation' && focused.view.kind === 'conversation' &&
+        saved.view.session === null && focused.view.session === null
+      )
+    )
+    const target = savedViewStillOwnsTarget && saved?.target.isConnected && pane?.contains(saved.target) &&
+      !saved.target.hasAttribute('disabled') && !saved.target.closest('[data-hidden]') &&
+      getComputedStyle(saved.target).visibility !== 'hidden'
+      ? saved.target
+      : null
+    const composer = pane.querySelector<HTMLElement>('textarea:not(:disabled)')
+    store.focusPane(focused.id)
+    const back = target ?? composer ?? pane
     back?.focus({ preventScroll: true })
-  }, [rightPanelOverlay, workbench])
+  }, [rightPanelOverlay, snapshot.layout, store, workbench])
 
   /*
    * Which area the macOS window buttons are sitting over, named on the shell
@@ -308,7 +323,11 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
             {...(areaVisible(workbench, 'main') ? {} : { 'data-hidden': '' })}
             {...(rightPanelOverlay ? { 'data-right-panel-overlay': '', inert: true } : {})}
             onFocusCapture={(event) => {
-              if (event.target instanceof HTMLElement && event.target !== main.current) mainFocus.current = event.target
+              if (!(event.target instanceof HTMLElement) || event.target === main.current) return
+              const owner = event.target.closest<HTMLElement>('[data-pane-id]')
+              const paneId = owner?.dataset.paneId
+              const pane = paneId ? findPane(snapshot.layout, paneId) : undefined
+              if (pane) mainFocus.current = { target: event.target, paneId: pane.id, view: pane.view }
             }}
           >
             <Panes />

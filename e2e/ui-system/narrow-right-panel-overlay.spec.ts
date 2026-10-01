@@ -37,7 +37,24 @@ test('a narrow right-panel overlay hides the covered conversation and returns fo
   await expect(composer).toBeFocused()
   await page.setViewportSize({ width: 710, height: 900 })
   await expect(main).toHaveAttribute('inert', '')
+  const panelInput = page.getByPlaceholder('Filter steps')
+  await panelInput.focus()
+  const dockedFocus = await page.evaluate(() => {
+    const store = (window as Window & {
+      __narrowOverlayStore: { getSnapshot: () => { workbench: { focus: string | null } } }
+    }).__narrowOverlayStore
+    return store.getSnapshot().workbench.focus
+  })
+  expect(dockedFocus).not.toBeNull()
   await page.getByRole('button', { name: 'Hide this panel' }).click()
   await expect(main).not.toHaveAttribute('inert', '')
   await expect(composer).toBeFocused()
+  const logicalFocus = await page.evaluate(() => {
+    const store = (window as Window & {
+      __narrowOverlayStore: { getSnapshot: () => { workbench: { focus: string | null; main: { focused: string } } } }
+    }).__narrowOverlayStore
+    const snapshot = store.getSnapshot()
+    return { dock: snapshot.workbench.focus, main: snapshot.workbench.main.focused }
+  })
+  expect(logicalFocus).toEqual({ dock: null, main: await composer.evaluate((node) => node.closest<HTMLElement>('[data-pane-id]')?.dataset.paneId) })
 })
