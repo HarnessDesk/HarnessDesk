@@ -129,9 +129,11 @@ const headerCredentialLines = (source) => source.split(/\r?\n/).flatMap((line, i
   for (const match of line.matchAll(KEY_VALUE)) {
     // Prose wraps values in backticks and ends sentences after them: judge the value itself.
     const value = match[2].replace(/^`+|[`.]+$/g, '')
-    // A value made only of lowercase letters and hyphens reads as prose ("token: refresh", "secret: handling").
-    // Real secrets nearly always carry a digit, a capital or a symbol. An all-lowercase secret is a known limit.
-    const looksSecret = /[\dA-Z]|[^a-z-]/.test(value)
+    // Under a weak key name (token, session id) a value made only of lowercase letters and hyphens reads as prose
+    // ("token: refresh"). Under a key that names a secret outright (password, secret, api key, authorization,
+    // cookie) any non-placeholder value is refused, whatever its case: a plain-word password is an ordinary value.
+    const strongKey = /authorization|cookie|passw(?:or)?d|pwd|secret|api[-_ ]?key|access[-_ ]?key|private[-_ ]?key|credential/i.test(match[1])
+    const looksSecret = strongKey || /[\dA-Z]|[^a-z-]/.test(value)
     if (value.length >= 4 && looksSecret && !PLACEHOLDER_VALUE.test(value)) return [`line ${index + 1}  [credential in a secret-named field]`]
   }
   return []

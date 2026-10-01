@@ -419,7 +419,7 @@ for (const value of [
 }
 
 // Round 7: short secrets, and lowercase prose after a secret-named key.
-for (const value of ['password: hunter2', 'token=abc123', 'pwd=Ab1!', 'secret: s3cr3t', 'api_key=Zk3Q']) {
+for (const value of ['password: hunter2', 'token=abc123', 'pwd=Ab1!', 'secret: s3cr3t', 'api_key=Zk3Q', 'password: sunshine', 'api_key: moonlight', 'secret: sauce']) {
   test(`refuses a short secret-looking value after a secret-named key: ${value}`, async () => {
     for (const mode of ['review', 'fixes']) {
       const h = harness()
@@ -432,8 +432,8 @@ for (const value of ['password: hunter2', 'token=abc123', 'pwd=Ab1!', 'secret: s
   })
 }
 
-for (const value of ['token: refresh', 'secret: sauce', 'the token: handling is covered', 'cookie: jar', 'a secret: nothing-special-here']) {
-  test(`lowercase prose after a secret-named key still posts: ${value}`, async () => {
+for (const value of ['token: refresh', 'the token: handling is covered', 'cookie: jar', 'session id: unset']) {
+  test(`lowercase prose after a weak key name still posts: ${value}`, async () => {
     const h = harness()
     assert.equal(await postReview({ pr: '42', round: '1', by: 'Codex', body: value, repo: 'owner/repo' }, h.runner, h.io), 0)
     assert.ok(h.calls.some(isPost))
