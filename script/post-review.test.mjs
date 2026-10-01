@@ -38,6 +38,24 @@ test('rewrites worktree and plain checkout paths in links and plain text', () =>
   assert.equal(sanitizeBody('&#x2f;Users&#x2f;alice&#x2f;secret'), '<local path>')
 })
 
+test('rewrites named home paths and drive-letter user paths with either slash', () => {
+  for (const path of [
+    '~alice/Documents/private.txt',
+    '~ALICE/Documents/private.txt',
+    'C:/Users/alice/Documents/private.txt',
+    'c:/users/alice/Documents/private.txt',
+    'D:\\Users\\alice\\Documents\\private.txt',
+    'd:\\users\\alice\\Documents\\private.txt',
+    'E:/users/alice/Documents/private.txt',
+    // Quoted out of JSON, a path's backslashes arrive doubled.
+    'C:\\\\Users\\\\alice\\\\Documents\\\\private.txt',
+    'c:\\\\users\\\\alice\\\\Documents\\\\private.txt',
+    'D://Users//alice//Documents//private.txt',
+  ]) {
+    assert.equal(sanitizeBody(`Found ${path}`), 'Found <local path>', path)
+  }
+})
+
 const realLookingEmail = ['reviewer', 'example.org'].join(String.fromCharCode(64))
 for (const value of [
   `Found ${['', 'Users', ''].join('/')}`,
@@ -94,6 +112,25 @@ test('ordinary percent text and HTML amp entities still post', async () => {
     assert.equal(code, 0)
     assert.ok(h.calls.some(isPost))
   }
+})
+
+test('decodes deeply nested private paths until they are sanitized', async () => {
+  const encodedPath = encodePercentLayers('/Users/alice/Documents/private.txt', 16)
+  assert.equal(sanitizeBody(`Found ${encodedPath}`), 'Found <local path>')
+  const h = harness()
+  const code = await postReview({ pr: '42', fixes: `Found ${encodedPath}`, repo: 'owner/repo' }, h.runner, h.io)
+  assert.equal(code, 0)
+  assert.equal(h.calls.some(isPost), true)
+  assert.doesNotMatch(h.bodies[0], /alice|Documents|Users|%25/)
+})
+
+test('refuses text that keeps changing beyond the decoder bound', async () => {
+  const encodedText = encodePercentLayers('/Users/alice/Documents/private.txt', 100)
+  const h = harness()
+  const code = await postReview({ pr: '42', fixes: encodedText, repo: 'owner/repo' }, h.runner, h.io)
+  assert.equal(code, 2)
+  assert.equal(h.calls.some(isPost), false)
+  assert.match(h.output().stderr, /REFUSED/)
 })
 
 test('non-author changes-needed review requests changes', async () => {
@@ -190,12 +227,20 @@ test('argument parser accepts review stdin/file and fixes modes', () => {
   })
 })
 
+test('usage text documents --fixes <file>', () => {
+  assert.throws(() => parseArgs(['42', '--unknown']), /--fixes <file>/)
+})
+
 function isPost(args) {
   return args[0] === 'pr' && (args[1] === 'review' || args[1] === 'comment')
 }
 
 function userPath(...segments) {
   return `/${['Users', 'sample-user', ...segments].join('/')}`
+}
+
+function encodePercentLayers(value, layers) {
+  return Array.from({ length: layers }).reduce((text) => encodeURIComponent(text), value)
 }
 
 function harness({ author = 'contributor', viewer = 'viewer' } = {}) {

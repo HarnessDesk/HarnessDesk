@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 
 export const PLACEHOLDER_EMAIL_DOMAINS = Object.freeze(['example.com', 'acme.dev', 'harnessdesk.app'])
 
-const usage = 'Usage: node script/post-review.mjs <pr> --round <n> --by "<model effort>" [--file <result.md> | stdin] [--repo owner/name] [--dry-run] | node script/post-review.mjs <pr> --fixes <fixes.md> [--repo owner/name] [--dry-run]'
+const usage = 'Usage: node script/post-review.mjs <pr> --round <n> --by "<model effort>" [--file <result.md> | stdin] [--repo owner/name] [--dry-run] | node script/post-review.mjs <pr> --fixes <file> [--repo owner/name] [--dry-run]'
 
 const shellQuote = (value) => `'${String(value).replaceAll("'", "'\\''")}'`
 
@@ -41,7 +41,7 @@ const codePoint = (value, radix = 10) => {
 
 const decodePrivateText = (value) => {
   let text = String(value ?? '')
-  for (let pass = 0; pass < 8; pass += 1) {
+  for (let pass = 0; pass < 64; pass += 1) {
     const before = text
     text = text.replace(/%([\da-f]{2})/gi, (_, hex) => String.fromCharCode(Number.parseInt(hex, 16)))
     text = text.replace(/&(?:#(\d+)|#x([\da-f]+)|([a-z][\da-z]+));/gi, (entity, decimal, hex, name) => {
@@ -52,9 +52,9 @@ const decodePrivateText = (value) => {
     text = text.replace(/\\u\{([\da-f]{1,6})\}|\\u([\da-f]{4})|\\x([\da-f]{2})/gi, (escape, braced, unicode, byte) => {
       return codePoint(braced ?? unicode ?? byte, 16) ?? escape
     })
-    if (text === before) break
+    if (text === before) return { text, stable: true }
   }
-  return text
+  return { text, stable: false }
 }
 
 /** Rewrite known HarnessDesk checkout roots, then redact any other local path. */
@@ -68,15 +68,15 @@ const scrubLocalPaths = (input) => {
 
   return text
     .replace(/\bfile:\/\/[^\s)\]}>'"`]+/gi, '<local path>')
-    .replace(/~\/[^\s)\]}>'"`]+/g, '<local path>')
+    .replace(/~[^/\s]*\/[^\s)\]}>'"`]+/g, '<local path>')
+    .replace(/\b[A-Za-z]:[\\/]+Users[\\/]+[^\s)\]}>'"`]+/gi, '<local path>')
     .replace(/\/Users\/[^\s)\]}>"'`]+/g, '<local path>')
     .replace(/\/home\/[^\s)\]}>"'`]+/g, '<local path>')
     .replace(/\/private\/[^\s)\]}>"'`]+/g, '<local path>')
     .replace(/\/(?:tmp|var\/folders)\/[^\s)\]}>"'`]+/g, '<local path>')
-    .replace(/\b[A-Za-z]:\\Users\\[^\s)\]}>"'`]+/gi, '<local path>')
 }
 
-export const sanitizeBody = (body) => scrubLocalPaths(decodePrivateText(body))
+export const sanitizeBody = (body) => scrubLocalPaths(decodePrivateText(body).text)
 
 const verdictFrom = (text) => {
   const match = String(text).match(/^\s*Verdict:\s*([^\r\n]*)/im)
@@ -91,9 +91,9 @@ export const buildReviewBody = (body, round, by) => {
 
 const privateLines = (body) => {
   const emailPattern = /\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})\b/gi
-  const sources = [String(body), decodePrivateText(body)]
+  const sources = [String(body), decodePrivateText(body).text]
   return [...new Set(sources.flatMap((source) => source.split(/\r?\n/).flatMap((line, index) => {
-    const pathIssue = /(?:~\/|\/Users\/|\/home\/[^/\s]+|\/private\/|\/tmp\/|\/var\/folders\/|\bfile:\/\/|\b[A-Za-z]:\\Users\\)/i.test(line)
+    const pathIssue = /(?:~[^/\s]*\/|\/Users\/|\/home\/[^/\s]+|\/private\/|\/tmp\/|\/var\/folders\/|\bfile:\/\/|\b[A-Za-z]:[\\/]+Users[\\/]+)/i.test(line)
     const emailIssue = [...line.matchAll(emailPattern)].some((match) =>
       !PLACEHOLDER_EMAIL_DOMAINS.includes(match[1].toLowerCase()),
     )
@@ -122,6 +122,11 @@ export const postReview = async (
   try {
     const { pr, repo, dryRun = false } = options
     const fixes = options.fixes != null
+    const decoded = decodePrivateText(fixes ? options.fixes : options.body)
+    if (!decoded.stable) {
+      io.stderr.write('REFUSED: text did not finish decoding safely; nothing was posted.\n')
+      return 2
+    }
     const body = fixes ? sanitizeBody(options.fixes) : buildReviewBody(options.body, options.round, options.by)
     const offenders = privateLines(body)
     if (offenders.length) {

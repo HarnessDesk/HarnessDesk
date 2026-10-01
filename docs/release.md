@@ -126,8 +126,9 @@ real.
 
 Post every review round to its PR with `node script/post-review.mjs <pr>
 --round <n> --by "<model effort>" [--file <result.md>]` (or pipe the result
-on stdin). Use `--fixes <fixes.md>` for the follow-up comment, and name the
-commit that contains each fix so the review trail stays tied to the code.
+on stdin). Use `--fixes <file>` (for example, `--fixes fixes.md`) for the
+follow-up comment, and name the commit that contains each fix so the review
+trail stays tied to the code.
 The script signs and sanitizes review text, refuses any remaining private
 paths or real email addresses, and supports `--dry-run` to inspect the body
 and command before posting.
