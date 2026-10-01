@@ -44,6 +44,48 @@ describeAdapterConformance('claude-acp', {
   sessionOptions: { cwd: WORKDIR },
 })
 
+test('read ceiling capability is advertised only by the enforcing Claude bridge handshake', async () => {
+  const runtime = make()
+  await runtime.start()
+  try {
+    assert.deepEqual(runtime.info.ceilings?.read, {
+      settings: [],
+      how: 'PreToolUse blocks every write-class tool, unknown MCP server, and shell command outside the read-only allowlist.',
+    })
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('the read ceiling is attached before creation and survives a bridge restart and load', async () => {
+  const config = scratch('claude-read-config-')
+  const state = scratch('claude-read-state-')
+  const env = { CLAUDE_CONFIG_DIR: config, CLAUDE_ACP_STATE_DIR: state }
+  const first = make(env)
+  const firstTape = record(first)
+  let sessionId: AgentSession['id']
+  await first.start()
+  try {
+    const session = await first.createSession({ cwd: WORKDIR, requestedCeiling: 'read' })
+    sessionId = session.id
+    assert.equal((JSON.parse(readFileSync(join(state, 'options.json'), 'utf8')) as Record<string, Record<string, string>>)[String(session.id)]?.['ceiling'], 'read')
+    await ask(first, session, 'hold read', firstTape)
+  } finally {
+    await first.dispose()
+  }
+
+  const second = make(env)
+  const secondTape = record(second)
+  await second.start()
+  try {
+    const resumed = await second.resumeSession(sessionId!, { knownCwd: WORKDIR })
+    assert.equal((JSON.parse(readFileSync(join(state, 'options.json'), 'utf8')) as Record<string, Record<string, string>>)[String(sessionId)]?.['ceiling'], 'read')
+    await ask(second, resumed, 'still read', secondTape)
+  } finally {
+    await second.dispose()
+  }
+})
+
 const record = (runtime: AcpRuntime) => {
   const events: AgentEvent[] = []
   runtime.subscribe((event) => events.push(event))

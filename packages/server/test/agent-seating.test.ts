@@ -53,6 +53,16 @@ test('the first candidate that can be seated wins', () => {
   assert.deepEqual(chosen.passed, [])
 })
 
+test('a Claude seat that advertises held read can fill a read-only role', () => {
+  const chosen = chooseSeat([seat('claude-code', 'm1')], [offer('claude-code', { holds: ['read'] })], {
+    level: 'read',
+    unheld: 'refuse',
+    required: true,
+  })
+  assert.equal(chosen.seat?.runtime, 'claude-code')
+  assert.deepEqual(chosen.passed, [])
+})
+
 test('a runtime that is not installed is passed over, with the reason', () => {
   const chosen = chooseSeat([seat('cursor', 'm1', 'high'), seat('claude', 'm1', 'high')], [offer('claude')])
   assert.equal(chosen.seat?.runtime, 'claude')

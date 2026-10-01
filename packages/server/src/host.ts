@@ -1675,7 +1675,7 @@ export class Host {
       },
       openLegacySeat: async (input, goal) => {
         const cwd = goal.cwd
-        const opened = await this.#openSeat(input.spec, { cwd, title: input.title })
+        const opened = await this.#openSeat(input.spec, { cwd, title: input.title, ceiling: ceilingOfPermission(input.permission) })
         try {
           const held = await this.#holdSeat(opened.runtime, opened.sessionId, ceilingOfPermission(input.permission))
           const record = await this.#evidence.seats.opened({
@@ -5377,6 +5377,7 @@ export class Host {
       readonly cwd: string
       readonly title: string
       readonly environment?: Readonly<Record<string, string>>
+      readonly ceiling?: CeilingLevel
       readonly attachments?: SessionAttachments
     },
   ): Promise<OpenedSeat> {
@@ -5402,6 +5403,7 @@ export class Host {
     try {
       live = await runtime.createSession({
         cwd: where.cwd,
+        ...(where.ceiling ? { requestedCeiling: where.ceiling } : {}),
         ...(environment ? { environment } : {}),
         ...(seat.model ? { model: seat.model } : {}),
         ...(where.attachments ? { attachments: where.attachments } : {}),

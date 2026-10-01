@@ -585,6 +585,7 @@ export async function seatAgent(
       prepared && prepared.declarations.length > 0 ? prepared.input : undefined
     const opened = await openAsAsked(ctx, selected, {
       cwd: params.cwd, title: definition.name,
+      ceiling: level,
       ...(context.environment ? { environment: context.environment } : {}),
       ...(attachmentsInput ? { attachments: attachmentsInput } : {}),
     }, words)
@@ -1028,6 +1029,7 @@ const openAsAsked = async (
     readonly cwd: string
     readonly title: string
     readonly environment?: Readonly<Record<string, string>>
+    readonly ceiling?: CeilingLevel
     readonly attachments?: SessionAttachments
   },
   words: SeatWords,

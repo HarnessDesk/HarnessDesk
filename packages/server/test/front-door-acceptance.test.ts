@@ -139,6 +139,7 @@ test('a fresh desk with held-capable runtimes gives independent-review its build
 
   const run = await host.call('flow/start-goal', { root: work, source, token: preview.flow.token!, sentence: 'Ship the thing', vars: { task: 'Ship the thing' } }) as FlowExecution
   assert.equal(run.requireHeld, true)
+  assert.deepEqual(holdA.createOptions.map((one) => one.requestedCeiling), ['edit'])
 
   const [buildCard] = await claimedOf(host, run.goal, 'build', 1)
   await git(work, 'checkout', '-q', '-b', 'work')
@@ -148,6 +149,8 @@ test('a fresh desk with held-capable runtimes gives independent-review its build
   await host.call('team/intent', { room: run.goal, id: buildCard!.id, action: 'done', outcome: 'approve' } as never)
 
   const specialistCards = await claimedOf(host, run.goal, 'specialists', 3)
+  assert.deepEqual(holdB.createOptions.map((one) => one.requestedCeiling), ['read', 'read', 'read'])
+  assert.ok(holdB.createOptions.every((one) => one.options?.['requestedCeiling'] === undefined), 'the read ceiling is a session request, not a Claude option pick')
   for (const card of specialistCards) await host.call('team/intent', { room: run.goal, id: card.id, action: 'done', outcome: 'approve' } as never)
 
   const shipCard = await personCardOf(host, run.goal, 'ship')
