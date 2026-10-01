@@ -90,7 +90,7 @@ const toolsDoNotOverflow = (page: Page, width: string, layout: 'draft' | 'live')
   return tools.length === shapes.length && tools.every((toolbar) => toolbar.scrollWidth <= toolbar.clientWidth)
 }, { width, layout, shapes })
 
-const tightGlyphsMeetTarget = (page: Page, width: '360' | '320', layout: 'draft' | 'live') => page.evaluate(({ width, layout, shapes }) => {
+const tightGlyphsMeetTarget = (page: Page, width: '360' | '320', layout: 'draft' | 'live') => page.evaluate(({ width, layout, shapes, slots }) => {
   return shapes.every((shape) => {
     const toolbar = document.querySelector<HTMLElement>(
       `[data-composer-width="${width}"] [data-composer-shape="${shape}"] [data-composer-layout="${layout}"]`,
@@ -112,7 +112,7 @@ const tightGlyphsMeetTarget = (page: Page, width: '360' | '320', layout: 'draft'
       return targetsFit && glyphsFit
     })
   })
-}, { width, layout, shapes })
+}, { width, layout, shapes, slots })
 
 const contextRingsUnclipped = (page: Page) => page.evaluate(() => {
   const tracks = [...document.querySelectorAll<HTMLElement>('[data-composer-track="context"]')]
