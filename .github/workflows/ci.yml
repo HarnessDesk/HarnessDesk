@@ -172,6 +172,9 @@ jobs:
       - name: Interface drift
         run: node script/check-interface-drift.mjs
 
+      - name: Alignment census
+        run: node script/check-alignment-census.mjs
+
       - name: Design doc
         run: node script/design-doc.mjs --check
 

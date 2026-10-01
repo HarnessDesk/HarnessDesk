@@ -1098,7 +1098,11 @@ column, and card headings against their body. Its checked-in table records a
 multiplicity for each stable signature; frame and board headings are diagnostic
 labels only. When a change fixes a recorded instance, re-record with
 `pnpm design:alignment`. A signature's count may fall, but it may not rise; the
-table is a ceiling that only shrinks.
+table is a ceiling that only shrinks. Because the spec reads the table it is
+graded against, `script/check-alignment-census.mjs` (in `pnpm verify` and CI)
+compares the committed table with the one at the branch's merge base and
+refuses a new or risen signature: a re-record is for a fall, and a part that
+renders a new misalignment is fixed in the part.
 
 ### What the audit refuses
 
