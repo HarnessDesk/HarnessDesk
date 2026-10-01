@@ -1252,7 +1252,8 @@ export class FlowExecutions {
       if (!card || done(card)) throw new Error(cardFinishedAnswer(kept.card))
       if (!seat || seat.closed) throw new Error(missingAnswerSeat(kept.card, Boolean(seat)))
       if (this.#port.busy?.(seat)) throw new Error(busyAnswerSeat(kept.card))
-      const found = this.#cardOf(now.goal, card.id)
+      const lookedUp = this.#cardOf(now.goal, card.id)
+      const found = lookedUp?.run.id === now.id ? lookedUp : null
       const index = found?.slot ?? -1
       const binding = found ? bindingsFor(now, found.round.role)[found.slot] : undefined
       const round = found?.round
@@ -1348,7 +1349,8 @@ export class FlowExecutions {
     }
     // A turn still ending — the one the question stopped, or one begun since — is never sent into: the answer waits for it.
     if (this.#port.busy?.(seat)) throw new Error(busyAnswerSeat(card.id))
-    const found = this.#cardOf(run.goal, card.id)
+    const lookedUp = this.#cardOf(run.goal, card.id)
+    const found = lookedUp?.run.id === run.id ? lookedUp : null
     const index = found?.slot ?? -1
     const binding = found ? bindingsFor(run, found.round.role)[found.slot] : undefined
     const round = found?.round
