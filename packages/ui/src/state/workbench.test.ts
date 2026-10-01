@@ -745,6 +745,20 @@ describe('the window buttons', () => {
     expect(areaVisible(workbench, 'sidebar')).toBe(true)
     expect(cornerArea(workbench, false)).toBe('right')
   })
+
+  test('a narrow window lays the right panel over the middle, and the corner goes with it', () => {
+    // Below the narrow line the right panel takes the whole content row from
+    // the window's left edge, so its tab strip was printing "Browser" under
+    // the buttons while the corner was still given to the hidden middle.
+    const right = dock(emptyWorkbench(), 'right', GIT)
+    expect(cornerArea(right, false, true)).toBe('right')
+    // Wide, it stands beside the middle and leaves the corner where it was.
+    expect(cornerArea(right, false, false)).toBe('main')
+    // A collapsed or empty right panel lays nothing over the middle.
+    expect(cornerArea({ ...right, right: { ...right.right, collapsed: true } }, false, true)).toBe('main')
+    expect(cornerArea(emptyWorkbench(), false, true)).toBe('main')
+    // And the floating sidebar never stands as a column, so it is not asked here.
+  })
 })
 
 describe('terminals live in the bottom panel', () => {

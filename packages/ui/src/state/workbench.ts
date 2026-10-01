@@ -1050,12 +1050,19 @@ export const areaVisible = (workbench: Workbench, area: AreaId): boolean => {
  * anyway, so that if some later change hides the middle another way the corner
  * lands on a panel that is actually drawn rather than on an empty one. Both
  * halves of that are pinned in `workbench.test.ts`.
+ *
+ * A narrow window is the other way the middle leaves the corner: a right
+ * panel drawn there is laid over the whole main area (`noticeArea` reads the
+ * same rule), so its tab strip, not the hidden conversation's header, is the
+ * row under the buttons.
  */
-export const cornerArea = (workbench: Workbench, sidebarShown: boolean): AreaId =>
+export const cornerArea = (workbench: Workbench, sidebarShown: boolean, narrow = false): AreaId =>
   sidebarShown
     ? 'sidebar'
     : areaVisible(workbench, 'main')
-      ? 'main'
+      ? narrow && rightPanelDrawn(workbench)
+        ? 'right'
+        : 'main'
       : areaVisible(workbench, 'right') && dockViews(workbench.right).length > 0
         ? 'right'
         : 'bottom'

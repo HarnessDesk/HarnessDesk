@@ -237,7 +237,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
    * whenever there are buttons at all, while the area named here keeps it for
    * the row underneath.
    */
-  const corner = hasTrafficLights() ? cornerArea(workbench, column) : null
+  const corner = hasTrafficLights() ? cornerArea(workbench, column, narrow) : null
 
   const sidebarBox = useRef<HTMLDivElement>(null)
   const content = useRef<HTMLDivElement>(null)
