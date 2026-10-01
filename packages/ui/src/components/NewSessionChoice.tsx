@@ -63,11 +63,9 @@ export const NewSessionChoice = ({ onClose, initialKind = 'session' }: { readonl
   useEffect(() => { void store.loadAgents() }, [store])
   const shell = useShell()
   const agents = inForce(snapshot.agents ?? [])
-  /* What is shown is what runs. A kind that needs a folder falls back to
-     Session once the folder is gone, and an Agent that has left the roster
-     falls back to Plain session — never a Start that acts on a choice the
-     dialog no longer draws. */
-  const shownKind: NewSessionKind = kind !== 'session' && !root ? 'session' : kind
+  /* Keep the requested kind visible if the folder disappears. The action is
+     disabled below until its requirement is available again. */
+  const shownKind = kind
   const showRunAs = shownKind === 'session' && agents.length > 0
   const chosenAgent = runAs === PLAIN ? null : agents.find((one) => one.id === runAs) ?? null
   const chosenInfo = chosenAgent ? runAsInfo(chosenAgent, snapshot.agentPlans) : null
@@ -128,7 +126,7 @@ export const NewSessionChoice = ({ onClose, initialKind = 'session' }: { readonl
       onClose={onClose}
       footer={(
         <>
-          <Button variant="default" onClick={activate}>
+          <Button variant="default" disabled={shownKind !== 'session' && !root} onClick={activate}>
             {shownKind === 'session' ? 'Start' : 'Continue'}
           </Button>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>

@@ -40,7 +40,7 @@ import {
   type Tone,
 } from '../design'
 import { accountKey, accountName, accountIdentity, agentKey, tintOf, type AccountPrefs } from '../lib/accounts'
-import { folderName } from '../lib/projects'
+import { folderName, projectRootOf } from '../lib/projects'
 import { anyBroken, inForce } from '../lib/agents'
 import { livePlugins } from '../lib/plugins'
 import { brandOf } from '../lib/identity'
@@ -139,9 +139,9 @@ export const Sidebar = ({
         <Bar corner className="hd-drag"><WindowControls /></Bar>
         <Bar inset="ink">
           <Text role="subject" className={styles.brandMark} aria-hidden><HarnessMark size={14} /></Text>
-          <Text role="prose" truncate className={styles.workspaceName} title={snapshot.workspace?.path ?? undefined}>HarnessDesk</Text>
+          <Text role="wordmark" truncate className={styles.workspaceName} title={snapshot.workspace?.path ?? undefined}>HarnessDesk</Text>
           <Button
-            variant="ghost" size="icon-sm" className={`${styles.iconButton} hd-no-drag`}
+            variant="ghost" size="icon-sm" edge="end" edgeGlyph={13} className={`${styles.iconButton} hd-no-drag`}
             onClick={onSearch} title="Search everything (⌘K)" aria-label="Search everything (⌘K)"
           ><SearchIcon size={13} /></Button>
         </Bar>
@@ -161,7 +161,7 @@ export const Sidebar = ({
           <SidebarMenu role="group" aria-label="Main sections">
             <SidebarMenuItem>
               <SidebarMenuButton
-                icon={<BriefIcon size={14} />} label="Agents" aria-label="Agents" title="Agents"
+                icon={<BriefIcon size={14} />} label={<Text role="navigation">Agents</Text>} aria-label="Agents" title="Agents"
                 trailingOverlay={agentsCount > 0} labelTrailingContent={agentsCount > 0}
                 isActive={activeDestination === 'agents'} aria-current={activeDestination === 'agents' ? 'page' : undefined}
                 onClick={onOpenAgents}
@@ -170,7 +170,7 @@ export const Sidebar = ({
             </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton
-                icon={<UsageIcon size={14} />} label="Dashboard" aria-label="Dashboard" title="Dashboard"
+                icon={<UsageIcon size={14} />} label={<Text role="navigation">Dashboard</Text>} aria-label="Dashboard" title="Dashboard"
                 trailingOverlay={lowAgents > 0} labelTrailingContent={lowAgents > 0}
                 isActive={activeDestination === 'dashboard'} aria-current={activeDestination === 'dashboard' ? 'page' : undefined}
                 onClick={() => onOpenUsage()}
@@ -179,7 +179,7 @@ export const Sidebar = ({
             </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton
-                icon={<PluginIcon size={14} />} label="Plugins" aria-label="Plugins" title="Plugins"
+                icon={<PluginIcon size={14} />} label={<Text role="navigation">Plugins</Text>} aria-label="Plugins" title="Plugins"
                 trailingOverlay={pluginCount > 0} labelTrailingContent={pluginCount > 0}
                 isActive={activeDestination === 'plugins'} aria-current={activeDestination === 'plugins' ? 'page' : undefined}
                 onClick={onOpenPlugins}
@@ -270,6 +270,7 @@ const WorktreeMenu = ({ onChoose }: { readonly onChoose: (kind: 'goal' | 'flow' 
   const snapshot = useSnapshot()
   const health = useRuntimeHealth()
   const ready = health?.state === 'ready' || health?.state === 'idle'
+  const hasFolder = Boolean(projectRootOf(snapshot.workspace))
   const isRepo = Boolean(snapshot.workspace?.git?.branch)
   const active = snapshot.activeSessionKey ? snapshot.sessions.get(snapshot.activeSessionKey) : undefined
   const mine = snapshot.worktrees.filter((entry) => entry.managed)
@@ -314,9 +315,9 @@ const WorktreeMenu = ({ onChoose }: { readonly onChoose: (kind: 'goal' | 'flow' 
             </>
           )}
           <MenuSeparator />
-          <MenuItem icon={<GoalIcon size={14} />} label="Goal…" onSelect={() => { close(); onChoose('goal') }} />
-          <MenuItem icon={<FlowIcon size={14} />} label="Flow…" onSelect={() => { close(); onChoose('flow') }} />
-          <MenuItem icon={<TeamIcon size={14} />} label="Team…" onSelect={() => { close(); onChoose('team') }} />
+          <MenuItem icon={<GoalIcon size={14} />} label="Goal…" {...(!hasFolder ? { disabled: 'Open a folder to start one.' } : {})} onSelect={() => { close(); onChoose('goal') }} />
+          <MenuItem icon={<FlowIcon size={14} />} label="Flow…" {...(!hasFolder ? { disabled: 'Open a folder to start one.' } : {})} onSelect={() => { close(); onChoose('flow') }} />
+          <MenuItem icon={<TeamIcon size={14} />} label="Team…" {...(!hasFolder ? { disabled: 'Open a folder to start one.' } : {})} onSelect={() => { close(); onChoose('team') }} />
         </Menu>
       )}
     </Popover>

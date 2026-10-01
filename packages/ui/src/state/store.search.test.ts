@@ -81,4 +81,33 @@ describe('history search request ordering', () => {
 
     expect(store.getSnapshot().history.map((row) => row.id)).toEqual(['reset-history'])
   })
+
+  it('drops pending rows when their runtime is removed', async () => {
+    const pending = deferred<{ data: readonly SessionSummary[]; nextCursor: null }>()
+    request.mockImplementation(((method: HostMethodName) =>
+      method === 'session/search' ? pending.promise : Promise.resolve(null)) as never)
+
+    const search = store.searchHistory('needle')
+    push(store, { method: 'runtime/removed', params: { runtime: runtimeId('acp-cline') } } as unknown as WireNotification)
+    pending.resolve({ data: [summary('removed-runtime-result')], nextCursor: null })
+    await search
+
+    expect(store.getSnapshot().history).toEqual([])
+  })
+
+  it('filters search rows against the current runtime roster', async () => {
+    const pending = deferred<{ data: readonly SessionSummary[]; nextCursor: null }>()
+    request.mockImplementation(((method: HostMethodName) =>
+      method === 'session/search' ? pending.promise : Promise.resolve(null)) as never)
+
+    const search = store.searchHistory('needle')
+    push(store, {
+      method: 'sync',
+      params: { sessions: [], queues: [], tasks: [], health: [], runtimes: [], plugins: [], contributions: [] },
+    } as unknown as WireNotification)
+    pending.resolve({ data: [summary('orphaned-search-result')], nextCursor: null })
+    await search
+
+    expect(store.getSnapshot().history).toEqual([])
+  })
 })

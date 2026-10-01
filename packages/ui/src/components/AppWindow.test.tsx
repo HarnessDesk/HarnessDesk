@@ -2,7 +2,7 @@ import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { AppWindow, AppWindowMode, WindowGroup, WindowNav, WindowNavItem } from './AppWindow'
+import { AppWindow, AppWindowMode, WindowGroup, WindowNav, WindowNavIdentity, WindowNavItem } from './AppWindow'
 import { Menu, MenuItem, Popover, useEscapeSurface } from '../design'
 
 /**
@@ -201,4 +201,12 @@ it('keeps the trailing values out of the label’s space', () => {
   // `flex: none` on the count is what stops the shared trailing slot shrinking it.
   expect(getComputedStyle(count as HTMLElement).flexGrow).toBe('0')
   expect(getComputedStyle(count as HTMLElement).flexShrink).toBe('0')
+})
+
+it('gives a clipped long identity name its full title', () => {
+  render(<WindowNavIdentity face={<span />} name="A very long profile name that cannot fit in the narrow navigation row" selected={false} onClick={() => {}} />)
+  const label = container.querySelector<HTMLElement>('[data-role="row"]')!
+  const clipped = label.parentElement as HTMLElement
+  clipped.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }))
+  expect(clipped.title).toBe('A very long profile name that cannot fit in the narrow navigation row')
 })

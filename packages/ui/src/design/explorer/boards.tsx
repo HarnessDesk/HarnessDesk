@@ -34,6 +34,7 @@ import {
   AlertTitle,
   Banner,
   BannerAction,
+  Bar,
   ActionError,
   Bubble,
   BubbleContent,
@@ -202,11 +203,11 @@ const SidebarBoard = () => (
   <div className="grid gap-(--hd-space-4)" data-catalog-example="sidebar" data-catalog-variants={SIDEBAR_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={SIDEBAR_CATALOG_SIZES.join(' ')} data-catalog-states={SIDEBAR_CATALOG_STATES.join(' ')}>
     <div className="flex h-[calc(var(--sidebar-width)*3)] w-(--sidebar-width) max-w-full flex-col overflow-hidden rounded-(--hd-radius) border border-sidebar-border bg-sidebar text-sidebar-foreground">
       <div className="flex shrink-0 flex-col">
-        <div className="flex h-(--hd-control-h) items-center gap-(--hd-space-2) px-(--hd-space-2)">
-          <Text role="prose">HarnessDesk</Text>
+        <Bar inset="ink">
+          <Text role="wordmark">HarnessDesk</Text>
           <span className="flex-1" />
-          <Button variant="ghost" size="icon-sm" aria-label="Search everything (⌘K)" title="Search everything (⌘K)"><SearchIcon size={14} /></Button>
-        </div>
+          <Button variant="ghost" size="icon-sm" edge="end" edgeGlyph={14} aria-label="Search everything (⌘K)" title="Search everything (⌘K)"><SearchIcon size={14} /></Button>
+        </Bar>
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="sm" icon={<PlusIcon size={16} />} label="New session" />
@@ -215,15 +216,15 @@ const SidebarBoard = () => (
         </SidebarMenu>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="sm" icon={<BriefIcon size={16} />} label="Agents" />
+            <SidebarMenuButton size="sm" icon={<BriefIcon size={16} />} label={<Text role="navigation">Agents</Text>} />
             <SidebarMenuBadge><Text role="meta" numeric>3</Text></SidebarMenuBadge>
           </SidebarMenuItem>
           <SidebarMenuItem>
-            <SidebarMenuButton size="sm" icon={<UsageIcon size={16} />} label="Dashboard" />
+            <SidebarMenuButton size="sm" icon={<UsageIcon size={16} />} label={<Text role="navigation">Dashboard</Text>} />
             <SidebarMenuBadge><Text role="meta" numeric>2</Text></SidebarMenuBadge>
           </SidebarMenuItem>
           <SidebarMenuItem>
-            <SidebarMenuButton size="sm" icon={<PluginIcon size={16} />} label="Plugins" />
+            <SidebarMenuButton size="sm" icon={<PluginIcon size={16} />} label={<Text role="navigation">Plugins</Text>} />
             <SidebarMenuBadge><Text role="meta" numeric>12</Text></SidebarMenuBadge>
           </SidebarMenuItem>
         </SidebarMenu>
@@ -231,7 +232,7 @@ const SidebarBoard = () => (
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-(--hd-space-0) overflow-x-hidden overflow-y-auto">
         <NavigationGroupHeader label={<span className="flex items-center gap-(--hd-space-1)">Projects <Chip tone="neutral" label="Filtered" /><Button variant="ghost" size="icon-xs" aria-label="Clear list filter"><CrossIcon size={12} /></Button></span>}>
           <div className="flex min-w-0 flex-1 items-center gap-(--hd-space-1)"><FilterIcon size={13} /><Input controlSize="row" aria-label="Filter this list" placeholder="Filter by title" /></div>
-          <Button variant="ghost" size="icon-sm" aria-label="Display controls" title="Display controls"><MoreIcon size={14} /></Button>
+          <Button variant="ghost" size="icon-sm" edge="end" edgeGlyph={14} aria-label="Display controls" title="Display controls"><MoreIcon size={14} /></Button>
         </NavigationGroupHeader>
         <SidebarGroup>
           <SidebarGroupContent>

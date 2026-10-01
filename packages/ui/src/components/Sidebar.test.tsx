@@ -190,6 +190,11 @@ describe('sidebar destinations', () => {
     expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-label-content"]')?.textContent)).toEqual(['Agents', 'Dashboard', 'Plugins'])
     expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-icon"]'))).toHaveLength(3)
     expect(rows.map((one) => one.parentElement?.querySelector('[data-slot="sidebar-menu-badge"]')?.textContent?.trim())).toEqual(['1', '1', '2'])
+    const type = rows.map((one) => {
+      const label = one.querySelector<HTMLElement>('[data-slot="sidebar-menu-label-content"] [data-slot="text"]')!
+      return label.getAttribute('data-role')
+    })
+    expect(type).toEqual(['navigation', 'navigation', 'navigation'])
   })
 
   it('fills the active row when its destination window is open', () => {
@@ -217,5 +222,22 @@ describe('sidebar destinations', () => {
     expect(container.querySelector('button[aria-label="Search everything (⌘K)"]')).not.toBeNull()
     expect(container.querySelector('input[aria-label="Filter this list"]')).not.toBeNull()
     expect(container.querySelector('[data-slot="navigation-group-label"]')?.textContent).toContain('Projects')
+  })
+
+  it('renders the HarnessDesk wordmark at the documented 20px semibold role', () => {
+    mount()
+    const brand = [...container.querySelectorAll<HTMLElement>('[data-slot="text"]')].find((one) => one.textContent === 'HarnessDesk')!
+    expect(brand.dataset.role).toBe('wordmark')
+  })
+
+  it('keeps Goal, Flow and Team unavailable without a project folder', () => {
+    mount({ workspace: null, workspaces: [] })
+    act(() => container.querySelector<HTMLButtonElement>('button[title="More ways to start"]')!.click())
+    const menu = document.querySelector('[role="menu"]')!
+    for (const kind of ['Goal…', 'Flow…', 'Team…']) {
+      const row = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((one) => one.textContent?.trim().startsWith(kind))!
+      expect(row.getAttribute('aria-disabled')).toBe('true')
+      expect(row.getAttribute('title')).toBe('Open a folder to start one.')
+    }
   })
 })

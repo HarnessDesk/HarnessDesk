@@ -164,7 +164,7 @@ const SessionRow = memo(({
       needsYou,
     }
   }, sameSessionRowSlice)
-  const agentName = runtime?.presentation.name ?? summary.runtime
+  const agentName = runtime?.presentation.name ?? 'This conversation’s agent'
   /* The name the person just gave it, before the history list has caught up.
      A rename patches the open session at once and re-reads the history after;
      138 renames in a row left the sidebar saying "Untitled session" down the
@@ -357,7 +357,7 @@ const SessionRow = memo(({
           icon={<TrashIcon size={13} />}
           label="Delete…"
           danger
-          disabled={menu.at && !store.getSnapshot().runtimes.find((entry) => entry.id === summary.runtime)?.capabilities.deleteHistory ? `${agentName} keeps no way to delete one.` : false}
+          disabled={menu.at && !runtime ? 'This conversation’s agent is unavailable.' : menu.at && !runtime?.capabilities.deleteHistory ? `${agentName} keeps no way to delete one.` : false}
           onSelect={() => onDelete(summary)}
         />
       </ContextMenu>
@@ -387,6 +387,8 @@ export const SessionListControls = () => {
         title="How this list is shown"
         drop="down"
         align="left"
+        triggerEdge="end"
+        triggerEdgeGlyph={13}
         triggerClassName={buttonVariants({ variant: 'muted', size: 'icon-sm' })}
         label={<SlidersIcon size={13} />}
       >
@@ -681,7 +683,6 @@ const RoomRow = ({
             trailingOverlay
             role="button"
           aria-label={`Room ${name}`}
-          aria-expanded={open}
           title={`${name} — ${held > 0 ? `${held} held ${held === 1 ? 'message' : 'messages'} waiting for you` : 'the board, the chat, and who is here'}${claimed > 0 ? ` · ${claimed} claimed ${claimed === 1 ? 'job' : 'jobs'}` : ''}`}
           data-held={held > 0 ? '' : undefined}
           onClick={() => store.openTeamRoom(room.id)}
@@ -762,10 +763,21 @@ const WindowedProjectRows = ({
   const lastTarget = useRef<number | null>(null)
   const lastNavigationTarget = useRef<number | null>(null)
   const keyIndexes = useRef(new Map<string, number>())
+  const snapshot = useSnapshot()
   keyIndexes.current = new Map(rows.map((row, index) => [row.kind === 'room' ? `room:${row.room.id}` : `session:${row.summary.runtime}:${row.summary.id}`, index]))
   const estimate = density === 'compact' ? 34 : 46
   const scrollTarget = navigationIndex ?? targetIndex
-  const virtualLabels = JSON.stringify(rows.map((row) => row.kind === 'room' ? row.room.name : sessionLabel(row.summary.title, row.summary.preview)))
+  const virtualLabels = JSON.stringify(rows.map((row) => {
+    if (row.kind === 'room') {
+      const goal = snapshot.goals.get(row.room.id)
+      return goal ? goalName(goal.goal) : row.room.name
+    }
+    const key = sessionKey(row.summary.runtime, row.summary.id)
+    const live = snapshot.sessions.get(key)
+    const needsYou = snapshot.approvals.some((entry) => entry.key === key) || snapshot.queues.get(key)?.status === 'paused'
+    const need = needsYou ? needsYouOf(row.summary, snapshot) : undefined
+    return need?.name ?? sessionLabel(live?.title ?? row.summary.title, row.summary.preview)
+  }))
 
   useEffect(() => {
     if (!enabled || !root.current) return
@@ -1275,7 +1287,8 @@ export const SessionTree = ({ now }: { now: number }) => {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
       const direction = event.key === 'ArrowDown' ? 1 : -1
-      const virtual = target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
+      const nestedMember = target.closest('[data-nested="true"]') !== null
+      const virtual = nestedMember ? null : target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
       const project = target.closest<HTMLElement>('[data-virtual-project="true"]')
       const current = Number(virtual?.dataset.virtualIndex)
       const count = Number(virtual?.dataset.virtualCount)
@@ -1295,7 +1308,8 @@ export const SessionTree = ({ now }: { now: number }) => {
     }
     if (event.key === 'Home' || event.key === 'End') {
       event.preventDefault()
-      const virtual = target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
+      const nestedMember = target.closest('[data-nested="true"]') !== null
+      const virtual = nestedMember ? null : target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
       const project = target.closest<HTMLElement>('[data-virtual-project="true"]')
       const windowedProject = project?.hasAttribute('data-virtual-labels') ? project : null
       if (virtual && windowedProject) {
@@ -1313,6 +1327,18 @@ export const SessionTree = ({ now }: { now: number }) => {
       if (row) focus(row)
       return
     }
+    if (event.key === 'ArrowRight') {
+      const disclosure = target.parentElement?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-action"][aria-label*="agents in"]')
+      if (disclosure) {
+        event.preventDefault()
+        if (disclosure.getAttribute('aria-expanded') !== 'true') disclosure.click()
+        window.requestAnimationFrame(() => {
+          const member = target.parentElement?.parentElement?.querySelector<HTMLButtonElement>('[data-nested="true"] [data-slot="sidebar-menu-button"]')
+          focus(member ?? undefined)
+        })
+        return
+      }
+    }
     if (event.key === 'ArrowRight' && target.hasAttribute('aria-expanded')) {
       event.preventDefault()
       if (target.getAttribute('aria-expanded') !== 'true') {
@@ -1327,7 +1353,16 @@ export const SessionTree = ({ now }: { now: number }) => {
     }
     if (event.key === 'ArrowLeft') {
       event.preventDefault()
-      if (target.getAttribute('aria-expanded') === 'true') target.click()
+      const nested = target.closest<HTMLElement>('[data-nested="true"]')
+      const room = nested?.parentElement
+      const roomOpener = room?.querySelector<HTMLButtonElement>('[aria-label^="Room "]')
+      const disclosure = room?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-action"][aria-label*="agents in"]')
+      if (nested && roomOpener && disclosure) {
+        if (disclosure.getAttribute('aria-expanded') === 'true') disclosure.click()
+        else focus(roomOpener)
+      } else if (target.parentElement?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-action"][aria-label*="agents in"]')?.getAttribute('aria-expanded') === 'true') {
+        target.parentElement.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-action"][aria-label*="agents in"]')?.click()
+      } else if (target.getAttribute('aria-expanded') === 'true') target.click()
       else {
         const parent = rows.slice(0, index).reverse().find((row) => row.getAttribute('aria-expanded') === 'true')
         focus(parent)
@@ -1339,7 +1374,8 @@ export const SessionTree = ({ now }: { now: number }) => {
       window.clearTimeout(typeahead.current.timer)
       typeahead.current.timer = window.setTimeout(() => { typeahead.current.text = '' }, 500)
       const query = typeahead.current.text
-      const virtual = target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
+      const nestedMember = target.closest('[data-nested="true"]') !== null
+      const virtual = nestedMember ? null : target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
       const project = target.closest<HTMLElement>('[data-virtual-project="true"]')
       const windowedProject = project?.hasAttribute('data-virtual-labels') ? project : null
       const labels: string[] = virtual && windowedProject

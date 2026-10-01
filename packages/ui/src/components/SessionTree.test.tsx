@@ -126,6 +126,86 @@ it('keeps one tab stop and moves row focus with arrows, Home, End, and type-ahea
   expect(toggleCollapsed).toHaveBeenCalled()
 })
 
+it('keeps room opening separate from its disclosure in the tree keyboard model', () => {
+  const member = summary({ id: 'room-member' })
+  const key = String(sessionKey(member.runtime, member.id))
+  const roomEntry = room({ id: 'room', name: 'Build', members: [key] })
+  const { container: tree, store } = treeWith([roomEntry], [member], [], { collapsed: ['room'] })
+  const opener = roomRow(tree, 'Build') as HTMLButtonElement
+  const disclosure = [...tree.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-action"]')].find((one) => one.getAttribute('aria-label')?.includes('agents in Build'))!
+  expect(opener.hasAttribute('aria-expanded')).toBe(false)
+  expect(disclosure.getAttribute('aria-expanded')).toBe('false')
+
+  act(() => opener.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
+  expect(store.openTeamRoom).toHaveBeenCalledWith('room')
+  act(() => opener.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })))
+  expect(store.openTeamRoom).toHaveBeenCalledTimes(1)
+  expect(store.toggleCollapsed).toHaveBeenCalledWith('room')
+})
+
+it('ArrowLeft collapses an expanded room from its opening row', () => {
+  const member = summary({ id: 'room-member' })
+  const key = String(sessionKey(member.runtime, member.id))
+  const { container: tree, store } = treeWith([room({ id: 'room', name: 'Build', members: [key] })], [member])
+  const opener = roomRow(tree, 'Build') as HTMLButtonElement
+  act(() => opener.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true })))
+  expect(store.toggleCollapsed).toHaveBeenCalledWith('room')
+  expect(store.openTeamRoom).not.toHaveBeenCalled()
+})
+
+it('uses each nested room member as its own navigation row inside a virtual project', () => {
+  const first = summary({ id: 'first-member', updatedAt: 1000 })
+  const second = summary({ id: 'second-member', updatedAt: 999 })
+  const members = [String(sessionKey(first.runtime, first.id)), String(sessionKey(second.runtime, second.id))]
+  const loose = Array.from({ length: 51 }, (_, index) => summary({ id: `loose-${index}`, updatedAt: 500 - index }))
+  const { container: tree } = treeWith([room({ id: 'virtual-room', name: 'Virtual room', updatedAt: 2000, members })], [first, second, ...loose])
+  for (let page = 0; page < 2; page += 1) {
+    const more = [...tree.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')].find((one) => /more$/.test(one.textContent?.trim() ?? ''))!
+    act(() => more.click())
+  }
+  const mounted = tree.querySelector<HTMLButtonElement>('[data-virtual-index] [data-slot="sidebar-menu-button"]')!
+  act(() => mounted.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true })))
+  const labels = [...tree.querySelectorAll<HTMLElement>('[data-slot="sidebar-menu-label"]')].map((one) => one.textContent?.trim())
+  expect(labels).toContain('first-member')
+  const firstButton = [...tree.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')].find((one) => one.textContent?.trim() === 'first-member')!
+  act(() => firstButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })))
+  expect(document.activeElement?.textContent?.trim()).toBe('second-member')
+})
+
+it('uses the rendered room and live session names for virtual type-ahead', () => {
+  const renamed = summary({ id: 'renamed', title: 'Old title', updatedAt: 1000 })
+  const rest = Array.from({ length: 51 }, (_, index) => summary({ id: `other-${index}`, updatedAt: 500 - index }))
+  const board = room({ id: 'goal-room', name: 'Old room name', updatedAt: 2000 })
+  const baseGoal = triggerGoalView(board)
+  const goal: GoalView = { ...baseGoal, goal: { ...baseGoal.goal, sentence: 'Visible Goal Title' } }
+  const snapshot = {
+    ...emptySnapshot(), status: 'open', workspace: { path: '/repo', name: 'repo', lastOpenedAt: 1 },
+    workspaces: [{ path: '/repo', name: 'repo', lastOpenedAt: 1 }], history: [renamed, ...rest],
+    sessions: new Map([[sessionKey(renamed.runtime, renamed.id), { ...renamed, title: 'Live renamed title' }]]),
+    teams: new Map([[board.id, board]]), goals: new Map([[board.id, goal]]),
+  } as unknown as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
+  for (let page = 0; page < 2; page += 1) {
+    const more = [...container.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')].find((one) => /more$/.test(one.textContent?.trim() ?? ''))!
+    act(() => more.click())
+  }
+  const project = container.querySelector<HTMLElement>('[data-virtual-project="true"][data-virtual-labels]')!
+  const labels = JSON.parse(project.dataset.virtualLabels ?? '[]') as string[]
+  expect(labels).toContain('Live renamed title')
+  expect(labels).toContain('Visible Goal Title')
+})
+
+it('uses a plain fallback when a history row outlives its runtime', () => {
+  const row = summary({ id: 'orphan', runtime: runtimeId('removed-runtime-id'), title: 'Orphan conversation' })
+  const { container: tree } = treeWith([], [row])
+  const button = [...tree.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')].find((one) => one.textContent?.trim() === 'Orphan conversation')!
+  expect(button.title).not.toContain('removed-runtime-id')
+  act(() => button.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })))
+  const refusal = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((one) => one.textContent?.includes('Delete'))!
+  expect(refusal.textContent).not.toContain('removed-runtime-id')
+})
+
 it('moves into an unmounted windowed conversation and mounts it before focusing', () => {
   const runtime = { id: 'agent', name: 'Agent', capabilities: {}, presentation: { name: 'Agent' } } as unknown as RuntimeInfo
   const summary = (index: number): SessionSummary => ({

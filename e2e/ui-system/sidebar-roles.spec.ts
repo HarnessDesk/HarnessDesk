@@ -25,6 +25,25 @@ test('sidebar navigation names stay regular and truncate at their trailing edge'
   expect(style.overflow).toBe('ellipsis')
 })
 
+test('sidebar destinations use the navigation text role and the brand uses the wordmark role', async ({ page }) => {
+  await page.goto('/preview.html')
+  const destinations = page.locator('[aria-label="Main sections"] [data-role="navigation"]')
+  await expect(destinations).toHaveCount(3)
+  const destinationStyles = await destinations.evaluateAll((nodes) => nodes.map((node) => {
+    const style = getComputedStyle(node)
+    return { size: style.fontSize, weight: style.fontWeight }
+  }))
+  expect(destinationStyles).toEqual(Array.from({ length: 3 }, () => ({ size: '13px', weight: '400' })))
+
+  const brand = page.locator('[data-region="sidebar-header"] [data-role="wordmark"]')
+  await expect(brand).toHaveText('HarnessDesk')
+  const style = await brand.evaluate((node) => {
+    const computed = getComputedStyle(node)
+    return { size: computed.fontSize, weight: computed.fontWeight }
+  })
+  expect(style).toEqual({ size: '20px', weight: '600' })
+})
+
 test('a healthy account reading keeps plain ink rather than success ink', async ({ page }) => {
   await page.goto('/preview.html')
   await page.locator('button[class*="accountRow"]').click()

@@ -229,6 +229,7 @@ it('Goal, Flow and Team stay listed but disabled without an open folder, and say
   expect(store.newDraft).toHaveBeenCalledTimes(1)
 })
 
+
 it('lists every in-force Agent under "Run as", and starting one runs the session as it', () => {
   const { store } = rig({}, [reviewer('code-reviewer', 'Code reviewer'), reviewer('judge', 'Judge')], PLANS)
   const onClose = render(store)
@@ -346,17 +347,12 @@ it('an Agent whose seat check has not come back says what it does, never "undefi
   expect(document.body.textContent).not.toContain('null')
 })
 
-it('a kind that needs a folder falls back to Session when the folder goes away', () => {
-  const withFolder = rig()
-  render(withFolder.store)
-  act(() => kindRow('Goal').click())
-  expect(button('Continue')).toBeTruthy()
-
+it('a kind that needs a folder stays selected when no folder is open', () => {
   const noFolder = rig({ workspace: null })
-  render(noFolder.store)
-  expect(kindRow('Session').getAttribute('aria-checked')).toBe('true')
-  act(() => button('Start').click())
-  expect(noFolder.store.newDraft).toHaveBeenCalledTimes(1)
+  render(noFolder.store, vi.fn(), 'goal')
+  expect(kindRow('Goal').getAttribute('aria-checked')).toBe('true')
+  expect(button('Continue').disabled).toBe(true)
+  expect(noFolder.store.newDraft).not.toHaveBeenCalled()
 })
 
 /*

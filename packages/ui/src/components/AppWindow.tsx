@@ -210,7 +210,7 @@ export const WindowNavIdentity = ({
       <SidebarMenuButton
         icon={face}
         iconSize="lg"
-        label={<Clipped><Text role="row">{name}</Text></Clipped>}
+        label={<Clipped className="block min-w-0 flex-1 truncate" title={typeof name === 'string' ? name : undefined}><Text role="row">{name}</Text></Clipped>}
         isActive={selected}
         aria-current={selected ? 'page' : undefined}
         onClick={onClick}

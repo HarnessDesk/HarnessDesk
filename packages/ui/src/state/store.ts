@@ -615,6 +615,10 @@ export class AppStore {
         }
         if (notification.method === 'runtime/removed') {
           const { runtime } = notification.params
+          // In-flight searches include this runtime's response. Invalidate
+          // the request before filtering the visible history so a late page
+          // cannot put its rows back.
+          this.#historyRequestId += 1
           const runtimes = this.#snapshot.runtimes.filter((entry) => entry.id !== runtime)
           const accountsByRuntime = { ...this.#snapshot.accountsByRuntime }
           delete accountsByRuntime[runtime]
@@ -626,6 +630,7 @@ export class AppStore {
           if (anchored) this.#historyAnchor = null
           this.#patch({
             runtimes,
+            historyLoading: false,
             accountsByRuntime,
             healthByRuntime,
             activeRuntime:
@@ -2025,7 +2030,9 @@ export class AppStore {
               .catch(() => [] as SessionSummary[]),
           ),
       )
-      const results = pages.flat().sort((a, b) => b.updatedAt - a.updatedAt)
+      const results = pages.flat()
+        .filter((row) => this.#snapshot.runtimes.some((entry) => entry.id === row.runtime))
+        .sort((a, b) => b.updatedAt - a.updatedAt)
       if (requestId !== this.#historyRequestId) return
       const nextFoldersGone = this.#foldersGoneFor(results)
       this.#patch({

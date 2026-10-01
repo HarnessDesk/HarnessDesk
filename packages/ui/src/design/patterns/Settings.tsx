@@ -1227,13 +1227,14 @@ export const Face = ({
  * whether the text overflows its box right then. The ellipsis is the
  * caller's class: `overflow: hidden`, `text-overflow: ellipsis`, `nowrap`.
  */
-export const Clipped = ({ className, children }: { readonly className?: string; readonly children: ReactNode }) => (
+export const Clipped = ({ className, title, children }: { readonly className?: string; readonly title?: string; readonly children: ReactNode }) => (
   <span
     className={className}
+    title={title}
     onMouseEnter={(event) => {
       const node = event.currentTarget
       if (node.scrollWidth > node.clientWidth) node.title = node.textContent ?? ''
-      else node.removeAttribute('title')
+      else if (!title) node.removeAttribute('title')
     }}
   >
     {children}
