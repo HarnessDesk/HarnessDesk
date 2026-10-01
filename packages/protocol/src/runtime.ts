@@ -553,6 +553,7 @@ export interface RuntimeInfo {
  */
 export type RuntimeHealth =
   | { readonly state: 'ready' }
+  | { readonly state: 'idle' }
   | { readonly state: 'starting' }
   | {
       readonly state: 'unavailable'
@@ -949,6 +950,8 @@ export interface AgentRuntime {
 
   /** Bring the runtime up. Safe to call more than once. */
   start(): Promise<void>
+  /** Stop an idle helper process while preserving the runtime's learned state. */
+  stopForIdle?(): Promise<boolean>
   dispose(): Promise<void>
   /**
    * Re-asks the agent what it offers — models, modes, reasoning levels —
