@@ -175,13 +175,13 @@ const ChoiceRow = ({
     type="button"
     data-slot="choice-row"
     className={cn(
-      'flex w-full items-start gap-3 rounded-(--hd-radius) border border-(--hd-border) bg-(--hd-card) px-3 py-2.5 text-left',
+      'flex w-full items-center gap-3 rounded-(--hd-radius) border border-(--hd-border) bg-(--hd-card) px-3 py-2.5 text-left',
       'hover:border-(--hd-border-strong) hover:bg-(--hd-hover)',
       className,
     )}
     {...props}
   >
-    {icon != null && <span className="mt-[calc((var(--hd-line)-var(--hd-space-10))/2)] shrink-0">{icon}</span>}
+    {icon != null && <span className="shrink-0">{icon}</span>}
     <span className="min-w-0 flex-1">
       <Text role="subject" truncate className="block">{title}</Text>
       {description != null && (
