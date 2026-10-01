@@ -2,20 +2,20 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { ConfigOption, RuntimeInfo } from '@harnessdesk/protocol'
+import { sessionId, sessionKey, type ConfigOption, type RuntimeInfo, type Session } from '@harnessdesk/protocol'
 
-import { StoreProvider } from '../state/context'
+import foundationTokens from '../design/foundation/tokens.css?raw'
+import { PaneProvider, StoreProvider } from '../state/context'
+import { ComposerGap, ComposerTools } from '../design'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { ModelControl, PermissionControl } from './ComposerControls'
 
 /**
  * The composer's controls as the toolbar narrows.
  *
- * Below 560px every control keeps its glyph and gives its words to the hover
- * text; below 320px — a phone — the chevron goes too. The model used to be the
- * exception to the first step, keeping its name as the one word a mark cannot
- * carry, and at a phone's width that name was then the one word clipped to its
- * first letters.
+ * Controls fold one at a time in a token-sized order. The fake observer gives
+ * the toolbar its measured width; token values and the 6px toolbar gap model
+ * the foundation styles that jsdom does not load.
  *
  * jsdom lays nothing out, so the toolbar is as wide as this file says.
  */
@@ -25,6 +25,27 @@ vi.mock('../design', async (importOriginal) => ({ ...(await importOriginal<typeo
 
 let width = 1000
 const watching = new Set<Measured>()
+const tokenValue = (name: string): number => {
+  const match = foundationTokens.match(new RegExp(`${name}:\\s*([\\d.]+)px`))
+  if (!match) throw new Error(`Missing token ${name}`)
+  return Number(match[1])
+}
+const wideTracks = ['add', 'work-in', 'agent', 'permissions', 'mode', 'extension', 'more', 'context', 'model', 'send']
+const foldOrder = ['agent', 'work-in', 'more', 'mode', 'permissions', 'model']
+const toolbarGap = tokenValue('--hd-space-1-5')
+const foldThreshold = (target: string): number => {
+  const widths = new Map(wideTracks.map((track) => [
+    track,
+    tokenValue(`--hd-composer-track-${track}`),
+  ]))
+  const gaps = wideTracks.length * toolbarGap
+  for (const track of foldOrder) {
+    const threshold = [...widths.values()].reduce((sum, one) => sum + one, gaps)
+    if (track === target) return threshold
+    widths.set(track, tokenValue(`--hd-composer-track-${track}-folded`))
+  }
+  throw new Error(`No fold step for ${target}`)
+}
 
 /* Reports the width when it starts watching, and again whenever `resize` says
    the toolbar moved — the two moments a real observer speaks. */
@@ -56,6 +77,9 @@ let testStore: AppStore
 
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', Measured)
+  for (const [, token, value] of foundationTokens.matchAll(/(--hd-composer-track-[\w-]+):\s*([\d.]+px)/g)) {
+    document.body.style.setProperty(token!, value!)
+  }
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -64,6 +88,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  document.body.removeAttribute('style')
   vi.unstubAllGlobals()
 })
 
@@ -117,28 +142,47 @@ const options: readonly ConfigOption[] = [
   },
 ] as unknown as readonly ConfigOption[]
 
-const draw = (at: number): void => {
+const draw = (at: number, layout: 'draft' | 'live' = 'draft', populatedExtension = false): void => {
   width = at
+  const key = sessionKey(agent.id, sessionId('narrow-test'))
+  const liveSession = {
+    id: sessionId('narrow-test'), runtime: agent.id, cwd: '/repo', status: { type: 'idle' },
+    createdAt: 1, updatedAt: 1, turns: [], itemsLoaded: true, options,
+  } as unknown as Session
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
     runtimes: [agent],
     activeRuntime: agent.id,
     draftOptions: options,
+    ...(layout === 'live' ? { activeSessionKey: key, sessions: new Map([[key, liveSession]]) } : {}),
   }
   testStore = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     setOption: vi.fn(async () => {}),
   } as unknown as AppStore
+  const toolbar = (
+    <ComposerTools data-composer-layout={layout} style={{ gap: `${toolbarGap}px` }}>
+      <PermissionControl />
+      <span data-composer-track="extension">{populatedExtension ? '◇' : null}</span>
+      <ComposerGap />
+      <ModelControl />
+    </ComposerTools>
+  )
   act(() => {
     root.render(
       <StoreProvider store={testStore}>
-        <PermissionControl />
-        <ModelControl />
+        <PaneProvider scope={{ paneId: 'narrow-test', view: { kind: 'conversation', session: key }, sessionKey: key }}>
+          {toolbar}
+        </PaneProvider>
       </StoreProvider>,
     )
   })
+  const toolbarNode = container.querySelector<HTMLElement>('[data-slot="composer-tools"]')
+  if (!toolbarNode) throw new Error('no composer toolbar')
+  toolbarNode.getBoundingClientRect = () => ({ width } as DOMRect)
+  resize(at)
 }
 
 const triggers = (): HTMLButtonElement[] => [
@@ -173,32 +217,51 @@ it('folds the model’s name with every other word when the toolbar is narrow', 
   expect(model().getAttribute('aria-label')).toBe('Small · medium — model and reasoning')
 })
 
-/**
- * The fold happens at the width the constant names, and nothing straddles it.
- *
- * #145 reported the model as the one control that kept its label when the rest
- * dropped to glyphs, and #192 settled it the way this file's other tests
- * describe — the name folds with the words. What nothing held was the *edge*:
- * both existing tests sit well clear of it (500 and 700), so the exception
- * could come back anywhere between them, or the threshold could move, without
- * a red. A boundary is the only place this rule can break quietly.
- */
-it('folds at the width the constant names, and not a pixel earlier', () => {
-  // 560 is the constant: narrow is `width < NARROW_TOOLBAR`, so the width
-  // itself still has the room.
-  draw(560)
+/** The computed track sums are boundaries, so cover both sides of each one. */
+it('folds Permissions and then Model at the sums of their preceding tracks', () => {
+  const permissionsAt = foldThreshold('permissions')
+  const modelAt = foldThreshold('model')
+  draw(permissionsAt + 1)
   expect(triggers()).toHaveLength(2)
   expect(model().textContent).toContain('Small')
-  expect(model().title).toBe('Model and reasoning')
+  expect(triggers().find((trigger) => /what the agent may do/i.test(trigger.title))?.textContent).toContain('Ask first')
 
-  resize(559)
-  // One pixel under, and the words are gone — the model's with them.
-  for (const trigger of triggers()) expect(trigger.textContent?.trim()).toBe('')
+  resize(permissionsAt - 1)
+  expect(model().textContent).toContain('Small')
+  expect(triggers().find((trigger) => /what the agent may do/i.test(trigger.title))?.textContent?.trim()).toBe('')
+
+  resize(modelAt)
+  expect(model().textContent).toContain('Small')
+  resize(modelAt - 1)
+  expect(model().textContent?.trim()).toBe('')
   expect(model().title).toBe('Small · medium — model and reasoning')
 
-  // And it is a threshold, not a one-way trip.
-  resize(560)
+  // The step moves back when the toolbar widens again.
+  resize(modelAt)
   expect(model().textContent).toContain('Small')
+})
+
+it('recomputes fold steps when one toolbar switches between draft and live at a fixed width', () => {
+  draw(560, 'draft')
+  expect(model().textContent?.trim()).toBe('')
+
+  draw(560, 'live')
+  expect(model().textContent).toContain('Small')
+
+  draw(560, 'draft')
+  expect(model().textContent?.trim()).toBe('')
+})
+
+it('reserves the populated Extension track width even when the track is empty', () => {
+  // Draft Model folds at 588px with the reserved Extension track, but at
+  // 556px if the empty track is incorrectly counted as zero.
+  const at = 570
+  draw(at, 'draft', false)
+  const emptyFolded = container.querySelector('[data-composer-track="model"]')?.hasAttribute('data-folded')
+  draw(at, 'draft', true)
+  const populatedFolded = container.querySelector('[data-composer-track="model"]')?.hasAttribute('data-folded')
+  expect(emptyFolded).toBe(true)
+  expect(populatedFolded).toBe(true)
 })
 
 /**
@@ -244,8 +307,23 @@ it('keeps the chevrons while there is room for them, and folds them at a phone�
   expect(glyphs()).toEqual([1, 1])
   expect(model().title).toBe('Small · medium — model and reasoning')
 
+  // A 360px box leaves 342px inside the toolbar after its padding. All folded
+  // tracks still need the tight token there, so chevrons disappear as well.
+  resize(342)
+  expect(glyphs()).toEqual([1, 1])
+
   // And back, as the window widens again.
   resize(700)
   expect(glyphs()).toEqual([2, 2])
   expect(model().textContent).toContain('Small')
+})
+
+it('centres tight controls without letting their glyphs shrink', () => {
+  draw(342)
+
+  for (const trigger of triggers()) {
+    expect(trigger.className).toContain('px-0')
+    expect(trigger.className).toContain('justify-center')
+    expect(trigger.className).toContain('[&_svg]:shrink-0')
+  }
 })

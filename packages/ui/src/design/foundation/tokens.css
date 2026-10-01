@@ -452,6 +452,35 @@ body {
   --hd-composer-max: 320px;
   --hd-composer-line: 20px; /* desk: 22 → 20, the interface line */
   --hd-composer-radius: 28px;
+  /* The composer toolbar's decisions keep their places across agent shapes.
+     The wide tracks fit the useful labels; each control's folded track keeps
+     its place after the 560px label fold without borrowing another slot's
+     width. */
+  --hd-composer-track-add: 32px;
+  --hd-composer-track-work-in: 84px;
+  --hd-composer-track-work-in-folded: 48px;
+  --hd-composer-track-work-in-tight: var(--hd-target-min);
+  --hd-composer-track-agent: 112px;
+  --hd-composer-track-agent-folded: 48px;
+  --hd-composer-track-agent-tight: var(--hd-target-min);
+  --hd-composer-track-permissions: 116px;
+  --hd-composer-track-permissions-folded: 48px;
+  --hd-composer-track-permissions-tight: var(--hd-target-min);
+  --hd-composer-track-mode: 88px;
+  --hd-composer-track-mode-folded: 48px;
+  --hd-composer-track-mode-tight: var(--hd-target-min);
+  --hd-composer-track-extension: 32px;
+  --hd-composer-track-extension-empty: 0px;
+  --hd-composer-track-more: 80px;
+  --hd-composer-track-more-folded: 48px;
+  --hd-composer-track-more-tight: var(--hd-target-min);
+  --hd-composer-track-context: 32px;
+  --hd-composer-track-model: 160px;
+  --hd-composer-track-model-folded: 48px;
+  --hd-composer-track-model-tight: var(--hd-target-min);
+  --hd-composer-track-send: 32px;
+  --hd-composer-slots-preview-narrow: 560px;
+  --hd-composer-slots-preview-tight: 360px;
 
   /* The tallest a dialog is ever drawn: the window, less the same gutter a
      dialog keeps at its sides. A dialog taller than what it holds gives the

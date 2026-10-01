@@ -66,6 +66,7 @@ import { PersonReviewBoard } from '../design/surfaces/surfaces'
 import { SettingsFrames } from './frames-settings'
 import { TranscriptFrames } from './frames-transcript'
 import { SideBySideFrames } from './frames-side-by-side'
+import { ComposerSlotsFrames } from './frames-composer-slots'
 import '../styles/app.css'
 
 const SHOW_COMPOSER = new URLSearchParams(window.location.search).has('composer')
@@ -84,6 +85,7 @@ const SHOW_DENSE = new URLSearchParams(window.location.search).has('dense')
    `preview.html?side-by-side`; the design page's own board draws the grid
    for the coverage sweep. */
 const SHOW_SIDE_BY_SIDE = new URLSearchParams(window.location.search).has('side-by-side')
+const SHOW_COMPOSER_SLOTS = new URLSearchParams(window.location.search).has('composer-slots')
 /* Which of the Dashboard's five rail rows the preview frame opens on — the
    rig's own way to shoot each view without clicking through the rail by
    hand: `preview.html?view=spend`. Falls back to the dial beside the frame. */
@@ -986,6 +988,7 @@ const Preview = () => {
       <PanelFrames />
       <CoverageFrames />
       {SHOW_SIDE_BY_SIDE && <SideBySideFrames />}
+      {SHOW_COMPOSER_SLOTS && <ComposerSlotsFrames />}
     </div>
   )
 }
