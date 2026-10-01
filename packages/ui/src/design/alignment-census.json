@@ -33,7 +33,7 @@
     }
   },
   "header-off-body": {
-    "count": 63,
+    "count": 64,
     "signatures": {
       "design.html / chart / header-off-body / div > [chart-frame] > [chart-card]": 1,
       "design.html / group / header-off-body / [data-testid=group-person-review-step]": 2,
@@ -53,6 +53,7 @@
       "design.html / propagation / header-off-body / [data-testid=prop-settings]": 1,
       "design.html / row / header-off-body / div > figure > [card] > div": 1,
       "design.html / row / header-off-body / figure > [card] > div > [rows] > [row]": 1,
+      "design.html / tool-pane / header-off-body / div > [tool-pane] > [tool-pane-header]": 1,
       "design.html / tools / header-off-body / div > [tool-pane] > [tool-pane-header]": 2,
       "preview.html / board-edges / header-off-body / [tool-pane] > [tool-pane-body] > [board] > [board-column] > header": 3,
       "preview.html / board-empty / header-off-body / div > [tool-pane] > [tool-pane-header]": 1,

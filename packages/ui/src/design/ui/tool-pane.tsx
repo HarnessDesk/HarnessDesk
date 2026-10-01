@@ -92,7 +92,7 @@ const ToolPaneHeader = ({
          arithmetic. */
       'flex h-(--hd-bar-h) shrink-0 items-center gap-(--hd-bar-gap) border-b border-(--hd-border)',
       variant === 'default' && 'px-2.5',
-      variant === 'window' && 'pr-3 pl-2',
+      variant === 'window' && 'pr-3 pl-4',
       corner && 'pl-[max(var(--hd-space-4),var(--titlebar-inset,0px))]',
       className,
     )}
