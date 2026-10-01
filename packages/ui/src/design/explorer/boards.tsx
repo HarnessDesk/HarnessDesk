@@ -12,7 +12,7 @@ import { Markdown } from '../../components/Markdown'
 import { PublicationCard } from '../../components/Publication'
 import { QuestionWaitSection } from '../../components/SettingsQuestionWait'
 import { Mount } from '../../preview/harness'
-import { boardToolApprovalNote } from '../../preview/approval-fixture'
+import { BOARD_TOOL_FRAMES, boardToolFrame } from '../../preview/approval-fixture'
 import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppStore } from '../../state/store'
 import {
@@ -1691,37 +1691,23 @@ export const DialogBoard = () => {
       )}
       {open === 'approval' && (
         <div className={styles.stack}>
-          <div data-catalog-case="board-tool-approval-always">
-          <ApprovalDialog
-            title="Permission"
-            icon={<PluginIcon size={16} />}
-            focused
-            focusKey="catalog-board-tool-always"
-            placement="docked"
-            actions={[
-              { id: 'deny', label: 'Deny', shortcut: 1, placement: 'safe', onSelect: () => setOpen(null) },
-              { id: 'always', label: 'Allow for this session', description: 'Allows this tool for the rest of this session.', shortcut: 2, placement: 'safe', onSelect: () => setOpen(null) },
-              { id: 'once', label: 'Allow once', shortcut: 3, placement: 'proceed', onSelect: () => setOpen(null) },
-            ]}
-          >
-            {(() => { const note = boardToolApprovalNote(true); return <ApprovalReason title={note.title}>{note.text}</ApprovalReason> })()}
-          </ApprovalDialog>
-          </div>
-          <div data-catalog-case="board-tool-approval-setting">
-          <ApprovalDialog
-            title="Permission"
-            icon={<PluginIcon size={16} />}
-            focused
-            focusKey="catalog-board-tool-setting"
-            placement="docked"
-            actions={[
-              { id: 'deny', label: 'Deny', shortcut: 1, placement: 'safe', onSelect: () => setOpen(null) },
-              { id: 'once', label: 'Allow once', shortcut: 2, placement: 'proceed', onSelect: () => setOpen(null) },
-            ]}
-          >
-            {(() => { const note = boardToolApprovalNote(); return <ApprovalReason title={note.title}>{note.text}</ApprovalReason> })()}
-          </ApprovalDialog>
-          </div>
+          {BOARD_TOOL_FRAMES.map(({ state, caseId }) => {
+            const frame = boardToolFrame(state, () => setOpen(null))
+            return (
+              <div key={state} data-catalog-case={caseId}>
+                <ApprovalDialog
+                  title="Permission"
+                  icon={<PluginIcon size={16} />}
+                  focused
+                  focusKey={`catalog-board-tool-${state}`}
+                  placement="docked"
+                  actions={frame.actions}
+                >
+                  <ApprovalReason title={frame.note.title}>{frame.note.text}</ApprovalReason>
+                </ApprovalDialog>
+              </div>
+            )
+          })}
         </div>
       )}
       {open === 'lightbox' && (

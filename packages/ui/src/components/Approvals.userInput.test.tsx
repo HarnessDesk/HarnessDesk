@@ -136,8 +136,11 @@ it('describes each Gemini allow-always scope in its offered order and leaves All
   const note = Array.from(container.querySelectorAll('[data-slot="approval-reason"]')).at(-1)?.textContent ?? ''
   const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
   expect(buttons.map((button) => button.getAttribute('data-variant'))).toEqual(['destructive', 'secondary', 'secondary', 'secondary', 'default'])
-  expect(buttons[1]?.textContent).toContain('Allow for this session')
-  expect(buttons[2]?.textContent).toContain('Allow for this session')
+  // Two session grants, one of them server-wide: the agent's own labels stay, so a broader grant never reads as a narrow one.
+  expect(buttons[1]?.textContent).toContain('Allow all server tools for this session')
+  expect(buttons[2]?.textContent).toContain('Allow tool for this session')
+  expect(buttons[2]?.textContent).not.toContain('Allow for this session')
+  expect(note).not.toContain('To always allow')
   expect(buttons[3]?.textContent).toContain('Allow tool for all future sessions')
   expect(buttons[3]?.title).toBe('Saves approval for this tool in future sessions.')
   expect(buttons.at(-1)?.textContent).toContain('Allow once')
@@ -150,7 +153,7 @@ it.each([
   'list_intents (harnessdesk mcp server)',
 ])('does not explain a title that is not an exact desk board tool title: %s', (summary) => {
   mount(boardApproval(summary, BOARD_OPTIONS), geminiInfo)
-  expect(container.textContent).not.toContain("This asks for HarnessDesk's board tool")
+  expect(container.textContent).not.toContain("HarnessDesk's board wants to")
 })
 
 it('allows selecting multiple options and toggling selections when multiSelect is true (#380)', () => {
@@ -264,4 +267,22 @@ it('selects only one option at a time when multiSelect is false', () => {
     type: 'answers',
     answers: { q1: ['prod'] },
   })
+})
+
+it('says how to turn on permanent approval when every grant on offer ends with the session', () => {
+  mount(boardApproval('list_intents (harnessdesk MCP Server)', BOARD_OPTIONS), geminiInfo)
+  expect(container.textContent).toContain("To always allow, turn on permanent tool approval in Gemini CLI's settings.")
+  const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+  expect(buttons.some((button) => button.textContent?.includes('Allow for this session'))).toBe(true)
+})
+
+it('does not say that when the agent offers a grant that outlives the session', () => {
+  mount(boardApproval('list_intents (harnessdesk MCP Server)', [
+    { id: 'tool', label: 'Allow tool for this session', description: 'Allows this tool for the rest of this session.', intent: 'approveAlways' },
+    { id: 'future', label: 'Allow tool for all future sessions', description: 'Saves approval for this tool in future sessions.', intent: 'approveAlways' },
+    { id: 'once', label: 'Allow once', intent: 'approve' },
+    { id: 'deny', label: 'Deny', intent: 'deny' },
+  ]), geminiInfo)
+  expect(container.textContent).not.toContain('To always allow')
+  expect(container.textContent).toContain('Allow tool for all future sessions')
 })

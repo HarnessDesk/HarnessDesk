@@ -5,7 +5,7 @@ import { FLOW_BOARD_TOOL_NAMES, type Approval, type ApprovalOption } from '@harn
 import { useIsFocusedPane, useRuntime, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { wholeFileOf } from '../lib/diff'
 import { boardToolPhrase } from '../lib/tool-names'
-import { boardToolNote } from '../lib/board-tool-note'
+import { boardToolLabel, boardToolNote, boardToolPlacement, offersPermanentGrant } from '../lib/board-tool-note'
 import { folderShown } from '../lib/projects'
 import { DiffView } from './Diff'
 import { AlertIcon, CheckAllIcon, CheckIcon, CrossIcon } from './Icons'
@@ -265,13 +265,12 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false }: {
     ? runtime.presentation.boardToolApproval
     : null
   const explainBoardTool = namedBoardTool !== null && boardToolApproval !== null
-  const allowAlwaysOptions = options.filter((option) => option.intent === 'approveAlways')
   const approvalNote = explainBoardTool
     ? boardToolNote({
       phrase: boardToolPhrase(namedBoardTool),
       runtimeName: runtime.presentation.name,
       permanentApprovalSetting: boardToolApproval.permanentApprovalSetting,
-      hasPermanentOption: allowAlwaysOptions.length > 0,
+      hasPermanentOption: offersPermanentGrant(options),
     })
     : null
 
@@ -356,20 +355,17 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false }: {
   ]
   const actions: ApprovalDialogAction[] = actionOptions.map((option) => ({
     id: option.id,
-    label: explainBoardTool && option.intent === 'approveAlways' &&
-      boardToolApproval?.sessionOptionLabel &&
-      !/future sessions/i.test(`${option.label} ${option.description ?? ''}`) &&
-      /session/i.test(`${option.label} ${option.description ?? ''}`)
-      ? boardToolApproval.sessionOptionLabel
+    label: explainBoardTool && boardToolApproval?.sessionOptionLabel
+      ? boardToolLabel(option, options, boardToolApproval.sessionOptionLabel)
       : option.label,
     description: option.description,
     icon: INTENT_ICON[option.intent],
     shortcut: options.indexOf(option) + 1,
     // When the card explains a board-tool request, a permanent grant is shown quiet and apart from the plain
     // "Allow", so granting it is a deliberate click and never the filled, default-looking choice.
-    placement: option.intent === 'deny' || option.intent === 'cancel' || (explainBoardTool && option.intent === 'approveAlways')
-      ? 'safe'
-      : 'proceed',
+    placement: explainBoardTool
+      ? boardToolPlacement(option)
+      : option.intent === 'deny' || option.intent === 'cancel' ? 'safe' : 'proceed',
     tone: option.intent === 'deny' ? 'destructive' : 'default',
     onSelect: () => choose(option),
   }))

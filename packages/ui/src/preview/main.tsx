@@ -57,7 +57,7 @@ import { PREVIEW_FLOW_GOAL, PREVIEW_GOAL, PREVIEW_TRIGGER_GOAL } from './goal-fi
 import { GOAL_INTAKE_SCENES, sceneArmPreview, sceneGoalStatus, triggerFiring, triggerHistoryPage, triggerProjectView, TRIGGER_ARM_SCENES, type GoalIntakeScene, type TriggerArmScene } from './intake-fixture'
 import { FLOW_EXECUTION_SCENES, sceneFlowExecution, type FlowExecutionScene } from './flow-fixture'
 import { COMPOSER_SESSION_KEY, composerStore } from './composer-fixture'
-import { boardToolApprovalNote } from './approval-fixture'
+import { BOARD_TOOL_FRAMES, boardToolFrame } from './approval-fixture'
 import { MessageQueue } from '../components/MessageQueue'
 import { GoalFrames } from './frames-goals'
 import { PanelFrames } from './frames-panels'
@@ -574,24 +574,17 @@ const Preview = () => {
       {/* The two real permission-card states shown by the design catalogue:
           Gemini offered an allow-always choice, or its permanent approval
           setting is off. */}
-      {SHOW_BOARD_TOOL_APPROVALS && <div className="grid grid-cols-2 gap-4">
-        <Frame id="board-tool-approval-always" title="Permission — session option offered">
-          <ApprovalDialog title="Permission" icon={null} focused={false} focusKey="preview-board-tool-always" placement="docked" actions={[
-            { id: 'deny', label: 'Deny', shortcut: 1, placement: 'safe', onSelect: () => {} },
-            { id: 'always', label: 'Allow for this session', description: 'Allows this tool for the rest of this session.', shortcut: 2, placement: 'safe', onSelect: () => {} },
-            { id: 'once', label: 'Allow once', shortcut: 3, placement: 'proceed', onSelect: () => {} },
-          ]}>
-            {(() => { const note = boardToolApprovalNote(true); return <ApprovalReason title={note.title}>{note.text}</ApprovalReason> })()}
-          </ApprovalDialog>
-        </Frame>
-        <Frame id="board-tool-approval-setting" title="Permission — no permanent option">
-          <ApprovalDialog title="Permission" icon={null} focused={false} focusKey="preview-board-tool-setting" placement="docked" actions={[
-            { id: 'deny', label: 'Deny', shortcut: 1, placement: 'safe', onSelect: () => {} },
-            { id: 'once', label: 'Allow once', shortcut: 2, placement: 'proceed', onSelect: () => {} },
-          ]}>
-            {(() => { const note = boardToolApprovalNote(); return <ApprovalReason title={note.title}>{note.text}</ApprovalReason> })()}
-          </ApprovalDialog>
-        </Frame>
+      {SHOW_BOARD_TOOL_APPROVALS && <div className="grid grid-cols-3 gap-4">
+        {BOARD_TOOL_FRAMES.map(({ state, caseId, title }) => {
+          const frame = boardToolFrame(state, () => {})
+          return (
+            <Frame key={state} id={caseId} title={title}>
+              <ApprovalDialog title="Permission" icon={null} focused={false} focusKey={`preview-board-tool-${state}`} placement="docked" actions={frame.actions}>
+                <ApprovalReason title={frame.note.title}>{frame.note.text}</ApprovalReason>
+              </ApprovalDialog>
+            </Frame>
+          )
+        })}
       </div>}
       <Frame id="board-person-review" title="Board — choose an attempt for the person judge">
         <div className="h-[560px]">
