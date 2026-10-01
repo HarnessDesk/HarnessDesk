@@ -441,6 +441,11 @@ is returned directly in the claim response. Agents do not need to remember to
 call `get_context(intent)`, though the tool remains available to re-read
 contracts out of order.
 
+Closing a review round records the verdict on the board; it does not post from
+the reviewer Seat. The desk handles publication after the round closes,
+according to the person's per-Goal posting setting (on by default for a bound
+pull request).
+
 If an agent must abandon a task, it calls `release_claim(intent, reason?,
 blocked?)`:
 - Passing `blocked: false` returns the intent to Ready and frees its files.

@@ -1,5 +1,5 @@
 import type { ForgeSeat, HarnessContext, HarnessPlugin } from '@harnessdesk/cordis-host'
-import { DESK_POST_MARKER, type ForgeReference, type ScopeQuery } from '@harnessdesk/protocol'
+import { DESK_POST_MARKER, GIT_READ_HARDENING_ARGS, type ForgeReference, type ScopeQuery } from '@harnessdesk/protocol'
 
 /**
  * Git tools, available to every agent.
@@ -402,7 +402,12 @@ export const gitPlugin: HarnessPlugin = {
     apply(ctx: HarnessContext, config: GitConfig) {
       const git = async (args: readonly string[]): Promise<string> => {
         if (!ctx.workspace.root) throw new Error('No workspace is open.')
-        const result = await ctx.shell.run('git', args)
+        const [verb, ...rest] = args
+        const hardened = verb === 'diff' || verb === 'show'
+          ? [verb, '--no-ext-diff', '--no-textconv', ...rest]
+          : args
+        const command = [...GIT_READ_HARDENING_ARGS, ...hardened]
+        const result = await ctx.shell.run('git', command)
         if (result.exitCode !== 0 && !result.stdout) {
           throw new Error(result.stderr.trim() || `git ${args[0]} failed`)
         }
