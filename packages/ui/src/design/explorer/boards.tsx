@@ -6,6 +6,7 @@ import { AlertIcon, BranchIcon, BriefIcon, CaretIcon, CheckIcon, CrossIcon, Filt
 import { RuntimeMark } from '../../components/BrandIcons'
 import { DiffView } from '../../components/Diff'
 import { TurnFiles } from '../../components/TurnFiles'
+import { Notices } from '../../components/Notices'
 import { Toaster } from '../ui/toast'
 import { ItemView } from '../../components/Items'
 import { Markdown } from '../../components/Markdown'
@@ -1092,9 +1093,16 @@ const catalogueTurnFilesStore = {
   closeTurnFiles: () => {},
   setDetailsTab: () => {},
   openFile: () => {},
+  dismissNotice: () => {},
 } as unknown as AppStore
+const catalogueRefusedMessage = 'Cannot put back /workspace/src/empty.ts: the agent recorded no content for it. Nothing was changed.'
+const catalogueRefusedSnapshot = {
+  ...catalogueTurnFilesSnapshot,
+  notices: [{ id: 'catalogue-undo-refused', level: 'error', message: catalogueRefusedMessage, at: 0 }],
+}
 const catalogueRefusedTurnFilesStore = {
   ...catalogueTurnFilesStore,
+  getSnapshot: () => catalogueRefusedSnapshot,
   revertTurn: async () => ({ done: false, unrecoverable: true, partial: false }),
 } as unknown as AppStore
 const cataloguePartialTurnFilesStore = {
@@ -1110,6 +1118,17 @@ const CATALOGUE_TURN_SEVERAL: readonly FileChange[] = [
   { path: '/workspace/src/receipt.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-old\n+new\n' },
   { path: '/workspace/src/tax.ts', kind: { type: 'add' }, diff: '+export const tax = 0\n' },
 ]
+const CATALOGUE_UNRECOVERABLE_CHANGES: readonly FileChange[] = [
+  { path: '/workspace/src/checkout.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-old\n+new\n' },
+  { path: '/workspace/src/empty.ts', kind: { type: 'delete' }, diff: '' },
+  { path: '/workspace/src/receipt.ts', kind: { type: 'add' }, diff: '+export const receipt = true\n' },
+]
+const CATALOGUE_UNRECOVERABLE_TURN = {
+  id: turnId('catalogue-unrecoverable'),
+  items: [{ id: 'catalogue-file-changes', type: 'fileChange', changes: CATALOGUE_UNRECOVERABLE_CHANGES }],
+  status: 'completed',
+  diff: null,
+} as unknown as Turn
 const CatalogueRevertedTurnFiles = () => {
   const host = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -1119,13 +1138,13 @@ const CatalogueRevertedTurnFiles = () => {
   }, [])
   return <div ref={host}><TurnFiles turn={CATALOGUE_TURN} changes={CATALOGUE_TURN_SEVERAL} root="/workspace" /></div>
 }
-const CatalogueUndoTurnFiles = () => {
+const CatalogueUndoTurnFiles = ({ turn, changes }: { turn: Turn; changes: readonly FileChange[] }) => {
   const host = useRef<HTMLDivElement>(null)
   useEffect(() => {
     // Resolve the real card's Undo action through the staged store answer.
     host.current?.querySelector<HTMLButtonElement>('button[title^="Put these files back"]')?.click()
   }, [])
-  return <div ref={host}><TurnFiles turn={CATALOGUE_TURN} changes={CATALOGUE_TURN_SEVERAL} root="/workspace" /></div>
+  return <div ref={host}><TurnFiles turn={turn} changes={changes} root="/workspace" /></div>
 }
 const CATALOGUE_DIFF = [
   'diff --git a/src/new.ts b/src/new.ts',
@@ -1355,12 +1374,14 @@ const CodeBoard = () => (
     </Case>
     <Case label="Undo refused: the unrecoverable file is named and the rest can be put back">
       <StoreProvider store={catalogueRefusedTurnFilesStore}>
-        <CatalogueUndoTurnFiles />
+        <Notices />
+        <Toaster />
+        <CatalogueUndoTurnFiles turn={CATALOGUE_UNRECOVERABLE_TURN} changes={CATALOGUE_UNRECOVERABLE_CHANGES} />
       </StoreProvider>
     </Case>
     <Case label="partial Undo: Close stays greyed until the half changed turn is resolved">
       <StoreProvider store={cataloguePartialTurnFilesStore}>
-        <CatalogueUndoTurnFiles />
+        <CatalogueUndoTurnFiles turn={CATALOGUE_UNRECOVERABLE_TURN} changes={CATALOGUE_UNRECOVERABLE_CHANGES} />
       </StoreProvider>
     </Case>
     <Case label="a runtime's own command record, unwrapped as the command plate">
