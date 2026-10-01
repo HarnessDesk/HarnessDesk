@@ -708,7 +708,7 @@ export class Flows implements TeamFlows {
   }
 
   #modernCard(room: string, intent: number): boolean {
-    return this.#executions?.runs(room).some((run) => run.rounds.some((round) => round.cards.includes(intent))) ?? false
+    return this.#executions ? this.#executions.ownsCard(room, intent) !== null : false
   }
 
   #goalState(room: string): { goalExists: boolean; goalWritable: boolean } {

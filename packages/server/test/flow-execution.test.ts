@@ -65,6 +65,91 @@ test('a mixed round only opens the judge once every one of its cards has finishe
   )
 })
 
+test('a person finishing a card while its round is being journaled still advances the run', async (t) => {
+  const rig = await goalRig(t)
+  let saveStarted!: () => void
+  const saving = new Promise<void>((resolve) => { saveStarted = resolve })
+  let finishCard!: (id: number) => void
+  const cardFinished = new Promise<number>((resolve) => { finishCard = resolve })
+  let releaseSave!: () => void
+  const saveGate = new Promise<void>((resolve) => { releaseSave = resolve })
+  const save = rig.files.save.bind(rig.files)
+  let personCompletion: Promise<void> | null = null
+  rig.files.save = async (run) => {
+    if (run.rounds.some((round) => round.cards.length > 0)) {
+      saveStarted()
+      await saveGate
+    }
+    await save(run)
+  }
+  let completing = false
+  rig.onBoardChanged = (state) => {
+    const card = state.intents.find((one) => one.role === 'ship')
+    if (!card) return
+    if (card.state === 'done') {
+      finishCard(card.id)
+    } else if (!completing) {
+      completing = true
+      personCompletion = rig.team.intentAction(state.id, card.id, 'done', undefined, 'shipped')
+    }
+  }
+
+  const start = rig.start(`
+version: 2
+name: Ship it
+roles:
+  ship: { kind: person, outcomes: [shipped] }
+seed: { role: ship, title: Ship it }
+`, [])
+  await saving
+  const card = await cardFinished
+  await personCompletion
+  releaseSave()
+  const run = await start
+  await rig.flows.flush()
+
+  assert.equal(rig.board(run.goal).intents.find((one) => one.id === card)?.state, 'done')
+  assert.equal(rig.flows.executionsFor(run.goal)[0]?.state, 'settled')
+})
+
+test('a card outcome is validated while its round is being journaled', async (t) => {
+  const rig = await goalRig(t)
+  let saveStarted!: () => void
+  const saving = new Promise<void>((resolve) => { saveStarted = resolve })
+  let cardAppeared!: (value: { readonly goal: string; readonly id: number }) => void
+  const appeared = new Promise<{ readonly goal: string; readonly id: number }>((resolve) => { cardAppeared = resolve })
+  let releaseSave!: () => void
+  const saveGate = new Promise<void>((resolve) => { releaseSave = resolve })
+  const save = rig.files.save.bind(rig.files)
+  rig.files.save = async (run) => {
+    if (run.rounds.some((round) => round.cards.length > 0)) {
+      saveStarted()
+      await saveGate
+    }
+    await save(run)
+  }
+  rig.onBoardChanged = (state) => {
+    const card = state.intents.find((one) => one.role === 'ship')
+    if (card?.state === 'open') cardAppeared({ goal: state.id, id: card.id })
+  }
+
+  const start = rig.start(`
+version: 2
+name: Ship it
+roles:
+  ship: { kind: person, outcomes: [shipped] }
+seed: { role: ship, title: Ship it }
+`, [])
+  await saving
+  const card = await appeared
+  const intent = rig.board(card.goal).intents.find((one) => one.id === card.id)!
+  const refusal = rig.flows.refuseOutcome(card.goal, intent, 'approve')
+  releaseSave()
+  await start
+
+  assert.match(refusal ?? '', /not an answer|accepts shipped/i)
+})
+
 test('candidates asked for the moment a person review card reaches the board wait for its round to finish opening', async (t) => {
   // The card is committed while its round still reads `opening`; a read that did not wait for the run's queue saw no
   // binding and offered nothing to pick (CI on #1161).

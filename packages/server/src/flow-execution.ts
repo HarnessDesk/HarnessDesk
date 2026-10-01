@@ -664,6 +664,22 @@ const realPathOf = async (path: string): Promise<string> => {
 
 const done = (card: Intent | undefined): boolean => card?.state === 'done' || card?.state === 'abandoned'
 
+interface CardDispatch {
+  readonly run: string
+  readonly round: number
+  readonly slot: number
+}
+
+const cardDispatch = (value: string | null | undefined): CardDispatch | null => {
+  const match = value?.match(/^(.+):(\d+):(\d+)$/)
+  if (!match) return null
+  const round = Number(match[2])
+  const slot = Number(match[3])
+  return Number.isSafeInteger(round) && Number.isSafeInteger(slot)
+    ? { run: match[1]!, round, slot }
+    : null
+}
+
 /** What a run records when its Seat's question on `card` went unanswered: one sentence, written and recognised here. */
 const questionStall = (card: number, reason: string): string => `Card #${card}: its Seat ${reason}. Its answer so far is kept.`
 
@@ -1438,6 +1454,23 @@ export class FlowExecutions {
     return [...this.#runs.values()].find((run) => run.goal === goal && run.rounds.some((round) => round.cards.includes(card))) ?? null
   }
 
+  /**
+   * A board card can arrive before its round journal. Resolve its dispatch in
+   * that window so callers can route it to the run.
+   */
+  ownsCard(goal: string, card: number): StoredFlowExecution | null {
+    const run = this.#runOfCard(goal, card)
+    if (run) return run
+    const intent = this.#team.stateFor(goal).intents.find((one) => one.id === card)
+    const dispatch = cardDispatch(intent?.dispatch)
+    if (!dispatch) return null
+    const candidate = this.#runs.get(dispatch.run)
+    if (!candidate || candidate.goal !== goal) return null
+    return candidate.rounds.some((round) => round.n === dispatch.round && !round.cards.includes(card))
+      ? candidate
+      : null
+  }
+
   /** The Seat bound to a card, from the run's own journal. */
   #seatForCard(run: StoredFlowExecution, card: number): { readonly operation: FlowOperation | null; readonly seat: SeatRecord | null } {
     const operation = run.operations.find((one) => one.kind === 'seat' && one.card === card) ?? null
@@ -1460,13 +1493,18 @@ export class FlowExecutions {
   }
 
   refuseOutcome(goal: string, intent: Intent, outcome: string | null): string | null {
-    const run = this.#runOfCard(goal, intent.id)
+    const run = this.ownsCard(goal, intent.id)
     if (!run || run.document.format !== 'agents') return null
-    const round = run.rounds.find((one) => one.cards.includes(intent.id))!
+    const dispatch = cardDispatch(intent.dispatch)
+    const round = run.rounds.find((one) => one.cards.includes(intent.id)) ??
+      (dispatch?.run === run.id ? run.rounds.find((one) => one.n === dispatch.round) : undefined)
+    if (!round) return null
+    const index = round.cards.indexOf(intent.id)
+    const slot = index >= 0 ? index : dispatch?.run === run.id && dispatch.round === round.n ? dispatch.slot : -1
     const role = run.document.flow.roles.find((one) => one.id === round.role)
     let answers: readonly string[] = []
     if (role?.kind === 'agent') {
-      const declared = bindingsFor(run, role.id)[round.cards.indexOf(intent.id)]?.agent.answers ?? []
+      const declared = bindingsFor(run, role.id)[slot]?.agent.answers ?? []
       answers = roleAnswers(policyOf(run), role.id, declared)
     } else if (role?.kind === 'person') answers = role.outcomes
     if (answers.length === 0) return null
@@ -3338,7 +3376,7 @@ export class FlowExecutions {
   // -------------------------------------------------------------- advance
 
   completed(goal: string, card: number): void {
-    const run = this.#runOfCard(goal, card)
+    const run = this.ownsCard(goal, card)
     if (!run) return
     void this.#queue.within(run.id, () => this.#advance(run.id)).catch((error: unknown) => {
       this.#port.log('a flow could not open its next round', { run: run.id, error: error instanceof Error ? error.message : String(error) })
