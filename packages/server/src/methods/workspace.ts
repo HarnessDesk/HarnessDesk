@@ -136,11 +136,13 @@ export const workspaceMethods = {
     if (metadata.size !== undefined && metadata.size > WORKSPACE_BINARY_LIMIT_BYTES) {
       return { kind: 'tooLarge' as const, size: metadata.size }
     }
-    const readLimit = params.encoding === 'base64' ? WORKSPACE_BINARY_LIMIT_BYTES : WORKSPACE_TEXT_LIMIT_BYTES
+    // One bounded read serves both the text editor and image preview. Binary
+    // content is classified before the smaller text limit is applied below.
+    const readLimit = WORKSPACE_BINARY_LIMIT_BYTES
     let bytes: Uint8Array
     try {
-      // Read one byte over the applicable limit so a service without size
-      // metadata can still distinguish an exact-limit file from an oversized one.
+      // Read one byte over the hard limit so a service without size metadata
+      // can still distinguish an exact-limit file from an oversized one.
       bytes = await files.read(path, readLimit + 1)
     } catch (thrown) {
       if (thrown instanceof RuntimeFileTooLargeError) return { kind: 'tooLarge' as const, size: thrown.size }
@@ -151,12 +153,10 @@ export const workspaceMethods = {
     if (bytes.byteLength > WORKSPACE_BINARY_LIMIT_BYTES) {
       return { kind: 'tooLarge' as const, size: Math.max(size, bytes.byteLength) }
     }
-    if (params.encoding === 'base64') {
-      return { kind: 'binary' as const, content: Buffer.from(bytes).toString('base64'), size, hash: sha256(bytes) }
-    }
     if (isBinaryFile(bytes)) {
       return {
         kind: 'binary' as const,
+        ...(params.encoding === 'base64' ? { content: Buffer.from(bytes).toString('base64') } : {}),
         size,
         ...(bytes.byteLength <= WORKSPACE_TEXT_LIMIT_BYTES && size <= WORKSPACE_TEXT_LIMIT_BYTES ? { hash: sha256(bytes) } : {}),
       }

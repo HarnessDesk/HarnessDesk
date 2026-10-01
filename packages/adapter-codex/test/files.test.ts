@@ -39,14 +39,20 @@ test('an empty query returns nothing, and never asks Codex', async (t) => {
   assert.deepEqual(await runtime.files.search([], 'x', 10), [])
 })
 
-test('CodexFiles returns normal contents and refuses oversized contents without returning them', async (t) => {
-  const runtime = await started(t, { FAKE_CODEX_LARGE_FILE_BYTES: '64' })
+test('CodexFiles returns normal and medium image contents but refuses files over the limit', async (t) => {
+  const runtime = await started(t, {
+    FAKE_CODEX_MEDIUM_IMAGE_BYTES: String(3 * 1024 * 1024),
+    FAKE_CODEX_LARGE_FILE_BYTES: String(10 * 1024 * 1024 + 1),
+  })
   const metadata = await runtime.files.stat('/w/README.md')
   assert.equal(metadata.size, undefined)
   assert.equal(Buffer.from(await runtime.files.read('/w/README.md', 32)).toString('utf8'), 'hello from w\n')
+  const mediumImage = await runtime.files.read('/w/medium.png', 10 * 1024 * 1024 + 1)
+  assert.equal(mediumImage.byteLength, 3 * 1024 * 1024)
+  assert.deepEqual([...mediumImage.slice(0, 4)], [0x89, 0x50, 0x4e, 0x47])
   await assert.rejects(
-    () => runtime.files.read('/w/large.bin', 16),
-    (error: unknown) => error instanceof RuntimeFileTooLargeError && error.kind === 'tooLarge' && error.size === 64,
+    () => runtime.files.read('/w/large.bin', 10 * 1024 * 1024),
+    (error: unknown) => error instanceof RuntimeFileTooLargeError && error.kind === 'tooLarge' && error.size === 10 * 1024 * 1024 + 1,
   )
   await assert.rejects(() => runtime.files.stat('/w/nope.md'), /No such file/)
 })

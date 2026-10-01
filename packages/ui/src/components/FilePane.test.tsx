@@ -128,14 +128,14 @@ it.each([
   expect(container.textContent).toContain(message)
 })
 
-it('shows a too-large state if an image crosses the cap before its preview read', async () => {
+it('previews a 2–10 MiB image from the single bounded read', async () => {
+  const size = 3 * 1024 * 1024
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     reportEditor: vi.fn(),
-    transport: { request: vi.fn(async (method: string, params?: { encoding?: string }) => {
-      if (method === 'workspace/readFile' && params?.encoding === 'base64') return { kind: 'tooLarge', size: 10 * 1024 * 1024 + 1 }
-      if (method === 'workspace/readFile') return { kind: 'binary', size: 1024, hash: 'hash' }
+    transport: { request: vi.fn(async (method: string, params?: { maxBytes?: number; encoding?: string }) => {
+      if (method === 'workspace/readFile') return { kind: 'binary', content: 'aGVsbG8=', size, hash: 'hash' }
       return { kind: 'file', isSymlink: false, modifiedAt: 1 }
     }) },
   } as unknown as AppStore
@@ -147,19 +147,18 @@ it('shows a too-large state if an image crosses the cap before its preview read'
     </StoreProvider>,
   ))
   await settle()
-  expect(container.textContent).toContain('File too large — 10.0 MB')
-  expect(container.textContent).not.toContain('Binary file —')
+  expect(container.querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,aGVsbG8=')
+  expect(store.transport.request).toHaveBeenCalledTimes(2) // one file read and one stat
+  expect(store.transport.request).toHaveBeenCalledWith('workspace/readFile', expect.objectContaining({ maxBytes: 10 * 1024 * 1024, encoding: 'base64' }))
 })
 
-it('renders a supported image result as a preview', async () => {
+it('renders an image result from one read', async () => {
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     reportEditor: vi.fn(),
-    transport: { request: vi.fn(async (method: string, params?: { encoding?: string }) => {
-    if (method === 'workspace/readFile' && params?.encoding === 'base64')
-      return { kind: 'binary', content: 'aGVsbG8=', size: 5, hash: 'hash' }
-    if (method === 'workspace/readFile') return { kind: 'binary', content: '', size: 5, hash: 'hash' }
+    transport: { request: vi.fn(async (method: string) => {
+    if (method === 'workspace/readFile') return { kind: 'binary', content: 'aGVsbG8=', size: 5, hash: 'hash' }
     return { kind: 'file', isSymlink: false, modifiedAt: 1 }
     }) },
   } as unknown as AppStore

@@ -1,5 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { WORKSPACE_BINARY_LIMIT_BYTES } from '@harnessdesk/protocol'
+
 import { editorLook } from '../lib/editor-prefs'
 import { useSnapshot, useStore } from '../state/context'
 import { useMount } from '../panels/mount'
@@ -92,7 +94,7 @@ export const FileConflictNotice = ({
 const IMAGE_TYPES: Readonly<Record<string, string>> = {
   avif: 'image/avif', gif: 'image/gif', jpeg: 'image/jpeg', jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
 }
-const MAX_PREVIEW_IMAGE_BYTES = 10 * 1024 * 1024
+const MAX_PREVIEW_IMAGE_BYTES = WORKSPACE_BINARY_LIMIT_BYTES
 
 export const FilePane = () => {
   const store = useStore()
@@ -134,8 +136,15 @@ export const FilePane = () => {
   const load = useCallback(async (): Promise<void> => {
     if (!path || !runtime) return
     try {
+      const extension = path.split('.').pop()?.toLowerCase() ?? ''
+      const mediaType = IMAGE_TYPES[extension]
       const [file, meta] = await Promise.all([
-        store.transport.request('workspace/readFile', { path, runtime }),
+        store.transport.request('workspace/readFile', {
+          path,
+          runtime,
+          maxBytes: WORKSPACE_BINARY_LIMIT_BYTES,
+          ...(mediaType ? { encoding: 'base64' as const } : {}),
+        }),
         store.transport.request('workspace/stat', { path, runtime }).catch(() => null),
       ])
       modifiedAt.current = meta?.modifiedAt ?? null
@@ -154,23 +163,10 @@ export const FilePane = () => {
       } else if (file.kind === 'binary') {
         setLoaded(null)
         setReadProblem(null)
-        const extension = path.split('.').pop()?.toLowerCase() ?? ''
-        const mediaType = IMAGE_TYPES[extension]
-        let imageSrc: string | null = null
-        let oversized: { kind: 'tooLarge'; size: number } | null = null
-        if (mediaType && file.size <= MAX_PREVIEW_IMAGE_BYTES) {
-          try {
-            const encoded = await store.transport.request('workspace/readFile', { path, runtime, encoding: 'base64' })
-            if (encoded.kind === 'binary' && encoded.content !== undefined) imageSrc = `data:${mediaType};base64,${encoded.content}`
-            else if (encoded.kind === 'tooLarge') oversized = encoded
-          } catch { /* Keep the binary summary if a preview read is refused. */ }
-        }
-        if (oversized) {
-          setBinary(null)
-          setReadProblem(oversized)
-        } else {
-          setBinary({ size: file.size, imageSrc })
-        }
+        const imageSrc = mediaType && file.size <= MAX_PREVIEW_IMAGE_BYTES && file.content !== undefined
+          ? `data:${mediaType};base64,${file.content}`
+          : null
+        setBinary({ size: file.size, imageSrc })
       } else {
         setLoaded(file)
         setBinary(null)

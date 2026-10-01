@@ -1511,13 +1511,17 @@ rl.on('line', (line) => {
         return
       }
       const largeFileBytes = Number(process.env['FAKE_CODEX_LARGE_FILE_BYTES'])
+      const mediumImageBytes = Number(process.env['FAKE_CODEX_MEDIUM_IMAGE_BYTES'])
       const content = FILES[params.path]
-      if (content === undefined && !(params.path === '/w/large.bin' && Number.isSafeInteger(largeFileBytes) && largeFileBytes >= 0)) {
+      if (content === undefined && !(params.path === '/w/large.bin' && Number.isSafeInteger(largeFileBytes) && largeFileBytes >= 0)
+        && !(params.path === '/w/medium.png' && Number.isSafeInteger(mediumImageBytes) && mediumImageBytes >= 4)) {
         send({ id, error: { code: -32600, message: 'No such file or directory (os error 2)' } })
         return
       }
       const bytes = params.path === '/w/large.bin'
         ? Buffer.alloc(largeFileBytes, 0x61)
+        : params.path === '/w/medium.png'
+          ? Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.alloc(mediumImageBytes - 4, 0x61)])
         : Buffer.from(content)
       send({ id, result: { dataBase64: bytes.toString('base64') } })
       return
@@ -1615,7 +1619,10 @@ rl.on('line', (line) => {
 
     case 'fs/getMetadata': {
       const largeFileBytes = Number(process.env['FAKE_CODEX_LARGE_FILE_BYTES'])
-      const isFile = params.path in FILES || (params.path === '/w/large.bin' && Number.isSafeInteger(largeFileBytes) && largeFileBytes >= 0)
+      const mediumImageBytes = Number(process.env['FAKE_CODEX_MEDIUM_IMAGE_BYTES'])
+      const isFile = params.path in FILES
+        || (params.path === '/w/large.bin' && Number.isSafeInteger(largeFileBytes) && largeFileBytes >= 0)
+        || (params.path === '/w/medium.png' && Number.isSafeInteger(mediumImageBytes) && mediumImageBytes >= 4)
       const isDirectory = DIRECTORIES.includes(params.path)
       if (!isFile && !isDirectory) {
         send({ id, error: { code: -32600, message: 'No such file or directory (os error 2)' } })

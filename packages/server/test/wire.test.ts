@@ -1431,11 +1431,14 @@ test('workspace reads refuse text just over 2 MiB and files just over 10 MiB', a
   const textLimit = 2 * 1024 * 1024
   const fileLimit = 10 * 1024 * 1024
   const textPath = join(harness.stateDir, 'large.txt')
+  const mediumTextPath = join(harness.stateDir, 'medium.txt')
   const binaryPath = join(harness.stateDir, 'large.png')
   await writeFile(textPath, Buffer.alloc(textLimit + 1, 0x61))
+  await writeFile(mediumTextPath, Buffer.alloc(3 * 1024 * 1024, 0x61))
   await writeFile(binaryPath, Buffer.alloc(fileLimit + 1))
 
   assert.deepEqual(await client.call('workspace/readFile', { path: textPath }), { kind: 'tooLarge', size: textLimit + 1 })
+  assert.deepEqual(await client.call('workspace/readFile', { path: mediumTextPath }), { kind: 'tooLarge', size: 3 * 1024 * 1024 })
   assert.deepEqual(await client.call('workspace/readFile', { path: binaryPath }), { kind: 'tooLarge', size: fileLimit + 1 })
   assert.deepEqual(await client.call('workspace/readFile', { path: binaryPath, encoding: 'base64' }), { kind: 'tooLarge', size: fileLimit + 1 })
 
@@ -1452,13 +1455,31 @@ test('workspace reads refuse text just over 2 MiB and files just over 10 MiB', a
 
   const runtimeBytesPath = join(harness.stateDir, 'runtime-bytes.bin')
   harness.runtime.files.tree[runtimeBytesPath] = 'fixture'
+  const runtimeMediumTextPath = join(harness.stateDir, 'runtime-medium.txt')
+  harness.runtime.files.tree[runtimeMediumTextPath] = 'x'.repeat(3 * 1024 * 1024)
+  const mediumImagePath = join(harness.stateDir, 'runtime-medium.png')
   const originalRead = harness.runtime.files.read.bind(harness.runtime.files)
-  harness.runtime.files.read = async (path) => path === runtimeBytesPath
-    ? Buffer.alloc(fileLimit + 1)
-    : originalRead(path)
+  harness.runtime.files.read = async (path) => {
+    if (path === runtimeBytesPath) return Buffer.alloc(fileLimit + 1)
+    if (path === mediumImagePath) {
+      harness.runtime.files.calls.push(`read ${path}`)
+      return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0]), Buffer.alloc(3 * 1024 * 1024 - 5)])
+    }
+    return originalRead(path)
+  }
   assert.deepEqual(await client.call('workspace/readFile', {
     path: runtimeBytesPath, runtime: FAKE_RUNTIME_ID, encoding: 'base64',
   }), { kind: 'tooLarge', size: fileLimit + 1 })
+  const mediumImage = await client.call('workspace/readFile', {
+    path: mediumImagePath, runtime: FAKE_RUNTIME_ID, encoding: 'base64', maxBytes: fileLimit,
+  }) as { kind: string; content?: string; size?: number }
+  assert.equal(mediumImage.kind, 'binary')
+  assert.equal(mediumImage.size, 3 * 1024 * 1024)
+  assert.equal(Buffer.from(mediumImage.content ?? '', 'base64').byteLength, 3 * 1024 * 1024)
+  assert.equal(harness.runtime.files.calls.filter((call) => call.startsWith(`read ${mediumImagePath}`)).length, 1)
+  assert.deepEqual(await client.call('workspace/readFile', {
+    path: runtimeMediumTextPath, runtime: FAKE_RUNTIME_ID, maxBytes: fileLimit,
+  }), { kind: 'tooLarge', size: 3 * 1024 * 1024 })
 })
 
 test('bounded runtime reads report oversized files and saves preserve them', async (t) => {

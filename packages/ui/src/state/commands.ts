@@ -1,4 +1,4 @@
-import type { CapabilityContribution, ConfigOption, RuntimeId } from '@harnessdesk/protocol'
+import { WORKSPACE_TEXT_LIMIT_BYTES, type CapabilityContribution, type ConfigOption, type RuntimeId } from '@harnessdesk/protocol'
 
 import { offeredHere } from '../lib/contributions'
 import { summonable } from '../panels/views'
@@ -184,6 +184,7 @@ export const BUILTIN_COMMANDS: readonly CommandDefinition[] = [
             const raw = await store.transport.request('workspace/readFile', {
               runtime: storeRuntime(store),
               path: `${root}/package.json`,
+              maxBytes: WORKSPACE_TEXT_LIMIT_BYTES,
             })
             if (raw.kind === 'text') {
               const parsed = JSON.parse(raw.content) as { scripts?: Record<string, string> }
