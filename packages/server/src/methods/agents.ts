@@ -1352,7 +1352,7 @@ export const previewAgent = async (
   agent: string,
   seats: readonly FlowSeat[],
   grant: CeilingLevel,
-  options: { readonly unattended?: boolean; readonly requireHeld?: true } = {},
+  options: { readonly unattended?: boolean; readonly requireHeld?: true; readonly includeCandidateCeilings?: true } = {},
 ): Promise<SeatPlan> => {
   const project = await projectOf(ctx, root)
   const entry = await ctx.agents.read(agent, project)
@@ -1371,5 +1371,7 @@ export const previewAgent = async (
   // A role's own explicit `seats:` reads like `prefer` here: `SeatPlan.from` tells
   // a person "the machine" or "the Agent" chose this list, and a role's own list is
   // the flow author's choice, presented the way an Agent's own `prefer` is.
-  return planSeats(agent, list.seats, desk.offers, words, list.from === 'seats' ? 'prefer' : list.from, need)
+  return planSeats(agent, list.seats, desk.offers, words, list.from === 'seats' ? 'prefer' : list.from, need, {
+    includeCandidateCeilings: options.includeCandidateCeilings,
+  })
 }

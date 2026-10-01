@@ -45,7 +45,7 @@ export interface FlowPreviewPort {
   /** The Agent roster this preview resolves against, project-first. */
   agents(root: string): Promise<readonly AgentEntry[]>
   /** One Agent's seat plan for the exact seats and grant a role names; `requireHeld` passes over every seat that cannot hold. */
-  previewAgent(root: string, agent: string, seats: readonly FlowSeat[], grant: CeilingLevel, options?: { readonly unattended?: boolean; readonly requireHeld?: true }): Promise<SeatPlan>
+  previewAgent(root: string, agent: string, seats: readonly FlowSeat[], grant: CeilingLevel, options?: { readonly unattended?: boolean; readonly requireHeld?: true; readonly includeCandidateCeilings?: true }): Promise<SeatPlan>
   /** Reads the provider a runtime would use in this checkout; null means independence cannot be proven. */
   providerOf?(runtime: string, cwd: string): Promise<string | null>
   /** The checkout whose runtime configuration an opened role would read. */
@@ -258,6 +258,7 @@ export class FlowPreviews {
           const plan = await this.#port.previewAgent(root, binding.agent.id, binding.seats, binding.grant, {
             ...(unattended ? { unattended: true } : {}),
             ...(requireHeld ? { requireHeld: true as const } : {}),
+            includeCandidateCeilings: true,
           })
           raw.push({ role, binding, plan })
         }
@@ -303,17 +304,44 @@ export class FlowPreviews {
         const providerRoot = root
         if (role.independentOf.length > 0 && !plan.blocked) {
           const writerProviders = role.independentOf.flatMap((id) => providersByRole.get(id) ?? [null])
+          // A regular start can still be previewed when none of its predecessor
+          // providers can be read at all. The runner will make the same
+          // independence decision when that role is reached; turning an
+          // unreadable provider into a preview-time refusal here would make an
+          // ordinary dry run fail where it did before this check existed. A
+          // held-only front door remains strict because its token promises the
+          // whole opening plan.
+          const canJudgeIndependence = requireHeld || writerProviders.some((one) => one !== null)
+          if (!canJudgeIndependence) problems.push({
+            level: 'warning',
+            at: `roles.${role.id}`,
+            text: `Can’t read which provider ${role.independentOf.join(', ')} uses here, so independence is checked when this step is reached.`,
+          })
           const knownWriters = new Set<string | null>(writerProviders.length === 0 ? [null] : writerProviders)
+          const warned = new Set<string>()
+          const warnUnknown = (label: string) => {
+            if (warned.has(label)) return
+            warned.add(label)
+            problems.push({
+              level: 'warning',
+              at: `roles.${role.id}`,
+              text: `Can’t confirm that ${label} uses a different provider from ${role.independentOf.join(', ')}, so independence is checked when this step is reached.`,
+            })
+          }
           const candidates = [...plan.candidates]
-          let winner: number | null = null
-          for (let index = 0; index < candidates.length; index += 1) {
+          let winner: number | null = canJudgeIndependence ? null : plan.winner
+          for (let index = 0; canJudgeIndependence && index < candidates.length; index += 1) {
             const candidate = candidates[index]!
             if (candidate.state === 'passed') continue
             // Match execution's pre-open candidate filter, which reads the
             // Goal checkout before the selected Seat is opened.
             const ownProvider = await provider(candidate.seat.runtime, root)
             const reason = independentProviderReason(ownProvider, knownWriters)
-            if (!reason) {
+            // An unreadable provider is not a known clash: an ordinary start may
+            // go ahead, warned, and the run decides when the step is reached. A
+            // held-only front door promises its whole plan, so it stays strict.
+            if (!reason || (reason.kind === 'unknownProvider' && !requireHeld)) {
+              if (reason) warnUnknown(candidate.label)
               winner = index
               break
             }
@@ -327,11 +355,12 @@ export class FlowPreviews {
             }
           }
           let postOpenStall = false
-          if (winner !== null) {
+          if (canJudgeIndependence && winner !== null) {
             const selected = candidates[winner]!
             const actualProvider = await provider(selected.seat.runtime, providerRoot)
             const reason = independentProviderReason(actualProvider, knownWriters)
-            if (reason) {
+            if (reason?.kind === 'unknownProvider' && !requireHeld) warnUnknown(selected.label)
+            else if (reason) {
               candidates[winner] = {
                 ...selected,
                 state: 'passed',

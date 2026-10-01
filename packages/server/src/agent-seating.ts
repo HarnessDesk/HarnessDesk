@@ -653,6 +653,7 @@ export const planSeats = (
   words: SeatWords,
   from: SeatPlan['from'] = 'prefer',
   need?: CeilingNeed,
+  options: { readonly includeCandidateCeilings?: boolean } = {},
 ): SeatPlan => {
   const chosen = chooseSeat(candidates, offers, need)
   const winner = chosen.seat === null ? null : chosen.passed.length
@@ -669,7 +670,7 @@ export const planSeats = (
     candidates: candidates.map((seat, index): SeatCandidate => {
       const passed = chosen.passed[index]
       if (passed) return candidateOf(passed, words)
-      const ceiling: SeatCandidate['ceiling'] = need
+      const ceiling: SeatCandidate['ceiling'] = options.includeCandidateCeilings && need
         ? {
             level: need.level,
             hold: (offers.find((offer) => offer.runtime === seat.runtime)?.holds ?? []).includes(need.level) ? 'held' : 'asked',
