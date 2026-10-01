@@ -117,6 +117,43 @@ export const FIX_PREVIEW: FlowPreview = {
   problems: [],
 }
 
+/** The shipped dry-run states added by #1183 and #1194, composed from the
+ * same FlowPreviewReport the front door uses. Names are fixture personas;
+ * the Gemini refusal is the adapter's own presentation sentence. */
+export const REVIEWER_REASONS_PREVIEW: FlowPreview = {
+  ...FIX_PREVIEW,
+  commands: [],
+  seats: [{
+    role: 'reviewer', index: 0, agent: 'code-reviewer', isolate: false, reviews: true,
+    plan: {
+      id: 'reviewer', from: 'machine', winner: 1, blocked: null,
+      ceiling: { level: 'read', hold: 'held' },
+      candidates: [
+        { seat: { runtime: 'alpha' }, label: 'Alpha', runtimeName: 'Alpha', state: 'passed', reason: { kind: 'sameProvider' }, fix: { kind: 'seats' } },
+        { seat: { runtime: 'beta' }, label: 'Beta', runtimeName: 'Beta', state: 'taken', reason: null, fix: null },
+        { seat: { runtime: 'gamma' }, label: 'Gamma', runtimeName: 'Gamma', state: 'passed', reason: { kind: 'unheld', level: 'read', detail: null }, fix: { kind: 'ceilings' } },
+        { seat: { runtime: 'delta' }, label: 'Delta', runtimeName: 'Delta', state: 'passed', reason: { kind: 'unheld', level: 'read', detail: null }, fix: { kind: 'ceilings' }, alsoPassed: [{ kind: 'sameProvider' }] },
+      ],
+    },
+  }],
+  problems: [{
+    level: 'warning', at: 'roles.reviewer',
+    text: 'Can’t confirm that Beta uses a different provider from fixer, so independence is checked when this step is reached.',
+  }],
+}
+
+export const GEMINI_UNTRUSTED_PREVIEW: FlowPreview = {
+  ...FIX_PREVIEW,
+  // The refused seat alone: the preview page also carries the front door's own two-seat plan.
+  seats: FIX_PREVIEW.seats.filter((seat) => seat.role === 'reviewer'),
+  token: null,
+  commands: [],
+  problems: [{
+    level: 'error', at: 'roles.reviewer.seat',
+    text: "Gemini doesn't trust this folder, so it can't use the board. Open Gemini here, run /permissions trust, and start again.",
+  }],
+}
+
 const LEGACY_SOURCE = [
   '---',
   'name: Old fix',
