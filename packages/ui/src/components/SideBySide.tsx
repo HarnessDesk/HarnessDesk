@@ -120,8 +120,14 @@ export const SideBySide = ({
   }, [])
 
   useEffect(() => {
-    if (!focusedPane) return
     const onCommand = (event: Event): void => {
+      // The app broadcasts a chord to every mounted grid. Focus can move
+      // between them before either focused-pane context has rendered, so the
+      // live DOM owner takes precedence whenever focus is inside a grid.
+      const activeGrid = document.activeElement instanceof Element
+        ? document.activeElement.closest('[data-slot="side-by-side-grid"]')
+        : null
+      if (activeGrid ? activeGrid !== gridRef.current : !focusedPane) return
       const action = (event as CustomEvent<string>).detail
       if (action === 'tile-1' || action === 'tile-2' || action === 'tile-3' || action === 'tile-4') {
         const key = state.tiles[Number(action.slice(-1)) - 1]
