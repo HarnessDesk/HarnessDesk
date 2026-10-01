@@ -26,6 +26,16 @@ test('rewrites worktree and plain checkout paths in links and plain text', () =>
   assert.equal(sanitizeBody(`[test](${worktree}) ${worktree}\n[docs](${checkout}) ${checkout}`),
     '[test](script/post-review.mjs) script/post-review.mjs\n[docs](docs/release.md) docs/release.md')
   assert.equal(sanitizeBody(`Temp ${['', 'tmp', 'cache.txt'].join('/')}`), 'Temp <local path>')
+  assert.equal(sanitizeBody('file:///Users/alice/secret'), '<local path>')
+  assert.equal(sanitizeBody('~/Library/secret'), '<local path>')
+  assert.equal(sanitizeBody('/var/folders/abc/private'), '<local path>')
+  assert.equal(sanitizeBody('/tmp/user-cache/file'), '<local path>')
+  assert.equal(sanitizeBody('file:%252F%252F%252FUsers%252Falice%252Fsecret'), '<local path>')
+  assert.equal(sanitizeBody('\\x2fUsers\\x2falice\\x2fsecret'), '<local path>')
+  assert.equal(sanitizeBody('\\u002fUsers\\u002falice\\u002fsecret'), '<local path>')
+  assert.equal(sanitizeBody('&sol;Users&sol;alice&sol;secret'), '<local path>')
+  assert.equal(sanitizeBody('&#47;Users&#47;alice&#47;secret'), '<local path>')
+  assert.equal(sanitizeBody('&#x2f;Users&#x2f;alice&#x2f;secret'), '<local path>')
 })
 
 const realLookingEmail = ['reviewer', 'example.org'].join(String.fromCharCode(64))
@@ -49,6 +59,41 @@ test('placeholder email domains are allowed', async () => {
   const code = await postReview({ pr: '42', round: '1', by: 'Codex', body: 'dev@example.com', repo: 'owner/repo' }, h.runner, h.io)
   assert.equal(code, 0)
   assert.ok(h.calls.some(isPost))
+})
+
+const encodedPrivateValues = [
+  'file:%2F%2F%2FUsers%2Falice%2Fsecret',
+  '~/Library/Keychains/login.keychain-db',
+  'jane&#64;private.example',
+  'jane\\x40private.example',
+]
+for (const value of encodedPrivateValues) {
+  test(`sanitizes or refuses encoded private text in review and fixes posts: ${value}`, async () => {
+    for (const mode of ['review', 'fixes']) {
+      const h = harness()
+      const options = mode === 'review'
+        ? { pr: '42', round: '1', by: 'Codex', body: value, repo: 'owner/repo' }
+        : { pr: '42', fixes: value, repo: 'owner/repo' }
+      const code = await postReview(options, h.runner, h.io)
+      if (value.includes('private.example')) {
+        assert.equal(code, 2)
+        assert.equal(h.calls.some(isPost), false)
+      } else {
+        assert.equal(code, 0)
+        assert.ok(h.calls.some(isPost))
+        assert.doesNotMatch(h.bodies[0], /Users|alice|Library|Keychains|file:%|~\//)
+      }
+    }
+  })
+}
+
+test('ordinary percent text and HTML amp entities still post', async () => {
+  for (const body of ['Progress is 50% complete.', 'The source includes &amp; in a label.']) {
+    const h = harness()
+    const code = await postReview({ pr: '42', round: '1', by: 'Codex', body, repo: 'owner/repo' }, h.runner, h.io)
+    assert.equal(code, 0)
+    assert.ok(h.calls.some(isPost))
+  }
 })
 
 test('non-author changes-needed review requests changes', async () => {

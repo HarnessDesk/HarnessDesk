@@ -131,6 +131,7 @@ commit that contains each fix so the review trail stays tied to the code.
 The script signs and sanitizes review text, refuses any remaining private
 paths or real email addresses, and supports `--dry-run` to inspect the body
 and command before posting.
+Names and handles are not machine-checked; the poster reads the text before posting.
 
 **Prove the merge changed nothing**, so the build below doesn't have to wait
 on CI to finish before it can start:
