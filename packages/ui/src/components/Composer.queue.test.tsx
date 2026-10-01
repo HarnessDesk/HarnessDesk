@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { sessionKey, type RuntimeInfo, type Session, type SessionQueue } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
+import { draftsOf } from '../state/drafts'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { Composer } from './Composer'
 
@@ -23,10 +24,13 @@ import { Composer } from './Composer'
 let container: HTMLDivElement
 let root: Root
 let mountedSnapshot: AppSnapshot
+let mountedStore: AppStore
 let mountedListeners = new Set<() => void>()
 let mockRecoveries: AppSnapshot['recoverableDrafts'] = new Map()
 
 beforeEach(() => {
+  vi.useFakeTimers()
+  sessionStorage.clear()
   container = document.createElement('div')
   mockRecoveries = new Map()
   document.body.appendChild(container)
@@ -36,6 +40,9 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.clearAllTimers()
+  vi.useRealTimers()
+  sessionStorage.clear()
 })
 
 const KEY = sessionKey('alpha', 's1')
@@ -76,7 +83,8 @@ const calls = {
   addRecoverableDraft: vi.fn((key: ReturnType<typeof sessionKey>, draft: Parameters<AppStore['addRecoverableDraft']>[1]) => {
     const drafts = new Map(mountedSnapshot.recoverableDrafts)
     const items = drafts.get(key) ?? []
-    drafts.set(key, [...items, { ...draft, id: Date.now() + items.length }])
+    draftsOf(mountedStore).addRecoverable(key, draft)
+    drafts.set(key, draftsOf(mountedStore).recoverable(key))
     mockRecoveries = drafts
     mountedSnapshot = { ...mountedSnapshot, recoverableDrafts: drafts }
     mountedListeners.forEach((listener) => listener())
@@ -87,6 +95,40 @@ const calls = {
     mockRecoveries = drafts
     mountedSnapshot = { ...mountedSnapshot, recoverableDrafts: drafts }
     mountedListeners.forEach((listener) => listener())
+  }),
+  restoreRecoverableDraft: vi.fn((key: ReturnType<typeof sessionKey>, id: number) => {
+    const current = [...(mountedSnapshot.recoverableDrafts.get(key) ?? [])]
+    const selected = current.find((entry) => entry.id === id)
+    if (!selected) return null
+    const live = draftsOf(mountedStore).live(key)
+    draftsOf(mountedStore).setLive(key, {
+      text: selected.text,
+      attachments: selected.attachments.map((attachment, index) => ({
+        ...attachment,
+        id: attachment.id ?? `restored-${id}-${index}`,
+      })),
+    })
+    if (live && (live.text.trim() || live.attachments.length)) {
+      current.push({
+        ...live,
+        id: Date.now() + current.length,
+        createdAt: Date.now(),
+        reason: 'saved',
+        detail: 'Restore it to swap with the current draft.',
+      })
+    }
+    mountedSnapshot = {
+      ...mountedSnapshot,
+      recoverableDrafts: new Map(mountedSnapshot.recoverableDrafts).set(key, current.filter((entry) => entry.id !== id)),
+    }
+    mountedListeners.forEach((listener) => listener())
+    return {
+      text: selected.text,
+      attachments: selected.attachments.map((attachment, index) => ({
+        ...attachment,
+        id: attachment.id ?? `restored-${id}-${index}`,
+      })),
+    }
   }),
 }
 
@@ -115,7 +157,7 @@ const mount = ({
     queues: queue ? new Map([[key, queue]]) : new Map(),
     recoverableDrafts: mockRecoveries,
   }
-  const store = {
+  mountedStore = {
     subscribe: (listener: () => void) => { mountedListeners.add(listener); return () => mountedListeners.delete(listener) },
     getSnapshot: () => mountedSnapshot,
     transport: { request: vi.fn() },
@@ -123,7 +165,7 @@ const mount = ({
   } as unknown as AppStore
   act(() => {
     root.render(
-      <StoreProvider store={store}>
+      <StoreProvider store={mountedStore}>
         <Composer onChooseProject={() => {}} />
       </StoreProvider>,
     )
@@ -350,6 +392,8 @@ describe('the composer while a turn is running', () => {
   it('shows when a refused draft could not be saved for a reload', () => {
     mockRecoveries = new Map([[KEY, [{
       id: 99,
+      createdAt: 99,
+      reason: 'refused',
       text: 'memory-only recovery',
       attachments: [],
       detail: "Restore it. Kept until you close this window's view — it could not be saved for a reload.",

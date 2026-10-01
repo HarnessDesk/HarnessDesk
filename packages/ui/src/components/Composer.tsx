@@ -129,13 +129,6 @@ interface Draft {
   readonly attachments: readonly Attachment[]
 }
 
-interface RecoverableDraft {
-  readonly id: number
-  readonly draft: Draft
-  readonly reason: 'refused' | 'saved'
-  readonly detail?: string
-}
-
 interface RecoverableDetail {
   readonly text: string
   readonly attachments?: readonly Omit<Attachment, 'id'>[]
@@ -207,10 +200,6 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   const drafts = draftsOf(store)
   const [text, setText] = useState(() => (key ? (drafts.live(key)?.text ?? '') : ''))
   const [attachments, setAttachments] = useState<Attachment[]>(() => (key ? [...(drafts.live(key)?.attachments ?? [])] : []))
-  const [recoverable, setRecoverable] = useState<RecoverableDraft[]>([])
-  const nextRecoverableId = useRef(0)
-  const currentDraft = useRef<Draft>({ text, attachments })
-  currentDraft.current = { text, attachments }
   /* Which conversation's draft `text` holds, and whether this composer is
      still drawn: words are only ever saved to — or put back into — the
      conversation they were typed for. Layout effects, not passive ones: a
@@ -230,15 +219,6 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   useLayoutEffect(() => {
     if (key && draftOf.current === key) drafts.setLive(key, { text, attachments })
   }, [drafts, key, text, attachments])
-  // A message put back by a composer that has gone (see `putBack`): shown
-  // here when this composer is drawing its conversation now.
-  useLayoutEffect(() => {
-    if (!key) return
-    return drafts.onPutBack(key, (draft) => {
-      setText((current) => (current.trim().length > 0 ? current : draft.text))
-      setAttachments((current) => (current.length > 0 ? current : [...draft.attachments]))
-    })
-  }, [drafts, key])
   useLayoutEffect(() => {
     if (draftOf.current === key) return
     draftOf.current = key
@@ -604,39 +584,19 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     if (originKey) store.addRecoverableDraft(originKey, {
       text: draft.text,
       attachments: draft.attachments,
-      detail: 'Restore it to the composer; your current draft stays available.',
+      detail: 'Restore the refused message to the composer; your current draft stays available.',
+      reason: 'refused',
     })
     else setText(draft.text)
-  }, [key, store])
-
-  const restoreDraft = useCallback((id: number) => {
-    const selected = recoverable.find((item) => item.id === id)
-    if (!selected) return
-    const current = currentDraft.current
-    const displaced = current.text.trim().length > 0 || current.attachments.length > 0
-      ? { id: ++nextRecoverableId.current, draft: current, reason: 'saved' as const }
-      : null
-    setRecoverable((items) => [
-      ...items.filter((item) => item.id !== id),
-      ...(displaced ? [displaced] : []),
-    ])
-    setText(selected.draft.text)
-    setAttachments([...selected.draft.attachments])
-  }, [recoverable])
+  }, [store])
 
   const storedRecoverable = key ? snapshot.recoverableDrafts.get(key) ?? [] : []
   const restoreStoredDraft = useCallback((id: number) => {
     if (!key) return
-    const selected = (store.getSnapshot().recoverableDrafts.get(key) ?? []).find((item) => item.id === id)
-    if (!selected) return
-    const current = currentDraft.current
-    const displaced = current.text.trim().length > 0 || current.attachments.length > 0
-      ? { id: ++nextRecoverableId.current, draft: current, reason: 'saved' as const }
-      : null
-    if (displaced) setRecoverable((items) => [...items, displaced])
-    setText(selected.text)
-    setAttachments(selected.attachments.map((attachment) => ({ ...attachment, id: nextAttachmentId() })))
-    store.removeRecoverableDraft(key, id)
+    const restored = store.restoreRecoverableDraft(key, id)
+    if (!restored) return
+    setText(restored.text)
+    setAttachments(restored.attachments.map((attachment) => ({ ...attachment, id: nextAttachmentId() })))
   }, [key, store])
 
   const deliver = useCallback(async (mode: 'auto' | 'now' = 'auto', release: () => void = () => {}) => {
@@ -1074,20 +1034,6 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       <ComposerNoticeStack>
         <NoticeStripOutlet host={isNoticeHost} />
         <ComposerNotices />
-        {recoverable.map((item) => (
-          <ComposerNotice
-            key={item.id}
-            message={{
-              id: `composer-recoverable-draft-${item.id}`,
-              tone: item.reason === 'refused' ? 'warning' : 'neutral',
-              title: item.reason === 'refused' ? 'Message not sent.' : 'Draft saved.',
-              body: item.reason === 'refused'
-                ? item.detail ?? 'Restore it to the composer; your current draft stays available.'
-                : 'Restore it to swap with the current draft.',
-              action: { label: 'Restore', onSelect: () => restoreDraft(item.id) },
-            }}
-          />
-        ))}
         {storedRecoverable.map((item) => (
           <ComposerNotice
             key={`stored-${item.id}`}

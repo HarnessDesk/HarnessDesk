@@ -113,6 +113,7 @@ describe('the queue in the store', () => {
       attachments: [{ name: 'plan.md', path: '/w/plan.md', kind: 'file' }],
       detail: 'Your edit wasn’t saved — the original was already sent. Restore it to the composer.',
     })
+    window.dispatchEvent(new Event('pagehide'))
     const other = sessionKey(RUNTIME, 's2')
     expect(store.getSnapshot().recoverableDrafts.get(other)).toBeUndefined()
     expect(store.getSnapshot().recoverableDrafts.get(KEY)?.[0]?.text).toBe('revised for A')
@@ -129,25 +130,37 @@ describe('the queue in the store', () => {
   it('keeps recovery for a pass-over archived after removal, and prunes it on confirmed delete', async () => {
     vi.spyOn(store.transport, 'request').mockResolvedValue(null)
     store.addRecoverableDraft(KEY, { text: 'keep me until delete', attachments: [], detail: 'Restore it.' })
+    store.drafts.setLive(KEY, { text: 'unsent live draft', attachments: [] })
+    window.dispatchEvent(new Event('pagehide'))
     await store.archiveSession(sessionId('s1'), RUNTIME)
     await store.unarchiveSession(sessionId('s1'), RUNTIME)
     expect(store.getSnapshot().recoverableDrafts.get(KEY)).toHaveLength(1)
+    expect(store.drafts.live(KEY)?.text).toBe('unsent live draft')
 
     const transport = store.transport as unknown as { handlers: TransportEvents }
     transport.handlers.onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: sessionId('s1'), deleted: false } })
     expect(store.getSnapshot().recoverableDrafts.get(KEY)).toHaveLength(1)
-    expect(JSON.parse(sessionStorage.getItem('harnessdesk:recoverable-drafts:v1') ?? '{}')[KEY]).toHaveLength(1)
+    expect(store.drafts.live(KEY)?.text).toBe('unsent live draft')
+    expect(JSON.parse(sessionStorage.getItem('harnessdesk:drafts:v1') ?? '{}')[KEY].recoverable).toHaveLength(1)
 
     transport.handlers.onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: sessionId('s1'), deleted: true } })
     expect(store.getSnapshot().recoverableDrafts.has(KEY)).toBe(false)
-    expect(sessionStorage.getItem('harnessdesk:recoverable-drafts:v1')).toBe('{}')
+    expect(store.drafts.live(KEY)).toBeNull()
+    expect(JSON.parse(sessionStorage.getItem('harnessdesk:drafts:v1') ?? '{}')[KEY]).toBeUndefined()
   })
 
   it('explains when recovery could not be saved for a reload', () => {
+    vi.useFakeTimers()
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota') })
+    const notice = vi.spyOn(store, 'notice')
     store.addRecoverableDraft(KEY, { text: 'memory only', attachments: [], detail: 'Restore it.' })
+    vi.advanceTimersByTime(300)
     expect(store.getSnapshot().recoverableDrafts.get(KEY)?.[0]?.detail).toBe(
       "Restore it. Not saved for a reload — it stays only while this window is open.",
     )
+    expect(sessionStorage.getItem('harnessdesk:drafts:v1')).toBeNull()
+    expect(notice).toHaveBeenCalledTimes(1)
+    expect(notice).toHaveBeenCalledWith('warning', expect.stringContaining('stays only while this window is open'))
+    vi.useRealTimers()
   })
 })

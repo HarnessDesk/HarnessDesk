@@ -60,6 +60,7 @@ export const MessageQueue = () => {
     const view = describeQueued(editedInput)
     store.addRecoverableDraft(originKey, {
       sourceId: id,
+      originQueueRowId: id,
       text: view.text,
       attachments: [
         ...view.attachments.map((attachment) => ({

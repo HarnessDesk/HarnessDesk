@@ -64,6 +64,7 @@ import type { PlanEdit } from '../lib/plan-edits'
 import type { ConnectionStatus } from '../lib/transport'
 
 import { emptyLayout, panes, type Layout } from './layout'
+import type { RecoverableDraft } from './drafts'
 
 /**
  * An Agent that could not be seated, and why each seat it would take could
@@ -202,24 +203,6 @@ export interface NoticeAction {
 export interface PendingApproval {
   readonly key: SessionKey
   readonly approval: Approval
-}
-
-/** A refused or unsaved draft that belongs to one conversation in this window. */
-export interface RecoverableDraft {
-  readonly id: number
-  /** Queue-row id when this recovery came from a refused edit. */
-  readonly sourceId?: string
-  readonly text: string
-  readonly attachments: readonly {
-    readonly name: string
-    readonly path: string
-    readonly kind: 'file' | 'image' | 'skill' | 'session' | 'context' | 'note'
-    readonly contextId?: string
-    readonly ref?: string
-    readonly text?: string
-    readonly runtime?: RuntimeId
-  }[]
-  readonly detail: string
 }
 
 /** A conversation handed to the open draft: shown as a chip, resolved at send. */

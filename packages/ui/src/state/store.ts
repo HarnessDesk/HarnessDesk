@@ -288,7 +288,6 @@ import {
   type Notice,
   type NoticeAction,
   type PendingApproval,
-  type RecoverableDraft,
   type PolicyRule,
   type RouteInfo,
   type SeatRefusal,
@@ -303,56 +302,20 @@ export type {
   Notice,
   NoticeAction,
   PendingApproval,
-  RecoverableDraft,
   PolicyRule,
   RouteInfo,
   SeatRefusal,
   StoredCredential,
 } from './snapshot'
-import { Drafts } from './drafts'
+import { Drafts, type NewRecoverableDraft, type RecoverableDraft } from './drafts'
+export type { RecoverableDraft } from './drafts'
 export { emptySnapshot } from './snapshot'
-
-const RECOVERABLE_DRAFTS_STORAGE_KEY = 'harnessdesk:recoverable-drafts:v1'
-
-const readRecoverableDrafts = (): ReadonlyMap<SessionKey, readonly RecoverableDraft[]> => {
-  try {
-    if (typeof sessionStorage === 'undefined') return new Map()
-    const raw: unknown = JSON.parse(sessionStorage.getItem(RECOVERABLE_DRAFTS_STORAGE_KEY) ?? 'null')
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return new Map()
-    const result = new Map<SessionKey, readonly RecoverableDraft[]>()
-    for (const [key, value] of Object.entries(raw)) {
-      if (!Array.isArray(value)) continue
-      const drafts = value.filter((entry): entry is RecoverableDraft =>
-        Boolean(entry && typeof entry === 'object' &&
-          typeof (entry as RecoverableDraft).id === 'number' &&
-          typeof (entry as RecoverableDraft).text === 'string' &&
-          typeof (entry as RecoverableDraft).detail === 'string' &&
-          Array.isArray((entry as RecoverableDraft).attachments)),
-      )
-      if (drafts.length > 0) result.set(key as SessionKey, drafts)
-    }
-    return result
-  } catch {
-    return new Map()
-  }
-}
-
-const writeRecoverableDrafts = (drafts: ReadonlyMap<SessionKey, readonly RecoverableDraft[]>): boolean => {
-  try {
-    if (typeof sessionStorage === 'undefined') return false
-    sessionStorage.setItem(RECOVERABLE_DRAFTS_STORAGE_KEY, JSON.stringify(Object.fromEntries(drafts)))
-    return true
-  } catch {
-    // Storage can be disabled or full; recovery still works until this store closes.
-    return false
-  }
-}
 
 export type UnheldCeilings = 'seat' | 'refuse'
 
 export class AppStore {
   /** What each conversation has typed and not sent. See `state/drafts`. */
-  readonly drafts = new Drafts()
+  readonly drafts: Drafts
   #captureEpoch = 0
   #captureList = 0
   /**
@@ -553,13 +516,15 @@ export class AppStore {
   }
 
   #snapshot: AppSnapshot = emptySnapshot()
-  #nextRecoverableDraftId = 0
   #listeners = new Set<() => void>()
   readonly transport: Transport
 
   constructor(url = transportUrl()) {
-    this.#snapshot = { ...this.#snapshot, recoverableDrafts: readRecoverableDrafts() }
-    this.#nextRecoverableDraftId = Math.max(0, ...[...this.#snapshot.recoverableDrafts.values()].flat().map((draft) => draft.id))
+    this.drafts = new Drafts(undefined, {
+      onMemoryOnly: () => this.notice('warning', 'Draft not saved for a reload — it stays only while this window is open.'),
+    })
+    this.#snapshot = { ...this.#snapshot, recoverableDrafts: this.drafts.recoverableSnapshot() }
+    this.drafts.onRecoverableChange(() => this.#patch({ recoverableDrafts: this.drafts.recoverableSnapshot() }))
     this.transport = new Transport(url, {
       onEvent: (runtime, event) => this.#onEvent(runtime, event),
       onNotification: (notification) => {
@@ -2843,7 +2808,7 @@ export class AppStore {
    * again for a conversation it never showed.
    */
   #dropRemoved(key: SessionKey, deleted: boolean): void {
-    const { sessions, queues, tasks, history, approvals, recoverableDrafts } = this.#snapshot
+    const { sessions, queues, tasks, history, approvals } = this.#snapshot
     const shown = panes(this.#snapshot.layout.root).filter((pane) => sessionOf(pane) === key)
     const docked = mountedViewsIn(this.#snapshot.workbench).filter(
       (entry) => entry.mounted.view.kind === 'conversation' && entry.mounted.view.session === key,
@@ -2851,7 +2816,8 @@ export class AppStore {
     const listed = history.some((entry) => sessionKey(entry.runtime, entry.id) === key)
     const waiting = approvals.some((entry) => entry.key === key)
     const held = sessions.has(key) || queues.has(key) || tasks.has(key) || listed || waiting ||
-      shown.length > 0 || docked.length > 0 || (deleted && recoverableDrafts.has(key))
+      shown.length > 0 || docked.length > 0 ||
+      (deleted && (this.drafts.live(key) !== null || this.drafts.recoverable(key).length > 0))
     if (!held) return
     // Where it was on screen first, so the focus moves with the panes rather
     // than being left on a conversation nothing can open any more.
@@ -2864,20 +2830,17 @@ export class AppStore {
     const nextSessions = new Map(sessions)
     const nextQueues = new Map(queues)
     const nextTasks = new Map(tasks)
-    const nextRecoverableDrafts = new Map(recoverableDrafts)
     nextSessions.delete(key)
     nextQueues.delete(key)
     nextTasks.delete(key)
-    if (deleted) nextRecoverableDrafts.delete(key)
+    if (deleted) this.drafts.forget(key)
     this.#patch({
       sessions: nextSessions,
       queues: nextQueues,
       tasks: nextTasks,
-      recoverableDrafts: nextRecoverableDrafts,
       history: listed ? history.filter((entry) => sessionKey(entry.runtime, entry.id) !== key) : history,
       approvals: waiting ? approvals.filter((entry) => entry.key !== key) : approvals,
     })
-    if (deleted) writeRecoverableDrafts(nextRecoverableDrafts)
   }
 
   async renameSession(title: string, key = this.#snapshot.activeSessionKey): Promise<void> {
@@ -5706,31 +5669,21 @@ export class AppStore {
 
   // ---------------------------------------------------------------- the queue
 
-  /** Keep refused draft content scoped to its conversation and this window. */
+  /** Keep refused draft content in the conversation-owned draft store. */
   addRecoverableDraft(
     key: SessionKey,
-    draft: Omit<RecoverableDraft, 'id'>,
+    draft: NewRecoverableDraft,
   ): void {
-    const id = ++this.#nextRecoverableDraftId
-    const recoverableDrafts = new Map(this.#snapshot.recoverableDrafts)
-    const entry = { ...draft, id }
-    recoverableDrafts.set(key, [...(recoverableDrafts.get(key) ?? []), entry])
-    if (!writeRecoverableDrafts(recoverableDrafts)) {
-      const current = recoverableDrafts.get(key) ?? []
-      recoverableDrafts.set(key, current.map((item) => item.id === id
-        ? { ...item, detail: `${item.detail} Not saved for a reload — it stays only while this window is open.` }
-        : item))
-    }
-    this.#patch({ recoverableDrafts })
+    this.drafts.addRecoverable(key, draft)
   }
 
   removeRecoverableDraft(key: SessionKey, id: number): void {
-    const recoverableDrafts = new Map(this.#snapshot.recoverableDrafts)
-    const remaining = (recoverableDrafts.get(key) ?? []).filter((draft) => draft.id !== id)
-    if (remaining.length > 0) recoverableDrafts.set(key, remaining)
-    else recoverableDrafts.delete(key)
-    this.#patch({ recoverableDrafts })
-    writeRecoverableDrafts(recoverableDrafts)
+    this.drafts.removeRecoverable(key, id)
+  }
+
+  /** Restore one refusal and retain the displaced live draft as another entry. */
+  restoreRecoverableDraft(key: SessionKey, id: number): import('./drafts').Draft | null {
+    return this.drafts.restore(key, id)
   }
 
   /**

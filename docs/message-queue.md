@@ -76,7 +76,10 @@ and one of those must never be able to erase what you have waiting.
 
 It lives in memory, not on disk. A session is not live after a host restart, so
 a persisted queue could not deliver anyway, and a message that fires the next
-day is worse than a lost draft.
+day is worse than a lost draft. Composer drafts and refused messages use a
+separate, tab-scoped `sessionStorage` mirror: they survive a window reload but
+are cleared when the app window closes. Text and path-based chips are mirrored;
+pasted images are not, so Restore explains that an image was not kept.
 
 ### One message, one turn
 
