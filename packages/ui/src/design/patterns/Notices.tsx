@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 
 import { AlertIcon, ArrowLeftIcon, BellIcon, BellOffIcon, CheckAllIcon, ChevronIcon, CrossIcon, InfoIcon, ShieldAlertIcon, TrashIcon } from '../../components/Icons'
 import { ContextMenu, MenuItem, type MenuPoint } from './Menu'
@@ -10,6 +10,35 @@ import { revealMotion } from '../ui/motion'
 import { toast } from '../ui/toast'
 import { Text } from './Settings'
 import styles from './Notices.module.css'
+
+const useWrappedText = (ref: React.RefObject<HTMLElement | null>, dependencies: readonly unknown[]) => {
+  const [wrapped, setWrapped] = useState(false)
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (!element) return
+    const update = () => {
+      const tops: number[] = []
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+      while (walker.nextNode()) {
+        const node = walker.currentNode as Text
+        if (!node.textContent?.trim()) continue
+        const range = document.createRange()
+        if (typeof range.getClientRects !== 'function') return
+        range.selectNodeContents(node)
+        tops.push(...[...range.getClientRects()].filter(rect => rect.width > 0 && rect.height > 0).map(rect => rect.top))
+      }
+      tops.sort((a, b) => a - b)
+      const lines = tops.filter((top, index) => index === 0 || Math.abs(top - tops[index - 1]!) >= 1).length
+      setWrapped(lines > 1)
+    }
+    update()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(update)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, dependencies)
+  return wrapped
+}
 
 /**
  * The surfaces a message can be sent to, one component each.
@@ -76,7 +105,7 @@ const Lead = ({ message, size = 'md', line }: { message: NoticeMessage; size?: '
   const Glyph = TONE_ICON[tone]
   const lineSize = line ?? size
   return (
-    <span className={cn('flex shrink-0 items-center overflow-visible', lineSize === 'sm' ? 'h-(--hd-line-sm)' : 'h-(--hd-line)')}>
+    <span data-slot="notice-lead" className={cn('flex shrink-0 items-center overflow-visible', lineSize === 'sm' ? 'h-(--hd-line-sm)' : 'h-(--hd-line)')}>
       <span className={styles.tile} data-tone={tone} data-size={size} aria-hidden>
         {message.mark ?? <Glyph size={size === 'sm' ? 12 : 14} />}
       </span>
@@ -234,16 +263,26 @@ export const ComposerNotice = ({
   onDismiss?: () => void
   onMute?: (() => void) | undefined
 }) => (
-  <div className={styles.composer} data-slot="composer-notice" data-tone={message.tone ?? 'neutral'} role="status">
-    <Lead message={message} />
-    <span className={styles.line}>
-      <span className={styles.lineTitle}>{message.title}</span>
-      {message.body ? <span className={styles.lineBody}> {message.body}</span> : null}
-    </span>
-    {message.action ? <ActionButton action={message.action} variant="outline" /> : null}
-    {onDismiss ? <Dismiss onDismiss={onDismiss} onMute={onMute} /> : null}
-  </div>
+  <ComposerNoticeRow message={message} onDismiss={onDismiss} onMute={onMute} />
 )
+
+const ComposerNoticeRow = ({ message, onDismiss, onMute }: { message: NoticeMessage; onDismiss?: () => void; onMute?: (() => void) | undefined }) => {
+  const lineRef = useRef<HTMLSpanElement>(null)
+  const wrapped = useWrappedText(lineRef, [message.title, message.body])
+  return (
+    <div className={styles.composer} data-slot="composer-notice" data-tone={message.tone ?? 'neutral'} {...(wrapped ? { 'data-wrapped': '' } : {})} role="status">
+      <Lead message={message} />
+      <span className={styles.line} data-slot="notice-message-line">
+        <span ref={lineRef} className={styles.lineText}>
+          <span className={styles.lineTitle} data-part="notice-title">{message.title}</span>
+          {message.body ? <span className={styles.lineBody} data-part="notice-detail"> {message.body}</span> : null}
+        </span>
+      </span>
+      {message.action ? <ActionButton action={message.action} variant="outline" /> : null}
+      {onDismiss ? <Dismiss onDismiss={onDismiss} onMute={onMute} /> : null}
+    </div>
+  )
+}
 
 /** The composer notices, stacked over the composer they are about. */
 export const ComposerNoticeStack = ({ children }: { children: ReactNode }) => (
@@ -268,13 +307,15 @@ export const NoticeStrip = ({
   return (
     <div className={styles.strip} data-slot="notice-strip" data-tone={message.tone ?? 'neutral'} role="status">
       <Lead message={message} size="sm" />
-      <span className={styles.line}>
-        <span className={styles.lineTitle}>{message.title}</span>
-        {message.body ? <span className={styles.lineBody}> {message.body}</span> : null}
+      <span className={styles.line} data-slot="notice-message-line">
+        <span className={styles.lineText}>
+          <span className={styles.lineTitle} data-part="notice-title">{message.title}</span>
+          {message.body ? <span className={styles.lineBody} data-part="notice-detail"> {message.body}</span> : null}
+        </span>
       </span>
       {message.action ? (
         <Button variant="link" size="inline" type="button" className={cn(styles.link, 'h-auto p-0')} onClick={message.action.onSelect}>
-          {message.action.label}
+          <span className={styles.linkLabel}>{message.action.label}</span>
         </Button>
       ) : null}
       <span className={styles.fill} />
