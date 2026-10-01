@@ -129,7 +129,7 @@ export class FakeFiles implements RuntimeFiles {
   async read(path: string): Promise<Uint8Array> {
     this.calls.push(`read ${path}`)
     const content = this.tree[path]
-    if (content === undefined) throw new Error(`fake: no such file ${path}`)
+    if (content === undefined) throw Object.assign(new Error(`fake: no such file ${path}`), { code: 'ENOENT' })
     return new TextEncoder().encode(content)
   }
 

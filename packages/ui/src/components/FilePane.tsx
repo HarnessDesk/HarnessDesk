@@ -57,6 +57,43 @@ interface Loaded {
   readonly truncated: boolean
 }
 
+type FileConflict =
+  | { readonly kind: 'text'; readonly content: string; readonly hash: string }
+  | { readonly kind: 'binary'; readonly size: number }
+  | { readonly kind: 'tooLarge'; readonly size: number }
+
+export const FileConflictNotice = ({
+  conflict,
+  onTakeTheirs,
+  onOverwrite,
+}: {
+  readonly conflict: FileConflict
+  readonly onTakeTheirs: () => void
+  readonly onOverwrite: () => void
+}) => (
+  <ToolPaneNotice tone="danger" placement="top">
+    <AlertIcon size={13} />
+    <span className="flex-1">
+      {conflict.kind === 'binary'
+        ? 'This file is now binary. Your save was refused.'
+        : conflict.kind === 'tooLarge'
+          ? 'This file is now too large to edit. Your save was refused.'
+          : 'This file changed on disk since you loaded it — your save was refused so nothing was lost.'}
+    </span>
+    {conflict.kind === 'text' && (
+      <>
+        <Button variant="outline" size="sm" onClick={onTakeTheirs}>Take theirs</Button>
+        <Button variant="outline" size="sm" onClick={onOverwrite}>Overwrite with mine</Button>
+      </>
+    )}
+  </ToolPaneNotice>
+)
+
+const IMAGE_TYPES: Readonly<Record<string, string>> = {
+  avif: 'image/avif', gif: 'image/gif', jpeg: 'image/jpeg', jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
+}
+const MAX_PREVIEW_IMAGE_BYTES = 10 * 1024 * 1024
+
 export const FilePane = () => {
   const store = useStore()
   const mount = useMount()
@@ -66,9 +103,12 @@ export const FilePane = () => {
   const runtime = view?.runtime ?? null
 
   const [loaded, setLoaded] = useState<Loaded | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [readProblem, setReadProblem] = useState<
+    { kind: 'missing' } | { kind: 'unreadable'; message: string } | { kind: 'tooLarge'; size: number } | null
+  >(null)
+  const [binary, setBinary] = useState<{ size: number; imageSrc: string | null } | null>(null)
   const [draft, setDraft] = useState<string | null>(null)
-  const [conflict, setConflict] = useState<{ content: string; hash: string } | null>(null)
+  const [conflict, setConflict] = useState<FileConflict | null>(null)
   const [changedOnDisk, setChangedOnDisk] = useState(false)
   const [saving, setSaving] = useState(false)
   const modifiedAt = useRef<number | null>(null)
@@ -96,16 +136,55 @@ export const FilePane = () => {
         store.transport.request('workspace/stat', { path, runtime }).catch(() => null),
       ])
       modifiedAt.current = meta?.modifiedAt ?? null
-      setLoaded(file)
+      if (file.kind === 'missing') {
+        setLoaded(null)
+        setBinary(null)
+        setReadProblem({ kind: 'missing' })
+      } else if (file.kind === 'unreadable') {
+        setLoaded(null)
+        setBinary(null)
+        setReadProblem(file)
+      } else if (file.kind === 'tooLarge') {
+        setLoaded(null)
+        setBinary(null)
+        setReadProblem(file)
+      } else if (file.kind === 'binary') {
+        setLoaded(null)
+        setReadProblem(null)
+        const extension = path.split('.').pop()?.toLowerCase() ?? ''
+        const mediaType = IMAGE_TYPES[extension]
+        let imageSrc: string | null = null
+        let oversized: { kind: 'tooLarge'; size: number } | null = null
+        if (mediaType && file.size <= MAX_PREVIEW_IMAGE_BYTES) {
+          try {
+            const encoded = await store.transport.request('workspace/readFile', { path, runtime, encoding: 'base64' })
+            if (encoded.kind === 'binary' && encoded.content !== undefined) imageSrc = `data:${mediaType};base64,${encoded.content}`
+            else if (encoded.kind === 'tooLarge') oversized = encoded
+          } catch { /* Keep the binary summary if a preview read is refused. */ }
+        }
+        if (oversized) {
+          setBinary(null)
+          setReadProblem(oversized)
+        } else {
+          setBinary({ size: file.size, imageSrc })
+        }
+      } else {
+        setLoaded(file)
+        setBinary(null)
+        setReadProblem(null)
+      }
       setChangedOnDisk(false)
-      setError(null)
     } catch (thrown) {
-      setError(thrown instanceof Error ? thrown.message : String(thrown))
+      setLoaded(null)
+      setBinary(null)
+      setReadProblem({ kind: 'unreadable', message: thrown instanceof Error ? thrown.message : String(thrown) })
     }
   }, [path, runtime, store])
 
   useEffect(() => {
     setLoaded(null)
+    setBinary(null)
+    setReadProblem(null)
     setDraft(null)
     setConflict(null)
     void load()
@@ -159,8 +238,14 @@ export const FilePane = () => {
           // the person's without reading the file back.
           store.reportEditor({ kind: 'saved', path, at: Date.now(), hash: result.hash })
           store.notice('info', `Saved ${path.split('/').pop()}.`)
+        } else if ('reason' in result) {
+          setConflict({ kind: result.reason, size: result.size })
+          setDraft(null)
+          setLoaded(null)
+          setBinary(result.reason === 'binary' ? { size: result.size, imageSrc: null } : null)
+          setReadProblem(result.reason === 'tooLarge' ? { kind: 'tooLarge', size: result.size } : null)
         } else {
-          setConflict(result.conflict)
+          setConflict({ kind: 'text', ...result.conflict })
         }
       } catch (thrown) {
         store.notice('error', thrown instanceof Error ? thrown.message : String(thrown))
@@ -172,7 +257,6 @@ export const FilePane = () => {
   )
 
   if (!mount || !view || !path) return null
-  const missing = error !== null && /enoent|no such file|not found|does not exist/i.test(error)
   const dirty = draft !== null && draft !== loaded?.content
   const editable = loaded !== null && !loaded.truncated && loaded.content.length <= MAX_EDITABLE
 
@@ -209,26 +293,18 @@ export const FilePane = () => {
       </ToolPaneHeader>
 
       {conflict && (
-        <ToolPaneNotice tone="danger" placement="top">
-          <AlertIcon size={13} />
-          <span className="flex-1">
-            This file changed on disk since you loaded it — your save was refused so nothing was lost.
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setLoaded({ content: conflict.content, hash: conflict.hash, truncated: false })
-              setDraft(null)
-              setConflict(null)
-            }}
-          >
-            Take theirs
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => void save(conflict.hash)}>
-            Overwrite with mine
-          </Button>
-        </ToolPaneNotice>
+        <FileConflictNotice
+          conflict={conflict}
+          onTakeTheirs={() => {
+            if (conflict.kind !== 'text') return
+            setLoaded({ content: conflict.content, hash: conflict.hash, truncated: false })
+            setDraft(null)
+            setConflict(null)
+          }}
+          onOverwrite={() => {
+            if (conflict.kind === 'text') void save(conflict.hash)
+          }}
+        />
       )}
       {changedOnDisk && !conflict && (
         <ToolPaneNotice tone="warning" placement="top">
@@ -241,8 +317,8 @@ export const FilePane = () => {
       )}
 
       <ToolPaneBody bleed className={styles.body}>
-        {error ? (
-          missing ? (
+        {readProblem ? (
+          readProblem.kind === 'missing' ? (
             <ToolPaneMessage as="div">
               <p style={{ margin: '0 0 10px' }}>{path.split('/').pop()} does not exist yet.</p>
               <Button
@@ -254,14 +330,29 @@ export const FilePane = () => {
                   // save path is also the create path.
                   setLoaded({ content: '', hash: '', truncated: false })
                   setDraft('')
-                  setError(null)
+                  setReadProblem(null)
                 }}
               >
                 Create this file
               </Button>
             </ToolPaneMessage>
+          ) : readProblem.kind === 'tooLarge' ? (
+            <ToolPaneMessage>File too large — {(readProblem.size / (1024 * 1024)).toFixed(1)} MB</ToolPaneMessage>
           ) : (
-            <ToolPaneMessage>{error}</ToolPaneMessage>
+            <ToolPaneMessage>{readProblem.message}</ToolPaneMessage>
+          )
+        ) : binary ? (
+          binary.imageSrc ? (
+            <div className={styles.imagePreviewStage}>
+              <img
+                className={styles.imagePreview}
+                src={binary.imageSrc}
+                alt={path.split('/').pop() ?? path}
+                onError={() => setBinary((current) => current ? { ...current, imageSrc: null } : current)}
+              />
+            </div>
+          ) : (
+            <ToolPaneMessage>Binary file — {(binary.size / 1024).toFixed(1)} KB</ToolPaneMessage>
           )
         ) : !loaded ? (
           <ToolPaneMessage>Loading…</ToolPaneMessage>

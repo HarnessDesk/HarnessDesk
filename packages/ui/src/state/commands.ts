@@ -185,8 +185,10 @@ export const BUILTIN_COMMANDS: readonly CommandDefinition[] = [
               runtime: storeRuntime(store),
               path: `${root}/package.json`,
             })
-            const parsed = JSON.parse(raw.content) as { scripts?: Record<string, string> }
-            script = parsed.scripts?.['dev'] ? 'dev' : parsed.scripts?.['start'] ? 'start' : ''
+            if (raw.kind === 'text') {
+              const parsed = JSON.parse(raw.content) as { scripts?: Record<string, string> }
+              script = parsed.scripts?.['dev'] ? 'dev' : parsed.scripts?.['start'] ? 'start' : ''
+            }
           } catch {
             // no package.json — fall through to the hint below
           }
