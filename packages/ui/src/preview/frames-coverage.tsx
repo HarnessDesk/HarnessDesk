@@ -110,7 +110,7 @@ export const CoverageFrames = () => {
       <Frame id="coverage-flow-review-reasons" title="Flow — reviewer candidate reasons and provider warning">
         <SelectedFlowPreview preview={REVIEWER_REASONS_PREVIEW} />
       </Frame>
-      <Frame id="coverage-flow-gemini-trust" title="Flow — Gemini cannot use board tools in this folder">
+      <Frame id="coverage-flow-gemini-trust" title="Flow — a seat that cannot use the board in this folder">
         <SelectedFlowPreview preview={GEMINI_UNTRUSTED_PREVIEW} />
       </Frame>
       <Frame id="coverage-session-background" title="Session — background work and deliverables">

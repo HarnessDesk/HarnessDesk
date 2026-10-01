@@ -144,6 +144,8 @@ export const REVIEWER_REASONS_PREVIEW: FlowPreview = {
 
 export const GEMINI_UNTRUSTED_PREVIEW: FlowPreview = {
   ...FIX_PREVIEW,
+  // The refused seat alone: the preview page also carries the front door's own two-seat plan.
+  seats: FIX_PREVIEW.seats.filter((seat) => seat.role === 'reviewer'),
   token: null,
   commands: [],
   problems: [{
