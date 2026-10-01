@@ -27,6 +27,20 @@ const AGENTS = [agent('writer-a', ['done']), agent('writer-b', ['done']), agent(
 const opens = (events: readonly string[]) => events.filter((one) => one.startsWith('open:'))
 const orders = (events: readonly string[]) => events.filter((one) => one.startsWith('order:'))
 
+const waitFor = async <T>(promise: Promise<T>, what: string): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`timed out waiting for ${what}`)), 10_000)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 /*
  * Issue #1032: a round closes only once every one of its cards has finished —
  * that is the engine's own rule, not something `any` changes. `any: [pass]`
@@ -73,6 +87,7 @@ test('a person finishing a card while its round is being journaled still advance
   const cardFinished = new Promise<number>((resolve) => { finishCard = resolve })
   let releaseSave!: () => void
   const saveGate = new Promise<void>((resolve) => { releaseSave = resolve })
+  t.after(() => { releaseSave() })
   const save = rig.files.save.bind(rig.files)
   let personCompletion: Promise<void> | null = null
   rig.files.save = async (run) => {
@@ -101,11 +116,12 @@ roles:
   ship: { kind: person, outcomes: [shipped] }
 seed: { role: ship, title: Ship it }
 `, [])
-  await saving
-  const card = await cardFinished
-  await personCompletion
+  await waitFor(saving, 'round journal save')
+  const card = await waitFor(cardFinished, 'person card completion')
+  assert.ok(personCompletion)
+  await waitFor(personCompletion, 'person completion handling')
   releaseSave()
-  const run = await start
+  const run = await waitFor(start, 'flow start')
   await rig.flows.flush()
 
   assert.equal(rig.board(run.goal).intents.find((one) => one.id === card)?.state, 'done')
@@ -120,6 +136,7 @@ test('a card outcome is validated while its round is being journaled', async (t)
   const appeared = new Promise<{ readonly goal: string; readonly id: number }>((resolve) => { cardAppeared = resolve })
   let releaseSave!: () => void
   const saveGate = new Promise<void>((resolve) => { releaseSave = resolve })
+  t.after(() => { releaseSave() })
   const save = rig.files.save.bind(rig.files)
   rig.files.save = async (run) => {
     if (run.rounds.some((round) => round.cards.length > 0)) {
@@ -140,14 +157,52 @@ roles:
   ship: { kind: person, outcomes: [shipped] }
 seed: { role: ship, title: Ship it }
 `, [])
-  await saving
-  const card = await appeared
+  await waitFor(saving, 'round journal save')
+  const card = await waitFor(appeared, 'person card')
   const intent = rig.board(card.goal).intents.find((one) => one.id === card.id)!
   const refusal = rig.flows.refuseOutcome(card.goal, intent, 'approve')
   releaseSave()
-  await start
+  await waitFor(start, 'flow start')
 
   assert.match(refusal ?? '', /not an answer|accepts shipped/i)
+})
+
+test('an agent card has a flow binding while its round is being journaled', async (t) => {
+  const rig = await goalRig(t)
+  let saveStarted!: () => void
+  const saving = new Promise<void>((resolve) => { saveStarted = resolve })
+  let cardAppeared!: (value: { readonly goal: string; readonly id: number }) => void
+  const appeared = new Promise<{ readonly goal: string; readonly id: number }>((resolve) => { cardAppeared = resolve })
+  let releaseSave!: () => void
+  const saveGate = new Promise<void>((resolve) => { releaseSave = resolve })
+  t.after(() => { releaseSave() })
+  const save = rig.files.save.bind(rig.files)
+  rig.files.save = async (run) => {
+    if (run.rounds.some((round) => round.cards.length > 0)) {
+      saveStarted()
+      await saveGate
+    }
+    await save(run)
+  }
+  rig.onBoardChanged = (state) => {
+    const card = state.intents.find((one) => one.role === 'write' && one.state === 'open')
+    if (card) cardAppeared({ goal: state.id, id: card.id })
+  }
+
+  const start = rig.start(`
+version: 2
+name: Write it
+roles:
+  write: { kind: agent, uses: writer }
+seed: { role: write, title: Write it }
+`, [agent('writer', ['done'])])
+  await waitFor(saving, 'round journal save')
+  const card = await waitFor(appeared, 'agent card')
+  const binding = rig.flows.bindingFor(card.goal, card.id)
+  releaseSave()
+  await waitFor(start, 'flow start')
+
+  assert.deepEqual(binding, { session: null, opening: false })
 })
 
 test('candidates asked for the moment a person review card reaches the board wait for its round to finish opening', async (t) => {
