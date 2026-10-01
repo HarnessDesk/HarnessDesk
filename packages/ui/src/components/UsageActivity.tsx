@@ -4,6 +4,7 @@ import type { LedgerReport, RuntimeId, RuntimeInfo } from '@harnessdesk/protocol
 
 import {
   agentLevels,
+  buildHourGrid,
   busiestDay,
   busiestWeekday,
   buildAgentRows,
@@ -14,13 +15,16 @@ import {
   leadingAgent,
   streaksFor,
   toGridCell,
+  toHourGridCell,
   WEEKDAY_NAMES,
   yearLevels,
   type HeatCell,
   type HeatMetric,
+  type HourMetric,
 } from '../lib/heat'
 import { formatMoney } from '../lib/usage'
 import { formatTokens } from '../lib/context-usage'
+import { agentCoverage } from '../lib/overview-strip'
 import { useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import {
@@ -56,16 +60,22 @@ import styles from './UsageActivity.module.css'
  * disagree (review #990, item 4).
  */
 
-export type HeatView = 'year' | 'agent'
+export type HeatView = 'year' | 'agent' | 'hour'
 
 const VIEWS = [
   { value: 'year', label: 'Year' },
   { value: 'agent', label: 'By agent' },
+  { value: 'hour', label: 'By hour' },
 ] as const
 
-const METRICS = [
+const DAY_METRICS = [
   { value: 'tokens', label: 'Tokens' },
   { value: 'cost', label: 'Cost' },
+] as const
+
+const HOUR_METRICS = [
+  { value: 'tokens', label: 'Tokens' },
+  { value: 'calls', label: 'Calls' },
 ] as const
 
 const AGENT_SPAN_DAYS = 91
@@ -78,8 +88,10 @@ export const UsageActivity = ({
   report: suppliedReport,
   view: viewProp,
   onViewChange: onViewChangeProp,
-  metric: metricProp,
-  onMetricChange: onMetricChangeProp,
+  dayMetric: dayMetricProp,
+  onDayMetricChange: onDayMetricChangeProp,
+  hourMetric: hourMetricProp,
+  onHourMetricChange: onHourMetricChangeProp,
 }: {
   byId: ReadonlyMap<RuntimeId, RuntimeInfo>
   scope: RuntimeId | null
@@ -102,18 +114,23 @@ export const UsageActivity = ({
   report?: LedgerReport | null
   view?: HeatView
   onViewChange?: (view: HeatView) => void
-  metric?: HeatMetric
-  onMetricChange?: (metric: HeatMetric) => void
+  dayMetric?: HeatMetric
+  onDayMetricChange?: (metric: HeatMetric) => void
+  hourMetric?: HourMetric
+  onHourMetricChange?: (metric: HourMetric) => void
 }) => {
   const store = useStore()
   const [ownView, setOwnView] = useState<HeatView>('year')
-  const [ownMetric, setOwnMetric] = useState<HeatMetric>('tokens')
+  const [ownDayMetric, setOwnDayMetric] = useState<HeatMetric>('tokens')
+  const [ownHourMetric, setOwnHourMetric] = useState<HourMetric>('tokens')
   const [ownLedger, setOwnLedger] = useState<LedgerReport | null>(null)
 
   const view = viewProp ?? ownView
   const setView = onViewChangeProp ?? setOwnView
-  const metric = metricProp ?? ownMetric
-  const setMetric = onMetricChangeProp ?? setOwnMetric
+  const dayMetric = dayMetricProp ?? ownDayMetric
+  const setDayMetric = onDayMetricChangeProp ?? setOwnDayMetric
+  const hourMetric = hourMetricProp ?? ownHourMetric
+  const setHourMetric = onHourMetricChangeProp ?? setOwnHourMetric
   const owned = suppliedReport === undefined
 
   useEffect(() => {
@@ -132,7 +149,7 @@ export const UsageActivity = ({
   const ledger = owned ? ownLedger : suppliedReport ?? null
 
   const currency = ledger?.currency ?? 'USD'
-  const format = (value: number): string => (metric === 'tokens' ? formatTokens(value) : (formatMoney(value, currency) ?? '—'))
+  const format = (value: number): string => (dayMetric === 'tokens' ? formatTokens(value) : (formatMoney(value, currency) ?? '—'))
   const nameOf = (id: RuntimeId): string => byId.get(id)?.presentation.name ?? String(id)
   // Skip the mark rather than draw one for a runtime `byId` has never heard
   // of: the earlier `as RuntimeInfo` cast built an object missing every
@@ -143,30 +160,50 @@ export const UsageActivity = ({
   const yearCells = useMemo(() => year.weeks.flatMap((week) => week.filter((cell): cell is HeatCell => cell !== null)), [year])
 
   const recentCells = useMemo(() => buildRecentDays(ledger, now, AGENT_SPAN_DAYS), [ledger, now])
-  const agentRows = useMemo(() => buildAgentRows(recentCells, metric), [recentCells, metric])
+  const agentRows = useMemo(() => buildAgentRows(recentCells, dayMetric), [recentCells, dayMetric])
+  const hourGrid = useMemo(() => buildHourGrid(ledger, hourMetric), [ledger, hourMetric])
+  const hourRows: readonly HeatGridRow[] = hourGrid.cells.map((cells, weekday) => ({
+    key: WEEKDAY_NAMES[weekday] ?? String(weekday),
+    header: [0, 2, 4].includes(weekday) ? <Text role="meta">{WEEKDAY_NAMES[weekday]?.slice(0, 3)}</Text> : undefined,
+    cells: cells.map((cell) => toHourGridCell(cell, hourGrid.levelOf)),
+  }))
+  const hourColumnLabels = [0, 6, 12, 18].map((hour) => ({
+    index: hour,
+    label: hour === 0 ? '12a' : hour === 12 ? '12p' : `${hour % 12}${hour < 12 ? 'a' : 'p'}`,
+  }))
 
   const inView = view === 'year' ? yearCells : recentCells
   // Year levels off the combined per-day totals; By agent has to level off
   // each agent's own cells instead, or a lighter agent's busiest day almost
   // never clears the heaviest agent's first quartile (review #990, item 4).
   const levelOf = useMemo(
-    () => (view === 'year' ? yearLevels(yearCells, metric) : agentLevels(agentRows, metric)),
-    [view, yearCells, agentRows, metric],
+    () => (view === 'year' ? yearLevels(yearCells, dayMetric) : agentLevels(agentRows, dayMetric)),
+    [view, yearCells, agentRows, dayMetric],
   )
 
-  const streaks = useMemo(() => streaksFor(inView, metric), [inView, metric])
-  const busiest = useMemo(() => busiestDay(inView, metric), [inView, metric])
-  const busiestDow = useMemo(() => busiestWeekday(inView, metric), [inView, metric])
-  const leader = useMemo(() => leadingAgent(yearCells, metric), [yearCells, metric])
+  const streaks = useMemo(() => streaksFor(inView, dayMetric), [inView, dayMetric])
+  const busiest = useMemo(() => busiestDay(inView, dayMetric), [inView, dayMetric])
+  const busiestDow = useMemo(() => busiestWeekday(inView, dayMetric), [inView, dayMetric])
+  const leader = useMemo(() => leadingAgent(yearCells, dayMetric), [yearCells, dayMetric])
   const total = useMemo(
-    () => inView.reduce((sum, cell) => sum + (metric === 'tokens' ? cell.tokens : cell.cost), 0),
-    [inView, metric],
+    () => inView.reduce((sum, cell) => sum + (dayMetric === 'tokens' ? cell.tokens : cell.cost), 0),
+    [inView, dayMetric],
   )
   const scannedCount = useMemo(() => inView.filter((cell) => cell.scanned).length, [inView])
   const activeCount = useMemo(
-    () => inView.filter((cell) => (metric === 'tokens' ? cell.tokens : cell.cost) > 0).length,
-    [inView, metric],
+    () => inView.filter((cell) => (dayMetric === 'tokens' ? cell.tokens : cell.cost) > 0).length,
+    [inView, dayMetric],
   )
+
+  const hourTotal = hourGrid.cells.flat().reduce((sum, cell) => sum + cell.value, 0)
+  const busiestHour = hourGrid.cells.flat().reduce<(typeof hourGrid.cells)[number][number] | null>(
+    (best, cell) => (cell.value > (best?.value ?? 0) ? cell : best), null,
+  )
+  const weekdayTotals = hourGrid.cells.map((row) => row.reduce((sum, cell) => sum + cell.value, 0))
+  const busiestHourWeekday = weekdayTotals.some((value) => value > 0)
+    ? weekdayTotals.indexOf(Math.max(...weekdayTotals))
+    : null
+  const hoursCoverage = agentCoverage(ledger?.coverage, ledger?.daily.map((entry) => entry.runtime) ?? [], 'hoursKnownFor')
 
   const today = new Date(now)
   today.setHours(0, 0, 0, 0)
@@ -176,9 +213,9 @@ export const UsageActivity = ({
   // priced reads `ledger.totalCost === null`, the same signal the money
   // band already keys "unpriced" off — not a `$0` that reads as a real,
   // priced total of nothing (review #990, item 6).
-  const totalUnpriced = metric === 'cost' && ledger?.totalCost === null
+  const totalUnpriced = dayMetric === 'cost' && ledger?.totalCost === null
   const totalLabel = totalUnpriced ? 'unpriced' : format(total)
-  const somePartiallyUnpriced = metric === 'cost' && !totalUnpriced && (ledger?.coverage.unpriced ?? 0) > 0
+  const somePartiallyUnpriced = dayMetric === 'cost' && !totalUnpriced && (ledger?.coverage.unpriced ?? 0) > 0
 
   const rows: readonly HeatGridRow[] =
     view === 'year'
@@ -189,7 +226,7 @@ export const UsageActivity = ({
           header: [0, 2, 4].includes(weekday) ? <Text role="meta">{name.slice(0, 3)}</Text> : undefined,
           cells: year.weeks.map((week) => {
             const cell = week[weekday]
-            return cell ? toGridCell(cell, metric, levelOf, { currency, today: todayKey, nameOf }) : null
+            return cell ? toGridCell(cell, dayMetric, levelOf, { currency, today: todayKey, nameOf }) : null
           }),
         }))
       : agentRows.map((row) => {
@@ -204,7 +241,7 @@ export const UsageActivity = ({
               </span>
             ),
             cells: row.cells.map((cell) =>
-              toGridCell(cell, metric, levelOf, { currency, today: todayKey, rowKey: String(row.runtime), nameOf }),
+              toGridCell(cell, dayMetric, levelOf, { currency, today: todayKey, rowKey: String(row.runtime), nameOf }),
             ),
           }
         })
@@ -216,75 +253,112 @@ export const UsageActivity = ({
       <SectionHead
         level="heading"
         name="When it ran"
-        description={busiestDow !== null ? `Busiest on ${WEEKDAY_NAMES[busiestDow]}s` : undefined}
+        description={view !== 'hour' && busiestDow !== null ? `Busiest on ${WEEKDAY_NAMES[busiestDow]}s` : undefined}
         action={
           <>
-            <Segmented label="Show by" options={VIEWS} value={view} onChange={(next) => setView(next as HeatView)} />
-            <Segmented label="Measure" options={METRICS} value={metric} onChange={(next) => setMetric(next as HeatMetric)} />
+            <Segmented
+              label="Show by"
+              options={VIEWS}
+              value={view}
+              onChange={(next) => setView(next as HeatView)}
+            />
+            <Segmented
+              label="Measure"
+              options={view === 'hour' ? HOUR_METRICS : DAY_METRICS}
+              value={view === 'hour' ? hourMetric : dayMetric}
+              onChange={(next) => view === 'hour' ? setHourMetric(next as HourMetric) : setDayMetric(next as HeatMetric)}
+            />
           </>
         }
       />
 
       <ChartFrame>
         <ChartCard className={styles.facts}>
-          <div className={styles.fact}>
-            <Text role="metric">{totalLabel}</Text>
-            <Text role="meta">
-              {view === 'year' ? 'this year' : 'last 13 weeks'}
-              {somePartiallyUnpriced ? ' · some unpriced' : ''}
-            </Text>
-          </div>
-          <div className={styles.fact}>
-            <Text role="metric">{activeCount}</Text>
-            <Text role="meta">active of {scannedCount} scanned</Text>
-          </div>
-          <div className={styles.fact}>
-            <Text role="metric">{streaks.current} days</Text>
-            <Text role="meta">streak · best {streaks.best}</Text>
-          </div>
-          <div className={styles.fact}>
-            <Text role="metric">
-              {busiest
-                ? metric === 'cost' && isUnpricedCost(busiest)
-                  ? 'unpriced'
-                  : format(metric === 'tokens' ? busiest.tokens : busiest.cost)
-                : '—'}
-            </Text>
-            <Text role="meta">{busiest ? dayLabelLong(busiest.day) : 'busiest day'}</Text>
-          </div>
-          {view === 'year' && (
-            <div className={styles.fact}>
-              <Text role="metric">{leader ? nameOf(leader) : '—'}</Text>
-              <Text role="meta">did the most</Text>
-            </div>
+          {view === 'hour' ? (
+            <>
+              <div className={styles.fact}>
+                <Text role="metric">{!hourGrid.available ? '—' : hourMetric === 'calls' ? hourTotal.toLocaleString() : formatTokens(hourTotal)}</Text>
+                <Text role="meta">{hourMetric === 'calls' ? `${hourTotal === 1 ? 'call' : 'calls'} this year` : 'tokens this year'}</Text>
+              </div>
+              <div className={styles.fact}>
+                <Text role="metric">{busiestHour ? `${WEEKDAY_NAMES[busiestHour.weekday]?.slice(0, 3)} ${busiestHour.hour % 12 || 12} ${busiestHour.hour < 12 ? 'AM' : 'PM'}` : '—'}</Text>
+                <Text role="meta">busiest hour</Text>
+              </div>
+              <div className={styles.fact}>
+                <Text role="metric">{busiestHourWeekday === null ? '—' : WEEKDAY_NAMES[busiestHourWeekday]}</Text>
+                <Text role="meta">busiest day of the week</Text>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className={styles.fact}>
+                <Text role="metric">{totalLabel}</Text>
+                <Text role="meta">
+                  {view === 'year' ? 'this year' : 'last 13 weeks'}
+                  {somePartiallyUnpriced ? ' · some unpriced' : ''}
+                </Text>
+              </div>
+              <div className={styles.fact}>
+                <Text role="metric">{activeCount}</Text>
+                <Text role="meta">active of {scannedCount} scanned</Text>
+              </div>
+              <div className={styles.fact}>
+                <Text role="metric">{streaks.current} days</Text>
+                <Text role="meta">streak · best {streaks.best}</Text>
+              </div>
+              <div className={styles.fact}>
+                <Text role="metric">
+                  {busiest
+                    ? dayMetric === 'cost' && isUnpricedCost(busiest)
+                      ? 'unpriced'
+                      : format(dayMetric === 'tokens' ? busiest.tokens : busiest.cost)
+                    : '—'}
+                </Text>
+                <Text role="meta">{busiest ? dayLabelLong(busiest.day) : 'busiest day'}</Text>
+              </div>
+              {view === 'year' && (
+                <div className={styles.fact}>
+                  <Text role="metric">{leader ? nameOf(leader) : '—'}</Text>
+                  <Text role="meta">did the most</Text>
+                </div>
+              )}
+            </>
           )}
         </ChartCard>
 
         <ChartCard className={styles.plot}>
           {ledger === null ? (
             <EmptyState tight title="Reading the ledger" />
+          ) : view === 'hour' && !hourGrid.available ? (
+            <EmptyState tight title="No hours recorded yet" />
           ) : (
             <HeatGrid
-              label={view === 'year' ? 'Tokens or cost per day, this year' : 'Tokens or cost per day, per agent, last 13 weeks'}
-              rows={rows}
-              columns={columns}
+              label={view === 'year' ? 'Tokens or cost per day, this year' : view === 'agent' ? 'Tokens or cost per day, per agent, last 13 weeks' : 'Tokens or calls by local weekday and hour, this year'}
+              rows={view === 'hour' ? hourRows : rows}
+              columns={view === 'hour' ? 24 : columns}
               columnLabels={
-                view === 'year' ? year.monthLabels.map((entry) => ({ index: entry.week, label: entry.label })) : undefined
+                view === 'year' ? year.monthLabels.map((entry) => ({ index: entry.week, label: entry.label })) : view === 'hour' ? hourColumnLabels : undefined
               }
             />
           )}
         </ChartCard>
 
         <ChartFoot>
-          <HeatLegend levelTitle={(level) => levelTitle(level, metric)} />
+          <HeatLegend
+            levelTitle={(level) => levelTitle(level, view === 'hour' ? hourMetric : dayMetric)}
+            showNotScanned={view !== 'hour'}
+          />
+          {view === 'hour' && hoursCoverage.partial && hoursCoverage.known > 0 && (
+            <Text role="meta" className="basis-full">known for {hoursCoverage.known} of {hoursCoverage.total} agents</Text>
+          )}
         </ChartFoot>
       </ChartFrame>
     </section>
   )
 }
 
-const levelTitle = (level: number, metric: HeatMetric): string => {
-  const noun = metric === 'tokens' ? 'tokens' : 'cost'
+const levelTitle = (level: number, metric: HeatMetric | 'calls'): string => {
+  const noun = metric === 'tokens' ? 'tokens' : metric === 'calls' ? 'calls' : 'cost'
   if (level === 0) return `No ${noun}`
   return `Level ${level} of 4, by quartile`
 }

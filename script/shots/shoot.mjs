@@ -1175,6 +1175,16 @@ rules:
       }
     } },
 
+    /** The same Activity band, showing calls and tokens by local weekday/hour. */
+    'dashboard-activity-hour': { leaveOverlay: true, expect: 'When it ran', run: async () => {
+      if (!(await click('Dashboard'))) throw new Error('no Dashboard row in the sidebar')
+      await sleep(1600)
+      if (!(await click('Activity'))) throw new Error('no Activity row in the Dashboard nav')
+      await sleep(1600)
+      if (!(await click('By hour'))) throw new Error('no By hour toggle in Activity')
+      await sleep(1200)
+    } },
+
     /**
      * The Plans view: one row per account, each drawn by its own billing
      * shape, with the money row (Paid, Value, the fee as set) under the head.
@@ -1186,6 +1196,16 @@ rules:
       await sleep(1600)
       // Open one row, so its shape body and money row are in the frame.
       if (!(await click('jane@example.com'))) throw new Error('no jane@example.com row in Plans')
+      await sleep(1200)
+    } },
+
+    /** The same Plans view, opened on the account whose report includes cross-machine activity. */
+    'dashboard-plans-activity': { leaveOverlay: true, expect: 'Plans', run: async () => {
+      if (!(await click('Dashboard'))) throw new Error('no Dashboard row in the sidebar')
+      await sleep(1600)
+      if (!(await click('Plans'))) throw new Error('no Plans row in the Dashboard nav')
+      await sleep(1600)
+      if (!(await click('dev@acme.dev'))) throw new Error('no dev@acme.dev row in Plans')
       await sleep(1200)
     } },
 

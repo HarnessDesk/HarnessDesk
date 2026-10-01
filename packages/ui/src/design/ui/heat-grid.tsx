@@ -10,12 +10,13 @@ import styles from './heat-grid.module.css'
  * A calendar heatmap: rows and columns of level-0..4 cells, one tab stop,
  * arrow keys walking a cursor over the two axes.
  *
- * Generic on purpose. "When it ran" draws two shapes with it — a year as 53
- * weeks (columns) of 7 weekdays (rows), and 13 weeks of one row per agent —
- * and the two disagree about which axis is which. The primitive does not
- * need to know: `ArrowRight`/`ArrowLeft` always move a column, `ArrowUp`/
- * `ArrowDown` always move a row, and the caller decides what a row and a
- * column mean by how it lays the cells out.
+ * Generic on purpose. "When it ran" draws three shapes with it — a year as
+ * 53 weeks (columns) of 7 weekdays (rows), 13 weeks of one row per agent,
+ * and local hours as 24 columns over 7 weekdays — and their axes mean
+ * different things. The primitive does not need to know: `ArrowRight`/
+ * `ArrowLeft` always move a column, `ArrowUp`/`ArrowDown` always move a row,
+ * and the caller decides what a row and a column mean by how it lays the
+ * cells out.
  *
  * Colour is a level, not a value — the caller has already reduced whatever
  * it is measuring (tokens, cost) to `0..4` via `lib/heat.ts`'s quartile
@@ -258,13 +259,14 @@ export const HeatGrid = ({
 }
 
 /**
- * "Less ▢▢▢▢▢ More" under a `HeatGrid` — the ramp's own five steps plus the
- * not-scanned hatch, so a screen using the grid never has to draw a coloured
- * swatch (background, a border-radius) of its own to explain one.
+ * "Less ▢▢▢▢▢ More" under a `HeatGrid` — the ramp's own five steps plus an
+ * optional not-scanned hatch, so a screen using the grid never has to draw a
+ * coloured swatch (background, a border-radius) of its own to explain one.
  */
 export const HeatLegend = ({
   className,
   levelTitle,
+  showNotScanned = true,
   notScannedLabel = 'No record yet',
   leastLabel = 'Less',
   mostLabel = 'More',
@@ -272,6 +274,8 @@ export const HeatLegend = ({
   className?: string
   /** What a level's swatch means, for its `title` — "Level 2 of 4". */
   levelTitle: (level: 0 | 1 | 2 | 3 | 4) => string
+  /** Hide the hatch when every slot is a real zero or a real value. */
+  showNotScanned?: boolean
   notScannedLabel?: string
   leastLabel?: string
   mostLabel?: string
@@ -282,7 +286,11 @@ export const HeatLegend = ({
       <span key={level} data-level={level} title={levelTitle(level)} className={styles.swatch} />
     ))}
     {mostLabel}
-    <span data-state="not-scanned" title={notScannedLabel} className={cn(styles.swatch, styles.legendGap)} />
-    {notScannedLabel}
+    {showNotScanned && (
+      <>
+        <span data-state="not-scanned" title={notScannedLabel} className={cn(styles.swatch, styles.legendGap)} />
+        {notScannedLabel}
+      </>
+    )}
   </Text>
 )

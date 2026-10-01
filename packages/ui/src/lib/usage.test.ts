@@ -4,6 +4,7 @@ import { runtimeId, type UsageLane, type UsageReport } from '@harnessdesk/protoc
 
 import {
   bindingLane,
+  accountActivitySummary,
   byUrgency,
   describeReport,
   drawnReport,
@@ -132,6 +133,96 @@ describe('bindingLane', () => {
       lane({ id: 'weekly', usedPercent: 72, windowMinutes: 10_080 }),
     ]
     expect(bindingLane(lanes, { pinLaneId: 'monthly' })?.id).toBe('session')
+  })
+})
+
+describe('accountActivitySummary', () => {
+  it('sums the current 30 local days and fills missing days with zero', () => {
+    const now = new Date(2026, 2, 31, 15).getTime()
+    const day = (offset: number): number => new Date(2026, 2, 31 + offset).getTime()
+    const activity = {
+      days: [
+        { day: day(-29), tokens: 11 },
+        { day: day(-27), tokens: 20 },
+        { day: day(0), tokens: 7 },
+        { day: day(1), tokens: 100 },
+        { day: day(-30), tokens: 200 },
+      ],
+      lifetimeTokens: 900,
+      peakDailyTokens: null,
+      currentStreakDays: 4,
+      longestStreakDays: null,
+    }
+
+    const summary = accountActivitySummary(activity, now)
+
+    expect(summary?.last30).toBe(38)
+    expect(summary?.series).toHaveLength(30)
+    expect(summary?.series[0]).toBe(11)
+    expect(summary?.series[1]).toBe(0)
+    expect(summary?.series[2]).toBe(20)
+    expect(summary?.series[29]).toBe(7)
+    expect(summary?.streak).toBe(4)
+    expect(summary?.lifetime).toBe(900)
+  })
+
+  it('uses local calendar days through daylight-saving transitions', () => {
+    const now = new Date(2026, 2, 15, 12).getTime()
+    const activity = {
+      days: [
+        { day: new Date(2026, 1, 14).getTime(), tokens: 5 },
+        { day: new Date(2026, 1, 13).getTime(), tokens: 50 },
+        { day: new Date(2026, 2, 7).getTime(), tokens: 7 },
+        { day: new Date(2026, 2, 9).getTime(), tokens: 11 },
+      ],
+      lifetimeTokens: null,
+      peakDailyTokens: null,
+      currentStreakDays: null,
+      longestStreakDays: null,
+    }
+
+    const summary = accountActivitySummary(activity, now)
+
+    // These local dates bracket the usual March spring-forward. On a UTC
+    // runner they still verify local-calendar slots, but do not exercise a
+    // 23-hour local day.
+    expect(summary?.last30).toBe(23)
+    expect(summary?.series[0]).toBe(5)
+    expect(summary?.series[21]).toBe(7)
+    expect(summary?.series[23]).toBe(11)
+  })
+
+  it('returns null when only peak tokens are available', () => {
+    expect(
+      accountActivitySummary(
+        { days: [], lifetimeTokens: null, peakDailyTokens: 10, currentStreakDays: null, longestStreakDays: null },
+        NOON,
+      ),
+    ).toBeNull()
+  })
+
+  it('returns null when only the longest streak is available', () => {
+    expect(
+      accountActivitySummary(
+        { days: [], lifetimeTokens: null, peakDailyTokens: null, currentStreakDays: null, longestStreakDays: 8 },
+        NOON,
+      ),
+    ).toBeNull()
+  })
+
+  it('omits unavailable summaries and returns null for entirely empty activity', () => {
+    expect(
+      accountActivitySummary(
+        { days: [], lifetimeTokens: null, peakDailyTokens: null, currentStreakDays: null, longestStreakDays: null },
+        NOON,
+      ),
+    ).toBeNull()
+
+    const summary = accountActivitySummary(
+      { days: [], lifetimeTokens: null, peakDailyTokens: null, currentStreakDays: 0, longestStreakDays: null },
+      NOON,
+    )
+    expect(summary).toEqual({ last30: null, streak: 0, lifetime: null, series: Array(30).fill(0) })
   })
 })
 

@@ -836,6 +836,11 @@ in place into that account's own shape body, drawn as a full-width row of its
 own; Escape collapses it, whether focus is on the row or inside the body
 itself (moving focus back to the row's own button); one is open at a time.
 
+When the account provides its own activity history, the expanded Plans row
+adds an **All machines** band: its daily token counts cover the account across
+every machine, so the 30-day total can exceed the figures above, which come
+only from this machine's transcripts.
+
 **Each shape's bar means something different, because the shapes are not the
 same kind of fact.** Windows and Allowance draw the binding lane's own percent
 left — the same figure the card's headline promotes. Balance has no window at
@@ -1121,6 +1126,12 @@ across the top and today's cell ringed; **By agent** draws the last 13 weeks
 as one row per agent, so a pattern that belongs to one agent does not have to
 be read out of a shared column. Both read Tokens or Cost, and both follow the
 rail's scope like every band here.
+
+**By hour** groups this year's recorded tokens or calls by local weekday and
+hour, Monday first; there is no cost figure at this granularity. A runtime
+whose calls do not carry a local hour is unknown, not a week of zeros: until
+any runtime is hour-known the grid says "No hours recorded yet", and partial
+coverage names how many agents with ledger rows have known hours.
 
 **Levels come from the data's own quartiles, not from `value / max`.** A
 scale built off the single highest day makes every ordinary day look empty
