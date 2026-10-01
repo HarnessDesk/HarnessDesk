@@ -168,9 +168,11 @@ export const BalanceBody = ({
     unknown: day.unknown,
   }))
   const knownHistoryValues = historyDays.filter((day) => !day.unknown).map((day) => day.remaining)
+  // Zero stays on the axis: a balance drawn from its own lowest reading
+  // touches the floor while money is still left, which reads as "out".
   const historyDomain = {
-    min: knownHistoryValues.length ? Math.min(...knownHistoryValues) : 0,
-    max: knownHistoryValues.length ? Math.max(...knownHistoryValues) : 0,
+    min: Math.min(0, ...knownHistoryValues),
+    max: Math.max(0, ...knownHistoryValues),
   }
   const days = runwayDaysOf(report)
   const out = balance !== null && balance <= 0

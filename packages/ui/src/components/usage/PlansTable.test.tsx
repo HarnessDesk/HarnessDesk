@@ -441,6 +441,41 @@ describe('PlansTable', () => {
     expect(document.querySelector('svg path[stroke="var(--hd-accent)"]')?.getAttribute('d')).toContain('0.00')
   })
 
+  it('keeps $0 on the axis for a balance that never reached it, so money left never reads as out', () => {
+    const balance = info('balance-agent', 'Balance Agent')
+    const healthy = report({
+      runtime: balance.id,
+      account: 'bal@example.com',
+      billing: billing(['balance']),
+      credits: { remaining: 5, unit: 'USD' },
+      balanceHistory: {
+        unit: 'USD',
+        points: [
+          { at: NOW - 2 * DAY, remaining: 10 },
+          { at: NOW - DAY, remaining: 5 },
+        ],
+      },
+    })
+    mount(
+      <PlansTable
+        rows={rowsFor([healthy])}
+        byId={byIdOf(balance)}
+        now={NOW}
+        filter="all"
+        preferenceFor={() => ({})}
+        onRefreshAccount={() => {}}
+        onStopTracking={() => {}}
+        onOpenPlanSettings={() => {}}
+      />,
+    )
+    act(() => rowFor('bal@example.com').click())
+    const chart = document.querySelector('[data-slot="day-columns"]')
+    // The axis reads top, middle, bottom: the bottom tick is $0, not the
+    // lowest reading ($5.00), which would draw money left at the floor.
+    expect(chart?.textContent).toMatch(/^\$10\.00\$5\.00\$0\$/)
+    expect(document.querySelector('[data-zero-line]')).toBeNull()
+  })
+
   // No limit is "never full, never empty" (docs/usage-dashboard.md) — Free, a
   // Key with no budget, and a shape-less "not reporting" row all leave
   // `leftOf`'s own percent null, and the table's Left cell must draw no
