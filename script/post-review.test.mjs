@@ -300,3 +300,47 @@ test('an invisible character inside an email domain does not hide the address', 
 test('escaped newlines and tabs in ordinary text are not mistaken for a network share', () => {
   assert.equal(sanitizeBody('first\\\\n second\\\\t third'), 'first\\\\n second\\\\t third')
 })
+
+// Round 4: credentials, and share URLs. Built from parts so this file is not itself a lookalike.
+const fakeGitHubToken = ['gh', 'p_', 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8'].join('')
+const fakeOpenAiKey = ['sk', '-proj-', 'Zk3Qw9Xv2Lm8Rt5Yb1Nc7Hd4Jf6Sg0Ap'].join('')
+for (const value of [
+  `Authorization: Bearer ${fakeGitHubToken}`,
+  `The log had OPENAI_API_KEY=${fakeOpenAiKey} in it`,
+  `token ${fakeGitHubToken}`,
+]) {
+  test(`refuses a credential in review and fixes posts, without printing it: ${value.slice(0, 24)}`, async () => {
+    for (const mode of ['review', 'fixes']) {
+      const h = harness()
+      const options = mode === 'review'
+        ? { pr: '42', round: '1', by: 'Codex', body: value, repo: 'owner/repo' }
+        : { pr: '42', fixes: value, repo: 'owner/repo' }
+      assert.equal(await postReview(options, h.runner, h.io), 2)
+      assert.equal(h.calls.some(isPost), false)
+      const { stderr } = h.output()
+      assert.match(stderr, /credential/)
+      assert.doesNotMatch(stderr, /a1B2c3D4|Zk3Qw9Xv/, 'the refusal must not echo the secret')
+    }
+  })
+}
+
+test('commit hashes, issue numbers and placeholder addresses are not credentials', async () => {
+  const h = harness()
+  const body = 'Fixed in 077dcb218abcdef1234567890abcdef1234567ab (see #1208), reported by dev@example.com'
+  assert.equal(await postReview({ pr: '42', round: '1', by: 'Codex', body, repo: 'owner/repo' }, h.runner, h.io), 0)
+  assert.ok(h.calls.some(isPost))
+})
+
+test('a network-share URL is redacted in review and fixes posts', async () => {
+  for (const scheme of ['smb', 'cifs', 'afp', 'nfs']) {
+    for (const mode of ['review', 'fixes']) {
+      const h = harness()
+      const text = `Found ${scheme}://fileserver/Users/alice/private.txt here`
+      const options = mode === 'review'
+        ? { pr: '42', round: '1', by: 'Codex', body: text, repo: 'owner/repo' }
+        : { pr: '42', fixes: text, repo: 'owner/repo' }
+      assert.equal(await postReview(options, h.runner, h.io), 0)
+      assert.doesNotMatch(h.bodies[0], /fileserver|alice|private\.txt/)
+    }
+  }
+})

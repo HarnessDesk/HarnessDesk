@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { offendersIn } from './check-secrets.mjs'
+
 export const PLACEHOLDER_EMAIL_DOMAINS = Object.freeze(['example.com', 'acme.dev', 'harnessdesk.app'])
 
 const usage = 'Usage: node script/post-review.mjs <pr> --round <n> --by "<model effort>" [--file <result.md> | stdin] [--repo owner/name] [--dry-run] | node script/post-review.mjs <pr> --fixes <file> [--repo owner/name] [--dry-run]'
@@ -73,6 +75,7 @@ const scrubLocalPaths = (input) => {
 
   return text
     .replace(/\bfile:\/\/[^\s)\]}>'"`]+/gi, '<local path>')
+    .replace(/\b(?:smb|cifs|afp|nfs):\/\/[^\s)\]}>'"`]+/gi, '<local path>')
     .replace(/~[^/\s]*\/[^\s)\]}>'"`]+/g, '<local path>')
     .replace(/\b[A-Za-z]:[\\/]+Users[\\/]+[^\s)\]}>'"`]+/gi, '<local path>')
     .replace(/(?<![\\\w])\\{2,}[\w.$-]{2,}\\+[^\s)\]}>'"`]+/g, '<local path>')
@@ -99,12 +102,24 @@ const privateLines = (body) => {
   const emailPattern = /\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})\b/gi
   const sources = [String(body), decodePrivateText(body).text]
   return [...new Set(sources.flatMap((source) => source.split(/\r?\n/).flatMap((line, index) => {
-    const pathIssue = /(?:~[^/\s]*\/|\/Users\/|\/home\/[^/\s]+|\/private\/|\/tmp\/|\/var\/folders\/|\bfile:\/\/|\b[A-Za-z]:[\\/]+Users[\\/]+|(?<![\\\w])\\{2,}[\w.$-]{2,}\\+\S)/i.test(line)
+    const pathIssue = /(?:~[^/\s]*\/|\/Users\/|\/home\/[^/\s]+|\/private\/|\/tmp\/|\/var\/folders\/|\bfile:\/\/|\b(?:smb|cifs|afp|nfs):\/\/|\b[A-Za-z]:[\\/]+Users[\\/]+|(?<![\\\w])\\{2,}[\w.$-]{2,}\\+\S)/i.test(line)
     const emailIssue = [...line.matchAll(emailPattern)].some((match) =>
       !PLACEHOLDER_EMAIL_DOMAINS.includes(match[1].toLowerCase()),
     )
     return pathIssue || emailIssue ? [`${index + 1}: ${line}`] : []
   })))]
+}
+
+/**
+ * Credential shapes, by the repo's own detector (`script/check-secrets.mjs`): a token, a key, an
+ * Authorization header. Reported by line and label only, because echoing the value would leak it
+ * to the terminal log this refusal exists to protect.
+ */
+const credentialLines = (body) => {
+  const sources = [String(body), decodePrivateText(body).text]
+  return [...new Set(sources.flatMap((source) => offendersIn('post', source)
+    .filter((entry) => !/rule 13/i.test(entry)) // addresses and home directories: this file's own checks own those
+    .map((entry) => entry.replace(/^post:/, 'line '))))]
 }
 
 const withRepo = (args, repo) => repo ? [...args, '--repo', repo] : args
@@ -134,6 +149,12 @@ export const postReview = async (
       return 2
     }
     const body = fixes ? sanitizeBody(options.fixes) : buildReviewBody(options.body, options.round, options.by)
+    const credentials = credentialLines(options.fixes ?? options.body)
+    if (credentials.length) {
+      for (const line of credentials) io.stderr.write(`${line}\n`)
+      io.stderr.write('REFUSED: the text looks like it holds a credential; nothing was posted.\n')
+      return 2
+    }
     const offenders = privateLines(body)
     if (offenders.length) {
       for (const line of offenders) io.stderr.write(`${line}\n`)

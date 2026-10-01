@@ -130,9 +130,15 @@ on stdin). Use `--fixes <file>` (for example, `--fixes fixes.md`) for the
 follow-up comment, and name the commit that contains each fix so the review
 trail stays tied to the code.
 The script signs and sanitizes review text, refuses any remaining private
-paths or real email addresses, and supports `--dry-run` to inspect the body
-and command before posting.
-Names and handles are not machine-checked; the poster reads the text before posting.
+paths, real email addresses or credential shapes (it reuses the detector in
+`script/check-secrets.mjs`, and reports a credential by line and label only,
+never the value), and supports `--dry-run` to inspect the body and command
+before posting.
+
+It is a safety net on top of a human read, not a replacement for one. Known
+limits: names and handles are not machine-checked, and a determined evasion
+(look-alike characters, a bespoke encoding) can get past a pattern check. The
+poster reads the text before posting.
 
 **Prove the merge changed nothing**, so the build below doesn't have to wait
 on CI to finish before it can start:
