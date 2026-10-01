@@ -426,11 +426,12 @@ export class Flows implements TeamFlows {
     if (!this.#review) throw new Error('Runs on Goals are not available on this desk.')
     const stored = this.#executions?.stored(run)
     if (!stored) throw new Error(`There is no flow run ${run}.`)
-    await this.#review.recordPerson(run, card, candidate, verdict)
-    await this.#team.intentAction(stored.goal, card, 'done', undefined, verdict)
-    const execution = this.executionOf(run)
-    if (!execution) throw new Error(`There is no flow run ${run}.`)
-    return execution
+    return this.#review.decidePerson(stored.goal, run, card, candidate, verdict, async () => {
+      await this.#team.intentAction(stored.goal, card, 'done', undefined, verdict)
+      const execution = this.executionOf(run)
+      if (!execution) throw new Error(`There is no flow run ${run}.`)
+      return execution
+    })
   }
 
   /** Runs an interrupted check again, once a person has reviewed it. The only way a v2 check ever runs a second time. */

@@ -1470,6 +1470,7 @@ export class Team {
     const board = this.#mutableBoardById(room)
     const intent = board.intents.find((entry) => entry.id === id)
     if (!intent) throw new Error(`There is no intent #${id} on this board.`)
+    if (action === 'done' && intent.state === 'done' && intent.outcome === (outcome?.trim() || null)) return
     const by: TeamActor = { kind: 'user' }
     if (action === 'block') {
       /* `blockedBy: 'hand'`, the same as an agent's `release(blocked)`: a

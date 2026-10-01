@@ -163,6 +163,8 @@ export interface GoalRig {
   onOrder: ((seat: SeatRecord) => void) | null
   /** Called as a Seat is put back on its picks — where a test says a person started a turn meanwhile. */
   onReseat: ((seat: SeatRecord) => void) | null
+  /** Called with every board the Team commits, synchronously, before the step that committed it goes on. */
+  onBoardChanged: ((state: TeamState) => void) | null
   /** Every accepted order's text, by Seat id, in order. */
   readonly orderTexts: Map<string, string[]>
   /** The lane a Seat gets when it asked for isolation. */
@@ -196,12 +198,13 @@ export const goalRig = async (
 ): Promise<GoalRig> => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-flow-goal-'))
   const peers: TeamPeer[] = []
+  const boardHook: { fn: ((state: TeamState) => void) | null } = { fn: null }
   const teamPort: TeamPort = {
     peers: () => peers,
     rootOf: async (cwd) => (cwd.startsWith('/repo') ? '/repo' : null),
     send: async () => {},
     steer: async () => {},
-    changed: () => {},
+    changed: (state) => boardHook.fn?.(state),
     removed: () => {},
     membershipChanged: () => {},
     audit: () => {},
@@ -229,6 +232,8 @@ export const goalRig = async (
     orderTexts: new Map<string, string[]>(),
     origins: new Map<string, GoalOrigin>(),
     triggerGate: null,
+    get onBoardChanged() { return boardHook.fn },
+    set onBoardChanged(fn: ((state: TeamState) => void) | null) { boardHook.fn = fn },
     dispatch: { ok: true } as GoalRig['dispatch'],
     laneFor: (n: number, seat: SeatRecord): Lane => ({
       id: `lane-${n}`, goal: seat.board!, seat: String(seat.id), cwd: seat.checkout.cwd, branch: `harnessdesk/lane-${n}`,

@@ -766,6 +766,7 @@ const IntentCard = ({
     readonly run: string
     readonly candidates: readonly ReviewCandidate[]
     readonly selected: string | null
+    readonly answer: string | null
     readonly pending: boolean
     readonly error: string | null
   } | null>(null)
@@ -788,15 +789,17 @@ const IntentCard = ({
 
   const openReviewDialog = async (): Promise<void> => {
     if (!role?.review || !role.run) return
-    setReviewDialog({ run: role.run, candidates: [], selected: null, pending: true, error: null })
+    const answer = role.outcomes.length === 1 ? role.outcomes[0]! : null
+    setReviewDialog({ run: role.run, candidates: [], selected: null, answer, pending: true, error: null })
     try {
       const candidates = await store.flowReviewCandidates(role.run, intent.id)
-      setReviewDialog({ run: role.run, candidates, selected: candidates[0]?.id ?? null, pending: false, error: null })
+      setReviewDialog({ run: role.run, candidates, selected: null, answer, pending: false, error: null })
     } catch (error) {
       setReviewDialog({
         run: role.run,
         candidates: [],
         selected: null,
+        answer,
         pending: false,
         error: error instanceof Error && error.message ? error.message : 'The host could not load review candidates.',
       })
@@ -804,10 +807,10 @@ const IntentCard = ({
   }
 
   const confirmReview = async (): Promise<void> => {
-    if (!reviewDialog?.selected) return
+    if (!reviewDialog?.selected || !reviewDialog.answer) return
     setReviewDialog({ ...reviewDialog, pending: true, error: null })
     try {
-      await store.decideFlowReview(reviewDialog.run, intent.id, reviewDialog.selected, 'picked')
+      await store.decideFlowReview(reviewDialog.run, intent.id, reviewDialog.selected, reviewDialog.answer)
       setReviewDialog(null)
     } catch (error) {
       setReviewDialog({
@@ -1163,15 +1166,15 @@ const IntentCard = ({
     />
     {reviewDialog && (
       <Dialog
-        title="Pick the best attempt"
-        subhead="Choose a checked revision for this run."
+        title={intent.title}
+        subhead="Choose the attempt this step answers for."
         flush
         onClose={() => setReviewDialog(null)}
         footer={(
           <>
             <Button variant="quiet" onClick={() => setReviewDialog(null)}>Cancel</Button>
-            <Button variant="default" disabled={!reviewDialog.selected || reviewDialog.pending} onClick={() => void confirmReview()}>
-              {reviewDialog.pending ? 'Saving…' : 'Pick this attempt'}
+            <Button variant="default" disabled={!reviewDialog.selected || !reviewDialog.answer || reviewDialog.pending} onClick={() => void confirmReview()}>
+              {reviewDialog.pending ? 'Saving…' : 'Record answer'}
             </Button>
           </>
         )}
@@ -1216,6 +1219,18 @@ const IntentCard = ({
                 })}
               </Rows>
             )}
+        {(role?.outcomes.length ?? 0) > 1 && (
+          <Rows role="radiogroup" aria-label="Answer">
+            {(role?.outcomes ?? []).map((outcome) => (
+              <RowChoice
+                key={outcome}
+                title={outcome}
+                selected={reviewDialog.answer === outcome}
+                onClick={() => setReviewDialog({ ...reviewDialog, answer: outcome, error: null })}
+              />
+            ))}
+          </Rows>
+        )}
       </Dialog>
     )}
     </>

@@ -715,6 +715,16 @@ interface PendingRelease {
 }
 
 /** Runs on Goals. `Flows` hands every Goal-born run and every card of one to this. */
+/** What a person review step may judge: its run's Goal, the round, and the attempts before it. */
+export interface PersonReviewBinding {
+  readonly goal: string
+  readonly seat: string
+  readonly answers: readonly string[]
+  readonly round: number
+  readonly subjects: readonly FlowSubject[]
+  readonly unsettled: readonly { readonly card: number; readonly why: string }[]
+}
+
 export class FlowExecutions {
   readonly #files: ExecutionFiles
   readonly #team: Team
@@ -1881,15 +1891,20 @@ export class FlowExecutions {
     return { seat: String(seat.id), answers, round: round.n, subjects: closure.subjects, unsettled: closure.unsettled }
   }
 
-  /** The open person card and predecessor subjects when a review guard makes it a judge. */
-  async personReviewBinding(runId: string, card: number): Promise<{
-    readonly goal: string
-    readonly seat: string
-    readonly answers: readonly string[]
-    readonly round: number
-    readonly subjects: readonly FlowSubject[]
-    readonly unsettled: readonly { readonly card: number; readonly why: string }[]
-  } | null> {
+  /**
+   * The open person card and predecessor subjects when a review guard makes it a judge.
+   *
+   * Read inside the run's queue. A round opens there: its card reaches the
+   * board while the round still reads `opening`, and only the end of that
+   * same queued step marks it `running`. Read outside the queue, a person
+   * who opened "Pick an attempt…" the moment the card appeared would be
+   * told there was nothing to pick (CI caught it on #1161).
+   */
+  personReviewBinding(runId: string, card: number): Promise<PersonReviewBinding | null> {
+    return this.#queue.within(runId, () => this.#personReviewBindingNow(runId, card))
+  }
+
+  async #personReviewBindingNow(runId: string, card: number): Promise<PersonReviewBinding | null> {
     const run = this.#runs.get(runId)
     if (!run || run.state !== 'running' || run.document.format !== 'agents') return null
     const round = run.rounds.find((one) => one.cards.includes(card) && one.state === 'running')

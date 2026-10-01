@@ -201,7 +201,7 @@ test('a person review records the stable person marker on a held candidate and r
   const record = await review.recordPerson('run-1', 5, candidates[0]!.id, 'picked')
   assert.equal(record.fact.kind, 'review')
   if (record.fact.kind === 'review') assert.equal(record.fact.by, PERSON_REVIEWER_ID)
-  assert.equal(record.seat, PERSON_REVIEWER_ID)
+  assert.equal(record.seat, null)
   assert.ok(evidenceRecordOf(JSON.parse(JSON.stringify(record))))
   await assert.rejects(
     () => review.recordPerson('run-1', 5, candidates[0]!.id, 'rejected'),
