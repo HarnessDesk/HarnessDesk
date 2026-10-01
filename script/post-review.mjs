@@ -115,11 +115,26 @@ const privateLines = (body) => {
  * Authorization header. Reported by line and label only, because echoing the value would leak it
  * to the terminal log this refusal exists to protect.
  */
+/**
+ * Headers that carry a secret, quoted from a log: the value is opaque, so there is no vendor prefix
+ * to match. A value that reads as a placeholder (angle brackets, braces, `$VAR`, an ellipsis) is fine.
+ */
+const SECRET_HEADER = /\b(?:proxy-)?authorization|\bcookie|\bset-cookie|\bx-api-key|\bx-auth-token/i
+const headerCredentialLines = (source) => source.split(/\r?\n/).flatMap((line, index) => {
+  const header = line.match(/\b((?:proxy-)?authorization|set-cookie|cookie|x-api-key|x-auth-token)\s*[:=]\s*(?:(?:bearer|basic|token)\s+)?([^\s'",;]+)/i)
+  if (!header || !SECRET_HEADER.test(header[1])) return []
+  const value = header[2]
+  const placeholder = /^[<{[$]|^(?:\.{3}|…|\*+|x{4,}|redacted|none|null|true|false)$/i.test(value) || /[<{]/.test(value[0] ?? '')
+  return value.length >= 8 && !placeholder ? [`line ${index + 1}  [credential in a header]`] : []
+})
+const bearerLines = (source) => source.split(/\r?\n/).flatMap((line, index) =>
+  /\bbearer\s+(?![<{[$])[A-Za-z0-9._~+/=-]{20,}/i.test(line) ? [`line ${index + 1}  [bearer token]`] : [])
+
 const credentialLines = (body) => {
   const sources = [String(body), decodePrivateText(body).text]
   return [...new Set(sources.flatMap((source) => offendersIn('post', source)
     .filter((entry) => !/rule 13/i.test(entry)) // addresses and home directories: this file's own checks own those
-    .map((entry) => entry.replace(/^post:/, 'line '))))]
+    .map((entry) => entry.replace(/^post:/, 'line ')).concat(headerCredentialLines(source), bearerLines(source))))]
 }
 
 const withRepo = (args, repo) => repo ? [...args, '--repo', repo] : args

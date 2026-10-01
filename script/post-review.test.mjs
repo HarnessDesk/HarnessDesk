@@ -344,3 +344,41 @@ test('a network-share URL is redacted in review and fixes posts', async () => {
     }
   }
 })
+
+// Round 5: an opaque token in a quoted header has no vendor prefix to match.
+const opaque = ['q8Zk2Lm9', 'Xv4Rt7Yb', '1Nc5Hd3Jf'].join('')
+const headerSecrets = [
+  ['Author', 'ization: Bearer ', opaque].join(''),
+  ['Author', 'ization: Basic ', 'dXNlcjpwYXNzd29yZA=='].join(''),
+  ['Coo', 'kie: sessionid=', 'a8f3k2m9x4'].join(''),
+  ['Set-', 'Cookie: sid=', 'Zk3Qw9Xv2Lm8; HttpOnly'].join(''),
+  ['X-Api-', 'Key: ', 'Zk3Qw9Xv2Lm8Rt5Y'].join(''),
+]
+for (const value of headerSecrets) {
+  test(`refuses a secret header value in review and fixes posts, without printing it: ${value.slice(0, 16)}`, async () => {
+    for (const mode of ['review', 'fixes']) {
+      const h = harness()
+      const text = `Log excerpt:\n${value}\nend`
+      const options = mode === 'review'
+        ? { pr: '42', round: '1', by: 'Codex', body: text, repo: 'owner/repo' }
+        : { pr: '42', fixes: text, repo: 'owner/repo' }
+      assert.equal(await postReview(options, h.runner, h.io), 2)
+      assert.equal(h.calls.some(isPost), false)
+      assert.doesNotMatch(h.output().stderr, /q8Zk2Lm9|dXNlcjpw|a8f3k2m9|Zk3Qw9Xv/, 'the refusal must not echo the secret')
+    }
+  })
+}
+
+for (const value of [
+  ['Author', 'ization: Bearer <opaque-token>'].join(''),
+  'curl -H "Authorization: $TOKEN"',
+  'the bearer of bad news fixed it',
+  'the cookie jar is shared by the review round',
+  'Authorization header is checked before the merge',
+]) {
+  test(`placeholders and ordinary prose about headers still post: ${value.slice(0, 30)}`, async () => {
+    const h = harness()
+    assert.equal(await postReview({ pr: '42', round: '1', by: 'Codex', body: value, repo: 'owner/repo' }, h.runner, h.io), 0)
+    assert.ok(h.calls.some(isPost))
+  })
+}
