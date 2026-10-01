@@ -195,6 +195,13 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
      the conversation they were typed for. On a switch nothing is saved until
      the new conversation's own draft has been read in. */
   const draftOf = useRef(key)
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
   useEffect(() => {
     if (key && draftOf.current === key) drafts.setLive(key, { text, attachments })
   }, [drafts, key, text, attachments])
@@ -707,14 +714,27 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     // one path that can fail has to put it back.
     const delivered = await store.queue(content, key)
     if (!delivered) {
-      setText((current) => (current.trim().length > 0 ? current : draft.text))
-      setAttachments((current) => (current.length > 0 ? current : draft.attachments))
+      /* Back to the conversation it was written for. This composer may have
+         moved on to another conversation, or been taken away, while the send
+         was out: put back into whatever it shows now, the words would sit —
+         and could be sent — under a conversation they were never meant for. */
+      if (mounted.current && draftOf.current === key) {
+        setText((current) => (current.trim().length > 0 ? current : draft.text))
+        setAttachments((current) => (current.length > 0 ? current : draft.attachments))
+      } else if (key) {
+        const there = drafts.live(key)
+        drafts.setLive(key, {
+          text: there && there.text.trim().length > 0 ? there.text : draft.text,
+          attachments: there && there.attachments.length > 0 ? there.attachments : draft.attachments,
+        })
+      }
     }
   }, [
     acceptsImages,
     agentName,
     attachments,
     busy,
+    drafts,
     canSend,
     canSteer,
     commands,

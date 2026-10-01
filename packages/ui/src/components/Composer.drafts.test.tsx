@@ -64,12 +64,15 @@ const snapshot: AppSnapshot = {
 /* A fresh store per test: the drafts are the store's, so one test's words
    can never be waiting in the next test's composer. */
 let store: AppStore
+/** The send in flight: settled by the test, so a switch or an unmount can land first. */
+let settle: (delivered: boolean) => void
 beforeEach(() => {
   store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     transport: { request: vi.fn() },
     notice: vi.fn(),
+    queue: vi.fn(() => new Promise<boolean>((resolve) => { settle = resolve })),
   } as unknown as AppStore
 })
 
@@ -122,5 +125,49 @@ describe('a draft belongs to its conversation, not to the composer drawing it', 
     expect(textarea().value).toBe('for the first')
     draw(two)
     expect(textarea().value).toBe('for the second')
+  })
+})
+
+describe('a message whose send fails goes back to the conversation it was written for', () => {
+  const send = (): void => {
+    act(() => {
+      textarea().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    })
+  }
+
+  it('when the composer has moved to another conversation meanwhile', async () => {
+    draw(one)
+    type('meant for the first')
+    send()
+    await act(async () => {})
+    expect(store.queue).toHaveBeenCalledTimes(1)
+    draw(two)
+    await act(async () => { settle(false) })
+    // Not into the conversation now showing…
+    expect(textarea().value).toBe('')
+    // …but back where it was written.
+    draw(one)
+    expect(textarea().value).toBe('meant for the first')
+  })
+
+  it('when the composer was taken away meanwhile', async () => {
+    draw(one)
+    type('still mine')
+    send()
+    await act(async () => {})
+    draw(null)
+    await act(async () => { settle(false) })
+    draw(one)
+    expect(textarea().value).toBe('still mine')
+  })
+
+  it('back into the same composer when it is still showing that conversation', async () => {
+    draw(one)
+    type('try again')
+    send()
+    await act(async () => {})
+    expect(textarea().value).toBe('')
+    await act(async () => { settle(false) })
+    expect(textarea().value).toBe('try again')
   })
 })
