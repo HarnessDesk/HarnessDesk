@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import {
   NO_CAPABILITIES,
@@ -14,6 +14,7 @@ import {
   type UsageReport,
 } from '@harnessdesk/protocol'
 import { FindingDecision } from '../../components/FindingDecision'
+import { SideBySide } from '../../components/SideBySide'
 import { OverviewStrip, type StripMetric } from '../../components/usage/OverviewStrip'
 
 import {
@@ -163,6 +164,8 @@ import { PlansTable, ShapeFilters } from '../../components/usage/PlansTable'
 import type { SilentAgent } from '../../components/usage/shared'
 import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppStore } from '../../state/store'
+import { emptySideBySide, type SideBySideState } from '../../lib/side-by-side'
+import { SIDE_BY_SIDE_KEYS, SIDE_BY_SIDE_MEMBERS, sideBySideStore } from '../../preview/side-by-side-fixture'
 import { planRows, shapeCountsOf, type PlanRow } from '../../lib/plans-table'
 import {
   Counts,
@@ -831,6 +834,12 @@ const ToolPaneBoard = () => {
             </Bar>
           </ToolPane>
         </Case>
+        <Case label="bar — focused pane among several">
+          <div className="flex flex-col gap-3">
+            <Bar rule="bottom" active><Text role="row">Alpha · Model A</Text></Bar>
+            <Bar rule="bottom"><Text role="row">Beta · Model B</Text></Bar>
+          </div>
+        </Case>
         <Case label="inspector panel">
           <PanelFrame>
             <PanelTools>
@@ -873,6 +882,46 @@ const ToolPaneBoard = () => {
         row, filter, state and facts roles, so selection remains a fill and running remains a dot.
       </Rule>
     </>
+  )
+}
+
+const sideBySideState = (count: 2 | 4): SideBySideState => {
+  const tiles = SIDE_BY_SIDE_KEYS.slice(0, count)
+  return { ...emptySideBySide(), tiles, focused: tiles[1] ?? tiles[0] ?? null, seen: tiles }
+}
+
+const SideBySideBoard = () => {
+  const [two, setTwo] = useState(() => sideBySideState(2))
+  const [four, setFour] = useState(() => sideBySideState(4))
+  const store = useMemo(sideBySideStore, [])
+  const memberOf = (key: (typeof SIDE_BY_SIDE_KEYS)[number]) => {
+    const member = SIDE_BY_SIDE_MEMBERS[SIDE_BY_SIDE_KEYS.indexOf(key)]
+    return member ? { nickname: member.nickname, agent: member.agent, model: member.model } : undefined
+  }
+  const grid = (state: SideBySideState, onChange: (next: SideBySideState) => void, paneId: string) => (
+    <div className="h-96 w-full min-w-0">
+      <SideBySide
+        state={state}
+        onChange={onChange}
+        paneId={paneId}
+        memberOf={memberOf}
+        entryOf={(key) => {
+          const index = SIDE_BY_SIDE_KEYS.indexOf(key)
+          return index < 0 ? null : { tint: index % 2 === 0 ? 'blue' : 'violet', busy: false }
+        }}
+        onOpenMember={() => {}}
+        conversationProps={{ onChooseProject: () => {}, onSignIn: () => {}, onOpenUsage: () => {}, onOpenRuntimes: () => {} }}
+      />
+    </div>
+  )
+  return (
+    <StoreProvider store={store}>
+      <div className={styles.matrix}>
+        <Case label="room — Side by side · two members">{grid(two, setTwo, 'catalog-side-by-side-two')}</Case>
+        <Case label="room — Side by side · four members">{grid(four, setFour, 'catalog-side-by-side-four')}</Case>
+      </div>
+      <Rule>A room keeps the members you chose as tiles. Width changes the arrangement; focus stays visible in the tile header.</Rule>
+    </StoreProvider>
   )
 }
 
@@ -2712,6 +2761,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'Board',
     about: 'Work in columns: what is waiting, what is being done, and who has it.',
     render: KanbanBoard,
+  },
+  {
+    id: 'room-side-by-side',
+    title: 'Room — Side by side',
+    about: 'Two or four member conversations, with one focused tile and the room’s real conversations.',
+    render: SideBySideBoard,
   },
   {
     id: 'adopted',

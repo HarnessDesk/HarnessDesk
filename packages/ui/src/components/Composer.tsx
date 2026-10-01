@@ -851,6 +851,9 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
         setTrigger({ kind: 'none' })
         return
       }
+      // ⌥⌘↵ is the window's (expand or return a Side by side tile), not a
+      // send: left untouched here, it reaches the shortcut runner.
+      if (event.key === 'Enter' && event.altKey && (event.metaKey || event.ctrlKey)) return
       if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
         event.preventDefault()
         // ⌘↵ / Ctrl+↵ adds to the running turn where the agent can take it;

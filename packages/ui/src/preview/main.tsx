@@ -63,6 +63,7 @@ import { PanelFrames } from './frames-panels'
 import { CoverageFrames } from './frames-coverage'
 import { SettingsFrames } from './frames-settings'
 import { TranscriptFrames } from './frames-transcript'
+import { SideBySideFrames } from './frames-side-by-side'
 import '../styles/app.css'
 
 const SHOW_COMPOSER = new URLSearchParams(window.location.search).has('composer')
@@ -942,6 +943,7 @@ const Preview = () => {
       <TranscriptFrames />
       <PanelFrames />
       <CoverageFrames />
+      <SideBySideFrames />
     </div>
   )
 }
