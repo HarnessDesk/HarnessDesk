@@ -141,8 +141,12 @@ right panel is the exception: a column has no resting state as a horizontal
 strip, so putting it away hides it, and the control that opened it is the way
 back.
 
-In the terminal, Tab belongs to shell completion. Press Escape, then Tab to
-move focus to the panel controls; Tab without Escape stays in the terminal.
+In the terminal, Tab belongs to shell completion. Press Escape, then Tab within
+1.5 seconds to move focus to the panel controls; Tab without Escape stays in
+the terminal. A lone Escape is sent to the shell immediately. Because the
+Escape-then-Tab chord is reserved briefly, a shell binding for Escape-Tab
+(such as readline's completion binding) cannot use that chord during the
+window.
 
 Sizes and arrangement are saved per project.
 [the panel decision](decisions.md#one-panel-system-and-a-feature-never-knows-where-it-is) has why this replaced four

@@ -158,6 +158,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   const shell = useRef<HTMLDivElement>(null)
   const main = useRef<HTMLDivElement>(null)
   const mainFocus = useRef<{ target: HTMLElement; paneId: string; view: PaneView } | null>(null)
+  const rightPanelFocus = useRef<HTMLElement | null>(null)
   const wasRightPanelDrawn = useRef(false)
 
   /*
@@ -188,6 +189,15 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
     // narrow overlay; widening alone leaves the panel drawn.
     const saved = mainFocus.current
     mainFocus.current = null
+    const active = document.activeElement
+    const focusWasStranded = active === document.body || (
+      active instanceof HTMLElement && (
+        active === rightPanelFocus.current ||
+        (!active.isConnected && rightPanelFocus.current?.contains(active) === true)
+      )
+    )
+    rightPanelFocus.current = null
+    if (!focusWasStranded) return
     const focused = findPane(snapshot.layout, snapshot.layout.focused)
     if (!focused || (snapshot.layout.expanded !== null && snapshot.layout.expanded !== focused.id)) return
     const pane = [...(main.current?.querySelectorAll<HTMLElement>('[data-pane-id]') ?? [])]
@@ -317,6 +327,13 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
             a panel that failed to expand rather than one that did. */}
         <div
           className={styles.middle}
+          onFocusCapture={(event) => {
+            const target = event.target
+            rightPanelFocus.current = target instanceof HTMLElement &&
+              target.closest('[data-slot="dock-panel"]')
+              ? target
+              : null
+          }}
           {...(areaVisible(workbench, 'main') || areaVisible(workbench, 'right')
             ? {}
             : { 'data-hidden': '' })}

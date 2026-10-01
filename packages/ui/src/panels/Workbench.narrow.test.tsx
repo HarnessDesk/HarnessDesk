@@ -430,11 +430,12 @@ it('returns focus to the conversation target, or its composer when that target i
 
   // A stale opener must not strand focus when its node was removed/disabled.
   patch({ workbench: docked })
-  opener!.disabled = false
   opener!.focus()
   patch({ narrowWindow: true })
-  opener!.disabled = true
-  view!.focus()
+  act(() => {
+    view!.focus()
+    opener!.remove()
+  })
   patch({ workbench: { ...docked, right: { ...docked.right, collapsed: true } } })
   expect(document.activeElement).toBe(composer)
 })
@@ -452,6 +453,24 @@ it('returns focus after a wide right panel is hidden', () => {
   view!.focus()
   patch({ workbench: { ...docked, right: { ...docked.right, collapsed: true } } })
   expect(document.activeElement).toBe(opener)
+})
+
+it('keeps focus on another visible control when a wide right panel is hidden', () => {
+  const docked = dock(emptyWorkbench(), 'right', { kind: 'changes' })
+  const { store, patch } = rig({}, docked)
+  render(store)
+  const opener = container.querySelector<HTMLButtonElement>('[data-testid="in-the-conversation"]')
+  const outside = sidebar().querySelector<HTMLButtonElement>('button')
+  expect(opener).not.toBeNull()
+  expect(outside).not.toBeNull()
+
+  act(() => {
+    opener!.focus()
+    outside!.focus()
+  })
+  patch({ workbench: { ...docked, right: { ...docked.right, collapsed: true } } })
+  expect(document.activeElement).toBe(outside)
+  expect(store.focusPane).not.toHaveBeenCalled()
 })
 
 it('restores into the currently focused expanded pane and returns logical focus to main', () => {

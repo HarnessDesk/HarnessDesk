@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
@@ -70,7 +70,7 @@ export const TerminalSurface = () => {
             runtime
               ? `Runs inside ${runtime.presentation.name}'s sandbox${view.session ? ', with this conversation’s permissions' : ''}.`
               : undefined,
-            'Press Escape, then Tab to focus the panel controls.',
+            'Press Escape, then Tab within 1.5 seconds to focus the panel controls.',
           ].filter(Boolean).join(' ')
         }
       >
@@ -110,6 +110,7 @@ const TerminalScreen = ({ view }: { view: TerminalView }) => {
   const [exitCode, setExitCode] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const terminalId = view.terminalId
+  const terminalHintId = useId()
   const escapeToTabDeadline = useRef(0)
 
   const onKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>): void => {
@@ -146,6 +147,11 @@ const TerminalScreen = ({ view }: { view: TerminalView }) => {
     const fit = new FitAddon()
     terminal.loadAddon(fit)
     terminal.open(element)
+    const textarea = element.querySelector<HTMLTextAreaElement>('.xterm-helper-textarea')
+    if (textarea) {
+      const describedBy = textarea.getAttribute('aria-describedby')?.split(/\s+/).filter(Boolean) ?? []
+      textarea.setAttribute('aria-describedby', [...new Set([...describedBy, terminalHintId])].join(' '))
+    }
     term.current = terminal
     let disposed = false
     setExitCode(null)
@@ -204,7 +210,7 @@ const TerminalScreen = ({ view }: { view: TerminalView }) => {
       terminal.dispose()
       term.current = null
     }
-  }, [store, terminalId])
+  }, [store, terminalHintId, terminalId])
 
   /* xterm cannot read CSS variables, so its theme is copied out of them. It
      is copied again whenever the body's theme attributes change, not only on
@@ -226,6 +232,9 @@ const TerminalScreen = ({ view }: { view: TerminalView }) => {
       {/* The pane's own body keeps the inset, so the element xterm measures
           to fit its rows and columns is exactly the room it has. */}
       <ToolPaneBody className={styles.terminalBody}>
+        <span id={terminalHintId} className="sr-only">
+          Press Escape, then Tab within 1.5 seconds to focus the panel controls. A single Escape is sent to the shell immediately.
+        </span>
         <div className={styles.terminalHost} ref={host} onKeyDownCapture={onKeyDownCapture} />
       </ToolPaneBody>
       {(exitCode !== null || error) && (
