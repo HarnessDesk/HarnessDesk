@@ -16,8 +16,8 @@ import { tempDir } from './scratch.js'
 const alive = (pid: number): boolean => {
   try {
     process.kill(pid, 0)
-  } catch {
-    return false
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
   }
 
   // On macOS, kill(pid, 0) succeeds for a zombie, while kill(-pgid, 0) returns
@@ -35,7 +35,7 @@ const alive = (pid: number): boolean => {
   }
 }
 
-test("a child that has exited but is not yet reaped is gone, as the run's own group check counts it", async (t) => {
+test('a child that has exited but is not yet reaped is gone, though kill(pid, 0) still finds it', async (t) => {
   try {
     execFileSync('python3', ['--version'], { stdio: 'ignore' })
   } catch {
@@ -83,14 +83,21 @@ test("a child that has exited but is not yet reaped is gone, as the run's own gr
   }
   assert.ok(state.startsWith('Z'), `ps reports the unreaped child as a zombie; got ${JSON.stringify(state)}`)
   assert.doesNotThrow(() => process.kill(zombie, 0), 'kill(pid, 0) still succeeds for this zombie')
-  assert.equal(alive(zombie), false, 'a zombie is gone for the run’s group liveness check')
+  assert.equal(alive(zombie), false, 'a zombie is gone even though kill(pid, 0) found it')
+})
+
+test('a process the test may not signal is not taken for gone', () => {
+  // pid 1 is always running and never ours to signal: kill(1, 0) is EPERM, not ESRCH.
+  assert.throws(() => process.kill(1, 0), { code: 'EPERM' })
+  assert.equal(alive(1), true, 'only ESRCH proves a process is gone')
 })
 
 test('a live process is still alive when `ps` cannot run to tell it from a zombie', (t) => {
   const live = spawn('sleep', ['30'], { stdio: 'ignore' })
   const path = process.env['PATH']
   t.after(() => {
-    process.env['PATH'] = path
+    if (path === undefined) delete process.env['PATH']
+    else process.env['PATH'] = path
     live.kill('SIGKILL')
   })
   // An empty PATH is what a sandbox without `ps` looks like to the helper.
