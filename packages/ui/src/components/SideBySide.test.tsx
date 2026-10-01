@@ -23,6 +23,7 @@ vi.mock('../state/context', async (load) => {
   return { ...actual, useIsFocusedPane: () => paneFocused }
 })
 let paneFocused = true
+let keyboardHere: boolean | null = null
 
 let measuredWidth = 1200
 const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
@@ -40,6 +41,7 @@ afterEach(() => {
   container?.remove()
   rect.mockClear()
   paneFocused = true
+  keyboardHere = null
 })
 
 const keys = [sessionKey('codex', 'one'), sessionKey('claude', 'two'), sessionKey('cursor', 'three')] as SessionKey[]
@@ -91,15 +93,17 @@ const Harness = ({ initial, onOpenMember }: {
   onOpenMember: (key: SessionKey) => void
 }) => {
   const [state, setState] = useState(initial)
-  return <SideBySide
-    state={state}
-    onChange={setState}
-    paneId="room-pane"
-    memberOf={(key) => members.get(key)}
-    entryOf={(key) => entries.get(key) ?? null}
-    onOpenMember={onOpenMember}
-    conversationProps={{ onChooseProject: vi.fn(), onSignIn: vi.fn(), onOpenUsage: vi.fn(), onOpenRuntimes: vi.fn() }}
-  />
+  return <KeyboardHereContext.Provider value={keyboardHere}>
+    <SideBySide
+      state={state}
+      onChange={setState}
+      paneId="room-pane"
+      memberOf={(key) => members.get(key)}
+      entryOf={(key) => entries.get(key) ?? null}
+      onOpenMember={onOpenMember}
+      conversationProps={{ onChooseProject: vi.fn(), onSignIn: vi.fn(), onOpenUsage: vi.fn(), onOpenRuntimes: vi.fn() }}
+    />
+  </KeyboardHereContext.Provider>
 }
 
 it('renders one tile per member in order and marks focus and hidden state', () => {
@@ -211,6 +215,17 @@ it('ignores the tile keys while another pane has the keyboard', () => {
   const tiles = document.querySelectorAll('[data-slot="side-by-side-tile"]')
   expect(tiles[0]?.hasAttribute('data-focused')).toBe(true)
   expect(tiles[1]?.hasAttribute('data-focused')).toBe(false)
+})
+
+it('accepts a tile chord when focus entered the grid before its keyboard context rendered', () => {
+  paneFocused = false
+  keyboardHere = false
+  mount()
+  const tile = document.querySelector<HTMLElement>('[data-slot="side-by-side-tile"]')!
+  act(() => { tile.focus() })
+  act(() => { window.dispatchEvent(new CustomEvent('hd-side-by-side', { detail: 'tile-2' })) })
+  const tiles = [...document.querySelectorAll<HTMLElement>('[data-slot="side-by-side-tile"]')]
+  expect(tiles[1]?.hasAttribute('data-focused')).toBe(true)
 })
 
 it('gives the keyboard to one tile: the others, and hidden ones, read as unfocused panes', () => {

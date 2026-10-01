@@ -5,8 +5,10 @@ const dial = (page: Page, label: string) =>
 
 const setPreviewDials = async (page: Page, theme: 'light' | 'dark', look: 'desk' | 'studio') => {
   await dial(page, 'theme').selectOption(theme)
+  await expect(dial(page, 'theme')).toHaveValue(theme, { timeout: 10_000 })
   await dial(page, 'interface').selectOption(look)
-  await expect.poll(() => page.evaluate(() => document.body.getAttribute('data-hd-interface') ?? 'desk')).toBe(look)
+  await expect(dial(page, 'interface')).toHaveValue(look, { timeout: 10_000 })
+  await expect.poll(() => page.evaluate(() => document.body.getAttribute('data-hd-interface') ?? 'desk'), { timeout: 10_000 }).toBe(look)
 }
 
 const gotoPreview = async (page: Page) => {
@@ -49,15 +51,33 @@ const setWidth = async (page: Page, id: string, width: number) => {
     element.style.width = `${element.getBoundingClientRect().width + delta}px`
     element.style.maxWidth = 'none'
   }, width)
-  await expect.poll(async () => (await grid(page, id).boundingBox())?.width).toBe(width)
+  await expect.poll(async () => (await grid(page, id).boundingBox())?.width, { timeout: 10_000 }).toBe(width)
+  await expectGridLayout(grid(page, id))
+}
+
+const expectedLayout = (width: number, count: number) => {
+  // Keep this in step with columnsThatFit: floor((width + seam) / (tile + seam)).
+  const fittingColumns = Math.max(0, Math.floor((width + 1) / (420 + 1)))
+  const shown = count <= 1 || fittingColumns < 2 ? Math.min(count, 1) : count
+  const columns = count <= 1 || fittingColumns < 2 ? 1 : count === 3 && fittingColumns >= 3 ? 3 : 2
+  return { all: count, shown, columns, rows: Math.max(1, Math.ceil(shown / columns)) }
+}
+
+const expectGridLayout = async (target: ReturnType<typeof grid>) => {
+  await expect.poll(async () => {
+    const current = await measure(target)
+    const expected = expectedLayout(current.grid.width, current.all)
+    return current.all === expected.all && current.shown === expected.shown && current.columns === expected.columns && current.rows === expected.rows
+  }, { timeout: 10_000 }).toBe(true)
 }
 
 const removeDelta = async (page: Page) => {
   await grid(page, 'side-by-side-four').locator('[data-slot="side-by-side-tile"]')
     .filter({ has: page.getByText('Delta', { exact: true }) })
     .getByRole('button', { name: 'Delta actions' }).click()
+  await expect(page.getByRole('menuitem', { name: 'Take off the grid' })).toBeVisible({ timeout: 10_000 })
   await page.getByRole('menuitem', { name: 'Take off the grid' }).click()
-  await expect(grid(page, 'side-by-side-four').locator('[data-slot="side-by-side-tile"]')).toHaveCount(3)
+  await expect(grid(page, 'side-by-side-four').locator('[data-slot="side-by-side-tile"]')).toHaveCount(3, { timeout: 10_000 })
 }
 
 const expandedGeometry = (target: ReturnType<typeof grid>) => target.evaluate((node) => {
@@ -102,41 +122,49 @@ const returnedToGrid = (target: ReturnType<typeof grid>) => target.evaluate((nod
   [...node.querySelectorAll('[data-slot="side-by-side-tile"]')].every((tile) => !tile.hasAttribute('data-hidden')),
 )
 
+const expectExpansion = async (target: ReturnType<typeof grid>, shown: number) => {
+  await expect.poll(async () => {
+    const geometry = await expandedGeometry(target)
+    return geometry.shown === shown && geometry.hidden === geometry.all - shown && (shown !== 1 || geometry.fills)
+  }, { timeout: 10_000 }).toBe(true)
+}
+
 test('room tiles choose columns by count and width, keep 420px, and show the narrow strip', async ({ page }) => {
   await gotoPreview(page)
   await setPreviewDials(page, 'light', 'desk')
   await setWidth(page, 'side-by-side-two', 1200)
   const two = await measure(grid(page, 'side-by-side-two'))
-  expect(two).toMatchObject({ all: 2, shown: 2, columns: 2, rows: 1 })
+  expect(two).toMatchObject(expectedLayout(two.grid.width, 2))
 
   // A 1-column mutation must make the same geometry contract fail.
   await page.addStyleTag({ content: '[data-frame-id="side-by-side-two"] [data-slot="side-by-side-tile"] { grid-column: 1 !important; }' })
   const mutatedTwo = await measure(grid(page, 'side-by-side-two'))
-  expect(mutatedTwo.columns === 2 && mutatedTwo.rows === 1).toBe(false)
+  expect(mutatedTwo).not.toMatchObject(expectedLayout(mutatedTwo.grid.width, 2))
 
   // Three 420px tiles and two one-pixel seams: 1262px, the narrowest that holds three.
   await setWidth(page, 'side-by-side-four', 1262)
   const fourWide = await measure(grid(page, 'side-by-side-four'))
-  expect(fourWide).toMatchObject({ all: 4, shown: 4, columns: 2, rows: 2 })
+  expect(fourWide).toMatchObject(expectedLayout(fourWide.grid.width, 4))
   expect(fourWide.widths.every((width) => width >= 420)).toBe(true)
   const fourLayoutMutation = await page.addStyleTag({ content: '[data-frame-id="side-by-side-four"] [data-slot="side-by-side-tile"] { grid-column: 1 !important; }' })
   const brokenFour = await measure(grid(page, 'side-by-side-four'))
-  expect(brokenFour.columns === 2 && brokenFour.rows === 2).toBe(false)
+  expect(brokenFour).not.toMatchObject(expectedLayout(brokenFour.grid.width, 4))
   await fourLayoutMutation.evaluate((style) => style.remove())
   await removeDelta(page)
+  await expectGridLayout(grid(page, 'side-by-side-four'))
   const threeWide = await measure(grid(page, 'side-by-side-four'))
-  expect(threeWide).toMatchObject({ all: 3, shown: 3, columns: 3, rows: 1 })
+  expect(threeWide).toMatchObject(expectedLayout(threeWide.grid.width, 3))
   const threeWideMutation = await page.addStyleTag({ content: '[data-frame-id="side-by-side-four"] [data-slot="side-by-side-tile"] { grid-column: 1 !important; }' })
   const brokenThreeWide = await measure(grid(page, 'side-by-side-four'))
-  expect(brokenThreeWide.columns === 3 && brokenThreeWide.rows === 1).toBe(false)
+  expect(brokenThreeWide).not.toMatchObject(expectedLayout(brokenThreeWide.grid.width, 3))
   await threeWideMutation.evaluate((style) => style.remove())
 
   await setWidth(page, 'side-by-side-four', 1000)
   const threeNarrow = await measure(grid(page, 'side-by-side-four'))
-  expect(threeNarrow).toMatchObject({ all: 3, shown: 3, columns: 2, rows: 2 })
+  expect(threeNarrow).toMatchObject(expectedLayout(threeNarrow.grid.width, 3))
   const threeNarrowMutation = await page.addStyleTag({ content: '[data-frame-id="side-by-side-four"] [data-slot="side-by-side-tile"] { grid-column: 1 !important; }' })
   const brokenThreeNarrow = await measure(grid(page, 'side-by-side-four'))
-  expect(brokenThreeNarrow.columns === 2 && brokenThreeNarrow.rows === 2).toBe(false)
+  expect(brokenThreeNarrow).not.toMatchObject(expectedLayout(brokenThreeNarrow.grid.width, 3))
   await threeNarrowMutation.evaluate((style) => style.remove())
 
   // At 1262px the two one-pixel seams leave three tracks of at least 420px.
@@ -146,18 +174,19 @@ test('room tiles choose columns by count and width, keep 420px, and show the nar
   expect(widths.widths.every((width) => width >= 420)).toBe(true)
 
   await setWidth(page, 'side-by-side-four', 1261)
-  expect(await measure(grid(page, 'side-by-side-four'))).toMatchObject({ all: 3, shown: 3, columns: 2, rows: 2 })
+  await expectGridLayout(grid(page, 'side-by-side-four'))
   // Two tiles and a seam: 841px holds two, 840px holds one.
   await setWidth(page, 'side-by-side-four', 841)
   const fourGrid = await measure(grid(page, 'side-by-side-four'))
-  expect(fourGrid).toMatchObject({ all: 3, shown: 3, columns: 2, rows: 2 })
+  expect(fourGrid).toMatchObject(expectedLayout(fourGrid.grid.width, 3))
   expect(fourGrid.widths.every((width) => width >= 420)).toBe(true)
   await setWidth(page, 'side-by-side-four', 840)
-  expect(await measure(grid(page, 'side-by-side-four'))).toMatchObject({ all: 3, shown: 1, columns: 1, rows: 1 })
+  const oneWide = await measure(grid(page, 'side-by-side-four'))
+  expect(oneWide).toMatchObject(expectedLayout(oneWide.grid.width, 3))
   await setWidth(page, 'side-by-side-four', 800)
   const narrow = await measure(grid(page, 'side-by-side-four'))
   const strip = frame(page, 'side-by-side-four').getByRole('tablist', { name: 'Side by side tiles' })
-  expect(narrow).toMatchObject({ all: 3, shown: 1, columns: 1, rows: 1 })
+  expect(narrow).toMatchObject(expectedLayout(narrow.grid.width, 3))
   await expect(strip).toBeVisible()
   await expect(strip.getByRole('tab')).toHaveCount(3)
 
@@ -179,6 +208,7 @@ test('expansion fills the grid, keeps hidden tiles mounted and offscreen, and Es
   const target = grid(page, 'side-by-side-four')
   const alpha = frame(page, 'side-by-side-four').getByRole('button', { name: 'Expand Alpha' })
   await alpha.click()
+  await expectExpansion(target, 1)
   const expanded = await expandedGeometry(target)
   expect(expanded).toMatchObject({ all: 4, shown: 1, hidden: 3, fills: true })
   expect(expanded.hiddenStates.every((tile) => tile.visibility === 'hidden' && tile.transform !== 'none' && tile.outside)).toBe(true)
@@ -193,20 +223,23 @@ test('expansion fills the grid, keeps hidden tiles mounted and offscreen, and Es
   expect(visibleHidden.hiddenStates.every((tile) => tile.visibility === 'hidden')).toBe(false)
   await page.addStyleTag({ content: '[data-frame-id="side-by-side-four"] [data-slot="side-by-side-tile"][data-hidden] { visibility: hidden !important; }' })
 
-  await page.addStyleTag({ content: '[data-frame-id="side-by-side-four"] [data-slot="side-by-side-tile"]:not([data-hidden]) { width: 120px !important; }' })
+  const narrowed = await page.addStyleTag({ content: '[data-frame-id="side-by-side-four"] [data-slot="side-by-side-tile"]:not([data-hidden]) { width: 120px !important; }' })
   const notFilling = await expandedGeometry(target)
   expect(notFilling.fills).toBe(false)
+  // Spent: the expansions below must fill again.
+  await narrowed.evaluate((style) => style.remove())
 
   await page.keyboard.press('Escape')
-  await expect.poll(() => returnedToGrid(target)).toBe(true)
+  await expect.poll(() => returnedToGrid(target), { timeout: 10_000 }).toBe(true)
   await alpha.click()
+  await expectExpansion(target, 1)
   await page.evaluate(() => {
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') event.preventDefault()
     }, { capture: true, once: true })
   })
   await page.keyboard.press('Escape')
-  expect(await returnedToGrid(target)).toBe(false)
+  await expect.poll(() => returnedToGrid(target), { timeout: 10_000 }).toBe(false)
 
   // Still expanded (the Escape above was taken first): take a hidden tile away.
   await target.locator('[data-slot="side-by-side-tile"][data-hidden]').first().evaluate((tile) => tile.remove())
@@ -221,18 +254,20 @@ test('⌥⌘1–⌥⌘4 focus each tile by header; ⌥⌘↵ expands and returns
   await focusRoom(page, 'side-by-side-four')
   for (let index = 0; index < 4; index++) {
     await page.keyboard.press(`Alt+Meta+Digit${index + 1}`)
-    await expect.poll(() => focusedIndex(target)).toBe(index)
+    await expect.poll(() => focusedIndex(target), { timeout: 10_000 }).toBe(index)
   }
 
   await page.evaluate(() => document.querySelector('[data-frame-id="side-by-side-four"] header[data-active]')?.removeAttribute('data-active'))
-  expect(await focusedIndex(target)).toBe(-1)
+  await expect.poll(() => focusedIndex(target), { timeout: 10_000 }).toBe(-1)
 
   await page.keyboard.press('Alt+Meta+Digit2')
+  await expect.poll(() => focusedIndex(target), { timeout: 10_000 }).toBe(1)
   await page.keyboard.press('Alt+Meta+Enter')
+  await expectExpansion(target, 1)
   const expanded = await expandedGeometry(target)
   expect(expanded).toMatchObject({ shown: 1, hidden: 3, fills: true })
   await page.keyboard.press('Alt+Meta+Enter')
-  await expect.poll(() => returnedToGrid(target)).toBe(true)
+  await expect.poll(() => returnedToGrid(target), { timeout: 10_000 }).toBe(true)
 
   await page.evaluate(() => {
     // Not `once`: the chord's own modifier keydowns arrive first and would spend it.
@@ -244,7 +279,25 @@ test('⌥⌘1–⌥⌘4 focus each tile by header; ⌥⌘↵ expands and returns
     document.addEventListener('keydown', block, true)
   })
   await page.keyboard.press('Alt+Meta+Enter')
-  expect((await expandedGeometry(target)).shown).toBe(4)
+  await expectExpansion(target, 4)
+})
+
+test('a tile chord immediately after focus survives CPU throttling', async ({ page }) => {
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 })
+  try {
+    await gotoPreview(page)
+    await setPreviewDials(page, 'light', 'studio')
+    const target = grid(page, 'side-by-side-four')
+    await focusRoom(page, 'side-by-side-four')
+    // Deliberately send the chord without waiting for the frame's focus
+    // context to render. SideBySide must consult live DOM focus at receipt.
+    await page.keyboard.press('Alt+Meta+Enter')
+    await expectExpansion(target, 1)
+  } finally {
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 })
+    await cdp.detach()
+  }
 })
 
 test('a narrow tile keeps the full nickname, and bare ⌘1 is not a grid chord', async ({ page }) => {
@@ -261,19 +314,19 @@ test('a narrow tile keeps the full nickname, and bare ⌘1 is not a grid chord',
   await setWidth(page, 'side-by-side-two', 1200)
   await focusRoom(page, 'side-by-side-two')
   await page.keyboard.press('Alt+Meta+Digit2')
-  await expect.poll(() => focusedIndex(target)).toBe(1)
+  await expect.poll(() => focusedIndex(target), { timeout: 10_000 }).toBe(1)
   const before = await focusedIndex(target)
   await frame(page, 'tools-browser').getByRole('textbox').first().focus()
   await page.keyboard.press('Meta+Digit1')
-  expect(await focusedIndex(target)).toBe(before)
+  await expect.poll(() => focusedIndex(target), { timeout: 10_000 }).toBe(before)
   // And with the room focused: bare ⌘1 is the browser's tab key, never a tile key.
   // Entering a tile's composer gives that tile the keys, so the baseline is read after.
   await focusRoom(page, 'side-by-side-two')
   const entered = await focusedIndex(target)
   await page.keyboard.press('Meta+Digit1')
-  expect(await focusedIndex(target)).toBe(entered)
+  await expect.poll(() => focusedIndex(target), { timeout: 10_000 }).toBe(entered)
   await page.keyboard.press('Alt+Meta+Digit2')
-  await expect.poll(() => focusedIndex(target)).toBe(1)
+  await expect.poll(() => focusedIndex(target), { timeout: 10_000 }).toBe(1)
   // The chord moved the keys, not only the highlight: typing goes to tile 2.
   expect(await target.evaluate((node) => {
     const tiles = [...node.querySelectorAll('[data-slot="side-by-side-tile"]')]
@@ -290,7 +343,7 @@ test('a narrow tile keeps the full nickname, and bare ⌘1 is not a grid chord',
     window.addEventListener('keydown', route, true)
   })
   await page.keyboard.press('Meta+Digit1')
-  expect(await focusedIndex(target)).toBe(0)
+  await expect.poll(() => focusedIndex(target), { timeout: 10_000 }).toBe(0)
 })
 
 test('a name longer than the bar wraps whole, clear of the state chip and the actions', async ({ page }) => {
@@ -324,9 +377,10 @@ test('a grid of tiles draws no composer in any tile, and an expanded tile draws 
   await gotoPreview(page)
   await setWidth(page, 'side-by-side-two', 1200)
   const target = grid(page, 'side-by-side-two')
-  expect(await target.locator('[data-slot="side-by-side-tile"] textarea').count()).toBe(0)
+  await expect(target.locator('[data-slot="side-by-side-tile"] textarea')).toHaveCount(0, { timeout: 10_000 })
   await target.locator('button[aria-label^="Expand "]').first().click()
-  await expect(target.locator('[data-slot="side-by-side-tile"]:not([data-hidden]) textarea')).toHaveCount(1)
+  await expectExpansion(target, 1)
+  await expect(target.locator('[data-slot="side-by-side-tile"]:not([data-hidden]) textarea')).toHaveCount(1, { timeout: 10_000 })
 })
 
 test('a draft typed in an expanded tile is waiting when the tile is expanded again', async ({ page }) => {
@@ -335,10 +389,14 @@ test('a draft typed in an expanded tile is waiting when the tile is expanded aga
   const target = grid(page, 'side-by-side-two')
   const expand = target.locator('button[aria-label="Expand Alpha"]')
   await expand.click()
+  await expectExpansion(target, 1)
   const box = target.locator('[data-slot="side-by-side-tile"]:not([data-hidden]) textarea')
   await box.fill('half a thought, kept')
+  await expect(box).toHaveValue('half a thought, kept', { timeout: 10_000 })
   await target.locator('button[aria-label="Collapse Alpha"]').click()
-  expect(await target.locator('[data-slot="side-by-side-tile"] textarea').count()).toBe(0)
+  await expect.poll(() => returnedToGrid(target), { timeout: 10_000 }).toBe(true)
+  await expect(target.locator('[data-slot="side-by-side-tile"] textarea')).toHaveCount(0, { timeout: 10_000 })
   await expand.click()
+  await expectExpansion(target, 1)
   await expect(box).toHaveValue('half a thought, kept')
 })

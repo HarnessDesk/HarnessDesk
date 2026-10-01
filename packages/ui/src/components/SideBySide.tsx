@@ -120,8 +120,13 @@ export const SideBySide = ({
   }, [])
 
   useEffect(() => {
-    if (!focusedPane) return
     const onCommand = (event: Event): void => {
+      // Focus can move into a preview frame (or a focused pane) immediately
+      // before its context update has rendered. Read the live DOM focus when
+      // the chord arrives so that one early key is not lost. The contextual
+      // pane check still handles shortcut focus when the document itself has
+      // no focused descendant.
+      if (!focusedPane && !gridRef.current?.contains(document.activeElement)) return
       const action = (event as CustomEvent<string>).detail
       if (action === 'tile-1' || action === 'tile-2' || action === 'tile-3' || action === 'tile-4') {
         const key = state.tiles[Number(action.slice(-1)) - 1]
