@@ -530,12 +530,17 @@ budget: { rounds: 3, without-progress: 2 }
 
 A role's own file no longer carries an Agent's brief, answers or ceiling —
 those come from the resolved Agent named in `uses:`, the same one Settings ›
-Agents lists. `uses:` a list of Agents, or `seats:` a list of seat specs
-(`runtime=model/effort+`), never both — a scalar Agent plus a seat list opens
-one card per seat, a list of Agents plus zero or one seat opens one per
-Agent, and an explicit `count:` must agree with whichever list sets the
-round's width. A seat's actual ceiling is `narrower(Agent's own ceiling,
-this role's grant)`; an omitted `grant:` is `read`.
+Agents lists. Every agent role needs `uses:` to name at least one Agent.
+`seats:` is optional and supplies seat specs (`runtime=model/effort+`) for
+those Agents: one Agent can be paired with a list of seats to open one card
+per seat, or a list of Agents can be paired with zero or one seat to open one
+card per Agent. Two lists with more than one entry are refused; the role
+never expands them as a cross product. An explicit `count:` sets the width
+when neither list has multiple entries, and when a list has multiple entries
+it must match that list's length. Each list holds at most 32 entries, and
+`count:` is a whole number from 1 to 32. A seat's actual ceiling is
+`narrower(Agent's own ceiling, this role's grant)`; an omitted `grant:` is
+`read`.
 
 **A card never offers or accepts a word that belongs to another role.** The
 card's displayed instruction and what `complete_claim` actually accepts are
@@ -613,6 +618,19 @@ reason. A runtime's name decides nothing. A project's own files arrive with a
 clone, so they are read bounded and without blocking, a regular file only,
 through a link at no point below the project; anything that cannot be read
 that way is unknown.
+
+An independent reviewer therefore needs a seat that both holds the role's
+ceiling (`read` for every shipped reviewer) and reads as a different vendor
+from the roles it is independent of. Which seat that is stays the person's
+choice: the Agent's `prefer:` list, a role's `seats:`, or the seat picked at
+Start. When none qualifies, the preview lists each candidate it passed over
+with its reason — it cannot hold the ceiling, it has the same provider as the
+writer, its provider can't be confirmed, it is spent, its model is missing —
+so the fix is visible before the run starts.
+A checkout the run has not opened yet, an isolated lane or a predecessor's,
+is judged by the project's own configuration, since that is what it is cut
+from; if the opened checkout reads as a different vendor, the run stops at that
+seat and says why.
 
 Codex's read is scoped to the configuration actually *in force* for the
 session that runs, merged across every layer it reads (its home

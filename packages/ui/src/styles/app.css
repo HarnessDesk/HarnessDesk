@@ -22,6 +22,7 @@
 @import './editorial.css';
 @import './editor.css';
 @import './scrollbar.css';
+@import './terminal.css';
 /* Last on purpose: a Tailwind utility must win a tie against a module rule,
    and these sheets are unlayered, so order is the tiebreak. See shadcn.css. */
 @import './shadcn.css';

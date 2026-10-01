@@ -147,6 +147,10 @@ export const App = () => {
       // A menu item may name what it acts on — `sign-in:codex` is the panel's
       // row for one agent, `sign-in` the app menu's item for whichever needs it.
       const [name, subject] = action.split(':')
+      if (name?.startsWith('tile-')) {
+        window.dispatchEvent(new CustomEvent('hd-side-by-side', { detail: name }))
+        return
+      }
       switch (name) {
         case 'new-session':
           store.newDraft()
@@ -374,6 +378,7 @@ export const App = () => {
                 onBrowseFolders={chooseFolder}
                 onSignIn={(runtime) => setSignInOpen(runtime ?? true)}
                 onSearch={() => setPaletteOpen(true)}
+                activeDestination={agentsOpen ? 'agents' : usageOpen ? 'dashboard' : settingsOpen === 'plugins' ? 'plugins' : null}
               />
             }
           />

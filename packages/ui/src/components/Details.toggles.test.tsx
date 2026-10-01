@@ -61,3 +61,12 @@ for (const [name, View, title] of [
     expect(toggle(title).getAttribute('aria-pressed')).toBe('false')
   })
 }
+
+it('puts the export glyph on the Details toolbar edge', () => {
+  act(() => root.render(<StoreProvider store={store}><ChangesView /></StoreProvider>))
+  const exportButton = container.querySelector<HTMLButtonElement>(
+    'button[aria-label="Export this session as Markdown"]',
+  )
+  expect(exportButton).not.toBeNull()
+  expect(exportButton?.className).toContain('me-(--edge-pull)')
+})

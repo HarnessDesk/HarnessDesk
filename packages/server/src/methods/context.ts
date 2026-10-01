@@ -323,6 +323,8 @@ export interface HostContext {
         readonly cwd: string
         readonly title: string
         readonly environment?: Readonly<Record<string, string>>
+        /** The role's frozen ceiling, applied before the runtime opens the conversation. */
+        readonly ceiling?: CeilingLevel
         /** Phase 12's frozen, isolated skill/server filter, prepared before this call — never computed from the session it opens. */
         readonly attachments?: SessionAttachments
       },

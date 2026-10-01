@@ -1,3 +1,4 @@
+import { independentProviderReason } from '../src/flow-provider.js'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
@@ -119,6 +120,122 @@ test('a flow with an error mints no token, and names the problem', async () => {
   const broken = await previews.preview('/repo', 'version: 2\nname: x\nroles: {}\nseed: { role: missing, title: Go }\nrules: []\n', {})
   assert.equal(broken.token, null)
   assert.ok(broken.problems.some((one) => one.level === 'error'))
+})
+
+test('a flow preview refuses a selected seat whose runtime will withhold the board tools in its checkout', async () => {
+  const state = rig()
+  const checked: boolean[] = []
+  const port: FlowPreviewPort = {
+    ...state.port,
+    pluginToolsProblem: async (runtime, root, isolate) => {
+      assert.equal(runtime, 'alpha')
+      assert.equal(root, '/repo')
+      checked.push(isolate)
+      return "Gemini doesn't trust this folder, so it can't use the board. Open Gemini here, run /permissions trust, and start again."
+    },
+  }
+  const preview = await new FlowPreviews(port).preview('/repo', FLOW, {})
+  assert.equal(preview.token, null)
+  assert.ok(preview.problems.some((problem) => problem.level === 'error' && problem.text.includes('Gemini doesn\'t trust this folder')))
+  const isolatedSource = FLOW.replace('kind: agent, uses: writer', 'kind: agent, uses: writer, isolate: true')
+  await new FlowPreviews(port).preview('/repo', isolatedSource, {})
+  assert.deepEqual(checked, [false, true], 'the preview also predicts the managed checkout for an isolated seat')
+})
+
+test('an independent role explains same-provider and ceiling refusals on each candidate', async () => {
+  const state = rig()
+  state.agentsRoster = [
+    AGENT('writer'),
+    { ...AGENT('reviewer'), definition: { ...AGENT('reviewer').definition!, prefer: [{ runtime: 'codex' }, { runtime: 'claude-code' }] } },
+  ]
+  const source = `
+version: 2
+name: Independent preview
+roles:
+  writer: { kind: agent, uses: writer, grant: edit }
+  reviewer: { kind: agent, uses: reviewer, grant: read, independentOf: [writer] }
+seed: { role: writer, title: Write }
+rules:
+  - { id: review, on: writer, when: { every: [done] }, then: { role: reviewer, title: Review } }
+`
+  const plan = (agent: string, seats: readonly FlowSeat[], grant: CeilingLevel): SeatPlan => ({
+    id: agent, from: 'prefer', winner: 0, blocked: null, ceiling: { level: grant, hold: 'asked' },
+    candidates: seats.map((seat, index) => ({
+      seat, label: seat.runtime, runtimeName: seat.runtime,
+      state: index === 0 ? 'taken' : 'untried',
+      reason: null, fix: null,
+    })),
+  })
+  const port = {
+    ...state.port,
+    previewAgent: async (_root, agent, _seats, grant) => {
+      if (agent === 'reviewer') {
+        const base = plan(agent, [{ runtime: 'codex' }, { runtime: 'claude-code' }], grant)
+        return {
+          ...base,
+          candidates: [
+            { ...base.candidates[0]!, state: 'taken' },
+            {
+              ...base.candidates[1]!, state: 'passed',
+              reason: { kind: 'unheld', level: 'read', detail: null }, fix: { kind: 'ceilings' },
+            },
+          ],
+        }
+      }
+      return plan(agent, [{ runtime: 'alpha' }], grant)
+    },
+    providerOf: async (runtime: string) => runtime === 'codex' || runtime === 'alpha' ? 'openai' : 'anthropic',
+  } as FlowPreviewPort
+  const preview = await new FlowPreviews(port).freeze('/repo', source)
+  const reviewer = preview.seats.find((seat) => seat.role === 'reviewer')!.plan
+  assert.equal(reviewer.winner, null)
+  assert.equal(reviewer.candidates[0]?.reason?.kind, 'sameProvider')
+  assert.equal(reviewer.candidates[1]?.reason?.kind, 'unheld')
+  assert.ok(preview.problems.some((problem) => problem.at === 'roles.reviewer' && problem.level === 'error'))
+})
+
+test('independence follows the final fallback winner through a chain of roles', async () => {
+  const state = rig()
+  state.agentsRoster = ['writer', 'middle', 'final'].map((id) => AGENT(id))
+  const source = `
+version: 2
+name: Chained independence
+roles:
+  writer: { kind: agent, uses: writer, grant: edit }
+  final: { kind: agent, uses: final, grant: read, independentOf: [middle] }
+  middle: { kind: agent, uses: middle, grant: read, independentOf: [writer] }
+seed: { role: writer, title: Write }
+rules:
+  - { id: middle, on: writer, when: { every: [done] }, then: { role: middle, title: Middle } }
+  - { id: final, on: middle, when: { every: [done] }, then: { role: final, title: Final } }
+`
+  const candidates: Record<string, FlowSeat[]> = {
+    writer: [{ runtime: 'alpha' }],
+    middle: [{ runtime: 'alpha' }, { runtime: 'beta' }],
+    final: [{ runtime: 'beta' }, { runtime: 'gamma' }],
+  }
+  const port: FlowPreviewPort = {
+    ...state.port,
+    previewAgent: async (_root, agent, _seats, grant) => {
+      const list = candidates[agent]!
+      return {
+        id: agent, from: 'prefer', winner: 0, blocked: null,
+        ceiling: { level: grant, hold: 'asked' },
+        candidates: list.map((seat, index) => ({
+          seat, label: seat.runtime, runtimeName: seat.runtime,
+          state: index === 0 ? 'taken' : 'untried', reason: null, fix: null,
+        })),
+      }
+    },
+    providerOf: async (runtime) => runtime === 'alpha' ? 'openai' : 'anthropic',
+  }
+  const preview = await new FlowPreviews(port).freeze('/repo', source)
+  const middle = preview.seats.find((seat) => seat.role === 'middle')!.plan
+  const final = preview.seats.find((seat) => seat.role === 'final')!.plan
+  assert.equal(middle.winner, 1, 'the fallback provider wins after alpha is filtered')
+  assert.equal(middle.candidates[0]?.reason?.kind, 'sameProvider')
+  assert.equal(final.winner, null, 'the final role compares with middle’s seated beta provider')
+  assert.deepEqual(final.candidates.map((candidate) => candidate.reason?.kind), ['sameProvider', 'sameProvider'])
 })
 
 test('a trigger again round keeps a mixed predecessor role conditional in the dry run', async () => {
@@ -303,4 +420,49 @@ test('an evidence guard the flow’s own roles leave unexplained may still name 
   const preview = await previews.preview('/repo', guardedBy('"pnpm lint"'), {})
   assert.deepEqual(preview.problems, [])
   assert.ok(preview.token, 'a project’s own check, never named by this flow, is still a legitimate guard')
+})
+
+test('a lane the run has not opened yet is judged by the project configuration it is cut from', async () => {
+  const state = rig()
+  state.agentsRoster = ['writer', 'reviewer', 'final'].map((id) => AGENT(id))
+  const source = `
+version: 2
+name: Predecessor provider configuration
+roles:
+  writer: { kind: agent, uses: writer, grant: edit, isolate: true }
+  reviewer: { kind: agent, uses: reviewer, grant: read, independentOf: [writer] }
+  final: { kind: agent, uses: final, grant: read, independentOf: [reviewer] }
+seed: { role: writer, title: Write }
+rules:
+  - { id: review, on: writer, when: { every: [done] }, then: { role: reviewer, title: Review } }
+  - { id: final, on: reviewer, when: { every: [done] }, then: { role: final, title: Final } }
+`
+  const checked: string[] = []
+  const port: FlowPreviewPort = {
+    ...state.port,
+    previewAgent: async (_root, agent, _seats, grant) => ({
+      id: agent, from: 'prefer', winner: 0, blocked: null,
+      ceiling: { level: grant, hold: 'asked' },
+      candidates: [{ seat: { runtime: agent === 'writer' ? 'alpha' : agent === 'reviewer' ? 'beta' : 'gamma' }, label: agent, runtimeName: agent, state: 'taken', reason: null, fix: null }],
+    }),
+    providerOf: async (runtime, cwd) => {
+      checked.push(`${runtime}:${cwd}`)
+      if (runtime === 'alpha') return 'openai'
+      // The predecessor checkout has a different account configuration from the root.
+      if (runtime === 'beta') return 'anthropic'
+      return cwd === '/repo/lane-preview' ? 'anthropic' : 'openai'
+    },
+    checkoutPath: async (root, lane) => lane ? `${root}/lane-preview` : root,
+  }
+  const preview = await new FlowPreviews(port).freeze('/repo', source)
+  const final = preview.seats.find((seat) => seat.role === 'final')!.plan
+  assert.equal(final.winner, 0, 'gamma reads as another vendor in the project, so the preview seats it')
+  assert.ok(checked.every((entry) => entry.endsWith(':/repo')), `no provider is read in a checkout that does not exist yet: ${checked.join(', ')}`)
+})
+
+test('a known same-provider clash is refused even when another writer\'s provider is unreadable', () => {
+  assert.deepEqual(independentProviderReason('openai', new Set(['openai', null])), { kind: 'sameProvider' })
+  assert.deepEqual(independentProviderReason('anthropic', new Set(['openai', null])), { kind: 'unknownProvider' })
+  assert.deepEqual(independentProviderReason(null, new Set(['openai'])), { kind: 'unknownProvider' })
+  assert.equal(independentProviderReason('anthropic', new Set(['openai'])), null)
 })

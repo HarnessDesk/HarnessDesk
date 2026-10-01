@@ -11,6 +11,7 @@ import {
 import { AppStore } from './store'
 import { panes } from './layout'
 import { dockViews } from './workbench'
+import { emptySideBySide, placeTile } from '../lib/side-by-side'
 /* The real registry, so `defaultArea` answers the way it does in the app. */
 import '../panels/builtins'
 
@@ -292,4 +293,24 @@ it('brings the room back still watching what it was watching', async () => {
   const back = panes(store.getSnapshot().layout.root)[0]?.view
   expect(back?.kind).toBe('room')
   expect(back?.kind === 'room' ? back.watching : null).toEqual(watching)
+})
+
+it('stores side-by-side tiles on the room view and removes an empty grid', async () => {
+  await inAWorktree()
+  store.openTeamRoom(ROOM)
+  const pane = panes(store.getSnapshot().layout.root)[0]
+  if (!pane) throw new Error('the room did not open')
+
+  const grid = placeTile(emptySideBySide(), KEY)
+  store.setRoomSideBySide(pane.id, grid)
+  const saved = panes(store.getSnapshot().layout.root)[0]?.view
+  expect(saved?.kind === 'room' ? saved.sideBySide?.tiles : null).toEqual([KEY])
+
+  const snapshot = store.getSnapshot()
+  store.setRoomSideBySide(pane.id, grid)
+  expect(store.getSnapshot()).toBe(snapshot)
+
+  store.setRoomSideBySide(pane.id, emptySideBySide())
+  const cleared = panes(store.getSnapshot().layout.root)[0]?.view
+  expect(cleared?.kind === 'room' ? cleared.sideBySide : undefined).toBeUndefined()
 })

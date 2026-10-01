@@ -24,8 +24,41 @@ rules:
 `
 const AGENTS = [agent('writer-a', ['done']), agent('writer-b', ['done']), agent('reviewer', ['approve'])]
 
+test('a closed Seat no longer governs a v2 flow conversation', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(`
+version: 2
+name: Live seat
+roles:
+  fixer: { kind: agent, uses: implementer }
+seed: { role: fixer, title: Fix it }
+rules: []
+`, [agent('implementer', ['done'])])
+  const operation = rig.executions.stored(run.id)!.operations.find((one) => one.kind === 'seat')!
+  const seat = rig.seats.get(operation.seat!)!
+  assert.equal(rig.flows.governs(seat.session.runtime, seat.session.sessionId), true)
+  assert.equal(rig.executions.seated(seat.session.runtime, seat.session.sessionId), true)
+  rig.seats.set(String(seat.id), { ...seat, closed: { at: Date.now(), why: 'released' } })
+  assert.equal(rig.flows.governs(seat.session.runtime, seat.session.sessionId), false)
+  assert.equal(rig.executions.seated(seat.session.runtime, seat.session.sessionId), false)
+})
+
 const opens = (events: readonly string[]) => events.filter((one) => one.startsWith('open:'))
 const orders = (events: readonly string[]) => events.filter((one) => one.startsWith('order:'))
+
+const waitFor = async <T>(promise: Promise<T>, what: string): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`timed out waiting for ${what}`)), 10_000)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
 
 /*
  * Issue #1032: a round closes only once every one of its cards has finished —
@@ -63,6 +96,132 @@ test('a mixed round only opens the judge once every one of its cards has finishe
     rig.board(run.goal).intents.some((one) => one.role === 'judge'),
     'once the round closes, `any: [pass]` is satisfied — one card passed, the other failed',
   )
+})
+
+test('a person finishing a card while its round is being journaled still advances the run', async (t) => {
+  const rig = await goalRig(t)
+  let saveStarted!: () => void
+  const saving = new Promise<void>((resolve) => { saveStarted = resolve })
+  let finishCard!: (id: number) => void
+  const cardFinished = new Promise<number>((resolve) => { finishCard = resolve })
+  let releaseSave!: () => void
+  const saveGate = new Promise<void>((resolve) => { releaseSave = resolve })
+  t.after(() => { releaseSave() })
+  const save = rig.files.save.bind(rig.files)
+  let personCompletion: Promise<void> | null = null
+  rig.files.save = async (run) => {
+    if (run.rounds.some((round) => round.cards.length > 0)) {
+      saveStarted()
+      await saveGate
+    }
+    await save(run)
+  }
+  let completing = false
+  rig.onBoardChanged = (state) => {
+    const card = state.intents.find((one) => one.role === 'ship')
+    if (!card) return
+    if (card.state === 'done') {
+      finishCard(card.id)
+    } else if (!completing) {
+      completing = true
+      personCompletion = rig.team.intentAction(state.id, card.id, 'done', undefined, 'shipped')
+    }
+  }
+
+  const start = rig.start(`
+version: 2
+name: Ship it
+roles:
+  ship: { kind: person, outcomes: [shipped] }
+seed: { role: ship, title: Ship it }
+`, [])
+  await waitFor(saving, 'round journal save')
+  const card = await waitFor(cardFinished, 'person card completion')
+  assert.ok(personCompletion)
+  await waitFor(personCompletion, 'person completion handling')
+  releaseSave()
+  const run = await waitFor(start, 'flow start')
+  await rig.flows.flush()
+
+  assert.equal(rig.board(run.goal).intents.find((one) => one.id === card)?.state, 'done')
+  assert.equal(rig.flows.executionsFor(run.goal)[0]?.state, 'settled')
+})
+
+test('a card outcome is validated while its round is being journaled', async (t) => {
+  const rig = await goalRig(t)
+  let saveStarted!: () => void
+  const saving = new Promise<void>((resolve) => { saveStarted = resolve })
+  let cardAppeared!: (value: { readonly goal: string; readonly id: number }) => void
+  const appeared = new Promise<{ readonly goal: string; readonly id: number }>((resolve) => { cardAppeared = resolve })
+  let releaseSave!: () => void
+  const saveGate = new Promise<void>((resolve) => { releaseSave = resolve })
+  t.after(() => { releaseSave() })
+  const save = rig.files.save.bind(rig.files)
+  rig.files.save = async (run) => {
+    if (run.rounds.some((round) => round.cards.length > 0)) {
+      saveStarted()
+      await saveGate
+    }
+    await save(run)
+  }
+  rig.onBoardChanged = (state) => {
+    const card = state.intents.find((one) => one.role === 'ship')
+    if (card?.state === 'open') cardAppeared({ goal: state.id, id: card.id })
+  }
+
+  const start = rig.start(`
+version: 2
+name: Ship it
+roles:
+  ship: { kind: person, outcomes: [shipped] }
+seed: { role: ship, title: Ship it }
+`, [])
+  await waitFor(saving, 'round journal save')
+  const card = await waitFor(appeared, 'person card')
+  const intent = rig.board(card.goal).intents.find((one) => one.id === card.id)!
+  const refusal = rig.flows.refuseOutcome(card.goal, intent, 'approve')
+  releaseSave()
+  await waitFor(start, 'flow start')
+
+  assert.match(refusal ?? '', /not an answer|accepts shipped/i)
+})
+
+test('an agent card has a flow binding while its round is being journaled', async (t) => {
+  const rig = await goalRig(t)
+  let saveStarted!: () => void
+  const saving = new Promise<void>((resolve) => { saveStarted = resolve })
+  let cardAppeared!: (value: { readonly goal: string; readonly id: number }) => void
+  const appeared = new Promise<{ readonly goal: string; readonly id: number }>((resolve) => { cardAppeared = resolve })
+  let releaseSave!: () => void
+  const saveGate = new Promise<void>((resolve) => { releaseSave = resolve })
+  t.after(() => { releaseSave() })
+  const save = rig.files.save.bind(rig.files)
+  rig.files.save = async (run) => {
+    if (run.rounds.some((round) => round.cards.length > 0)) {
+      saveStarted()
+      await saveGate
+    }
+    await save(run)
+  }
+  rig.onBoardChanged = (state) => {
+    const card = state.intents.find((one) => one.role === 'write' && one.state === 'open')
+    if (card) cardAppeared({ goal: state.id, id: card.id })
+  }
+
+  const start = rig.start(`
+version: 2
+name: Write it
+roles:
+  write: { kind: agent, uses: writer }
+seed: { role: write, title: Write it }
+`, [agent('writer', ['done'])])
+  await waitFor(saving, 'round journal save')
+  const card = await waitFor(appeared, 'agent card')
+  const binding = rig.flows.bindingFor(card.goal, card.id)
+  releaseSave()
+  await waitFor(start, 'flow start')
+
+  assert.deepEqual(binding, { session: null, opening: false })
 })
 
 test('candidates asked for the moment a person review card reaches the board wait for its round to finish opening', async (t) => {
@@ -378,6 +537,32 @@ rules:
   assert.equal(readback.run.reason, INDEPENDENT)
   assert.deepEqual(orders(readback.rig.events), ['order:seat-1'], 'a Seat that came back on the writer’s provider is sent nothing')
   assert.deepEqual(readback.rig.events.filter((one) => one.startsWith('release:')), ['release:seat-2'])
+})
+
+test('a post-open provider clash stalls without trying the next otherwise-independent seat', async (t) => {
+  const rig = await goalRig(t)
+  rig.providers.set('alpha', 'first').set('alpha-two', 'first').set('beta', 'second').set('beta-two', 'second')
+  rig.opensAs = (asked) => asked === 'beta' ? 'alpha-two' : asked
+  const run = await rig.start(`
+version: 2
+name: Provider changes in checkout
+roles:
+  author: { kind: agent, uses: writer, seats: [alpha] }
+  reviewer: { kind: agent, uses: reviewer, seats: [beta, beta-two], independentOf: [author] }
+seed: { role: author, title: Write }
+rules:
+  - { id: review, on: author, when: { every: [done] }, then: { role: reviewer, title: Review } }
+`, [agent('writer', ['done']), agent('reviewer', ['approve'])])
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+
+  const execution = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(execution.state, 'stalled')
+  assert.equal(execution.reason, INDEPENDENT)
+  assert.equal(rig.seats.get('seat-2')?.session.runtime, 'alpha-two')
+  assert.deepEqual(opens(rig.events), ['open:seat-1', 'open:seat-2'], 'beta-two is not opened after beta returns on the writer provider')
+  assert.deepEqual(orders(rig.events), ['order:seat-1'], 'the clashing opened Seat receives no review turn')
 })
 
 /*

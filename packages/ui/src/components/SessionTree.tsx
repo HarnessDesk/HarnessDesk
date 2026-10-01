@@ -10,15 +10,21 @@ import {
   MenuLabel,
   MenuSeparator,
   Popover,
-  PopoverGroupLabel,
-  PaneColumn,
   Separator,
+  SidebarGroup,
+  SidebarGroupContent,
+  GroupLabel,
+  SidebarMenu,
+  SidebarMenuAction,
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  Submenu,
   Text,
   buttonVariants,
   useContextMenu,
-  type Tone,
 } from '../design'
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 
 import { openingOf, sessionKey, type Session, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
 
@@ -30,10 +36,11 @@ import { goalName, goalWords } from '../lib/goals'
 import { ACTIVE_STATES, TRACE_LABEL, traceOf } from '../lib/trace'
 import { panes, sessionOf } from '../state/layout'
 
-import { useSnapshot, useStore } from '../state/context'
+import { useSnapshot, useSnapshotSelector, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
 import {
   ArchiveIcon,
+  AgentIcon,
   BranchIcon,
   ClockIcon,
   CollapseAllIcon,
@@ -51,11 +58,9 @@ import {
   PlusIcon,
   RowsLooseIcon,
   RowsTightIcon,
-  SessionIcon,
   SlidersIcon,
   SortNameIcon,
   TeamIcon,
-  TodoActiveIcon,
   TrashIcon,
   UnpinIcon,
 } from './Icons'
@@ -87,38 +92,34 @@ const relativeTime = (timestamp: number, now: number): string => {
   return new Date(timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-const traceTone = (trace: ReturnType<typeof traceOf>): Tone | undefined => {
-  if (trace === 'waiting') return 'warning'
-  if (trace === 'failed') return 'danger'
-  return trace !== null && ACTIVE_STATES.has(trace) ? 'brand' : undefined
+type SessionRowSlice = {
+  openInPane: boolean
+  runtime: AppSnapshot['runtimes'][number] | undefined
+  density: AppSnapshot['listPrefs']['density']
+  pinned: boolean
+  liveTitle: string | null | undefined
+  trace: ReturnType<typeof traceOf> | null
+  backgrounded: number
+  folderGone: string | null
+  active: boolean
+  needsYou: boolean
 }
 
-/**
- * The row titles more than one agent's conversations wear — the only rows
- * whose title alone cannot say which agent they are. Computed once per
- * history list, not once per row.
- */
-const sharedLabels = new WeakMap<readonly SessionSummary[], ReadonlySet<string>>()
-const labelsSharedAcrossAgents = (history: readonly SessionSummary[]): ReadonlySet<string> => {
-  const known = sharedLabels.get(history)
-  if (known) return known
-  const agentsBy = new Map<string, Set<string>>()
-  for (const summary of history) {
-    const label = sessionLabel(summary.title, summary.preview)
-    const agents = agentsBy.get(label) ?? new Set<string>()
-    agents.add(String(summary.runtime))
-    agentsBy.set(label, agents)
-  }
-  const shared = new Set([...agentsBy].filter(([, agents]) => agents.size > 1).map(([label]) => label))
-  sharedLabels.set(history, shared)
-  return shared
-}
+const sameSessionRowSlice = (left: SessionRowSlice, right: SessionRowSlice): boolean =>
+  left.openInPane === right.openInPane && left.runtime === right.runtime &&
+  left.density === right.density && left.pinned === right.pinned &&
+  left.liveTitle === right.liveTitle && left.trace === right.trace &&
+  left.backgrounded === right.backgrounded && left.folderGone === right.folderGone &&
+  left.active === right.active && left.needsYou === right.needsYou
 
-const SessionRow = ({
+const SessionRow = memo(({
   summary,
   now,
   onDelete,
   need,
+  virtualKey,
+  virtualIndex,
+  virtualCount,
 }: {
   summary: SessionSummary
   now: number
@@ -134,51 +135,48 @@ const SessionRow = ({
    * is one hover away, in the row's title.
    */
   need?: NeedsYou
+  virtualKey?: string
+  virtualIndex?: number
+  virtualCount?: number
 }) => {
   const store = useStore()
-  const snapshot = useSnapshot()
   const menu = useContextMenu()
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState('')
-  const openInPane = panes(snapshot.layout.root).some(
-    (pane) => sessionOf(pane) === sessionKey(summary.runtime, summary.id),
-  )
-  const runtime = snapshot.runtimes.find((entry) => entry.id === summary.runtime)
-  const agentName = runtime?.presentation.name ?? summary.runtime
-  // Whether this agent can actually delete a stored conversation. Codex can;
-  // a bridge that knows where its agent writes can; anything else is offered
-  // a disabled row with the reason rather than a Delete that throws.
-  const deletable = runtime?.capabilities.deleteHistory ?? false
-  // A live conversation says what it is doing; a stored one says when it was.
   const key = sessionKey(summary.runtime, summary.id)
-  const pinned = snapshot.listPrefs.pinnedSessions.includes(String(key))
-  const live = snapshot.sessions.get(key)
-  // A queue the host stopped is a conversation waiting on a decision, exactly
-  // as an approval is: the messages are safe, and nothing moves until someone
-  // says so. Reading both through one flag keeps the sidebar honest.
-  const needsYou =
-    snapshot.approvals.some((entry) => entry.key === key) ||
-    snapshot.queues.get(key)?.status === 'paused'
-  const trace = live ? traceOf(live, needsYou) : null
+  const {
+    openInPane, runtime, density, pinned, liveTitle, trace, backgrounded,
+    folderGone, active, needsYou,
+  } = useSnapshotSelector((snapshot): SessionRowSlice => {
+    const live = snapshot.sessions.get(key)
+    const needsYou = snapshot.approvals.some((entry) => entry.key === key) ||
+      snapshot.queues.get(key)?.status === 'paused'
+    return {
+      openInPane: panes(snapshot.layout.root).some((pane) => sessionOf(pane) === key),
+      runtime: snapshot.runtimes.find((entry) => entry.id === summary.runtime),
+      density: snapshot.listPrefs.density,
+      pinned: snapshot.listPrefs.pinnedSessions.includes(String(key)),
+      liveTitle: live?.title,
+      trace: live ? traceOf(live, needsYou) : null,
+      backgrounded: (snapshot.tasks.get(key) ?? []).filter((task) => task.state === 'running').length,
+      folderGone: snapshot.foldersGone.get(summary.cwd) ?? null,
+      active: snapshot.activeSessionKey === key,
+      needsYou,
+    }
+  }, sameSessionRowSlice)
+  const agentName = runtime?.presentation.name ?? 'This conversation’s agent'
   /* The name the person just gave it, before the history list has caught up.
      A rename patches the open session at once and re-reads the history after;
      138 renames in a row left the sidebar saying "Untitled session" down the
      whole list for the better part of a minute while the room's rail already
      read every name. The live session is the fresher record when it exists. */
-  const ownLabel = sessionLabel(live?.title ?? summary.title, summary.preview)
+  const ownLabel = sessionLabel(liveTitle ?? summary.title, summary.preview)
   const label = need?.name ?? ownLabel
-  const presentedName = runtime?.presentation.name ?? null
-  const collides =
-    !need &&
-    snapshot.listPrefs.density !== 'comfortable' &&
-    snapshot.runtimes.length > 1 &&
-    labelsSharedAcrossAgents(snapshot.history).has(ownLabel)
   const traceShown = trace !== null && (ACTIVE_STATES.has(trace) || trace === 'waiting' || trace === 'failed')
   // Work the agent sent to the background and walked away from: the turn is
   // over, the row would read idle, and something is still running. The glyph
   // says so, in green, so a person browsing other conversations knows this
   // one has something to look at — the Background tasks panel, once opened.
-  const backgrounded = (snapshot.tasks.get(key) ?? []).filter((task) => task.state === 'running').length
   const dotState =
     backgrounded > 0
       ? 'ready'
@@ -190,8 +188,6 @@ const SessionRow = ({
             ? 'signin'
             : 'available'
   const worktree = isWorktreeSession(summary)
-  const folderGone = snapshot.foldersGone.get(summary.cwd) ?? null
-  const active = snapshot.activeSessionKey === key
   const rowRef = useRef<HTMLButtonElement>(null)
   /* Brought on screen when it becomes the active one. A list long enough to
      hold a month of review rooms keeps the conversation being typed into
@@ -220,11 +216,9 @@ const SessionRow = ({
   }, [draft, key, store, summary.title])
 
   return (
-    <div className={styles.rowWrap} {...(menu.at ? { 'data-menu-open': '' } : {})} onContextMenu={menu.open}>
-      {renaming ? (
-        // The rename box stands in for the row itself: the rail's own inset, an
-        // input with the row's own box, and the height the row had.
-        <PaneColumn inset="rail">
+    <SidebarMenu className={styles.rowWrap} data-region="session-row" data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount} onContextMenu={menu.open}>
+      <SidebarMenuItem className="list-none" data-menu-open={menu.at ? '' : undefined}>
+        {renaming ? (
           <Input
             variant="quiet" controlSize="row" className={styles.renameInput}
             style={renameHeight ? { minHeight: renameHeight } : undefined}
@@ -235,177 +229,94 @@ const SessionRow = ({
             onKeyDown={(event) => {
               if (event.key === 'Enter') commitRename()
               if (event.key === 'Escape') {
-                // Spent on the rename, so a floating sidebar stays open.
                 event.preventDefault()
                 setRenaming(false)
               }
             }}
           />
-        </PaneColumn>
-      ) : (
-        <>
-          <Button
-            ref={rowRef}
-            type="button" variant="navigation" size="navigation" className={styles.row}
-            data-density={snapshot.listPrefs.density}
-            {...(snapshot.activeSessionKey === key ? { 'data-active': '' } : {})}
-            {...(openInPane ? { 'data-open': '' } : {})}
-            title={
-              need
+        ) : (
+          <>
+            <SidebarMenuButton
+              ref={rowRef}
+              trailingOverlay
+              labelTrailingContent={Boolean(need || worktree || folderGone)}
+              size={density === 'compact' ? 'sm' : 'default'}
+              isActive={active}
+              data-active={active ? 'true' : undefined}
+              aria-current={active ? 'page' : undefined}
+              data-open={openInPane ? '' : undefined}
+              title={need
                 ? `${ownLabel} · ${agentName} — ${need.reason.toLowerCase()}`
-                : snapshot.listPrefs.density === 'compact'
-                ? `${agentName} · ${traceShown ? TRACE_LABEL[trace] : relativeTime(summary.updatedAt, now)}${summary.git?.branch ? ` · ${summary.git.branch}` : ''}${worktree ? ` · worktree ${folderName(summary.cwd)}` : ''}${backgrounded > 0 ? ` · ${backgrounded} running in the background` : ''}`
-                : backgrounded > 0
-                  ? `${backgrounded === 1 ? '1 task is' : `${backgrounded} tasks are`} still running in the background — open the conversation, then Background tasks`
-                  : openInPane
-                    ? 'This conversation is on screen'
-                    : 'Open this conversation'
-            }
-            onClick={() => void store.openSession(summary.id, { runtime: summary.runtime })}
-          >
-            {/* The one place in this row that identifies the conversation
-                rather than describing it, and so the one place the name card
-                hangs from. The row shows a title and a time; *which agent
-                this is, on what model, with how much context left* is not on
-                it at all — at compact density it is not even in the `title`.
-                That is the card's whole case here. */}
-            <SessionHoverCard
-              session={summary}
-              // The rail's own indent, only wanted here: the other consumer
-              // (`TeamBoardPane`) lays this card out with no inset at all,
-              // so the inset belongs to this row, not the shared card —
-              // `AgentHoverCard` composes `PaneColumn` onto its own trigger.
-              className={styles.statusTarget}
-              inset="rail"
-              actions={[
-                ...(snapshot.activeSessionKey === key
-                  ? []
-                  : [
-                      {
-                        label: 'Open',
-                        primary: true,
-                        onSelect: () =>
-                          void store.openSession(summary.id, { runtime: summary.runtime }),
-                      },
-                    ]),
-                {
-                  label: 'Rename',
-                  onSelect: startRename,
-                },
-              ]}
-            >
-              <Dot
-                state={dotState}
-                variant="navigation"
-                className={styles.statusGlyph}
-                pulse={trace !== null && ACTIVE_STATES.has(trace)}
-                {...(backgrounded > 0 ? { 'data-tasks': '' } : {})}
-                {...(summary.status.type === 'active' ? { 'data-live': '' } : {})}
-                {...(traceShown ? { 'data-trace': trace } : {})}
-                aria-hidden="true"
-              />
-            </SessionHoverCard>
-            <span className={styles.rowBody}>
-              <span className={styles.rowHead}>
-                <Text role="navigation" fade className={styles.rowTitle}>{label}</Text>
-                {need && <Chip tone="warning">{need.reason}</Chip>}
-                {/* Which agent, where the title cannot say. A flow's several
-                    Seats of one role — three "Code reviewer" rows, one per
-                    agent — share the exact same title (measured on UC3's
-                    review flow), and compact density has no second line to
-                    tell them apart. The agent's name is a word, so it is a
-                    chip on the title's own line (rule 9): no row gets taller,
-                    and a title only one agent's rows wear carries none. */}
-                {collides && presentedName && <Chip tone="neutral">{presentedName}</Chip>}
-                {/* One project, several checkouts. The row says which it ran
-                    in with a branch glyph rather than a group of its own —
-                    a worktree is where a conversation happened, not what it
-                    was about — and the glyph sits on the list's right rail,
-                    so "which of these ran in a worktree" is one glance down
-                    a column rather than five titles read to their end. */}
-                {worktree && (
-                  <span
-                    className={styles.rowWorktree}
-                    role="img"
-                    aria-label={`Worktree ${summary.git?.branch ?? folderName(summary.cwd)}`}
-                    title={`Worktree · ${summary.git?.branch ?? folderName(summary.cwd)}\n${summary.cwd}`}
-                  >
-                    <Text role="meta"><BranchIcon size={11} /></Text>
-                  </span>
-                )}
-                {/* The folder this conversation ran in is no longer on the
-                    machine, so it can be read and not continued. On the same
-                    right rail as the worktree glyph, in the same ink and for
-                    the same reason: both are facts about *where* a row ran,
-                    asked of the whole list at once. It says so before the
-                    click — a deleted worktree usually takes several
-                    conversations, and one refusal is enough to know about all
-                    of them. */}
-                {folderGone && (
-                  <span
-                    className={styles.rowGone}
-                    role="img"
-                    aria-label={`Folder is gone — ${folderName(summary.cwd)}`}
-                    title={`${folderGone}\nThe transcript can be read; nothing more can be sent to it.`}
-                  >
-                    <Text role="meta"><FolderGoneIcon size={11} /></Text>
-                  </span>
-                )}
-              </span>
-              {!need && snapshot.listPrefs.density === 'comfortable' && (
-                <span className={styles.rowMeta}>
-                  {snapshot.runtimes.length > 1 && (
-                    <>
-                      <Text role="meta" className={styles.rowMetaItem}>{agentName}</Text>
-                      <Text role="meta" aria-hidden="true">·</Text>
-                    </>
+                : `${agentName} · ${traceShown ? TRACE_LABEL[trace] : relativeTime(summary.updatedAt, now)}${summary.git?.branch ? ` · ${summary.git.branch}` : ''}${worktree ? ` · worktree ${folderName(summary.cwd)}` : ''}${backgrounded > 0 ? ` · ${backgrounded} running in the background` : ''}`}
+              onClick={() => void store.openSession(summary.id, { runtime: summary.runtime })}
+              icon={
+                <SessionHoverCard
+                  session={summary}
+                  actions={[
+                    ...(active ? [] : [{ label: 'Open', primary: true,
+                      onSelect: () => void store.openSession(summary.id, { runtime: summary.runtime }) }]),
+                    { label: 'Rename', onSelect: startRename },
+                  ]}
+                >
+                  <Text role="meta" className="inline-flex items-center justify-center" aria-label={agentName}>
+                    {runtime ? <RuntimeMark runtime={runtime} size={14} /> : <AgentIcon size={14} />}
+                  </Text>
+                </SessionHoverCard>
+              }
+              label={
+                /* The outer label keeps its full-width geometry. A trailing
+                   state/action overlays the rail, but these earned chips and
+                   glyphs must remain readable beside it. */
+                <span className="flex min-w-0 items-center gap-(--hd-space-1)" title={label}>
+                  <span className="min-w-0 truncate">{label}</span>
+                  {need && <Chip tone="warning">{need.reason}</Chip>}
+                  {worktree && (
+                    <span className="inline-flex shrink-0" role="img"
+                      aria-label={`Worktree ${summary.git?.branch ?? folderName(summary.cwd)}`}
+                      title={`Worktree · ${summary.git?.branch ?? folderName(summary.cwd)}\n${summary.cwd}`}>
+                      <Text role="meta"><BranchIcon size={11} /></Text>
+                    </span>
                   )}
-                  {traceShown ? (
-                    <Text role="meta" tone={traceTone(trace)} className={styles.rowMetaItem} data-trace={trace}>
-                      {TRACE_LABEL[trace]}
-                    </Text>
-                  ) : (
-                    <Text role="meta" className={styles.rowMetaItem}>{relativeTime(summary.updatedAt, now)}</Text>
-                  )}
-                  {summary.git?.branch && (
-                    <>
-                      <Text role="meta" aria-hidden="true">·</Text>
-                      <Text role="meta" truncate className={`${styles.rowMetaItem} ${styles.rowMetaBranch}`}>
-                        {summary.git.branch}
-                      </Text>
-                    </>
+                  {folderGone && (
+                    <span className="inline-flex shrink-0" role="img"
+                      aria-label={`Folder is gone — ${folderName(summary.cwd)}`}
+                      title={`${folderGone}\nThe transcript can be read; nothing more can be sent to it.`}>
+                      <Text role="meta"><FolderGoneIcon size={11} /></Text>
+                    </span>
                   )}
                 </span>
-              )}
-            </span>
-          </Button>
-
-          <span className={styles.rowMenu} {...(menu.at ? { 'data-open': '' } : {})}>
-            <Button
-              type="button"
-              variant="ghost" size="icon-sm" className={styles.rowMenuButton}
-              aria-haspopup="menu"
-              aria-expanded={menu.at !== null}
+              }
+            />
+            {(backgrounded > 0 || traceShown || summary.status.type === 'active') && (
+              <SidebarMenuBadge aria-label={backgrounded > 0 ? 'Background tasks running' : traceShown ? TRACE_LABEL[trace] : 'Working'}>
+                <Dot state={dotState} variant="navigation"
+                  pulse={trace !== null && ACTIVE_STATES.has(trace)}
+                  data-tasks={backgrounded > 0 ? '' : undefined}
+                  data-live={summary.status.type === 'active' ? '' : undefined}
+                  data-trace={traceShown ? trace : undefined}
+                  aria-hidden="true" />
+              </SidebarMenuBadge>
+            )}
+            <SidebarMenuAction showOnHover
+              data-state={menu.at ? 'open' : undefined}
+              aria-haspopup="menu" aria-expanded={menu.at !== null}
               onClick={menu.open}
-              title={`Actions for ${label}`}
-              aria-label={`Actions for ${label}`}
-            >
+              title={`Actions for ${label}`} aria-label={`Actions for ${label}`}>
               <MoreIcon size={12} />
-            </Button>
-          </span>
-        </>
-      )}
+            </SidebarMenuAction>
+          </>
+        )}
+      </SidebarMenuItem>
       <ContextMenu at={menu.at} label={`Actions for ${label}`} onClose={menu.close}>
+        <MenuItem
+          icon={<PencilIcon size={13} />}
+          label="Rename"
+          onSelect={startRename}
+        />
         <MenuItem
           icon={pinned ? <UnpinIcon size={13} /> : <PinIcon size={13} />}
           label={pinned ? 'Unpin' : 'Pin'}
           onSelect={() => store.toggleSessionPinned(String(key))}
-        />
-        <MenuItem
-          icon={<CopyIcon size={13} />}
-          label="Copy"
-          value="⌘C"
-          onSelect={() => void navigator.clipboard?.writeText(label).catch(() => {})}
         />
         <MenuSeparator />
         {/* The way to get a second transcript on screen. Reading what another
@@ -416,16 +327,10 @@ const SessionRow = ({
         <MenuItem
           icon={<PanelIcon size={13} />}
           label="Open on the right"
-          hint="Read this beside the conversation you are in"
+          title="Read this beside the conversation you are in."
           onSelect={() => {
             void store.openSession(summary.id, { runtime: summary.runtime, area: 'right' })
           }}
-        />
-        <MenuSeparator />
-        <MenuItem
-          icon={<PencilIcon size={13} />}
-          label="Rename"
-          onSelect={startRename}
         />
         <MenuItem
           icon={<ForkIcon size={13} />}
@@ -435,6 +340,12 @@ const SessionRow = ({
               .openSession(summary.id, { runtime: summary.runtime })
               .then(() => store.forkSession())
           }}
+        />
+        <MenuItem
+          icon={<CopyIcon size={13} />}
+          label="Copy"
+          value="⌘C"
+          onSelect={() => void navigator.clipboard?.writeText(label).catch(() => {})}
         />
         <MenuSeparator />
         <MenuItem
@@ -446,13 +357,13 @@ const SessionRow = ({
           icon={<TrashIcon size={13} />}
           label="Delete…"
           danger
-          disabled={deletable ? false : `${agentName} keeps no way to delete one.`}
+          disabled={menu.at && !runtime ? 'This conversation’s agent is unavailable.' : menu.at && !runtime?.capabilities.deleteHistory ? `${agentName} keeps no way to delete one.` : false}
           onSelect={() => onDelete(summary)}
         />
       </ContextMenu>
-    </div>
+    </SidebarMenu>
   )
-}
+})
 
 /**
  * The list's display controls, in one place the way Claude Code desktop and
@@ -476,6 +387,8 @@ export const SessionListControls = () => {
         title="How this list is shown"
         drop="down"
         align="left"
+        triggerEdge="end"
+        triggerEdgeGlyph={13}
         triggerClassName={buttonVariants({ variant: 'muted', size: 'icon-sm' })}
         label={<SlidersIcon size={13} />}
       >
@@ -486,48 +399,45 @@ export const SessionListControls = () => {
                 below is a refinement of. ⌥-click on any project's chevron
                 does the same thing without opening this. */}
             <MenuLabel>Projects</MenuLabel>
-            {/* The count was the only part of this row's second line that was
-                not a restatement of the verb, and a count is not a sentence:
-                it goes at the row's end, where the app already puts a
-                branch's age. */}
-            <MenuItem
-              icon={<CollapseAllIcon size={14} />}
-              label="Collapse all"
-              value={roots.length === 1 ? '1 project' : `${roots.length} projects`}
-              title="Folds every project shut."
-              disabled={openCount === 0 ? 'Every project is already folded.' : false}
-              onSelect={() => store.setProjectsCollapsed(roots, true)}
-            />
-            <MenuItem
-              icon={<ExpandAllIcon size={14} />}
-              label="Expand all"
-              disabled={openCount === roots.length ? 'Every project is already open.' : false}
-              onSelect={() => store.setProjectsCollapsed(roots, false)}
-            />
-            <MenuLabel>Density</MenuLabel>
-            <MenuItem
-              icon={<RowsLooseIcon size={14} />}
-              selected={prefs.density === 'comfortable'}
-              label="Comfortable"
-              onSelect={() => store.setListPrefs({ density: 'comfortable', densityPicked: true })}
-            />
-            <MenuItem
-              icon={<RowsTightIcon size={14} />}
-              selected={prefs.density === 'compact'}
-              label="Compact"
-              onSelect={() => store.setListPrefs({ density: 'compact', densityPicked: true })}
-            />
-            <MenuLabel>Agent</MenuLabel>
-            <MenuItem
-              icon={<EveryoneIcon size={14} />}
-              selected={prefs.agent === null}
-              label="All agents"
-              onSelect={() => store.setListPrefs({ agent: null })}
-            />
-            {/* One row per agent, not per account. Codex's accounts share one
-                session store, so "sessions from this account" is not a thing
-                the list could honour — the agent is the real distinction. */}
-            {agentGroups(snapshot.runtimes).map(({ info }) => (
+            <Submenu label="Sort projects" value={prefs.sort === 'recency' ? 'Recency' : 'Name'}>
+              <MenuItem
+                icon={<ClockIcon size={14} />}
+                selected={prefs.sort === 'recency'}
+                label="Recency"
+                onSelect={() => store.setListPrefs({ sort: 'recency' })}
+              />
+              <MenuItem
+                icon={<SortNameIcon size={14} />}
+                selected={prefs.sort === 'name'}
+                label="Name"
+                onSelect={() => store.setListPrefs({ sort: 'name' })}
+              />
+            </Submenu>
+            <Submenu label="Density" value={prefs.density === 'comfortable' ? 'Comfortable' : 'Compact'}>
+              <MenuItem
+                icon={<RowsLooseIcon size={14} />}
+                selected={prefs.density === 'comfortable'}
+                label="Comfortable"
+                onSelect={() => store.setListPrefs({ density: 'comfortable', densityPicked: true })}
+              />
+              <MenuItem
+                icon={<RowsTightIcon size={14} />}
+                selected={prefs.density === 'compact'}
+                label="Compact"
+                onSelect={() => store.setListPrefs({ density: 'compact', densityPicked: true })}
+              />
+            </Submenu>
+            <Submenu label="Show agents" value={prefs.agent === null ? 'All agents' : agentGroups(snapshot.runtimes).find(({ info }) => agentKey(info) === prefs.agent)?.info.presentation.name ?? 'All agents'}>
+              <MenuItem
+                icon={<EveryoneIcon size={14} />}
+                selected={prefs.agent === null}
+                label="All agents"
+                onSelect={() => store.setListPrefs({ agent: null })}
+              />
+              {/* One row per agent, not per account. Codex's accounts share one
+                  session store, so "sessions from this account" is not a thing
+                  the list could honour — the agent is the real distinction. */}
+              {agentGroups(snapshot.runtimes).map(({ info }) => (
               <MenuItem
                 key={info.id}
                 icon={<RuntimeMark runtime={info} />}
@@ -536,18 +446,20 @@ export const SessionListControls = () => {
                 onSelect={() => store.setListPrefs({ agent: agentKey(info) })}
               />
             ))}
-            <MenuLabel>Sort folders</MenuLabel>
+            </Submenu>
+            <MenuSeparator />
             <MenuItem
-              icon={<ClockIcon size={14} />}
-              selected={prefs.sort === 'recency'}
-              label="Recency"
-              onSelect={() => store.setListPrefs({ sort: 'recency' })}
+              icon={<CollapseAllIcon size={14} />}
+              label="Collapse all"
+              value={roots.length === 1 ? '1 project' : `${roots.length} projects`}
+              disabled={openCount === 0 ? 'Every project is already folded.' : false}
+              onSelect={() => store.setProjectsCollapsed(roots, true)}
             />
             <MenuItem
-              icon={<SortNameIcon size={14} />}
-              selected={prefs.sort === 'name'}
-              label="Name"
-              onSelect={() => store.setListPrefs({ sort: 'name' })}
+              icon={<ExpandAllIcon size={14} />}
+              label="Expand all"
+              disabled={openCount === roots.length ? 'Every project is already open.' : false}
+              onSelect={() => store.setProjectsCollapsed(roots, false)}
             />
           </Menu>
         )}
@@ -622,52 +534,41 @@ const GroupHead = ({
       onDragEnd={drag.onEnd}
       onContextMenu={menu.open}
     >
-      <Button
-        type="button"
-        variant="navigation" size="navigation" className={styles.groupRow}
-        data-draggable=""
-        {...(edge ? { 'data-insert': edge } : {})}
-        {...(drag.dragging === group.root ? { 'data-dragging': '' } : {})}
-        {...(current ? { 'data-current': '' } : {})}
-        onClick={(event) => (event.altKey ? onToggleAll() : onToggle())}
-        title={`${current ? 'The folder this app is working in.\n' : ''}${actualRoot}\n⌥-click to ${open ? 'collapse' : 'expand'} every project.`}
-      >
-        <DisclosureChevron open={open} size="xs" className={styles.groupChevron} />
-        {/* An open folder for the one you are in, a closed one for the rest:
-            the same distinction the OS file manager makes, and the one Codex
-            makes in this exact list. */}
-        <Text role={current ? 'row' : 'meta'} tone={current ? 'brand' : undefined} className={styles.groupIcon}>
-          {current ? <FolderOpenIcon size={12} /> : <FolderIcon size={12} />}
-        </Text>
-        <span className={styles.groupBody}>
-          <Text role="navigation" fade className={styles.groupName}>{group.name}</Text>
-          {stopped && <span title={`${stopped.reason} ${stopped.nextStep}`}><Chip tone="neutral" label="Capture stopped" /></span>}
-          {pinned && <Text role="meta" className={styles.groupPin}><PinIcon size={11} /></Text>}
-          <Text role="meta" numeric className={styles.groupCount}>{group.sessions.length}</Text>
-        </span>
-      </Button>
-      <span className={styles.groupTools}>
-        <Button
-          type="button"
-          variant="ghost" size="icon-sm" className={styles.groupAdd}
-          onClick={() => void store.startSessionIn(actualRoot)}
-          title={`New session in ${group.name}`}
-          aria-label={`New session in ${group.name}`}
-        >
-          <PlusIcon size={12} />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost" size="icon-sm" className={styles.groupAdd}
-          aria-haspopup="menu"
-          aria-expanded={menu.at !== null}
-          onClick={menu.open}
-          title={`Actions for ${group.name}`}
-          aria-label={`Actions for ${group.name}`}
-        >
-          <MoreIcon size={12} />
-        </Button>
-      </span>
+      <SidebarMenu>
+        <SidebarMenuItem data-current={current ? '' : undefined}>
+          <SidebarMenuButton
+            trailingActions={2}
+            data-draggable=""
+            data-insert={edge ?? undefined}
+            data-dragging={drag.dragging === group.root ? '' : undefined}
+            aria-expanded={open}
+            onClick={(event) => (event.altKey ? onToggleAll() : onToggle())}
+            title={`${current ? 'The folder this app is working in.\n' : ''}${actualRoot}\n⌥-click to ${open ? 'collapse' : 'expand'} every project.`}
+            icon={<>
+              <Text role="meta" className="group-hover/menu-item:hidden group-focus-within/menu-item:hidden">
+                {current ? <FolderOpenIcon size={14} /> : <FolderIcon size={14} />}
+              </Text>
+              <DisclosureChevron open={open} size="xs" className="hidden group-hover/menu-item:block group-focus-within/menu-item:block" />
+            </>}
+            label={<span className="flex min-w-0 items-center gap-(--hd-space-1)" >
+              <Text role="navigation" ink={current ? 'primary' : undefined} truncate className={styles.groupName}>{group.name}</Text>
+              {stopped && <span title={`${stopped.reason} ${stopped.nextStep}`}><Chip tone="neutral" label="Capture stopped" /></span>}
+            </span>}
+          />
+          {pinned && <SidebarMenuBadge title="Pinned" aria-label="Pinned"><PinIcon size={11} /></SidebarMenuBadge>}
+          <SidebarMenuAction showOnHover className="end-(--hd-space-8)"
+            onClick={() => void store.startSessionIn(actualRoot)}
+            title={`New session in ${group.name}`} aria-label={`New session in ${group.name}`}>
+            <PlusIcon size={12} />
+          </SidebarMenuAction>
+          <SidebarMenuAction showOnHover data-state={menu.at ? 'open' : undefined}
+            aria-haspopup="menu" aria-expanded={menu.at !== null}
+            onClick={menu.open}
+            title={`Actions for ${group.name}`} aria-label={`Actions for ${group.name}`}>
+            <MoreIcon size={12} />
+          </SidebarMenuAction>
+        </SidebarMenuItem>
+      </SidebarMenu>
       <WorkspaceMenu
         group={group}
         current={current}
@@ -688,7 +589,7 @@ const GroupHead = ({
  * and the ones it holds are one level further in. The group glyph says it is
  * several agents; the dot on each child says it is one.
  *
- * The whole row opens the room. The chevron is a separate button inside it,
+ * The whole row opens the room. The chevron is a separate button beside it,
  * because "show me who is in here" and "take me in there" are different
  * questions and a tree that answers the wrong one is a tree you stop
  * expanding.
@@ -707,6 +608,7 @@ const roomMembers = (
   room: TeamState,
   sessions: readonly SessionSummary[],
   snapshot: AppSnapshot,
+  hiddenKeys: ReadonlySet<string>,
 ): SessionSummary[] => {
   const shown = new Map(
     sessions.map((summary) => [String(sessionKey(summary.runtime, summary.id)), summary]),
@@ -715,6 +617,7 @@ const roomMembers = (
   return room.members
     .map((key) => shown.get(String(key)) ?? snapshot.sessions.get(key))
     .filter((one): one is SessionSummary => one !== undefined)
+    .filter((one) => !hiddenKeys.has(String(sessionKey(one.runtime, one.id))))
     .filter(
       (one) => !filtered || agentKeyOf(one.runtime, snapshot.runtimes) === snapshot.listPrefs.agent,
     )
@@ -727,6 +630,10 @@ const RoomRow = ({
   open,
   onToggle,
   onDelete,
+  hiddenKeys,
+  virtualKey,
+  virtualIndex,
+  virtualCount,
 }: {
   readonly room: TeamState
   /** The project's conversations — members are matched against these. */
@@ -735,6 +642,10 @@ const RoomRow = ({
   readonly open: boolean
   readonly onToggle: () => void
   readonly onDelete: (summary: SessionSummary) => void
+  readonly hiddenKeys: ReadonlySet<string>
+  readonly virtualKey?: string
+  readonly virtualIndex?: number
+  readonly virtualCount?: number
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -758,135 +669,240 @@ const RoomRow = ({
      under a filter its members matched. Saying which conversations the
      filter keeps is the rule; where they were found is not. */
   const filtered = snapshot.listPrefs.agent !== null
-  const members = roomMembers(room, sessions, snapshot)
+  const members = roomMembers(room, sessions, snapshot, hiddenKeys)
   const claimed = room.intents.filter((one) => one.state === 'claimed').length
   const held = room.channel.filter(
     (entry) => entry.kind === 'message' && entry.state === 'held',
   ).length
 
   return (
-    <div>
-      <Button
-        render={<div role="button" />}
-        nativeButton={false}
-        variant="navigation"
-        size="navigation"
-        className={styles.roomRow}
-        {...(held > 0 ? { 'data-held': '' } : {})}
-        tabIndex={0}
-        aria-label={`Room ${name}`}
-        title={
-          held > 0
-            ? `${name} — a held message is waiting for you`
-            : `${name} — the board, the chat, and who is here`
-        }
-        onClick={() => store.openTeamRoom(room.id)}
-        onKeyDown={(event) => {
-          /* Only the row's own keys. The chevron inside it is a button, and
-             its Enter or Space bubbles here: focusing the twisty and pressing
-             either opened the room instead of folding it, and Space's
-             `preventDefault` below swallowed the click that would have done
-             the folding. A nested control answers for itself. */
-          if (event.target !== event.currentTarget) return
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            store.openTeamRoom(room.id)
-          }
-        }}
-      >
-        <Button
-          type="button"
-          variant="ghost" size="icon-sm" className={styles.roomTwisty}
+    <SidebarMenu data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount}>
+      <SidebarMenuItem>
+        <div className="relative min-w-0">
+          <SidebarMenuButton
+            trailingOverlay
+            role="button"
+          aria-label={`Room ${name}`}
+          title={`${name} — ${held > 0 ? `${held} held ${held === 1 ? 'message' : 'messages'} waiting for you` : 'the board, the chat, and who is here'}${claimed > 0 ? ` · ${claimed} claimed ${claimed === 1 ? 'job' : 'jobs'}` : ''}`}
+          data-held={held > 0 ? '' : undefined}
+          onClick={() => store.openTeamRoom(room.id)}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget) return
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              event.stopPropagation()
+              store.openTeamRoom(room.id)
+            }
+          }}
+          icon={<Text role="meta"><TeamIcon size={14} /></Text>}
+          label={<span className="flex min-w-0 items-center gap-(--hd-space-1)">
+            <span className="min-w-0 truncate">{name}</span>
+            {goal && <Chip tone={waiting ? 'warning' : goalWords({ goal: goal.goal, activity: goal.activity }).tone}>
+              {waiting ? 'Needs you' : goalWords({ goal: goal.goal, activity: goal.activity }).label}
+            </Chip>}
+          </span>}
+        />
+        {held > 0 && <SidebarMenuBadge title={`${held} held ${held === 1 ? 'message' : 'messages'} waiting for you`}>
+          {held}
+        </SidebarMenuBadge>}
+        <SidebarMenuAction showOnHover
           aria-expanded={open}
           aria-label={open ? `Hide the agents in ${name}` : `Show the agents in ${name}`}
-          title={members.length === 1 ? '1 conversation in here' : `${members.length} conversations in here`}
-          onClick={(event) => {
-            event.stopPropagation()
-            onToggle()
-          }}
-        >
-          <DisclosureChevron open={open} size="xs" className={styles.groupChevron} />
-        </Button>
-        <Text role="meta" tint="violet" className={styles.roomIcon}>
-          <TeamIcon size={12} />
-        </Text>
-        {/* One line: the name, one state chip, then the counts. The name is
-            the only thing here that gives way — it fades at its edge — and the
-            chip and the counts keep their own width, so they never slide
-            under one another. A trigger's Goal is named by its subject
-            (`goalName`: "Issue #42"); where it came from is the room's own
-            header chip, not a second line here saying the name again. */}
-        <span className={styles.rowBody}>
-          <span className={styles.rowHead}>
-            <Text role="navigation" fade className={styles.roomTitle}>{name}</Text>
-            {goal ? (() => {
-              /* The room's own header rule: a member holding an approval is
-                 the Goal needing you, whatever the host's activity has
-                 caught up to — the two rows must not disagree. */
-              const words = waiting
-                ? { label: 'Needs you', tone: 'warning' as const }
-                : goalWords({ goal: goal.goal, activity: goal.activity })
-              return <Chip tone={words.tone}>{words.label}</Chip>
-            })() : null}
-          </span>
-        </span>
-        {/* A state and a size, and they must not read as one number. Drawn
-            plainly the row said "1 0" — two counts in the same grey, the same
-            size, a gap apart, and neither with a glyph to say what it
-            counted, which a taste sweep of #905 flagged as unreadable at a
-            glance. The project row one line above already answers this: a
-            glyph qualifies the count beside it, so what is a state looks like
-            a state. */}
-        {/* A Goal's row spends its width on its name and its one state chip.
-            At the sidebar's own width the two counters beside them left the
-            name "Issu" — measured in the running app — so on a Goal's row
-            they give way: what is claimed is the room rail's Board row, and
-            how many conversations it holds is the twisty's own label and
-            the list it opens. A plain room, with no chip, keeps both. */}
-        {!goal && claimed > 0 && (
-          <Text role="meta" numeric className={styles.roomClaimed} title={`${claimed} of this room's jobs ${claimed === 1 ? 'is' : 'are'} claimed`}>
-            <TodoActiveIcon size={11} />
-            {claimed}
-          </Text>
-        )}
-        {!goal && <Text
-          role="meta"
-          numeric
-          className={styles.groupCount}
-          /* `members` is resolved against what the tree is showing, so under an
-             agent filter it is a subset — saying "N conversations in this
-             room" of a filtered count states as fact a number the filter
-             chose. The row says which number it is showing. */
-          title={
-            filtered
-              ? `${members.length} of this room's conversations match the agent filter`
-              : members.length === 1
-                ? '1 conversation in this room'
-                : `${members.length} conversations in this room`
-          }
-        >
-          <SessionIcon size={11} />
-          {members.length}
-        </Text>}
-      </Button>
-      {/* A navigation tree never renders an empty-state sentence — several
-          freshly opened Goals, none seated yet, used to repeat "No agents in
-          here yet — open it to add one." under every one of them. The row
-          above already says 0: that is what a tree shows for empty, nothing
-          more, so an empty room opened here draws no second row at all. */}
-      {open && members.length > 0 && (
-        <div className={styles.nested}>
-          {members.map((summary) => (
-            <SessionRow key={summary.id} summary={summary} now={now} onDelete={onDelete} />
-          ))}
+          title={filtered
+            ? `${members.length} of this room's conversations match the agent filter`
+            : members.length === 1 ? '1 conversation in this room' : `${members.length} conversations in this room`}
+          onClick={onToggle}>
+          <DisclosureChevron open={open} size="xs" />
+        </SidebarMenuAction>
         </div>
-      )}
-    </div>
+        {open && members.length > 0 && (
+          <SidebarMenu nested>
+            {members.map((summary) => (
+              <SidebarMenuItem key={summary.id}>
+                <SessionRow summary={summary} now={now} onDelete={onDelete} />
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        )}
+      </SidebarMenuItem>
+    </SidebarMenu>
   )
 }
 
 /** How many sessions a workspace shows before "Show more". */
 const COLLAPSED_LIMIT = 5
+const EXPANSION_STEP = 25
+
+type ProjectRow =
+  | { kind: 'room'; room: TeamState; updatedAt: number; pinnedIndex: null }
+  | { kind: 'session'; summary: SessionSummary; updatedAt: number; pinnedIndex: number | null }
+
+const WindowedProjectRows = ({
+  rows,
+  enabled,
+  targetIndex,
+  navigationIndex,
+  density,
+  className,
+  footer,
+  renderRow,
+}: {
+  rows: readonly ProjectRow[]
+  enabled: boolean
+  targetIndex: number
+  navigationIndex: number | null
+  density: AppSnapshot['listPrefs']['density']
+  className?: string
+  footer?: ReactNode
+  renderRow: (row: ProjectRow, index: number) => ReactNode
+}) => {
+  const root = useRef<HTMLDivElement>(null)
+  const [viewport, setViewport] = useState({ top: 0, height: 0, origin: 0 })
+  const [heights, setHeights] = useState<ReadonlyMap<number, number>>(() => new Map())
+  const scroller = useRef<HTMLElement | null>(null)
+  const lastTarget = useRef<number | null>(null)
+  const lastNavigationTarget = useRef<number | null>(null)
+  const keyIndexes = useRef(new Map<string, number>())
+  const snapshot = useSnapshot()
+  keyIndexes.current = new Map(rows.map((row, index) => [row.kind === 'room' ? `room:${row.room.id}` : `session:${row.summary.runtime}:${row.summary.id}`, index]))
+  const estimate = density === 'compact' ? 34 : 46
+  const scrollTarget = navigationIndex ?? targetIndex
+  const virtualLabels = JSON.stringify(rows.map((row) => {
+    if (row.kind === 'room') {
+      const goal = snapshot.goals.get(row.room.id)
+      return goal ? goalName(goal.goal) : row.room.name
+    }
+    const key = sessionKey(row.summary.runtime, row.summary.id)
+    const live = snapshot.sessions.get(key)
+    const needsYou = snapshot.approvals.some((entry) => entry.key === key) || snapshot.queues.get(key)?.status === 'paused'
+    const need = needsYou ? needsYouOf(row.summary, snapshot) : undefined
+    return need?.name ?? sessionLabel(live?.title ?? row.summary.title, row.summary.preview)
+  }))
+
+  useEffect(() => {
+    if (!enabled || !root.current) return
+    let parent = root.current.parentElement
+    while (parent && parent !== document.body) {
+      const overflow = getComputedStyle(parent).overflowY
+      if (overflow === 'auto' || overflow === 'scroll') break
+      parent = parent.parentElement
+    }
+    const scrollElement = parent ?? document.scrollingElement
+    if (!scrollElement) return
+    scroller.current = scrollElement as HTMLElement
+
+    const refresh = () => {
+      const element = root.current
+      const scroll = scroller.current
+      if (!element || !scroll) return
+      const rootRect = element.getBoundingClientRect()
+      const scrollRect = scroll === document.scrollingElement
+        ? { top: 0, height: window.innerHeight }
+        : scroll.getBoundingClientRect()
+      setViewport({
+        top: scroll.scrollTop,
+        height: scroll.clientHeight || scrollRect.height,
+        origin: rootRect.top - scrollRect.top + scroll.scrollTop,
+      })
+    }
+    const observer = new ResizeObserver((entries) => {
+      setHeights((current) => {
+        const next = new Map(current)
+        let changed = false
+      for (const entry of entries) {
+        const key = (entry.target as HTMLElement).dataset.virtualKey
+        const index = key === undefined ? NaN : keyIndexes.current.get(key) ?? NaN
+        if (!Number.isInteger(index)) continue
+        const row = entry.target as HTMLElement
+        const gap = Number.parseFloat(getComputedStyle(row).marginTop) || 0
+          const height = entry.contentRect.height + gap
+          if (next.get(index) !== height) {
+            next.set(index, height)
+            changed = true
+          }
+        }
+        return changed ? next : current
+      })
+    })
+    for (const child of [...root.current.children]) {
+      if ((child as HTMLElement).dataset.virtualKey !== undefined) observer.observe(child)
+    }
+    const mutations = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of [...record.addedNodes]) {
+          if (node instanceof HTMLElement && node.dataset.virtualKey !== undefined) observer.observe(node)
+        }
+      }
+    })
+    mutations.observe(root.current, { childList: true })
+    scrollElement.addEventListener('scroll', refresh, { passive: true })
+    const resize = new ResizeObserver(refresh)
+    resize.observe(scrollElement)
+    resize.observe(root.current)
+    refresh()
+    return () => {
+      observer.disconnect()
+      mutations.disconnect()
+      resize.disconnect()
+      scrollElement.removeEventListener('scroll', refresh)
+      scroller.current = null
+    }
+  }, [enabled])
+
+  const itemHeight = (index: number) => heights.get(index) ?? estimate
+  let start = 0
+  let beforeHeight = 0
+  const minY = Math.max(0, viewport.top - viewport.origin - 500)
+  while (start < rows.length && beforeHeight + itemHeight(start) < minY) {
+    beforeHeight += itemHeight(start++)
+  }
+  let end = start
+  let throughHeight = beforeHeight
+  const maxY = viewport.top + viewport.height - viewport.origin + 500
+  while (end < rows.length && throughHeight < maxY) throughHeight += itemHeight(end++)
+  const keyboardOutsideWindow = navigationIndex !== null && (navigationIndex < start || navigationIndex >= end)
+  const renderStart = keyboardOutsideWindow ? Math.max(0, navigationIndex - 5) : start
+  const renderEnd = keyboardOutsideWindow ? Math.min(rows.length, navigationIndex + 20) : end
+  const renderBeforeHeight = rows.slice(0, renderStart).reduce((total, _row, index) => total + itemHeight(index), 0)
+  const renderAfterHeight = rows.slice(renderEnd).reduce((total, _row, index) => total + itemHeight(renderEnd + index), 0)
+
+  useEffect(() => {
+    if (!enabled || scrollTarget < 0) return
+    if (navigationIndex !== null) {
+      if (lastNavigationTarget.current === navigationIndex) return
+      lastNavigationTarget.current = navigationIndex
+    } else {
+      lastNavigationTarget.current = null
+      if (lastTarget.current === scrollTarget) return
+      lastTarget.current = scrollTarget
+    }
+    const scroll = scroller.current
+    const element = root.current
+    if (!scroll || !element) return
+    const offset = rows.slice(0, scrollTarget).reduce((total, _row, index) => total + itemHeight(index), 0)
+    scroll.scrollTop = viewport.origin + offset
+    const event = new Event('scroll')
+    scroll.dispatchEvent(event)
+  }, [enabled, scrollTarget, navigationIndex, rows, viewport.origin, heights])
+
+  useEffect(() => {
+    if (navigationIndex === null) return
+    const row = root.current?.querySelector<HTMLElement>(`[data-virtual-index="${navigationIndex}"] [data-slot="sidebar-menu-button"]`)
+    row?.focus()
+    row?.scrollIntoView?.({ block: 'nearest' })
+  }, [navigationIndex, renderStart, renderEnd])
+
+  if (!enabled) return <div ref={root} className={className} data-virtual-project="true">{rows.map(renderRow)}{footer}</div>
+  return (
+    <div ref={root} className={className} data-virtual-project="true"
+      data-virtual-labels={virtualLabels}>
+      {renderStart > 0 && <div aria-hidden="true" style={{ height: renderBeforeHeight }} />}
+      {rows.slice(renderStart, renderEnd).map((row, index) => renderRow(row, renderStart + index))}
+      {renderAfterHeight > 0 && <div aria-hidden="true" style={{ height: renderAfterHeight }} />}
+      {footer}
+    </div>
+  )
+}
 
 /** Where a dragged project would land: above or below the row under the pointer. */
 interface DropTarget {
@@ -1146,7 +1162,11 @@ export const useProjectGroups = (): ProjectGroup[] => {
 export const SessionTree = ({ now }: { now: number }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const treeRef = useRef<HTMLDivElement>(null)
+  const typeahead = useRef({ text: '', timer: 0 })
+  const [navigationTarget, setNavigationTarget] = useState<{ root: string; index: number } | null>(null)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
+  const [revealedCount, setRevealedCount] = useState<ReadonlyMap<string, number>>(() => new Map())
   const collapsed = useMemo(
     () => new Set(migratedRoots(snapshot.listPrefs.collapsed, snapshot.workspace)),
     [snapshot.listPrefs.collapsed, snapshot.workspace],
@@ -1173,6 +1193,20 @@ export const SessionTree = ({ now }: { now: number }) => {
     }
     return { waiting, working }
   }, [snapshot.history, snapshot.sessions, snapshot.approvals, snapshot.queues])
+  const triageKeys = useMemo(
+    () => new Set([...triage.waiting, ...triage.working].map((summary) => String(sessionKey(summary.runtime, summary.id)))),
+    [triage],
+  )
+  const pinnedRows = useMemo(() => {
+    const byKey = new Map(groups.flatMap((group) => group.sessions).map((summary) => [String(sessionKey(summary.runtime, summary.id)), summary]))
+    return snapshot.listPrefs.pinnedSessions
+      .map((key) => byKey.get(String(key)))
+      .filter((summary): summary is SessionSummary => summary !== undefined && !triageKeys.has(String(sessionKey(summary.runtime, summary.id))))
+  }, [groups, snapshot.listPrefs.pinnedSessions, triageKeys])
+  const liftedKeys = useMemo(
+    () => new Set([...triageKeys, ...pinnedRows.map((summary) => String(sessionKey(summary.runtime, summary.id)))]),
+    [pinnedRows, triageKeys],
+  )
 
   /* The rooms in each project, so a room can be drawn where it belongs.
      There used to be one line above the whole tree reading "Room · 2 open · 1
@@ -1212,6 +1246,161 @@ export const SessionTree = ({ now }: { now: number }) => {
   const far = groups.filter((group) => !near.includes(group))
 
   const activeKey = snapshot.activeSessionKey ? String(snapshot.activeSessionKey) : null
+  useEffect(() => {
+    const tree = treeRef.current
+    if (!tree) return
+    const rows = [...tree.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')]
+    const held = rows.find((row) => row === document.activeElement)
+    const active = rows.find((row) => row.hasAttribute('aria-current'))
+    tree.querySelectorAll<HTMLButtonElement>('button').forEach((button) => {
+      if (button.tabIndex !== -1) button.tabIndex = -1
+    })
+    const entry = held ?? active ?? rows[0]
+    if (entry && entry.tabIndex !== 0) entry.tabIndex = 0
+  })
+
+  const onTreeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const target = event.target
+    if (!(target instanceof HTMLButtonElement) || !target.matches('[data-slot="sidebar-menu-button"]')) return
+    if (event.altKey || event.ctrlKey || event.metaKey && event.key !== '.') return
+    const rows = [...(treeRef.current?.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]') ?? [])]
+    const index = rows.indexOf(target)
+    if (index < 0) return
+    const focus = (row: HTMLButtonElement | undefined) => {
+      if (!row) return false
+      treeRef.current?.querySelectorAll<HTMLButtonElement>('button').forEach((entry) => { entry.tabIndex = -1 })
+      row.tabIndex = 0
+      row.focus()
+      row.scrollIntoView?.({ block: 'nearest' })
+      return true
+    }
+    if (event.key === 'ContextMenu' || event.key === 'F10' && event.shiftKey || event.key === '.' && event.metaKey) {
+      event.preventDefault()
+      target.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 0, clientY: 0 }))
+      return
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      target.click()
+      return
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const direction = event.key === 'ArrowDown' ? 1 : -1
+      const nestedMember = target.closest('[data-nested="true"]') !== null
+      const virtual = nestedMember ? null : target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
+      const project = target.closest<HTMLElement>('[data-virtual-project="true"]')
+      const current = Number(virtual?.dataset.virtualIndex)
+      const count = Number(virtual?.dataset.virtualCount)
+      if (virtual && project && Number.isInteger(current) && Number.isInteger(count)) {
+        const nextIndex = current + direction
+        if (nextIndex >= 0 && nextIndex < count) {
+          const root = project.parentElement?.dataset.projectRoot
+          if (root) setNavigationTarget({ root, index: nextIndex })
+          const mounted = project.querySelector<HTMLButtonElement>(`[data-virtual-index="${nextIndex}"] [data-slot="sidebar-menu-button"]`)
+          if (mounted) focus(mounted)
+          return
+        }
+      }
+      const next = rows[index + direction]
+      if (focus(next)) return
+      return
+    }
+    if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault()
+      const nestedMember = target.closest('[data-nested="true"]') !== null
+      const virtual = nestedMember ? null : target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
+      const project = target.closest<HTMLElement>('[data-virtual-project="true"]')
+      const windowedProject = project?.hasAttribute('data-virtual-labels') ? project : null
+      if (virtual && windowedProject) {
+        const count = Number(virtual.dataset.virtualCount)
+        const targetIndex = event.key === 'Home' ? 0 : count - 1
+        const root = windowedProject.parentElement?.dataset.projectRoot
+        if (root && Number.isInteger(targetIndex) && targetIndex >= 0) {
+          setNavigationTarget({ root, index: targetIndex })
+          const mounted = windowedProject.querySelector<HTMLButtonElement>(`[data-virtual-index="${targetIndex}"] [data-slot="sidebar-menu-button"]`)
+          if (mounted) focus(mounted)
+        }
+        return
+      }
+      const row = event.key === 'Home' ? rows[0] : rows[rows.length - 1]
+      if (row) focus(row)
+      return
+    }
+    if (event.key === 'ArrowRight') {
+      const disclosure = target.parentElement?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-action"][aria-label*="agents in"]')
+      if (disclosure) {
+        event.preventDefault()
+        if (disclosure.getAttribute('aria-expanded') !== 'true') disclosure.click()
+        window.requestAnimationFrame(() => {
+          const member = target.parentElement?.parentElement?.querySelector<HTMLButtonElement>('[data-nested="true"] [data-slot="sidebar-menu-button"]')
+          focus(member ?? undefined)
+        })
+        return
+      }
+    }
+    if (event.key === 'ArrowRight' && target.hasAttribute('aria-expanded')) {
+      event.preventDefault()
+      if (target.getAttribute('aria-expanded') !== 'true') {
+        target.click()
+        window.requestAnimationFrame(() => {
+          const next = treeRef.current?.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')[index + 1]
+          focus(next)
+        })
+      }
+      else focus(rows[index + 1])
+      return
+    }
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault()
+      const nested = target.closest<HTMLElement>('[data-nested="true"]')
+      const room = nested?.parentElement
+      const roomOpener = room?.querySelector<HTMLButtonElement>('[aria-label^="Room "]')
+      const disclosure = room?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-action"][aria-label*="agents in"]')
+      if (nested && roomOpener && disclosure) {
+        if (disclosure.getAttribute('aria-expanded') === 'true') {
+          focus(roomOpener)
+          disclosure.click()
+        }
+        else focus(roomOpener)
+      } else if (target.parentElement?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-action"][aria-label*="agents in"]')?.getAttribute('aria-expanded') === 'true') {
+        target.parentElement.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-action"][aria-label*="agents in"]')?.click()
+      } else if (target.getAttribute('aria-expanded') === 'true') target.click()
+      else {
+        const parent = rows.slice(0, index).reverse().find((row) => row.getAttribute('aria-expanded') === 'true')
+        focus(parent)
+      }
+      return
+    }
+    if (event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      typeahead.current.text += event.key.toLocaleLowerCase()
+      window.clearTimeout(typeahead.current.timer)
+      typeahead.current.timer = window.setTimeout(() => { typeahead.current.text = '' }, 500)
+      const query = typeahead.current.text
+      const nestedMember = target.closest('[data-nested="true"]') !== null
+      const virtual = nestedMember ? null : target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
+      const project = target.closest<HTMLElement>('[data-virtual-project="true"]')
+      const windowedProject = project?.hasAttribute('data-virtual-labels') ? project : null
+      const labels: string[] = virtual && windowedProject
+        ? JSON.parse(windowedProject.dataset.virtualLabels ?? '[]') as string[]
+        : rows.map((candidate) => candidate.querySelector('[data-slot="sidebar-menu-label"]')?.textContent?.trim() ?? candidate.textContent?.trim() ?? '')
+      const current = windowedProject && virtual ? Number(virtual.dataset.virtualIndex) : index
+      for (let offset = 1; offset <= labels.length; offset += 1) {
+        const nextIndex = (current + offset) % labels.length
+        if (!labels[nextIndex]?.toLocaleLowerCase().startsWith(query)) continue
+        event.preventDefault()
+        if (virtual && windowedProject) {
+          const root = windowedProject.parentElement?.dataset.projectRoot
+          if (root) {
+            setNavigationTarget({ root, index: nextIndex })
+            const mounted = windowedProject.querySelector<HTMLButtonElement>(`[data-virtual-index="${nextIndex}"] [data-slot="sidebar-menu-button"]`)
+            if (mounted) focus(mounted)
+          }
+        } else focus(rows[nextIndex])
+        break
+      }
+    }
+  }, [])
   const activeGroup = useMemo(
     () =>
       activeKey === null
@@ -1223,7 +1412,7 @@ export const SessionTree = ({ now }: { now: number }) => {
   )
 
   useEffect(() => {
-    if (!activeKey || !activeGroup) return
+    if (!activeKey || !activeGroup || liftedKeys.has(activeKey)) return
     if (collapsed.has(activeGroup.root)) store.toggleCollapsed(activeGroup.root)
     if (!othersOpen && far.some((group) => group.root === activeGroup.root)) store.setOthersOpen(true)
 
@@ -1238,13 +1427,11 @@ export const SessionTree = ({ now }: { now: number }) => {
     const activeIndex = loose.findIndex(
       (summary) => String(sessionKey(summary.runtime, summary.id)) === activeKey,
     )
-    if (activeIndex >= COLLAPSED_LIMIT) {
-      setExpanded((current) => {
-        if (current.has(activeGroup.root)) return current
-        return new Set(current).add(activeGroup.root)
-      })
+    const visibleCount = revealedCount.get(activeGroup.root) ?? COLLAPSED_LIMIT
+    if (activeIndex >= visibleCount) {
+      setRevealedCount((current) => new Map(current).set(activeGroup.root, activeIndex + 1))
     }
-  }, [activeGroup, activeKey, collapsed, far, othersOpen, roomsByProject, store])
+  }, [activeGroup, activeKey, collapsed, far, liftedKeys, othersOpen, revealedCount, roomsByProject, store])
 
   const anyOpen = groups.some((group) => !collapsed.has(group.root))
   const toggleAll = useCallback(
@@ -1334,9 +1521,14 @@ export const SessionTree = ({ now }: { now: number }) => {
        that could be dragged, pinned or deleted. */
     const inRooms = new Set(allRooms.flatMap((room) => room.members.map(String)))
     const loose = group.sessions.filter(
-      (summary) => !inRooms.has(String(sessionKey(summary.runtime, summary.id))),
+      (summary) => {
+        const key = String(sessionKey(summary.runtime, summary.id))
+        return !inRooms.has(key) && !liftedKeys.has(key)
+      },
     )
-    const shown = expanded.has(group.root) ? loose : loose.slice(0, COLLAPSED_LIMIT)
+    const projectSessions = group.sessions.filter((summary) => !liftedKeys.has(String(sessionKey(summary.runtime, summary.id))))
+    const visibleCount = Math.min(loose.length, revealedCount.get(group.root) ?? COLLAPSED_LIMIT)
+    const shown = loose.slice(0, visibleCount)
     const pinnedIndexes = new Map(
       snapshot.listPrefs.pinnedSessions.map((key, index) => [String(key), index]),
     )
@@ -1362,8 +1554,11 @@ export const SessionTree = ({ now }: { now: number }) => {
       }
       return b.updatedAt - a.updatedAt
     })
+    const activeRowIndex = rows.findIndex(
+      (row) => row.kind === 'session' && String(sessionKey(row.summary.runtime, row.summary.id)) === activeKey,
+    )
     return (
-      <div key={group.root}>
+      <div key={group.root} data-project-root={group.root}>
         <GroupHead
           group={group}
           open={open}
@@ -1378,38 +1573,49 @@ export const SessionTree = ({ now }: { now: number }) => {
           </Text>
         )}
         {open && (allRooms.length > 0 || loose.length > 0) && (
-          <div className={styles.nested}>
-            {rows.map((row) =>
+          <WindowedProjectRows
+            rows={rows}
+            enabled={rows.length > 50}
+            targetIndex={activeRowIndex}
+            navigationIndex={navigationTarget?.root === group.root ? navigationTarget.index : null}
+            density={snapshot.listPrefs.density}
+            className={styles.nested}
+            footer={loose.length > visibleCount ? (
+              <SidebarMenu><SidebarMenuItem>
+                <SidebarMenuButton size="sm" icon={<span aria-hidden="true" />} label={`${loose.length - visibleCount} more`}
+                  onClick={() => {
+                    const shown = revealedCount.get(group.root) ?? COLLAPSED_LIMIT
+                    setNavigationTarget({ root: group.root, index: rows.length })
+                    setRevealedCount((current) => new Map(current).set(group.root, Math.min(loose.length, shown + EXPANSION_STEP)))
+                  }} />
+              </SidebarMenuItem></SidebarMenu>
+            ) : undefined}
+            renderRow={(row, index) =>
               row.kind === 'room' ? (
                 <RoomRow
                   key={row.room.id}
                   room={row.room}
-                  sessions={group.sessions}
+                  sessions={projectSessions}
                   now={now}
                   open={!collapsed.has(row.room.id)}
                   onToggle={() => toggle(row.room.id)}
                   onDelete={setDeleting}
+                  hiddenKeys={liftedKeys}
+                  virtualKey={`room:${row.room.id}`}
+                  virtualIndex={index}
+                  virtualCount={rows.length}
                 />
               ) : (
-                <SessionRow key={row.summary.id} summary={row.summary} now={now} onDelete={setDeleting} />
-              ),
-            )}
-            {!expanded.has(group.root) && loose.length > COLLAPSED_LIMIT && (
-              <Button
-                type="button"
-                variant="row" size="row" className={styles.showMore}
-                onClick={() =>
-                  setExpanded((current) => new Set(current).add(group.root))
-                }
-              >
-                Show {loose.length - COLLAPSED_LIMIT} more
-              </Button>
-            )}
+                <SessionRow key={row.summary.id} summary={row.summary} now={now} onDelete={setDeleting} virtualKey={`session:${row.summary.runtime}:${row.summary.id}`} virtualIndex={index} virtualCount={rows.length} />
+              )
+            }
+          />
+        )}
+        {open && wrapped.length > 0 && (
+          <div className={styles.nested}>
             {wrapped.length > 0 ? (
               <>
-                <Button
-                  type="button"
-                  variant="row" size="row" className={styles.showMore}
+                <SidebarMenu><SidebarMenuItem><SidebarMenuButton size="sm"
                   aria-expanded={expanded.has(wrappedKey)}
                   onClick={() => setExpanded((current) => {
                     const next = new Set(current)
@@ -1417,18 +1623,18 @@ export const SessionTree = ({ now }: { now: number }) => {
                     else next.add(wrappedKey)
                     return next
                   })}
-                >
-                  Wrapped · {wrapped.length}
-                </Button>
+                  label={`Wrapped · ${wrapped.length}`}
+                /></SidebarMenuItem></SidebarMenu>
                 {expanded.has(wrappedKey) ? wrapped.map((room) => (
                   <RoomRow
                     key={room.id}
                     room={room}
-                    sessions={group.sessions}
+                    sessions={projectSessions}
                     now={now}
                     open={!collapsed.has(room.id)}
                     onToggle={() => toggle(room.id)}
                     onDelete={setDeleting}
+                    hiddenKeys={liftedKeys}
                   />
                 )) : null}
               </>
@@ -1440,14 +1646,17 @@ export const SessionTree = ({ now }: { now: number }) => {
   }
 
   return (
-    <>
+    <div ref={treeRef} onKeyDown={onTreeKeyDown} onFocusCapture={(event) => {
+      const row = (event.target as HTMLElement).closest<HTMLElement>('[data-virtual-index]')
+      const root = row?.closest<HTMLElement>('[data-project-root]')?.dataset.projectRoot
+      if (root && row) setNavigationTarget({ root, index: Number(row.dataset.virtualIndex) })
+    }} role="group" aria-label="Conversations" data-region="session-tree">
       {/* Triage first: what needs the developer, then what is working — every
           workspace, one list. The words come from the live trace. */}
       {triage.waiting.length > 0 && (
-        <div className={styles.triage} data-tone="waiting">
-          <PopoverGroupLabel inset={false}>
-            <Text role="muted" tone="warning">Needs you · {triage.waiting.length}</Text>
-          </PopoverGroupLabel>
+        <SidebarGroup className={styles.triage} data-tone="waiting">
+          <GroupLabel><Text role="muted" tone="warning">Needs you · {triage.waiting.length}</Text></GroupLabel>
+          <SidebarGroupContent>
           {triage.waiting.map((summary) => (
             <SessionRow
               key={`w-${summary.runtime}-${summary.id}`}
@@ -1457,12 +1666,14 @@ export const SessionTree = ({ now }: { now: number }) => {
               need={needsYouOf(summary, snapshot)}
             />
           ))}
+          </SidebarGroupContent>
           <Separator />
-        </div>
+        </SidebarGroup>
       )}
       {triage.working.length > 0 && (
-        <div className={styles.triage} data-tone="working">
-          <PopoverGroupLabel inset={false}>Working · {triage.working.length}</PopoverGroupLabel>
+        <SidebarGroup className={styles.triage} data-tone="working">
+          <GroupLabel>Working · {triage.working.length}</GroupLabel>
+          <SidebarGroupContent>
           {triage.working.map((summary) => (
             <SessionRow
               key={`a-${summary.runtime}-${summary.id}`}
@@ -1471,41 +1682,50 @@ export const SessionTree = ({ now }: { now: number }) => {
               onDelete={setDeleting}
             />
           ))}
+          </SidebarGroupContent>
           <Separator />
-        </div>
+        </SidebarGroup>
+      )}
+      {pinnedRows.length > 0 && (
+        <SidebarGroup className={styles.triage} data-sidebar-band="pinned">
+          <GroupLabel>Pinned · {pinnedRows.length}</GroupLabel>
+          <SidebarGroupContent>
+            {pinnedRows.map((summary) => (
+              <SessionRow key={`p-${summary.runtime}-${summary.id}`} summary={summary} now={now} onDelete={setDeleting} />
+            ))}
+          </SidebarGroupContent>
+          <Separator />
+        </SidebarGroup>
       )}
       {near.map(renderGroup)}
       {far.length > 0 && (
-        <>
-          <Button
-            type="button"
-            variant="row" size="row" className={styles.otherProjects}
-            onClick={() => setOthersOpen(!othersOpen)}
-            aria-expanded={othersOpen}
-            {...(dragging && !far.some((group) => group.root === dragging)
-              ? { 'data-insert': 'into' }
-              : {})}
-            title={dragging ? 'Drop here to let this project sort itself again' : undefined}
-            onDragOver={(event) => {
-              if (!dragging) return
-              event.preventDefault()
-              event.dataTransfer.dropEffect = 'move'
-            }}
-            onDrop={(event) => {
-              if (!dragging) return
-              event.preventDefault()
-              store.moveProject(dragging, -1)
-              setAnnouncement('Back in automatic order')
-              setDragging(null)
-              setOver(null)
-            }}
-          >
-            <DisclosureChevron open={othersOpen} size="xs" className={styles.groupChevron} />
-            <Text role="navigation">Other projects</Text>
-            <Text role="meta" numeric className={styles.groupCount}>{far.length}</Text>
-          </Button>
-          {othersOpen && far.map(renderGroup)}
-        </>
+        <div>
+          <SidebarMenu><SidebarMenuItem>
+            <SidebarMenuButton
+              icon={<DisclosureChevron open={othersOpen} size="xs" className={styles.groupChevron} />}
+              label="Other projects"
+              aria-expanded={othersOpen}
+              onClick={() => setOthersOpen(!othersOpen)}
+              {...(dragging && !far.some((group) => group.root === dragging) ? { 'data-insert': 'into' } : {})}
+              title={dragging ? 'Drop here to let this project sort itself again' : undefined}
+              onDragOver={(event) => {
+                if (!dragging) return
+                event.preventDefault()
+                event.dataTransfer.dropEffect = 'move'
+              }}
+              onDrop={(event) => {
+                if (!dragging) return
+                event.preventDefault()
+                store.moveProject(dragging, -1)
+                setAnnouncement('Back in automatic order')
+                setDragging(null)
+                setOver(null)
+              }}
+            />
+            <SidebarMenuBadge aria-label={`${far.length} other projects`}>{far.length}</SidebarMenuBadge>
+          </SidebarMenuItem></SidebarMenu>
+          {othersOpen && <SidebarGroupContent>{far.map(renderGroup)}</SidebarGroupContent>}
+        </div>
       )}
       {deleting && <DeleteSession summary={deleting} onClose={() => setDeleting(null)} />}
       {/* Reordering by hand is silent by nature; this is the same move said
@@ -1514,6 +1734,6 @@ export const SessionTree = ({ now }: { now: number }) => {
       <div className="sr-only" role="status" aria-live="polite">
         {announcement}
       </div>
-    </>
+    </div>
   )
 }

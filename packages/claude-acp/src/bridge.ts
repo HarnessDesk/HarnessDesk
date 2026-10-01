@@ -1,6 +1,6 @@
 import { closeSync, fstatSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { mkdirSync, rmSync } from 'node:fs'
 import {
   agent as acpAgent,
@@ -14,12 +14,15 @@ import {
   type LoadSessionResponse,
   type NewSessionRequest,
   type NewSessionResponse,
+  type ResumeSessionRequest,
+  type ResumeSessionResponse,
   type SessionConfigOption,
   type SessionNotification,
   type SetSessionConfigOptionRequest,
   type SetSessionConfigOptionResponse,
 } from '@agentclientprotocol/sdk'
 import { ClaudeAcpAgent, nodeToWebReadable, nodeToWebWritable } from '@agentclientprotocol/claude-agent-acp'
+import { DESK_TOOL_CEILINGS, peelDeskContextPrefix } from '@harnessdesk/protocol'
 
 import { sessionFiles, trash } from './store.js'
 import { DELEGATION_CAPABILITY, DELEGATION_LIST, DELEGATION_NOTIFICATION } from './delegation-wire.js'
@@ -69,7 +72,11 @@ const ANSI = /\u001b\[[0-9;]*m/g
 
 export const unwrap = (title: string | null | undefined): string | null => {
   let text = title ?? ''
-  for (const tag of WRAPPER_TAGS) text = text.replace(new RegExp(`<${tag}(?:\\s[^>]*)?>[\\s\\S]*?(?:</${tag}>|$)`, 'g'), ' ')
+  text = peelDeskContextPrefix(text)?.text ?? text
+  for (const tag of WRAPPER_TAGS) {
+    if (tag === 'context') continue
+    text = text.replace(new RegExp(`<${tag}(?:\\s[^>]*)?>[\\s\\S]*?(?:</${tag}>|$)`, 'g'), ' ')
+  }
   const cleaned = text.replace(/\s+/g, ' ').trim()
   return cleaned.length > 0 ? cleaned : null
 }
@@ -202,19 +209,24 @@ export const valueOf = (state: { values: Record<string, string> }, id: string): 
 export const optionsIn = (meta: Meta): Record<string, string> => {
   const harnessdesk = meta?.['harnessdesk']
   const options = typeof harnessdesk === 'object' && harnessdesk !== null ? (harnessdesk as { options?: unknown }).options : undefined
-  if (typeof options !== 'object' || options === null) return {}
   const result: Record<string, string> = {}
-  for (const id of CONTROL_IDS) {
-    const value = (options as Record<string, unknown>)[id]
-    if (typeof value === 'string' && value.length > 0) result[id] = value
+  if (typeof options === 'object' && options !== null) {
+    for (const id of CONTROL_IDS) {
+      const value = (options as Record<string, unknown>)[id]
+      if (typeof value === 'string' && value.length > 0) result[id] = value
+    }
+    if ((options as Record<string, unknown>)['ceiling'] === 'read') result['ceiling'] = 'read'
   }
+  if (typeof harnessdesk === 'object' && harnessdesk !== null && (harnessdesk as Record<string, unknown>)['ceiling'] === 'read') result['ceiling'] = 'read'
   return result
 }
+export const readCeilingAllowsMode = (ceiling: string | undefined, mode: string): boolean =>
+  ceiling !== 'read' || mode === 'default' || mode === 'plan'
 const parsedSettings = (raw: unknown): Record<string, unknown> => {
   if (typeof raw !== 'string' || raw === '') return {}
   try { const parsed: unknown = JSON.parse(raw); return typeof parsed === 'object' && parsed !== null ? parsed as Record<string, unknown> : {} } catch { return {} }
 }
-export const withOptions = (meta: Meta, values: Record<string, string>, abort: AbortController): Record<string, unknown> => {
+export const withOptions = (meta: Meta, values: Record<string, string>, abort: AbortController, cwd?: string): Record<string, unknown> => {
   const claudeCode = (meta?.['claudeCode'] ?? {}) as { options?: Record<string, unknown> }
   const options: Record<string, unknown> = { ...(claudeCode.options ?? {}), abortController: abort }
   const environment = environmentIn(meta)
@@ -240,7 +252,116 @@ export const withOptions = (meta: Meta, values: Record<string, string>, abort: A
   }
   if (Object.keys(extraArgs).length > 0) options['extraArgs'] = extraArgs
   else delete options['extraArgs']
-  return { ...(meta ?? {}), claudeCode: { ...claudeCode, options, emitRawSDKMessages: true } }
+  if (values['ceiling'] === 'read') {
+    options['allowDangerouslySkipPermissions'] = false
+    options['permissionMode'] = 'default'
+    options['env'] = { ...((options['env'] as NodeJS.ProcessEnv | undefined) ?? {}), GIT_OPTIONAL_LOCKS: '0' }
+    options['disallowedTools'] = [...new Set([
+      ...((options['disallowedTools'] as string[] | undefined) ?? []),
+      'Write', 'Edit', 'MultiEdit', 'NotebookEdit',
+    ])]
+    const configuredSettings = options['settings']
+    let flagSettings: Record<string, unknown> = {}
+    if (typeof configuredSettings === 'string') {
+      try {
+        flagSettings = JSON.parse(configuredSettings) as Record<string, unknown>
+      } catch {
+        flagSettings = JSON.parse(readFileSync(resolve(cwd ?? process.cwd(), configuredSettings), 'utf8')) as Record<string, unknown>
+      }
+    } else if (typeof configuredSettings === 'object' && configuredSettings !== null && !Array.isArray(configuredSettings)) {
+      flagSettings = configuredSettings as Record<string, unknown>
+    }
+    // The SDK's flag-settings tier is applied before the CLI starts hooks.
+    // SDK callback hooks (including our PreToolUse ceiling guard) remain active.
+    options['settings'] = { ...flagSettings, disableAllHooks: true }
+    const settingSources = options['settingSources']
+    options['settingSources'] = Array.isArray(settingSources)
+      ? settingSources.filter((source) => source === 'user')
+      : ['user']
+    options['strictMcpConfig'] = true
+    const hooks = (options['hooks'] ?? {}) as Record<string, unknown>
+    const preToolUse = (hooks['PreToolUse'] as unknown[] | undefined) ?? []
+    options['hooks'] = {
+      ...hooks,
+      PreToolUse: [...preToolUse, { hooks: [readCeilingHook] }],
+    }
+  }
+  const next: Record<string, unknown> = { ...(meta ?? {}), claudeCode: { ...claudeCode, options, emitRawSDKMessages: true } }
+  if (values['ceiling'] === 'read') {
+    const harnessdesk = (next['harnessdesk'] ?? {}) as Record<string, unknown>
+    next['harnessdesk'] = { ...harnessdesk, ceiling: 'read' }
+  }
+  return next
+}
+
+export const DESK_READ_TOOLS = new Set(
+  Object.values(DESK_TOOL_CEILINGS)
+    .flatMap((tools) => Object.entries(tools))
+    .filter(([, ceiling]) => ceiling === 'read')
+    .map(([name]) => name),
+)
+const READ_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'NotebookRead', 'Task', 'Agent', 'TaskOutput'])
+
+export const forkedControls = (parent: Record<string, string>): Record<string, string> =>
+  parent['ceiling'] === 'read' ? { ceiling: 'read' } : {}
+const SHELL_WORD = /^[A-Za-z0-9_./:@%+=,-]+$/
+const SHELL_META = /[;&|<>`$(){}*?\\!"'\n\r\t]/
+
+const readOnlyGitCommand = (command: string): string => {
+  const [, subcommand, ...args] = command.trim().split(/ +/)
+  const safeArgs = subcommand === 'diff' || subcommand === 'show' ? ['--no-ext-diff', '--no-textconv', ...args] : args
+  return `git --no-optional-locks --no-pager -c core.fsmonitor=false ${subcommand} ${safeArgs.join(' ')}`
+}
+
+/** One unchained, unquoted command from the explicit, read-only shell allowlist. */
+export const readOnlyShellCommand = (command: unknown): boolean => {
+  if (typeof command !== 'string' || command.length === 0 || command.length > 4096 || SHELL_META.test(command)) return false
+  const words = command.trim().split(/ +/)
+  if (words.some((word) => !word || !SHELL_WORD.test(word))) return false
+  const [program, subcommand, ...args] = words
+  if (!program) return false
+  if (program === 'git') {
+    if (!['status', 'diff', 'log', 'show', 'rev-parse', 'ls-files'].includes(subcommand ?? '')) return false
+    return !args.some((arg) => /^-(?:c|C|p)$/.test(arg) || /^--(?:config|config-env|exec-path|pager|paginate|ext-diff|textconv|output)(?:=|$)/.test(arg))
+  }
+  if (!['ls', 'cat', 'head', 'tail', 'wc', 'rg', 'grep', 'find'].includes(program)) return false
+  if (program === 'find' && words.some((word) => /^-(?:exec|execdir|delete|fprint\w*|fprintf|ok|okdir|fls)$/.test(word))) return false
+  if (program === 'rg' && words.some((word) => /^--pre(?:=|$)/.test(word))) return false
+  return true
+}
+
+/** The only Claude Code tools permitted by a held read ceiling; undefined means admitted. */
+export const readCeilingDecision = (
+  toolName: string,
+  toolInput: unknown,
+): { permissionDecision: 'deny'; permissionDecisionReason: string } | undefined => {
+  if (READ_TOOLS.has(toolName)) return undefined
+  if (toolName === 'Bash') {
+    const command = typeof toolInput === 'object' && toolInput !== null ? (toolInput as Record<string, unknown>)['command'] : undefined
+    return readOnlyShellCommand(command) ? undefined : { permissionDecision: 'deny', permissionDecisionReason: 'The read ceiling allows only the narrow read-only shell command list.' }
+  }
+  const match = /^mcp__harnessdesk__(.+)$/.exec(toolName)
+  if (match && DESK_READ_TOOLS.has(match[1] ?? '')) return undefined
+  return { permissionDecision: 'deny', permissionDecisionReason: 'The read ceiling blocks this tool.' }
+}
+
+const readCeilingHook = async (input: { readonly tool_name: string; readonly tool_input: unknown }) => {
+  const decision = readCeilingDecision(input.tool_name, input.tool_input)
+  if (decision) return { hookSpecificOutput: { hookEventName: 'PreToolUse', ...decision } }
+  if (input.tool_name === 'Bash' && typeof input.tool_input === 'object' && input.tool_input !== null) {
+    const toolInput = input.tool_input as Record<string, unknown>
+    // The same trimmed text the allowlist judged, so leading space can't skip the rewrite.
+    const command = typeof toolInput['command'] === 'string' ? toolInput['command'].trim() : undefined
+    if (command !== undefined && /^git\s+/.test(command)) {
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          updatedInput: { ...toolInput, command: readOnlyGitCommand(command) },
+        },
+      }
+    }
+  }
+  return {}
 }
 export const commandsFor = (values: Record<string, string>, spawned: Record<string, string>): readonly string[] => {
   const commands: string[] = []
@@ -254,6 +375,47 @@ export const commandsFor = (values: Record<string, string>, spawned: Record<stri
 export interface HarnessDeskClaudeAgentOptions { readonly stateDir?: string; readonly log?: (line: string) => void }
 type AcpClient = { sessionUpdate(params: SessionNotification): Promise<void>; requestPermission(params: unknown, signal?: AbortSignal): Promise<unknown>; readTextFile?(params: unknown): Promise<unknown>; writeTextFile?(params: unknown): Promise<unknown>; createElicitation?(params: unknown, signal?: AbortSignal): Promise<unknown>; completeElicitation?(params: unknown): Promise<void>; extNotification?(method: string, params: unknown): Promise<void> }
 type Logger = { log: (...args: unknown[]) => void; error: (...args: unknown[]) => void }
+
+/** Adds provenance only when the desk server supplied for this session asked. */
+export const withFlowBoardToolProvenance = (
+  value: unknown,
+  suppliedServerNames: readonly string[],
+  liveServerStatus: readonly { readonly name: string; readonly source?: string }[],
+): unknown => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return value
+  const request = value as Record<string, unknown>
+  const requestMeta = (request['_meta'] ?? {}) as Record<string, unknown>
+  const suppliedMeta = requestMeta['harnessdesk']
+  const harnessdesk = typeof suppliedMeta === 'object' && suppliedMeta !== null && !Array.isArray(suppliedMeta)
+    ? suppliedMeta as Record<string, unknown>
+    : {}
+  const { flowBoardTool: _untrustedFlowBoardTool, ...cleanHarnessdesk } = harnessdesk
+  const cleanRequest = Object.hasOwn(harnessdesk, 'flowBoardTool')
+    ? { ...request, _meta: { ...requestMeta, harnessdesk: cleanHarnessdesk } }
+    : request
+  const toolCall = request['toolCall']
+  if (typeof toolCall !== 'object' || toolCall === null || Array.isArray(toolCall)) return cleanRequest
+  const call = toolCall as Record<string, unknown>
+  const meta = call['_meta'] as { claudeCode?: { mcpServer?: { name?: unknown; source?: unknown }; toolName?: unknown } } | undefined
+  const claudeCode = meta?.claudeCode
+  const matchingLiveServers = liveServerStatus.filter((server) => server.name === 'harnessdesk')
+  if (
+    suppliedServerNames.filter((name) => name === 'harnessdesk').length !== 1 ||
+    claudeCode?.mcpServer?.name !== 'harnessdesk' ||
+    claudeCode.mcpServer.source !== 'dynamic' ||
+    matchingLiveServers.length !== 1 ||
+    matchingLiveServers[0]?.source !== 'dynamic' ||
+    typeof claudeCode.toolName !== 'string' ||
+    !claudeCode.toolName.startsWith('mcp__harnessdesk__')
+  ) return cleanRequest
+  return {
+    ...cleanRequest,
+    _meta: {
+      ...requestMeta,
+      harnessdesk: { ...cleanHarnessdesk, flowBoardTool: { server: 'harnessdesk', tool: claudeCode.toolName } },
+    },
+  }
+}
 
 const clientFromContext = (context: AgentContext): AcpClient => ({
   sessionUpdate: (params) => context.notify(methods.client.session.update, params as never),
@@ -318,6 +480,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
   readonly #delegations = new Map<string, DelegationRegistry>()
   readonly #outputPollers = new Map<string, ReturnType<typeof setTimeout>>()
   readonly #deletedSessions = new Set<string>()
+  readonly #suppliedMcpServers = new Map<string, readonly string[]>()
   /** The exact input a session was prepared with, and what actually got staged for it — set once at create/load, reapplied unchanged by `#recreate`. */
   readonly #attachments = new Map<string, { input: AttachmentInput; staged: StagedAttachments }>()
   readonly #stateDir: string
@@ -326,6 +489,21 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     const log = options.log ?? ((line: string) => process.stderr.write(`${line}\n`))
     const logger: Logger = { log: (...args) => log(String(args[0] ?? '')), error: (...args) => log(String(args[0] ?? '')) }
     super(client as never, logger)
+    const requestPermission = client.requestPermission.bind(client)
+    client.requestPermission = async (params, signal) => {
+      const sessionId = typeof (params as { sessionId?: unknown } | null)?.sessionId === 'string'
+        ? (params as { sessionId: string }).sessionId
+        : ''
+      const query = this.sessions[sessionId]?.query as
+        | { mcpServerStatus(): Promise<readonly { readonly name: string; readonly source?: string }[]> }
+        | undefined
+      const liveServerStatus = await query?.mcpServerStatus().catch(() => []) ?? []
+      return requestPermission(withFlowBoardToolProvenance(
+        params,
+        this.#suppliedMcpServers.get(sessionId) ?? [],
+        liveServerStatus,
+      ), signal)
+    }
     const notify = client.sessionUpdate.bind(client)
     const extNotify = client.extNotification?.bind(client)
     if (extNotify) {
@@ -396,6 +574,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       _meta: {
         ...(response._meta ?? {}),
         harnessdesk: {
+          readCeiling: true,
           [TASKS_CAPABILITY]: true,
           [SESSION_DELETE_CAPABILITY]: true,
           [DELEGATION_CAPABILITY]: true,
@@ -428,6 +607,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       return await super.closeSession(params)
     } finally {
       this.#rawToolResults.delete(params.sessionId)
+      this.#suppliedMcpServers.delete(params.sessionId)
       this.#releaseAttachments(params.sessionId)
     }
   }
@@ -436,7 +616,9 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     const instructed = withInstructions(request)
     const { params, input, staged } = withAttachments(instructed, (key) => this.#stagingRoot(key))
     const values = optionsIn(params._meta)
-    const response = await super.newSession({ ...params, _meta: withOptions(params._meta, values, new AbortController()) })
+    const response = await super.newSession({ ...params, _meta: withOptions(params._meta, values, new AbortController(), params.cwd) })
+    await this.#forceReadPermissionMode(response.sessionId, values)
+    this.#suppliedMcpServers.set(response.sessionId, params.mcpServers?.map((server) => server.name) ?? [])
     this.#deletedSessions.delete(response.sessionId)
     this.#releaseAttachments(response.sessionId, input?.key)
     if (input && staged) this.#attachments.set(response.sessionId, { input, staged })
@@ -453,11 +635,13 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     )
   }
   override async loadSession(request: LoadSessionRequest): Promise<LoadSessionResponse> {
-    const remembered = this.#readControls(request.sessionId)
+    const remembered = { ...this.#readControls(request.sessionId), ...optionsIn(request._meta) }
     this.#deletedSessions.delete(request.sessionId)
     const instructed = withInstructions(request)
     const { params, input, staged } = withAttachments(instructed, (key) => this.#stagingRoot(key))
-    const response = await super.loadSession({ ...params, _meta: withOptions(params._meta, remembered, new AbortController()) })
+    const response = await super.loadSession({ ...params, _meta: withOptions(params._meta, remembered, new AbortController(), params.cwd) })
+    await this.#forceReadPermissionMode(request.sessionId, remembered)
+    this.#suppliedMcpServers.set(request.sessionId, params.mcpServers?.map((server) => server.name) ?? [])
     this.#releaseAttachments(request.sessionId, input?.key)
     if (input && staged) this.#attachments.set(request.sessionId, { input, staged })
     const session = this.sessions[request.sessionId]
@@ -471,6 +655,39 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       { ...decorated, configOptions: [...(decorated.configOptions ?? []), ...customOptions(stored)] },
       environmentIn(params._meta),
     )
+  }
+  override async resumeSession(request: ResumeSessionRequest): Promise<ResumeSessionResponse> {
+    const remembered = { ...this.#readControls(request.sessionId), ...optionsIn(request._meta) }
+    // Only a read seat needs its ceiling re-applied here; every other resume
+    // stays exactly the wrapper's own.
+    if (remembered['ceiling'] !== 'read') return super.resumeSession(request)
+    const response = await super.resumeSession({ ...request, _meta: withOptions(request._meta, remembered, new AbortController(), request.cwd) })
+    await this.#forceReadPermissionMode(request.sessionId, remembered)
+    const stored: StoredControlsWithRuntime = {
+      values: remembered,
+      spawned: { ...remembered },
+      prompted: true,
+      styles: await optionStyles(this, request.sessionId),
+      meta: request._meta,
+      cwd: request.cwd,
+    }
+    this.#controls.set(request.sessionId, stored)
+    this.#writeControls(request.sessionId, remembered)
+    return response
+  }
+  override async setSessionMode(params: Parameters<ClaudeAcpAgent['setSessionMode']>[0]): ReturnType<ClaudeAcpAgent['setSessionMode']> {
+    const stored = this.#controls.get(params.sessionId)
+    if (!readCeilingAllowsMode(stored?.values['ceiling'], params.modeId)) {
+      throw RequestError.invalidParams('The read ceiling allows only the default and plan permission modes.')
+    }
+    return super.setSessionMode(params)
+  }
+  override async unstable_forkSession(params: Parameters<ClaudeAcpAgent['unstable_forkSession']>[0]): ReturnType<ClaudeAcpAgent['unstable_forkSession']> {
+    const result = await super.unstable_forkSession(params)
+    const parent = this.#controls.get(params.sessionId)?.values ?? this.#readControls(params.sessionId)
+    const inherited = forkedControls(parent)
+    if (inherited['ceiling'] === 'read') this.#writeControls(result.sessionId, inherited)
+    return result
   }
   override async setSessionConfigOption(params: SetSessionConfigOptionRequest): Promise<SetSessionConfigOptionResponse> {
     if (!CONTROL_IDS.includes(params.configId as typeof CONTROL_IDS[number])) {
@@ -636,14 +853,21 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       sessionId,
       cwd: stored.cwd,
       ...(creation?.mcpServers ? { mcpServers: creation.mcpServers } : {}),
-      _meta: withOptions({ ...(stored.meta ?? {}), claudeCode: { ...frozenClaudeCode, options: { ...frozenOptions, resume: sessionId } } }, stored.values, new AbortController()),
+      _meta: withOptions({ ...(stored.meta ?? {}), claudeCode: { ...frozenClaudeCode, options: { ...frozenOptions, resume: sessionId } } }, stored.values, new AbortController(), stored.cwd),
     })
+    await this.#forceReadPermissionMode(sessionId, stored.values)
     const current = this.#controls.get(sessionId)
     if (current) {
       current.styles = await optionStyles(this, sessionId)
       this.#controls.set(sessionId, current)
     }
     void response
+  }
+
+  async #forceReadPermissionMode(sessionId: string, values: Record<string, string>): Promise<void> {
+    if (values['ceiling'] !== 'read') return
+    const query = this.sessions[sessionId]?.query as { setPermissionMode?: (mode: string) => Promise<void> } | undefined
+    if (query?.setPermissionMode) await query.setPermissionMode('default')
   }
 
   async #replayStored(sessionId: string): Promise<void> {

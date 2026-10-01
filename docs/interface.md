@@ -141,6 +141,13 @@ right panel is the exception: a column has no resting state as a horizontal
 strip, so putting it away hides it, and the control that opened it is the way
 back.
 
+In the terminal, Tab belongs to shell completion. Press Escape, then Tab within
+1.5 seconds to move focus to the panel controls; Tab without Escape stays in
+the terminal. A lone Escape is sent to the shell immediately. Because the
+Escape-then-Tab chord is reserved briefly, a shell binding for Escape-Tab
+(such as readline's completion binding) cannot use that chord during the
+window.
+
 Sizes and arrangement are saved per project.
 [the panel decision](decisions.md#one-panel-system-and-a-feature-never-knows-where-it-is) has why this replaced four
 separate layout mechanisms, and what was learned from VS Code, JetBrains and
@@ -185,29 +192,34 @@ so the composer, a filter box and an empty desk all still navigate.
 
 ## The sidebar
 
-Three slots at the top, because that space is the most valuable in the app and
-only what a person reaches for *while working* earns a place in it:
+The sidebar column has three parts: a **header** with the title bar, brand and
+everything-search, then New session and three navigation rows; one scrolling
+**content** area for the list controls and conversations; and a **footer** for
+docked panels, notices and the seat.
 
-- **New session**: clicking the button opens a choice between a solo session,
-  a collaborative room, and **Start with a team** — the front door, below.
-  The solo choice lists Agents first,
-  each with the mark of the runtime it would sit on here — one that cannot be
-  seated here stays, greyed with its reason — and then the runtime's own
-  session; ⌘N goes straight to a session. The small branch button at the row's
-  end opens the **Worktrees** menu for this project: a new worktree, or one it
-  already has. Either opens a draft pointed at it — the composer's **Work in**
-  control then says so — and nothing is made on disk until that draft's first
-  message.
-- **Dashboard**: opens plan usage and limits, wearing an amber warning count
-  only when an agent needs attention.
-- **Plugins**: lists live extensions and their contributed tools and panels.
+**New session** starts a draft in the current project with the default agent,
+in one click, just like ⌘N. The always-visible ⌄ beside it opens **More ways to
+start**: New worktree…, any existing worktree, Goal…, Flow… and Team…. A
+worktree choice points the draft at that checkout; nothing is made on disk
+until its first message. Goal, Flow and Team reuse their existing chooser and
+start screens. The plain path stays plain until somebody chooses another way
+to work.
 
-Changes lives in every conversation's header; ⌘K reaches the rest.
+**Agents**, **Dashboard** and **Plugins** each have a full row under New
+session: the same icon, label and trailing badge grammar as the conversation
+list. Their labels truncate with the rest of the row when space is short; they
+remain visible at the sidebar's 200px minimum. Agents shows its in-force count
+when the roster has been read, Plugins shows the live plugin count, and
+Dashboard shows an attention count only while an agent needs attention. A row
+fills when its destination window is open.
 
-**The magnifier beside the title is search, not filtering**: it opens ⌘K over
-everything — sessions, files, agents, commands — which is what a magnifier at
-the top of a window promises. Narrowing the list is a different gesture and
-lives where the list is, on the Workspaces row below.
+The magnifier beside the brand says **Search everything (⌘K)** and opens the
+search palette across sessions, files, agents and commands. The funnel beside
+**Projects** filters the conversation list by title. Its field is named **Filter
+this list**, with the placeholder **Filter by title**. While a query is active,
+a **Filtered** chip stays beside Projects and its × clears the query, so a
+short result list cannot read as missing data. The title, list filter and
+conversation history all remain in the same sidebar column.
 
 **Triage first.** Above the projects, two bands gather live conversations from
 every workspace: **Needs you** (amber, for approvals, input requests, or turns
@@ -218,6 +230,14 @@ stored session says when it last ran instead. This is the one element that
 makes parallel agents legible at a glance, so it must never say something the
 items do not support.
 
+Each conversation has exactly one row. A row moves into **Needs you** or
+**Working** while it needs attention or its turn is running; it leaves its
+project or room until that state ends. **Pinned** follows those bands and
+appears only when it has rows. Pins keep their chosen order and stay out of
+their project and room; when a band state ends, a pinned conversation returns
+to Pinned, otherwise it returns to its project or room. Project overflow counts
+include only conversations still shown there.
+
 **Projects, not folders.** Sessions group by repository (`lib/projects.ts`):
 Codex gives every "in a worktree" thread its own checkout under
 `~/.codex/worktrees/<id>/<name>`, and grouped by folder one project became a
@@ -225,6 +245,18 @@ dozen identical rows. The main checkout is the group's home; each row's branch
 says where it actually ran. Agents that report no git join the project another
 session placed their folder in. The current project stays open; the rest fold
 under **Other projects**.
+
+The conversation list has one Tab stop: it enters at the active conversation,
+or the first row when none is active, and the next Tab leaves the list. Use ↑ / ↓
+to move through its visible rows, including project headings, rooms, members
+and overflow rows; Home and End go to the first and last visible rows. On a
+project, room or **Other projects** row, → expands it (or moves to its first
+child) and ← collapses it (or returns to its parent). Enter or Space opens a
+conversation or toggles a group; on **N more** it reveals another page and
+moves to the first new row. Type a title prefix to jump to a matching row.
+Shift+F10 or the ContextMenu key opens the focused row's actions; Escape
+returns focus to that row. Large project lists mount rows as keyboard focus
+reaches them and keep the focused row in view.
 
 **Every open conversation has a row.** The rows are the agents' own history
 read through them, and an agent with no `session/list` — Gemini CLI — lists
@@ -235,18 +267,27 @@ folder belongs to, until the agent's history catches up. The active row is
 scrolled into view when it changes: a list long enough to hold a month of
 rooms kept it thousands of pixels below the fold.
 
-The Workspaces row carries what you do to the list: a **funnel** that narrows
-it, the display controls (density, agent filter, collapse or expand all
-projects, sort), and the folder browse button. The funnel is the row's own
-field — one click opens it to full width and the label steps aside, because a
-200px sidebar has room for the word or for a field you can read what you typed
-in, not both. It stays open while it holds a query even unfocused, so the list
-never looks short for a reason you cannot see; Escape clears it back to the
-icon. The row sits outside the scroller, so filtering is one click away however
-far down you are. The display-controls button wears a dot when a filter is
-hiding rows, because a filtered list must never read as missing data.
+The **Projects** row also carries display controls: **Sort projects** opens
+Recency and Name, **Density** opens Comfortable and Compact, and **Show agents**
+opens All agents and one row per agent. Collapse all and Expand all follow after
+a separator, with the unavailable action's reason on its title. The folder
+browse button stays beside them. The funnel
+is the row's own field — one click opens it to full width and the label steps
+aside, because a 200px sidebar has room for the word or for a field you can
+read what you typed in, not both. It stays open while it holds a query even
+unfocused; Escape clears it back to the icon. The row and list scroll together,
+while the header actions remain reachable. The display-controls button wears a
+dot when a filter is hiding rows, because a filtered list must never read as
+missing data.
 
-**The footer is the seat: you, and the agent you will pick up next.** The row
+Project actions are grouped as starts, folder tools, arrangement and project
+removal. Pin or Unpin sits beside a **Move** flyout for Move up, Move down or
+Back to automatic order. Copy path shows a home-shortened path and copies the
+absolute path. Conversation actions are Rename and Pin, then Open on the right,
+Branch from here and Copy, then Archive and Delete; Delete keeps its refusal
+reason on the disabled row.
+
+**The footer holds the docks, notices and seat: you, and the agent you will pick up next.** The seat row
 is your identity — your profile's face and name, which are the house mark and
 "HarnessDesk" until you choose otherwise, and your HarnessDesk account when
 there is one — and at its end sits the mark of the agent new sessions run as,

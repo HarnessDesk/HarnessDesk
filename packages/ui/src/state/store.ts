@@ -145,6 +145,7 @@ import { buildHandoff, type Carry } from '../lib/handoff'
 import { livePlanEdits, withPlanEdit, type PlanEdit } from '../lib/plan-edits'
 import type { Todo } from '../lib/todos'
 import { crossings, toastName, usageAccount } from '../lib/usage-alerts'
+import { toStored, type SideBySideState } from '../lib/side-by-side'
 import { anyOpened, blockedWords, refusalOf, seatAgentKey } from '../lib/agents'
 import { kept as keptInInbox, markedRead, readInbox, type InboxEntry } from '../lib/inbox'
 import {
@@ -306,11 +307,14 @@ export type {
   SeatRefusal,
   StoredCredential,
 } from './snapshot'
+import { Drafts } from './drafts'
 export { emptySnapshot } from './snapshot'
 
 export type UnheldCeilings = 'seat' | 'refuse'
 
 export class AppStore {
+  /** What each conversation has typed and not sent. See `state/drafts`. */
+  readonly drafts = new Drafts()
   #captureEpoch = 0
   #captureList = 0
   /**
@@ -611,6 +615,10 @@ export class AppStore {
         }
         if (notification.method === 'runtime/removed') {
           const { runtime } = notification.params
+          // In-flight searches include this runtime's response. Invalidate
+          // the request before filtering the visible history so a late page
+          // cannot put its rows back.
+          this.#historyRequestId += 1
           const runtimes = this.#snapshot.runtimes.filter((entry) => entry.id !== runtime)
           const accountsByRuntime = { ...this.#snapshot.accountsByRuntime }
           delete accountsByRuntime[runtime]
@@ -622,6 +630,7 @@ export class AppStore {
           if (anchored) this.#historyAnchor = null
           this.#patch({
             runtimes,
+            historyLoading: false,
             accountsByRuntime,
             healthByRuntime,
             activeRuntime:
@@ -1953,7 +1962,8 @@ export class AppStore {
     // cursor handed to a different agent names nothing.
     const runtime =
       options.reset || !this.#historyAnchor ? this.#snapshot.activeRuntime : this.#historyAnchor
-    if (!runtime || this.#snapshot.historyLoading) return
+    if (!runtime || (this.#snapshot.historyLoading && !options.reset)) return
+    const requestId = ++this.#historyRequestId
     this.#historyAnchor = runtime
     this.#patch({ historyLoading: true })
     try {
@@ -1978,6 +1988,7 @@ export class AppStore {
         ),
       ])
       const merged = [...page.data, ...extra.flat()].sort((a, b) => b.updatedAt - a.updatedAt)
+      if (requestId !== this.#historyRequestId) return
       const nextFoldersGone = this.#foldersGoneFor(merged)
       this.#patch({
         ...(nextFoldersGone ? { foldersGone: nextFoldersGone } : {}),
@@ -1993,7 +2004,7 @@ export class AppStore {
     } catch (error) {
       this.#backgroundNotice('warning', describe(error))
     } finally {
-      this.#patch({ historyLoading: false })
+      if (requestId === this.#historyRequestId) this.#patch({ historyLoading: false })
     }
   }
 
@@ -2006,6 +2017,7 @@ export class AppStore {
       await this.loadHistory({ reset: true })
       return
     }
+    const requestId = ++this.#historyRequestId
     this.#patch({ historyLoading: true })
     try {
       const pages = await Promise.all(
@@ -2018,7 +2030,10 @@ export class AppStore {
               .catch(() => [] as SessionSummary[]),
           ),
       )
-      const results = pages.flat().sort((a, b) => b.updatedAt - a.updatedAt)
+      const results = pages.flat()
+        .filter((row) => this.#snapshot.runtimes.some((entry) => entry.id === row.runtime))
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+      if (requestId !== this.#historyRequestId) return
       const nextFoldersGone = this.#foldersGoneFor(results)
       this.#patch({
         ...(nextFoldersGone ? { foldersGone: nextFoldersGone } : {}),
@@ -2028,7 +2043,7 @@ export class AppStore {
     } catch (error) {
       this.#backgroundNotice('warning', describe(error))
     } finally {
-      this.#patch({ historyLoading: false })
+      if (requestId === this.#historyRequestId) this.#patch({ historyLoading: false })
     }
   }
 
@@ -3132,6 +3147,16 @@ export class AppStore {
     this.#setWorkbench(
       replaceViewIn(this.#snapshot.workbench, id, { ...current, watching: [...watching] }),
     )
+  }
+
+  /** The room's Side by side tiles, written back to its view as they change. */
+  setRoomSideBySide(id: string, state: SideBySideState): void {
+    const current = viewAt(this.#snapshot.workbench, id)
+    if (current?.kind !== 'room') return
+    const next = toStored(state)
+    if (JSON.stringify(current.sideBySide ?? null) === JSON.stringify(next ?? null)) return
+    const { sideBySide: _old, ...rest } = current
+    this.#setWorkbench(replaceViewIn(this.#snapshot.workbench, id, next ? { ...rest, sideBySide: next } : rest))
   }
 
   /**
@@ -6861,6 +6886,8 @@ export class AppStore {
   }
 
   #historyRefresh: ReturnType<typeof setTimeout> | null = null
+  /** Newer history reads supersede older replies, including a reset after search. */
+  #historyRequestId = 0
   /** The sidebar's live filter, so a re-read keeps showing what was searched. */
   #historyQuery = ''
   /** The agent the list is paged around; see `loadHistory`. */

@@ -208,6 +208,23 @@ describe('Menu rows', () => {
 })
 
 describe('Submenu', () => {
+  it('opens a flyout from a context menu', () => {
+    act(() => {
+      root.render(
+        <ContextMenu at={{ x: 10, y: 10 }} label="Actions" onClose={() => {}}>
+          <Submenu label="Move">
+            <MenuItem label="Move up" onSelect={() => {}} />
+          </Submenu>
+        </ContextMenu>,
+      )
+    })
+    const move = row('Move')
+    expect(move.getAttribute('aria-expanded')).toBe('false')
+    click(move)
+    expect(move.getAttribute('aria-expanded')).toBe('true')
+    expect(row('Move up')).toBeDefined()
+  })
+
   it('opens on click, lists its rows, and closes the whole menu when one is taken', () => {
     const close = vi.fn()
     const pick = vi.fn()

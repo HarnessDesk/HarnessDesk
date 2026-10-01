@@ -8,9 +8,9 @@ import { scratch } from './scratch.js'
 
 import { AcpRuntime } from '@harnessdesk/adapter-acp'
 import { describeAdapterConformance } from '@harnessdesk/adapter-testkit'
-import type { AgentEvent, AgentItem, AgentSession, ConfigOption } from '@harnessdesk/protocol'
+import { wrapContext, type AgentEvent, type AgentItem, type AgentSession, type ConfigOption } from '@harnessdesk/protocol'
 
-import { acpSafeToolContent, classifyReplayed, commandsFor, optionsIn, storedTitle, unwrap, withOptions } from '../src/index.js'
+import { acpSafeToolContent, classifyReplayed, commandsFor, optionsIn, storedTitle, unwrap, withFlowBoardToolProvenance, withOptions } from '../src/index.js'
 
 /**
  * claude-acp through HarnessDesk's ACP adapter, against a fake Claude Code
@@ -42,6 +42,48 @@ const make = (extra: Record<string, string> = {}): AcpRuntime =>
 describeAdapterConformance('claude-acp', {
   create: make,
   sessionOptions: { cwd: WORKDIR },
+})
+
+test('read ceiling capability is advertised only by the enforcing Claude bridge handshake', async () => {
+  const runtime = make()
+  await runtime.start()
+  try {
+    assert.deepEqual(runtime.info.ceilings?.read, {
+      settings: [],
+      how: 'PreToolUse blocks every write-class tool, unknown MCP server, and shell command outside the read-only allowlist.',
+    })
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('the read ceiling is attached before creation and survives a bridge restart and load', async () => {
+  const config = scratch('claude-read-config-')
+  const state = scratch('claude-read-state-')
+  const env = { CLAUDE_CONFIG_DIR: config, CLAUDE_ACP_STATE_DIR: state }
+  const first = make(env)
+  const firstTape = record(first)
+  let sessionId: AgentSession['id']
+  await first.start()
+  try {
+    const session = await first.createSession({ cwd: WORKDIR, requestedCeiling: 'read' })
+    sessionId = session.id
+    assert.equal((JSON.parse(readFileSync(join(state, 'options.json'), 'utf8')) as Record<string, Record<string, string>>)[String(session.id)]?.['ceiling'], 'read')
+    await ask(first, session, 'hold read', firstTape)
+  } finally {
+    await first.dispose()
+  }
+
+  const second = make(env)
+  const secondTape = record(second)
+  await second.start()
+  try {
+    const resumed = await second.resumeSession(sessionId!, { knownCwd: WORKDIR })
+    assert.equal((JSON.parse(readFileSync(join(state, 'options.json'), 'utf8')) as Record<string, Record<string, string>>)[String(sessionId)]?.['ceiling'], 'read')
+    await ask(second, resumed, 'still read', secondTape)
+  } finally {
+    await second.dispose()
+  }
 })
 
 const record = (runtime: AcpRuntime) => {
@@ -125,6 +167,37 @@ test('the bridge uses the official Claude ACP package contract', () => {
     zod: '4.6.5',
   })
   assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@zed-industries/claude-code-acp'), false)
+})
+
+test('the bridge preserves MCP config and marks only the supplied live harnessdesk server from SDK provenance', () => {
+  const options = withOptions({}, {}, new AbortController()).claudeCode as { options: Record<string, unknown> }
+  assert.equal(Object.hasOwn(options.options, 'strictMcpConfig'), false)
+  const request = {
+    sessionId: 's1',
+    toolCall: {
+      title: 'Mcp',
+      _meta: { claudeCode: { toolName: 'mcp__harnessdesk__claim_next', mcpServer: { name: 'harnessdesk', source: 'dynamic' } } },
+    },
+  }
+  const liveStatus = [{ name: 'harnessdesk', source: 'dynamic' }]
+  const marked = withFlowBoardToolProvenance(request, ['harnessdesk'], liveStatus) as { _meta: { harnessdesk: { flowBoardTool: unknown } } }
+  assert.deepEqual(marked._meta.harnessdesk.flowBoardTool, {
+    server: 'harnessdesk', tool: 'mcp__harnessdesk__claim_next',
+  })
+  assert.equal(withFlowBoardToolProvenance(request, [], liveStatus), request, 'an unprovided server cannot acquire desk provenance')
+  const spoofed = { ...request, toolCall: { ...request.toolCall, _meta: undefined } }
+  assert.equal(withFlowBoardToolProvenance(spoofed, ['harnessdesk'], liveStatus), spoofed, 'a matching title without structured provenance is ignored')
+  const forged = { ...spoofed, _meta: { harnessdesk: { flowBoardTool: { server: 'harnessdesk', tool: 'mcp__harnessdesk__claim_next' } } } }
+  const scrubbed = withFlowBoardToolProvenance(forged, ['harnessdesk'], liveStatus) as { _meta: { harnessdesk: Record<string, unknown> } }
+  assert.equal(Object.hasOwn(scrubbed._meta.harnessdesk, 'flowBoardTool'), false, 'an incoming marker is never preserved without SDK provenance')
+  assert.equal(withFlowBoardToolProvenance(request, ['harnessdesk', 'harnessdesk'], liveStatus), request, 'ambiguous supplied server names fail closed')
+  assert.equal(withFlowBoardToolProvenance(request, ['harnessdesk'], []), request, 'missing live status fails closed')
+  assert.equal(withFlowBoardToolProvenance(request, ['harnessdesk'], [{ name: 'harnessdesk', source: 'project' }]), request, 'a configured scope cannot acquire desk provenance')
+  assert.equal(withFlowBoardToolProvenance(request, ['harnessdesk'], [
+    { name: 'harnessdesk', source: 'dynamic' }, { name: 'harnessdesk', source: 'project' },
+  ]), request, 'coexisting server definitions fail closed')
+  const configuredRequest = { ...request, toolCall: { ...request.toolCall, _meta: { claudeCode: { ...request.toolCall._meta.claudeCode, mcpServer: { name: 'harnessdesk', source: 'project' } } } } }
+  assert.equal(withFlowBoardToolProvenance(configuredRequest, ['harnessdesk'], liveStatus), configuredRequest, 'non-session tool source cannot acquire desk provenance')
 })
 
 test("the catalogue carries each model's own levels — including the model that has none", async () => {
@@ -569,7 +642,7 @@ test('plumbing is never a name', () => {
   )
   assert.equal(unwrap('<local-command-caveat>Caveat: the block was cut at 128 charac'), null, 'truncated, too')
   assert.equal(unwrap('<command-name>/compact</command-name> then fix the grouping'), 'then fix the grouping')
-  assert.equal(unwrap('<context source="Git">on branch x</context>\nWrite the commit message'), 'Write the commit message')
+  assert.equal(unwrap(`${wrapContext('Git', 'on branch x')}\nWrite the commit message`), 'Write the commit message')
   // Verbatim from a transcript on disk: the desktop app's note about a
   // screenshot someone drew on. A session is named for the ask under it.
   assert.equal(unwrap(`${ANNOTATION}\nto here.`), 'to here.')
@@ -663,8 +736,8 @@ test('a replayed user message is speech, housekeeping, or nothing', () => {
     { kind: 'prompt', text: 'and what does the score read?' },
     'a reminder around speech leaves the speech',
   )
-  // HarnessDesk's own envelope is not Claude Code's plumbing: the client
-  // renders it as the "Context added" row, so it has to survive the sieve.
+  // This classifier leaves HarnessDesk's envelope alone; the shared ACP
+  // adapter peels it after replay, so both parts reach the transcript.
   const withContext = classifyReplayed('<context source="notes">the score is 3</context>\nis that right?')
   assert.equal(withContext?.kind, 'prompt')
   assert.match(withContext?.text ?? '', /<context source="notes">/)
@@ -804,7 +877,7 @@ test('a reopened conversation replays what was said, not the plumbing around it'
       isCompactSummary: true,
       message: { role: 'user', content: 'This session is being continued from a previous conversation…\n\nSummary:\n1. Primary Request…' },
     },
-    said('<context source="notes">the score is 3</context>\nis that right?<system-reminder>be nice</system-reminder>'),
+    said(`${wrapContext('notes', 'the score is 3')}\nis that right?<system-reminder>be nice</system-reminder>`),
   ])
 
   const runtime = make({ CLAUDE_CONFIG_DIR: config })
@@ -822,10 +895,14 @@ test('a reopened conversation replays what was said, not the plumbing around it'
         ['notice: Interrupted'],
         ['notice: Claude Code added: Approach this as the design lead at a small studio.'],
         ['notice: Continued from a previous conversation'],
-        ['userMessage: <context source="notes">the score is 3</context>\nis that right?'],
+        ['userMessage: is that right?'],
       ],
       'the caveat, the command echo and the image note are gone; the injected template is attributed, not speech',
     )
+    const lastUser = turns.at(-1)?.items.find((item) => item.type === 'userMessage')
+    assert.deepEqual(lastUser?.type === 'userMessage' ? lastUser.context : [], [
+      { label: 'notes', text: 'the score is 3' },
+    ])
   } finally {
     await runtime.dispose()
   }

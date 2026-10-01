@@ -66,6 +66,7 @@ import { SettingsFrames } from './frames-settings'
 import { TranscriptFrames } from './frames-transcript'
 import { LibraryDevFrames } from './frames-library-dev'
 import { LibraryOptionFrames } from './frames-library-options'
+import { SideBySideFrames } from './frames-side-by-side'
 import '../styles/app.css'
 
 const SHOW_COMPOSER = new URLSearchParams(window.location.search).has('composer')
@@ -79,6 +80,11 @@ const SHOW_EMPTY = new URLSearchParams(window.location.search).has('empty')
    reads differently with dozens of turns instead of one, and every other
    fixture on this screen still wants the ordinary short exchange. */
 const SHOW_DENSE = new URLSearchParams(window.location.search).has('dense')
+/* Up to four more full `<Conversation>`s, one per tile — the duplication
+   `?empty` is gated against, four times over. Only on
+   `preview.html?side-by-side`; the design page's own board draws the grid
+   for the coverage sweep. */
+const SHOW_SIDE_BY_SIDE = new URLSearchParams(window.location.search).has('side-by-side')
 /* Which of the Dashboard's five rail rows the preview frame opens on — the
    rig's own way to shoot each view without clicking through the rail by
    hand: `preview.html?view=spend`. Falls back to the dial beside the frame. */
@@ -952,6 +958,7 @@ const Preview = () => {
       <TranscriptFrames />
       <PanelFrames />
       <CoverageFrames />
+      {SHOW_SIDE_BY_SIDE && <SideBySideFrames />}
     </div>
   )
 }

@@ -137,6 +137,9 @@
   align-items: center;
   gap: var(--hd-space-1-5);
   padding: var(--hd-label-space, var(--hd-space-1-5)) var(--hd-bar-pad) var(--hd-space-1) var(--hd-bar-ink);
+  /* The trailing control's glyph is the rail's content edge; the button's
+     own edge pull supplies its hit-target inset. */
+  padding-inline-end: var(--hd-space-0);
 }
 
 /* A rail with no filter bar of its own — the app window's nav — has no
@@ -159,6 +162,10 @@
 
 .navigationGroupHeader[data-filtering] .navigationGroupLabel {
   display: none;
+}
+
+.navigationGroupHeader[data-filtering][data-keep-label] .navigationGroupLabel {
+  display: flex;
 }
 
 /* Identity and current-item chips are names rather than sentences. Their
@@ -799,14 +806,24 @@
 }
 
 .pageHead {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
   margin-bottom: calc(var(--hd-space-6) - var(--hd-title-rule-gap) - var(--hd-title-rule-width)); /* desk: 24 → 11, the title block's rule and the space above it take the rest */
+}
+
+/* A page head that names a card of rows sits outside that card, but its words
+   still land on the same text inset as the card's rows. */
+.pageHead:has(+ [data-slot='rows']) {
+  padding-inline: calc(var(--hd-border-width) + var(--hd-inset-card));
 }
 
 .pageHeadText {
   flex: 1;
+  min-width: 0;
+}
+
+.pageHeadContent {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--hd-space-3);
   min-width: 0;
 }
 
@@ -850,6 +867,14 @@
   margin: var(--hd-space-5) 0 var(--hd-space-2); /* desk: 26/10 → 20/8, the section rhythm */
 }
 
+.sectionHeadContent {
+  display: flex;
+  flex: 1;
+  align-items: flex-end;
+  gap: var(--hd-space-3);
+  min-width: 0;
+}
+
 /* The head sits above the `.rows` card it names rather than inside it, so
    without its own inset its text started at the page's own edge while the
    card's rows started a border-width and a card-padding in. This puts the
@@ -889,6 +914,15 @@
   min-height: var(--hd-control-h); /* desk: the band keeps the control-height box every head had */
   padding: 0 0 var(--hd-space-2); /* desk: the strip's height on top → 0, the ground above is drawn by ::before instead of standing as empty space at rest */
   background: var(--hd-card);
+}
+
+.sectionHead[data-sticky] .sectionHeadContent {
+  align-items: center;
+}
+
+/* The sticky form is still the head of the rows card directly below it. */
+.sectionHead[data-sticky]:has(+ [data-slot='rows']) {
+  padding-inline: calc(var(--hd-border-width) + var(--hd-inset-card));
 }
 
 /* The ground a stuck head paints over the window's title strip, so rows that
@@ -968,6 +1002,7 @@
    exactly right, and on Studio's tinted one the same line disappeared — three
    settings rows ran together into a single block of text. */
 .row {
+  position: relative;
   display: flex;
   /* A control too wide to sit beside a readable title drops under it rather
      than squeezing the title to a letter a line (#885). Wrapping only happens
@@ -976,7 +1011,19 @@
   align-items: center;
   gap: var(--hd-space-2) var(--hd-space-6); /* desk: 24 → 8 24, the row gap only exists once a control has wrapped, and 8 keeps it with its title */
   padding: var(--hd-space-3) var(--hd-card-padding); /* desk: 14 → 12, a 58px row where there was a 68 */
-  border-bottom: var(--hd-border-width) solid var(--hd-card-divider, var(--hd-border));
+  border-bottom: 0; /* desk: separator lives in ::after so row rules do not read as surfaces */
+  padding-bottom: calc(var(--hd-space-3) + var(--hd-border-width));
+}
+
+.row::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: var(--hd-border-width);
+  background: var(--hd-card-divider, var(--hd-border));
+  pointer-events: none;
 }
 
 /* A description turns the row's one line into two, and centring on the whole
@@ -991,7 +1038,11 @@
 }
 
 .row:last-child {
-  border-bottom: none;
+  padding-bottom: var(--hd-space-3);
+}
+
+.row:last-child::after {
+  display: none;
 }
 
 /* A row that is itself a button — a plugin, an account — keeps the anatomy and
@@ -1002,7 +1053,7 @@
   width: 100%;
   border-radius: 0;
   border: none;
-  border-bottom: var(--hd-border-width) solid var(--hd-card-divider, var(--hd-border));
+  border-bottom: 0; /* desk: the shared row separator is drawn by ::after */
   /* The row's ink is this sheet's to say, once: the Button's `pattern` size
      brings no colour. Its alignment and cursor are the Button's (`text-left`,
      `cursor-pointer`), so they are not said here a second time. */
@@ -1266,11 +1317,15 @@
 }
 
 .detailHead {
+  margin-bottom: calc(var(--hd-space-6) - var(--hd-title-rule-gap) - var(--hd-title-rule-width)); /* desk: 24 → 11, the title block's rule and the space above it take the rest */
+}
+
+.detailHeadContent {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
   gap: var(--hd-space-4);
-  margin-bottom: calc(var(--hd-space-6) - var(--hd-title-rule-gap) - var(--hd-title-rule-width)); /* desk: 24 → 11, the title block's rule and the space above it take the rest */
+  min-width: 0;
 }
 
 .detailMark {

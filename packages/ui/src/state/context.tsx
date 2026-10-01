@@ -1,7 +1,9 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useMemo,
+  useRef,
   useSyncExternalStore,
   type ReactNode,
 } from 'react'
@@ -53,6 +55,35 @@ export const useSnapshot = (): AppSnapshot => {
 export const useSelect = <T,>(select: (snapshot: AppSnapshot) => T): T => {
   const snapshot = useSnapshot()
   return useMemo(() => select(snapshot), [snapshot, select])
+}
+
+/** Selects an external-store slice and keeps its previous identity while equal. */
+export const useSnapshotSelector = <T,>(
+  select: (snapshot: AppSnapshot) => T,
+  equal: (left: T, right: T) => boolean = Object.is,
+): T => {
+  const store = useStore()
+  const selectRef = useRef(select)
+  const equalRef = useRef(equal)
+  const cached = useRef<{ snapshot: AppSnapshot; value: T } | null>(null)
+  selectRef.current = select
+  equalRef.current = equal
+
+  const getSelection = useCallback(() => {
+    const snapshot = store.getSnapshot()
+    const previous = cached.current
+    if (previous && Object.is(previous.snapshot, snapshot)) return previous.value
+
+    const next = selectRef.current(snapshot)
+    if (previous && equalRef.current(previous.value, next)) {
+      cached.current = { snapshot, value: previous.value }
+      return previous.value
+    }
+    cached.current = { snapshot, value: next }
+    return next
+  }, [store])
+
+  return useSyncExternalStore(store.subscribe, getSelection, getSelection)
 }
 
 /**
@@ -161,6 +192,16 @@ export interface PaneScope {
 
 const PaneContext = createContext<PaneScope | null>(null)
 
+/**
+ * Whether the keyboard is in this part of a focused mount. A mount that
+ * holds several conversations at once — Side by side's tiles — is one
+ * focused pane to the app, so each tile says here whether it is the one the
+ * keys go to; a tile that is not (or is hidden) reads as unfocused to every
+ * consumer of `useIsFocusedPane`: its composer takes no compose events and
+ * its approvals answer no keys and take no focus. Unset is "no opinion".
+ */
+export const KeyboardHereContext = createContext<boolean | null>(null)
+
 export const PaneProvider = ({ scope, children }: { scope: PaneScope; children: ReactNode }) => (
   <PaneContext.Provider value={scope}>{children}</PaneContext.Provider>
 )
@@ -204,6 +245,7 @@ export const useQueue = (): SessionQueue | null => {
 export const useIsFocusedPane = (): boolean => {
   const pane = useContext(PaneContext)
   const snapshot = useSnapshot()
+  if (useContext(KeyboardHereContext) === false) return false
   if (!pane) return true
   const focused = focusedMount(snapshot.workbench)
   const rootId = pane.paneId.includes(':') ? pane.paneId.split(':')[0] : pane.paneId

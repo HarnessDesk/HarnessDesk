@@ -64,6 +64,11 @@ describe('the dim over a narrow window', () => {
     expect(blockAfter('.shell[data-narrow] .right {')).toMatch(/position:\s*absolute;[^}]*inset:\s*0/)
   })
 
+  it('hides the covered main surface and drops its draggable title-bar region', () => {
+    expect(blockAfter('.main[data-right-panel-overlay] {')).toMatch(/visibility:\s*hidden/)
+    expect(blockAfter(".main[data-right-panel-overlay] [data-slot='bar'] {")).toMatch(/-webkit-app-region:\s*no-drag/)
+  })
+
   it('has no fade or slide to wait out when motion is reduced', () => {
     /* The app zeroes every transition's duration then, but not a delay:
        without this the dim would be gone at once and still in the way, and

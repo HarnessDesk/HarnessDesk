@@ -76,6 +76,8 @@ const PaneView = ({ pane, primary }: { pane: PaneNode; primary: string | null })
         <PaneSurface
           as="section"
           className={styles.pane}
+          data-pane-id={pane.id}
+          tabIndex={-1}
           /* A strip above the view is the row in the window's corner, so it is
              the one that leaves room for the window buttons and the view below
              it does not. See `--titlebar-inset` in `app.css`. */

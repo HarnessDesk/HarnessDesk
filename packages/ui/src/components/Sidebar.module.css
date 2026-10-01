@@ -4,10 +4,37 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
   min-width: 0;
 }
 
+.header {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+}
+
+.content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  gap: var(--hd-space-0);
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  container: sidebar-content / inline-size;
+}
+
+.footer {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--hd-space-1);
+}
+
 .workspaceName {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -16,10 +43,6 @@
 .brandMark,
 .navIcon,
 .groupChevron,
-.groupIcon,
-.groupCount,
-.groupPin,
-.roomIcon,
 .accountMeta {
   flex: none;
 }
@@ -39,11 +62,6 @@
 }
 
 .navRow,
-.groupRow,
-.groupBody,
-.row,
-.rowHead,
-.rowMeta,
 .accountRow,
 .youName {
   display: flex;
@@ -51,41 +69,17 @@
 }
 
 .navRow {
-  gap: var(--hd-space-0-5); /* desk: 8px → 2px, paired actions keep their existing compact separation. */
+  gap: var(--hd-space-2); /* desk: 2px → 8px, keep the start action distinct from its adjacent menu. */
 }
 
-.navRow .navItem,
-.groupHead .groupRow {
+.newSession {
   flex: 1;
   min-width: 0;
 }
 
-.navItem,
-.groupRow,
-.row,
-.roomRow,
-.showMore,
+.newSession,
 .accountRow {
   width: 100%;
-}
-
-.navItem,
-.groupRow {
-  gap: var(--hd-nav-gap);
-}
-
-.navCount,
-.groupCount {
-  margin-left: auto;
-}
-
-.groupCount {
-  /* A count that carries a glyph (the room row's own "N conversations",
-     beside its icon) lays out beside it rather than under it; a bare count
-     with no glyph is a single child either way, so this is free for it. */
-  display: inline-flex;
-  align-items: center;
-  gap: var(--hd-space-1);
 }
 
 .navSecondary {
@@ -94,10 +88,25 @@
   margin-right: var(--hd-space-0-5);
 }
 
-.list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
+.groupLabel,
+.filterBadge {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.groupLabel {
+  gap: var(--hd-space-1);
+}
+
+@container sidebar-content (max-width: 15rem) {
+  :global([data-filtered]) .projectName {
+    display: none;
+  }
+}
+
+.filterBadge {
+  gap: var(--hd-space-0-5);
 }
 
 .filter {
@@ -140,65 +149,16 @@
 }
 
 .groupHead {
-  display: flex;
-  align-items: center;
   width: 100%;
   margin-top: var(--hd-space-1);
 }
 
-.groupBody {
-  flex: 1;
-  min-width: 0;
-  gap: var(--hd-space-1-5);
-}
-
-/* The trailing action rail reserves its space only while it is visible. */
-.groupHead:hover .groupBody,
-.groupHead:focus-within .groupBody,
-.groupHead[data-menu-open] .groupBody {
-  margin-right: calc(var(--hd-btn-h-sm) * 2);
-}
-
-/* A name's usual floor: shrinkable, no minimum. `fade` (the `Text` prop
-   every caller of `.rowTitle` and `.groupName` already passes) is what
-   actually draws the overflow — `overflow: hidden; white-space: nowrap;
-   mask-image: var(--hd-fade)` — so nothing here needs to repeat it. It once
-   did (`text-overflow: ellipsis` stacked on top of the same fade), and a
-   name that gave way read with a hard "…" cut sitting inside a soft
-   gradient it already had, doing the same job twice, worse (a review of
-   #905 caught it). A Goal's row is held to the same floor: its chip and
-   counts keep their width and the name alone fades — a floor of its own
-   there pushed the chip out over the counts. */
-.rowTitle,
-.roomTitle {
-  flex: 1;
-  min-width: 0;
-}
-
-/* A project row's own name. `1 1 auto` starts it at its own full content
-   width, and it gives way first — its pin and its count keep theirs, and
-   stay clear of the hover controls that step in beside them. Only beside a
-   state chip does it keep a floor, because a chip that does not shrink
-   crushed the name to a few letters ("stor" beside "Capture stopped");
-   everywhere else a floor only pushed the count under the ⋯. */
 .groupName {
-  flex: 1 1 auto; /* desk: 1 → 1 1 auto, a state chip alone crushed the name to two letters */
+  flex: 1 1 auto;
   min-width: 0;
 }
 
-.groupBody:has([data-slot='chip']) .groupName {
-  min-width: min(60%, 100% - var(--hd-space-8)); /* desk: 0 → a 60% floor beside a state chip, the crush it caused */
-}
-
-.roomClaimed {
-  display: inline-flex;
-  align-items: center;
-  flex: none;
-  gap: var(--hd-space-1);
-}
-
-.nested > * + *,
-.triage .rowWrap + .rowWrap {
+.nested > * + * {
   margin-top: var(--hd-space-0-5);
 }
 
@@ -206,120 +166,17 @@
   margin: var(--hd-space-1) var(--hd-space-2) var(--hd-space-2) var(--hd-space-8);
 }
 
-.row {
-  align-items: flex-start;
-  gap: var(--hd-space-2);
-}
-
-.rowBody {
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.rowWrap:hover .rowBody,
-.rowWrap:focus-within .rowBody,
-.rowWrap[data-menu-open] .rowBody {
-  margin-right: calc(var(--hd-btn-h-sm) + var(--hd-space-1));
-}
-
-.rowHead {
-  gap: var(--hd-space-1-5);
-  min-width: 0;
-}
-
-.rowWorktree,
-.rowGone {
+.iconButton {
   flex: none;
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-}
-
-.rowWorktree + .rowGone {
-  margin-left: var(--hd-space-1);
-}
-
-.rowMeta {
-  gap: var(--hd-space-1);
-  min-width: 0;
-}
-
-.rowMetaItem {
-  flex: none;
-  white-space: nowrap;
-}
-
-.rowMetaBranch {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.rowMenu,
-.groupTools {
-  position: absolute;
-  top: 50%;
-  right: var(--hd-space-1);
-  transform: translateY(-50%);
-  display: none;
-}
-
-.rowWrap:hover .rowMenu,
-.rowWrap:focus-within .rowMenu,
-.rowMenu[data-open],
-.groupHead:hover .groupTools,
-.groupHead:focus-within .groupTools,
-.groupHead[data-menu-open] .groupTools {
-  display: inline-flex;
-}
-
-.row[data-density='comfortable'] + .rowMenu {
-  top: var(--hd-space-1);
-  transform: none;
-}
-
-.rowMenuButton,
-.groupAdd,
-.iconButton,
-.roomTwisty {
-  flex: none;
-  width: var(--hd-target-min);
-}
-
-.statusTarget {
-  flex: none;
-  display: flex;
-  align-self: stretch;
-  align-items: flex-start;
-  margin: 0 -6px;
-}
-
-.statusGlyph {
-  flex: none;
-  margin-top: var(--hd-space-2);
+  width: var(--hd-btn-h-sm);
 }
 
 .triage {
   margin: 0 0 var(--hd-space-2);
 }
 
-.triage > [data-slot='group-label'] {
-  margin: var(--hd-space-0-5) var(--hd-space-2) var(--hd-space-1);
-}
-
 .triage > [data-slot='separator'] {
   margin-top: var(--hd-space-1-5);
-}
-
-.otherProjects {
-  display: flex; /* desk: block → flex, the destination row aligns its chevron, label, and count. */
-  align-items: center;
-  gap: var(--hd-space-1-5);
-  width: 100%;
-  margin-top: var(--hd-space-1);
 }
 
 .accountRow {
@@ -336,6 +193,11 @@
 .accountName,
 .youName {
   gap: var(--hd-space-1-5);
+}
+
+.accountName {
+  flex: 1;
+  min-width: 0;
 }
 
 .youText {

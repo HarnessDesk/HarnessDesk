@@ -594,12 +594,14 @@ export const PageHead = ({
   blurb?: ReactNode
   actions?: ReactNode
 }) => (
-  <div className={styles.pageHead}>
-    <div className={styles.pageHeadText}>
-      <h1 className={styles.pageTitle} data-slot="page-title">{title}</h1>
-      {blurb ? <p className={styles.pageBlurb}>{blurb}</p> : null}
+    <div className={styles.pageHead} data-slot="page-head">
+    <div className={styles.pageHeadContent}>
+      <div className={styles.pageHeadText}>
+        <h1 className={styles.pageTitle} data-slot="page-title">{title}</h1>
+        {blurb ? <p className={styles.pageBlurb}>{blurb}</p> : null}
+      </div>
+      {actions ? <div className={styles.pageCtl}>{actions}</div> : null}
     </div>
-    {actions ? <div className={styles.pageCtl}>{actions}</div> : null}
   </div>
 )
 
@@ -626,20 +628,22 @@ export const SectionHead = ({
   if (useDialogForm()) return <FieldsetLegend name={name} description={description} action={action} className={className} />
   return (
   <div className={cx(styles.sectionHead, className)} data-section-head="" {...(sticky ? { 'data-sticky': '' } : {})}>
-    <div className={styles.sectionHeadText}>
-      {level === 'heading' ? (
-        /* The heading keeps its own slot for everything that finds a section by
-           it; the type is the named role's, inside it, so the one rule that
-           measures names measures this one too. */
-        <h2 className={styles.sectionName} data-slot="section-name" data-level={level}><Text role="section">{name}</Text></h2>
-      ) : (
-        <GroupLabel as={inSection ? 'h3' : 'h2'} className={styles.sectionName} data-slot="section-name" data-level={level}>{name}</GroupLabel>
-      )}
-      {description != null && (
-        <span className={styles.sectionDescription} data-slot="section-description">{description}</span>
-      )}
+    <div className={styles.sectionHeadContent}>
+      <div className={styles.sectionHeadText}>
+        {level === 'heading' ? (
+          /* The heading keeps its own slot for everything that finds a section by
+             it; the type is the named role's, inside it, so the one rule that
+             measures names measures this one too. */
+          <h2 className={styles.sectionName} data-slot="section-name" data-level={level}><Text role="section">{name}</Text></h2>
+        ) : (
+          <GroupLabel as={inSection ? 'h3' : 'h2'} className={styles.sectionName} data-slot="section-name" data-level={level}>{name}</GroupLabel>
+        )}
+        {description != null && (
+          <span className={styles.sectionDescription} data-slot="section-description">{description}</span>
+        )}
+      </div>
+      {action}
     </div>
-    {action}
   </div>
   )
 }
@@ -812,6 +816,7 @@ export const TextMark = ({
 export const NavigationGroupHeader = ({
   label,
   filtering = false,
+  keepLabelWhenFiltering = false,
   inset = 'bar',
   className,
   children,
@@ -819,6 +824,8 @@ export const NavigationGroupHeader = ({
 }: HTMLAttributes<HTMLDivElement> & {
   label: ReactNode
   filtering?: boolean
+  /** Keep an active-state label beside a filter when that state must stay visible. */
+  keepLabelWhenFiltering?: boolean
   /**
    * Which row's left column this header's label answers to. `'bar'` — the
    * default — is the sidebar's, whose own filter bar carries a padding this
@@ -833,6 +840,7 @@ export const NavigationGroupHeader = ({
     {...props}
     data-slot="navigation-group-header"
     {...(filtering ? { 'data-filtering': '' } : {})}
+    {...(keepLabelWhenFiltering ? { 'data-keep-label': '' } : {})}
     {...(inset === 'nav' ? { 'data-inset': 'nav' } : {})}
     className={cx(styles.navigationGroupHeader, className)}
   >
@@ -913,7 +921,7 @@ export const Row = ({
   className?: string
 } & Omit<HTMLAttributes<HTMLDivElement>, 'title'>) => (
   <div className={cx(styles.row, className)} data-slot="row" {...props}>
-    {mark ? <span className={styles.rowMark}>{mark}</span> : null}
+    {mark ? <span className={styles.rowMark} data-slot="row-mark">{mark}</span> : null}
     <span className={styles.rowText}>
       <span className={styles.rowTitle} data-slot="row-title">{title}</span>
       {desc ? <RowDesc truncate={truncateDesc}>{desc}</RowDesc> : null}
@@ -999,7 +1007,7 @@ export const RowButton = ({
       onClick={onClick}
       {...rest}
     >
-      {mark ? <span className={styles.rowMark}>{mark}</span> : null}
+      {mark ? <span className={styles.rowMark} data-slot="row-mark">{mark}</span> : null}
       <span className={styles.rowText}>
         <span className={styles.rowTitle}>{title}</span>
         {desc ? <RowDesc truncate={truncateDesc}>{desc}</RowDesc> : null}
@@ -1141,19 +1149,21 @@ export const DetailHead = ({
   actions?: ReactNode
 }) => (
   <div className={styles.detailHead}>
-    {mark}
-    <div className={styles.detailText}>
-      <div className={styles.detailName}>
-        <h1 className={styles.detailTitle} data-slot="detail-title">{name}</h1>
-        {/* A text owner — a place, a path — gives way at its end; a chip or any
-            other element is a mark and stays whole, so the name wraps first. */}
-        {owner ? (
-          <span className={styles.detailOwner} data-owner={typeof owner === 'string' ? 'text' : 'mark'}>{owner}</span>
-        ) : null}
+    <div className={styles.detailHeadContent}>
+      {mark}
+      <div className={styles.detailText}>
+        <div className={styles.detailName}>
+          <h1 className={styles.detailTitle} data-slot="detail-title">{name}</h1>
+          {/* A text owner — a place, a path — gives way at its end; a chip or any
+              other element is a mark and stays whole, so the name wraps first. */}
+          {owner ? (
+            <span className={styles.detailOwner} data-owner={typeof owner === 'string' ? 'text' : 'mark'}>{owner}</span>
+          ) : null}
+        </div>
+        {blurb ? <p className={styles.detailBlurb}>{blurb}</p> : null}
       </div>
-      {blurb ? <p className={styles.detailBlurb}>{blurb}</p> : null}
+      {actions ? <div className={styles.detailCtl}>{actions}</div> : null}
     </div>
-    {actions ? <div className={styles.detailCtl}>{actions}</div> : null}
   </div>
 )
 
@@ -1217,13 +1227,14 @@ export const Face = ({
  * whether the text overflows its box right then. The ellipsis is the
  * caller's class: `overflow: hidden`, `text-overflow: ellipsis`, `nowrap`.
  */
-export const Clipped = ({ className, children }: { readonly className?: string; readonly children: ReactNode }) => (
+export const Clipped = ({ className, title, children }: { readonly className?: string; readonly title?: string; readonly children: ReactNode }) => (
   <span
     className={className}
+    title={title}
     onMouseEnter={(event) => {
       const node = event.currentTarget
       if (node.scrollWidth > node.clientWidth) node.title = node.textContent ?? ''
-      else node.removeAttribute('title')
+      else if (!title) node.removeAttribute('title')
     }}
   >
     {children}

@@ -59,6 +59,27 @@ test('a template entry expands to the bridge this build carries', async (t) => {
   assert.deepEqual(raw.agents, [{ id: 'claude-code', template: 'claude-code' }])
 })
 
+test('only the Claude template vouches for its bridge\'s tool provenance; a copied or hand-written row cannot', async (t) => {
+  const dir = await tempDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = new AgentRegistryStore(join(dir, 'agents.json'))
+
+  store.add({ id: 'claude-code', template: 'claude-code' })
+  store.add({ id: 'cursor', template: 'cursor' })
+  const claude = store.configs().find((config) => config.id === 'claude-code')
+  assert.equal(claude?.trustsBridgeProvenance, true)
+  assert.equal(store.configs().find((config) => config.id === 'cursor')?.trustsBridgeProvenance, undefined)
+  // The same launch line, written by hand and claiming the flag, gets nothing.
+  store.add({
+    id: 'copied',
+    name: 'Copied',
+    command: claude!.command,
+    args: [...(claude!.args ?? [])],
+    trustsBridgeProvenance: true,
+  })
+  assert.equal(store.configs().find((config) => config.id === 'copied')?.trustsBridgeProvenance, undefined)
+})
+
 test('entries the store did not write survive an add and a remove untouched', async (t) => {
   const dir = await tempDir()
   t.after(() => rm(dir, { recursive: true, force: true }))

@@ -28,6 +28,8 @@ import {
   reopenRefusedByAgent,
   SessionGoneError,
   SessionBusyError,
+  RuntimeFileTooLargeError,
+  WORKSPACE_BINARY_LIMIT_BYTES,
   sessionId as makeSessionId,
   sessionKey,
   splitSessionKey,
@@ -125,7 +127,7 @@ import { CredentialBroker, plainCipher, type CredentialCipher } from './credenti
 import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
 import { canonicalDestination } from './git-worktree.js'
-import { Worktrees, createDetached, openRepositoryRoot, remove as removeWorktree, removeCheckoutsLeftBehind, repositoryOf } from './worktree.js'
+import { Worktrees, createDetached, managedWorktreePath, openRepositoryRoot, remove as removeWorktree, removeCheckoutsLeftBehind, repositoryOf } from './worktree.js'
 import { commitCardWork } from './card-commit.js'
 import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 import { LibraryUsageReader } from './library-usage.js'
@@ -305,9 +307,42 @@ export interface ModelRouteRecord {
  * pointing at the wrong binary is an ordinary mistake, and before this it
  * cost the whole app — no window, no error, nothing to read.
  */
+export class PreviewFileTooLargeError extends Error {
+  constructor(readonly size: number) {
+    super(`Preview file exceeds the ${WORKSPACE_BINARY_LIMIT_BYTES}-byte limit.`)
+    this.name = 'PreviewFileTooLargeError'
+  }
+}
+
 const START_TIMEOUT_MS = 15_000
 const HELD_ALLOW = 'allow'
 const HELD_REFUSE = 'refuse'
+
+// Claude Code can ask for permission before calling an MCP tool. These are
+// the named tools on the desk's own team server; their handlers still enforce
+// caller attribution and the flow Seat's ceiling. Keep external person
+// notifications out of this list, and never match another MCP server.
+const FLOW_BOARD_TOOLS = new Set([
+  'mcp__harnessdesk__list_intents',
+  'mcp__harnessdesk__add_intent',
+  'mcp__harnessdesk__claim_work',
+  'mcp__harnessdesk__claim_next',
+  'mcp__harnessdesk__await_work',
+  'mcp__harnessdesk__await_member',
+  'mcp__harnessdesk__check_conflicts',
+  'mcp__harnessdesk__complete_claim',
+  'mcp__harnessdesk__commit_work',
+  'mcp__harnessdesk__run_check',
+  'mcp__harnessdesk__release_claim',
+  'mcp__harnessdesk__get_context',
+  'mcp__harnessdesk__get_team_status',
+  'mcp__harnessdesk__review_candidates',
+  'mcp__harnessdesk__record_review',
+  'mcp__harnessdesk__raise_finding',
+  'mcp__harnessdesk__repair_finding',
+  'mcp__harnessdesk__decide_finding',
+  'mcp__harnessdesk__list_findings',
+])
 const HELD_WAIT_SEC = 45
 /**
  * How long a send may count as busy without the agent having accepted it.
@@ -1457,6 +1492,9 @@ export class Host {
         await this.#flows.stopForQuestion(runtime, sessionId, reason)
       },
     })
+    const previewCheckout = async (root: string, lane: boolean): Promise<string> => lane
+      ? await managedWorktreePath(root, this.#state.directory, 'lane-preview').catch(() => root)
+      : root
     this.#flowPreviews = new FlowPreviews({
       confine: (root) => this.#confineRoom(root),
       // `root` here is already a confined, real project path — the same one
@@ -1467,6 +1505,17 @@ export class Host {
       // `this.#context` is assigned once the whole constructor has run; every
       // wire call this preview port answers happens long after that.
       previewAgent: (root, agent, seats, grant, options) => previewAgent(this.#context, root, agent, seats, grant, options),
+      providerOf: (runtime, cwd) => this.#providerOf(runtime, cwd),
+      checkoutPath: previewCheckout,
+      pluginToolsProblem: async (runtimeName, root, lane) => {
+        const runtime = this.#runtimes.get(runtimeId(runtimeName))
+        if (!runtime || !runtime.info.capabilities.pluginTools) return null
+        const cwd = await previewCheckout(root, lane)
+        if (await (runtime.pluginToolsAvailableAt?.(cwd) ?? Promise.resolve(true))) return null
+        const problem = await runtime.pluginToolsProblemAt?.(cwd)
+        if (problem) return problem
+        return runtime.info.presentation.pluginToolsUnavailable ?? `${runtime.info.presentation.name} cannot use HarnessDesk's tools in this checkout, so it cannot claim a card`
+      },
       storedRun: async (run) => this.#flows.storedRun(run),
       // A front-door token's target, read again from git and the forge at Start: never the facts the preview saw.
       resolveTarget: async (context) => {
@@ -1629,7 +1678,7 @@ export class Host {
       },
       openLegacySeat: async (input, goal) => {
         const cwd = goal.cwd
-        const opened = await this.#openSeat(input.spec, { cwd, title: input.title })
+        const opened = await this.#openSeat(input.spec, { cwd, title: input.title, ceiling: ceilingOfPermission(input.permission) })
         try {
           const held = await this.#holdSeat(opened.runtime, opened.sessionId, ceilingOfPermission(input.permission))
           const record = await this.#evidence.seats.opened({
@@ -4021,7 +4070,19 @@ export class Host {
     this.#previewTickets.delete(ticket)
     if (!entry || entry.expiresAt < Date.now()) return null
     const path = confine(entry.path, this.#fileRoots('read'))
-    const bytes = await this.#files(entry.runtime).read(path)
+    const files = this.#files(entry.runtime)
+    const metadata = await files.stat(path)
+    if (metadata.size !== undefined && metadata.size > WORKSPACE_BINARY_LIMIT_BYTES) {
+      throw new PreviewFileTooLargeError(metadata.size)
+    }
+    let bytes: Uint8Array
+    try {
+      bytes = await files.read(path, WORKSPACE_BINARY_LIMIT_BYTES + 1)
+    } catch (thrown) {
+      if (thrown instanceof RuntimeFileTooLargeError) throw new PreviewFileTooLargeError(thrown.size)
+      throw thrown
+    }
+    if (bytes.byteLength > WORKSPACE_BINARY_LIMIT_BYTES) throw new PreviewFileTooLargeError(bytes.byteLength)
     const extension = path.split('.').pop()?.toLowerCase()
     const contentType =
       extension === 'pdf'
@@ -5315,6 +5376,7 @@ export class Host {
       readonly cwd: string
       readonly title: string
       readonly environment?: Readonly<Record<string, string>>
+      readonly ceiling?: CeilingLevel
       readonly attachments?: SessionAttachments
     },
   ): Promise<OpenedSeat> {
@@ -5340,6 +5402,7 @@ export class Host {
     try {
       live = await runtime.createSession({
         cwd: where.cwd,
+        ...(where.ceiling ? { requestedCeiling: where.ceiling } : {}),
         ...(environment ? { environment } : {}),
         ...(seat.model ? { model: seat.model } : {}),
         ...(where.attachments ? { attachments: where.attachments } : {}),
@@ -5837,6 +5900,7 @@ export class Host {
     // question reaches a human. A matched approval never renders: it is
     // answered here, audited here, and reported as a notice.
     if (event.type === 'approval/requested') {
+      if (this.#answerFlowBoardTool(runtime, event.approval)) return
       const verdict = this.#applyPolicy(runtime, event.approval)
       if (verdict) return
       // A question, not a yes/no: from a Seat nobody watches, it gets a deadline.
@@ -6255,6 +6319,48 @@ export class Host {
       return true
     }
     return false
+  }
+
+  /**
+   * A flow cannot do its job if its own board tools stop for a person. The
+   * tool server still checks attribution and the Seat's ceiling, so answer
+   * only its explicitly named tools and only with the one-call approval.
+   */
+  #answerFlowBoardTool(runtime: RuntimeId, approval: Approval): boolean {
+    if (approval.type !== 'permission' || approval.flowBoardTool?.server !== 'harnessdesk' || !FLOW_BOARD_TOOLS.has(approval.flowBoardTool.tool)) return false
+    if (!this.#flows.governs(String(runtime), String(approval.sessionId))) return false
+    const option = approval.options.find((entry) => entry.intent === 'approve')
+    const record = this.registry.get(runtime, approval.sessionId)
+    if (!option || !record?.live) return false
+
+    void Promise.resolve()
+      .then(async () => {
+        await record.live!.respondToApproval(approval.id, { type: 'option', optionId: option.id })
+        this.#audit.append({
+          at: Date.now(),
+          runtime,
+          sessionId: String(approval.sessionId),
+          ...(record.session.cwd ? { cwd: record.session.cwd } : {}),
+          kind: 'approval/autoDecided',
+          approvalType: approval.type,
+          decision: 'approve',
+          rule: 'flow board tool',
+        })
+      })
+      .catch((error: unknown) => {
+        this.#logger.warn('failed to answer a flow board tool permission, falling back to human approval', {
+          runtime,
+          approvalId: approval.id,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        const approvalEvent: AgentEvent = { type: 'approval/requested', approval }
+        this.registry.apply(runtime, approvalEvent)
+        this.#audit.record(runtime, approvalEvent, (sessionId) =>
+          this.registry.get(runtime, makeSessionId(sessionId))?.session.cwd,
+        )
+        this.#push({ method: 'event', params: { runtime, event: approvalEvent } })
+      })
+    return true
   }
 
   /** The runtime's own description, plus whatever the host has learned about it since. */

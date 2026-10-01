@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
@@ -66,9 +66,12 @@ export const TerminalSurface = () => {
       <ToolPaneBar
         variant="terminal"
         title={
-          runtime
-            ? `Runs inside ${runtime.presentation.name}'s sandbox${view.session ? ', with this conversation’s permissions' : ''}.`
-            : undefined
+          [
+            runtime
+              ? `Runs inside ${runtime.presentation.name}'s sandbox${view.session ? ', with this conversation’s permissions' : ''}.`
+              : undefined,
+            'Press Escape, then Tab within 1.5 seconds to focus the panel controls.',
+          ].filter(Boolean).join(' ')
         }
       >
         <Text role="meta" truncate className="min-w-0 [direction:rtl]" title={view.cwd}>
@@ -107,6 +110,27 @@ const TerminalScreen = ({ view }: { view: TerminalView }) => {
   const [exitCode, setExitCode] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const terminalId = view.terminalId
+  const terminalHintId = useId()
+  const escapeToTabDeadline = useRef(0)
+
+  const onKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === 'Escape') {
+      escapeToTabDeadline.current = Date.now() + 1500
+      return
+    }
+    if (event.key !== 'Tab') {
+      escapeToTabDeadline.current = 0
+      return
+    }
+    if (Date.now() > escapeToTabDeadline.current) return
+    escapeToTabDeadline.current = 0
+    event.preventDefault()
+    event.stopPropagation()
+    const panel = event.currentTarget.closest<HTMLElement>('[data-slot="dock-panel"]')
+    panel?.querySelector<HTMLElement>(
+      '[aria-label="Hide this panel"], [aria-label="Collapse to the tabs"]',
+    )?.focus()
+  }
 
   useEffect(() => {
     const element = host.current
@@ -123,6 +147,11 @@ const TerminalScreen = ({ view }: { view: TerminalView }) => {
     const fit = new FitAddon()
     terminal.loadAddon(fit)
     terminal.open(element)
+    const textarea = element.querySelector<HTMLTextAreaElement>('.xterm-helper-textarea')
+    if (textarea) {
+      const describedBy = textarea.getAttribute('aria-describedby')?.split(/\s+/).filter(Boolean) ?? []
+      textarea.setAttribute('aria-describedby', [...new Set([...describedBy, terminalHintId])].join(' '))
+    }
     term.current = terminal
     let disposed = false
     setExitCode(null)
@@ -181,10 +210,21 @@ const TerminalScreen = ({ view }: { view: TerminalView }) => {
       terminal.dispose()
       term.current = null
     }
-  }, [store, terminalId])
+  }, [store, terminalHintId, terminalId])
 
+  /* xterm cannot read CSS variables, so its theme is copied out of them. It
+     is copied again whenever the body's theme attributes change, not only on
+     light/dark: a palette or accent switch moves the surface too, and the
+     viewport skin (styles/terminal.css) follows the token at once, so a
+     terminal left on the old values would show a strip off its own rows. */
   useEffect(() => {
-    if (term.current) term.current.options.theme = terminalAppearance().theme
+    const retheme = () => {
+      if (term.current) term.current.options.theme = terminalAppearance().theme
+    }
+    retheme()
+    const watch = new MutationObserver(retheme)
+    watch.observe(document.body, { attributes: true })
+    return () => watch.disconnect()
   }, [theme])
 
   return (
@@ -192,7 +232,10 @@ const TerminalScreen = ({ view }: { view: TerminalView }) => {
       {/* The pane's own body keeps the inset, so the element xterm measures
           to fit its rows and columns is exactly the room it has. */}
       <ToolPaneBody className={styles.terminalBody}>
-        <div className={styles.terminalHost} ref={host} />
+        <span id={terminalHintId} className="sr-only">
+          Press Escape, then Tab within 1.5 seconds to focus the panel controls. A single Escape is sent to the shell immediately.
+        </span>
+        <div className={styles.terminalHost} ref={host} onKeyDownCapture={onKeyDownCapture} />
       </ToolPaneBody>
       {(exitCode !== null || error) && (
         <ToolPaneNotice placement="bottom">

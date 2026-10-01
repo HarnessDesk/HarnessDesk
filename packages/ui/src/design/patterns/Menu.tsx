@@ -721,6 +721,12 @@ export const ContextMenu = ({
       open={at !== null}
       onOpenChange={(open, details) => {
         if (open) return
+        // A flyout is a separate floating root, so Base UI can report the
+        // context menu's pointer leaving as its own dismissal while the
+        // pointer is entering that child. Keep the owner open until the
+        // child hands the pointer or focus back; the child's row still closes
+        // the whole scope when it is selected.
+        if (panel.current?.querySelector('[data-slot="dropdown-menu-sub-trigger"][aria-expanded="true"]')) return
         if (details.reason === 'escape-key' || closedByShiftTab(details)) giveBack()
         onClose()
       }}

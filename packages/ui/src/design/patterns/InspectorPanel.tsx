@@ -82,6 +82,7 @@ const PanelRow = ({
   tall,
   selected,
   tooltip,
+  wrapTitle = false,
   onClick,
 }: {
   /**
@@ -100,6 +101,8 @@ const PanelRow = ({
   tall?: boolean
   selected?: boolean
   tooltip?: string
+  /** Let sentence-like row titles use their own wrapping/clamp treatment. */
+  wrapTitle?: boolean
   onClick?: () => void
 }) => {
   const content = (
@@ -116,7 +119,7 @@ const PanelRow = ({
         </span>
       ) : null}
       <span className="flex min-w-0 flex-1 flex-col">
-        <Text role="navigation" truncate className="flex items-center gap-2">{title}</Text>
+        <Text role="navigation" truncate={!wrapTitle} className={cn('flex min-w-0 gap-2', wrapTitle ? 'items-start' : 'items-center')}>{title}</Text>
         {sub ? (
           <Text
             role="meta"

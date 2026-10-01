@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 /*
-  Escape from a conversation row's ⋯ menu gives the focus back to the ⋯ (#797).
+  Escape from a conversation row's ⋯ menu gives the focus back to the row.
 
   The ⋯ opens a context menu. The menu takes the focus into its popup, outside
   the row, and a keyboard user who leaves it with Escape expects to be where
@@ -27,7 +27,7 @@ const label = 'Learn from every single tab of the settings screen'
 const actions = `Actions for ${label}`
 
 const rowOf = (page: Page) =>
-  page.locator('[class*="sidebar_"] [class*="rowWrap_"]').filter({
+  page.locator('[data-region="session-row"] [data-slot="sidebar-menu-item"]').filter({
     has: page.locator(`button[aria-label="${actions}"]`),
   })
 
@@ -49,9 +49,9 @@ async function escapeTheMenu(page: Page) {
   await expect(page.getByRole('menu').getByRole('menuitem').first()).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('menu')).toHaveCount(0)
-  await expect.poll(() => holder(page)).toBe(actions)
+  await expect.poll(() => holder(page)).toBe(label)
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
-  expect(await holder(page)).toBe(actions)
+  expect(await holder(page)).toBe(label)
 }
 
 for (const motion of ['reduce', 'no-preference'] as const) {
@@ -72,20 +72,22 @@ for (const motion of ['reduce', 'no-preference'] as const) {
       await row.hover()
       await row.locator(`button[aria-label="${actions}"]`).click()
       await escapeTheMenu(page)
-      // The click left the pointer on the row, which alone would keep a
-      // hidden ⋯ on screen. Move it off and check the focus outlasts that.
+      // The row keeps focus after its context menu closes, even when the
+      // pointer moves away and the hover-only action disappears.
       await page.mouse.move(1400, 0)
-      expect(await holder(page)).toBe(actions)
+      expect(await holder(page)).toBe(label)
     })
 
     test('a ⋯ opened from the keyboard has the focus back after Escape', async ({ page }) => {
       const row = rowOf(page)
-      await row.locator('button[data-density]').focus()
-      // The ⋯ shows while its row holds the focus, and is the next stop.
-      await page.keyboard.press('Tab')
-      await expect.poll(() => holder(page)).toBe(actions)
-      await page.keyboard.press('Enter')
-      await escapeTheMenu(page)
+      await row.locator('[data-slot="sidebar-menu-button"]').focus()
+      // The row is the one tab stop now; ContextMenu opens its actions without
+      // making the hover-only ⋯ a second stop. Escape returns to the row.
+      await page.keyboard.press('ContextMenu')
+      await expect(page.getByRole('menu').getByRole('menuitem').first()).toBeFocused()
+      await page.keyboard.press('Escape')
+      await expect(page.getByRole('menu')).toHaveCount(0)
+      await expect.poll(() => holder(page)).toBe(label)
     })
   })
 }

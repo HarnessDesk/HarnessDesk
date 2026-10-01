@@ -10,7 +10,7 @@ import {
 } from '../ui/popover'
 import { cn } from '@/lib/utils'
 
-import { buttonVariants } from '../ui/button'
+import { buttonEdge, buttonVariants } from '../ui/button'
 
 import styles from './Popover.module.css'
 
@@ -104,6 +104,8 @@ export const Popover = ({
   panelWidth = 'content',
   triggerClassName,
   triggerVariant,
+  triggerEdge,
+  triggerEdgeGlyph = 16,
   triggerRef,
   onOpenChange,
   children,
@@ -119,6 +121,10 @@ export const Popover = ({
    * through untouched, for the triggers that already carry a look of their own.
    */
   triggerVariant?: Parameters<typeof buttonVariants>[0]
+  /** Align an icon-sized trigger's glyph with the row's text column. */
+  triggerEdge?: 'start' | 'end'
+  /** The icon's rendered size when it differs from the usual 16px. */
+  triggerEdgeGlyph?: number
   /** The trigger itself, for a caller that sends focus back to it. */
   triggerRef?: Ref<HTMLButtonElement>
   /** Fill a row or column instead of shrinking the trigger to its label. */
@@ -156,6 +162,10 @@ export const Popover = ({
     onOpenChange?.(next)
   }
   const trigger = useRef<HTMLButtonElement>(null)
+  const edge = triggerEdge ? buttonEdge('icon-sm', triggerEdge, triggerEdgeGlyph) : undefined
+  const triggerClasses = triggerEdge
+    ? cn(triggerVariant ? buttonVariants(triggerVariant) : (triggerClassName ?? styles.trigger), edge?.className)
+    : triggerVariant ? cn(buttonVariants(triggerVariant)) : (triggerClassName ?? styles.trigger)
   const triggerId = useId()
   const panel = useRef<HTMLDivElement>(null)
   const externalReturnFocus = useRef<boolean | null>(null)
@@ -202,7 +212,8 @@ export const Popover = ({
             else if (triggerRef) triggerRef.current = node
           }}
           id={triggerId}
-          className={triggerVariant ? cn(buttonVariants(triggerVariant)) : (triggerClassName ?? styles.trigger)}
+          className={triggerClasses}
+          style={edge?.style}
           {...(open ? { 'data-open': '' } : {})}
           data-tone={tone}
           title={title}

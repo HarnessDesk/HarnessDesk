@@ -90,7 +90,7 @@ test('a Section owns its rhythm: 8px from label to card, 32px between sections a
     const box = (node: Element | null) => node!.getBoundingClientRect()
     const first = document.querySelector('[data-testid="first"]')!
     const second = document.querySelector('[data-testid="second"]')!
-    const head = document.querySelector('[data-slot="page-title"]')!.closest('div')!.parentElement!
+    const head = document.querySelector('[data-slot="page-title"]')!.closest('[data-slot="page-head"]')!
     const style = (node: Element) => getComputedStyle(node)
     const label = first.querySelector('[data-slot="group-label"]')!
     return {

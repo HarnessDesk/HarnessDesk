@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
 import type { CodexAppServer, CodexProtocol } from '@harnessdesk/codex'
+import { RuntimeFileTooLargeError } from '@harnessdesk/protocol'
 import type {
   FileEntry,
   FileMatch,
@@ -44,8 +45,13 @@ export class CodexFiles implements RuntimeFiles {
     }))
   }
 
-  async read(path: string): Promise<Uint8Array> {
+  async read(path: string, maxBytes: number): Promise<Uint8Array> {
+    // Codex exposes neither a metadata size nor a bounded read, so this limit
+    // can only be enforced after fetching its base64 payload. Check its decoded
+    // byte length before allocating decoded bytes or passing anything upward.
     const response = await this.server.request('fs/readFile', { path })
+    const size = Buffer.byteLength(response.dataBase64, 'base64')
+    if (size > maxBytes) throw new RuntimeFileTooLargeError(size)
     return Buffer.from(response.dataBase64, 'base64')
   }
 

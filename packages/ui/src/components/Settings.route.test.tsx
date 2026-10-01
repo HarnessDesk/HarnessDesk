@@ -217,6 +217,8 @@ it('a page asked for while the window is open replaces the one on show', async (
   // bug — the window used to stay put.
   await act(async () => route('shortcuts'))
   expect(page()).toBe('Keyboard shortcuts')
+  expect(document.body.textContent).toContain('⌥⌘1')
+  expect(document.body.textContent).toContain('Focus tile 1')
 })
 
 it('a page asked for a second time still moves the window back to it', async () => {
@@ -293,7 +295,7 @@ it('starts the rail with you, and your row opens your profile', async () => {
 
   act(() => you.click())
   expect(drive.held()).toBe('profile')
-  expect(navRow('HarnessDesk')?.hasAttribute('data-selected')).toBe(true)
+  expect(navRow('HarnessDesk')?.getAttribute('aria-current')).toBe('page')
   expect(document.body.querySelector('input[aria-label="Your name"]')).not.toBeNull()
 })
 
@@ -432,8 +434,9 @@ it('finds you by your own name — with no "nothing matches" beside you — and 
   expect(document.body.textContent).toContain('Nothing in settings matches')
 
   find('')
-  const label = navRow(name)?.querySelector<HTMLElement>('[class*="winNavLabel"]')
-  if (!label) throw new Error('no rail label')
+  const nameText = navRow(name)?.querySelector<HTMLElement>('[data-slot="text"][data-role="row"]')
+  const label = nameText?.parentElement
+  if (!label) throw new Error('no clipped rail label')
   Object.defineProperty(label, 'scrollWidth', { configurable: true, value: 320 })
   Object.defineProperty(label, 'clientWidth', { configurable: true, value: 120 })
   act(() => {

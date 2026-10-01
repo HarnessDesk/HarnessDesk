@@ -211,6 +211,26 @@ test('pr_create signs the description for the seat and records the pull request 
   assert.ok(!(await forge.run('pr_view', {})).includes('<!--'), 'nor does a read show it')
 })
 
+test('read git tools suppress repository fsmonitor and external diff commands', async (t) => {
+  const forge = await rig(t)
+  const fsmonitorMarker = join(forge.home, 'fsmonitor-ran')
+  const externalDiffMarker = join(forge.home, 'external-diff-ran')
+  const fsmonitor = join(forge.home, 'fsmonitor')
+  const externalDiff = join(forge.home, 'external-diff')
+  writeFileSync(fsmonitor, `#!/bin/sh\ntouch '${fsmonitorMarker}'\nprintf 'token'\n`)
+  writeFileSync(externalDiff, `#!/bin/sh\ntouch '${externalDiffMarker}'\n`)
+  chmodSync(fsmonitor, 0o755)
+  chmodSync(externalDiff, 0o755)
+  execFileSync('git', ['config', 'core.fsmonitor', fsmonitor], { cwd: forge.repo })
+  execFileSync('git', ['config', 'diff.external', externalDiff], { cwd: forge.repo })
+  await forge.run('git_status', {})
+  assert.equal(existsSync(fsmonitorMarker), false, 'git_status must not run core.fsmonitor')
+
+  writeFileSync(join(forge.repo, 'a.txt'), 'changed\n')
+  await forge.run('git_diff', {})
+  assert.equal(existsSync(externalDiffMarker), false, 'git_diff must not run diff.external')
+})
+
 test('pr_create never pushes: an unpushed branch is refused with the command to run', async (t) => {
   const forge = await rig(t)
   execFileSync('git', ['checkout', '-q', '-b', 'feature/unpushed'], { cwd: forge.repo })

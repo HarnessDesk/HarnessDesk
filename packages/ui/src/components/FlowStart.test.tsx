@@ -123,6 +123,39 @@ it('every candidate and effective ceiling remains visible', async () => {
   expect(chips).toEqual(expect.arrayContaining(['Edit · held', 'Read · asked']))
 })
 
+it('renders independent-provider and held-ceiling refusal reasons for candidates', async () => {
+  const reviewer: FlowPreviewSeat = {
+    role: 'reviewer', index: 0, agent: 'reviewer', isolate: false, reviews: true,
+    plan: {
+      id: 'reviewer', from: 'machine', winner: null, blocked: null, ceiling: null,
+      candidates: [
+        candidate({
+          label: 'Codex · GPT-6 Luna · Extra high',
+          reason: { kind: 'sameProvider' },
+          fix: { kind: 'seats' },
+        }),
+        candidate({
+          label: 'Claude Code · Sonnet 5.5', runtimeName: 'Claude Code',
+          seat: { runtime: 'claude-code', model: 'sonnet' },
+          reason: { kind: 'unheld', level: 'read', detail: null }, fix: { kind: 'ceilings' },
+        }),
+      ],
+    } as SeatPlan,
+  }
+  const preview: FlowPreview = { ...emptyPreview(), seats: [reviewer] }
+  const theStore = store({
+    entries: [ENTRY('fix')], agents: [AGENT('reviewer', 'Reviewer')],
+    source: () => 'version: 2\n', preview: () => preview,
+  })
+  render(theStore, () => {})
+  await act(async () => {})
+  await select('fix')
+  await act(async () => {})
+
+  expect(container.textContent).toContain('Same provider as the writer')
+  expect(container.textContent).toContain('cannot hold read')
+})
+
 // #1053: a reading step handed an isolated step's one commit gets a worktree of its own, and the dry run says so.
 it('a seat the run opens at the commit it is handed says so, in plain words', async () => {
   const seat: FlowPreviewSeat = {

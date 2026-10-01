@@ -37,6 +37,7 @@ import {
   type RuntimeHealth,
   type SecretReload,
   type RuntimeInfo,
+  type CeilingLevel,
   NO_CAPABILITIES,
   type InstallationCheck,
   type Session,
@@ -64,6 +65,7 @@ import {
   SessionGoneError,
   openingOf,
   laneEnvironmentOf,
+  wrapContext,
 } from '@harnessdesk/protocol'
 import {
   AcpConnection,
@@ -313,6 +315,18 @@ export interface AcpAgentConfig {
      */
     readonly onOpen?: (token: string) => void
   }
+  /** Folder-specific policy the agent applies before starting a configured MCP server. */
+  readonly pluginToolsAvailableAt?: (cwd: string) => boolean | Promise<boolean>
+  readonly pluginToolsProblemAt?: (cwd: string) => string | null | Promise<string | null>
+  /** Runtime-authored guidance shown if that folder policy withholds the desk tools. */
+  readonly pluginToolsUnavailable?: string
+  /**
+   * True only when `command` is a bridge HarnessDesk ships. Then, and only
+   * then, a permission request's `_meta.harnessdesk.flowBoardTool` is the
+   * bridge's own proof of which MCP server asked; from any other peer it is
+   * the agent's say-so and is ignored.
+   */
+  readonly trustsBridgeProvenance?: boolean
   /**
    * The desk's standing instruction for the agent, read when a session is
    * opened and put in `session/new`'s and `session/load`'s `_meta` under
@@ -735,6 +749,8 @@ const acpCategory = (id: string, category: string | null | undefined): OptionCat
 
 export class AcpRuntime implements AgentRuntime {
   readonly #config: AcpAgentConfig
+  #searchListing: { readonly rows: readonly AcpSessionRow[]; readonly expiresAt: number } | null = null
+  #searchListingGeneration = 0
   /**
    * Read on construction and again on each start; see `RuntimeInfo.provider`.
    * Three values, not two: `undefined` when this agent has no provider
@@ -790,6 +806,9 @@ export class AcpRuntime implements AgentRuntime {
   #tasks: AcpTasks | null = null
   /** Decoded once from `initialize`'s `_meta.harnessdesk.attachments`; `null` until shaken, and forever if the peer never declared it. */
   #attachmentCapability: AcpAttachmentCapability | null = null
+  /** Read ceiling enforcement is claimed only after an ACP peer advertises the bridge contract. */
+  #readCeiling = false
+  readonly #sessionCeilings = new Map<SessionId, CeilingLevel>()
   /**
    * What each live session was actually prepared with, kept for
    * `attachmentReceipt` — which the protocol asks by session id alone — to
@@ -887,6 +906,9 @@ export class AcpRuntime implements AgentRuntime {
           : null
         : null,
       capabilities: this.#capabilities(),
+      ...(this.#readCeiling
+        ? { ceilings: { read: { settings: [], how: 'PreToolUse blocks every write-class tool, unknown MCP server, and shell command outside the read-only allowlist.' } } }
+        : {}),
       // Phase 12's stronger session contract — a sibling of `capabilities`,
       // never folded into it, and absent (not `unsupported`) until this
       // runtime has actually shaken hands: "what a runtime may claim before
@@ -897,6 +919,7 @@ export class AcpRuntime implements AgentRuntime {
       provider: this.#provider,
       presentation: {
         name: this.#config.name,
+        ...(this.#config.pluginToolsUnavailable ? { pluginToolsUnavailable: this.#config.pluginToolsUnavailable } : {}),
         // What an ACP agent declares are commands; some of them are skills
         // and some are `/compact`. The page says both rather than filing
         // half the list under the wrong word.
@@ -953,6 +976,7 @@ export class AcpRuntime implements AgentRuntime {
             plans: true,
             reasoning: true,
             listHistory: Boolean(this.#initialized?.agentCapabilities?.sessionCapabilities?.list),
+            searchHistory: Boolean(this.#initialized?.agentCapabilities?.sessionCapabilities?.list),
             imageInput: this.#initialized?.agentCapabilities?.promptCapabilities?.image ?? false,
             // The agent's own commands are its skills — Claude Code declares
             // its 51, Cursor its own — and they arrive per session, so this
@@ -1065,6 +1089,7 @@ export class AcpRuntime implements AgentRuntime {
       }
       const declared = (this.#initialized._meta as { harnessdesk?: Record<string, unknown> } | undefined)
         ?.harnessdesk
+      this.#readCeiling = declared?.['readCeiling'] === true
       if (declared?.[ACP_TASKS_CAPABILITY] === true) this.#adoptTasks()
       this.#canDelete = declared?.[ACP_SESSION_DELETE_CAPABILITY] === true
       this.#briefs = declared?.[ACP_INSTRUCTIONS_CAPABILITY] === true
@@ -1250,6 +1275,7 @@ export class AcpRuntime implements AgentRuntime {
     this.#disposed = true
     await this.#connection.stop()
     this.#sessions.clear()
+    this.#invalidateSearchListing()
     this.#resuming.clear()
     this.#openedIn.clear()
     this.#probe = null
@@ -1823,6 +1849,7 @@ export class AcpRuntime implements AgentRuntime {
       // agent that keys its store by folder — Cursor hashes the path — can
       // only answer for a folder it has been given.
       const rows = await this.#listedRows(query?.cwd)
+      this.#invalidateSearchListing()
       // The agent names its own conversations — Claude Code writes a title
       // into the transcript as the turn runs — and that name is what its own
       // window shows. A session open here has no title of its own, so it
@@ -1888,6 +1915,7 @@ export class AcpRuntime implements AgentRuntime {
    */
   noteTitle(id: SessionId, title: string): void {
     this.#titles.set(id, title)
+    this.#invalidateSearchListing()
   }
 
   /** The ask each session opened with, as of the last listing. */
@@ -1901,14 +1929,40 @@ export class AcpRuntime implements AgentRuntime {
 
   async searchSessions(query: string): Promise<Page<SessionSummary>> {
     const needle = query.toLowerCase()
+    const rows = await this.#searchableRows()
+    const matches = new Map<SessionId, SessionSummary>()
+    for (const row of rows) {
+      const id = makeSessionId(row.sessionId)
+      if (id === this.#probeId) continue
+      const title = titleOf(row)
+      const preview = openingOf(row.preview ?? '').slice(0, 120) || null
+      if (title) this.#titles.set(id, title)
+      if (preview) this.#previews.set(id, preview)
+      if (!(title ?? '').toLowerCase().includes(needle) && !(preview ?? '').toLowerCase().includes(needle)) continue
+      matches.set(id, {
+        id,
+        runtime: this.info.id,
+        title,
+        preview,
+        cwd: row.cwd,
+        status: { type: 'notLoaded' },
+        createdAt: row.updatedAt ? Date.parse(row.updatedAt) : 0,
+        updatedAt: row.updatedAt ? Date.parse(row.updatedAt) : 0,
+        git: null,
+      })
+    }
+    // A live summary wins over the listed form for a duplicate id, while
+    // retaining metadata learned from the agent's latest listing.
+    for (const session of this.#sessions.values()) {
+      if (session.id === this.#probeId) continue
+      const summary = session.summary()
+      const title = summary.title ?? this.#titles.get(session.id) ?? null
+      const preview = summary.preview ?? this.#previews.get(session.id) ?? null
+      if (!(title ?? '').toLowerCase().includes(needle) && !(preview ?? '').toLowerCase().includes(needle)) continue
+      matches.set(session.id, { ...summary, title, preview })
+    }
     return {
-      data: [...this.#sessions.values()]
-        // The draft probe is no conversation, here as in `listSessions`. Its
-        // preview is empty, so a search for nothing found it, and its id was
-        // then read as one — in the folder the probe was opened in.
-        .filter((session) => session.id !== this.#probeId)
-        .map((session) => session.summary())
-        .filter((summary) => (summary.preview ?? '').toLowerCase().includes(needle)),
+      data: [...matches.values()].sort((a, b) => b.updatedAt - a.updatedAt),
       nextCursor: null,
     }
   }
@@ -1954,6 +2008,7 @@ export class AcpRuntime implements AgentRuntime {
     this.#titles.delete(id)
     this.#previews.delete(id)
     this.#openedIn.delete(id)
+    this.#invalidateSearchListing()
     const disposition = result?.disposition ?? 'removed'
     const removed = result?.removed?.length ?? 0
     this.#config.logger?.debug?.('session deleted', { session: String(id), removed, disposition })
@@ -2310,6 +2365,14 @@ export class AcpRuntime implements AgentRuntime {
     }
   }
 
+  pluginToolsAvailableAt(cwd: string): Promise<boolean> {
+    return Promise.resolve(this.#config.pluginToolsAvailableAt?.(cwd) ?? true)
+  }
+
+  pluginToolsProblemAt(cwd: string): Promise<string | null> {
+    return Promise.resolve(this.#config.pluginToolsProblemAt?.(cwd) ?? null)
+  }
+
   async createSession(options: SessionOptions): Promise<AgentSession> {
     /* `SessionOptions` is `Partial<SessionSettings> & …`, so `model` is legal
        to write — and it used to be read by nobody here, which made "start this
@@ -2326,6 +2389,10 @@ export class AcpRuntime implements AgentRuntime {
       ...(options.model !== undefined ? { model: options.model } : {}),
       ...(options.options ?? {}),
     }
+    const heldCeiling = options.requestedCeiling && this.#readCeiling && options.requestedCeiling === 'read' ? 'read' : undefined
+    const sessionMeta = Object.keys(initial).length > 0 || heldCeiling
+      ? { harnessdesk: { ...(Object.keys(initial).length > 0 ? { options: initial } : {}), ...(heldCeiling ? { ceiling: heldCeiling } : {}) } }
+      : {}
     const result = await this.#openWithTools<AcpNewSessionResult>('session/new', {
       cwd: options.cwd,
       // The initial values ride along in ACP's extension slot too: a bridge
@@ -2335,17 +2402,19 @@ export class AcpRuntime implements AgentRuntime {
       ...(options.environment
         ? {
             _meta: environmentMeta(
-              { harnessdesk: { options: initial } },
+              sessionMeta,
               options.environment,
               this.info.capabilities.sessionEnvironment,
             ),
           }
-        : Object.keys(initial).length > 0
-          ? { _meta: { harnessdesk: { options: initial } } }
+        : Object.keys(initial).length > 0 || heldCeiling
+          ? { _meta: sessionMeta }
           : {}),
     }, options.attachments)
     const session = new AcpSession(this, result, options.cwd)
     this.#sessions.set(session.id, session)
+    this.#invalidateSearchListing()
+    if (heldCeiling) this.#sessionCeilings.set(session.id, heldCeiling)
     if (options.attachments) this.#attachmentInputs.set(session.id, options.attachments)
     this.#learnCatalog(result)
     // Initial option values ride the same path a user change would — mode
@@ -2409,6 +2478,8 @@ export class AcpRuntime implements AgentRuntime {
   async resumeSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
     const saved = this.#environments.get(id)
     const environment = options.environment ? laneEnvironmentOf(options.environment) : saved
+    const requestedCeiling = options.requestedCeiling ?? this.#sessionCeilings.get(id)
+    const heldCeiling: CeilingLevel | undefined = this.#readCeiling && requestedCeiling === 'read' ? 'read' : undefined
     if (saved && environment && JSON.stringify(saved) !== JSON.stringify(environment)) {
       throw new Error('A live session cannot change its lane environment.')
     }
@@ -2485,13 +2556,14 @@ export class AcpRuntime implements AgentRuntime {
           sessionId: id,
           cwd,
           ...(environment
-            ? { _meta: environmentMeta({}, environment, this.info.capabilities.sessionEnvironment) }
-            : {}),
+            ? { _meta: environmentMeta(heldCeiling && this.#readCeiling ? { harnessdesk: { ceiling: heldCeiling } } : {}, environment, this.info.capabilities.sessionEnvironment) }
+            : heldCeiling && this.#readCeiling ? { _meta: { harnessdesk: { ceiling: heldCeiling } } } : {}),
         }, options.attachments)
         // Reapplied, never re-resolved: the caller (the host) is the one that
         // decides whether a resume repeats a Seat's frozen input, exactly as
         // it decided at create. This only remembers what it was handed.
         if (options.attachments) this.#attachmentInputs.set(id, options.attachments)
+        if (heldCeiling && this.#readCeiling) this.#sessionCeilings.set(id, heldCeiling)
         if (environment) {
           acknowledgeEnvironment(loaded._meta, environment)
           this.#environments.set(id, environment)
@@ -2600,12 +2672,34 @@ export class AcpRuntime implements AgentRuntime {
    * read can put a row on two pages. A walk that cannot reach the last page
    * throws; see `#listPages`.
    */
-  async #listedRows(cwd?: string): Promise<AcpSessionRow[]> {
+  async #listedRows(cwd?: string, rowLimit = Number.POSITIVE_INFINITY): Promise<AcpSessionRow[]> {
     const rows = new Map<string, AcpSessionRow>()
     for await (const page of this.#listPages(cwd)) {
-      for (const row of page) if (!rows.has(row.sessionId)) rows.set(row.sessionId, row)
+      for (const row of page) {
+        if (rows.has(row.sessionId)) continue
+        rows.set(row.sessionId, row)
+        // Page<T> has no truncation field. Search stops at a deliberately
+        // high row bound rather than inventing wire metadata for partial hits.
+        if (rows.size >= rowLimit) return [...rows.values()]
+      }
     }
     return [...rows.values()]
+  }
+
+  async #searchableRows(): Promise<readonly AcpSessionRow[]> {
+    const cached = this.#searchListing
+    if (cached && cached.expiresAt > Date.now()) return cached.rows
+    const generation = this.#searchListingGeneration
+    const rows = await this.#listedRows()
+    if (generation === this.#searchListingGeneration) {
+      this.#searchListing = { rows, expiresAt: Date.now() + SEARCH_LISTING_CACHE_MS }
+    }
+    return rows
+  }
+
+  #invalidateSearchListing(): void {
+    this.#searchListingGeneration += 1
+    this.#searchListing = null
   }
 
   async forkSession(): Promise<AgentSession> {
@@ -2635,6 +2729,11 @@ export class AcpRuntime implements AgentRuntime {
 
   get connection(): AcpConnection {
     return this.#connection
+  }
+
+  /** Whether this peer is a bridge HarnessDesk ships; see `AcpAgentConfig.trustsBridgeProvenance`. */
+  get trustsBridgeProvenance(): boolean {
+    return this.#config.trustsBridgeProvenance === true
   }
 
   get agentName(): string {
@@ -3001,6 +3100,8 @@ interface AcpSessionPage {
  * a fresh next page forever.
  */
 const LISTING_PAGE_LIMIT = 1000
+/** Reuses a recent listing across adjacent keystrokes; session changes invalidate it immediately. */
+const SEARCH_LISTING_CACHE_MS = 1500
 
 /**
  * A title that is only the conversation's own id — `Session <id>` — names
@@ -3096,11 +3197,13 @@ const ACP_ENVELOPE: PeelOptions = {
  * is a whole block rather than something spanning two.
  */
 const withUserContent = (item: UserMessageItem, block: AcpContentBlock): UserMessageItem => {
-  const { content, context } = peelUserContent([userContentOf(block)], ACP_ENVELOPE)
+  // Re-peel the accumulated blocks as one message. A desk wrapper may be its
+  // own ACP content block, with the person's sentence arriving afterwards.
+  const { content, context } = peelUserContent([...item.content, userContentOf(block)], ACP_ENVELOPE)
   const kept = [...item.context ?? [], ...context]
   return {
     ...item,
-    content: [...item.content, ...content],
+    content,
     ...(kept.length > 0 ? { context: kept } : {}),
   }
 }
@@ -3203,6 +3306,17 @@ const questionOf = (
         : {}),
     })),
   }
+}
+
+/** Reads only the bridge's structured claim; titles and raw tool text never confer provenance. */
+const flowBoardToolOf = (request: AcpPermissionRequest): { readonly server: 'harnessdesk'; readonly tool: string } | null => {
+  const marker = request._meta?.['harnessdesk'] as { flowBoardTool?: unknown } | undefined
+  const value = marker?.flowBoardTool
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+  const shaped = value as { server?: unknown; tool?: unknown }
+  return shaped.server === 'harnessdesk' && typeof shaped.tool === 'string' && shaped.tool.startsWith('mcp__harnessdesk__')
+    ? { server: 'harnessdesk', tool: shaped.tool }
+    : null
 }
 
 const noticeOf = (update: Extract<AcpSessionUpdate, { sessionUpdate: 'user_message_chunk' }>): string | null => {
@@ -3560,7 +3674,16 @@ class AcpSession implements AgentSession {
     const userItem: AgentItem =
       opts?.recordAs === 'notice'
         ? { id: itemId(`${id}-user`), type: 'notice', text: plainTextOf(input), startedAt: Date.now() }
-        : { id: itemId(`${id}-user`), type: 'userMessage', content: input, startedAt: Date.now() }
+        : (() => {
+            const { content, context } = peelUserContent(input, ACP_ENVELOPE)
+            return {
+              id: itemId(`${id}-user`),
+              type: 'userMessage',
+              content,
+              ...(context.length > 0 ? { context } : {}),
+              startedAt: Date.now(),
+            }
+          })()
     const turn: MutableTurn = { id, items: [userItem], startedAt: Date.now() }
     this.#currentTurn = turn
     this.#host.emit({
@@ -3691,7 +3814,10 @@ class AcpSession implements AgentSession {
       preview:
         preview?.type === 'userMessage'
           ? // Named from the whole message, before the cut: a block cut short has no label to read (#186).
-            openingOf(preview.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n')).slice(0, 120) || null
+            openingOf([
+              ...(preview.context ?? []).map((block) => wrapContext(block.label, block.text)),
+              preview.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n'),
+            ].join('\n')).slice(0, 120) || null
           : // Loaded, not replayed: the agent's own record of how this
             // conversation opened stands in for turns this process never saw.
             this.#host.previewOf(this.id),
@@ -4218,6 +4344,7 @@ class AcpSession implements AgentSession {
         this.#host.emit({ type: 'approval/requested', approval })
       })
     }
+    const flowBoardTool = this.#host.trustsBridgeProvenance ? flowBoardToolOf(request) : null
     const approval: Approval = {
       id,
       sessionId: this.id,
@@ -4226,6 +4353,7 @@ class AcpSession implements AgentSession {
       requestedAt: Date.now(),
       type: 'permission',
       summary: request.toolCall.title ?? 'The agent asks permission to continue.',
+      ...(flowBoardTool ? { flowBoardTool } : {}),
       // Why the agent is asking, when the agent said. ACP carries that on the
       // request's own tool call, and reading only the title threw it away:
       // DeepSeek Harness sends "escalate sandbox to danger-full-access: the
@@ -4298,6 +4426,7 @@ class AcpSession implements AgentSession {
 
   #finishTurn(turn: MutableTurn, stopReason?: AcpStopReason | string | null): void {
     if (this.#currentTurn?.id !== turn.id) return
+    const completedAt = Date.now()
     const reason = typeof stopReason === 'string' ? stopReason : stopReason == null ? 'end_turn' : String(stopReason)
     const status =
       reason === 'cancelled' ? 'interrupted' : reason === 'end_turn' ? 'completed' : 'failed'
@@ -4309,12 +4438,12 @@ class AcpSession implements AgentSession {
         ? { error: { message: `The agent stopped: ${reason.replace(/_/g, ' ')}.` } }
         : {}),
       startedAt: turn.startedAt,
-      completedAt: Date.now(),
+      completedAt,
       // Never actually null here -- `#finishTurn` only ever closes a live
       // turn (`send`'s own `Date.now()`), replay never reaches it -- but the
       // type is shared with a replayed turn's, so the arithmetic still has
       // to allow for it.
-      durationMs: turn.startedAt === null ? null : Date.now() - turn.startedAt,
+      durationMs: turn.startedAt === null ? null : completedAt - turn.startedAt,
     }
     this.#currentTurn = null
     this.#turns.push(finished)
@@ -4324,6 +4453,7 @@ class AcpSession implements AgentSession {
 
   #failTurn(turn: MutableTurn, message: string): void {
     if (this.#currentTurn?.id !== turn.id) return
+    const completedAt = Date.now()
     this.#currentTurn = null
     const finished: Turn = {
       id: turn.id,
@@ -4331,7 +4461,8 @@ class AcpSession implements AgentSession {
       status: 'failed',
       error: { message },
       startedAt: turn.startedAt,
-      completedAt: Date.now(),
+      completedAt,
+      durationMs: turn.startedAt === null ? null : completedAt - turn.startedAt,
     }
     this.#turns.push(finished)
     this.#host.emit({ type: 'turn/completed', sessionId: this.id, turn: finished })

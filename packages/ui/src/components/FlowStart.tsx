@@ -371,7 +371,11 @@ const SeatPreviewRows = ({ seat, roster }: { readonly seat: FlowPreviewSeat; rea
       />
       {seat.plan.candidates.map((candidate, index) => {
         const words = candidate.state === 'passed' && candidate.reason
-          ? [reasonWords(candidate.reason, candidate.runtimeName), candidate.fix ? fixWords(candidate.fix, candidate.runtimeName) : null]
+          ? [
+              reasonWords(candidate.reason, candidate.runtimeName),
+              ...(candidate.alsoPassed ?? []).map((reason) => reasonWords(reason, candidate.runtimeName)),
+              candidate.fix ? fixWords(candidate.fix, candidate.runtimeName) : null,
+            ]
             .filter((part): part is string => part !== null)
             .join(' — ')
           : candidate.state === 'taken'

@@ -17,9 +17,9 @@ import { expect, test, type Page } from '@playwright/test'
 
 const label = 'Learn from every single tab of the settings screen'
 
-test('a focused row makes room for its ⋯ before the next frame', async ({ page }) => {
+test('a focused row keeps its checkout mark fixed before the next frame', async ({ page }) => {
   await page.goto('/preview.html')
-  const row = page.locator('[class*="sidebar_"] [class*="rowWrap_"]').filter({
+  const row = page.locator('[data-region="session-row"] [data-slot="sidebar-menu-item"]').filter({
     has: page.locator(`button[aria-label="Actions for ${label}"]`),
   })
   await expect(row.getByRole('img', { name: 'Worktree chore/settings-audit', exact: true })).toBeVisible()
@@ -32,7 +32,7 @@ test('a focused row makes room for its ⋯ before the next frame', async ({ page
     }
     const resting = box()
     // `:focus-within` gives the row the padding its ⋯ needs, as a hover does.
-    node.querySelector<HTMLElement>('button[data-density]')!.focus()
+    node.querySelector<HTMLElement>('[data-slot="sidebar-menu-button"]')!.focus()
     const first = box()
     const started = document.getAnimations()
       .filter((animation) => animation instanceof CSSTransition
@@ -46,8 +46,8 @@ test('a focused row makes room for its ⋯ before the next frame', async ({ page
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
     return { resting, first, later: box(), started }
   })
-  // The control: focus does move the mark, so a held read would differ.
-  expect(read.later.right).toBeLessThan(read.resting.right)
+  // The trailing action overlays its fixed slot; focus does not resize the row.
+  expect(read.later.right).toBe(read.resting.right)
   expect(read.first).toEqual(read.later)
   expect(read.started).toEqual([])
 })
@@ -151,8 +151,11 @@ test('a sidebar collapsed with motion reduced is hidden at once, with nothing in
 test('a floating sidebar put away with motion reduced is hidden at once, with nothing in it to Tab to', async ({ page }) => {
   await page.setViewportSize({ width: 700, height: 900 })
   await page.goto('/design.html?view=panels')
-  // Its header's toggle lies under the right panel, which a window this
-  // narrow gives the conversation's width; pressed where it is.
+  // At this width the right panel covers main, including the sidebar toggle.
+  // Collapse the panel through its visible control before opening the sidebar.
+  const hidePanel = page.getByRole('button', { name: 'Hide this panel', exact: true })
+  await expect(hidePanel).toBeVisible()
+  await hidePanel.click()
   const show = page.locator('button[aria-label="Show sidebar"]').filter({ visible: true }).first()
   await expect(show).toBeAttached()
   await show.evaluate((node: HTMLButtonElement) => node.click())

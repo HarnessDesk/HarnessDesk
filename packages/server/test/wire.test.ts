@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
@@ -13,6 +14,7 @@ import {
   isBusy,
   itemId,
   runtimeId,
+  RuntimeFileTooLargeError,
   sessionId,
   turnId,
   type AgentEvent,
@@ -1366,9 +1368,20 @@ test('file reads go through the runtime\'s own view when it declares one', async
   )
 
   const read = (await client.call('workspace/readFile', { path: '/w/README.md', runtime: FAKE_RUNTIME_ID })) as {
+    kind: string
     content: string
   }
+  assert.equal(read.kind, 'text')
   assert.equal(read.content, 'from the fake runtime')
+  assert.deepEqual(await client.call('workspace/readFile', { path: '/w/missing.png', runtime: FAKE_RUNTIME_ID }), { kind: 'missing' })
+  const originalRead = harness.runtime.files.read.bind(harness.runtime.files)
+  harness.runtime.files.read = async (path) => {
+    if (path === '/w/forbidden.txt') throw Object.assign(new Error('Permission denied.'), { code: 'EACCES' })
+    return originalRead(path)
+  }
+  assert.deepEqual(await client.call('workspace/readFile', { path: '/w/forbidden.txt', runtime: FAKE_RUNTIME_ID }), {
+    kind: 'unreadable', message: 'Permission denied.',
+  })
 
   const found = (await client.call('workspace/files', {
     root: '/w',
@@ -1392,11 +1405,106 @@ test('without a runtime view the host\'s own reader serves the same calls', asyn
   await client.call('workspace/open', { path: harness.stateDir })
   await writeFile(join(harness.stateDir, 'note.txt'), 'on disk')
 
-  const read = (await client.call('workspace/readFile', { path: join(harness.stateDir, 'note.txt') })) as {
-    content: string
-  }
-  assert.equal(read.content, 'on disk')
+  const read = await client.call('workspace/readFile', { path: join(harness.stateDir, 'note.txt') })
+  assert.deepEqual(read, { kind: 'text', content: 'on disk', truncated: false, hash: createHash('sha256').update('on disk').digest('hex') })
+  const binaryPath = join(harness.stateDir, 'tiny.png')
+  await writeFile(binaryPath, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff]))
+  assert.deepEqual(await client.call('workspace/readFile', { path: binaryPath }), {
+    kind: 'binary', size: 6, hash: createHash('sha256').update(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff])).digest('hex'),
+  })
+  assert.deepEqual(await client.call('workspace/readFile', { path: binaryPath, encoding: 'base64' }), {
+    kind: 'binary',
+    content: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff]).toString('base64'),
+    size: 6,
+    hash: createHash('sha256').update(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff])).digest('hex'),
+  })
+  assert.deepEqual(await client.call('workspace/readFile', { path: join(harness.stateDir, 'missing.png') }), { kind: 'missing' })
   assert.equal(harness.runtime.files.calls.length, 0, 'the runtime was never asked')
+})
+
+test('workspace reads refuse text just over 2 MiB and files just over 10 MiB', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  await client.call('workspace/open', { path: harness.stateDir })
+  const textLimit = 2 * 1024 * 1024
+  const fileLimit = 10 * 1024 * 1024
+  const textPath = join(harness.stateDir, 'large.txt')
+  const mediumTextPath = join(harness.stateDir, 'medium.txt')
+  const binaryPath = join(harness.stateDir, 'large.png')
+  await writeFile(textPath, Buffer.alloc(textLimit + 1, 0x61))
+  await writeFile(mediumTextPath, Buffer.alloc(3 * 1024 * 1024, 0x61))
+  await writeFile(binaryPath, Buffer.alloc(fileLimit + 1))
+
+  assert.deepEqual(await client.call('workspace/readFile', { path: textPath }), { kind: 'tooLarge', size: textLimit + 1 })
+  assert.deepEqual(await client.call('workspace/readFile', { path: mediumTextPath }), { kind: 'tooLarge', size: 3 * 1024 * 1024 })
+  assert.deepEqual(await client.call('workspace/readFile', { path: binaryPath }), { kind: 'tooLarge', size: fileLimit + 1 })
+  assert.deepEqual(await client.call('workspace/readFile', { path: binaryPath, encoding: 'base64' }), { kind: 'tooLarge', size: fileLimit + 1 })
+
+  const runtimeStatPath = join(harness.stateDir, 'runtime-large.bin')
+  harness.runtime.files.tree[runtimeStatPath] = 'must not be read'
+  const originalStat = harness.runtime.files.stat.bind(harness.runtime.files)
+  harness.runtime.files.stat = async (path) => path === runtimeStatPath
+    ? { kind: 'file', isSymlink: false, modifiedAt: null, size: fileLimit + 1 }
+    : originalStat(path)
+  assert.deepEqual(await client.call('workspace/readFile', { path: runtimeStatPath, runtime: FAKE_RUNTIME_ID }), {
+    kind: 'tooLarge', size: fileLimit + 1,
+  })
+  assert.equal(harness.runtime.files.calls.includes(`read ${runtimeStatPath}`), false, 'known oversize runtime file was refused before reading')
+
+  const runtimeBytesPath = join(harness.stateDir, 'runtime-bytes.bin')
+  harness.runtime.files.tree[runtimeBytesPath] = 'fixture'
+  const runtimeMediumTextPath = join(harness.stateDir, 'runtime-medium.txt')
+  harness.runtime.files.tree[runtimeMediumTextPath] = 'x'.repeat(3 * 1024 * 1024)
+  const mediumImagePath = join(harness.stateDir, 'runtime-medium.png')
+  const originalRead = harness.runtime.files.read.bind(harness.runtime.files)
+  harness.runtime.files.read = async (path) => {
+    if (path === runtimeBytesPath) return Buffer.alloc(fileLimit + 1)
+    if (path === mediumImagePath) {
+      harness.runtime.files.calls.push(`read ${path}`)
+      return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0]), Buffer.alloc(3 * 1024 * 1024 - 5)])
+    }
+    return originalRead(path)
+  }
+  assert.deepEqual(await client.call('workspace/readFile', {
+    path: runtimeBytesPath, runtime: FAKE_RUNTIME_ID, encoding: 'base64',
+  }), { kind: 'tooLarge', size: fileLimit + 1 })
+  const mediumImage = await client.call('workspace/readFile', {
+    path: mediumImagePath, runtime: FAKE_RUNTIME_ID, encoding: 'base64', maxBytes: fileLimit,
+  }) as { kind: string; content?: string; size?: number }
+  assert.equal(mediumImage.kind, 'binary')
+  assert.equal(mediumImage.size, 3 * 1024 * 1024)
+  assert.equal(Buffer.from(mediumImage.content ?? '', 'base64').byteLength, 3 * 1024 * 1024)
+  assert.equal(harness.runtime.files.calls.filter((call) => call.startsWith(`read ${mediumImagePath}`)).length, 1)
+  assert.deepEqual(await client.call('workspace/readFile', {
+    path: runtimeMediumTextPath, runtime: FAKE_RUNTIME_ID, maxBytes: fileLimit,
+  }), { kind: 'tooLarge', size: 3 * 1024 * 1024 })
+})
+
+test('bounded runtime reads report oversized files and saves preserve them', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  await client.call('workspace/open', { path: harness.stateDir })
+  const path = join(harness.stateDir, 'runtime-unknown-size.txt')
+  harness.runtime.files.tree[path] = 'current file'
+  const originalRead = harness.runtime.files.read.bind(harness.runtime.files)
+  harness.runtime.files.read = async (candidate) => {
+    if (candidate === path) throw new RuntimeFileTooLargeError(12 * 1024 * 1024)
+    return originalRead(candidate)
+  }
+  const writes: string[] = []
+  Object.assign(harness.runtime.files, { write: async (candidate: string) => { writes.push(candidate) } })
+
+  assert.deepEqual(await client.call('workspace/readFile', { path, runtime: FAKE_RUNTIME_ID }), { kind: 'tooLarge', size: 12 * 1024 * 1024 })
+  const { ticket } = await client.call('preview/ticket', { path, runtime: FAKE_RUNTIME_ID }) as { ticket: string }
+  await assert.rejects(harness.host.redeemPreviewTicket(ticket), /exceeds the .*byte limit/i)
+  assert.deepEqual(await client.call('file/save', {
+    path, content: 'replacement', expectedHash: 'loaded-hash', runtime: FAKE_RUNTIME_ID,
+  }), { saved: false, reason: 'tooLarge', size: 12 * 1024 * 1024 })
+  assert.deepEqual(writes, [])
 })
 
 test('a read outside every open workspace is refused by the host, whichever reader would serve it', async (t) => {
@@ -1562,6 +1670,46 @@ test('a save that races an external change is refused with the other content, ne
     () => client.call('file/save', { path: '/etc/hosts', content: 'x', expectedHash: '' }),
     /outside every open workspace/,
   )
+})
+
+test('a save refuses unreadable current contents even when the expected hash is empty', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  await client.call('workspace/open', { path: harness.stateDir })
+  const locked = join(harness.stateDir, 'locked.txt')
+  harness.runtime.files.tree[locked] = 'existing'
+  const originalRead = harness.runtime.files.read.bind(harness.runtime.files)
+  harness.runtime.files.read = async (path) => {
+    if (path === locked) throw Object.assign(new Error('Permission denied.'), { code: 'EACCES' })
+    return originalRead(path)
+  }
+  const writes: string[] = []
+  Object.assign(harness.runtime.files, { write: async (path: string) => { writes.push(path) } })
+
+  await assert.rejects(
+    client.call('file/save', { path: locked, content: 'replacement', expectedHash: '', runtime: FAKE_RUNTIME_ID }),
+    /Permission denied/,
+  )
+  assert.deepEqual(writes, [])
+})
+
+test('a file that becomes binary refuses the save without returning editable conflict content', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  await client.call('workspace/open', { path: harness.stateDir })
+  const path = join(harness.stateDir, 'notes.md')
+  await writeFile(path, 'first draft\n')
+  const loaded = await client.call('workspace/readFile', { path }) as { kind: string; hash: string }
+  assert.equal(loaded.kind, 'text')
+  await writeFile(path, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff]))
+
+  const result = await client.call('file/save', { path, content: 'replacement', expectedHash: loaded.hash })
+  assert.deepEqual(result, { saved: false, reason: 'binary', size: 6 })
+  assert.deepEqual(await readFile(path), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff]))
 })
 
 test('an agent switched off is not asked about its usage, and comes back when it is switched on', async (t) => {
@@ -2875,6 +3023,9 @@ test('HTTP token gate cannot be bypassed by non-root SPA routes (#429)', async (
   const resRootWithToken = await fetch(`${server.url}/?token=secret-token`)
   assert.equal(resRootWithToken.status, 200)
   assert.equal(await resRootWithToken.text(), '<html>app shell</html>')
+  const appCsp = resRootWithToken.headers.get('content-security-policy') ?? ''
+  const imageDirective = appCsp.split(';').map((directive) => directive.trim()).find((directive) => directive.startsWith('img-src '))
+  assert.equal(imageDirective, "img-src 'self' data: blob:", 'local image previews use only self, data, or blob image sources')
 
   // 4. Non-root fallback route with token -> 200
   const resSpaRouteWithToken = await fetch(`${server.url}/settings/appearance?token=secret-token`)
