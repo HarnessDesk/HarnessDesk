@@ -315,6 +315,7 @@ export interface AcpAgentConfig {
   }
   /** Folder-specific policy the agent applies before starting a configured MCP server. */
   readonly pluginToolsAvailableAt?: (cwd: string) => boolean | Promise<boolean>
+  readonly pluginToolsProblemAt?: (cwd: string) => string | null | Promise<string | null>
   /** Runtime-authored guidance shown if that folder policy withholds the desk tools. */
   readonly pluginToolsUnavailable?: string
   /**
@@ -2317,6 +2318,10 @@ export class AcpRuntime implements AgentRuntime {
 
   pluginToolsAvailableAt(cwd: string): Promise<boolean> {
     return Promise.resolve(this.#config.pluginToolsAvailableAt?.(cwd) ?? true)
+  }
+
+  pluginToolsProblemAt(cwd: string): Promise<string | null> {
+    return Promise.resolve(this.#config.pluginToolsProblemAt?.(cwd) ?? null)
   }
 
   async createSession(options: SessionOptions): Promise<AgentSession> {

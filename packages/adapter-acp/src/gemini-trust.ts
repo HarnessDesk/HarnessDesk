@@ -7,6 +7,12 @@ export interface GeminiTrustOptions {
   readonly home?: string
 }
 
+export interface GeminiTrustStatus {
+  readonly trusted: boolean
+  /** True when Gemini would stop startup because trusted-folders data is unreadable or invalid. */
+  readonly unavailable: boolean
+}
+
 const object = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
@@ -46,6 +52,26 @@ const readJson = (path: string): unknown => {
   try { return JSON.parse(withoutComments(readFileSync(path, 'utf8'))) as unknown } catch { return null }
 }
 
+const settingsAt = (path: string): Record<string, unknown> => {
+  const parsed = readJson(path)
+  return object(parsed) ? parsed : {}
+}
+
+const settingsPath = (env: Readonly<Record<string, string | undefined>>, home: string): string => {
+  const cliHome = env['GEMINI_CLI_HOME'] || home
+  return join(cliHome, '.gemini', 'settings.json')
+}
+
+const systemSettingsPath = (env: Readonly<Record<string, string | undefined>>): string => {
+  if (env['GEMINI_CLI_SYSTEM_SETTINGS_PATH']) return env['GEMINI_CLI_SYSTEM_SETTINGS_PATH']
+  if (process.platform === 'darwin') return '/Library/Application Support/GeminiCli/settings.json'
+  if (process.platform === 'win32') return 'C:\\ProgramData\\gemini-cli\\settings.json'
+  return '/etc/gemini-cli/settings.json'
+}
+
+const systemDefaultsPath = (env: Readonly<Record<string, string | undefined>>, systemPath: string): string =>
+  env['GEMINI_CLI_SYSTEM_DEFAULTS_PATH'] || join(dirname(systemPath), 'system-defaults.json')
+
 const canonical = (path: string): string => {
   try { return realpathSync(path) } catch { return resolve(path) }
 }
@@ -60,30 +86,49 @@ const contains = (parent: string, child: string): boolean => {
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
 }
 
-/** Read-only mirror of Gemini CLI's checkPathTrust/loadTrustedFolders rules. */
-export const geminiTrustsFolder = (target: string, options: GeminiTrustOptions = {}): boolean => {
+/** Read-only mirror of Gemini CLI's initial settings fold and checkPathTrust/loadTrustedFolders rules. */
+export const geminiTrustsFolderStatus = (target: string, options: GeminiTrustOptions = {}): GeminiTrustStatus => {
   const env = options.env ?? process.env
-  if (env['GEMINI_RESTRICTED_MODE'] === 'true' || env['GEMINI_CLI_TRUST_WORKSPACE'] === 'false') return false
-  if (env['GEMINI_CLI_TRUST_WORKSPACE'] === 'true') return true
+  if (env['GEMINI_RESTRICTED_MODE'] === 'true' || env['GEMINI_CLI_TRUST_WORKSPACE'] === 'false') {
+    return { trusted: false, unavailable: false }
+  }
+  if (env['GEMINI_CLI_TRUST_WORKSPACE'] === 'true') return { trusted: true, unavailable: false }
 
   const home = env['GEMINI_CLI_HOME'] || options.home || env['HOME'] || homedir()
-  const settings = readJson(join(home, '.gemini', 'settings.json'))
-  const security = object(settings) && object(settings['security']) ? settings['security'] : null
-  const folderTrust = security && object(security['folderTrust']) ? security['folderTrust'] : null
-  // Gemini's settings schema defaults `security.folderTrust.enabled` to true.
-  // Its trust resolver bypasses the trusted-folders file only when disabled.
-  if (folderTrust?.['enabled'] === false) return true
+  const sysPath = systemSettingsPath(env)
+  const layers = [
+    // The schema default is true; explicit values then follow Gemini's initial
+    // trust check order, with the system file taking final precedence.
+    { security: { folderTrust: { enabled: true } } },
+    settingsAt(systemDefaultsPath(env, sysPath)),
+    settingsAt(settingsPath(env, home)),
+    settingsAt(sysPath),
+  ]
+  let folderTrustEnabled = true
+  for (const layer of layers) {
+    const security = object(layer['security']) ? layer['security'] : null
+    const folderTrust = security && object(security['folderTrust']) ? security['folderTrust'] : null
+    if (typeof folderTrust?.['enabled'] === 'boolean') folderTrustEnabled = folderTrust['enabled']
+  }
+  if (!folderTrustEnabled) return { trusted: true, unavailable: false }
 
   const trustedPath = env['GEMINI_CLI_TRUSTED_FOLDERS_PATH'] || join(home, '.gemini', 'trustedFolders.json')
-  if (!existsFile(trustedPath)) return false
-  const parsed = readJson(trustedPath)
-  if (!object(parsed)) return false
+  if (!existsFile(trustedPath)) return { trusted: false, unavailable: false }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(withoutComments(readFileSync(trustedPath, 'utf8'))) as unknown
+  } catch {
+    return { trusted: false, unavailable: true }
+  }
+  if (!object(parsed)) return { trusted: false, unavailable: true }
 
   const location = canonical(target)
   let longest = -1
   let decision: string | undefined
   for (const [rulePath, trustLevel] of Object.entries(parsed)) {
-    if (trustLevel !== 'TRUST_FOLDER' && trustLevel !== 'TRUST_PARENT' && trustLevel !== 'DO_NOT_TRUST') return false
+    if (trustLevel !== 'TRUST_FOLDER' && trustLevel !== 'TRUST_PARENT' && trustLevel !== 'DO_NOT_TRUST') {
+      return { trusted: false, unavailable: true }
+    }
     const normalizedRule = normalize(rulePath)
     const effectivePath = trustLevel === 'TRUST_PARENT' ? dirname(normalizedRule) : normalizedRule
     if (contains(canonical(effectivePath), location) && normalizedRule.length > longest) {
@@ -91,8 +136,11 @@ export const geminiTrustsFolder = (target: string, options: GeminiTrustOptions =
       decision = trustLevel
     }
   }
-  return decision === 'TRUST_FOLDER' || decision === 'TRUST_PARENT'
+  return { trusted: decision === 'TRUST_FOLDER' || decision === 'TRUST_PARENT', unavailable: false }
 }
+
+export const geminiTrustsFolder = (target: string, options: GeminiTrustOptions = {}): boolean =>
+  geminiTrustsFolderStatus(target, options).trusted
 
 const existsFile = (path: string): boolean => {
   try { return statSync(path).isFile() } catch { return false }

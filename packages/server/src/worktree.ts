@@ -104,10 +104,10 @@ const canonical = async (path: string): Promise<string> => {
 
 /** Where a repository's worktrees go: outside it, under HarnessDesk's own directory. */
 export const worktreeHome = async (repoRoot: string, stateDir: string): Promise<string> => {
-  const root = await canonical(repoRoot)
-  const hash = createHash('sha256').update(root).digest('hex').slice(0, 10)
+  // The container exists before its path is canonicalised, or a first run
+  // would name it through an unresolved link (`/var` for `/private/var`).
   await mkdir(join(stateDir, 'worktrees'), { recursive: true })
-  return join(await canonical(join(stateDir, 'worktrees')), `${basename(root)}-${hash}`)
+  return worktreeHomePath(repoRoot, stateDir)
 }
 
 /** The managed worktree container, without creating it; previews use this to predict future checkouts. */
@@ -115,6 +115,13 @@ export const worktreeHomePath = async (repoRoot: string, stateDir: string): Prom
   const root = await canonical(repoRoot)
   const hash = createHash('sha256').update(root).digest('hex').slice(0, 10)
   return join(await canonical(join(stateDir, 'worktrees')), `${basename(root)}-${hash}`)
+}
+
+/** Where `create` would put a checkout of this name, predicted without creating anything. */
+export const managedWorktreePath = async (repoPath: string, stateDir: string, name: string): Promise<string> => {
+  const main = await repositoryRoot(repoPath)
+  if (!main) throw new Error(`${repoPath} is not inside a git repository.`)
+  return join(await worktreeHomePath(main, stateDir), slugify(name))
 }
 
 /** The main checkout for any path inside a repository or one of its worktrees. */
@@ -332,7 +339,7 @@ export const create = async (
     attempt += 1
     slug = `${slugify(options.name)}-${attempt}`
   }
-  const path = join(home, slug)
+  const path = join(await worktreeHome(main, options.stateDir), slug)
   const branch = `harnessdesk/${slug}`
   await git(main, ['worktree', 'add', '-b', branch, path, options.base ?? 'HEAD'])
   return { path, branch, head: (await git(path, ['rev-parse', 'HEAD'])).trim(), isMain: false, managed: true }

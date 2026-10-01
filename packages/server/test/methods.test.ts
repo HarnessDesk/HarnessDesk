@@ -42,12 +42,23 @@ test('opening in a folder without runtime board tools sends a session-linked not
       presentation: { name: 'Gemini CLI', pluginToolsUnavailable: 'Open Gemini here, run /permissions trust, and start again.' },
     },
     pluginToolsAvailableAt: async () => false,
+    pluginToolsProblemAt: async () => "Gemini can't read its trusted-folders file, so it can't use board tools. Fix that file and start again.",
     createSession: async () => ({ id: session.id }),
+    resumeSession: async (id: string) => ({ id, settings: () => ({}), options: () => ({ cwd: root }) }),
   } as unknown as AgentRuntime
   const ctx = contextWith({
     runtimes: { resolve: () => runtime },
-    laneEnvironment: { forCheckout: () => undefined },
-    sessions: { attach: async () => session },
+    laneEnvironment: { forCheckout: () => undefined, forSession: async () => undefined },
+    sessions: {
+      attach: async () => session,
+      read: async (_runtime: unknown, id: string) => ({ ...session, id, cwd: id === 's2' ? join(root, 'resumed') : root }),
+    },
+    registry: {
+      get: () => null,
+      upsert: (opened: unknown) => ({ session: opened }),
+    },
+    attachments: { carriesFilter: async () => false },
+    routes: { resolve: async () => null },
     push: (notification: unknown) => pushed.push(notification),
   })
   const opened = await dispatch(ctx, 'session/create', { runtime: runtime.info.id, options: { cwd: root } })
@@ -59,11 +70,17 @@ test('opening in a folder without runtime board tools sends a session-linked not
       id: (pushed[0] as { params: { notice: { id: string } } }).params.notice.id,
       where: 'inbox',
       title: 'Board tools are unavailable in this folder',
-      body: 'Open Gemini here, run /permissions trust, and start again.',
+      body: "Gemini can't read its trusted-folders file, so it can't use board tools. Fix that file and start again.",
       from: { runtime: 'gemini', sessionId: 's1', name: 'Gemini CLI' },
       at: (pushed[0] as { params: { notice: { at: number } } }).params.notice.at,
     } },
   })
+  await dispatch(ctx, 'session/resume', { runtime: runtime.info.id, sessionId: sessionId('s1') })
+  assert.equal(pushed.length, 1, 'resuming the same folder does not repeat the notice')
+  await dispatch(ctx, 'session/resume', { runtime: runtime.info.id, sessionId: sessionId('s2') })
+  assert.equal(pushed.length, 2, 'a resumed session in a different folder gets its own notice')
+  await dispatch(ctx, 'session/resume', { runtime: runtime.info.id, sessionId: sessionId('s3') })
+  assert.equal(pushed.length, 2, 'the resumed folder is also deduplicated')
 })
 
 const fakeRuntime = (id: string, options: { processes?: boolean; ready?: boolean } = {}): AgentRuntime =>

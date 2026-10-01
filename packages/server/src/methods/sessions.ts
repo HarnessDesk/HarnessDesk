@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+import { realpathSync } from 'node:fs'
+import { resolve } from 'node:path'
 import {
   folderGoneOf,
   isFolderGone,
@@ -7,6 +9,7 @@ import {
   sessionId as makeSessionId,
   SessionFolderGoneError,
   SessionGoneError,
+  type AgentRuntime,
   type AgentSession,
   type Session,
 } from '@harnessdesk/protocol'
@@ -14,8 +17,40 @@ import {
 import * as gitOps from '../git-ops.js'
 import { laneEnvironmentFor } from '../goals/lane-environment.js'
 import { assertAbsoluteCwd } from '../workspace.js'
-import type { MethodsUnder } from './context.js'
+import type { HostContext, MethodsUnder } from './context.js'
 import { checkOption } from './runtimes.js'
+
+const unavailableNoticeFolders = new WeakMap<HostContext, Set<string>>()
+
+const folderKey = (cwd: string): string => {
+  try { return realpathSync(cwd) } catch { return resolve(cwd) }
+}
+
+const announceUnavailableTools = async (ctx: HostContext, runtime: AgentRuntime, session: Session): Promise<void> => {
+  if (!runtime.info.capabilities.pluginTools || !runtime.pluginToolsAvailableAt) return
+  if (await runtime.pluginToolsAvailableAt(session.cwd)) return
+  const body = (await runtime.pluginToolsProblemAt?.(session.cwd)) ?? runtime.info.presentation.pluginToolsUnavailable
+  if (!body) return
+  const folder = folderKey(session.cwd)
+  let announced = unavailableNoticeFolders.get(ctx)
+  if (!announced) {
+    announced = new Set()
+    unavailableNoticeFolders.set(ctx, announced)
+  }
+  if (announced.has(folder)) return
+  announced.add(folder)
+  ctx.push({
+    method: 'person/notice',
+    params: { notice: {
+      id: randomUUID(),
+      where: 'inbox',
+      title: 'Board tools are unavailable in this folder',
+      body,
+      from: { runtime: String(runtime.info.id), sessionId: String(session.id), name: runtime.info.presentation.name },
+      at: Date.now(),
+    } },
+  })
+}
 
 /**
  * Conversations as the host holds them: listing and search across the
@@ -84,21 +119,7 @@ export const sessionMethods = {
     const environment = laneEnvironmentFor(runtime, ctx.laneEnvironment.forCheckout(options.cwd))
     const live = await runtime.createSession({ ...options, ...(environment ? { environment } : {}) })
     const session = await ctx.sessions.attach(runtime, live.id, live)
-    if (runtime.info.capabilities.pluginTools && runtime.pluginToolsAvailableAt &&
-        !(await runtime.pluginToolsAvailableAt(session.cwd))) {
-      const body = runtime.info.presentation.pluginToolsUnavailable
-      if (body) ctx.push({
-        method: 'person/notice',
-        params: { notice: {
-          id: randomUUID(),
-          where: 'inbox',
-          title: 'Board tools are unavailable in this folder',
-          body,
-          from: { runtime: String(runtime.info.id), sessionId: String(session.id), name: runtime.info.presentation.name },
-          at: Date.now(),
-        } },
-      })
-    }
+    await announceUnavailableTools(ctx, runtime, session)
     return session
   },
 
@@ -201,7 +222,9 @@ export const sessionMethods = {
     // render.
     const transcript = await ctx.sessions.read(runtime, live.id)
     const session: Session = { ...transcript, settings: live.settings(), options: live.options() }
-    return ctx.registry.upsert(session, live).session
+    const resumed = ctx.registry.upsert(session, live).session
+    await announceUnavailableTools(ctx, runtime, resumed)
+    return resumed
   },
 
   'session/fork': async (ctx, params) => {

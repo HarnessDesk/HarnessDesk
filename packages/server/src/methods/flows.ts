@@ -1,9 +1,7 @@
-import { join } from 'node:path'
 import type { AgentRuntime, Flow, FlowProblem, ModelInfo } from '@harnessdesk/protocol'
 
 import { CHANGED_PREVIEW } from '../flow-preview.js'
 import { sourceDigest } from '../flow-execution.js'
-import { worktreeHomePath } from '../worktree.js'
 import { dryRun, parseFlow, validateFlow } from '../flow.js'
 import type { HostContext, MethodsUnder } from './context.js'
 
@@ -56,7 +54,7 @@ export const flowMethods = {
     })
     return {
       ...report,
-      problems: [...problems, ...report.problems, ...(await unavailableSeats(ctx, flow, params.root))],
+      problems: [...problems, ...report.problems, ...(await unavailableSeats(ctx, flow))],
     }
   },
 
@@ -225,7 +223,7 @@ const checkEffort = (
  * is spent: a flow that opens three of four seats and then stops is a room
  * somebody has to clean up.
  */
-const unavailableSeats = async (ctx: HostContext, flow: Flow, root: string): Promise<FlowProblem[]> => {
+const unavailableSeats = async (ctx: HostContext, flow: Flow): Promise<FlowProblem[]> => {
   const problems: FlowProblem[] = []
   for (const role of flow.roles) {
     for (const [index, seat] of role.seats.entries()) {
@@ -246,19 +244,6 @@ const unavailableSeats = async (ctx: HostContext, flow: Flow, root: string): Pro
           text: `${runtime.info.presentation.name} does not take HarnessDesk's tools, so a seat on it could never claim a card`,
         })
         continue
-      }
-      if (runtime && runtime.pluginToolsAvailableAt) {
-        const cwd = role.isolate
-          ? join(await worktreeHomePath(root, ctx.state.directory), '__flow-preview__')
-          : root
-        if (!(await runtime.pluginToolsAvailableAt(cwd))) {
-          problems.push({
-            level: 'error',
-            at,
-            text: runtime.info.presentation.pluginToolsUnavailable ?? `${runtime.info.presentation.name} cannot use HarnessDesk's tools in this checkout, so it cannot claim a card`,
-          })
-          continue
-        }
       }
       if (!runtime) {
         problems.push({

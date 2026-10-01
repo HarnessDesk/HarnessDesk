@@ -952,6 +952,8 @@ export interface AgentRuntime {
 
   /** Whether the runtime will start the desk's tool server for a session in this folder. */
   pluginToolsAvailableAt?(cwd: string): Promise<boolean>
+  /** A folder-specific explanation when desk tools are withheld, when the runtime can distinguish causes. */
+  pluginToolsProblemAt?(cwd: string): Promise<string | null>
 
   /** Bring the runtime up. Safe to call more than once. */
   start(): Promise<void>

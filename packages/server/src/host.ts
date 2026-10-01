@@ -125,7 +125,7 @@ import { CredentialBroker, plainCipher, type CredentialCipher } from './credenti
 import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
 import { canonicalDestination } from './git-worktree.js'
-import { Worktrees, createDetached, openRepositoryRoot, remove as removeWorktree, removeCheckoutsLeftBehind, repositoryOf, worktreeHomePath } from './worktree.js'
+import { Worktrees, createDetached, managedWorktreePath, openRepositoryRoot, remove as removeWorktree, removeCheckoutsLeftBehind, repositoryOf } from './worktree.js'
 import { commitCardWork } from './card-commit.js'
 import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 import { LibraryUsageReader } from './library-usage.js'
@@ -1471,9 +1471,11 @@ export class Host {
         const runtime = this.#runtimes.get(runtimeId(runtimeName))
         if (!runtime || !runtime.info.capabilities.pluginTools) return null
         const cwd = isolate
-          ? join(await worktreeHomePath(root, this.#state.directory), '__flow-preview__')
+          ? await managedWorktreePath(root, this.#state.directory, 'lane-preview').catch(() => root)
           : root
         if (await (runtime.pluginToolsAvailableAt?.(cwd) ?? Promise.resolve(true))) return null
+        const problem = await runtime.pluginToolsProblemAt?.(cwd)
+        if (problem) return problem
         return runtime.info.presentation.pluginToolsUnavailable ?? `${runtime.info.presentation.name} cannot use HarnessDesk's tools in this checkout, so it cannot claim a card`
       },
       storedRun: async (run) => this.#flows.storedRun(run),
