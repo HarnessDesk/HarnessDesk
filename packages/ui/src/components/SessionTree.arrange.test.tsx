@@ -233,6 +233,72 @@ it('folds every project the list is showing, not just the ones on screen', () =>
   )
 })
 
+const openControlSubmenu = async (name: string): Promise<HTMLElement> => {
+  const trigger = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .find((item) => item.querySelector('[class*="title"]')?.textContent?.trim() === name)
+  if (!trigger) throw new Error(`the ${name} submenu did not render`)
+  act(() => trigger.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  return trigger
+}
+
+it('keeps display controls to three flyouts and the project fold actions', () => {
+  const { store } = rig()
+  act(() => root.render(<StoreProvider store={store}><SessionListControls /></StoreProvider>))
+  const trigger = container.querySelector('button')!
+  act(() => trigger.click())
+  const menu = document.querySelector('[role="menu"]')!
+  const labels = [...menu.querySelectorAll<HTMLElement>(':scope > [role="menuitem"]')]
+    .map((item) => item.querySelector('[class*="title"]')?.textContent?.trim())
+  expect(labels).toEqual(['Sort projects', 'Density', 'Show agents', 'Collapse all', 'Expand all'])
+  expect(menu.querySelectorAll(':scope > [role="menuitem"]')).toHaveLength(5)
+  expect(menu.querySelector('[role="separator"]')).not.toBeNull()
+  expect(container.querySelector('[data-filtered]')).toBeNull()
+})
+
+it('keeps the filter dot on the display trigger while an agent filter hides rows', () => {
+  const { store } = rig({ agent: runtime.id })
+  act(() => root.render(<StoreProvider store={store}><SessionListControls /></StoreProvider>))
+  const controls = container.querySelector('[data-filtered]')!
+  expect(controls.querySelector('[aria-hidden="true"]')).not.toBeNull()
+  expect(controls.querySelector('button[title="How this list is shown"]')).not.toBeNull()
+})
+
+it('sorts projects and changes density only through their flyouts', async () => {
+  const { store } = rig()
+  act(() => root.render(<StoreProvider store={store}><SessionListControls /></StoreProvider>))
+  act(() => container.querySelector('button')!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  await openControlSubmenu('Sort projects')
+  const name = [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
+    .find((item) => item.querySelector('[class*="title"]')?.textContent?.trim() === 'Name')!
+  act(() => name.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  expect(store.setListPrefs).toHaveBeenCalledWith({ sort: 'name' })
+
+  act(() => container.querySelector('button')!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  await openControlSubmenu('Density')
+  const compact = [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
+    .find((item) => item.querySelector('[class*="title"]')?.textContent?.trim() === 'Compact')!
+  act(() => compact.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  expect(store.setListPrefs).toHaveBeenCalledWith({ density: 'compact', densityPicked: true })
+})
+
+it('shows every runtime in the Show agents flyout and filters by the chosen runtime', async () => {
+  const more = { ...runtime, id: 'other', presentation: { name: 'Other Agent' } } as RuntimeInfo
+  const { snapshot, store } = rig()
+  const nextSnapshot = { ...snapshot, runtimes: [runtime, more] } as AppSnapshot
+  const storeWithRuntimes = { ...store, getSnapshot: () => nextSnapshot } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={storeWithRuntimes}><SessionListControls /></StoreProvider>))
+  act(() => container.querySelector('button')!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  await openControlSubmenu('Show agents')
+  const menus = [...document.querySelectorAll<HTMLElement>('[role="menu"]')]
+  const labels = [...menus[1]!.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
+    .map((item) => item.querySelector('[class*="title"]')?.textContent?.trim())
+  expect(labels).toEqual(['All agents', 'Agent', 'Other Agent'])
+  const other = [...menus[1]!.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
+    .find((item) => item.querySelector('[class*="title"]')?.textContent?.trim() === 'Other Agent')!
+  act(() => other.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  expect(storeWithRuntimes.setListPrefs).toHaveBeenCalledWith({ agent: 'other' })
+})
+
 it('reads which projects are folded from preferences, so a restart keeps them', () => {
   const { store } = rig({ collapsed: ['/one', '/two', '/three'] })
   act(() => {

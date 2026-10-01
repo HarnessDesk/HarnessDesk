@@ -19,6 +19,7 @@ import {
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
+  Submenu,
   Text,
   buttonVariants,
   useContextMenu,
@@ -284,15 +285,14 @@ const SessionRow = ({
       </SidebarMenuItem>
       <ContextMenu at={menu.at} label={`Actions for ${label}`} onClose={menu.close}>
         <MenuItem
+          icon={<PencilIcon size={13} />}
+          label="Rename"
+          onSelect={startRename}
+        />
+        <MenuItem
           icon={pinned ? <UnpinIcon size={13} /> : <PinIcon size={13} />}
           label={pinned ? 'Unpin' : 'Pin'}
           onSelect={() => store.toggleSessionPinned(String(key))}
-        />
-        <MenuItem
-          icon={<CopyIcon size={13} />}
-          label="Copy"
-          value="⌘C"
-          onSelect={() => void navigator.clipboard?.writeText(label).catch(() => {})}
         />
         <MenuSeparator />
         {/* The way to get a second transcript on screen. Reading what another
@@ -303,16 +303,10 @@ const SessionRow = ({
         <MenuItem
           icon={<PanelIcon size={13} />}
           label="Open on the right"
-          hint="Read this beside the conversation you are in"
+          title="Read this beside the conversation you are in."
           onSelect={() => {
             void store.openSession(summary.id, { runtime: summary.runtime, area: 'right' })
           }}
-        />
-        <MenuSeparator />
-        <MenuItem
-          icon={<PencilIcon size={13} />}
-          label="Rename"
-          onSelect={startRename}
         />
         <MenuItem
           icon={<ForkIcon size={13} />}
@@ -322,6 +316,12 @@ const SessionRow = ({
               .openSession(summary.id, { runtime: summary.runtime })
               .then(() => store.forkSession())
           }}
+        />
+        <MenuItem
+          icon={<CopyIcon size={13} />}
+          label="Copy"
+          value="⌘C"
+          onSelect={() => void navigator.clipboard?.writeText(label).catch(() => {})}
         />
         <MenuSeparator />
         <MenuItem
@@ -373,48 +373,45 @@ export const SessionListControls = () => {
                 below is a refinement of. ⌥-click on any project's chevron
                 does the same thing without opening this. */}
             <MenuLabel>Projects</MenuLabel>
-            {/* The count was the only part of this row's second line that was
-                not a restatement of the verb, and a count is not a sentence:
-                it goes at the row's end, where the app already puts a
-                branch's age. */}
-            <MenuItem
-              icon={<CollapseAllIcon size={14} />}
-              label="Collapse all"
-              value={roots.length === 1 ? '1 project' : `${roots.length} projects`}
-              title="Folds every project shut."
-              disabled={openCount === 0 ? 'Every project is already folded.' : false}
-              onSelect={() => store.setProjectsCollapsed(roots, true)}
-            />
-            <MenuItem
-              icon={<ExpandAllIcon size={14} />}
-              label="Expand all"
-              disabled={openCount === roots.length ? 'Every project is already open.' : false}
-              onSelect={() => store.setProjectsCollapsed(roots, false)}
-            />
-            <MenuLabel>Density</MenuLabel>
-            <MenuItem
-              icon={<RowsLooseIcon size={14} />}
-              selected={prefs.density === 'comfortable'}
-              label="Comfortable"
-              onSelect={() => store.setListPrefs({ density: 'comfortable', densityPicked: true })}
-            />
-            <MenuItem
-              icon={<RowsTightIcon size={14} />}
-              selected={prefs.density === 'compact'}
-              label="Compact"
-              onSelect={() => store.setListPrefs({ density: 'compact', densityPicked: true })}
-            />
-            <MenuLabel>Agent</MenuLabel>
-            <MenuItem
-              icon={<EveryoneIcon size={14} />}
-              selected={prefs.agent === null}
-              label="All agents"
-              onSelect={() => store.setListPrefs({ agent: null })}
-            />
-            {/* One row per agent, not per account. Codex's accounts share one
-                session store, so "sessions from this account" is not a thing
-                the list could honour — the agent is the real distinction. */}
-            {agentGroups(snapshot.runtimes).map(({ info }) => (
+            <Submenu label="Sort projects" value={prefs.sort === 'recency' ? 'Recency' : 'Name'}>
+              <MenuItem
+                icon={<ClockIcon size={14} />}
+                selected={prefs.sort === 'recency'}
+                label="Recency"
+                onSelect={() => store.setListPrefs({ sort: 'recency' })}
+              />
+              <MenuItem
+                icon={<SortNameIcon size={14} />}
+                selected={prefs.sort === 'name'}
+                label="Name"
+                onSelect={() => store.setListPrefs({ sort: 'name' })}
+              />
+            </Submenu>
+            <Submenu label="Density" value={prefs.density === 'comfortable' ? 'Comfortable' : 'Compact'}>
+              <MenuItem
+                icon={<RowsLooseIcon size={14} />}
+                selected={prefs.density === 'comfortable'}
+                label="Comfortable"
+                onSelect={() => store.setListPrefs({ density: 'comfortable', densityPicked: true })}
+              />
+              <MenuItem
+                icon={<RowsTightIcon size={14} />}
+                selected={prefs.density === 'compact'}
+                label="Compact"
+                onSelect={() => store.setListPrefs({ density: 'compact', densityPicked: true })}
+              />
+            </Submenu>
+            <Submenu label="Show agents" value={prefs.agent === null ? 'All agents' : agentGroups(snapshot.runtimes).find(({ info }) => agentKey(info) === prefs.agent)?.info.presentation.name ?? 'All agents'}>
+              <MenuItem
+                icon={<EveryoneIcon size={14} />}
+                selected={prefs.agent === null}
+                label="All agents"
+                onSelect={() => store.setListPrefs({ agent: null })}
+              />
+              {/* One row per agent, not per account. Codex's accounts share one
+                  session store, so "sessions from this account" is not a thing
+                  the list could honour — the agent is the real distinction. */}
+              {agentGroups(snapshot.runtimes).map(({ info }) => (
               <MenuItem
                 key={info.id}
                 icon={<RuntimeMark runtime={info} />}
@@ -423,18 +420,20 @@ export const SessionListControls = () => {
                 onSelect={() => store.setListPrefs({ agent: agentKey(info) })}
               />
             ))}
-            <MenuLabel>Sort folders</MenuLabel>
+            </Submenu>
+            <MenuSeparator />
             <MenuItem
-              icon={<ClockIcon size={14} />}
-              selected={prefs.sort === 'recency'}
-              label="Recency"
-              onSelect={() => store.setListPrefs({ sort: 'recency' })}
+              icon={<CollapseAllIcon size={14} />}
+              label="Collapse all"
+              value={roots.length === 1 ? '1 project' : `${roots.length} projects`}
+              disabled={openCount === 0 ? 'Every project is already folded.' : false}
+              onSelect={() => store.setProjectsCollapsed(roots, true)}
             />
             <MenuItem
-              icon={<SortNameIcon size={14} />}
-              selected={prefs.sort === 'name'}
-              label="Name"
-              onSelect={() => store.setListPrefs({ sort: 'name' })}
+              icon={<ExpandAllIcon size={14} />}
+              label="Expand all"
+              disabled={openCount === roots.length ? 'Every project is already open.' : false}
+              onSelect={() => store.setProjectsCollapsed(roots, false)}
             />
           </Menu>
         )}

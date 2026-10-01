@@ -37,7 +37,7 @@ it('keeps Archive self-explanatory without a subtitle', () => {
   const runtime = {
     id: 'agent',
     name: 'Agent',
-    capabilities: { deleteHistory: true },
+    capabilities: {},
     presentation: { name: 'Agent' },
   } as unknown as RuntimeInfo
   const summary = {
@@ -1539,6 +1539,16 @@ it('renames an inactive session without opening it or changing active session (#
   act(() => {
     menuB!.click()
   })
+
+  const menu = document.querySelector('[role="menu"]')!
+  expect([...menu.querySelectorAll<HTMLElement>(':scope > [role="menuitem"]')]
+    .map((item) => item.querySelector('[class*="title"]')?.textContent?.trim()))
+    .toEqual(['Rename', 'Pin', 'Open on the right', 'Branch from here', 'Copy', 'Archive', 'Delete…'])
+  expect(menu.querySelectorAll('[role="separator"]')).toHaveLength(2)
+  const deleteOption = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .find((item) => item.textContent?.includes('Delete…'))!
+  expect(deleteOption.getAttribute('aria-disabled')).toBe('true')
+  expect(deleteOption.getAttribute('title')).toBe('Agent keeps no way to delete one.')
 
   // Click Rename in context menu
   const renameOption = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>

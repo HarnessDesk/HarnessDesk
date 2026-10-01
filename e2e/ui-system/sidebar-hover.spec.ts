@@ -158,7 +158,7 @@ test(`workspace hover keeps its pin visible and label width fixed (${theme})`, a
     const actions = group.getByRole('button', { name: 'Actions for HarnessDesk', exact: true })
     await group.hover()
     await actions.click()
-    await page.getByRole('menuitem', { name: 'Pin to top', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Pin', exact: true }).click()
     const pin = group.locator('[data-slot="sidebar-menu-badge"][aria-label="Pinned"]')
     const title = group.locator('[data-slot="sidebar-menu-label"]')
     await expect(pin).toBeVisible()
@@ -201,6 +201,7 @@ test(`workspace hover keeps its pin visible and label width fixed (${theme})`, a
       await page.goto('/preview.html')
       await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
       await sidebar(page).getByRole('button', { name: 'How this list is shown', exact: true }).click()
+      await page.getByRole('menuitem', { name: /^Density\b/ }).hover()
       await page.getByRole('menuitemradio', { name: density, exact: true }).click()
       const label = 'Learn from every single tab of the settings screen'
       const row = page.locator('[data-region="session-row"] [data-slot="sidebar-menu-item"]').filter({
