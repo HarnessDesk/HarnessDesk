@@ -136,7 +136,7 @@ const WorkspaceRows = ({
   const order = snapshot.listPrefs.pinned
   const place = order.indexOf(group.root)
   const pinned = place !== -1
-  const ready = snapshot.health?.state === 'ready'
+  const ready = snapshot.health?.state === 'ready' || snapshot.health?.state === 'idle'
   // A repository is a precondition for a worktree. The group itself does not
   // know; its sessions do, and the open workspace knows for certain.
   const isRepo = current

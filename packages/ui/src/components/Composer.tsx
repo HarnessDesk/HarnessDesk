@@ -205,7 +205,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   const waiting = queue?.messages.length ?? 0
   // No session yet is not a locked composer: typing is how a session starts.
   // Only a missing workspace or a runtime that is not ready blocks input.
-  const ready = snapshot.health?.state === 'ready'
+  const ready = snapshot.health?.state === 'ready' || snapshot.health?.state === 'idle'
   const canType = Boolean(session) || (ready && Boolean(snapshot.workspace))
   // A hand-off chip rides on the draft only; it leaves with the first message.
   const handoff = session ? null : snapshot.draftHandoff
