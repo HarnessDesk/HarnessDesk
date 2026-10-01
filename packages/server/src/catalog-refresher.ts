@@ -160,7 +160,7 @@ export class CatalogRefresher {
     const crashed = health?.state === 'unavailable' && health.reason === 'crashed'
     if (!runtime) {
       reason = 'It is not registered here.'
-    } else if (health?.state !== 'ready' && !crashed) {
+    } else if (health?.state !== 'ready' && health?.state !== 'idle' && !crashed) {
       reason = 'It is not running.'
     } else {
       try {

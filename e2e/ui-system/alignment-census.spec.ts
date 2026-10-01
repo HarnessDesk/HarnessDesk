@@ -89,6 +89,20 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     const rect = [...range.getClientRects()].find(rect => rect.width > 0 && rect.height > 0)
     return rect ? { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom } : null
   }
+  const firstTextLine = (element: Element) => {
+    // A range over nested block content can return its full container bounds,
+    // not a line fragment; compare leads with the first visible text node's first fragment.
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+    while (walker.nextNode()) {
+      const node = walker.currentNode
+      if (!node.textContent?.trim() || (node.parentElement && hidden(node.parentElement))) continue
+      const range = document.createRange()
+      range.selectNodeContents(node)
+      const rect = [...range.getClientRects()].find(rect => rect.width > 0 && rect.height > 0)
+      if (rect) return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
+    }
+    return null
+  }
   const boxSurface = (element: Element) => {
     const style = getComputedStyle(element)
     const rect = element.getBoundingClientRect()
@@ -98,7 +112,9 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
       return width > 0 && style[`border${side}Style` as 'borderTopStyle'] !== 'none'
     })
     const shadowed = style.boxShadow !== 'none' && style.boxShadow.includes('inset')
-    return rect.width >= 120 && (painted || bordered || shadowed)
+    // Some surfaces are defined by their inset even when their visible edge
+    // is painted by an overlay ancestor, so parts can mark that geometry.
+    return element.hasAttribute('data-surface') || (rect.width >= 120 && (painted || bordered || shadowed))
   }
   const descriptors = (element: Element) => {
     const parts: string[] = []
@@ -143,10 +159,11 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     const lead = children[0]!
     const text = children[1]!
     const leadRect = lead.getBoundingClientRect()
-    const line = firstLine(text)
+    const line = firstTextLine(text)
     const iconLike = (lead.tagName.toLowerCase() === 'svg' || lead.tagName.toLowerCase() === 'img' ||
       (leadRect.width <= 40 && leadRect.height <= 40 && hasIcon(lead) && !hasText(lead)))
-    if (iconLike && hasText(text) && line && line.left >= leadRect.left && line.left - leadRect.right < row.getBoundingClientRect().width) {
+    // A surface child is its own panel, not this row's text column.
+    if (iconLike && hasText(text) && !boxSurface(text) && line && line.left >= leadRect.left && line.left - leadRect.right < row.getBoundingClientRect().width) {
       const delta = Math.abs((leadRect.top + leadRect.bottom) / 2 - (line.top + line.bottom) / 2)
       const rowStyle = getComputedStyle(row)
       const firstLineAligned = rowStyle.alignItems === 'flex-start' || rowStyle.alignItems === 'start'

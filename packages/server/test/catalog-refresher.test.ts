@@ -133,6 +133,18 @@ test('a runtime that crashed is asked to refresh, because for it the refresh is 
   assert.deepEqual(crashed.calls, ['refresh'])
 })
 
+test('an idle runtime is explicitly started through refresh and is not refused as stopped', async () => {
+  const idle = stub('idle', {
+    health: { state: 'idle' },
+    refresh: async () => ({ refreshed: true }),
+  })
+  const refresher = new CatalogRefresher({ now: () => 7 })
+  refresher.watch(idle)
+  const asked = await refresher.refresh('idle' as never)
+  assert.equal(asked.refreshed, true)
+  assert.deepEqual(idle.calls, ['refresh'])
+})
+
 test('one runtime failing never stops another from being asked', async () => {
   const failing = stub('f', {
     check: async () => {
@@ -307,4 +319,3 @@ test('a runtime that declines to re-read is reported as such, not as a success',
     reason: 'A turn is in flight.',
   })
 })
-

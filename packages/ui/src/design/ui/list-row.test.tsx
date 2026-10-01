@@ -69,6 +69,16 @@ it('keeps multiple lead marks beside rather than over one another', () => {
   expect(markup).toContain('gap-2')
 })
 
+it('gives a lead beside wrapped copy a box the height of its first line', () => {
+  const small = renderToStaticMarkup(<ListRow size="sm" lead={<span>mark</span>} title="Board" subtitle="A second line" />)
+  const regular = renderToStaticMarkup(<ListRow lead={<span>mark</span>} title="Workspace" subtitle="A second line" />)
+
+  expect(small).toContain('h-(--hd-line-sm)')
+  expect(regular).toContain('h-(--hd-line)')
+  expect(small).not.toContain('translate-y-(--hd-space-px)')
+  expect(regular).not.toContain('translate-y-(--hd-space-px)')
+})
+
 it('opens a row detail at the row\'s edges, or on the list\'s inner line when inset', () => {
   const edge = renderToStaticMarkup(<ListRowDetail>patch</ListRowDetail>)
   // A step under the row and a longer one before the next, no side inset.

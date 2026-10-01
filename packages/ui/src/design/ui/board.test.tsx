@@ -223,6 +223,18 @@ describe('a card under content that does not fit', () => {
     expect(column?.className).toContain('border')
     expect(column?.className).toContain('min-h-40')
   })
+
+  it('aligns the header text with both cards and the empty-state line', () => {
+    draw(
+      <Board derived>
+        <BoardColumn title="Ready" count={0} />
+      </Board>,
+    )
+    expect(container.querySelector('[data-slot="board-column"] header > span')?.className).toContain('size-1.5')
+    const empty = container.querySelector<HTMLElement>('[data-slot="board-empty"]')
+    expect(empty?.className).toContain('ps-3')
+    expect(empty?.className).toContain('text-left')
+  })
 })
 
 /**

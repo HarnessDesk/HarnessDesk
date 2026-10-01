@@ -118,7 +118,7 @@ export const Sidebar = ({
 
   const runtime = useRuntime()
   const health = useRuntimeHealth()
-  const ready = health?.state === 'ready'
+  const ready = health?.state === 'ready' || health?.state === 'idle'
   // Not `plugins.length`: an installed copy a built-in has taken over is off,
   // and counting it here made the sidebar promise one more than the page lists.
   const pluginCount = livePlugins(snapshot.plugins).length
@@ -314,7 +314,7 @@ const WorktreeMenu = () => {
   const store = useStore()
   const snapshot = useSnapshot()
   const health = useRuntimeHealth()
-  const ready = health?.state === 'ready'
+  const ready = health?.state === 'ready' || health?.state === 'idle'
   const isRepo = Boolean(snapshot.workspace?.git?.branch)
   const active = snapshot.activeSessionKey ? snapshot.sessions.get(snapshot.activeSessionKey) : undefined
   const mine = snapshot.worktrees.filter((entry) => entry.managed)

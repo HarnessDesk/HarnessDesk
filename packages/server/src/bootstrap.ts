@@ -1,9 +1,9 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { existsSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 
 import { AcpRuntime, type AcpAgentConfig } from '@harnessdesk/adapter-acp'
 import { runtimeId, sessionId, type RuntimeInfo } from '@harnessdesk/protocol'
@@ -86,6 +86,78 @@ export { packagedPath } from './agent-registry.js'
 export const toolBridgeEntry = (entry = defaultToolBridgeEntry()): string | null => {
   const unpacked = packagedPath(entry)
   return existsSync(unpacked) ? unpacked : null
+}
+
+const shellQuote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`
+
+/**
+ * Agent MCP clients may filter ELECTRON_RUN_AS_NODE (the Gemini CLI drops
+ * it), so the launcher sets it itself before executing Electron as Node.
+ * Without it the bridge runs as an Electron app, with a Dock icon (#1155).
+ * It lives in this desk's own `run/` directory, never beside the socket:
+ * the socket can fall back to the shared temporary directory when its path
+ * is too long, and a fixed launcher name there would be one desk's
+ * overwriting another's.
+ */
+export const writeToolLauncher = (directory: string, execPath: string, entry: string): string => {
+  const launcher = join(directory, 'hd-mcp-tools')
+  const temporary = join(directory, `.hd-mcp-tools.${process.pid}.${randomUUID()}.tmp`)
+  mkdirSync(directory, { recursive: true })
+  try {
+    writeFileSync(
+      temporary,
+      `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec ${shellQuote(execPath)} ${shellQuote(entry)} "$@"\n`,
+      { mode: 0o755 },
+    )
+    chmodSync(temporary, 0o755)
+    renameSync(temporary, launcher)
+  } catch (error) {
+    try {
+      unlinkSync(temporary)
+    } catch {
+      // The write may have failed before a temp file existed.
+    }
+    throw error
+  }
+  return launcher
+}
+
+export interface ToolServerOptions {
+  readonly electron?: boolean
+  readonly execPath?: string
+  readonly log?: (message: string) => void
+}
+
+export const createToolServer = (
+  socketPath: string,
+  bridgeEntry: string,
+  /** This desk's own `run/` directory: see `writeToolLauncher`. */
+  launcherDir: string,
+  options: ToolServerOptions = {},
+): { name: string; command: string; args: string[]; env: Record<string, string> } => {
+  const electron = options.electron ?? Boolean(process.versions.electron)
+  const execPath = options.execPath ?? process.execPath
+  const env = {
+    HD_TOOLS_SOCKET: socketPath,
+    ...(electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
+  }
+
+  // Windows has no sh launcher, and the Dock issue this handles is macOS-only.
+  if (!electron || process.platform === 'win32') {
+    return { name: 'harnessdesk', command: execPath, args: [bridgeEntry], env }
+  }
+
+  try {
+    return {
+      name: 'harnessdesk',
+      command: writeToolLauncher(launcherDir, execPath, bridgeEntry),
+      args: [],
+      env,
+    }
+  } catch {
+    options.log?.('could not write the MCP tool launcher; using the direct Electron command')
+    return { name: 'harnessdesk', command: execPath, args: [bridgeEntry], env }
+  }
 }
 
 /**
@@ -344,17 +416,9 @@ export const createDefaultHost = (
     })
   }
   const toolServer = bridgeEntry
-    ? {
-        name: 'harnessdesk',
-        command: process.execPath,
-        args: [bridgeEntry],
-        env: {
-          HD_TOOLS_SOCKET: socketPath,
-          // In the packaged app `process.execPath` is Electron, and Electron
-          // is a Node only when it is told to be. Ignored by a real Node.
-          ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
-        },
-      }
+    ? createToolServer(socketPath, bridgeEntry, join(stateDir, 'run'), {
+        log: (message) => logger.warn(message),
+      })
     : null
 
   // The agent registry. `agents.json` in the state directory names ACP

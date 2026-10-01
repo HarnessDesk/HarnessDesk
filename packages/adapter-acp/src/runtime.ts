@@ -866,6 +866,7 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   get info(): RuntimeInfo {
+    if (this.#health.state === 'idle' && this.#idleInfo) return this.#idleInfo
     const selfVersion = this.#initialized?.agentInfo?.version ?? null
     const effectiveVersion =
       !this.#config.executable && (selfVersion === null || /^(?:0\.0\.0(?:-dev)?|dev|unknown)$/i.test(selfVersion.trim()))
@@ -996,6 +997,8 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   async start(): Promise<void> {
+    // A new process refreshes the observations cached for an idle runtime.
+    this.#idleInfo = null
     // Read beside the start, never ahead of it; `providerAt` waits for it.
     this.#providerRead = this.#refreshProvider()
     // A start that never begins. Not the guard that holds the invariant —
@@ -1254,6 +1257,23 @@ export class AcpRuntime implements AgentRuntime {
     this.#opening = null
   }
 
+  /** Stop only the helper process; the host keeps the session and catalogue records. */
+  async stopForIdle(): Promise<boolean> {
+    if (this.#health.state !== 'ready' || this.#opening !== null) return false
+    const live = [...this.#sessions.values()].filter((session) => session.id !== this.#probeId)
+    if (live.length > 0 || live.some((session) => session.busy)) return false
+    this.#probeOptions = this.#probe?.options() ?? this.#probeOptions
+    this.#idleInfo = this.info
+    await this.#connection.stop()
+    this.#sessions.clear()
+    this.#resuming.clear()
+    this.#openedIn.clear()
+    this.#probe = null
+    this.#probeId = null
+    this.#setHealth({ state: 'idle' })
+    return true
+  }
+
   /**
    * `AgentRuntime.refreshCatalog`, the ACP way. The protocol declares models
    * and modes in `session/new` and has no "list them again"; the only clean
@@ -1391,6 +1411,7 @@ export class AcpRuntime implements AgentRuntime {
     // upgraded CLI is exactly how a new skill appears.
     this.#catalogDefault = null
     this.#commands = []
+    this.#commandsKnown = false
     await this.start()
     return { restarted: true }
   }
@@ -1425,6 +1446,7 @@ export class AcpRuntime implements AgentRuntime {
     this.#opening = null
     this.#catalogDefault = null
     this.#commands = []
+    this.#commandsKnown = false
     await this.start()
     return 'restarted'
   }
@@ -1497,14 +1519,19 @@ export class AcpRuntime implements AgentRuntime {
     // reach column does, and `reported` outranks the disk there) would
     // otherwise read a dead process as "loaded nothing", and every skill on
     // disk would show as unreachable for it.
-    if (this.#commands.length === 0 && this.#health.state !== 'ready') {
+    // A read never wakes an idle agent: with nothing known yet, the idle
+    // case throws below ("has not said what it loaded"), which callers read
+    // as unknown, never as "none".
+    if (!this.#commandsKnown && this.#health.state !== 'ready') {
       throw new Error(
         this.#health.state === 'starting'
           ? 'The agent is still starting and has not said what it loaded.'
-          : this.#health.message,
+          : this.#health.state === 'idle'
+            ? 'The agent is idle and has not said what it loaded.'
+            : this.#health.message,
       )
     }
-    if (this.#commands.length === 0 && this.#health.state === 'ready') {
+    if (!this.#commandsKnown && this.#health.state === 'ready') {
       try {
         await this.#openProbe(cwd)
         // They are declared just *after* the session exists, as an update.
@@ -1535,7 +1562,7 @@ export class AcpRuntime implements AgentRuntime {
 
   /** Remembers what the agent declared it can be asked to run. */
   learnCommands(commands: readonly AcpAvailableCommand[]): void {
-    if (commands.length === 0) return
+    this.#commandsKnown = true
     const same =
       commands.length === this.#commands.length &&
       commands.every((command, index) => command.name === this.#commands[index]?.name)
@@ -1775,6 +1802,7 @@ export class AcpRuntime implements AgentRuntime {
     // cursor, and one it is given is some other listing's. The page after the
     // whole list is empty; answering with the first again repeated it.
     if (query?.cursor) return { data: [], nextCursor: null }
+    if (this.#health.state === 'idle') return this.#historyCache ?? { data: [], nextCursor: null }
     const live = [...this.#sessions.values()]
       .filter((session) => session.id !== this.#probeId)
       .map((session) => session.summary())
@@ -1836,7 +1864,9 @@ export class AcpRuntime implements AgentRuntime {
             git: null,
           }),
         )
-      return { data: [...named, ...stored].sort((a, b) => b.updatedAt - a.updatedAt), nextCursor: null }
+      const page = { data: [...named, ...stored].sort((a, b) => b.updatedAt - a.updatedAt), nextCursor: null }
+      this.#historyCache = page
+      return page
     } catch (error) {
       // A listing that cannot be read to its end is a failure, not a shorter
       // list. Answered with what was read, or with the live sessions alone, it
@@ -1946,6 +1976,31 @@ export class AcpRuntime implements AgentRuntime {
     cwd?: string,
     values?: Readonly<Record<string, OptionValue>>,
   ): Promise<readonly ConfigOption[]> {
+    if (this.#health.state === 'idle') {
+      let options = [...(this.#probeOptions ?? [])]
+      const entries = Object.entries(values ?? {}).sort(([a], [b]) => rankOptionId(a) - rankOptionId(b))
+      for (const [id, value] of entries) {
+        const option = findOption(options, id)
+        const refusal = option ? refuseOptionValue(option, value) : `no option named ${JSON.stringify(id)}`
+        if (!refusal) {
+          // `refuseOptionValue` has checked the value against this option's
+          // declared type; retain that validated pairing for TypeScript.
+          options = options.map((entry) => entry.id === id
+            ? { ...entry, currentValue: value } as ConfigOption
+            : entry)
+          continue
+        }
+        if (rankOptionId(id) < 2) {
+          throw new OptionRefusedError(
+            option ? refusal : `${this.#config.name} has no session option named ${JSON.stringify(id)}.`,
+            id,
+            value,
+            !option,
+          )
+        }
+      }
+      return options
+    }
     const probe = await this.#openProbe(cwd)
     // Draft picks are applied to the probe for real: session/set_* is free of
     // token spend, and only the agent knows which options a pick reveals —
@@ -1981,7 +2036,8 @@ export class AcpRuntime implements AgentRuntime {
       }
       this.#config.logger?.debug?.('draft pick dropped', { option: id, reason: refusal })
     }
-    return probe.options()
+    this.#probeOptions = probe.options()
+    return this.#probeOptions
   }
 
   /**
@@ -2005,6 +2061,10 @@ export class AcpRuntime implements AgentRuntime {
       // A failed open is not a cached answer: the next caller may succeed.
       this.#opening = null
       throw error
+    } finally {
+      // The probe is retained separately; this promise represents only work
+      // still opening it, so an idle stop can distinguish the two.
+      if (this.#probe && this.#opening) this.#opening = null
     }
   }
 
@@ -2024,6 +2084,7 @@ export class AcpRuntime implements AgentRuntime {
     this.#sessions.set(probe.id, probe)
     this.#probe = probe
     this.#probeId = probe.id
+    this.#probeOptions = probe.options()
     this.#learnCatalog(opened)
     return probe
   }
@@ -2032,8 +2093,13 @@ export class AcpRuntime implements AgentRuntime {
   #probeId: SessionId | null = null
   /** The probe being opened right now, so concurrent askers share one. */
   #opening: Promise<AcpSession> | null = null
+  /** Last options from the draft probe; a picker can keep working while stopped. */
+  #probeOptions: readonly ConfigOption[] | null = null
+  #idleInfo: RuntimeInfo | null = null
   /** What the agent's answers showed about its sign-in; see `SignInObservation`. */
   #signIn: SignInObservation = { state: 'unknown' }
+  /** Last complete history answer; sidebar reads must not wake an idle helper. */
+  #historyCache: Page<SessionSummary> | null = null
   /** The agent's models as last declared, for the settings catalogue. */
   #catalog: readonly ModelInfo[] = []
   /**
@@ -2049,6 +2115,7 @@ export class AcpRuntime implements AgentRuntime {
   #catalogRead = false
   /** The commands the agent last declared — its skills, in ACP's vocabulary. */
   #commands: readonly AcpAvailableCommand[] = []
+  #commandsKnown = false
   readonly #commandsWaiting: (() => void)[] = []
 
   /** Resolves on the first declaration, or after a moment if none comes. */
