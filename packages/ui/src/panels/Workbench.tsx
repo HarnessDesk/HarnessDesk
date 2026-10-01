@@ -264,6 +264,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
       {...(corner ? { 'data-lights': corner } : {})}
       {...(dragging ? { 'data-dragging': '' } : {})}
       {...(narrow ? { 'data-narrow': '' } : {})}
+      {...(rightPanelOverlay ? { 'data-right-overlay': '' } : {})}
     >
       {/* The dim behind a floating sidebar. Pressing it is the plainest way
           to put the sidebar away, and it is what keeps a press meant for the

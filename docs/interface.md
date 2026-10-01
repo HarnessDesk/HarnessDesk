@@ -47,6 +47,11 @@ a zoom button, and a collapse toggle. **The controls belong to the panel, not to
 what is inside it** — that is the rule that lets the same component be drawn in
 three edges.
 
+The title bar can also put the right panel away without emptying it: its toggle
+then carries a badge for the number of views waiting there. A split that would
+leave either half below its minimum size stays disabled and tells you the size
+it needs and the size this panel has.
+
 ### Two kinds of tab, and one row where possible
 
 Some tools have documents of their own: the browser has pages, and they get a
