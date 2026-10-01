@@ -26,8 +26,17 @@ const folderKey = (cwd: string): string => {
   try { return realpathSync(cwd) } catch { return resolve(cwd) }
 }
 
+/** A notice, never a reason to fail the open or resume it rides on. */
 const announceUnavailableTools = async (ctx: HostContext, runtime: AgentRuntime, session: Session): Promise<void> => {
-  if (!runtime.info.capabilities.pluginTools || !runtime.pluginToolsAvailableAt) return
+  try {
+    await announceUnavailableToolsOnce(ctx, runtime, session)
+  } catch {
+    // The conversation opened; a folder we could not judge gets no notice.
+  }
+}
+
+const announceUnavailableToolsOnce = async (ctx: HostContext, runtime: AgentRuntime, session: Session): Promise<void> => {
+  if (!runtime.info?.capabilities?.pluginTools || !runtime.pluginToolsAvailableAt) return
   if (await runtime.pluginToolsAvailableAt(session.cwd)) return
   const body = (await runtime.pluginToolsProblemAt?.(session.cwd)) ?? runtime.info.presentation.pluginToolsUnavailable
   if (!body) return
