@@ -195,6 +195,46 @@ describe('PlansTable', () => {
     expect(host.textContent).not.toContain('lifetime')
   })
 
+  it('does not show an activity band for hidden summary fields alone', () => {
+    const windows = info('activity-agent', 'Activity Agent')
+    const mountActivity = (account: string, activity: NonNullable<UsageReport['accountActivity']>) => {
+      const one = report({ runtime: windows.id, account, billing: billing(['windows']), accountActivity: activity })
+      const row = rowsFor([one])[0]!
+      mount(
+        <PlansTable
+          rows={[row]}
+          byId={byIdOf(windows)}
+          now={NOW}
+          filter="all"
+          preferenceFor={() => ({})}
+          onRefreshAccount={() => {}}
+          onStopTracking={() => {}}
+          onOpenPlanSettings={() => {}}
+          initialExpanded={row.key}
+        />,
+      )
+    }
+    const hiddenOnly = [
+      {
+        days: [], lifetimeTokens: null, peakDailyTokens: 10,
+        currentStreakDays: null, longestStreakDays: null,
+      },
+      {
+        days: [], lifetimeTokens: null, peakDailyTokens: null,
+        currentStreakDays: null, longestStreakDays: 8,
+      },
+    ] as const
+
+    hiddenOnly.forEach((activity, index) => {
+      if (index > 0) {
+        act(() => root.unmount())
+        root = createRoot(host)
+      }
+      mountActivity(`hidden-${index}@example.com`, activity)
+      expect(host.querySelector('[data-slot="account-activity"]')).toBeNull()
+    })
+  })
+
   it('expands a row on Enter and collapses it on Escape', () => {
     const codex = info('codex', 'OpenAI Codex')
     const reports = [report({ runtime: codex.id, account: 'me@example.com', lanes: [lane({ id: 'weekly', usedPercent: 40 })], billing: billing(['windows']) })]

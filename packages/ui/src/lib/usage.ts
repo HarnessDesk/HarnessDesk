@@ -65,11 +65,9 @@ export const accountActivitySummary = (
     : series.reduce((sum, tokens) => sum + tokens, 0)
 
   if (
-    activity.days.length === 0 &&
-    activity.lifetimeTokens === null &&
-    activity.peakDailyTokens === null &&
+    last30 === null &&
     activity.currentStreakDays === null &&
-    activity.longestStreakDays === null
+    activity.lifetimeTokens === null
   ) return null
 
   return {

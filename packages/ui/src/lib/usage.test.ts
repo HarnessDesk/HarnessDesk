@@ -172,6 +172,8 @@ describe('accountActivitySummary', () => {
       days: [
         { day: new Date(2026, 1, 14).getTime(), tokens: 5 },
         { day: new Date(2026, 1, 13).getTime(), tokens: 50 },
+        { day: new Date(2026, 2, 7).getTime(), tokens: 7 },
+        { day: new Date(2026, 2, 9).getTime(), tokens: 11 },
       ],
       lifetimeTokens: null,
       peakDailyTokens: null,
@@ -181,8 +183,31 @@ describe('accountActivitySummary', () => {
 
     const summary = accountActivitySummary(activity, now)
 
-    expect(summary?.last30).toBe(5)
+    // These local dates bracket the usual March spring-forward. On a UTC
+    // runner they still verify local-calendar slots, but do not exercise a
+    // 23-hour local day.
+    expect(summary?.last30).toBe(23)
     expect(summary?.series[0]).toBe(5)
+    expect(summary?.series[21]).toBe(7)
+    expect(summary?.series[23]).toBe(11)
+  })
+
+  it('returns null when only peak tokens are available', () => {
+    expect(
+      accountActivitySummary(
+        { days: [], lifetimeTokens: null, peakDailyTokens: 10, currentStreakDays: null, longestStreakDays: null },
+        NOON,
+      ),
+    ).toBeNull()
+  })
+
+  it('returns null when only the longest streak is available', () => {
+    expect(
+      accountActivitySummary(
+        { days: [], lifetimeTokens: null, peakDailyTokens: null, currentStreakDays: null, longestStreakDays: 8 },
+        NOON,
+      ),
+    ).toBeNull()
   })
 
   it('omits unavailable summaries and returns null for entirely empty activity', () => {
