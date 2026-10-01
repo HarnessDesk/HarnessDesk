@@ -1105,10 +1105,6 @@ const catalogueRefusedTurnFilesStore = {
   getSnapshot: () => catalogueRefusedSnapshot,
   revertTurn: async () => ({ done: false, unrecoverable: true, partial: false }),
 } as unknown as AppStore
-const cataloguePartialTurnFilesStore = {
-  ...catalogueTurnFilesStore,
-  revertTurn: async () => ({ done: false, unrecoverable: false, partial: true }),
-} as unknown as AppStore
 const CATALOGUE_TURN: Turn = { id: turnId('catalogue-turn'), items: [], status: 'completed', diff: null }
 const CATALOGUE_TURN_ONE: readonly FileChange[] = [
   { path: '/workspace/src/checkout.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-old\n+new\n' },
@@ -1129,6 +1125,26 @@ const CATALOGUE_UNRECOVERABLE_TURN = {
   status: 'completed',
   diff: null,
 } as unknown as Turn
+const CATALOGUE_PARTIAL_CHANGES: readonly FileChange[] = [
+  { path: '/workspace/src/profile.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-before\n+after\n' },
+  { path: '/workspace/src/settings.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-before\n+after\n' },
+  { path: '/workspace/src/summary.ts', kind: { type: 'add' }, diff: 'export const summary = true\n' },
+]
+const CATALOGUE_PARTIAL_TURN = {
+  id: turnId('catalogue-partial'),
+  items: [{ id: 'catalogue-partial-file-changes', type: 'fileChange', changes: CATALOGUE_PARTIAL_CHANGES }],
+  status: 'completed',
+  diff: null,
+} as unknown as Turn
+const cataloguePartialTurnFilesStore = {
+  ...catalogueTurnFilesStore,
+  // A host can report this result when it cannot take its failed pass back
+  // after reverting at least one recorded file. This staged answer belongs to
+  // the multi-file turn above, whose complete content makes each step undoable.
+  revertTurn: async (id: Turn['id']) => id === CATALOGUE_PARTIAL_TURN.id
+    ? { done: false, unrecoverable: false, partial: true }
+    : { done: false, unrecoverable: false, partial: false },
+} as unknown as AppStore
 const CatalogueRevertedTurnFiles = () => {
   const host = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -1381,7 +1397,7 @@ const CodeBoard = () => (
     </Case>
     <Case label="partial Undo: Close stays greyed until the half changed turn is resolved">
       <StoreProvider store={cataloguePartialTurnFilesStore}>
-        <CatalogueUndoTurnFiles turn={CATALOGUE_UNRECOVERABLE_TURN} changes={CATALOGUE_UNRECOVERABLE_CHANGES} />
+        <CatalogueUndoTurnFiles turn={CATALOGUE_PARTIAL_TURN} changes={CATALOGUE_PARTIAL_CHANGES} />
       </StoreProvider>
     </Case>
     <Case label="a runtime's own command record, unwrapped as the command plate">
