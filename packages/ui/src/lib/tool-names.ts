@@ -252,7 +252,7 @@ export const toolsOfPlugin = (
 }
 
 /**
- * What each of the desk's board tools does, as the end of "HarnessDesk's board wants to …".
+ * What each of the desk's board tools does, as the end of "<agent> wants to use HarnessDesk's board to …".
  *
  * A plugin's own description is a noun phrase for a reader of the tool list, not something that follows "wants
  * to", so a permission card says it in a verb phrase. Keyed by the shared tool list, so a board tool added without

@@ -21,7 +21,7 @@ export const boardToolNote = ({
   const sentence = phrase.trim().replace(/[.!?]+$/, '')
   return {
     text: [
-      `HarnessDesk's board wants to ${sentence.charAt(0).toLowerCase()}${sentence.slice(1)}.`,
+      `${runtimeName} wants to use HarnessDesk's board to ${sentence.charAt(0).toLowerCase()}${sentence.slice(1)}.`,
       "HarnessDesk can't confirm which server is asking.",
       ...(!hasPermanentOption
         ? [`To always allow, turn on permanent tool approval in ${runtimeName}'s settings.`]

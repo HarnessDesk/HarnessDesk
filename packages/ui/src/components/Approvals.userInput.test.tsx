@@ -100,10 +100,10 @@ const buttonsOf = () => Array.from(container.querySelectorAll<HTMLButtonElement>
 const labelsOf = () => buttonsOf().map((button) => button.textContent?.trim().replace(/\d+$/, ''))
 const noteOf = () => Array.from(container.querySelectorAll('[data-slot="approval-reason"]')).at(-1)
 
-it("says what the board wants to do in plain words, with Allow once primary and every grant quiet", () => {
+it("says what the agent wants to do with the board in plain words, with Allow once primary and every grant quiet", () => {
   mount(boardApproval(BOARD_TITLE, SESSION_SET), geminiInfo)
 
-  expect(container.textContent).toContain("HarnessDesk's board wants to list the board's work items. HarnessDesk can't confirm which server is asking.")
+  expect(container.textContent).toContain("Gemini CLI wants to use HarnessDesk's board to list the board's work items. HarnessDesk can't confirm which server is asking.")
   expect(container.textContent).not.toContain('list_intents')
   expect(container.textContent).not.toContain('you can choose')
   // The agent's own order decides the shortcut numbers; the card draws refusal first and the plain yes last.
@@ -152,7 +152,7 @@ it('never relabels when the agent offers two tool-scoped session grants: the nam
 
 it('leaves a runtime that does not ask per tool exactly as the agent worded it', () => {
   mount(boardApproval(BOARD_TITLE, SESSION_SET), info)
-  expect(container.textContent).not.toContain("HarnessDesk's board wants to")
+  expect(container.textContent).not.toContain('wants to use HarnessDesk')
   expect(labelsOf()).toContain('Allow')
   expect(labelsOf()).not.toContain('Allow once')
 })
@@ -163,7 +163,7 @@ it.each([
   'list_intents (harnessdesk mcp server)',
 ])('does not explain a title that is not an exact desk board tool title: %s', (summary) => {
   mount(boardApproval(summary, SESSION_SET), geminiInfo)
-  expect(container.textContent).not.toContain("HarnessDesk's board wants to")
+  expect(container.textContent).not.toContain('wants to use HarnessDesk')
 })
 
 it('allows selecting multiple options and toggling selections when multiSelect is true (#380)', () => {

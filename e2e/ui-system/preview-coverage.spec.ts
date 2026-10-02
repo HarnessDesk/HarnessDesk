@@ -345,7 +345,7 @@ test.describe('preview coverage', () => {
     const none = page.locator('[data-frame-id="board-tool-approval-setting"] [data-slot="approval-card"]')
     const guidance = "To always allow, turn on permanent tool approval in Gemini CLI's settings."
 
-    await expect(session).toContainText("HarnessDesk's board wants to list the board's work items.")
+    await expect(session).toContainText("Gemini CLI wants to use HarnessDesk's board to list the board's work items.")
     await expect(session).toContainText("HarnessDesk can't confirm which server is asking.")
     await expect(session).not.toContainText('list_intents')
     // Gemini's own order decides the numbers; the card draws the refusal first and the plain yes last.
