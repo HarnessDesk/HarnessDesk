@@ -7,6 +7,28 @@ the rule is the last line of its section.
 
 ---
 
+## The Team overview is derived from held facts, with no reader of its own
+
+The overview model turns plain Seat, card, Run, approval and Insight data into
+rows. It reads no component, store, clock or cache, so the later shared client
+selector can keep the same exported contract. Needs you precedes Unread,
+Working and Idle; unread marks remain the window's own. A Run's stall does
+not make every Seat blocked, and a graph dependency is an idle Seat's card
+fact rather than a request for the person.
+
+Cost comes from the Seat's own Team-scoped Insight partition, in money only
+for a metered runtime with known rate provenance, otherwise in recorded turns.
+An unavailable figure stays null. The doing line uses the shared tool-name
+lookup with only a tool and a path; commands, queries and environment values
+stay in the transcript. Its caller owns the displayed line and its 2.5-second
+hold. This model adds no screen or read method; those follow in the
+[approved Teams/Runs plan](https://github.com/HarnessDesk/HarnessDesk/pull/1272).
+
+**The rule:** one plain-data contract derives the rows; no overview fact is
+invented to fill a missing observation.
+
+---
+
 ## The host runs a declared check for an agent; an agent is never given the network
 
 A Seat that only reads — a reviewer, a tester, an acceptance check — can ask
