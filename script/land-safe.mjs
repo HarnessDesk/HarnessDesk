@@ -13,7 +13,8 @@ export const REQUIRED_CHECKS = Object.freeze([
 ])
 const REQUIRED_CHECK_APP = 'github-actions'
 
-const usage = 'Usage: node script/land-safe.mjs <pr> [--repo owner/name] [--dry-run]'
+const usage = 'Usage: node script/land-safe.mjs <pr> (--head <sha> | --any-head) [--repo owner/name] [--dry-run]'
+const headRequired = 'name the reviewed head with --head <sha>, or pass --any-head to land whatever head is green now'
 
 const cliRunner = (args) =>
   execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] })
@@ -109,7 +110,7 @@ const printReport = (io, decision) => {
 
 /** Execute the guarded landing flow using an injectable gh-compatible runner. */
 export const landSafe = async (
-  { pr, repo, dryRun = false },
+  { pr, repo, dryRun = false, head, anyHead = false },
   runner = cliRunner,
   io = { stdout: process.stdout, stderr: process.stderr },
 ) => {
@@ -117,12 +118,21 @@ export const landSafe = async (
   // an error can honestly say: the merge may have gone through.
   let mergeAsked = false
   try {
+    // What was reviewed is what lands: a push after the approving review would
+    // otherwise merge whatever head happens to be green at that moment.
+    if (!anyHead && !head) throw new Error(headRequired)
     if (!repo) repo = run(runner, ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'])
     const initial = readPr(runner, pr, repo)
     if (initial.isDraft) throw new Error(`PR ${pr} is a draft; refusing to land`)
     if (initial.state !== 'OPEN') throw new Error(`PR ${pr} is ${String(initial.state).toLowerCase()}, not open`)
     const sha = initial.headRefOid
     if (!sha || !initial.baseRefName) throw new Error('GitHub did not return the PR head SHA and base branch')
+    if (anyHead) {
+      write(io.stderr, 'land-safe: warning: --any-head lands whatever head is green now, reviewed or not.')
+    } else if (head !== sha) {
+      write(io.stdout, `DECISION: PR ${pr} is at ${sha}, not the reviewed ${head}; it was not merged.`)
+      return 2
+    }
 
     const baseTip = readBaseTip(runner, repo, initial.baseRefName)
     const decision = assessCheckRuns(readCheckRuns(runner, repo, sha), sha)
@@ -181,13 +191,19 @@ export const parseArgs = (argv) => {
   const [pr, ...rest] = argv
   if (!pr || !/^\d+$/.test(pr)) throw new Error(usage)
   let repo
+  let head
+  let anyHead = false
   let dryRun = false
   for (let i = 0; i < rest.length; i += 1) {
     if (rest[i] === '--dry-run' && !dryRun) dryRun = true
+    else if (rest[i] === '--any-head' && !anyHead) anyHead = true
+    else if (rest[i] === '--head' && !head && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(rest[i + 1] ?? '')) head = rest[++i]
     else if (rest[i] === '--repo' && !repo && rest[i + 1] && /^[^/]+\/[^/]+$/.test(rest[i + 1])) repo = rest[++i]
     else throw new Error(usage)
   }
-  return { pr, repo, dryRun }
+  if (head && anyHead) throw new Error(`${usage}\n--head and --any-head are opposites; pass one.`)
+  if (!head && !anyHead) throw new Error(`${headRequired}\n${usage}`)
+  return { pr, repo, dryRun, head, anyHead }
 }
 
 export const isEntryPoint = (metaUrl, argv1) => {
