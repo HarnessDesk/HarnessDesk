@@ -1461,7 +1461,7 @@ it('a card with no repair lead pinned for its round shows its own detail as befo
 it('a finished Flow check reopens through the consent dialog, and only confirmation starts it', async () => {
   const { store } = rig([intent({ id: 1, state: 'done', role: 'gate', title: 'Verify the change' })], {}, observed([], []))
   const execution = {
-    id: 'flow-check-run', goal: ROOM, version: 2, state: 'settled', legacyRun: null,
+    id: 'flow-check-run', goal: ROOM, version: 2, state: 'running', legacyRun: null,
     document: { format: 'agents', flow: { roles: [{ id: 'gate', kind: 'check', check: { run: 'pnpm verify' } }], rules: [] } },
     rounds: [{ n: 1, role: 'gate', cards: [1], seats: [], evidence: [], state: 'closed', cause: 'seed' }],
     operations: [{ key: 'check:1:0', kind: 'check', state: 'finished', card: 1, seat: null }],

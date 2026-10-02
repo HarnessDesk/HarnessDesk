@@ -470,7 +470,7 @@ for (const stopped of [false, true]) test(`an EPERM probe ${stopped ? 'clears a 
   assert.equal(signals, 0, 'no signal is authorized by an EPERM probe')
 })
 
-test('the real wire retry returns with a durable running child, then its new output completes the reopened settled card', async (t) => {
+test('the real wire retry returns at launch, stays busy through downstream settlement and preserves both outputs', async (t) => {
   const repo = await makeRepo('hd-check-wire-retry-')
   await writeFile(join(repo.dir, 'again.mjs'), `import { existsSync, writeFileSync } from 'node:fs';
 if (!existsSync('attempt')) { writeFileSync('attempt', 'first'); console.log('first answer'); }
@@ -482,14 +482,26 @@ else { writeFileSync('started-again', 'yes'); const timer = setInterval(() => { 
   t.after(() => host.dispose())
   await host.start()
   await host.call('workspace/open', { path: repo.dir })
-  const source = 'version: 2\nname: Check again\nroles:\n  gate: { kind: check, run: "node again.mjs", exits: { "0": no-pr }, otherwise: retry, timeout: 30 }\nseed: { role: gate, title: Check it }\n'
+  const source = 'version: 2\nname: Check again\nroles:\n  gate: { kind: check, run: "node again.mjs", exits: { "0": no-pr }, otherwise: retry, timeout: 30 }\n  person: { kind: person, outcomes: [done] }\nseed: { role: gate, title: Check it }\nrules:\n  - { id: person, on: gate, then: { role: person, title: Decide } }\n'
   const preview = await host.call('flow/preview', { root: repo.dir, source }) as FlowPreview
   assert.ok(preview.token, JSON.stringify(preview.problems))
   const run = await host.call('flow/start-goal', { root: repo.dir, source, token: preview.token!, sentence: 'Staged retry' }) as FlowExecution
   await host.flowsPlane.flush()
-  assert.equal(host.flowsPlane.executionOf(run.id)!.state, 'settled')
+  assert.equal(host.flowsPlane.executionOf(run.id)!.state, 'running')
   const card = host.flowsPlane.executionOf(run.id)!.rounds[0]!.cards[0]!
   const goalRoot = (await host.call('goal/read', { goal: run.goal }) as GoalView).goal.root
+  const processDir = join(stateDir, 'evidence', 'check-processes')
+  const retained = spawn('sleep', ['30'], { detached: true, stdio: 'ignore' })
+  t.after(() => retained.kill('SIGKILL'))
+  await once(retained, 'spawn')
+  recordCheckProcess(processDir, retained.pid!, { board: run.goal, card })
+  const refused = await host.call('flow/preview', { root: goalRoot, source, retry: { run: run.id, card } }) as FlowPreview
+  assert.equal(refused.token, null, 'retained cleanup refuses fresh consent before a card is reopened')
+  assert.match(refused.problems[0]!.text, /cleanup.*before running this card again/i)
+  const exited = once(retained, 'exit')
+  retained.kill('SIGKILL')
+  await exited
+  await recoverCheckProcesses(processDir)
   const consent = await host.call('flow/preview', { root: goalRoot, source, retry: { run: run.id, card } }) as FlowPreview
   assert.ok(consent.token, JSON.stringify(consent.problems))
   assert.equal(consent.commands.length, 1)
@@ -500,6 +512,14 @@ else { writeFileSync('started-again', 'yes'); const timer = setInterval(() => { 
   assert.equal(retried.operations.find((one) => one.card === card && one.kind === 'check')!.state, 'started')
   assert.equal((await readdir(join(stateDir, 'evidence', 'check-processes'))).length, 1)
   await assert.rejects(host.call('flow/check/retry', { run: run.id, card, token: consent.token! }), /changed/)
+  const person = host.flowsPlane.executionOf(run.id)!.rounds[1]!.cards[0]!
+  await host.call('team/intent', { room: run.goal, id: person, action: 'done', outcome: 'done' })
+  await host.flowsPlane.wakeEvidence(run.goal)
+  const deadline = Date.now() + 5000
+  while (host.flowsPlane.executionOf(run.id)!.state === 'running' && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.equal(host.flowsPlane.executionOf(run.id)!.state, 'settled', 'downstream can finish while the earlier retry is live')
+  const busy = await host.call('evidence/board', { room: run.goal }) as BoardEvidence
+  assert.equal(busy.cards.find((one) => one.card === card)!.running.length, 1, 'the retry is still counted as board work')
   await writeFile(join(repo.dir, 'release'), 'done')
   await host.flowsPlane.flush()
   const goal = await host.call('goal/read', { goal: run.goal }) as GoalView

@@ -321,20 +321,58 @@ test('a writer with uncommitted changes stops the check round before any command
   assert.match(execution.reason ?? '', /#2.*not committed/)
 })
 
-test('a settled check can be consented to again, reopens its card and routes its new answer', async (t) => {
+for (const ended of ['settled', 'stopped'] as const) test(`a ${ended} run refuses a check preview and retry without changing its board`, async (t) => {
   const rig = await goalRig(t)
-  const run = await rig.start(CHECK_FLOW, [agent('writer', ['done'])])
+  const source = ended === 'stopped' ? CHECK_FLOW + '\n  - { id: work, on: gate, then: { role: author, title: More work } }\n' : CHECK_FLOW
+  const run = await rig.start(source, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+  if (ended === 'stopped') await rig.flows.stopRun(run.id)
+  assert.equal(rig.flows.executionOf(run.id)!.state, ended)
+  const card = rig.board(run.goal).intents.find((one) => one.role === 'gate')!
+  const before = rig.flows.executionOf(run.id)!
+  const board = rig.board(run.goal).intents
+  const count = checks(rig.events).length
+  await assert.rejects(rig.flows.previewCheck(run.id, card.id), /run.*(?:stopped|settled).*Start a new run/i)
+  await assert.rejects(rig.flows.retryCheck(run.id, card.id), /run.*(?:stopped|settled).*Start a new run/i)
+  await rig.flows.flush()
+  assert.equal(checks(rig.events).length, count)
+  assert.deepEqual(rig.board(run.goal).intents, board)
+  assert.deepEqual(rig.flows.executionOf(run.id), before)
+})
+
+for (const stop of ['run', 'goal', 'settled-goal'] as const) test(`a queued ${stop} stop catches a retry admitted before its controller exists and waits for completion`, async (t) => {
+  const rig = await goalRig(t)
+  const source = stop === 'settled-goal'
+    ? CHECK_FLOW.replace('seed:', '  person: { kind: person, outcomes: [done] }\nseed:') + '\n  - { id: work, on: gate, then: { role: person, title: Decide } }\n'
+    : CHECK_FLOW + '\n  - { id: work, on: gate, then: { role: author, title: More work } }\n'
+  const run = await rig.start(source, [agent('writer', ['done'])])
   await rig.flows.flush()
   await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
   await rig.flows.flush()
   const gate = rig.board(run.goal).intents.find((one) => one.role === 'gate')!
-  assert.equal(rig.flows.executionOf(run.id)!.state, 'settled')
-  rig.checkOutcomes.set('pnpm verify', { exit: 2, timedOut: false, tail: 'second answer' })
-  await rig.flows.retryCheck(run.id, gate.id)
-  await rig.flows.flush()
-  assert.equal(checks(rig.events).length, 2)
-  assert.equal(rig.board(run.goal).intents.find((one) => one.id === gate.id)!.outcome, 'fail')
-  assert.equal(rig.flows.executionOf(run.id)!.state, 'settled')
+  const approved = await rig.flows.previewCheck(run.id, gate.id)
+  rig.checksRunUntilStopped = () => {}
+  const retry = rig.flows.retryCheck(run.id, gate.id, approved)
+  try {
+    if (stop === 'settled-goal') {
+      await retry
+      const person = rig.board(run.goal).intents.find((one) => one.role === 'person')!
+      await rig.team.intentAction(run.goal, person.id, 'done', undefined, 'done')
+      await rig.flows.wakeEvidence(run.goal)
+      assert.equal(rig.flows.executionOf(run.id)!.state, 'settled')
+    }
+    if (stop !== 'run') await rig.flows.stopGoal(run.goal)
+    else await rig.flows.stopRun(run.id)
+    await retry
+    assert.ok(rig.events.includes('check-stopped:pnpm verify'), 'Stop returned only after the admitted retry stopped')
+    assert.equal(rig.flows.executionOf(run.id)!.operations.find((one) => one.card === gate.id)?.state, 'uncertain')
+    await assert.rejects(rig.flows.retryCheck(run.id, gate.id, approved), /Start a new run/)
+  } finally {
+    rig.flows.interruptChecks(run.goal)
+    await rig.flows.flush()
+  }
 })
 
 test('retry returns after launch while the check is still running, and a concurrent retry cannot duplicate it', async (t) => {
@@ -373,6 +411,7 @@ test('concurrent sibling retries wait for every live check and advance once, in 
     rig.heads.set('/repo/.lanes/2', { at: 'sha-writer-2', dirty: false })
     rig.checkOutcomes.set('pnpm verify', { exit: 1, timedOut: false, tail: 'first failure' })
     const source = FAN_OUT_FLOW.replace('seed:', '  person: { kind: person, outcomes: [shipped] }\nseed:') +
+      '\n  - { id: wait, on: gate, when: { every: [fail], evidence: [{ ci: green }] }, then: { role: person, title: Ship } }\n' +
       '\n  - { id: ship, on: gate, when: { every: [pass] }, then: { role: person, title: Ship } }\n'
     const run = await rig.start(source, [agent('writer', ['done'])])
     await rig.flows.flush()
@@ -460,7 +499,7 @@ test('rerunning a finished earlier check keeps its downstream cards without open
   assert.equal(checks(rig.events).length, 2)
 })
 
-for (const downstream of ['running', 'stopped', 'stalled'] as const) {
+for (const downstream of ['running', 'stalled'] as const) {
   for (const evidenceFails of [false, true]) {
     test(`retrying an earlier check preserves ${downstream} downstream work (${evidenceFails ? 'unsaved' : 'saved'} evidence)`, async (t) => {
       const rig = await goalRig(t)
@@ -477,7 +516,6 @@ rules:
       rig.failOrder = downstream === 'stalled'
       const run = await rig.start(source, [agent('writer', ['done'])])
       await rig.flows.flush()
-      if (downstream === 'stopped') await rig.flows.stopRun(run.id, 'Keep this downstream work stopped')
       const before = rig.flows.executionOf(run.id)!
       assert.equal(before.state, downstream)
       if (downstream !== 'running') assert.ok(before.reason)

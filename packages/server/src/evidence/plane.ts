@@ -6,7 +6,7 @@ import type { ReviewAppendOutcome } from '../flow-evidence.js'
 import type { CredentialCipher } from '../credentials.js'
 import type { SeatedAs } from '../registry.js'
 import { boardEvidence, freshnessReader, RunningChecks } from './board.js'
-import { recoverCheckProcesses } from './check-processes.js'
+import { assertCheckCleanup, recoverCheckProcesses } from './check-processes.js'
 import { CheckRuns } from './check-runs.js'
 import { readChecks } from './checks-file.js'
 import type { GhInCheckout } from './forge.js'
@@ -82,6 +82,7 @@ export const cardStart = (
 
 export class EvidencePlane {
   readonly #settling = new Map<string, Set<Promise<void>>>()
+  readonly #flowChecking = new Map<string, Set<Promise<unknown>>>()
   readonly #looks = new Set<Promise<void>>()
   readonly store: EvidenceStore
   readonly seats: SeatBook
@@ -453,6 +454,7 @@ export class EvidencePlane {
     await this.seats.settled()
     await Promise.all([...(this.#settling.get(room) ?? [])])
     await this.checks.settledFor(room)
+    await Promise.all([...(this.#flowChecking.get(room) ?? [])])
     await this.store.flush()
   }
 
@@ -626,9 +628,31 @@ export class EvidencePlane {
     where: { readonly cwd: string; readonly timeoutSec: number; readonly flowContext?: string; readonly signal?: AbortSignal; readonly onStarted?: () => void },
     card: { readonly goal: string; readonly card: number; readonly name: string; readonly round: number; readonly advisory?: true },
   ): Promise<{ readonly result: CommandRun; readonly evidence: string | null; readonly problem: string | null }> {
+    this.assertFlowCheckCleanup(card.goal, card.card)
+    const busy = this.running.start(card.goal, card.card, card.name, this.#now())
+    if (busy) throw new Error(`${busy.name} is running on #${card.card}, and one check runs on a card at a time.`)
+    const pending = this.#flowChecking.get(card.goal) ?? new Set<Promise<unknown>>()
+    this.#flowChecking.set(card.goal, pending)
+    const work = this.#runFlowCheck(command, where, card).finally(() => {
+      this.running.end(card.goal, card.card)
+      pending.delete(work)
+      if (pending.size === 0) this.#flowChecking.delete(card.goal)
+      this.announce(card.goal)
+    })
+    pending.add(work)
+    this.announce(card.goal)
+    return work
+  }
+
+  async #runFlowCheck(
+    command: string,
+    where: Parameters<EvidencePlane['runFlowCheck']>[1],
+    card: Parameters<EvidencePlane['runFlowCheck']>[2],
+  ): Promise<{ readonly result: CommandRun; readonly evidence: string | null; readonly problem: string | null }> {
     const revision = await revisionOf(where.cwd)
     const result = await runCommand(command, {
       cwd: where.cwd, timeoutSec: where.timeoutSec, processDir: this.#checkProcessDir,
+      processOwner: { board: card.goal, card: card.card },
       ...(where.onStarted ? { onStarted: where.onStarted } : {}),
       ...(where.flowContext !== undefined ? { flowContext: where.flowContext } : {}),
       ...(where.signal ? { signal: where.signal } : {}),
@@ -662,6 +686,11 @@ export class EvidencePlane {
     }
     this.announce(card.goal)
     return { result, evidence: record.id, problem: null }
+  }
+
+  /** A retry preview and its redemption both refuse a card's unresolved recorded cleanup. */
+  assertFlowCheckCleanup(goal: string, card: number): void {
+    assertCheckCleanup(this.#checkProcessDir, { board: goal, card })
   }
 
   /**

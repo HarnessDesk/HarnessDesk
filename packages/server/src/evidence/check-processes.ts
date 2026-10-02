@@ -4,7 +4,8 @@ import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, r
 import { join } from 'node:path'
 
 /** A launch record is host-owned, never read from a checkout or a backup. */
-interface CheckProcess { readonly version: 1; readonly pgid: number; readonly identity: string }
+export interface CheckProcessOwner { readonly board: string; readonly card: number }
+interface CheckProcess { readonly version: 1; readonly pgid: number; readonly identity: string; readonly owner?: CheckProcessOwner }
 
 const identityOf = (pid: number): string | null => {
   try {
@@ -23,7 +24,7 @@ const syncDirectory = (dir: string): void => {
 }
 
 /** Called while the new shell still waits for its launch handshake. */
-export const recordCheckProcess = (dir: string, pgid: number): (() => void) => {
+export const recordCheckProcess = (dir: string, pgid: number, owner?: CheckProcessOwner): (() => void) => {
   if (!Number.isSafeInteger(pgid) || pgid <= 1 || pgid === process.pid) throw new Error('Invalid check process group.')
   const identity = identityOf(pgid)
   if (!identity) throw new Error('The check process group could not be identified.')
@@ -32,7 +33,7 @@ export const recordCheckProcess = (dir: string, pgid: number): (() => void) => {
   const pending = `${path}.pending`
   const fd = openSync(pending, 'wx', 0o600)
   try {
-    writeFileSync(fd, JSON.stringify({ version: 1, pgid, identity } satisfies CheckProcess))
+    writeFileSync(fd, JSON.stringify({ version: 1, pgid, identity, ...(owner ? { owner } : {}) } satisfies CheckProcess))
     fsyncSync(fd)
   } finally { closeSync(fd) }
   renameSync(pending, path)
@@ -60,20 +61,41 @@ export const checkGroupAlive = (pgid: number): boolean => {
   }
 }
 
-/** Before Flow recovery: signal only the exact recorded groups, and refuse startup if one cannot be stopped. */
-export const recoverCheckProcesses = async (dir: string): Promise<void> => {
+const recordedChecks = (dir: string): { path: string; record: CheckProcess }[] => {
   let files: string[]
   try { files = readdirSync(dir) } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
     throw error
   }
-  for (const file of files) {
-    if (!file.endsWith('.json')) continue
+  return files.filter((file) => file.endsWith('.json')).map((file) => {
     const path = join(dir, file)
     const record = JSON.parse(readFileSync(path, 'utf8')) as CheckProcess
-    if (record.version !== 1 || !Number.isSafeInteger(record.pgid) || record.pgid <= 1 || record.pgid === process.pid || typeof record.identity !== 'string') {
+    if (record.version !== 1 || !Number.isSafeInteger(record.pgid) || record.pgid <= 1 || record.pgid === process.pid || typeof record.identity !== 'string' ||
+      (record.owner !== undefined && (typeof record.owner?.board !== 'string' || !Number.isSafeInteger(record.owner.card) || record.owner.card <= 0))) {
       throw new Error('A check process launch record is invalid; no check can restart safely.')
     }
+    return { path, record }
+  })
+}
+
+/** Admission reads only the host's recorded groups; it never signals or guesses from command text. */
+export const assertCheckCleanup = (dir: string, owner: CheckProcessOwner): void => {
+  try {
+    for (const { record } of recordedChecks(dir)) {
+      // Older records have no card identity: retain the conservative refusal.
+      if (record.owner && (record.owner.board !== owner.board || record.owner.card !== owner.card)) continue
+      const identity = identityOf(record.pgid)
+      if (identity !== null && identity !== record.identity) continue // a reused leader is somebody else's
+      if (checkGroupAlive(record.pgid)) throw new Error('A previous check process group has not been confirmed stopped.')
+    }
+  } catch (error) {
+    throw new Error('Cleanup of an earlier check could not be confirmed. Resolve its cleanup before running this card again.', { cause: error })
+  }
+}
+
+/** Before Flow recovery: signal only the exact recorded groups, and refuse startup if one cannot be stopped. */
+export const recoverCheckProcesses = async (dir: string): Promise<void> => {
+  for (const { path, record } of recordedChecks(dir)) {
     const identity = identityOf(record.pgid)
     // A reused leader pid belongs to someone else. Never signal it.
     if (identity !== null && identity !== record.identity) {

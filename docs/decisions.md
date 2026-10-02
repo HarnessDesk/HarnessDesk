@@ -1200,15 +1200,19 @@ its board card left the run settled. Restarting instead left a detached check
 alive, while the retry either refused the checkout that check had changed or
 held the person's request until the whole command ended. (#1245)
 
-A finished or interrupted check now uses the same consent dialog from its own
-card. Its preview binds the frozen command, card, attempt, checkout and the
+A finished or interrupted check on a running or stalled run uses the same
+consent dialog from its own card. A stopped or settled run refuses the retry
+and asks the person to start a new run. Its preview binds the frozen command,
+card, attempt, checkout and the
 revision there now. A moved checkout after the preview refuses; the same
 checkout changed by the old check can be explicitly approved. Starting reopens
 that card, preserves previous evidence, and returns at launch. Completion stays
 in the run's queue and advances an unanswered final round normally; a check
 from an earlier round never duplicates its already-created downstream rounds
-or changes their run's state and reason, including when that work is stopped
-or stalled. Only the current final check round can restart routing.
+or changes their run's state and reason. Only the current final check round
+can restart routing. A retry admitted before its run ends stays counted as
+busy work; Stop aborts it inside the queue as well as before it, and wrapping
+waits for the command, evidence and card completion to settle.
 
 A detached shell waits at a launch handshake until the host has synced its
 exact pgid and leader identity in a host-owned journal. Startup stops only those
@@ -1220,6 +1224,11 @@ finishes. Recovery failures refuse startup independently of Seat-record reads.
 Live completion and timeout cleanup use the same proof as startup: an EPERM
 probe alone cannot establish that a group is gone. Uncertain cleanup retains
 the launch journal and refuses a check result or evidence of completion.
+Retry admission also reads that host-owned journal, by the recorded card and
+verified process identity, and refuses another attempt while its cleanup is
+unresolved. It never signals an unverified group or identifies one by its
+command text. Old records without a card identity conservatively block a retry
+until cleanup is established.
 Concurrent retries wait for their live siblings before routing the round.
 Children outside the recorded group are outside this guarantee.
 Interrupted work still needs fresh

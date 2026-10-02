@@ -798,8 +798,13 @@ command through the bounded `HARNESSDESK_FLOW_CONTEXT` JSON (never an
 arbitrary environment map). Each card's checkout and revision are journaled
 when its round opens. Automatic dispatch refuses a checkout whose head moved
 since that plan. A person can retry at its current revision after a fresh
-preview, still in that card's own checkout. A writer whose checkout has uncommitted
-changes stops the round before any command runs.
+preview, still in that card's own checkout. A stopped or settled run refuses
+the retry and asks you to start a new run. A retained launch whose recorded
+group is not proven gone blocks another attempt on that card until its
+cleanup is resolved. A retry that started before the run ended still counts
+as busy work; Stop and wrapping wait for its command and completion to finish.
+A writer whose checkout has uncommitted changes stops the round before any
+command runs.
 
 **A card's checkout holds the work it is handed.** An agent card is handed
 its predecessors' work through the same walk: the nearest cards back along

@@ -1248,6 +1248,7 @@ export class Host {
       // The host commits a card's own work for its Seat, git hardened (`commit_work`, #1074).
       commitWork: (cwd, before, message) => commitCardWork(cwd, before, message),
       runCheck: (command, where, card) => this.#evidence.runFlowCheck(command, where, card),
+      assertCheckCleanup: (goal, card) => this.#evidence.assertFlowCheckCleanup(goal, card),
       // A fresh detached checkout for one `run_check`, git hardened, removed after (#1082).
       checkoutAt: async (cwd, at) => {
         const stateDir = this.#state.directory

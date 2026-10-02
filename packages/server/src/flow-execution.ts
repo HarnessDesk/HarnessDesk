@@ -333,6 +333,8 @@ export interface FlowExecutionPort {
     /** `advisory`: a Seat's `run_check` — recorded so no rule counts it (#1082). */
     card: { readonly goal: string; readonly card: number; readonly name: string; readonly round: number; readonly advisory?: true },
   ): Promise<{ readonly result: { readonly exit: number | null; readonly timedOut: boolean; readonly tail: string }; readonly evidence: string | null; readonly problem: string | null }>
+  /** Admission checks only the host's verified recorded process identity, never the checkout. */
+  assertCheckCleanup?(goal: string, card: number): void
 }
 
 /** A person decision's actions on one run, each run inside the run's queue a `withDecision` step already holds. */
@@ -771,7 +773,7 @@ export class FlowExecutions {
   #disposed = false
   /** The checks running now, by Goal: what a pause or a stop aborts without waiting for the run's queue. */
   readonly #checks = new Map<string, Set<AbortController>>()
-  readonly #checking = new Set<Promise<unknown>>()
+  readonly #checking = new Map<Promise<unknown>, string>()
   readonly #liveCheckOperations = new Map<string, AbortController>()
   /** `run_check` asks by `goal#card`: the turn they were last counted on, how many in it, how many in all (#1082). */
   readonly #checkAsks = new Map<string, { readonly turn: number; readonly inTurn: number; readonly total: number }>()
@@ -838,7 +840,7 @@ export class FlowExecutions {
     do {
       if (++guard > 10_000) throw new Error('FlowExecutions.idle() never quieted down.')
       await this.#queue.idle()
-      await Promise.all([...this.#closing, ...this.#checking])
+      await Promise.all([...this.#closing, ...this.#checking.keys()])
     } while (this.#closing.size > 0 || this.#checking.size > 0)
     await this.#queue.idle()
   }
@@ -3398,7 +3400,7 @@ export class FlowExecutions {
       if (this.#liveCheckOperations.get(live) === controller) this.#liveCheckOperations.delete(live)
     })
     if (!background) return task
-    this.#checking.add(task)
+    this.#checking.set(task, id)
     void task.finally(() => this.#checking.delete(task)).catch((error: unknown) => {
       this.#port.log('a retried check could not finish', { run: id, card, error: String(error) })
     })
@@ -3421,7 +3423,9 @@ export class FlowExecutions {
     const operation = run.operations.find((one) => one.key === key)
     if (role?.kind !== 'check' || !operation || !['finished', 'uncertain'].includes(operation.state)) throw new Error('This check is not waiting to be run again.')
     if (run.intake?.dispatchHeld) throw new Error(DISPATCH_HELD)
-    if (!['running', 'stalled', 'settled', 'stopped'].includes(run.state)) throw new Error('This flow run cannot run a check.')
+    if (run.state === 'settled' || run.state === 'stopped') throw new Error(`This run is ${run.state}. Start a new run to run this check again.`)
+    if (!['running', 'stalled'].includes(run.state)) throw new Error('This flow run cannot run a check.')
+    this.#port.assertCheckCleanup?.(run.goal, card)
     const mutable = this.#port.canDispatch(run.goal)
     if (mutable && !mutable.ok) throw new Error(mutable.reason)
     const plan = run.checkPlans?.[String(found.round.n)]
@@ -3603,18 +3607,24 @@ export class FlowExecutions {
 
   // ----------------------------------------------------------------- stop
 
-  stop(id: string, why = 'the person stopped this flow'): Promise<FlowExecution> {
+  async stop(id: string, why = 'the person stopped this flow'): Promise<FlowExecution> {
     this.interruptChecks(this.#get(id).goal)
-    return this.#queue.within(id, async () => {
+    const tasks = await this.#queue.within(id, async () => {
+      // A retry ahead of Stop may only now have created its controller.
+      this.interruptChecks(this.#get(id).goal)
+      const tasks = [...this.#checking].filter(([, run]) => run === id).map(([task]) => task)
       await this.#finish(id, 'stopped', why)
-      return this.#projectExecution(this.#get(id))
+      return tasks
     })
+    // Completion uses this same queue: drain outside it, before Stop or wrap returns.
+    await Promise.all(tasks)
+    return this.#projectExecution(this.#get(id))
   }
 
   /** Stops every live run on a Goal, inside each run's own queue: the wrap barrier. */
   async stopGoal(goal: string, why: string): Promise<void> {
     for (const run of [...this.#runs.values()]) {
-      if (run.goal === goal && (run.state === 'running' || run.state === 'stalled')) await this.stop(run.id, why)
+      if (run.goal === goal && (run.state === 'running' || run.state === 'stalled' || [...this.#checking.values()].includes(run.id))) await this.stop(run.id, why)
     }
   }
 

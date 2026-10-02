@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { stripVTControlCharacters } from 'node:util'
 import type { Readable } from 'node:stream'
 
-import { checkGroupAlive, recordCheckProcess } from './check-processes.js'
+import { assertCheckCleanup, checkGroupAlive, recordCheckProcess, type CheckProcessOwner } from './check-processes.js'
 import { TAIL_LIMIT } from './records.js'
 
 export { TAIL_LIMIT }
@@ -127,6 +127,8 @@ export const runCommand = (
     readonly flowContext?: string
     /** Host-owned durable launch journal; the child waits until its pgid is synced. */
     readonly processDir?: string
+    /** Host-derived card identity, retained with the group so uncertain cleanup blocks this card. */
+    readonly processOwner?: CheckProcessOwner
     readonly onStarted?: () => void
   },
 ): Promise<CommandRun> =>
@@ -139,6 +141,7 @@ export const runCommand = (
       resolve({ exit: null, timedOut: false, tail: 'Its flow context is too large, so it was never started.' })
       return
     }
+    if (where.processDir && where.processOwner) assertCheckCleanup(where.processDir, where.processOwner)
     let printed = ''
     let settled = false
     let timedOut = false
@@ -213,7 +216,7 @@ export const runCommand = (
     child.stdin?.on('error', () => { /* A failed launch closes the handshake pipe. */ })
     child.once('spawn', () => {
       try {
-        if (where.processDir) forget = recordCheckProcess(where.processDir, child.pid!)
+        if (where.processDir) forget = recordCheckProcess(where.processDir, child.pid!, where.processOwner)
         if (where.signal?.aborted) { stop(); return }
         if (gated) child.stdin!.end('start\n')
         where.onStarted?.()

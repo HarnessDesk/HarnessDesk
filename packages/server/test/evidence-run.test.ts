@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { checkEnvironment, runCommand, TAIL_LIMIT } from '../src/evidence/run.js'
+import { recordCheckProcess } from '../src/evidence/check-processes.js'
 import { tempDir } from './scratch.js'
 
 /*
@@ -296,6 +297,50 @@ test('a durable launch preserves the command’s nonzero status and cannot execu
   await assert.rejects(readFile(join(dir, 'forbidden')))
 })
 
+test('journal admission allows sibling cards but refuses a second check on the same recorded card', async () => {
+  const cwd = tempDir('hd-check-sibling-')
+  const processDir = join(cwd, 'processes')
+  const controller = new AbortController()
+  const tasks: Promise<unknown>[] = []
+  try {
+    for (const card of [3, 4]) {
+      let launched!: () => void
+      const launch = new Promise<void>((resolve) => { launched = resolve })
+      tasks.push(runCommand('sleep 30', { cwd, timeoutSec: 30, processDir, processOwner: { board: 'goal-1', card }, signal: controller.signal, onStarted: launched }))
+      await launch
+    }
+    assert.equal((await readdir(processDir)).length, 2)
+    await assert.rejects(runCommand('touch duplicate', { cwd, timeoutSec: 5, processDir, processOwner: { board: 'goal-1', card: 3 } }), /cleanup/)
+    await assert.rejects(readFile(join(cwd, 'duplicate')))
+  } finally {
+    controller.abort()
+    await Promise.all(tasks)
+  }
+})
+
+test('a mismatched recorded leader never blocks or signals an unrelated live process group', async (t) => {
+  const cwd = tempDir('hd-check-reused-leader-')
+  const processDir = join(cwd, 'processes')
+  const owner = { board: 'goal-1', card: 3 }
+  const other = spawn('sleep', ['30'], { detached: true, stdio: 'ignore' })
+  t.after(() => other.kill('SIGKILL'))
+  await new Promise<void>((resolve) => other.once('spawn', resolve))
+  recordCheckProcess(processDir, other.pid!, owner)
+  const [file] = await readdir(processDir)
+  const path = join(processDir, file!)
+  const recorded = JSON.parse(await readFile(path, 'utf8')) as { identity: string }
+  await writeFile(path, JSON.stringify({ ...recorded, identity: '0'.repeat(64) }))
+  const kill = process.kill.bind(process)
+  const signals: unknown[] = []
+  t.mock.method(process, 'kill', (pid: number, signal?: NodeJS.Signals | number) => {
+    if (pid === -other.pid! && signal !== 0) signals.push(signal)
+    return kill(pid, signal)
+  })
+  assert.equal((await runCommand('true', { cwd, timeoutSec: 5, processDir, processOwner: owner })).exit, 0)
+  assert.deepEqual(signals, [])
+  assert.doesNotThrow(() => kill(other.pid!, 0))
+})
+
 for (const ending of ['completion', 'timeout'] as const) {
   for (const members of ['live', 'unreadable', 'gone'] as const) {
     test(`live ${ending} cleanup under EPERM keeps its journal unless the group is proven gone (${members})`, async (t) => {
@@ -319,13 +364,15 @@ for (const ending of ['completion', 'timeout'] as const) {
       })
       syncBuiltinESMExports()
       try {
-        const running = runCommand(ending === 'completion' ? 'true' : 'exec sleep 30', {
+        const where = {
           cwd: dir, timeoutSec: ending === 'completion' ? 5 : 1, processDir,
+          processOwner: { board: 'goal-1', card: 3 },
           onStarted: () => {
             const [file] = readdirSync(processDir)
             pgid = (JSON.parse(readFileSync(join(processDir, file!), 'utf8')) as { pgid: number }).pgid
           },
-        })
+        }
+        const running = runCommand(ending === 'completion' ? 'true' : 'exec sleep 30', where)
         if (members === 'gone') {
           const result = await running
           assert.equal(result.exit, ending === 'completion' ? 0 : null)
@@ -334,6 +381,11 @@ for (const ending of ['completion', 'timeout'] as const) {
         } else {
           await assert.rejects(running, /process group.*not.*(?:confirm|prove)|cleanup.*not/i)
           assert.equal((await readdir(processDir)).length, 1, 'uncertain cleanup retains the durable launch record')
+          let startedAgain = false
+          await assert.rejects(runCommand('touch duplicate', { ...where, onStarted: () => { startedAgain = true } }), /cleanup|previous check/i)
+          assert.equal(startedAgain, false, 'a matching retry cannot launch while cleanup is unresolved')
+          await assert.rejects(readFile(join(dir, 'duplicate')))
+          assert.equal((await readdir(processDir)).length, 1, 'the retry leaves the original record intact')
         }
       } finally {
         table.mock.restore()

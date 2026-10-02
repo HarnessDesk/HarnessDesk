@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { chmod } from 'node:fs/promises'
+import { chmod, readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -9,6 +9,38 @@ import { EvidencePlane } from '../src/evidence/plane.js'
 import { canonical } from '../src/evidence/revision.js'
 import { evidenceDesk, makeRepo, until } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
+
+test('a Flow check journals its host-owned card identity and stays busy through the Goal evidence barrier', async () => {
+  const repo = await makeRepo()
+  const dir = tempDir('hd-flow-check-barrier-')
+  const plane = new EvidencePlane({ dir, seenFile: join(dir, 'seen.json') }, {
+    board: () => ({ id: 'goal-1', root: repo.dir, intents: [] } as unknown as TeamState),
+    cwdOf: () => null, push: () => {}, log: () => {},
+  })
+  const controller = new AbortController()
+  let launched!: () => void
+  const launch = new Promise<void>((resolve) => { launched = resolve })
+  const running = plane.runFlowCheck('sleep 30', { cwd: repo.dir, timeoutSec: 30, signal: controller.signal, onStarted: launched }, { goal: 'goal-1', card: 3, name: 'gate', round: 1 })
+  try {
+    await launch
+    const processDir = join(dir, 'check-processes')
+    const [file] = await readdir(processDir)
+    const saved = JSON.parse(await readFile(join(processDir, file!), 'utf8')) as { owner?: unknown }
+    assert.deepEqual(saved.owner, { board: 'goal-1', card: 3 })
+    let drained = false
+    const settling = plane.settledFor('goal-1').then(() => { drained = true })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    assert.equal(drained, false, 'settledFor cannot finish before the command and evidence do')
+    assert.equal(plane.running.of('goal-1').length, 1)
+    controller.abort()
+    await running
+    await settling
+    assert.equal(plane.running.of('goal-1').length, 0)
+  } finally {
+    controller.abort()
+    await running
+  }
+})
 
 /*
  * A flow's check step leaves check evidence on its card, as a named check does:
