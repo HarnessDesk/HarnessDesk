@@ -70,7 +70,7 @@ test('a healthy account reading keeps plain ink rather than success ink', async 
   expect(colours.reading).not.toBe(colours.success)
 })
 
-test('the accounts menu opens above its row, inside the sidebar and as wide as the row', async ({ page }) => {
+test('the accounts menu opens above its row, left-aligned with it, at the foundation\'s wide width', async ({ page }) => {
   await page.goto('/preview.html')
   const trigger = page.locator('button[class*="accountRow"]')
   // Where the row sits in the app: at the foot of the window.
@@ -81,21 +81,20 @@ test('the accounts menu opens above its row, inside the sidebar and as wide as t
   await expect(popup).toBeVisible()
   const edges = await popup.evaluate((node, triggerNode) => {
     if (!(triggerNode instanceof HTMLElement)) throw new Error('account trigger missing')
-    const sidebar = triggerNode.closest('[class*="sidebar_"]')
-    if (!(sidebar instanceof HTMLElement)) throw new Error('sidebar missing')
     const menu = node.getBoundingClientRect()
     const row = triggerNode.getBoundingClientRect()
-    const column = sidebar.getBoundingClientRect()
-    return { menu: { left: menu.left, right: menu.right, bottom: menu.bottom, width: menu.width }, row: { left: row.left, top: row.top, width: row.width }, column: { left: column.left, right: column.right } }
+    const wide = parseFloat(getComputedStyle(node).getPropertyValue('--hd-popover-width-wide'))
+    return { menu: { left: menu.left, right: menu.right, bottom: menu.bottom, width: menu.width }, row: { left: row.left, top: row.top }, wide, viewport: window.innerWidth }
   }, await trigger.elementHandle())
   // Unfolds from the row rather than being laid over the transcript beside it.
   expect(edges.menu.bottom).toBeLessThanOrEqual(edges.row.top)
   expect(edges.menu.left).toBeCloseTo(edges.row.left, 0)
-  // The panel takes the anchor's width, which the positioner rounds to a
-  // whole pixel; the seat beside the inbox bell can land on a half.
-  expect(Math.abs(edges.menu.width - edges.row.width)).toBeLessThanOrEqual(1)
-  expect(edges.menu.left).toBeGreaterThanOrEqual(edges.column.left)
-  expect(edges.menu.right).toBeLessThanOrEqual(edges.column.right)
+  // The panel keeps its own width, the foundation's wide one, so a narrow
+  // sidebar does not fold the account and usage rows; the seat-menu spec
+  // measures it at every sidebar width and in a window too narrow for it.
+  expect(edges.wide).toBeGreaterThan(0)
+  expect(edges.menu.width).toBeCloseTo(edges.wide, 0)
+  expect(edges.menu.right).toBeLessThanOrEqual(edges.viewport)
 })
 
 test('a settings group label is smaller than its page title', async ({ page }) => {
