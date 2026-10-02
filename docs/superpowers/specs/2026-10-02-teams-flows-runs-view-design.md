@@ -277,7 +277,7 @@ the name.
 | **A card** | The seat's face, `#n · title`, the outcome word as a chip, how long. | The outcome is one word from the role's own vocabulary. It is neutral: a verdict is a fact, not a health reading. Only an outcome that ends the Run without a next step is toned. |
 | **A check** | `pnpm verify`, its outcome (Passed, Failed, Timed out, or the Flow's own word), how long. | A check run more than once shows its attempts under the card. |
 | **A person's step** | The step's sentence, and *Needs you* while it waits. | Its buttons are in the inspector and on the Overview. |
-| **Findings and what became of them** | "2 findings" and where they went, in the desk's own words: *Posted to #128*, or *Not posted* with the reason. | The answer to a review that was never posted. The words and their tones are in the table below the frame. |
+| **Findings and what became of them** | "2 findings" and where they went, in the desk's own words: *Posted to #128*, or *Not posted* with the reason. | The answer to a review that was never posted. A round's chip appears where the host names the round; the Run's state is shown once at Run level (see the table below the frame). |
 | **The end** | Why the Run ended, in the host's words, and the doors that lead on. | Only when it has ended. |
 
 The row for work in flight is the same row, with the doing line beneath it and
@@ -303,7 +303,7 @@ end row, and the banner carries the doors that apply:
 | It ended because | The person is told | Doors |
 | --- | --- | --- |
 | Everything finished and the work landed. | Settled. Nothing waits. | *Wrap*. |
-| A card answered an outcome no rule follows (the #1245 case). | "Ended without a next step", and what answered. The Run and the Team are *Needs you*. | *Run the check again…* when the last card is a check, *Run again…*, the board. |
+| A card answered an outcome no rule follows (the #1245 case). | "Ended without a next step", and what answered. The Run and the Team are *Needs you*. | *Run again…*, the board. (*Run the check again…* is offered only while a Run is running or stalled; a settled Run refuses it.) |
 | The person stopped it. | Stopped, and by whom. Neutral: a stop the person asked for is not bad news. | *Run again…* |
 | The desk stopped while a check ran. | The existing wording, unchanged. *Needs you*. | *Review and run again…* (exists). |
 | A budget ran out (rounds, or rounds without progress). | Which one, and how many were used. *Needs you*. | *Run again…* |
@@ -314,23 +314,31 @@ document:
 ![A review that was not posted](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/review-not-posted-light.png)
 
 The row says *Not posted* in the warning tone, because a person has to act. Its
-chip follows the desk's own per-round state, the `publication` that
-`finding/run` carries, so the window invents no state of its own:
+chip follows the desk's own words, so the window invents no state of its own.
+Two reads carry them, and they differ in what they cover:
 
-| The desk says | The row says | Tone |
+- **The Run's state.** `finding/run`'s `publication` is the state of every
+  posting the Run holds taken together, not of one round. It is shown once, at
+  Run level: the Run strip and header, the end banner, and the Findings
+  summary.
+- **A round's state.** The window reads it from `finding/publications`, which
+  names each posting that is prepared, started or uncertain by its round, and
+  the rounds a backfill would post now (kept on the desk with a pull request
+  bound). A round the host does not name shows no chip until the clients
+  design's round-keyed `review.changed` says; the window never guesses a round
+  from the Run's aggregate.
+
+| The desk says | The chip says | Tone |
 | --- | --- | --- |
-| `posted` | Posted to #n | neutral |
-| `pending` | Waiting to post | neutral |
-| `partial` | Partly posted | warning |
-| `uncertain` | Not confirmed | warning |
-| `local`, with a pull request bound and posting on | Not posted | warning |
-| `local`, otherwise | Kept on the desk | neutral |
+| Run: `posted` | Posted to #n | neutral |
+| Run: `pending`; a round's posting `prepared` or `started` | Waiting to post | neutral |
+| Run: `partial` | Partly posted | warning |
+| Run: `uncertain`; a round's posting `uncertain` | Not confirmed | warning |
+| Run: `local`; a round in the backfill list. With a pull request bound and posting on | Not posted | warning |
+| The same, otherwise | Kept on the desk | neutral |
 | a round with no findings | no chip | |
 
-That state is per round and read for the round the desk is reading. For an
-earlier round the row shows what the findings' own publication records say, and
-nothing where they cannot say, rather than a guess. The inspector says why in
-the host's words, and offers **Copy review**, which
+The inspector says why in the host's words, and offers **Copy review**, which
 always works, and **Post to pull request**, which the host offers only when it
 can and says what it will do on hover ("Posts this review to pull request
 #1259 as you. Nothing else changes."). The desk never posts a handoff's text
@@ -358,7 +366,7 @@ Run, in which case it is absent.
 | Control | Where | What it does | Wire | Offered when | It never |
 | --- | --- | --- | --- | --- | --- |
 | **Stop run…** | Run header, Overview strip | Ends the round, interrupts the seats, fires no rule. | `flow/execution/stop` (#1247, new) | The Run is running. The dialog lists each seat and says "stops now", or, for a runtime without `capabilities.interrupt`, "stops when its current turn ends". | Changes a card, a finding or a branch. |
-| **Run the check again…** | A check row, its inspector, the end banner | The existing consent dialog, showing the command verbatim, then a new attempt. | `flow/check/retry` (exists; #1245 makes it work on any finished check and return when the check has started, not when it ends) | The card is a check, and the host says it can run. | Overwrites the earlier attempt. |
+| **Run the check again…** | A check row and its inspector | The existing consent dialog, showing the command verbatim, then a new attempt. | `flow/check/retry` (exists for an uncertain check; #1263, fixing #1245, makes it work on a finished or interrupted check, with fresh consent, and return when the check has started) | The card is a check, the Run is running or stalled, and the host says it can run. A stopped or settled Run refuses, and the dialog says to start a new Run (*Run again…*). | Overwrites the earlier attempt: its output stays in the check's durable evidence history. |
 | **Run again…** | Run header, end banner | A preview with the earlier inputs and brief, then a new linked Run. | `flow/preview`, `flow/start-goal`, plus a `continues` field on the Run | The Run has ended. | Resumes mid-round (later). |
 | **Answer a card** | Overview *Needs you*, the inspector | The outcome buttons the person role declares, with an optional note. | `team/intent` (`done`) | The card is addressed to a person role. From the command line, only where the person turned on the `answer` tier for this desk (#1271). | Answers a card addressed to an agent. |
 | **Abandon a card** | The card's inspector | Abandons it, and says first that the rule after its role still fires. Offers *Stop the run instead*. | `team/intent` (`abandon`) | The card is open or claimed. | Ends the Run. |
@@ -555,7 +563,7 @@ know").
 | A card's state, outcome, title | `card.changed` | Exists. **Adds** optional `seat` (who holds it) and `since`. |
 | What waits for a person | `waiting`, `waiting.cleared` | Exists. |
 | A seat's state and what it is doing | none | **New: `seat.changed`**, `{ team, seat, role, card, state: 'working' \| 'waiting' \| 'idle', doing, since }`. The **host derives it** and sends one `seat/activity` notification per seat on a `seats` topic, at most once every 2.5 seconds; the client library maps it one to one. (Deriving it in each client would mean sending every seat's whole transcript stream to the command line and, later, a phone.) `doing` is structured (`{ kind: 'tool' \| 'thinking' \| 'waiting' \| 'idle', tool?, target? }`), and the derivation of the in-flight tool, with the one tool-name lookup, moves into `packages/protocol` so the host, the command line and the window share it. |
-| What became of a review | none | **New: `review.changed`**, `{ team, run, round, cards, state: 'local' \| 'pending' \| 'posted' \| 'partial' \| 'uncertain' \| 'none', reason, pr }`: the desk's own words, keyed by round with the round's cards, from `finding/run`'s `publication`, and read again on `finding/changed`. (`finding/publications` lists only the postings a person must look at, so a successful post is not in it.) The window maps those words to its own chips in the selector, never on the wire. |
+| What became of a review | none | **New: `review.changed`**, `{ team, run, round, cards, state: 'local' \| 'pending' \| 'posted' \| 'partial' \| 'uncertain' \| 'none', reason, pr }`: the desk's own words, keyed by round with the round's cards. The host derives each round's state from the Run's publication journal, whose postings are keyed by round; `finding/run`'s `publication` is the Run's aggregate and is not per round. Read again on `finding/changed`. (`finding/publications` lists only the postings a person must look at, so a successful post is not in it.) The window maps those words to its own chips in the selector, never on the wire. |
 | The list of Runs; one Run's rounds and journal | `flow/executions`, `flow/execution` | In the clients design's phase 1; the Run detail exists. |
 | Cost | A read of the Team's recorded usage (`insight/goal`), not an event | Exists; it joins the clients design's read tier. |
 | Whether *you* have read it | Nothing | The window's own state. It never goes on the wire. |
@@ -592,9 +600,12 @@ commit, and none of them ships a surface by itself:
    clients design's host changes 2 and 3).
 2. `FlowExecution.revision`: a digest of the canonical document, set when the
    Run starts and never changed. And `FlowExecution.continues`: the Run this
-   one continues, set at the start.
-3. `flow/check/retry` works on any finished check and returns when the check
-   has started (#1245).
+   one continues, set at the start. And `FlowExecution.startedAt`, which the
+   host already stores but does not project, and `endedAt`, set when the Run
+   leaves running.
+3. `flow/check/retry` works on a finished or interrupted check of a running or
+   stalled Run, and returns when the check has started (#1263, fixing #1245).
+   A settled or stopped Run refuses it; the way on is *Run again…*.
 4. A `brief` input on a Run, frozen with it, and the `{{brief}}` slot.
 5. `seat/activity` (host-derived and throttled, mapped to `seat.changed`),
    `review.changed`, and the optional fields above. A field is present only
@@ -700,9 +711,10 @@ These do not block the design:
   side by side) or a mode of the pane. It is not changed here and the frames
   leave it where it is; it is revisited after the Overview exists, because the
   seats table is the natural place to pick from.
-- **Where the doing-line lookup lives.** It is in the interface today. A shared
-  home (`@harnessdesk/client` or `protocol`) is settled in the pull request
-  that adds `seat.changed`.
+- **Where the doing-line lookup lives.** Settled: it moves into
+  `packages/protocol`, with a re-export left in the interface, in the pull
+  request that adds `seat.changed` (see "Sharing the clients design's event
+  stream").
 - **The Teams page's place in the left menu**, beside Agents or under the
   project tree, is a catalogue decision for the Teams-page pull request.
 - **Names in the seats table.** A table cell is content, so seat names wear
@@ -727,8 +739,8 @@ are above; the dark ones are the same files with `-dark`.
 | A review that was not posted | [review-not-posted-light](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/review-not-posted-light.png) | [review-not-posted-dark](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/review-not-posted-dark.png) |
 | The Flow, read-only (phase 1) | [flow-blueprint-light](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/flow-blueprint-light.png) | [flow-blueprint-dark](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/flow-blueprint-dark.png) |
 | The Flow with the Run's state (phase 2) | [flow-overlay-light](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/flow-overlay-light.png) | [flow-overlay-dark](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/flow-overlay-dark.png) |
-| The Flow as a poster | [flow-hero-light]({B}/flow-hero-light.png) | [flow-hero-dark]({B}/flow-hero-dark.png) |
-| The track, considered | [flow-alt-track-light]({B}/flow-alt-track-light.png) | [flow-alt-track-dark]({B}/flow-alt-track-dark.png) |
+| The Flow as a poster | [flow-hero-light](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/flow-hero-light.png) | [flow-hero-dark](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/flow-hero-dark.png) |
+| The track, considered | [flow-alt-track-light](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/flow-alt-track-light.png) | [flow-alt-track-dark](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/flow-alt-track-dark.png) |
 | Starting with a brief | [start-brief-light](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/start-brief-light.png) | [start-brief-dark](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/start-brief-dark.png) |
 | Stop a run | [dialog-stop-light](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/dialog-stop-light.png) | [dialog-stop-dark](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/dialog-stop-dark.png) |
 | Abandon a card | [dialog-abandon-light](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/dialog-abandon-light.png) | [dialog-abandon-dark](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/dialog-abandon-dark.png) |

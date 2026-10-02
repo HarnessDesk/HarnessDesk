@@ -84,16 +84,16 @@ Sizes: S under a day of Team time, M about a day, L more.
 | PR | What | Depends on | Starts now? | Size |
 | --- | --- | --- | --- | --- |
 | 1 | The overview model (pure selectors) | none | **yes** | M |
-| 5 | Host: the Run record learns four things | none (coordinate on `flow-execution.ts`) | **yes** | M |
+| 5 | Host: the Run record learns what the views need | none (coordinate on `flow-execution.ts`) | **yes** | M |
 | 6 | The brief field in the start dialog | none | **yes** | S |
 | 2 | The Overview in the Team pane, with every Seat a Run opened (closes #1278) | 1 | after 1 | L |
 | 12 | The Teams page | 1 | after 1 | M |
 | 3 | The Run model and timeline | none; reads PR 5's fields when present | **yes** (after 2 for the shared pane file) | L |
 | 4 | The Run inspector | 3 | after 3 | M |
 | 7 | Publication state and its doors | 3, 4 | after 4 | M |
-| 8 | Answer, abandon and approve from the Overview | 2 | after 2 | M |
+| 8 | Answer and approve from the Overview, abandon from the inspector | 2, 4 | after 4 | M |
 | 9 | Run a check again from the timeline | 3, 4; #1263 merged | after those | S |
-| 10 | Stop a run | 2 or 3; the stop method from the clients design | when its method exists | S |
+| 10 | Stop a run | 2, 3; the stop method from the clients design | when its method exists | S |
 | 11 | The end of a Run, and Run again | 3, 4, 5 | after those | M |
 | 13 | `FlowGraph` and the Flow tab (read-only) | 3 | after 3 | L |
 | 14 | The Run's state on the Flow | 13 | after 13 | L |
@@ -120,8 +120,8 @@ to their shape (agreed 2026-10-02, now in its spec's event table and its PR 1b):
 
 1. **`seat.changed`.** The **host derives it** and sends one `seat/activity`
    notification per seat on a `seats` topic, at most once every 2.5 seconds; the
-   library maps it one to one. Reason: deriving it in each client would send
-   every seat's whole transcript stream to the command line and later a phone.
+   library maps it one to one. Reason: one derivation on the host keeps
+   every client's rows identical and keeps the stream small.
    - The derivation of the in-flight tool, with the one tool-name lookup (today
      `packages/ui/src/lib/tool-names.ts`), **moves into `packages/protocol`**,
      with a re-export left in the UI so this plan's imports do not change.
@@ -138,7 +138,9 @@ to their shape (agreed 2026-10-02, now in its spec's event table and its PR 1b):
      reason: string | null, pr: number | null }
    ```
 
-   It comes from `finding/run`'s `publication` and is read again on
+   The host derives each round's state from the Run's publication journal,
+   whose postings are keyed by round; `finding/run`'s `publication` is the
+   Run's aggregate and is not per round. It is read again on
    `finding/changed`. (`finding/publications` lists only the postings a person
    must look at, so a post that succeeded is not in it.) The window maps these
    words to its own chips in its selector, not on the wire (PR 7 has the table).
@@ -194,7 +196,7 @@ the Overview draws, in the app's words, ordered by precedence.
   - `type SeatState = 'needs-you' | 'unread' | 'working' | 'idle'`
   - `interface SeatRow { seat: string; name: string; role: string | null; card: { id: number; title: string } | null; round: number | null; state: SeatState; reason: string | null; doing: string | null; since: number | null; cost: { unit: 'money' | 'turns'; value: number; estimated: boolean } | null }`
   - `interface NeedsYouItem { kind: 'card' | 'question' | 'approval'; seat: string | null; card: number | null; summary: string; since: number }`
-  - `interface RunStrip { run: string; state: 'running' | 'settled' | 'stopped' | 'stalled'; round: number | null; role: string | null; startedAt: number; reviewRounds: { used: number; of: number } | null; total: { money: number | null; turns: number | null } }`
+  - `interface RunStrip { run: string; state: 'running' | 'settled' | 'stopped' | 'stalled'; round: number | null; role: string | null; startedAt: number | null; reviewRounds: { used: number; of: number } | null; total: { money: number | null; turns: number | null } }`
   - `teamOverview(input): { run: RunStrip | null; needsYou: NeedsYouItem[]; seats: SeatRow[] }`
   - `doingLine(previous, next, now): { line: string | null; at: number }`: the 2.5-second hold, as a pure function.
 - [ ] Rules, each with a test:
@@ -229,7 +231,7 @@ the Overview draws, in the app's words, ordered by precedence.
 - #1278, and how the two readers get members today: the rail's Agents list and its empty state in `TeamRoomPane.tsx` (the roster from `store.teamPeers`, which answers the board's `members`; the empty-state sentence near `No agents in this room yet`); the sidebar's `roomMembers` and the `inRooms` set in `SessionTree.tsx`. A Flow's membership is the Goal's Seats (`GoalView.members` in `snapshot.goals`; `FlowExecution.rounds[].seats` names the ones a Run opened by role); `lib/goal-run.ts` shows how the window already reads a Goal's Run.
 
 **Scope.**
-- [ ] `packages/ui/src/components/TeamOverview.tsx`: the Run strip (name, round and role, started, review budget, total as "$1.43 · 96 turns", no actions yet), the **Needs you** list (rows render; their buttons arrive with PR 8), and the seats table (seat face and name, role, card, round, state chip, doing line, time in state, cost). Idle is plain muted text. The cost cell shows the unit it has, and its title says why ("This account is not metered, so turns are counted").
+- [ ] `packages/ui/src/components/TeamOverview.tsx`: the Run strip (name, round and role, started, review budget, total as "$1.43 · 96 turns", no actions yet), the **Needs you** list (rows render; their buttons arrive with PR 8), and the seats table (seat face and name, role, card, round, state chip, doing line, time in state, cost). Idle is plain muted text. The strip's *started* reads `RunStrip.startedAt`, which is null until PR 5 projects it, and the strip then leaves it out (if PR 1 shipped the field as required, relax it to `number | null` there). The cost cell shows the unit it has, and its title says why ("This account is not metered, so turns are counted").
 - [ ] Narrow width (the pane's own narrow rule): a seat is one `ListRow`: face, name and state chip on the title's line, the doing line beneath, the cost at the end.
 - [ ] `TeamRoomPane.tsx`: **Overview** as the rail's first item, the default when a Flow run exists on the Team (a Team without one still opens on Chat). The header chip's existing rule is unchanged.
 - [ ] A Team with no run: the strip is absent; the table still lists the seats (state, card, time).
@@ -304,9 +306,9 @@ the Overview draws, in the app's words, ordered by precedence.
 
 ---
 
-## PR 5 — Host: the Run record learns four things
+## PR 5 — Host: the Run record learns what the views need
 
-**Goal.** A Run records what the views need and the host never had to say: the Flow's identity, the Run it continues, its brief, and how it ended.
+**Goal.** A Run records what the views need and the host never had to say: the Flow's identity, the Run it continues, its brief, how and when it ended, and when it started (stored today, but not projected).
 
 **Read first.** Spec: "The model, in words", "Why a Run ended, and the doors", "Host changes this needs" items 2 and 4; `packages/protocol/src/flow-policy.ts` (`FlowExecution`); `packages/server/src/flow-execution.ts`, `flow-preview.ts`, `methods/flows.ts`; `docs/flows.md` ("A run holds the flow it started with, frozen").
 
@@ -314,6 +316,7 @@ the Overview draws, in the app's words, ordered by precedence.
 - [ ] `FlowExecution.revision: string | null`: a short digest of the **canonical** parsed document, set when the Run starts and never changed. The same Flow text gives the same digest whatever its formatting.
 - [ ] `FlowExecution.continues: string | null`: the Run this one continues, set at the start (used by PR 11).
 - [ ] `FlowExecution.brief: string | null`: the `brief` input, frozen with the Run (a Flow that declares no `brief` stores `null`).
+- [ ] `FlowExecution.startedAt: number` (project the value the host already stores; `projectExecution` drops it today) and `FlowExecution.endedAt: number | null` (set when the Run leaves `running`).
 - [ ] `FlowExecution.end`: `{ kind: 'complete' } | { kind: 'unrouted'; card: number; outcome: string } | { kind: 'stopped'; by: 'person' | 'desk' } | { kind: 'budget'; which: 'rounds' | 'without-progress'; used: number } | { kind: 'stalled' }`, set when the Run leaves `running`. `reason` keeps its sentence.
 - [ ] Declare in `packages/protocol/src/flow-policy.ts`, validate in `wire-validators.ts`, set in `flow-execution.ts`; the compiler refuses a missing edit.
 - [ ] `docs/flows.md`: one short section on what a Run records.
@@ -323,9 +326,9 @@ the Overview draws, in the app's words, ordered by precedence.
 
 **Coordinate.** That session edits `flow-execution.ts` for stop. Fetch main before starting and again before the PR, and keep this change to the record's fields and where they are set.
 
-**Verify.** Node tests in `packages/server`: the digest is stable under formatting changes and changes with a rule; `continues` and `brief` round-trip; each `end.kind` is produced by its scenario (complete, an outcome no rule follows, a stop, a budget, a stalled check); a record with none of the fields still loads. `pnpm verify`.
+**Verify.** Node tests in `packages/server`: the digest is stable under formatting changes and changes with a rule; `continues` and `brief` round-trip; `startedAt` is the stored value and `endedAt` is set once; each `end.kind` is produced by its scenario (complete, an outcome no rule follows, a stop, a budget, a stalled check); a record with none of the fields still loads. `pnpm verify`.
 
-**Done when.** A Run read back through `flow/execution` carries the four fields, and an old record does not break.
+**Done when.** A Run read back through `flow/execution` carries the new fields, and an old record does not break.
 
 ---
 
@@ -356,8 +359,8 @@ the Overview draws, in the app's words, ordered by precedence.
 **Read first.** Spec: "A review that was never posted", its table of the desk's words, and the `review-not-posted` frame. `packages/protocol/src/findings.ts`: `FindingRunView` (`round`, `publication`, `reason`, `boundPr`, `unbound`), `FindingPublicationsView` and `FindingPublicationItem` (only postings a person must look at, plus the backfill), `FindingPublishAction`. `packages/ui/src/components/FindingPublications.tsx` (the existing post-again, skip and backfill controls) and `GoalFindings.tsx`; `store.readFindingPublications`. `docs/flows.md` § "Findings, budgets and blind rounds": confirm what `local`, `pending`, `partial` and `uncertain` mean before wording anything.
 
 **Scope.**
-- [ ] A pure `lib/review-publication.ts` mapping the desk's per-round `publication` to the row's chip and tone, exactly as the spec's table: `posted` is **Posted to #n** (neutral), `pending` is **Waiting to post** (neutral), `partial` is **Partly posted** (warning), `uncertain` is **Not confirmed** (warning), `local` is **Not posted** (warning) when a pull request is bound and posting is on, otherwise **Kept on the desk** (neutral); no findings, no chip. Tested on every row of the table.
-- [ ] The state is per round and comes from `finding/run` for the round the desk is reading. For an earlier round use the findings' own publication records where they say it, and show nothing where they cannot; never guess.
+- [ ] A pure `lib/review-publication.ts` mapping the desk's words to the chip and tone, exactly as the spec's table: `posted` is **Posted to #n** (neutral), `pending` or a posting `prepared`/`started` is **Waiting to post** (neutral), `partial` is **Partly posted** (warning), `uncertain` is **Not confirmed** (warning), `local` or a round in the backfill list is **Not posted** (warning) when a pull request is bound and posting is on, otherwise **Kept on the desk** (neutral); no findings, no chip. Tested on every row of the table.
+- [ ] Two sources, kept apart. The Run's state is `finding/run`'s `publication` (an aggregate of every posting the Run holds, not one round's): show it once, on the Run strip and header, the end banner and the Findings summary. A round's state is read from `finding/publications` by `round` (each item, and each round of the backfill list): show it on that round's review row. A round the host does not name shows no chip; never read a round from the Run's aggregate, and never guess. (The round-keyed `review.changed` fills the rest in PR 16.)
 - [ ] On a review's timeline row: the chip. In the inspector's Review section: the reason (`FindingRunView.reason`, an item's `reason`, or the publications view's `backfillRefusal`), **Copy review** (always works), and **Post to pull request**, enabled only when `finding/publications` offers an item to post again or a backfill, calling `finding/publish` with that action, with a title that says what it does ("Posts this review to pull request #n as you. Nothing else changes.").
 - [ ] Reuse what `FindingPublications.tsx` already does for the call and its refusals; extract the shared piece rather than writing a second.
 - [ ] Refresh on the `finding/changed` notification.
@@ -365,15 +368,15 @@ the Overview draws, in the app's words, ordered by precedence.
 
 **Not in this PR.** Posting a handoff's text when no review candidate exists (#1265, a host change), and the `review.changed` event (the other session's PR 1b).
 
-**Verify.** A test per row of the mapping table; component tests for posted, pending, partial, uncertain, local with and without a bound pull request, and no findings; the button is disabled with the reason when nothing can be posted; frames (light, dark).
+**Verify.** A test per row of the mapping table; a test that a round the publications view does not name gets no chip even when the Run says `posted`; component tests for posted, pending, partial, uncertain, local with and without a bound pull request, and no findings; the button is disabled with the reason when nothing can be posted; frames (light, dark).
 
 **Done when.** The #1248 case reads as "Not posted, here is why, here is the button", on the Run.
 
 ---
 
-## PR 8 — Answer, abandon and approve from the Overview
+## PR 8 — Answer and approve from the Overview, abandon from the inspector
 
-**Goal.** The Needs-you rows carry their buttons.
+**Goal.** The Needs-you rows carry their buttons, and a card's inspector can abandon it.
 
 **Read first.** Spec: the controls table (Answer a card, Abandon a card, Approve and Deny); `TeamBoardPane.tsx` (the board's referee verb), `components/Approvals.tsx`; `store` methods behind `team/intent` and `approval/respond`.
 
@@ -383,11 +386,13 @@ the Overview draws, in the app's words, ordered by precedence.
 - [ ] **Abandon a card** (in the card's inspector, PR 4): a confirm dialog that says first that the rule after the card's role still fires, with *Stop the run instead* present only once PR 10 exists.
 - [ ] Every button reads `{ available, why }`-shaped data when the host provides it; until it does, disable with the refusal text the existing calls already return.
 
+**Depends on.** PR 2 (the Needs-you rows) and PR 4 (the inspector, where Abandon lives).
+
 **Not in this PR.** Anything for outside clients (the clients design's tiers).
 
 **Verify.** Component tests per button; a test that answering from the Overview and from the board are the same call; frames of the abandon dialog.
 
-**Done when.** A person can clear everything that needs them from the Overview.
+**Done when.** A person can answer a step and a tool request from the Overview's Needs-you rows, and abandon a card from its inspector, each with the consequence said first.
 
 ---
 
@@ -395,18 +400,19 @@ the Overview draws, in the app's words, ordered by precedence.
 
 **Goal.** A finished check can be run again from its row, with consent.
 
-**Read first.** Spec: the controls table (Run the check again…); `FlowRunStatus.tsx` (`RetryCheck` and its dialog); `store.previewFlowRetry` and `retryFlowCheck`; #1245 and its fix (#1263).
+**Read first.** Spec: the controls table (Run the check again…); `FlowRunStatus.tsx` (`RetryCheck` and its dialog); `store.previewFlowRetry` and `retryFlowCheck`; #1245 and its fix (#1263: read its description and `packages/server/test/flow-run-check.test.ts`, which shows the first and second outputs both kept in the durable history).
 
 **Scope.**
 - [ ] Extract `RetryCheck` from `FlowRunStatus.tsx` so the timeline row, the check inspector and the existing stalled-run action share it.
-- [ ] A check row and its inspector offer **Run again…**; the dialog shows the command verbatim; a new attempt appears under the card; the earlier attempt is unchanged.
-- [ ] The control is disabled with the host's reason when the host refuses.
+- [ ] **Measure first, in the PR body.** Which read lists a check's attempts: #1263 keeps each attempt's output as evidence on the card, not as a second operation record. Say which read the window uses (the card's evidence facts) and, if none returns them to the window, add the smallest additive read in this PR.
+- [ ] A check row and its inspector offer **Run again…** while the Run is running or stalled; the dialog shows the command verbatim; a new attempt appears under the card; the earlier attempt and its output are unchanged.
+- [ ] The control is disabled with the host's reason when the host refuses. On a stopped or settled Run the host refuses and says to start a new Run; show that reason and the **Run again…** of PR 11 beside it, not a second path.
 
-**Depends on.** #1263 merged, so that a finished check can run again and the call returns when the check has started.
+**Depends on.** PR 3 (the timeline) and PR 4 (the inspector), and #1263 merged, so that a finished or interrupted check can run again with fresh consent and the call returns when the check has started.
 
-**Verify.** Component tests (attempt appears, earlier attempt kept, refusal shown); frames.
+**Verify.** Component tests (attempt appears, earlier attempt kept, refusal shown on a settled Run); frames.
 
-**Done when.** The #1245 landing check can be run again from the Run, and its first answer is still there.
+**Done when.** A finished check on a running or stalled Run can be run again from its row and its first attempt is still there; on a settled Run the control says why it cannot and points to *Run again…*.
 
 ---
 
@@ -421,7 +427,7 @@ the Overview draws, in the app's words, ordered by precedence.
 - [ ] Afterwards the Run reads *Stopped*, neutral, by the person.
 - [ ] The abandon dialog (PR 8) gains *Stop the run instead*.
 
-**Depends on.** The stop method, from the clients design's implementation.
+**Depends on.** PR 2 (the Overview strip) and PR 3 (the Run header), and the stop method from the clients design's implementation.
 
 **Verify.** Fake-agent rig: start a Flow, stop it, assert no rule fired and the seats were interrupted; component tests for the dialog's seat lines; frames.
 
@@ -512,7 +518,13 @@ the Overview draws, in the app's words, ordered by precedence.
 
 **Scope.** A demo scene that renders the real `FlowGraph` from fixture data, a poster layout (the graph alone, the Run as one proportional bar beneath), and a script that renders the poster frames for light and dark. No second drawing.
 
+**Depends on.** PR 14 (the Run's state on the Flow), so the poster draws the real overlay.
+
+**Not in this PR.** A second drawing, any change to `FlowGraph`, any new Run fixture beyond placeholder data.
+
 **Verify.** The demo builds (`vite.site-demo.config.ts`); the frames contain only the demo persona (rule 13).
+
+**Done when.** The site demo and the changelog can show the poster for light and dark, drawn by the real `FlowGraph`.
 
 ---
 
@@ -520,14 +532,20 @@ the Overview draws, in the app's words, ordered by precedence.
 
 **Goal.** The window and the command line derive the same views from the same code.
 
-**Waits for.** The Wire client and CLI session's PR 1b (the `seat/activity` and review topics, `seat.changed`, `review.changed`, the `views` entry) and the selectors moved into `@harnessdesk/client/views`, merged.
+**Read first.** Spec: "Sharing the clients design's event stream"; the other session's spec and its event table; this plan's section "Coordination with the Wire client and CLI session"; `packages/ui/src/lib/team-overview.ts`, `run-timeline.ts` and `review-publication.ts`.
+
+**Depends on.** The Wire client and CLI session's PR 1b (the `seat/activity` and review topics, `seat.changed`, `review.changed`, the `views` entry) and the selectors moved into `@harnessdesk/client/views`, merged. This PR waits for them.
 
 **Scope.**
 - [ ] Feed the window's views from the client core's selectors, adapting the store snapshot to the stream's state shape; delete the window-only derivations PR 1 and PR 3 wrote once they are identical.
 - [ ] Read `seat/activity` (structured `doing`) instead of the window's own snapshot, rendering it with the one shared lookup in `packages/protocol`; keep both until the two agree. Map the desk's `review.changed` words to the chips PR 7 defines.
 - [ ] Replay one scripted stream through the window and through the command line's `status` and `run show`, and assert they agree.
 
+**Not in this PR.** New views or controls; any change to the stream's shapes (those belong to the other session's PRs); any command-line surface.
+
 **Verify.** The replay test; the existing component and browser specs unchanged; `pnpm verify`.
+
+**Done when.** The window's Overview and Run timeline derive from the shared selectors, the replay test shows the window and the command line agree, and the window-only derivations are gone.
 
 ---
 
