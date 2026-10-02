@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { RuntimeMark } from './BrandIcons'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
@@ -15,6 +15,7 @@ import {
   useSnapshot,
   useStore,
 } from '../state/context'
+import type { AppSnapshot } from '../state/store'
 import {
   ComposerNotice,
   NoticeCard,
@@ -29,7 +30,8 @@ import { describeLimits } from '../lib/limits'
 import { conditionFor } from '../lib/usage-alerts'
 import { isSilenced, offersMute, surfaceFor, wasKept, type NoticeIdentity, type NoticePolicy, type NoticeSurface } from '../lib/notice-policy'
 import { useShell, type ShellActions } from '../panels/views'
-import { focusedComposerVisible } from '../state/workbench'
+import { useMount } from '../panels/mount'
+import { areaVisible, focusedComposerVisible, noticeArea, visibleViews, type AreaId } from '../state/workbench'
 import { useImportOffer } from './ImportOffer'
 
 /**
@@ -147,6 +149,7 @@ const identify = (notice: Notice): NoticeIdentity => ({
 interface Standing {
   readonly message: NoticeMessage
   readonly identity: NoticeIdentity
+  readonly runtime: RuntimeId
   /** The plain-text form of `message.body`, for the inbox copy (see `Notice.inboxBody`). */
   readonly inboxBody?: string
   /** See `Notice.inboxOpen`. */
@@ -272,6 +275,7 @@ const useStanding = (): Standing | null => {
       ...(notice.action ? { action: notice.action } : {}),
     },
     identity,
+    runtime: runtime.id,
     ...(notice.inboxBody !== undefined ? { inboxBody: notice.inboxBody } : {}),
     ...(notice.inboxOpen !== undefined ? { inboxOpen: notice.inboxOpen } : {}),
     dismiss: () => {
@@ -285,6 +289,203 @@ const useStanding = (): Standing | null => {
 /** Where a standing notice goes: a dropped link is always the strip; the rest, the person's setting. */
 const placeOf = (policy: NoticePolicy, standing: Standing): NoticeSurface | null =>
   standing.identity.kind === 'link' ? 'strip' : surfaceFor(policy, standing.identity.kind)
+
+interface ComposerMount {
+  readonly key: string
+  readonly paneId: string
+  readonly session: string | null
+  readonly roomMembers: readonly string[]
+  readonly runtime: RuntimeId
+  readonly area: AreaId
+  readonly mountId: string
+  readonly focused: boolean
+  readonly visible: boolean
+}
+
+interface ComposerMountRecord extends ComposerMount {
+  readonly token: number
+}
+
+interface ComposerMountRegistry {
+  readonly mounts: readonly ComposerMountRecord[]
+  readonly register: (mount: ComposerMount) => () => void
+  readonly stripHosts: readonly { readonly key: string; readonly area: AreaId }[]
+  readonly registerStripHost: (host: { readonly key: string; readonly area: AreaId }) => () => void
+}
+
+const ComposerMountsContext = createContext<ComposerMountRegistry | null>(null)
+const NO_ROOM_MEMBERS: readonly string[] = []
+
+const hasRenderedLayout = (probe: HTMLElement): boolean => {
+  if (!probe.isConnected) return false
+  const path: HTMLElement[] = []
+  let box: { left: number; top: number; right: number; bottom: number } | null = null
+  for (let element: HTMLElement | null = probe; element; element = element.parentElement) {
+    const style = getComputedStyle(element)
+    // Paint, not interactivity or exposure: an `inert` ancestor (the floating
+    // sidebar's scrim holds the main content so) and `aria-hidden` leave the
+    // notice on screen, so they must not hand it to the fallback.
+    if (
+      element.hidden || style.display === 'none' ||
+      style.visibility === 'hidden' || style.visibility === 'collapse' || Number(style.opacity) === 0
+    ) return false
+    path.push(element)
+    const rect = element.getBoundingClientRect()
+    if (box === null && rect.width > 0 && rect.height > 0) {
+      box = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
+    }
+  }
+  if (box === null) return false
+
+  for (const element of path) {
+    // The document viewport scrolls the page; it is not an element wrapper
+    // that hides a mounted notice just because its preview frame is offscreen.
+    if (element === document.documentElement || element === document.body) continue
+    const style = getComputedStyle(element)
+    const rect = element.getBoundingClientRect()
+    const clipX = ['hidden', 'clip', 'scroll', 'auto'].includes(style.overflowX)
+    const clipY = ['hidden', 'clip', 'scroll', 'auto'].includes(style.overflowY)
+    if (clipX) {
+      const left = rect.left + element.clientLeft
+      const right = left + (element.clientWidth || rect.width)
+      box.left = Math.max(box.left, left)
+      box.right = Math.min(box.right, right)
+    }
+    if (clipY) {
+      const top = rect.top + element.clientTop
+      const bottom = top + (element.clientHeight || rect.height)
+      box.top = Math.max(box.top, top)
+      box.bottom = Math.min(box.bottom, bottom)
+    }
+    if (box.right <= box.left || box.bottom <= box.top) return false
+  }
+  return true
+}
+
+/** Observe the actual DOM wrapper and report only transitions in rendered layout. */
+export const observeNoticeLayout = (probe: HTMLElement, onChange: (visible: boolean) => void): (() => void) => {
+  let previous: boolean | null = null
+  const update = (): void => {
+    const visible = hasRenderedLayout(probe)
+    if (visible === previous) return
+    previous = visible
+    onChange(visible)
+  }
+  update()
+
+  const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update)
+  const mutation = new MutationObserver(update)
+  for (let element: HTMLElement | null = probe; element; element = element.parentElement) {
+    resize?.observe(element)
+    mutation.observe(element, { attributes: true, attributeFilter: ['class', 'style', 'hidden'] })
+  }
+  return () => {
+    resize?.disconnect()
+    mutation.disconnect()
+  }
+}
+
+const useNoticeLayout = () => {
+  const [probe, setProbe] = useState<HTMLElement | null>(null)
+  const [visible, setVisible] = useState(false)
+  const ref = useCallback((element: HTMLElement | null) => setProbe(element), [])
+  useLayoutEffect(() => probe ? observeNoticeLayout(probe, setVisible) : undefined, [probe])
+  return { ref, visible }
+}
+
+const sameMount = (left: ComposerMountRecord, right: ComposerMount): boolean =>
+  left.key === right.key && left.paneId === right.paneId && left.session === right.session &&
+  left.runtime === right.runtime && left.area === right.area && left.mountId === right.mountId &&
+  left.focused === right.focused && left.visible === right.visible &&
+  left.roomMembers.length === right.roomMembers.length && left.roomMembers.every((key, index) => key === right.roomMembers[index])
+
+/** Wraps the real workbench so notice outlets can register their mounted composers and strip hosts. */
+export const ComposerMountsProvider = ({ children, onRegistryWrite }: { readonly children: ReactNode; readonly onRegistryWrite?: () => void }) => {
+  const [mounts, setMounts] = useState<readonly ComposerMountRecord[]>([])
+  const [stripHosts, setStripHosts] = useState<readonly { readonly key: string; readonly area: AreaId; readonly token: number }[]>([])
+  const sequence = useRef(0)
+  const register = useCallback((mount: ComposerMount) => {
+    onRegistryWrite?.()
+    const token = ++sequence.current
+    setMounts((current) => {
+      const previous = current.find((entry) => entry.key === mount.key)
+      return previous && sameMount(previous, mount)
+        ? current
+        : [...current.filter((entry) => entry.key !== mount.key), { ...mount, token }]
+    })
+    return () => setMounts((current) => current.filter((entry) => entry.key !== mount.key || entry.token !== token))
+  }, [onRegistryWrite])
+  const registerStripHost = useCallback((host: { readonly key: string; readonly area: AreaId }) => {
+    onRegistryWrite?.()
+    const token = ++sequence.current
+    setStripHosts((current) => [...current.filter((entry) => entry.key !== host.key), { ...host, token }])
+    return () => setStripHosts((current) => current.filter((entry) => entry.key !== host.key || entry.token !== token))
+  }, [onRegistryWrite])
+  const value = useMemo(() => ({ mounts, register, stripHosts, registerStripHost }), [mounts, register, stripHosts, registerStripHost])
+  return <ComposerMountsContext.Provider value={value}>{children}</ComposerMountsContext.Provider>
+}
+
+const chosenMount = (mounts: readonly ComposerMountRecord[]): ComposerMountRecord | null => {
+  const visible = mounts.filter((mount) => mount.visible)
+  const focused = visible.find((mount) => mount.focused)
+  return focused ?? (visible.length === 1 ? visible[0]! : null)
+}
+
+const standingComposer = (mounts: readonly ComposerMountRecord[], runtime: RuntimeId): ComposerMountRecord | null =>
+  chosenMount(mounts.filter((mount) => mount.runtime === runtime))
+
+const agentComposer = (mounts: readonly ComposerMountRecord[], notice: AppSnapshot['agentNotices'][number]): ComposerMountRecord | null => {
+  const session = sessionKey(notice.from.runtime, notice.from.sessionId as SessionId)
+  return chosenMount(mounts.filter((mount) => mount.session === session || mount.roomMembers.includes(session)))
+}
+
+const composerVisible = (snapshot: AppSnapshot, area: AreaId, mountId: string): boolean => {
+  const workbench = snapshot.workbench
+  if (!areaVisible(workbench, area)) return false
+  if (area === 'main') {
+    if (snapshot.layout.expanded !== null && snapshot.layout.expanded !== mountId) return false
+    return noticeArea(workbench, snapshot.windowWidth) === 'main'
+  }
+  const dock = workbench[area]
+  return !dock.collapsed && visibleViews(dock).some((entry) => entry.id === mountId)
+}
+
+const useRegisterComposerMount = (mount: ComposerMount): void => {
+  const registry = useContext(ComposerMountsContext)
+  const register = registry?.register
+  const members = JSON.stringify(mount.roomMembers)
+  useLayoutEffect(() => register?.(mount), [register, mount.key, mount.paneId, mount.session, members, mount.runtime, mount.area, mount.mountId, mount.focused, mount.visible])
+}
+
+const useRegisterStripHost = (host: boolean, area: AreaId | undefined, key: string | undefined) => {
+  const registry = useContext(ComposerMountsContext)
+  const register = registry?.registerStripHost
+  const layout = useNoticeLayout()
+  useLayoutEffect(() => host && layout.visible && area && key ? register?.({ area, key }) : undefined, [register, host, layout.visible, area, key])
+  return layout
+}
+
+/** Workbench fallback: use the named area only when no mounted outlet registered there. */
+export const NoticeStripFallback = ({ area }: { readonly area: AreaId }) => {
+  const registry = useContext(ComposerMountsContext)
+  if (registry?.stripHosts.some((host) => host.area === area)) return null
+  return <div className="contents" data-slot="workbench-notice-fallback" data-area={area}><NoticeStripOutlet host /></div>
+}
+
+/**
+ * Resolve the shared notice's outlet from its configured surface and the
+ * current layout once. A focused composer can remain mounted behind a narrow
+ * window's overlay or a zoomed dock; in those layouts its notice belongs in
+ * the visible strip instead. Both outlets use this answer, so their rules
+ * cannot drift apart and draw the same fact twice.
+ */
+const standingOutlet = (snapshot: AppSnapshot, standing: Standing, mounts: readonly ComposerMountRecord[], hasRegistry: boolean): NoticeSurface | null => {
+  const place = placeOf(snapshot.noticePolicy, standing)
+  if (place === 'composer' && (hasRegistry
+    ? standingComposer(mounts, standing.runtime) === null
+    : !focusedComposerVisible(snapshot.workbench, snapshot.windowWidth))) return 'strip'
+  return place
+}
 
 /**
  * Keeps, once, a notice whose kind the person moved to "Inbox only". Keyed by
@@ -381,68 +582,92 @@ export const ComposerNotices = () => {
   const store = useStore()
   const snapshot = useSnapshot()
   const pane = usePane()
+  const mount = useMount()
   const focused = useIsFocusedPane()
   const sessionKeyOfPane = useSessionKey()
+  const runtime = useRuntime()
+  const registry = useContext(ComposerMountsContext)
+  const layout = useNoticeLayout()
   const standing = useStanding()
-  const place = standing ? placeOf(snapshot.noticePolicy, standing) : null
-  const showStanding = focused && place === 'composer' && standing !== null
+  const roomForMount = pane?.view.kind === 'room' ? pane.view.room : null
+  const roomMembers = roomForMount !== null ? (snapshot.teams.get(roomForMount)?.members ?? NO_ROOM_MEMBERS) : NO_ROOM_MEMBERS
+  const mountArea = mount?.area ?? 'main'
+  const mountId = mount?.id ?? pane?.paneId ?? 'global'
+  const mountKey = `${mountArea}:${mountId}:${pane?.paneId ?? 'global'}`
+  const composerMount = useMemo<ComposerMount>(() => ({
+    key: mountKey,
+    paneId: pane?.paneId ?? mountId,
+    session: sessionKeyOfPane,
+    roomMembers,
+    runtime: runtime.id,
+    area: mountArea,
+    mountId,
+    focused,
+    visible: layout.visible && (mount ? composerVisible(snapshot, mountArea, mountId) : focused),
+  }), [mountKey, pane?.paneId, mountId, sessionKeyOfPane, roomMembers, runtime.id, mountArea, focused, layout.visible, mount, snapshot.windowWidth, snapshot.workbench, snapshot.layout.expanded])
+  useRegisterComposerMount(composerMount)
+  const mounts = registry?.mounts ?? []
+  const outlet = standing ? standingOutlet(snapshot, standing, mounts, registry !== null) : null
+  const selectedStanding = standing && registry
+    ? standingComposer(mounts, standing.runtime)?.key === composerMount.key
+    : focused && (standing ? focusedComposerVisible(snapshot.workbench, snapshot.windowWidth) : false)
+  const showStanding = selectedStanding && outlet === 'composer' && standing !== null
   const room = pane?.view.kind === 'room' ? pane.view.room : null
   const members = room !== null ? (snapshot.teams.get(room)?.members ?? []) : null
-  const asking = snapshot.agentNotices.filter((notice) => {
+  const asking = registry ? snapshot.agentNotices.filter((notice) => {
+    if (agentComposer(mounts, notice)?.key !== composerMount.key) return false
     const from = sessionKey(notice.from.runtime, notice.from.sessionId as SessionId)
     return members !== null ? members.includes(from) : sessionKeyOfPane !== null && from === sessionKeyOfPane
-  })
-  if (!showStanding && asking.length === 0) return null
+  }) : focused ? snapshot.agentNotices.filter((notice) => {
+    const from = sessionKey(notice.from.runtime, notice.from.sessionId as SessionId)
+    return members !== null ? members.includes(from) : sessionKeyOfPane !== null && from === sessionKeyOfPane
+  }) : []
   return (
-    <>
-      {showStanding && standing ? (
-        <ComposerNotice message={standing.message} onDismiss={standing.dismiss} onMute={standing.mute} />
-      ) : null}
+    <div className="contents" ref={layout.ref}>
+      {showStanding && standing ? <ComposerNotice message={standing.message} onDismiss={standing.dismiss} onMute={standing.mute} /> : null}
       {asking.map((notice) => {
         const sender = snapshot.runtimes.find((info) => info.id === notice.from.runtime)
-        return (
-          <ComposerNotice
-            key={notice.id}
-            message={{
-              id: notice.id,
-              tone: 'info',
-              title: notice.title,
-              ...(notice.body ? { body: notice.body } : {}),
-              ...(sender ? { mark: <RuntimeMark runtime={sender} size={14} /> } : {}),
-            }}
-            onDismiss={() => store.dismissAgentNotice(notice.id)}
-          />
-        )
+        return <ComposerNotice key={notice.id} message={{
+          id: notice.id,
+          tone: 'info',
+          title: notice.title,
+          ...(notice.body ? { body: notice.body } : {}),
+          ...(sender ? { mark: <RuntimeMark runtime={sender} size={14} /> } : {}),
+        }} onDismiss={() => store.dismissAgentNotice(notice.id)} />
       })}
-    </>
+    </div>
   )
 }
 
 /**
- * The slim strip above the panes: a dropped link, and whatever the person
- * moved here — drawn only where `host` says the layout has chosen it.
+ * A dropped link, and whatever the person moved to the strip. Existing
+ * composer, pane-bar and dock hosts pass `host` from layout state and register
+ * their area; Workbench fallbacks draw only when that area has no registered
+ * host.
  *
- * `host` is passed in by each caller from pure layout state (`mainNoticeHost`
- * for a pane in the split tree, `noticeArea` directly for a docked panel), so
- * "which outlet draws the shared messages" is decided the same way for every
- * render rather than raced for at mount time — a caller that is not the
- * layout's answer renders nothing here, ever, not even for one frame.
+ * Registration follows the actual React mount. This keeps a composer that
+ * disappears behind a board-only room or a folder-gone screen from blocking
+ * the fallback that can still draw the notice.
  */
-export const NoticeStripOutlet = ({ host }: { readonly host: boolean }) => {
+export const NoticeStripOutlet = ({
+  host,
+  area,
+  hostId,
+}: {
+  readonly host: boolean
+  readonly area?: AreaId
+  readonly hostId?: string
+}) => {
+  const layout = useRegisterStripHost(host, area, hostId)
   const snapshot = useSnapshot()
+  const registry = useContext(ComposerMountsContext)
   const standing = useStanding()
   const offer = useImportOffer()
   if (!host) return null
   const messages: NoticeMessage[] = []
   const dismissals = new Map<string, () => void>()
   if (standing) {
-    const place = placeOf(snapshot.noticePolicy, standing)
-    // A kind that belongs on the composer still has to reach someone: when
-    // the focused mount is not a composer that is actually visible — a
-    // board-only layout, a folder that is gone where the composer would be,
-    // a zoomed dock, the right panel's overlay — the strip this outlet
-    // hosts is the fallback rather than the message going unseen.
-    if (place === 'strip' || (place === 'composer' && !focusedComposerVisible(snapshot.workbench, snapshot.windowWidth))) {
+    if (standingOutlet(snapshot, standing, registry?.mounts ?? [], registry !== null) === 'strip') {
       messages.push(standing.message)
       dismissals.set(standing.message.id, standing.dismiss)
     }
@@ -451,13 +676,14 @@ export const NoticeStripOutlet = ({ host }: { readonly host: boolean }) => {
     messages.push(offer.message)
     dismissals.set(offer.message.id, offer.dismiss)
   }
-  if (messages.length === 0) return null
   return (
-    <NoticeStrip
-      messages={messages}
-      onDismiss={(id) => dismissals.get(id)?.()}
-      onMute={(id) => (standing && id === standing.message.id ? standing.mute : undefined)}
-    />
+    <div className="contents" ref={layout.ref}>
+      {layout.visible && messages.length > 0 ? <NoticeStrip
+        messages={messages}
+        onDismiss={(id) => dismissals.get(id)?.()}
+        onMute={(id) => (standing && id === standing.message.id ? standing.mute : undefined)}
+      /> : null}
+    </div>
   )
 }
 

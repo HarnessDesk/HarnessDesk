@@ -1279,7 +1279,7 @@ export const TeamRoomPane = ({
         {/* The rail's edge, which the narrow room takes away with the split. */}
         <Separator orientation="vertical" className={styles.railEdge} />
 
-        <div className={styles.body}>
+        <div className={styles.body} data-slot="room-body">
           {/* Only drawn by the narrow-room container query. The label names what
               it goes back to, because "back" alone in a pane with no history is
               a direction, not a destination. */}

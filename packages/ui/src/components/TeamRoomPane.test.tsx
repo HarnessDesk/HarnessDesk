@@ -1160,7 +1160,10 @@ it('does not spin on a project that has no board', async () => {
      cascade stops it where it happens and fails this test by name. */
   let reads = 0
   const real = store.getSnapshot.bind(store)
-  const CEILING = 100
+  /* A runaway is thousands, not a hundred. A settled room reads the snapshot
+     about 110 times (the notice hosts register, then measure, before the tree
+     is still); the bound is far enough above that to be a ceiling on a loop. */
+  const CEILING = 200
   ;(store as { getSnapshot: () => unknown }).getSnapshot = () => {
     reads += 1
     if (reads > CEILING) {
