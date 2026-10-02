@@ -925,7 +925,6 @@ const SideBySideBoard = () => {
   const [four, setFour] = useState(() => sideBySideState(4))
   const [narrow, setNarrow] = useState(() => sideBySideState(4))
   const plainStore = useMemo(() => sideBySideStore({ noGoal: true }), [])
-  const waitingStore = useMemo(() => sideBySideStore({ noGoal: true, waiting: true }), [])
   const statesStore = useMemo(() => sideBySideStore({ noGoal: true, working: true, stopped: true, ready: true }), [])
   const memberOf = (key: (typeof SIDE_BY_SIDE_KEYS)[number]) => {
     const member = SIDE_BY_SIDE_MEMBERS[SIDE_BY_SIDE_KEYS.indexOf(key)]
@@ -986,10 +985,9 @@ const SideBySideBoard = () => {
           </div>
         </Case>
         <Case className="col-span-full" label="room — Side by side · two members, grid without a composer">{grid(two, setTwo, 'catalog-side-by-side-two', plainStore)}</Case>
-        <Case className="col-span-full" label="room — Side by side · two members, waiting for you">{grid(two, setTwo, 'catalog-side-by-side-waiting', waitingStore)}</Case>
         <Case className="col-span-full" label="room — Side by side · four members, tile states and ceiling">{grid(four, setFour, 'catalog-side-by-side-four', statesStore)}</Case>
-        <Case label="room — Side by side · narrow tabs with a waiting mark">
-          {grid(narrow, setNarrow, 'catalog-side-by-side-narrow', waitingStore, 'h-96 w-80 max-w-full')}
+        <Case label="room — Side by side · narrow tabs">
+          {grid(narrow, setNarrow, 'catalog-side-by-side-narrow', plainStore, 'h-96 w-100 max-w-full')}
         </Case>
       </div>
       <Rule>A room keeps the members you chose as tiles. Width changes the arrangement; focus stays visible in the tile header.</Rule>

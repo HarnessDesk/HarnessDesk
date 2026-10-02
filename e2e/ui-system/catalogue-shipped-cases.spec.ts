@@ -19,10 +19,6 @@ test('the catalogue renders shipped composer slots and Side by side cases', asyn
   await expect(two.locator('[data-slot="composer"]')).toHaveCount(0)
   await expect(two.getByRole('dialog')).toHaveCount(0)
 
-  const waiting = caseLabel(page, 'room — Side by side · two members, waiting for you')
-  await expect(waiting.locator('[data-slot="side-by-side-tile"]')).toHaveCount(2)
-  await expect(waiting.getByRole('dialog', { name: 'Run this command?' })).toBeVisible()
-
   const four = caseLabel(page, 'room — Side by side · four members, tile states and ceiling')
   await expect(four.locator('[data-slot="side-by-side-tile"]')).toHaveCount(4)
   const tile = (nickname: string) => four.locator(`[data-slot="side-by-side-tile"][aria-label="${nickname}"]`)
@@ -36,9 +32,10 @@ test('the catalogue renders shipped composer slots and Side by side cases', asyn
   await expect(tile('Delta').getByText('Nothing to show')).toHaveCount(0)
   await expect(tile('Delta').getByText('What should we build?')).toBeVisible()
 
-  const narrow = caseLabel(page, 'room — Side by side · narrow tabs with a waiting mark')
+  const narrow = caseLabel(page, 'room — Side by side · narrow tabs')
   await expect(narrow.getByRole('tablist', { name: 'Side by side tiles' })).toBeVisible()
-  await expect(narrow.getByRole('tab', { name: /Beta/ }).getByLabel('waiting for you')).toBeVisible()
+  await expect(narrow.getByRole('tab')).toHaveCount(4)
+  await expect(narrow.getByRole('dialog')).toHaveCount(0)
 })
 
 test('the catalogue renders refused and partial TurnFiles states', async ({ page }) => {

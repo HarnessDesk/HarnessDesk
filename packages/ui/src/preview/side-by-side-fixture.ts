@@ -20,8 +20,6 @@ const ANSWERS = [
 type SideBySideFixtureOptions = {
   /** Give Alpha an active turn and its held ceiling chip. */
   readonly working?: boolean
-  /** Seed Beta's real pending approval. */
-  readonly waiting?: boolean
   /** Give Gamma a turn that stopped before completion. */
   readonly stopped?: boolean
   /** Leave Delta without a prior turn, so its tile has no outcome badge. */
@@ -92,22 +90,7 @@ export const sideBySideStore = (options: SideBySideFixtureOptions = {}): AppStor
     displayName: 'Model A',
     description: 'Preview model',
   }))
-  const approvals: AppSnapshot['approvals'] = options.waiting ? [{
-    key: SIDE_BY_SIDE_KEYS[1]!,
-    approval: {
-      id: 'side-by-side-waiting-approval',
-      type: 'command',
-      kind: 'shell',
-      command: 'pnpm test',
-      cwd: '/workspace',
-      reason: 'Runs the project tests before work continues.',
-      options: [
-        { id: 'yes', label: 'Allow', intent: 'approve' },
-        { id: 'no', label: 'Deny', intent: 'deny' },
-      ],
-    },
-  } as unknown as AppSnapshot['approvals'][number]] : []
-  const own = previewStore({ ...snapshot, sessions, runtimes, models, approvals } as Partial<AppSnapshot>)
+  const own = previewStore({ ...snapshot, sessions, runtimes, models } as Partial<AppSnapshot>)
   const peers: readonly TeamPeerInfo[] = SIDE_BY_SIDE_MEMBERS.map((member) => ({
     runtime: member.runtime,
     sessionId: member.id,
