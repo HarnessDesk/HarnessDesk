@@ -186,7 +186,7 @@ On the client door, the host sends nothing until the client calls
 }
 'client/subscribe': {
   params: {
-    topics: readonly ('runs' | 'cards' | 'teams' | 'waiting' | 'notices' | 'sessions')[]
+    topics: readonly ('runs' | 'cards' | 'teams' | 'seats' | 'reviews' | 'waiting' | 'notices' | 'sessions')[]
     scope?: { team?: GoalId; run?: string; project?: string }
   }
   result: null    // the current state of each topic follows at once, as notifications
@@ -453,11 +453,40 @@ always opens with `hello` and closes with `end`.
 | `type` | Fields | From |
 | --- | --- | --- |
 | `hello` | `desk`, `hostVersion`, `protocolVersion`, `tiers` | `client/hello` |
-| `run.changed` | `run`, `team`, `flow`, `state` (`running`/`settled`/`stopped`/`stalled`), `round`, `reason` | `flow/execution-changed`, when state, round or reason moved |
-| `card.changed` | `team`, `card`, `role`, `state`, `outcome`, `title` | `team/changed`, diffed per card |
+| `run.changed` | `run`, `team`, `flow`, `state` (`running`/`settled`/`stopped`/`stalled`), `round`, `reason`; optional `attempt`, `continues`, `revision` | `flow/execution-changed`, when state, round or reason moved |
+| `card.changed` | `team`, `card`, `role`, `state`, `outcome`, `title`; optional `seat` (who holds it) and `since` | `team/changed`, diffed per card |
+| `seat.changed` | `team`, `seat`, `role`, `card`, `state` (`working`/`waiting`/`idle`), `doing` (`{ kind, tool?, target? }` or null), `since` | `seat/activity`, at most once per seat every 2.5 seconds |
+| `review.changed` | `team`, `run`, `round`, `cards`, `state`, `reason`, `pr` | `finding/run` and `finding/publications`, read again on `finding/changed` |
 | `team.changed` | `team`, `activity`, `sentence` | `goal/changed`, `goal/activity` |
 | `waiting` / `waiting.cleared` | `team`, `kind` (`card`/`question`/`approval`), `card` or `seat`, `summary` | person cards, questions, `approval/requested` and resolution |
 | `notice` | `team`, `text` | `person/notice` |
+
+Four rules hold every row:
+
+- **An optional field is present only when the desk's own record carries
+  it.** It is never filled from the moment the client happened to notice
+  something. A `since` the record does not hold is left out, not guessed
+  from the clock.
+- **A state is the desk's own word.**
+  - `review.changed`'s `state` is the round's publication state as the desk
+    keeps it: `local`, `pending`, `posted`, `partial` or `uncertain`, or
+    `none` when the run has no review.
+  - Publication is kept per round, not per card, so the event names the
+    round and lists its cards.
+- **`doing` is a tool and at most a path.** It never carries a command's
+  text, a URL or an environment value. The host works it out from the
+  seat's conversation, because only the host sees every seat's events
+  without sending them all to every client. Each client words it with the
+  one shared tool-name lookup, which therefore lives in
+  `packages/protocol`, beside the derivation, rather than in the window.
+- **One set of view selectors.** `teamOverview(state)` and
+  `runTimeline(state, run)` turn this state into what a Team's overview and
+  a run's timeline show. They live in `@harnessdesk/client/views`: pure
+  functions over plain data, with no transport.
+  - The window imports that entry and nothing else from the library; the
+    layering gate holds it to that.
+  - `harnessdesk status` and `run show` are the same selectors in a
+    terminal's words.
 | `gap` | `reason` | a reconnect; what follows is whole |
 | `end` | `reason` (`interrupted`/`until`/`desk-closed`) | always last |
 
@@ -631,6 +660,15 @@ touches the door, tiers or attribution gets a critical review.
    - The decisions entry below: the rule holds from the first door.
 
    This alone replaces every polling watcher.
+1b. **What a Team is doing.** Read-only, and the same tier as PR 1:
+   - Host: `seat/activity` on a `seats` topic, throttled per seat. Its
+     derivation and the tool-name lookup move into `packages/protocol`.
+   - The `reviews` topic.
+   - `seat.changed` and `review.changed`, and the optional fields where the
+     records carry them.
+   - `@harnessdesk/client/views`, with the selectors.
+   - The Team usage read (`insight/goal`) joins the `read` tier, so
+     `status` can show cost.
 2. **Starting a flow.**
    - Host: `flow/preview` seats and attended; unattended runs.
    - Commands: `flow preview`, `flow start` (title, brief, inputs, seats,
