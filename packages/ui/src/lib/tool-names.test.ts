@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import type { CapabilityContribution } from '@harnessdesk/protocol'
+import { FLOW_BOARD_TOOL_NAMES, type CapabilityContribution } from '@harnessdesk/protocol'
 
 import {
+  BOARD_TOOL_PHRASES,
   bareToolName,
+  boardToolPhrase,
   isPlanTool,
   shellCommandOf,
   shortestUniquePathLabels,
@@ -216,5 +218,27 @@ describe('a plan tool', () => {
 
   it('reads as the plan it set, never as a plugin’s description of a namesake', () => {
     expect(toolSentence('todo_write', sentences, { kind: 'plan' })).toBe('Updated the plan')
+  })
+})
+
+describe('what a permission card says a board tool wants to do', () => {
+  it('has a plain verb phrase for every board tool, and never the wire name', () => {
+    for (const tool of FLOW_BOARD_TOOL_NAMES) {
+      const phrase = boardToolPhrase(tool)
+      expect(phrase, tool).toBe(BOARD_TOOL_PHRASES[tool])
+      expect(phrase, tool).not.toMatch(/[_`]/)
+      expect(phrase, tool).not.toMatch(/[.!?]$/)
+      expect(phrase, tool).toBe(phrase.trim())
+      expect(phrase.charAt(0), tool).toBe(phrase.charAt(0).toLowerCase())
+    }
+  })
+
+  it('reads the way the owner approved for the board listing, whatever namespace the agent used', () => {
+    expect(boardToolPhrase('list_intents')).toBe("list the board's work items")
+    expect(boardToolPhrase('mcp__harnessdesk__list_intents')).toBe("list the board's work items")
+  })
+
+  it('falls back to the identifier as lower-case words for a tool it has no phrase for, never the wire name', () => {
+    expect(boardToolPhrase('archive_everything')).toBe('archive everything')
   })
 })

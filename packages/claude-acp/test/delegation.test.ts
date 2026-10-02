@@ -32,7 +32,9 @@ const make = (): AcpRuntime =>
     command: process.execPath,
     args: [BRIDGE],
     env: {
+      HOME: scratch('claude-acp-delegation-home-'),
       CLAUDE_CODE_EXECUTABLE: FAKE,
+      CLAUDE_CONFIG_DIR: scratch('claude-acp-delegation-config-'),
       CLAUDE_ACP_STATE_DIR: scratch('claude-acp-delegation-state-'),
       CLAUDECODE: '',
     },
