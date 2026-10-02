@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   runtimeId,
@@ -6,6 +6,7 @@ import {
   sessionKey,
   type AgentEvent,
   type SessionQueue,
+  type UserContent,
 } from '@harnessdesk/protocol'
 
 import type { TransportEvents } from '../lib/transport'
@@ -42,11 +43,33 @@ const feed = (event: AgentEvent): void => {
 }
 
 beforeEach(() => {
+  sessionStorage.clear()
   // Never connected: the socket queues, and nothing here reaches the wire.
   store = new AppStore('ws://localhost:0/')
 })
 
 describe('the queue in the store', () => {
+  it('sends a full queued-message replacement and leaves refusal to its caller', async () => {
+    const request = vi.spyOn(store.transport, 'request').mockRejectedValueOnce(new Error('message is being delivered'))
+    const input: UserContent[] = [
+      { type: 'text', text: 'edited' },
+      { type: 'mention', name: 'plan.md', path: '/w/plan.md' },
+    ]
+    await expect(store.updateQueued('q7', input, KEY)).rejects.toThrow('message is being delivered')
+    expect(request).toHaveBeenCalledWith('turn/queue/update', { runtime: RUNTIME, sessionId: 's1', id: 'q7', input })
+  })
+
+  it('reports a refused steer and keeps its refusal reason visible', async () => {
+    vi.spyOn(store.transport, 'request').mockRejectedValueOnce(new Error('turn already ended'))
+    await expect(store.steer([{ type: 'text', text: 'keep this' }], KEY)).resolves.toBe(false)
+    expect(store.getSnapshot().notices.some((notice) => notice.message.includes('turn already ended'))).toBe(true)
+  })
+
+  it('reports an accepted steer', async () => {
+    vi.spyOn(store.transport, 'request').mockResolvedValueOnce(null)
+    await expect(store.steer([{ type: 'text', text: 'keep this' }], KEY)).resolves.toBe(true)
+  })
+
   it('starts with nothing, and takes the whole list the host sends', () => {
     expect(store.getSnapshot().queues.size).toBe(0)
     feed({ type: 'session/queue', sessionId: sessionId('s1'), queue: queue('a', 'b') })
@@ -82,5 +105,68 @@ describe('the queue in the store', () => {
     feed({ type: 'session/queue', sessionId: sessionId('s2'), queue: queue('theirs') })
     expect(store.getSnapshot().queues.get(KEY)?.messages).toHaveLength(1)
     expect(store.getSnapshot().queues.get(sessionKey(RUNTIME, 's2'))?.messages).toHaveLength(1)
+  })
+
+  it('scopes refused drafts by conversation and restores them after a store remount', () => {
+    store.addRecoverableDraft(KEY, {
+      text: 'revised for A',
+      attachments: [{ name: 'plan.md', path: '/w/plan.md', kind: 'file' }],
+      detail: 'Your edit wasn’t saved — the original was already sent. Restore it to the composer.',
+    })
+    window.dispatchEvent(new Event('pagehide'))
+    const other = sessionKey(RUNTIME, 's2')
+    expect(store.getSnapshot().recoverableDrafts.get(other)).toBeUndefined()
+    expect(store.getSnapshot().recoverableDrafts.get(KEY)?.[0]?.text).toBe('revised for A')
+
+    store = new AppStore('ws://localhost:0/')
+    expect(store.getSnapshot().recoverableDrafts.get(other)).toBeUndefined()
+    expect(store.getSnapshot().recoverableDrafts.get(KEY)?.[0]).toMatchObject({
+      text: 'revised for A',
+      detail: 'Your edit wasn’t saved — the original was already sent. Restore it to the composer.',
+      attachments: [{ name: 'plan.md', kind: 'file' }],
+    })
+  })
+
+  it('keeps recovery for a pass-over archived after removal, and prunes it on confirmed delete', async () => {
+    vi.spyOn(store.transport, 'request').mockResolvedValue(null)
+    store.addRecoverableDraft(KEY, { text: 'keep me until delete', attachments: [], detail: 'Restore it.' })
+    store.drafts.setLive(KEY, { text: 'unsent live draft', attachments: [] })
+    window.dispatchEvent(new Event('pagehide'))
+    await store.archiveSession(sessionId('s1'), RUNTIME)
+    await store.unarchiveSession(sessionId('s1'), RUNTIME)
+    expect(store.getSnapshot().recoverableDrafts.get(KEY)).toHaveLength(1)
+    expect(store.drafts.live(KEY)?.text).toBe('unsent live draft')
+
+    const transport = store.transport as unknown as { handlers: TransportEvents }
+    transport.handlers.onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: sessionId('s1'), deleted: false } })
+    expect(store.getSnapshot().recoverableDrafts.get(KEY)).toHaveLength(1)
+    expect(store.drafts.live(KEY)?.text).toBe('unsent live draft')
+    expect(JSON.parse(sessionStorage.getItem('harnessdesk:drafts:v1') ?? '{}')[KEY].recoverable).toHaveLength(1)
+
+    transport.handlers.onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: sessionId('s1'), deleted: true } })
+    expect(store.getSnapshot().recoverableDrafts.has(KEY)).toBe(false)
+    expect(store.drafts.live(KEY)).toBeNull()
+    expect(JSON.parse(sessionStorage.getItem('harnessdesk:drafts:v1') ?? '{}')[KEY]).toBeUndefined()
+
+    // A send already in flight can refuse after the delete notification. Its
+    // callback must not recreate recovery for the conversation just deleted.
+    store.addRecoverableDraft(KEY, { text: 'late refusal', attachments: [], detail: 'Restore it.' })
+    expect(store.getSnapshot().recoverableDrafts.has(KEY)).toBe(false)
+    expect(JSON.parse(sessionStorage.getItem('harnessdesk:drafts:v1') ?? '{}')[KEY]).toBeUndefined()
+  })
+
+  it('explains when recovery could not be saved for a reload', () => {
+    vi.useFakeTimers()
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota') })
+    const notice = vi.spyOn(store, 'notice')
+    store.addRecoverableDraft(KEY, { text: 'memory only', attachments: [], detail: 'Restore it.' })
+    vi.advanceTimersByTime(300)
+    expect(store.getSnapshot().recoverableDrafts.get(KEY)?.[0]?.detail).toBe(
+      "Restore it. Not saved for a reload — it stays only while this window is open.",
+    )
+    expect(sessionStorage.getItem('harnessdesk:drafts:v1')).toBeNull()
+    expect(notice).toHaveBeenCalledTimes(1)
+    expect(notice).toHaveBeenCalledWith('warning', expect.stringContaining('stays only while this window is open'))
+    vi.useRealTimers()
   })
 })

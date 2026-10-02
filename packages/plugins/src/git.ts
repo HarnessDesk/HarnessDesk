@@ -1,5 +1,6 @@
 import type { ForgeSeat, HarnessContext, HarnessPlugin } from '@harnessdesk/cordis-host'
 import { DESK_POST_MARKER, GIT_READ_HARDENING_ARGS, type ForgeReference, type ScopeQuery } from '@harnessdesk/protocol'
+import { assessCheckRuns } from './check-runs.js'
 
 /**
  * Git tools, available to every agent.
@@ -743,7 +744,7 @@ export const gitPlugin: HarnessPlugin = {
       ctx.tools.register({
         name: 'pr_merge',
         description:
-          'Merge a pull request, through HarnessDesk, with the person’s own gh — only one you were asked to merge, and only at the commit that was reviewed: head is that commit, and GitHub refuses the merge if the branch has moved since. Squash unless told otherwise. Only a seat whose ceiling is merge may call this; the desk refuses it for any other.',
+          'Merge a pull request, through HarnessDesk, with the person’s own gh — only one you were asked to merge, only at the reviewed commit, and only after every check on that commit is green. If CI is running, failed, or cannot be read, the desk refuses; use pr_checks to watch CI and retry once it is green. GitHub also refuses if the branch moved since review. Squash unless told otherwise. Only a seat whose ceiling is merge may call this; the desk refuses it for any other.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -764,6 +765,23 @@ export const gitPlugin: HarnessPlugin = {
           if (method !== 'squash' && method !== 'merge' && method !== 'rebase') {
             throw new Error('method must be squash, merge or rebase.')
           }
+          const current = await viewPullRequest(selector)
+          let runs: { name: string; id: number | string; started_at: string | null; status: string; conclusion: string | null }[]
+          try {
+            const raw = await gh([
+              'api',
+              `repos/${repoOf(current.url)}/commits/${head}/check-runs?per_page=100`,
+              '--paginate',
+              '--jq',
+              '.check_runs[]',
+            ])
+            runs = raw === '' ? [] : raw.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line))
+          } catch {
+            throw new Error(`Not merged: CI state could not be read on ${head.slice(0, 7)}. Try again when GitHub is reachable.`)
+          }
+          if (runs.length === 0) throw new Error('Not merged: no CI has reported on this commit.')
+          const ci = assessCheckRuns(runs)
+          if (!ci.green) throw new Error(`Not merged: CI is not green on ${head.slice(0, 7)}. ${ci.reason}`)
           /* The commit message is the repository's to choose. Only when its
              setting for this method uses the pull request's description is the
              description given — without the desk's markers, which must never
@@ -771,7 +789,6 @@ export const gitPlugin: HarnessPlugin = {
              body is passed and the repository's own message stands. */
           let body: string | null = null
           if (method !== 'rebase') {
-            const current = await viewPullRequest(selector)
             let setting: unknown = null
             try {
               const answer = JSON.parse(await gh(['api', `repos/${repoOf(current.url)}`, '--jq', '{squash: .squash_merge_commit_message, merge: .merge_commit_message}'])) as Record<string, unknown>

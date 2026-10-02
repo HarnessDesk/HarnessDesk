@@ -26,6 +26,9 @@ import {
   type UserContent,
 } from '@harnessdesk/protocol'
 
+const hasQueuedContent = (input: readonly UserContent[]): boolean =>
+  input.some((part) => part.type !== 'text' || part.text.trim().length > 0)
+
 /**
  * Authoritative session state on the host side.
  *
@@ -399,6 +402,7 @@ export class SessionRegistry {
    * can see and act on, not a message that quietly disappears.
    */
   enqueue(record: SessionRecord, id: string, input: readonly UserContent[]): QueuedMessage {
+    if (!hasQueuedContent(input)) throw new Error('A queued message must contain at least one non-empty content item.')
     const queue = record.queue
     if (queue.messages.length >= QUEUE_LIMIT) {
       throw new Error(
@@ -420,6 +424,23 @@ export class SessionRegistry {
     // Emptying a paused queue resolves the pause: there is nothing left to hold.
     record.queue =
       messages.length === 0 ? emptyQueue() : { ...record.queue, messages }
+  }
+
+  /** Replaces one waiting message's complete input without changing its identity or place. */
+  updateQueued(record: SessionRecord, id: string, input: readonly UserContent[]): void {
+    if (!hasQueuedContent(input)) throw new Error('A queued message cannot be updated to empty content.')
+    const index = record.queue.messages.findIndex((message) => message.id === id)
+    if (index === -1) throw new Error('This message is no longer waiting, so it could not be updated.')
+    const message = record.queue.messages[index]!
+    if (message.state === 'sending') throw new Error('This message is being delivered and can no longer be updated.')
+    const size = record.queue.messages.reduce(
+      (total, queued, at) => total + charsOf(at === index ? input : queued.input),
+      0,
+    )
+    if (size > QUEUE_CHAR_LIMIT) throw new Error('The queue for this conversation would be too large with these changes.')
+    const messages = record.queue.messages.slice()
+    messages[index] = { ...message, input }
+    record.queue = { ...record.queue, messages }
   }
 
   /** Moves one message to `to`, clamped into range. Unknown ids do nothing. */
