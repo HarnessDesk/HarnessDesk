@@ -44,6 +44,7 @@ const makeRuntime = (): AcpRuntime =>
     command: process.execPath,
     args: [BRIDGE],
     env: {
+      HOME: scratch('claude-acp-attachments-home-'),
       CLAUDE_CODE_EXECUTABLE: FAKE_CLAUDE,
       CLAUDE_CONFIG_DIR: scratch('claude-acp-attachments-config-'),
       CLAUDE_ACP_STATE_DIR: scratch('claude-acp-attachments-state-'),
@@ -366,7 +367,13 @@ test('a session’s staged folder goes when the session closes', async () => {
     name: 'Claude Code',
     command: process.execPath,
     args: [BRIDGE],
-    env: { CLAUDE_CODE_EXECUTABLE: FAKE_CLAUDE, CLAUDE_CONFIG_DIR: scratch('claude-acp-attachments-close-config-'), CLAUDE_ACP_STATE_DIR: state, CLAUDECODE: '' },
+    env: {
+      HOME: scratch('claude-acp-attachments-close-home-'),
+      CLAUDE_CODE_EXECUTABLE: FAKE_CLAUDE,
+      CLAUDE_CONFIG_DIR: scratch('claude-acp-attachments-close-config-'),
+      CLAUDE_ACP_STATE_DIR: state,
+      CLAUDECODE: '',
+    },
   })
   await runtime.start()
   try {
