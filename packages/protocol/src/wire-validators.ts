@@ -1459,11 +1459,16 @@ export const parseSessionRemovedParams = (
 export const isKnownMethod = (method: string): method is HostMethodName =>
   Object.prototype.hasOwnProperty.call(paramsValidators, method)
 
+/** Reads only routing fields; a client door checks its surface before params. */
+export const parseClientEnvelope = (raw: unknown): { id: number; method: string } => {
+  const source = isObject(raw, 'message')
+  return { id: isNumber(source['id'], 'message.id'), method: isString(source['method'], 'message.method') }
+}
+
 /** Parses and validates one inbound frame, or throws `ValidationError`. */
 export const parseClientMessage = (raw: unknown): ClientToHost => {
+  const { id, method } = parseClientEnvelope(raw)
   const source = isObject(raw, 'message')
-  const id = isNumber(source['id'], 'message.id')
-  const method = isString(source['method'], 'message.method')
   if (!isKnownMethod(method)) {
     throw new ValidationError('message.method', `unknown method ${JSON.stringify(method)}`)
   }
