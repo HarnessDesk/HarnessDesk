@@ -23,7 +23,7 @@ import { cardEvidence, checkView, EVIDENCE_ROOM } from '../../preview/evidence-f
 import { PREVIEW_FLOW_CARD, sceneFlowExecution } from '../../preview/flow-fixture'
 import { PREVIEW_FLOW_GOAL } from '../../preview/goal-fixture'
 import { denseTurns, PREVIEW_ROOT, previewHistory, previewSession } from '../../preview/sidebar-fixture'
-import { ComposerSlotsContent } from '../../preview/frames-composer-slots'
+import { ComposerSlotsContent } from '../../preview/composer-slots-content'
 import { SIGN_IN_SELECTED, signInSeed } from '../../preview/signin-fixture'
 import styles from './surfaces.module.css'
 
