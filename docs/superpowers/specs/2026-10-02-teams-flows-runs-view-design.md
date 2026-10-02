@@ -1,7 +1,7 @@
 # Seeing and steering Teams, Flows and Runs: the Run view first
 
-*2026-10-02. A design for the owner to decide on; nothing here is built. It
-covers how the window shows and controls a Team's work: who is doing what, one
+*2026-10-02. Approved by the owner the same day, decisions 1 to 8 as
+recommended (listed at the end); nothing here is built yet. It covers how the window shows and controls a Team's work: who is doing what, one
 Run's history, and what a person can do about it. It shares one stream of
 facts with the clients design for the command line and Mobile (#1271). The
 problems it answers were found by running real work as Teams on a desk on the
@@ -29,8 +29,10 @@ a chat and without a hand step.** Three claims anyone can check:
 
 - **Two views and a blueprint, in this order.** A Team overview (a table of
   seats, by who needs attention first). A Run view (a timeline of rounds, with
-  an inspector beside it). A read-only Flow blueprint, reached from the Run.
-  Drawing the Run's live state on the blueprint is the later step.
+  an inspector beside it). A read-only Flow view, reached from the Run, drawn
+  to be looked at: cards, labelled edges, a loop that reads as a loop. Laying
+  the Run's live state over it is the later step, and the same drawing is the
+  picture of the product for the site.
 - **The Run is the home of everything that happened.** Today a Run is a chip
   in a header. It becomes a place with a history, a brief, a link to the Flow
   as it was when the Run started, and a way on when it ends.
@@ -313,37 +315,98 @@ Run, in which case it is absent.
 own pause is not one control across vendors. Stopping and running again is the
 honest pair; a checkpoint of a round is later work.
 
-### 4. The Flow blueprint
+### 4. The Flow view
 
-The blueprint is the Flow the Run started with, drawn as the graph the app
-already has. It is the *Flow* half of the Run header's switch, and the
-revision button opens it.
+The Flow view is the Flow the Run started with, drawn to be looked at. It is
+the *Flow* half of the Run header's switch, and the revision button opens it.
+It is also the one picture that explains HarnessDesk by itself: agents handing
+work to each other, a check that cannot be talked round, a person at the gate,
+and a loop that has to end. So it is designed as the product's showpiece, and
+the same drawing serves the site and the changelog.
 
 ![The Flow, read-only](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/flow-blueprint-light.png)
 
-**Phase 1: read-only.** A step per role, a line per rule, the accessible list
-of both (the graph already has it), the revision, and *Open the file*, which
-opens the Flow's source (project, user or built-in). The graph is the existing
-`ShapeGraph` in a read-only mode: no dragging, no position fields. Nothing new
-is drawn. A Run holds its Flow frozen, so this view cannot change under it, and
-editing stays where it is, in the Flow catalogue, for the next Run.
+**How it is drawn.** Every value is a token, so a palette, density or faces
+change reaches it.
+
+- **A step is a card.** A mark for what it is (an Agent, a check, a person),
+  its name in a word ("Write", "Check", "Review", "Fix", "Land", "You"), and one
+  earned line: what it may do ("Edit · asked"), the command a check runs, the
+  words a person may answer. A step that opens several seats at once (two
+  reviewers) is drawn as a fanned pair of cards, so a count reads without a
+  number.
+- **A rule is an edge, and says what fires it.** A line with an arrowhead, and
+  above it the outcome word that takes it ("passes", "approve"). A rule with no
+  guard has no word. A loop is a curved edge under the main line with a retry
+  mark ("request-changes") and, in a Run, how many times it has fired ("x1").
+  Steps run left to right in the order their rules reach them, loops fall
+  below, and a Flow's own `layout.positions` win when it carries them.
+- **The shapes keep their meaning.** In the blueprint an Agent is a *thing*, a
+  square tile; once a Run seats it, the tile becomes a *face*, with the seat's
+  mark. The picture teaches the system's own rule ("Shapes say what a mark is")
+  and the moment a definition turns into someone at work is visible.
+- **Quiet by default.** Cards on a faint dot grid, hairline borders, one soft
+  shadow. Colour is for state, never decoration: the kind tints are the ones
+  the rail already uses.
+- **It is also a list.** The accessible list of steps and rules the editor's
+  graph already has stays under the drawing and carries the same state, so a
+  screen reader, a narrow window and a keyboard reach everything the lines
+  show. Below a narrow width the list is the view.
+
+**Phase 1: read-only.** The drawing above, the revision, and *Open the file*,
+which opens the Flow's source (project, user or built-in). A Run holds its Flow
+frozen, so this view cannot change under it; editing stays where it is, in the
+Flow catalogue, for the next Run.
 
 **Phase 2: the Run's state laid over it.**
 
 ![The Flow with the Run's state on it](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/flow-overlay-light.png)
 
-Each step says where the Run is in it: done steps carry what they answered and
-how many times they ran; the current step has a ring and says *Working*; steps
-not reached yet are faded. A loop's lines carry how many times they fired.
-Selecting a step selects its rows in the timeline, and the other way round, so
-the blueprint and the history are one view and not two. Two things are needed
-first: a better layout for Flows that carry no positions (the graph draws them
-as one column today), and the Run's per-step counts, which the rounds already
-hold.
+The overlay says where the Run is, in the order a person reads it:
 
-The blueprint is second because it carries the topology and the timeline
-carries the record, and the questions in the goal are about the record: what
-happened, who is waiting, why it ended, what to do.
+- **Done.** A filled check badge, how long it took, and the route the work took
+  drawn bold in the accent with a soft glow beneath it, so the path through the
+  Flow is one continuous line from the start to now.
+- **Now.** The current step has a ring and a halo, says *Working*, and shows
+  the seat's doing line beneath it. A baton, a bright dot with a short tail,
+  rides the edge that brought the work there.
+- **Next.** Dashed and quieter. Nothing in the future is promised: only the
+  rules that could fire are drawn, and which one will is unknown.
+- **Waiting on you.** A person's step takes the warning ring and *Needs you*.
+- **Counts.** A step that ran more than once says so; a loop's edge says how
+  often it fired.
+- **One link with the timeline.** Selecting a step selects its rows in the
+  timeline, and the other way round, so the blueprint and the history are one
+  view and not two.
+
+**Motion.** The baton travels its edge and the current ring breathes; both stop
+under reduced motion. Nothing moves in the blueprint.
+
+**The poster.** The same drawing, large and alone, with the Run beneath it as
+one proportional bar of where its time went: the history the timeline lists,
+in a line. It is the frame for the site and the changelog, and it is not a
+second drawing: the site demo renders the real component from fixture data.
+
+![The Flow, as a poster](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/flow-hero-dark.png)
+
+**What it needs.** A read-only `FlowGraph` pattern in `design/patterns` that
+draws a `FlowPolicy` and, in phase 2, a Run's per-step state. Its curves and
+arrowheads are data geometry (as a chart's are) and are recorded as that in the
+design audit, not excused. The editor's graph (`ShapeGraph`) adopts the same
+drawing afterwards, so what is edited and what is run look alike.
+
+**Considered and set aside: a track.** A drawing where steps are stations on a
+line and a loop is a siding makes the prettier still for a straight Flow, and
+its bold traveled line is the best idea in it, so that idea is kept. It holds
+only for a Flow that is a line with a simple loop; a Flow with two branches has
+no good drawing on it. The relay is a graph, so it draws any Flow, and the
+real screen can be the picture of the product.
+
+![The track, considered](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/flow-alt-track-light.png)
+
+The blueprint is second in the order of work because it carries the topology
+and the timeline carries the record, and the questions in the goal are about
+the record: what happened, who is waiting, why it ended, what to do.
 
 ## The brief
 
@@ -531,7 +594,8 @@ a person's step, over the clients design's relay, with the same selectors.
 
 ## Decisions for the owner
 
-Each is recommended; the first is the one that changes the most.
+The owner decided 1 to 8 on 2026-10-02, every one as recommended. Decision 9
+is the Flow view's look, drawn after.
 
 | # | Decision | Recommended |
 | --- | --- | --- |
@@ -543,11 +607,18 @@ Each is recommended; the first is the one that changes the most.
 | 6 | **How cost is shown.** Per seat in the seat's own unit (money where the account is metered and the rate known, turns otherwise), with its provenance on hover. | Yes. |
 | 7 | **Two additions to the clients design's event stream** (`seat.changed`, `review.changed`, and optional fields). It was approved as written, so this is a change to it. | Yes; additive within version 1. |
 | 8 | **Settled Teams.** They fold into *Ready to wrap* and leave the sidebar when nothing waits on the person. Hiding never deletes. | Yes. |
+| 9 | **The Flow view's look.** The relay drawing (cards and labelled edges, any Flow), or the track (stations on a line, a straight Flow only). | The relay. Open: asked for after the other eight. |
 
 ## Open questions
 
 These do not block the design:
 
+- **Side by side does not need a tab of its own** (owner, 2026-10-02). It sits
+  in the Team's rail today and takes a big tab for what is a way of watching
+  several seats. It could become a view of the Overview (pick seats, open them
+  side by side) or a mode of the pane. It is not changed here and the frames
+  leave it where it is; it is revisited after the Overview exists, because the
+  seats table is the natural place to pick from.
 - **Where the doing-line lookup lives.** It is in the interface today. A shared
   home (`@harnessdesk/client` or `protocol`) is settled in the pull request
   that adds `seat.changed`.
@@ -575,6 +646,8 @@ are above; the dark ones are the same files with `-dark`.
 | A review that was not posted | [review-not-posted-light](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/review-not-posted-light.png) | [review-not-posted-dark](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/review-not-posted-dark.png) |
 | The Flow, read-only (phase 1) | [flow-blueprint-light](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/flow-blueprint-light.png) | [flow-blueprint-dark](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/flow-blueprint-dark.png) |
 | The Flow with the Run's state (phase 2) | [flow-overlay-light](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/flow-overlay-light.png) | [flow-overlay-dark](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/flow-overlay-dark.png) |
+| The Flow as a poster | [flow-hero-light]({B}/flow-hero-light.png) | [flow-hero-dark]({B}/flow-hero-dark.png) |
+| The track, considered | [flow-alt-track-light]({B}/flow-alt-track-light.png) | [flow-alt-track-dark]({B}/flow-alt-track-dark.png) |
 | Starting with a brief | [start-brief-light](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/start-brief-light.png) | [start-brief-dark](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/start-brief-dark.png) |
 | Stop a run | [dialog-stop-light](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/dialog-stop-light.png) | [dialog-stop-dark](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/dialog-stop-dark.png) |
 | Abandon a card | [dialog-abandon-light](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/dialog-abandon-light.png) | [dialog-abandon-dark](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/dialog-abandon-dark.png) |
