@@ -38,8 +38,14 @@ These bind every task:
 - **Run what you change.**
   - A proof is only a proof if it ran. Say in your hand-off which commands
     you ran, and their exit codes.
-  - If your sandbox refuses to bind a unix socket, run those proofs through
-    the desk's declared check, and say which proofs ran where.
+  - Your sandbox may refuse to bind a unix socket. A Seat that can write
+    cannot use `run_check`, and the flow's check card runs only committed
+    revisions. So if you cannot run the socket proofs yourself:
+    - commit, and leave them to the flow's check card;
+    - in your hand-off, list the proofs you ran yourself, with exit codes,
+      separately from the proofs left to the check.
+
+    Never report a proof you did not run as passing.
   - Never claim a test passes because it looks right.
 - **Never move a test below the thing it tests,** and name any change to a
   shared test helper.
@@ -90,7 +96,7 @@ Then, in `wire.ts`, declare three methods with their result types:
 
 - **`client/hello`.**
   - Params: `{ client: { name: string; version: string }; protocol: number; pid?: number }`.
-  - Result: `{ protocolVersion; hostVersion; desk: { home; pid; startedAt }; tiers: readonly ClientTier[]; runtimes: readonly { id: RuntimeId; name: string; health: RuntimeHealth }[] }`.
+  - Result: `{ protocolVersion; hostVersion; desk: { home; pid; startedAt }; tiers: readonly ClientTier[]; methods: readonly string[] /* the desk's CLIENT_METHODS keys */; runtimes: readonly { id: RuntimeId; name: string; health: RuntimeHealth }[] }`.
   - `name` comes from `RuntimeInfo.presentation`, so no brand is hard-coded anywhere.
 - **`client/subscribe`.**
   - Params: `{ topics: readonly ClientTopic[]; scope?: { team?: GoalId; run?: string; project?: string } }`.
@@ -254,9 +260,13 @@ What it does, in order:
   - `teams`: `goal/changed` for each Team in scope.
   - `waiting`: `event` with `approval/requested` for each pending approval
     whose session belongs to a member Seat of a Team in scope (the session
-    pointer is in `SeatRecord.session`), plus the cards in scope addressed to
-    a person. A card addressed to a person needs the `cards` baseline, so
-    `waiting` implies it.
+    pointer is in `SeatRecord.session`).
+    - Whether a card waits for a person cannot be read from the card alone.
+      `Intent.role` is just a role name: the role's kind, and whether its
+      round is still open, live in the run's document and rounds (see
+      `flowStepOf`).
+    - So `waiting` implies **both** `runs` and `cards`: their baselines and
+      their changes are sent too.
   - `notices`: nothing to replay.
   - A second `subscribe` replaces the first.
 - **Broadcasts.** The door registers one broadcaster with
@@ -339,6 +349,10 @@ references. It has two entries:
     - A call is never retried. A call in flight when the transport closes
       rejects with `disconnected`.
     - It rejects with a `WireCallError { code, message, details, data }`.
+    - Before sending, it checks the method against `hello.methods`. A method
+      the desk does not list rejects with `deskTooOld`, and the command line
+      says so and exits 6. A `notOnClientSurface` refusal is never treated
+      as "older desk".
   - `client.notifications()`: the raw notifications, as an async iterable.
     Documented as unstable.
   - `client.events()`: the stable version-1 vocabulary from the spec's event
@@ -348,6 +362,16 @@ references. It has two entries:
     - It derives them by diffing the whole-state notifications per item (a
       run's state, round and reason; a card's state and outcome). It emits
       only on a change.
+    - **Waiting items:**
+      - A person card waits when its role's kind in the run's document is
+        `person`, its round is open in a running run, and it is not done.
+        It is cleared when it is answered or abandoned, or when its run
+        stops or settles.
+      - An approval or a question waits from `approval/requested` until
+        `approval/resolved`.
+      - Each item carries a stable `id`: `card:<team>:<card>`, or
+        `approval:<runtime>:<session>:<approval id>`. `waiting.cleared`
+        repeats it.
     - **When the transport drops,** it opens a new one from the factory with
       backoff, says hello again and subscribes again. It then yields `gap`,
       followed by the **whole** subscribed state: every run, card, Team and
@@ -381,6 +405,11 @@ references. It has two entries:
 - each event derived from a notification sequence;
 - no event when nothing changed;
 - after a reconnect, `gap` and then every item, unchanged ones included;
+- a `waiting`-only subscription, from a person card's creation to its run
+  stopping, emits `waiting` and then `waiting.cleared` with the same `id`;
+- two approvals with identical summaries keep their own ids;
+- a method missing from `hello.methods` rejects with `deskTooOld`, and makes
+  no call;
 - a scoped run that settled during the disconnect is reported;
 - `host/shutdown` ends the stream with `end` (`desk-closed`) and opens no
   new transport;
@@ -465,7 +494,8 @@ process with `HARNESSDESK_CLIENT_DIR` set. It covers:
 ## Done when
 
 - `pnpm verify` exits 0, run unpiped.
-- The proofs above ran, and the hand-off says where.
+- The proofs above ran. The hand-off lists those the writer ran apart from
+  those the flow's check ran.
 - On a throwaway desk (its own `HARNESSDESK_HOME`, never `~/.harnessdesk` or
   a shared desk), `harnessdesk watch --json` shows a Flow run's changes as
   they happen, with no polling.

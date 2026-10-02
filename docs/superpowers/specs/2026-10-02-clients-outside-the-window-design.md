@@ -351,9 +351,13 @@ The library's behaviour, each rule with its reason:
   stderr.
 - **Version check at hello.** If the protocol differs, the library refuses,
   and the command line exits 6. Changes are additive within a protocol
-  version: a new method or a new optional field. A method an older desk lacks
-  answers `methodNotFound`, and the command line says "this desk is older
-  than this command".
+  version: a new method or a new optional field.
+  - `client/hello` lists the methods this desk's client surface answers.
+  - Before a command calls anything, the library checks that list. A method
+    the desk does not list means the desk is older than the command: the
+    command line says so and exits 6.
+  - A refusal is never read as "older desk", because `notOnClientSurface`
+    also means a method is deliberately left off.
 - **No `run` or `answer` call from inside a seat.** If the process's
   environment carries a seat's markers (`HARNESSDESK_GOAL_ID`,
   `HARNESSDESK_LANE_ID`), the library refuses `run`- and `answer`-tier calls
@@ -469,7 +473,7 @@ always opens with `hello` and closes with `end`.
 | `seat.changed` | `team`, `seat`, `role`, `card`, `state` (`working`/`waiting`/`idle`), `doing` (`{ kind, tool?, target? }` or null), `since` | `seat/activity`, at most once per seat every 2.5 seconds |
 | `review.changed` | `team`, `run`, `round`, `cards`, `state`, `reason`, `pr` | `finding/run` and `finding/publications`, read again on `finding/changed` |
 | `team.changed` | `team`, `activity`, `sentence` | `goal/changed`, `goal/activity` |
-| `waiting` / `waiting.cleared` | `team`, `kind` (`card`/`question`/`approval`), `card` or `seat`, `summary` | person cards, questions, `approval/requested` and resolution |
+| `waiting` / `waiting.cleared` | `id`, `team`, `kind` (`card`/`question`/`approval`), `card` or `seat`, `summary` | person cards, questions, `approval/requested` and resolution |
 | `notice` | `team`, `text` | `person/notice` |
 
 Four rules hold every row:
@@ -478,6 +482,11 @@ Four rules hold every row:
   it.** It is never filled from the moment the client happened to notice
   something. A `since` the record does not hold is left out, not guessed
   from the clock.
+- **A waiting item has a stable `id`,** and `waiting.cleared` carries the
+  same one, so two items that read alike are never confused.
+  - An approval or a question uses
+    `approval:<runtime>:<session>:<approval id>`.
+  - A person card uses `card:<team>:<card>`.
 - **A state is the desk's own word.**
   - `review.changed`'s `state` is the round's publication state as the desk
     keeps it: `local`, `pending`, `posted`, `partial` or `uncertain`, or
@@ -584,9 +593,10 @@ and, only where the desk allows it, answer a person card.
     through the door unless the person turned that on for this desk.
   - The library refuses `run` and `answer` calls from inside a seat's
     environment.
-  - Every call through the door is attributed in the audit log and on the
-    channel, so an answer that did not come from the window is visible as
-    such.
+  - Every call through the door is attributed in the audit log. An answer
+    to a person card is also shown on the Team's channel as answered from
+    the command line. An answer that did not come from the window is
+    therefore visible as such.
 
 A browser page cannot reach a unix socket or a named pipe at all, so the
 client door needs no rule about which web page a request came from.
