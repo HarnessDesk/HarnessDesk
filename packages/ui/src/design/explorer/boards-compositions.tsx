@@ -14,7 +14,10 @@ import {
   type UsageReport,
 } from '@harnessdesk/protocol'
 import { FindingDecision } from '../../components/FindingDecision'
+import { WindowControls } from '../../components/WindowControls'
+import { splitRefusal } from '../../panels/PanelActions'
 import { SideBySide } from '../../components/SideBySide'
+import { Menu, MenuItem } from '..'
 import { OverviewStrip, type StripMetric } from '../../components/usage/OverviewStrip'
 
 import {
@@ -164,6 +167,8 @@ import { PlansTable, ShapeFilters } from '../../components/usage/PlansTable'
 import type { SilentAgent } from '../../components/usage/shared'
 import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppStore } from '../../state/store'
+import { dock, emptyWorkbench } from '../../state/workbench'
+import type { PaneView } from '../../state/layout'
 import { emptySideBySide, type SideBySideState } from '../../lib/side-by-side'
 import { SIDE_BY_SIDE_KEYS, SIDE_BY_SIDE_MEMBERS, sideBySideStore } from '../../preview/side-by-side-fixture'
 import { planRows, shapeCountsOf, type PlanRow } from '../../lib/plans-table'
@@ -251,7 +256,7 @@ const TABS_CATALOG_STATES = ['unselected', 'selected', 'focus-visible', 'disable
 const ICON_TILE_CATALOG_VARIANTS = ['default'] as const
 const ICON_TILE_CATALOG_SIZES = ['xs', 'sm', 'default', 'lg'] as const
 const ICON_TILE_CATALOG_STATES = ['default', 'hover', 'selected'] as const
-const ICON_TILE_CATALOG_SHAPE = ['square', 'round'] as const
+const ICON_TILE_CATALOG_SHAPE = ['square', 'round', 'face'] as const
 const INPUT_GROUP_CATALOG_VARIANTS = ['default'] as const
 const INPUT_GROUP_CATALOG_SIZES = ['default'] as const
 const INPUT_GROUP_CATALOG_STATES = ['default', 'focus-visible', 'disabled', 'error'] as const
@@ -277,6 +282,52 @@ const STAT_CATALOG_ALIGN = ['start', 'center'] as const
 const Rule = ({ children }: { children: React.ReactNode }) => (
   <p className={styles.rule}>{children}</p>
 )
+
+// --- panel controls ----------------------------------------------------------
+
+const panelControlsStore = (views: readonly PaneView[], collapsed = false): AppStore => {
+  const right = views.reduce((workbench, view) => dock(workbench, 'right', view), emptyWorkbench()).right
+  const snapshot = { ...emptySnapshot(), workbench: { ...emptyWorkbench(), right: { ...right, collapsed } } }
+  return { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+}
+
+const PanelControlsBoard = () => {
+  const shown = panelControlsStore([{ kind: 'trajectory' }])
+  const putAwayOne = panelControlsStore([{ kind: 'trajectory' }], true)
+  const putAwayThree = panelControlsStore([
+    { kind: 'trajectory' },
+    { kind: 'changes' },
+    { kind: 'agents' },
+  ], true)
+  const rowRefusal = splitRefusal('row', { width: 280, height: 280 })
+  const columnRefusal = splitRefusal('column', { width: 280, height: 280 })
+  return (
+    <>
+      <Specimen measure="page" caption="The header toggle counts views left in a hidden right panel; split actions carry their measured refusal">
+        <div className={styles.matrix}>
+          <Case label="right panel shown — Hide the right panel, no badge">
+            <StoreProvider store={shown}><WindowControls /></StoreProvider>
+          </Case>
+          <Case label="right panel put away — 1 view badge">
+            <StoreProvider store={putAwayOne}><WindowControls /></StoreProvider>
+          </Case>
+          <Case label="right panel put away — 3 views badge">
+            <StoreProvider store={putAwayThree}><WindowControls /></StoreProvider>
+          </Case>
+          <Case label="Side by side disabled at 280px">
+            <Menu close={() => { }}><MenuItem label="Side by side" disabled={rowRefusal ?? false} onSelect={() => {}} /></Menu>
+          </Case>
+          <Case label="One above the other disabled at 280px">
+            <Menu close={() => { }}><MenuItem label="One above the other" disabled={columnRefusal ?? false} onSelect={() => {}} /></Menu>
+          </Case>
+        </div>
+      </Specimen>
+      <Rule>
+        The header examples mount the shipped WindowControls against three right-dock snapshots. The split rows use the shipped splitRefusal result and MenuItem props from PanelActions; they are rendered directly because opening the panel menu needs a mounted workbench.
+      </Rule>
+    </>
+  )
+}
 
 // --- figures ----------------------------------------------------------------
 
@@ -637,10 +688,10 @@ const TileBoard = () => (
           </IconTile>
         ))}
       </Case>
-      <Case label="shape — a person or a thing">
+      <Case label="shape — a thing, an account's ring, a face (follows Faces)">
         {ICON_TILE_CATALOG_SHAPE.map((shape) => (
           <IconTile key={shape} shape={shape} data-catalog-shape={shape} tint="violet" size="lg">
-            {shape === 'round' ? <AgentIcon /> : <ExtensionIcon />}
+            {shape === 'square' ? <ExtensionIcon /> : <AgentIcon />}
           </IconTile>
         ))}
       </Case>
@@ -2726,6 +2777,12 @@ const PlansTableBoard = () => {
 
 export const COMPOSITION_BOARDS: BoardSpec[] = [
   {
+    id: 'panel-controls',
+    title: 'Window · panel controls',
+    about: 'The right-panel visibility count and the panel split actions when a half would be too small.',
+    render: PanelControlsBoard,
+  },
+  {
     id: 'stat',
     title: 'Stat',
     about:
@@ -2768,7 +2825,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   {
     id: 'tile',
     title: 'IconTile',
-    about: 'A glyph on a soft ground of its own, and the tone/tint line drawn where it bites.',
+    about: 'A glyph on its own ground: soft for things and categories, solid for faces, with tone and tint kept distinct.',
     render: TileBoard,
   },
   {

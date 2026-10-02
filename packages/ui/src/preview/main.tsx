@@ -487,6 +487,12 @@ const Preview = () => {
           onChange={(next) => store.setCorners(next)}
         />
         <Dial
+          label="faces"
+          value={snapshot.faces}
+          options={['square', 'round'] as const}
+          onChange={(next) => store.setFaces(next)}
+        />
+        <Dial
           label="dialog"
           value={dialog}
           options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed', 'run a check', 'flow update', 'flow customize', 'race', 'trigger arm'] as const}
