@@ -34,6 +34,10 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  // The reload-isolation regression below deliberately seeds the mirror.
+  // Private Drafts keep it out of this file's composers, but the next file
+  // in a shared worker can still read it unless the fixture removes it.
+  sessionStorage.removeItem('harnessdesk:drafts:v1')
 })
 
 const KEY = sessionKey('alpha', 's1')
