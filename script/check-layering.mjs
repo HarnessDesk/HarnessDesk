@@ -9,8 +9,9 @@
  */
 
 import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import ts from '@typescript/typescript6'
 
 import { withoutComments } from './lib/without-comments.mjs'
 
@@ -19,12 +20,70 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 /** The designated wiring point where runtimes are chosen. */
 const EXEMPT = new Set([join('packages', 'server', 'src', 'bootstrap.ts')])
 
+/** Only dependency syntax counts; descriptions of a package are not imports. */
+const importSpecifiers = (source, fileName) => {
+  const code = withoutComments(source, fileName, { strict: true })
+  const file = ts.createSourceFile(fileName, code, ts.ScriptTarget.Latest, true)
+  const specifiers = []
+  const add = (node) => specifiers.push(node && ts.isStringLiteralLike(node) ? node.text : null)
+  const visit = (node) => {
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+      if (node.moduleSpecifier) add(node.moduleSpecifier)
+    } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+      add(node.moduleReference.expression)
+    } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
+      add(node.argument.literal)
+    } else if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+      (ts.isIdentifier(node.expression) && node.expression.text === 'require'))) {
+      add(node.arguments[0])
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(file)
+  return specifiers
+}
+
+const importBoundary = (pkg, source, fileName) => {
+  const src = join(root, 'packages', pkg, 'src')
+  const file = resolve(root, fileName)
+  const isNodeEntry = pkg === 'client' && file === join(src, 'node.ts')
+  return importSpecifiers(source, fileName).filter((specifier) => {
+    // A computed dependency cannot be held to a package boundary.
+    if (specifier === null) return true
+    if (specifier.startsWith('.')) {
+      // Keep local module names literal rather than resolving ESM URL syntax.
+      if (/[?#%]/.test(specifier)) return true
+      const target = resolve(dirname(file), specifier)
+      const within = relative(src, target)
+      if (within === '..' || within.startsWith(`..${sep}`)) return true
+      // A core helper cannot re-export the Node transport into the core entry.
+      return pkg === 'client' && !isNodeEntry && target.replace(/\.[cm]?[jt]sx?$/, '') === join(src, 'node')
+    }
+    if (specifier === '@harnessdesk/protocol') return false
+    if (pkg === 'cli' && (specifier === '@harnessdesk/client' || specifier.startsWith('@harnessdesk/client/'))) return false
+    if (isNodeEntry && (specifier === 'ws' || specifier.startsWith('node:'))) return false
+    return true
+  })
+}
+
 /**
  * Two planes, two rules. Codex must not leak above its adapter, and the
  * extension kernel must not leak above its host — and the protocol, which both
  * sit on, must not know about either.
  */
 export const RULES = [
+  {
+    label: 'client import boundary',
+    packages: ['client'],
+    offenders: (source, file) => importBoundary('client', source, file),
+    remedy: 'client imports @harnessdesk/protocol and its own core; only src/node.ts imports ws and node builtins.',
+  },
+  {
+    label: 'cli import boundary',
+    packages: ['cli'],
+    offenders: (source, file) => importBoundary('cli', source, file),
+    remedy: 'cli imports @harnessdesk/client, @harnessdesk/protocol and its own command modules.',
+  },
   {
     // The spin-off seam (PLAN 35.2): the scanner must run without the desk.
     // The day this rule fires is the day the standalone tool stops being a
@@ -196,7 +255,7 @@ for (const rule of RULES) {
       const relativePath = relative(root, file)
       if (EXEMPT.has(relativePath)) continue
       // Comments may *explain* a boundary; only code can cross one.
-      if (rule.forbidden.test(codeOf(file))) {
+      if (rule.offenders ? rule.offenders(codeOf(file), file).length > 0 : rule.forbidden.test(codeOf(file))) {
         offenders.push(relativePath)
       }
     }

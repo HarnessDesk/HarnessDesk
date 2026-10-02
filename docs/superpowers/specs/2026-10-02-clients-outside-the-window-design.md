@@ -475,6 +475,8 @@ always opens with `hello` and closes with `end`.
 | `team.changed` | `team`, `activity`, `sentence` | `goal/changed`, `goal/activity` |
 | `waiting` / `waiting.cleared` | `id`, `team`, `kind` (`card`/`question`/`approval`), `card` or `seat`, `summary` | person cards, questions, `approval/requested` and resolution |
 | `notice` | `team`, `text` | `person/notice` |
+| `gap` | `reason` (`disconnected`/`subscription-changed`) | reconnect or an acknowledged subscription change; the following baseline replaces the prior observation |
+| `end` | `reason` (`interrupted`/`until`/`desk-closed`/`error`) | always the last event; an error end is followed by propagation of the original error to the stream consumer |
 
 Four rules hold every row:
 
@@ -507,8 +509,6 @@ Four rules hold every row:
     layering gate holds it to that.
   - `harnessdesk status` and `run show` are the same selectors in a
     terminal's words.
-| `gap` | `reason` | a reconnect; what follows is whole |
-| `end` | `reason` (`interrupted`/`until`/`desk-closed`) | always last |
 
 ### Exit codes
 

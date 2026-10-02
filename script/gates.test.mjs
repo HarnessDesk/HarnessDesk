@@ -2948,6 +2948,29 @@ test('a method name held in a variable is not a caller either', () => {
   )
 })
 
+test('reachability recognizes the typed client call first literal argument', () => {
+  const methods = ['goal/list', 'flow/executions']
+  for (const source of [
+    "await client.call('goal/list', {})",
+    "await client.call<'goal/list'>(\n 'goal/list', {})",
+    'await client.call("goal/list", {})',
+  ]) assert.deepEqual([...reachedBy(methods, [source])], ['goal/list'], source)
+  for (const source of [
+    "// await client.call('goal/list', {})",
+    "/* client.call('goal/list', {}) */",
+    "const marker = 'goal/list'",
+    'const example = "client.call(\'goal/list\', {})"',
+    "client.call('other/method', 'goal/list')",
+    "client.call('goal/list' + suffix, {})",
+    "call('goal/list', {})",
+    "other.call('goal/list', {})",
+    "console.log('goal/list')",
+    "const example = `request('goal/list')`",
+    "request('goal/list' + suffix, {})",
+  ]) assert.deepEqual([...reachedBy(methods, [source])], [], source)
+  assert.deepEqual([...reachedBy(methods, ["await request('flow/executions', {})"])], ['flow/executions'])
+})
+
 /** The server's test files that run in invocations of their own, at a wider cap (#1000, #1003). */
 const CARVED_OUT = ['flow-host-evidence-*.test.js', 'intake-*.test.js']
 

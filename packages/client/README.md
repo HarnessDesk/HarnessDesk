@@ -15,7 +15,11 @@ const client = await connect({
 })
 try {
   console.log(await client.call('goal/list', {}))
-  for await (const event of client.events()) console.log(event)
+  await Promise.all([
+    (async () => { for await (const event of client.events()) console.log(event) })(),
+    // Drain the independent raw buffer even when only stable events are needed.
+    (async () => { for await (const _ of client.notifications()) {} })(),
+  ])
 } finally {
   client.close()
 }
@@ -60,7 +64,8 @@ reconnection; `desk-closed` is reserved for an actual shutdown notification.
 
 `notifications()` is **unstable raw wire vocabulary**. Both streams buffer
 arrival order independently of calls. Consume each stream once; buffers are
-unbounded, so close the client when observation is finished.
+unbounded. During a subscription, drain both streams, discarding the vocabulary
+you do not use, and close the client when observation is finished.
 
 The Node entry exports `DeskPointer`, `findDesks({ env? })`,
 `resolveDesk({ home?, env? })`, `localTransport(desk)`, and

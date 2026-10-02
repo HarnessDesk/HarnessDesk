@@ -31,21 +31,21 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import ts from '@typescript/typescript6'
 
 import { withoutComments } from './lib/without-comments.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 /**
- * Where a person's press can start. The renderer is the app's surface; the
- * desktop's main process is the other caller with a user behind it (menus,
- * the tray, deep links).
+ * Where a person's action can start: the renderer, desktop menus and deep
+ * links, and the read client library and command line.
  *
  * Not `packages/server` or `packages/plugins`: the host calling its own
  * method proves nothing about reachability, which is the whole mistake this
  * catches.
  */
-const CALLERS = ['packages/ui/src', 'packages/desktop/electron']
+const CALLERS = ['packages/ui/src', 'packages/desktop/electron', 'packages/client/src', 'packages/cli/src']
 
 /**
  * The methods no surface calls, and why each is allowed to stay that way.
@@ -128,50 +128,34 @@ const filesUnder = (dir) => {
 }
 
 /**
- * Which of `methods` appear as a quoted string in `sources`.
- *
- * A quoted literal, because that is how `transport.request` is called
- * everywhere in this app and a method assembled from pieces could not be
- * validated by anything anyway. Tests are excluded by the caller: a test
- * calling a method is not a person being able to.
- *
- * Two things had to be true of it before it meant anything, and review found
- * both:
- *
- * **Comments are stripped first.** Without that, `// 'team/state' has no
- * caller` was itself a caller, and the gate could be made green by writing
- * its own excuse — which is the one failure that turns a check into
- * decoration. `withoutComments` is the layering gate's parser, tested in
- * `gates.test.mjs` against the glob that once opened a three-hundred-line
- * comment.
- *
- * **And the literal has to be the argument to a `request(`** — a dispatch,
- * which is the only thing "reachable" means here. Two rounds of review walked
- * this in: `const marker = 'team/inbound'` passed a comment-stripping match,
- * and then `console.log('team/inbound')` and `foo(x, 'team/inbound')` passed
- * an any-call-position one. Measured before each narrowing rather than after,
- * because a rule that tightens is only worth having if nothing real is
- * written the other way — all 169 reachable methods go through `request(`
- * today, so this costs no false negatives. A new caller spelled some other
- * way fails loudly, which is the direction to err in; so do the two spellings
- * this cannot see, a double-quoted name and a concatenated one.
+ * A surface dispatch is a request(...) or client.call(...) whose first
+ * argument is a literal method name. The compiler distinguishes these from
+ * markers, comments, examples inside strings and concatenated arguments.
+ * Tests are excluded by the caller: a test is not a person's surface.
  */
-const CALL_BEFORE = /\brequest\(\s*$/
+const isDispatch = (expression) =>
+  (ts.isIdentifier(expression) && expression.text === 'request') ||
+  (ts.isPropertyAccessExpression(expression) && (expression.name.text === 'request' ||
+    (expression.name.text === 'call' && ts.isIdentifier(expression.expression) && expression.expression.text === 'client')))
 
 /** `sources` are texts, or `{ file, text }` so that each is parsed as what it is. */
 export const reachedBy = (methods, sources) => {
-  const text = sources
-    .map((source) => (typeof source === 'string' ? withoutComments(source) : withoutComments(source.text, source.file, { strict: true })))
-    .join('\n')
-  return new Set(
-    methods.filter((method) => {
-      const needle = `'${method}'`
-      for (let at = text.indexOf(needle); at !== -1; at = text.indexOf(needle, at + 1)) {
-        if (CALL_BEFORE.test(text.slice(Math.max(0, at - 40), at))) return true
+  const calls = new Set()
+  for (const source of sources) {
+    const name = typeof source === 'string' ? 'source.ts' : source.file
+    const code = typeof source === 'string' ? withoutComments(source) : withoutComments(source.text, name, { strict: true })
+    const kind = /\.tsx$/.test(name) ? ts.ScriptKind.TSX : /\.[cm]?jsx?$/.test(name) ? ts.ScriptKind.JS : ts.ScriptKind.TS
+    const file = ts.createSourceFile(name, code, ts.ScriptTarget.Latest, true, kind)
+    const visit = (node) => {
+      if (ts.isCallExpression(node) && isDispatch(node.expression)) {
+        const first = node.arguments[0]
+        if (first && ts.isStringLiteralLike(first)) calls.add(first.text)
       }
-      return false
-    }),
-  )
+      ts.forEachChild(node, visit)
+    }
+    visit(file)
+  }
+  return new Set(methods.filter((method) => calls.has(method)))
 }
 
 /* Imported by `gates.test.mjs`, which tests the two parsers above, so the run

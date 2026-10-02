@@ -7,6 +7,41 @@ the rule is the last line of its section.
 
 ---
 
+## An outside client uses its own door and an explicit surface
+
+The command line and outside tooling read a desk through a local unix socket.
+The socket's file permissions are the credential: its directory is owned by
+the user with mode `0700`, and the socket and discovery pointer have mode
+`0600`. The pointer describes the desk; it carries no token. Windows does not
+open this door yet. The window continues to use its token-gated loopback
+WebSocket.
+
+The door speaks the host's wire, but answers only the entries in
+`CLIENT_METHODS`, each naming its tier: `read`, `run` or `answer`. Only `read`
+is granted so far. A connection says hello before reading or subscribing;
+the door checks the surface and granted tier before validating the method's
+params. The command line lists desks, status, Teams and runs, and watches
+their changes. Starting or stopping work, answering cards and tool approvals,
+and changing settings are outside this read-only surface.
+
+A subscription selects topics and an optional Team, run or project scope.
+The door sends that selection's current baseline followed by its changes;
+waiting also includes the run and board context it needs. A new subscription
+replaces the previous one. The client marks a fresh baseline after reconnect
+or an acknowledged subscription change with `gap`, so consumers can replace
+their observation rather than combine separate selections.
+
+Connections, calls, refusals and closes are attributed as client entries in
+the desk's audit file. The window's audit query keeps its session-only
+contract. The library's core depends on the protocol alone; its Node entry
+owns discovery and the socket transport, and the command line uses that
+library. The layering and reachability gates hold those boundaries and count
+the command line's actual calls as a person's surface.
+
+**The rule:** a method reaches an outside client only through a client-surface
+entry that names its required tier; the outside door never exposes the
+window's whole wire.
+
 ## The host runs a declared check for an agent; an agent is never given the network
 
 A Seat that only reads — a reviewer, a tester, an acceptance check — can ask
