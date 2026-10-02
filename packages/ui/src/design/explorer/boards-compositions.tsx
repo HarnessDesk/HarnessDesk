@@ -1044,7 +1044,7 @@ const SideBySideBoard = () => {
         <Case label="room — Side by side · narrow tabs">
           {grid(narrow, setNarrow, 'catalog-side-by-side-narrow', plainStore, 'h-96 w-100 max-w-full')}
         </Case>
-        <Case label="room — Side by side · narrow tabs with a waiting mark">
+        <Case className="col-span-2" label="room — Side by side · narrow tabs with a waiting mark">
           {grid(waitingTabs, setWaitingTabs, 'catalog-side-by-side-waiting-tabs', waitingStore, 'h-144 w-80 max-w-full')}
         </Case>
       </div>

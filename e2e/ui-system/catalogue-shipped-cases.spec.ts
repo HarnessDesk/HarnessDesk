@@ -3,6 +3,44 @@ import { expect, test } from '@playwright/test'
 const caseLabel = (page: import('@playwright/test').Page, label: string) =>
   page.getByText(label, { exact: true }).locator('..')
 
+test('approval titles and body copy share their leading edge', async ({ page }) => {
+  await page.goto('/design.html?view=room-side-by-side')
+  const waiting = caseLabel(page, 'room — Side by side · two members, waiting for you')
+  const dialog = waiting.getByRole('dialog', { name: 'Run this command?' })
+  await expect(dialog).toBeVisible()
+  const offset = await dialog.evaluate(surface => {
+    const title = surface.querySelector('h2')!.getBoundingClientRect()
+    const body = surface.querySelector('[data-slot="approval-reason"]')!.getBoundingClientRect()
+    return Math.abs(title.left - body.left)
+  })
+  expect(offset).toBeLessThan(1)
+
+  await page.goto('/preview.html?board-tool-approvals')
+  const docked = page.locator('[data-frame-id="board-tool-approval-always"] [data-slot="approval-card"]')
+  await expect(docked).toBeVisible()
+  const dockedOffset = await docked.evaluate(surface => Math.abs(
+    surface.querySelector('h2')!.getBoundingClientRect().left -
+    surface.querySelector('[data-slot="approval-reason"]')!.getBoundingClientRect().left,
+  ))
+  expect(dockedOffset).toBeLessThan(1)
+})
+
+test('a 320px waiting tile keeps its member name on one line', async ({ page }) => {
+  await page.goto('/design.html?view=room-side-by-side')
+  const narrow = caseLabel(page, 'room — Side by side · narrow tabs with a waiting mark')
+  const tile = narrow.locator('[data-slot="side-by-side-tile"][aria-label="Beta"]')
+  await expect(tile).toBeVisible()
+  await page.evaluate(async () => { await document.fonts.ready })
+  const width = await tile.evaluate(element => element.getBoundingClientRect().width)
+  expect(width).toBe(320)
+  const lines = await tile.locator('header').getByText('Beta', { exact: true }).evaluate(element => {
+    const range = document.createRange()
+    range.selectNodeContents(element)
+    return new Set([...range.getClientRects()].map(rect => rect.top)).size
+  })
+  expect(lines).toBe(1)
+})
+
 test('the catalogue renders shipped composer slots and Side by side cases', async ({ page }) => {
   await page.goto('/design.html?view=composer-fixed-slots')
   await expect(page.locator('[data-composer-layout="live"] [data-composer-track="model"]').first()).toBeVisible()
