@@ -99,12 +99,12 @@ Sizes: S under a day of Team time, M about a day, L more.
 | 14 | The Run's state on the Flow | 13 | after 13 | L |
 | 15 | The poster and the site demo | 14 | optional | S |
 | 16 | Read from the shared client selectors | the Wire client and CLI session's stream and core | **waits** | M |
-| 17 | Host: a finished Seat's process rests | none; fetch main first (#1263 also touches `host.ts`) | **yes** | M |
+| 17 | Host: a finished Seat's process rests | #1263 merged (it also changes `host.ts`) | after #1263 | M |
 
 **One Team at a time in `TeamRoomPane.tsx`.** PRs 2, 3, 8 and 10 all touch the
 rail or header of `packages/ui/src/components/TeamRoomPane.tsx`, a 2,400-line
 file. Land them in that order, and each one starts from a fresh fetch of main.
-PRs 1, 5, 6, 12 and 17 touch other files and can run beside them. PR 17 (host) touches `host.ts`, which #1263 also changes: fetch main first.
+PRs 1, 5, 6 and 12 touch other files and can run beside them. PR 17 (host) touches `host.ts`, which #1263 also changes, so it starts after #1263 merges, from a fresh fetch of main. Its PR body says `Refs #1278`, not `Closes`: PR 2 closes #1278.
 
 **What waits on the event stream.** Only PR 16, and the two events below. Every
 other PR reads what the window's store already holds.
