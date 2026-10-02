@@ -13,6 +13,30 @@ const UPDATE = process.env.UPDATE_ALIGNMENT === '1'
 const CHECKS: Check[] = ['lead-off-line', 'trailing-glyph-off-column', 'header-off-body']
 const staged = new Map<string, string[]>()
 
+/**
+ * Whole-window frames drawn to prove WHERE a notice goes, not how it is
+ * aligned. Each one composes parts that are measured in their own frames (the
+ * notice, the composer, the header), so counting the same geometry again per
+ * placement case only multiplies it; and a whole window's corner inset reads as
+ * a header off its body. This list is the exemption: fixed, each entry with its
+ * reason, and a frame cannot add itself. The real findings behind it (the
+ * notice's dismiss column; the header at the window corner) are tracked in an
+ * issue and stay in the census through the frames that show those parts alone.
+ */
+const PLACEMENT_REASON = 'a whole window drawn to show where a notice goes; its parts are measured in their own frames'
+const BEHAVIOUR_FIXTURES: Record<string, string> = {
+  'coverage-notice-composer-strip': PLACEMENT_REASON,
+  'coverage-notice-folder-gone': PLACEMENT_REASON,
+  'coverage-notice-narrow-overlay': PLACEMENT_REASON,
+  'coverage-notice-pane-bar-strip': PLACEMENT_REASON,
+  'coverage-notice-room-board': PLACEMENT_REASON,
+  'coverage-notice-room-container-query': PLACEMENT_REASON,
+  'coverage-notice-room-pending-approval': PLACEMENT_REASON,
+  'coverage-notice-split-composers': PLACEMENT_REASON,
+  'coverage-notice-split-unfocused-composer': PLACEMENT_REASON,
+  'coverage-notice-zoomed-dock': PLACEMENT_REASON,
+}
+
 if (UPDATE) writeOnceEveryTestPasses(test, () => writeFileSync(TABLE, `${JSON.stringify(wholeTable(staged), null, 2)}\n`))
 
 const wholeTable = (observed: Map<string, string[]>): Census => {
@@ -277,7 +301,7 @@ test('the rendered frames and boards hold the alignment census ceiling', async (
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/preview.html')
   await settle(page)
-  const frames = await page.locator('#root > div > section').evaluateAll(nodes => nodes
+  const listed = await page.locator('#root > div > section').evaluateAll(nodes => nodes
     .filter(section => section.querySelector(':scope > h2') && section.querySelector(':scope > div'))
     .map(section => {
       const id = section.getAttribute('data-frame-id')
@@ -287,6 +311,17 @@ test('the rendered frames and boards hold the alignment census ceiling', async (
         title: section.querySelector(':scope > h2')?.textContent?.trim() || `Frame ${id}`,
       }
     }))
+  // The exemption is this list and nothing else: a frame cannot opt itself out.
+  const exempt = listed.filter(frame => frame.id !== null && frame.id in BEHAVIOUR_FIXTURES)
+  expect(exempt.map(frame => frame.id).sort(), 'every exempt behaviour fixture still renders').toEqual(Object.keys(BEHAVIOUR_FIXTURES).sort())
+  for (const [id, reason] of Object.entries(BEHAVIOUR_FIXTURES)) expect(reason.length, `exempt frame ${id} states its reason`).toBeGreaterThanOrEqual(40)
+  // The geometry these fixtures compose is still counted, once, in its own frames: the table never records a signature against a fixture.
+  for (const [check, entry] of Object.entries(recorded())) {
+    for (const signature of Object.keys(entry.signatures ?? {})) {
+      expect(Object.keys(BEHAVIOUR_FIXTURES).some(id => signature.includes(`/ ${id} /`)), `${check}: ${signature} is recorded against an exempt fixture`).toBe(false)
+    }
+  }
+  const frames = listed.filter(frame => !(frame.id !== null && frame.id in BEHAVIOUR_FIXTURES))
   expect(frames.length, 'preview.html exposes its default frames without opening dials').toBeGreaterThan(10)
   for (const frame of frames) expect(frame.id, 'each preview Frame has a stable data-frame-id').toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
   for (const frame of frames) {

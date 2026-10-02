@@ -1136,7 +1136,11 @@ table is a ceiling that only shrinks. Because the spec reads the table it is
 graded against, `script/check-alignment-census.mjs` (in `pnpm verify` and CI)
 compares the committed table with the one at the branch's merge base and
 refuses a new or risen signature: a re-record is for a fall, and a part that
-renders a new misalignment is fixed in the part.
+renders a new misalignment is fixed in the part. The one exemption is a fixed
+list in the spec (`BEHAVIOUR_FIXTURES`): whole-window frames drawn only to show
+where a notice goes, each with its reason. A frame cannot add itself, the spec
+fails if a listed frame stops rendering or the table records a signature against
+one, and the parts they compose are still counted, once, in their own frames.
 
 ### What the audit refuses
 

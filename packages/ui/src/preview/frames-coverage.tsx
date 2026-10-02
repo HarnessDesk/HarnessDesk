@@ -137,7 +137,11 @@ const noticeLayoutStore = (id: string, options: {
 
 const NoticeLayoutFrame = ({ id, title, options }: { readonly id: string; readonly title: string; readonly options?: Parameters<typeof noticeLayoutStore>[1] }) => (
   <Frame id={id} title={title}>
-    <div data-testid="notice-layout-canvas" className="h-[620px] min-w-0 overflow-hidden border" style={options?.narrowRoom ? { width: '900px' } : undefined}>
+    <div
+      data-testid="notice-layout-canvas"
+      className="h-[620px] min-w-0 overflow-hidden border"
+      style={options?.narrowRoom ? { width: '900px' } : undefined}
+    >
       <StoreProvider store={noticeLayoutStore(id, options)}>
         <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
           <Workbench sidebar={<div className="p-2">Preview sidebar</div>} />
