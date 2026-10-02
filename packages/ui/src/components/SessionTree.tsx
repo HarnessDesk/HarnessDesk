@@ -229,7 +229,7 @@ const SessionRow = memo(({
 
   return (
     <SidebarMenu className={styles.rowWrap} data-region="session-row" data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount} onContextMenu={menu.open}>
-      <SidebarMenuItem className="list-none" trailingMarks={Math.min(3, Number(Boolean(folderGone)) + Number(worktree) + Number(hasActivityMark) + Number(Boolean(need))) as 0 | 1 | 2 | 3} data-menu-open={menu.at ? '' : undefined}>
+      <SidebarMenuItem className="list-none" trailingMarks={(Number(Boolean(folderGone)) + Number(worktree) + Number(hasActivityMark) + Number(Boolean(need))) as 0 | 1 | 2 | 3 | 4} data-menu-open={menu.at ? '' : undefined}>
         {renaming ? (
           <Input
             variant="quiet" controlSize="row" className={styles.renameInput}
@@ -682,6 +682,9 @@ const RoomRow = ({
   const goal = snapshot.goals.get(room.id)
   const name = goal ? goalName(goal.goal) : room.name
   const waiting = room.members.some((member) => snapshot.approvals.some((entry) => String(entry.key) === String(member)))
+  const words = goal ? (waiting
+    ? { label: 'Needs you', tone: 'warning' as const }
+    : goalWords({ goal: goal.goal, activity: goal.activity })) : null
   /* Resolved against what the tree is *showing* first, so the agent filter
      applies here as it does everywhere else — a room drawn straight from its
      member list would keep conversations the filter had just removed from
@@ -727,9 +730,8 @@ const RoomRow = ({
           icon={<Text role="meta"><TeamIcon size={14} /></Text>}
           label={<span className="flex min-w-0 items-center gap-(--hd-space-1)">
             <span className="min-w-0 truncate">{name}</span>
-            {goal && (waiting
-              ? <SidebarMenuState label="Needs you" tone="warning" state="limit" />
-              : <SidebarMenuState label={goalWords({ goal: goal.goal, activity: goal.activity }).label} tone={goalWords({ goal: goal.goal, activity: goal.activity }).tone} state="available" />)}
+            {words && <SidebarMenuState label={words.label} tone={words.tone}
+              state={words.tone === 'warning' ? 'limit' : words.tone === 'info' ? 'signin' : words.tone === 'brand' ? 'ready' : 'available'} />}
           </span>}
         />
         {held > 0 && <SidebarMenuBadge title={`${held} held ${held === 1 ? 'message' : 'messages'} waiting for you`}>

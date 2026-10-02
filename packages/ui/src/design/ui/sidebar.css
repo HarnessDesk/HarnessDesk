@@ -36,6 +36,10 @@
   --sidebar-menu-mark-reserve: var(--hd-sidebar-end-triple-action-step);
 }
 
+[data-sidebar-trailing-marks="4"] {
+  --sidebar-menu-mark-reserve: calc(4 * var(--hd-sidebar-end-action-step));
+}
+
 [data-sidebar-trailing-actions="1"] {
   --sidebar-menu-action-reserve: var(--hd-sidebar-end-action-step);
 }

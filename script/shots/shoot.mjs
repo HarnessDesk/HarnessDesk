@@ -482,10 +482,9 @@ try {
           if (!actions.length) continue
           const column = document.querySelector('nav[aria-label="Workspace actions"]')?.parentElement?.getBoundingClientRect().right - 32
           if (!Number.isFinite(column)) continue
-          const marks = Number(row.getAttribute('data-sidebar-trailing-marks') ?? 0)
           for (let index = 0; index < actions.length; index++) {
             const actionBox = actions[index].getBoundingClientRect()
-            const expectedCenter = column - (marks + actions.length - index - 1) * 24
+            const expectedCenter = column - (actions.length - index - 1) * 24
             if (Math.abs((actionBox.left + actionBox.right) / 2 - expectedCenter) > 1) faults.push('sidebar hover action left its derived end-column slot')
             for (const badge of row.querySelectorAll(':scope > [data-slot="sidebar-menu-badge"]')) {
               const badgeBox = badge.getBoundingClientRect()
@@ -2001,28 +2000,11 @@ rules:
   const workspaceHoverAction = '[data-slot="sidebar-menu-item"]:has(> [data-slot="sidebar-menu-button"][aria-expanded]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]'
   SCENES['workspace-hover'] = { leaveOverlay: true, hover: workspaceHoverAction, run: async () => {
     await stageSidebarMarks()
-    // Keep this scene on the two-action project head. The pinned head is a
-    // separate mark-plus-actions state in the preview and sidebar browser tests.
-    await cdp.eval(`(${STORE}).setListPrefs({ pinned: [] })`)
-    await sleep(300)
     await hover(workspaceHoverAction)
   } }
-  const sessionHoverAction = '[data-region="session-row"] [data-slot="sidebar-menu-item"][data-sidebar-trailing-marks="0"] > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]'
+  const sessionHoverAction = '[data-region="session-row"] [data-slot="sidebar-menu-item"]:has(> [data-slot="sidebar-menu-badge"][aria-label^="Worktree "]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]'
   SCENES['session-hover'] = { leaveOverlay: true, hover: sessionHoverAction, run: async () => {
     await stageSidebarMarks()
-    // Marked conversations are exercised at every width by the browser rail
-    // suite. Keep this native action-placement scene on an ordinary row so
-    // the check measures the action rail without a moved mark occupying it.
-    await cdp.eval(`(() => {
-      const store = ${STORE}, real = store.transport.request.bind(store.transport)
-      store.transport.request = async (method, params) => {
-        const result = await real(method, params)
-        if (method !== 'session/list') return result
-        return { ...result, data: result.data.map(row => ({ ...row, repo: row.repo ? { ...row.repo, worktree: false } : row.repo, folderGone: false })) }
-      }
-      return store.loadHistory({ reset: true })
-    })()`)
-    await sleep(700)
     await hover(sessionHoverAction)
   } }
   /**

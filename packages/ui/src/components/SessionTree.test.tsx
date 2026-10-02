@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import {
   runtimeId,
+  approvalId,
   sessionId,
   sessionKey,
   wrapContext,
@@ -1868,4 +1869,34 @@ it('renames an inactive session without opening it or changing active session (#
   expect(openSession).not.toHaveBeenCalled()
   // Must call renameSession with the title and keyB
   expect(renameSession).toHaveBeenCalledWith('Renamed Conversation', keyB)
+})
+
+it('declares all four marks when a missing worktree has activity and needs you', () => {
+  const one = summary({ id: 'four-marks', cwd: '/repo/gone', repo: { root: '/repo', worktree: true }, git: { branch: 'fix/rail' }, status: { type: 'active' } })
+  const { update } = treeWith([], [one], [one])
+  update({
+    foldersGone: new Map([[one.cwd, 'The folder no longer exists.']]),
+    approvals: [{ key: sessionKey(one.runtime, one.id), approval: {
+      id: approvalId('rail-approval'), sessionId: one.id, type: 'command', requestedAt: 1,
+      command: 'pwd', cwd: one.cwd, actions: [], options: [],
+    } }],
+  })
+  const row = container.querySelector('[data-tone="waiting"] [data-region="session-row"] [data-slot="sidebar-menu-item"]')!
+  expect(row.querySelectorAll('[data-slot="sidebar-menu-badge"]')).toHaveLength(3)
+  expect(row.querySelector('[data-slot="sidebar-menu-state"]')).not.toBeNull()
+  expect(row.getAttribute('data-sidebar-trailing-marks')).toBe('4')
+})
+
+it.each([
+  ['needs-you', 'Needs you', 'warning', 'limit'],
+  ['working', 'Working', 'info', 'signin'],
+  ['ready-to-wrap', 'Ready to wrap', 'brand', 'ready'],
+] as const)('keeps a Goal’s %s signal in its compact state without a member approval', (activity, label, tone, state) => {
+  const board = room({ id: 'goal-signal', name: 'Check the rail' })
+  const { container: tree } = treeWith([board], [], [], {}, undefined, null,
+    new Map([[board.id, triggerGoalView(board, activity)]]))
+  const mark = roomRow(tree, board.name).querySelector('[data-slot="sidebar-menu-state"]')!
+  expect(mark.getAttribute('aria-label')).toBe(label)
+  expect(mark.querySelector('[data-slot="chip"]')?.getAttribute('data-tone')).toBe(tone)
+  expect(mark.querySelector('[data-sidebar-menu-state-compact] [data-slot="dot"]')?.getAttribute('data-state')).toBe(state)
 })

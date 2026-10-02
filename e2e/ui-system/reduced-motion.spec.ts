@@ -82,6 +82,7 @@ test('a focused row shifts its checkout mark immediately before the next frame',
     return { resting, first, later: box(), started }
   })
   // The trailing action overlays its fixed slot; focus does not resize the row.
+  expect(read.first).toEqual(read.later)
   expect(read.later.left).toBe(read.resting.left - 24)
   expect(read.later.right).toBe(read.resting.right - 24)
   expect(read.started).toEqual([])

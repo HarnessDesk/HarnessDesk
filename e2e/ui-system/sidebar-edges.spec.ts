@@ -44,7 +44,7 @@ const textInk = async (locator: Locator) => locator.evaluate((node) => {
   })).filter(({ width, height }) => width > 0 && height > 0)
 })
 
-test('hover actions take the rail and every trailing mark moves by the declared action count', async ({ page }) => {
+test('hover actions take the rail and every trailing mark moves by the declared action count', async ({ page }, testInfo) => {
   test.setTimeout(120_000)
   await page.goto('/design.html?view=sidebar')
   const example = page.locator('[data-catalog-example="sidebar"]')
@@ -85,6 +85,12 @@ test('hover actions take the rail and every trailing mark moves by the declared 
       const expectedMove = actionCount * rail.target
       const declaredMarks = Number(await row.getAttribute('data-sidebar-trailing-marks') ?? 0)
       const expectedStateOffset = (declaredMarks - 1 + actionCount) * rail.target
+      if (await stateMarks.count() > 0 && await badges.count() === 3) {
+        expect(declaredMarks, 'three badges plus the folded state reserve four marks').toBe(4)
+        const reserve = await title.evaluate((node) => Number.parseFloat(getComputedStyle(node).paddingInlineEnd))
+        const endRail = await action.evaluate((node) => Number.parseFloat(getComputedStyle(node).insetInlineEnd))
+        expect(reserve, 'the four-mark row reserves both marks and its hover action').toBe(endRail + (4 + actionCount) * rail.target)
+      }
 
       for (const state of ['hover', 'focus', 'menu-open'] as const) {
         await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
@@ -119,6 +125,16 @@ test('hover actions take the rail and every trailing mark moves by the declared 
           for (let actionIndex = 0; actionIndex < actionBoxes.length; actionIndex += 1) expect(intersection(markBox, actionBoxes[actionIndex]!), `${caseName} mark ${markIndex} overlaps action ${actionIndex} at ${width}px (${state})`).toBe(false)
           for (const ink of titleRects) expect(intersection(ink, markBox), `${caseName} title ink overlaps mark ${markIndex} at ${width}px (${state})`).toBe(false)
         }
+        // The folded state is a mark too: check every badge/state pair,
+        // including folder + worktree + activity + needs-you on one row.
+        const trailingBoxes = []
+        for (const mark of await badges.all()) trailingBoxes.push(await box(mark))
+        for (const mark of await stateMarks.all()) trailingBoxes.push(await box(mark))
+        for (let left = 0; left < trailingBoxes.length; left += 1) {
+          for (let right = left + 1; right < trailingBoxes.length; right += 1) {
+            expect(intersection(trailingBoxes[left]!, trailingBoxes[right]!), `${caseName} marks ${left} and ${right} overlap at ${width}px (${state})`).toBe(false)
+          }
+        }
         for (let markIndex = 0; markIndex < await stateMarks.count(); markIndex += 1) {
           const mark = stateMarks.nth(markIndex)
           const markBox = await box(mark)
@@ -126,6 +142,9 @@ test('hover actions take the rail and every trailing mark moves by the declared 
           expect(Math.abs(stateCenter - (rail.center - expectedStateOffset)), `${caseName} state mark misses its declared leftmost slot by ${Math.round(stateCenter - (rail.center - expectedStateOffset))}px at ${width}px (${state})`).toBeLessThanOrEqual(1)
           for (let actionIndex = 0; actionIndex < actionBoxes.length; actionIndex += 1) expect(intersection(markBox, actionBoxes[actionIndex]!), `${caseName} state mark overlaps action ${actionIndex} at ${width}px (${state})`).toBe(false)
           for (const ink of titleRects) expect(intersection(ink, markBox), `${caseName} title ink overlaps state mark at ${width}px (${state})`).toBe(false)
+        }
+        if (declaredMarks === 4 && state === 'hover' && [200, 260].includes(width)) {
+          await testInfo.attach(`four-marks-${width}-hover.png`, { body: await row.screenshot(), contentType: 'image/png' })
         }
       }
       await action.evaluate((node) => { node.removeAttribute('data-state'); node.setAttribute('aria-expanded', 'false') })
@@ -211,8 +230,8 @@ test('sidebar state marks yield to actions and every trailing control stays on t
       expect(intersection(stateBox, actionBox), `state mark and action overlap at ${width}px (${focus ? 'focus' : 'hover'})`).toBe(false)
       await expect(anatomy.locator('[data-sidebar-menu-state-full]')).toBeHidden()
       await expect(anatomy.locator('[data-sidebar-menu-state-compact]')).toBeVisible()
-      await expect(state).toHaveAttribute('title', 'Working')
-      await expect(state).toHaveAttribute('aria-label', 'Working')
+      await expect(state).toHaveAttribute('title', 'Needs you')
+      await expect(state).toHaveAttribute('aria-label', 'Needs you')
       const rail = await box(sidebar)
       expect(actionBox.x, `row action begins outside sidebar at ${width}px`).toBeGreaterThanOrEqual(rail.x)
       expect(actionBox.x + actionBox.width, `row action spills past sidebar at ${width}px`).toBeLessThanOrEqual(rail.x + rail.width + 1)

@@ -227,10 +227,10 @@ const SidebarBoard = () => (
           <SidebarMenuBadge role="img" aria-label="Worktree feat/inventory-retry"><BranchIcon size={11} /></SidebarMenuBadge>
           <SidebarMenuAction showOnHover aria-haspopup="menu" aria-expanded="false" aria-label="Actions for inventory retry"><MoreIcon size={14} /></SidebarMenuAction>
         </SidebarMenuItem>
-        <SidebarMenuItem trailingMarks={3} data-catalog-label-case="badge" data-catalog-title-case="conversation with branch folder-gone and working marks" data-catalog-state="folded-state">
-          <SidebarMenuButton trailingOverlay label={<span className="flex min-w-0 items-center gap-(--hd-space-1)"><span className="min-w-0 truncate">Pin the flaky inventory test after reconciling every retry branch</span><SidebarMenuState label="Working" tone="neutral" state="signin" /></span>} />
-          <SidebarMenuBadge role="img" className="end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-double-action-step))]" aria-label="Worktree feat/inventory-retry"><BranchIcon size={11} /></SidebarMenuBadge>
-          <SidebarMenuBadge role="img" className="end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-action-step))]" aria-label="Folder is gone — inventory-retry"><FolderGoneIcon size={11} /></SidebarMenuBadge>
+        <SidebarMenuItem trailingMarks={4} data-catalog-label-case="badge" data-catalog-title-case="conversation with folder-gone worktree activity and needs-you marks" data-catalog-state="folded-state">
+          <SidebarMenuButton trailingOverlay label={<span className="flex min-w-0 items-center gap-(--hd-space-1)"><span className="min-w-0 truncate">Pin the flaky inventory test after reconciling every retry branch</span><SidebarMenuState label="Needs you" tone="warning" state="limit" /></span>} />
+          <SidebarMenuBadge role="img" className="end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-double-action-step))]" aria-label="Folder is gone — inventory-retry"><FolderGoneIcon size={11} /></SidebarMenuBadge>
+          <SidebarMenuBadge role="img" className="end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-action-step))]" aria-label="Worktree feat/inventory-retry"><BranchIcon size={11} /></SidebarMenuBadge>
           <SidebarMenuBadge aria-label="Working"><Dot state="signin" variant="navigation" /></SidebarMenuBadge>
           <SidebarMenuAction showOnHover aria-label="Badge row actions"><MoreIcon size={14} /></SidebarMenuAction>
         </SidebarMenuItem>
