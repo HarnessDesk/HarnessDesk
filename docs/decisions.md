@@ -369,7 +369,7 @@ not crossed under the pointer. The 1px divider between two columns is counted
 as well: with the arithmetic done on sizes alone, the live window measured the
 conversation at 398px, never the 400 it promised. So a 240px sidebar and a
 280px panel keep their column from 922px; at 900px the sidebar floats and the
-conversation keeps 620px beside the panel; from 680px down the panel covers it.
+conversation keeps 619px beside the panel; from 680px down the panel covers it.
 
 **The rule:** navigation gives way before the thing being consulted, and the
 thing being consulted before the work; the work never stands beside anything

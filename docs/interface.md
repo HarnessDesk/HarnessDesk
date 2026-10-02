@@ -146,7 +146,7 @@ The **sidebar gives way first** when the window cannot fit its column, a
 sidebar floats through the same button, ⌘B and palette path as in a narrow
 window. The right panel then covers the main area only when fewer than 400px
 would remain beside it. At 720px with a 280px panel, the sidebar is away and
-the conversation keeps 440px beside the panel; at 700px it keeps 420px, and
+the conversation keeps 439px beside the panel; at 700px it keeps 419px, and
 from 680px down the panel covers it. Dragging the right seam also preserves 400px
 for main while the sidebar column stands. Zoom still takes its existing area.
 

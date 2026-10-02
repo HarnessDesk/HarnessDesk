@@ -191,6 +191,30 @@ describe('the store', () => {
     }
   })
 
+  it('re-derives whether the sidebar has a column once putting it away has unzoomed it', () => {
+    /* A zoom answers "no right panel to fit" — the predicate leaves zoomed
+       layouts alone — so `narrowWindow` was false while the sidebar was
+       expanded at 900px beside a drawn 280px panel. Putting the sidebar away
+       unzooms it in the same patch, and the panel is drawn again: left as it
+       was, the next ⌘B stood the column back and left the conversation 379px. */
+    const desk = new AppStore('ws://localhost:0/')
+    vi.spyOn(desk.transport, 'request').mockImplementation((async () => null) as never)
+    desk.setWindowWidth(900)
+    desk.showViewIn('right', { kind: 'changes' })
+    desk.resizePanel('right', 280)
+    desk.showViewIn('sidebar', { kind: 'tasks' })
+    desk.zoomPanel('sidebar', 'content')
+    expect(desk.getSnapshot().narrowWindow).toBe(false)
+
+    desk.toggleSidebar()
+
+    expect(desk.getSnapshot().workbench.zoom).toBeNull()
+    expect(desk.getSnapshot().narrowWindow).toBe(true)
+    expect(sidebarPlacement(desk.getSnapshot())).toBe('away')
+    desk.toggleSidebar()
+    expect(sidebarPlacement(desk.getSnapshot())).toBe('floating')
+  })
+
   it('is left open by a conversation read in for a room, which goes nowhere', async () => {
     answers['session/read'] = session()
     answers['session/resume'] = session()

@@ -1,5 +1,5 @@
 import { useSnapshot, useStore } from '../state/context'
-import { dockViews, sidebarPlacement } from '../state/workbench'
+import { areaVisible, dockViews, sidebarPlacement } from '../state/workbench'
 import { Badge, Button } from '../design'
 import { ArrowLeftIcon, ArrowRightIcon, PanelIcon, SidebarIcon } from './Icons'
 import styles from './WindowControls.module.css'
@@ -25,7 +25,10 @@ export const WindowControls = () => {
   const store = useStore()
   const snapshot = useSnapshot()
   const shown = sidebarPlacement(snapshot) !== 'away'
-  const rightViews = dockViews(snapshot.workbench.right).length
+  // A zoom on another area hides the right panel without putting it away:
+  // "Hide" would be a lie and "Show" would uncollapse it behind the zoom, so
+  // the toggle waits until the zoom is handed back.
+  const rightViews = areaVisible(snapshot.workbench, 'right') ? dockViews(snapshot.workbench.right).length : 0
   const rightPanelPutAway = snapshot.workbench.right.collapsed
   const rightPanelLabel = rightPanelPutAway
     ? `Show the right panel — ${rightViews} ${rightViews === 1 ? 'view' : 'views'}`

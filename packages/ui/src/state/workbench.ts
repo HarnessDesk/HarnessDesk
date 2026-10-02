@@ -215,7 +215,12 @@ export interface Dock {
 export const MIN_RATIO = 0.15
 export const MAX_RATIO = 0.85
 
-/** Smallest useful width and height for either half of a dock split. */
+/**
+ * Smallest useful width and height for either half of a dock split — a half's
+ * whole box, tab strip included, because each half is a panel of its own and
+ * wears its own strip. So the menu measures the panel it belongs to, not its
+ * body: halving a body would count the strip once where two are drawn.
+ */
 export const MIN_SPLIT_HALF = 220
 export const MIN_SPLIT_HALF_H = 160
 

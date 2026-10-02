@@ -6943,14 +6943,16 @@ export class AppStore {
   #patch(patch: Partial<AppSnapshot>): void {
     const next = { ...this.#snapshot, ...patch }
     // Whether the sidebar can have a column follows the window and the docks,
-    // so it is settled here, where both change, rather than by each caller.
-    if (patch.windowWidth !== undefined || patch.workbench !== undefined) {
+    // so it is settled here, where both change, rather than by each caller —
+    // and again below if this method rewrites the workbench itself.
+    const settleNarrow = (): void => {
       const narrowWindow = sidebarCannotHaveColumn(next.workbench, next.windowWidth)
       if (narrowWindow !== next.narrowWindow) {
         next.narrowWindow = narrowWindow
         next.sidebarFloating = false
       }
     }
+    if (patch.windowWidth !== undefined || patch.workbench !== undefined) settleNarrow()
     // The focused conversation: the focused pane's, or — when a tool pane has
     // focus — the conversation it belongs to, so the composer's commands and
     // the details column stay on the work the tool was opened for.
@@ -7005,6 +7007,9 @@ export class AppStore {
     if (outlived) {
       next.workbench = unzoomIn(next.workbench)
       next.detailsTab = visibleInspector(next.workbench)
+      // The unzoom changes what the predicate reads: a zoom answered "no
+      // right panel to fit" and the panel is now drawn beside the sidebar.
+      settleNarrow()
     }
     next.activeSessionKey = activeSessionKey
     // A hand-off belongs to the draft it was handed to, and the draft is the
