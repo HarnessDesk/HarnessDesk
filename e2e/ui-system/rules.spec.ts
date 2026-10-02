@@ -106,6 +106,7 @@ const NAME_PAIRS: Record<string, { size: number; weight: number }> = {
   page: { size: 20, weight: 600 },
   section: { size: 16, weight: 600 },
   subject: { size: 14, weight: 500 },
+  member: { size: 14, weight: 600 },
   row: { size: 13, weight: 500 },
   navigation: { size: 13, weight: 400 },
   muted: { size: 13, weight: 400 },

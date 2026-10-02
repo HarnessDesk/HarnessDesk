@@ -47,6 +47,7 @@ afterEach(() => {
   delete (window as { harnessdesk?: DesktopBridge }).harnessdesk
   document.body.removeAttribute('data-hd-dark-theme')
   document.body.removeAttribute('data-hd-palette')
+  document.body.removeAttribute('data-hd-faces')
 })
 
 const shell = (): void => {
@@ -67,11 +68,20 @@ const Probe = () => {
   return null
 }
 
-const mount = (theme: AppSnapshot['theme'], palette?: AppSnapshot['palette']): void => {
+const mount = (
+  theme: AppSnapshot['theme'],
+  palette?: AppSnapshot['palette'],
+  faces?: AppSnapshot['faces'],
+): void => {
   act(() => {
     root.render(
       <StoreProvider
-        store={storeOf({ ...emptySnapshot(), theme, ...(palette ? { palette } : {}) })}
+        store={storeOf({
+          ...emptySnapshot(),
+          theme,
+          ...(palette ? { palette } : {}),
+          ...(faces ? { faces } : {}),
+        })}
       >
         <Probe />
       </StoreProvider>,
@@ -124,5 +134,15 @@ describe('useTheme', () => {
 
     mount('dark', 'harnessdesk')
     expect(document.body.hasAttribute('data-hd-palette')).toBe(false)
+  })
+
+  // Faces are the fourth dial. Square is the default and leaves no attribute;
+  // round marks the body, which is all `shadcn-themes.css` reads.
+  it('marks the body for round faces, and unmarks it for the default square', () => {
+    mount('light', undefined, 'round')
+    expect(document.body.getAttribute('data-hd-faces')).toBe('round')
+
+    mount('light', undefined, 'square')
+    expect(document.body.hasAttribute('data-hd-faces')).toBe(false)
   })
 })

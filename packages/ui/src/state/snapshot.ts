@@ -588,6 +588,12 @@ export interface AppSnapshot {
   /** The radius scale alone — the customizer's third dial. */
   readonly corners: 'default' | 'square' | 'round'
   /**
+   * The shape of a face: an agent's mark or a person's picture, everywhere
+   * one is drawn. Square is the default and the absence of the attribute;
+   * an account's ring is not a face and does not follow it.
+   */
+  readonly faces: 'square' | 'round'
+  /**
    * Which of the two interfaces the app wears.
    *
    * Not a palette and not a density: it is how the interface *marks* things.
@@ -874,6 +880,7 @@ const EMPTY: AppSnapshot = {
   palette: 'harnessdesk',
   accent: 'default',
   corners: 'default',
+  faces: 'square',
   look: 'desk',
   planEdits: {},
   listPrefs: { density: 'compact', agent: null, sort: 'recency', pinned: [], pinnedSessions: [], collapsed: [], panelsCollapsed: [], othersOpen: false },

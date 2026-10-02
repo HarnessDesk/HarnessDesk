@@ -74,7 +74,7 @@ Geist carries the interface, bundled at packages/ui/src/assets/fonts and never f
 | `--hd-chart-heat-2` | `color-mix(in srgb, rgb(52, 88, 240) 46%, rgb(245, 245, 245))` |
 | `--hd-chart-heat-3` | `color-mix(in srgb, rgb(52, 88, 240) 70%, rgb(245, 245, 245))` |
 | `--hd-chart-heat-4` | `rgb(52, 88, 240)` |
-| `--hd-chart-heat-not-scanned` | `repeating-linear-gradient( 135deg, rgb(255, 255, 255) 0 2px, color-mix(in srgb, rgb(107, 107, 107) 45%, rgb(255, 255, 255)) 2px 3px )` |
+| `--hd-chart-heat-not-scanned` | `repeating-linear-gradient( 135deg, rgb(255, 255, 255) 0 2px, color-mix(in srgb, rgb(71, 71, 71) 45%, rgb(255, 255, 255)) 2px 3px )` |
 | `--hd-danger` | `rgb(228, 68, 62)` |
 | `--hd-danger-dim` | `rgba(228, 68, 62, 0.12)` |
 | `--hd-success` | `rgb(65, 189, 111)` |
@@ -162,6 +162,8 @@ Four radii carry the whole interface, and a fifth name says "pill". `sm` is a sm
 | `--hd-radius-xl` | `16px` |
 | `--hd-radius-full` | `9999px` |
 | `--hd-radius-matted` | `calc(14px - 2px)` |
+| `--hd-face-radius` | `6px` |
+| `--hd-face-radius-lg` | `10px` |
 | `--hd-border-width` | `1px` |
 
 ### Type
@@ -358,7 +360,7 @@ A navigation column is its own small design system, and shadcn treats it as one:
 | `--hd-sidebar` | `rgb(249, 249, 249)` |
 | `--hd-sidebar-foreground` | `rgb(27, 27, 27)` |
 | `--hd-sidebar-selected` | `color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)` |
-| `--hd-sidebar-muted-foreground` | `rgb(107, 107, 107)` |
+| `--hd-sidebar-muted-foreground` | `rgb(71, 71, 71)` |
 | `--hd-sidebar-border` | `rgba(9, 12, 17, 0.05)` |
 | `--hd-sidebar-hover` | `rgba(9, 12, 17, 0.05)` |
 | `--sidebar-width` | `` |
@@ -412,6 +414,8 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-surface-shadow` | `0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(9, 12, 17, 0.12)` |
 | `--hd-scrim` | `rgba(7, 9, 14, 0.28)` |
 | `--hd-external-canvas` | `rgb(255, 255, 255)` |
+| `--hd-secondary-foreground` | `rgb(49, 49, 49)` |
+| `--hd-tertiary-foreground` | `rgb(71, 71, 71)` |
 | `--hd-sidebar-plate` | `rgb(249, 249, 249)` |
 | `--hd-chip-fill-hover` | `color-mix(in srgb, rgb(245, 245, 245) 92%, rgb(27, 27, 27))` |
 | `--hd-shadow-xs` | `0 1px 2px rgba(0, 0, 0, 0.05)` |
@@ -876,6 +880,23 @@ anatomy — crest, bands, verbs — for the reason its own doc comment gives,
 and its bands were redrawing this one privately (their own `border-t
 border-(--hd-border-strong) px-3 py-2`, a hairline off this one's `py-2.5`).
 Exported so both compose the one band rather than two close drawings of it.
+
+### `MemberName`
+
+`packages/ui/src/design/patterns/AgentCard.tsx`
+
+A member named inside a sentence: "Alpha is working", "Beta is not open;
+sending opens it too".
+
+The name is what the line is about, so it does not sit in the sentence as
+one more grey word. It wears the member's own face, the small one the rail
+and the chat draw, and the strong ink. The rest of the sentence keeps the
+line's own voice, so a glance finds who first and reads what second.
+Inside a live line that shimmers, the name stays still: the motion is the
+work, and the name is not what is moving.
+
+`mark` is the caller's, a brand mark or the generic agent glyph, because the
+pattern does not know which harness a member sits on, and must not.
 
 ### `AppWindowSurface`
 
@@ -1413,6 +1434,15 @@ action sits at the right as a small button.
 
 The composer notices, stacked over the composer they are about.
 
+### `ComposerTail`
+
+`packages/ui/src/design/patterns/Notices.tsx`
+
+The short status lines over a composer — who is working, what sending does
+besides send — as one tinted strip rather than loose sentences on the
+page's own ground. It styles its direct children, so any line can ride in
+it, and two or more join: no gap, only the outer corners round.
+
 ### `NoticeStrip`
 
 `packages/ui/src/design/patterns/Notices.tsx`
@@ -1778,9 +1808,11 @@ A person's face: the picture they chose, or the house mark when they have
 not.
 
 It is the avatar above — the plate and the hairline the account marks wear —
-squared, because a person is not an account: account marks are rings, the
-avatars were drawn as squared tiles (`assets/avatars/README.md`), and the
-seat reads as "you, and the pen you will pick up" because the two differ.
+in the face shape, because a person is not an account: account marks are
+rings, a face is whatever the person chose for faces (`--hd-face-radius`,
+squared unless they picked round; the avatars were drawn as squared tiles,
+`assets/avatars/README.md`), and it is the same corner the agents' marks
+beside it wear.
 The corner steps up the radius scale with the size, so the seat's 24px and
 the profile page's 44px read as one object at two sizes.
 

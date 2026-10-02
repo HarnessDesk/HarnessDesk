@@ -227,6 +227,9 @@ describe('the solid carries its own label', () => {
 
   const SOLIDS: [ink: string, fill: string, what: string][] = [
     ['--hd-solid-foreground', '--hd-solid', 'a filled button'],
+    ...(['blue', 'green', 'amber', 'violet', 'rose', 'teal', 'orange', 'sky'] as const).map(
+      (tint) => ['--hd-accent-foreground', `--hd-tint-${tint}-ink`, `a ${tint} solid face`] as [string, string, string],
+    ),
   ]
 
   for (const face of ['light', 'dark'] as const) {

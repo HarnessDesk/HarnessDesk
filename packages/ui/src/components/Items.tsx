@@ -463,7 +463,7 @@ const UserText = ({ text }: { text: string }) => {
 
   return (
     <Bubble variant="secondary">
-      <BubbleContent ref={body} clampLines={12} expanded={expanded}>
+      <BubbleContent ref={body} clampLines={12} expanded={expanded} fadeOverflow={overflowed}>
         {linkedText(text)}
       </BubbleContent>
       {overflowed && (

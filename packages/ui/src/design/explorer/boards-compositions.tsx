@@ -251,7 +251,7 @@ const TABS_CATALOG_STATES = ['unselected', 'selected', 'focus-visible', 'disable
 const ICON_TILE_CATALOG_VARIANTS = ['default'] as const
 const ICON_TILE_CATALOG_SIZES = ['xs', 'sm', 'default', 'lg'] as const
 const ICON_TILE_CATALOG_STATES = ['default', 'hover', 'selected'] as const
-const ICON_TILE_CATALOG_SHAPE = ['square', 'round'] as const
+const ICON_TILE_CATALOG_SHAPE = ['square', 'round', 'face'] as const
 const INPUT_GROUP_CATALOG_VARIANTS = ['default'] as const
 const INPUT_GROUP_CATALOG_SIZES = ['default'] as const
 const INPUT_GROUP_CATALOG_STATES = ['default', 'focus-visible', 'disabled', 'error'] as const
@@ -637,10 +637,10 @@ const TileBoard = () => (
           </IconTile>
         ))}
       </Case>
-      <Case label="shape — a person or a thing">
+      <Case label="shape — a thing, an account's ring, a face (follows Faces)">
         {ICON_TILE_CATALOG_SHAPE.map((shape) => (
           <IconTile key={shape} shape={shape} data-catalog-shape={shape} tint="violet" size="lg">
-            {shape === 'round' ? <AgentIcon /> : <ExtensionIcon />}
+            {shape === 'square' ? <ExtensionIcon /> : <AgentIcon />}
           </IconTile>
         ))}
       </Case>
@@ -2768,7 +2768,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   {
     id: 'tile',
     title: 'IconTile',
-    about: 'A glyph on a soft ground of its own, and the tone/tint line drawn where it bites.',
+    about: 'A glyph on its own ground: soft for things and categories, solid for faces, with tone and tint kept distinct.',
     render: TileBoard,
   },
   {
