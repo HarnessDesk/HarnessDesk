@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { approvalId, itemId, runtimeId, sessionId, turnId } from '@harnessdesk/protocol'
 
-import type { AgentItem, Approval, FlowExecution, InsightAmounts, InsightMetric, InsightReport, Intent, Session } from '@harnessdesk/protocol'
+import type { AgentItem, Approval, FlowExecution, InsightAmounts, InsightMetric, InsightReport, Intent, Session, TeamSignal } from '@harnessdesk/protocol'
 
 import { doingLine, teamOverview, type TeamOverviewInput, type TeamOverviewSeat } from './team-overview'
 
@@ -19,6 +19,10 @@ const seat = (id: string, patch: Partial<TeamOverviewSeat> = {}): TeamOverviewSe
   name: id, runtime: { capabilities: { metered: false } }, session: null, unreadSince: null, approvals: [], ...patch,
 })
 const claim = (id: string) => ({ runtime: runtimeId('agent-a'), sessionId: id, at: 220 })
+const blockedSignal = (id: string, patch: Partial<TeamSignal> = {}): TeamSignal => ({
+  id: 'blocked', kind: 'signal', at: 200, signal: 'blocked', intent: 1, title: 'Task 1',
+  by: { kind: 'agent', runtime: runtimeId('agent-a'), sessionId: id, title: id }, ...patch,
+})
 const execution = (patch: Partial<FlowExecution> = {}): FlowExecution => ({
   version: 2, id: 'run', goal: 'team', state: 'running', reason: null, legacyRun: null, operations: [],
   rounds: [{ n: 1, role: 'builder', cards: [1], seats: ['Alpha'], evidence: [], state: 'running', cause: 'seed' }],
@@ -37,12 +41,12 @@ const metric = (value: number | null, patch: Partial<InsightMetric> = {}): Insig
 const amounts = (usd = metric(1.5, { unit: 'usd', basis: 'listPrice', quality: 'estimate' }), turns = metric(4)): InsightAmounts => ({
   usd, turns, tokens: metric(100, { unit: 'tokens' }), activeMs: metric(20, { unit: 'milliseconds' }),
 })
-const report = (rows: readonly { seat: string; amounts: InsightAmounts; goal?: string }[], patch: Partial<InsightReport> = {}): InsightReport => ({
+const report = (rows: readonly { seat: string; amounts: InsightAmounts; goal?: string; runtime?: string }[], patch: Partial<InsightReport> = {}): InsightReport => ({
   id: 'report', generatedAt: 500, query: { root: '/project', from: 0, to: 500 }, goal: 'team', receipt: null,
   goals: [], seats: [], totals: amounts(), elapsedMs: metric(20), sources: [], recordedSpend: [],
   provenance: { state: 'available', note: '' }, gaps: [],
   breakdowns: [{ dimension: 'seat', unattributed: amounts(), reason: null, rows: rows.map((row) => ({
-    key: row.seat, label: row.seat, seat: row.seat, goal: row.goal ?? 'team', session: null, message: null,
+    key: row.seat, label: row.seat, seat: row.seat, goal: row.goal ?? 'team', session: row.runtime ? { runtime: row.runtime, sessionId: row.seat } : null, message: null,
     note: null, elapsedMs: metric(20), amounts: row.amounts,
   })) }], ...patch,
 })
@@ -92,6 +96,23 @@ describe('teamOverview', () => {
     expect(result.seats[0]).toMatchObject({ state: 'needs-you', reason: 'Choose a target', since: 200, round: 1 })
   })
 
+  it('attributes a hand block from its channel signal without a Run', () => {
+    const result = teamOverview(input({
+      seats: [seat('Alpha', { unreadSince: 260 }), seat('Beta')],
+      cards: [card(1, { state: 'blocked', blockedBy: 'hand', blockedReason: 'Choose a target' })],
+      signals: [blockedSignal('Alpha')],
+    }))
+    expect(result.seats[0]).toMatchObject({ seat: 'Alpha', state: 'needs-you', reason: 'Choose a target', since: 200, card: { id: 1 }, round: null })
+    expect(result.seats[1]).toMatchObject({ seat: 'Beta', state: 'idle', card: null })
+  })
+
+  it('does not attribute an old block or another runtime\'s block to a seat', () => {
+    for (const signal of [blockedSignal('Alpha', { at: 199 }), blockedSignal('Alpha', { by: { kind: 'agent', runtime: runtimeId('agent-b'), sessionId: 'Alpha', title: 'Alpha' } })]) {
+      const result = teamOverview(input({ seats: [seat('Alpha')], cards: [card(1, { state: 'blocked', blockedBy: 'hand', blockedReason: 'Choose a target' })], signals: [signal] }))
+      expect(result.seats[0]).toMatchObject({ state: 'idle', card: null })
+    }
+  })
+
   it('does not ask for a person when a hand block supplies no reason', () => {
     expect(teamOverview(input({ seats: [seat('Alpha')], cards: [card(1, { claim: claim('Alpha'), state: 'blocked', blockedBy: 'hand', blockedReason: '' })] })).seats[0]?.state).toBe('idle')
   })
@@ -107,9 +128,27 @@ describe('teamOverview', () => {
   })
 
   it('gathers waiting person cards without assigning them to unrelated seats', () => {
-    const result = teamOverview(input({ seats: [seat('Alpha')], cards: [card(2, { role: 'person' }), card(3, { role: 'person', state: 'done' }), card(4, { role: 'person', state: 'blocked', blockedBy: 'graph', dependsOn: [1] })], run: { execution: execution(), startedAt: 150 } }))
+    const run = execution({ rounds: [{ n: 2, role: 'person', cards: [2, 3, 4], seats: [], evidence: [], state: 'running', cause: 'answer' }] })
+    const result = teamOverview(input({ seats: [seat('Alpha')], cards: [card(2, { role: 'person' }), card(3, { role: 'person', state: 'done' }), card(4, { role: 'person', state: 'blocked', blockedBy: 'graph', dependsOn: [1] })], run: { execution: run, startedAt: 150 } }))
     expect(result.needsYou).toEqual([{ kind: 'card', seat: null, card: 2, summary: 'Task 2', since: 200 }])
     expect(result.seats[0]?.state).toBe('idle')
+  })
+
+  it.each(['settled', 'stopped'] as const)('does not ask for an unanswered person card from a %s Run', (state) => {
+    const run = execution({ state, rounds: [{ n: 2, role: 'person', cards: [2], seats: [], evidence: [], state: 'running', cause: 'answer' }] })
+    expect(teamOverview(input({ cards: [card(2, { role: 'person' })], run: { execution: run, startedAt: 150 } })).needsYou).toEqual([])
+  })
+
+  it('ignores person role names on unrelated cards and cards in closed rounds', () => {
+    const run = execution({ rounds: [{ n: 2, role: 'person', cards: [2], seats: [], evidence: [], state: 'closed', cause: 'answer' }] })
+    expect(teamOverview(input({ cards: [card(2, { role: 'person' }), card(3, { role: 'person' })], run: { execution: run, startedAt: 150 } })).needsYou).toEqual([])
+  })
+
+  it('keeps a stalled Run\'s own open person step waiting', () => {
+    const run = execution({ state: 'stalled', rounds: [{ n: 2, role: 'person', cards: [2], seats: [], evidence: [], state: 'running', cause: 'answer' }] })
+    expect(teamOverview(input({ cards: [card(2, { role: 'person' })], run: { execution: run, startedAt: 150 } })).needsYou).toEqual([
+      { kind: 'card', seat: null, card: 2, summary: 'Task 2', since: 200 },
+    ])
   })
 
   it('classifies structured questions and tool approvals with their own times', () => {
@@ -153,6 +192,12 @@ describe('teamOverview', () => {
     expect(result.seats[0]?.cost).toEqual({ unit: 'money', value: 1.5, estimated: true })
   })
 
+  it('uses supplied runtime capability facts consistently for a seat and the Run', () => {
+    const result = teamOverview(input({ seats: [seat('Alpha', { runtime: null })], runtimeCapabilities: new Map([['agent-a', { metered: true }]]), report: report([{ seat: 'Alpha', amounts: amounts() }]), run: { execution: execution(), startedAt: 150 } }))
+    expect(result.seats[0]?.cost).toEqual({ unit: 'money', value: 1.5, estimated: true })
+    expect(result.run?.total.money).toBe(1.5)
+  })
+
   it('uses turns for an unmetered runtime even when list-price money exists', () => {
     expect(teamOverview(input({ seats: [seat('Alpha')], report: report([{ seat: 'Alpha', amounts: amounts() }]) })).seats[0]?.cost).toEqual({ unit: 'turns', value: 4, estimated: false })
   })
@@ -172,10 +217,39 @@ describe('teamOverview', () => {
     expect(teamOverview(input({ seats: [seat('Alpha')], report: report([{ seat: 'Alpha', goal: 'other', amounts: amounts() }]) })).seats[0]?.cost).toBeNull()
   })
 
-  it('uses team totals once, including seats no longer present', () => {
+  it('keeps total turns but leaves money unknown without eligible seat partitions', () => {
     const result = teamOverview(input({ seats: [seat('Alpha')], report: report([]), run: { execution: execution(), startedAt: 150 } }))
-    expect(result.run?.total).toEqual({ money: 1.5, turns: 4 })
+    expect(result.run?.total).toEqual({ money: null, turns: 4 })
     expect(teamOverview(input({ report: report([], { goal: 'other' }), run: { execution: execution(), startedAt: 150 } })).run?.total).toEqual({ money: null, turns: null })
+  })
+
+  it('adds only money from metered seats with known rates to the Run total', () => {
+    const result = teamOverview(input({
+      seats: [seat('Metered', { runtime: { capabilities: { metered: true } } }), seat('Unmetered'), seat('Unknown', { runtime: null }), seat('NoRate', { runtime: { capabilities: { metered: true } } })],
+      report: report([
+        { seat: 'Metered', amounts: amounts() }, { seat: 'Unmetered', amounts: amounts() },
+        { seat: 'Unknown', amounts: amounts() }, { seat: 'NoRate', amounts: amounts(metric(9, { basis: 'unknown' })) },
+        { seat: 'Metered', goal: 'other', amounts: amounts() },
+      ], { totals: amounts(metric(15, { unit: 'usd', basis: 'listPrice' }), metric(16)) }),
+      run: { execution: execution(), startedAt: 150 },
+    }))
+    expect(result.run?.total).toEqual({ money: 1.5, turns: 16 })
+    expect(teamOverview(input({ seats: [seat('Unmetered')], report: report([{ seat: 'Unmetered', amounts: amounts() }]), run: { execution: execution(), startedAt: 150 } })).run?.total.money).toBeNull()
+  })
+
+  it('includes historical metered seats once through their recorded runtime identity', () => {
+    const usage = report([{ seat: 'Earlier', runtime: 'earlier-agent', amounts: amounts(metric(3, { basis: 'vendorMetered', unit: 'usd' })) }, { seat: 'Subscription', runtime: 'subscription-agent', amounts: amounts() }])
+    // Alternate partitions must not be counted as additional contributions.
+    const result = teamOverview(input({ report: { ...usage, breakdowns: [...usage.breakdowns, { ...usage.breakdowns[0]!, dimension: 'agent' }] }, runtimeCapabilities: new Map([['earlier-agent', { metered: true }], ['subscription-agent', { metered: false }]]), run: { execution: execution(), startedAt: 150 } }))
+    expect(result.run?.total).toEqual({ money: 3, turns: 4 })
+    expect(result.seats).toEqual([])
+  })
+
+  it('distinguishes unavailable Run money from an observed metered zero', () => {
+    for (const value of [null, 0]) {
+      const result = teamOverview(input({ seats: [seat('Alpha', { runtime: { capabilities: { metered: true } } })], report: report([{ seat: 'Alpha', amounts: amounts(metric(value, { basis: 'vendorMetered', unit: 'usd' })) }]), run: { execution: execution(), startedAt: 150 } }))
+      expect(result.run?.total.money).toBe(value)
+    }
   })
 
   it('takes the latest in-flight tool, ignoring finished calls and prose', () => {

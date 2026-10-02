@@ -16,9 +16,18 @@ Working and Idle; unread marks remain the window's own. A Run's stall does
 not make every Seat blocked, and a graph dependency is an idle Seat's card
 fact rather than a request for the person.
 
+A person's unanswered card waits only while its own round is open in a
+running or stalled Run. A hand block retains its Seat through the blocking
+agent's channel signal when release clears the claim, or through the Run's
+explicit seat/card journal. Neither a shared role name nor matching session
+ids across runtimes establish ownership.
+
 Cost comes from the Seat's own Team-scoped Insight partition, in money only
 for a metered runtime with known rate provenance, otherwise in recorded turns.
-An unavailable figure stays null. The doing line uses the shared tool-name
+The Run adds money only from those eligible Seat partitions; historical
+Seats use their recorded runtime identity and supplied metering capability.
+Its turn count remains the Team's recorded total. An unavailable figure stays
+null. The doing line uses the shared tool-name
 lookup with only a tool and a path; commands, queries and environment values
 stay in the transcript. Its caller owns the displayed line and its 2.5-second
 hold. This model adds no screen or read method; those follow in the

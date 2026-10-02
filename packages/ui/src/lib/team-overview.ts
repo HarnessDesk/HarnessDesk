@@ -13,6 +13,9 @@
  * the seat's nickname or RuntimeInfo.presentation. Unread marks belong to the
  * window. The caller supplies the run's start time: FlowExecution has none.
  * InsightMetric.basis carries rate provenance; quality/coverage qualify it.
+ * Channel signals retain hand-block ownership when a release clears a claim.
+ * Historical seat money uses supplied runtime capabilities; unknown metering
+ * stays unknown. Run turns use the Team total, money only eligible seat rows.
  * Text remains plain data; consumers render agent text through sanitize.ts.
  */
 import {
@@ -27,6 +30,7 @@ import {
   type RuntimeCapabilities,
   type SeatRecord,
   type Session,
+  type TeamSignal,
 } from '@harnessdesk/protocol'
 
 import { PATH_KEYS, shellCommandOf, toolCallVerb } from './group-items'
@@ -81,6 +85,9 @@ export interface TeamOverviewInput {
   readonly cards: readonly Intent[]
   readonly run: { readonly execution: FlowExecution; readonly startedAt: number } | null
   readonly report: InsightReport | null
+  readonly signals?: readonly TeamSignal[]
+  /** Runtime facts, including historical Seats no longer in the window's roster. */
+  readonly runtimeCapabilities?: ReadonlyMap<string, Pick<RuntimeCapabilities, 'metered'>>
   readonly toolSentences?: ReadonlyMap<string, string>
 }
 
@@ -105,13 +112,17 @@ const estimated = (metric: InsightMetric): boolean =>
   metric.quality === 'estimate' || metric.quality === 'floor' || metric.coverage === 'partial' ||
   metric.basis === 'listPrice' || metric.basis === 'mixed'
 
+const moneyOf = (metric: InsightMetric, metered: boolean | undefined): number | null =>
+  metered === true && hasRate(metric) ? observed(metric) : null
+
 const costOf = (input: TeamOverviewInput, seat: TeamOverviewSeat): SeatRow['cost'] => {
   const amounts = input.report?.breakdowns.find((one) => one.dimension === 'seat')?.rows.find(
     (row) => row.seat === seat.record.id && row.goal === input.team,
   )?.amounts
   if (!amounts) return null
-  const money = observed(amounts.usd)
-  if (seat.runtime?.capabilities.metered === true && hasRate(amounts.usd) && money !== null) {
+  const capabilities = seat.runtime?.capabilities ?? input.runtimeCapabilities?.get(seat.record.session.runtime)
+  const money = moneyOf(amounts.usd, capabilities?.metered)
+  if (money !== null) {
     return { unit: 'money', value: money, estimated: estimated(amounts.usd) }
   }
   const turns = observed(amounts.turns)
@@ -179,13 +190,22 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
   const ownerOf = (card: Intent): TeamOverviewSeat | undefined => {
     if (card.claim) return input.seats.find((seat) =>
       seat.record.session.runtime === card.claim?.runtime && seat.record.session.sessionId === card.claim?.sessionId)
+    if (card.state === 'blocked' && card.blockedBy === 'hand') {
+      const signal = [...(input.signals ?? [])].reverse().find((one) =>
+        one.intent === card.id && one.signal === 'blocked' && one.at >= card.updatedAt)
+      const actor = signal?.by
+      if (actor?.kind === 'agent') return input.seats.find((seat) =>
+        seat.record.session.runtime === actor.runtime && seat.record.session.sessionId === actor.sessionId)
+    }
     // Blocking clears the claim. The run's explicit seat/card journal retains
     // attribution; round.seats is not zipped to cards (recovery can reorder it).
     const opening = execution ? [...execution.operations].reverse().find((operation) => operation.kind === 'seat' && operation.card === card.id && operation.seat !== null) : undefined
     return opening ? input.seats.find((seat) => seat.record.id === opening.seat) : undefined
   }
   const personRoles = new Set(execution?.document.flow.roles.filter((role) => role.kind === 'person').map((role) => role.id) ?? [])
-  const personCards = activeCards.filter((card) => card.role && personRoles.has(card.role) &&
+  const personCards = activeCards.filter((card) => (execution?.state === 'running' || execution?.state === 'stalled') &&
+    card.role && personRoles.has(card.role) && rounds.some((round) =>
+      round.state !== 'closed' && round.role === card.role && round.cards.includes(card.id)) &&
     (card.state === 'open' || card.state === 'claimed' || (card.blockedBy === 'hand' && Boolean(card.blockedReason?.trim()))))
   const needsYou: NeedsYouItem[] = personCards.map((card) => ({
     kind: 'card', seat: ownerOf(card)?.record.id ?? null, card: card.id, summary: card.title, since: card.updatedAt,
@@ -234,6 +254,20 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
   needsYou.sort((a, b) => a.since - b.since || (a.card ?? Infinity) - (b.card ?? Infinity))
   const lastRound = rounds.at(-1)
   const totals = input.report?.goal === input.team ? input.report.totals : null
+  let money: number | null = null
+  if (totals) {
+    // Only one partition contributes. Report totals can include list prices
+    // for subscription accounts, which are turns in the Overview.
+    for (const row of input.report?.breakdowns.find((one) => one.dimension === 'seat')?.rows ?? []) {
+      if (row.goal !== input.team || row.seat === null) continue
+      const seat = input.seats.find((one) => one.record.id === row.seat)
+      const runtime = row.session?.runtime ?? seat?.record.session.runtime ??
+        input.report?.seats.find((one) => one.id === row.seat)?.session.runtime
+      const capabilities = seat?.runtime?.capabilities ?? (runtime ? input.runtimeCapabilities?.get(runtime) : undefined)
+      const value = moneyOf(row.amounts.usd, capabilities?.metered)
+      if (value !== null) money = (money ?? 0) + value
+    }
+  }
   const run: RunStrip | null = execution && input.run ? {
     run: execution.id, state: execution.state, round: lastRound?.n ?? null, role: lastRound?.role ?? null,
     startedAt: input.run.startedAt,
@@ -242,7 +276,7 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
       of: Math.max(execution.findings.budget.rounds, execution.findings.extraRound
         ? execution.findings.extraRound.after + (execution.findings.extraRound.count ?? 1) : 0),
     } : null,
-    total: { money: totals && hasRate(totals.usd) ? observed(totals.usd) : null, turns: totals ? observed(totals.turns) : null },
+    total: { money, turns: totals ? observed(totals.turns) : null },
   } : null
   return { run, needsYou, seats }
 }
