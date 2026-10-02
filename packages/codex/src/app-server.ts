@@ -492,7 +492,9 @@ export class CodexAppServer {
     await delay(backoff)
     if (this.#shuttingDown) return
     try {
-      const installation = this.#installation ?? (await requireCodex(this.options.binaryPath ?? null))
+      // An in-place CLI upgrade can leave the same path naming a new build.
+      // Re-probe before spawning so version guards describe this process.
+      const installation = await requireCodex(this.options.binaryPath ?? null)
       this.#installation = installation
       await this.#spawnAndHandshake(installation)
     } catch (error) {

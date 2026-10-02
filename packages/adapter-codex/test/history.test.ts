@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { CodexAppServer, type CodexProtocol } from '@harnessdesk/codex'
 import { sessionId, type AgentEvent, type Session } from '@harnessdesk/protocol'
@@ -270,6 +273,55 @@ test('Codex 0.160.0 refuses legacy undo without sending the removed rollback met
     /Codex 0\.160\.0 and later cannot undo legacy conversations/,
   )
   assert.deepEqual(requests, [])
+})
+
+test('Undo uses the upgraded version after an in-place CLI upgrade and automatic app-server restart (#1256)', { timeout: 15_000 }, async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-codex-upgrade-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const version = join(dir, 'version')
+  const generations = join(dir, 'generations')
+  const binary = join(dir, 'codex.mjs')
+  await writeFile(version, '0.155.0')
+  // Both --version and app-server read the same installed build, without
+  // changing the host's environment or the running process's environment.
+  await writeFile(binary, `#!/usr/bin/env node\nprocess.env['FAKE_CODEX_VERSION_FILE'] = ${JSON.stringify(version)}\nawait import(${JSON.stringify(pathToFileURL(FAKE).href)})\n`, { mode: 0o755 })
+  const runtime = new CodexRuntime({
+    binaryPath: binary,
+    clientName: 'harnessdesk-test',
+    env: { FAKE_CODEX_CLAIMS: generations },
+  })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  assert.equal(runtime.info.version, 'codex-cli 0.155.0')
+  const legacyId = sessionId('thread-legacy')
+  const legacy = await runtime.resumeSession(legacyId)
+  await legacy.rollback!(1)
+  assert.deepEqual(turnIds(await runtime.readSession(legacyId)), ['turn-l1'], 'the old build supports legacy Undo')
+
+  await writeFile(version, '0.160.0')
+  const [pid] = (await readFile(generations, 'utf8')).trim().split('\n').map(Number)
+  assert.ok(pid, 'the running scripted app-server recorded its pid')
+  const ready = new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('the app-server did not restart')), 10_000)
+    const off = runtime.onHealthChange((health) => {
+      if (health.state === 'ready') resolve()
+      else if (health.state === 'unavailable') reject(new Error(health.message))
+    })
+    t.after(() => { clearTimeout(timer); off() })
+  })
+  // Kill the actual child: stop/start and checkInstallation already re-probe,
+  // whereas crash recovery previously reused the cached installation.
+  process.kill(pid, 'SIGKILL')
+  await ready
+  const resumed = await runtime.resumeSession(legacyId)
+  await assert.rejects(resumed.rollback!(1), /Codex 0\.160\.0 and later cannot undo legacy conversations/)
+  assert.equal(runtime.info.version, 'codex-cli 0.160.0')
+  assert.deepEqual(turnIds(await runtime.readSession(legacyId)), ['turn-l1', 'turn-l2'], 'the refused Undo leaves the new process’s history intact')
+  assert.equal((await readFile(generations, 'utf8')).trim().split('\n').length, 2, 'a new app-server really spawned')
+
+  const paged = await runtime.resumeSession(sessionId('thread-paged'))
+  await paged.rollback!(1)
+  assert.deepEqual(turnIds(await runtime.readSession(paged.id)), ['turn-p1', 'turn-p2'], 'paginated Undo still reverts on the new build')
 })
 
 test('a fork arrives with the history it copied, read in pages, and Codex says nothing', async (t) => {
