@@ -288,7 +288,7 @@ describe('faces: every tile that draws someone is a face', () => {
       'a.tsx',
       'const a = <IconTile shape="square"><BrandMark brand="codex" /></IconTile>',
     )[0]
-    expect(finding.identity).toBe('<BrandMark brand="codex" />')
+    expect(finding?.identity).toBe('<BrandMark brand="codex" />')
   })
 
   it('refuses an AvatarStack that is not a face', () => {
