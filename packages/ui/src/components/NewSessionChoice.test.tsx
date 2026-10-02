@@ -375,7 +375,12 @@ it('flow starts exactly one Goal through its host operation', async () => {
   const { store } = rig()
   vi.mocked(store.flowCatalog).mockResolvedValue([FLOW])
   vi.mocked(store.flowSource).mockResolvedValue('version: 2\nname: Fix\n')
-  vi.mocked(store.previewFlow).mockResolvedValue(FLOW_PREVIEW)
+  if (FLOW_PREVIEW.compiled.document.format !== 'agents') throw new Error('Expected an Agent flow fixture')
+  vi.mocked(store.previewFlow).mockResolvedValue({
+    ...FLOW_PREVIEW, compiled: { ...FLOW_PREVIEW.compiled, document: {
+      format: 'agents', flow: { ...FLOW_PREVIEW.compiled.document.flow, inputs: [{ id: 'brief', label: 'Brief' }] },
+    } },
+  })
   vi.mocked(store.startFlowGoal).mockResolvedValue(FLOW_EXECUTION)
   const onClose = render(store)
 
@@ -394,10 +399,17 @@ it('flow starts exactly one Goal through its host operation', async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field, 'Ship the fix')
     field.dispatchEvent(new Event('input', { bubbles: true }))
   })
+  const brief = 'Fix the ticket.\n\nKeep the interface.\n\nVerify the result.'
+  const area = document.querySelector('textarea')!
+  expect(area).not.toBeNull()
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(area, brief)
+    area.dispatchEvent(new Event('input', { bubbles: true }))
+  })
   act(() => button('Start').click())
   await act(async () => {})
 
-  expect(store.startFlowGoal).toHaveBeenCalledWith({ root: '/repo', source: 'version: 2\nname: Fix\n', token: 'tok-1', sentence: 'Ship the fix', vars: {} })
+  expect(store.startFlowGoal).toHaveBeenCalledWith({ root: '/repo', source: 'version: 2\nname: Fix\n', token: 'tok-1', sentence: 'Ship the fix', vars: { brief } })
   expect(store.createGoal).not.toHaveBeenCalled()
   expect(store.openGoal).toHaveBeenCalledWith('goal-1')
   expect(onClose).toHaveBeenCalled()

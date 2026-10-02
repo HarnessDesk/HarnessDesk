@@ -2,6 +2,10 @@
   "version": 1,
   "surfaces": [
     {
+      "id": "surface.flow-brief",
+      "implementationPath": "packages/ui/src/components/FlowStart.tsx"
+    },
+    {
       "id": "surface.dashboard",
       "implementationPath": "packages/ui/src/components/Usage.tsx"
     },

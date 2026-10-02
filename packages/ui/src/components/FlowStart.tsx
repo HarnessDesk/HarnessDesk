@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { DEFAULT_FLOW_BUDGET, type AgentEntry, type FlowEntry, type FlowPolicy, type FlowPreview, type FlowPreviewSeat, type FlowProblem } from '@harnessdesk/protocol'
 
-import { ActionError, Banner, Chip, CodeText, Field, Input, NativeSelect, Note, NoteList, Rows, Row, SectionHead, Text } from '../design'
+import { ActionError, Banner, Button, Chip, CodeText, Field, Input, NativeSelect, Note, NoteList, Rows, Row, SectionHead, Text, Textarea } from '../design'
 import { agentName, firstReason, fixWords, markFor, reasonWords, seatTaken } from '../lib/agents'
 import { evidenceGuardsWords, messagingWords } from '../lib/flows'
 import { useSnapshot, useStore } from '../state/context'
@@ -225,7 +225,9 @@ export const FlowStart = ({ root, disabled, onChange }: FlowStartProps) => {
         </Banner>
       )}
 
-      {flow && flow.inputs.map((input) => (
+      {flow && flow.inputs.map((input) => input.id === 'brief' ? (
+        <BriefInput key={`${root}:${id}:brief`} value={vars.brief ?? ''} disabled={disabled} onChange={(value) => setVar('brief', value)} />
+      ) : (
         <Field key={input.id} label={input.label}>
           {(control) => (
             <Input
@@ -239,6 +241,86 @@ export const FlowStart = ({ root, disabled, onChange }: FlowStartProps) => {
 
       {preview && !legacy && <FlowPreviewReport preview={preview} flow={flow} warnings={warnings} roster={roster} />}
     </div>
+  )
+}
+
+/** Files are imported into the variable, never attached to the Run. */
+const BRIEF_FILE_CAP = 64 * 1024
+const BriefInput = ({ value, disabled, onChange }: {
+  readonly value: string
+  readonly disabled?: boolean
+  readonly onChange: (value: string) => void
+}) => {
+  const picker = useRef<HTMLInputElement>(null)
+  const sequence = useRef(0)
+  // Other inputs can change while a file is read; use their latest vars.
+  const change = useRef(onChange)
+  change.current = onChange
+  const [reading, setReading] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+  useEffect(() => {
+    sequence.current += 1
+    setReading(false)
+    return () => { sequence.current += 1 }
+  }, [disabled])
+
+  const read = async (file: File): Promise<void> => {
+    const mine = ++sequence.current
+    setProblem(null)
+    if (file.size > BRIEF_FILE_CAP) {
+      setProblem('Choose a text file no larger than 64 KiB (65,536 bytes).')
+      return
+    }
+    if (!file.type.startsWith('text/') && !/\.(txt|md|markdown)$/i.test(file.name)) {
+      setProblem('Choose a text file (.txt or .md).')
+      return
+    }
+    setReading(true)
+    try {
+      const text = await file.text()
+      if (mine !== sequence.current) return
+      if (text.includes('\0')) {
+        setProblem('Choose a text file (.txt or .md).')
+        return
+      }
+      change.current(text)
+    } catch {
+      if (mine === sequence.current) setProblem('That text file could not be read. Try another file.')
+    } finally {
+      if (mine === sequence.current) setReading(false)
+    }
+  }
+
+  return (
+    <Field label="Brief" error={problem ?? undefined}>
+      {(control) => (
+        <>
+          <Textarea
+            {...control}
+            rows={4}
+            controlSize="paragraphs"
+            value={value}
+            disabled={disabled}
+            onChange={(event) => {
+              sequence.current += 1
+              setReading(false)
+              setProblem(null)
+              onChange(event.target.value)
+            }}
+          />
+          <div>
+            <Button variant="secondary" size="sm" disabled={disabled || reading} onClick={() => picker.current?.click()}>
+              {reading ? 'Reading…' : 'Attach a file…'}
+            </Button>
+            <Input ref={picker} type="file" accept="text/*,.txt,.md,.markdown" hidden disabled={disabled || reading} onChange={(event) => {
+              const file = event.target.files?.[0]
+              event.target.value = ''
+              if (file) void read(file)
+            }} />
+          </div>
+        </>
+      )}
+    </Field>
   )
 }
 
