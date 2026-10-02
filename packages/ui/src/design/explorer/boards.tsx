@@ -878,7 +878,7 @@ const NoticesBoard = () => {
           </ComposerNoticeStack>
         </div>
       </Case>
-      <Case label="strip: one message, when its composer is covered">
+      <Case label="strip: one static component example">
         <NoticeStrip messages={[NOTICE_STRIP[0]!]} onDismiss={() => {}} />
       </Case>
       <Case label="strip: several, paged">

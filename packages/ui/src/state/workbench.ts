@@ -917,10 +917,8 @@ export const rightPanelDrawn = (workbench: Workbench): boolean =>
  * if there is one and the first pane otherwise hosts it. A dock zoomed to
  * take the room takes the strip with it, since the main area it would
  * otherwise have ridden has no box; so does a right panel a narrow window
- * lays over the whole main area. `null` is a zoomed sidebar, which is no
- * place for a desk-wide strip: `NoticeStripOutlet`'s own fallback then
- * carries a composer-bound notice instead, and nothing stands in for one
- * that belongs on the strip until the sidebar is unzoomed.
+ * lays over the whole main area. A zoomed sidebar carries the strip in its
+ * own fallback host, alongside the panel content.
  */
 export const noticeArea = (workbench: Workbench, narrow: boolean): 'main' | 'right' | 'bottom' | 'sidebar' => {
   const zoom = workbench.zoom
