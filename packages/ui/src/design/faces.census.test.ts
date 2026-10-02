@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest'
  *
  * This reads the whole UI source, so it reaches the screens a browser page
  * cannot mount (the Agents panel only draws a row once a session has
- * delegated). Two things are refused:
+ * delegated). Three things are refused:
  *
  *   An `IconTile` that holds an agent's mark (`BrandMark`, `RuntimeMark`,
  *   `AgentIcon`) and is not a `face`: a `square` or `round` tile does not
@@ -21,14 +21,23 @@ import { describe, expect, it } from 'vitest'
  *
  *   An `AvatarStack` that is not a face. Its members are someone.
  *
+ *   An `IconTile` whose shape is decided at run time. A mark can arrive
+ *   through a prop (`AgentCard`'s `subject.mark`), which this cannot see
+ *   inside, so a shape it cannot read has to be named; the entry says what
+ *   pins it instead.
+ *
+ * What it does not see: a mark passed in a prop to a tile whose shape is a
+ * literal that is not `face`. The browser half finds that one if the screen is
+ * mounted.
+ *
  * The browser half is `e2e/ui-system/faces.spec.ts`: it measures what the
  * mounted faces compute under each setting, and finds a face this scan cannot,
  * because it was drawn without an `IconTile` (and declares itself with
  * `data-shape`).
  *
  * An entry in the exception list is a claim that what the tile holds is not
- * someone, and it names why. An entry that matches nothing fails, so the list
- * cannot outlive the thing it excuses.
+ * someone, or that another test pins its shape, and it names why. An entry that
+ * matches nothing fails, so the list cannot outlive the thing it excuses.
  */
 const AGENT_MARKS = new Set(['BrandMark', 'RuntimeMark', 'AgentIcon'])
 
@@ -79,9 +88,11 @@ const scanFaces = (file: string, source: string): Finding[] => {
     if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
       const tag = tagName(node)
       const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1
-      if (tag === 'IconTile' && holdsAgentMark(node)) {
+      if (tag === 'IconTile') {
         const shape = shapeOf(node, 'square')
-        if (shape !== 'face') found.push({ file, line, tag, shape })
+        // An agent's mark in a tile that is not a face, or a shape this cannot
+        // read at all: what such a tile holds may arrive through a prop.
+        if ((holdsAgentMark(node) && shape !== 'face') || shape === 'dynamic') found.push({ file, line, tag, shape })
       }
       if (tag === 'AvatarStack') {
         const shape = shapeOf(node, 'face')
@@ -103,6 +114,11 @@ const NOT_SOMEONE: readonly { readonly file: string; readonly shape: string; rea
     file: 'components/SetupDesk.tsx',
     shape: 'square',
     why: 'a harness the desk found on this Mac is a thing, so it is a square: a face is an agent at work, and nothing here is working yet',
+  },
+  {
+    file: 'design/patterns/AgentCard.tsx',
+    shape: 'dynamic',
+    why: 'the crest follows what its subject is (a harness a square, an account a ring, a session or a member a face), and its mark arrives as a prop; AgentCard.test.tsx pins the shape of each kind',
   },
   {
     file: 'components/Activity.tsx',
@@ -152,6 +168,14 @@ describe('faces: every tile that draws someone is a face', () => {
     const round = scanFaces('x.tsx', 'const a = <IconTile shape="round"><AgentIcon /></IconTile>')
     const unknown = scanFaces('x.tsx', 'const a = <IconTile shape={shape}><RuntimeMark runtime={r} /></IconTile>')
     expect([square[0]?.shape, round[0]?.shape, unknown[0]?.shape]).toEqual(['square', 'round', 'dynamic'])
+  })
+
+  it('refuses a tile whose shape is decided at run time unless it is named, whatever it holds', () => {
+    // A mark can arrive through a prop (`AgentCard`'s `subject.mark`), which the
+    // scan cannot see inside; a shape it cannot read is therefore the thing to name.
+    const prop = scanFaces('x.tsx', 'const a = <IconTile shape={SHAPES[kind]}>{subject.mark}</IconTile>')
+    expect(prop.map((finding) => finding.shape)).toEqual(['dynamic'])
+    expect(scanFaces('x.tsx', 'const a = <IconTile shape="face">{subject.mark}</IconTile>')).toEqual([])
   })
 
   it('refuses an AvatarStack that is not a face', () => {

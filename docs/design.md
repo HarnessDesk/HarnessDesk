@@ -681,12 +681,15 @@ the result:
 
 - `design/faces.census.test.ts` reads the source of every screen and refuses an
   agent's mark (`BrandMark`, `RuntimeMark`, `AgentIcon`) in an `IconTile` that is
-  not a `face`, and an `AvatarStack` that is not. It reaches the screens a page
-  cannot mount, such as the Agents panel's rows. A tile on its exception list is
-  a claim that it is not someone, with the reason beside it.
+  not a `face`, an `AvatarStack` that is not, and an `IconTile` whose shape is
+  decided at run time (its mark may arrive as a prop, so it has to be named). It
+  reaches the screens a page cannot mount, such as the Agents panel's rows. A
+  tile on its exception list is a claim that it is not someone, or that another
+  test pins its shape, with the reason beside it.
 - `e2e/ui-system/faces.spec.ts` ("rule: faces") measures the mounted screens
   under each Faces setting: every declared face computes `--hd-face-radius` and
-  is filled solid (a notice's face keeps its tone's ground), every tile that
+  is filled solid (a notice's face keeps its tone's translucent wash, and is held
+  to having one), every tile that
   holds an agent's mark is a face, an account's ring or a named exception, and
   each surface it lists (the rail, the chat, a notice, a board holder, the
   Activity rows, a channel, your seat and profile, side by side, an avatar
