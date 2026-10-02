@@ -31,6 +31,16 @@ describe('banner centring', () => {
   it('keeps the card inside its width boundary without containing its contents', () => {
     expect(blockAfter('.frame {')).toMatch(/width:\s*min\(var\(--hd-column\),\s*100%\)/)
     expect(blockAfter('.frame {')).not.toMatch(/(^|[\s;{])contain:/)
+    expect(blockAfter('.frame {')).toMatch(/container:\s*hd-banner\s*\/\s*inline-size/)
+  })
+
+  it('moves non-compact actions below the copy when the card is narrow', () => {
+    expect(css).toMatch(/@container hd-banner \(max-width:\s*400px\)\s*\{[\s\S]*?\.banner:not\(\[data-compact\]\)\s*\{[^}]*flex-wrap:\s*wrap/s)
+    const actions = blockAfter('.banner:not([data-compact]) .actions {')
+    expect(actions).toMatch(/order:\s*1/)
+    expect(actions).toMatch(/flex-basis:\s*100%/)
+    expect(actions).toMatch(/justify-content:\s*flex-end/)
+    expect(actions).toMatch(/padding-left:\s*0/)
   })
 
   it('centres one-line text and controls, with a wrapped lead on line one', () => {

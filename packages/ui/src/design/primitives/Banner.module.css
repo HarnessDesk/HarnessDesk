@@ -33,6 +33,7 @@
 
 /* The card stays inside the reading column. */
 .frame {
+  container: hd-banner / inline-size;
   width: min(var(--hd-column), 100%);
 }
 
@@ -210,4 +211,18 @@
   color: var(--hd-foreground);
 }
 
-/* desk: copy wraps beside the lead; actions and dismiss keep the card's centre. */
+/* Too narrow for copy and actions side by side: fold the actions below the
+   copy, while the lead keeps following wrapped copy's first line. */
+@container hd-banner (max-width: 400px) {
+  .banner:not([data-compact]) {
+    flex-wrap: wrap;
+    row-gap: var(--hd-space-3);
+  }
+
+  .banner:not([data-compact]) .actions {
+    order: 1;
+    flex-basis: 100%;
+    justify-content: flex-end;
+    padding-left: 0;
+  }
+}
