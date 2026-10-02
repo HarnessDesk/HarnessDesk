@@ -361,6 +361,22 @@ const runPrompt = async (id, params) => {
     return reply(id, { stopReason: 'end_turn' })
   }
 
+  if (text.includes('use the Gemini board tool')) {
+    const { outcome } = await request('session/request_permission', {
+      sessionId: state.id,
+      toolCall: { toolCallId: 'tc-gemini-board', title: 'list_intents (harnessdesk MCP Server)', kind: 'other' },
+      options: [
+        { optionId: 'proceed_always_server', name: 'Allow all server tools for this session', kind: 'allow_always' },
+        { optionId: 'proceed_always_tool', name: 'Allow tool for this session', kind: 'allow_always' },
+        { optionId: 'proceed_always_and_save', name: 'Allow tool for all future sessions', kind: 'allow_always' },
+        { optionId: 'proceed_once', name: 'Allow once', kind: 'allow_once' },
+        { optionId: 'reject_once', name: 'Deny', kind: 'reject_once' },
+      ],
+    })
+    say(outcome.outcome === 'selected' ? 'allowed.' : 'denied.')
+    return reply(id, { stopReason: 'end_turn' })
+  }
+
   if (text.includes('use the tool')) {
     update(state.id, {
       sessionUpdate: 'tool_call',

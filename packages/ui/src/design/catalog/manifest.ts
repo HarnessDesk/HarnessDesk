@@ -1,7 +1,7 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
 export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page' | 'summary' | 'start' | 'end'
 export type CatalogSize = 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'table-row' | 'bare' | 'composer' | 'sidebar-nav'
-export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out' | 'trailing-glyph-rest' | 'trailing-glyph-action' | 'working' | 'needs-you' | 'pinned' | 'worktree' | 'folder-gone' | 'long-title' | 'room-folded' | 'room-expanded' | 'more-sessions' | 'other-projects' | 'filtered' | 'menu-open' | 'folded-state' | 'nested-rail'
+export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out' | 'editing' | 'empty-edit' | 'recoverable' | 'memory-only' | 'image-warning' | 'trailing-glyph-rest' | 'trailing-glyph-action' | 'working' | 'needs-you' | 'pinned' | 'worktree' | 'folder-gone' | 'long-title' | 'room-folded' | 'room-expanded' | 'more-sessions' | 'other-projects' | 'filtered' | 'menu-open' | 'folded-state' | 'nested-rail'
 
 export type CatalogEntry = {
   readonly id: string
@@ -274,7 +274,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   section: ['expanded', 'collapsed'],
   select: ['closed', 'open', 'selected', 'disabled'],
   separator: ['default'],
-  'sortable-list': ['default', 'hover', 'focus-visible', 'active'],
+  'sortable-list': ['default', 'editing', 'empty-edit', 'hover', 'focus-visible', 'active'],
   bar: ['default'],
   spark: ['default', 'success', 'warning', 'error'],
   stat: ['default', 'loading', 'error'],
@@ -310,7 +310,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   InspectorPanel: ['default', 'selected', 'empty', 'running'],
   ConversationEmptyState: ['empty'],
   TurnWork: ['default', 'expanded'],
-  Notices: ['default', 'populated', 'empty', 'warning', 'error', 'open', 'closed'],
+  Notices: ['default', 'populated', 'empty', 'warning', 'recoverable', 'memory-only', 'image-warning', 'error', 'open', 'closed'],
   Checklist: ['default', 'active', 'inactive', 'success', 'empty'],
   'heat-grid': ['default', 'empty', 'populated'],
   sidebar: [
@@ -583,6 +583,34 @@ export const CATALOG_ENTRIES: readonly CatalogEntry[] = [
   },
   ...CANONICAL_UI_MODULES.map(primitive),
   ...CANONICAL_PATTERN_MODULES.map(pattern),
+  {
+    id: 'component.WindowControls',
+    category: 'Patterns',
+    implementationPath: 'packages/ui/src/components/WindowControls.tsx',
+    purpose: 'Title-bar navigation and the right-panel visibility count',
+    exampleId: 'panel-controls',
+    variants: ['default'],
+    sizes: ['default'],
+    states: ['expanded', 'collapsed'],
+    examples: ['packages/ui/src/design/explorer/boards-compositions.tsx'],
+    consumers: ['packages/ui/src/panels/Workbench.tsx'],
+    coverageExemption: 'WindowControls is a specialized app-chrome component with no CVA contract; its shown and counted panel states are on the panel-controls board.',
+    visual: true,
+  },
+  {
+    id: 'component.PanelActions',
+    category: 'Patterns',
+    implementationPath: 'packages/ui/src/panels/PanelActions.tsx',
+    purpose: 'Docked view movement and split feasibility',
+    exampleId: 'panel-controls',
+    variants: ['default'],
+    sizes: ['default'],
+    states: ['default', 'disabled'],
+    examples: ['packages/ui/src/design/explorer/boards-compositions.tsx'],
+    consumers: ['packages/ui/src/panels/Workbench.tsx'],
+    coverageExemption: 'PanelActions is a specialized workbench component with no CVA contract; its split refusal function and production MenuItem props are on the panel-controls board.',
+    visual: true,
+  },
   ...PRODUCT_SURFACES.map(([id, exampleId, purpose, implementationPath, catalogOnly, consumer, surface]): CatalogEntry => ({
     id,
     category: 'Product Surfaces' as const,

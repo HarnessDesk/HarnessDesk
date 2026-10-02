@@ -26,6 +26,7 @@ import { COMPOSITION_BOARDS } from './boards-compositions'
  * every tab then looks like it loads all of them.
  */
 const ComposerSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ComposerSurface })))
+const ComposerSlotsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ComposerSlotsSurface })))
 const DashboardSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.DashboardSurface })))
 const ConversationSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ConversationSurface })))
 const ConversationMapDenseSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ConversationMapDenseSurface })))
@@ -49,8 +50,9 @@ import styles from './explorer.module.css'
  * onto `body`, which is the same mechanism a foundation uses and the same one a
  * user-defined theme would.
  *
- * Only three, and each is a value the whole interface turns on: how round
- * things are, how tall a control is, and what the brand colour is. A dial per
+ * Only four, and each is a value the whole interface turns on: how round
+ * things are, how tall a control is, what the brand colour is, and what shape
+ * a face is. A dial per
  * token would be a token inspector, which the Tokens board already is.
  */
 const DIALS = [
@@ -68,6 +70,20 @@ const DIALS = [
       { value: '0px', label: 'square' },
       { value: '10px', label: 'default' },
       { value: '14px', label: 'round' },
+    ],
+  },
+  {
+    id: 'faces',
+    label: 'Faces',
+    token: '--hd-face-radius',
+    /* The larger face follows, so a seat and a profile page stay one shape. */
+    also: (value: string) => ({
+      '--hd-face-radius-lg': value === 'var(--hd-radius-full)' ? 'var(--hd-radius-full)' : 'var(--hd-radius)',
+    }),
+    fallback: 0,
+    options: [
+      { value: 'var(--hd-radius-sm)', label: 'square' },
+      { value: 'var(--hd-radius-full)', label: 'round' },
     ],
   },
   {
@@ -155,6 +171,13 @@ const SURFACES = [
     about:
       'The shipped composer alone, at the width the conversation gives it, resting on an idle session. Its other states — carrying attachments, running, queued behind a turn, nearly out of context — need a session in that state, and the fixture has none yet.',
     render: ComposerSurface,
+  },
+  {
+    id: 'composer-fixed-slots',
+    title: 'Composer — fixed slots',
+    about:
+      'The shipped composer controls in draft and live layouts, across agent shapes and at composer, 560px and 360px widths. Refused slots retain their reason; empty More and Extension slots, and the empty Context ring, stay visible where their positions depend on them.',
+    render: ComposerSlotsSurface,
   },
   {
     id: 'rail',

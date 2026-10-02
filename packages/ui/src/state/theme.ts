@@ -22,7 +22,7 @@ export type ResolvedTheme = 'light' | 'dark'
 const query = (): MediaQueryList => window.matchMedia('(prefers-color-scheme: dark)')
 
 export const useTheme = (): ResolvedTheme => {
-  const { theme: preference, palette, accent, corners, look } = useSnapshot()
+  const { theme: preference, palette, accent, corners, faces, look } = useSnapshot()
   const [system, setSystem] = useState<ResolvedTheme>(() => (query().matches ? 'dark' : 'light'))
 
   useEffect(() => {
@@ -61,6 +61,12 @@ export const useTheme = (): ResolvedTheme => {
     if (corners === 'default') document.body.removeAttribute('data-hd-corners')
     else document.body.setAttribute('data-hd-corners', corners)
   }, [corners])
+
+  // Faces are the fourth dial, square by default and so an absent attribute.
+  useEffect(() => {
+    if (faces === 'square') document.body.removeAttribute('data-hd-faces')
+    else document.body.setAttribute('data-hd-faces', faces)
+  }, [faces])
 
   // The interface is the same mechanism again, and for the same reason: Desk
   // is the absence of the attribute, so it is what the token file already

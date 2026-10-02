@@ -280,6 +280,18 @@ body {
      and two sheets doing this arithmetic separately is how they drift. */
   --hd-radius-matted: calc(var(--hd-radius-lg) - var(--hd-space-0-5));
 
+  /* The shape of a face: an agent's mark on its plate, a person's picture.
+     Faces are one object wherever they are drawn (the chat, a team's rail, a
+     board card's holder, the agent card, the seat, a name inside a sentence),
+     so they take their corner from here rather than from the tile they sit
+     in. Square by default, on the radius scale the way every mark is, with
+     the larger face a rung up so 24px and 44px read as one object at two
+     sizes. A person may choose round (Settings > Appearance > Faces), which
+     `body[data-hd-faces='round']` writes in shadcn-themes.css. An account's
+     ring is not a face and stays a ring whichever is chosen. */
+  --hd-face-radius: var(--hd-radius-sm);
+  --hd-face-radius-lg: var(--hd-radius);
+
   /* A hairline is one device pixel, not one CSS pixel, so it stays a hairline
      on the retina displays this app actually runs on. */
   --hd-border-width: 1px;
@@ -662,7 +674,7 @@ body {
   --hd-muted: var(--hdp-alias-bg-module-platform);
   /* Counts, times and keyboard hints use the platform palette's quiet ink,
      exposed here so product CSS never reaches into the private tier. */
-  --hd-tertiary-foreground: var(--hdp-alias-label-tertiary);
+  --hd-tertiary-foreground: var(--hdp-static-grey-750); /* desk: 107 → 71, counts and times read too faint beside the words; one tier darker, still a step under secondary */
   --hd-muted-foreground: var(--hd-tertiary-foreground);
 
   /* A nested sheet, a loading placeholder, and the quietest legible label.
@@ -673,7 +685,7 @@ body {
   --hd-placeholder-foreground: var(--hdp-alias-label-quaternary, var(--hd-muted-foreground));
 
   /* Secondary text: present, readable, not the point of the sentence. */
-  --hd-secondary-foreground: var(--hdp-alias-label-secondary);
+  --hd-secondary-foreground: var(--hdp-static-grey-800); /* desk: 71 → 49, one tier darker, still a step under the foreground */
 
   /* The brand, and what reads on top of it. `--hd-accent` is the same colour
      under its older name; write `--hd-primary` in new work. */
@@ -1269,6 +1281,12 @@ body {
  * prompted the measurement. That is the point of having had a token layer.
  */
 body[data-hd-dark-theme] {
+  /* The light theme's two ink tiers are fixed greys (above), so the dark theme
+     takes the palette's own theme-aware answer back: it already had three
+     distinct tiers on a dark ground (231, 208, 177) and the darker step was
+     only asked of the light one. */
+  --hd-secondary-foreground: var(--hdp-alias-label-secondary);
+  --hd-tertiary-foreground: var(--hdp-alias-label-tertiary);
   --hd-sidebar-plate: var(--hdp-static-grey-850); /* desk: black → a plate above the page, the direction the column reads in */
 
   /* A lighter grey needs a longer step to read as one: the same 8% on a dark

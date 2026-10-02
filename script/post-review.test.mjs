@@ -1,0 +1,456 @@
+import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, chmodSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import test from 'node:test'
+import { fileURLToPath } from 'node:url'
+
+import {
+  buildReviewBody,
+  parseArgs,
+  postReview,
+  sanitizeBody,
+} from './post-review.mjs'
+
+test('signs a review with the first verdict line, or see below when absent', () => {
+  assert.equal(buildReviewBody('Verdict: Changes Needed\nDetails', 3, 'Codex GPT-6'),
+    'Review round 3 · Codex GPT-6 (via HarnessDesk) · Changes Needed\n\nVerdict: Changes Needed\nDetails')
+  assert.equal(buildReviewBody('No verdict', 1, 'Codex'),
+    'Review round 1 · Codex (via HarnessDesk) · see below\n\nNo verdict')
+})
+
+test('rewrites worktree and plain checkout paths in links and plain text', () => {
+  const worktree = userPath('code-shane', 'HarnessDesk-worktrees', 'lane-post-review', 'script', 'post-review.mjs')
+  const checkout = userPath('code-shane', 'HarnessDesk', 'docs', 'release.md')
+  assert.equal(sanitizeBody(`[test](${worktree}) ${worktree}\n[docs](${checkout}) ${checkout}`),
+    '[test](script/post-review.mjs) script/post-review.mjs\n[docs](docs/release.md) docs/release.md')
+  assert.equal(sanitizeBody(`Temp ${['', 'tmp', 'cache.txt'].join('/')}`), 'Temp <local path>')
+  assert.equal(sanitizeBody('file:///Users/alice/secret'), '<local path>')
+  assert.equal(sanitizeBody('~/Library/secret'), '<local path>')
+  assert.equal(sanitizeBody('/var/folders/abc/private'), '<local path>')
+  assert.equal(sanitizeBody('/tmp/user-cache/file'), '<local path>')
+  assert.equal(sanitizeBody('file:%252F%252F%252FUsers%252Falice%252Fsecret'), '<local path>')
+  assert.equal(sanitizeBody('\\x2fUsers\\x2falice\\x2fsecret'), '<local path>')
+  assert.equal(sanitizeBody('\\u002fUsers\\u002falice\\u002fsecret'), '<local path>')
+  assert.equal(sanitizeBody('&sol;Users&sol;alice&sol;secret'), '<local path>')
+  assert.equal(sanitizeBody('&#47;Users&#47;alice&#47;secret'), '<local path>')
+  assert.equal(sanitizeBody('&#x2f;Users&#x2f;alice&#x2f;secret'), '<local path>')
+})
+
+test('rewrites named home paths and drive-letter user paths with either slash', () => {
+  for (const path of [
+    '~alice/Documents/private.txt',
+    '~ALICE/Documents/private.txt',
+    'C:/Users/alice/Documents/private.txt',
+    'c:/users/alice/Documents/private.txt',
+    'D:\\Users\\alice\\Documents\\private.txt',
+    'd:\\users\\alice\\Documents\\private.txt',
+    'E:/users/alice/Documents/private.txt',
+    // Quoted out of JSON, a path's backslashes arrive doubled.
+    'C:\\\\Users\\\\alice\\\\Documents\\\\private.txt',
+    'c:\\\\users\\\\alice\\\\Documents\\\\private.txt',
+    'D://Users//alice//Documents//private.txt',
+  ]) {
+    assert.equal(sanitizeBody(`Found ${path}`), 'Found <local path>', path)
+  }
+})
+
+const realLookingEmail = ['reviewer', 'example.org'].join(String.fromCharCode(64))
+for (const value of [
+  `Found ${['', 'Users', ''].join('/')}`,
+  `Contact ${realLookingEmail}`,
+  `Found ${['', 'private', ''].join('/')}`,
+  `Found ${['C:', 'Users', ''].join('\\')}`,
+]) {
+  test(`refuses remaining private value: ${value}`, async () => {
+    const h = harness()
+    const code = await postReview({ pr: '42', round: '1', by: 'Codex', body: value, repo: 'owner/repo' }, h.runner, h.io)
+    assert.equal(code, 2)
+    assert.equal(h.calls.some(isPost), false)
+    assert.match(h.output().stderr, /REFUSED/)
+  })
+}
+
+test('placeholder email domains are allowed', async () => {
+  const h = harness()
+  const code = await postReview({ pr: '42', round: '1', by: 'Codex', body: 'dev@example.com', repo: 'owner/repo' }, h.runner, h.io)
+  assert.equal(code, 0)
+  assert.ok(h.calls.some(isPost))
+})
+
+const encodedPrivateValues = [
+  'file:%2F%2F%2FUsers%2Falice%2Fsecret',
+  '~/Library/Keychains/login.keychain-db',
+  'jane&#64;private.example',
+  'jane\\x40private.example',
+]
+for (const value of encodedPrivateValues) {
+  test(`sanitizes or refuses encoded private text in review and fixes posts: ${value}`, async () => {
+    for (const mode of ['review', 'fixes']) {
+      const h = harness()
+      const options = mode === 'review'
+        ? { pr: '42', round: '1', by: 'Codex', body: value, repo: 'owner/repo' }
+        : { pr: '42', fixes: value, repo: 'owner/repo' }
+      const code = await postReview(options, h.runner, h.io)
+      if (value.includes('private.example')) {
+        assert.equal(code, 2)
+        assert.equal(h.calls.some(isPost), false)
+      } else {
+        assert.equal(code, 0)
+        assert.ok(h.calls.some(isPost))
+        assert.doesNotMatch(h.bodies[0], /Users|alice|Library|Keychains|file:%|~\//)
+      }
+    }
+  })
+}
+
+test('ordinary percent text and HTML amp entities still post', async () => {
+  for (const body of ['Progress is 50% complete.', 'The source includes &amp; in a label.']) {
+    const h = harness()
+    const code = await postReview({ pr: '42', round: '1', by: 'Codex', body, repo: 'owner/repo' }, h.runner, h.io)
+    assert.equal(code, 0)
+    assert.ok(h.calls.some(isPost))
+  }
+})
+
+test('decodes deeply nested private paths until they are sanitized', async () => {
+  const encodedPath = encodePercentLayers('/Users/alice/Documents/private.txt', 16)
+  assert.equal(sanitizeBody(`Found ${encodedPath}`), 'Found <local path>')
+  const h = harness()
+  const code = await postReview({ pr: '42', fixes: `Found ${encodedPath}`, repo: 'owner/repo' }, h.runner, h.io)
+  assert.equal(code, 0)
+  assert.equal(h.calls.some(isPost), true)
+  assert.doesNotMatch(h.bodies[0], /alice|Documents|Users|%25/)
+})
+
+test('refuses text that keeps changing beyond the decoder bound', async () => {
+  const encodedText = encodePercentLayers('/Users/alice/Documents/private.txt', 100)
+  const h = harness()
+  const code = await postReview({ pr: '42', fixes: encodedText, repo: 'owner/repo' }, h.runner, h.io)
+  assert.equal(code, 2)
+  assert.equal(h.calls.some(isPost), false)
+  assert.match(h.output().stderr, /REFUSED/)
+})
+
+test('non-author changes-needed review requests changes', async () => {
+  const h = harness()
+  const code = await postReview({ pr: '42', round: '1', by: 'Codex', body: 'Verdict: changes needed', repo: 'owner/repo' }, h.runner, h.io)
+  assert.equal(code, 0)
+  assert.ok(h.calls.some((args) => args[0] === 'pr' && args[1] === 'review' && args.includes('--request-changes')))
+})
+
+test('PR author posts changes-needed as a comment with verdict in signed line', async () => {
+  const h = harness({ author: 'viewer' })
+  const code = await postReview({ pr: '42', round: '1', by: 'Codex', body: 'Verdict: changes needed', repo: 'owner/repo' }, h.runner, h.io)
+  assert.equal(code, 0)
+  assert.ok(h.calls.some((args) => args[0] === 'pr' && args[1] === 'review' && args.includes('--comment')))
+  assert.match(h.bodies[0], /Review round 1 · Codex \(via HarnessDesk\) · changes needed/)
+})
+
+test('PR author cannot approve and falls back to comment', async () => {
+  const h = harness({ author: 'viewer' })
+  await postReview({ pr: '42', round: '1', by: 'Codex', body: 'Verdict: approve', repo: 'owner/repo' }, h.runner, h.io)
+  assert.ok(h.calls.some((args) => args[0] === 'pr' && args[1] === 'review' && args.includes('--comment')))
+})
+
+test('--dry-run prints the post plan and never calls gh to post', async () => {
+  const h = harness()
+  const code = await postReview({ pr: '42', round: '2', by: 'Codex', body: 'Verdict: approve', repo: 'owner/repo', dryRun: true }, h.runner, h.io)
+  assert.equal(code, 0)
+  assert.equal(h.calls.some(isPost), false)
+  assert.match(h.output().stdout, /Review round 2 · Codex/)
+  assert.match(h.output().stdout, /'gh' 'pr' 'review' '42'.*'--approve'/)
+})
+
+test('CLI dry-run handles a clean review through an injected gh runner', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'post-review-cli-'))
+  try {
+    const runnerPath = join(directory, 'gh')
+    const reviewPath = join(directory, 'review.md')
+    const logPath = join(directory, 'calls.jsonl')
+    writeFileSync(reviewPath, 'Verdict: approve\nNo issues found.\n')
+    writeFileSync(runnerPath, `#!/usr/bin/env node
+import { appendFileSync } from 'node:fs'
+const args = process.argv.slice(2)
+appendFileSync(process.env.POST_REVIEW_RUNNER_LOG, JSON.stringify(args) + '\\n')
+if (process.env.POST_REVIEW_RUNNER_FAIL) process.exit(91)
+if (args[0] === 'pr' && args[1] === 'view') process.stdout.write('contributor\\n')
+else if (args[0] === 'api' && args[1] === 'user') process.stdout.write('reviewer\\n')
+else process.exit(91)
+`)
+    chmodSync(runnerPath, 0o755)
+    const scriptPath = fileURLToPath(new URL('./post-review.mjs', import.meta.url))
+    const result = spawnSync(process.execPath, [scriptPath, '1199', '--round', '1', '--by', 'Codex GPT-6 Luna xhigh', '--file', reviewPath, '--dry-run'], {
+      cwd: resolve(fileURLToPath(new URL('..', import.meta.url))),
+      env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, POST_REVIEW_RUNNER_LOG: logPath },
+      encoding: 'utf8',
+    })
+
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stdout, /Review round 1 · Codex GPT-6 Luna xhigh/)
+    assert.match(result.stdout, /'gh' 'pr' 'review' '1199' '--approve'/)
+    assert.deepEqual(readFileSync(logPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line)).map((args) => args.slice(0, 2)), [
+      ['pr', 'view'],
+      ['api', 'user'],
+    ])
+    assert.equal(result.stderr, '')
+
+    const failed = spawnSync(process.execPath, [scriptPath, '1199', '--round', '1', '--by', 'Codex', '--file', reviewPath, '--dry-run'], {
+      cwd: resolve(fileURLToPath(new URL('..', import.meta.url))),
+      env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, POST_REVIEW_RUNNER_LOG: logPath, POST_REVIEW_RUNNER_FAIL: '1' },
+      encoding: 'utf8',
+    })
+    assert.notEqual(failed.status, 0)
+    assert.match(failed.stderr, /post-review:/)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('--fixes posts an unsigned sanitized comment', async () => {
+  const h = harness()
+  const path = userPath('code-shane', 'HarnessDesk-worktrees', 'lane', 'docs', 'release.md')
+  const code = await postReview({ pr: '42', fixes: `[fixed](${path}) in commit abc123`, repo: 'owner/repo' }, h.runner, h.io)
+  assert.equal(code, 0)
+  assert.ok(h.calls.some((args) => args[0] === 'pr' && args[1] === 'comment'))
+  assert.match(h.bodies[0], /\[fixed\]\(docs\/release.md\) in commit abc123/)
+  assert.doesNotMatch(h.output().stdout, /Review round/)
+})
+
+test('argument parser accepts review stdin/file and fixes modes', () => {
+  assert.deepEqual(parseArgs(['42', '--round', '2', '--by', 'Codex high', '--file', 'result.md']), {
+    pr: '42', round: '2', by: 'Codex high', file: 'result.md', repo: undefined, dryRun: false,
+  })
+  assert.deepEqual(parseArgs(['42', '--fixes', 'fixes.md', '--repo', 'owner/repo']), {
+    pr: '42', fixesFile: 'fixes.md', repo: 'owner/repo', dryRun: false,
+  })
+})
+
+test('usage text documents --fixes <file>', () => {
+  assert.throws(() => parseArgs(['42', '--unknown']), /--fixes <file>/)
+})
+
+function isPost(args) {
+  return args[0] === 'pr' && (args[1] === 'review' || args[1] === 'comment')
+}
+
+function userPath(...segments) {
+  return `/${['Users', 'sample-user', ...segments].join('/')}`
+}
+
+function encodePercentLayers(value, layers) {
+  return Array.from({ length: layers }).reduce((text) => encodeURIComponent(text), value)
+}
+
+function harness({ author = 'contributor', viewer = 'viewer' } = {}) {
+  const calls = []
+  const bodies = []
+  const runner = (args, body) => {
+    calls.push(args)
+    if (body != null) bodies.push(body)
+    if (args[0] === 'pr' && args[1] === 'view') return author
+    if (args[0] === 'api' && args[1] === 'user') return viewer
+    return ''
+  }
+  let stdout = ''
+  let stderr = ''
+  const io = {
+    stdout: { write: (text) => (stdout += text) },
+    stderr: { write: (text) => (stderr += text) },
+  }
+  return { calls, bodies, runner, io, output: () => ({ stdout, stderr }) }
+}
+
+// Round 3: UNC shares, and characters that draw nothing inside a path or an address.
+const zeroWidth = String.fromCharCode(0x200b)
+const wordJoiner = String.fromCharCode(0x2060)
+const hiddenPathValues = [
+  '\\\\fileserver\\share\\Users\\alice\\notes.txt',
+  '\\\\\\\\fileserver\\\\share\\\\Users\\\\alice\\\\notes.txt',
+  `/Us${zeroWidth}ers/alice/notes.txt`,
+  `C:\\Us${wordJoiner}ers\\alice\\notes.txt`,
+]
+for (const value of hiddenPathValues) {
+  test(`redacts a UNC or invisible-character path in review and fixes posts: ${JSON.stringify(value)}`, async () => {
+    for (const mode of ['review', 'fixes']) {
+      const h = harness()
+      const options = mode === 'review'
+        ? { pr: '42', round: '1', by: 'Codex', body: `Found ${value}`, repo: 'owner/repo' }
+        : { pr: '42', fixes: `Found ${value}`, repo: 'owner/repo' }
+      assert.equal(await postReview(options, h.runner, h.io), 0)
+      assert.doesNotMatch(h.bodies[0], /fileserver|share|Users|alice|notes/i)
+      assert.doesNotMatch(h.bodies[0], new RegExp(`[${zeroWidth}${wordJoiner}]`))
+    }
+  })
+}
+
+test('an invisible character inside an email domain does not hide the address', async () => {
+  for (const mode of ['review', 'fixes']) {
+    const h = harness()
+    const hidden = `jane${String.fromCharCode(64)}private${zeroWidth}.example`
+    const options = mode === 'review'
+      ? { pr: '42', round: '1', by: 'Codex', body: hidden, repo: 'owner/repo' }
+      : { pr: '42', fixes: hidden, repo: 'owner/repo' }
+    assert.equal(await postReview(options, h.runner, h.io), 2)
+    assert.equal(h.calls.some(isPost), false)
+  }
+})
+
+test('escaped newlines and tabs in ordinary text are not mistaken for a network share', () => {
+  assert.equal(sanitizeBody('first\\\\n second\\\\t third'), 'first\\\\n second\\\\t third')
+})
+
+// Round 4: credentials, and share URLs. Built from parts so this file is not itself a lookalike.
+const fakeGitHubToken = ['gh', 'p_', 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8'].join('')
+const fakeOpenAiKey = ['sk', '-proj-', 'Zk3Qw9Xv2Lm8Rt5Yb1Nc7Hd4Jf6Sg0Ap'].join('')
+for (const value of [
+  `Authorization: Bearer ${fakeGitHubToken}`,
+  `The log had OPENAI_API_KEY=${fakeOpenAiKey} in it`,
+  `token ${fakeGitHubToken}`,
+]) {
+  test(`refuses a credential in review and fixes posts, without printing it: ${value.slice(0, 24)}`, async () => {
+    for (const mode of ['review', 'fixes']) {
+      const h = harness()
+      const options = mode === 'review'
+        ? { pr: '42', round: '1', by: 'Codex', body: value, repo: 'owner/repo' }
+        : { pr: '42', fixes: value, repo: 'owner/repo' }
+      assert.equal(await postReview(options, h.runner, h.io), 2)
+      assert.equal(h.calls.some(isPost), false)
+      const { stderr } = h.output()
+      assert.match(stderr, /credential/)
+      assert.doesNotMatch(stderr, /a1B2c3D4|Zk3Qw9Xv/, 'the refusal must not echo the secret')
+    }
+  })
+}
+
+test('commit hashes, issue numbers and placeholder addresses are not credentials', async () => {
+  const h = harness()
+  const body = 'Fixed in 077dcb218abcdef1234567890abcdef1234567ab (see #1208), reported by dev@example.com'
+  assert.equal(await postReview({ pr: '42', round: '1', by: 'Codex', body, repo: 'owner/repo' }, h.runner, h.io), 0)
+  assert.ok(h.calls.some(isPost))
+})
+
+test('a network-share URL is redacted in review and fixes posts', async () => {
+  for (const scheme of ['smb', 'cifs', 'afp', 'nfs']) {
+    for (const mode of ['review', 'fixes']) {
+      const h = harness()
+      const text = `Found ${scheme}://fileserver/Users/alice/private.txt here`
+      const options = mode === 'review'
+        ? { pr: '42', round: '1', by: 'Codex', body: text, repo: 'owner/repo' }
+        : { pr: '42', fixes: text, repo: 'owner/repo' }
+      assert.equal(await postReview(options, h.runner, h.io), 0)
+      assert.doesNotMatch(h.bodies[0], /fileserver|alice|private\.txt/)
+    }
+  }
+})
+
+// Round 5: an opaque token in a quoted header has no vendor prefix to match.
+const opaque = ['q8Zk2Lm9', 'Xv4Rt7Yb', '1Nc5Hd3Jf'].join('')
+const headerSecrets = [
+  ['Author', 'ization: Bearer ', opaque].join(''),
+  ['Author', 'ization: Basic ', 'dXNlcjpwYXNzd29yZA=='].join(''),
+  ['Coo', 'kie: sessionid=', 'a8f3k2m9x4'].join(''),
+  ['Set-', 'Cookie: sid=', 'Zk3Qw9Xv2Lm8; HttpOnly'].join(''),
+  ['X-Api-', 'Key: ', 'Zk3Qw9Xv2Lm8Rt5Y'].join(''),
+]
+for (const value of headerSecrets) {
+  test(`refuses a secret header value in review and fixes posts, without printing it: ${value.slice(0, 16)}`, async () => {
+    for (const mode of ['review', 'fixes']) {
+      const h = harness()
+      const text = `Log excerpt:\n${value}\nend`
+      const options = mode === 'review'
+        ? { pr: '42', round: '1', by: 'Codex', body: text, repo: 'owner/repo' }
+        : { pr: '42', fixes: text, repo: 'owner/repo' }
+      assert.equal(await postReview(options, h.runner, h.io), 2)
+      assert.equal(h.calls.some(isPost), false)
+      assert.doesNotMatch(h.output().stderr, /q8Zk2Lm9|dXNlcjpw|a8f3k2m9|Zk3Qw9Xv/, 'the refusal must not echo the secret')
+    }
+  })
+}
+
+for (const value of [
+  ['Author', 'ization: Bearer <opaque-token>'].join(''),
+  'curl -H "Authorization: $TOKEN"',
+  'the bearer of bad news fixed it',
+  'the cookie jar is shared by the review round',
+  'Authorization header is checked before the merge',
+]) {
+  test(`placeholders and ordinary prose about headers still post: ${value.slice(0, 30)}`, async () => {
+    const h = harness()
+    assert.equal(await postReview({ pr: '42', round: '1', by: 'Codex', body: value, repo: 'owner/repo' }, h.runner, h.io), 0)
+    assert.ok(h.calls.some(isPost))
+  })
+}
+
+// Round 6: the same secrets in the other forms a log or a config dump prints them.
+const secretForms = [
+  `{"Coo${'kie'}":"sessionid=a8f3k2m9x4Zq"}`,
+  `{"Author${'ization'}":"${['opaque', 'key', '81732'].join('-')}"}`,
+  `Author${'ization'}: "${['opaque', 'key', '81732'].join('-')}"`,
+  `X-Access-${'Token'}: ${['opaque', 'key', '81732'].join('-')}`,
+  `pass${'word'}=${['hunter2', 'hunter2'].join('')}`,
+  `"api_${'key'}": "Zk3Qw9Xv2Lm8Rt5Y"`,
+  `session_${'id'}: 7f3a9c2e81b4`,
+]
+for (const value of secretForms) {
+  test(`refuses a secret-named field in a serialized or quoted form, in both posts: ${value.slice(0, 18)}`, async () => {
+    for (const mode of ['review', 'fixes']) {
+      const h = harness()
+      const options = mode === 'review'
+        ? { pr: '42', round: '1', by: 'Codex', body: value, repo: 'owner/repo' }
+        : { pr: '42', fixes: value, repo: 'owner/repo' }
+      assert.equal(await postReview(options, h.runner, h.io), 2)
+      assert.equal(h.calls.some(isPost), false)
+      assert.doesNotMatch(h.output().stderr, /a8f3k2m9|opaque|hunter2|Zk3Qw9Xv|7f3a9c2e/, 'the refusal must not echo the value')
+    }
+  })
+}
+
+for (const value of [
+  'token: redacted', 'password: ********', 'api_key=process.env.KEY', 'set token=... in the config', 'secret: required',
+  'The session-id handling and cookie jar are covered by tests',
+]) {
+  test(`a placeholder or plain prose about a secret-named field still posts: ${value.slice(0, 28)}`, async () => {
+    const h = harness()
+    assert.equal(await postReview({ pr: '42', round: '1', by: 'Codex', body: value, repo: 'owner/repo' }, h.runner, h.io), 0)
+    assert.ok(h.calls.some(isPost))
+  })
+}
+
+// Round 7: short secrets, and lowercase prose after a secret-named key.
+for (const value of ['password: hunter2', 'token=abc123', 'pwd=Ab1!', 'secret: s3cr3t', 'api_key=Zk3Q', 'password: sunshine', 'api_key: moonlight', 'secret: sauce']) {
+  test(`refuses a short secret-looking value after a secret-named key: ${value}`, async () => {
+    for (const mode of ['review', 'fixes']) {
+      const h = harness()
+      const options = mode === 'review'
+        ? { pr: '42', round: '1', by: 'Codex', body: value, repo: 'owner/repo' }
+        : { pr: '42', fixes: value, repo: 'owner/repo' }
+      assert.equal(await postReview(options, h.runner, h.io), 2)
+      assert.equal(h.calls.some(isPost), false)
+    }
+  })
+}
+
+for (const value of ['token: refresh', 'the token: handling is covered', 'cookie: jar', 'session id: unset']) {
+  test(`lowercase prose after a weak key name still posts: ${value}`, async () => {
+    const h = harness()
+    assert.equal(await postReview({ pr: '42', round: '1', by: 'Codex', body: value, repo: 'owner/repo' }, h.runner, h.io), 0)
+    assert.ok(h.calls.some(isPost))
+  })
+}
+
+test('a placeholder wrapped in backticks or ending a sentence is still a placeholder', async () => {
+  for (const value of ['The fixture has `token: null` for the error preview.', 'Set `password: redacted`.', 'with `secret: required`, fine']) {
+    const h = harness()
+    assert.equal(await postReview({ pr: '42', round: '1', by: 'Codex', body: value, repo: 'owner/repo' }, h.runner, h.io), 0, value)
+    assert.ok(h.calls.some(isPost))
+  }
+})
+
+test('a path split by a line break after its home directory is still refused', async () => {
+  const split = ['Found ', 'Users', ''].join('/').replace('Found /', 'Found /') + '\nalice/notes.txt'
+  const h = harness()
+  assert.equal(await postReview({ pr: '42', round: '1', by: 'Codex', body: split, repo: 'owner/repo' }, h.runner, h.io), 2)
+  assert.equal(h.calls.some(isPost), false)
+})

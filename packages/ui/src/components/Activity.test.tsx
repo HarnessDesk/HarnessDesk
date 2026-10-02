@@ -52,3 +52,33 @@ it('heads each day of the log with the inspector’s one group line', async () =
   expect(label?.getAttribute('data-ink')).toBe('secondary')
   expect(label?.textContent).toContain('25')
 })
+
+const mountWith = async (runtimes: unknown[]): Promise<void> => {
+  const snapshot = { ...emptySnapshot(), runtimes } as unknown as ReturnType<typeof emptySnapshot>
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    loadAudit: async () => ROWS.slice(0, 1),
+  } as unknown as AppStore
+  await act(async () => {
+    root.render(
+      <StoreProvider store={store}>
+        <Activity query="" onFoot={() => {}} />
+      </StoreProvider>,
+    )
+  })
+}
+
+it('draws the agent that acted as a face, which follows the shape chosen for faces', async () => {
+  await mountWith([{ id: 'codex', presentation: { name: 'Agent runtime' }, capabilities: {} }])
+  const tile = container.querySelector('[data-slot="icon-tile"]')
+  expect(tile?.className).toContain('rounded-(--hd-face-radius)')
+})
+
+it('keeps the event glyph a plain square when the agent cannot be named, so it is never taken for someone', async () => {
+  await mountWith([])
+  const tile = container.querySelector('[data-slot="icon-tile"]')
+  expect(tile).not.toBeNull()
+  expect(tile?.className).not.toContain('rounded-(--hd-face-radius)')
+  expect(tile?.className).toContain('rounded-(--hd-radius-sm)')
+})

@@ -1591,14 +1591,14 @@
    tiles. The corner steps up the radius scale with the size, so one object
    does not look sharper the larger it is drawn; the ink is the label's own,
    the ink the seat's mark always wore. */
-.avatar[data-shape='square'] {
+.avatar[data-shape='face'] {
   overflow: hidden;
-  border-radius: var(--hd-radius-sm);
+  border-radius: var(--hd-face-radius);
   color: var(--hd-foreground);
 }
 
-.avatar[data-shape='square'][data-size='m'] {
-  border-radius: var(--hd-radius);
+.avatar[data-shape='face'][data-size='m'] {
+  border-radius: var(--hd-face-radius-lg);
 }
 
 /* In a box someone else drew: its size, and its corner. */

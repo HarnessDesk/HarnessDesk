@@ -9,6 +9,7 @@ import { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 
 import {
   approvalId as makeApprovalId,
+  FLOW_BOARD_TOOL_NAMES,
   ceilingOfPermission,
   holderOf,
   DEFAULT_LANE_PREFERENCES,
@@ -322,27 +323,7 @@ const HELD_REFUSE = 'refuse'
 // the named tools on the desk's own team server; their handlers still enforce
 // caller attribution and the flow Seat's ceiling. Keep external person
 // notifications out of this list, and never match another MCP server.
-const FLOW_BOARD_TOOLS = new Set([
-  'mcp__harnessdesk__list_intents',
-  'mcp__harnessdesk__add_intent',
-  'mcp__harnessdesk__claim_work',
-  'mcp__harnessdesk__claim_next',
-  'mcp__harnessdesk__await_work',
-  'mcp__harnessdesk__await_member',
-  'mcp__harnessdesk__check_conflicts',
-  'mcp__harnessdesk__complete_claim',
-  'mcp__harnessdesk__commit_work',
-  'mcp__harnessdesk__run_check',
-  'mcp__harnessdesk__release_claim',
-  'mcp__harnessdesk__get_context',
-  'mcp__harnessdesk__get_team_status',
-  'mcp__harnessdesk__review_candidates',
-  'mcp__harnessdesk__record_review',
-  'mcp__harnessdesk__raise_finding',
-  'mcp__harnessdesk__repair_finding',
-  'mcp__harnessdesk__decide_finding',
-  'mcp__harnessdesk__list_findings',
-])
+const FLOW_BOARD_TOOLS = new Set(FLOW_BOARD_TOOL_NAMES.map((tool) => `mcp__harnessdesk__${tool}`))
 const HELD_WAIT_SEC = 45
 /**
  * How long a send may count as busy without the agent having accepted it.
@@ -1516,6 +1497,7 @@ export class Host {
         if (problem) return problem
         return runtime.info.presentation.pluginToolsUnavailable ?? `${runtime.info.presentation.name} cannot use HarnessDesk's tools in this checkout, so it cannot claim a card`
       },
+      perToolMcpApproval: (runtimeName) => this.#runtimes.get(runtimeId(runtimeName))?.info.capabilities.perToolMcpApproval === true,
       storedRun: async (run) => this.#flows.storedRun(run),
       // A front-door token's target, read again from git and the forge at Start: never the facts the preview saw.
       resolveTarget: async (context) => {
@@ -3510,6 +3492,10 @@ export class Host {
       },
       queue: {
         push: (record) => this.#pushQueue(record),
+        update: (record, id, input) => {
+          this.registry.updateQueued(record, id, input)
+          this.#pushQueue(record)
+        },
         drain: (record) => this.#drain(record),
         nextId: () => this.#nextQueuedId(),
         busy: (record) => this.#queueBusy(record),
@@ -5576,7 +5562,7 @@ export class Host {
       const asked = owner ? await this.#askToDelete(owner, id) : null
       // Then out of the host's records and every window, before any file is touched.
       this.registry.delete(runtime, id)
-      this.#push({ method: 'session/removed', params: { runtime, sessionId: id } })
+      this.#push({ method: 'session/removed', params: { runtime, sessionId: id, deleted: asked === 'deleted' } })
       const left: SeatLeft | null = owner && asked ? await this.#leftAs(owner, id, asked) : { kind: 'unasked' }
       await this.#forgetSeat(runtime, id, left)
       return left

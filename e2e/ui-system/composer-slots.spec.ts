@@ -267,6 +267,12 @@ test('composer slots keep their tracks aligned across agent shapes', async ({ pa
   const refused = page.locator('[data-composer-width="composer"] [data-composer-shape="Assistant C"] [data-composer-layout="live"] [aria-disabled="true"]')
   await expect(refused.first()).toBeVisible()
   await expect(refused.first()).toHaveAttribute('title', /.+/)
+  const emptySlots = page.locator('[data-empty-more-case] [data-composer-layout="draft"]')
+  await expect(page.locator('[data-empty-more-case]')).toContainText('More — no options · Extension — no actions · Context — No usage yet')
+  await expect(emptySlots.locator('[data-composer-track="more"] button')).toHaveCount(0)
+  await expect(emptySlots.locator('[data-composer-track="extension"] button')).toHaveCount(0)
+  await expect(emptySlots.locator('[data-composer-track="context"] button')).toHaveAttribute('aria-label', 'No usage yet')
+  await expect(page.locator('[data-extension-width-case] h3')).toContainText('Extension — empty and populated')
   expect(await labelsUntruncated(page, 'composer', 'live'), 'live labels at the real composer width').toBe(true)
   expect(await contextRingsUnclipped(page), 'context ring must fit its track at every width').toBe(true)
 

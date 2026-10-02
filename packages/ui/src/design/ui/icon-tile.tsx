@@ -2,7 +2,7 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
-import { softTint, softTone, type Tint, type Tone } from './tone'
+import { softTint, softTone, solidTint, type Tint, type Tone } from './tone'
 
 /**
  * A glyph on a soft ground of its own.
@@ -19,9 +19,13 @@ import { softTint, softTone, type Tint, type Tone } from './tone'
  * ground, which is the right answer for a glyph that is pure decoration — a
  * service logo, a file type.
  *
- * `shape` is a real choice and not a style: a circle reads as a person or an
- * account, a rounded square as a thing or a category. The app already holds that
- * rule for avatars; this keeps the two consistent.
+ * `shape` is a real choice and not a style. `face` is someone: an agent's mark
+ * or a person's picture, at whatever corner the person chose for faces
+ * (`--hd-face-radius`, square unless they picked round), so every face in the
+ * app is one shape. `round` is an account's ring or a status coin, `square` a
+ * thing or a category. A tile that holds an agent's mark is a face, never a
+ * bare `square`: a thing's tile does not follow the setting, and a face that
+ * does not would be the one face in the app with the wrong corner.
  *
  * A listing that brings its own mark — a plugin's or a skill's logo — puts the
  * `<img>` inside, and the tile crops it to its corner. One that brings only its
@@ -44,6 +48,7 @@ const tileVariants = cva(
       shape: {
         square: 'rounded-(--hd-radius-sm)',
         round: 'rounded-full',
+        face: 'rounded-(--hd-face-radius)',
       },
     },
     defaultVariants: { size: 'default', shape: 'square' },
@@ -71,12 +76,16 @@ const IconTile = ({ className, size, shape, tone, tint, color, style, ...props }
       color
         ? 'bg-(--tile-color) text-(--hd-accent-foreground)'
         : tint
-          ? softTint({ tint })
+          ? shape === 'face' ? solidTint({ tint }) : softTint({ tint })
           : softTone({ tone }),
       className,
     )}
     style={color ? ({ ...style, '--tile-color': color } as React.CSSProperties) : style}
     {...props}
+    /* Declared, so the faces rule (`e2e/ui-system/faces.spec.ts`) can find
+       every place someone is drawn without guessing from a class. After the
+       spread, so a caller's attribute cannot hide a face from it. */
+    data-shape={shape ?? 'square'}
   />
 )
 

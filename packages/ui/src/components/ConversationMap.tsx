@@ -4,6 +4,7 @@ import type { Turn } from '@harnessdesk/protocol'
 
 import { Tick, Tooltip, TooltipContent } from '../design'
 import { buildMarks, railFit, shouldRenderMap, type RailFit } from '../lib/conversation-map'
+import { scriptedScrollBehavior } from '../lib/scripted-scroll'
 import styles from './ConversationMap.module.css'
 
 /**
@@ -134,7 +135,7 @@ export const ConversationMap = ({
       const target =
         scroll.current?.querySelector(`[data-turn="${id}"][data-part="${part}"]`) ??
         scroll.current?.querySelector(`[data-turn="${id}"]`)
-      target?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+      target?.scrollIntoView({ block: 'start', behavior: scriptedScrollBehavior() })
     },
     [scroll],
   )

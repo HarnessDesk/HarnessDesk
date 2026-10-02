@@ -148,3 +148,14 @@ test('a row’s actions come up with the pointer and with the keyboard’s focus
   await expect(actions).toHaveCSS('opacity', '1')
   await expect(rows.nth(0).locator('[data-slot="sortable-actions"]')).toHaveCSS('opacity', '0')
 })
+
+test('the queue example starts with sortable text and opens an edit when asked', async ({ page }) => {
+  await page.goto('/design.html?view=queue')
+  const rows = list(page).locator('[data-slot="sortable-row"]')
+  await expect(rows.nth(0).locator('[data-role="navigation"]')).toHaveText('Run the focused tests again')
+  await expect(rows.nth(0).getByRole('textbox', { name: 'Edit queued message' })).toHaveCount(0)
+
+  await rows.nth(0).hover()
+  await rows.nth(0).getByRole('button', { name: 'Edit queued message' }).click()
+  await expect(rows.nth(0).getByRole('textbox', { name: 'Edit queued message' })).toHaveValue('Run the focused tests again')
+})

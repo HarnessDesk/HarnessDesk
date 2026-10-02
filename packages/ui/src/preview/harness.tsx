@@ -56,9 +56,9 @@ import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore, type AuditRow } from '../state/store'
 import { withClosedTurnFiles } from '../state/snapshot'
 import {
-  NARROW_WINDOW,
   activate,
   areaVisible,
+  sidebarCannotHaveColumn,
   focusView,
   moveView,
   resizeDock,
@@ -1155,7 +1155,15 @@ class PreviewStore {
   getSnapshot = (): AppSnapshot => this.#snapshot
 
   patch(partial: Partial<AppSnapshot>): void {
-    this.#snapshot = { ...this.#snapshot, ...partial }
+    const next = { ...this.#snapshot, ...partial }
+    if (partial.windowWidth !== undefined || partial.workbench !== undefined) {
+      const narrowWindow = sidebarCannotHaveColumn(next.workbench, next.windowWidth)
+      if (narrowWindow !== next.narrowWindow) {
+        next.narrowWindow = narrowWindow
+        next.sidebarFloating = false
+      }
+    }
+    this.#snapshot = next
     for (const listener of this.#listeners) listener()
   }
 
@@ -1241,15 +1249,22 @@ class PreviewStore {
   closeFloatingSidebar(): void {
     if (this.#snapshot.sidebarFloating) this.patch({ sidebarFloating: false })
   }
-  setNarrowWindow(narrow: boolean): void {
-    if (narrow === this.#snapshot.narrowWindow) return
-    this.patch({ narrowWindow: narrow, sidebarFloating: false })
-  }
   #watchWindowWidth(): void {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
-    const query = window.matchMedia(`(max-width: ${NARROW_WINDOW - 0.02}px)`)
-    this.#snapshot = { ...this.#snapshot, narrowWindow: query.matches }
-    query.addEventListener?.('change', (event) => this.setNarrowWindow(event.matches))
+    if (typeof window === 'undefined') return
+    const width = window.innerWidth
+    this.#snapshot = {
+      ...this.#snapshot,
+      windowWidth: width,
+      narrowWindow: sidebarCannotHaveColumn(this.#snapshot.workbench, width),
+    }
+    let frame: number | null = null
+    window.addEventListener('resize', () => {
+      if (frame !== null) return
+      frame = window.requestAnimationFrame(() => {
+        frame = null
+        this.patch({ windowWidth: window.innerWidth })
+      })
+    })
   }
 
   #team(mutate: (team: TeamState) => TeamState): void {
@@ -1359,6 +1374,7 @@ class PreviewStore {
   setPalette = (palette: AppSnapshot['palette']): void => this.patch({ palette })
   setAccent = (accent: AppSnapshot['accent']): void => this.patch({ accent })
   setCorners = (corners: AppSnapshot['corners']): void => this.patch({ corners })
+  setFaces = (faces: AppSnapshot['faces']): void => this.patch({ faces })
   setLook = (next: AppSnapshot['look']): void => this.patch({ look: next })
   setProfile = (patch: ProfilePatch): void =>
     this.patch({ profile: applyProfile(this.#snapshot.profile, patch) })

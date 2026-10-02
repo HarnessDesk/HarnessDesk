@@ -152,6 +152,7 @@ are doing; screens do not invent a new spelling for the same job:
 | section | 16 / semibold | a page band's heading (a Dashboard band) — below the page title, above a subject (#1122) |
 | group label | 13 / normal, secondary ink | the word over a group — a card of rows, a rail's list, a section of a page (`GroupLabel`). Sentence case, always: no label outside a `Keycap` is set in capitals |
 | subject | 14 / medium | the name of the thing a pane, a dialog or a card is about |
+| member | 14 / semibold | the name of someone — an agent at work or a person — beside its face: a chat's sender, a member named inside a sentence (`MemberName`) |
 | row | 13 / medium | the title of a setting, and the word above a control |
 | navigation | 13 / normal | the name of one thing in a navigable list |
 | muted | 13 / normal | a description under a name, and chrome that labels rather than names |
@@ -377,23 +378,19 @@ ground reads thin.
 | token | light | dark | what it carries |
 | --- | --- | --- | --- |
 | `--hdp-alias-label-primary` | `rgb(25, 27, 30)` | `rgb(229, 231, 234)` | anything a person reads: titles, rows, prose, values |
-| `--hdp-alias-label-secondary` | `rgb(71, 71, 71)` | `rgb(208, 208, 208)` | structure and explanation: section headings, hints, blurbs, icons beside a label |
-| `--hdp-alias-label-tertiary` | `rgb(107, 107, 107)` | `rgb(177, 177, 177)` | facts at the edge of a row: counts, times, keyboard hints |
+| `--hd-secondary-foreground` | `rgb(49, 49, 49)` | `rgb(224, 224, 224)` | structure and explanation: section headings, hints, blurbs, icons beside a label |
+| `--hd-muted-foreground` | `rgb(71, 71, 71)` | `rgb(208, 208, 208)` | facts at the edge of a row: counts, times, keyboard hints |
 
 In components, reach for the semantic tokens `--hd-foreground`,
 `--hd-secondary-foreground`, and `--hd-muted-foreground` (`tokens.css`), which
 resolve to these three palette aliases.
 
-Three levels have to read as three, not two. Measured in light mode,
-secondary at grey-700 (`rgb(100, 100, 100)`, 5.9:1 on white) sat 1.1:1 from
-tertiary's `rgb(107, 107, 107)` — a gap no eye resolves, so the app read as
-two greys doing the work of three. Secondary moved to the ramp's existing
-grey-750 step (`rgb(71, 71, 71)`, 9.3:1 on white, 1.7:1 from tertiary) rather
-than a new literal; tertiary stays put; dark's `rgb(208, 208, 208)` /
-`rgb(177, 177, 177)` pair already separated (1.4:1) and clears AA (≥ 6:1 on
-every ground the app puts it on) and was left alone. Editorial's and
-shadcn's own label aliases were checked the same way and already separate
-cleanly, so neither palette changed.
+Three levels have to read as three, not two. Secondary uses the existing
+grey-800 step in light mode and grey-200 in dark mode; muted uses grey-750 and
+grey-300. These steps preserve the distinction from primary and between
+secondary and muted, while keeping both lower tiers on their existing palette
+ramps. The contrast test measures the semantic tokens on the app's real text
+grounds in both themes.
 
 Three rules, learned the hard way:
 
@@ -654,6 +651,64 @@ What stayed, and why:
 | Clear browsing data | Names its blast radius: this pane, not your browser. |
 | Every disabled row's reason | A tooltip on a disabled control is unreachable. |
 
+## Shapes say what a mark is
+
+Three shapes, and each one means something wherever it appears:
+
+| Shape | What it is | Examples |
+| --- | --- | --- |
+| Face | Someone: an agent at work or a person | A sender in the chat, a member on a team's rail, a board card's holder, a session or member card, your seat, a name inside a sentence |
+| Ring | An account | The seat menu's account marks, an account card |
+| Square | A thing or a category | A plugin, a skill, a file, a harness, a section |
+
+A face takes its corner from `--hd-face-radius` and never from the tile it sits
+in. It is square by default, and a person can make every face round in
+Settings › Appearance › Faces (`body[data-hd-faces='round']`). Draw a face with
+`IconTile shape="face"` or `Face`, and an agent named inside a sentence with
+`MemberName`. A face drawn as a bare `square` tile would be the one face that
+ignores the setting. The ring and the square do not move with Faces: an
+account was already round, and a thing staying square is how a round face
+still reads as someone.
+
+A tinted face is filled with its tint's ink and uses the accent foreground for
+its mark or initials. Other tinted tiles, including square and round ones,
+keep the soft tint wash.
+
+A new surface cannot draw someone in a fixed corner without a test failing.
+`IconTile`, `AvatarStack`, `Face`, `AccountMark` and a notice's face each declare
+what they drew with `data-shape` (`face`, `round`, `square`), and two tests read
+the result:
+
+- `design/faces.census.test.ts` reads the source of every screen and refuses an
+  agent's mark (`BrandMark`, `RuntimeMark`, `AgentIcon`) in an `IconTile` that is
+  not a `face`, an `AvatarStack` that is not, and an `IconTile` whose shape is
+  decided at run time (its mark may arrive as a prop, so it has to be named). It
+  reaches the screens a page cannot mount, such as the Agents panel's rows. A
+  tile on its exception list is a claim that it is not someone, or that another
+  test pins its shape, with the reason beside it; the entry also counts the tiles
+  it excuses, so a second one in the same file is a finding until it is named.
+- `e2e/ui-system/faces.spec.ts` ("rule: faces") measures the mounted screens
+  under each Faces setting: every declared face computes `--hd-face-radius` and
+  is filled solid (a notice's face keeps its tone's translucent wash, and is held
+  to the wash its tone paints: not opaque, not faint, not gone), every tile that
+  holds an agent's mark is a face, an account's ring or a named exception, and
+  each surface it lists (the rail, the chat, a notice, a board holder, the
+  Activity rows, a channel, your seat and profile, side by side, an avatar
+  stack) is present as a face.
+
+Draw a new face with one of those primitives. If it needs its own markup, it
+declares `data-shape="face"` and takes `--hd-face-radius`, and the surface goes
+in the spec's list.
+
+## The Team composer tail
+
+Short live activity and a notice about what sending does sit in one tinted
+strip above the Team composer. `ComposerTail` (in the notices family, beside
+`ComposerNoticeStack`) gives those lines the muted ground, rounded outside
+corners, smaller secondary text, and joined edges when both are present. The
+conversation composer has queued notices and actionable alerts rather than
+this live-and-room-state pair, so it keeps its own notice stack.
+
 ## Motion
 
 Motion says where a thing came from and where it went, and nothing else. It is
@@ -772,9 +827,10 @@ difference is a deliberate interface choice; the sections below say which.
 Every element wearing a name role — `Text role=…` (`design/patterns/
 Settings.tsx`) or `PageHead`'s own title — computes one of the pairs the
 "Named text roles" table above states: wordmark and page at 20/600, section at
-16/600, subject at 14/500, row at 13/500, navigation and muted at 13/400.
-Section is the one role at 16px; section, wordmark and page are the only name
-roles in semibold. The dashboard
+16/600, subject at 14/500, member at 14/600, row at 13/500, navigation and
+muted at 13/400. Section is the one role at 16px; section, wordmark, page and
+member are the only name roles in semibold, and member is the only one that
+names someone. The dashboard
 readouts `Text` also draws (`meta`, `figure`, `metric`, `value`, `prose`) are
 not names and sit outside the rule; `figure`/`metric` are deliberately
 semibold.
@@ -782,7 +838,7 @@ semibold.
 Enforced by `rules.spec.ts` ("rule: names"), reading every `Text` role and
 `data-slot="page-title"` across mounted screens against that role's pair. It
 also checks every visible h1-h4 and `*-title` slot outside `Text` against the
-same five pairs, without guessing a role from the tag or slot. A readout is
+same pairs, without guessing a role from the tag or slot. A readout is
 declared, never read off its text: `ChartTitle`'s `figure` marks itself
 `data-figure` and is left to its own role, while a title that merely reads as
 a number is still a name. The preview harness marks its own caption with

@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 
-import { runtimeId, sessionKey, sessionId, turnId, type AgentItem, type FileChange, type SessionId, type Turn } from '@harnessdesk/protocol'
+import { runtimeId, sessionKey, sessionId, turnId, type AgentItem, type FileChange, type SessionId, type SessionQueue, type Turn } from '@harnessdesk/protocol'
 
 import { AlertIcon, BranchIcon, BriefIcon, CaretIcon, CheckIcon, CrossIcon, FilterIcon, FolderGoneIcon, FolderIcon, MoreIcon, PinIcon, PlusIcon, PluginIcon, SearchIcon, SettingsIcon, TeamIcon, TerminalIcon, TodoPendingIcon, UsageIcon, UserIcon } from '../../components/Icons'
+import { MessageQueue } from '../../components/MessageQueue'
 import { RuntimeMark } from '../../components/BrandIcons'
 import { DiffView } from '../../components/Diff'
 import { TurnFiles } from '../../components/TurnFiles'
+import { Notices } from '../../components/Notices'
 import { Toaster } from '../ui/toast'
 import { ItemView } from '../../components/Items'
 import { Markdown } from '../../components/Markdown'
@@ -15,14 +17,16 @@ import { Mount, previewStore, store } from '../../preview/harness'
 import { Sidebar as ProductSidebar } from '../../components/Sidebar'
 import { WindowGroup, WindowNav, WindowNavIdentity, WindowNavItem, WindowNavStateMark, WindowPage } from '../../components/AppWindow'
 import { PREVIEW_ROOT, previewHistory } from '../../preview/sidebar-fixture'
+import { BOARD_TOOL_FRAMES, boardToolFrame } from '../../preview/approval-fixture'
 import { StoreProvider } from '../../state/context'
-import { emptySnapshot, type AppStore } from '../../state/store'
+import { emptySnapshot, type AppSnapshot, type AppStore } from '../../state/store'
 import {
   AccountMark,
   ComposerNotice,
   Checklist,
   ChecklistItem,
   ComposerNoticeStack,
+  ComposerTail,
   InboxPanel,
   InboxList,
   NoticeCard,
@@ -49,6 +53,7 @@ import {
   Card,
   ChangeStats,
   AgentCard,
+  MemberName,
   ApprovalCode,
   ApprovalDialog,
   ApprovalMeta,
@@ -99,17 +104,15 @@ import {
   StatePill,
   Spinner,
   Text,
+  TurnWorkLive,
   TextMark,
   Switch,
   SwitchShape,
+  Textarea,
   ToggleGroup,
   ToggleGroupItem,
   stateTone,
-  SortableAnnouncer,
-  SortableHandle,
   Toolbar,
-  sortableItemClass,
-  useSortable,
   SidebarGroup,
   SidebarGroupContent,
   SidebarMenu,
@@ -745,9 +748,10 @@ const FaceBoard = () => (
     </div>
     </Specimen>
     <p className={styles.rule}>
-      A person is a squared tile; an account is a ring. The tile is the shared avatar primitive — one plate, one
-      hairline — its corner stepping up the radius scale as it grows, and the house mark for any
-      face this build does not ship: the third tile is an id no build has.
+      A person is a face; an account is a ring. A face is square unless the person chose round (the Faces dial
+      above), and its corner follows that choice at every size. The tile is the shared avatar primitive — one
+      plate, one hairline — its corner stepping up as it grows, and the house mark for any face this build
+      does not ship: the third tile is an id no build has.
     </p>
   </>
 )
@@ -836,6 +840,14 @@ const NoticesBoard = () => {
             <ComposerNotice message={{ ...NOTICE_STRIP[1]!, id: 'signin-2' }} />
             <ComposerNotice message={{ id: 'plain', title: 'Reconnecting to the host…' }} />
           </ComposerNoticeStack>
+        </div>
+      </Case>
+      <Case label="composer tail: the live line and a state notice are one strip">
+        <div style={{ width: 'min(var(--hd-column), 100%)' }}>
+          <ComposerTail>
+            <TurnWorkLive settled>Alpha is waiting for your approval</TurnWorkLive>
+            <TurnWorkLive settled>Board-only is on: agents cannot message each other. You still can.</TurnWorkLive>
+          </ComposerTail>
         </div>
       </Case>
       <Case label="composer: an Agent asks, and the strip sharing the stack">
@@ -985,53 +997,137 @@ const BannerBoard = () => (
   </>
 )
 
-/**
- * A sortable list: drag from the handle, or ⌥↑/⌥↓ from a row, and the move is
- * announced. This owner answers at once; the app's message queue — the one
- * consumer drawn here — answers when the host does.
- */
-const QueueRows = () => {
-  const [ids, setIds] = useState(['Run the focused tests again', 'Then write the release note', 'Open a pull request'])
-  const sortable = useSortable({
-    ids,
-    name: (id) => `“${id}”`,
-    onMove: (id, to) => setIds((was) => {
-      const rest = was.filter((one) => one !== id)
-      return [...rest.slice(0, to), id, ...rest.slice(to)]
-    }),
-  })
+const QUEUE_BOARD_KEY = sessionKey(runtimeId('codex'), sessionId('catalogue-queue'))
+const QUEUE_BOARD_QUEUE: SessionQueue = {
+  status: 'waiting',
+  reason: null,
+  messages: [
+    { id: 'queue-board-1', state: 'queued', queuedAt: 0, input: [{ type: 'text', text: 'Run the focused tests again' }] },
+    { id: 'queue-board-2', state: 'queued', queuedAt: 1, input: [{ type: 'text', text: 'Then write the release note' }] },
+    { id: 'queue-board-3', state: 'queued', queuedAt: 2, input: [{ type: 'text', text: 'Open a pull request' }] },
+  ],
+} as unknown as SessionQueue
+type QueueBoardStore = Pick<AppStore,
+  'subscribe' | 'getSnapshot' | 'moveQueued' | 'updateQueued' | 'unqueue' | 'clearQueue' |
+  'flushQueue' | 'addRecoverableDraft'
+>
+
+/** An isolated MessageQueue store for one explorer board mount. */
+export const createQueueBoardStore = (): QueueBoardStore => {
+  let snapshot: AppSnapshot = {
+    ...emptySnapshot(),
+    activeSessionKey: QUEUE_BOARD_KEY,
+    queues: new Map([[QUEUE_BOARD_KEY, QUEUE_BOARD_QUEUE]]),
+  }
+  const listeners = new Set<() => void>()
+  const publish = (queue: SessionQueue) => {
+    snapshot = { ...snapshot, queues: new Map([[QUEUE_BOARD_KEY, queue]]) }
+    listeners.forEach((listener) => listener())
+  }
+  const matchingQueue = (key?: typeof QUEUE_BOARD_KEY | null) => key === QUEUE_BOARD_KEY
+    ? snapshot.queues.get(QUEUE_BOARD_KEY)
+    : undefined
+
+  return {
+    subscribe: (listener) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    getSnapshot: () => snapshot,
+    moveQueued: async (id, to, key) => {
+      const queue = matchingQueue(key)
+      if (!queue) return
+      const from = queue.messages.findIndex((message) => message.id === id)
+      if (from < 0 || to < 0 || to >= queue.messages.length || from === to) return
+      const messages = [...queue.messages]
+      const [message] = messages.splice(from, 1)
+      if (!message) return
+      messages.splice(to, 0, message)
+      publish({ ...queue, messages })
+    },
+    updateQueued: async (id, input, key) => {
+      const queue = matchingQueue(key)
+      if (!queue) return
+      const index = queue.messages.findIndex((message) => message.id === id)
+      if (index < 0) return
+      const messages = [...queue.messages]
+      messages[index] = { ...messages[index]!, input }
+      publish({ ...queue, messages })
+    },
+    unqueue: async (id, key) => {
+      const queue = matchingQueue(key)
+      if (!queue) return
+      const messages = queue.messages.filter((message) => message.id !== id)
+      if (messages.length === queue.messages.length) return
+      publish({ ...queue, messages })
+    },
+    clearQueue: async (key) => {
+      const queue = matchingQueue(key)
+      if (!queue || queue.messages.length === 0) return
+      publish({ ...queue, messages: [] })
+    },
+    // These actions have no catalogue-side effect; the real app records the
+    // recovery draft and asks the host to flush the queue.
+    flushQueue: async () => {},
+    addRecoverableDraft: () => {},
+  }
+}
+
+const QUEUE_RECOVERY_NOTICES = [
+  {
+    id: 'message-not-sent',
+    tone: 'warning' as const,
+    title: 'Message not sent.',
+    body: 'Restore the refused message to the composer; your current draft stays available.',
+    action: { label: 'Restore', onSelect: () => {} },
+  },
+  {
+    id: 'edit-not-saved',
+    tone: 'warning' as const,
+    title: 'Edit not saved.',
+    body: 'Your edit wasn’t saved because its message is no longer waiting. Restore it to the composer.',
+    action: { label: 'Restore', onSelect: () => {} },
+  },
+  {
+    id: 'memory-only',
+    tone: 'warning' as const,
+    title: 'Message not sent.',
+    body: 'Restore the refused message to the composer; your current draft stays available. Not saved for a reload — it stays only while this window is open.',
+    action: { label: 'Restore', onSelect: () => {} },
+  },
+  {
+    id: 'image-not-kept',
+    tone: 'warning' as const,
+    title: 'Image not saved for reload.',
+    body: 'Attach it again after reopening HarnessDesk.',
+  },
+]
+
+const QueueBoardQueue = () => {
+  const [queueBoardStore] = useState(createQueueBoardStore)
+  // Mount currently accepts AppStore rather than the exact store surface
+  // consumed by MessageQueue; the stub itself stays typed to that surface.
   return (
-    <>
-      <ol aria-label="Waiting messages" data-catalog-case="sortable-list" className="flex flex-col gap-0.5">
-        {ids.map((id, index) => (
-          <li key={id} data-slot="sortable-row" {...sortable.row(id, index)} className={`${sortableItemClass()} flex items-center gap-2`}>
-            <SortableHandle {...sortable.handle(id)} />
-            <Text role="meta">{index + 1}</Text>
-            <Text role="navigation" className="min-w-0 flex-1 truncate">{id}</Text>
-            {index === 0 ? <Text role="meta" tone="brand">next</Text> : null}
-            <span data-slot="sortable-actions" className="flex shrink-0 items-center">
-              <Button variant="ghost" size="icon-sm" aria-label="Remove"><CrossIcon size={13} /></Button>
-            </span>
-          </li>
-        ))}
-      </ol>
-      <SortableAnnouncer message={sortable.announcement} />
-    </>
+    <Mount with={queueBoardStore as AppStore}><MessageQueue /></Mount>
   )
 }
 
 const QueueBoard = () => (
   <>
-    <Specimen caption="The message queue: a paused header, a trigger picker, and the composer shell">
+    <Specimen caption="The shipped queue, its row editor, and recovery notices">
     <div className={styles.stack}>
-      <Alert variant="soft" tone="warning" className="flex-col items-stretch gap-1.5">
-        <Toolbar className="flex-nowrap">
-          <Text role="meta" tone="warning"><AlertIcon size={13} /></Text>
-          <Text role="meta" ink="primary" className="flex-1">The turn did not finish. Two messages waiting.</Text>
-          <Button variant="quiet" size="sm">Send now</Button>
-        </Toolbar>
-        <QueueRows />
-      </Alert>
+      <Case label="inline edit · select Edit to open; clear text to disable Save: Remove this message instead of saving it empty">
+        <div className="w-full" data-catalog-case="sortable-list">
+          <QueueBoardQueue />
+        </div>
+      </Case>
+      <Case label="recovery · restore a message or edit">
+        <div style={{ width: 'min(var(--hd-column), 100%)' }}>
+          <ComposerNoticeStack>
+            {QUEUE_RECOVERY_NOTICES.map((message) => <ComposerNotice key={message.id} message={message} />)}
+          </ComposerNoticeStack>
+        </div>
+      </Case>
       <PopoverSurface limit="trigger">
         <Text role="muted" as="div" className="px-2 py-1">Commands</Text>
         <Button variant="navigation" size="navigation" className="w-full">/review</Button>
@@ -1047,9 +1143,9 @@ const QueueBoard = () => (
     </div>
     </Specimen>
     <p className={styles.rule}>
-      The queue is one held-work surface: warning belongs to the paused header, order stays quiet in
-      its rows, and the controls arrive only at the row being handled. Trigger pickers use the same
-      floating plate as anchored menus.
+      The rows and their inline editor are the shipped queue component. Empty edits disable Save
+      with the reason on the button; recovery notices use the same shipped composer notice that
+      keeps a message or edit available after delivery or a reload.
     </p>
   </>
 )
@@ -1069,6 +1165,17 @@ const catalogueTurnFilesStore = {
   closeTurnFiles: () => {},
   setDetailsTab: () => {},
   openFile: () => {},
+  dismissNotice: () => {},
+} as unknown as AppStore
+const catalogueRefusedMessage = 'Cannot put back /workspace/src/empty.ts: the agent recorded no content for it. Nothing was changed.'
+const catalogueRefusedSnapshot = {
+  ...catalogueTurnFilesSnapshot,
+  notices: [{ id: 'catalogue-undo-refused', level: 'error', message: catalogueRefusedMessage, at: 0 }],
+}
+const catalogueRefusedTurnFilesStore = {
+  ...catalogueTurnFilesStore,
+  getSnapshot: () => catalogueRefusedSnapshot,
+  revertTurn: async () => ({ done: false, unrecoverable: true, partial: false }),
 } as unknown as AppStore
 const CATALOGUE_TURN: Turn = { id: turnId('catalogue-turn'), items: [], status: 'completed', diff: null }
 const CATALOGUE_TURN_ONE: readonly FileChange[] = [
@@ -1079,6 +1186,37 @@ const CATALOGUE_TURN_SEVERAL: readonly FileChange[] = [
   { path: '/workspace/src/receipt.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-old\n+new\n' },
   { path: '/workspace/src/tax.ts', kind: { type: 'add' }, diff: '+export const tax = 0\n' },
 ]
+const CATALOGUE_UNRECOVERABLE_CHANGES: readonly FileChange[] = [
+  { path: '/workspace/src/checkout.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-old\n+new\n' },
+  { path: '/workspace/src/empty.ts', kind: { type: 'delete' }, diff: '' },
+  { path: '/workspace/src/receipt.ts', kind: { type: 'add' }, diff: '+export const receipt = true\n' },
+]
+const CATALOGUE_UNRECOVERABLE_TURN = {
+  id: turnId('catalogue-unrecoverable'),
+  items: [{ id: 'catalogue-file-changes', type: 'fileChange', changes: CATALOGUE_UNRECOVERABLE_CHANGES }],
+  status: 'completed',
+  diff: null,
+} as unknown as Turn
+const CATALOGUE_PARTIAL_CHANGES: readonly FileChange[] = [
+  { path: '/workspace/src/profile.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-before\n+after\n' },
+  { path: '/workspace/src/settings.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-before\n+after\n' },
+  { path: '/workspace/src/summary.ts', kind: { type: 'add' }, diff: 'export const summary = true\n' },
+]
+const CATALOGUE_PARTIAL_TURN = {
+  id: turnId('catalogue-partial'),
+  items: [{ id: 'catalogue-partial-file-changes', type: 'fileChange', changes: CATALOGUE_PARTIAL_CHANGES }],
+  status: 'completed',
+  diff: null,
+} as unknown as Turn
+const cataloguePartialTurnFilesStore = {
+  ...catalogueTurnFilesStore,
+  // A host can report this result when it cannot take its failed pass back
+  // after reverting at least one recorded file. This staged answer belongs to
+  // the multi-file turn above, whose complete content makes each step undoable.
+  revertTurn: async (id: Turn['id']) => id === CATALOGUE_PARTIAL_TURN.id
+    ? { done: false, unrecoverable: false, partial: true }
+    : { done: false, unrecoverable: false, partial: false },
+} as unknown as AppStore
 const CatalogueRevertedTurnFiles = () => {
   const host = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -1087,6 +1225,14 @@ const CatalogueRevertedTurnFiles = () => {
     host.current?.querySelector<HTMLButtonElement>('button[title^="Put these files back"]')?.click()
   }, [])
   return <div ref={host}><TurnFiles turn={CATALOGUE_TURN} changes={CATALOGUE_TURN_SEVERAL} root="/workspace" /></div>
+}
+const CatalogueUndoTurnFiles = ({ turn, changes }: { turn: Turn; changes: readonly FileChange[] }) => {
+  const host = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    // Resolve the real card's Undo action through the staged store answer.
+    host.current?.querySelector<HTMLButtonElement>('button[title^="Put these files back"]')?.click()
+  }, [])
+  return <div ref={host}><TurnFiles turn={turn} changes={changes} root="/workspace" /></div>
 }
 const CATALOGUE_DIFF = [
   'diff --git a/src/new.ts b/src/new.ts',
@@ -1314,6 +1460,18 @@ const CodeBoard = () => (
         <CatalogueRevertedTurnFiles />
       </StoreProvider>
     </Case>
+    <Case label="Undo refused: the unrecoverable file is named and the rest can be put back">
+      <StoreProvider store={catalogueRefusedTurnFilesStore}>
+        <Notices />
+        <Toaster />
+        <CatalogueUndoTurnFiles turn={CATALOGUE_UNRECOVERABLE_TURN} changes={CATALOGUE_UNRECOVERABLE_CHANGES} />
+      </StoreProvider>
+    </Case>
+    <Case label="partial Undo: Close stays greyed until the half changed turn is resolved">
+      <StoreProvider store={cataloguePartialTurnFilesStore}>
+        <CatalogueUndoTurnFiles turn={CATALOGUE_PARTIAL_TURN} changes={CATALOGUE_PARTIAL_CHANGES} />
+      </StoreProvider>
+    </Case>
     <Case label="a runtime's own command record, unwrapped as the command plate">
       <div className="w-full" data-testid="runtime-command-result-sample" data-register="light">
         <StoreProvider store={catalogueStore}>
@@ -1498,7 +1656,7 @@ const MessageBoard = () => (
         </StoreProvider>
       </div>
     </Case>
-    <Case label="a long sent message — clamped past twelve lines, with the toggle">
+    <Case label="a long sent message — clamped past twelve lines, fading its last line">
       <div className="w-full" data-testid="message-user-long">
         <StoreProvider store={catalogueStore}>
           <ItemView item={CATALOGUE_USER_LONG} root="/workspace" />
@@ -1579,7 +1737,7 @@ const MessageBoard = () => (
 )
 
 export const DialogBoard = () => {
-  const [open, setOpen] = useState<null | 'plain' | 'form' | 'confirm' | 'approval' | 'lightbox'>(null)
+  const [open, setOpen] = useState<null | 'plain' | 'form' | 'confirm' | 'approval' | 'board-tool-approval' | 'lightbox'>(null)
   const [name, setName] = useState('')
   const [ceiling, setCeiling] = useState<'read' | 'edit' | 'publish' | 'merge' | 'unavailable'>('read')
   return (
@@ -1592,6 +1750,7 @@ export const DialogBoard = () => {
             Delete conversation
           </Button>
           <Button variant="outline" onClick={() => setOpen('approval')}>Approval</Button>
+          <Button variant="outline" onClick={() => setOpen('board-tool-approval')}>Approval · board tool</Button>
           <Button variant="outline" onClick={() => setOpen('lightbox')}>Lightbox</Button>
         </Case>
       </div>
@@ -1681,6 +1840,27 @@ export const DialogBoard = () => {
           <ApprovalMeta label="in">/workspace</ApprovalMeta>
         </ApprovalDialog>
       )}
+      {open === 'board-tool-approval' && (
+        <div className={styles.stack}>
+          {BOARD_TOOL_FRAMES.map(({ state, caseId }) => {
+            const frame = boardToolFrame(state, () => setOpen(null))
+            return (
+              <div key={state} data-catalog-case={caseId}>
+                <ApprovalDialog
+                  title="Permission"
+                  icon={<PluginIcon size={16} />}
+                  focused
+                  focusKey={`catalog-board-tool-${state}`}
+                  placement="docked"
+                  actions={frame.actions}
+                >
+                  <ApprovalReason title={frame.note.title}>{frame.note.text}</ApprovalReason>
+                </ApprovalDialog>
+              </div>
+            )
+          })}
+        </div>
+      )}
       {open === 'lightbox' && (
         <Lightbox
           images={[{ url: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="320" height="180"%3E%3Crect width="320" height="180" fill="%235b8def"/%3E%3C/svg%3E', name: 'Synthetic catalog image' }]}
@@ -1717,6 +1897,17 @@ export const DialogBoard = () => {
                 }} />
               </div>
             ))}
+          </div>
+        </Case>
+        <Case label="member name: a member inside a sentence wears its face and the strong ink">
+          <div className={styles.stack} data-catalog-case="member-name">
+            <span>
+              <MemberName name="Alpha" tint="violet" mark={<PluginIcon size={10} />} /> is working
+            </span>
+            <span>
+              <MemberName name="Alpha" tint="violet" mark={<PluginIcon size={10} />} />,{' '}
+              <MemberName name="Beta" tint="green" mark={<PluginIcon size={10} />} /> are not open; sending opens them too.
+            </span>
           </div>
         </Case>
         <Case label="publication card">
@@ -1872,7 +2063,8 @@ const ChannelBoard = () => (
     </Case>
 
     <p className={styles.rule}>
-      One density, and the transcript&rsquo;s parts. Each row is a transcript
+      One density, and the transcript&rsquo;s parts. Sender names are semibold; expected delivery
+      stays off the visible header line and is available from the timestamp title and screen-reader text. Each row is a transcript
       item &mdash; a grouped message and a board event are its light register
       &mdash; the face is the room&rsquo;s identity tile on the sender&rsquo;s
       tint, the attribution is one run of facts at the left (name, who it

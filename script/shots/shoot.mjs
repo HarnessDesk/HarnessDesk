@@ -1994,14 +1994,32 @@ rules:
     await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
     await sleep(250)
   }
-  SCENES['workspace-hover'] = { leaveOverlay: true, hover: '[data-slot="sidebar-menu-item"]:has(> [data-slot="sidebar-menu-button"][aria-expanded]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]', run: async () => {
+  const workspaceHoverAction = '[data-slot="sidebar-menu-item"]:has(> [data-slot="sidebar-menu-button"][aria-expanded]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]'
+  SCENES['workspace-hover'] = { leaveOverlay: true, hover: workspaceHoverAction, run: async () => {
     await stageSidebarMarks()
-    await hover('[data-slot="sidebar-menu-item"]:has(> [data-slot="sidebar-menu-button"][aria-expanded]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]')
+    // Keep this scene on the two-action project head. The pinned head is a
+    // separate mark-plus-actions state in the preview and sidebar browser tests.
+    await cdp.eval(`(${STORE}).setListPrefs({ pinned: [] })`)
+    await sleep(300)
+    await hover(workspaceHoverAction)
   } }
-  SCENES['session-hover'] = { leaveOverlay: true, hover: '[data-slot="sidebar-menu-item"]:has([role="img"][aria-label^="Worktree "]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]', run: async () => {
+  const sessionHoverAction = '[data-region="session-row"] [data-slot="sidebar-menu-item"][data-sidebar-trailing-marks="0"] > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]'
+  SCENES['session-hover'] = { leaveOverlay: true, hover: sessionHoverAction, run: async () => {
     await stageSidebarMarks()
-    const selector = '[data-slot="sidebar-menu-item"]:has([role="img"][aria-label^="Worktree "]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]'
-    await hover(selector)
+    // Marked conversations are exercised at every width by the browser rail
+    // suite. Keep this native action-placement scene on an ordinary row so
+    // the check measures the action rail without a moved mark occupying it.
+    await cdp.eval(`(() => {
+      const store = ${STORE}, real = store.transport.request.bind(store.transport)
+      store.transport.request = async (method, params) => {
+        const result = await real(method, params)
+        if (method !== 'session/list') return result
+        return { ...result, data: result.data.map(row => ({ ...row, repo: row.repo ? { ...row.repo, worktree: false } : row.repo, folderGone: false })) }
+      }
+      return store.loadHistory({ reset: true })
+    })()`)
+    await sleep(700)
+    await hover(sessionHoverAction)
   } }
   /**
    * "Review uncommitted changes", on the native Codex adapter over its

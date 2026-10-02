@@ -125,3 +125,42 @@ it('reports a failed ceiling preference write', async () => {
   expect(messages()[0]).toContain('What happens when a ceiling cannot be held could not be saved')
   expect(messages()[0]).toContain('the host is not taking writes')
 })
+
+it('keeps the shape of faces like every other appearance preference, and reads it back', async () => {
+  const asked: Array<{ method: string; params: unknown }> = []
+  // The host's file: what is written is what is read back, and nothing else.
+  const stored: Record<string, unknown> = {}
+  vi.mocked(store.transport.request).mockImplementation((async (method: string, params: unknown) => {
+    asked.push({ method, params })
+    if (method === 'app/state/set') Object.assign(stored, (params as { patch: Record<string, unknown> }).patch)
+    return method === 'app/state/get' ? stored : null
+  }) as never)
+
+  expect(store.getSnapshot().faces).toBe('square')
+  store.setFaces('round')
+  expect(store.getSnapshot().faces).toBe('round')
+  await vi.waitFor(() => expect(asked).toContainEqual({ method: 'app/state/set', params: { patch: { faces: 'round' } } }))
+  expect(stored['faces']).toBe('round')
+
+  // A fresh window reads it back; a value this build does not know is ignored,
+  // never trusted onto the body.
+  const fresh = new AppStore('ws://localhost:0/')
+  vi.spyOn(fresh.transport, 'request').mockImplementation((async (method: string) =>
+    method === 'app/state/get' ? stored : null) as never)
+  await fresh.loadPreferences()
+  expect(fresh.getSnapshot().faces).toBe('round')
+  stored['faces'] = 'hexagon'
+  const other = new AppStore('ws://localhost:0/')
+  vi.spyOn(other.transport, 'request').mockImplementation((async (method: string) =>
+    method === 'app/state/get' ? stored : null) as never)
+  await other.loadPreferences()
+  expect(other.getSnapshot().faces).toBe('square')
+})
+
+it('says so when the shape of faces does not reach the host', async () => {
+  refuse = true
+  store.setFaces('round')
+  await vi.waitFor(() => expect(messages()).toHaveLength(1))
+  expect(messages()[0]).toContain('The shape of faces could not be saved')
+  expect(store.getSnapshot().faces).toBe('round')
+})

@@ -2,7 +2,7 @@ import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback, AvatarImage } from './avatar'
-import { softTint, tintFor } from './tone'
+import { softTint, solidTint, tintFor } from './tone'
 
 /**
  * Who is on this, in the width of one avatar and a bit.
@@ -64,8 +64,12 @@ type AvatarStackProps = Omit<React.ComponentProps<'div'>, 'children'> & {
   /** How many faces before the rest become a count. */
   max?: number
   size?: 'sm' | 'default'
-  /** Circles read as people, squares as things. The app's default is squares. */
-  shape?: 'square' | 'round'
+  /**
+   * A face is someone, so it follows the person's choice for faces
+   * (`--hd-face-radius`, solid like every other face). `square` and `round`
+   * are fixed corners for a stack that is not a face.
+   */
+  shape?: 'face' | 'square' | 'round'
 }
 
 const AvatarStack = ({
@@ -73,13 +77,13 @@ const AvatarStack = ({
   members,
   max = 4,
   size = 'default',
-  shape = 'square',
+  shape = 'face',
   ...props
 }: AvatarStackProps) => {
   const shown = members.slice(0, max)
   const overflow = members.length - shown.length
   const box = size === 'sm' ? 'size-5 text-xs' : 'size-6 text-xs'
-  const corner = shape === 'round' ? 'rounded-full' : 'rounded-md'
+  const corner = shape === 'face' ? 'rounded-(--hd-face-radius)' : shape === 'round' ? 'rounded-full' : 'rounded-md'
 
   return (
     <div
@@ -100,6 +104,7 @@ const AvatarStack = ({
              be relied on to read. */
           role="img"
           aria-label={member.name}
+          data-shape={shape}
           className={cn(box, corner, 'border border-(--hd-card) bg-(--hd-card)')}
         >
           {/* The root carries the name, so the image must not repeat it. */}
@@ -109,7 +114,7 @@ const AvatarStack = ({
             className={cn(
               corner,
               'font-medium [&_svg]:size-3.5',
-              softTint({ tint: tintFor(member.name) }),
+              shape === 'face' ? solidTint({ tint: tintFor(member.name) }) : softTint({ tint: tintFor(member.name) }),
             )}
           >
             {member.mark ?? member.initials ?? initialsFor(member.name)}
@@ -118,6 +123,7 @@ const AvatarStack = ({
       ))}
       {overflow > 0 && (
         <span
+          data-shape={shape}
           title={members
             .slice(max)
             .map((member) => member.name)

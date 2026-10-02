@@ -107,8 +107,12 @@ macOS's 104-byte `sun_path` limit and crashes the runtime rather than failing
 the test cleanly.
 
 Open the PR, wait for CI, and land it through `node script/land-safe.mjs
-<pr> [--repo owner/name]`. The script reads check-runs for the PR's current
-head SHA, requires `Build, typecheck, test`, `UI system browser integration`
+<pr> --head <sha> [--repo owner/name]`, where `<sha>` is the full commit that
+was reviewed. It refuses (exit 2, saying why) unless the PR is still at that
+commit, so a push after the approving review is never merged unreviewed; that
+same commit is what it hands to the merge. `--any-head` instead lands whatever
+head is green now and says so in a warning; naming neither is an error. The
+script reads check-runs for the PR's head SHA, requires `Build, typecheck, test`, `UI system browser integration`
 and `UI system native integration` to have completed successfully, and checks
 that both the head and base branch tip stayed put
 before it asks GitHub to squash-merge that exact head. This avoids the stale
@@ -123,6 +127,23 @@ default rather than the app's own, with the element's box sized correctly
 either way) is worth one re-run before treating it as real — CI here has
 shown that flake more than once on a cold runner. Anything else, treat as
 real.
+
+Post every review round to its PR with `node script/post-review.mjs <pr>
+--round <n> --by "<model effort>" [--file <result.md>]` (or pipe the result
+on stdin). Use `--fixes <file>` (for example, `--fixes fixes.md`) for the
+follow-up comment, and name the commit that contains each fix so the review
+trail stays tied to the code.
+The script signs and sanitizes review text, refuses any remaining private
+paths, real email addresses or credential shapes (it reuses the detector in
+`script/check-secrets.mjs`, and reports a credential by line and label only,
+never the value), and supports `--dry-run` to inspect the body and command
+before posting.
+
+It is a safety net on top of a human read, not a replacement for one. Known
+limits: names and handles are not machine-checked, an all-lowercase
+value after a weak key name (token, session id) reads as prose and is not recognised as a secret, and a determined
+evasion (look-alike characters, a bespoke encoding) can get past a pattern check. The
+poster reads the text before posting.
 
 **Prove the merge changed nothing**, so the build below doesn't have to wait
 on CI to finish before it can start:

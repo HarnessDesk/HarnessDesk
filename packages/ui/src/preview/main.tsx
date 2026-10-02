@@ -32,7 +32,7 @@ import { RemoveWorktree } from './../components/RemoveWorktree'
 import { Sidebar } from '../components/Sidebar'
 import { TeamBoardPane } from '../components/TeamBoardPane'
 import { TeamRoomPane } from '../components/TeamRoomPane'
-import { NativeSelect } from '../design'
+import { ApprovalDialog, ApprovalReason, NativeSelect } from '../design'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
 import { AppWindowMode } from '../components/AppWindow'
@@ -58,6 +58,7 @@ import { PREVIEW_FLOW_GOAL, PREVIEW_GOAL, PREVIEW_TRIGGER_GOAL } from './goal-fi
 import { GOAL_INTAKE_SCENES, sceneArmPreview, sceneGoalStatus, triggerFiring, triggerHistoryPage, triggerProjectView, TRIGGER_ARM_SCENES, type GoalIntakeScene, type TriggerArmScene } from './intake-fixture'
 import { FLOW_EXECUTION_SCENES, sceneFlowExecution, type FlowExecutionScene } from './flow-fixture'
 import { COMPOSER_SESSION_KEY, composerStore } from './composer-fixture'
+import { BOARD_TOOL_FRAMES, boardToolFrame } from './approval-fixture'
 import { MessageQueue } from '../components/MessageQueue'
 import { GoalFrames } from './frames-goals'
 import { PanelFrames } from './frames-panels'
@@ -65,6 +66,8 @@ import { CoverageFrames } from './frames-coverage'
 import { PersonReviewBoard } from '../design/surfaces/surfaces'
 import { SettingsFrames } from './frames-settings'
 import { TranscriptFrames } from './frames-transcript'
+import { LibraryDevFrames } from './frames-library-dev'
+import { LibraryOptionFrames } from './frames-library-options'
 import { SideBySideFrames } from './frames-side-by-side'
 import { ComposerSlotsFrames } from './frames-composer-slots'
 import '../styles/app.css'
@@ -85,7 +88,13 @@ const SHOW_DENSE = new URLSearchParams(window.location.search).has('dense')
    `preview.html?side-by-side`; the design page's own board draws the grid
    for the coverage sweep. */
 const SHOW_SIDE_BY_SIDE = new URLSearchParams(window.location.search).has('side-by-side')
+/* The Library's UX option mockups are a design record for the owner, not a
+   shipped surface: they render only on `preview.html?library-options`, so the
+   default page the UI-system census reads holds shipped components alone.
+   Phase 1 of the Library plan deletes them once the real components exist. */
+const SHOW_LIBRARY_OPTIONS = new URLSearchParams(window.location.search).has('library-options')
 const SHOW_COMPOSER_SLOTS = new URLSearchParams(window.location.search).has('composer-slots')
+const SHOW_BOARD_TOOL_APPROVALS = new URLSearchParams(window.location.search).has('board-tool-approvals')
 /* Which of the Dashboard's five rail rows the preview frame opens on — the
    rig's own way to shoot each view without clicking through the rail by
    hand: `preview.html?view=spend`. Falls back to the dial beside the frame. */
@@ -483,6 +492,12 @@ const Preview = () => {
           onChange={(next) => store.setCorners(next)}
         />
         <Dial
+          label="faces"
+          value={snapshot.faces}
+          options={['square', 'round'] as const}
+          onChange={(next) => store.setFaces(next)}
+        />
+        <Dial
           label="dialog"
           value={dialog}
           options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed', 'run a check', 'flow update', 'flow customize', 'race', 'trigger arm'] as const}
@@ -571,6 +586,22 @@ const Preview = () => {
           <TeamBoardPane room={PREVIEW_ROOM} />
         </div>
       </Frame>
+
+      {/* The two real permission-card states shown by the design catalogue:
+          Gemini offered an allow-always choice, or its permanent approval
+          setting is off. */}
+      {SHOW_BOARD_TOOL_APPROVALS && <div className="grid grid-cols-3 gap-4">
+        {BOARD_TOOL_FRAMES.map(({ state, caseId, title }) => {
+          const frame = boardToolFrame(state, () => {})
+          return (
+            <Frame key={state} id={caseId} title={title}>
+              <ApprovalDialog title="Permission" icon={null} focused={false} focusKey={`preview-board-tool-${state}`} placement="docked" actions={frame.actions}>
+                <ApprovalReason title={frame.note.title}>{frame.note.text}</ApprovalReason>
+              </ApprovalDialog>
+            </Frame>
+          )
+        })}
+      </div>}
       <Frame id="board-person-review" title="Board — choose an attempt for the person judge">
         <div className="h-[560px]">
           <PersonReviewBoard />
@@ -976,6 +1007,8 @@ const Preview = () => {
           <LibrarySection />
         </div>
       </Frame>
+      {SHOW_LIBRARY_OPTIONS && <LibraryDevFrames />}
+      {SHOW_LIBRARY_OPTIONS && <LibraryOptionFrames />}
       <Frame id="settings-appearance" title="Settings › Appearance">
         <div className="p-4">
           <AppearanceSection />

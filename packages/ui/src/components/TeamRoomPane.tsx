@@ -55,7 +55,7 @@ import { AddMember } from './AddMember'
 import { MemberHoverCard, type MemberCardFacts } from './AgentCards'
 import { Approvals } from './Approvals'
 import { Conversation } from './Conversation'
-import { SideBySide, type TileEntry } from './SideBySide'
+import { SideBySide, sideBySideTileEntry } from './SideBySide'
 import { ChannelStream, readChannel } from './Channel'
 import { RoomComposer, type RoomComposerHandle } from './RoomComposer'
 import { TeamBoardPane } from './TeamBoardPane'
@@ -81,6 +81,7 @@ import {
   HoverCardContent,
   HoverCardTrigger,
   IconTile,
+  MemberName,
   KeyValue,
   KeyValueRow,
   ListRow,
@@ -1301,18 +1302,17 @@ export const TeamRoomPane = ({
                 const member = memberOf(key)
                 return member ? { nickname: member.nickname, agent: member.agent, model: member.model ?? undefined } : undefined
               }}
-              entryOf={(key): TileEntry | null => {
+              entryOf={(key) => {
                 const entry = roster.find((one) => one.key === key)
                 if (!entry) return null
-                const last = snapshot.sessions.get(key)?.turns.at(-1)?.status
-                return {
+                return sideBySideTileEntry({
                   tint: entry.tint,
                   brand: entry.brand,
                   busy: entry.busy,
                   waitingForYou: snapshot.approvals.some((approval) => approval.key === key),
                   ceiling: entry.ceiling,
-                  ...(last === 'completed' ? { ended: 'done' as const } : last === 'interrupted' || last === 'failed' ? { ended: 'stopped' as const } : {}),
-                }
+                  lastTurnStatus: snapshot.sessions.get(key)?.turns.at(-1)?.status,
+                })
               }}
               onOpenMember={(key) => show(key)}
               conversationProps={{ onChooseProject, onSignIn, onOpenUsage, onOpenRuntimes }}
@@ -1337,7 +1337,7 @@ export const TeamRoomPane = ({
                     <Bar as="header" rule="bottom" className={styles.columnHead}>
                       <MemberCard entry={entry} side="bottom" className={styles.columnWho}>
                         <span className={styles.columnMark}>
-                          <IconTile size="sm" tint={entry?.tint ?? 'blue'}>
+                          <IconTile size="sm" shape="face" tint={entry?.tint ?? 'blue'}>
                             {entry?.brand ? <BrandMark brand={entry.brand} size={13} /> : <AgentIcon />}
                           </IconTile>
                           {entry?.busy && <Dot state="ready" variant="presence" pulse aria-hidden />}
@@ -1631,7 +1631,7 @@ const MemberRow = ({
            the second line, and to a screen reader below; the dimming is the
            glance. */
         <span className={styles.memberMark} {...(member.here ? {} : { 'data-away': '' })}>
-          <IconTile size="sm" tint={member.tint}>
+          <IconTile size="sm" shape="face" tint={member.tint}>
             {member.brand ? <BrandMark brand={member.brand} size={13} /> : <AgentIcon />}
           </IconTile>
           {/* Working is a light, not a word. Announced to a screen reader on
@@ -1952,7 +1952,12 @@ const RoomLiveLine = ({
           data-slot="room-live-line"
           {...(elapsed !== null ? { trail: ` · ${formatDuration(elapsed)}` } : {})}
         >
-          {subject.peer.nickname} is working
+          <MemberName
+            name={subject.peer.nickname}
+            tint={subject.tint}
+            mark={subject.brand ? <BrandMark brand={subject.brand} size={10} /> : <AgentIcon size={10} />}
+          />{' '}
+          is working
         </TurnWorkLive>
       )
     }
@@ -1964,7 +1969,12 @@ const RoomLiveLine = ({
       >
         <Dot state="limit" pulse />
         <span>
-          {subject.peer.nickname} is waiting for your approval
+          <MemberName
+            name={subject.peer.nickname}
+            tint={subject.tint}
+            mark={subject.brand ? <BrandMark brand={subject.brand} size={10} /> : <AgentIcon size={10} />}
+          />{' '}
+          is waiting for your approval
           {allWaiting.length > 1 && ` · ${allWaiting.length - 1} more`}
         </span>
       </TurnWorkLive>
@@ -2326,15 +2336,14 @@ const Room = ({
           different is what is genuinely different: the audience, which lives
           with the words because choosing it is part of writing the message. */}
       <ComposerDock>
-        {/* The thread's own tail, docked with the composer in the same
-            reading column the stream hangs in: one live line, then two
-            different failures, both said out loud. `problem` is the host's:
+        {/* The thread's own failures, docked with the composer in the same
+            reading column the stream hangs in (its live line is the first
+            line of the composer's tail, below). `problem` is the host's:
             it could not keep the board, so what is on screen may not survive
             a restart — the person needs to know before they act on it.
             `trouble` is this surface's: the last thing you pressed did not
             land. */}
         <div className={styles.tail}>
-          <RoomLiveLine members={members} snapshot={snapshot} now={now} triggerStatus={triggerStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} />
           {/* A failure is the conversation's own drawing for an action
               that did not land in the tail: one role, one drawing. */}
           {problem && <ActionError>{problem}</ActionError>}
@@ -2369,43 +2378,46 @@ const Room = ({
             </PaneProvider>
           )}
           {/* Mounted whatever holds the slot, and only hidden under the
-              card: an approval arriving mid-sentence must not throw away
-              the words or the audience being written — they are this
-              component's own state, and unmounting it was the loss. */}
-          <div hidden={pendingApproval !== null}>
-              <RoomComposer
-                /* Keyed by the room, so moving between rooms is a new box
-                   rather than the old one being talked out of its state. The
-                   audience prunes itself against the new roster either way,
-                   but the *words* would have come along — a half-written
-                   line to one room appearing in another, one keystroke from
-                   being sent there. */
-                key={room}
-                ref={composer}
-                room={room}
-                members={loaded ? members : null}
-                messaging={messaging}
-                /* The same card the rail and the chat draw, off the same one
-                   reader. `Open` is the only verb worth offering on a chip:
-                   the member is already addressed, so Message would be the
-                   greyed verb the card refuses to draw, and removing them is
-                   the ✕ they already carry. */
-                card={(key, node) => {
-                  const entry = members.find((one) => one.key === key)
-                  if (!entry) return node
-                  return (
-                    <MemberHoverCard
-                      member={cardFacts(entry)}
-                      actions={[{ label: 'Open', onSelect: () => onShow(entry.key), primary: true }]}
-                    >
-                      {node}
-                    </MemberHoverCard>
-                  )
-                }}
-                onTrouble={setTrouble}
-                onPosted={toFloor}
-              />
-          </div>
+              card (`suspended`): an approval arriving mid-sentence must not
+              throw away the words or the audience being written — they are
+              this component's own state, and unmounting it was the loss.
+              The live line rides in with it (`statusLine`) so the tail over
+              the box is one strip, and it stays visible under an approval,
+              where it says who is waiting. */}
+          <RoomComposer
+            /* Keyed by the room, so moving between rooms is a new box rather
+               than the old one being talked out of its state. The audience
+               prunes itself against the new roster either way, but the
+               *words* would have come along — a half-written line to one
+               room appearing in another, one keystroke from being sent
+               there. */
+            key={room}
+            ref={composer}
+            room={room}
+            members={loaded ? members : null}
+            messaging={messaging}
+            statusLine={<RoomLiveLine members={members} snapshot={snapshot} now={now} triggerStatus={triggerStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} />}
+            suspended={pendingApproval !== null}
+            /* The same card the rail and the chat draw, off the same one
+               reader. `Open` is the only verb worth offering on a chip: the
+               member is already addressed, so Message would be the greyed
+               verb the card refuses to draw, and removing them is the ✕ they
+               already carry. */
+            card={(key, node) => {
+              const entry = members.find((one) => one.key === key)
+              if (!entry) return node
+              return (
+                <MemberHoverCard
+                  member={cardFacts(entry)}
+                  actions={[{ label: 'Open', onSelect: () => onShow(entry.key), primary: true }]}
+                >
+                  {node}
+                </MemberHoverCard>
+              )
+            }}
+            onTrouble={setTrouble}
+            onPosted={toFloor}
+          />
           {/* The footer strip stays put under whichever of the two holds the
               slot: what a run has left to spend is as true while it waits on
               a person as while it works. */}

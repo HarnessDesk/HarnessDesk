@@ -71,6 +71,7 @@ interface AgentTemplate {
   readonly name: string
   readonly brand?: string
   readonly tagline?: string
+  readonly perToolMcpApproval?: AcpAgentConfig['perToolMcpApproval']
   readonly bridge?: string
   /** Its bridge proves which MCP server asked for a permission; see `AcpAgentConfig.trustsBridgeProvenance`. */
   readonly provesToolProvenance?: boolean
@@ -165,6 +166,7 @@ const TEMPLATES: readonly AgentTemplate[] = [
     name: 'Gemini CLI',
     brand: 'geminicli',
     tagline: "Google's Gemini CLI, speaking ACP directly.",
+    perToolMcpApproval: { permanentApprovalSetting: 'security.enablePermanentToolApproval' },
     command: 'gemini',
     // `--acp` since 0.58; the install service starts an older copy with the
     // flag it knows, and the row's own spelling is only the last resort.
@@ -258,6 +260,7 @@ const expandTemplate = (
     name: template.name,
     ...(template.brand ? { brand: template.brand } : {}),
     ...(template.tagline ? { tagline: template.tagline } : {}),
+    ...(template.perToolMcpApproval ? { perToolMcpApproval: template.perToolMcpApproval } : {}),
     ...(template.account ? { account: template.account } : {}),
     ...(template.secrets ? { secrets: template.secrets } : {}),
     ...(template.executable ? { executable: template.executable } : {}),

@@ -45,6 +45,12 @@ export const turnMethods = {
     return null
   },
 
+  'turn/queue/update': (ctx, params) => {
+    const record = ctx.sessions.record(params)
+    ctx.queue.update(record, params.id, params.input)
+    return null
+  },
+
   'turn/queue/move': (ctx, params) => {
     const record = ctx.sessions.record(params)
     ctx.registry.moveQueued(record, params.id, params.to)

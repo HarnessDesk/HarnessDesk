@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type CSSProperties, type Dispatch, type SetStateAction } from 'react'
-import type { SessionKey } from '@harnessdesk/protocol'
+import type { SessionKey, Turn } from '@harnessdesk/protocol'
 
 import {
   columnsThatFit,
@@ -52,6 +52,24 @@ export type TileEntry = {
   /** What it may do unasked, when held under a ceiling — the safety fact the conversation's own header carried. */
   readonly ceiling?: SeatCeilingShown | null
 }
+
+/** Resolve the room facts into the entry the shipped tile draws. */
+export const sideBySideTileEntry = (
+  entry: Pick<TileEntry, 'tint' | 'brand' | 'busy' | 'waitingForYou' | 'ceiling'> & {
+    readonly lastTurnStatus?: Turn['status']
+  },
+): TileEntry => ({
+  tint: entry.tint,
+  brand: entry.brand,
+  busy: entry.busy,
+  waitingForYou: entry.waitingForYou,
+  ceiling: entry.ceiling,
+  ...(entry.lastTurnStatus === 'completed'
+    ? { ended: 'done' as const }
+    : entry.lastTurnStatus === 'interrupted' || entry.lastTurnStatus === 'failed'
+      ? { ended: 'stopped' as const }
+      : {}),
+})
 type ConversationProps = ComponentProps<typeof Conversation>
 
 export const SideBySide = ({
@@ -247,7 +265,7 @@ export const SideBySide = ({
                 {card(key, (
                   <span className={styles.member}>
                     <span className={styles.mark}>
-                      <IconTile size="sm" tint={entry?.tint ?? 'blue'}>
+                      <IconTile size="sm" shape="face" tint={entry?.tint ?? 'blue'}>
                         {entry?.brand ? <BrandMark brand={entry.brand} size={13} /> : <AgentIcon />}
                       </IconTile>
                       {entry?.busy && <Dot state="ready" variant="presence" pulse aria-hidden />}
