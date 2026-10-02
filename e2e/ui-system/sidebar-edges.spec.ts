@@ -331,14 +331,18 @@ test('worktree and missing-folder glyphs use the end rail without moving the lab
       const action = row.locator('[data-slot="sidebar-menu-action"]')
       const labelBox = row.locator('[data-slot="sidebar-menu-label"]')
       await row.scrollIntoViewIfNeeded()
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+      await page.mouse.move(0, 0)
       const restGlyph = await box(glyph)
       const restInk = await box(glyph.locator('svg'))
       const restLabel = await box(labelBox)
       const sidebarBox = await box(sidebar)
       const countBox = await box(count)
       const endColumn = sidebarBox.x + sidebarBox.width - 32
-      const pairedMark = await row.locator('[data-slot="sidebar-menu-badge"][role="img"]').count() > 1
-      const markColumn = endColumn - (label.startsWith('Folder is gone') && pairedMark ? 24 : 0)
+      const activitySlot = await row.locator('[data-slot="sidebar-menu-badge"] [data-live]').count()
+      const worktreeSlot = label.startsWith('Folder is gone') ? await row.locator('[data-slot="sidebar-menu-badge"][aria-label^="Worktree "]').count() : 0
+      const offset = (activitySlot + worktreeSlot) * 24
+      const markColumn = endColumn - offset
 
       await row.hover()
       await expect(action).toBeVisible()
@@ -357,7 +361,7 @@ test('worktree and missing-folder glyphs use the end rail without moving the lab
       const actionTarget = actionBox.width
 
       expect(Math.abs(restInk.x + restInk.width / 2 - markColumn), `${label} visible ink centre misses its end-column slot at ${width}px`).toBeLessThanOrEqual(1)
-      expect(Math.abs(restGlyph.x + restGlyph.width / 2 - (countBox.x + countBox.width / 2) + (label.startsWith('Folder is gone') && pairedMark ? 24 : 0)), `glyph slot misses its count-column slot at ${width}px`).toBeLessThanOrEqual(1)
+      expect(Math.abs(restGlyph.x + restGlyph.width / 2 - (countBox.x + countBox.width / 2) + offset), `glyph slot misses its count-column slot at ${width}px`).toBeLessThanOrEqual(1)
       expect(Math.abs(actionInk.x + actionInk.width / 2 - endColumn), `${label} action glyph misses the end rail at ${width}px`).toBeLessThanOrEqual(1)
       expect(actionBox.x, `action begins outside sidebar at ${width}px`).toBeGreaterThanOrEqual(sidebarBox.x)
       expect(actionBox.x + actionBox.width, `action exceeds sidebar inset at ${width}px`).toBeLessThanOrEqual(sidebarBox.x + sidebarBox.width - 20 + 1)
