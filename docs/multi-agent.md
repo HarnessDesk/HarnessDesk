@@ -444,7 +444,12 @@ contracts out of order.
 Closing a review round records the verdict on the board; it does not post from
 the reviewer Seat. The desk handles publication after the round closes,
 according to the person's per-Goal posting setting (on by default for a bound
-pull request).
+pull request). The latest locally observed pull request binds the Goal; a tie
+in observation time uses the later appended record. Earlier observations of
+other pull requests cannot block later rounds, and a latest closed or merged
+pull request leaves no open binding. Restored observations do not bind it. A
+round already prepared for posting keeps its original target; rebinding does
+not repost it.
 
 If an agent must abandon a task, it calls `release_claim(intent, reason?,
 blocked?)`:
