@@ -62,7 +62,10 @@ a chat and without a hand step.** Three claims anyone can check:
   Goal's Seats. A Team whose Flow wrote and reviewed reads "Agents 0", and its
   two conversations sit loose under the project.
 - **A finished Seat keeps its runtime's process running.** The host stops a
-  runtime that has been idle, but counts an open Seat as work: `#runtimeIsIdle`
+  runtime that has been idle, but counts an open Seat as work, and stopping
+  also needs the adapter: `stopForIdle` is optional on `AgentRuntime`, only the
+  ACP adapter implements it, and it refuses while it holds any session of its
+  own. On the host's side: `#runtimeIsIdle`
   in `host.ts` is false while any Seat on the runtime is not closed, and also
   while any of its conversations holds a live handle. Nothing in the engine
   closes a Seat when its card is done; wrapping the Team (`closeSeats`) or a
@@ -172,8 +175,10 @@ a Seat once its work is done:
   shows a Seat without a process as missing.
 - **After the Team ends** it folds into *Ready to wrap* (decision 8). **Wrap**
   turns it into a read-only record: its Seats, conversations and Run
-  timelines stay viewable, and nothing more is dispatched. Deleting is a
-  separate action, and deleted items go to the Trash.
+  timelines stay viewable, and nothing more is dispatched. Wrapping closes the
+  Seats, so the receipt has to remember each one's conversation for the record
+  to stay openable (host change 9). Deleting is a separate action, and deleted
+  items go to the Trash.
 
 ![The Teams page](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/teams-list-light.png)
 
@@ -212,7 +217,7 @@ default once a Flow runs on it (a Team with no Flow still opens on Chat).
 - **The seats table** has one row per seat: face and name, role, the card it
   holds, the round, its state, what it is doing, how long it has been in that
   state, and what it has cost. Rows sort by precedence, then card number.
-  *Idle* is quiet text, not a chip: a resting state costs no colour.
+  *Idle* and *Done* are quiet text, not chips: a resting state costs no colour.
 
 State, in the words the app already uses:
 
@@ -222,6 +227,7 @@ State, in the words the app already uses:
 | **Unread** | Something from this seat arrived since you last opened its conversation. | Window only. The command line shows three states. |
 | **Working** | A turn is running, or it holds a claimed card. | |
 | **Idle** | Anything else. A seat whose card waits on another (`blockedBy: graph`) is idle, and its card cell says "after #2". | |
+| **Done** | Idle, and every card the seat held is done, with no question, approval, unread mark or running turn. | A resting state like Idle: quiet text, no chip, no colour. The Overview folds the done seats into one line; the rail's Agents list keeps their rows. |
 
 **The "doing" line** is a sentence built from the seat's latest tool call by
 the one lookup the interface already has for tool names. Four rules keep it
@@ -619,9 +625,18 @@ commit, and none of them ships a surface by itself:
    approval, no queued message and no running task, idle past a set time, lets
    go of its conversation's live handle, and no longer holds its runtime open
    in `#runtimeIsIdle`. Its record stays open, so it stays a member and stays
-   listed. A message, or opening the conversation, reconnects it through the
+   listed. Only a runtime that can resume a conversation and can stop its
+   process on idle takes part: the host releases the conversation through the
+   session's own `close()`, which must also drop it from the adapter's session
+   map (or `stopForIdle` refuses), and reopens it with `resumeSession`. On
+   every other runtime the process keeps running and what the person sees is
+   unchanged. A message, or opening the conversation, reconnects it through the
    path a restarted agent's members already use (`detached`, reopened by the
    next delivery). It never closes the Seat and never changes a card.
+9. The receipt remembers each Seat's conversation: `GoalReceiptMember.session`,
+   written at wrap from the Seat's own record, so a wrapped Team's Seats can
+   still be opened. A receipt wrapped earlier falls back to the session of a
+   Seat that answered, and otherwise lists the Seat without a link.
 
 ## Phasing
 
@@ -643,6 +658,7 @@ Small pull requests, each usable on its own, each with its catalogue boards
 4. The controls: stop, run a check again, answer, abandon, open the pull
    request, *Run again…*, and the end banner's doors.
 5. The Teams page, folding, and the brief field.
+6. A wrapped Team as a read-only record: its Seats' conversations remembered by the receipt, and nothing dispatchable.
 
 **Phase 2: the record gets richer.**
 
