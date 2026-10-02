@@ -376,9 +376,34 @@ const requirementsFromRulesets = (value: unknown): RequiredCheck[] | null => {
   return requirements
 }
 
-/** Classic 404 means the branch has no classic protection configuration. */
-const isClassicProtectionAbsent = (error: unknown): boolean =>
-  error instanceof Error && /\bHTTP 404\b/.test(error.message)
+/** Parse the readable classic-protection summary carried by the branch resource. */
+const requirementsFromClassicSummary = (value: unknown): RequiredCheck[] | null => {
+  const branch = recordOf(value)
+  if (!branch || typeof branch.protected !== 'boolean') return null
+  const protection = recordOf(branch.protection)
+  if (!protection || typeof protection.enabled !== 'boolean') return null
+  const statusChecks = recordOf(protection.required_status_checks)
+  if (
+    !statusChecks ||
+    !Array.isArray(statusChecks.contexts) ||
+    !Array.isArray(statusChecks.checks) ||
+    typeof statusChecks.enforcement_level !== 'string'
+  ) return null
+
+  const requirements: RequiredCheck[] = []
+  for (const context of statusChecks.contexts) {
+    if (typeof context !== 'string' || context.trim() === '') return null
+    requirements.push({ context, integrationId: null })
+  }
+  for (const check of statusChecks.checks) {
+    const requirement = parseCheckRequirement(check, 'app_id')
+    if (!requirement) return null
+    requirements.push(requirement)
+  }
+
+  if (!protection.enabled || statusChecks.enforcement_level === 'off') return []
+  return requirements
+}
 
 /**
  * Read GitHub's required checks for the PR's base branch. Rulesets and classic
@@ -392,47 +417,45 @@ const readRequiredChecks = async (
 ): Promise<readonly RequiredCheck[] | null> => {
   if (repository === '' || !baseBranch) return null
   const branch = encodeURIComponent(baseBranch)
-  let rulesAnswer: unknown
+  const rulesetRequirements: RequiredCheck[] = []
   let rulesReadable = false
   try {
-    rulesAnswer = JSON.parse(await gh(['api', `repos/${repository}/rules/branches/${branch}`])) as unknown
-    rulesReadable = true
+    let complete = false
+    let pagesRead = 0
+    for (let page = 1; page <= 10; page += 1) {
+      const answer = JSON.parse(await gh([
+        'api',
+        `repos/${repository}/rules/branches/${branch}?per_page=100&page=${page}`,
+      ])) as unknown
+      pagesRead = page
+      if (!Array.isArray(answer) || answer.length > 100) break
+      const pageRequirements = requirementsFromRulesets(answer)
+      if (!pageRequirements) break
+      rulesetRequirements.push(...pageRequirements)
+      if (answer.length < 100) {
+        complete = true
+        break
+      }
+    }
+    rulesReadable = complete && pagesRead < 10
   } catch {
-    // Still read classic protection below; the all-checks fallback is chosen
-    // only after both sources have been attempted.
+    // Still read the branch summary below; either unreadable source keeps the
+    // all-check fallback in force.
   }
 
-  let protectionAnswer: unknown
-  let protectionReadable = false
-  let protectionAbsent = false
+  let classicAnswer: unknown
+  let classicReadable = false
   try {
-    protectionAnswer = JSON.parse(await gh([
-      'api',
-      `repos/${repository}/branches/${branch}/protection/required_status_checks`,
-    ])) as unknown
-    protectionReadable = true
-  } catch (error) {
-    protectionAbsent = isClassicProtectionAbsent(error)
+    classicAnswer = JSON.parse(await gh(['api', `repos/${repository}/branches/${branch}`])) as unknown
+    classicReadable = true
+  } catch {
+    // No response code establishes absence: the conservative all-check gate
+    // remains in force unless the summary itself is readable.
   }
-  if (!rulesReadable || (!protectionReadable && !protectionAbsent)) return null
+  if (!rulesReadable || !classicReadable) return null
 
-  const rulesetRequirements = requirementsFromRulesets(rulesAnswer)
-  if (!rulesetRequirements) return null
-
-  let classicRequirements: RequiredCheck[] = []
-  if (protectionReadable) {
-    const classic = recordOf(protectionAnswer)
-    if (!classic || !Array.isArray(classic.contexts) || !Array.isArray(classic.checks)) return null
-    for (const context of classic.contexts) {
-      if (typeof context !== 'string' || context.trim() === '') return null
-      classicRequirements.push({ context, integrationId: null })
-    }
-    for (const check of classic.checks) {
-      const requirement = parseCheckRequirement(check, 'app_id')
-      if (!requirement) return null
-      classicRequirements.push(requirement)
-    }
-  }
+  const classicRequirements = requirementsFromClassicSummary(classicAnswer)
+  if (!classicRequirements) return null
   const unique = uniqueRequirements([...rulesetRequirements, ...classicRequirements])
   return unique.length > 0 ? unique : null
 }
@@ -850,7 +873,7 @@ export const gitPlugin: HarnessPlugin = {
       ctx.tools.register({
         name: 'pr_merge',
         description:
-          'Merge a pull request, through HarnessDesk, with the person’s own gh — only one you were asked to merge, only at the reviewed commit, and only after every required check on the base branch is green. GitHub rulesets and classic branch protection define the required checks; if they cannot be read, every check on the commit must be green. A missing, pending or failed required check refuses the merge. GitHub also refuses if the branch moved since review. Squash unless told otherwise. Only a seat whose ceiling is merge may call this; the desk refuses it for any other.',
+          'Merge a pull request, through HarnessDesk, with the person’s own gh — only one you were asked to merge, only at the reviewed commit, and only after every required check on the base branch is green. It reads the base branch’s rules and classic protection summary and uses their combined requirements; if either answer cannot be read, every check on the commit must be green. A missing, pending or failed required check refuses the merge. GitHub also refuses if the branch moved since review. Squash unless told otherwise. Only a seat whose ceiling is merge may call this; the desk refuses it for any other.',
         inputSchema: {
           type: 'object',
           properties: {
