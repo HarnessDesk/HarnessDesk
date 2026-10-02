@@ -36,8 +36,10 @@ import { describe, expect, it } from 'vitest'
  * `data-shape`).
  *
  * An entry in the exception list is a claim that what the tile holds is not
- * someone, or that another test pins its shape, and it names why. An entry that
- * matches nothing fails, so the list cannot outlive the thing it excuses.
+ * someone, or that another test pins its shape, and it names why. It also says
+ * how many tiles it excuses, and an entry whose count is not what the source
+ * holds fails: a second tile in the same file is a finding until it is named,
+ * and the list cannot outlive the thing it excuses.
  */
 const AGENT_MARKS = new Set(['BrandMark', 'RuntimeMark', 'AgentIcon'])
 
@@ -105,27 +107,53 @@ const scanFaces = (file: string, source: string): Finding[] => {
   return found
 }
 
+type Exception = { readonly file: string; readonly shape: string; readonly tiles: number; readonly why: string }
+
 /**
  * Tiles that hold an agent's mark and are deliberately not a face. Keyed by the
- * file and the shape the tile can take; each says why it is not someone.
+ * file and the shape the tile can take, and by how many tiles it excuses (a
+ * second one in the same file is a new claim, so it is a finding until named);
+ * each says why it is not someone.
  */
-const NOT_SOMEONE: readonly { readonly file: string; readonly shape: string; readonly why: string }[] = [
+const NOT_SOMEONE: readonly Exception[] = [
   {
     file: 'components/SetupDesk.tsx',
     shape: 'square',
+    tiles: 1,
     why: 'a harness the desk found on this Mac is a thing, so it is a square: a face is an agent at work, and nothing here is working yet',
   },
   {
     file: 'design/patterns/AgentCard.tsx',
     shape: 'dynamic',
+    tiles: 1,
     why: 'the crest follows what its subject is (a harness a square, an account a ring, a session or a member a face), and its mark arrives as a prop; AgentCard.test.tsx pins the shape of each kind',
   },
   {
     file: 'components/Activity.tsx',
     shape: 'face|square',
+    tiles: 1,
     why: 'a row whose agent is known wears its mark as a face; the square branch is an event\'s own glyph, which is not someone',
   },
 ]
+
+/**
+ * What no exception covers, and the exceptions whose count is not what the
+ * source holds: each one excuses its own tiles in turn, so an extra tile in the
+ * same file is unnamed, and an exception that excuses fewer than it says (or
+ * none) is wrong.
+ */
+const settle = (findings: readonly Finding[], exceptions: readonly Exception[]) => {
+  const used = new Map<Exception, number>()
+  const unnamed: Finding[] = []
+  for (const finding of findings) {
+    const entry = exceptions.find(
+      (one) => one.file === finding.file && one.shape === finding.shape && (used.get(one) ?? 0) < one.tiles,
+    )
+    if (entry) used.set(entry, (used.get(entry) ?? 0) + 1)
+    else unnamed.push(finding)
+  }
+  return { unnamed, wrong: exceptions.filter((entry) => (used.get(entry) ?? 0) !== entry.tiles) }
+}
 
 /* Every `.tsx` the app ships, as text: Vite reads them, so this needs no
    filesystem and cannot drift from what the build sees. Tests are not shipped,
@@ -147,18 +175,12 @@ describe('faces: every tile that draws someone is a face', () => {
   const findings = Object.entries(SOURCES).flatMap(([path, source]) =>
     scanFaces(fromSrc(path), source),
   )
-  const excused = (finding: Finding) =>
-    NOT_SOMEONE.some((entry) => entry.file === finding.file && entry.shape === finding.shape)
-
   it('draws no agent in a fixed shape, outside the named exceptions', () => {
-    expect(findings.filter((finding) => !excused(finding))).toEqual([])
+    expect(settle(findings, NOT_SOMEONE).unnamed).toEqual([])
   })
 
   it('keeps no exception that excuses nothing', () => {
-    const stale = NOT_SOMEONE.filter(
-      (entry) => !findings.some((finding) => finding.file === entry.file && finding.shape === entry.shape),
-    )
-    expect(stale).toEqual([])
+    expect(settle(findings, NOT_SOMEONE).wrong).toEqual([])
   })
 
   // A check needs a control that could fail (a scan that finds nothing passes
@@ -176,6 +198,17 @@ describe('faces: every tile that draws someone is a face', () => {
     const prop = scanFaces('x.tsx', 'const a = <IconTile shape={SHAPES[kind]}>{subject.mark}</IconTile>')
     expect(prop.map((finding) => finding.shape)).toEqual(['dynamic'])
     expect(scanFaces('x.tsx', 'const a = <IconTile shape="face">{subject.mark}</IconTile>')).toEqual([])
+  })
+
+  it('excuses exactly the tiles an exception names, and no others in its file', () => {
+    const tile = (line: number): Finding => ({ file: 'a.tsx', line, tag: 'IconTile', shape: 'dynamic' })
+    const entry: Exception = { file: 'a.tsx', shape: 'dynamic', tiles: 1, why: 'x' }
+    // One entry for one tile: a second dynamic tile in the same file is a finding, not a free pass.
+    expect(settle([tile(3), tile(9)], [entry]).unnamed.map((finding) => finding.line)).toEqual([9])
+    expect(settle([tile(3)], [entry])).toEqual({ unnamed: [], wrong: [] })
+    // An entry that says two and finds one, or finds none, is out of date.
+    expect(settle([tile(3)], [{ ...entry, tiles: 2 }]).wrong).toHaveLength(1)
+    expect(settle([], [entry]).wrong).toHaveLength(1)
   })
 
   it('refuses an AvatarStack that is not a face', () => {
