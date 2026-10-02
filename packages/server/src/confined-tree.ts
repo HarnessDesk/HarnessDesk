@@ -24,10 +24,11 @@ import { NOTHING_HERE } from './errno.js'
  *   was replaced; nothing below it is ever resolved again.
  * - Every open below the root uses macOS's `O_NOFOLLOW_ANY` (no named export
  *   in Node; libuv forwards the number), which refuses a link at any
- *   component, the last one included. Where it does not exist, reads walk
- *   each ancestor with `lstat` first and refuse a link there, and every write
- *   refuses outright: the desk ships on macOS, and a weaker write is not
- *   substituted for the one it was built on.
+ *   component, the last one included. On Linux every open walks each
+ *   component with `lstat` first and refuses a link there, then opens with
+ *   `O_NOFOLLOW`. Both enforce the hostile static-tree boundary above;
+ *   neither promises protection against a same-user process swapping paths.
+ *   Other platforms refuse writes.
  * - A file is replaced by writing a synced sibling and renaming it over the
  *   target, then syncing the folder — never by truncating in place — and only
  *   while the target still holds the bytes the caller previewed.
@@ -96,11 +97,14 @@ export class ConfinedTree {
   readonly root: string
   readonly identity: TreeIdentity
   readonly #anyComponent: boolean
+  readonly #writable: boolean
 
-  private constructor(root: string, identity: TreeIdentity, anyComponent: boolean) {
+  private constructor(root: string, identity: TreeIdentity, platform: NodeJS.Platform) {
     this.root = root
     this.identity = identity
-    this.#anyComponent = anyComponent
+    // Never send a Darwin-only numeric flag to another kernel, even in a test.
+    this.#anyComponent = platform === 'darwin' && process.platform === 'darwin'
+    this.#writable = platform === 'darwin' || platform === 'linux'
   }
 
   static async open(root: string, options: ConfinedTreeOptions = {}): Promise<ConfinedTree> {
@@ -110,17 +114,17 @@ export class ConfinedTree {
     if (!info.isDirectory()) throw coded('This is not a folder, so nothing inside it was read.', 'ENOTDIR')
     const identity = identityOf(info)
     if (options.expect && !sameIdentity(options.expect, identity)) throw rootChanged()
-    return new ConfinedTree(canonical, identity, (options.platform ?? process.platform) === 'darwin')
+    return new ConfinedTree(canonical, identity, options.platform ?? process.platform)
   }
 
-  /** Whether this platform can write here at all. Without an any-component no-follow open, it cannot. */
+  /** Writes require either the macOS no-follow open or Linux's checked-component walk. */
   get writable(): boolean {
-    return this.#anyComponent
+    return this.#writable
   }
 
   #mayWrite(): void {
-    if (!this.#anyComponent) {
-      throw coded('HarnessDesk cannot change files here on this system: it has no open that refuses a link anywhere in a path, so nothing was written.', 'HD_TREE_PLATFORM')
+    if (!this.#writable) {
+      throw coded('HarnessDesk cannot change files here on this system: confined writes are supported on macOS and Linux, so nothing was written.', 'HD_TREE_PLATFORM')
     }
   }
 
@@ -135,13 +139,19 @@ export class ConfinedTree {
     const rel = parts.join('/')
     const path = join(this.root, ...parts)
     if (!this.#anyComponent) {
-      // Reads only: `#mayWrite` already refused every write on this platform.
       // Each component is looked at without following it, the last one too
       // (`O_NOFOLLOW` with `O_DIRECTORY` answers a link as "not a folder").
       let at = this.root
       for (const [index, part] of parts.entries()) {
         at = join(at, part)
-        const info = await lstat(at)
+        const info = await lstat(at).catch((error: unknown) => {
+          // Only the final name may be absent, and only an exclusive create
+          // can make it. Every ancestor must already be a checked directory.
+          if (index === parts.length - 1 && (flags & constants.O_CREAT) !== 0
+            && (flags & constants.O_EXCL) !== 0 && errnoOf(error) === 'ENOENT') return null
+          throw error
+        })
+        if (!info) continue
         if (info.isSymbolicLink()) throw linkRefusal(rel)
         if (index < parts.length - 1 && !info.isDirectory()) throw coded(`"${rel}" is not inside a folder.`, 'ENOTDIR')
       }

@@ -564,11 +564,14 @@ API cannot close that race anyway, so the code does not pretend to.
 Every read and write the flow catalogue, the flow update, its journal and the
 Agent files it creates make goes through one module, `confined-tree.ts`. It
 resolves the root once and pins its identity, so an update previewed against
-one folder is refused against a folder that replaced it. Every open below the
-root uses macOS's `O_NOFOLLOW_ANY`, which refuses a link at any component.
-Where that flag does not exist, reads walk each component without following
-it, and every write fails closed with a refusal rather than falling back to a
-last-component `O_NOFOLLOW`. A file is replaced by writing a synced sibling,
+one folder is refused against a folder that replaced it. On macOS, every open
+below the root uses `O_NOFOLLOW_ANY`, which refuses a link at any component.
+On Linux, every open walks each component with `lstat`, refusing links and
+non-directory ancestors, then uses `O_NOFOLLOW` for the final name. An exclusive
+create may have a missing final name; its ancestors still have to pass the
+same checks. Both paths enforce the static-tree threat model above, without
+claiming to prevent a same-user process swapping paths. Other platforms refuse
+writes. A file is replaced by writing a synced sibling,
 checking that the target still holds the previewed bytes (or already holds
 the new ones), renaming the sibling over it and syncing the folder. It is
 never truncated in place, a person's edit since the preview is kept, and a
@@ -576,7 +579,8 @@ crash leaves the old bytes or the new ones, which the update journal, written
 the same way, can replay.
 
 **The rule:** no fs call on a project path bypasses the confined tree, and no
-write there happens on a platform without an any-component no-follow open.
+write there happens without checking every component for links, with the
+macOS kernel flag or the Linux component walk.
 
 ## An evidence guard judges revisions, found by card and revision, never by round
 
