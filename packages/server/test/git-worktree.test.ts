@@ -184,7 +184,9 @@ test('add passes on git’s refusal when the branch is checked out somewhere els
   await assert.rejects(
     () => add(repo, 'two', { kind: 'existing', branch: 'shared' }, state),
     (error: Error) => {
-      assert.match(error.message, /already used by worktree/)
+      // Git versions differ in how they describe the same branch conflict.
+      assert.match(error.message, /already (?:used by worktree|checked out at)/)
+      assert.ok(error.message.includes('shared'))
       // Where it is already checked out is the useful half of that sentence.
       assert.ok(error.message.includes(first.path))
       return true

@@ -23,9 +23,8 @@ concurrency:
 jobs:
   verify:
     name: Build, typecheck, test
-    # macOS because that is the only platform HarnessDesk ships on, and the
-    # desktop tests exercise macOS window geometry.
-    runs-on: macos-14
+    # The portable gate runs on Linux; packaging and native UI stay on macOS.
+    runs-on: ubuntu-latest
     timeout-minutes: 25
 
     steps:

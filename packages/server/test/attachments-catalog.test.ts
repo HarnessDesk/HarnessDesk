@@ -121,6 +121,7 @@ test('refuses links and boundary escapes', async (t) => {
   const fsp = createRequire(import.meta.url)('node:fs/promises') as { lstat: (...args: unknown[]) => Promise<unknown> }
   const realLstat = fsp.lstat
   let calls = 0
+  let swaps = 0
   fsp.lstat = async (...args: unknown[]) => {
     const result = await realLstat(...args)
     if (String(args[0]) === realSub) {
@@ -130,6 +131,7 @@ test('refuses links and boundary escapes', async (t) => {
       // `readdir` and right before the loop over its children starts. The
       // swap lands strictly after that third, legitimate check succeeds.
       if (calls === 3) {
+        swaps += 1
         await rm(sub, { recursive: true, force: true })
         await symlink(outside2, sub)
       }
@@ -144,7 +146,7 @@ test('refuses links and boundary escapes', async (t) => {
 
   const raced = await resolveAttachments(entry, root)
   assert.equal(raced.length, 0, 'the whole bundle refuses once an ancestor inside it was swapped for a link mid-walk')
-  assert.equal(calls, 3, 'the swap this test depends on actually fired, exactly once')
+  assert.equal(swaps, 1, 'the swap this test depends on actually fired, exactly once')
   assert.equal(await readFile(join(outside2, 'note.txt'), 'utf8'), 'OUTSIDE SECRET 2', 'the outside file was never touched')
   assert.deepEqual((await readdir(outside2)).sort(), ['note.txt'], 'the outside folder itself gained nothing from the refused read')
 })

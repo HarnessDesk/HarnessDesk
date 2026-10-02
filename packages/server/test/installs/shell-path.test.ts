@@ -252,6 +252,8 @@ test('diskCache write does not follow preexisting pid temp symlink and overwrite
 
     const { settled } = applyLoginShellPath({
       stateDir: dir,
+      platform: 'darwin',
+      exists: () => true,
       env: { ...process.env, SHELL: '/bin/zsh', PATH: '/usr/bin' },
       run: async () => '__HARNESSDESK_PATH__/opt/custom/bin__HARNESSDESK_PATH__',
       timeoutMs: 50,

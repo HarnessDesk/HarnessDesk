@@ -142,6 +142,13 @@ test('real watches capture external branches, tags, rewinds and rapid round trip
   await waitUntil(async () => (await f.journal.read()).entries.filter((entry) => entry.kind === 'ref' &&
     (entry.value as { ref: string; after: string }).ref === 'refs/heads/main' &&
     (entry.value as { after: string }).after === f.base).length >= 2, 'repeated reflog movements')
+  // Deletion can only be observed for a ref a completed snapshot knew about.
+  // Reflog movements may be journaled before that snapshot is checkpointed;
+  // deleting sooner can also remove the topic's only reflog before capture.
+  await waitUntil(async () => {
+    const checkpoint = readCheckpoint((await f.journal.read()).entries) as WorkerCheckpoint | null
+    return checkpoint?.refs.some(([ref]) => ref === 'refs/heads/topic') ?? false
+  }, 'topic in a completed snapshot')
   await f.repo.git('update-ref', '-d', 'refs/heads/topic')
   await waitUntil(async () => (await f.journal.read()).entries.some((entry) => entry.kind === 'ref' &&
     (entry.value as { ref: string; after: string | null }).ref === 'refs/heads/topic' &&

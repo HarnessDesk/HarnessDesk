@@ -45,15 +45,22 @@ import { status } from '../src/git.js'
 const run = promisify(execFile)
 const env = {
   ...process.env,
-  GIT_AUTHOR_NAME: 'Ada',
-  GIT_AUTHOR_EMAIL: 'ada@x',
-  GIT_COMMITTER_NAME: 'Ada',
-  GIT_COMMITTER_EMAIL: 'ada@x',
+  GIT_AUTHOR_NAME: 'Jane Doe',
+  GIT_AUTHOR_EMAIL: 'dev@example.com',
+  GIT_COMMITTER_NAME: 'Jane Doe',
+  GIT_COMMITTER_EMAIL: 'dev@example.com',
 }
 const git = async (cwd: string, ...args: string[]): Promise<string> =>
   (await run('git', ['-C', cwd, ...args], { env })).stdout
 
 const sha = async (cwd: string, ref: string): Promise<string> => (await git(cwd, 'rev-parse', ref)).trim()
+
+// Product verbs spawn git themselves, without the fixture helper's env.
+// Give each repository its own synthetic identity, independent of the machine.
+const configureIdentity = async (cwd: string): Promise<void> => {
+  await git(cwd, 'config', 'user.name', 'Jane Doe')
+  await git(cwd, 'config', 'user.email', 'dev@example.com')
+}
 
 const scratch: string[] = []
 after(async () => {
@@ -70,6 +77,7 @@ const tempDir = async (): Promise<string> => {
 const seedRepo = async (): Promise<string> => {
   const dir = await tempDir()
   await git(dir, 'init', '-q', '-b', 'main')
+  await configureIdentity(dir)
   await writeFile(join(dir, 'a.txt'), 'one\ntwo\n')
   await git(dir, 'add', '.')
   await git(dir, 'commit', '-qm', 'root')
@@ -83,6 +91,7 @@ const seedRemote = async (): Promise<{ origin: string; work: string }> => {
   const parent = await tempDir()
   const work = join(parent, 'work')
   await run('git', ['clone', '-q', origin, work], { env })
+  await configureIdentity(work)
   await writeFile(join(work, 'a.txt'), 'one\n')
   await git(work, 'add', '.')
   await git(work, 'commit', '-qm', 'root')
@@ -710,6 +719,7 @@ test('the write verbs take a SHA-256 commit by its full id', async (t) => {
   // #67 let 64-character ids through one check for every verb; these are the verbs that write with one.
   const dir = await tempDir()
   const made = await git(dir, 'init', '-q', '--object-format=sha256', '-b', 'main').then(() => true, () => false)
+  if (made) await configureIdentity(dir)
   if (!made) return t.skip('this git cannot make a SHA-256 repository')
   await writeFile(join(dir, 'a.txt'), 'a\n')
   await git(dir, 'add', '.')
