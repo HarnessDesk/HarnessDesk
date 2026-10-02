@@ -266,3 +266,105 @@ test('a notice raised while subscribe reads its baseline is delivered', async t 
   await new Promise(r => setTimeout(r, 40))
   assert.ok(peer.messages.some(m => m.method === 'person/notice' && m.params.notice.title === 'During baseline'))
 })
+
+const holdNextGoalList = (host: Awaited<ReturnType<typeof start>>['host']) => {
+  const call = host.call.bind(host)
+  let release!: () => void
+  let reading!: () => void
+  const entered = new Promise<void>(resolve => { reading = resolve })
+  const held = new Promise<void>(resolve => { release = resolve })
+  let first = true
+  Object.defineProperty(host, 'call', { value: async (method: string, params: unknown) => {
+    if (method === 'goal/list' && first) { first = false; reading(); await held }
+    return call(method as never, params as never)
+  } })
+  return { entered, release }
+}
+
+test('an accepted replacement filters queued broadcasts by its final topics and scope', async t => {
+  const { home, h, door } = await rig(t)
+  await h.host.call('workspace/open', { path: home })
+  const goal = await h.host.call('goal/create', { root: home, sentence: 'Synthetic Team' })
+  const run = await h.host.call('flow/start', { room: goal.goal.id, source: 'name: Synthetic\nroles:\n  worker: { kind: agent, seat: fake, permission: read, outcomes: [done], order: Read the card. }\nseed: { role: worker, title: Read }\nrules: []\n' })
+  const member = run.seats[0]!
+  const loose = await h.host.call('session/create', { runtime: h.runtime.info.id, options: { cwd: home } })
+  const peer = await Peer.open(door.socketPath)
+  t.after(() => peer.socket.close())
+  await peer.hello()
+  assert.equal((await peer.call('client/subscribe', { topics: ['teams'] })).ok, true)
+  await peer.call('goal/list', {})
+  const before = peer.messages.length
+  const { entered, release } = holdNextGoalList(h.host)
+  t.after(release)
+  const replacement = peer.call('client/subscribe', { topics: ['notices'], scope: { team: goal.goal.id } })
+  await entered
+  await h.host.call('goal/create', { root: home, sentence: 'Other synthetic Team' })
+  await h.host.teamPlane.notify({ where: 'inbox', title: 'Candidate in scope' }, { runtime: h.runtime.info.id, sessionId: member.sessionId as never })
+  await h.host.teamPlane.notify({ where: 'inbox', title: 'Candidate outside scope' }, { runtime: h.runtime.info.id, sessionId: loose.id })
+  release()
+  assert.equal((await replacement).ok, true)
+  await peer.call('goal/list', {})
+  const notifications = peer.messages.slice(before).filter(m => 'method' in m)
+  assert.deepEqual(notifications.map(m => [m.method, m.params.notice?.title]), [['person/notice', 'Candidate in scope']])
+})
+
+test('a refused replacement retains notices raised during and after its baseline read', async t => {
+  const { home, h, door } = await rig(t)
+  const session = await h.host.call('session/create', { runtime: h.runtime.info.id, options: { cwd: home } })
+  const peer = await Peer.open(door.socketPath)
+  t.after(() => peer.socket.close())
+  await peer.hello()
+  assert.equal((await peer.call('client/subscribe', { topics: ['notices'] })).ok, true)
+  const { entered, release } = holdNextGoalList(h.host)
+  t.after(release)
+  const replacement = peer.call('client/subscribe', { topics: ['teams'], scope: { run: 'missing' } })
+  await entered
+  await h.host.teamPlane.notify({ where: 'inbox', title: 'During refused replacement' }, { runtime: h.runtime.info.id, sessionId: session.id })
+  release()
+  const refused = await replacement
+  assert.equal(refused.ok, false)
+  assert.equal(refused.error.code, 'methodFailed')
+  assert.equal(refused.error.message, 'There is no flow run missing.')
+  await h.host.teamPlane.notify({ where: 'inbox', title: 'After refused replacement' }, { runtime: h.runtime.info.id, sessionId: session.id })
+  // This reply follows all notifications already enqueued on the connection.
+  assert.equal((await peer.call('goal/list', {})).ok, true)
+  assert.deepEqual(peer.messages.filter(m => m.method === 'person/notice').map(m => m.params.notice.title), [
+    'During refused replacement', 'After refused replacement',
+  ])
+})
+
+test('a refused replacement retains a shown approval resolution and the waiting subscription', async t => {
+  const { home, h, door } = await rig(t)
+  await h.host.call('workspace/open', { path: home })
+  const goal = await h.host.call('goal/create', { root: home, sentence: 'Synthetic Team' })
+  const run = await h.host.call('flow/start', { room: goal.goal.id, source: 'name: Synthetic\nroles:\n  worker: { kind: agent, seat: fake, permission: read, outcomes: [done], order: Read the card. }\nseed: { role: worker, title: Read }\nrules: []\n' })
+  const session = run.seats[0]!
+  const live = h.runtime.sessions.get(session.sessionId)!
+  const peer = await Peer.open(door.socketPath)
+  t.after(() => peer.socket.close())
+  await peer.hello()
+  const approval = live.askApproval(approvalId('during-refusal'))
+  assert.equal((await peer.call('client/subscribe', { topics: ['waiting'], scope: { team: goal.goal.id } })).ok, true)
+  await peer.call('goal/list', {})
+  assert.ok(peer.messages.some(m => m.method === 'event' && m.params.event.type === 'approval/requested' && m.params.event.approval.id === 'during-refusal'))
+  const { entered, release } = holdNextGoalList(h.host)
+  t.after(release)
+  const replacement = peer.call('client/subscribe', { topics: ['teams'], scope: { run: 'missing' } })
+  await entered
+  await h.host.call('approval/respond', { runtime: h.runtime.info.id, sessionId: session.sessionId as never, approvalId: approvalId('during-refusal'), decision: { type: 'option', optionId: 'opt-1' } })
+  await approval
+  release()
+  const refused = await replacement
+  assert.equal(refused.ok, false)
+  assert.equal(refused.error.code, 'methodFailed')
+  assert.equal(refused.error.message, 'There is no flow run missing.')
+  const following = live.askApproval(approvalId('after-refusal'))
+  await peer.call('goal/list', {})
+  assert.ok(peer.messages.some(m => m.method === 'event' && m.params.event.type === 'approval/requested' && m.params.event.approval.id === 'after-refusal'))
+  await h.host.call('approval/respond', { runtime: h.runtime.info.id, sessionId: session.sessionId as never, approvalId: approvalId('after-refusal'), decision: { type: 'option', optionId: 'opt-1' } })
+  await following
+  await peer.call('goal/list', {})
+  assert.deepEqual(peer.messages.filter(m => m.method === 'event' && m.params.event.type === 'approval/resolved').map(m => m.params.event.approvalId), [
+    'during-refusal', 'after-refusal',
+  ])
+})

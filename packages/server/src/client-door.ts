@@ -148,6 +148,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
       let identity = 'unknown'
       let statedPid: number | null = null
       let subscription: Subscription = { topics: [] }
+      let proposal: Subscription | null = null
       let queue = Promise.resolve()
       const shownApprovals = new Set<string>()
       const send = (message: HostToClient) => {
@@ -160,12 +161,13 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
         ws.send(JSON.stringify(message))
       }
       const audit = (entry: Parameters<Host['recordClientAudit']>[0]) => options.host.recordClientAudit(entry)
-      const topics = () => new Set<ClientTopic>(subscription.topics.includes('waiting') ? [...subscription.topics, 'runs', 'cards'] : subscription.topics)
+      const topics = (selection = subscription) => new Set<ClientTopic>(selection.topics.includes('waiting') ? [...selection.topics, 'runs', 'cards'] : selection.topics)
       const enqueue = (work: () => Promise<void>) => {
         queue = queue.then(work).catch(error => logger.warn('client notification failed', { error: String(error) }))
       }
       const detach = options.host.addBroadcaster(notification => {
-        if (!hello || !topicsOf(notification).some(t => topics().has(t))) return
+        // Keep both selections' events until the baseline decides which one commits.
+        if (!hello || !topicsOf(notification).some(t => topics().has(t) || (proposal !== null && topics(proposal).has(t)))) return
         enqueue(async () => {
           if (!hello || !topicsOf(notification).some(t => topics().has(t))) return
           const resolved = notification.method === 'event' && notification.params.event.type === 'approval/resolved'
@@ -220,24 +222,25 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
           }
           return
         }
-        const previous = subscription
         try {
           if (parsed.method === 'client/subscribe') {
             const next = parsed.params as Subscription
-            subscription = next
+            proposal = next
+            const selectedTopics = topics(next)
             const views = await viewsInScope(options.host, next.scope)
             const runs = await options.host.call('flow/executions', { active: next.scope?.run ? false : true })
             const baseline: WireNotification[] = []
-            if (topics().has('runs')) for (const run of runs) {
+            if (selectedTopics.has('runs')) for (const run of runs) {
               const execution = await options.host.call('flow/execution', { run: run.id })
               const notification: WireNotification = { method: 'flow/execution-changed', params: { execution } }
               if (inScope(notification, views, next.scope)) baseline.push(notification)
             }
-            if (topics().has('cards')) for (const view of views) baseline.push({ method: 'team/changed', params: { state: view.board } })
-            if (topics().has('teams')) for (const view of views) baseline.push({ method: 'goal/changed', params: { view } })
-            if (topics().has('waiting')) for (const notification of options.host.pendingApprovalEvents()) {
+            if (selectedTopics.has('cards')) for (const view of views) baseline.push({ method: 'team/changed', params: { state: view.board } })
+            if (selectedTopics.has('teams')) for (const view of views) baseline.push({ method: 'goal/changed', params: { view } })
+            if (selectedTopics.has('waiting')) for (const notification of options.host.pendingApprovalEvents()) {
               if (inScope(notification, views, next.scope)) baseline.push(notification)
             }
+            subscription = next
             shownApprovals.clear()
             send({ id, ok: true, result: null })
             for (const notification of baseline) send(notification)
@@ -247,11 +250,12 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
           }
           audit({ kind: 'client/call', client: identity, statedPid, method, tier: 'read', outcome: 'ok' })
         } catch (error) {
-          subscription = previous
           const code = wireCodeOf(error) ?? 'methodFailed'
           send({ id, ok: false, error: wireError(code, error instanceof Error ? error.message : String(error),
             typeof (error as { details?: unknown })?.details === 'string' ? (error as { details: string }).details : null, wireDataOf(error)) })
           audit({ kind: 'client/call', client: identity, statedPid, method, tier: 'read', outcome: 'failed', code })
+        } finally {
+          proposal = null
         }
       }))
       ws.on('close', () => {
