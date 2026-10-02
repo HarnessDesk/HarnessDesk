@@ -4,6 +4,12 @@ interface CheckRun {
   readonly started_at: string | null
   readonly status: string
   readonly conclusion: string | null
+  readonly app?: { readonly id?: number | null } | null
+}
+
+export interface RequiredCheck {
+  readonly context: string
+  readonly integrationId: number | null
 }
 
 export interface CheckRunsAssessment {
@@ -41,8 +47,47 @@ const stateOf = (run: CheckRun): string => {
   return `has conclusion ${run.conclusion?.replaceAll('_', ' ') || 'none'}`
 }
 
-/** Checks every check name on a commit, considering only its newest run. */
-export const assessCheckRuns = (runs: readonly CheckRun[]): CheckRunsAssessment => {
+const newestRun = (runs: readonly CheckRun[]): CheckRun | undefined =>
+  runs.reduce<CheckRun | undefined>((current, run) =>
+    !current || newestFirst(run, current) < 0 ? run : current,
+  undefined)
+
+const assessmentOf = (offending: readonly string[]): CheckRunsAssessment => {
+  if (offending.length === 0) return { green: true, reason: '' }
+  const shown = offending.slice(0, 5)
+  const more = offending.length > shown.length ? `; and ${offending.length - shown.length} more` : ''
+  return { green: false, reason: `${shown.join('; ')}${more}.` }
+}
+
+/** Checks each configured requirement against its newest eligible run. */
+const assessRequiredCheckRuns = (
+  runs: readonly CheckRun[],
+  requiredChecks: readonly RequiredCheck[],
+): CheckRunsAssessment => {
+  const offending = requiredChecks.flatMap((requirement) => {
+    const eligible = runs.filter((run) =>
+      run.name === requirement.context &&
+      (requirement.integrationId === null || run.app?.id === requirement.integrationId),
+    )
+    const newest = newestRun(eligible)
+    if (!newest) {
+      const source = requirement.integrationId === null ? '' : ` from GitHub App ${requirement.integrationId}`
+      return [`required check “${requirement.context}” is missing${source}`]
+    }
+    if (newest.status === 'completed' && greenConclusions.has(newest.conclusion ?? '')) return []
+    return [`“${requirement.context}” ${stateOf(newest)}`]
+  })
+  return assessmentOf(offending)
+}
+
+/** Checks every check name on a commit, or only the configured required checks, using each newest run. */
+export const assessCheckRuns = (
+  runs: readonly CheckRun[],
+  requiredChecks?: readonly RequiredCheck[] | null,
+): CheckRunsAssessment => {
+  if (requiredChecks && requiredChecks.length > 0) {
+    return assessRequiredCheckRuns(runs, requiredChecks)
+  }
   if (runs.length === 0) return { green: false, reason: 'no CI has reported on this commit.' }
 
   const newest = new Map<string, CheckRun>()
@@ -54,9 +99,5 @@ export const assessCheckRuns = (runs: readonly CheckRun[]): CheckRunsAssessment 
   const offending = [...newest.values()].filter(
     (run) => run.status !== 'completed' || !greenConclusions.has(run.conclusion ?? ''),
   )
-  if (offending.length === 0) return { green: true, reason: '' }
-
-  const shown = offending.slice(0, 5).map((run) => `“${run.name}” ${stateOf(run)}`)
-  const more = offending.length > shown.length ? `; and ${offending.length - shown.length} more` : ''
-  return { green: false, reason: `${shown.join('; ')}${more}.` }
+  return assessmentOf(offending.map((run) => `“${run.name}” ${stateOf(run)}`))
 }
