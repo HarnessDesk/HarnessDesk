@@ -59,6 +59,7 @@ const model = (overrides: Partial<CodexProtocol.v2.Model> = {}): CodexProtocol.v
   ],
   defaultReasoningEffort: 'medium',
   inputModalities: ['text'],
+  availableAccessPrograms: null,
   supportsPersonality: true,
   multiAgentVersion: null,
   additionalSpeedTiers: [],
@@ -253,6 +254,7 @@ test('initial options split into what thread/start takes and what must follow', 
 test('a settings notification replaces the state wholesale, keeping only the roots', () => {
   const next = stateFromThreadSettings(
     {
+      disabledPluginIds: [],
       cwd: '/elsewhere',
       approvalPolicy: 'never',
       approvalsReviewer: 'guardian_subagent',
