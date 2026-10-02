@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { realpath } from 'node:fs/promises'
 import { test } from 'node:test'
 
 import { runtimeId, type GoalView, type Session } from '@harnessdesk/protocol'
@@ -45,7 +46,10 @@ test('a flow Seat whose part overlaps a live claim is refused by the host by nam
   assert.match(stalled.reason ?? '', new RegExp(`Refused: the files of card #${second.id} overlap a live claim — docs/guide\\.md is held by #${held.id}`))
   assert.deepEqual(dev.map((card) => card.state), ['open', 'open'], 'neither dev card is left claimed')
   const members = (await d.host.call('goal/read', { goal: run.goal }) as GoalView).members
+  const root = await realpath(d.root)
+  const away = await Promise.all(members.filter((seat) => seat.closed === null).map(async (seat) =>
+    await realpath(seat.checkout.cwd) === root ? null : seat.id))
   // Dev Seats are isolated, so any left open would stand in a lane of its own.
-  assert.deepEqual(members.filter((seat) => seat.closed === null && seat.checkout.cwd !== d.root).map((seat) => seat.id), [], 'no dev Seat is left seated')
+  assert.deepEqual(away.filter((id) => id !== null), [], 'no dev Seat is left seated')
   assert.ok(stalled.rounds.at(-1)!.seats.length >= 1, 'the sibling was opened before the refusal, so it was let go, not never tried')
 })

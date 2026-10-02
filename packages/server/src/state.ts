@@ -21,6 +21,13 @@ import { lanePreferences } from '@harnessdesk/protocol'
  * to destroy exactly the state a downgrade was supposed to keep.
  */
 
+/** A shell grant captured at workspace open; live Git metadata may only invalidate it. */
+export interface ShellProjectIdentity {
+  readonly project: string
+  readonly checkoutRoot: string
+  readonly gitCommonDir: string | null
+}
+
 export interface WorkspaceRecord {
   readonly path: string
   readonly name: string
@@ -29,14 +36,16 @@ export interface WorkspaceRecord {
   readonly id?: string
   /**
    * `path`, with every symlink resolved, as `#openWorkspace` found it the
-   * moment this folder was last opened — a comparison key only (#907, #943),
-   * never a launch path or an input to anything. Recorded here, rather than
+   * moment this folder was last opened — a comparison key (#907, #943)
+   * and the opened location bound to `shellIdentity`. Recorded here, rather than
    * resolved again whenever the recent list is read, so `workspace/recent`
    * never has to make a filesystem call per remembered entry: absent on a
    * record from before this field existed, in which case that one entry
    * simply carries no comparison key until it is opened again.
    */
   readonly realPath?: string
+  /** Host-owned identity; old records must be opened again before granting shell access. */
+  readonly shellIdentity?: ShellProjectIdentity
 }
 
 export interface AppState {

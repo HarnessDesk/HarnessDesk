@@ -17,6 +17,85 @@ import { expect, test, type Page } from '@playwright/test'
 
 const label = 'Learn from every single tab of the settings screen'
 
+test('a Diff hunk jump lands in the same task with motion reduced', async ({ page }) => {
+  await page.goto('/design.html?view=code')
+  expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true)
+  const diff = page.getByTestId('diff-sample')
+  await expect(diff).toBeVisible()
+  await diff.locator('table').evaluate((table) => {
+    const scroller = table.parentElement!
+    scroller.style.height = '60px'
+    scroller.style.overflowY = 'auto'
+    scroller.scrollTop = 0
+  })
+  await page.evaluate(() => {
+    const original = HTMLElement.prototype.scrollIntoView
+    HTMLElement.prototype.scrollIntoView = function (options) {
+      const scroller = document.querySelector<HTMLElement>('[data-testid="diff-sample"] table')!.parentElement!
+      const before = scroller.scrollTop
+      original.call(this, options)
+      if (!scroller.contains(this)) return
+      ;(window as unknown as { __hunkRead?: { behavior: ScrollBehavior, before: number, top: number } }).__hunkRead = {
+        behavior: typeof options === 'object' ? options.behavior ?? 'auto' : 'auto',
+        before,
+        top: scroller.scrollTop,
+      }
+    }
+  })
+  await diff.getByRole('button', { name: 'Next hunk', exact: true }).click()
+  // Diff schedules the call for the row's mounting frame; the wrapper reads
+  // immediately after the native call, before any smooth-scroll frame runs.
+  await page.waitForFunction(() => '__hunkRead' in window)
+  const read = await page.evaluate(() =>
+    (window as unknown as { __hunkRead: { behavior: ScrollBehavior, before: number, top: number } }).__hunkRead,
+  )
+  expect(read.before).toBe(0)
+  expect(read.top).toBeGreaterThan(read.before)
+  expect(read.behavior).toBe('auto')
+  await expect(diff).toContainText('Hunk 2 of 2')
+})
+
+test('Conversation jump-to-bottom lands in the same task with motion reduced', async ({ page }) => {
+  await page.goto('/preview.html')
+  expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true)
+  const scroller = page.locator('[data-live-transcript]')
+  await expect(scroller).toBeVisible()
+  await scroller.evaluate(async (node) => {
+    const element = node as HTMLElement
+    element.style.height = '150px'
+    element.style.maxHeight = '150px'
+    element.scrollTop = element.scrollHeight
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+  })
+  await scroller.hover()
+  await page.mouse.wheel(0, -10_000)
+  const jump = page.getByRole('button', { name: 'Jump to latest', exact: true })
+  await expect(jump).toBeVisible()
+  await page.evaluate(() => {
+    type ScrollArgs = [options?: ScrollToOptions] | [x: number, y: number]
+    const original = HTMLElement.prototype.scrollTo as (this: HTMLElement, ...args: ScrollArgs) => void
+    HTMLElement.prototype.scrollTo = function (...args: ScrollArgs) {
+      const before = this.scrollTop
+      original.apply(this, args)
+      if (!this.hasAttribute('data-live-transcript')) return
+      const options = args[0]
+      ;(window as unknown as { __bottomRead?: { behavior: ScrollBehavior, before: number, top: number, bottom: number } }).__bottomRead = {
+        behavior: typeof options === 'object' ? options.behavior ?? 'auto' : 'auto',
+        before,
+        top: this.scrollTop,
+        bottom: this.scrollHeight - this.clientHeight,
+      }
+    }
+  })
+  await jump.click()
+  const read = await page.evaluate(() =>
+    (window as unknown as { __bottomRead: { behavior: ScrollBehavior, before: number, top: number, bottom: number } }).__bottomRead,
+  )
+  expect(read.before).toBeLessThan(read.bottom)
+  expect(read.top).toBeCloseTo(read.bottom, 0)
+  expect(read.behavior).toBe('auto')
+})
+
 test('a scripted transcript jump lands in the same task with motion reduced', async ({ page }) => {
   await page.goto('/preview.html')
   expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true)

@@ -10,7 +10,7 @@ import { runtimeId, sessionId, type RuntimeInfo } from '@harnessdesk/protocol'
 import { CodexRuntime, CODEX_RUNTIME_ID } from '@harnessdesk/adapter-codex'
 import { ExtensionKernel, setBrowserEngine, type BrowserEngine } from '@harnessdesk/cordis-host'
 import { SupervisedExtensionHost } from '@harnessdesk/extension-host'
-import { invokeForBridge, ToolGateway } from './tool-gateway.js'
+import { invokeForBridge, ToolGateway, type BridgeCaller } from './tool-gateway.js'
 import { GatedRegistry } from './ceilings/gate.js'
 import { attachmentGateway } from './attachments/wiring.js'
 import { builtinPlugins } from '@harnessdesk/plugins'
@@ -121,6 +121,12 @@ export const writeToolLauncher = (directory: string, execPath: string, entry: st
   }
   return launcher
 }
+
+/** A bridge reads only the checkout the host assigned, never the peer's cwd. */
+export const bridgeCallerFor = (host: Pick<Host, 'registry'>, runtime: string, id: string): BridgeCaller => ({
+  runtime, sessionId: id,
+  get workspaceRoot() { return host.registry.get(runtimeId(runtime), sessionId(id))?.shellCheckout?.cwd },
+})
 
 export interface ToolServerOptions {
   readonly electron?: boolean
@@ -353,15 +359,15 @@ export const createDefaultHost = (
   // always carried. Bounded because sessions end and tokens do not: past the
   // cap the oldest mapping goes, and a call with a forgotten token is simply
   // unscoped, which is exactly what it was before the token existed.
-  const callers = new Map<string, { runtime: string; sessionId: string }>()
+  const callers = new Map<string, BridgeCaller>()
   const bounded = <V>(map: Map<string, V>): void => {
     if (map.size > 2000) {
       const oldest = map.keys().next().value
       if (oldest !== undefined) map.delete(oldest)
     }
   }
-  const claimCaller = (runtime: string) => (token: string, sessionId: string) => {
-    callers.set(token, { runtime, sessionId })
+  const claimCaller = (runtime: string) => (token: string, id: string) => {
+    callers.set(token, bridgeCallerFor(host, runtime, id))
     bounded(callers)
   }
   // Which runtime a bridge's token belongs to, known from the moment the

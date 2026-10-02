@@ -44,6 +44,7 @@ import {
 import { errnoOf, NOTHING_YET } from './errno.js'
 import { MemberWaits, type MemberStatus } from './goals/member-waits.js'
 import { memberNames } from './goals/members.js'
+import { sameCanonicalPath } from './path-identity.js'
 
 /**
  * The team plane: one board and one channel per workspace, host-owned.
@@ -3643,7 +3644,7 @@ export class Team {
   /** The rooms in one project, newest activity first. */
   roomsFor(root: string): readonly TeamState[] {
     return [...this.#boards.values()]
-      .filter((board) => board.root === root)
+      .filter((board) => sameCanonicalPath(board.root, root))
       .map((board) => this.#wireStateOf(board))
       .sort((a, b) => b.updatedAt - a.updatedAt)
   }
@@ -3690,7 +3691,7 @@ export class Team {
     const from = live?.cwd ?? card?.cwd ?? null
     if (from !== null) {
       const root = await this.#port.rootOf(from)
-      if (root !== board.root) {
+      if (root === null || !sameCanonicalPath(root, board.root)) {
         throw new Error(
           `That conversation is working in ${from}, which is outside ${board.root}. A room only holds conversations from its own project.`,
         )

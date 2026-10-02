@@ -1,4 +1,5 @@
 import type { Goal, SeatRecord, SessionPointer } from '@harnessdesk/protocol'
+import { sameCanonicalPath } from '../path-identity.js'
 
 /** Shared by assignment, release, seating and wrap. Acquire it once per operation. */
 export class Serial {
@@ -58,7 +59,7 @@ export class Assignments {
       }
       if (!Number.isSafeInteger(card) || card < 1) throw new Error('Choose an existing card.')
       const known = await this.port.known(session.runtime, session.sessionId)
-      if (!known || known.project !== goal.root) {
+      if (!known || !sameCanonicalPath(known.project, goal.root)) {
         throw new Error('Choose a conversation from this project that its runtime can still open.')
       }
       if (known.busy) {

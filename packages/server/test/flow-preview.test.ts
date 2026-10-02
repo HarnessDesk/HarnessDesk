@@ -74,6 +74,33 @@ test('preview has no execution side effects, however many times it is asked', as
   assert.equal(state.counts.previewAgent, 3)
 })
 
+test('a remote base previews managed lanes even for a role without isolate', async () => {
+  const state = rig()
+  const lanes: boolean[] = []
+  state.port.pluginToolsProblem = async (_runtime, _root, lane) => { lanes.push(lane); return null }
+  const source = `${FLOW}\nbase: { remote: origin }\n`
+  const preview = await new FlowPreviews(state.port).preview('/repo', source, {})
+  assert.ok(preview.token)
+  assert.deepEqual(lanes, [true])
+  assert.equal(preview.seats[0]?.isolate, true)
+  assert.ok(preview.problems.some((one) => one.at === 'base' && /fetch/i.test(one.text)), 'the preview says Start will fetch')
+})
+
+test('a remote base preview refuses a conflicting target or reused Goal before issuing a token', async () => {
+  const state = rig()
+  const previews = new FlowPreviews(state.port)
+  const source = `${FLOW}\nbase: { remote: origin }\n`
+  const target = { context: { kind: 'project' as const, root: '/repo' }, facts: 'project', resolved: null }
+  for (const binding of [
+    { requireHeld: true as const, goal: { id: 'goal-1', revision: 0 }, target },
+    { requireHeld: true as const, goal: null, target: { ...target, resolved: { kind: 'branch' as const, label: 'work', base: 'a'.repeat(40), head: 'b'.repeat(40), pr: null, dirty: false } } },
+  ]) {
+    const preview = await previews.preview('/repo', source, {}, undefined, binding)
+    assert.equal(preview.token, null)
+    assert.ok(preview.problems.some((one) => one.level === 'error' && one.at === 'base'))
+  }
+})
+
 test('a start token binds its exact command, Agent and machine seating: any change refuses, and removing the check proves it', async () => {
   const state = rig()
   const previews = new FlowPreviews(state.port)

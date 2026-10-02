@@ -72,6 +72,8 @@ const MCP_UNAVAILABLE = 'This desk does not offer external MCP servers over this
 export interface BridgeCaller {
   readonly runtime: string
   readonly sessionId: string
+  /** Read from the host's session record at invocation, never from bridge arguments. */
+  readonly workspaceRoot?: string | undefined
 }
 
 /** Invoke one bridge call as the conversation whose opening minted its token. */
@@ -97,7 +99,10 @@ export const invokeForBridge = async (
   return tools.invokeTool(
     tool.id,
     call.args,
-    scope ? { runtime: runtimeId(scope.runtime), sessionId: sessionId(scope.sessionId) } : {},
+    scope ? {
+      runtime: runtimeId(scope.runtime), sessionId: sessionId(scope.sessionId),
+      ...(scope.workspaceRoot !== undefined ? { workspaceRoot: scope.workspaceRoot } : {}),
+    } : {},
   )
 }
 

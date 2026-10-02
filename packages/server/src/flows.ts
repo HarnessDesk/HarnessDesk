@@ -1,5 +1,6 @@
 import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
+import { sameCanonicalPath } from './path-identity.js'
 
 import { sessionKey } from '@harnessdesk/protocol'
 import type {
@@ -892,7 +893,7 @@ export class Flows implements TeamFlows {
           opened.push(held)
           record.push({
             at: now(), kind: 'seated', role: role.id, seat: durable.seatLabel,
-            text: durable.checkout.cwd === board.root ? null : durable.checkout.cwd,
+            text: sameCanonicalPath(durable.checkout.cwd, board.root) ? null : durable.checkout.cwd,
           })
         }
       }

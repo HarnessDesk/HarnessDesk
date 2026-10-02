@@ -10,6 +10,7 @@ import {
   type FlowAgentRole,
   type FlowBinding,
   type FlowBudget,
+  type FlowBase,
   type FlowCheck,
   type FlowDocument,
   type FlowEvidenceGuard,
@@ -35,7 +36,8 @@ const DEFAULT_TIMEOUT = 900
 const DEFAULT_REARM = 3
 const REARM_LIMIT = 120
 
-const ROOT_FIELDS = new Set(['version', 'name', 'description', 'inputs', 'roles', 'rules', 'seed', 'messaging', 'wait', 'rearm', 'budget', 'layout'])
+const ROOT_FIELDS = new Set(['version', 'name', 'description', 'base', 'inputs', 'roles', 'rules', 'seed', 'messaging', 'wait', 'rearm', 'budget', 'layout'])
+const BASE_FIELDS = new Set(['remote', 'branch'])
 const BUDGET_FIELDS = new Set(['rounds', 'without-progress'])
 /** The most rounds a budget may name, either key. */
 const BUDGET_LIMIT = 100
@@ -110,6 +112,26 @@ const unknownKeys = (record: Record<string, unknown>, allowed: ReadonlySet<strin
   for (const key of Object.keys(record)) {
     if (!allowed.has(key)) problems.push(problem('error', `${at}.${key}`, `"${key}" is not read here`))
   }
+}
+
+const readBase = (value: unknown, problems: FlowProblem[]): FlowBase | undefined => {
+  const record = asRecord(value)
+  if (!record) {
+    problems.push(problem('error', 'base', 'base names a configured remote and optionally a branch: { remote: origin, branch: main }'))
+    return undefined
+  }
+  unknownKeys(record, BASE_FIELDS, 'base', problems)
+  const remote = typeof record['remote'] === 'string' ? record['remote'].trim() : undefined
+  if (!remote || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(remote)) {
+    problems.push(problem('error', 'base.remote', 'remote is a configured remote name, such as origin'))
+    return undefined
+  }
+  const branch = typeof record['branch'] === 'string' ? record['branch'].trim() : undefined
+  if (record['branch'] !== undefined && (!branch || branch.startsWith('-') || /[\s\x00-\x1f\x7f]/.test(branch))) {
+    problems.push(problem('error', 'base.branch', 'branch is a branch name; omit it for the remote default'))
+    return undefined
+  }
+  return { remote, ...(branch === undefined ? {} : { branch }) }
 }
 
 const readThen = (value: unknown, at: string, problems: FlowProblem[]): FlowThen | null => {
@@ -318,11 +340,12 @@ const parseAgents = (root: Record<string, unknown>, problems: FlowProblem[]): Fl
   const rearm = root['rearm'] === undefined ? undefined : integer(root['rearm'], 'rearm', problems, DEFAULT_REARM, 0, REARM_LIMIT)
   // Absent stays absent: a document read back from a run saved before budgets must read exactly as it was written.
   const budget = root['budget'] === undefined ? undefined : readBudget(root['budget'], problems)
+  const base = root['base'] === undefined ? undefined : readBase(root['base'], problems)
   const messaging = root['messaging'] === undefined ? 'board-only' : root['messaging']
   if (messaging !== 'board-only' && messaging !== 'members') problems.push(problem('error', 'messaging', 'messaging is board-only or members'))
   const inputs = readInputs(root['inputs'], problems)
   if (!seed || problems.some((one) => one.level === 'error')) return null
-  const policy: FlowPolicy = { version: 2, name: asText(root['name'])?.trim() || 'Flow', ...(asText(root['description'])?.trim() ? { description: asText(root['description'])!.trim() } : {}), inputs, roles, rules, seed, messaging: messaging === 'members' ? 'members' : 'board-only', wait, ...(rearm === undefined ? {} : { rearm }), ...(budget === undefined ? {} : { budget }), ...(root['layout'] === undefined ? {} : { layout: root['layout'] }) }
+  const policy: FlowPolicy = { version: 2, name: asText(root['name'])?.trim() || 'Flow', ...(asText(root['description'])?.trim() ? { description: asText(root['description'])!.trim() } : {}), ...(base === undefined ? {} : { base }), inputs, roles, rules, seed, messaging: messaging === 'members' ? 'members' : 'board-only', wait, ...(rearm === undefined ? {} : { rearm }), ...(budget === undefined ? {} : { budget }), ...(root['layout'] === undefined ? {} : { layout: root['layout'] }) }
   validatePolicy(policy, problems)
   return problems.some((one) => one.level === 'error') ? null : policy
 }
@@ -554,7 +577,7 @@ export const compileFlowPolicy = (document: FlowDocument, agents: readonly Agent
        work (#1014). Refused rather than isolated silently, so the file says
        what runs. A Seat that may only read shares a tree safely, so it takes
        two that may commit: one writer beside readers has the tree to itself. */
-    const committing = role.isolate ? 0 : bindings.filter((binding) => binding.role === role.id && mayCommit(binding.agent, binding.grant)).length
+    const committing = role.isolate || document.flow.base !== undefined ? 0 : bindings.filter((binding) => binding.role === role.id && mayCommit(binding.agent, binding.grant)).length
     if (committing > 1) {
       const which = committing === slots.length ? `The ${committing} Seats` : `${committing} of the ${slots.length} Seats`
       problems.push(problem('error', `roles.${role.id}`, `${which} of "${role.id}" run at once in one working tree and may commit over each other's work, so add isolate: true, or lower its grant to read.`))
@@ -593,6 +616,7 @@ const thenValue = (then: FlowThen): string => `{ role: ${scalar(then.role)}, tit
 export const serializeFlowPolicy = (policy: FlowPolicy): string => {
   const lines = ['version: 2', `name: ${scalar(policy.name)}`]
   if (policy.description) lines.push(`description: ${scalar(policy.description)}`)
+  if (policy.base) lines.push(`base: { remote: ${scalar(policy.base.remote)}${policy.base.branch === undefined ? '' : `, branch: ${scalar(policy.base.branch)}`} }`)
   if (policy.inputs.length) {
     lines.push('inputs:')
     for (const input of policy.inputs) {

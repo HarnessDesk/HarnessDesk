@@ -61,7 +61,10 @@ export interface HarnessContext {
   }
   /**
    * Run a program. Requires the `shell` permission; arguments are never
-   * shell-interpreted. `exitCode` is -1 for a command with no exit of its own,
+   * shell-interpreted. During tools and context resolution, cwd defaults to
+   * the calling conversation's checkout and is confined to it; otherwise it
+   * defaults to the open workspace. Relative cwd is resolved against that root.
+   * `exitCode` is -1 for a command with no exit of its own,
    * with `stderr` saying why: see `ShellResult` (review of #239, round 1).
    */
   readonly shell: {

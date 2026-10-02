@@ -23,6 +23,8 @@ import type { EvidenceStore } from './store.js'
 export type SeatOpeningInput = Omit<SeatOpening, 'id' | 'checkout' | 'openedAt'> & {
   /** The folder the conversation works in. */
   readonly cwd: string
+  /** The independently admitted project, when opening through the host. */
+  readonly project?: string
 }
 
 /**
@@ -88,8 +90,8 @@ export class SeatBook {
   }
 
   async #open(input: SeatOpeningInput): Promise<SeatRecord> {
-    const { cwd, ...rest } = input
-    const project = await projectOf(cwd)
+    const { cwd, project: admitted, ...rest } = input
+    const project = admitted ?? await projectOf(cwd)
     const revision = await revisionOf(cwd)
     const opening: SeatOpening = {
       ...rest,

@@ -154,7 +154,7 @@ test('a hook living in a dead child fails closed, and works again after recovery
     // Kill the child, then immediately ask again. The snapshot still lists
     // the hook; the answer must not silently become allow. Either the
     // restarted child answers (deny) or the failure reads as a deny.
-    void harness.host.invokeTool(harness.toolId('die'), {}, scope)
+    const dying = harness.host.invokeTool(harness.toolId('die'), {}, scope)
     const during = await harness.host.runHooks({
       event: 'preToolUse',
       toolName: 'forbidden_tool',
@@ -162,6 +162,12 @@ test('a hook living in a dead child fails closed, and works again after recovery
       scope,
     })
     assert.equal(during.decision, 'deny')
+
+    // The plugin listing survives a crash; its presence cannot prove the
+    // asynchronous invocation has exited before the recovery assertion.
+    const died = await dying
+    assert.equal(died.ok, false)
+    assert.match(JSON.stringify(died), /exited/)
 
     // An unmatched tool is allowed again once the child has recovered.
     await until(() => harness.host.plugins().some((plugin) => plugin.identity.id === 'good'))

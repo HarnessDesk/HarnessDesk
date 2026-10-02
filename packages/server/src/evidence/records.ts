@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { sameCanonicalPath } from '../path-identity.js'
 
 import type {
   CheckRun,
@@ -405,7 +406,7 @@ export const lineOf = (value: unknown, where: LineWhere): StoredLine | null => {
     case 'seat': {
       if (where.file !== 'seats') return null
       const record = seatOpeningOf(value['record'])
-      return record && record.checkout.project === where.project ? { type: 'seat', record } : null
+      return record && sameCanonicalPath(record.checkout.project, where.project) ? { type: 'seat', record } : null
     }
     case 'seat-closed': {
       if (where.file !== 'seats') return null

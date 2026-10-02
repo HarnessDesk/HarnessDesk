@@ -17,6 +17,7 @@ import { GoalReceipt } from '../components/GoalReceipt'
 import { GoalReceiptCost } from '../components/GoalReceiptCost'
 import { GoalWrap } from '../components/GoalWrap'
 import { HandOut } from '../components/HandOut'
+import { InsightUsage } from '../components/InsightUsage'
 import { InsightCost } from '../components/InsightCost'
 import { ShapeEditor } from '../components/ShapeEditor'
 import { ShapeGraph } from '../components/ShapeGraph'
@@ -196,6 +197,16 @@ export const GoalFrames = () => {
       <Frame id="insight-loaded" title="Insight — recorded usage, loaded">
         <div className="p-4">
           <InsightCost report={INSIGHT_REPORT} loading={false} problem={null} onRefresh={() => {}} />
+        </div>
+      </Frame>
+      <Frame id="insight-partial" title="Project usage — partial source scan">
+        <div className="p-4">
+          <InsightUsage root={PREVIEW_ROOT} runtime={null} view="goal" onGoal={() => {}} report={{
+            ...INSIGHT_REPORT, scan: 'partial', gaps: ['Insight stopped at 64 MiB of source data. Choose a narrower range.'],
+            breakdowns: INSIGHT_REPORT.breakdowns.map((breakdown) => ({ ...breakdown, dimension: 'goal',
+              rows: breakdown.rows.map((row) => ({ ...row, amounts: { ...row.amounts, usd: { ...row.amounts.usd, coverage: 'partial' } } })),
+            })),
+          }} />
         </div>
       </Frame>
       <Frame id="insight-loading" title="Insight — recorded usage, loading">

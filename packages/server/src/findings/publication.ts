@@ -550,20 +550,20 @@ export const repositoryOf = (url: string | null, number: number): string | null 
   return matched && Number(matched[2]) === number ? matched[1]! : null
 }
 
-/** The Goal's bound pull request: the one open pull request its fresh `pr` evidence names, or why there is none. */
+/** The latest locally observed PR binds the Goal; observation-time ties use append order. */
 export const boundPullRequest = (facts: readonly EvidenceView[]): BoundPullRequest => {
-  const open = facts.filter((view) => !view.record.restored && view.record.fact.kind === 'pr' && view.record.fact.state === 'open')
-  const found = new Map<string, { repo: string; pr: number }>()
-  for (const view of open) {
-    const fact = view.record.fact as Extract<EvidenceRecord['fact'], { kind: 'pr' }>
-    const repo = repositoryOf(fact.url, fact.number)
-    if (!repo) return { kind: 'none', reason: 'The pull request the desk observed has an address it cannot confine to one repository, so this round stays on the desk.' }
-    found.set(`${repo}#${fact.number}`, { repo, pr: fact.number })
+  let latest: EvidenceRecord | undefined
+  for (const { record } of facts) {
+    if (record.restored || record.fact.kind !== 'pr') continue
+    if (!latest || record.observedAt >= latest.observedAt) latest = record
   }
-  if (found.size === 0) return { kind: 'none', reason: 'No open pull request is bound to this Goal, so this round stays on the desk.' }
-  if (found.size > 1) return { kind: 'none', reason: 'This Goal’s evidence names more than one open pull request, so this round stays on the desk until a person picks one.' }
-  const [only] = [...found.values()]
-  return { kind: 'bound', ...only! }
+  if (!latest || latest.fact.kind !== 'pr' || latest.fact.state !== 'open') {
+    return { kind: 'none', reason: 'No open pull request is bound to this Goal, so this round stays on the desk.' }
+  }
+  const fact = latest.fact
+  const repo = repositoryOf(fact.url, fact.number)
+  if (!repo) return { kind: 'none', reason: 'The pull request the desk observed has an address it cannot confine to one repository, so this round stays on the desk.' }
+  return { kind: 'bound', repo, pr: fact.number }
 }
 
 // ------------------------------------------------------------------ planning

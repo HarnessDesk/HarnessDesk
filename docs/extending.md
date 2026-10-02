@@ -104,6 +104,18 @@ Built-in plugins are held to their manifests exactly like third-party ones. That
 is deliberate: a permission model only stays correct if the code you ship every
 day runs through it.
 
+During a tool call or context resolution, `ctx.shell.run` defaults to the
+calling conversation's checkout, including an isolated lane outside the open
+project. The host supplies that root through the invocation scope; tool
+arguments cannot replace it. An explicit `cwd` is resolved against that root
+and must remain inside it, with the same manifest grants and symlink checks.
+Without a checkout in the invocation scope, the open workspace remains the
+default and boundary.
+
+The host admits managed lanes and the particular linked checkout the person
+opened, using the project identity captured at open. A new Seat whose requested
+checkout is not admitted is refused before its agent starts.
+
 **Installed plugins run in the plugin host process** — a supervised child that
 holds no window, no wire server, and no credential. A plugin that calls
 `process.exit` takes down only that process; a plugin that spins is killed from
@@ -148,6 +160,11 @@ ctx.tools.register({
 ```
 
 Valid scopes are `global` · `workspace` · `agent` · `session` · `turn`.
+
+Workspace scope roots are captured as canonical paths at registration. Listing
+and invocation use the same canonical identity, so opening a folder through an
+alias does not change which tools or context apply. Scope matching grants no
+shell authority: execution still uses only the root admitted by the host.
 
 Scope decides where a contribution is **offered**, not only where it may run.
 The composer's **Add context** list, the slash palette, a contributed panel and
@@ -308,6 +325,11 @@ ctx.context.register({
   it left off. Throwing is for a provider that should have answered and could
   not: that stops the send, because a message silently missing what its chip
   promised misleads the agent.
+- During resolution, `ctx.workspace`, relative filesystem paths, shell working
+  directories and the workspace permission gate use the checkout admitted by
+  the host for the conversation or draft; a caller's `workspaceRoot` cannot
+  replace it. Concurrent resolutions keep separate roots; without an admitted
+  checkout, resolution uses the open workspace.
 - Resolution receives `(scope, ref)` and can return a plain `string` or `{
   text?, image? }` (e.g. for a screenshot). It resolves over the wire as
   `context/resolve { id, ref?, runtime?, workspaceRoot? }` → `{ label, text,

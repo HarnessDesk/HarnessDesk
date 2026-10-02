@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { Context } from '@deepseek-ai/cordis'
 
 import { asActor } from './provenance.js'
+import { inShellWorkspace } from './shell-workspace.js'
 import {
   NO_PERMISSIONS,
   pluginInstanceId,
@@ -47,6 +48,7 @@ import {
   UiService,
 } from './services.js'
 import { ContributionStore } from './store.js'
+import { canonicalScopeQuery } from './workspace-scope.js'
 
 /**
  * The extension kernel.
@@ -394,6 +396,19 @@ export class ExtensionKernel implements CapabilityRegistry {
     return [...this.#plugins.values()].map((entry) => this.#describe(entry))
   }
 
+  #shellWorkspaceResolver: (scope: ScopeQuery) => Promise<string | undefined> = async (scope) => scope.workspaceRoot
+
+  /** Host-only admission, applied before any plugin sees the invocation scope. */
+  setShellWorkspaceResolver(resolve: (scope: ScopeQuery) => Promise<string | undefined>): void {
+    this.#shellWorkspaceResolver = resolve
+  }
+
+  async #shellScope(scope: ScopeQuery): Promise<ScopeQuery> {
+    const { workspaceRoot: _hint, ...identity } = scope
+    const workspaceRoot = await this.#shellWorkspaceResolver(scope)
+    return Object.freeze(canonicalScopeQuery({ ...identity, ...(workspaceRoot === undefined ? {} : { workspaceRoot }) }))
+  }
+
   #browserResolver: (scope: ScopeQuery) => string | undefined = () => 'default'
   readonly #invocations = new Map<string, number>()
 
@@ -412,6 +427,8 @@ export class ExtensionKernel implements CapabilityRegistry {
     scope: ScopeQuery,
     inherited?: BrowserIdentity | null,
   ): Promise<ToolResult> {
+    scope = await this.#shellScope(scope)
+    const workspaceRoot = scope.workspaceRoot
     const entry = this.#store.get(id)
     if (!entry?.executor) {
       return { ok: false, error: `No tool is registered with id ${String(id)}` }
@@ -431,7 +448,7 @@ export class ExtensionKernel implements CapabilityRegistry {
       // is really an agent's. See `provenance.ts` and the editor-plane decision.
       const profile = inherited === undefined ? this.#browserResolver(scope) : inherited?.profile
       const identity = inherited ?? (profile ? { invocation: randomUUID(), profile } : null)
-      const execute = () => asActor('agent', () => entry.executor!(args, scope))
+      const execute = () => inShellWorkspace(workspaceRoot, () => asActor('agent', () => entry.executor!(args, scope)))
       return identity ? await runBrowserInvocation(identity, execute) : await execute()
     } catch (error) {
       if (error instanceof PermissionDenied) {
@@ -474,6 +491,8 @@ export class ExtensionKernel implements CapabilityRegistry {
   }
 
   async resolveContext(query: ScopeQuery): Promise<readonly { label: string; text: string }[]> {
+    query = await this.#shellScope(query)
+    const workspaceRoot = query.workspaceRoot
     const out: { label: string; text: string }[] = []
     for (const contribution of this.#store.list('context', query)) {
       // A chip is attached on purpose; it does not ride every turn.
@@ -481,7 +500,9 @@ export class ExtensionKernel implements CapabilityRegistry {
       const resolver = this.#store.get(contribution.id)?.resolver
       if (!resolver) continue
       try {
-        const text = await withTimeout(Promise.resolve(resolver(query)), 5_000)
+        // Scope every workspace capability to the host-admitted checkout, never the caller's hint.
+        const text = await withTimeout(this.#runtime.withContextWorkspace(workspaceRoot, () =>
+          Promise.resolve(inShellWorkspace(workspaceRoot, () => resolver(Object.freeze({ ...query }))))), 5_000)
         if (typeof text === 'string' && text.trim().length > 0) {
           out.push({ label: contribution.label, text })
         }
@@ -501,6 +522,8 @@ export class ExtensionKernel implements CapabilityRegistry {
     ref: string | undefined,
     scope: ScopeQuery,
   ): Promise<{ label: string; text: string; image?: ContextImage } | null> {
+    scope = await this.#shellScope(scope)
+    const workspaceRoot = scope.workspaceRoot
     const entry = this.#store.get(id)
     if (!entry || entry.contribution.kind !== 'context' || !entry.resolver) return null
     /* `list` has always applied the contribution's scope; resolving one by id
@@ -508,7 +531,8 @@ export class ExtensionKernel implements CapabilityRegistry {
        Nothing offers it out of scope now, and this is the half that does not
        depend on the caller having asked the right question. */
     if (!scopeApplies(entry.contribution.scope, scope)) return null
-    const value = await withTimeout(Promise.resolve(entry.resolver(scope, ref)), 30_000)
+    const value = await withTimeout(this.#runtime.withContextWorkspace(workspaceRoot, () =>
+      Promise.resolve(inShellWorkspace(workspaceRoot, () => entry.resolver!(scope, ref)))), 30_000)
     if (typeof value === 'string') return { label: entry.contribution.label, text: value }
     return {
       label: entry.contribution.label,

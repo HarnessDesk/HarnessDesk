@@ -197,6 +197,10 @@ export class FlowPreviews {
     const built = retryCheck && retryCompiled?.document.format === 'agents'
       ? { compiled: retryCompiled, seats: [], commands: [retryCheck.command], guards: [], messaging: retryCompiled.document.flow.messaging, problems: [] }
       : await this.#build(root, actualSource, false, frontDoor !== undefined)
+    if (built.compiled.document.format === 'agents' && built.compiled.document.flow.base &&
+      frontDoor && (frontDoor.goal || frontDoor.target.resolved)) {
+      return { ...built, token: null, problems: [...built.problems, { level: 'error', at: 'base', text: 'A Flow with a remote base starts a new Goal from the project. Remove base to review a target or reuse a Goal.' }] }
+    }
     const errors = built.problems.filter((one) => one.level === 'error')
     let token: string | null = null
     // An unparsed document is the empty legacy placeholder: never a token.
@@ -276,6 +280,8 @@ export class FlowPreviews {
     if (compiled.document.format !== 'agents') problems.push({ level: 'error', at: 'format', text: LEGACY_START })
     const seats: FlowPreviewSeat[] = []
     if (compiled.document.format === 'agents') {
+      const base = compiled.document.flow.base
+      if (base) problems.push({ level: 'warning', at: 'base', text: `At Start, fetch remote "${base.remote}" (${base.branch ?? 'default branch'}). Seats open in managed worktrees from that commit; the project checkout stays where it is.` })
       const atPredecessor = rolesAtPredecessor(compiled, againRole)
       type AgentRole = Extract<(typeof compiled.document.flow.roles)[number], { readonly kind: 'agent' }>
       const raw: {
@@ -327,7 +333,7 @@ export class FlowPreviews {
         let plan = originalPlan
         // `rolesAtPredecessor` uses the same `handedCheckout` rule as a run;
         // either an isolated role or a role opened on handed work reads its lane.
-        const lane = role.isolate || atPredecessor.has(role.id)
+        const lane = role.isolate || compiled.document.flow.base !== undefined || atPredecessor.has(role.id)
         const checkout = await this.#port.checkoutPath?.(root, lane) ?? root
         // A lane does not exist until the run opens it, so nothing can read its
         // configuration yet; it is cut from this project, whose own is the best
@@ -414,7 +420,7 @@ export class FlowPreviews {
           selected ? await provider(selected.seat.runtime, providerRoot) : null,
         ])
         seats.push({
-          role: role.id, index: binding.index, agent: binding.agent.id, plan, isolate: role.isolate,
+          role: role.id, index: binding.index, agent: binding.agent.id, plan, isolate: role.isolate || compiled.document.flow.base !== undefined,
           ...(atPredecessor.has(role.id) ? { atPredecessor: atPredecessor.get(role.id)! } : {}), reviews: reviewsIn(binding),
         })
         if (!plan.blocked && plan.winner !== null && this.#port.pluginToolsProblem) {
