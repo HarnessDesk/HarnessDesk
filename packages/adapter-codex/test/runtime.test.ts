@@ -935,17 +935,17 @@ test('a selected profile reaches thread/start and the context window is read bac
 })
 
 test('a selected profile is revalidated at start after discovery', async (t) => {
-  const { mkdtempSync, rmSync, writeFileSync, unlinkSync } = await import('node:fs')
+  const { mkdtempSync, readFileSync, rmSync, writeFileSync, unlinkSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const codexHome = mkdtempSync(join(tmpdir(), 'codex-profile-runtime-'))
   const profilePath = join(codexHome, 'sol.config.toml')
+  const callsPath = join(codexHome, 'calls.log')
   writeFileSync(profilePath, 'model = "gpt-5.6-sol"\n')
-  const runtime = makeRuntime({ FAKE_CODEX_ECHO_STARTS: '1' }, { codexHome })
+  const runtime = makeRuntime({ FAKE_CODEX_CALLS: callsPath }, { codexHome })
   t.after(() => runtime.dispose())
   t.after(() => rmSync(codexHome, { recursive: true, force: true }))
   await runtime.start()
-  const tape = recorder(runtime)
 
   for (const change of ['malformed', 'missing'] as const) {
     writeFileSync(profilePath, 'model = "gpt-5.6-sol"\n')
@@ -962,10 +962,11 @@ test('a selected profile is revalidated at start after discovery', async (t) => 
     )
   }
 
-  assert.equal(
-    noticeMessages(tape.events).filter((message) => message.startsWith('STARTED ')).length,
-    0,
-    'a rejected selection never reaches thread/start',
+  const calls = readFileSync(callsPath, 'utf8').split('\n').filter(Boolean)
+  assert.ok(calls.includes('initialize'), 'the fake app-server request log is populated')
+  assert.ok(
+    !calls.includes('thread/start'),
+    `a rejected selection never sends thread/start; fake saw: ${calls.join(', ')}`,
   )
 })
 
