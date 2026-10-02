@@ -1603,7 +1603,7 @@ const MessageBoard = () => (
 )
 
 export const DialogBoard = () => {
-  const [open, setOpen] = useState<null | 'plain' | 'form' | 'confirm' | 'approval' | 'lightbox'>(null)
+  const [open, setOpen] = useState<null | 'plain' | 'form' | 'confirm' | 'approval' | 'board-tool-approval' | 'lightbox'>(null)
   const [name, setName] = useState('')
   const [ceiling, setCeiling] = useState<'read' | 'edit' | 'publish' | 'merge' | 'unavailable'>('read')
   return (
@@ -1616,6 +1616,7 @@ export const DialogBoard = () => {
             Delete conversation
           </Button>
           <Button variant="outline" onClick={() => setOpen('approval')}>Approval</Button>
+          <Button variant="outline" onClick={() => setOpen('board-tool-approval')}>Approval · board tool</Button>
           <Button variant="outline" onClick={() => setOpen('lightbox')}>Lightbox</Button>
         </Case>
       </div>
@@ -1690,6 +1691,22 @@ export const DialogBoard = () => {
         </ConfirmDialog>
       )}
       {open === 'approval' && (
+        <ApprovalDialog
+          title="Run a command?"
+          icon={<TerminalIcon size={16} />}
+          focused
+          focusKey="catalog-approval"
+          actions={[
+            { id: 'keep', label: 'Keep waiting', shortcut: 1, placement: 'safe', onSelect: () => setOpen(null) },
+            { id: 'run', label: 'Run once', shortcut: 2, placement: 'proceed', onSelect: () => setOpen(null) },
+          ]}
+        >
+          <ApprovalReason>Runs the repository's complete verification gate.</ApprovalReason>
+          <ApprovalCode>pnpm verify</ApprovalCode>
+          <ApprovalMeta label="in">/workspace</ApprovalMeta>
+        </ApprovalDialog>
+      )}
+      {open === 'board-tool-approval' && (
         <div className={styles.stack}>
           {BOARD_TOOL_FRAMES.map(({ state, caseId }) => {
             const frame = boardToolFrame(state, () => setOpen(null))

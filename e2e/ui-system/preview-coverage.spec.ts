@@ -370,7 +370,7 @@ test.describe('preview coverage', () => {
 
     await page.goto('/design.html')
     await page.getByRole('button', { name: 'Dialog · ConfirmDialog', exact: true }).click()
-    await page.getByRole('button', { name: 'Approval', exact: true }).click()
+    await page.getByRole('button', { name: 'Approval · board tool', exact: true }).click()
     await expect(page.locator('[data-catalog-case="board-tool-approval-always"]')).toContainText('Allow for this session')
     await expect(page.locator('[data-catalog-case="board-tool-approval-permanent"]')).toContainText('Allow tool for all future sessions')
     await expect(page.locator('[data-catalog-case="board-tool-approval-setting"]')).toContainText(guidance)
