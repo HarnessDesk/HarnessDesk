@@ -314,7 +314,13 @@ interface ComposerMountRegistry {
 }
 
 const ComposerMountsContext = createContext<ComposerMountRegistry | null>(null)
+const NoticeMountVisibleContext = createContext(true)
 const NO_ROOM_MEMBERS: readonly string[] = []
+
+/** Marks notice outlets inside a mounted wrapper that is hidden from view. */
+export const NoticeMountVisibility = ({ visible, children }: { readonly visible: boolean; readonly children: ReactNode }) => (
+  <NoticeMountVisibleContext.Provider value={visible}>{children}</NoticeMountVisibleContext.Provider>
+)
 
 const sameMount = (left: ComposerMountRecord, right: ComposerMount): boolean =>
   left.key === right.key && left.paneId === right.paneId && left.session === right.session &&
@@ -323,11 +329,12 @@ const sameMount = (left: ComposerMountRecord, right: ComposerMount): boolean =>
   left.roomMembers.length === right.roomMembers.length && left.roomMembers.every((key, index) => key === right.roomMembers[index])
 
 /** Wraps the real workbench so notice outlets can register their mounted composers and strip hosts. */
-export const ComposerMountsProvider = ({ children }: { readonly children: ReactNode }) => {
+export const ComposerMountsProvider = ({ children, onRegistryWrite }: { readonly children: ReactNode; readonly onRegistryWrite?: () => void }) => {
   const [mounts, setMounts] = useState<readonly ComposerMountRecord[]>([])
   const [stripHosts, setStripHosts] = useState<readonly { readonly key: string; readonly area: AreaId; readonly token: number }[]>([])
   const sequence = useRef(0)
   const register = useCallback((mount: ComposerMount) => {
+    onRegistryWrite?.()
     const token = ++sequence.current
     setMounts((current) => {
       const previous = current.find((entry) => entry.key === mount.key)
@@ -336,12 +343,13 @@ export const ComposerMountsProvider = ({ children }: { readonly children: ReactN
         : [...current.filter((entry) => entry.key !== mount.key), { ...mount, token }]
     })
     return () => setMounts((current) => current.filter((entry) => entry.key !== mount.key || entry.token !== token))
-  }, [])
+  }, [onRegistryWrite])
   const registerStripHost = useCallback((host: { readonly key: string; readonly area: AreaId }) => {
+    onRegistryWrite?.()
     const token = ++sequence.current
     setStripHosts((current) => [...current.filter((entry) => entry.key !== host.key), { ...host, token }])
     return () => setStripHosts((current) => current.filter((entry) => entry.key !== host.key || entry.token !== token))
-  }, [])
+  }, [onRegistryWrite])
   const value = useMemo(() => ({ mounts, register, stripHosts, registerStripHost }), [mounts, register, stripHosts, registerStripHost])
   return <ComposerMountsContext.Provider value={value}>{children}</ComposerMountsContext.Provider>
 }
@@ -380,7 +388,8 @@ const useRegisterComposerMount = (mount: ComposerMount): void => {
 const useRegisterStripHost = (host: boolean, area: AreaId | undefined, key: string | undefined): void => {
   const registry = useContext(ComposerMountsContext)
   const register = registry?.registerStripHost
-  useLayoutEffect(() => host && area && key ? register?.({ area, key }) : undefined, [register, host, area, key])
+  const visible = useContext(NoticeMountVisibleContext)
+  useLayoutEffect(() => host && visible && area && key ? register?.({ area, key }) : undefined, [register, host, visible, area, key])
 }
 
 /** Workbench fallback: use the named area only when no mounted outlet registered there. */
@@ -505,6 +514,7 @@ export const ComposerNotices = () => {
   const sessionKeyOfPane = useSessionKey()
   const runtime = useRuntime()
   const registry = useContext(ComposerMountsContext)
+  const noticeMountVisible = useContext(NoticeMountVisibleContext)
   const standing = useStanding()
   const roomForMount = pane?.view.kind === 'room' ? pane.view.room : null
   const roomMembers = roomForMount !== null ? (snapshot.teams.get(roomForMount)?.members ?? NO_ROOM_MEMBERS) : NO_ROOM_MEMBERS
@@ -520,8 +530,8 @@ export const ComposerNotices = () => {
     area: mountArea,
     mountId,
     focused,
-    visible: mount ? composerVisible(snapshot, mountArea, mountId) : focused,
-  }), [mountKey, pane?.paneId, mountId, sessionKeyOfPane, roomMembers, runtime.id, mountArea, focused, mount, snapshot.narrowWindow, snapshot.workbench, snapshot.layout.expanded])
+    visible: noticeMountVisible && (mount ? composerVisible(snapshot, mountArea, mountId) : focused),
+  }), [mountKey, pane?.paneId, mountId, sessionKeyOfPane, roomMembers, runtime.id, mountArea, focused, noticeMountVisible, mount !== null, snapshot.narrowWindow, snapshot.workbench, snapshot.layout.expanded])
   useRegisterComposerMount(composerMount)
   const mounts = registry?.mounts ?? []
   const outlet = standing ? standingOutlet(snapshot, standing, mounts, registry !== null) : null
@@ -584,12 +594,14 @@ export const NoticeStripOutlet = ({
   readonly area?: AreaId
   readonly hostId?: string
 }) => {
-  useRegisterStripHost(host, area, hostId)
+  const mountVisible = useContext(NoticeMountVisibleContext)
+  const visibleHost = host && mountVisible
+  useRegisterStripHost(visibleHost, area, hostId)
   const snapshot = useSnapshot()
   const registry = useContext(ComposerMountsContext)
   const standing = useStanding()
   const offer = useImportOffer()
-  if (!host) return null
+  if (!visibleHost) return null
   const messages: NoticeMessage[] = []
   const dismissals = new Map<string, () => void>()
   if (standing) {

@@ -2385,6 +2385,7 @@ const Room = ({
                 room={room}
                 members={loaded ? members : null}
                 messaging={messaging}
+                noticeVisible={pendingApproval === null}
                 /* The same card the rail and the chat draw, off the same one
                    reader. `Open` is the only verb worth offering on a chip:
                    the member is already addressed, so Message would be the

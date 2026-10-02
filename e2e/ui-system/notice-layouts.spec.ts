@@ -20,6 +20,7 @@ test('real Workbench and Panes put each notice in one mounted outlet', async ({ 
     const cases = [
       'coverage-notice-narrow-overlay',
       'coverage-notice-room-board',
+      'coverage-notice-room-pending-approval',
       'coverage-notice-folder-gone',
       'coverage-notice-zoomed-sidebar',
       'coverage-notice-zoomed-dock',
@@ -35,6 +36,11 @@ test('real Workbench and Panes put each notice in one mounted outlet', async ({ 
 
   await expectOneNotice(layout(page, 'coverage-notice-narrow-overlay'), 'strip')
   await expectOneNotice(room, 'strip')
+  const pendingRoom = layout(page, 'coverage-notice-room-pending-approval')
+  await expectOneNotice(pendingRoom, 'strip')
+  const pendingStrip = pendingRoom.locator('[data-slot="notice-strip"]')
+  await expect(pendingStrip.locator('xpath=ancestor::*[@hidden]')).toHaveCount(0)
+  await expect(pendingRoom.locator('[data-slot="workbench-notice-fallback"][data-area="main"] [data-slot="notice-strip"]')).toHaveCount(1)
 
   await expectOneNotice(layout(page, 'coverage-notice-folder-gone'), 'strip')
   await expectOneNotice(layout(page, 'coverage-notice-zoomed-sidebar'), 'strip')

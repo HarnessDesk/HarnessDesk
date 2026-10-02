@@ -83,6 +83,7 @@ const noticeLayoutStore = (id: string, options: {
   readonly splitBoardFocus?: boolean
   readonly folderGone?: boolean
   readonly stripSurface?: boolean
+  readonly pendingRoomApproval?: boolean
 } = {}) => {
   const paneId = `${id}-pane`
   const view = options.view ?? { kind: 'conversation' as const, session: PREVIEW_SESSION_KEY }
@@ -108,6 +109,7 @@ const noticeLayoutStore = (id: string, options: {
     ...(options.zoom === 'sidebar' ? { zoom: { area: 'sidebar' as const, scope: 'window' as const } } : {}),
   }
   const active = noticeBase.sessions.get(PREVIEW_SESSION_KEY)!
+  const approvalKey = noticeBase.teams.get(PREVIEW_ROOM)?.members[0] ?? PREVIEW_SESSION_KEY
   const result = previewStore({
     ...noticeBase,
     status: options.stripSurface ? 'reconnecting' : 'open',
@@ -120,6 +122,7 @@ const noticeLayoutStore = (id: string, options: {
     narrowWindow: options.narrow ?? false,
     usage: [noticePace],
     workbench,
+    ...(options.pendingRoomApproval ? { approvals: [{ key: approvalKey, approval: { id: 'preview-room-approval', type: 'command', kind: 'shell', command: 'pnpm test', cwd: PREVIEW_ROOT } }] as never } : {}),
     layout: { ...noticeBase.layout, root, focused: second ? second.id : paneId, expanded: null },
     sessions: new Map([[PREVIEW_SESSION_KEY, active]]),
     ...(options.folderGone ? { foldersGone: new Map([[active.cwd, 'The preview folder is unavailable.']]) } : {}),
@@ -239,6 +242,7 @@ export const CoverageFrames = () => {
       </Frame>
       <NoticeLayoutFrame id="coverage-notice-narrow-overlay" title="Notice placement — narrow window overlay" options={{ narrow: true }} />
       <NoticeLayoutFrame id="coverage-notice-room-board" title="Notice placement — room board without a composer" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never }} />
+      <NoticeLayoutFrame id="coverage-notice-room-pending-approval" title="Notice placement — room composer hidden by an approval" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never, pendingRoomApproval: true }} />
       <NoticeLayoutFrame id="coverage-notice-folder-gone" title="Notice placement — folder-gone conversation" options={{ folderGone: true }} />
       <NoticeLayoutFrame id="coverage-notice-zoomed-sidebar" title="Notice placement — zoomed sidebar" options={{ zoom: 'sidebar' }} />
       <NoticeLayoutFrame id="coverage-notice-zoomed-dock" title="Notice placement — zoomed dock" options={{ zoom: 'right' }} />

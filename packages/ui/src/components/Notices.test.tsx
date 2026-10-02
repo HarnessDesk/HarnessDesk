@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { PersonNotice, RuntimeHealth, RuntimeInfo, TeamState, UsageReport } from '@harnessdesk/protocol'
 import { sessionKey } from '@harnessdesk/protocol'
 
-import { PaneProvider, StoreProvider } from '../state/context'
+import { PaneProvider, StoreProvider, useSnapshot } from '../state/context'
 import { MountProvider } from '../panels/mount'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import type { Notice as StoreNotice } from '../state/snapshot'
@@ -14,7 +14,7 @@ import type { PaneView } from '../state/layout'
 import { afterDismiss, emptyNoticePolicy, withKept, withMuted, withoutKept, withSurface, type NoticeIdentity } from '../lib/notice-policy'
 import { kept as keptInInbox, type InboxEntry } from '../lib/inbox'
 import { ShellProvider } from '../panels/views'
-import { ComposerNotices, Notices, NoticeStripOutlet, useInboxMessages } from './Notices'
+import { ComposerMountsProvider, ComposerNotices, NoticeMountVisibility, NoticeStripFallback, Notices, NoticeStripOutlet, useInboxMessages } from './Notices'
 
 const showToast = vi.fn()
 vi.mock('../design', async (importOriginal) => ({
@@ -129,6 +129,7 @@ const makeStore = (over: Partial<AppSnapshot>) => {
     for (const listener of listeners) listener()
   }
   return {
+    patch,
     subscribe: (listener: () => void) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
@@ -149,7 +150,7 @@ const makeStore = (over: Partial<AppSnapshot>) => {
     setAccount: (account: AppSnapshot['account']) => patch({ account }),
     /** What the host would have been asked to write down. */
     policy: () => snapshot.noticePolicy,
-  } as unknown as AppStore & { policy: () => AppSnapshot['noticePolicy'] }
+  } as unknown as AppStore & { policy: () => AppSnapshot['noticePolicy']; patch: (next: Partial<AppSnapshot>) => void }
 }
 
 const mount = (over: Partial<AppSnapshot>): ReturnType<typeof makeStore> => {
@@ -670,16 +671,22 @@ it('shows an Agent notice in one focused composer when a room and its member con
     root.render(
       <StoreProvider store={store}>
         <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
-          <div data-testid="room">
-            <PaneProvider scope={{ paneId: 'room-pane' as never, view: { kind: 'room', room: 'room-1' }, sessionKey: null }}>
-              <ComposerNotices />
-            </PaneProvider>
-          </div>
-          <div data-testid="conversation">
-            <PaneProvider scope={{ paneId: 'conversation-pane' as never, view: { kind: 'conversation', session: member }, sessionKey: member }}>
-              <ComposerNotices />
-            </PaneProvider>
-          </div>
+          <ComposerMountsProvider>
+            <div data-testid="room">
+              <MountProvider scope={{ area: 'main', id: 'room-pane', view: { kind: 'room', room: 'room-1' } }}>
+                <PaneProvider scope={{ paneId: 'room-pane' as never, view: { kind: 'room', room: 'room-1' }, sessionKey: null }}>
+                  <ComposerNotices />
+                </PaneProvider>
+              </MountProvider>
+            </div>
+            <div data-testid="conversation">
+              <MountProvider scope={{ area: 'main', id: 'conversation-pane', view: { kind: 'conversation', session: member } }}>
+                <PaneProvider scope={{ paneId: 'conversation-pane' as never, view: { kind: 'conversation', session: member }, sessionKey: member }}>
+                  <ComposerNotices />
+                </PaneProvider>
+              </MountProvider>
+            </div>
+          </ComposerMountsProvider>
         </ShellProvider>
       </StoreProvider>,
     )
@@ -688,6 +695,101 @@ it('shows an Agent notice in one focused composer when a room and its member con
   expect(container.querySelectorAll('[data-slot="composer-notice"]')).toHaveLength(1)
   expect(container.querySelector('[data-testid="room"]')?.textContent).toContain('Use the room plan?')
   expect(container.querySelector('[data-testid="conversation"]')?.textContent).toBe('')
+})
+
+it('shows an Agent notice in the sole matching visible composer while another pane is focused', () => {
+  const codexId = 'codex' as unknown as AppSnapshot['activeRuntime']
+  const member = sessionKey(codexId as never, 'in-room' as never)
+  const notice: PersonNotice = {
+    id: 'room-question',
+    from: { runtime: codexId as never, sessionId: 'in-room' as never, name: 'Agent A' },
+    where: 'composer',
+    title: 'Use the room plan?',
+    at: 1,
+  }
+  const workbench = {
+    ...emptyWorkbench(),
+    main: {
+      root: {
+        kind: 'split' as const, id: 'agent-target-split', direction: 'row' as const, ratio: 0.5,
+        first: { kind: 'pane' as const, id: 'focused-activity', view: { kind: 'activity' as const } },
+        second: { kind: 'pane' as const, id: 'matching-composer', view: { kind: 'conversation' as const, session: member } },
+      },
+      focused: 'focused-activity', expanded: null,
+    },
+  } as Workbench
+  const store = makeStore({ activeSessionKey: null, agentNotices: [notice], workbench })
+
+  act(() => root.render(
+    <StoreProvider store={store}>
+      <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
+        <ComposerMountsProvider>
+          <MountProvider scope={{ area: 'main', id: 'matching-composer', view: { kind: 'conversation', session: member } }}>
+            <PaneProvider scope={{ paneId: 'matching-composer' as never, view: { kind: 'conversation', session: member }, sessionKey: member }}>
+              <div data-testid="matching"><ComposerNotices /></div>
+            </PaneProvider>
+          </MountProvider>
+        </ComposerMountsProvider>
+      </ShellProvider>
+    </StoreProvider>,
+  ))
+  expect(container.querySelectorAll('[data-slot="composer-notice"]')).toHaveLength(1)
+  expect(container.querySelector('[data-testid="matching"]')?.textContent).toContain('Use the room plan?')
+})
+
+it('does not write the composer registry when a pane scope object changes for an unrelated snapshot update', () => {
+  const codexId = 'codex' as unknown as AppSnapshot['activeRuntime']
+  const member = sessionKey(codexId as never, 's1' as never)
+  const workbench = workbenchFocusedOn('scope-pane', { kind: 'conversation', session: member })
+  const store = makeStore({ activeSessionKey: member, workbench })
+  let registryWrites = 0
+  const recordRegistryWrite = () => { registryWrites += 1 }
+  const PaneView = () => {
+    useSnapshot()
+    return (
+      <MountProvider scope={{ area: 'main', id: 'scope-pane', view: { kind: 'conversation', session: member } }}>
+        <PaneProvider scope={{ paneId: 'scope-pane' as never, view: { kind: 'conversation', session: member }, sessionKey: member }}>
+          <ComposerNotices />
+        </PaneProvider>
+      </MountProvider>
+    )
+  }
+  act(() => root.render(
+    <StoreProvider store={store}>
+      <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
+        <ComposerMountsProvider onRegistryWrite={recordRegistryWrite}>
+          <PaneView />
+          <NoticeStripFallback area="main" />
+        </ComposerMountsProvider>
+      </ShellProvider>
+    </StoreProvider>,
+  ))
+  const writesAfterMount = registryWrites
+  act(() => store.patch({ goalMigrationPending: !store.getSnapshot().goalMigrationPending }))
+  expect(registryWrites - writesAfterMount).toBe(0)
+})
+
+it('does not count a hidden composer and strip outlet as visible mounts', () => {
+  const store = makeStore({ status: 'reconnecting' })
+  act(() => root.render(
+    <StoreProvider store={store}>
+      <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
+        <ComposerMountsProvider>
+          <div hidden>
+            <NoticeMountVisibility visible={false}>
+              <NoticeStripOutlet host area="main" hostId="covered-composer-strip" />
+              <ComposerNotices />
+            </NoticeMountVisibility>
+          </div>
+          <NoticeStripFallback area="main" />
+        </ComposerMountsProvider>
+      </ShellProvider>
+    </StoreProvider>,
+  ))
+  const strips = container.querySelectorAll('[data-slot="notice-strip"]')
+  expect(strips).toHaveLength(1)
+  expect(strips[0]?.closest('[hidden]')).toBeNull()
+  expect(strips[0]?.closest('[data-slot="workbench-notice-fallback"]')).not.toBeNull()
 })
 
 it('a conversation composer with no pane context still speaks for the window’s active session, and a dismiss removes its question', () => {
