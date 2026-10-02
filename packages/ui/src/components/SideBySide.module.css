@@ -35,8 +35,9 @@
 }
 
 .member {
-  display: flex;
+  display: grid;
   flex: 1 1 auto;
+  grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr);
   align-items: center;
   gap: var(--hd-space-2);
   min-width: 0;
@@ -49,16 +50,13 @@
 }
 
 .nickname {
-  /* The name never truncates. The model beside it gives its width up first
-     (it shrinks a thousand times faster); only a name longer than the whole
-     bar then wraps — onto a second line, never under the chip or the menu. */
-  flex: 0 1 auto;
+  /* The grid gives the name its whole width before assigning the model any
+     space. A name longer than the available column still wraps inside it. */
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 .model {
-  flex: 1 1000 auto;
   min-width: 0;
 }
 

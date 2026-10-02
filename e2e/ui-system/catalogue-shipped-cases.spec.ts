@@ -25,20 +25,24 @@ test('approval titles and body copy share their leading edge', async ({ page }) 
   expect(dockedOffset).toBeLessThan(1)
 })
 
-test('a 320px waiting tile keeps its member name on one line', async ({ page }) => {
+for (const width of [256, 320]) test(`a ${width}px waiting tile keeps its member name on one line`, async ({ page }) => {
   await page.goto('/design.html?view=room-side-by-side')
   const narrow = caseLabel(page, 'room — Side by side · narrow tabs with a waiting mark')
   const tile = narrow.locator('[data-slot="side-by-side-tile"][aria-label="Beta"]')
   await expect(tile).toBeVisible()
+  if (width === 256) await tile.evaluate(element => {
+    (element.parentElement!.parentElement as HTMLElement).style.width = '256px'
+  })
   await page.evaluate(async () => { await document.fonts.ready })
-  const width = await tile.evaluate(element => element.getBoundingClientRect().width)
-  expect(width).toBe(320)
+  await expect.poll(() => tile.evaluate(element => element.getBoundingClientRect().width)).toBe(width)
   const lines = await tile.locator('header').getByText('Beta', { exact: true }).evaluate(element => {
     const range = document.createRange()
     range.selectNodeContents(element)
     return new Set([...range.getClientRects()].map(rect => rect.top)).size
   })
   expect(lines).toBe(1)
+  const header = tile.locator('header')
+  expect(await header.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
 })
 
 test('the catalogue renders shipped composer slots and Side by side cases', async ({ page }) => {
@@ -74,12 +78,18 @@ test('the catalogue renders shipped composer slots and Side by side cases', asyn
   await expect(narrow.getByRole('tablist', { name: 'Side by side tiles' })).toBeVisible()
   await expect(narrow.getByRole('tab')).toHaveCount(4)
   await expect(narrow.getByRole('dialog')).toHaveCount(0)
+})
 
+test('the waiting grid case renders the shipped dialog and badge', async ({ page }) => {
+  await page.goto('/design.html?view=room-side-by-side')
   const waiting = caseLabel(page, 'room — Side by side · two members, waiting for you')
   await expect(waiting.locator('[data-slot="side-by-side-tile"]')).toHaveCount(2)
   await expect(waiting.getByRole('dialog', { name: 'Run this command?' })).toBeVisible()
   await expect(waiting.locator('[data-slot="side-by-side-tile"][aria-label="Beta"]').getByText('Waiting for you', { exact: true })).toBeVisible()
+})
 
+test('the waiting tab case renders the shipped mark and dialog', async ({ page }) => {
+  await page.goto('/design.html?view=room-side-by-side')
   const waitingTabs = caseLabel(page, 'room — Side by side · narrow tabs with a waiting mark')
   await expect(waitingTabs.getByRole('tab', { name: 'Beta waiting for you' }).getByLabel('waiting for you')).toBeVisible()
   await expect(waitingTabs.getByRole('dialog', { name: 'Run this command?' })).toBeVisible()
