@@ -772,6 +772,7 @@ export class FlowExecutions {
   /** The checks running now, by Goal: what a pause or a stop aborts without waiting for the run's queue. */
   readonly #checks = new Map<string, Set<AbortController>>()
   readonly #checking = new Set<Promise<unknown>>()
+  readonly #liveCheckOperations = new Map<string, AbortController>()
   /** `run_check` asks by `goal#card`: the turn they were last counted on, how many in it, how many in all (#1082). */
   readonly #checkAsks = new Map<string, { readonly turn: number; readonly inTurn: number; readonly total: number }>()
   /** Cards with a `run_check` running now, by `goal#card`: one at a time on a card. */
@@ -3315,10 +3316,12 @@ export class FlowExecutions {
     target: CheckPlan['targets'][number], flowContext: string, background = false,
   ): Promise<boolean> {
     const key = `check:${round.n}:${index}`
+    const live = `${id}:${key}`
     let run = this.#get(id)
     const prior = run.operations.find((one) => one.key === key)
     if (prior?.state === 'finished') return true
     if (prior?.state === 'started' || prior?.state === 'uncertain') {
+      if (prior.state === 'started' && this.#liveCheckOperations.has(live)) return false
       await this.#stall(id, `This check was interrupted. Inspect its effects, then choose Run again.`)
       return false
     }
@@ -3386,7 +3389,10 @@ export class FlowExecutions {
         return ok
       })
     }
-    const task = execute()
+    this.#liveCheckOperations.set(live, controller)
+    const task = execute().finally(() => {
+      if (this.#liveCheckOperations.get(live) === controller) this.#liveCheckOperations.delete(live)
+    })
     if (!background) return task
     this.#checking.add(task)
     void task.finally(() => this.#checking.delete(task)).catch((error: unknown) => {

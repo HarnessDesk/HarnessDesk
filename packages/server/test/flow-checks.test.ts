@@ -346,10 +346,14 @@ test('retry returns after launch while the check is still running, and a concurr
   await rig.flows.flush()
   rig.checkEvidenceFails = false
   const gate = rig.board(run.goal).intents.find((one) => one.role === 'gate')!
-  rig.checksRunUntilStopped = () => {}
+  let launched!: () => void
+  const launch = new Promise<void>((resolve) => { launched = resolve })
+  rig.checksRunUntilStopped = launched
+  const retry = rig.flows.retryCheck(run.id, gate.id)
   try {
+    await launch
     const result = await Promise.race([
-      rig.flows.retryCheck(run.id, gate.id),
+      retry,
       new Promise<null>((resolve) => setTimeout(() => resolve(null), 200)),
     ])
     assert.ok(result, 'retry must return before its long-running check finishes')
@@ -359,6 +363,48 @@ test('retry returns after launch while the check is still running, and a concurr
   } finally {
     rig.flows.interruptChecks(run.goal)
     await rig.flows.flush()
+  }
+})
+
+test('concurrent sibling retries wait for every live check and advance once, in either completion order', async (t) => {
+  for (const order of [[0, 1], [1, 0]]) {
+    const rig = await goalRig(t)
+    rig.heads.set('/repo/.lanes/1', { at: 'sha-writer-1', dirty: false })
+    rig.heads.set('/repo/.lanes/2', { at: 'sha-writer-2', dirty: false })
+    rig.checkOutcomes.set('pnpm verify', { exit: 1, timedOut: false, tail: 'first failure' })
+    const source = FAN_OUT_FLOW.replace('seed:', '  person: { kind: person, outcomes: [shipped] }\nseed:') +
+      '\n  - { id: ship, on: gate, when: { every: [pass] }, then: { role: person, title: Ship } }\n'
+    const run = await rig.start(source, [agent('writer', ['done'])])
+    await rig.flows.flush()
+    await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+    await rig.team.complete(2, { outcome: 'done' }, rig.sessionOf('seat-2'))
+    await rig.flows.flush()
+    const gates = rig.board(run.goal).intents.filter((one) => one.role === 'gate')
+    assert.equal(gates.length, 2)
+    const release = new Map<string, () => void>()
+    rig.waitCheck = (cwd) => new Promise<void>((resolve) => { release.set(cwd, resolve) })
+    rig.checkOutcomes.set('pnpm verify', { exit: 0, timedOut: false, tail: 'passed again' })
+    try {
+      for (const gate of gates) await rig.flows.retryCheck(run.id, gate.id)
+      release.get(`/repo/.lanes/${order[0]! + 1}`)!()
+      const deadline = Date.now() + 2000
+      while (rig.flows.executionOf(run.id)!.operations.find((one) => one.key === `check:2:${order[0]}`)?.state !== 'finished') {
+        if (Date.now() > deadline) throw new Error('The first retry never completed.')
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      }
+      // Drain queued completion/advance work without waiting for the other live check.
+      await rig.flows.wakeEvidence(run.goal)
+      assert.equal(rig.flows.executionOf(run.id)!.state, 'running', 'a live sibling is not interrupted')
+      assert.equal(rig.board(run.goal).intents.some((one) => one.role === 'person'), false, 'routing waits for both answers')
+      release.get(`/repo/.lanes/${order[1]! + 1}`)!()
+      await rig.flows.flush()
+      assert.equal(rig.flows.executionOf(run.id)!.state, 'running')
+      assert.equal(rig.board(run.goal).intents.filter((one) => one.role === 'person').length, 1)
+      assert.equal(checks(rig.events).length, 4, 'only the two consented retries ran')
+    } finally {
+      for (const resolve of release.values()) resolve()
+      await rig.flows.flush()
+    }
   }
 })
 

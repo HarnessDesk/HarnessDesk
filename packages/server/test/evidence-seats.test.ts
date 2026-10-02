@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -151,13 +151,16 @@ test('through the host: an Agent seated leaves its Seat record before the call a
 })
 
 test('through the host: a seat whose record cannot be written is closed, and the refusal says why', async (t) => {
-  // A file where the store's folder has to be, planted before the host
-  // starts: nothing under it can be written. Planted afterwards it raced the
+  // A file where this project's records have to be, planted before the host
+  // starts: its Seat cannot be written, while the launch journal is readable.
+  // Planted afterwards it raced the
   // host's own background evidence work, which could make the folder first
   // and turn this write into EISDIR under load (#1066).
   const stateDir = tempDir('hd-evidence-state-')
-  await writeFile(join(stateDir, 'evidence'), 'not a folder')
-  const { host, runtime, repo } = await evidenceDesk(t, {}, { stateDir, repo: await makeRepo() })
+  const repo = await makeRepo()
+  await mkdir(join(stateDir, 'evidence'))
+  await writeFile(new EvidenceStore(join(stateDir, 'evidence')).folderOf(await canonical(repo.dir)), 'not a folder')
+  const { host, runtime } = await evidenceDesk(t, {}, { stateDir, repo })
   await writeAgent(stateDir)
   await assert.rejects(
     host.call('agent/seat', { id: 'scout', cwd: repo.dir }),

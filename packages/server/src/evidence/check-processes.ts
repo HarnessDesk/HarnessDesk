@@ -42,7 +42,19 @@ export const recordCheckProcess = (dir: string, pgid: number): (() => void) => {
 
 const groupAlive = (pgid: number): boolean => {
   try { process.kill(-pgid, 0); return true } catch (error) {
-    if (['ESRCH', 'EPERM'].includes((error as NodeJS.ErrnoException).code ?? '')) return false
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
+    if ((error as NodeJS.ErrnoException).code === 'EPERM') {
+      // macOS may refuse the probe for a group of only dying/unreaped
+      // processes. Prove that from ps; EPERM alone never establishes cleanup.
+      const rows = execFileSync('ps', ['-axo', 'pgid=,stat='], { encoding: 'utf8' }).trim().split('\n')
+      const live = rows.some((row) => {
+        const [group, state] = row.trim().split(/\s+/)
+        if (!group || !state || !Number.isSafeInteger(Number(group))) throw error
+        return Number(group) === pgid && !state.startsWith('Z') && !state.startsWith('X') &&
+          !(process.platform === 'darwin' && state.includes('E'))
+      })
+      if (!live) return false
+    }
     throw error
   }
 }
@@ -69,6 +81,7 @@ export const recoverCheckProcesses = async (dir: string): Promise<void> => {
       continue
     }
     if (groupAlive(record.pgid)) {
+      if (identity === null) throw new Error('A previous check process group has no matching leader identity; no check can restart safely.')
       process.kill(-record.pgid, 'SIGKILL')
       const deadline = Date.now() + 5000
       while (groupAlive(record.pgid)) {

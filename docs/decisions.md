@@ -1211,8 +1211,13 @@ from an earlier round never duplicates its already-created downstream rounds.
 A detached shell waits at a launch handshake until the host has synced its
 exact pgid and leader identity in a host-owned journal. Startup stops only those
 recorded groups before recovering runs, rejects signalling a reused leader,
-and refuses to proceed if cleanup cannot be established. Children outside the
-recorded group are outside this guarantee. Interrupted work still needs fresh
+and refuses to proceed if cleanup cannot be established. A live group with no
+matching leader identity keeps its journal and refuses startup; the supervisor
+holds that identity until the whole group is stopped, even after the command
+finishes. Recovery failures refuse startup independently of Seat-record reads.
+Concurrent retries wait for their live siblings before routing the round.
+Children outside the recorded group are outside this guarantee.
+Interrupted work still needs fresh
 consent, since killing a process cannot undo its effects.
 
 The existing statechart already expresses a retry: `otherwise: retry` plus a

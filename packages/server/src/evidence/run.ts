@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { stripVTControlCharacters } from 'node:util'
+import type { Readable } from 'node:stream'
 
 import { recordCheckProcess } from './check-processes.js'
 import { TAIL_LIMIT } from './records.js'
@@ -157,9 +158,12 @@ export const runCommand = (
     let afterExit: ReturnType<typeof setTimeout> | null = null
     let forget: (() => void) | undefined
     const gated = where.processDir !== undefined
-    const child = gated ? spawn('/bin/sh', ['-c', 'IFS= read -r ready || exit; /bin/sh -c "$1" & command_pid=$!; wait "$command_pid"', `hd-check-${randomUUID()}`, command], {
+    // The supervisor retains its identity until the host kills the entire group,
+    // even if the command finishes after the host dies. fd 3 reports the command's
+    // exit without giving the command access to the supervisor's status pipe.
+    const child = gated ? spawn('/bin/sh', ['-c', 'IFS= read -r ready || exit; /bin/sh -c "$1" 3>&- & command_pid=$!; wait "$command_pid"; status=$?; trap "" PIPE; printf "%s\\n" "$status" >&3; exec 1>&- 2>&- 3>&-; while :; do sleep 60 & wait $!; done', `hd-check-${randomUUID()}`, command], {
       cwd: where.cwd, detached: true, env: { ...checkEnvironment(), ...(where.flowContext !== undefined ? { HARNESSDESK_FLOW_CONTEXT: where.flowContext } : {}) },
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
     }) : spawn(command, {
       cwd: where.cwd,
       shell: true,
@@ -220,12 +224,32 @@ export const runCommand = (
     })
     child.stdout?.on('data', keep)
     child.stderr?.on('data', keep)
+    let reported = false
+    let ended = 0
+    if (gated) {
+      const endStream = (): void => { ended += 1; if (reported && ended === 2) stopGroup(child) }
+      child.stdout?.on('end', endStream)
+      child.stderr?.on('end', endStream)
+      let status = ''
+      const statusPipe = child.stdio[3] as Readable | null
+      statusPipe?.on('data', (chunk: Buffer) => {
+        status += chunk.toString('utf8')
+        if (reported || !status.includes('\n')) return
+        reported = true
+        shellExit = Number(status.trim())
+        if (ended === 2) stopGroup(child)
+        else {
+          afterExit = setTimeout(() => stopGroup(child), AFTER_EXIT_MS)
+          afterExit.unref?.()
+        }
+      })
+    }
     child.on('error', (error) => finish(null, `It did not start: ${error.message}`))
     child.on('exit', (code, killedBy) => {
-      shellExit = killedBy ? null : code
+      if (!reported) shellExit = killedBy ? null : code
       // The streams close after the shell exits; a child still holding them is
       // ended after the grace period, then the result waits until the group is gone.
-      if (stopped === null) {
+      if (!gated && stopped === null) {
         afterExit = setTimeout(() => stopGroup(child), AFTER_EXIT_MS)
         afterExit.unref?.()
       }

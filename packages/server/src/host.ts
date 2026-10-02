@@ -2161,6 +2161,7 @@ export class Host {
     this.#applyBrowserSettings()
     this.#applyTeamSettings()
     await this.#applyPluginSettings()
+    await this.#evidence.recoverProcesses()
     await this.#evidence.load().catch((error: unknown) => {
       this.#logger.error('the Seat records this desk keeps could not be read', {
         error: error instanceof Error ? error.message : String(error),

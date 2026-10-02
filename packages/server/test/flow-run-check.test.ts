@@ -10,6 +10,7 @@ import { test, type TestContext } from 'node:test'
 import type { BoardEvidence, Evidence, EvidenceRecord, EvidenceView, FlowExecution, FlowPreview, GoalView, Intent } from '@harnessdesk/protocol'
 
 import { EvidenceStore } from '../src/evidence/store.js'
+import { recordCheckProcess, recoverCheckProcesses } from '../src/evidence/check-processes.js'
 import { TAIL_LIMIT } from '../src/evidence/run.js'
 import { evidenceGuard } from '../src/flow-evidence.js'
 import { RUN_CHECK_CLEAN, RUN_CHECK_PER_CARD, RUN_CHECK_PER_TURN } from '../src/flow-execution.js'
@@ -348,13 +349,13 @@ test('a run_check checkout a crash left behind is removed when the desk starts a
   assert.ok(existsSync(other), 'a folder that is not a check checkout is left alone')
 })
 
-test('startup stops exactly the durably recorded check group that outlived its killed host, including grandchildren', async (t) => {
+for (const mainExits of [false, true]) test(`startup stops the recorded group, including grandchildren, with the command ${mainExits ? 'finished' : 'still running'}`, async (t) => {
   const stateDir = tempDir('hd-flow-process-restart-')
   const processDir = join(stateDir, 'evidence', 'check-processes')
   const childFile = join(stateDir, 'child.mjs')
-  await writeFile(childFile, `import { spawn } from 'node:child_process'; import { writeFileSync } from 'node:fs';
+  await writeFile(childFile, `import { spawn } from 'node:child_process'; import { existsSync, renameSync, writeFileSync } from 'node:fs';
 const child = spawn('sleep', ['30'], { stdio: 'ignore' });
-writeFileSync('children.json', JSON.stringify([process.pid, child.pid])); setInterval(() => {}, 1000);`)
+writeFileSync('children.pending', JSON.stringify([process.pid, child.pid])); renameSync('children.pending', 'children.json'); ${mainExits ? "child.unref(); const timer = setInterval(() => { if (existsSync('release-main')) clearInterval(timer) }, 10);" : 'setInterval(() => {}, 1000);'}`)
   const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`
   const launcher = spawn(process.execPath, ['--input-type=module', '-e', `
 import { runCommand } from ${JSON.stringify(new URL('../src/evidence/run.js', import.meta.url).href)};
@@ -380,7 +381,12 @@ await runCommand(${JSON.stringify(`${quote(process.execPath)} ${quote(childFile)
   const exited = once(launcher, 'exit')
   launcher.kill('SIGKILL')
   await exited
-  for (const pid of children) assert.doesNotThrow(() => process.kill(pid, 0), 'the old check outlived its host')
+  if (mainExits) {
+    await writeFile(join(stateDir, 'release-main'), 'go')
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    assert.doesNotThrow(() => process.kill(pgid!, 0), 'the supervisor retains the recorded identity after the main command exits')
+  }
+  for (const pid of mainExits ? children.slice(1) : children) assert.doesNotThrow(() => process.kill(pid, 0), 'the old check outlived its host')
   assert.doesNotThrow(() => process.kill(-pgid!, 0))
   const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), builtinAgents: tempDir('hd-restart-process-agents-'), catalogRefreshMs: 0 })
   t.after(() => host.dispose())
@@ -393,6 +399,75 @@ await runCommand(${JSON.stringify(`${quote(process.execPath)} ${quote(childFile)
   assert.doesNotThrow(() => process.kill(outsider.pid!, 0), 'an unrelated group was not signalled')
   assert.deepEqual(await readdir(processDir), [], 'recovery durably clears the stopped group')
   await host.dispose()
+})
+
+test('startup refuses an unreadable check launch journal before recovering flows', async (t) => {
+  const stateDir = tempDir('hd-check-invalid-journal-')
+  const processDir = join(stateDir, 'evidence', 'check-processes')
+  await mkdir(processDir, { recursive: true })
+  await writeFile(join(processDir, 'launch.json'), '{broken')
+  const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), builtinAgents: tempDir('hd-check-invalid-agents-'), catalogRefreshMs: 0 })
+  t.after(() => host.dispose())
+  let recovered = false
+  t.mock.method(host.flowsPlane, 'load', async () => { recovered = true })
+  await assert.rejects(host.start(), /JSON/)
+  assert.equal(recovered, false)
+  assert.equal(await readFile(join(processDir, 'launch.json'), 'utf8'), '{broken', 'uncertain records remain available')
+})
+
+test('a live group without its recorded leader is never signalled, keeps its journal, and refuses startup', async (t) => {
+  const stateDir = tempDir('hd-check-missing-leader-')
+  const processDir = join(stateDir, 'evidence', 'check-processes')
+  await mkdir(processDir, { recursive: true })
+  const leader = spawn('/bin/sh', ['-c', 'sleep 30 & echo $!; wait'], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] })
+  let child = 0
+  t.after(() => { try { process.kill(-leader.pid!, 'SIGKILL') } catch { /* Gone. */ } })
+  const [output] = await once(leader.stdout!, 'data') as [Buffer]
+  child = Number(output.toString().trim())
+  const exited = once(leader, 'exit')
+  leader.kill('SIGKILL')
+  await exited
+  const path = join(processDir, 'launch.json')
+  const record = JSON.stringify({ version: 1, pgid: leader.pid, identity: 'a'.repeat(64) })
+  await writeFile(path, record)
+  await assert.rejects(recoverCheckProcesses(processDir), /identity|identified/)
+  assert.doesNotThrow(() => process.kill(child, 0), 'the unrelated surviving child was never killed')
+  assert.equal(await readFile(path, 'utf8'), record)
+  const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), builtinAgents: tempDir('hd-check-missing-agents-'), catalogRefreshMs: 0 })
+  t.after(() => host.dispose())
+  await assert.rejects(host.start(), /identity|identified/)
+  assert.doesNotThrow(() => process.kill(child, 0))
+})
+
+for (const stopped of [false, true]) test(`an EPERM probe ${stopped ? 'clears a group proven gone' : 'refuses a group with live members'}`, async (t) => {
+  const processDir = join(tempDir('hd-check-permission-probe-'), 'processes')
+  const leader = spawn('sleep', ['30'], { detached: true, stdio: 'ignore' })
+  t.after(() => leader.kill('SIGKILL'))
+  await once(leader, 'spawn')
+  recordCheckProcess(processDir, leader.pid!)
+  const files = await readdir(processDir)
+  if (stopped) {
+    const exited = once(leader, 'exit')
+    leader.kill('SIGKILL')
+    await exited
+  }
+  const kill = process.kill.bind(process)
+  let signals = 0
+  t.mock.method(process, 'kill', (pid: number, signal?: NodeJS.Signals | number) => {
+    if (pid === -leader.pid!) {
+      if (signal === 0) throw Object.assign(new Error('staged permission refusal'), { code: 'EPERM' })
+      signals += 1
+    }
+    return kill(pid, signal)
+  })
+  if (stopped) {
+    await recoverCheckProcesses(processDir)
+    assert.deepEqual(await readdir(processDir), [])
+  } else {
+    await assert.rejects(recoverCheckProcesses(processDir), /staged permission refusal/)
+    assert.deepEqual(await readdir(processDir), files, 'uncertain ownership keeps its record')
+  }
+  assert.equal(signals, 0, 'no signal is authorized by an EPERM probe')
 })
 
 test('the real wire retry returns with a durable running child, then its new output completes the reopened settled card', async (t) => {

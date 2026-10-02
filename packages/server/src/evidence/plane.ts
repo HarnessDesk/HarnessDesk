@@ -145,9 +145,13 @@ export class EvidencePlane {
     })
   }
 
+  /** Must succeed before startup can recover any Flow, independently of optional Seat reads. */
+  async recoverProcesses(): Promise<void> {
+    await recoverCheckProcesses(this.#checkProcessDir)
+  }
+
   /** Reads what a previous launch recorded. Once, at start. */
   async load(): Promise<void> {
-    await recoverCheckProcesses(this.#checkProcessDir)
     await this.seats.load()
   }
 
