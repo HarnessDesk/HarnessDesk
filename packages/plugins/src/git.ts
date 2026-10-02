@@ -352,6 +352,27 @@ const recordOf = (value: unknown): Record<string, unknown> | null =>
     ? value as Record<string, unknown>
     : null
 
+// An allowlist keeps new or unsupported CI-gating rules unreadable, preserving
+// the every-check fallback. Only rules known not to gate on CI may be ignored.
+const NON_CI_RULE_TYPES = new Set([
+  'deletion',
+  'non_fast_forward',
+  'creation',
+  'update',
+  'required_linear_history',
+  'required_signatures',
+  'pull_request',
+  'commit_message_pattern',
+  'commit_author_email_pattern',
+  'committer_email_pattern',
+  'branch_name_pattern',
+  'tag_name_pattern',
+  'file_path_restriction',
+  'max_file_path_length',
+  'file_extension_restriction',
+  'max_file_size',
+])
+
 /** Parse every entry; an incomplete rule cannot be hidden by a valid sibling. */
 const requirementsFromRulesets = (value: unknown): RequiredCheck[] | null => {
   if (!Array.isArray(value)) return null
@@ -362,6 +383,7 @@ const requirementsFromRulesets = (value: unknown): RequiredCheck[] | null => {
     const parameters = recordOf(rule.parameters)
     const type = rule.type.trim()
     if (type !== 'required_status_checks') {
+      if (!NON_CI_RULE_TYPES.has(type)) return null
       if (parameters && Object.hasOwn(parameters, 'required_status_checks')) return null
       continue
     }

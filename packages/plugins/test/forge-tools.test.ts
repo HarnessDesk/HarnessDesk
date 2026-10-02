@@ -513,6 +513,85 @@ test('pr_merge ignores red advisory jobs when every required check is green', as
   assert.ok(forge.calls().some((args) => args[0] === 'pr' && args[1] === 'merge'))
 })
 
+test('pr_merge refuses a failed required workflow alongside a green required status check', async (t) => {
+  const forge = await rig(t)
+  setRules(forge, [
+    ...requiredRules([{ context: 'Build', integration_id: 15368 }]),
+    {
+      type: 'workflows',
+      parameters: {
+        workflows: [{ path: '.github/workflows/security.yml', repository_id: 1, ref: 'main' }],
+      },
+    },
+  ])
+  setCheckRuns(forge, [
+    checkRun('Build', 1, '2026-10-01T10:00:00Z', 'completed', 'success', 15368),
+    checkRun('Security', 2, '2026-10-01T10:00:00Z', 'completed', 'failure', 15368),
+  ])
+  const said = await forge.run('pr_merge', { number: 7, head: '0123456789abcdef0123456789abcdef01234567' })
+  assert.match(said, /“Security” failed/)
+  assertRulesReadAtBase(forge)
+  assertBranchSummaryRead(forge)
+  assertNoMergeCall(forge)
+})
+
+test('pr_merge falls back to every check for unsupported CI and future rule types', async (t) => {
+  for (const type of ['code_scanning', 'required_deployments', 'merge_queue', 'future_ci_requirement']) {
+    await t.test(type, async (t) => {
+      const forge = await rig(t)
+      setRules(forge, [
+        ...requiredRules([{ context: 'Build', integration_id: 15368 }]),
+        { type },
+      ])
+      setCheckRuns(forge, [
+        checkRun('Build', 1, '2026-10-01T10:00:00Z', 'completed', 'success', 15368),
+        checkRun('Security', 2, '2026-10-01T10:00:00Z', 'completed', 'failure', 15368),
+      ])
+      const said = await forge.run('pr_merge', { number: 7, head: '0123456789abcdef0123456789abcdef01234567' })
+      assert.match(said, /“Security” failed/)
+      assertNoMergeCall(forge)
+    })
+  }
+})
+
+test('pr_merge ignores allowlisted rules that do not gate on CI', async (t) => {
+  for (const type of [
+    'deletion',
+    'non_fast_forward',
+    'creation',
+    'update',
+    'required_linear_history',
+    'required_signatures',
+    'pull_request',
+    'commit_message_pattern',
+    'commit_author_email_pattern',
+    'committer_email_pattern',
+    'branch_name_pattern',
+    'tag_name_pattern',
+    'file_path_restriction',
+    'max_file_path_length',
+    'file_extension_restriction',
+    'max_file_size',
+  ]) {
+    await t.test(type, async (t) => {
+      const forge = await rig(t)
+      setRules(forge, [
+        ...requiredRules([{ context: 'Build', integration_id: 15368 }]),
+        { type },
+      ])
+      setCheckRuns(forge, [
+        checkRun('Build', 1, '2026-10-01T10:00:00Z', 'completed', 'success', 15368),
+        checkRun('Advisory', 2, '2026-10-01T10:00:00Z', 'completed', 'failure', 15368),
+      ])
+      const head = '0123456789abcdef0123456789abcdef01234567'
+      assert.match(await forge.run('pr_merge', { number: 7, head }), /Merged pull request #7/)
+      const merge = forge.calls().find((args) => args[0] === 'pr' && args[1] === 'merge')
+      assert.ok(merge)
+      assert.deepEqual(merge.slice(0, 6), ['pr', 'merge', '7', '--squash', '--match-head-commit', head])
+    })
+  }
+})
+
 test('pr_merge falls back to every check when the classic branch summary cannot be read', async (t) => {
   const head = '0123456789abcdef0123456789abcdef01234567'
   for (const [label, failure] of [['404', '404'], ['502', '502']] as const) {

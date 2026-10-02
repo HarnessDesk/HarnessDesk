@@ -709,6 +709,9 @@ and classic protection summary for the pull request's base branch and unions
 their required checks. A required check's newest run must be complete with a
 `success`, `skipped` or `neutral` conclusion; when GitHub identifies the
 required app, only a run from that app counts.
+Only an explicit allowlist of rule types known not to gate on CI is ignored;
+any other rule type makes the requirements unreadable and keeps the every-check
+fallback.
 Missing, pending or failed required checks refuse the merge, while other
 check-runs are ignored. If the requirements are absent or cannot be read, the
 tool falls back to the earlier conservative rule: every check-run on the commit
