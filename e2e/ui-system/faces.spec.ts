@@ -15,7 +15,8 @@ import { expect, test, type Page } from '@playwright/test'
  * it asks three things of what is on screen:
  *
  *   1. Every declared face computes `--hd-face-radius` (or `-lg`), and is
- *      filled solid, except a notice's face, which keeps its tone's ground.
+ *      filled solid, except a notice's face, which keeps its tone's wash: it is
+ *      translucent by design, so it is held to having a ground at all.
  *   2. Every tile that holds an agent's mark is a face, an account's ring, or
  *      a named exception. A tile drawn in a fixed square or round that holds an
  *      agent is the next one a review would have found.
@@ -146,9 +147,15 @@ const faceReport = (page: Page, exceptions: Excused) =>
       if (!corners.includes(cs.borderTopLeftRadius)) {
         findings.push({ rule: 'corner', where: where(el), slot: slot(el), detail: `${cs.borderTopLeftRadius}, wanted ${corners.join(' or ')}` })
       }
-      // A notice's face keeps its tone's ground (it has no data-slot and a tone).
+      // A notice's face keeps its tone's wash (it has no data-slot and a tone):
+      // translucent by design, so it is held to having a ground, not to solid.
       const notice = !el.hasAttribute('data-slot') && el.hasAttribute('data-tone')
-      if (!notice && !/^rgb\(/.test(cs.backgroundColor)) {
+      if (notice) {
+        const alpha = cs.backgroundColor.match(/^rgba\(.*,\s*([\d.]+)\)$/)?.[1]
+        if (alpha !== undefined && Number(alpha) === 0) {
+          findings.push({ rule: 'ground', where: where(el), slot: slot(el), detail: cs.backgroundColor })
+        }
+      } else if (!/^rgb\(/.test(cs.backgroundColor)) {
         findings.push({ rule: 'solid', where: where(el), slot: slot(el), detail: cs.backgroundColor })
       }
     }
@@ -220,6 +227,16 @@ test.describe('rule: faces', () => {
     await page.addStyleTag({ content: '[data-frame-id="goal-roster"] [data-slot="icon-tile"][data-shape="face"] { background-color: rgba(0, 0, 0, 0.1) !important; }' })
     const after = await faceReport(page, NOT_SOMEONE)
     expect(after.findings.some((f) => f.rule === 'solid' && f.where === 'goal-roster')).toBe(true)
+  })
+
+  test('rule: faces — the checker catches a notice’s face that lost its ground', async ({ page }) => {
+    const spec = PAGES[0]!
+    await open(page, spec.url, spec.ready)
+    // A notice's face is translucent by design (its tone's wash), so it is not held to solid; it is held to having a ground at all.
+    expect((await faceReport(page, NOT_SOMEONE)).findings).toEqual([])
+    await page.addStyleTag({ content: '[data-frame-id="goal-roster"] :not([data-slot])[data-tone][data-shape="face"] { background-color: transparent !important; }' })
+    const after = await faceReport(page, NOT_SOMEONE)
+    expect(after.findings.some((f) => f.rule === 'ground' && f.where === 'goal-roster')).toBe(true)
   })
 
   test('rule: faces — the checker catches an agent’s mark in a tile that is not a face, and lets the named exception stand', async ({ page }) => {
