@@ -128,9 +128,11 @@ it('reports a failed ceiling preference write', async () => {
 
 it('keeps the shape of faces like every other appearance preference, and reads it back', async () => {
   const asked: Array<{ method: string; params: unknown }> = []
-  const stored: Record<string, unknown> = { faces: 'round' }
+  // The host's file: what is written is what is read back, and nothing else.
+  const stored: Record<string, unknown> = {}
   vi.mocked(store.transport.request).mockImplementation((async (method: string, params: unknown) => {
     asked.push({ method, params })
+    if (method === 'app/state/set') Object.assign(stored, (params as { patch: Record<string, unknown> }).patch)
     return method === 'app/state/get' ? stored : null
   }) as never)
 
@@ -138,6 +140,7 @@ it('keeps the shape of faces like every other appearance preference, and reads i
   store.setFaces('round')
   expect(store.getSnapshot().faces).toBe('round')
   await vi.waitFor(() => expect(asked).toContainEqual({ method: 'app/state/set', params: { patch: { faces: 'round' } } }))
+  expect(stored['faces']).toBe('round')
 
   // A fresh window reads it back; a value this build does not know is ignored,
   // never trusted onto the body.

@@ -2119,6 +2119,12 @@ it('draws a pending approval in flow, in the composer’s slot — not a dialog,
   const box = container.querySelector('textarea')
   expect(box, 'the composer stays mounted').not.toBeNull()
   expect(box!.closest('[hidden]'), 'and is hidden while the card holds the slot').not.toBeNull()
+  // The live line is the tail's first line and stays, where it says who is waiting;
+  // the notice about what sending would do goes with the box it describes.
+  const live = container.querySelector('[data-slot="room-live-line"]')
+  expect(live, 'the live line stays mounted').not.toBeNull()
+  expect(live!.closest('[hidden]'), 'and stays visible under the approval').toBeNull()
+  expect(container.querySelector('[data-slot="room-composer-notice"]'), 'the composer notice is not drawn under the approval').toBeNull()
   expect(document.querySelector('[role="dialog"], [role="alertdialog"]')).toBeNull()
   expect(document.querySelector('[data-slot="dialog-overlay"], [data-slot="approval-dialog-scope"]')).toBeNull()
   // The thread above it stays in the accessibility tree, and interactive.

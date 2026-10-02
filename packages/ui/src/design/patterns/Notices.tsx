@@ -77,7 +77,15 @@ const Lead = ({ message, size = 'md', line }: { message: NoticeMessage; size?: '
   const lineSize = line ?? size
   return (
     <span className={cn('flex shrink-0 items-center overflow-visible', lineSize === 'sm' ? 'h-(--hd-line-sm)' : 'h-(--hd-line)')}>
-      <span className={styles.tile} data-tone={tone} data-size={size} aria-hidden>
+      <span
+        className={styles.tile}
+        data-tone={tone}
+        data-size={size}
+        // An Agent's message leads with that Agent's face, and a face takes the
+        // person's chosen shape; a tone's icon stays the tile it was.
+        {...(message.mark ? { 'data-face': '' } : {})}
+        aria-hidden
+      >
         {message.mark ?? <Glyph size={size === 'sm' ? 12 : 14} />}
       </span>
     </span>

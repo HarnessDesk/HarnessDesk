@@ -48,6 +48,8 @@ it('a message is a transcript item with the sender’s identity tile for a face'
   const tile = row().querySelector('[data-slot="icon-tile"]')
   expect(tile?.getAttribute('data-tint')).toBe('green')
   expect(tile?.getAttribute('aria-hidden')).toBe('true')
+  // A face, so it takes the shape chosen for faces rather than the tile's own corner.
+  expect(tile?.className).toContain('rounded-(--hd-face-radius)')
   // The name is a member's, said in words beside the face.
   expect(row().querySelector('[data-slot="text"][data-role="member"]')?.textContent).toBe('Reviewer')
 })
