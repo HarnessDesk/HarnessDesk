@@ -3,7 +3,7 @@
 > **For the Lead and for Teams:** each "PR n" below is a brief that stands on
 > its own. Copy its section, and "Rules for every PR", into a Team's brief file.
 > Steps use checkbox (`- [ ]`) syntax. The design is approved (owner,
-> 2026-10-02, all nine decisions as recommended; the Flow view is the relay drawing):
+> 2026-10-02, decisions 1 to 9 as recommended, the Flow view being the relay drawing, and decision 10 as the owner made it on #1278):
 > `docs/superpowers/specs/2026-10-02-teams-flows-runs-view-design.md`. Read its
 > sections named in a brief before writing anything.
 
@@ -86,7 +86,7 @@ Sizes: S under a day of Team time, M about a day, L more.
 | 1 | The overview model (pure selectors) | none | **yes** | M |
 | 5 | Host: the Run record learns four things | none (coordinate on `flow-execution.ts`) | **yes** | M |
 | 6 | The brief field in the start dialog | none | **yes** | S |
-| 2 | The Overview in the Team pane | 1 | after 1 | M |
+| 2 | The Overview in the Team pane, with every Seat a Run opened (closes #1278) | 1 | after 1 | L |
 | 12 | The Teams page | 1 | after 1 | M |
 | 3 | The Run model and timeline | none; reads PR 5's fields when present | **yes** (after 2 for the shared pane file) | L |
 | 4 | The Run inspector | 3 | after 3 | M |
@@ -99,11 +99,12 @@ Sizes: S under a day of Team time, M about a day, L more.
 | 14 | The Run's state on the Flow | 13 | after 13 | L |
 | 15 | The poster and the site demo | 14 | optional | S |
 | 16 | Read from the shared client selectors | the Wire client and CLI session's stream and core | **waits** | M |
+| 17 | Host: a finished Seat's process rests | none; fetch main first (#1263 also touches `host.ts`) | **yes** | M |
 
 **One Team at a time in `TeamRoomPane.tsx`.** PRs 2, 3, 8 and 10 all touch the
 rail or header of `packages/ui/src/components/TeamRoomPane.tsx`, a 2,400-line
 file. Land them in that order, and each one starts from a fresh fetch of main.
-PRs 1, 5, 6 and 12 touch other files and can run beside them.
+PRs 1, 5, 6, 12 and 17 touch other files and can run beside them. PR 17 (host) touches `host.ts`, which #1263 also changes: fetch main first.
 
 **What waits on the event stream.** Only PR 16, and the two events below. Every
 other PR reads what the window's store already holds.
@@ -218,30 +219,43 @@ the Overview draws, in the app's words, ordered by precedence.
 
 ## PR 2 — The Overview in the Team pane
 
-**Goal.** A new first item in the Team's rail, **Overview**, shows the Run strip, what needs the person, and the seats table.
+**Goal.** A new first item in the Team's rail, **Overview**, shows the Run strip, what needs the person, and the seats table. The same PR makes the Team's seats one set everywhere the window lists them, which closes #1278: a Team whose Flow opened a writer and a reviewer no longer reads "Agents 0", those conversations sit under the Team in the sidebar, and a finished Seat stays on the list as Done and folds into one line in the Overview (the owner's decision on #1278; its process resting is PR 17).
 
 **Read first.**
 - Spec: "The Team overview", and the frames `team-overview` and `overview-narrow` (links in the spec's frames section).
 - `packages/ui/src/components/TeamRoomPane.tsx` (the rail rows, the header chip, the pane's default view) and `TeamRoomPane.test.tsx`.
 - `packages/ui/src/design/ui/table.tsx`, `list-row.tsx`, `packages/ui/src/design/patterns/Settings.tsx` (`Chip`, `Text`), `patterns/InspectorPanel.tsx`.
 - PR 1's `team-overview.ts`.
+- #1278, and how the two readers get members today: the rail's Agents list and its empty state in `TeamRoomPane.tsx` (the roster from `store.teamPeers`, which answers the board's `members`; the empty-state sentence near `No agents in this room yet`); the sidebar's `roomMembers` and the `inRooms` set in `SessionTree.tsx`. A Flow's membership is the Goal's Seats (`GoalView.members` in `snapshot.goals`; `FlowExecution.rounds[].seats` names the ones a Run opened by role); `lib/goal-run.ts` shows how the window already reads a Goal's Run.
 
 **Scope.**
 - [ ] `packages/ui/src/components/TeamOverview.tsx`: the Run strip (name, round and role, started, review budget, total as "$1.43 · 96 turns", no actions yet), the **Needs you** list (rows render; their buttons arrive with PR 8), and the seats table (seat face and name, role, card, round, state chip, doing line, time in state, cost). Idle is plain muted text. The cost cell shows the unit it has, and its title says why ("This account is not metered, so turns are counted").
 - [ ] Narrow width (the pane's own narrow rule): a seat is one `ListRow`: face, name and state chip on the title's line, the doing line beneath, the cost at the end.
 - [ ] `TeamRoomPane.tsx`: **Overview** as the rail's first item, the default when a Flow run exists on the Team (a Team without one still opens on Chat). The header chip's existing rule is unchanged.
 - [ ] A Team with no run: the strip is absent; the table still lists the seats (state, card, time).
-- [ ] Catalogue boards and preview frames for: running, needs-you, unread, idle, a stalled run, no run, no seats, narrow, dark.
+- [ ] **Measure first, and put it in the PR body.** On the rig, run a Flow that opens a writer and a reviewer, and record for the Team: what `team.members` holds, what `GoalView.members` holds while the Run works and after it settles, and whether a seat that finished its cards is still an open Seat or a closed one. The design below holds in either case; the measurement says which case the tests cover.
+- [ ] `packages/ui/src/lib/team-seats.ts` (pure, tested first): `teamSeats(goalView, teamState, execution)` returns the Team's seats as one list, keyed by the conversation's session key and listed once: the Goal's Seats, the seats the Run's rounds name (with the round's role), and any member of the older list not already there. Each entry says where it came from only in the tests, never on screen. A seat the window cannot resolve to a conversation is left out, not drawn blank.
+- [ ] `TeamRoomPane.tsx`: the rail's **Agents** list and its count read `teamSeats` (the chat roster's own verbs, such as add an agent, keep working on the same entries), and keep every row, done ones included. The Overview's table reads the same list, so the two counts agree.
+- [ ] **Done, and the fold.** A seat whose every card is done, with no turn running, no question, no approval and no unread mark, is **Done**: plain muted text, the same resting state as Idle, no colour. In the Overview, Done seats collapse into one line ("3 done", a disclosure that opens to the rows) after the working and waiting ones; a seat leaves the fold the moment it is Needs you, Unread or Working. Add `done: boolean` to `SeatRow` in `team-overview.ts` and the rule, with its tests, to PR 1's precedence tests. A seat that never held a card is Idle and is not folded.
+- [ ] **A seat without a process is not missing.** A seat the desk holds no live conversation for (its process rested, PR 17, or the desk restarted) is listed from the Goal's Seats and the Run's rounds, with its state from its cards; opening its conversation works as it does for any conversation the desk is not holding.
+- [ ] **A wrapped Team is a read-only record.** Seats are read from the Goal's receipt (`GoalView.receipt`, its `seats` and `evidenceSeats`), because wrapping closes the Seats and `GoalView.members` is then empty. The Overview, the seats table and the conversations stay viewable; every verb that dispatches (add an agent, assign, answer, stop, run again) is disabled with "This Team is wrapped", or absent where it can never apply. Deleting a Team stays its own action, and deleted items go to the Trash; nothing here deletes.
+- [ ] The empty state appears only when `teamSeats` is empty, and says Team: "No agents in this Team yet. …" (all three variants of the sentence, which today say "room"). Other uses of the word in comments are the Team rename's, not this PR's.
+- [ ] `SessionTree.tsx`: `roomMembers` and the `inRooms` set read `teamSeats`, so a Seat's conversation is nested under its Team and is no longer listed loose under the project. A conversation is still listed once (the existing rule); the agent filter, hidden keys and the wrapped-Team folding still apply to the nested rows.
+- [ ] Catalogue boards and preview frames for: running, needs-you, unread, idle, a stalled run, no run, no seats, three done folded and opened, a wrapped Team, narrow, dark. (The spec's frames predate the fold decision.)
 - [ ] `docs/design.md`: one short section, "The Team overview".
 
-**Not in this PR.** Buttons on the Needs-you rows (PR 8), *Open run* (PR 3), *Stop run…* (PR 10), any wire call.
+**Not in this PR.** Buttons on the Needs-you rows (PR 8), *Open run* (PR 3), *Stop run…* (PR 10), any wire call. Changing what the host writes into a Team's older member list: if the measurement shows it should, file it as its own issue; the window's one list works either way. A Seat's process resting (PR 17).
 
 **Verify.**
 - [ ] Component tests: precedence order on screen, the cost title, a seat whose row has no card.
-- [ ] `e2e/ui-system/team-overview.spec.ts`: rows sorted by precedence; the doing line truncates with its title; the narrow layout; no resting state computes a health colour; every seat tile is `data-shape="face"`.
+- [ ] `team-seats.test.ts`: a Team whose Run opened two seats lists both with their roles; a member of the older list that is also a Seat appears once; a seat that cannot be resolved is left out; a Team with no Run and no members is empty.
+- [ ] `team-overview.test.ts` (extending PR 1's): three finished seats fold to "3 done"; a done seat with a question, an unread mark or a running turn leaves the fold and sorts by precedence; an idle seat with no card is not folded.
+- [ ] A wrapped Team: seats come from the receipt, no dispatching verb is enabled, the timeline and the conversations open.
+- [ ] Component tests for #1278: the Agents count equals the Overview's rows; the empty sentence says Team and is absent when a seat exists; the sidebar test shows both conversations under the Team and none in the project's loose list.
+- [ ] `e2e/ui-system/team-overview.spec.ts`: rows sorted by precedence; the doing line truncates with its title; the narrow layout; no resting state computes a health colour; every seat tile is `data-shape="face"`. On a rig Team whose Flow wrote and reviewed: the rail says Agents 2, not 0, the sidebar has the two conversations under the Team, and the Overview shows "2 done" folded once both have finished.
 - [ ] Frames in the PR body (light and dark, wide and narrow) from the preview harness, placeholder names only.
 
-**Done when.** The Overview matches the spec's frames within the design system's tokens, and `pnpm verify` and the named specs are green.
+**Done when.** The Overview matches the spec's frames within the design system's tokens, #1278's three expectations hold on the rig (every Seat listed with role and state, finished ones kept and folded in the Overview, nested under the Team in the sidebar, an empty state only when there really are none, and it says Team) and a wrapped Team reads as a record, the PR body says `Closes #1278`, and `pnpm verify` and the named specs are green.
 
 ---
 
@@ -514,6 +528,36 @@ the Overview draws, in the app's words, ordered by precedence.
 - [ ] Replay one scripted stream through the window and through the command line's `status` and `run show`, and assert they agree.
 
 **Verify.** The replay test; the existing component and browser specs unchanged; `pnpm verify`.
+
+---
+
+## PR 17 — A finished Seat's process rests
+
+**Goal.** A Team that has written and reviewed stops holding its agents' processes open. The Seat stays listed and reachable; only its process goes (the owner's decision on #1278).
+
+**Read first.**
+- Spec: "The Team overview" (the bullets on a finished Seat), "What we have today" (the bullet on a finished Seat keeping its runtime's process), and host change 8.
+- `packages/server/src/host.ts`: `IDLE_STOP_MS`, `#startIdleReaper`, `#reapIdleRuntime`, `#runtimeIsIdle` (today its last clause counts any Seat that is not closed, and an earlier one counts any live conversation, as work), `#withRuntimeActivity`, and `#teamLive` / `#liveFor` (how a detached member is reopened by the next delivery); `packages/server/src/registry.ts` (`detached`, `detachAll`).
+- `packages/protocol/src/goal.ts` (`membersOf`: an open Seat is a member), `packages/server/src/goals/wrap.ts` (`closeSeats`: the only place the engine closes Seats), `packages/server/src/goals/members.ts`.
+- `packages/server/test/idle-runtime.test.ts` (the existing idle-stop tests; extend them).
+
+**Scope.**
+- [ ] **Measure first, in the PR body.** On the fake-agent rig, run a Flow to its end and show that its runtimes' processes are still up after `idleStopMs`, and name the clause that holds them (the live handle, the open Seat, or both).
+- [ ] A rule, in one named function and with one named constant (`SEAT_REST_MS`, defaulting to `IDLE_STOP_MS`, overridable by an option as `idleStopMs` is): a Seat is *resting* when every card it held is done and none is open or claimed, it has no turn running, no approval open, no queued message and no running task, and it has been so for `SEAT_REST_MS`.
+- [ ] A resting Seat's conversation lets go of its live handle through the path a runtime restart already takes (`detached`, `live = null`), and `#runtimeIsIdle` stops counting a resting Seat as work, so the existing reaper can stop the runtime. The Seat record is not closed: it stays a member (`membersOf`), so every list still shows it.
+- [ ] Reconnect on demand: a message to the Seat, opening its conversation, or the engine handing it a card goes through the existing reopen path and `#ensureStarted`, with the conversation's own context (the agent owns its history; rule 3). A reopen that fails says so in the agent's words, as a detached member's does today.
+- [ ] No wire or protocol change, no UI. What the window shows (Done, folded) comes from the Seat's cards and is the same with or without a process.
+
+**Not in this PR.** Closing a Seat (wrap and a person still own that); deleting anything; any change to a card, a round or a rule; a state for "stopped" shown to the person; the Overview (PR 2).
+
+**Verify.**
+- [ ] Unit tests with a fake runtime and a short `idleStopMs`: after a Flow's last card is done and the rest time passes, the runtime's idle stop runs and the Seat is still in `membersOf`.
+- [ ] A Seat with a running turn, an open approval, a queued message or a running task never rests; a Seat holding an open card never rests.
+- [ ] A message to a resting Seat reopens it with its prior context and answers; a card handed to it reopens it; a refusal is surfaced and does not close the Seat.
+- [ ] A runtime shared by a resting Seat and a working one is not stopped.
+- [ ] `pnpm verify`; and on the rig, the finished Team's processes are gone after the rest time while its Agents list is unchanged.
+
+**Done when.** After the rest time a finished Team holds no agent process, every list still shows its Seats, and a follow-up message to a finished reviewer is answered in the same conversation.
 
 ---
 

@@ -1,7 +1,8 @@
 # Seeing and steering Teams, Flows and Runs: the Run view first
 
-*2026-10-02. Approved by the owner the same day, every decision as
-recommended (listed at the end); nothing here is built yet. It covers how the window shows and controls a Team's work: who is doing what, one
+*2026-10-02. Approved by the owner the same day: decisions 1 to 9 as
+recommended, and decision 10 as the owner made it (listed at the end). Nothing
+here is built yet. It covers how the window shows and controls a Team's work: who is doing what, one
 Run's history, and what a person can do about it. It shares one stream of
 facts with the clients design for the command line and Mobile (#1271). The
 problems it answers were found by running real work as Teams on a desk on the
@@ -55,6 +56,18 @@ a chat and without a hand step.** Three claims anyone can check:
   seats. The chip says "Needs you" when a person step or a question waits, the
   Team's own activity says so, or the run is stalled; one rule, read by the
   header and the chat's live line alike (`TeamRoomPane.tsx`).
+- **A Team's Agents list misses the Seats its Flow opened (#1278).** The rail's
+  Agents list and the sidebar's nesting read the Team's older member list
+  (`team.members`, answered by `teamPeers`), while a Flow's membership is the
+  Goal's Seats. A Team whose Flow wrote and reviewed reads "Agents 0", and its
+  two conversations sit loose under the project.
+- **A finished Seat keeps its runtime's process running.** The host stops a
+  runtime that has been idle, but counts an open Seat as work: `#runtimeIsIdle`
+  in `host.ts` is false while any Seat on the runtime is not closed, and also
+  while any of its conversations holds a live handle. Nothing in the engine
+  closes a Seat when its card is done; wrapping the Team (`closeSeats`) or a
+  person closing the conversation does. So a Team that wrote and reviewed
+  keeps both agents' processes up until it is wrapped.
 - **A seat's state is in the channel, not in a list.** The rail draws a light
   on a working seat, and the chat says "Alpha is working". Nothing puts the
   seats side by side with what each holds, how long, and what it costs.
@@ -134,6 +147,33 @@ above broke it:
 
 Two places show it, because two questions are asked: "what is every Team on
 this desk doing?" and "what is this Team doing?".
+
+**Who is in a Team is the Goal's Seats**, every one its Runs opened, not only
+the ones the older member list holds. The Overview's seats table, the rail's
+Agents list and its count, and the sidebar's nesting all read that one set,
+once for each conversation (#1278). The owner decided on #1278 what happens to
+a Seat once its work is done:
+
+- **It stays on the list.** Every Seat a Team's Runs opened stays listed with
+  its role and its state, including **Done** (plain muted text, like any
+  resting state). That keeps who wrote and who reviewed traceable (a review
+  posted on a pull request points back to its Seat) and lets a person ask a
+  finished reviewer a follow-up in the same conversation, with its context.
+- **The Overview folds the done ones.** Seats that are done and quiet collapse
+  into one line, "3 done", which opens to the rows. Needs you, Unread and
+  Working seats always sort first and are never inside the fold; a done seat
+  that gets a question or an unread message leaves it. The rail's Agents list
+  keeps every row.
+- **Its process does not stay.** After a Seat hands its last card back and has
+  been idle for a while, the host lets its conversation go and the runtime's
+  process can stop, the same shutdown idle helpers already get. The list still
+  shows it as done. Opening the conversation, or sending it a message,
+  reconnects on demand. This is a host change (item 8 below); the window never
+  shows a Seat without a process as missing.
+- **After the Team ends** it folds into *Ready to wrap* (decision 8). **Wrap**
+  turns it into a read-only record: its Seats, conversations and Run
+  timelines stay viewable, and nothing more is dispatched. Deleting is a
+  separate action, and deleted items go to the Trash.
 
 ![The Teams page](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/teams-list-light.png)
 
@@ -326,6 +366,11 @@ Run, in which case it is absent.
 | **Open pull request** | Run header, the findings row | Opens the pull request in the browser. | None; the link comes from the forge facts the Run already carries | A pull request is bound to the Run. | Merge. Merging stays a step the Flow gives to a check or a person. |
 | **Post the review** | The inspector's Review section | Posts what is waiting: an item to post again, or the rounds a backfill would release. | `finding/publish` (exists: post again, skip, backfill), read with `finding/publications`. The case with no review candidate at all needs #1265. | The host has an item awaiting a person or a backfill to offer; otherwise its `backfillRefusal` is shown as the reason. | Run without a press. |
 | **Hide settled** | The Teams page | Folds a Team out of Active until it changes. | None; kept on this machine | The Team is settled with nothing waiting. | Delete anything. |
+
+**After a Team is wrapped, no control above is offered.** Each is disabled with
+the reason "This Team is wrapped"; the Overview, the Run view, the inspector
+and the conversations stay readable. Hiding and deleting are the Team's own
+actions, not a Run's.
 
 **Pause and resume are not offered.** The engine has no pause, and a runtime's
 own pause is not one control across vendors. Stopping and running again is the
@@ -559,6 +604,13 @@ commit, and none of them ships a surface by itself:
 6. `{ available, why }` on each control: the stop, retry and run-again
    previews already return a refusal string; this makes it one shape.
 7. A Team's usage read grouped by seat, from the report's existing breakdowns.
+8. A finished Seat's process rests: a Seat with every card done, no turn, no
+   approval, no queued message and no running task, idle past a set time, lets
+   go of its conversation's live handle, and no longer holds its runtime open
+   in `#runtimeIsIdle`. Its record stays open, so it stays a member and stays
+   listed. A message, or opening the conversation, reconnects it through the
+   path a restarted agent's members already use (`detached`, reopened by the
+   next delivery). It never closes the Seat and never changes a card.
 
 ## Phasing
 
@@ -573,7 +625,8 @@ Small pull requests, each usable on its own, each with its catalogue boards
 
 1. Host: stop and the run list (with the clients design's own PRs), the
    revision digest and `continues`.
-2. The Overview: the Run strip, *Needs you*, the seats table, `seat.changed`.
+   And, independent of the rest, a finished Seat's process resting (item 8).
+2. The Overview: the Run strip, *Needs you*, the seats table with every Seat a Run opened and the done ones folded (#1278), `seat.changed`.
 3. The Run view: the timeline and the inspector, read-only, and the read-only
    Flow view.
 4. The controls: stop, run a check again, answer, abandon, open the pull
@@ -621,6 +674,8 @@ a person's step, over the clients design's relay, with the same selectors.
 
 The owner decided all nine on 2026-10-02, every one as recommended. Decision 9
 is the Flow view's look, which was drawn after the other eight and chosen last.
+Decision 10 came from the first look at a finished Team (#1278) and is the
+owner's own.
 
 | # | Decision | Recommended |
 | --- | --- | --- |
@@ -633,6 +688,7 @@ is the Flow view's look, which was drawn after the other eight and chosen last.
 | 7 | **Two additions to the clients design's event stream** (`seat.changed`, `review.changed`, and optional fields). It was approved as written, so this is a change to it. | Yes; additive within version 1. |
 | 8 | **Settled Teams.** They fold into *Ready to wrap* and leave the sidebar when nothing waits on the person. Hiding never deletes. | Yes. |
 | 9 | **The Flow view's look.** The relay drawing (cards and labelled edges, any Flow), or the track (stations on a line, a straight Flow only). | **The relay.** Chosen by the owner, with the track's bold traveled line kept. |
+| 10 | **Finished Seats.** A Seat stays on the Team's list when its work is done, folds in the Overview, and its process does not stay running; wrap makes a read-only record. | **As decided on #1278.** |
 
 ## Open questions
 
@@ -688,3 +744,5 @@ The two confirmations, for the controls table:
 Running real work as Teams on a desk, 2026-10-02 (#1268). Each problem in the
 table above is a sub-issue there. This design is the next step after them, and
 shares its event stream with the clients design (#1271).
+The empty Agents list of a Team whose Flow had finished (#1278) was found the
+same day, in the owner's first look at one.
