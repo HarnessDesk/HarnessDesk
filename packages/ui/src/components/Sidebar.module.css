@@ -84,8 +84,8 @@
 
 .navSecondary {
   flex: none;
-  width: 26px;
-  margin-right: var(--hd-space-0-5);
+  width: var(--hd-icon-target); /* desk: 26px → 24px, the shared target the trailing rail steps by. */
+  margin-right: calc(var(--hd-sidebar-end-header-inset) - var(--hd-bar-pad) - var(--hd-space-1-5)); /* desk: 2px → 12px, the header control ends on the sidebar's end rail. */
 }
 
 .groupLabel,
@@ -132,6 +132,7 @@
 }
 
 .listControls {
+  margin-inline-start: calc(-1 * var(--hd-space-1-5));
   position: relative;
   display: inline-flex; /* desk: flex → inline-flex, the controls occupy only their trailing rail. */
 }
@@ -169,6 +170,15 @@
 .iconButton {
   flex: none;
   width: var(--hd-btn-h-sm);
+}
+
+.listAddButton {
+  flex: none;
+  width: var(--hd-icon-target);
+}
+
+.headerDisplayAction {
+  margin-inline-end: calc(-1 * var(--hd-space-1-5));
 }
 
 .triage {

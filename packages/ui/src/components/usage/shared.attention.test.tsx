@@ -24,7 +24,7 @@ const lane = (over: Partial<UsageLane> & Pick<UsageLane, 'id' | 'usedPercent'>):
 
 const report = (over: Partial<UsageReport>): UsageReport => ({
   runtime: runtimeId('claude'),
-  account: 'olivia@acme.dev',
+  account: 'jane.doe@acme.dev',
   plan: 'Max 20x',
   lanes: [],
   credits: null,
@@ -39,7 +39,7 @@ const report = (over: Partial<UsageReport>): UsageReport => ({
 
 describe('reportNeedsAttention', () => {
   it('is true for the preview fixture whose headline is fine but whose Weekly lane is not', () => {
-    const beta = previewUsage.find((entry) => entry.runtime === runtimeId('claude') && entry.account?.includes('harnessdesk.app'))
+    const beta = previewUsage.find((entry) => entry.runtime === runtimeId('claude') && entry.plan === 'Max 20x')
     expect(beta).toBeDefined()
     expect(reportNeedsAttention(beta!, Date.now())).toBe(true)
   })

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 
 import { Boundary } from '../../preview/boundary'
 import { PropagationPage } from '../showcase/PropagationPage'
@@ -290,6 +290,11 @@ export const Explorer = () => {
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system')
   const [foundation, setFoundation] = useState<string>(FOUNDATIONS[0]?.id ?? 'current')
   const [dials, setDials] = useState<DialState>(DIAL_DEFAULTS)
+  const bodyRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    bodyRef.current?.scrollTo({ top: 0 })
+  }, [boardId])
 
   useEffect(() => {
     const url = new URL(window.location.href)
@@ -436,7 +441,7 @@ export const Explorer = () => {
             />
           </div>
         </div>
-        <div className={styles.body} data-alignment-board-id={surface?.id ?? board?.id ?? boardId}>
+        <div ref={bodyRef} className={styles.body} data-alignment-board-id={surface?.id ?? board?.id ?? boardId}>
           {boardId === 'coverage' ? (
             <CoverageBoard />
           ) : surface ? (

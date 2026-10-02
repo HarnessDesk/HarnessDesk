@@ -138,6 +138,14 @@ Measured from the app rather than invented: a 4px base with half-steps, which is
 | `--hd-space-2` | `8px` |
 | `--hd-space-2-5` | `10px` |
 | `--hd-space-3` | `12px` |
+| `--hd-sidebar-start-inset` | `8px` |
+| `--hd-sidebar-end-column` | `32px` |
+| `--hd-sidebar-end-header-inset` | `calc(32px - 6px)` |
+| `--hd-sidebar-end-rail` | `calc(32px - 24px / 2 - 8px)` |
+| `--hd-sidebar-end-window-inset` | `calc(32px - 24px / 2 - 20px)` |
+| `--hd-sidebar-end-action-step` | `24px` |
+| `--hd-sidebar-end-double-action-step` | `calc(24px + 24px)` |
+| `--hd-sidebar-end-triple-action-step` | `calc(calc(24px + 24px) + 24px)` |
 | `--hd-space-4` | `16px` |
 | `--hd-space-5` | `20px` |
 | `--hd-space-6` | `24px` |
@@ -1902,6 +1910,12 @@ Initials inside a row's neutral mark. They identify the thing without becoming i
 `packages/ui/src/design/patterns/Settings.tsx`
 
 Compact facts whose dot separators belong to the role, not to each caller.
+
+### `SidebarMenuState`
+
+`packages/ui/src/design/patterns/SidebarMenuState.tsx`
+
+A conversation or room's earned state chip yields to the row's action rail.
 
 ## Known drift
 

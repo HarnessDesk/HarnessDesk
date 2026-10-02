@@ -137,9 +137,9 @@
   align-items: center;
   gap: var(--hd-space-1-5);
   padding: var(--hd-label-space, var(--hd-space-1-5)) var(--hd-bar-pad) var(--hd-space-1) var(--hd-bar-ink);
-  /* The trailing control's glyph is the rail's content edge; the button's
-     own edge pull supplies its hit-target inset. */
-  padding-inline-end: var(--hd-space-0);
+  padding-inline-start: calc(var(--hd-rail-inset) + var(--hd-sidebar-start-inset));
+  /* Header actions end on the sidebar's text column. */
+  padding-inline-end: var(--hd-sidebar-end-header-inset); /* desk: 0 → 26px, header actions end on the sidebar's text column. */
 }
 
 /* A rail with no filter bar of its own — the app window's nav — has no

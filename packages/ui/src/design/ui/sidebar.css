@@ -1,0 +1,95 @@
+/* Inline state marks share the row's end column when their full label folds. */
+[data-slot="sidebar-menu-item"] {
+  --sidebar-menu-end-rail: var(--hd-sidebar-end-rail);
+  --sidebar-menu-trailing-marks: 0;
+  --sidebar-menu-trailing-actions: 1;
+}
+
+[data-slot="sidebar-group-content"] [data-slot="sidebar-menu-item"] {
+  --sidebar-menu-end-rail: calc(var(--hd-sidebar-end-rail) - var(--hd-space-2));
+}
+
+[data-slot="sidebar-menu-state"] {
+  height: var(--hd-icon-target);
+  flex-shrink: 0;
+}
+
+[data-slot="sidebar-menu-item"]:has(> [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-state"]) > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-label"],
+[data-slot="sidebar-menu-item"]:has(> div > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-state"]) > div > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-label"] {
+  display: flex;
+  height: var(--hd-icon-target);
+  align-items: center;
+}
+
+/* A marked row keeps its title inside the same fixed slots at rest and while
+   its hover controls appear. The row declarations are also the badge/action
+   slot counts, so this reservation cannot drift from the rail grammar. */
+[data-sidebar-trailing-marks="1"] {
+  --sidebar-menu-mark-reserve: var(--hd-sidebar-end-action-step);
+}
+
+[data-sidebar-trailing-marks="2"] {
+  --sidebar-menu-mark-reserve: var(--hd-sidebar-end-double-action-step);
+}
+
+[data-sidebar-trailing-marks="3"] {
+  --sidebar-menu-mark-reserve: var(--hd-sidebar-end-triple-action-step);
+}
+
+[data-sidebar-trailing-marks="4"] {
+  --sidebar-menu-mark-reserve: calc(4 * var(--hd-sidebar-end-action-step));
+}
+
+[data-sidebar-trailing-actions="1"] {
+  --sidebar-menu-action-reserve: var(--hd-sidebar-end-action-step);
+}
+
+[data-sidebar-trailing-actions="2"] {
+  --sidebar-menu-action-reserve: var(--hd-sidebar-end-double-action-step);
+}
+
+[data-sidebar-trailing-marks] > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-label-content"],
+[data-sidebar-trailing-marks] > div > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-label-content"] {
+  padding-inline-end: calc(var(--sidebar-menu-end-rail) + var(--sidebar-menu-mark-reserve));
+}
+
+[data-sidebar-trailing-marks]:has(> [data-slot="sidebar-menu-action"][data-show-on-hover], > div > [data-slot="sidebar-menu-action"][data-show-on-hover]) > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-label-content"],
+[data-sidebar-trailing-marks]:has(> [data-slot="sidebar-menu-action"][data-show-on-hover], > div > [data-slot="sidebar-menu-action"][data-show-on-hover]) > div > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-label-content"] {
+  padding-inline-end: calc(var(--sidebar-menu-end-rail) + var(--sidebar-menu-mark-reserve) + var(--sidebar-menu-action-reserve));
+}
+
+[data-sidebar-trailing-actions="1"]:has([data-slot="sidebar-menu-action"][data-show-on-hover]):is(:hover, :focus-within) [data-slot="sidebar-menu-badge"],
+[data-sidebar-trailing-actions="1"]:has([data-slot="sidebar-menu-action"][data-show-on-hover][data-state="open"]) [data-slot="sidebar-menu-badge"] {
+  translate: calc(-1 * var(--hd-sidebar-end-action-step)) -50%;
+}
+
+[data-sidebar-trailing-actions="2"]:has([data-slot="sidebar-menu-action"][data-show-on-hover]):is(:hover, :focus-within) [data-slot="sidebar-menu-badge"],
+[data-sidebar-trailing-actions="2"]:has([data-slot="sidebar-menu-action"][data-show-on-hover][data-state="open"]) [data-slot="sidebar-menu-badge"] {
+  translate: calc(-1 * var(--hd-sidebar-end-double-action-step)) -50%;
+}
+
+[data-slot="sidebar-menu-item"]:has([data-slot="sidebar-menu-action"][data-show-on-hover]):is(:hover, :focus-within) [data-slot="sidebar-menu-state"],
+[data-slot="sidebar-menu-item"]:has([data-slot="sidebar-menu-action"][data-show-on-hover][data-state="open"]) [data-slot="sidebar-menu-state"] {
+  position: absolute;
+  inset-inline-end: calc(
+    var(--sidebar-menu-end-rail) +
+    (var(--sidebar-menu-trailing-marks) - 1 + var(--sidebar-menu-trailing-actions)) * var(--hd-sidebar-end-action-step)
+  );
+  top: 50%;
+  width: var(--hd-icon-target);
+  justify-content: center;
+  translate: 0 -50%;
+}
+
+[data-slot="sidebar-menu-item"]:has([data-slot="sidebar-menu-action"][data-show-on-hover][data-state="open"]) [data-sidebar-menu-state-full] {
+  display: none;
+}
+
+[data-slot="sidebar-menu-item"]:has([data-slot="sidebar-menu-action"][data-show-on-hover][data-state="open"]) [data-sidebar-menu-state-compact] {
+  display: inline-flex;
+}
+
+/* A group heading begins where the row's icon begins, in either rail. */
+[data-slot="sidebar-group"] > [data-slot="group-label"] {
+  padding-inline-start: var(--hd-sidebar-start-inset);
+}

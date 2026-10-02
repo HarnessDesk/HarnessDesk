@@ -19,6 +19,10 @@ import {
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuState,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
   Submenu,
   Text,
   buttonVariants,
@@ -188,6 +192,14 @@ const SessionRow = memo(({
             ? 'signin'
             : 'available'
   const worktree = isWorktreeSession(summary)
+  const hasActivityMark = backgrounded > 0 || traceShown || summary.status.type === 'active'
+  const badgeSlot = (step: 0 | 1 | 2) => step === 0
+    ? undefined
+    : step === 1
+      ? 'end-[calc(var(--sidebar-menu-end-rail)+var(--hd-sidebar-end-action-step))]'
+      : 'end-[calc(var(--sidebar-menu-end-rail)+var(--hd-sidebar-end-double-action-step))]'
+  const worktreeSlot = badgeSlot(hasActivityMark ? 1 : 0)
+  const folderGoneSlot = badgeSlot((worktree ? 1 : 0) + (hasActivityMark ? 1 : 0) as 0 | 1 | 2)
   const rowRef = useRef<HTMLButtonElement>(null)
   /* Brought on screen when it becomes the active one. A list long enough to
      hold a month of review rooms keeps the conversation being typed into
@@ -217,7 +229,7 @@ const SessionRow = memo(({
 
   return (
     <SidebarMenu className={styles.rowWrap} data-region="session-row" data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount} onContextMenu={menu.open}>
-      <SidebarMenuItem className="list-none" data-menu-open={menu.at ? '' : undefined}>
+      <SidebarMenuItem className="list-none" trailingMarks={(Number(Boolean(folderGone)) + Number(worktree) + Number(hasActivityMark) + Number(Boolean(need))) as 0 | 1 | 2 | 3 | 4} data-menu-open={menu.at ? '' : undefined}>
         {renaming ? (
           <Input
             variant="quiet" controlSize="row" className={styles.renameInput}
@@ -239,7 +251,10 @@ const SessionRow = memo(({
             <SidebarMenuButton
               ref={rowRef}
               trailingOverlay
-              labelTrailingContent={Boolean(need || worktree || folderGone)}
+              // The needs-you chip is inline content. The shared sidebar
+              // grammar reserves marked slots inside this label while keeping
+              // the label box fixed as hover actions appear.
+              labelTrailingContent={Boolean(need)}
               size={density === 'compact' ? 'sm' : 'default'}
               isActive={active}
               data-active={active ? 'true' : undefined}
@@ -269,24 +284,26 @@ const SessionRow = memo(({
                    glyphs must remain readable beside it. */
                 <span className="flex min-w-0 items-center gap-(--hd-space-1)" title={label}>
                   <span className="min-w-0 truncate">{label}</span>
-                  {need && <Chip tone="warning">{need.reason}</Chip>}
-                  {worktree && (
-                    <span className="inline-flex shrink-0" role="img"
-                      aria-label={`Worktree ${summary.git?.branch ?? folderName(summary.cwd)}`}
-                      title={`Worktree · ${summary.git?.branch ?? folderName(summary.cwd)}\n${summary.cwd}`}>
-                      <Text role="meta"><BranchIcon size={11} /></Text>
-                    </span>
-                  )}
-                  {folderGone && (
-                    <span className="inline-flex shrink-0" role="img"
-                      aria-label={`Folder is gone — ${folderName(summary.cwd)}`}
-                      title={`${folderGone}\nThe transcript can be read; nothing more can be sent to it.`}>
-                      <Text role="meta"><FolderGoneIcon size={11} /></Text>
-                    </span>
-                  )}
+                  {need && <SidebarMenuState label={need.reason} tone="warning" state="limit" />}
                 </span>
               }
             />
+            {folderGone && (
+              <SidebarMenuBadge className={folderGoneSlot}
+                role="img"
+                aria-label={`Folder is gone — ${folderName(summary.cwd)}`}
+                title={`${folderGone}\nThe transcript can be read; nothing more can be sent to it.`}>
+                <Text role="meta"><FolderGoneIcon size={11} /></Text>
+              </SidebarMenuBadge>
+            )}
+            {worktree && (
+              <SidebarMenuBadge className={worktreeSlot}
+                role="img"
+                aria-label={`Worktree ${summary.git?.branch ?? folderName(summary.cwd)}`}
+                title={`Worktree · ${summary.git?.branch ?? folderName(summary.cwd)}\n${summary.cwd}`}>
+                <Text role="meta"><BranchIcon size={11} /></Text>
+              </SidebarMenuBadge>
+            )}
             {(backgrounded > 0 || traceShown || summary.status.type === 'active') && (
               <SidebarMenuBadge aria-label={backgrounded > 0 ? 'Background tasks running' : traceShown ? TRACE_LABEL[trace] : 'Working'}>
                 <Dot state={dotState} variant="navigation"
@@ -297,13 +314,18 @@ const SessionRow = memo(({
                   aria-hidden="true" />
               </SidebarMenuBadge>
             )}
-            <SidebarMenuAction showOnHover
-              data-state={menu.at ? 'open' : undefined}
-              aria-haspopup="menu" aria-expanded={menu.at !== null}
-              onClick={menu.open}
-              title={`Actions for ${label}`} aria-label={`Actions for ${label}`}>
-              <MoreIcon size={12} />
-            </SidebarMenuAction>
+            <Tooltip>
+              <TooltipTrigger data-slot="sidebar-menu-action" render={
+                <SidebarMenuAction showOnHover
+                  data-state={menu.at ? 'open' : undefined}
+                  aria-haspopup="menu" aria-expanded={menu.at !== null}
+                  onClick={menu.open}
+                  aria-label={`Actions for ${label}`}>
+                  <MoreIcon size={12} />
+                </SidebarMenuAction>
+              } />
+              <TooltipContent>Actions for {label}</TooltipContent>
+            </Tooltip>
           </>
         )}
       </SidebarMenuItem>
@@ -387,9 +409,7 @@ export const SessionListControls = () => {
         title="How this list is shown"
         drop="down"
         align="left"
-        triggerEdge="end"
-        triggerEdgeGlyph={13}
-        triggerClassName={buttonVariants({ variant: 'muted', size: 'icon-sm' })}
+        triggerClassName={buttonVariants({ variant: 'muted', size: 'icon-xs', className: styles.headerDisplayAction })}
         label={<SlidersIcon size={13} />}
       >
         {(close) => (
@@ -535,7 +555,7 @@ const GroupHead = ({
       onContextMenu={menu.open}
     >
       <SidebarMenu>
-        <SidebarMenuItem data-current={current ? '' : undefined}>
+        <SidebarMenuItem trailingActions={2} trailingMarks={pinned ? 1 : 0} data-current={current ? '' : undefined}>
           <SidebarMenuButton
             trailingActions={2}
             data-draggable=""
@@ -552,21 +572,31 @@ const GroupHead = ({
             </>}
             label={<span className="flex min-w-0 items-center gap-(--hd-space-1)" >
               <Text role="navigation" ink={current ? 'primary' : undefined} truncate className={styles.groupName}>{group.name}</Text>
-              {stopped && <span title={`${stopped.reason} ${stopped.nextStep}`}><Chip tone="neutral" label="Capture stopped" /></span>}
+              {stopped && <span title={`${stopped.reason} ${stopped.nextStep}`} className="group-hover/menu-item:hidden group-focus-within/menu-item:hidden"><Chip tone="neutral" label="Capture stopped" /></span>}
             </span>}
           />
           {pinned && <SidebarMenuBadge title="Pinned" aria-label="Pinned"><PinIcon size={11} /></SidebarMenuBadge>}
-          <SidebarMenuAction showOnHover className="end-(--hd-space-8)"
-            onClick={() => void store.startSessionIn(actualRoot)}
-            title={`New session in ${group.name}`} aria-label={`New session in ${group.name}`}>
-            <PlusIcon size={12} />
-          </SidebarMenuAction>
-          <SidebarMenuAction showOnHover data-state={menu.at ? 'open' : undefined}
-            aria-haspopup="menu" aria-expanded={menu.at !== null}
-            onClick={menu.open}
-            title={`Actions for ${group.name}`} aria-label={`Actions for ${group.name}`}>
-            <MoreIcon size={12} />
-          </SidebarMenuAction>
+          <Tooltip>
+            <TooltipTrigger data-slot="sidebar-menu-action" render={
+              <SidebarMenuAction showOnHover className="end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-action-step))]"
+                onClick={() => void store.startSessionIn(actualRoot)}
+                aria-label={`New session in ${group.name}`}>
+                <PlusIcon size={12} />
+              </SidebarMenuAction>
+            } />
+            <TooltipContent>New session in {group.name}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger data-slot="sidebar-menu-action" render={
+              <SidebarMenuAction showOnHover data-state={menu.at ? 'open' : undefined}
+                aria-haspopup="menu" aria-expanded={menu.at !== null}
+                onClick={menu.open}
+                aria-label={`Actions for ${group.name}`}>
+                <MoreIcon size={12} />
+              </SidebarMenuAction>
+            } />
+            <TooltipContent>Actions for {group.name}</TooltipContent>
+          </Tooltip>
         </SidebarMenuItem>
       </SidebarMenu>
       <WorkspaceMenu
@@ -652,6 +682,9 @@ const RoomRow = ({
   const goal = snapshot.goals.get(room.id)
   const name = goal ? goalName(goal.goal) : room.name
   const waiting = room.members.some((member) => snapshot.approvals.some((entry) => String(entry.key) === String(member)))
+  const words = goal ? (waiting
+    ? { label: 'Needs you', tone: 'warning' as const }
+    : goalWords({ goal: goal.goal, activity: goal.activity })) : null
   /* Resolved against what the tree is *showing* first, so the agent filter
      applies here as it does everywhere else — a room drawn straight from its
      member list would keep conversations the filter had just removed from
@@ -677,7 +710,7 @@ const RoomRow = ({
 
   return (
     <SidebarMenu data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount}>
-      <SidebarMenuItem>
+      <SidebarMenuItem trailingMarks={Number(held > 0) + Number(Boolean(goal)) as 0 | 1 | 2}>
         <div className="relative min-w-0">
           <SidebarMenuButton
             trailingOverlay
@@ -697,9 +730,8 @@ const RoomRow = ({
           icon={<Text role="meta"><TeamIcon size={14} /></Text>}
           label={<span className="flex min-w-0 items-center gap-(--hd-space-1)">
             <span className="min-w-0 truncate">{name}</span>
-            {goal && <Chip tone={waiting ? 'warning' : goalWords({ goal: goal.goal, activity: goal.activity }).tone}>
-              {waiting ? 'Needs you' : goalWords({ goal: goal.goal, activity: goal.activity }).label}
-            </Chip>}
+            {words && <SidebarMenuState label={words.label} tone={words.tone}
+              state={words.tone === 'warning' ? 'limit' : words.tone === 'info' ? 'signin' : words.tone === 'brand' ? 'ready' : 'available'} />}
           </span>}
         />
         {held > 0 && <SidebarMenuBadge title={`${held} held ${held === 1 ? 'message' : 'messages'} waiting for you`}>
@@ -1702,8 +1734,7 @@ export const SessionTree = ({ now }: { now: number }) => {
         <div>
           <SidebarMenu><SidebarMenuItem>
             <SidebarMenuButton
-              icon={<DisclosureChevron open={othersOpen} size="xs" className={styles.groupChevron} />}
-              label="Other projects"
+              label={<span className="flex items-center gap-(--hd-space-2)">Other projects<span data-slot="sidebar-menu-icon" className="inline-flex shrink-0 items-center justify-center"><DisclosureChevron open={othersOpen} size="xs" className={styles.groupChevron} /></span></span>}
               aria-expanded={othersOpen}
               onClick={() => setOthersOpen(!othersOpen)}
               {...(dragging && !far.some((group) => group.root === dragging) ? { 'data-insert': 'into' } : {})}

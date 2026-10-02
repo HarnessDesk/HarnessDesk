@@ -23,7 +23,7 @@ import { expect, test, type Page } from '@playwright/test'
   Each runs with motion reduced and with it left alone, as #797 measured.
 */
 
-const label = 'Learn from every single tab of the settings screen'
+const label = 'Draft the 2.5 migration notes after reviewing the sidebar target behavior'
 const actions = `Actions for ${label}`
 
 const rowOf = (page: Page) =>

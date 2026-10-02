@@ -706,6 +706,7 @@ export const PanelSeam = ({
   return (
     <ResizeHandle
       data-slot="panel-seam"
+      appearance="line"
       orientation={orientation}
       label={label}
       /* Normalised, so the handle's arrows, Home/End and screen-reader values
@@ -733,7 +734,7 @@ export const PanelSeam = ({
          That path used to leave the drag running forever. */
       onLostPointerCapture={() => stop(true)}
       className={cn(
-        'z-10 bg-(--hd-border) transition-colors hover:bg-(--hd-accent) data-[dragging]:bg-(--hd-accent)',
+        'z-10 transition-colors',
         orientation === 'vertical' ? 'w-px cursor-col-resize' : 'h-px cursor-row-resize',
         /* The visible line is a hair; the hit area is a finger. Without the
            pseudo-element a 1px seam is a target nobody can hit twice. */

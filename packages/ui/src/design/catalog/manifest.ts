@@ -1,7 +1,7 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
 export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page' | 'summary' | 'start' | 'end'
 export type CatalogSize = 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'table-row' | 'bare' | 'composer' | 'sidebar-nav' | 'paragraphs'
-export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out' | 'editing' | 'empty-edit' | 'recoverable' | 'memory-only' | 'image-warning'
+export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out' | 'editing' | 'empty-edit' | 'recoverable' | 'memory-only' | 'image-warning' | 'trailing-glyph-rest' | 'trailing-glyph-action' | 'working' | 'needs-you' | 'pinned' | 'worktree' | 'folder-gone' | 'long-title' | 'room-folded' | 'room-expanded' | 'more-sessions' | 'other-projects' | 'filtered' | 'menu-open' | 'folded-state' | 'nested-rail'
 
 export type CatalogEntry = {
   readonly id: string
@@ -136,7 +136,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'AppWindow', 'Change', 'RefusedAction',
   'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist',
-  'heat-grid', 'PlanCard',
+  'heat-grid', 'PlanCard', 'SidebarMenuState',
 ])
 
 const compoundCoverageExemption = (name: string, exampleId: string): string | undefined =>
@@ -229,6 +229,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   'heat-grid': ['default'],
   PaneColumn: ['default'],
   PlanCard: ['default'],
+  SidebarMenuState: ['default'],
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
@@ -313,8 +314,14 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   Notices: ['default', 'populated', 'empty', 'warning', 'recoverable', 'memory-only', 'image-warning', 'error', 'open', 'closed'],
   Checklist: ['default', 'active', 'inactive', 'success', 'empty'],
   'heat-grid': ['default', 'empty', 'populated'],
-  sidebar: ['default', 'hover', 'active', 'populated'],
+  sidebar: [
+    'default', 'hover', 'active', 'populated', 'working', 'needs-you', 'pinned',
+    'worktree', 'folder-gone', 'trailing-glyph-rest', 'trailing-glyph-action',
+    'long-title', 'room-folded', 'room-expanded',
+    'more-sessions', 'other-projects', 'filtered', 'menu-open', 'folded-state', 'nested-rail',
+  ],
   PaneColumn: ['default'],
+  SidebarMenuState: ['default', 'folded-state'],
   // empty: no fee set, nothing suggested. derived: a suggestion offered.
   // populated: a fee is set. warning: a key/metered account's budget row.
   // error: plans.json's own refusal, shown as a Note.
@@ -365,9 +372,11 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   Checklist: 'packages/ui/src/components/TaskPanel.tsx',
   PaneColumn: 'packages/ui/src/components/Conversation.tsx',
   PlanCard: 'packages/ui/src/components/SettingsAgents.tsx',
+  SidebarMenuState: 'packages/ui/src/components/SessionTree.tsx',
 }
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  SidebarMenuState: 'packages/ui/src/design/explorer/boards.tsx',
   /* The workbench is the example: it is what docks, seams and expands, and the
      Panels surface mounts exactly this file. The old example was the
      playground, which drove the same model with coloured rectangles standing
@@ -502,6 +511,7 @@ export const CANONICAL_UI_MODULES = [
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
+  ['SidebarMenuState', 'sidebar', 'A conversation or room state chip folding onto the action rail'],
   ['Settings', 'row', 'Settings pages, sections, rows and form layouts'],
   ['ModalDialog', 'dialog', 'Application reading and form dialog'],
   ['DialogForm', 'dialog', 'Dialog form rhythm, fieldset legend and compact choice list'],

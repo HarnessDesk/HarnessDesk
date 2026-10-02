@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 
-import { runtimeId, sessionKey, sessionId, turnId, type AgentItem, type FileChange, type SessionQueue, type Turn } from '@harnessdesk/protocol'
+import { approvalId, runtimeId, sessionKey, sessionId, turnId, type AgentItem, type FileChange, type SessionId, type SessionQueue, type Turn } from '@harnessdesk/protocol'
 
-import { AlertIcon, BranchIcon, BriefIcon, CaretIcon, CheckIcon, CrossIcon, FilterIcon, FolderIcon, MoreIcon, PlusIcon, PluginIcon, SearchIcon, TeamIcon, TerminalIcon, TodoPendingIcon, UsageIcon, UserIcon } from '../../components/Icons'
+import { AlertIcon, BranchIcon, BriefIcon, CaretIcon, CheckIcon, CrossIcon, FilterIcon, FolderGoneIcon, FolderIcon, MoreIcon, PinIcon, PlusIcon, PluginIcon, SearchIcon, SettingsIcon, TeamIcon, TerminalIcon, TodoPendingIcon, UsageIcon, UserIcon } from '../../components/Icons'
 import { MessageQueue } from '../../components/MessageQueue'
 import { RuntimeMark } from '../../components/BrandIcons'
 import { DiffView } from '../../components/Diff'
@@ -13,8 +13,12 @@ import { ItemView } from '../../components/Items'
 import { Markdown } from '../../components/Markdown'
 import { PublicationCard } from '../../components/Publication'
 import { QuestionWaitSection } from '../../components/SettingsQuestionWait'
-import { AccountFooter, Sidebar } from '../../components/Sidebar'
-import { Mount } from '../../preview/harness'
+import { Mount, PREVIEW_ROOM, previewStore, store } from '../../preview/harness'
+import { AccountFooter, Sidebar as ProductSidebar } from '../../components/Sidebar'
+import { WindowGroup, WindowNav, WindowNavIdentity, WindowNavItem, WindowNavStateMark, WindowPage } from '../../components/AppWindow'
+import { PREVIEW_ROOT, previewHistory, previewSession } from '../../preview/sidebar-fixture'
+import { PREVIEW_GOAL } from '../../preview/goal-fixture'
+import { sidebarGeometryFixture } from '../../preview/sidebar-geometry-fixture'
 import { BOARD_TOOL_FRAMES, boardToolFrame } from '../../preview/approval-fixture'
 import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../../state/store'
@@ -118,6 +122,7 @@ import {
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuState,
   GroupLabel,
   Separator,
 } from '..'
@@ -201,126 +206,96 @@ const PANECOLUMN_CATALOG_SIZES = ['default'] as const
 const PANECOLUMN_CATALOG_STATES = ['default'] as const
 const SIDEBAR_CATALOG_VARIANTS = ['default'] as const
 const SIDEBAR_CATALOG_SIZES = ['sm', 'default', 'lg'] as const
-const SIDEBAR_CATALOG_STATES = ['default', 'hover', 'active', 'populated'] as const
-
+const SIDEBAR_CATALOG_STATES = [
+  'default', 'hover', 'active', 'populated', 'working', 'needs-you', 'pinned',
+  'worktree', 'folder-gone', 'trailing-glyph-rest', 'trailing-glyph-action',
+  'long-title', 'room-folded', 'room-expanded',
+  'more-sessions', 'other-projects', 'filtered', 'menu-open', 'folded-state', 'nested-rail',
+] as const
+const fullSidebarStore = previewStore(sidebarGeometryFixture(store.getSnapshot()))
 const SidebarBoard = () => (
   <div className="grid gap-(--hd-space-4)" data-catalog-example="sidebar" data-catalog-variants={SIDEBAR_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={SIDEBAR_CATALOG_SIZES.join(' ')} data-catalog-states={SIDEBAR_CATALOG_STATES.join(' ')}>
-    <div className="flex h-[calc(var(--sidebar-width)*3)] w-(--sidebar-width) max-w-full flex-col overflow-hidden rounded-(--hd-radius) border border-sidebar-border bg-sidebar text-sidebar-foreground">
-      <div className="flex shrink-0 flex-col">
-        <Bar inset="ink">
-          <Text role="wordmark">HarnessDesk</Text>
-          <span className="flex-1" />
-          <Button variant="ghost" size="icon-sm" edge="end" edgeGlyph={14} aria-label="Search everything (⌘K)" title="Search everything (⌘K)"><SearchIcon size={14} /></Button>
-        </Bar>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="sm" icon={<PlusIcon size={16} />} label="New session" />
-          <SidebarMenuAction aria-label="More ways to start" title="More ways to start"><CaretIcon size={14} /></SidebarMenuAction>
-          </SidebarMenuItem>
-        </SidebarMenu>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="sm" icon={<BriefIcon size={16} />} label={<Text role="navigation">Agents</Text>} />
-            <SidebarMenuBadge><Text role="meta" numeric>3</Text></SidebarMenuBadge>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="sm" icon={<UsageIcon size={16} />} label={<Text role="navigation">Dashboard</Text>} />
-            <SidebarMenuBadge><Text role="meta" numeric>2</Text></SidebarMenuBadge>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="sm" icon={<PluginIcon size={16} />} label={<Text role="navigation">Plugins</Text>} />
-            <SidebarMenuBadge><Text role="meta" numeric>12</Text></SidebarMenuBadge>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </div>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-(--hd-space-0) overflow-x-hidden overflow-y-auto">
-        <NavigationGroupHeader label={<span className="flex items-center gap-(--hd-space-1)">Projects <Chip tone="neutral" label="Filtered" /><Button variant="ghost" size="icon-xs" aria-label="Clear list filter"><CrossIcon size={12} /></Button></span>}>
-          <div className="flex min-w-0 flex-1 items-center gap-(--hd-space-1)"><FilterIcon size={13} /><Input controlSize="row" aria-label="Filter this list" placeholder="Filter by title" /></div>
-          <Button variant="ghost" size="icon-sm" edge="end" edgeGlyph={14} aria-label="Display controls" title="Display controls"><MoreIcon size={14} /></Button>
-        </NavigationGroupHeader>
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton trailingActions={2} icon={<FolderIcon size={16} />} label="storefront" />
-                <SidebarMenuAction showOnHover className="end-(--hd-space-8)" aria-label="New session in storefront"><PlusIcon size={12} /></SidebarMenuAction>
-                <SidebarMenuAction showOnHover aria-label="Actions for storefront"><MoreIcon size={12} /></SidebarMenuAction>
-              </SidebarMenuItem>
-              <SidebarMenuItem><SidebarMenuButton trailingActions={2} icon={<FolderIcon size={16} />} label="atlas-api" /></SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-        <SidebarGroup>
-          <GroupLabel>Row sizes</GroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {SIDEBAR_CATALOG_SIZES.map((size) => (
-                <SidebarMenuItem key={size}>
-                  <SidebarMenuButton size={size} data-catalog-size={size} label={`Fix checkout retry · ${size}`} />
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-        <SidebarGroup>
-          <GroupLabel>Recent</GroupLabel>
-          <Button variant="ghost" size="icon-sm" aria-label="More recent items"><MoreIcon size={14} /></Button>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem><SidebarMenuButton size="default" icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="Fix checkout retry" isActive /></SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton trailingOverlay size="default" icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="Pin the flaky inventory retry" />
-                <SidebarMenuBadge aria-label="Working"><Dot state="signin" /></SidebarMenuBadge>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton trailingOverlay size="default" icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="Ready for review" />
-                <SidebarMenuBadge aria-label="Needs you"><Dot state="limit" /></SidebarMenuBadge>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton trailingOverlay size="default" icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="A very long conversation label that truncates when the sidebar is narrow" />
-                <SidebarMenuAction aria-label="More actions" showOnHover className="opacity-100"><MoreIcon size={14} /></SidebarMenuAction>
-              </SidebarMenuItem>
-              <SidebarMenuItem data-catalog-label-case="empty">
-                <SidebarMenuButton icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="An empty trailing slot lets this long title reach the rail" />
-                <SidebarMenuAction aria-label="Empty slot actions" showOnHover><MoreIcon size={14} /></SidebarMenuAction>
-              </SidebarMenuItem>
-              <SidebarMenuItem data-catalog-label-case="badge">
-                <SidebarMenuButton trailingOverlay icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="A badge overlays the end of this long conversation title" />
-                <SidebarMenuBadge>Working</SidebarMenuBadge>
-                <SidebarMenuAction aria-label="Badge row actions" showOnHover><MoreIcon size={14} /></SidebarMenuAction>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton icon={<TeamIcon size={16} />} label="Release room" />
-                <SidebarMenuBadge>2</SidebarMenuBadge>
-                <SidebarMenu nested>
-                  <SidebarMenuItem><SidebarMenuButton size="sm" icon={<RuntimeMark runtime={{ id: 'agent', presentation: { name: 'Agent' } }} />} label="Fix checkout retry" /></SidebarMenuItem>
-                </SidebarMenu>
-              </SidebarMenuItem>
-              <SidebarMenuItem><SidebarMenuButton size="sm" icon={<span aria-hidden="true" />} label="12 more" /></SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton icon={<CaretIcon size={12} />} label="Other projects" />
-                <SidebarMenuBadge>3</SidebarMenuBadge>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      </div>
-      <Separator />
-      <div className="flex shrink-0 flex-col gap-(--hd-space-2) p-(--hd-space-2)">
-        <div
-          data-catalog-case="seat-menu-width"
-          className="w-[calc(var(--sidebar-width)-var(--hd-space-16)-var(--hd-space-4))]"
-        >
-          <Mount>
-            <AccountFooter onOpenSettings={() => {}} onOpenUsage={() => {}} onSignIn={() => {}} />
-          </Mount>
-        </div>
+    <div className="grid gap-(--hd-space-2)" aria-label="Sidebar trailing slot anatomy">
+      <SidebarMenu className="list-none">
+        <SidebarMenuItem data-catalog-label-case="empty">
+          <SidebarMenuButton trailingOverlay label="Long conversation titles can use the full row width at rest" />
+          <SidebarMenuAction showOnHover aria-label="Empty slot actions"><MoreIcon size={14} /></SidebarMenuAction>
+        </SidebarMenuItem>
+        <SidebarMenuItem trailingMarks={2} data-catalog-title-case="conversation with worktree and folder-gone marks">
+          <SidebarMenuButton trailingOverlay label="Pin the flaky inventory test after reconciling every retry branch" />
+          <SidebarMenuBadge role="img" className="end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-action-step))]" aria-label="Folder is gone — inventory-retry"><FolderGoneIcon size={11} /></SidebarMenuBadge>
+          <SidebarMenuBadge role="img" aria-label="Worktree feat/inventory-retry"><BranchIcon size={11} /></SidebarMenuBadge>
+          <SidebarMenuAction showOnHover aria-haspopup="menu" aria-expanded="false" aria-label="Actions for inventory retry"><MoreIcon size={14} /></SidebarMenuAction>
+        </SidebarMenuItem>
+        <SidebarMenuItem trailingMarks={4} data-catalog-label-case="badge" data-catalog-title-case="conversation with folder-gone worktree activity and needs-you marks" data-catalog-state="folded-state">
+          <SidebarMenuButton trailingOverlay label={<span className="flex min-w-0 items-center gap-(--hd-space-1)"><span className="min-w-0 truncate">Pin the flaky inventory test after reconciling every retry branch</span><SidebarMenuState label="Needs you" tone="warning" state="limit" /></span>} />
+          <SidebarMenuBadge role="img" className="end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-double-action-step))]" aria-label="Folder is gone — inventory-retry"><FolderGoneIcon size={11} /></SidebarMenuBadge>
+          <SidebarMenuBadge role="img" className="end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-action-step))]" aria-label="Worktree feat/inventory-retry"><BranchIcon size={11} /></SidebarMenuBadge>
+          <SidebarMenuBadge aria-label="Working"><Dot state="signin" variant="navigation" /></SidebarMenuBadge>
+          <SidebarMenuAction showOnHover aria-label="Badge row actions"><MoreIcon size={14} /></SidebarMenuAction>
+        </SidebarMenuItem>
+        <SidebarMenuItem trailingMarks={1} trailingActions={2} data-catalog-title-case="pinned project head with two actions">
+          <SidebarMenuButton trailingActions={2} label="harnessdesk-project-name-kept-long-to-exercise-the-pinned-project-heading" />
+          <SidebarMenuBadge aria-label="Pinned"><PinIcon size={11} /></SidebarMenuBadge>
+          <SidebarMenuAction showOnHover className="end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-action-step))]" aria-label="New session in harnessdesk-project-name-kept-long"><PlusIcon size={12} /></SidebarMenuAction>
+          <SidebarMenuAction showOnHover aria-label="Actions for harnessdesk-project-name-kept-long"><MoreIcon size={12} /></SidebarMenuAction>
+        </SidebarMenuItem>
+        <SidebarMenuItem trailingMarks={2} data-catalog-title-case="room row with goal and held-message marks">
+          <SidebarMenuButton label={<span className="flex min-w-0 items-center gap-(--hd-space-1)"><span className="min-w-0 truncate">Refund integration room with a deliberately long descriptive name</span><SidebarMenuState label="Needs you" tone="warning" state="limit" /></span>} />
+          <SidebarMenuBadge aria-label="Held messages">3</SidebarMenuBadge>
+          <SidebarMenuAction showOnHover aria-label="Show agents in refund integration room"><MoreIcon size={12} /></SidebarMenuAction>
+        </SidebarMenuItem>
+        <SidebarMenuItem trailingMarks={1} data-catalog-title-case="nested room member">
+          <SidebarMenuButton size="sm" label="Member session title that continues beyond the visible sidebar row" />
+          <SidebarMenuBadge role="img" aria-label="Worktree member mark"><BranchIcon size={11} /></SidebarMenuBadge>
+          <SidebarMenuAction showOnHover aria-label="Member session actions"><MoreIcon size={12} /></SidebarMenuAction>
+        </SidebarMenuItem>
+        <SidebarMenuItem trailingMarks={1} data-catalog-title-case="more sessions row">
+          <SidebarMenuButton size="sm" label="4 more sessions with long titles after the visible project window" />
+          <SidebarMenuBadge aria-label="More session count">4</SidebarMenuBadge>
+        </SidebarMenuItem>
+      </SidebarMenu>
+      <SidebarMenu aria-label="Nested row end rail">
+        <SidebarMenuItem trailingMarks={1} data-catalog-title-case="nested room head">
+          <div className="relative min-w-0">
+            <SidebarMenuButton label="Release room for coordinating the long-running storefront migration" />
+            <SidebarMenuBadge aria-label="Room member count">2</SidebarMenuBadge>
+            <SidebarMenuAction showOnHover aria-label="Release room actions"><MoreIcon size={14} /></SidebarMenuAction>
+          </div>
+          <SidebarMenu nested>
+            <SidebarMenuItem trailingMarks={1} data-catalog-title-case="nested member row" data-catalog-state="nested-rail">
+              <SidebarMenuButton size="sm" label="Untitled member session with a deliberately long title" />
+              <SidebarMenuBadge role="img" aria-label="Nested member worktree"><BranchIcon size={11} /></SidebarMenuBadge>
+              <SidebarMenuAction showOnHover aria-label="Untitled session actions"><MoreIcon size={14} /></SidebarMenuAction>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    </div>
+    <div className="relative h-[48rem] w-[12.5rem] max-w-full overflow-hidden rounded-(--hd-radius) border border-sidebar-border">
+      <Mount with={fullSidebarStore}><ProductSidebar
+        onOpenSettings={() => {}}
+        onOpenPlugins={() => {}}
+        onOpenAgents={() => {}}
+        onOpenUsage={() => {}}
+        onBrowseFolders={() => {}}
+        onSignIn={() => {}}
+        onSearch={() => {}}
+      /></Mount>
+      <span aria-hidden="true" data-sidebar-end-column-guide className="pointer-events-none absolute inset-y-0 right-(--hd-sidebar-end-column) z-50 w-(--hd-space-px) bg-(--hd-foreground) opacity-40" />
+    </div>
+    <div className="grid grid-cols-3 gap-(--hd-space-2)" aria-label="Sidebar menu row sizes">
+      {SIDEBAR_CATALOG_SIZES.map((size) => <SidebarMenuButton key={size} size={size} data-catalog-size={size} label={`Conversation · ${size}`} />)}
+    </div>
+    <div className="grid gap-(--hd-space-2)">
+      <Text role="navigation">The seat menu at a narrow column width</Text>
+      <div
+        data-catalog-case="seat-menu-width"
+        className="w-[calc(var(--sidebar-width)-var(--hd-space-16)-var(--hd-space-4))]"
+      >
+        <Mount>
+          <AccountFooter onOpenSettings={() => {}} onOpenUsage={() => {}} onSignIn={() => {}} />
+        </Mount>
       </div>
     </div>
     <div className="grid gap-(--hd-space-2)">
@@ -330,7 +305,7 @@ const SidebarBoard = () => (
         className="h-[calc(var(--sidebar-width)*2)] w-[calc(var(--sidebar-width)-var(--hd-space-16)-var(--hd-space-4))] overflow-hidden rounded-(--hd-radius) border border-sidebar-border bg-sidebar text-sidebar-foreground"
       >
         <Mount>
-          <Sidebar
+          <ProductSidebar
             onOpenSettings={() => {}}
             onOpenPlugins={() => {}}
             onOpenAgents={() => {}}
@@ -753,29 +728,23 @@ const HeadBoard = () => (
 
 const AppWindowBoard = () => (
   <>
-    <div className="grid h-72 w-full grid-cols-[15.25rem_minmax(0,1fr)] overflow-hidden rounded-(--hd-radius-lg) border border-(--hd-border)">
-      <AppWindowRail className="flex min-h-0 flex-col">
-        <AppWindowRailTop>
-          <Button variant="navigation" size="navigation" className="w-full">Back to app</Button>
-        </AppWindowRailTop>
-        <AppWindowRailScroll className="flex min-h-0 flex-1 flex-col">
-          <SidebarGroup>
-            <GroupLabel>You</GroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem><SidebarMenuButton label="Appearance" isActive aria-current="page" /></SidebarMenuItem>
-                <SidebarMenuItem><SidebarMenuButton label="Permissions" /></SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        </AppWindowRailScroll>
-      </AppWindowRail>
-      <AppWindowPage className="overflow-hidden">
-        <PageHead title="Appearance" blurb="The full-window page uses the same reading measure and rail in every destination." />
-      </AppWindowPage>
+    <div className="grid h-96 w-full grid-cols-[15.25rem_minmax(0,1fr)] overflow-hidden rounded-(--hd-radius-lg) border border-(--hd-border)">
+      <div className="flex min-h-0 flex-col bg-sidebar text-sidebar-foreground">
+        <WindowNav onBack={() => {}}>
+          <WindowNavIdentity face={<UserIcon size={20} />} name="Jane Doe with a deliberately long display name" selected={false} onClick={() => {}} />
+          <WindowGroup label="Settings">
+            <WindowNavItem icon={<SettingsIcon size={14} />} label="Settings" selected onClick={() => {}} />
+            <WindowNavItem icon={<BriefIcon size={14} />} label="Agents" count={3} trail={<WindowNavStateMark><Dot state="signin" /></WindowNavStateMark>} selected={false} onClick={() => {}} />
+            <WindowNavItem icon={<UsageIcon size={14} />} label="Usage" count={2} selected={false} onClick={() => {}} />
+          </WindowGroup>
+        </WindowNav>
+      </div>
+      <WindowPage>
+        <PageHead title="Settings" blurb="The full-window page uses the same reading measure and rail in every destination." />
+      </WindowPage>
     </div>
     <p className={styles.rule}>
-      A destination window is one surface: a navigation plate and a centred page plate. Base UI owns modality and focus; this pattern owns the visible chrome.
+      The rail uses the shipped identity and destination rows, including the selected fill, trailing count and status mark.
     </p>
   </>
 )
@@ -2203,7 +2172,7 @@ export const BOARDS: Board[] = [
   {
     id: 'sidebar',
     title: 'Sidebar',
-    about: 'One navigation grammar: the row stays the same size when its trailing action appears.',
+    about: 'The shipped navigation column, with real session and room states and the same action rails as the app.',
     render: SidebarBoard,
   },
   {

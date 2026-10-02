@@ -148,7 +148,7 @@ test.describe('a context menu', () => {
   // guard after it; Shift+Tab and Escape dropped the focus on the page.
   const sessionRow = (page: Page) =>
     page.locator('[data-region="session-row"] [data-slot="sidebar-menu-button"]')
-      .filter({ hasText: 'Duplicate Codex accounts logged in twice' })
+      .filter({ hasText: 'Pin the flaky inventory test after reconciling every retry branch' })
       .first()
 
   test('Tab, Shift+Tab and Escape each close it and give the focus back to its row', async ({ page }) => {
