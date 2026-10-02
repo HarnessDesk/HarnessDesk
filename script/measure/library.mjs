@@ -29,7 +29,7 @@ const CREDENTIAL_ROOTS = [
   '.git-credentials', 'Library/Keychains', 'Library/Application Support',
 ]
 export const KEYCHAIN_READ_ONLY = 'keychain-read-only'
-// This exception differs from strict only by allowing keychain reads and omitting the two keychain Mach denials; both profiles retain the keychain write denial, and (allow default) is required for Node and system frameworks to start.
+// Defined and pinned by a test for a later explicit ask-run only; discovery uses strict for every agent, and no code path selects this profile in this release.
 const KEYCHAIN_READ_ONLY_AGENTS = new Set(['claude-code', 'cursor', 'grok-build'])
 const FACT_KEYS = new Set(['rulesFiles', 'catalogue', 'reportsCatalogue', 'precedence', 'rejections', 'reportsRejections', 'skillRoots', 'refresh', 'mcp', 'signedOutCatalogue'])
 const unmeasuredFacts = () => ({
@@ -479,7 +479,7 @@ export function sandboxProfileText(realHome, { fixtureRoot = '/tmp/fixture', fix
 }
 
 export function normalizeVersion(value) {
-  return typeof value === 'string' && value.length <= 40 && /^\d+(\.\d+){0,3}(-[0-9A-Za-z.]{1,24})?$/.test(value)
+  return typeof value === 'string' && value.length <= 40 && /^\d+(?:\.\d+){0,3}(?:-(?:alpha|beta|rc|pre|preview|dev|canary|nightly|next)(?:\.\d{1,4})?)?$/.test(value)
     ? value
     : 'unknown'
 }
@@ -497,8 +497,14 @@ export function installReadRoot(realPath) {
 export function installRootIsSafe(installRoot, realHome) {
   const root = resolve(installRoot)
   const components = root.split('/').filter(Boolean)
-  const isWholeHomeOrVolume = (components[0] === 'Users' || components[0] === 'Volumes') && components.length === 2
-  return !['/', '/Users', '/Volumes'].includes(root) && !isWholeHomeOrVolume && !isWithin(root, realHome)
+  const beneathUserOrVolumeRoot = components[0] === 'Users' || components[0] === 'Volumes'
+  return !['/', '/Users', '/Volumes'].includes(root)
+    && !isWithin(root, realHome)
+    && (!beneathUserOrVolumeRoot || isWithin(realHome, root))
+}
+
+export function discoveryIsolation() {
+  return 'strict'
 }
 
 export function installDiscoveryState({ candidateCount, copies = [], chosen = null, unsafeCount = 0 }) {
@@ -608,15 +614,17 @@ export function validateResult(result, fixture) {
     if (typeof result[key] !== 'string' || !result[key].trim()) throw new Error(`${key} is required`)
   }
   if (!knownAgentNames().has(result.agent) || !knownAgentIds().has(result.agentId)) throw new Error('agent identity is not allowlisted')
-  if (result.version !== 'unknown' && (result.version.length > 40 || !/^\d+(\.\d+){0,3}(-[0-9A-Za-z.]{1,24})?$/.test(result.version))) throw new Error('version is not allowlisted')
+  if (result.version !== 'unknown' && normalizeVersion(result.version) !== result.version) throw new Error('version is not allowlisted')
   if (!/^\d{4}-\d{2}-\d{2}$/.test(result.measured)) throw new Error('measured must be a date')
   for (const key of ['interface', 'question']) if (!safeText(result[key], fixture)) throw new Error(`${key} is outside the fixture-derived allowlist`)
   if (!result.facts || typeof result.facts !== 'object' || Array.isArray(result.facts)) throw new Error('facts must be an object')
   if (Object.keys(result.facts).some((key) => !FACT_KEYS.has(key)) || !safeFact(result.facts, fixture)) throw new Error('facts are outside the fixture-derived allowlist')
   if (result.status !== 'asked' && result.status !== 'could-not-ask') throw new Error('status must be asked or could-not-ask')
-  if (result.isolation !== undefined && result.isolation !== KEYCHAIN_READ_ONLY) throw new Error('isolation is not allowlisted')
-  if (result.auth !== undefined && result.auth !== 'owner subscription sign-in') throw new Error('auth is not allowlisted')
-  if ((result.isolation === KEYCHAIN_READ_ONLY) !== (result.auth === 'owner subscription sign-in')) throw new Error('keychain exception results must carry isolation and auth together')
+  if (result.isolation !== undefined && !['strict', KEYCHAIN_READ_ONLY].includes(result.isolation)) throw new Error('isolation is not allowlisted')
+  if (result.auth !== undefined && !['no sign-in used', 'owner subscription sign-in'].includes(result.auth)) throw new Error('auth is not allowlisted')
+  const strictDiscovery = result.isolation === 'strict' && result.auth === 'no sign-in used'
+  const keychainException = result.isolation === KEYCHAIN_READ_ONLY && result.auth === 'owner subscription sign-in'
+  if ((result.isolation !== undefined || result.auth !== undefined) && !strictDiscovery && !keychainException) throw new Error('isolation and auth must describe one supported profile')
   const signedOutStatus = result.facts?.signedOutCatalogue?.status ?? result.facts?.signedOutCatalogue
   const observedSessionOutcome = ['no-session', 'session-created'].includes(result.facts?.signedOutCatalogue?.observation)
   if (typeof result.rawAnswer !== 'string' || (result.status === 'asked' && !result.rawAnswer.trim() && !['available', 'empty'].includes(signedOutStatus) && !observedSessionOutcome)) throw new Error('rawAnswer is required for asked results')
@@ -732,7 +740,7 @@ export async function findAgentInstall(agent, fixture) {
     }
   }
   if (unsafeCopies.length && !candidateRecords.length && !unreadablePaths.length) return { chosen: null, copies: unsafeCopies, state: installDiscoveryState({ candidateCount: candidates.length, copies: unsafeCopies, unsafeCount: unsafeCopies.length }) }
-  const isolation = KEYCHAIN_READ_ONLY_AGENTS.has(agent.id) ? KEYCHAIN_READ_ONLY : 'strict'
+  const isolation = discoveryIsolation(agent)
   if (!await prepareSandbox(fixture, { isolation, readPaths: copyRoots })) return { chosen: null, copies: [], state: 'unsafe' }
   if (!agentHomeIsIsolated(agent, fixture)) return { chosen: null, copies: [], state: 'unsafe' }
   if (!candidates.length) {
@@ -775,19 +783,22 @@ export async function main(args = process.argv.slice(2)) {
       const discovered = command
         ? await captureHelpVersion({ ...agent, command }, fixture)
         : null
+      const discoveryMetadata = shouldAskAgent(agent)
+        ? {}
+        : { isolation: discoveryIsolation(agent), auth: 'no sign-in used' }
       const result = command && discovered?.value && discovered.value === install.version && shouldAskAgent(agent)
         ? await askAgent({ ...agent, command, version: discovered.value }, fixture)
         : command && discovered?.value && discovered.value === install.version
           ? {
               agent: agent.name, agentId: agent.id, version: discovered.value, measured: new Date().toISOString().slice(0, 10),
               interface: 'not launched', question: 'Is an installed build available?', rawAnswer: '', facts: unmeasuredFacts(),
-              status: 'could-not-ask', isolation: KEYCHAIN_READ_ONLY, auth: 'owner subscription sign-in', reason: 'needs sign-in, not measured',
+              status: 'could-not-ask', ...discoveryMetadata, reason: 'needs sign-in, not measured',
             }
         : {
             agent: agent.name, agentId: agent.id, version: 'unknown', measured: new Date().toISOString().slice(0, 10),
             interface: 'not launched', question: 'Is an installed build available?', rawAnswer: '', facts: unmeasuredFacts(),
             status: 'could-not-ask',
-            ...(fixture.isolation.profile === KEYCHAIN_READ_ONLY ? { isolation: KEYCHAIN_READ_ONLY, auth: 'owner subscription sign-in' } : {}),
+            ...discoveryMetadata,
             reason: !fixture.isolation.available || installResult.state === 'unsafe' ? 'cannot isolate' : installResult.state === 'absent' ? 'binary not installed' : installResult.state === 'unreadable' ? 'installed candidate version unreadable' : installResult.state === 'below-floor' ? 'installed version below supported floor' : !discovered?.value ? 'could not capture an exact version' : 'installed version changed during discovery',
           }
       await writeResult(result, RESULT_DIR_PATH, fixture)

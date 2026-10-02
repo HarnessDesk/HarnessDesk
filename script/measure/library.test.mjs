@@ -25,6 +25,7 @@ import {
   deniedHomePaths,
   agentHomeIsIsolated,
   normalizeVersion,
+  discoveryIsolation,
   shouldAskAgent,
   KEYCHAIN_READ_ONLY,
 } from './library.mjs'
@@ -122,20 +123,28 @@ test('strict and keychain-read-only profiles differ only by keychain read and Ma
   const options = { fixtureRoot: '/tmp/fixture', readPaths: ['/opt/homebrew/Cellar/node'] }
   const strict = sandboxProfileText(realHome, options)
   const exception = sandboxProfileText(realHome, { ...options, isolation: KEYCHAIN_READ_ONLY })
-  const lines = (profile) => new Set(profile.trimEnd().split('\n'))
-  const strictLines = lines(strict)
-  const exceptionLines = lines(exception)
-  const onlyStrict = [...strictLines].filter((line) => !exceptionLines.has(line)).sort()
-  const onlyException = [...exceptionLines].filter((line) => !strictLines.has(line)).sort()
-  assert.deepEqual(onlyStrict, [
+  const strictLines = strict.trimEnd().split('\n')
+  const exceptionLines = exception.trimEnd().split('\n')
+  const keychainRead = '(allow file-read* (subpath "/Users/dev/Library/Keychains"))'
+  const machDenials = [
     '(deny mach-lookup (global-name "com.apple.SecurityServer"))',
     '(deny mach-lookup (global-name "com.apple.securityd"))',
-  ])
-  assert.deepEqual(onlyException, [
-    '(allow file-read* (subpath "/Users/dev/Library/Keychains"))',
-  ])
-  assert.ok([...strictLines].some((line) => line.startsWith('(deny file-read* file-write* (subpath "/Users/dev/Library/Keychains")')))
-  assert.ok([...exceptionLines].some((line) => line.startsWith('(deny file-read* file-write* (subpath "/Users/dev/Library/Keychains")')))
+  ]
+  assert.equal(strictLines.filter((line) => line === keychainRead).length, 0)
+  assert.equal(exceptionLines.filter((line) => line === keychainRead).length, 1)
+  const firstMachIndex = Math.min(...machDenials.map((line) => strictLines.indexOf(line)))
+  assert.ok(firstMachIndex >= 0)
+  for (const denial of machDenials) {
+    assert.equal(strictLines.filter((line) => line === denial).length, 1)
+    const index = strictLines.indexOf(denial)
+    assert.ok(index >= 0)
+    strictLines.splice(index, 1)
+    assert.equal(exceptionLines.includes(denial), false)
+  }
+  strictLines.splice(firstMachIndex, 0, keychainRead)
+  assert.deepEqual(exceptionLines, strictLines)
+  assert.ok(strict.includes('(deny file-read* file-write* (subpath "/Users/dev/Library/Keychains"))'))
+  assert.ok(exception.includes('(deny file-read* file-write* (subpath "/Users/dev/Library/Keychains"))'))
 })
 
 test('install runtime allowance resolves to narrow version and dependency-tree directories', () => {
@@ -159,15 +168,22 @@ test('install roots that encompass a home or a whole volume cannot be allowed', 
   const diskRoot = join(volumesRoot, 'Disk')
   const separator = String.fromCharCode(47)
   const refused = [
-    otherHome, `${otherHome}${separator}`, `${usersRoot}//other`, realHome, `${realHome}/..`, usersRoot,
-    volumesRoot, diskRoot, '/',
+    otherHome, `${otherHome}${separator}`, `${usersRoot}//other`, join(otherHome, 'tools', 'v1'),
+    join(diskRoot, 'tools', 'node_modules'), realHome, `${realHome}/..`, usersRoot, volumesRoot, diskRoot, '/',
   ]
   assert.deepEqual(refused.filter((root) => installRootIsSafe(root, realHome)), [])
   const accepted = [
-    '/opt/homebrew/lib/node_modules', join(otherHome, 'tools', 'v1'), join(diskRoot, 'tools', 'node_modules'),
+    '/opt/homebrew/lib/node_modules',
+    join(realHome, '.claude/local/versions/1.2.3'),
     join('/', 'UsersX'), join('/', 'Volumesfoo'),
   ]
   assert.deepEqual(accepted.filter((root) => !installRootIsSafe(root, realHome)), [])
+})
+
+test('discovery always uses strict isolation, including keychain-only agents', () => {
+  for (const id of ['claude-code', 'cursor', 'grok-build', 'codex']) {
+    assert.equal(discoveryIsolation({ id }), 'strict', id)
+  }
 })
 
 test('the three keychain-only agents retain version discovery but never receive a model prompt', () => {
@@ -235,6 +251,7 @@ test('result validation requires an answer only for asked results', () => {
   }
   const fixture = { ruleSentinels: {}, skills: { sentinel: '/tmp/measure-sentinel' } }
   assert.deepEqual(validateResult(valid, fixture), valid)
+  assert.deepEqual(validateResult({ ...valid, isolation: 'strict', auth: 'no sign-in used' }, fixture).auth, 'no sign-in used')
   assert.throws(() => validateResult({ ...valid, rawAnswer: '' }, fixture), /rawAnswer/)
   assert.throws(() => validateResult({ ...valid, rawAnswer: '', status: 'could-not-ask' }, fixture), /reason/)
   assert.throws(() => validateResult({ ...valid, status: 'could-not-ask', reason: 'needs sign-in, not measured' }, fixture), /cannot persist an answer/)
@@ -287,6 +304,11 @@ test('build metadata is normalized before a version can reach writeResult', asyn
   const discovered = '1.2.3+sk-live-abcdefgh123456'
   const normalized = normalizeVersion(discovered)
   assert.equal(normalized, 'unknown')
+  assert.equal(normalizeVersion('1.2.3-sk8f7s9d8f7sd9f87sd'), 'unknown')
+  assert.equal(normalizeVersion('1.2.3-abcdef123456'), 'unknown')
+  assert.equal(normalizeVersion('0.1.7-rc.2'), '0.1.7-rc.2')
+  assert.equal(normalizeVersion('1.0.0-beta'), '1.0.0-beta')
+  assert.equal(normalizeVersion('2.0.0-next.12'), '2.0.0-next.12')
   const result = {
     agent: 'Codex', agentId: 'codex', version: normalized, measured: '2026-10-01',
     interface: 'not selected', question: 'Which skill sentinel is loaded?', rawAnswer: '',

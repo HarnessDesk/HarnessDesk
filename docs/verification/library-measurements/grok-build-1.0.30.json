@@ -36,7 +36,7 @@
     }
   },
   "status": "could-not-ask",
-  "isolation": "keychain-read-only",
-  "auth": "owner subscription sign-in",
+  "isolation": "strict",
+  "auth": "no sign-in used",
   "reason": "needs sign-in, not measured"
 }
