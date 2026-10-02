@@ -59,12 +59,25 @@ if (verb === 'issue view') { process.stdout.write(JSON.stringify({ number: 42, t
 if (verb === 'issue comment') { process.stdout.write('https://github.com/acme/widgets/issues/42#issuecomment-2\n'); process.exit(0) }
 if (verb.startsWith('api') && (args[1] ?? '').includes('/check-runs?')) {
   if (fs.existsSync(path.join(home, 'checks-fail'))) { process.stderr.write('gh: HTTP 502\n'); process.exit(1) }
+  if (fs.existsSync(path.join(home, 'checks-partial-fail'))) {
+    const file = path.join(home, 'checks.ndjson')
+    process.stdout.write(fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n')[0] + '\n' : '')
+    process.stderr.write('gh: HTTP 502 after partial response\n')
+    process.exit(1)
+  }
   const file = path.join(home, 'checks.ndjson')
   process.stdout.write(fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '')
   process.exit(0)
 }
 if (verb.startsWith('api') && (args[1] ?? '').includes('/rules/branches/')) {
   if (fs.existsSync(path.join(home, 'rules-fail'))) { process.stderr.write('gh: HTTP 502\n'); process.exit(1) }
+  if (fs.existsSync(path.join(home, 'rules-partial-fail'))) {
+    const file = path.join(home, 'rules.json')
+    const rules = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : []
+    process.stdout.write(JSON.stringify(Array.isArray(rules) ? rules.slice(0, 1) : rules))
+    process.stderr.write('gh: HTTP 502 after partial response\n')
+    process.exit(1)
+  }
   const file = path.join(home, 'rules.json')
   process.stdout.write(fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '[]')
   process.exit(0)
@@ -512,6 +525,138 @@ test('pr_merge falls back to every check for unreadable, empty or malformed rule
     assertRulesReadAtBase(forge)
     assertNoMergeCall(forge)
   }
+})
+
+test('pr_merge falls back to every check when any ruleset entry is malformed', async (t) => {
+  const forge = await rig(t)
+  setRules(forge, [
+    ...requiredRules([{ context: 'Build', integration_id: 15368 }]),
+    { ruleset_id: 2, parameters: { required_status_checks: [{ context: 'Security' }] } },
+  ])
+  setCheckRuns(forge, [
+    checkRun('Build', 1, '2026-10-01T10:00:00Z', 'completed', 'success', 15368),
+    checkRun('Security', 2, '2026-10-01T10:00:00Z', 'completed', 'failure'),
+  ])
+  const said = await forge.run('pr_merge', { number: 7, head: '0123456789abcdef0123456789abcdef01234567' })
+  assert.match(said, /“Security” failed/)
+  assertNoMergeCall(forge)
+})
+
+test('pr_merge treats a check-shaped rule with the wrong type as malformed', async (t) => {
+  const forge = await rig(t)
+  setRules(forge, [
+    ...requiredRules([{ context: 'Build', integration_id: 15368 }]),
+    {
+      type: 'deletion',
+      ruleset_id: 2,
+      parameters: { required_status_checks: [{ context: 'Security', integration_id: null }] },
+    },
+  ])
+  setCheckRuns(forge, [
+    checkRun('Build', 1, '2026-10-01T10:00:00Z', 'completed', 'success', 15368),
+    checkRun('Security', 2, '2026-10-01T10:00:00Z', 'completed', 'failure'),
+  ])
+  const said = await forge.run('pr_merge', { number: 7, head: '0123456789abcdef0123456789abcdef01234567' })
+  assert.match(said, /“Security” failed/)
+  assertNoMergeCall(forge)
+})
+
+test('pr_merge falls back to every check when a sibling ruleset has an empty required-check list', async (t) => {
+  const forge = await rig(t)
+  setRules(forge, [
+    ...requiredRules([{ context: 'Build', integration_id: 15368 }]),
+    {
+      type: 'required_status_checks',
+      ruleset_id: 2,
+      parameters: { required_status_checks: [] },
+    },
+  ])
+  setCheckRuns(forge, [
+    checkRun('Build', 1, '2026-10-01T10:00:00Z', 'completed', 'success', 15368),
+    checkRun('Security', 2, '2026-10-01T10:00:00Z', 'completed', 'failure'),
+  ])
+  const said = await forge.run('pr_merge', { number: 7, head: '0123456789abcdef0123456789abcdef01234567' })
+  assert.match(said, /“Security” failed/)
+  assertNoMergeCall(forge)
+})
+
+test('pr_merge treats a required check with omitted app binding as unreadable', async (t) => {
+  const forge = await rig(t)
+  setRules(forge, [{
+    type: 'required_status_checks',
+    ruleset_id: 1,
+    parameters: { required_status_checks: [{ context: 'Pinned CI' }] },
+  }])
+  setCheckRuns(forge, [
+    checkRun('Pinned CI', 1, '2026-10-01T10:00:00Z', 'completed', 'success', 999),
+    checkRun('Windows', 2, '2026-10-01T10:00:00Z', 'completed', 'failure'),
+  ])
+  const said = await forge.run('pr_merge', { number: 7, head: '0123456789abcdef0123456789abcdef01234567' })
+  assert.match(said, /“Windows” failed/)
+  assertNoMergeCall(forge)
+})
+
+for (const [missing, protection] of [
+  ['contexts', { checks: [{ context: 'Classic CI', app_id: 15368 }] }],
+  ['checks', { contexts: ['Classic CI'] }],
+] as const) {
+  test(`pr_merge treats missing classic ${missing} as an incomplete answer`, async (t) => {
+    const head = '0123456789abcdef0123456789abcdef01234567'
+    const forge = await rig(t)
+    setRules(forge, [{ type: 'deletion' }])
+    writeFileSync(join(forge.home, 'protection.json'), JSON.stringify(protection))
+    setCheckRuns(forge, [
+      checkRun('Classic CI', 1, '2026-10-01T10:00:00Z', 'completed', 'success', 15368),
+      checkRun('Windows', 2, '2026-10-01T10:00:00Z', 'completed', 'failure'),
+    ])
+    const said = await forge.run('pr_merge', { number: 7, head })
+    assert.match(said, /“Windows” failed/, `missing ${missing}`)
+    assertNoMergeCall(forge)
+  })
+}
+
+test('pr_merge unions classic protection and ruleset requirements', async (t) => {
+  const forge = await rig(t)
+  setRules(forge, requiredRules([{ context: 'Build', integration_id: 15368 }]))
+  writeFileSync(join(forge.home, 'protection.json'), JSON.stringify({ contexts: ['Security'], checks: [] }))
+  setCheckRuns(forge, [
+    checkRun('Build', 1, '2026-10-01T10:00:00Z', 'completed', 'success', 15368),
+    checkRun('Security', 2, '2026-10-01T10:00:00Z', 'completed', 'failure'),
+  ])
+  const said = await forge.run('pr_merge', { number: 7, head: '0123456789abcdef0123456789abcdef01234567' })
+  assert.match(said, /“Security” failed/)
+  assertNoMergeCall(forge)
+  assert.ok(forge.calls().some((args) => (args[1] ?? '').includes('/rules/branches/')))
+  assert.ok(forge.calls().some((args) => (args[1] ?? '').includes('/protection/required_status_checks')))
+})
+
+test('pr_merge ignores partial stdout from a failed required-check rules request', async (t) => {
+  const forge = await rig(t)
+  setRules(forge, [
+    ...requiredRules([{ context: 'Build', integration_id: 15368 }]),
+    ...requiredRules([{ context: 'Security', integration_id: 15368 }]),
+  ])
+  writeFileSync(join(forge.home, 'rules-partial-fail'), '')
+  setCheckRuns(forge, [
+    checkRun('Build', 1, '2026-10-01T10:00:00Z', 'completed', 'success', 15368),
+    checkRun('Security', 2, '2026-10-01T10:00:00Z', 'completed', 'failure', 15368),
+  ])
+  const said = await forge.run('pr_merge', { number: 7, head: '0123456789abcdef0123456789abcdef01234567' })
+  assert.match(said, /“Security” failed/)
+  assertNoMergeCall(forge)
+})
+
+test('pr_merge refuses partial check-run stdout when gh exits nonzero', async (t) => {
+  const forge = await rig(t)
+  setRules(forge, requiredRules([{ context: 'Build', integration_id: 15368 }]))
+  setCheckRuns(forge, [
+    checkRun('Build', 1, '2026-10-01T10:00:00Z', 'completed', 'success', 15368),
+    checkRun('Windows', 2, '2026-10-01T10:00:00Z', 'completed', 'failure'),
+  ])
+  writeFileSync(join(forge.home, 'checks-partial-fail'), '')
+  const said = await forge.run('pr_merge', { number: 7, head: '0123456789abcdef0123456789abcdef01234567' })
+  assert.match(said, /CI state could not be read/)
+  assertNoMergeCall(forge)
 })
 
 test('pr_merge unions required checks from multiple rulesets', async (t) => {

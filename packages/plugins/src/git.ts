@@ -335,8 +335,9 @@ const parseCheckRequirement = (value: unknown, appField: 'integration_id' | 'app
   if (!value || typeof value !== 'object') return null
   const entry = value as Record<string, unknown>
   if (typeof entry.context !== 'string' || entry.context.trim() === '') return null
+  if (!Object.hasOwn(entry, appField)) return null
   const appId = entry[appField]
-  if (appId !== undefined && appId !== null && (!Number.isSafeInteger(appId) || Number(appId) < 0)) return null
+  if (appId !== null && (!Number.isSafeInteger(appId) || Number(appId) < 0)) return null
   return { context: entry.context, integrationId: typeof appId === 'number' ? appId : null }
 }
 
@@ -346,11 +347,43 @@ const uniqueRequirements = (checks: readonly RequiredCheck[]): RequiredCheck[] =
   return [...unique.values()]
 }
 
+const recordOf = (value: unknown): Record<string, unknown> | null =>
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+
+/** Parse every entry; an incomplete rule cannot be hidden by a valid sibling. */
+const requirementsFromRulesets = (value: unknown): RequiredCheck[] | null => {
+  if (!Array.isArray(value)) return null
+  const requirements: RequiredCheck[] = []
+  for (const rawRule of value) {
+    const rule = recordOf(rawRule)
+    if (!rule || typeof rule.type !== 'string' || rule.type.trim() === '') return null
+    const parameters = recordOf(rule.parameters)
+    const type = rule.type.trim()
+    if (type !== 'required_status_checks') {
+      if (parameters && Object.hasOwn(parameters, 'required_status_checks')) return null
+      continue
+    }
+    const checks = parameters?.required_status_checks
+    if (!Array.isArray(checks) || checks.length === 0) return null
+    for (const check of checks) {
+      const requirement = parseCheckRequirement(check, 'integration_id')
+      if (!requirement) return null
+      requirements.push(requirement)
+    }
+  }
+  return requirements
+}
+
+/** Classic 404 means the branch has no classic protection configuration. */
+const isClassicProtectionAbsent = (error: unknown): boolean =>
+  error instanceof Error && /\bHTTP 404\b/.test(error.message)
+
 /**
- * Read GitHub's required checks for the PR's base branch. Any answer that is
- * missing, empty or malformed returns null, which keeps the older all-checks
- * gate in force. Classic branch protection is consulted only when the
- * rulesets endpoint was readable and had no required-status-check rule.
+ * Read GitHub's required checks for the PR's base branch. Rulesets and classic
+ * branch protection both contribute requirements. An unreadable or incomplete
+ * answer from either source keeps the older all-checks gate in force.
  */
 const readRequiredChecks = async (
   gh: (args: readonly string[]) => Promise<string>,
@@ -359,60 +392,48 @@ const readRequiredChecks = async (
 ): Promise<readonly RequiredCheck[] | null> => {
   if (repository === '' || !baseBranch) return null
   const branch = encodeURIComponent(baseBranch)
-  let rules: unknown
+  let rulesAnswer: unknown
+  let rulesReadable = false
   try {
-    rules = JSON.parse(await gh(['api', `repos/${repository}/rules/branches/${branch}`])) as unknown
+    rulesAnswer = JSON.parse(await gh(['api', `repos/${repository}/rules/branches/${branch}`])) as unknown
+    rulesReadable = true
   } catch {
-    return null
-  }
-  if (!Array.isArray(rules)) return null
-
-  const rulesetEntries = rules.filter((rule) =>
-    Boolean(rule) && typeof rule === 'object' && (rule as Record<string, unknown>).type === 'required_status_checks',
-  )
-  if (rulesetEntries.length > 0) {
-    const requirements: RequiredCheck[] = []
-    for (const rule of rulesetEntries) {
-      const parameters = (rule as Record<string, unknown>).parameters
-      const checks = parameters && typeof parameters === 'object'
-        ? (parameters as Record<string, unknown>).required_status_checks
-        : undefined
-      if (!Array.isArray(checks)) return null
-      for (const check of checks) {
-        const requirement = parseCheckRequirement(check, 'integration_id')
-        if (!requirement) return null
-        requirements.push(requirement)
-      }
-    }
-    const unique = uniqueRequirements(requirements)
-    return unique.length > 0 ? unique : null
+    // Still read classic protection below; the all-checks fallback is chosen
+    // only after both sources have been attempted.
   }
 
-  let protection: unknown
+  let protectionAnswer: unknown
+  let protectionReadable = false
+  let protectionAbsent = false
   try {
-    protection = JSON.parse(await gh([
+    protectionAnswer = JSON.parse(await gh([
       'api',
       `repos/${repository}/branches/${branch}/protection/required_status_checks`,
     ])) as unknown
-  } catch {
-    return null
+    protectionReadable = true
+  } catch (error) {
+    protectionAbsent = isClassicProtectionAbsent(error)
   }
-  if (!protection || typeof protection !== 'object') return null
-  const classic = protection as Record<string, unknown>
-  if ((classic.contexts !== undefined && !Array.isArray(classic.contexts)) ||
-      (classic.checks !== undefined && !Array.isArray(classic.checks))) return null
+  if (!rulesReadable || (!protectionReadable && !protectionAbsent)) return null
 
-  const requirements: RequiredCheck[] = []
-  for (const context of (classic.contexts ?? []) as unknown[]) {
-    if (typeof context !== 'string' || context.trim() === '') return null
-    requirements.push({ context, integrationId: null })
+  const rulesetRequirements = requirementsFromRulesets(rulesAnswer)
+  if (!rulesetRequirements) return null
+
+  let classicRequirements: RequiredCheck[] = []
+  if (protectionReadable) {
+    const classic = recordOf(protectionAnswer)
+    if (!classic || !Array.isArray(classic.contexts) || !Array.isArray(classic.checks)) return null
+    for (const context of classic.contexts) {
+      if (typeof context !== 'string' || context.trim() === '') return null
+      classicRequirements.push({ context, integrationId: null })
+    }
+    for (const check of classic.checks) {
+      const requirement = parseCheckRequirement(check, 'app_id')
+      if (!requirement) return null
+      classicRequirements.push(requirement)
+    }
   }
-  for (const check of (classic.checks ?? []) as unknown[]) {
-    const requirement = parseCheckRequirement(check, 'app_id')
-    if (!requirement) return null
-    requirements.push(requirement)
-  }
-  const unique = uniqueRequirements(requirements)
+  const unique = uniqueRequirements([...rulesetRequirements, ...classicRequirements])
   return unique.length > 0 ? unique : null
 }
 

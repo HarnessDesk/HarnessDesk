@@ -51,6 +51,24 @@ test('assessCheckRuns treats a rerun that has not started as the newest run', ()
   ]).green, false, 'the order the runs arrive in does not matter')
 })
 
+test('assessCheckRuns keeps a queued required-check rerun ahead of its older success', () => {
+  const required = [{ context: 'build', integrationId: 15368 }]
+  for (const runs of [
+    [
+      { ...run('build', 1, '2026-09-30T10:00:00Z', 'completed', 'success'), app: { id: 15368 } },
+      { ...run('build', 2, null, 'queued', null), app: { id: 15368 } },
+    ],
+    [
+      { ...run('build', 2, null, 'queued', null), app: { id: 15368 } },
+      { ...run('build', 1, '2026-09-30T10:00:00Z', 'completed', 'success'), app: { id: 15368 } },
+    ],
+  ]) {
+    const assessment = assessCheckRuns(runs, required)
+    assert.equal(assessment.green, false)
+    assert.match(assessment.reason, /“build” is queued/)
+  }
+})
+
 test('assessCheckRuns reads an empty start time as not started, never as a very old one', () => {
   for (const runs of [
     [run('build', 1, '2026-09-30T10:00:00Z', 'completed', 'success'), run('build', 2, '', 'queued', null)],
