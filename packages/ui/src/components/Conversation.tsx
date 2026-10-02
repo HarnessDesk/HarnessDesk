@@ -38,6 +38,7 @@ import {
   NewWorktreeIcon,
 } from './Icons'
 import { worktreeBranch } from '../lib/worktree-branch'
+import { scriptedScrollBehavior } from '../lib/scripted-scroll'
 import {
   Bar,
   Button,
@@ -680,7 +681,7 @@ export const Conversation = ({
 
   const jumpToBottom = useCallback(() => {
     const element = scroll.current
-    if (element) element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' })
+    if (element) element.scrollTo({ top: element.scrollHeight, behavior: scriptedScrollBehavior() })
     setPinned(true)
   }, [])
 

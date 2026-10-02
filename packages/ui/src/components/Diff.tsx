@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '../design'
 import { asAdditions, asRemovals, drawnWhole, parseDiff, type DiffLine, type WholeFile } from '../lib/diff'
+import { scriptedScrollBehavior } from '../lib/scripted-scroll'
 import { ChevronIcon } from './Icons'
 import styles from './Diff.module.css'
 
@@ -103,7 +104,7 @@ export const DiffView = ({ diff, wholeFile = false, wrap = false, inline = false
       setHunk(next)
       // The row may only mount after expanding; scroll on the next frame.
       requestAnimationFrame(() => {
-        rows.current.get(target)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        rows.current.get(target)?.scrollIntoView({ block: 'center', behavior: scriptedScrollBehavior() })
       })
     },
     [hunkRows],
