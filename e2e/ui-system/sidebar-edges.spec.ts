@@ -9,6 +9,84 @@ const box = async (locator: Locator) => {
   return value!
 }
 
+const textInk = async (locator: Locator) => locator.evaluate((node) => {
+  const range = document.createRange()
+  const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT)
+  let text = walker.nextNode()
+  while (text && !(text.textContent ?? '').trim()) text = walker.nextNode()
+  if (text) range.selectNodeContents(text)
+  let clipLeft = Number.NEGATIVE_INFINITY
+  let clipRight = Number.POSITIVE_INFINITY
+  let clipTop = Number.NEGATIVE_INFINITY
+  let clipBottom = Number.POSITIVE_INFINITY
+  let parent = (text as Text | null)?.parentElement ?? null
+  while (parent && parent !== node.closest('[data-slot="sidebar-menu-button"]')) {
+    const style = getComputedStyle(parent)
+    if (style.overflowX !== 'visible' || parent.matches('[data-slot="sidebar-menu-label-content"]')) {
+      const rect = parent.getBoundingClientRect()
+      clipLeft = Math.max(clipLeft, rect.left + parent.clientLeft + Number.parseFloat(style.paddingLeft))
+      clipRight = Math.min(clipRight, rect.right - parent.clientLeft - Number.parseFloat(style.paddingRight))
+      clipTop = Math.max(clipTop, rect.top + parent.clientTop + Number.parseFloat(style.paddingTop))
+      clipBottom = Math.min(clipBottom, rect.bottom - parent.clientTop - Number.parseFloat(style.paddingBottom))
+    }
+    parent = parent.parentElement
+  }
+  return [...range.getClientRects()].map(({ x, y, width, height }) => ({
+    x: Math.max(x, clipLeft),
+    y: Math.max(y, clipTop),
+    width: Math.max(0, Math.min(x + width, clipRight) - Math.max(x, clipLeft)),
+    height: Math.max(0, Math.min(y + height, clipBottom) - Math.max(y, clipTop)),
+  })).filter(({ width, height }) => width > 0 && height > 0)
+})
+
+test('marked sidebar titles clear every trailing box without changing label geometry', async ({ page }) => {
+  await page.goto('/design.html?view=sidebar')
+  const example = page.locator('[data-catalog-example="sidebar"]')
+  const anatomy = example.locator('[aria-label="Sidebar trailing slot anatomy"]')
+  const rows = anatomy.locator('[data-catalog-title-case]')
+
+  for (const width of [200, 220, 260, 320]) {
+    await anatomy.locator('[data-slot="sidebar-menu"]').evaluateAll((lists, next) => {
+      for (const list of lists) (list as HTMLElement).style.width = `${next}px`
+    }, width)
+    for (let rowIndex = 0; rowIndex < await rows.count(); rowIndex += 1) {
+      const row = rows.nth(rowIndex)
+      const caseName = await row.getAttribute('data-catalog-title-case') ?? 'marked row'
+      const button = row.locator(':scope > [data-slot="sidebar-menu-button"], :scope > div > [data-slot="sidebar-menu-button"]').first()
+      const label = button.locator('[data-slot="sidebar-menu-label"]')
+      const title = label.locator('[data-slot="sidebar-menu-label-content"]')
+      const obstacles = row.locator(':scope > [data-slot="sidebar-menu-badge"], :scope > [data-slot="sidebar-menu-action"], :scope > div > [data-slot="sidebar-menu-badge"], :scope > div > [data-slot="sidebar-menu-action"]')
+      let restBox: Awaited<ReturnType<typeof box>> | null = null
+
+      for (const state of ['rest', 'hover', 'focus'] as const) {
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+        await page.mouse.move(0, 0)
+        if (state === 'hover') await row.hover()
+        if (state === 'focus') await button.focus()
+        await page.waitForTimeout(100)
+        const labelBox = await box(label)
+        if (state === 'rest') restBox = labelBox
+        else expect(labelBox, `${caseName} label box moved at ${width}px (${state})`).toEqual(restBox)
+
+        const titleRects = await textInk(title)
+        for (let obstacleIndex = 0; obstacleIndex < await obstacles.count(); obstacleIndex += 1) {
+          const obstacle = obstacles.nth(obstacleIndex)
+          if (!(await obstacle.isVisible())) continue
+          if (await obstacle.getAttribute('data-slot') === 'sidebar-menu-action'
+            && await obstacle.evaluate((node) => getComputedStyle(node).opacity) !== '1') continue
+          const target = await box(obstacle)
+          const widest = Math.max(0, ...titleRects.map((ink) =>
+            ink.y < target.y + target.height && target.y < ink.y + ink.height
+              ? Math.max(0, Math.min(ink.x + ink.width, target.x + target.width) - Math.max(ink.x, target.x))
+              : 0,
+          ))
+          expect(widest, `${caseName} title overlaps ${await obstacle.getAttribute('aria-label') ?? 'trailing box'} by ${widest}px at ${width}px (${state})`).toBe(0)
+        }
+      }
+    }
+  }
+})
+
 test('sidebar state marks yield to actions and every trailing control stays on the end rail', async ({ page }) => {
   test.setTimeout(120_000)
   await page.goto('/design.html?view=sidebar')
@@ -106,7 +184,8 @@ test('sidebar state marks yield to actions and every trailing control stays on t
           if (!(await badge.isVisible())) continue
           const ink = badge.locator('svg, [data-role="meta"]').first()
           const inkBox = await ink.count() ? await box(ink) : await box(badge)
-          const declaredSlot = (await badge.getAttribute('class'))?.includes('sidebar-end-action-step') ? 1 : 0
+          const badgeClass = await badge.getAttribute('class') ?? ''
+          const declaredSlot = badgeClass.includes('double-action-step') ? 2 : badgeClass.includes('action-step') ? 1 : 0
           const expectedCenter = columnCenter - declaredSlot * 24
           expect(Math.abs(inkBox.x + inkBox.width / 2 - expectedCenter), `${await badge.getAttribute('aria-label') ?? 'row badge'} visible ink centre ${inkBox.x + inkBox.width / 2} misses ${expectedCenter} at ${width}px (rest; ${await badge.getAttribute('class')})`).toBeLessThanOrEqual(1)
         }
@@ -297,6 +376,9 @@ test('AppWindow count and state marks occupy adjacent target slots on the shared
   const frame = sidebar.locator('xpath=parent::*')
   const row = nav.getByRole('button', { name: 'Agents' }).locator('xpath=ancestor::li[@data-slot="sidebar-menu-item"][1]')
   const marks = row.locator('[data-slot="sidebar-menu-badge"]')
+  const label = row.locator('[data-slot="sidebar-menu-label"]')
+  const title = label.locator('[data-slot="sidebar-menu-label-content"]')
+  await title.evaluate((node) => { node.textContent = 'Agents responsible for keeping every workspace conversation available' })
 
   for (const width of [200, 220, 260, 320]) {
     await frame.evaluate((node, next) => { (node as HTMLElement).style.gridTemplateColumns = `${next}px minmax(0, 1fr)` }, width)
@@ -305,16 +387,32 @@ test('AppWindow count and state marks occupy adjacent target slots on the shared
     expect(await marks.count()).toBe(2)
     const count = marks.nth(0).locator('[data-role="meta"]')
     const dot = marks.nth(1).locator('[data-slot="dot"]')
-    const countBox = await box(count)
-    const dotBox = await box(dot)
-    expect(Math.abs(countBox.x + countBox.width / 2 - (column - 24)), `AppWindow count misses the adjacent target slot at ${width}px`).toBeLessThanOrEqual(1)
-    expect(Math.abs(dotBox.x + dotBox.width / 2 - column), `AppWindow state dot misses the sidebar end column at ${width}px`).toBeLessThanOrEqual(1)
-    for (let index = 0; index < await marks.count(); index += 1) {
-      const mark = await box(marks.nth(index))
-      expect(mark.x, `AppWindow mark ${index} begins outside sidebar at ${width}px`).toBeGreaterThanOrEqual(sidebarBox.x)
-      expect(mark.x + mark.width, `AppWindow mark ${index} ends outside sidebar at ${width}px`).toBeLessThanOrEqual(sidebarBox.x + sidebarBox.width + 1)
+    let restLabelBox: Awaited<ReturnType<typeof box>> | null = null
+    for (const state of ['rest', 'hover', 'focus'] as const) {
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+      await page.mouse.move(0, 0)
+      if (state === 'hover') await row.hover()
+      if (state === 'focus') await row.locator('[data-slot="sidebar-menu-button"]').focus()
+      await page.waitForTimeout(100)
+      const labelBox = await box(label)
+      if (state === 'rest') restLabelBox = labelBox
+      else expect(labelBox, `AppWindow label box moved at ${width}px (${state})`).toEqual(restLabelBox)
+
+      const countBox = await box(count)
+      const dotBox = await box(dot)
+      for (const ink of await textInk(title)) {
+        expect(intersection(ink, countBox), `AppWindow title text overlaps count by more than 0px at ${width}px (${state})`).toBe(false)
+        expect(intersection(ink, dotBox), `AppWindow title text overlaps state dot by more than 0px at ${width}px (${state})`).toBe(false)
+      }
+      expect(Math.abs(countBox.x + countBox.width / 2 - (column - 24)), `AppWindow count misses the adjacent target slot at ${width}px (${state})`).toBeLessThanOrEqual(1)
+      expect(Math.abs(dotBox.x + dotBox.width / 2 - column), `AppWindow state dot misses the sidebar end column at ${width}px (${state})`).toBeLessThanOrEqual(1)
+      for (let index = 0; index < await marks.count(); index += 1) {
+        const mark = await box(marks.nth(index))
+        expect(mark.x, `AppWindow mark ${index} begins outside sidebar at ${width}px`).toBeGreaterThanOrEqual(sidebarBox.x)
+        expect(mark.x + mark.width, `AppWindow mark ${index} ends outside sidebar at ${width}px`).toBeLessThanOrEqual(sidebarBox.x + sidebarBox.width + 1)
+      }
+      expect(intersection(countBox, dotBox), `AppWindow count and state dot overlap at ${width}px (${state})`).toBe(false)
     }
-    expect(intersection(countBox, dotBox), `AppWindow count and state dot overlap at ${width}px`).toBe(false)
   }
 })
 

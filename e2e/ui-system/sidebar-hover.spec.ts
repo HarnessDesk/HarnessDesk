@@ -24,7 +24,11 @@ test('conversation labels reach the row rail without changing box width on hover
       expect(rest).not.toBeNull()
       expect(buttonBox).not.toBeNull()
       expect(Math.abs(rest!.x + rest!.width - buttonBox!.x - buttonBox!.width)).toBeLessThanOrEqual(1)
-      if (kind === 'badge') await expect(row.locator('[data-slot="sidebar-menu-badge"]')).toBeVisible()
+      if (kind === 'badge') {
+        const marks = row.locator('[data-slot="sidebar-menu-badge"]')
+        await expect(marks).toHaveCount(3)
+        for (let index = 0; index < await marks.count(); index += 1) await expect(marks.nth(index)).toBeVisible()
+      }
       await row.hover()
       await expect(action).toBeVisible()
       const hover = await label.boundingBox()
@@ -203,7 +207,7 @@ test(`workspace hover keeps its pin visible and label width fixed (${theme})`, a
       await sidebar(page).getByRole('button', { name: 'How this list is shown', exact: true }).click()
       await page.getByRole('menuitem', { name: /^Density\b/ }).hover()
       await page.getByRole('menuitemradio', { name: density, exact: true }).click()
-      const label = 'Learn from every single tab of the settings screen'
+      const label = 'Draft the 2.5 migration notes after reviewing the sidebar target behavior'
       const row = page.locator('[data-region="session-row"] [data-slot="sidebar-menu-item"]').filter({
         has: page.locator(`button[aria-label="Actions for ${label}"]`),
       })

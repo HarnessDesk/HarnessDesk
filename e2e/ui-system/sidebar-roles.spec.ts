@@ -4,12 +4,12 @@ test('sidebar navigation names stay regular and truncate at their trailing edge'
   await page.goto('/preview.html')
 
   const title = page.locator('[data-region="session-row"] [data-slot="sidebar-menu-label"]').filter({
-    hasText: 'Duplicate Codex accounts logged in twice',
+    hasText: 'Pin the flaky inventory test after reconciling every retry branch',
   }).first()
   await expect(title).toBeVisible()
 
   const style = await title.evaluate((node) => {
-    const text = [...node.querySelectorAll<HTMLElement>('*')].filter((child) => child.textContent?.trim() === 'Duplicate Codex accounts logged in twice').at(-1)
+    const text = [...node.querySelectorAll<HTMLElement>('*')].filter((child) => child.textContent?.trim() === 'Pin the flaky inventory test after reconciling every retry branch').at(-1)
     if (!text) throw new Error('session label text missing')
     const computed = getComputedStyle(text)
     return {

@@ -257,9 +257,9 @@ const SessionRow = memo(({
             <SidebarMenuButton
               ref={rowRef}
               trailingOverlay
-              // A chip is inline content and earns a fixed trailing gap. The
-              // worktree/folder mark is in the absolute shared end rail, so
-              // reserving its width inside the label would shorten every title.
+              // The needs-you chip is inline content. The shared sidebar
+              // grammar reserves marked slots inside this label while keeping
+              // the label box fixed as hover actions appear.
               labelTrailingContent={Boolean(need)}
               size={density === 'compact' ? 'sm' : 'default'}
               isActive={active}
@@ -715,7 +715,7 @@ const RoomRow = ({
 
   return (
     <SidebarMenu data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount}>
-      <SidebarMenuItem>
+      <SidebarMenuItem trailingMarks={Number(held > 0) as 0 | 1}>
         <div className="relative min-w-0">
           <SidebarMenuButton
             trailingOverlay

@@ -7,18 +7,59 @@
   --sidebar-menu-end-rail: calc(var(--hd-sidebar-end-rail) - var(--hd-space-2));
 }
 
+/* A marked row keeps its title inside the same fixed slots at rest and while
+   its hover controls appear. The row declarations are also the badge/action
+   slot counts, so this reservation cannot drift from the rail grammar. */
+[data-sidebar-trailing-marks="1"] {
+  --sidebar-menu-mark-reserve: var(--hd-sidebar-end-action-step);
+}
+
+[data-sidebar-trailing-marks="2"] {
+  --sidebar-menu-mark-reserve: var(--hd-sidebar-end-double-action-step);
+}
+
+[data-sidebar-trailing-marks="3"] {
+  --sidebar-menu-mark-reserve: var(--hd-sidebar-end-triple-action-step);
+}
+
+[data-sidebar-trailing-actions="1"] {
+  --sidebar-menu-action-reserve: var(--hd-sidebar-end-action-step);
+}
+
+[data-sidebar-trailing-actions="2"] {
+  --sidebar-menu-action-reserve: var(--hd-sidebar-end-double-action-step);
+}
+
+[data-sidebar-trailing-marks="1"] > :is([data-slot="sidebar-menu-button"], div > [data-slot="sidebar-menu-button"]) [data-slot="sidebar-menu-label-content"],
+[data-sidebar-trailing-marks="2"] > :is([data-slot="sidebar-menu-button"], div > [data-slot="sidebar-menu-button"]) [data-slot="sidebar-menu-label-content"],
+[data-sidebar-trailing-marks="3"] > :is([data-slot="sidebar-menu-button"], div > [data-slot="sidebar-menu-button"]) [data-slot="sidebar-menu-label-content"] {
+  padding-inline-end: calc(var(--sidebar-menu-end-rail) + var(--sidebar-menu-mark-reserve));
+}
+
+[data-sidebar-trailing-marks="1"]:has(> [data-slot="sidebar-menu-action"][data-show-on-hover], > div > [data-slot="sidebar-menu-action"][data-show-on-hover]) > :is([data-slot="sidebar-menu-button"], div > [data-slot="sidebar-menu-button"]) [data-slot="sidebar-menu-label-content"],
+[data-sidebar-trailing-marks="2"]:has(> [data-slot="sidebar-menu-action"][data-show-on-hover], > div > [data-slot="sidebar-menu-action"][data-show-on-hover]) > :is([data-slot="sidebar-menu-button"], div > [data-slot="sidebar-menu-button"]) [data-slot="sidebar-menu-label-content"],
+[data-sidebar-trailing-marks="3"]:has(> [data-slot="sidebar-menu-action"][data-show-on-hover], > div > [data-slot="sidebar-menu-action"][data-show-on-hover]) > :is([data-slot="sidebar-menu-button"], div > [data-slot="sidebar-menu-button"]) [data-slot="sidebar-menu-label-content"] {
+  padding-inline-end: calc(var(--sidebar-menu-end-rail) + var(--sidebar-menu-mark-reserve) + var(--sidebar-menu-action-reserve));
+}
+
 [data-sidebar-trailing-marks="1"]:has([data-slot="sidebar-menu-action"][data-show-on-hover]):is(:hover, :focus-within) > [data-slot="sidebar-menu-action"],
-[data-sidebar-trailing-marks="1"]:has([data-slot="sidebar-menu-action"][data-show-on-hover][data-state="open"]) > [data-slot="sidebar-menu-action"] {
+[data-sidebar-trailing-marks="1"]:has([data-slot="sidebar-menu-action"][data-show-on-hover]):is(:hover, :focus-within) > div > [data-slot="sidebar-menu-action"],
+[data-sidebar-trailing-marks="1"]:has([data-slot="sidebar-menu-action"][data-show-on-hover][data-state="open"]) > [data-slot="sidebar-menu-action"],
+[data-sidebar-trailing-marks="1"]:has([data-slot="sidebar-menu-action"][data-show-on-hover][data-state="open"]) > div > [data-slot="sidebar-menu-action"] {
   translate: calc(-1 * var(--hd-sidebar-end-action-step)) -50%;
 }
 
 [data-sidebar-trailing-marks="2"]:has([data-slot="sidebar-menu-action"][data-show-on-hover]):is(:hover, :focus-within) > [data-slot="sidebar-menu-action"],
-[data-sidebar-trailing-marks="2"]:has([data-slot="sidebar-menu-action"][data-show-on-hover][data-state="open"]) > [data-slot="sidebar-menu-action"] {
+[data-sidebar-trailing-marks="2"]:has([data-slot="sidebar-menu-action"][data-show-on-hover]):is(:hover, :focus-within) > div > [data-slot="sidebar-menu-action"],
+[data-sidebar-trailing-marks="2"]:has([data-slot="sidebar-menu-action"][data-show-on-hover][data-state="open"]) > [data-slot="sidebar-menu-action"],
+[data-sidebar-trailing-marks="2"]:has([data-slot="sidebar-menu-action"][data-show-on-hover][data-state="open"]) > div > [data-slot="sidebar-menu-action"] {
   translate: calc(-1 * var(--hd-sidebar-end-double-action-step)) -50%;
 }
 
 [data-sidebar-trailing-marks="3"]:has([data-slot="sidebar-menu-action"][data-show-on-hover]):is(:hover, :focus-within) > [data-slot="sidebar-menu-action"],
-[data-sidebar-trailing-marks="3"]:has([data-slot="sidebar-menu-action"][data-show-on-hover][data-state="open"]) > [data-slot="sidebar-menu-action"] {
+[data-sidebar-trailing-marks="3"]:has([data-slot="sidebar-menu-action"][data-show-on-hover]):is(:hover, :focus-within) > div > [data-slot="sidebar-menu-action"],
+[data-sidebar-trailing-marks="3"]:has([data-slot="sidebar-menu-action"][data-show-on-hover][data-state="open"]) > [data-slot="sidebar-menu-action"],
+[data-sidebar-trailing-marks="3"]:has([data-slot="sidebar-menu-action"][data-show-on-hover][data-state="open"]) > div > [data-slot="sidebar-menu-action"] {
   translate: calc(-1 * var(--hd-sidebar-end-triple-action-step)) -50%;
 }
 

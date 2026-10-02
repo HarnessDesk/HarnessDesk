@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 
 import { runtimeId, sessionKey, sessionId, turnId, type AgentItem, type FileChange, type SessionId, type Turn } from '@harnessdesk/protocol'
 
-import { AlertIcon, BranchIcon, BriefIcon, CaretIcon, CheckIcon, CrossIcon, FilterIcon, FolderIcon, MoreIcon, PlusIcon, PluginIcon, SearchIcon, SettingsIcon, TeamIcon, TerminalIcon, TodoPendingIcon, UsageIcon, UserIcon } from '../../components/Icons'
+import { AlertIcon, BranchIcon, BriefIcon, CaretIcon, CheckIcon, CrossIcon, FilterIcon, FolderGoneIcon, FolderIcon, MoreIcon, PinIcon, PlusIcon, PluginIcon, SearchIcon, SettingsIcon, TeamIcon, TerminalIcon, TodoPendingIcon, UsageIcon, UserIcon } from '../../components/Icons'
 import { RuntimeMark } from '../../components/BrandIcons'
 import { DiffView } from '../../components/Diff'
 import { TurnFiles } from '../../components/TurnFiles'
@@ -233,20 +233,44 @@ const SidebarBoard = () => (
           <SidebarMenuButton trailingOverlay label="Long conversation titles can use the full row width at rest" />
           <SidebarMenuAction showOnHover aria-label="Empty slot actions"><MoreIcon size={14} /></SidebarMenuAction>
         </SidebarMenuItem>
-        <SidebarMenuItem trailingMarks={2} data-catalog-label-case="badge" data-catalog-state="folded-state">
-          <SidebarMenuButton trailingOverlay label="A status chip folds beside a count and hover action" />
+        <SidebarMenuItem trailingMarks={3} data-catalog-label-case="badge" data-catalog-title-case="conversation with branch folder-gone and working marks" data-catalog-state="folded-state">
+          <SidebarMenuButton trailingOverlay label="Pin the flaky inventory test after reconciling every retry branch" />
           <SidebarBoardState label="Working" compact={<Dot state="signin" variant="navigation" />}>Working</SidebarBoardState>
-          <SidebarMenuBadge aria-label="Unread messages">2</SidebarMenuBadge>
+          <SidebarMenuBadge role="img" className="end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-double-action-step))]" aria-label="Worktree feat/inventory-retry"><BranchIcon size={11} /></SidebarMenuBadge>
+          <SidebarMenuBadge role="img" className="end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-action-step))]" aria-label="Folder is gone — inventory-retry"><FolderGoneIcon size={11} /></SidebarMenuBadge>
+          <SidebarMenuBadge aria-label="Working"><Dot state="signin" variant="navigation" /></SidebarMenuBadge>
           <SidebarMenuAction showOnHover aria-label="Badge row actions"><MoreIcon size={14} /></SidebarMenuAction>
+        </SidebarMenuItem>
+        <SidebarMenuItem trailingMarks={1} trailingActions={2} data-catalog-title-case="pinned project head with two actions">
+          <SidebarMenuButton trailingActions={2} label="harnessdesk-project-name-kept-long-to-exercise-the-pinned-project-heading" />
+          <SidebarMenuBadge aria-label="Pinned"><PinIcon size={11} /></SidebarMenuBadge>
+          <SidebarMenuAction showOnHover aria-label="New session in harnessdesk-project-name-kept-long"><PlusIcon size={12} /></SidebarMenuAction>
+          <SidebarMenuAction showOnHover aria-label="Actions for harnessdesk-project-name-kept-long"><MoreIcon size={12} /></SidebarMenuAction>
+        </SidebarMenuItem>
+        <SidebarMenuItem trailingMarks={1} data-catalog-title-case="room row with count">
+          <SidebarMenuButton label="Refund integration room with a deliberately long descriptive name" />
+          <SidebarMenuBadge aria-label="Held messages">3</SidebarMenuBadge>
+          <SidebarMenuAction showOnHover aria-label="Show agents in refund integration room"><MoreIcon size={12} /></SidebarMenuAction>
+        </SidebarMenuItem>
+        <SidebarMenuItem trailingMarks={1} data-catalog-title-case="nested room member">
+          <SidebarMenuButton size="sm" label="Member session title that continues beyond the visible sidebar row" />
+          <SidebarMenuBadge role="img" aria-label="Worktree member mark"><BranchIcon size={11} /></SidebarMenuBadge>
+          <SidebarMenuAction showOnHover aria-label="Member session actions"><MoreIcon size={12} /></SidebarMenuAction>
+        </SidebarMenuItem>
+        <SidebarMenuItem trailingMarks={1} data-catalog-title-case="more sessions row">
+          <SidebarMenuButton size="sm" label="4 more sessions with long titles after the visible project window" />
+          <SidebarMenuBadge aria-label="More session count">4</SidebarMenuBadge>
         </SidebarMenuItem>
       </SidebarMenu>
       <SidebarMenu aria-label="Nested row end rail">
-        <SidebarMenuItem>
-          <SidebarMenuButton label="Release room" />
+        <SidebarMenuItem trailingMarks={1} data-catalog-title-case="nested room head">
+          <SidebarMenuButton label="Release room for coordinating the long-running storefront migration" />
+          <SidebarMenuBadge aria-label="Room member count">2</SidebarMenuBadge>
           <SidebarMenuAction showOnHover aria-label="Release room actions"><MoreIcon size={14} /></SidebarMenuAction>
           <SidebarMenu nested>
-            <SidebarMenuItem data-catalog-state="nested-rail">
-              <SidebarMenuButton size="sm" label="Untitled session" />
+            <SidebarMenuItem trailingMarks={1} data-catalog-title-case="nested member row" data-catalog-state="nested-rail">
+              <SidebarMenuButton size="sm" label="Untitled member session with a deliberately long title" />
+              <SidebarMenuBadge role="img" aria-label="Nested member worktree"><BranchIcon size={11} /></SidebarMenuBadge>
               <SidebarMenuAction showOnHover aria-label="Untitled session actions"><MoreIcon size={14} /></SidebarMenuAction>
             </SidebarMenuItem>
           </SidebarMenu>

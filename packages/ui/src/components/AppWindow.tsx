@@ -166,7 +166,7 @@ export const WindowNavItem = ({
   onClick: () => void
 }) => (
   <SidebarMenu>
-    <SidebarMenuItem>
+    <SidebarMenuItem trailingMarks={Number(count !== undefined) + Number(Boolean(trail)) as 0 | 1 | 2}>
       <SidebarMenuButton
         icon={<Text role="meta" ink="navigation">{icon}</Text>}
         label={<Text role="navigation">{label}</Text>}

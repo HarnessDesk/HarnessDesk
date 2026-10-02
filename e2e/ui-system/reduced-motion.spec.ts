@@ -15,7 +15,7 @@ import { expect, test, type Page } from '@playwright/test'
   no frame happened to run first.
 */
 
-const label = 'Learn from every single tab of the settings screen'
+const label = 'Draft the 2.5 migration notes after reviewing the sidebar target behavior'
 
 test('a focused row keeps its checkout mark fixed before the next frame', async ({ page }) => {
   await page.goto('/preview.html')
