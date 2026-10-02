@@ -6,6 +6,22 @@ const paragraphs = 'Make the settings easier to read.\n\nKeep each choice beside
 const frames = 'output/flow-brief'
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`Start stays disabled while a brief file is reading (${theme})`, async ({ page }) => {
+    await mkdir(frames, { recursive: true })
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto('/preview.html?flow-brief=pending')
+    const dialog = page.getByRole('dialog', { name: 'Run a flow', exact: true })
+    await expect(dialog.getByRole('button', { name: 'Reading…', exact: true })).toBeDisabled()
+    const start = dialog.getByRole('button', { name: 'Start', exact: true })
+    await expect(start).toBeDisabled()
+    expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
+    await dialog.screenshot({ path: `${frames}/pending-${theme}.png` })
+    // New typing cancels the import and previews the typed brief instead.
+    await dialog.getByRole('textbox', { name: 'Brief', exact: true }).fill(paragraphs)
+    await expect(start).toBeEnabled()
+    await expect(dialog.getByRole('button', { name: 'Attach a file…', exact: true })).toBeEnabled()
+  })
+
   test(`the start dialog grows Brief, scrolls long text and preserves the title (${theme})`, async ({ page }) => {
     await mkdir(frames, { recursive: true })
     await page.emulateMedia({ colorScheme: theme })

@@ -207,7 +207,8 @@ exit?" exactly answerable.
 A Flow that declares an input named `brief` gets a **Brief** text area in the
 start dialog, separate from the Goal's title. Paste paragraphs, or use
 **Attach a file…** to replace the field with a text file up to 64 KiB
-(65,536 bytes). A refused or unreadable file leaves the draft intact. The
+(65,536 bytes). Start waits while the file is read and its text is checked.
+A refused or unreadable file leaves the draft and its checked choice intact. The
 area grows to twelve lines, then scrolls. Flows without that input keep their
 ordinary fields.
 
