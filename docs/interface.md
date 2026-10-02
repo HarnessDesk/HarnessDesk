@@ -780,8 +780,8 @@ pixels. A 400px reading column is protected in this order:
   buttons as the row under it does.
 - **The right panel takes the conversation's width second.** With the sidebar
   away, it covers main only if less than 400px would remain beside it. At
-  700px with a 280px panel, main and panel stand side by side with 420px for
-  reading. When the panel covers main, that conversation is out of reach as it
+  700px with a 280px panel, main and panel stand side by side with 419px for
+  reading (the 1px divider between them is counted). When the panel covers main, that conversation is out of reach as it
   is under the floating sidebar; putting the panel away gives it back.
 - **A header folds by its own width, not the window's**, so a narrow pane in
   a wide window folds the same way. At 520px the branch's name, the status's
