@@ -65,7 +65,7 @@ export interface FlowStep {
   readonly live: boolean
   /** Present only when this person's answer is also required to write a review fact. */
   readonly review?: true
-  /** The run whose candidates this card may choose. */
+  /** The run whose review candidates or check retry this card may choose. */
   readonly run?: string
 }
 
@@ -117,6 +117,7 @@ export const flowStepOf = (
       kind: role.kind,
       outcomes: role.kind === 'person' ? role.outcomes : [],
       stopped: execution.state === 'stalled',
+      ...(role.kind === 'check' ? { run: execution.id } : {}),
       live: execution.state === 'running' || execution.state === 'stalled',
       ...(role.kind === 'person' && isPersonReviewStep(execution.document.flow, role.id)
         ? { review: true as const, run: execution.id }

@@ -1,4 +1,4 @@
-import { isAbsolute, normalize } from 'node:path'
+import { isAbsolute, normalize, join } from 'node:path'
 
 import { factsOfGoal, type BackupFile, type BoardEvidence, type EvidenceRecord, type EvidenceView, type GoalReceiptEvidenceSeat, type Intent, type ProjectChecks, type TeamState, type TriggerFact, type WireNotification } from '@harnessdesk/protocol'
 
@@ -6,6 +6,7 @@ import type { ReviewAppendOutcome } from '../flow-evidence.js'
 import type { CredentialCipher } from '../credentials.js'
 import type { SeatedAs } from '../registry.js'
 import { boardEvidence, freshnessReader, RunningChecks } from './board.js'
+import { recoverCheckProcesses } from './check-processes.js'
 import { CheckRuns } from './check-runs.js'
 import { readChecks } from './checks-file.js'
 import type { GhInCheckout } from './forge.js'
@@ -91,6 +92,7 @@ export class EvidencePlane {
   readonly checks: CheckRuns
   /** Looks at a card's branch: its diff, its pull request and the forge's checks (`observe.ts`). */
   readonly observer: Observer
+  readonly #checkProcessDir: string
   readonly #port: EvidencePort
   readonly #now: () => number
   /** The last stamp a board read took: each is later than the one before, whatever the clock does. */
@@ -99,6 +101,7 @@ export class EvidencePlane {
   readonly #lookDrainMs: number
 
   constructor(options: EvidenceOptions, port: EvidencePort) {
+    this.#checkProcessDir = join(options.dir, 'check-processes')
     this.#port = port
     this.#now = options.now ?? Date.now
     this.#lookDrainMs = options.lookDrainMs ?? LOOK_DRAIN_MS
@@ -120,6 +123,7 @@ export class EvidencePlane {
       ...(options.now ? { now: options.now } : {}),
     })
     this.checks = new CheckRuns({
+      processDir: this.#checkProcessDir,
       store: this.store,
       seen: this.seen,
       seats: this.seats,
@@ -143,6 +147,7 @@ export class EvidencePlane {
 
   /** Reads what a previous launch recorded. Once, at start. */
   async load(): Promise<void> {
+    await recoverCheckProcesses(this.#checkProcessDir)
     await this.seats.load()
   }
 
@@ -559,11 +564,11 @@ export class EvidencePlane {
       readonly timeoutSec: number
       readonly card?: { readonly room: string; readonly intent: number; readonly name: string; readonly round: number }
     },
-    run: (command: string, where: { readonly cwd: string; readonly timeoutSec: number }) => Promise<{ readonly status: number | null }>,
+    run: (command: string, where: { readonly cwd: string; readonly timeoutSec: number; readonly processDir?: string }) => Promise<{ readonly status: number | null }>,
   ): Promise<{ readonly status: number | null }> {
     const card = where.card
     const revision = card ? await revisionOf(where.cwd) : null
-    const result = await run(command, { cwd: where.cwd, timeoutSec: where.timeoutSec })
+    const result = await run(command, { cwd: where.cwd, timeoutSec: where.timeoutSec, processDir: this.#checkProcessDir })
     const board = card ? this.#port.board(card.room) : null
     if (!card || !revision || !board) return result
     const project = await projectOf(board.cwd ?? board.root)
@@ -614,12 +619,13 @@ export class EvidencePlane {
    */
   async runFlowCheck(
     command: string,
-    where: { readonly cwd: string; readonly timeoutSec: number; readonly flowContext?: string; readonly signal?: AbortSignal },
+    where: { readonly cwd: string; readonly timeoutSec: number; readonly flowContext?: string; readonly signal?: AbortSignal; readonly onStarted?: () => void },
     card: { readonly goal: string; readonly card: number; readonly name: string; readonly round: number; readonly advisory?: true },
   ): Promise<{ readonly result: CommandRun; readonly evidence: string | null; readonly problem: string | null }> {
     const revision = await revisionOf(where.cwd)
     const result = await runCommand(command, {
-      cwd: where.cwd, timeoutSec: where.timeoutSec,
+      cwd: where.cwd, timeoutSec: where.timeoutSec, processDir: this.#checkProcessDir,
+      ...(where.onStarted ? { onStarted: where.onStarted } : {}),
       ...(where.flowContext !== undefined ? { flowContext: where.flowContext } : {}),
       ...(where.signal ? { signal: where.signal } : {}),
     })

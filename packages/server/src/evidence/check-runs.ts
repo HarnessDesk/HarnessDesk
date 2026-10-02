@@ -66,6 +66,7 @@ export interface CheckRunsPort {
 }
 
 export interface CheckRunsParts {
+  readonly processDir?: string
   readonly store: EvidenceStore
   readonly seen: CommandsSeen
   readonly seats: SeatBook
@@ -262,7 +263,7 @@ export class CheckRuns {
     readonly project: string
     readonly signal: AbortSignal
   }): Promise<void> {
-    const result = await runCommand(run.check.run, { cwd: run.cwd, timeoutSec: run.check.timeout, signal: run.signal })
+    const result = await runCommand(run.check.run, { cwd: run.cwd, timeoutSec: run.check.timeout, signal: run.signal, ...(this.#parts.processDir ? { processDir: this.#parts.processDir } : {}) })
     if (run.signal.aborted) {
       this.#parts.port.log('a check was stopped because the desk closed; it left no evidence', {
         room: run.room,

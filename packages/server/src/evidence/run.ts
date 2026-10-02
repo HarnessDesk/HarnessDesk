@@ -1,6 +1,8 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { stripVTControlCharacters } from 'node:util'
 
+import { recordCheckProcess } from './check-processes.js'
 import { TAIL_LIMIT } from './records.js'
 
 export { TAIL_LIMIT }
@@ -23,8 +25,8 @@ export { TAIL_LIMIT }
  * **What stopping it means.** It runs in its own process group, and a timeout
  * or a quit stops that group: the shell and every process that stays in it. A
  * process that leaves the group — a daemon, anything started in a session of
- * its own — is not stopped, and a desk that ends abruptly stops nothing. The
- * guarantee is the group, and nothing wider.
+ * its own — is not stopped. Durable host launches are stopped on the next
+ * startup after an abrupt exit. The guarantee is the group, and nothing wider.
  *
  * The flow engine's `runCheck` (`flows.ts`) keeps nothing of what a command
  * prints; a check a person runs from a card has to be able to say why it
@@ -133,6 +135,9 @@ export const runCommand = (
      * Refused before anything spawns when it would exceed `FLOW_CONTEXT_LIMIT`.
      */
     readonly flowContext?: string
+    /** Host-owned durable launch journal; the child waits until its pgid is synced. */
+    readonly processDir?: string
+    readonly onStarted?: () => void
   },
 ): Promise<CommandRun> =>
   new Promise((resolve) => {
@@ -150,7 +155,12 @@ export const runCommand = (
     let shellExit: number | null = null
     let stopped: string | null = null
     let afterExit: ReturnType<typeof setTimeout> | null = null
-    const child = spawn(command, {
+    let forget: (() => void) | undefined
+    const gated = where.processDir !== undefined
+    const child = gated ? spawn('/bin/sh', ['-c', 'IFS= read -r ready || exit; /bin/sh -c "$1" & command_pid=$!; wait "$command_pid"', `hd-check-${randomUUID()}`, command], {
+      cwd: where.cwd, detached: true, env: { ...checkEnvironment(), ...(where.flowContext !== undefined ? { HARNESSDESK_FLOW_CONTEXT: where.flowContext } : {}) },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }) : spawn(command, {
       cwd: where.cwd,
       shell: true,
       detached: true,
@@ -165,6 +175,7 @@ export const runCommand = (
       where.signal?.removeEventListener('abort', stop)
       const text = plain(printed)
       const joined = said ? `${text}${text === '' || text.endsWith('\n') ? '' : '\n'}${said}` : text
+      try { forget?.() } catch { /* Keep the record: startup will reconcile a stale, already-dead group. */ }
       resolve({ exit, timedOut, tail: joined.slice(-TAIL_LIMIT) })
     }
     let waitingForGroup = false
@@ -195,6 +206,18 @@ export const runCommand = (
       stopGroup(child)
     }
     where.signal?.addEventListener('abort', stop, { once: true })
+    child.stdin?.on('error', () => { /* A failed launch closes the handshake pipe. */ })
+    child.once('spawn', () => {
+      try {
+        if (where.processDir) forget = recordCheckProcess(where.processDir, child.pid!)
+        if (where.signal?.aborted) { stop(); return }
+        if (gated) child.stdin!.end('start\n')
+        where.onStarted?.()
+      } catch (error) {
+        stopped = `It did not start: ${error instanceof Error ? error.message : String(error)}`
+        stopGroup(child)
+      }
+    })
     child.stdout?.on('data', keep)
     child.stderr?.on('data', keep)
     child.on('error', (error) => finish(null, `It did not start: ${error.message}`))

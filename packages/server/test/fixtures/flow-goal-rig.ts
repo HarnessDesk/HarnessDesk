@@ -402,6 +402,7 @@ export const goalRig = async (
     },
     runCheck: async (command, where, card) => {
       rig.events.push(`check:${command}`)
+      where.onStarted?.()
       if (rig.checksRunUntilStopped) {
         const started = rig.checksRunUntilStopped
         const stopped = new Promise<void>((resolve) => where.signal?.addEventListener('abort', () => resolve(), { once: true }))

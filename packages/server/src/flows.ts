@@ -1,9 +1,9 @@
-import { spawn } from 'node:child_process'
 import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 
 import { sessionKey } from '@harnessdesk/protocol'
 import type {
+  CompiledFlow,
   EvidenceRecord,
   FindingId,
   FindingOverride,
@@ -29,9 +29,10 @@ import type {
   SeatRecord,
 } from '@harnessdesk/protocol'
 
+import { runCommand } from './evidence/run.js'
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
 import { FlowCatalog } from './flow-catalog.js'
-import { CORRUPT_RUN, ExecutionFiles, FlowExecutions, sourceDigest, type FlowStartRequest, type RunDecisionOps, type StoredFlowExecution, type TriggerStartRequest } from './flow-execution.js'
+import { CORRUPT_RUN, ExecutionFiles, FlowExecutions, sourceDigest, type CheckRetry, type FlowStartRequest, type RunDecisionOps, type StoredFlowExecution, type TriggerStartRequest } from './flow-execution.js'
 import type { FlowReview } from './flow-evidence.js'
 import type { FindingJournal } from './findings/journal.js'
 import type { PublicationJournal } from './findings/publication.js'
@@ -212,40 +213,8 @@ const now = (): number => Date.now()
  */
 export const runCheck = async (
   command: string,
-  where: { readonly cwd: string; readonly timeoutSec: number },
-): Promise<{ readonly status: number | null }> =>
-  new Promise((resolve) => {
-    /* Its own process group, so a timeout can end the whole of it. Killing
-       the shell alone leaves whatever it started: `sleep 9 & wait` reported
-       the timeout's outcome while the background `sleep` carried on running
-       on the machine, which makes "the check stopped" a claim the engine
-       could not keep. */
-    const child = spawn(command, { cwd: where.cwd, shell: true, stdio: 'ignore', detached: true })
-    let settled = false
-    const finish = (status: number | null): void => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      resolve({ status })
-    }
-    const stop = (): void => {
-      try {
-        // Negative pid is the group; the shell and everything it spawned.
-        if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL')
-      } catch {
-        // Already gone, or never started — `exit` answers either way.
-      }
-    }
-    const timer = setTimeout(() => {
-      stop()
-      finish(null)
-    }, where.timeoutSec * 1000)
-    /* Unref'd so a check left running cannot hold a quit open; the kill above
-       is what actually ends it. */
-    timer.unref?.()
-    child.on('error', () => finish(null))
-    child.on('exit', (code, signal) => finish(signal ? null : (code ?? null)))
-  })
+  where: { readonly cwd: string; readonly timeoutSec: number; readonly processDir?: string },
+): Promise<{ readonly status: number | null }> => ({ status: (await runCommand(command, where)).exit })
 
 export class Flows implements TeamFlows {
   readonly #dir: string
@@ -401,9 +370,14 @@ export class Flows implements TeamFlows {
   }
 
   /** A stored v2 run's own frozen source and inputs — never re-read from a path — for a check retry's exact-equality check. */
-  storedRun(run: string): { readonly source: string; readonly vars: Readonly<Record<string, string>> } | null {
+  previewCheck(run: string, card: number): Promise<CheckRetry> {
+    if (!this.#executions) throw new Error('There is no flow execution.')
+    return this.#executions.previewCheck(run, card)
+  }
+
+  storedRun(run: string): { readonly source: string; readonly vars: Readonly<Record<string, string>>; readonly compiled: CompiledFlow } | null {
     const stored = this.#executions?.stored(run)
-    return stored ? { source: stored.source, vars: stored.vars } : null
+    return stored ? { source: stored.source, vars: stored.vars, compiled: stored.compiled } : null
   }
 
   /** One run's current execution state, by id alone — the wire read `flow/execution` answers. */
@@ -435,9 +409,9 @@ export class Flows implements TeamFlows {
   }
 
   /** Runs an interrupted check again, once a person has reviewed it. The only way a v2 check ever runs a second time. */
-  retryCheck(run: string, card: number): Promise<FlowExecution> {
+  retryCheck(run: string, card: number, approved?: CheckRetry): Promise<FlowExecution> {
     if (!this.#executions) throw new Error(`There is no flow run ${run}.`)
-    return this.#executions.retryCheck(run, card)
+    return this.#executions.retryCheck(run, card, approved)
   }
 
   /** Resends a question answer kept after its already-closed hand-back failed. */

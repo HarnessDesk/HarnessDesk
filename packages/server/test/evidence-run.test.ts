@@ -255,3 +255,41 @@ test('a check asked to start after the desk has begun closing never starts', asy
   assert.deepEqual(run, { exit: null, timedOut: false, tail: 'It was stopped: the desk closed.' })
   await assert.rejects(readFile(join(cwd, 'started')))
 })
+
+test('a durable check launch records its pgid before running the command and announces launch before exit', async () => {
+  const dir = tempDir('hd-check-launch-')
+  const controller = new AbortController()
+  let announced = false
+  const where = {
+    cwd: dir, timeoutSec: 30, signal: controller.signal,
+    processDir: join(dir, 'processes'),
+    onStarted: () => { announced = true },
+  }
+  const running = runCommand('sleep 30', where)
+  try {
+    const deadline = Date.now() + 1000
+    while (!announced && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10))
+    assert.equal(announced, true, 'launch is acknowledged without waiting for exit')
+    const { readdir } = await import('node:fs/promises')
+    const records = await readdir(where.processDir)
+    assert.equal(records.length, 1, 'the exact group is durably recoverable')
+    const saved = JSON.parse(await readFile(join(where.processDir, records[0]!), 'utf8')) as { pgid: number }
+    assert.ok(saved.pgid > 1)
+    assert.doesNotThrow(() => process.kill(-saved.pgid, 0), 'that group exists')
+  } finally {
+    controller.abort()
+    await running
+  }
+})
+
+test('a durable launch preserves the command’s nonzero status and cannot execute if its journal cannot be saved', async () => {
+  const dir = tempDir('hd-check-status-')
+  const result = await runCommand('exit 7', { cwd: dir, timeoutSec: 5, processDir: join(dir, 'processes') })
+  assert.equal(result.exit, 7, 'the waiting shell must preserve its child’s status')
+  await writeFile(join(dir, 'not-a-directory'), 'staged storage fault')
+  let started = false
+  const refused = await runCommand('touch forbidden', { cwd: dir, timeoutSec: 5, processDir: join(dir, 'not-a-directory', 'processes'), onStarted: () => { started = true } })
+  assert.equal(started, false)
+  assert.equal(refused.exit, null)
+  await assert.rejects(readFile(join(dir, 'forbidden')))
+})

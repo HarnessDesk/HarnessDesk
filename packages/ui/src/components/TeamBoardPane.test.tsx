@@ -133,6 +133,7 @@ const rig = (intents: readonly unknown[], extra: Partial<TeamState> = {}, eviden
        no card carries a role, nothing here holds one, and the pane behaves
        exactly as it did before flows existed. */
     loadFlowRuns: vi.fn().mockResolvedValue(undefined),
+    readFlowExecution: vi.fn().mockResolvedValue(undefined),
     loadBoardEvidence: vi.fn().mockResolvedValue(undefined),
     runCheck: vi.fn().mockResolvedValue({ kind: 'started' }),
     // The front door an empty Goal's board offers: an empty catalogue is
@@ -432,7 +433,7 @@ it('offers the same long form from an empty board', async () => {
 })
 
 it('an empty Goal’s empty board also offers to start a team, reusing that Goal rather than a new one', async () => {
-  const empty = { goal: { id: ROOM, root: '/repo', revision: 3 }, members: [] } as unknown as GoalView
+  const empty = { goal: { id: ROOM, root: '/repo', revision: 3, origin: { kind: 'person' } }, members: [] } as unknown as GoalView
   const { store } = rig([], {}, undefined, empty)
   await render(store)
 
@@ -451,7 +452,7 @@ it('an empty board with no Goal behind it offers no team action — there is no 
 it('a Goal that already has a Seat is not an empty Goal to reuse, so its board offers no team action', async () => {
   // Offering the front door here would silently create a second, unrelated
   // run beside the one this Goal is already carrying.
-  const seated = { goal: { id: ROOM, root: '/repo', revision: 1 }, members: [{ session: { runtime: 'codex', sessionId: 'c1' }, closed: null }] } as unknown as GoalView
+  const seated = { goal: { id: ROOM, root: '/repo', revision: 1, origin: { kind: 'person' } }, members: [{ session: { runtime: 'codex', sessionId: 'c1' }, closed: null }] } as unknown as GoalView
   const { store } = rig([], {}, undefined, seated)
   await render(store)
   expect([...container.querySelectorAll('button')].every((one) => one.textContent?.trim() !== 'Start with a team')).toBe(true)
@@ -1455,4 +1456,33 @@ it('a card with no repair lead pinned for its round shows its own detail as befo
   Object.assign(snapshot, { findingRuns: new Map([['run-9', runView]]) })
   await render(store)
   expect(card('Fix the flaky test').textContent).toContain('known flaky under load')
+})
+
+it('a finished Flow check reopens through the consent dialog, and only confirmation starts it', async () => {
+  const { store } = rig([intent({ id: 1, state: 'done', role: 'gate', title: 'Verify the change' })], {}, observed([], []))
+  const execution = {
+    id: 'flow-check-run', goal: ROOM, version: 2, state: 'settled', legacyRun: null,
+    document: { format: 'agents', flow: { roles: [{ id: 'gate', kind: 'check', check: { run: 'pnpm verify' } }], rules: [] } },
+    rounds: [{ n: 1, role: 'gate', cards: [1], seats: [], evidence: [], state: 'closed', cause: 'seed' }],
+    operations: [{ key: 'check:1:0', kind: 'check', state: 'finished', card: 1, seat: null }],
+  }
+  const previewFlowRetry = vi.fn().mockResolvedValue({ token: 'consented-check', commands: [{ role: 'gate', run: 'pnpm verify', cwd: '/repo', timeout: 30 }], problems: [] })
+  const retryFlowCheck = vi.fn().mockResolvedValue({ ...execution, state: 'running' })
+  const snapshot = { ...store.getSnapshot(), flowExecutions: new Map([[execution.id, execution]]) }
+  await render({ ...store, getSnapshot: () => snapshot, previewFlowRetry, retryFlowCheck } as unknown as AppStore)
+  await pick(1, 'Run this check again…')
+  expect(document.body.textContent).toContain('Run this check again?')
+  expect(previewFlowRetry).toHaveBeenCalledWith(execution.id, 1)
+  expect(retryFlowCheck).not.toHaveBeenCalled()
+  expect(store.teamIntent).not.toHaveBeenCalled()
+  const confirm = [...document.body.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Run again')!
+  await act(async () => confirm.click())
+  expect(retryFlowCheck).toHaveBeenCalledWith(execution.id, 1, 'consented-check')
+})
+
+it('a board opened after restart loads its named Flow execution so finished checks retain their retry door', async () => {
+  const goal = { goal: { id: ROOM, root: '/repo', revision: 1, origin: { kind: 'flow', run: 'saved-check-run' } }, members: [] } as unknown as GoalView
+  const { store } = rig([intent({ id: 1, state: 'done' })], {}, observed([], []), goal)
+  await render(store)
+  expect(store.readFlowExecution).toHaveBeenCalledWith('saved-check-run')
 })

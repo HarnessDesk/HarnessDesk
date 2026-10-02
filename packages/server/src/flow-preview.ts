@@ -17,6 +17,7 @@ import {
   type StartContext,
 } from '@harnessdesk/protocol'
 
+import type { CheckRetry } from './flow-execution.js'
 import { rolesAtPredecessor } from './flow-handed.js'
 import { INDEPENDENT_PROVIDER, independentProviderReason } from './flow-provider.js'
 import { checkGuardNames, compileFlowPolicy, parseFlowPolicy, reviewsIn } from './flow-policy.js'
@@ -61,7 +62,8 @@ export interface FlowPreviewPort {
    */
   resolveTarget?(context: StartContext): Promise<string>
   /** A retried check's own run: its saved source and inputs, read back for the equality check — never a new choice. */
-  storedRun?(run: string): Promise<{ readonly source: string; readonly vars: Readonly<Record<string, string>> } | null>
+  previewCheck?(run: string, card: number): Promise<CheckRetry>
+  storedRun?(run: string): Promise<{ readonly source: string; readonly vars: Readonly<Record<string, string>>; readonly compiled?: CompiledFlow } | null>
   /**
    * The project's own declared checks (`.harnessdesk/checks.yml`), as the
    * commands they run — asked only when this flow's own roles leave a
@@ -83,7 +85,8 @@ interface HeldPreview {
   readonly seats: readonly FlowPreviewSeat[]
   readonly commands: FlowPreview['commands']
   readonly expires: number
-  /** Set only for a check-retry preview: the uncertain run/card this token is additionally bound to. */
+  /** Set only for a check-retry preview: the finished or interrupted run/card this token is additionally bound to. */
+  readonly retryCheck?: CheckRetry
   readonly retryOf?: { readonly run: string; readonly card: number }
   /** Set only for a front-door preview: the policy and target the start is bound to, read from here and never from a request. */
   readonly frontDoor?: FrontDoorBinding
@@ -171,6 +174,7 @@ export class FlowPreviews {
     await this.#port.confine(root)
     let actualSource = source
     let actualVars = vars
+    let retryCompiled: CompiledFlow | undefined
     if (retry) {
       const saved = (await this.#port.storedRun?.(retry.run)) ?? null
       if (!saved) return emptyPreview([{ level: 'error', at: 'run', text: CHANGED_PREVIEW }])
@@ -179,9 +183,20 @@ export class FlowPreviews {
       }
       actualSource = saved.source
       actualVars = saved.vars
+      retryCompiled = saved.compiled
     }
     if (retry && frontDoor) return emptyPreview([{ level: 'error', at: 'run', text: CHANGED_PREVIEW }])
-    const built = await this.#build(root, actualSource, false, frontDoor !== undefined)
+    let retryCheck: CheckRetry | undefined
+    if (retry && this.#port.previewCheck) {
+      try {
+        retryCheck = await this.#port.previewCheck(retry.run, retry.card)
+      } catch (error) {
+        return emptyPreview([{ level: 'error', at: 'run', text: error instanceof Error ? error.message : String(error) }])
+      }
+    }
+    const built = retryCheck && retryCompiled?.document.format === 'agents'
+      ? { compiled: retryCompiled, seats: [], commands: [retryCheck.command], guards: [], messaging: retryCompiled.document.flow.messaging, problems: [] }
+      : await this.#build(root, actualSource, false, frontDoor !== undefined)
     const errors = built.problems.filter((one) => one.level === 'error')
     let token: string | null = null
     // An unparsed document is the empty legacy placeholder: never a token.
@@ -189,7 +204,7 @@ export class FlowPreviews {
       token = randomUUID()
       this.#tokens.set(token, {
         root, source: actualSource, vars: actualVars, compiled: built.compiled, seats: built.seats, commands: built.commands,
-        expires: this.#port.now() + TOKEN_TTL_MS, ...(retry ? { retryOf: retry } : {}), ...(frontDoor ? { frontDoor } : {}), consumed: false,
+        expires: this.#port.now() + TOKEN_TTL_MS, ...(retry ? { retryOf: retry } : {}), ...(retryCheck ? { retryCheck } : {}), ...(frontDoor ? { frontDoor } : {}), consumed: false,
       })
     }
     const warnings: FlowProblem[] = []
@@ -207,7 +222,7 @@ export class FlowPreviews {
         })
       }
     }
-    return { ...built, problems: [...built.problems, ...warnings], token }
+    return { ...built, commands: retryCheck ? [retryCheck.command] : built.commands, problems: [...built.problems, ...warnings], token }
   }
 
   /**
@@ -446,6 +461,15 @@ export class FlowPreviews {
     if (held.root !== root || held.source !== source || JSON.stringify(held.vars) !== JSON.stringify(vars)) return null
     // Re-read under the same policy it was minted under: a strict token is only ever compared with a strict dry run.
     await this.#port.confine(root)
+    if (held.retryOf && held.retryCheck) {
+      const saved = await this.#port.storedRun?.(held.retryOf.run)
+      if (!saved || saved.source !== source || JSON.stringify(saved.vars) !== JSON.stringify(vars) || !this.#port.previewCheck) return null
+      try {
+        const fresh = await this.#port.previewCheck(held.retryOf.run, held.retryOf.card)
+        if (JSON.stringify(fresh) !== JSON.stringify(held.retryCheck)) return null
+      } catch { return null }
+      return { compiled: held.compiled, commands: held.commands, frontDoor: null }
+    }
     const fresh = await this.#build(root, source, false, held.frontDoor !== undefined)
     if (fresh.problems.some((one) => one.level === 'error')) return null
     if (fingerprint({ compiled: fresh.compiled, seats: fresh.seats, commands: fresh.commands }) !== fingerprint(held)) return null
@@ -464,6 +488,11 @@ export class FlowPreviews {
   }
 
   /** The uncertain run/card a check-retry token is bound to, without consuming it — `flow/check/retry`'s own validation. */
+  retryCheck(token: string): CheckRetry | undefined {
+    this.#sweep()
+    return this.#tokens.get(token)?.retryCheck
+  }
+
   retryTarget(token: string): { readonly run: string; readonly card: number } | null {
     this.#sweep()
     return this.#tokens.get(token)?.retryOf ?? null

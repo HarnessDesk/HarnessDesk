@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict'
+import { execFileSync, spawn } from 'node:child_process'
+import { once } from 'node:events'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
 import type { BoardEvidence, Evidence, EvidenceRecord, EvidenceView, FlowExecution, FlowPreview, GoalView, Intent } from '@harnessdesk/protocol'
 
+import { EvidenceStore } from '../src/evidence/store.js'
 import { TAIL_LIMIT } from '../src/evidence/run.js'
 import { evidenceGuard } from '../src/flow-evidence.js'
 import { RUN_CHECK_CLEAN, RUN_CHECK_PER_CARD, RUN_CHECK_PER_TURN } from '../src/flow-execution.js'
@@ -343,4 +346,93 @@ test('a run_check checkout a crash left behind is removed when the desk starts a
   const listed = await repo.git('worktree', 'list', '--porcelain')
   assert.equal(listed.includes(left.split('/').pop()!), false, 'and git no longer lists it')
   assert.ok(existsSync(other), 'a folder that is not a check checkout is left alone')
+})
+
+test('startup stops exactly the durably recorded check group that outlived its killed host, including grandchildren', async (t) => {
+  const stateDir = tempDir('hd-flow-process-restart-')
+  const processDir = join(stateDir, 'evidence', 'check-processes')
+  const childFile = join(stateDir, 'child.mjs')
+  await writeFile(childFile, `import { spawn } from 'node:child_process'; import { writeFileSync } from 'node:fs';
+const child = spawn('sleep', ['30'], { stdio: 'ignore' });
+writeFileSync('children.json', JSON.stringify([process.pid, child.pid])); setInterval(() => {}, 1000);`)
+  const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`
+  const launcher = spawn(process.execPath, ['--input-type=module', '-e', `
+import { runCommand } from ${JSON.stringify(new URL('../src/evidence/run.js', import.meta.url).href)};
+await runCommand(${JSON.stringify(`${quote(process.execPath)} ${quote(childFile)}`)}, {
+ cwd: ${JSON.stringify(stateDir)}, timeoutSec: 30, processDir: ${JSON.stringify(processDir)}, onStarted: () => console.log('started')
+});`], { stdio: ['ignore', 'pipe', 'pipe'] })
+  const outsider = spawn('sleep', ['30'], { stdio: 'ignore', detached: true })
+  let pgid: number | undefined
+  t.after(() => {
+    launcher.kill('SIGKILL')
+    outsider.kill('SIGKILL')
+    if (pgid) { try { process.kill(-pgid, 'SIGKILL') } catch { /* Gone. */ } }
+  })
+  const deadline = Date.now() + 5000
+  while (!existsSync(join(stateDir, 'children.json'))) {
+    if (Date.now() > deadline) throw new Error('The staged check never started.')
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  const records = await readdir(processDir)
+  assert.equal(records.length, 1)
+  pgid = (JSON.parse(await readFile(join(processDir, records[0]!), 'utf8')) as { pgid: number }).pgid
+  const children = JSON.parse(await readFile(join(stateDir, 'children.json'), 'utf8')) as number[]
+  const exited = once(launcher, 'exit')
+  launcher.kill('SIGKILL')
+  await exited
+  for (const pid of children) assert.doesNotThrow(() => process.kill(pid, 0), 'the old check outlived its host')
+  assert.doesNotThrow(() => process.kill(-pgid!, 0))
+  const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), builtinAgents: tempDir('hd-restart-process-agents-'), catalogRefreshMs: 0 })
+  t.after(() => host.dispose())
+  await host.start()
+  for (const pid of children) {
+    let status = ''
+    try { status = execFileSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' }).trim() } catch { /* Reaped. */ }
+    assert.ok(status === '' || status.startsWith('Z') || status.startsWith('X') || status.includes('E'), `check child ${pid} cannot run again`)
+  }
+  assert.doesNotThrow(() => process.kill(outsider.pid!, 0), 'an unrelated group was not signalled')
+  assert.deepEqual(await readdir(processDir), [], 'recovery durably clears the stopped group')
+  await host.dispose()
+})
+
+test('the real wire retry returns with a durable running child, then its new output completes the reopened settled card', async (t) => {
+  const repo = await makeRepo('hd-check-wire-retry-')
+  await writeFile(join(repo.dir, 'again.mjs'), `import { existsSync, writeFileSync } from 'node:fs';
+if (!existsSync('attempt')) { writeFileSync('attempt', 'first'); console.log('first answer'); }
+else { writeFileSync('started-again', 'yes'); const timer = setInterval(() => { if (existsSync('release')) { clearInterval(timer); console.log('second answer'); } }, 20); }`)
+  await repo.git('add', '.')
+  await repo.git('commit', '-q', '-m', 'staged check')
+  const stateDir = tempDir('hd-check-wire-state-')
+  const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), builtinAgents: tempDir('hd-check-wire-agents-'), catalogRefreshMs: 0 })
+  t.after(() => host.dispose())
+  await host.start()
+  await host.call('workspace/open', { path: repo.dir })
+  const source = 'version: 2\nname: Check again\nroles:\n  gate: { kind: check, run: "node again.mjs", exits: { "0": no-pr }, otherwise: retry, timeout: 30 }\nseed: { role: gate, title: Check it }\n'
+  const preview = await host.call('flow/preview', { root: repo.dir, source }) as FlowPreview
+  assert.ok(preview.token, JSON.stringify(preview.problems))
+  const run = await host.call('flow/start-goal', { root: repo.dir, source, token: preview.token!, sentence: 'Staged retry' }) as FlowExecution
+  await host.flowsPlane.flush()
+  assert.equal(host.flowsPlane.executionOf(run.id)!.state, 'settled')
+  const card = host.flowsPlane.executionOf(run.id)!.rounds[0]!.cards[0]!
+  const goalRoot = (await host.call('goal/read', { goal: run.goal }) as GoalView).goal.root
+  const consent = await host.call('flow/preview', { root: goalRoot, source, retry: { run: run.id, card } }) as FlowPreview
+  assert.ok(consent.token, JSON.stringify(consent.problems))
+  assert.equal(consent.commands.length, 1)
+  const start = Date.now()
+  const retried = await host.call('flow/check/retry', { run: run.id, card, token: consent.token! }) as FlowExecution
+  assert.ok(Date.now() - start < 2000, 'a 30-second check responds on launch')
+  assert.equal(retried.state, 'running')
+  assert.equal(retried.operations.find((one) => one.card === card && one.kind === 'check')!.state, 'started')
+  assert.equal((await readdir(join(stateDir, 'evidence', 'check-processes'))).length, 1)
+  await assert.rejects(host.call('flow/check/retry', { run: run.id, card, token: consent.token! }), /changed/)
+  await writeFile(join(repo.dir, 'release'), 'done')
+  await host.flowsPlane.flush()
+  const goal = await host.call('goal/read', { goal: run.goal }) as GoalView
+  assert.equal(goal.board.intents.find((one) => one.id === card)!.state, 'done')
+  const saved = await new EvidenceStore(join(stateDir, 'evidence'), () => {}).read(goalRoot, 'evidence')
+  const facts = saved.lines.flatMap((one) => one.type === 'evidence' && one.record.fact.kind === 'check' ? [one.record.fact] : [])
+  assert.ok(facts.some((one) => one.tail === 'first answer\n'), 'previous output is retained in the durable history')
+  assert.ok(facts.some((one) => one.tail === 'second answer\n'), 'fresh output is durably observed')
+  assert.equal(host.flowsPlane.executionOf(run.id)!.state, 'settled')
+  assert.deepEqual(await readdir(join(stateDir, 'evidence', 'check-processes')), [])
 })

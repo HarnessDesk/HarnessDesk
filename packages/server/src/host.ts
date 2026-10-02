@@ -1498,6 +1498,7 @@ export class Host {
         return runtime.info.presentation.pluginToolsUnavailable ?? `${runtime.info.presentation.name} cannot use HarnessDesk's tools in this checkout, so it cannot claim a card`
       },
       perToolMcpApproval: (runtimeName) => this.#runtimes.get(runtimeId(runtimeName))?.info.capabilities.perToolMcpApproval === true,
+      previewCheck: (run, card) => this.#flows.previewCheck(run, card),
       storedRun: async (run) => this.#flows.storedRun(run),
       // A front-door token's target, read again from git and the forge at Start: never the facts the preview saw.
       resolveTarget: async (context) => {
