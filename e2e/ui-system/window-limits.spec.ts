@@ -1,0 +1,154 @@
+import { expect, test, type Locator, type Page } from '@playwright/test'
+
+/*
+ * What jsdom cannot see: the window's own width against the layout it draws.
+ * `workbench.test.ts` holds the arithmetic (`sidebarCannotHaveColumn`,
+ * `rightPanelOverlays`, the seam's ceiling); this holds it to the pixels —
+ * the divider between two columns is a pixel of one of them, and a sum that
+ * forgets it left the conversation at 398px beside a panel that promised 400.
+ *
+ * Same fixture as `narrow-right-panel-overlay.spec.ts`: a conversation with a
+ * 460px Trajectory panel docked on the right, and the sidebar put away.
+ */
+
+const MIN_READING = 400
+const SIDEBAR = 240
+const SEAM = 1
+
+const main = (page: Page): Locator => page.locator('[data-slot="workbench-main"]')
+// A dock's `data-edge` is the edge its rule is drawn on: the right panel's left.
+const rightPanel = (page: Page): Locator => page.locator('[data-slot="dock-panel"][data-edge="left"]')
+const seam = (page: Page): Locator => page.getByRole('separator', { name: 'Resize the right panel' })
+const widthOf = (locator: Locator): Promise<number> => locator.evaluate((node) => node.getBoundingClientRect().width)
+
+/** The whole of a box lies inside a window `width` wide. */
+const insideWindow = async (locator: Locator, width: number, what: string): Promise<void> => {
+  const box = await locator.boundingBox()
+  expect(box, `${what} should be on screen`).not.toBeNull()
+  expect(box!.x, `${what} starts inside the window`).toBeGreaterThanOrEqual(0)
+  expect(box!.x + box!.width, `${what} ends inside the window`).toBeLessThanOrEqual(width)
+}
+
+const scrollsSideways = (page: Page): Promise<boolean> =>
+  page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)
+
+/** A pointer drag from the seam to `x`, the way a hand does it: down, several moves, up. */
+const dragSeamTo = async (page: Page, x: number): Promise<void> => {
+  const box = await seam(page).boundingBox()
+  expect(box, 'the right panel has a seam to drag').not.toBeNull()
+  await page.mouse.move(box!.x + box!.width / 2, 400)
+  await page.mouse.down()
+  await page.mouse.move(x, 400, { steps: 6 })
+  await page.mouse.up()
+}
+
+test('below 720px the panel covers the window, the sidebar floats and nothing runs off the edge', async ({ page }) => {
+  for (const width of [600, 480, 360]) {
+    await page.goto('/narrow-overlay.html')
+    await page.setViewportSize({ width, height: 800 })
+    const shell = page.locator('[data-narrow]')
+    const hide = page.getByRole('button', { name: 'Hide this panel' })
+
+    // The panel is the window: no column of it beside anything, and its own
+    // controls are still inside the edge it was clipped to.
+    await expect(shell, `${width}px: the sidebar has given up its column`).toHaveCount(1)
+    await expect(main(page)).toHaveAttribute('data-right-panel-overlay', '')
+    expect(await rightPanel(page).boundingBox(), `${width}px: the panel fills the window`).toMatchObject({ x: 0, width })
+    await insideWindow(hide, width, `${width}px: the panel's hide control`)
+    expect(await scrollsSideways(page), `${width}px: the covered window scrolls sideways`).toBe(false)
+
+    // Put away, the conversation is the whole window — not a sliver beside
+    // a sidebar that has nowhere to stand.
+    await hide.click()
+    await expect(main(page)).not.toHaveAttribute('inert', '')
+    expect(await widthOf(main(page)), `${width}px: the conversation takes the window`).toBe(width)
+    await insideWindow(page.locator('textarea').first(), width, `${width}px: the composer`)
+    expect(await scrollsSideways(page), `${width}px: the conversation scrolls sideways`).toBe(false)
+
+    // The sidebar comes over it, whole, and Escape gives the conversation back.
+    const show = page.getByRole('button', { name: 'Show sidebar' })
+    await show.click()
+    const sidebar = page.getByRole('dialog', { name: 'Sidebar' })
+    await expect(sidebar).toBeVisible()
+    await insideWindow(sidebar, width, `${width}px: the floating sidebar`)
+    expect(await main(page).evaluate((node) => node.closest('[inert]') !== null), `${width}px: what it covers is out of reach`).toBe(true)
+    await page.keyboard.press('Escape')
+    await expect(sidebar).toHaveCount(0)
+    expect(await main(page).evaluate((node) => node.closest('[inert]') !== null), `${width}px: the conversation is back`).toBe(false)
+    await expect(show, `${width}px: focus returns to what opened the sidebar`).toBeFocused()
+    expect(await scrollsSideways(page), `${width}px: the window scrolls sideways`).toBe(false)
+  }
+})
+
+test('the sidebar keeps its column at exactly 720px and gives it up at 719px', async ({ page }) => {
+  await page.goto('/narrow-overlay.html')
+  await page.setViewportSize({ width: 720, height: 800 })
+  await page.getByRole('button', { name: 'Hide this panel' }).click()
+  await page.getByRole('button', { name: 'Show sidebar' }).click()
+  await expect(page.locator('[data-narrow]')).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: 'Sidebar' })).toHaveCount(0)
+  expect(await widthOf(main(page)), 'a column and the conversation beside it').toBe(720 - SIDEBAR - SEAM)
+
+  await page.setViewportSize({ width: 719, height: 800 })
+  await expect(page.locator('[data-narrow]')).toHaveCount(1)
+  expect(await widthOf(main(page)), 'no column left to take a share of the window').toBe(719)
+})
+
+test('the right seam stops where the conversation would fall under its reading width', async ({ page }) => {
+  await page.goto('/narrow-overlay.html')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.getByRole('button', { name: 'Show sidebar' }).click()
+  await expect(page.locator('[data-narrow]')).toHaveCount(0)
+
+  // A drag as far left as the pointer goes: the ceiling, to the pixel. The
+  // panel beside a sidebar column leaves 1440 - 241 - 1 - 400.
+  await dragSeamTo(page, 0)
+  const ceiling = 1440 - (SIDEBAR + SEAM) - SEAM - MIN_READING
+  await expect.poll(() => widthOf(rightPanel(page))).toBe(ceiling)
+  expect(await widthOf(main(page)), 'the conversation is exactly its reading width').toBe(MIN_READING)
+  // And that is the very line the sidebar keeps its column on: the drag must
+  // not have flipped anything under the pointer.
+  await expect(page.locator('[data-narrow]')).toHaveCount(0)
+  await expect(main(page)).not.toHaveAttribute('data-right-panel-overlay', '')
+
+  // The line is a pixel wide in both directions, for each thing that gives way.
+  // One pixel less and the sidebar floats, the conversation keeping what the
+  // column gave up…
+  await page.setViewportSize({ width: 1439, height: 900 })
+  await expect(page.locator('[data-narrow]')).toHaveCount(1)
+  await expect(main(page)).not.toHaveAttribute('data-right-panel-overlay', '')
+  expect(await widthOf(main(page))).toBe(1439 - ceiling - SEAM)
+  // …until the panel itself would leave less than the reading width: at 1199 it
+  // still leaves exactly 400, at 1198 it covers the conversation.
+  await page.setViewportSize({ width: ceiling + SEAM + MIN_READING, height: 900 })
+  await expect(main(page)).not.toHaveAttribute('data-right-panel-overlay', '')
+  expect(await widthOf(main(page))).toBe(MIN_READING)
+  await page.setViewportSize({ width: ceiling + SEAM + MIN_READING - 1, height: 900 })
+  await expect(main(page)).toHaveAttribute('data-right-panel-overlay', '')
+})
+
+test('the right seam has a ceiling and a floor with the sidebar in a column and without it', async ({ page }) => {
+  // At 1000px the default 460px panel leaves no room for a sidebar column
+  // (240 + 460 + 400 + 2 dividers is 1102), so the sidebar is simply away and
+  // the same drag has its share to spend.
+  for (const { width, column } of [
+    { width: 1200, column: true },
+    { width: 1000, column: false },
+  ]) {
+    await page.goto('/narrow-overlay.html')
+    await page.setViewportSize({ width, height: 900 })
+    if (column) await page.getByRole('button', { name: 'Show sidebar' }).click()
+    const ceiling = width - (column ? SIDEBAR + SEAM : 0) - SEAM - MIN_READING
+    const what = `${width}px${column ? ' with a sidebar column' : ''}`
+
+    await dragSeamTo(page, 0)
+    await expect.poll(() => widthOf(rightPanel(page)), `${what}: the ceiling`).toBe(ceiling)
+    expect(await widthOf(main(page)), `${what}: the conversation`).toBe(MIN_READING)
+    await expect(main(page)).not.toHaveAttribute('data-right-panel-overlay', '')
+    if (column) await expect(page.locator('[data-narrow]'), `${what}: nothing flipped under the pointer`).toHaveCount(0)
+
+    // The floor is the panel's own minimum, wherever the pointer goes.
+    await dragSeamTo(page, width)
+    await expect.poll(() => widthOf(rightPanel(page)), `${what}: the floor`).toBe(280)
+  }
+})
