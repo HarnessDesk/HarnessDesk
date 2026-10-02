@@ -63,6 +63,10 @@ test('seat menu keeps the design token width across sidebar widths and clamps to
   const clamped = page.locator('[data-slot="popover-popup"][data-width="wide"]')
   await expect(clamped).toBeVisible()
   await expect.poll(() => clamped.evaluate((node) => node.getBoundingClientRect().width)).toBeLessThanOrEqual(264)
+  // Narrower is not enough: both edges stay inside the window, so the panel is
+  // neither cut off on the left nor pushed past the right.
+  await expect.poll(() => clamped.evaluate((node) => node.getBoundingClientRect().left)).toBeGreaterThanOrEqual(0)
+  await expect.poll(() => clamped.evaluate((node) => window.innerWidth - node.getBoundingClientRect().right)).toBeGreaterThanOrEqual(0)
 })
 
 test('other real sidebar menus keep content width across sidebar widths', async ({ page }) => {

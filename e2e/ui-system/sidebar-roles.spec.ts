@@ -84,17 +84,17 @@ test('the accounts menu opens above its row, left-aligned with it, at the founda
     const menu = node.getBoundingClientRect()
     const row = triggerNode.getBoundingClientRect()
     const wide = parseFloat(getComputedStyle(node).getPropertyValue('--hd-popover-width-wide'))
-    return { menu: { left: menu.left, right: menu.right, bottom: menu.bottom, width: menu.width }, row: { left: row.left, top: row.top }, wide, viewport: window.innerWidth }
+    return { menu: { left: menu.left, bottom: menu.bottom, width: menu.width }, row: { left: row.left, top: row.top }, wide }
   }, await trigger.elementHandle())
   // Unfolds from the row rather than being laid over the transcript beside it.
   expect(edges.menu.bottom).toBeLessThanOrEqual(edges.row.top)
   expect(edges.menu.left).toBeCloseTo(edges.row.left, 0)
   // The panel keeps its own width, the foundation's wide one, so a narrow
   // sidebar does not fold the account and usage rows; the seat-menu spec
-  // measures it at every sidebar width and in a window too narrow for it.
+  // measures it at every sidebar width and holds both its edges inside a
+  // window too narrow for it.
   expect(edges.wide).toBeGreaterThan(0)
   expect(edges.menu.width).toBeCloseTo(edges.wide, 0)
-  expect(edges.menu.right).toBeLessThanOrEqual(edges.viewport)
 })
 
 test('a settings group label is smaller than its page title', async ({ page }) => {
