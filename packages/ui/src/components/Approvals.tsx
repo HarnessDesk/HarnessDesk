@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
-import type { Approval, ApprovalOption } from '@harnessdesk/protocol'
+import { FLOW_BOARD_TOOL_NAMES, type Approval, type ApprovalOption } from '@harnessdesk/protocol'
 
 import { useIsFocusedPane, useRuntime, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { wholeFileOf } from '../lib/diff'
+import { boardToolPhrase } from '../lib/tool-names'
+import { approvalChoiceOrder } from '../lib/approval-order'
+import { boardToolLabel, boardToolNote, boardToolPlacement, offersPermanentGrant } from '../lib/board-tool-note'
 import { folderShown } from '../lib/projects'
 import { DiffView } from './Diff'
 import { AlertIcon, CheckAllIcon, CheckIcon, CrossIcon } from './Icons'
@@ -22,17 +25,11 @@ import {
 } from '../design'
 import styles from './Approvals.module.css'
 
-/**
- * Where the two approving answers sit relative to each other.
- *
- * The rest of the app puts the proceeding action rightmost, nearest the thumb.
- * Here that is the plain yes: `approveAlways` says yes *and* stops asking, so
- * it changes what happens the next time too, and an answer with a tail should
- * not get the easiest target on the row. The runtime's own order still decides
- * the shortcut numbers — this only decides which one your hand lands on.
- */
-const approvingLast = (a: ApprovalOption, b: ApprovalOption): number =>
-  (a.intent === 'approveAlways' ? 0 : 1) - (b.intent === 'approveAlways' ? 0 : 1)
+const boardToolNamedBy = (approval: Approval | undefined): string | null => {
+  if (approval?.type !== 'permission') return null
+  const match = /^([a-z_]+) \(harnessdesk MCP Server\)$/.exec(approval.summary)
+  return match && FLOW_BOARD_TOOL_NAMES.includes(match[1] as typeof FLOW_BOARD_TOOL_NAMES[number]) ? match[1]! : null
+}
 
 /** The glyph for an answer: yes, yes-and-keep-saying-yes, no. */
 const INTENT_ICON = {
@@ -121,9 +118,12 @@ const FileChangeBody = ({ approval }: { approval: Extract<Approval, { type: 'fil
   </>
 )
 
-const PermissionBody = ({ approval }: { approval: Extract<Approval, { type: 'permission' }> }) => (
+const PermissionBody = ({ approval, hideSummary = false }: {
+  approval: Extract<Approval, { type: 'permission' }>
+  hideSummary?: boolean
+}) => (
   <>
-    <ApprovalReason className={styles.reason}>{approval.summary}</ApprovalReason>
+    {!hideSummary && <ApprovalReason className={styles.reason}>{approval.summary}</ApprovalReason>}
     {/* Why the agent is asking, when it said. The summary is the tool it wants
         to run; a decision needs the sentence under it — "the file is outside
         the workspace" is the part that answers allow or reject. */}
@@ -249,6 +249,19 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false }: {
           ],
     [approval],
   )
+  const namedBoardTool = boardToolNamedBy(approval)
+  const boardToolApproval = runtime.capabilities.perToolMcpApproval && runtime.presentation.boardToolApproval
+    ? runtime.presentation.boardToolApproval
+    : null
+  const explainBoardTool = namedBoardTool !== null && boardToolApproval !== null
+  const approvalNote = explainBoardTool
+    ? boardToolNote({
+      phrase: boardToolPhrase(namedBoardTool),
+      runtimeName: runtime.presentation.name,
+      permanentApprovalSetting: boardToolApproval.permanentApprovalSetting,
+      hasPermanentOption: offersPermanentGrant(options),
+    })
+    : null
 
   const choose = useCallback(
     (option: ApprovalOption) => {
@@ -323,18 +336,23 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false }: {
 
   if (!approval) return null
 
-  const actions: ApprovalDialogAction[] = [
-    ...options.filter((option) => option.intent === 'deny' || option.intent === 'cancel'),
-    ...options
-      .filter((option) => option.intent === 'approve' || option.intent === 'approveAlways')
-      .sort(approvingLast),
-  ].map((option) => ({
+  const actionOptions = approvalChoiceOrder(options)
+  const actions: ApprovalDialogAction[] = actionOptions.map((option) => ({
     id: option.id,
-    label: option.label,
+    label: explainBoardTool
+      ? boardToolLabel(option, options, {
+        session: boardToolApproval?.sessionOptionLabel,
+        once: boardToolApproval?.onceOptionLabel,
+      })
+      : option.label,
     description: option.description,
     icon: INTENT_ICON[option.intent],
     shortcut: options.indexOf(option) + 1,
-    placement: option.intent === 'deny' || option.intent === 'cancel' ? 'safe' : 'proceed',
+    // When the card explains a board-tool request, a permanent grant is shown quiet and apart from the plain
+    // "Allow", so granting it is a deliberate click and never the filled, default-looking choice.
+    placement: explainBoardTool
+      ? boardToolPlacement(option)
+      : option.intent === 'deny' || option.intent === 'cancel' ? 'safe' : 'proceed',
     tone: option.intent === 'deny' ? 'destructive' : 'default',
     onSelect: () => choose(option),
   }))
@@ -358,7 +376,10 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false }: {
             />
           )}
           {approval.type === 'fileChange' && <FileChangeBody approval={approval} />}
-          {approval.type === 'permission' && <PermissionBody approval={approval} />}
+          {approval.type === 'permission' && <>
+            <PermissionBody approval={approval} hideSummary={explainBoardTool} />
+            {approvalNote && <ApprovalReason className={styles.reason} title={approvalNote.title}>{approvalNote.text}</ApprovalReason>}
+          </>}
           {approval.type === 'userInput' && (
             <UserInputBody
               approval={approval}

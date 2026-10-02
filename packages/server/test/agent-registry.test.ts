@@ -80,6 +80,21 @@ test('only the Claude template vouches for its bridge\'s tool provenance; a copi
   assert.equal(store.configs().find((config) => config.id === 'copied')?.trustsBridgeProvenance, undefined)
 })
 
+test('only the Gemini template declares per-tool MCP approval guidance', async (t) => {
+  const dir = await tempDir()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = new AgentRegistryStore(join(dir, 'agents.json'))
+
+  for (const id of ['claude-code', 'cursor', 'dsh', 'gemini', 'hermes', 'openclaw']) {
+    store.add({ id, template: id })
+  }
+  const configs = store.configs()
+  assert.deepEqual(configs.find((config) => config.id === 'gemini')?.perToolMcpApproval, {
+    permanentApprovalSetting: 'security.enablePermanentToolApproval',
+  })
+  assert.ok(configs.filter((config) => config.id !== 'gemini').every((config) => config.perToolMcpApproval === undefined))
+})
+
 test('entries the store did not write survive an add and a remove untouched', async (t) => {
   const dir = await tempDir()
   t.after(() => rm(dir, { recursive: true, force: true }))
@@ -618,4 +633,3 @@ test('duplicate runtime IDs are deduplicated in store configs and replaced clean
   const eventNotifications = pushed.filter((n) => n.method === 'event')
   assert.equal(eventNotifications.length, 1, 'only the active runtime should emit events')
 })
-

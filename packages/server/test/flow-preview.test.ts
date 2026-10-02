@@ -142,6 +142,28 @@ test('a flow preview refuses a selected seat whose runtime will withhold the boa
   assert.deepEqual(checked, [false, true], 'the preview also predicts the managed checkout for an isolated seat')
 })
 
+test('a valid flow preview warns once when the selected runtime asks for each board tool', async () => {
+  const state = rig()
+  const geminiPort: FlowPreviewPort = {
+    ...state.port,
+    perToolMcpApproval: (runtime) => runtime === 'alpha',
+  }
+  const preview = await new FlowPreviews(geminiPort).preview('/repo', FLOW, {})
+  assert.ok(preview.token)
+  assert.equal(preview.problems.filter((problem) => problem.level === 'warning' && problem.text === 'The first time, this agent asks once for each HarnessDesk tool it uses.').length, 1)
+
+  const otherPort: FlowPreviewPort = { ...state.port, perToolMcpApproval: () => false }
+  const other = await new FlowPreviews(otherPort).preview('/repo', FLOW, {})
+  assert.ok(!other.problems.some((problem) => problem.text.includes('asks once for each HarnessDesk tool')))
+
+  const invalid = await new FlowPreviews({
+    ...geminiPort,
+    pluginToolsProblem: async () => 'Tools are unavailable in this folder.',
+  }).preview('/repo', FLOW, {})
+  assert.equal(invalid.token, null)
+  assert.ok(!invalid.problems.some((problem) => problem.text.includes('asks once for each HarnessDesk tool')))
+})
+
 test('an independent role explains same-provider and ceiling refusals on each candidate', async () => {
   const state = rig()
   state.agentsRoster = [

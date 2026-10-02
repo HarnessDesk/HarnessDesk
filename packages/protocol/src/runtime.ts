@@ -266,6 +266,8 @@ export interface RuntimeCapabilities {
    * an empty panel would suggest it lost some.
    */
   readonly backgroundTasks: boolean
+  /** MCP permissions are asked one tool at a time, and the host cannot answer them. */
+  readonly perToolMcpApproval: boolean
 }
 
 /**
@@ -306,6 +308,7 @@ export const NO_CAPABILITIES: RuntimeCapabilities = {
   pluginTools: false,
   instructions: false,
   backgroundTasks: false,
+  perToolMcpApproval: false,
 }
 
 /**
@@ -322,6 +325,14 @@ export interface RuntimePresentation {
   readonly name: string
   /** The runtime's own explanation when it will withhold the desk's tool server in a folder. */
   readonly pluginToolsUnavailable?: string
+  /** Adapter-authored wording for MCP tool approvals that the host cannot attribute. */
+  readonly boardToolApproval?: {
+    readonly permanentApprovalSetting: string
+    /** The label for the one tool-scoped session grant (`grant: 'session-tool'`). */
+    readonly sessionOptionLabel?: string
+    /** The label for the plain approve choice, which agents word differently ("Allow"). */
+    readonly onceOptionLabel?: string
+  }
   /**
    * Whose mark to draw beside the name: a lobe-icons key such as `codex`,
    * `claudecode`, `cursor`, `geminicli`, `githubcopilot`. Optional — the

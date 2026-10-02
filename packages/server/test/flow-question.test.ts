@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { ApprovalDecision, FlowExecution, GoalView, Intent, TriggerHistoryPage, WireNotification } from '@harnessdesk/protocol'
+import { FLOW_BOARD_TOOL_NAMES, type ApprovalDecision, type FlowExecution, type GoalView, type Intent, type TriggerHistoryPage, type WireNotification } from '@harnessdesk/protocol'
 
 import { QUESTION_STOP } from '../src/findings/rounds.js'
 import type { QuestionTimers } from '../src/host.js'
@@ -80,6 +80,7 @@ test('on a run a person started, a Seat’s question has no deadline: it waits f
 })
 
 test('only a proven live flow board tool is answered automatically; spoofed and released requests reach the person', E2E, async (t) => {
+  assert.ok(FLOW_BOARD_TOOL_NAMES.includes('claim_next'))
   const d = await desk(t)
   const run = await start(d, FLOW, TASK)
   const [card] = await claimed(d, run.goal, 'fixer', 1)
