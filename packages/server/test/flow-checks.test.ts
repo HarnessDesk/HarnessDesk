@@ -459,3 +459,50 @@ test('rerunning a finished earlier check keeps its downstream cards without open
   assert.equal(rig.board(run.goal).intents.find((one) => one.id === referee.id)!.state, 'open')
   assert.equal(checks(rig.events).length, 2)
 })
+
+for (const downstream of ['running', 'stopped', 'stalled'] as const) {
+  for (const evidenceFails of [false, true]) {
+    test(`retrying an earlier check preserves ${downstream} downstream work (${evidenceFails ? 'unsaved' : 'saved'} evidence)`, async (t) => {
+      const rig = await goalRig(t)
+      const source = `
+version: 2
+name: A gate before work
+roles:
+  gate: { kind: check, run: "pnpm verify", exits: { "0": pass }, otherwise: fail, timeout: 30 }
+  author: { kind: agent, uses: writer }
+seed: { role: gate, title: Check first }
+rules:
+  - { id: work, on: gate, when: { every: [pass] }, then: { role: author, title: Write it } }
+`
+      rig.failOrder = downstream === 'stalled'
+      const run = await rig.start(source, [agent('writer', ['done'])])
+      await rig.flows.flush()
+      if (downstream === 'stopped') await rig.flows.stopRun(run.id, 'Keep this downstream work stopped')
+      const before = rig.flows.executionOf(run.id)!
+      assert.equal(before.state, downstream)
+      if (downstream !== 'running') assert.ok(before.reason)
+      const board = rig.board(run.goal).intents
+      const gate = board.find((one) => one.role === 'gate')!
+      const author = board.find((one) => one.role === 'author')!
+      const seats = [...rig.seats.values()]
+      rig.checkEvidenceFails = evidenceFails
+      rig.checkOutcomes.set('pnpm verify', { exit: 1, timedOut: false, tail: 'new answer' })
+      const launched = await rig.flows.retryCheck(run.id, gate.id)
+      assert.equal(launched.state, before.state, 'launch does not reactivate downstream work')
+      assert.equal(launched.reason, before.reason)
+      await rig.flows.flush()
+      const after = rig.flows.executionOf(run.id)!
+      assert.equal(after.state, before.state)
+      assert.equal(after.reason, before.reason)
+      assert.deepEqual(after.rounds, before.rounds)
+      assert.deepEqual([...rig.seats.values()], seats, 'the downstream Seats stay as they were')
+      assert.deepEqual(rig.board(run.goal).intents.find((one) => one.id === author.id), author)
+      assert.equal(rig.board(run.goal).intents.length, board.length)
+      assert.equal(after.operations.find((one) => one.key === 'check:1:0')?.state, evidenceFails ? 'uncertain' : 'finished')
+      const retried = rig.board(run.goal).intents.find((one) => one.id === gate.id)!
+      assert.equal(retried.state, evidenceFails ? 'open' : 'done')
+      assert.equal(retried.outcome, evidenceFails ? gate.outcome : 'fail')
+      assert.equal(checks(rig.events).length, 2, 'only the consented check ran again')
+    })
+  }
+}

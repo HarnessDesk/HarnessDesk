@@ -40,7 +40,8 @@ export const recordCheckProcess = (dir: string, pgid: number): (() => void) => {
   return () => { unlinkSync(path); syncDirectory(dir) }
 }
 
-const groupAlive = (pgid: number): boolean => {
+/** Only a missing group or a process table proving no runnable members establishes cleanup. */
+export const checkGroupAlive = (pgid: number): boolean => {
   try { process.kill(-pgid, 0); return true } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
     if ((error as NodeJS.ErrnoException).code === 'EPERM') {
@@ -80,11 +81,11 @@ export const recoverCheckProcesses = async (dir: string): Promise<void> => {
       syncDirectory(dir)
       continue
     }
-    if (groupAlive(record.pgid)) {
+    if (checkGroupAlive(record.pgid)) {
       if (identity === null) throw new Error('A previous check process group has no matching leader identity; no check can restart safely.')
       process.kill(-record.pgid, 'SIGKILL')
       const deadline = Date.now() + 5000
-      while (groupAlive(record.pgid)) {
+      while (checkGroupAlive(record.pgid)) {
         if (Date.now() >= deadline) throw new Error('A previous check process group could not be stopped; no duplicate check will start.')
         await new Promise((resolve) => setTimeout(resolve, 10))
       }

@@ -3317,18 +3317,22 @@ export class FlowExecutions {
   ): Promise<boolean> {
     const key = `check:${round.n}:${index}`
     const live = `${id}:${key}`
+    const stall = async (reason: string): Promise<void> => {
+      if (this.#get(id).rounds.at(-1)?.n === round.n) await this.#stall(id, reason)
+      else this.#port.log('an earlier check failed', { run: id, card, reason })
+    }
     let run = this.#get(id)
     const prior = run.operations.find((one) => one.key === key)
     if (prior?.state === 'finished') return true
     if (prior?.state === 'started' || prior?.state === 'uncertain') {
       if (prior.state === 'started' && this.#liveCheckOperations.has(live)) return false
-      await this.#stall(id, `This check was interrupted. Inspect its effects, then choose Run again.`)
+      await stall(`This check was interrupted. Inspect its effects, then choose Run again.`)
       return false
     }
     if (target.at !== null) {
       const head = await this.#port.headOf(target.cwd, null)
       if (head.at !== target.at) {
-        await this.#stall(id, `Card #${card}'s checkout has moved since this check was planned at ${target.at.slice(0, 12)}, so it was not run. Start a new run to check what is there now.`)
+        await stall(`Card #${card}'s checkout has moved since this check was planned at ${target.at.slice(0, 12)}, so it was not run. Start a new run to check what is there now.`)
         return false
       }
     }
@@ -3338,7 +3342,7 @@ export class FlowExecutions {
       const verdict = await this.#gateOf(id)
       if (!verdict.ok) {
         if (verdict.transient) await this.#hold(id, verdict.reason)
-        else await this.#stall(id, verdict.reason)
+        else await stall(verdict.reason)
         return false
       }
     }
@@ -3366,12 +3370,12 @@ export class FlowExecutions {
           /* Stopped part-way by a pause or a stop: whatever it did is its own, and
              is never run again on its own — a person looks, then chooses Run again. */
           await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'uncertain', card, seat: null }))
-          if (this.#get(id).state === 'running') await this.#stall(id, CHECK_INTERRUPTED)
+          if (this.#get(id).state === 'running') await stall(CHECK_INTERRUPTED)
           return false
         }
         if (outcome.problem) {
           await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'uncertain', card, seat: null }))
-          await this.#stall(id, outcome.problem)
+          await stall(outcome.problem)
           return false
         }
         await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'finished', card, seat: null }))
@@ -3382,7 +3386,7 @@ export class FlowExecutions {
       if (!background) return complete()
       return this.#queue.within(id, async () => {
         const ok = await complete()
-        if (ok && this.#get(id).state === 'running') {
+        if (ok && this.#get(id).state === 'running' && this.#get(id).rounds.at(-1)?.n === round.n) {
           const opened = await this.#runCheckRound(id, round, check)
           if (opened) await this.#advance(id)
         }
@@ -3449,11 +3453,13 @@ export class FlowExecutions {
       // Without a preview, internal callers retain the original revision guard.
       const target = approved ? { cwd: fresh.command.cwd, at: fresh.at } : plan.targets[slot]!
       const last = run.rounds.at(-1)?.n === round.n
+      // Only the current check round can restart routing. An earlier retry
+      // changes its own answer, never the downstream run's state or reason.
       const operations = run.operations.filter((one) => one.key !== key && !(last && one.key === `close:${round.n}`))
       const operationTimes = { ...run.operationTimes }
       delete operationTimes[key]
       if (last) delete operationTimes[`close:${round.n}`]
-      run = await this.#put({ ...run, state: 'running', reason: null, operations, operationTimes,
+      run = await this.#put({ ...run, ...(last ? { state: 'running' as const, reason: null } : {}), operations, operationTimes,
         rounds: last ? run.rounds.map((one) => one.n === round.n ? { ...one, state: 'running' as const } : one) : run.rounds,
         checkPlans: { ...run.checkPlans, [String(round.n)]: { ...plan, targets: plan.targets.map((one, index) => index === slot ? target : one) } },
       })

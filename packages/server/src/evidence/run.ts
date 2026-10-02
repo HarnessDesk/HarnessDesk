@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { stripVTControlCharacters } from 'node:util'
 import type { Readable } from 'node:stream'
 
-import { recordCheckProcess } from './check-processes.js'
+import { checkGroupAlive, recordCheckProcess } from './check-processes.js'
 import { TAIL_LIMIT } from './records.js'
 
 export { TAIL_LIMIT }
@@ -109,17 +109,6 @@ const stopGroup = (child: ChildProcess): void => {
   }
 }
 
-/** Whether anything remains in the command's process group. */
-const groupAlive = (child: ChildProcess): boolean => {
-  if (child.pid === undefined) return false
-  try {
-    process.kill(-child.pid, 0)
-    return true
-  } catch {
-    return false
-  }
-}
-
 /** The most a flow's bounded check context may weigh, as UTF-8 JSON, before a check refuses to spawn at all. */
 export const FLOW_CONTEXT_LIMIT = 64 * 1024
 
@@ -141,7 +130,7 @@ export const runCommand = (
     readonly onStarted?: () => void
   },
 ): Promise<CommandRun> =>
-  new Promise((resolve) => {
+  new Promise((resolve, reject) => {
     if (where.signal?.aborted) {
       resolve({ exit: null, timedOut: false, tail: 'It was stopped: the desk closed.' })
       return
@@ -171,12 +160,18 @@ export const runCommand = (
       env: { ...checkEnvironment(), ...(where.flowContext !== undefined ? { HARNESSDESK_FLOW_CONTEXT: where.flowContext } : {}) },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    const finish = (exit: number | null, said?: string): void => {
+    const finish = (exit: number | null, said?: string, problem?: Error): void => {
       if (settled) return
       settled = true
       clearTimeout(timer)
       if (afterExit) clearTimeout(afterExit)
       where.signal?.removeEventListener('abort', stop)
+      if (problem) {
+        // No result or evidence may claim completion, and startup still has
+        // the exact recorded group to reconcile before any recovered retry.
+        reject(problem)
+        return
+      }
       const text = plain(printed)
       const joined = said ? `${text}${text === '' || text.endsWith('\n') ? '' : '\n'}${said}` : text
       try { forget?.() } catch { /* Keep the record: startup will reconcile a stale, already-dead group. */ }
@@ -187,8 +182,13 @@ export const runCommand = (
       if (settled || waitingForGroup) return
       waitingForGroup = true
       const look = (): void => {
-        if (groupAlive(child)) {
-          setTimeout(look, 10)
+        try {
+          if (child.pid !== undefined && checkGroupAlive(child.pid)) {
+            setTimeout(look, 10)
+            return
+          }
+        } catch (error) {
+          finish(null, undefined, new Error('The check process group could not be confirmed stopped. Resolve its cleanup before running another check.', { cause: error }))
           return
         }
         finish(stopped === null ? shellExit : null, stopped ?? undefined)

@@ -1206,7 +1206,9 @@ revision there now. A moved checkout after the preview refuses; the same
 checkout changed by the old check can be explicitly approved. Starting reopens
 that card, preserves previous evidence, and returns at launch. Completion stays
 in the run's queue and advances an unanswered final round normally; a check
-from an earlier round never duplicates its already-created downstream rounds.
+from an earlier round never duplicates its already-created downstream rounds
+or changes their run's state and reason, including when that work is stopped
+or stalled. Only the current final check round can restart routing.
 
 A detached shell waits at a launch handshake until the host has synced its
 exact pgid and leader identity in a host-owned journal. Startup stops only those
@@ -1215,6 +1217,9 @@ and refuses to proceed if cleanup cannot be established. A live group with no
 matching leader identity keeps its journal and refuses startup; the supervisor
 holds that identity until the whole group is stopped, even after the command
 finishes. Recovery failures refuse startup independently of Seat-record reads.
+Live completion and timeout cleanup use the same proof as startup: an EPERM
+probe alone cannot establish that a group is gone. Uncertain cleanup retains
+the launch journal and refuses a check result or evidence of completion.
 Concurrent retries wait for their live siblings before routing the round.
 Children outside the recorded group are outside this guarantee.
 Interrupted work still needs fresh

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
-import { execFileSync, spawn } from 'node:child_process'
-import { readFile, writeFile } from 'node:fs/promises'
+import childProcess, { execFileSync, spawn } from 'node:child_process'
+import { readFileSync, readdirSync } from 'node:fs'
+import { readFile, readdir, writeFile } from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -293,3 +295,51 @@ test('a durable launch preserves the command’s nonzero status and cannot execu
   assert.equal(refused.exit, null)
   await assert.rejects(readFile(join(dir, 'forbidden')))
 })
+
+for (const ending of ['completion', 'timeout'] as const) {
+  for (const members of ['live', 'unreadable', 'gone'] as const) {
+    test(`live ${ending} cleanup under EPERM keeps its journal unless the group is proven gone (${members})`, async (t) => {
+      const dir = tempDir('hd-check-live-probe-')
+      const processDir = join(dir, 'processes')
+      const kill = process.kill.bind(process)
+      const ps = childProcess.execFileSync
+      let pgid = 0
+      t.mock.method(process, 'kill', (pid: number, signal?: NodeJS.Signals | number) => {
+        if (pgid && pid === -pgid && signal === 0) throw Object.assign(new Error('staged permission refusal'), { code: 'EPERM' })
+        return kill(pid, signal)
+      })
+      // A different-uid member may remain after an otherwise successful group
+      // signal. Stage that process-table observation around a real launch/kill.
+      const table = t.mock.method(childProcess, 'execFileSync', (...args: Parameters<typeof ps>) => {
+        if (args[0] === 'ps' && args[1]?.[0] === '-axo') {
+          if (members === 'unreadable') throw new Error('staged process table failure')
+          return `${pgid} ${members === 'live' ? 'S' : 'Z'}\n`
+        }
+        return ps(...args)
+      })
+      syncBuiltinESMExports()
+      try {
+        const running = runCommand(ending === 'completion' ? 'true' : 'exec sleep 30', {
+          cwd: dir, timeoutSec: ending === 'completion' ? 5 : 1, processDir,
+          onStarted: () => {
+            const [file] = readdirSync(processDir)
+            pgid = (JSON.parse(readFileSync(join(processDir, file!), 'utf8')) as { pgid: number }).pgid
+          },
+        })
+        if (members === 'gone') {
+          const result = await running
+          assert.equal(result.exit, ending === 'completion' ? 0 : null)
+          assert.equal(result.timedOut, ending === 'timeout')
+          assert.deepEqual(await readdir(processDir), [])
+        } else {
+          await assert.rejects(running, /process group.*not.*(?:confirm|prove)|cleanup.*not/i)
+          assert.equal((await readdir(processDir)).length, 1, 'uncertain cleanup retains the durable launch record')
+        }
+      } finally {
+        table.mock.restore()
+        syncBuiltinESMExports()
+        if (pgid) { try { kill(-pgid, 'SIGKILL') } catch { /* Gone. */ } }
+      }
+    })
+  }
+}
