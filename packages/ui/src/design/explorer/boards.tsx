@@ -928,6 +928,15 @@ const NoticesBoard = () => {
           </ComposerNoticeStack>
         </div>
       </Case>
+      <Case label="composer: each tone, with and without an action or a dismiss">
+        <div style={{ width: 'min(var(--hd-column), 100%)' }}>
+          <ComposerNoticeStack>
+            <ComposerNotice message={NOTICE_STRIP[0]!} onDismiss={() => {}} />
+            <ComposerNotice message={{ ...NOTICE_STRIP[1]!, id: 'signin-2' }} />
+            <ComposerNotice message={{ id: 'plain', title: 'Reconnecting to the host…' }} />
+          </ComposerNoticeStack>
+        </div>
+      </Case>
       <Case label="composer tail: the live line and a state notice are one strip">
         <div style={{ width: 'min(var(--hd-column), 100%)' }}>
           <ComposerTail>
