@@ -1192,7 +1192,7 @@ export class Host {
       recovery: {
         goal: (room) => {
           const exists = this.#goalStore.list().some((document) => document.goal.id === room)
-          return { exists, writable: exists && this.#goals.canDispatch(room).ok }
+          return { exists, writable: exists && this.#goals.canDispatch(room).ok, ...(exists ? { root: this.#goalStore.read(room).goal.root } : {}) }
         },
         seats: (room) => this.#evidence.seats.all().filter((seat) => seat.board === room),
       },

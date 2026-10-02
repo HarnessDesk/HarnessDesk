@@ -121,6 +121,8 @@ export const flowMethods = {
     })
   },
 
+  'flow/executions': (ctx, params) => ctx.flows.executionSummaries(params),
+
   'flow/execution': (ctx, params) => {
     const execution = ctx.flows.executionOf(params.run)
     if (!execution) throw new Error(`There is no flow run ${params.run}.`)

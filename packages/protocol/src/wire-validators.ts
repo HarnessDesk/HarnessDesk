@@ -343,6 +343,9 @@ const goalCitation = goalShape({
 })
 
 const goalValidators = {
+  'client/hello': goalShape({ client: goalShape({ name: atMost(64, isFilled), version: atMost(64, isFilled) }), protocol: isNumber, pid: optional(isNumber) }),
+  'client/subscribe': goalShape({ topics: arrayOf(literalUnion('runs', 'cards', 'teams', 'waiting', 'notices')), scope: optional(goalShape({ team: optional(goalId), run: optional(isFilled), project: optional(atMost(4096, isFilled)) })) }),
+  'flow/executions': goalShape({ team: optional(goalId), project: optional(atMost(4096, isFilled)), active: optional(isBoolean) }),
   'goal/list': goalShape({ root: optional(atMost(4096, isFilled)) }),
   'goal/read': goalShape({ goal: goalId }),
   'goal/create': goalShape({

@@ -1,3 +1,4 @@
+import type { ClientTier, ClientTopic, FlowExecutionSummary } from './client-surface.js'
 import type { AgentEntry, AgentOrigin, CeilingUpdate, MachineSeating, SeatPlan } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
 import type {
@@ -684,6 +685,26 @@ export interface AgentRegisterRequest {
  * runtime 'unknown method'.
  */
 export interface HostMethods {
+  'client/hello': {
+    params: { readonly client: { readonly name: string; readonly version: string }; readonly protocol: number; readonly pid?: number }
+    result: {
+      readonly protocolVersion: number
+      readonly hostVersion: string
+      readonly desk: { readonly home: string; readonly pid: number; readonly startedAt: number }
+      readonly tiers: readonly ClientTier[]
+      readonly methods: readonly string[]
+      readonly runtimes: readonly { readonly id: RuntimeId; readonly name: string; readonly health: RuntimeHealth }[]
+    }
+  }
+  'client/subscribe': {
+    params: { readonly topics: readonly ClientTopic[]; readonly scope?: { readonly team?: GoalId; readonly run?: string; readonly project?: string } }
+    result: null
+  }
+  'flow/executions': {
+    params: { readonly team?: GoalId; readonly project?: string; readonly active?: boolean }
+    result: readonly FlowExecutionSummary[]
+  }
+
   'provenance/commits': {
     params: { readonly root: string; readonly shas: readonly string[] }
     result: ProjectProvenance
