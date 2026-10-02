@@ -860,23 +860,60 @@ test('(F7, #1206) 50 projects without top-level links do no idle reconciliation'
   assert.equal(scans, 50, 'idle projects are read once at discovery')
 })
 
-test('(F7, #1206) native discovery starts polling and removal of the last link stops it', async (t) => {
+test('(F7, #1206) an empty scan retains recovery for a silent re-add within the backoff cap', async (t) => {
+  const p = await linkRecovery(t)
+  await unlink(p.link)
+  p.clock.advance(1_000)
+  await until(() => p.firstWatch.closed, 'polling to observe the empty root and retire the last link')
+  p.clock.advance(30)
+  assert.deepEqual(p.said, [p.project], 'removal has its own notice')
+  assert.equal(p.clock.pendingCount(), 1, 'a root that held links keeps a recovery check')
+  p.clock.advance(1_000)
+  await until(() => p.clock.scheduledWithDelay(5_000) === 1, 'an unchanged empty snapshot to back off')
+  p.said.length = 0
+  p.clock.advance(5_000)
+  await until(() => p.clock.scheduledWithDelay(5_000) === 2, 'empty recovery to repeat at the cap')
+  assert.deepEqual(p.said, [], 'unchanged empty scans are quiet')
+  await symlink(join('..', '..', 'shared', 'second'), p.link)
+  // No root callback: recovery must attach and announce the new target itself.
+  p.clock.advance(4_999)
+  assert.ok(!p.made.some((one) => one.dir === p.secondReal), 'the capped check is not due yet')
+  const checks = p.clock.scheduledWithDelay(1_000)
+  p.clock.advance(1)
+  await until(() => p.made.some((one) => one.dir === p.secondReal), 'silent re-add to attach within five seconds')
+  assert.ok(p.clock.scheduledWithDelay(1_000) > checks, 'a changed snapshot resets recovery to one second')
+  p.clock.advance(30)
+  assert.deepEqual(p.said, [p.project], 'the silent re-add has its own notice')
+  p.said.length = 0
+  p.made.find((one) => one.dir === p.secondReal)!.listener('change', 'AGENT.md')
+  p.clock.advance(30)
+  assert.deepEqual(p.said, [p.project], 'the recovered target reports subsequent edits')
+  await p.instance.watchProjects([])
+  assert.equal(p.clock.pendingCount(), 0, 'closing cancels the retained recovery check')
+})
+
+test('(F7, #1206) native discovery shortens an empty-root recovery backoff', async (t) => {
   const p = await linkRecovery(t)
   await unlink(p.link)
   p.rootWatch.listener('rename', 'scout')
   p.clock.advance(30)
-  await until(() => p.firstWatch.closed, 'the last link to be retired')
-  assert.equal(p.clock.pendingCount(), 0, 'removing the last top-level link stops idle checks')
+  await until(() => p.firstWatch.closed, 'the native scan to retire the last link')
+  p.clock.advance(1_000)
+  await until(() => p.clock.scheduledWithDelay(5_000) === 1, 'empty recovery to back off')
   await symlink(join('..', '..', 'shared', 'first'), p.link)
+  const checks = p.clock.scheduledWithDelay(1_000)
   p.rootWatch.listener('rename', 'scout')
   p.clock.advance(30)
   await until(() => p.made.filter((one) => one.dir === p.firstReal).length === 2, 'native discovery to attach the new link')
+  assert.ok(p.clock.scheduledWithDelay(1_000) > checks, 'native discovery replaces the pending five-second check')
   p.said.length = 0
   await p.retarget()
   p.clock.advance(1_000)
   await until(() => p.made.some((one) => one.dir === p.secondReal), 'discovery to have started silent-retarget recovery')
   p.clock.advance(30)
   assert.deepEqual(p.said, [p.project])
+  p.instance.dispose()
+  assert.equal(p.clock.pendingCount(), 0, 'dispose cancels recovery')
 })
 
 test('(F7, #1206) rapid retargets cannot apply an older reconciliation snapshot', async (t) => {

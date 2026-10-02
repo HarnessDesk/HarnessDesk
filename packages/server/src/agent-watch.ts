@@ -142,6 +142,8 @@ const RETRY_MAX_MS = 5_000
 const READY_MS = 100
 /** Top-level links only: recover a missed native retarget without walking the subtree. */
 const LINK_CHECK_MS = 1_000
+/** A root that once held links still recovers silent re-adds while empty. */
+const LINK_EMPTY_CHECK_MS = 5_000
 
 /** One root the watch follows: whose it is, where it is, and what it must stay inside. */
 interface Follow {
@@ -262,6 +264,9 @@ export class AgentWatch {
     readonly pending?: boolean
     /** Includes broken/refused links: they can become admitted on a later silent retarget. */
     readonly hasLinks?: boolean
+    /** Sticky until close/dispose: an empty scan cannot retire silent re-add recovery. */
+    readonly everHadLinks?: boolean
+    readonly linkCheckMs?: number
     /** Last applied view, rather than successfully opened watchers: a failed watch is not a roster change. */
     readonly targets?: ReadonlyMap<string, string>
   }>()
@@ -406,20 +411,22 @@ export class AgentWatch {
 
   /**
    * One bounded top-level read per interval, after the previous read finishes.
-   * Native events neither reset this timer nor stop it: proving a listener
-   * worked once does not prove it will report every later unlink/re-link.
+   * Unchanged empty snapshots back off, but keep recovery once a root held
+   * links. A changed snapshot resets the interval: proving a listener worked
+   * once does not prove it will report every later unlink/re-link.
    * The owner's identity prevents a late read from reviving a replaced watch
    * or a project closed and reopened while the read was pending.
    */
   #scheduleLinkCheck(follow: Follow, owner: { readonly close: () => void }): void {
     const key = keyOf(follow)
     if (!this.#alive(follow.scope) || this.#watchers.get(key) !== owner) return
-    if (!this.#rescans.get(key)?.hasLinks || this.#linkCheckTimers.has(key)) return
+    const reading = this.#rescans.get(key)
+    if (!reading?.everHadLinks || this.#linkCheckTimers.has(key)) return
     const timer = this.#clock.setTimeout(() => {
       this.#linkCheckTimers.delete(key)
       if (!this.#alive(follow.scope) || this.#watchers.get(key) !== owner) return
       void this.#rescanLinks(follow, true).then(() => this.#scheduleLinkCheck(follow, owner))
-    }, LINK_CHECK_MS)
+    }, reading.linkCheckMs ?? LINK_CHECK_MS)
     timer.unref?.()
     this.#linkCheckTimers.set(key, { scope: follow.scope, timer })
   }
@@ -489,7 +496,9 @@ export class AgentWatch {
     for (const one of this.#links.get(key)?.watchers.values() ?? []) one.close()
     this.#links.delete(key)
     const reading = this.#rescans.get(key)
-    if (reading) this.#rescans.set(key, { scope: reading.scope, generation: ++this.#rescanCount })
+    if (reading) this.#rescans.set(key, {
+      scope: reading.scope, generation: ++this.#rescanCount, everHadLinks: reading.everHadLinks,
+    })
   }
 
   /**
@@ -748,13 +757,20 @@ export class AgentWatch {
     // Test-only: see `AgentWatchOptions.onRescan`. The host never sets it.
     await this.#options.onRescan?.(follow)
     if (!this.#alive(follow.scope) || this.#rescans.get(key)?.generation !== generation) return
-    const previous = this.#rescans.get(key)?.targets
-    this.#rescans.set(key, { scope: follow.scope, generation, targets: wanted, hasLinks })
+    const previous = reading?.targets
+    const changed = previous !== undefined &&
+      (reading?.hasLinks !== hasLinks || previous.size !== wanted.size ||
+        [...previous].some(([name, target]) => wanted.get(name) !== target))
+    this.#rescans.set(key, {
+      scope: follow.scope, generation, targets: wanted, hasLinks,
+      everHadLinks: reading?.everHadLinks || hasLinks,
+      linkCheckMs: !hasLinks && previous !== undefined && !changed ? LINK_EMPTY_CHECK_MS : LINK_CHECK_MS,
+    })
+    if (changed) this.#cancelLinkCheck(key)
     // Initial discovery is quiet. Native-triggered scans already have a
     // notice, and update this same view so a later check cannot repeat it.
     if (
-      noticeChanges && previous !== undefined &&
-      (previous.size !== wanted.size || [...previous].some(([name, target]) => wanted.get(name) !== target))
+      noticeChanges && changed
     ) {
       this.#poke(follow.scope)
     }
@@ -789,11 +805,8 @@ export class AgentWatch {
       }
     }
     // Native discovery can introduce the first link after a quiet initial
-    // scan. Removing the last link retires polling; refused links still poll.
-    if (!hasLinks) this.#cancelLinkCheck(key)
-    else {
-      const owner = this.#watchers.get(key)
-      if (owner) this.#scheduleLinkCheck(follow, owner)
-    }
+    // scan. Once started, recovery lasts until the root is closed/disposed.
+    const owner = this.#watchers.get(key)
+    if (owner) this.#scheduleLinkCheck(follow, owner)
   }
 }
