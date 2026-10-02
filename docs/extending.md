@@ -704,11 +704,18 @@ privileged path:
 and the reviewed full `head` commit (40 or 64 lowercase hexadecimal characters),
 accepts an optional `method` of `squash`, `merge` or `rebase`, and defaults to
 `squash`. The forge call uses `--match-head-commit`, so it refuses instead of
-merging if the branch moved after review. Before merging, it reads every check-run
-on that commit and refuses unless the newest run of every check name is complete
-with a `success`, `skipped` or `neutral` conclusion; no check-runs or an unreadable
-CI state also refuse. Use `pr_checks` to watch CI, then retry once it is green.
-Only a seat at the `merge` ceiling may reach the tool.
+merging if the branch moved after review. Before merging, it reads the required
+checks for the pull request's base branch from GitHub rulesets, then classic
+branch protection when no required-status-check ruleset applies. A required
+check must have a newest run that is complete with a `success`, `skipped` or
+`neutral` conclusion; when GitHub identifies the required app, only a run from
+that app counts.
+Missing, pending or failed required checks refuse the merge, while other
+check-runs are ignored. If the requirements are absent or cannot be read, the
+tool falls back to the earlier conservative rule: every check-run on the commit
+must be green, and no check-runs or unreadable CI state refuse. Use `pr_checks`
+to watch CI, then retry once it is green. Only a seat at the `merge` ceiling may
+reach the tool.
 
 ### What not to build
 

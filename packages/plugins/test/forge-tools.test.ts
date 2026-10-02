@@ -63,6 +63,19 @@ if (verb.startsWith('api') && (args[1] ?? '').includes('/check-runs?')) {
   process.stdout.write(fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '')
   process.exit(0)
 }
+if (verb.startsWith('api') && (args[1] ?? '').includes('/rules/branches/')) {
+  if (fs.existsSync(path.join(home, 'rules-fail'))) { process.stderr.write('gh: HTTP 502\n'); process.exit(1) }
+  const file = path.join(home, 'rules.json')
+  process.stdout.write(fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '[]')
+  process.exit(0)
+}
+if (verb.startsWith('api') && (args[1] ?? '').includes('/protection/required_status_checks')) {
+  if (fs.existsSync(path.join(home, 'protection-fail'))) { process.stderr.write('gh: HTTP 502\n'); process.exit(1) }
+  const file = path.join(home, 'protection.json')
+  if (!fs.existsSync(file)) { process.stderr.write('gh: HTTP 404\n'); process.exit(1) }
+  process.stdout.write(fs.readFileSync(file, 'utf8'))
+  process.exit(0)
+}
 if (verb.startsWith('api') && /^repos\/[^/]+\/[^/]+$/.test(args[1] ?? '')) {
   // The repository's own merge-commit settings, as GitHub answers them; a test writes repo.json to change them.
   const file = path.join(home, 'repo.json')
@@ -324,20 +337,41 @@ test('pr_merge merges only at the commit that was reviewed, squashes unless told
   assert.equal(forge.calls().filter((args) => args[0] === 'pr' && args[1] === 'merge').length, 5)
 })
 
-const checkRun = (name: string, id: number, started_at: string | null, status: string, conclusion: string | null) => ({
+const checkRun = (name: string, id: number, started_at: string | null, status: string, conclusion: string | null, appId?: number) => ({
   name,
   id,
   started_at,
   status,
   conclusion,
+  ...(appId === undefined ? {} : { app: { id: appId } }),
 })
 
 const setCheckRuns = (forge: Rig, runs: unknown[]): void => {
   writeFileSync(join(forge.home, 'checks.ndjson'), runs.map((run) => JSON.stringify(run)).join('\n') + (runs.length > 0 ? '\n' : ''))
 }
 
+const requiredRules = (checks: { context: string; integration_id?: number }[]): unknown[] => [{
+  type: 'required_status_checks',
+  ruleset_id: 1,
+  parameters: {
+    required_status_checks: checks.map((check) => ({ context: check.context, integration_id: check.integration_id ?? null })),
+    strict_required_status_checks_policy: false,
+  },
+}]
+
+const setRules = (forge: Rig, rules: unknown): void => {
+  writeFileSync(join(forge.home, 'rules.json'), JSON.stringify(rules))
+}
+
 const assertNoMergeCall = (forge: Rig): void => {
   assert.equal(forge.calls().some((args) => args[0] === 'pr' && args[1] === 'merge'), false)
+}
+
+const assertRulesReadAtBase = (forge: Rig): void => {
+  assert.ok(
+    forge.calls().some((args) => args[0] === 'api' && args[1] === 'repos/acme/widgets/rules/branches/main'),
+    'reads required-check rules for the pull request base branch',
+  )
 }
 
 test('pr_merge refuses when CI is in progress or failed, naming the offending check', async (t) => {
@@ -410,6 +444,107 @@ test('pr_merge accepts success, skipped and neutral, using only each check name�
     checkRun('build', 2, '2026-09-30T11:00:00Z', 'completed', 'success'),
   ])
   assert.match(await tied.run('pr_merge', { number: 7, head }), /Merged pull request #7/)
+})
+
+test('pr_merge ignores red advisory jobs when every required check is green', async (t) => {
+  const forge = await rig(t)
+  setRules(forge, requiredRules([{ context: 'Build, typecheck, test', integration_id: 15368 }]))
+  setCheckRuns(forge, [
+    checkRun('Build, typecheck, test', 1, '2026-10-01T10:00:00Z', 'completed', 'success', 15368),
+    checkRun('Windows', 2, '2026-10-01T10:00:00Z', 'completed', 'failure', 999),
+  ])
+  const said = await forge.run('pr_merge', { number: 7, head: '0123456789abcdef0123456789abcdef01234567' })
+  assert.match(said, /Merged pull request #7/)
+  assert.ok(forge.calls().some((args) => args[0] === 'pr' && args[1] === 'merge'))
+})
+
+test('pr_merge refuses required checks that are red, pending or missing', async (t) => {
+  const head = '0123456789abcdef0123456789abcdef01234567'
+  for (const [label, runs, expected] of [
+    ['red', [checkRun('Required CI', 1, '2026-10-01T10:00:00Z', 'completed', 'failure')], /“Required CI” failed/],
+    ['pending', [checkRun('Required CI', 1, null, 'queued', null)], /“Required CI” is queued/],
+    ['missing', [checkRun('Windows', 2, '2026-10-01T10:00:00Z', 'completed', 'success')], /required check “Required CI” is missing/],
+    ['not reported', [], /required check “Required CI” is missing/],
+  ] as const) {
+    const forge = await rig(t)
+    setRules(forge, requiredRules([{ context: 'Required CI' }]))
+    setCheckRuns(forge, [...runs])
+    const said = await forge.run('pr_merge', { number: 7, head })
+    assert.match(said, expected, label)
+    assertNoMergeCall(forge)
+  }
+})
+
+test('pr_merge does not let a same-named check from a different app satisfy a pinned requirement', async (t) => {
+  const forge = await rig(t)
+  setRules(forge, requiredRules([{ context: 'Pinned CI', integration_id: 15368 }]))
+  setCheckRuns(forge, [checkRun('Pinned CI', 1, '2026-10-01T10:00:00Z', 'completed', 'success', 999)])
+  const said = await forge.run('pr_merge', { number: 7, head: '0123456789abcdef0123456789abcdef01234567' })
+  assert.match(said, /required check “Pinned CI” is missing/)
+  assertNoMergeCall(forge)
+})
+
+test('pr_merge falls back to every check when no required checks apply', async (t) => {
+  const forge = await rig(t)
+  setRules(forge, [{ type: 'deletion' }, { type: 'non_fast_forward' }])
+  setCheckRuns(forge, [
+    checkRun('Build', 1, '2026-10-01T10:00:00Z', 'completed', 'success'),
+    checkRun('Windows', 2, '2026-10-01T10:00:00Z', 'completed', 'failure'),
+  ])
+  const said = await forge.run('pr_merge', { number: 7, head: '0123456789abcdef0123456789abcdef01234567' })
+  assert.match(said, /“Windows” failed/)
+  assertRulesReadAtBase(forge)
+  assertNoMergeCall(forge)
+})
+
+test('pr_merge falls back to every check for unreadable, empty or malformed rules answers', async (t) => {
+  const head = '0123456789abcdef0123456789abcdef01234567'
+  for (const answer of ['unreadable', 'empty', 'malformed'] as const) {
+    const forge = await rig(t)
+    if (answer === 'unreadable') writeFileSync(join(forge.home, 'rules-fail'), '')
+    else writeFileSync(join(forge.home, 'rules.json'), answer === 'empty' ? '[]' : '{not-json')
+    setCheckRuns(forge, [
+      checkRun('Build', 1, '2026-10-01T10:00:00Z', 'completed', 'success'),
+      checkRun('Windows', 2, '2026-10-01T10:00:00Z', 'completed', 'failure'),
+    ])
+    const said = await forge.run('pr_merge', { number: 7, head })
+    assert.match(said, /“Windows” failed/, answer)
+    assertRulesReadAtBase(forge)
+    assertNoMergeCall(forge)
+  }
+})
+
+test('pr_merge unions required checks from multiple rulesets', async (t) => {
+  const forge = await rig(t)
+  setRules(forge, [
+    ...requiredRules([{ context: 'Build', integration_id: 15368 }]),
+    {
+      type: 'required_status_checks',
+      ruleset_id: 2,
+      parameters: {
+        required_status_checks: [{ context: 'UI integration', integration_id: 15368 }],
+        strict_required_status_checks_policy: false,
+      },
+    },
+  ])
+  setCheckRuns(forge, [
+    checkRun('Build', 1, '2026-10-01T10:00:00Z', 'completed', 'success', 15368),
+    checkRun('Windows', 2, '2026-10-01T10:00:00Z', 'completed', 'success', 999),
+  ])
+  const said = await forge.run('pr_merge', { number: 7, head: '0123456789abcdef0123456789abcdef01234567' })
+  assert.match(said, /required check “UI integration” is missing/)
+  assertNoMergeCall(forge)
+})
+
+test('pr_merge reads classic branch protection when no ruleset applies', async (t) => {
+  const forge = await rig(t)
+  setRules(forge, [{ type: 'deletion' }])
+  writeFileSync(join(forge.home, 'protection.json'), JSON.stringify({ contexts: ['Classic CI'], checks: [{ context: 'Classic CI', app_id: 15368 }] }))
+  setCheckRuns(forge, [checkRun('Classic CI', 1, '2026-10-01T10:00:00Z', 'completed', 'success', 15368)])
+  const said = await forge.run('pr_merge', { number: 7, head: '0123456789abcdef0123456789abcdef01234567' })
+  assert.match(said, /Merged pull request #7/)
+  const protectionCall = forge.calls().find((args) => (args[1] ?? '').includes('/protection/required_status_checks'))
+  assert.ok(protectionCall?.[1]?.endsWith('/branches/main/protection/required_status_checks'))
 })
 
 test('pr_review opens with the review line; pr_comment is unsigned', async (t) => {
