@@ -7,7 +7,7 @@ import type { CapabilityContribution } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { useSessionKey } from '../state/context'
 import { Slot } from '../slots/registry'
-import { PanelActions } from './PanelActions'
+import { PanelActions, splitRefusal } from './PanelActions'
 import { MountProvider } from './mount'
 import { installPanelComponent } from '../slots/PanelBlocks'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -219,6 +219,42 @@ it('a docked view gets a tab and a body', () => {
   const zoom = control('Give this panel the whole area')
   const collapse = control('Hide this panel')
   expectOnlyPanelActionAtEnd([zoom, collapse], collapse)
+})
+
+it('explains the width or height needed before offering an unusable split', () => {
+  expect(splitRefusal('row', { width: 280, height: 500 })).toBe('Needs 440px; this panel is 280px')
+  expect(splitRefusal('row', { width: 440, height: 500 })).toBeNull()
+  expect(splitRefusal('column', { width: 900, height: 300 })).toBe('Needs 320px; this panel is 300px')
+  expect(splitRefusal('column', { width: 900, height: 320 })).toBeNull()
+})
+
+it('keeps a too-narrow split action in the menu with its refusal reason', () => {
+  const { store } = rig((start) =>
+    dock(
+      dock(start, 'bottom', { kind: 'terminal', terminalId: 't1', runtime: 'codex' as never, cwd: '/repo/api' }),
+      'bottom',
+      { kind: 'terminal', terminalId: 't2', runtime: 'codex' as never, cwd: '/repo/ui' },
+    ),
+  )
+  render(store)
+  expect(panels()).toHaveLength(1)
+  const box = panels()[0]!
+  expect(box).not.toBeNull()
+  vi.spyOn(box!, 'getBoundingClientRect').mockReturnValue({
+    x: 0, y: 0, left: 0, top: 0, right: 280, bottom: 500, width: 280, height: 500,
+    toJSON: () => ({}),
+  } as DOMRect)
+
+  const trigger = [...container.querySelectorAll<HTMLButtonElement>('button')]
+    .find((entry) => entry.getAttribute('aria-label')?.startsWith('Move or split '))
+  expect(trigger).toBeTruthy()
+  act(() => trigger?.click())
+  const action = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .find((entry) => entry.textContent?.includes('Side by side'))
+  expect(action).toBeTruthy()
+  expect(action?.getAttribute('aria-disabled')).toBe('true')
+  const reason = action?.getAttribute('aria-describedby')
+  expect(reason && document.getElementById(reason)?.textContent).toBe('Needs 440px; this panel is 280px')
 })
 
 it('every view in a panel stays mounted; the ones off screen are hidden', () => {

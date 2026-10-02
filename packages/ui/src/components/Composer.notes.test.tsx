@@ -6,6 +6,7 @@ import { sessionKey, type RuntimeInfo, type Session } from '@harnessdesk/protoco
 
 import { StoreProvider } from '../state/context'
 import { noteKey, wrapContext } from '../lib/context-envelope'
+import { Drafts } from '../state/drafts'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { Composer } from './Composer'
 
@@ -67,6 +68,10 @@ const mount = (): void => {
     activeSessionKey: KEY,
   }
   const store = {
+    // These tests exercise composer behavior, not reload persistence. Give
+    // each mount private, memory-only draft state instead of jsdom's shared
+    // sessionStorage mirror.
+    drafts: new Drafts(null),
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     transport: { request: vi.fn() },
@@ -179,6 +184,28 @@ describe('the hover text of a note chip', () => {
 })
 
 describe('a block the desk composed', () => {
+  it('does not inherit a draft left in the reload mirror by another mount', () => {
+    sessionStorage.setItem('harnessdesk:drafts:v1', JSON.stringify({
+      [KEY]: {
+        live: {
+          text: '',
+          attachments: [{
+            id: 'stale-note',
+            name: 'Page annotations — 1 comment',
+            path: noteKey('Page annotations', BLOCK),
+            kind: 'note',
+            text: BLOCK,
+          }],
+        },
+        recoverable: [],
+      },
+    }))
+
+    mount()
+
+    expect(container.textContent).not.toContain('Page annotations')
+  })
+
   it('becomes a chip, and leaves the text box empty', () => {
     mount()
     handOver()

@@ -296,16 +296,18 @@ export const ChannelMessage = ({
             role="meta"
             numeric
             className="whitespace-nowrap opacity-0 select-none group-hover:opacity-100 group-focus-within:opacity-100"
+            title={whisper ?? undefined}
           >
             {at}
+            {whisper && <span className="sr-only">, {whisper}</span>}
           </Text>
         ) : (
           // The face is decoration — the header says who spoke in words. A
           // picture brings its own plate, so the tint is not painted under it.
           face ? (
-            <IconTile aria-hidden="true" tone="neutral">{face}</IconTile>
+            <IconTile aria-hidden="true" shape="face" tone="neutral">{face}</IconTile>
           ) : (
-            <IconTile aria-hidden="true" tint={tint}>
+            <IconTile aria-hidden="true" shape="face" tint={tint}>
               {brand ? <BrandMark brand={brand} size={16} /> : <Monogram>{INITIALS(from)}</Monogram>}
             </IconTile>
           )
@@ -325,7 +327,7 @@ export const ChannelMessage = ({
       <Message align="start" className="items-stretch gap-0">
         {!grouped && (
           <div className="mb-px flex items-baseline gap-1.5">
-            {wrap(<Text role="subject" truncate>{from}</Text>)}
+            {wrap(<Text role="member" truncate>{from}</Text>)}
             {/* `min-w-0`, or `truncate` is decoration: a flex item will not
                 shrink below its content without it, and a recipient list of
                 138 names ran off the row and gave the channel a scrollbar. */}
@@ -339,8 +341,10 @@ export const ChannelMessage = ({
                 In a narrow room it wraps a whole fact at a time, never "04:54"
                 on one line and "AM" on the next. */}
             <MetaList className="min-w-0 whitespace-nowrap">
-              <span>{at}</span>
-              {whisper && <span>{whisper}</span>}
+              <span title={whisper ?? undefined}>
+                {at}
+                {whisper && <span className="sr-only">, {whisper}</span>}
+              </span>
             </MetaList>
           </div>
         )}
@@ -367,6 +371,7 @@ export const ChannelMessage = ({
               data-slot="channel-body"
               clampLines={9}
               expanded={expanded}
+              fadeOverflow={overflows}
               // Several screens (Items, FindingDetail, ProjectTriggers, the
               // session tree) each clamp long content with their own "Show
               // more", none sharing a part. Giving that role one owner is a

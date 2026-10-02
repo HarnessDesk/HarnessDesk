@@ -79,7 +79,7 @@ const declarationsOf = (css) => {
  * palette overlay (`body[data-hd-palette=…]`) stays out of the snapshot — it
  * varies the snapshot rather than being it.
  */
-const applies = (selector, { dark, studio, palette = 'harnessdesk', accent = 'default', corners = 'default' }) =>
+const applies = (selector, { dark, studio, palette = 'harnessdesk', accent = 'default', corners = 'default', faces = 'square' }) =>
   selector.some((one) => {
     const trimmed = one.trim()
     if (trimmed === ':root' || trimmed === 'html' || trimmed === 'body') return true
@@ -94,10 +94,12 @@ const applies = (selector, { dark, studio, palette = 'harnessdesk', accent = 'de
     const wantedPalette = value('data-hd-palette')
     const wantedAccent = value('data-hd-accent')
     const wantedCorners = value('data-hd-corners')
+    const wantedFaces = value('data-hd-faces')
     return (!wantedInterface || wantedInterface === (studio ? 'studio' : 'desk'))
       && (!wantedPalette || wantedPalette === palette)
       && (!wantedAccent || wantedAccent === accent)
       && (!wantedCorners || wantedCorners === corners)
+      && (!wantedFaces || wantedFaces === faces)
   })
 
 /**
