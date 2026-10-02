@@ -83,9 +83,9 @@ Sizes: S under a day of Team time, M about a day, L more.
 
 | PR | What | Depends on | Starts now? | Size |
 | --- | --- | --- | --- | --- |
-| 1 | The overview model (pure selectors) | none | **yes** | M |
+| 1 | The overview model (pure selectors) | none | merged (#1276) | M |
 | 5 | Host: the Run record learns what the views need | none (coordinate on `flow-execution.ts`) | **yes** | M |
-| 6 | The brief field in the start dialog | none | **yes** | S |
+| 6 | The brief field in the start dialog | none | merged (#1274) | S |
 | 2 | The Overview in the Team pane, with every Seat a Run opened (closes #1278) | 1 | after 1 | L |
 | 12 | The Teams page | 1 | after 1 | M |
 | 3 | The Run model and timeline | none; reads PR 5's fields when present | **yes** (after 2 for the shared pane file) | L |
@@ -353,6 +353,8 @@ the Overview draws, in the app's words, ordered by precedence.
 ---
 
 ## PR 6 — The brief field in the start dialog
+
+**Status.** Merged as #1274; this section is kept as the record of what it was asked to do.
 
 **Goal.** A long brief has somewhere to go: a text area in the dialog, not the card's title.
 
