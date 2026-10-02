@@ -223,107 +223,84 @@ test('sidebar state marks yield to actions and every trailing control stays on t
       const rail = await box(column)
       const plus = await box(column.getByRole('button', { name: 'Open a project folder' }))
       expect(plus.x + plus.width, `project add action spills past sidebar at ${width}px`).toBeLessThanOrEqual(rail.x + rail.width + 1)
-      const rowActions = column.locator('[data-slot="sidebar-menu-action"]')
-      for (let row = 0; row < await rowActions.count(); row += 1) {
-        const rowAction = rowActions.nth(row)
-        const trailing = await box(rowAction)
-        expect(trailing.x, `row action begins outside sidebar at ${width}px`).toBeGreaterThanOrEqual(rail.x)
-        expect(trailing.x + trailing.width, `row action spills past sidebar at ${width}px`).toBeLessThanOrEqual(rail.x + rail.width + 1)
-        const parentActionBox = await rowAction.evaluate((node) => {
-          const nested = node.closest('[data-nested="true"]')
-          const parent = nested?.parentElement
-          const action = parent?.querySelector<HTMLElement>(':scope > [data-slot="sidebar-menu-action"]')
-          if (!action) return null
-          const rect = action.getBoundingClientRect()
-          return { left: rect.left, right: rect.right }
-        })
-        if (parentActionBox) {
-          expect(Math.abs(trailing.x - parentActionBox.left), `nested action start misses parent end rail at ${width}px`).toBeLessThanOrEqual(1)
-          expect(Math.abs(trailing.x + trailing.width - parentActionBox.right), `nested action end misses parent end rail at ${width}px`).toBeLessThanOrEqual(1)
+      // Read each row's geometry once per state. Serial browser round trips
+      // for each attribute made this full sweep exhaust its budget at 220px.
+      const rowActions = await column.locator('[data-slot="sidebar-menu-action"]').evaluateAll((nodes) => nodes.map((node) => {
+        const rect = node.getBoundingClientRect()
+        const parent = node.closest('[data-nested="true"]')?.parentElement
+        const action = parent?.querySelector(':scope > [data-slot="sidebar-menu-action"], :scope > div > [data-slot="sidebar-menu-action"]')
+        const parentRect = action?.getBoundingClientRect()
+        return { left: rect.left, right: rect.right, parent: parentRect ? { left: parentRect.left, right: parentRect.right } : null }
+      }))
+      for (const trailing of rowActions) {
+        expect(trailing.left, `row action begins outside sidebar at ${width}px`).toBeGreaterThanOrEqual(rail.x)
+        expect(trailing.right, `row action spills past sidebar at ${width}px`).toBeLessThanOrEqual(rail.x + rail.width + 1)
+        if (trailing.parent) {
+          expect(Math.abs(trailing.left - trailing.parent.left), `nested action start misses parent end rail at ${width}px`).toBeLessThanOrEqual(1)
+          expect(Math.abs(trailing.right - trailing.parent.right), `nested action end misses parent end rail at ${width}px`).toBeLessThanOrEqual(1)
         }
       }
-      const nestedAction = nestedExample.getByRole('button', { name: 'Untitled session actions' })
-      const parentAction = nestedExample.getByRole('button', { name: 'Release room actions' })
-      const childRail = await box(nestedAction)
-      const parentRail = await box(parentAction)
+      const childRail = await box(nestedExample.getByRole('button', { name: 'Untitled session actions' }))
+      const parentRail = await box(nestedExample.getByRole('button', { name: 'Release room actions' }))
       expect(Math.abs(childRail.x - parentRail.x), `nested specimen misses its parent rail at ${width}px`).toBeLessThanOrEqual(1)
       expect(Math.abs(childRail.x + childRail.width - parentRail.x - parentRail.width), `nested specimen misses its parent rail at ${width}px`).toBeLessThanOrEqual(1)
-      const states = column.locator('[data-slot="sidebar-menu-state"]')
-      for (let stateIndex = 0; stateIndex < await states.count(); stateIndex += 1) {
-        const mark = states.nth(stateIndex)
-        const row = mark.locator('xpath=ancestor::li[@data-slot="sidebar-menu-item"][1]')
-        const trailing = row.locator(':scope > [data-slot="sidebar-menu-action"], :scope > div [data-slot="sidebar-menu-action"]')
-        if (await trailing.count() === 0) continue
-        await row.hover()
-        await expect(trailing).toBeVisible()
-        const stateBox = await box(mark)
-        const actionBox = await box(trailing)
-        expect(intersection(stateBox, actionBox), `${await mark.getAttribute('aria-label')} state/action overlap at ${width}px (hover): ${JSON.stringify({ stateBox, actionBox, rowText: await row.innerText(), marks: await row.getAttribute('data-sidebar-trailing-marks'), translate: await mark.evaluate((node) => getComputedStyle(node).translate) })}`).toBe(false)
-        await row.locator('[data-slot="sidebar-menu-button"]').first().focus()
-        expect(intersection(await box(mark), await box(trailing)), `${await mark.getAttribute('aria-label')} state/action overlap at ${width}px (focus)`).toBe(false)
-      }
 
-      const rowItems = column.locator('[data-slot="sidebar-menu-item"]')
-      for (let rowIndex = 0; rowIndex < await rowItems.count(); rowIndex += 1) {
-        const row = rowItems.nth(rowIndex)
-        const actions = row.locator(':scope > [data-slot="sidebar-menu-action"], :scope > div [data-slot="sidebar-menu-action"]')
-        if (await actions.count() === 0) continue
-        const button = row.locator('[data-slot="sidebar-menu-button"]').first()
-        const badges = row.locator(':scope > [data-slot="sidebar-menu-badge"]')
-        const chips = row.locator('[data-slot="sidebar-menu-label"] [data-slot="chip"]')
+      const geometry = (row: Locator) => row.evaluate((node) => {
+        const rect = (element: Element) => {
+          const { x, y, width, height } = element.getBoundingClientRect()
+          return { x, y, width, height }
+        }
+        const visible = (element: Element) => element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden'
+        const atoms = (slot: string) => [...node.querySelectorAll(`:scope > [data-slot="${slot}"], :scope > div > [data-slot="${slot}"]`)].filter(visible)
+        return {
+          name: node.querySelector('[data-slot="sidebar-menu-button"]')?.getAttribute('aria-label') ?? 'sidebar row',
+          badges: atoms('sidebar-menu-badge').map((badge) => ({
+            box: rect(badge), ink: rect(badge.querySelector('svg, [data-role="meta"]') ?? badge),
+            label: badge.getAttribute('aria-label') ?? 'row badge',
+            slot: badge.className.includes('double-action-step') ? 2 : badge.className.includes('action-step') ? 1 : 0,
+          })),
+          actions: atoms('sidebar-menu-action').map((action) => ({
+            box: rect(action), ink: rect(action.querySelector('svg') ?? action),
+            name: action.getAttribute('aria-label'), opacity: getComputedStyle(action).opacity,
+          })),
+          chips: [...node.querySelectorAll(':scope > [data-slot="sidebar-menu-button"] [data-slot="chip"], :scope > div > [data-slot="sidebar-menu-button"] [data-slot="chip"]')].filter(visible).map(rect),
+          states: [...node.querySelectorAll(':scope > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-state"], :scope > div > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-state"]')].filter(visible).map(rect),
+        }
+      })
+      const rows = await column.locator('[data-slot="sidebar-menu-item"]:has(> [data-slot="sidebar-menu-action"], > div > [data-slot="sidebar-menu-action"])').all()
+      const columnCenter = rail.x + rail.width - 32
+      for (const row of rows) {
         await row.scrollIntoViewIfNeeded()
         await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
         await page.mouse.move(0, 0)
-        const columnCenter = rail.x + rail.width - 32
-        for (let badgeIndex = 0; badgeIndex < await badges.count(); badgeIndex += 1) {
-          const badge = badges.nth(badgeIndex)
-          if (!(await badge.isVisible())) continue
-          const ink = badge.locator('svg, [data-role="meta"]').first()
-          const inkBox = await ink.count() ? await box(ink) : await box(badge)
-          const badgeClass = await badge.getAttribute('class') ?? ''
-          const declaredSlot = badgeClass.includes('double-action-step') ? 2 : badgeClass.includes('action-step') ? 1 : 0
-          const expectedCenter = columnCenter - declaredSlot * 24
-          expect(Math.abs(inkBox.x + inkBox.width / 2 - expectedCenter), `${await badge.getAttribute('aria-label') ?? 'row badge'} visible ink centre ${inkBox.x + inkBox.width / 2} misses ${expectedCenter} at ${width}px (rest; ${await badge.getAttribute('class')})`).toBeLessThanOrEqual(1)
+        const rest = await geometry(row)
+        for (const badge of rest.badges) {
+          expect(Math.abs(badge.ink.x + badge.ink.width / 2 - (columnCenter - badge.slot * 24)), `${badge.label} visible ink centre misses its rest slot at ${width}px`).toBeLessThanOrEqual(1)
         }
         for (const focus of [false, true]) {
-          if (focus) await button.focus()
+          if (focus) await row.locator('[data-slot="sidebar-menu-button"]').first().focus()
           else await row.hover()
-          for (let left = 0; left < await badges.count(); left += 1) {
-            for (let right = left + 1; right < await badges.count(); right += 1) {
-              const first = badges.nth(left)
-              const second = badges.nth(right)
-              if (!(await first.isVisible()) || !(await second.isVisible())) continue
-              expect(intersection(await box(first), await box(second)), `trailing marks overlap in ${await button.getAttribute('aria-label') ?? 'sidebar row'} at ${width}px (${focus ? 'focus' : 'hover'})`).toBe(false)
+          const measured = await geometry(row)
+          const mode = focus ? 'focus' : 'hover'
+          for (let left = 0; left < measured.badges.length; left += 1) {
+            for (let right = left + 1; right < measured.badges.length; right += 1) {
+              expect(intersection(measured.badges[left]!.box, measured.badges[right]!.box), `trailing marks overlap in ${measured.name} at ${width}px (${mode})`).toBe(false)
             }
           }
-          for (let actionIndex = 0; actionIndex < await actions.count(); actionIndex += 1) {
-            const action = actions.nth(actionIndex)
-            await expect(action).toHaveCSS('opacity', '1')
-            const actionBox = await box(action)
-            const expectedCenter = columnCenter - (await actions.count() - actionIndex - 1) * 24
-            const actionName = await action.getAttribute('aria-label')
-            const actionInk = action.locator('svg').first()
-            const actionInkBox = await actionInk.count() ? await box(actionInk) : actionBox
-            expect(Math.abs(actionInkBox.x + actionInkBox.width / 2 - expectedCenter), `${await button.getAttribute('aria-label') ?? actionName ?? 'sidebar row'} action ${actionName ?? actionIndex} visible ink misses ${expectedCenter} at ${width}px (${focus ? 'focus' : 'hover'})`).toBeLessThanOrEqual(1)
-            expect(actionBox.x, `row action starts outside sidebar at ${width}px`).toBeGreaterThanOrEqual(rail.x)
-            expect(actionBox.x + actionBox.width, `row action ends outside sidebar at ${width}px`).toBeLessThanOrEqual(rail.x + rail.width + 1)
-            for (let badgeIndex = 0; badgeIndex < await badges.count(); badgeIndex += 1) {
-              const badge = badges.nth(badgeIndex)
-              if (!(await badge.isVisible())) continue
-              const badgeBox = await box(badge)
-              expect(intersection(badgeBox, actionBox), `badge/action overlap in ${await button.getAttribute('aria-label') ?? 'sidebar row'} at ${width}px (${focus ? 'focus' : 'hover'})`).toBe(false)
-              const badgeInk = badge.locator('svg, [data-role="meta"]').first()
-              const badgeInkBox = await badgeInk.count() ? await box(badgeInk) : badgeBox
-              const badgeClass = await badge.getAttribute('class') ?? ''
-              const declaredSlot = badgeClass.includes('double-action-step') ? 2 : badgeClass.includes('action-step') ? 1 : 0
-              const expectedBadgeCenter = columnCenter - declaredSlot * 24 - (await actions.count()) * 24
-              expect(Math.abs(badgeInkBox.x + badgeInkBox.width / 2 - expectedBadgeCenter), `${await badge.getAttribute('aria-label') ?? 'row badge'} visible ink misses its shifted slot at ${width}px (${focus ? 'focus' : 'hover'})`).toBeLessThanOrEqual(1)
+          for (let index = 0; index < measured.actions.length; index += 1) {
+            const action = measured.actions[index]!
+            expect(action.opacity, `${action.name} is hidden at ${width}px (${mode})`).toBe('1')
+            const expectedCenter = columnCenter - (measured.actions.length - index - 1) * 24
+            expect(Math.abs(action.ink.x + action.ink.width / 2 - expectedCenter), `${measured.name} action ${action.name} visible ink misses ${expectedCenter} at ${width}px (${mode})`).toBeLessThanOrEqual(1)
+            expect(action.box.x, `row action starts outside sidebar at ${width}px`).toBeGreaterThanOrEqual(rail.x)
+            expect(action.box.x + action.box.width, `row action ends outside sidebar at ${width}px`).toBeLessThanOrEqual(rail.x + rail.width + 1)
+            for (const badge of measured.badges) {
+              expect(intersection(badge.box, action.box), `badge/action overlap in ${measured.name} at ${width}px (${mode})`).toBe(false)
+              const expectedBadgeCenter = columnCenter - (badge.slot + measured.actions.length) * 24
+              expect(Math.abs(badge.ink.x + badge.ink.width / 2 - expectedBadgeCenter), `${badge.label} visible ink misses its shifted slot at ${width}px (${mode})`).toBeLessThanOrEqual(1)
             }
-            for (let chipIndex = 0; chipIndex < await chips.count(); chipIndex += 1) {
-              const chip = chips.nth(chipIndex)
-              if (!(await chip.isVisible())) continue
-              expect(intersection(await box(chip), actionBox), `chip/action overlap in ${await button.getAttribute('aria-label') ?? 'sidebar row'} at ${width}px (${focus ? 'focus' : 'hover'})`).toBe(false)
-            }
+            for (const chip of measured.chips) expect(intersection(chip, action.box), `chip/action overlap in ${measured.name} at ${width}px (${mode})`).toBe(false)
+            for (const state of measured.states) expect(intersection(state, action.box), `state/action overlap in ${measured.name} at ${width}px (${mode})`).toBe(false)
           }
         }
       }
