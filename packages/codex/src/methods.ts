@@ -159,7 +159,7 @@ export interface CodexMethods {
   'thread/unsubscribe': { params: ThreadUnsubscribeParams; result: ThreadUnsubscribeResponse }
   'thread/compact/start': { params: ThreadCompactStartParams; result: ThreadCompactStartResponse }
   'thread/memoryMode/set': { params: ThreadMemoryModeSetParams; result: ThreadMemoryModeSetResponse }
-  /** Compatibility verb for legacy threads; removed from the generated 0.160.0 protocol. */
+  /** Compatibility verb for legacy threads on Codex <0.160.0; removed from its generated protocol. */
   'thread/rollback': { params: { threadId: string; numTurns: number }; result: unknown }
   'thread/revert': { params: ThreadRevertParams; result: ThreadRevertResponse }
   'thread/goal/set': { params: ThreadGoalSetParams; result: ThreadGoalSetResponse }

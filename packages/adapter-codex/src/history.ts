@@ -1,4 +1,4 @@
-import { CodexRpcError, type CodexAppServer, type CodexProtocol } from '@harnessdesk/codex'
+import { CodexRpcError, compareVersions, type CodexAppServer, type CodexProtocol } from '@harnessdesk/codex'
 
 /**
  * A thread's history: read, and undone, the way the thread keeps it.
@@ -17,10 +17,9 @@ import { CodexRpcError, type CodexAppServer, type CodexProtocol } from '@harness
  * - **legacy** — a thread an older Codex started, and every thread before
  *   0.151.0. It is read whole, which draws no notice: `thread/items/list`
  *   refuses it ("not supported yet"), and so does `thread/revert` ("only
- *   supports paginated threads"). It is undone with `thread/rollback`, which
- *   Codex announces as deprecated all the same, for every client but its own
- *   terminal. Codex has no replacement for a legacy thread, so that one
- *   notice stays.
+ *   supports paginated threads"). Codex versions before 0.160.0 undo it with
+ *   `thread/rollback`, deprecated for every client but its own terminal;
+ *   0.160.0 removes that verb and has no replacement for a legacy thread.
  *
  * A thread that does not say is legacy, which is what every Codex before
  * paginated history had.
@@ -145,7 +144,8 @@ export const readHistory = async (server: CodexAppServer, thread: Thread): Promi
  * A paginated thread is reverted to before the `count`th turn from its end,
  * counted in Codex's own turns — the ones the desk's transcript holds. More
  * turns than it has drops them all, as `thread/rollback` does, and a thread
- * with nothing stored has nothing to drop. A legacy thread is rolled back.
+ * with nothing stored has nothing to drop. A legacy thread is rolled back on
+ * Codex versions before 0.160.0; newer versions have no undo verb for one.
  *
  * Unlike a read, the listing and the revert cannot be split by another
  * client: Undo runs on a session this desk holds, and Codex lets one process
@@ -156,6 +156,12 @@ export const readHistory = async (server: CodexAppServer, thread: Thread): Promi
  */
 export const undoTurns = async (server: CodexAppServer, thread: Thread, count: number): Promise<void> => {
   if (!paginated(thread)) {
+    const installation = server.installation
+    if (!installation || compareVersions(installation.semver, [0, 160, 0]) >= 0) {
+      throw new Error(
+        'Codex 0.160.0 and later cannot undo legacy conversations: Codex removed thread/rollback, and thread/revert only supports paginated conversations.',
+      )
+    }
     await server.request('thread/rollback', { threadId: thread.id, numTurns: count })
     return
   }
