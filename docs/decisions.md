@@ -1181,8 +1181,8 @@ can't confirm which server is asking. "Allow once" stays the filled choice; the 
 apart, so a lasting grant is a deliberate click. The adapter types each grant from the agent's own option ids (one
 tool for this session, a whole server for this session, beyond the session) and declares the words, so the card reads
 data and never parses English. Where Gemini offers no lasting grant, the card says how to turn that on in its settings,
-and the setting key sits in a hover title, not in the line. The flow preview warns, before a run, that this agent asks
-once for each tool. A server-wide session grant keeps the agent's own explicit label, so a broader grant is never
+and the setting key sits in a hover title, not in the line. The flow preview warns, before a run, that the first time,
+this agent asks once for each HarnessDesk tool it uses. A server-wide session grant keeps the agent's own explicit label, so a broader grant is never
 softened to read like the narrow one.
 
 This is a workaround, and it only makes the prompts understandable: they remain. What would remove them is for the
