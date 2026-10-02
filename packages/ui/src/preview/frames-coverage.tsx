@@ -184,6 +184,28 @@ const SelectedFlowPreview = ({ preview }: { readonly preview: FlowPreview }) => 
   )
 }
 
+/* Whole windows, each a real `Workbench`, drawn to show where a notice goes.
+   Every one carries its own composer, model control and conversation rail, so
+   on the default page they would multiply what the specs there look for by
+   one of each — `preview.html?notice-placement` is where they live, gated the
+   way `?empty` and `?side-by-side` are, and where `notice-layouts.spec.ts`
+   reads them. */
+export const NoticePlacementFrames = () => (
+  <>
+    <NoticeLayoutFrame id="coverage-notice-narrow-overlay" title="Notice placement — narrow window overlay" options={{ narrow: true }} />
+    <NoticeLayoutFrame id="coverage-notice-room-board" title="Notice placement — room board without a composer" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never }} />
+    <NoticeLayoutFrame id="coverage-notice-room-pending-approval" title="Notice placement — room composer hidden by an approval" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never, pendingRoomApproval: true }} />
+    <NoticeLayoutFrame id="coverage-notice-room-container-query" title="Notice placement — narrow room rail hides its body" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never, stripSurface: true, narrowRoom: true }} />
+    <NoticeLayoutFrame id="coverage-notice-folder-gone" title="Notice placement — folder-gone conversation" options={{ folderGone: true }} />
+    <NoticeLayoutFrame id="coverage-notice-zoomed-sidebar" title="Notice placement — zoomed sidebar" options={{ zoom: 'sidebar' }} />
+    <NoticeLayoutFrame id="coverage-notice-zoomed-dock" title="Notice placement — zoomed dock" options={{ zoom: 'right' }} />
+    <NoticeLayoutFrame id="coverage-notice-split-composers" title="Notice placement — split with two composers" options={{ split: true }} />
+    <NoticeLayoutFrame id="coverage-notice-split-unfocused-composer" title="Notice placement — visible composer beside focused activity" options={{ split: true, splitBoardFocus: true }} />
+    <NoticeLayoutFrame id="coverage-notice-composer-strip" title="Notice placement — dropped link above the composer" options={{ stripSurface: true }} />
+    <NoticeLayoutFrame id="coverage-notice-pane-bar-strip" title="Notice placement — dropped link below a tool pane bar" options={{ view: { kind: 'activity' as const } as never, stripSurface: true }} />
+  </>
+)
+
 /**
  * State-gated exports get a truthful fixture here rather than a file-wide
  * pass from a sibling. Dialogs begin closed and the coverage test sweeps the
@@ -248,17 +270,6 @@ export const CoverageFrames = () => {
           <div className="p-4"><Notices /><NoticeStripOutlet host /><SidebarNotices /></div>
         </StoreProvider>
       </Frame>
-      <NoticeLayoutFrame id="coverage-notice-narrow-overlay" title="Notice placement — narrow window overlay" options={{ narrow: true }} />
-      <NoticeLayoutFrame id="coverage-notice-room-board" title="Notice placement — room board without a composer" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never }} />
-      <NoticeLayoutFrame id="coverage-notice-room-pending-approval" title="Notice placement — room composer hidden by an approval" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never, pendingRoomApproval: true }} />
-      <NoticeLayoutFrame id="coverage-notice-room-container-query" title="Notice placement — narrow room rail hides its body" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never, stripSurface: true, narrowRoom: true }} />
-      <NoticeLayoutFrame id="coverage-notice-folder-gone" title="Notice placement — folder-gone conversation" options={{ folderGone: true }} />
-      <NoticeLayoutFrame id="coverage-notice-zoomed-sidebar" title="Notice placement — zoomed sidebar" options={{ zoom: 'sidebar' }} />
-      <NoticeLayoutFrame id="coverage-notice-zoomed-dock" title="Notice placement — zoomed dock" options={{ zoom: 'right' }} />
-      <NoticeLayoutFrame id="coverage-notice-split-composers" title="Notice placement — split with two composers" options={{ split: true }} />
-      <NoticeLayoutFrame id="coverage-notice-split-unfocused-composer" title="Notice placement — visible composer beside focused activity" options={{ split: true, splitBoardFocus: true }} />
-      <NoticeLayoutFrame id="coverage-notice-composer-strip" title="Notice placement — dropped link above the composer" options={{ stripSurface: true }} />
-      <NoticeLayoutFrame id="coverage-notice-pane-bar-strip" title="Notice placement — dropped link below a tool pane bar" options={{ view: { kind: 'activity' as const } as never, stripSurface: true }} />
       <Frame id="coverage-library" title="Library — changes made from here">
         <div className="p-4"><LibraryHistory refreshedAt={0} home="/home/u" onFlow={() => {}} /></div>
       </Frame>

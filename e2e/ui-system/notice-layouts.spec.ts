@@ -10,7 +10,7 @@ const expectOneNotice = async (frame: Locator, surface: 'composer' | 'strip'): P
 }
 
 test('real Workbench and Panes put each notice in one mounted outlet', async ({ page }) => {
-  await page.goto('/preview.html')
+  await page.goto('/preview.html?notice-placement')
   const room = layout(page, 'coverage-notice-room-board')
   await room.getByRole('button', { name: /Board/ }).click()
 
@@ -70,7 +70,7 @@ test('real Workbench and Panes put each notice in one mounted outlet', async ({ 
 })
 
 test('a container-hidden room composer gives the notice to the fallback, then takes it back when widened', async ({ page }) => {
-  await page.goto('/preview.html')
+  await page.goto('/preview.html?notice-placement')
   const frame = layout(page, 'coverage-notice-room-container-query')
   await frame.scrollIntoViewIfNeeded()
   const body = frame.locator('[data-slot="room-body"]')
