@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { expect, test } from '@playwright/test'
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url))
-const OUT = resolve(ROOT, process.env.VCENTRE_AUDIT_OUT ?? 'test-results/vertical-centring')
+const OUT = resolve(ROOT, process.env.VCENTRE_AUDIT_OUT ?? 'output/vertical-centring')
 
 test.skip(process.env.VCENTRE_AUDIT !== '1', 'Set VCENTRE_AUDIT=1 to run the investigation-only audit.')
 
