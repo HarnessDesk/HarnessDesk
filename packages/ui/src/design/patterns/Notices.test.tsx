@@ -2,6 +2,8 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
+import noticeCss from './Notices.module.css?raw'
+
 const { toast } = vi.hoisted(() => {
   const toast = Object.assign(vi.fn(), { error: vi.fn(), warning: vi.fn(), promise: vi.fn() })
   return { toast }
@@ -27,6 +29,20 @@ afterEach(async () => {
 
 const update: NoticeMessage = { id: 'update', tone: 'info', title: 'Relaunch to update', body: 'HarnessDesk 0.2.5 is ready.', action: { label: 'Relaunch', onSelect: vi.fn(), shortcut: '⌘R' } }
 const offer: NoticeMessage = { id: 'offer', title: 'Skills to share', body: 'Nothing is copied until you confirm.' }
+
+it('gives one-line composer copy a control-height box and moves its lead only when copy wraps', () => {
+  expect(noticeCss).toMatch(/\.composer\s*\{[^}]*align-items:\s*center/s)
+  expect(noticeCss).toMatch(/\.composer \.line\s*\{[^}]*min-height:\s*var\(--hd-btn-h-sm\)/s)
+  expect(noticeCss).toMatch(/\.composer \.lineText\s*\{[^}]*overflow-wrap:\s*anywhere/s)
+  expect(noticeCss).toMatch(/\.lineText\s*\{[^}]*min-width:\s*0/s)
+  expect(noticeCss).toMatch(/\.composer\[data-wrapped\] > \[data-slot='notice-lead'\]\s*\{[^}]*align-self:\s*flex-start/s)
+})
+
+it('lets unbreakable card copy wrap while the one-line strip stays clipped', () => {
+  expect(noticeCss).toMatch(/\.card \[data-part='notice-title'\]\s*\{[^}]*overflow-wrap:\s*anywhere/s)
+  expect(noticeCss).toMatch(/\.cardBody\s*\{[^}]*overflow-wrap:\s*anywhere/s)
+  expect(noticeCss).toMatch(/\.strip \.line\s*\{[^}]*overflow:\s*hidden[^}]*white-space:\s*nowrap[^}]*text-overflow:\s*ellipsis/s)
+})
 
 const button = (name: string) =>
   [...host.querySelectorAll('button')].find((node) => node.getAttribute('aria-label') === name || node.textContent?.trim().startsWith(name)) as HTMLButtonElement
