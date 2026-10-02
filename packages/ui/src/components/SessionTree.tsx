@@ -1732,7 +1732,7 @@ export const SessionTree = ({ now }: { now: number }) => {
         <div>
           <SidebarMenu><SidebarMenuItem>
             <SidebarMenuButton
-              label={<span className="flex items-center gap-(--hd-space-2)">Other projects<DisclosureChevron open={othersOpen} size="xs" className={styles.groupChevron} /></span>}
+              label={<span className="flex items-center gap-(--hd-space-2)">Other projects<span data-slot="sidebar-menu-icon" className="inline-flex shrink-0 items-center justify-center"><DisclosureChevron open={othersOpen} size="xs" className={styles.groupChevron} /></span></span>}
               aria-expanded={othersOpen}
               onClick={() => setOthersOpen(!othersOpen)}
               {...(dragging && !far.some((group) => group.root === dragging) ? { 'data-insert': 'into' } : {})}

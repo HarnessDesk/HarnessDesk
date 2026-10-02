@@ -132,6 +132,7 @@
 }
 
 .listControls {
+  margin-inline-start: calc(-1 * var(--hd-space-1-5));
   position: relative;
   display: inline-flex; /* desk: flex → inline-flex, the controls occupy only their trailing rail. */
 }
