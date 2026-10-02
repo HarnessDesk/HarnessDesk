@@ -534,7 +534,13 @@ export async function prepareSandbox(fixture, { isolation = 'strict', readPaths 
     fixture.isolation.reason = 'cannot isolate: macOS sandbox-exec unavailable'
     return false
   }
-  const profile = makeSandboxProfile(fixture.root, homedir(), { isolation, readPaths })
+  let profile
+  try {
+    profile = makeSandboxProfile(fixture.root, homedir(), { isolation, readPaths })
+  } catch {
+    fixture.isolation.reason = 'cannot isolate: the Node install directory is not a safe read root'
+    return false
+  }
   if (!profile) {
     fixture.isolation.reason = 'cannot isolate: sandbox profile unavailable'
     return false
