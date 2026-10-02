@@ -1,0 +1,17 @@
+{
+  "name": "@harnessdesk/client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only outside clients: transport-independent calls and stable events, with local Node discovery.",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" },
+    "./node": { "types": "./dist/src/node.d.ts", "default": "./dist/src/node.js" }
+  },
+  "dependencies": { "@harnessdesk/protocol": "workspace:*", "ws": "^8.18.0" },
+  "devDependencies": { "@types/ws": "^8.5.13" },
+  "files": ["dist"],
+  "license": "MIT"
+}
