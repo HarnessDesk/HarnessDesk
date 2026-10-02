@@ -1,0 +1,41 @@
+{
+  "agent": "Cline",
+  "agentId": "cline",
+  "version": "3.0.67",
+  "measured": "2026-10-02",
+  "interface": "not selected",
+  "question": "no session while signed out",
+  "rawAnswer": "",
+  "facts": {
+    "rulesFiles": {
+      "status": "could-not-ask"
+    },
+    "catalogue": {
+      "status": "could-not-ask"
+    },
+    "reportsCatalogue": false,
+    "precedence": {
+      "status": "could-not-ask"
+    },
+    "rejections": {
+      "status": "could-not-ask"
+    },
+    "reportsRejections": false,
+    "skillRoots": [],
+    "refresh": {
+      "status": "unknown",
+      "catalogueRefresh": "none",
+      "skillToggle": false,
+      "openSessionSeesChange": "unknown"
+    },
+    "mcp": {
+      "status": "unknown"
+    },
+    "signedOutCatalogue": {
+      "status": "unknown",
+      "observation": "unknown"
+    }
+  },
+  "status": "could-not-ask",
+  "reason": "ACP initialize unavailable"
+}
