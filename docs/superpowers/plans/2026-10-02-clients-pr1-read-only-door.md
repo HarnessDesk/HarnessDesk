@@ -51,8 +51,11 @@ These bind every task:
   security weakness.** Public text means code comments, docs, commit
   messages and the PR body. Describe today's outside tooling neutrally, as
   scripts that call the window's own store.
-- **Commits.** Small commits in the order of the tasks below, each building
-  on its own. End every commit message with
+- **Commits.** Small commits in the order of the tasks below, and every
+  commit builds on its own. Tasks 1 to 3 are therefore **one** commit: a
+  method declared in `wire.ts` fails to build until its handler exists
+  (`MethodsUnder` and the assembled `HostMethodTable`), so each declaration
+  lands with its validator and its handler. End every commit message with
   `Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>`.
 - **`pnpm verify`,** unpiped, before you hand off. A piped run reports the
   pipe's exit status, not the gate's.
@@ -71,14 +74,14 @@ export const CLIENT_METHODS = {
   'client/hello': 'read',
   'client/subscribe': 'read',
   'goal/list': 'read',
-  'goal/read': 'read',
-  'flow/catalog': 'read',
   'flow/execution': 'read',
   'flow/executions': 'read',
-  'runtime/health': 'read',
 } as const satisfies Partial<Record<HostMethodName, ClientTier>>
 
 export type ClientMethodName = keyof typeof CLIENT_METHODS
+// Only what this PR's five commands use. `goal/read`, `flow/catalog` and the
+// rest join the table with the command that needs them; the gate in Task 8
+// refuses an entry no command uses.
 export const CLIENT_TIERS_GRANTED_BY_DEFAULT: readonly ClientTier[] = ['read']
 export const CLIENT_PROTOCOL = 1
 ```
@@ -94,8 +97,8 @@ Then, in `wire.ts`, declare three methods with their result types:
   - Result: `null`.
 - **`flow/executions`.**
   - Params: `{ team?: GoalId; project?: string; active?: boolean }`.
-  - Result: `readonly FlowExecutionSummary[]`, newest first, where `FlowExecutionSummary = { id; team: GoalId; flow: string /* document name */; state; round: number | null; role: string | null; reason: string | null; startedAt: number | null }`.
-  - Read the stored record for a start time. If the record has none, return `null`; do not invent one from the clock.
+  - Result: `readonly FlowExecutionSummary[]`, newest first, where `FlowExecutionSummary = { id; team: GoalId; flow: string /* document name */; state; round: number | null; role: string | null; reason: string | null; startedAt: number }`.
+  - `startedAt` is the stored record's own (`StoredFlowExecution.startedAt`, which is required: recovery refuses a record without one).
   - `active` defaults to true: only `running` and `stalled` runs.
 
 Validate all three in `wire-validators.ts`:
@@ -107,18 +110,20 @@ Tests sit beside the existing validator tests.
 
 ## Task 2: listing runs, on the host
 
-1. `FlowExecutions` (`packages/server/src/flow-execution.ts`) gains a read
-   that lists its runs. `Flows` (`packages/server/src/flows.ts`) passes it
-   through, filtered by Team and project, and maps each run to a
-   `FlowExecutionSummary`.
+1. Reuse what exists; do not add a second list.
+   - `FlowExecutions.runs(goal?)` (`packages/server/src/flow-execution.ts`)
+     already lists runs, oldest first.
+   - `FlowExecutions.stored(id)` holds each run's `startedAt`.
+   - `Flows` (`packages/server/src/flows.ts`) gains one read over these. It
+     filters by Team and project, maps each run to a `FlowExecutionSummary`,
+     and returns them newest first.
 2. `flow/executions` is answered in `packages/server/src/methods/flows.ts`.
 3. Test it with a hand-built context, the way
    `packages/server/test/methods.test.ts` does. Cover:
-   - newest first;
+   - newest first, ordered by the stored `startedAt`, which is preserved;
    - `active` filtering;
    - the Team filter;
-   - the project filter;
-   - a run whose record has no start time.
+   - the project filter.
 
 Another session also edits `flow-execution.ts`. Fetch `main` before you
 start, and keep this change to one small read.
@@ -140,11 +145,23 @@ session, and a client call has neither. Turn the type into a discriminated
 union:
 
 - the existing entry, unchanged;
-- a client entry: `{ at; kind: 'client/connected' | 'client/call' | 'client/refused' | 'client/closed'; client: string /* name@version */; statedPid: number | null; method?: string; tier?: ClientTier; code?: string }`.
+- a client entry: `{ at; via: 'client'; kind: 'client/connected' | 'client/call' | 'client/refused' | 'client/closed'; client: string /* name@version */; statedPid: number | null; method?: string; tier?: ClientTier; outcome?: 'ok' | 'refused' | 'failed'; code?: string }`.
 
-Existing readers of the audit log must keep working; find every reader and
-check it. Add a test that a client entry round-trips and that the existing
-per-session reading ignores it.
+**What reads the log today, and what changes:**
+
+- `AuditLog.query({ root, sinceDays })` filters by root and age. `audit/query`
+  (answered in `packages/server/src/methods/credentials.ts`) returns its rows,
+  and that wire result type requires `runtime` and `sessionId`.
+- Keep that contract unchanged: `AuditLog.query` skips client entries. Client
+  entries are written to the same file and are read only by a reader built for
+  them, which is a later PR's business.
+
+Add tests for:
+
+- a client entry round-trips through the file;
+- a root-scoped `AuditLog.query` returns the session entries, and never a
+  client entry, when both are in the file;
+- `audit/query`'s result still type-checks without a cast.
 
 ## Task 5: the client door
 
@@ -196,25 +213,43 @@ What it does, in order:
 
 **Each connection is a small state machine:**
 
-- **Before hello.** Every method but `client/hello` is answered
-  `helloFirst`, and nothing is pushed.
+- **Every request is read in this order.** The order is what makes the
+  refusal codes mean what the spec says.
+  1. **The envelope:** `id` and `method`. Split `parseClientMessage` in
+     `wire-validators.ts` into `parseClientEnvelope` (id and method only;
+     a malformed envelope is refused as today) and the params check.
+     `parseClientMessage` then calls both, so the window's door behaves
+     exactly as before. Test that it does.
+  2. **The surface.** A method not in `CLIENT_METHODS` answers
+     `notOnClientSurface`. That includes a method the wire does not declare
+     at all, and an off-surface method whose params would not validate. Its
+     params are never read.
+  3. **Hello first.** Before hello, every method but `client/hello` answers
+     `helloFirst`, and nothing is pushed to the client.
+  4. **The tier.** A method whose tier was not granted answers
+     `tierNotGranted`.
+  5. **The params.** Only now are they validated; invalid params answer
+     `badRequest`, as on the window's door.
+  6. **The call.** It goes to `host.call()`, exactly as on the window's door.
 - **Hello.**
   - `protocol !== CLIENT_PROTOCOL` answers `incompatible` with both numbers
     in the error's `data`, and the connection closes.
   - Otherwise, answer the hello result, with `tiers` set to the granted
-    tiers (`['read']`). Audit `client/connected`.
-- **Every other request.** Parse it with the same `parseClientMessage` the
-  window's door uses. Then:
-  - a method not in `CLIENT_METHODS` answers `notOnClientSurface`, even when
-    it is valid;
-  - a method whose tier was not granted answers `tierNotGranted`;
-  - both refusals are audited (`client/refused`);
-  - an allowed method goes to `host.call()`, exactly as on the window's
-    door, and is audited as `client/call` with its outcome.
+    tiers (`['read']`).
+- **Audit: every request, and every outcome.**
+  - A successful hello is `client/connected`.
+  - Every later request that reaches the host is `client/call`, with
+    `outcome` `ok` or `failed` and the error's code.
+  - Every refusal is `client/refused`, with its code: `notOnClientSurface`,
+    `helloFirst`, `incompatible`, `tierNotGranted` or `badRequest`. A
+    refusal before hello records the client as `unknown`.
+  - Every entry carries `via: 'client'`.
 - **`client/subscribe`.**
   - It records the topics and the scope, then sends each topic's current
     state as notifications, in the same shapes later changes arrive in.
-  - `runs`: `flow/execution-changed` for each active run in scope.
+  - `runs`: `flow/execution-changed` for each active run in scope, and for
+    a run scope, that run whatever its state. A run that settled while a
+    client was away is still seen.
   - `cards`: `team/changed` for each Team board in scope.
   - `teams`: `goal/changed` for each Team in scope.
   - `waiting`: `event` with `approval/requested` for each pending approval
@@ -232,7 +267,8 @@ What it does, in order:
     only under `waiting`.
   - `sync`, `editor/plane`, terminal output and every other notification
     never reach an outside client.
-  - `host/shutdown` always passes.
+  - Nothing is pushed to a client that has not said hello, not even
+    `host/shutdown`.
 - **Scope.**
   - A Team scope matches that Goal's run executions, that Goal's board and
     that Goal's view.
@@ -240,7 +276,10 @@ What it does, in order:
   - A project scope matches Goals whose root is the project.
   - Verify how a Goal's board is addressed (`GoalView.board`, `TeamState.id`)
     before you write the match, and test each kind of scope.
-- **Close.** Audit `client/closed` and drop the broadcaster.
+- **The desk closing.** Nothing emits `host/shutdown` today; the door does.
+  Its `close()` first sends `{ method: 'host/shutdown', params: { reason } }`
+  to every client past hello, then closes each one with code 1001.
+- **A connection closing.** Audit `client/closed` and drop the broadcaster.
 
 **Tests.**
 
@@ -255,8 +294,12 @@ host fixtures in `packages/server/test/fixtures/harness.ts`
 - the pointer is written and then removed;
 - hello-first;
 - `incompatible`;
-- `notOnClientSurface` for a valid method that is off the surface, such as
-  `terminal/create`;
+- `notOnClientSurface` for a declared method off the surface, `terminal/open`,
+  both with valid and with invalid params;
+- `notOnClientSurface` for a method the wire does not declare at all;
+- `badRequest` for a method on the surface with invalid params;
+- `helloFirst` before hello, and `tierNotGranted`;
+- the window's door still answers exactly as before the envelope split;
 - each topic's baseline and its filtering;
 - scope;
 - `sync` never arrives;
@@ -285,8 +328,10 @@ references. It has two entries:
 - **The core** (`.`, `src/index.ts`) imports `@harnessdesk/protocol` and
   nothing else. No `node:*` import.
   - `ClientTransport` (send, onMessage, onClose, close).
-  - `connect({ transport, client, subscribe? })`, which sends hello first and
-    returns a `Client` whose `hello` is the result.
+  - `connect({ transport, client, subscribe? })`, where `transport` is a
+    **factory**, `() => Promise<ClientTransport>`, so a stream that drops can
+    open a new one. It sends hello first and returns a `Client` whose
+    `hello` is the result.
   - `client.call(method, params, { deadlineMs? })`:
     - `method` is typed to `ClientMethodName`, so a method off the surface is
       a compile error.
@@ -303,8 +348,17 @@ references. It has two entries:
     - It derives them by diffing the whole-state notifications per item (a
       run's state, round and reason; a card's state and outcome). It emits
       only on a change.
-    - When the transport drops, it reconnects with backoff, says hello
-      again, subscribes again, yields `gap`, and then whatever differs.
+    - **When the transport drops,** it opens a new one from the factory with
+      backoff, says hello again and subscribes again. It then yields `gap`,
+      followed by the **whole** subscribed state: every run, card, Team and
+      waiting item as an event, changed or not. A consumer can rebuild from
+      the gap. Diffing resumes after that.
+    - **For a run scope,** after every (re)subscribe it also reads the run
+      with `flow/execution`, so a run that settled or stopped while the
+      connection was down still produces its `run.changed`.
+    - **On `host/shutdown`,** it yields `end` (`desk-closed`) and does not
+      reconnect. A transport that closes without that notice is a lost
+      connection, and is reconnected.
   - Notifications are buffered in order, and a slow `events()` consumer
     never blocks a call.
 - **The node entry** (`./node`, `src/node.ts`):
@@ -326,9 +380,13 @@ references. It has two entries:
 - no retry;
 - each event derived from a notification sequence;
 - no event when nothing changed;
-- `gap` after a reconnect;
-- the type-level refusal: a `// @ts-expect-error` call to `terminal/create`
-  in a test that the build compiles.
+- after a reconnect, `gap` and then every item, unchanged ones included;
+- a scoped run that settled during the disconnect is reported;
+- `host/shutdown` ends the stream with `end` (`desk-closed`) and opens no
+  new transport;
+- the type-level refusal: a `// @ts-expect-error` call to `terminal/open`
+  in a test that the build compiles. The method is declared on the wire,
+  so this proves the allowlist type rather than a misspelling.
 
 ## Task 8: `harnessdesk`
 
@@ -343,7 +401,7 @@ It imports `@harnessdesk/client` and `@harnessdesk/protocol` only.
 | `status` | `client/hello`, `goal/list`, `flow/executions` |
 | `teams [--project P]` | `goal/list` |
 | `runs [--team T \| --project P] [--all]` | `flow/executions` |
-| `watch [--team T \| --run R \| --project P] [--until settled]` | `client/subscribe` |
+| `watch [--team T \| --run R \| --project P] [--until settled]` | `client/subscribe`, `flow/execution` |
 
 **Conventions** (the spec's *Conventions* section is the full text):
 
@@ -352,7 +410,9 @@ It imports `@harnessdesk/client` and `@harnessdesk/protocol` only.
   with `hello` and closing with `end`.
 - Human output strips C0/C1 control characters and terminal escape sequences
   from every string that came from an agent. Put this in one tested function.
-- Nothing secret is printed. There is none, and nothing sneaks a credential in.
+- The command line has no credential of its own, so it has none to print.
+  Text it relays came from agents and may contain anything. It shows that
+  text as data, stripped as above, and never interprets it.
 - **Exit codes:**
   - 0 done;
   - 1 error;

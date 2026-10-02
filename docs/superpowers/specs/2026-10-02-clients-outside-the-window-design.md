@@ -16,9 +16,11 @@ call.** Three claims a person can check:
 1. **One client, three users.** The command line, our own maintainer tooling and,
    later, Mobile all use the same library. There is no second protocol and no
    private door.
-2. **Nothing secret is printed, passed in argv, or stored for a local client.**
-   On this machine, file permissions are the credential, so no secret exists
-   to leak.
+2. **A local client has no credential to print, pass in argv, or store.**
+   On this machine, file permissions are the credential, so there is no
+   client secret to leak. (Text the desk relays — a card's title, a handoff,
+   an approval's command — is the agents' text and may contain anything; a
+   client shows it as data and never interprets it.)
 3. **An outside client can do less than the window, on purpose, and the desk
    says exactly what.** Each method is on an allowlist with a tier. A person
    step answered from outside is recorded as answered from outside.
@@ -50,10 +52,11 @@ call.** Three claims a person can check:
   - No method stops one run (#1247).
   - No per-run seat or effort override.
   - No per-run choice of who must be present.
-- **Every connection receives everything.** On connect, the host sends `sync`,
-  which carries every conversation with all its loaded turns. After that, it
-  sends every notification. The host also cannot tell which client made a
-  call: `host.call(method, params)` takes no connection.
+- **An outside client needs a narrower door than the window's.** The window's
+  door gives the window everything it draws: on connect, `sync` with every
+  conversation and its loaded turns, then every change. An outside client
+  wants a few topics, scoped to a Team or a run, and its calls recorded as
+  its own. The client door adds both.
 - **Approvals did not need a keeper.** The pilot's approvals keeper ran
   through three desk lifetimes on 2026-10-02 and answered **zero** approvals.
   It never saw a question it could not answer either: in that pilot, no flow
@@ -296,7 +299,7 @@ interface ClientTransport {
 }
 
 const client = await connect({
-  transport,
+  transport: () => openTransport(),   // a factory: a stream that drops reconnects through it
   client: { name: 'harnessdesk', version },
   subscribe: { topics: ['runs', 'cards'], scope: { run } },
 })
@@ -318,10 +321,18 @@ The library's behaviour, each rule with its reason:
   call is in flight, the call rejects with `disconnected`. Starting a flow
   twice would spend twice. The host already makes a preview token single-use,
   so a blind retry of a start would be refused anyway.
-- **Reconnect is for streams only.** When `events()` loses the connection, it
-  reconnects with backoff, says hello again, subscribes again, and yields
-  `{ type: 'gap' }` before the state that follows. Runs and boards arrive
-  whole, so a gap needs no replay logic.
+- **Reconnect is for streams only.** When `events()` loses the connection,
+  it opens a new transport from the factory with backoff, says hello again,
+  and subscribes again. It then yields `{ type: 'gap' }`, followed by the
+  **whole** subscribed state, every item, changed or not. A consumer can
+  rebuild from a gap without having kept anything.
+  - For a run scope, it also reads that run with `flow/execution`, so a run
+    that settled or stopped while the connection was down is seen, even
+    though it no longer counts as active.
+- **A desk that closes says so.** When a desk quits, its door sends
+  `host/shutdown` to every client past hello, then closes. `events()` ends
+  with `end` (`desk-closed`) and does not reconnect. A transport that drops
+  without that notice is a lost connection, and is reconnected.
 - **Notifications never block responses.** Notifications are buffered in
   order. A slow consumer of `events()` cannot stall a `call()`.
 - **Every call has a deadline: 30 seconds unless the call says otherwise.**
@@ -425,7 +436,7 @@ when Mobile comes (see *Local only, or through the relay*).
 | `harnessdesk card answer <team> <card> <outcome> [--context-file F]` | Answers a card a flow addressed to a person; refused on any other card | `team/intent` (`done`) | answer | yes |
 | `harnessdesk card abandon <team> <card> --reason …` | Abandons a card. The rule that follows its role still fires, and the command says so; to end the work, stop the run | `team/intent` (`abandon`) | run | yes |
 | `harnessdesk waiting` | Everything waiting for a person: person cards, questions, approvals. Read-only | `client/subscribe` (`waiting`) | read | yes |
-| `harnessdesk watch [--team T \| --run R \| --project P] [--until settled]` | Streams changes until interrupted | `client/subscribe` | read | yes |
+| `harnessdesk watch [--team T \| --run R \| --project P] [--until settled]` | Streams changes until interrupted | `client/subscribe`, `flow/execution` | read | yes |
 
 `<flow>` is a catalogue id (`review-pr`) or a file path. A file is read by the
 command line and sent as text, as the window sends it. The host never opens a
@@ -598,8 +609,12 @@ signatures (below), and it gets its own security review.
 The relay carries the same client door: hello-first, the allowlist, tiers and
 topics. **It does not carry the window's whole wire.** This narrows Mobile's
 earlier design note, which had the relay carry the renderer's wire verbatim.
-With the narrower relay, a stolen phone or a compromised relay reaches at
-most the allowlist, never a terminal or a credential.
+With the narrower relay, a stolen phone or a compromised relay reaches only
+the allowlist: no terminal, file or credential method at all. What the
+allowlist grants still has its consequences. A device holding `run` can
+start a flow from the catalogue, and that flow's Seats run commands within
+their ceilings. That is why a paired device's tiers are the person's choice,
+per device.
 
 Two kinds of method stay local only:
 
