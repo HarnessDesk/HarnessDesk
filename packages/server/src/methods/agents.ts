@@ -584,7 +584,7 @@ export async function seatAgent(
     const attachmentsInput: SessionAttachments | undefined =
       prepared && prepared.declarations.length > 0 ? prepared.input : undefined
     const opened = await openAsAsked(ctx, selected, {
-      cwd: params.cwd, title: definition.name,
+      cwd: params.cwd, project, title: definition.name,
       ceiling: level,
       ...(context.environment ? { environment: context.environment } : {}),
       ...(attachmentsInput ? { attachments: attachmentsInput } : {}),
@@ -631,7 +631,7 @@ export async function seatAgent(
         passedOver: seated.passedOver,
         standing: seated.standing,
         ceiling: seated.ceiling,
-        cwd: params.cwd,
+        ...(opened.checkout ?? { cwd: params.cwd, ...(project ? { project } : {}) }),
         session: { runtime: opened.runtime, sessionId: opened.sessionId },
         board: context.board,
         role: context.role,
@@ -1027,6 +1027,7 @@ const openAsAsked = async (
   seat: FlowSeat,
   where: {
     readonly cwd: string
+    readonly project?: string
     readonly title: string
     readonly environment?: Readonly<Record<string, string>>
     readonly ceiling?: CeilingLevel

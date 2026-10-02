@@ -9,6 +9,7 @@ import { isRevisionName } from '../git-revision.js'
 import { repositoryRoot } from '../worktree.js'
 import { isSha } from './records.js'
 import { HARDENED_GIT_CONFIG } from '../git-hardening.js'
+import { sameCanonicalPath } from '../path-identity.js'
 
 /**
  * What git says about a checkout, for evidence: which commit a fact is bound
@@ -218,7 +219,7 @@ export const freshnessOf = async (
 ): Promise<Freshness> => {
   const there = await stat(checkout.cwd).then((info) => info.isDirectory(), () => false)
   if (!there) return { state: 'unknown', why: 'its checkout is gone' }
-  if (options.project !== undefined && (await projectOf(checkout.cwd)) !== options.project) {
+  if (options.project !== undefined && !sameCanonicalPath(await projectOf(checkout.cwd), options.project)) {
     return { state: 'unknown', why: 'its checkout is no longer part of this project' }
   }
   if (options.dirty) return { state: 'uncommitted' }

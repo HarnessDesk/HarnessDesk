@@ -668,7 +668,10 @@ test('an IPv6 address is reached by its bracketed name, through the gate', async
   assert.match(text(await call('fetch_other')), /is not in this plugin's allowed hosts/)
 })
 
-test('pathWithin handles Windows drive and folder casing variations (#465)', () => {
+test('pathWithin handles Windows drive and folder casing variations (#465)', (t) => {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { ...platform, value: 'win32' })
+  t.after(() => Object.defineProperty(process, 'platform', platform))
   assert.equal(pathWithin('C:\\Projects\\my-app', 'c:\\projects\\my-app\\package.json'), true)
   assert.equal(pathWithin('C:/Projects/my-app', 'c:/projects/my-app/src/index.ts'), true)
   assert.equal(pathWithin('c:\\projects\\my-app', 'C:\\Projects\\my-app'), true)
@@ -697,4 +700,14 @@ test('an IPv6 pattern is compared the way a URL writes the address, and a wildca
   assert.equal(hostAllowed(['*.internal.net:8443'], 'api.internal.net:443'), false)
   assert.equal(hostAllowed(['*:3000'], 'anything.example:3000'), true)
   assert.equal(hostAllowed(['*:3000'], 'anything.example:3001'), false)
+})
+
+
+test('pathWithin preserves POSIX backslashes and Windows-looking names', { skip: process.platform === 'win32' }, () => {
+  assert.equal(pathWithin('/review/a/b', '/review/a\\b'), false)
+  assert.equal(pathWithin('/review/a/b', '/review/a\\b/child'), false)
+  assert.equal(pathWithin('/review/a\\b', '/review/a/b/child'), false)
+  assert.equal(pathWithin('/review/a\\b', '/review/a\\b/child'), true)
+  assert.equal(pathWithin('C:/Review', 'c:/review/child'), false)
+  assert.equal(pathWithin('C:/review/a/b', 'C:/review/a\\b'), false)
 })

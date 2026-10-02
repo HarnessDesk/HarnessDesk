@@ -11,6 +11,7 @@ import {
   Worktrees,
   isManagedWorktree,
   managedWorktreePath,
+  openRepositoryRoot,
   parseWorktreeList,
   putBack,
   repositoryOf,
@@ -247,7 +248,10 @@ test('names become branch-safe slugs', () => {
   assert.equal(slugify('a'.repeat(80)).length, 48)
 })
 
-test('managed worktrees are recognized on Windows across separator and casing differences (#317)', () => {
+test('managed worktrees are recognized on Windows across separator and casing differences (#317)', (t) => {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { ...platform, value: 'win32' })
+  t.after(() => Object.defineProperty(process, 'platform', platform))
   // Control: POSIX paths pass both before and after.
   assert.equal(
     isManagedWorktree(
@@ -303,7 +307,10 @@ test('managed worktrees are recognized on Windows across separator and casing di
   )
 })
 
-test('samePath matches paths across Windows and POSIX separators and drive casing (#317, round 1 review)', () => {
+test('samePath folds Windows separators and casing only on win32 (#317, #1235)', (t) => {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { ...platform, value: 'win32' })
+  t.after(() => Object.defineProperty(process, 'platform', platform))
   // Control: identical paths match.
   assert.equal(samePath('/repo/sample', '/repo/sample'), true)
   assert.equal(samePath('/repo/sample', '/repo/other'), false)
@@ -341,6 +348,9 @@ test('samePath matches paths across Windows and POSIX separators and drive casin
 
 test('putBack recognizes the worktree on Windows across forward and backward slashes (#317)', async (t) => {
   const { repo } = await fixture(t)
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { ...platform, value: 'win32' })
+  t.after(() => Object.defineProperty(process, 'platform', platform))
   const fakeWorktree = {
     path: 'C:/Users/alice/.harnessdesk/worktrees/repo-abc/feature',
     branch: 'feature',
@@ -747,4 +757,38 @@ test('parseWorktreeList handles CRLF line endings from git worktree list on Wind
     isMain: false,
     managed: false,
   })
+})
+
+
+test('samePath preserves literal POSIX backslashes, casing and Windows-looking names', (t) => {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { ...platform, value: 'linux' })
+  t.after(() => Object.defineProperty(process, 'platform', platform))
+  assert.equal(samePath('/x/a/b', '/x/a\\b'), false)
+  assert.equal(samePath('/x/a\\b', '/x/a\\b'), true)
+  assert.equal(samePath('/x/A', '/x/a'), false)
+  assert.equal(samePath('/x/a/', '/x/a'), false)
+  assert.equal(samePath('C:/a/b', 'c:/a/b'), false)
+  assert.equal(samePath('C:/a/b', 'C:\\a\\b'), false)
+})
+
+
+test('managed worktree confinement preserves POSIX backslashes and Windows-looking names', { skip: process.platform === 'win32' }, () => {
+  assert.equal(isManagedWorktree('/review/a\\b/child', '/review/a/b'), false)
+  assert.equal(isManagedWorktree('/review/a/b/child', '/review/a\\b'), false)
+  assert.equal(isManagedWorktree('/review/a\\b/child', '/review/a\\b'), true)
+  assert.equal(isManagedWorktree('c:/review/child', 'C:/Review'), false)
+})
+
+test('open repository confinement refuses a POSIX slash/backslash collision', { skip: process.platform === 'win32' }, async (t) => {
+  const { repo } = await fixture(t)
+  const base = join(repo, '..')
+  const admitted = join(base, 'a', 'b')
+  const foreign = join(base, 'a\\b')
+  await Promise.all([mkdir(admitted, { recursive: true }), mkdir(foreign)])
+  await git(foreign, 'init', '-q', '-b', 'main')
+  await git(admitted, 'init', '-q', '-b', 'main')
+  assert.equal(await openRepositoryRoot(foreign, [foreign]), foreign)
+  await assert.rejects(() => openRepositoryRoot(foreign, [admitted]), /not a project opened here/)
+  await assert.rejects(() => openRepositoryRoot(admitted, [foreign]), /not a project opened here/)
 })

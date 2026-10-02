@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import type { ToolResult } from '@harnessdesk/protocol'
+import type { CapabilityRegistry, ScopeQuery, ToolResult } from '@harnessdesk/protocol'
 
-import { ToolGateway } from '../src/tool-gateway.js'
+import { invokeForBridge, ToolGateway } from '../src/tool-gateway.js'
 
 /**
  * The gateway's half of caller scoping: a `caller` token on `tools/invoke`
@@ -335,4 +335,29 @@ test('server/info from a bridge with no token tells the backend which agent comp
     await gateway.stop()
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+
+test('bridge invocation forwards the host-recorded checkout, never a tool argument', async () => {
+  const seen: ScopeQuery[] = []
+  const tools = {
+    list: () => [{ id: 'git-status', namespace: 'git', name: 'git_status' }],
+    invokeTool: async (_id: unknown, _args: unknown, scope: ScopeQuery) => {
+      seen.push(scope)
+      return { ok: true, content: [] }
+    },
+  } as unknown as CapabilityRegistry
+  // A live read, as in bootstrap: a session can change checkout after its bridge opens.
+  let cwd = '/synthetic/lane-one'
+  const callers = new Map([['seat-token', { runtime: 'fake', sessionId: 'seat', get workspaceRoot() { return cwd } }]])
+  const call = { namespace: 'git', name: 'git_status', args: { workspaceRoot: '/untrusted' }, caller: 'seat-token' }
+  await invokeForBridge(tools, callers, call)
+  cwd = '/synthetic/lane-two'
+  await invokeForBridge(tools, callers, call)
+  await invokeForBridge(tools, callers, { ...call, caller: 'unknown' })
+  assert.deepEqual(seen, [
+    { runtime: 'fake', sessionId: 'seat', workspaceRoot: '/synthetic/lane-one' },
+    { runtime: 'fake', sessionId: 'seat', workspaceRoot: '/synthetic/lane-two' },
+    {},
+  ])
 })

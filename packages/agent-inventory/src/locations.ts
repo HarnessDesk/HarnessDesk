@@ -222,21 +222,19 @@ export const knownRoots = (
 
 /**
  * Whether `target` is equal to `root` or a descendant inside `root`.
- * Handles both the current platform separator and POSIX/Windows slashes,
- * preventing Windows paths with backslashes from being rejected.
+ * Folds separators and casing only on Windows; POSIX backslashes are literal
+ * filename characters, even in a name that looks like a Windows path.
  */
 export const isInsideRoot = (target: string, root: string): boolean => {
   const resolvedTarget = resolve(target)
   const resolvedRoot = resolve(root)
-  const normTarget = resolvedTarget.replace(/\\/g, '/')
-  const normRoot = resolvedRoot.replace(/\\/g, '/')
-  const isWin =
-    process.platform === 'win32' ||
-    (/^[a-zA-Z]:[/\\]/.test(target) && /^[a-zA-Z]:[/\\]/.test(root))
+  const isWin = process.platform === 'win32'
+  const normTarget = isWin ? resolvedTarget.replace(/\\/g, '/') : resolvedTarget
+  const normRoot = isWin ? resolvedRoot.replace(/\\/g, '/') : resolvedRoot
   if (isWin ? normTarget.toLowerCase() === normRoot.toLowerCase() : normTarget === normRoot) {
     return true
   }
-  const isFsRoot = normRoot === '/' || /^[a-zA-Z]:\/$/.test(normRoot)
+  const isFsRoot = normRoot === '/' || (isWin && /^[a-zA-Z]:\/$/.test(normRoot))
   const trimmed = isFsRoot ? normRoot : normRoot.replace(/\/+$/, '')
   if (isFsRoot) {
     return isWin

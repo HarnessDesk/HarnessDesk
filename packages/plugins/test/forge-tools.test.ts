@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -32,6 +32,11 @@ const path = require('path')
 const args = process.argv.slice(2)
 const home = process.env.GH_FAKE_HOME
 fs.appendFileSync(path.join(home, 'calls.ndjson'), JSON.stringify(args) + '\n')
+fs.appendFileSync(path.join(home, 'cwd.ndjson'), JSON.stringify(process.cwd()) + '\n')
+const expectedCwd = path.join(home, 'expected-cwd')
+if (fs.existsSync(expectedCwd) && process.cwd() !== fs.readFileSync(expectedCwd, 'utf8')) {
+  process.stderr.write('fake gh: wrong checkout\n'); process.exit(1)
+}
 const after = (flag) => { const at = args.indexOf(flag); return at === -1 ? null : args[at + 1] }
 const bodyFile = path.join(home, 'body.md')
 const mergedFile = path.join(home, 'merged')
@@ -221,6 +226,57 @@ const withoutMarker = (body: string): string => {
   assert.ok(!rest.includes(DESK_POST_MARKER), 'and carries it once')
   return rest
 }
+
+test('git tools and context read the calling lane while the project stays on main', async (t) => {
+  const forge = await rig(t)
+  const lane = join(forge.home, 'lane')
+  execFileSync('git', ['worktree', 'add', '-q', '-b', 'lane-read', lane], { cwd: forge.repo })
+  writeFileSync(join(lane, 'a.txt'), 'lane commit\n')
+  execFileSync('git', ['add', 'a.txt'], { cwd: lane })
+  execFileSync('git', ['-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', 'commit', '-q', '-m', 'lane-read-commit'], { cwd: lane })
+  writeFileSync(join(lane, 'a.txt'), 'lane-only change\n')
+  const scope = { workspaceRoot: lane }
+  const run = async (name: string, args: unknown) => text(await forge.kernel.invokeTool(forge.tool(name), args, scope))
+  assert.match(await run('git_status', {}), /## lane-read/)
+  assert.match(await run('git_diff', {}), /lane-only change/)
+  assert.match(await run('git_log', {}), /lane-read-commit/)
+  const context = await forge.kernel.resolveContext(scope)
+  assert.match(context.find((entry) => entry.label === 'Git')?.text ?? '', /`lane-read`/)
+  const chip = forge.kernel.list('context').find((entry) => entry.label === 'Uncommitted changes')!
+  assert.match((await forge.kernel.resolveOne(chip.id, undefined, scope))?.text ?? '', /lane-only change/)
+  assert.match(await forge.run('git_status', {}), /## main/)
+  assert.equal(execFileSync('git', ['branch', '--show-current'], { cwd: forge.repo }).toString().trim(), 'main')
+})
+
+test('all forge commands use the calling lane, including upstream checks and PR checks', async (t) => {
+  const forge = await rig(t)
+  const lane = join(forge.home, 'lane')
+  execFileSync('git', ['worktree', 'add', '-q', '-b', 'lane-publish', lane], { cwd: forge.repo })
+  // Local tracking refs stand in for a pushed lane; no remote endpoint is used.
+  execFileSync('git', ['update-ref', 'refs/remotes/origin/lane-publish', 'HEAD'], { cwd: lane })
+  execFileSync('git', ['branch', '--set-upstream-to=origin/lane-publish'], { cwd: lane })
+  execFileSync('git', ['branch', '--unset-upstream', 'main'], { cwd: forge.repo })
+  writeFileSync(join(forge.home, 'expected-cwd'), realpathSync(lane))
+  const scope = { runtime: 'codex', sessionId: 'lane-seat', workspaceRoot: lane } as never
+  const run = async (name: string, args: unknown) => text(await forge.kernel.invokeTool(forge.tool(name), args, scope))
+  assert.match(await run('pr_create', { title: 'Lane widgets', body: 'From the lane.' }), /Opened pull request #7/)
+  const create = forge.calls().find((args) => args[1] === 'create')!
+  assert.equal(create[create.indexOf('--head') + 1], 'lane-publish')
+  assert.match(await run('pr_view', {}), /#7 Add widgets/)
+  assert.match(await run('pr_update', { body: 'Updated in the lane.' }), /Updated pull request #7/)
+  assert.match(await run('pr_review', { event: 'approve', body: 'Reviewed in the lane.' }), /pull request #7/)
+  assert.match(await run('pr_comment', { body: 'Lane comment.' }), /Commented on pull request #7/)
+  assert.match(await run('pr_checks', {}), /Checks on pull request #7/)
+  assert.match(await run('issue_view', { number: 42 }), /Widgets wobble/)
+  assert.match(await run('issue_comment', { number: 42, body: 'Lane issue comment.' }), /Commented on issue #42/)
+  const chip = forge.kernel.list('context').find((entry) => entry.label === 'GitHub issue or PR')!
+  assert.ok((await forge.kernel.resolveOne(chip.id, '#42', scope))?.text)
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: lane }).toString().trim()
+  assert.match(await run('pr_merge', { number: 7, head }), /Merged pull request #7/)
+  const directories = readFileSync(join(forge.home, 'cwd.ndjson'), 'utf8').trim().split('\n').map((line) => JSON.parse(line))
+  assert.ok(directories.length > 15, 'reads, writes, API calls and the readbacks actually ran')
+  assert.ok(directories.every((cwd) => cwd === realpathSync(lane)))
+})
 
 test('pr_create signs the description for the seat and records the pull request in the conversation', async (t) => {
   const forge = await rig(t)

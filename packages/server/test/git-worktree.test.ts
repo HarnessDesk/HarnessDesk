@@ -465,3 +465,15 @@ test('add starts a new branch from a relative revision', async () => {
   const made = await add(repo, 'from-parent', { kind: 'new', branch: 'from-parent', base: 'HEAD^' }, state)
   assert.equal((await git(made.path, 'rev-parse', 'HEAD')).trim(), first)
 })
+
+
+test('worktree destination confinement refuses a POSIX slash/backslash collision', { skip: process.platform === 'win32' }, async () => {
+  const { repo, beside, state } = await seedRepo()
+  const admitted = join(beside, 'a', 'b')
+  const nestedRepo = join(admitted, 'repo')
+  await mkdir(nestedRepo, { recursive: true })
+  await git(nestedRepo, 'init', '-q', '-b', 'main')
+  await git(nestedRepo, 'commit', '--allow-empty', '-qm', 'root')
+  const foreign = join(beside, 'a\\b', 'side')
+  await assert.rejects(() => add(nestedRepo, foreign, { kind: 'detach', at: 'HEAD' }, state), /New worktrees are made beside the repository/)
+})

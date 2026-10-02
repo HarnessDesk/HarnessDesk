@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 
 import {
   BrowserInvocations,
+  canonicalScopeQuery,
   setEditorEngine,
   setForgeEngine,
   setTeamEngine,
@@ -1053,6 +1054,7 @@ export class SupervisedExtensionHost {
     kind: K,
     query?: ScopeQuery,
   ): readonly Extract<CapabilityContribution, { kind: K }>[] {
+    if (query) query = canonicalScopeQuery(query)
     const applies = (contribution: CapabilityContribution): boolean =>
       contribution.kind === kind && (!query || scopeApplies(contribution.scope, query))
     return [
@@ -1068,6 +1070,20 @@ export class SupervisedExtensionHost {
     return [...this.#kernel.plugins(), ...this.#child.plugins]
   }
 
+  #shellWorkspaceResolver: (scope: ScopeQuery) => Promise<string | undefined> = async (scope) => scope.workspaceRoot
+
+  /** Resolve in the parent: installed plugins never get a shell-root setter. */
+  setShellWorkspaceResolver(resolve: (scope: ScopeQuery) => Promise<string | undefined>): void {
+    this.#shellWorkspaceResolver = resolve
+    this.#kernel.setShellWorkspaceResolver(resolve)
+  }
+
+  async #shellScope(scope: ScopeQuery): Promise<ScopeQuery> {
+    const { workspaceRoot: _hint, ...identity } = scope
+    const workspaceRoot = await this.#shellWorkspaceResolver(scope)
+    return Object.freeze(canonicalScopeQuery({ ...identity, ...(workspaceRoot === undefined ? {} : { workspaceRoot }) }))
+  }
+
   setBrowserResolver(resolve: (scope: ScopeQuery) => string | undefined): void {
     this.#browserResolver = resolve
     this.#kernel.setBrowserResolver(resolve)
@@ -1075,6 +1091,7 @@ export class SupervisedExtensionHost {
 
   async invokeTool(id: ContributionId, args: unknown, scope: ScopeQuery): Promise<ToolResult> {
     if (this.#ownsInProcess(id)) return this.#kernel.invokeTool(id, args, scope)
+    scope = await this.#shellScope(scope)
     if (!isChildContributionId(id)) {
       return { ok: false, error: `No tool is registered with id ${String(id)}` }
     }
@@ -1111,6 +1128,7 @@ export class SupervisedExtensionHost {
 
   async resolveContext(query: ScopeQuery): Promise<readonly { label: string; text: string }[]> {
     const own = await this.#kernel.resolveContext(query)
+    query = await this.#shellScope(query)
     if (!this.#child.alive && this.#child.contributions.every((entry) => entry.kind !== 'context')) {
       return own
     }
@@ -1128,6 +1146,7 @@ export class SupervisedExtensionHost {
   ): Promise<{ label: string; text: string; image?: ContextImage } | null> {
     if (this.#ownsInProcess(id)) return this.#kernel.resolveOne(id, ref, scope)
     if (!isChildContributionId(id)) return null
+    scope = await this.#shellScope(scope)
     return this.#child.call('context/resolveOne', { id: stripChildContributionId(id), ...(ref === undefined ? {} : { ref }), scope })
   }
 

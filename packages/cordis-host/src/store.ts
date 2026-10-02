@@ -12,6 +12,8 @@ import {
   type ToolResult,
 } from '@harnessdesk/protocol'
 
+import { canonicalScopeQuery, canonicalWorkspaceScope } from './workspace-scope.js'
+
 /**
  * Where contributions and their executors live.
  *
@@ -142,6 +144,7 @@ export class ContributionStore {
     const id = contribution.id ?? contributionId(`c${++this.#counter}`)
     const full = {
       ...contribution,
+      scope: canonicalWorkspaceScope(contribution.scope),
       id,
       revision: this.revisionOf(contribution.owner),
     } as CapabilityContribution
@@ -188,6 +191,7 @@ export class ContributionStore {
     kind: K,
     query: ScopeQuery = {},
   ): Extract<CapabilityContribution, { kind: K }>[] {
+    query = canonicalScopeQuery(query)
     const out: Extract<CapabilityContribution, { kind: K }>[] = []
     for (const entry of this.#byId.values()) {
       if (entry.contribution.kind !== kind) continue
