@@ -583,8 +583,9 @@ side by side while a turn runs, so the primary position never changes meaning
 under a pointer already moving toward it.
 
 What is waiting shows in a strip above the composer, with the goal and the
-running jobs: the host's order, with reorder, remove, and edit — which takes
-the message back into the composer, chips and all. A turn that ended any way
+running jobs: the host's order, with reorder, remove, and edit in place. If an
+edit cannot be saved because the original was already sent, the changed words
+remain in a Restore list beside that conversation's composer. A turn that ended any way
 but cleanly **holds** the queue and says why (amber, with *Send now* and
 *Discard*), and the conversation joins the sidebar's *Needs you* band: firing
 the rest of a queue into a rate limit, a crashed agent, or a turn the user just

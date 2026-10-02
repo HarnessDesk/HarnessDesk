@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'node:child_process'
+import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -96,6 +97,9 @@ export const landSafe = async (
   runner = cliRunner,
   io = { stdout: process.stdout, stderr: process.stderr },
 ) => {
+  // Once `gh pr merge` has been asked, "was not merged" is no longer something
+  // an error can honestly say: the merge may have gone through.
+  let mergeAsked = false
   try {
     if (!repo) repo = run(runner, ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'])
     const initial = readPr(runner, pr, repo)
@@ -133,6 +137,7 @@ export const landSafe = async (
       write(io.stdout, `DECISION: green at ${sha}; dry run, PR ${pr} was not merged.`)
       return 0
     }
+    mergeAsked = true
     run(runner, ['pr', 'merge', String(pr), '--repo', repo, '--squash', '--match-head-commit', sha])
     const afterMerge = readPr(runner, pr, repo)
     if (afterMerge.state === 'MERGED' && afterMerge.mergeCommit?.oid) {
@@ -146,6 +151,12 @@ export const landSafe = async (
     throw new Error(`merge was not confirmed for PR ${pr}: state ${afterMerge.state ?? 'unknown'}, merge commit ${afterMerge.mergeCommit?.oid ?? 'missing'}`)
   } catch (error) {
     write(io.stderr, `land-safe: ${error instanceof Error ? error.message : String(error)}`)
+    write(
+      io.stdout,
+      mergeAsked
+        ? `DECISION: error; the merge of PR ${pr} was asked for and is not confirmed; check the PR before anything else.`
+        : `DECISION: error; PR ${pr} was not merged.`,
+    )
     return 1
   }
 }
@@ -163,14 +174,32 @@ export const parseArgs = (argv) => {
   return { pr, repo, dryRun }
 }
 
-const isMain = process.argv[1] != null && fileURLToPath(import.meta.url) === resolve(process.argv[1])
+export const isEntryPoint = (metaUrl, argv1) => {
+  if (argv1 == null) return false
+  let modulePath
+  try {
+    modulePath = realpathSync(fileURLToPath(metaUrl))
+  } catch {
+    return false
+  }
+  let argvPath
+  try {
+    argvPath = realpathSync(argv1)
+  } catch {
+    argvPath = resolve(argv1)
+  }
+  return modulePath === argvPath
+}
+
+const isMain = isEntryPoint(import.meta.url, process.argv[1])
 if (isMain) {
   let options
   try {
     options = parseArgs(process.argv.slice(2))
   } catch (error) {
     process.stderr.write(`${error.message}\n`)
-    process.exit(1)
+    process.stdout.write('DECISION: error; nothing was merged.\n')
+    process.exitCode = 1
   }
-  process.exitCode = await landSafe(options)
+  if (options) process.exitCode = await landSafe(options)
 }

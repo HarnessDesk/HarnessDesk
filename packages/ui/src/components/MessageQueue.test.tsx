@@ -2,8 +2,9 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { sessionKey, wrapContext, type Session, type SessionQueue } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey, wrapContext, type Session, type SessionQueue } from '@harnessdesk/protocol'
 
+import { createQueueBoardStore } from '../design/explorer/boards'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { MessageQueue } from './MessageQueue'
@@ -34,10 +35,11 @@ afterEach(() => {
 })
 
 const KEY = sessionKey('alpha', 's1')
+const OTHER_KEY = sessionKey('alpha', 's2')
 
-const session = (): Session =>
+const session = (id: string): Session =>
   ({
-    id: 's1',
+    id,
     runtime: 'alpha',
     cwd: '/w',
     status: { type: 'active' },
@@ -50,17 +52,19 @@ const session = (): Session =>
 const calls = {
   unqueue: vi.fn(),
   moveQueued: vi.fn(),
+  updateQueued: vi.fn(),
   flushQueue: vi.fn(),
   clearQueue: vi.fn(),
   notice: vi.fn(),
+  addRecoverableDraft: vi.fn(),
 }
 
-const mount = (queue: SessionQueue | null): void => {
+const mount = (queue: SessionQueue | null, key = KEY): void => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
-    sessions: new Map([[KEY, session()]]),
-    activeSessionKey: KEY,
-    queues: queue ? new Map([[KEY, queue]]) : new Map(),
+    sessions: new Map([[key, session(key.split(':').slice(1).join(':'))]]),
+    activeSessionKey: key,
+    queues: queue ? new Map([[key, queue]]) : new Map(),
   }
   const store = {
     subscribe: () => () => {},
@@ -89,8 +93,9 @@ const waiting = (...lines: string[]): SessionQueue => ({
 
 const rows = (): HTMLLIElement[] => [...container.querySelectorAll('li')]
 const button = (label: string, index = 0): HTMLButtonElement => {
+  const accessibleLabel = label === 'Edit' ? 'Edit queued message' : label
   const found = [...container.querySelectorAll('button')].filter(
-    (element) => element.getAttribute('aria-label') === label || element.textContent === label,
+    (element) => element.getAttribute('aria-label') === accessibleLabel || element.textContent === label,
   )
   const element = found[index]
   if (!element) throw new Error(`no ${label} button`)
@@ -99,6 +104,18 @@ const button = (label: string, index = 0): HTMLButtonElement => {
 const click = (element: HTMLButtonElement): void => {
   act(() => {
     element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+}
+const editor = (): HTMLTextAreaElement => {
+  const field = container.querySelector('textarea[aria-label="Edit queued message"]') as HTMLTextAreaElement | null
+  if (!field) throw new Error('no queued-message editor')
+  return field
+}
+const typeIntoEditor = (value: string): void => {
+  act(() => {
+    const field = editor()
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(field, value)
+    field.dispatchEvent(new Event('input', { bubbles: true }))
   })
 }
 
@@ -202,12 +219,9 @@ describe('MessageQueue', () => {
     expect(calls.clearQueue).toHaveBeenCalledWith(KEY)
   })
 
-  it('puts an edited message back in the composer, whole, and takes it off the queue', () => {
-    const heard: unknown[] = []
-    const listener = (event: Event): void => {
-      heard.push((event as CustomEvent).detail)
-    }
-    window.addEventListener('harnessdesk:compose', listener)
+  it('edits one row in place without touching the composer or changing its carried file', async () => {
+    const compose = vi.fn()
+    window.addEventListener('harnessdesk:compose', compose)
     mount({
       status: 'waiting',
       reason: null,
@@ -221,28 +235,156 @@ describe('MessageQueue', () => {
             { type: 'mention', name: 'a.ts', path: '/w/a.ts' },
           ],
         },
+        { id: 'q1', queuedAt: 0, state: 'queued', input: [{ type: 'text', text: 'next item' }] },
       ],
     })
     click(button('Edit'))
-    window.removeEventListener('harnessdesk:compose', listener)
-
-    expect(calls.unqueue).toHaveBeenCalledWith('q0', KEY)
-    expect(heard[0]).toEqual({
-      text: 'revise this',
-      replace: true,
-      attachments: [{ name: 'a.ts', path: '/w/a.ts', kind: 'file' }],
+    expect(editor().value).toBe('revise this')
+    expect(container.textContent).toContain('a.ts')
+    expect(button('Edit').disabled).toBe(true)
+    typeIntoEditor('revised text')
+    await act(async () => {
+      click(button('Save'))
+      await new Promise((resolve) => setTimeout(resolve, 1))
     })
+    window.removeEventListener('harnessdesk:compose', compose)
+
+    expect(calls.updateQueued).toHaveBeenCalledWith('q0', [
+      { type: 'text', text: 'revised text' },
+      { type: 'mention', name: 'a.ts', path: '/w/a.ts' },
+    ], KEY)
+    expect(calls.unqueue).not.toHaveBeenCalled()
+    expect(compose).not.toHaveBeenCalled()
+    expect(container.querySelector('textarea')).toBeNull()
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 1)))
+    const edit = button('Edit')
+    expect(edit.ownerDocument.activeElement).toBe(edit)
   })
 
-  it('gives back the context it carried as a chip, rather than dropping it', () => {
-    // Editing a message must not quietly lose what it promised to carry. The
-    // provider cannot resolve again — the chip became this text when the
-    // message was queued — so the text itself comes back as a chip.
-    const heard: unknown[] = []
-    const listener = (event: Event): void => {
-      heard.push((event as CustomEvent).detail)
-    }
-    window.addEventListener('harnessdesk:compose', listener)
+  it('keeps an unresolved save visible and leaves the queued row in place until the host answers', async () => {
+    let resolve!: () => void
+    calls.updateQueued.mockImplementationOnce(() => new Promise<void>((done) => { resolve = done }))
+    mount(waiting('original'))
+    click(button('Edit'))
+    typeIntoEditor('pending revision')
+    await act(async () => click(button('Save')))
+    expect(editor().value).toBe('pending revision')
+    expect(button('Saving…').disabled).toBe(true)
+    expect(rows()).toHaveLength(1)
+    expect(calls.unqueue).not.toHaveBeenCalled()
+    await act(async () => resolve())
+    expect(container.querySelector('textarea')).toBeNull()
+  })
+
+  it('recovers a local edit when another window changes the same queued row', () => {
+    mount(waiting('original'))
+    click(button('Edit'))
+    typeIntoEditor('my local revision')
+
+    mount(waiting('revision from the other window'))
+
+    expect(calls.addRecoverableDraft).toHaveBeenCalledWith(KEY, expect.objectContaining({
+      text: 'my local revision',
+      detail: 'The queued message changed in another window. Your edit was not saved. Restore it to the composer.',
+    }))
+    expect(container.querySelector('textarea')).toBeNull()
+    expect(rows()[0]?.textContent).toContain('revision from the other window')
+  })
+
+  it('recovers a revised head row when delivery removes it before Save', () => {
+    mount(waiting('original'))
+    click(button('Edit'))
+    typeIntoEditor('my revised instruction')
+    mount({ status: 'waiting', reason: null, messages: [] })
+    expect(calls.addRecoverableDraft).toHaveBeenCalledWith(KEY, expect.objectContaining({
+      text: 'my revised instruction',
+      detail: 'Your edit wasn’t saved because its message is no longer waiting. Restore it to the composer.',
+    }))
+    expect(container.querySelector('textarea')).toBeNull()
+  })
+
+  it('does not recover or discard an edit when the same queue view switches conversations', () => {
+    mount(waiting('original'))
+    click(button('Edit'))
+    typeIntoEditor('revision for the first conversation')
+
+    mount({ ...waiting('another conversation'), messages: [{
+      id: 'other-row', queuedAt: 0, state: 'queued', input: [{ type: 'text', text: 'another conversation' }],
+    }] }, OTHER_KEY)
+    expect(calls.addRecoverableDraft).not.toHaveBeenCalled()
+
+    mount(waiting('original'))
+    expect(rows()[0]?.textContent).toContain('original')
+    expect(button('Edit')).toBeDefined()
+    expect(calls.addRecoverableDraft).not.toHaveBeenCalled()
+  })
+
+  it('keeps an unsaved revision recoverable when Discard all removes its queued row', () => {
+    mount(waiting('original', 'another row'))
+    click(button('Edit'))
+    typeIntoEditor('keep this revision')
+    click(button('Discard all'))
+
+    mount({ status: 'waiting', reason: null, messages: [] })
+    expect(calls.addRecoverableDraft).toHaveBeenCalledWith(KEY, expect.objectContaining({
+      text: 'keep this revision',
+      detail: 'Your edit wasn’t saved because its message is no longer waiting. Restore it to the composer.',
+    }))
+  })
+
+  it('disables Save for an empty text-only edit and points to Remove', () => {
+    mount(waiting('original'))
+    click(button('Edit'))
+    typeIntoEditor('   ')
+    expect(button('Save').disabled).toBe(true)
+    expect(button('Save').title).toContain('Remove')
+    expect(calls.updateQueued).not.toHaveBeenCalled()
+  })
+
+  it('keeps resolved context attached when edited words are saved', async () => {
+    mount({
+      status: 'waiting',
+      reason: null,
+      messages: [{
+        id: 'q0', queuedAt: 0, state: 'queued',
+        input: [{ type: 'text', text: '<context source="Issue 12">\nbody\n</context>\nfix it' }],
+      }],
+    })
+    click(button('Edit'))
+    expect(container.querySelector('[aria-label="Carried with this message"]')?.textContent).toContain('Issue 12')
+    typeIntoEditor('fix it carefully')
+    await act(async () => click(button('Save')))
+    expect(calls.updateQueued).toHaveBeenCalledWith('q0', [
+      { type: 'text', text: `${wrapContext('Issue 12', 'body')}\n\nfix it carefully` },
+    ], KEY)
+  })
+
+  it('keeps a carried context chip intact while editing the queued row', async () => {
+    const compose = vi.fn()
+    window.addEventListener('harnessdesk:compose', compose)
+    mount({
+      status: 'waiting',
+      reason: null,
+      messages: [{
+        id: 'q0', queuedAt: 0, state: 'queued',
+        input: [{ type: 'text', text: `${wrapContext('Issue 12', 'body')}\nfix it` }],
+      }],
+    })
+    click(button('Edit'))
+    expect(editor().value).toBe('fix it')
+    expect(container.querySelector('[aria-label="Carried with this message"]')?.textContent).toContain('Issue 12')
+    typeIntoEditor('fix it carefully')
+    await act(async () => click(button('Save')))
+    window.removeEventListener('harnessdesk:compose', compose)
+
+    expect(calls.updateQueued).toHaveBeenCalledWith('q0', [
+      { type: 'text', text: `${wrapContext('Issue 12', 'body')}\n\nfix it carefully` },
+    ], KEY)
+    expect(calls.unqueue).not.toHaveBeenCalled()
+    expect(compose).not.toHaveBeenCalled()
+  })
+
+  it('cancel restores the original row and leaves its chips and composer alone', async () => {
     mount({
       status: 'waiting',
       reason: null,
@@ -251,19 +393,67 @@ describe('MessageQueue', () => {
           id: 'q0',
           queuedAt: 0,
           state: 'queued',
-          input: [{ type: 'text', text: `${wrapContext('Issue 12', 'body')}\nfix it` }],
+          input: [{ type: 'text', text: '<context source="Issue 12">\nbody\n</context>\nfix it' }],
         },
       ],
     })
     click(button('Edit'))
-    window.removeEventListener('harnessdesk:compose', listener)
+    typeIntoEditor('discard this change')
+    click(button('Cancel'))
+    expect(container.querySelector('textarea')).toBeNull()
+    expect(rows()[0]?.textContent).toContain('fix it')
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 1)))
+    const edit = button('Edit')
+    expect(edit.ownerDocument.activeElement).toBe(edit)
+    expect(calls.updateQueued).not.toHaveBeenCalled()
+    expect(calls.unqueue).not.toHaveBeenCalled()
+  })
 
-    const detail = heard[0] as { text: string; attachments: { name: string; kind: string; text: string }[] }
-    expect(detail.text).toBe('fix it')
-    expect(detail.attachments[0]?.kind).toBe('note')
-    expect(detail.attachments[0]?.name).toBe('Issue 12')
-    expect(detail.attachments[0]?.text).toBe(wrapContext('Issue 12', 'body'))
-    expect(calls.notice).not.toHaveBeenCalled()
+  it('keeps a refused edit recoverable and explains why it could not be saved', async () => {
+    calls.updateQueued.mockRejectedValueOnce(new Error('This message is being delivered.'))
+    mount(waiting('original'))
+    click(button('Edit'))
+    typeIntoEditor('save this text for me')
+    await act(async () => click(button('Save')))
+    expect(calls.addRecoverableDraft).toHaveBeenCalledTimes(1)
+    expect(calls.addRecoverableDraft.mock.calls[0]).toMatchObject([KEY, {
+      text: 'save this text for me',
+      detail: expect.stringContaining('This message is being delivered.'),
+    }])
+  })
+
+  it('keeps two refused edits of the same row as separate recoveries in order', async () => {
+    calls.updateQueued.mockRejectedValueOnce(new Error('delivering')).mockRejectedValueOnce(new Error('delivering'))
+    mount(waiting('original'))
+    click(button('Edit'))
+    typeIntoEditor('first refused revision')
+    await act(async () => click(button('Save')))
+    click(button('Edit'))
+    typeIntoEditor('second refused revision')
+    await act(async () => click(button('Save')))
+
+    const recoveries = calls.addRecoverableDraft.mock.calls.map(([, draft]) => draft)
+    expect(recoveries.map((draft) => draft.text)).toEqual(['first refused revision', 'second refused revision'])
+    expect(recoveries.map((draft) => draft.sourceId)).toEqual(['q0', 'q0'])
+  })
+
+  it('Escape cancels and Enter or Meta+Enter saves', async () => {
+    mount(waiting('one', 'two'))
+    click(button('Edit'))
+    typeIntoEditor('first revision')
+    act(() => editor().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    expect(container.querySelector('textarea')).toBeNull()
+    expect(calls.updateQueued).not.toHaveBeenCalled()
+
+    click(button('Edit'))
+    typeIntoEditor('second revision')
+    await act(async () => editor().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
+    expect(calls.updateQueued).toHaveBeenCalledTimes(1)
+
+    click(button('Edit'))
+    typeIntoEditor('third revision')
+    await act(async () => editor().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true })))
+    expect(calls.updateQueued).toHaveBeenCalledTimes(2)
   })
 
   /** The state the whole pause rule exists for. */
@@ -406,5 +596,48 @@ describe('dragging a queued message', () => {
       rows()[2]?.dispatchEvent(dragEvent('drop', data))
     })
     expect(calls.moveQueued).toHaveBeenCalledWith('q0', 2, KEY)
+  })
+
+  it('backs the explorer queue with an isolated, complete local store', async () => {
+    const boardKey = sessionKey(runtimeId('codex'), sessionId('catalogue-queue'))
+    const store = createQueueBoardStore()
+    const listener = vi.fn()
+    store.subscribe(listener)
+
+    expect(store.getSnapshot().queues.get(boardKey)?.messages.map(({ id }) => id)).toEqual([
+      'queue-board-1', 'queue-board-2', 'queue-board-3',
+    ])
+    await store.moveQueued('queue-board-3', 0, boardKey)
+    await store.updateQueued('queue-board-1', [{ type: 'text', text: 'Edited message' }], boardKey)
+    expect(store.getSnapshot().queues.get(boardKey)?.messages.map(({ id }) => id)).toEqual([
+      'queue-board-3', 'queue-board-1', 'queue-board-2',
+    ])
+    expect(store.getSnapshot().queues.get(boardKey)?.messages[1]?.input).toEqual([
+      { type: 'text', text: 'Edited message' },
+    ])
+    await store.unqueue('queue-board-1', boardKey)
+    expect(store.getSnapshot().queues.get(boardKey)?.messages.map(({ id }) => id)).toEqual([
+      'queue-board-3', 'queue-board-2',
+    ])
+    await store.clearQueue(boardKey)
+    expect(store.getSnapshot().queues.get(boardKey)?.messages).toEqual([])
+    expect(listener).toHaveBeenCalledTimes(4)
+
+    const untouched = createQueueBoardStore()
+    const untouchedSnapshot = untouched.getSnapshot()
+    const untouchedListener = vi.fn()
+    untouched.subscribe(untouchedListener)
+    await untouched.updateQueued('missing', [{ type: 'text', text: 'ignored' }], boardKey)
+    await untouched.unqueue('missing', boardKey)
+    await untouched.moveQueued('missing', 0, boardKey)
+    await untouched.moveQueued('queue-board-1', 3, boardKey)
+    await untouched.updateQueued('queue-board-1', [], sessionKey(runtimeId('codex'), sessionId('other')))
+    expect(untouched.getSnapshot()).toBe(untouchedSnapshot)
+    expect(untouchedListener).not.toHaveBeenCalled()
+
+    const remounted = createQueueBoardStore()
+    expect(remounted.getSnapshot().queues.get(boardKey)?.messages.map(({ id }) => id)).toEqual([
+      'queue-board-1', 'queue-board-2', 'queue-board-3',
+    ])
   })
 })
