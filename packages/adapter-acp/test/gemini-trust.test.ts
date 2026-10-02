@@ -126,3 +126,18 @@ test('Gemini uses its configured trusted-folders path', (t) => {
   f.folders({ [f.project]: 'TRUST_FOLDER' }, override)
   assert.equal(f.trust({ GEMINI_CLI_TRUSTED_FOLDERS_PATH: override }), true)
 })
+
+
+test('Gemini folder trust refuses a POSIX slash/backslash collision', { skip: process.platform === 'win32' }, (t) => {
+  const f = fixture(t)
+  const admitted = join(f.root, 'a', 'b')
+  const foreign = join(f.root, 'a\\b')
+  mkdirSync(admitted, { recursive: true })
+  mkdirSync(foreign)
+  f.folders({ [admitted]: 'TRUST_FOLDER' })
+  assert.equal(geminiTrustsFolder(admitted, { env: f.env() }), true)
+  assert.equal(geminiTrustsFolder(foreign, { env: f.env() }), false)
+  f.folders({ [foreign]: 'TRUST_FOLDER' })
+  assert.equal(geminiTrustsFolder(admitted, { env: f.env() }), false)
+  assert.equal(geminiTrustsFolder(foreign, { env: f.env() }), true)
+})

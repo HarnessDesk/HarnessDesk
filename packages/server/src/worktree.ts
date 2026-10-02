@@ -290,16 +290,14 @@ export class Worktrees {
  * worktree directory.
  *
  * Git reports paths with forward slashes on every platform, while Node's path
- * functions produce backslashes on Windows. Both are normalized to forward
- * slashes before comparing, and on Windows drive letters are compared
- * case-insensitively.
+ * functions produce backslashes on Windows. On Windows only, separators and
+ * casing are folded; POSIX backslashes are literal filename characters.
  */
 export const isManagedWorktree = (worktreePath: string, home: string): boolean => {
-  const normPath = worktreePath.replace(/\\/g, '/').replace(/\/+$/, '')
-  const normHome = home.replace(/\\/g, '/').replace(/\/+$/, '')
+  const isWin = process.platform === 'win32'
+  const normPath = (isWin ? worktreePath.replace(/\\/g, '/') : worktreePath).replace(/\/+$/, '')
+  const normHome = (isWin ? home.replace(/\\/g, '/') : home).replace(/\/+$/, '')
   const prefix = `${normHome}/`
-  const isWin =
-    process.platform === 'win32' || (/^[a-zA-Z]:\//.test(normPath) && /^[a-zA-Z]:\//.test(normHome))
   return isWin
     ? normPath.toLowerCase().startsWith(prefix.toLowerCase())
     : normPath.startsWith(prefix)
@@ -532,11 +530,10 @@ export const openRepositoryRoot = async (path: string, roots: readonly string[])
   )
   const opened = await Promise.all(roots.map((root) => canonical(root)))
   const within = (inner: string, outer: string): boolean => {
-    const normInner = inner.replace(/\\/g, '/').replace(/\/+$/, '')
-    const normOuter = outer.replace(/\\/g, '/').replace(/\/+$/, '')
+    const isWin = process.platform === 'win32'
+    const normInner = (isWin ? inner.replace(/\\/g, '/') : inner).replace(/\/+$/, '')
+    const normOuter = (isWin ? outer.replace(/\\/g, '/') : outer).replace(/\/+$/, '')
     const prefix = `${normOuter}/`
-    const isWin =
-      process.platform === 'win32' || (/^[a-zA-Z]:\//.test(normInner) && /^[a-zA-Z]:\//.test(normOuter))
     if (isWin ? normInner.toLowerCase() === normOuter.toLowerCase() : normInner === normOuter) return true
     return isWin
       ? normInner.toLowerCase().startsWith(prefix.toLowerCase())

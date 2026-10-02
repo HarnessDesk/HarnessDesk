@@ -784,7 +784,10 @@ test('an agent that says nothing about toggling is assumed to allow it', async (
   assert.equal(entry?.reach[0]?.toggleable, true)
 })
 
-test('insideRoots recognizes Windows child paths with backslashes (#445)', () => {
+test('insideRoots recognizes Windows child paths with backslashes (#445)', (t) => {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { ...platform, value: 'win32' })
+  t.after(() => Object.defineProperty(process, 'platform', platform))
   assert.equal(
     insideRoots('C:\\root\\skills\\review', ['C:\\root\\skills']),
     true,
@@ -802,7 +805,10 @@ test('insideRoots recognizes Windows child paths with backslashes (#445)', () =>
   )
 })
 
-test('insideReadOnlyRoot recognizes Windows child paths under read-only skill roots (#445)', () => {
+test('insideReadOnlyRoot recognizes Windows child paths under read-only skill roots (#445)', (t) => {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { ...platform, value: 'win32' })
+  t.after(() => Object.defineProperty(process, 'platform', platform))
   assert.equal(
     insideReadOnlyRoot(
       'C:\\Users\\dev\\.cursor\\skills-cursor\\review',
@@ -814,7 +820,10 @@ test('insideReadOnlyRoot recognizes Windows child paths under read-only skill ro
   )
 })
 
-test('isInsideRoot handles cross-platform separator and casing variations (#445)', () => {
+test('isInsideRoot handles cross-platform separator and casing variations (#445)', (t) => {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { ...platform, value: 'win32' })
+  t.after(() => Object.defineProperty(process, 'platform', platform))
   assert.equal(isInsideRoot('C:\\root\\skills\\review', 'C:\\root\\skills'), true)
   assert.equal(isInsideRoot('C:/root/skills/review', 'C:\\root\\skills'), true)
   assert.equal(isInsideRoot('C:\\root\\skills\\review', 'C:/root/skills/'), true)
@@ -825,3 +834,11 @@ test('isInsideRoot handles cross-platform separator and casing variations (#445)
   assert.equal(isInsideRoot('/root/skills', '/root/skills'), true)
 })
 
+
+
+test('Library root confinement preserves POSIX backslashes and Windows-looking names', { skip: process.platform === 'win32' }, () => {
+  assert.equal(isInsideRoot('/review/a\\b', '/review/a/b'), false)
+  assert.equal(isInsideRoot('/review/a/b/child', '/review/a\\b'), false)
+  assert.equal(isInsideRoot('/review/a\\b/child', '/review/a\\b'), true)
+  assert.equal(isInsideRoot('c:/review/child', 'C:/Review'), false)
+})

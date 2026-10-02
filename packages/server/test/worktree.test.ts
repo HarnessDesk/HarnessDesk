@@ -11,6 +11,7 @@ import {
   Worktrees,
   isManagedWorktree,
   managedWorktreePath,
+  openRepositoryRoot,
   parseWorktreeList,
   putBack,
   repositoryOf,
@@ -247,7 +248,10 @@ test('names become branch-safe slugs', () => {
   assert.equal(slugify('a'.repeat(80)).length, 48)
 })
 
-test('managed worktrees are recognized on Windows across separator and casing differences (#317)', () => {
+test('managed worktrees are recognized on Windows across separator and casing differences (#317)', (t) => {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { ...platform, value: 'win32' })
+  t.after(() => Object.defineProperty(process, 'platform', platform))
   // Control: POSIX paths pass both before and after.
   assert.equal(
     isManagedWorktree(
@@ -766,4 +770,25 @@ test('samePath preserves literal POSIX backslashes, casing and Windows-looking n
   assert.equal(samePath('/x/a/', '/x/a'), false)
   assert.equal(samePath('C:/a/b', 'c:/a/b'), false)
   assert.equal(samePath('C:/a/b', 'C:\\a\\b'), false)
+})
+
+
+test('managed worktree confinement preserves POSIX backslashes and Windows-looking names', { skip: process.platform === 'win32' }, () => {
+  assert.equal(isManagedWorktree('/review/a\\b/child', '/review/a/b'), false)
+  assert.equal(isManagedWorktree('/review/a/b/child', '/review/a\\b'), false)
+  assert.equal(isManagedWorktree('/review/a\\b/child', '/review/a\\b'), true)
+  assert.equal(isManagedWorktree('c:/review/child', 'C:/Review'), false)
+})
+
+test('open repository confinement refuses a POSIX slash/backslash collision', { skip: process.platform === 'win32' }, async (t) => {
+  const { repo } = await fixture(t)
+  const base = join(repo, '..')
+  const admitted = join(base, 'a', 'b')
+  const foreign = join(base, 'a\\b')
+  await Promise.all([mkdir(admitted, { recursive: true }), mkdir(foreign)])
+  await git(foreign, 'init', '-q', '-b', 'main')
+  await git(admitted, 'init', '-q', '-b', 'main')
+  assert.equal(await openRepositoryRoot(foreign, [foreign]), foreign)
+  await assert.rejects(() => openRepositoryRoot(foreign, [admitted]), /not a project opened here/)
+  await assert.rejects(() => openRepositoryRoot(admitted, [foreign]), /not a project opened here/)
 })

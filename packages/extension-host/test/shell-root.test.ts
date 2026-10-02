@@ -81,3 +81,32 @@ for (const entry of ['tool', 'chip', 'automatic'] as const) {
     }
   })
 }
+
+
+test('installed plugin shell refuses explicit cwd with a POSIX slash/backslash collision', { skip: process.platform === 'win32' }, async (t) => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), 'hd-child-shell-collision-')))
+  const admitted = join(base, 'a', 'b')
+  const foreign = join(base, 'a\\b')
+  const store = join(base, 'plugins')
+  const plugin = join(store, 'where')
+  await Promise.all([mkdir(admitted, { recursive: true }), mkdir(foreign), mkdir(plugin, { recursive: true })])
+  await writeFile(join(plugin, 'harnessdesk.plugin.json'), JSON.stringify({
+    id: 'where', name: 'Where', version: '1.0.0', main: './index.js', permissions: { shell: true, workspace: { read: true } },
+  }))
+  await writeFile(join(plugin, 'index.js'), `export const plugin = {
+    name: 'where', inject: ['tools', 'shell'], apply(ctx) {
+      ctx.tools.register({ name: 'where', description: '', inputSchema: { type: 'object' },
+        execute: async (args) => (await ctx.shell.run(${JSON.stringify(process.execPath)}, ['-e', 'process.stdout.write(process.cwd())'], args)).stdout })
+    }
+  }`)
+  const host = new SupervisedExtensionHost(new ExtensionKernel(), { env: { HARNESSDESK_PLUGINS: store } })
+  t.after(async () => { await host.dispose(); await rm(base, { recursive: true, force: true }) })
+  host.setWorkspace({ root: admitted, branch: null })
+  host.setShellWorkspaceResolver(async () => admitted)
+  await host.loadInstalledPlugins()
+  const id = host.list('tool')[0]!.id
+  assert.deepEqual(await host.invokeTool(id, { cwd: admitted }, {}), { ok: true, content: [{ type: 'text', text: admitted }] })
+  const refused = await host.invokeTool(id, { cwd: foreign }, {})
+  assert.equal(refused.ok, false, JSON.stringify(refused))
+  if (!refused.ok) assert.match(refused.error, /outside the open workspace/)
+})

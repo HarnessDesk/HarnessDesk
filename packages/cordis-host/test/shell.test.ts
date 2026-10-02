@@ -99,3 +99,35 @@ test('shell calls keep concurrent invocation checkouts separate and confine expl
   }
   assert.deepEqual(output(await run(undefined)), [{ type: 'text', text: await realpath(project) }])
 })
+
+
+test('in-process shell refuses explicit cwd with a POSIX slash/backslash collision', { skip: process.platform === 'win32' }, async (t) => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), 'hd-shell-collision-')))
+  t.after(() => rm(base, { recursive: true, force: true }))
+  const admitted = join(base, 'a', 'b')
+  const foreign = join(base, 'a\\b')
+  await Promise.all([mkdir(admitted, { recursive: true }), mkdir(foreign)])
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  kernel.setWorkspace({ root: admitted, branch: null })
+  kernel.setShellWorkspaceResolver(async () => admitted)
+  await kernel.load({
+    manifest: { id: 'where', name: 'Where', permissions: { workspace: { read: true }, shell: true } },
+    plugin: {
+      name: 'where', inject: ['tools', 'shell'],
+      apply(ctx: HarnessContext) {
+        ctx.tools.register({
+          name: 'where', description: '', inputSchema: { type: 'object' },
+          execute: async (args: { cwd?: string }) =>
+            (await ctx.shell.run(process.execPath, ['-e', 'process.stdout.write(process.cwd())'], args)).stdout,
+        })
+      },
+    },
+  } as HarnessPlugin)
+  await settle()
+  const id = kernel.list('tool')[0]!.id
+  assert.deepEqual(await kernel.invokeTool(id, { cwd: admitted }, {}), { ok: true, content: [{ type: 'text', text: admitted }] })
+  const refused = await kernel.invokeTool(id, { cwd: foreign }, {})
+  assert.equal(refused.ok, false, JSON.stringify(refused))
+  if (!refused.ok) assert.match(refused.error, /outside the open workspace/)
+})
