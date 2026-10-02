@@ -215,6 +215,15 @@ export interface Dock {
 export const MIN_RATIO = 0.15
 export const MAX_RATIO = 0.85
 
+/**
+ * Smallest useful width and height for either half of a dock split — a half's
+ * whole box, tab strip included, because each half is a panel of its own and
+ * wears its own strip. So the menu measures the panel it belongs to, not its
+ * body: halving a body would count the strip once where two are drawn.
+ */
+export const MIN_SPLIT_HALF = 220
+export const MIN_SPLIT_HALF_H = 160
+
 const clampRatio = (ratio: number): number => Math.min(MAX_RATIO, Math.max(MIN_RATIO, ratio))
 
 /**
@@ -909,6 +918,31 @@ export const rightPanelDrawn = (workbench: Workbench): boolean =>
   dockViews(workbench.right).length > 0 && areaVisible(workbench, 'right') && !workbench.right.collapsed
 
 /**
+ * Whether the sidebar has to give up its column: a window under
+ * `NARROW_WINDOW`, or one where it, a drawn right panel and `MIN_READING` do
+ * not fit side by side.
+ *
+ * The sidebar's own width counts even while its column is put away, so
+ * toggling it never moves the line; and only committed sizes are read, so a
+ * seam mid-drag cannot cross it under the pointer. A zoom answers visibility
+ * by itself and is left out.
+ */
+export const sidebarCannotHaveColumn = (workbench: Workbench, windowWidth: number): boolean =>
+  windowWidth < NARROW_WINDOW ||
+  (workbench.zoom === null &&
+    rightPanelDrawn(workbench) &&
+    workbench.sidebar.size + workbench.right.size + MIN_READING + 2 * SEAM > windowWidth)
+
+/**
+ * Whether the right panel leaves less than the reading width beside it and
+ * therefore covers the whole main area —
+ * the one rule `Workbench` hides and inerts the middle by, and the corner and
+ * the notice strip follow (#1179).
+ */
+export const rightPanelOverlays = (workbench: Workbench, windowWidth: number): boolean =>
+  windowWidth - workbench.right.size - SEAM < MIN_READING && rightPanelDrawn(workbench) && areaVisible(workbench, 'main')
+
+/**
  * The area the strip above the panes rides (`NoticeStripOutlet`): the one
  * being read at full size, never one a zoom or an overlay has taken off the
  * screen.
@@ -916,16 +950,16 @@ export const rightPanelDrawn = (workbench: Workbench): boolean =>
  * The main area, normally — where, inside the split tree, the expanded pane
  * if there is one and the first pane otherwise hosts it. A dock zoomed to
  * take the room takes the strip with it, since the main area it would
- * otherwise have ridden has no box; so does a right panel a narrow window
- * lays over the whole main area. `null` is a zoomed sidebar, which is no
+ * otherwise have ridden has no box; so does a right panel that covers the
+ * whole main area. `null` is a zoomed sidebar, which is no
  * place for a desk-wide strip: `NoticeStripOutlet`'s own fallback then
  * carries a composer-bound notice instead, and nothing stands in for one
  * that belongs on the strip until the sidebar is unzoomed.
  */
-export const noticeArea = (workbench: Workbench, narrow: boolean): 'main' | 'right' | 'bottom' | null => {
+export const noticeArea = (workbench: Workbench, windowWidth: number): 'main' | 'right' | 'bottom' | null => {
   const zoom = workbench.zoom
   if (zoom !== null && zoom.area !== 'main') return zoom.area === 'sidebar' ? null : zoom.area
-  if (narrow && rightPanelDrawn(workbench)) return 'right'
+  if (rightPanelOverlays(workbench, windowWidth)) return 'right'
   return 'main'
 }
 
@@ -941,13 +975,13 @@ const firstPane = (node: LayoutNode): PaneId => (node.kind === 'pane' ? node.id 
  * a dock (`right`/`bottom`), or to nobody (a zoomed sidebar), and no pane in
  * the split tree is the one carrying it.
  */
-export const mainNoticeHost = (workbench: Workbench, narrow: boolean): PaneId | null =>
-  noticeArea(workbench, narrow) === 'main' ? (workbench.main.expanded ?? firstPane(workbench.main.root)) : null
+export const mainNoticeHost = (workbench: Workbench, windowWidth: number): PaneId | null =>
+  noticeArea(workbench, windowWidth) === 'main' ? (workbench.main.expanded ?? firstPane(workbench.main.root)) : null
 
 /**
  * Whether the pane or panel someone is focused on right now shows a composer
  * — a conversation with a session, or a room — and is actually on screen,
- * not merely mounted behind a zoom or the narrow window's main-area overlay.
+ * not merely mounted behind a zoom or the right panel's main-area overlay.
  *
  * `focusedMount` names exactly one mount in the whole window, so "the
  * composer that happens to be focused" is the one place a standing condition
@@ -955,15 +989,15 @@ export const mainNoticeHost = (workbench: Workbench, narrow: boolean): PaneId | 
  * mount is not a composer, or is not visible, there is no composer to carry
  * it, and `NoticeStripOutlet`'s fallback takes over instead.
  */
-export const focusedComposerVisible = (workbench: Workbench, narrow: boolean): boolean => {
+export const focusedComposerVisible = (workbench: Workbench, windowWidth: number): boolean => {
   const id = focusedMount(workbench)
   const area = areaOfMount(workbench, id)
   if (!areaVisible(workbench, area)) return false
-  // A right panel drawn over the whole main area in a narrow window makes the
+  // A right panel drawn over the whole main area makes the
   // conversation behind it unreachable — `inert` in `Workbench.tsx` — even
   // though `areaVisible` still calls `main` on screen, since nothing there is
   // zoomed. That is a second way to be covered `areaVisible` does not know.
-  if (area === 'main' && narrow && rightPanelDrawn(workbench)) return false
+  if (area === 'main' && rightPanelOverlays(workbench, windowWidth)) return false
   const view = area === 'main' ? findPane(workbench.main, id)?.view : mountedView(workbench, id)?.view
   if (!view) return false
   return view.kind === 'room' || (view.kind === 'conversation' && view.session !== null)
@@ -1050,34 +1084,58 @@ export const areaVisible = (workbench: Workbench, area: AreaId): boolean => {
  * anyway, so that if some later change hides the middle another way the corner
  * lands on a panel that is actually drawn rather than on an empty one. Both
  * halves of that are pinned in `workbench.test.ts`.
+ *
+ * A right panel can also take the corner when it covers the main area
+ * (`noticeArea` reads the
+ * same rule), so its tab strip, not the hidden conversation's header, is the
+ * row under the buttons.
  */
-export const cornerArea = (workbench: Workbench, sidebarShown: boolean): AreaId =>
+export const cornerArea = (workbench: Workbench, sidebarShown: boolean, windowWidth = Number.POSITIVE_INFINITY): AreaId =>
   sidebarShown
     ? 'sidebar'
-    : areaVisible(workbench, 'main')
-      ? 'main'
-      : areaVisible(workbench, 'right') && dockViews(workbench.right).length > 0
-        ? 'right'
-        : 'bottom'
+    : rightPanelOverlays(workbench, windowWidth)
+      ? 'right'
+      : areaVisible(workbench, 'main')
+        ? 'main'
+        : areaVisible(workbench, 'right') && dockViews(workbench.right).length > 0
+          ? 'right'
+          : 'bottom'
 
 // ---------------------------------------------------------- narrow windows
 
 /**
- * The narrowest window that still gives the sidebar a column.
+ * The narrowest window that always gives the sidebar a column.
  *
  * It is the desktop window's own minimum (`minWidth` in the shell's
- * `electron/main.mjs`), so every width the desktop app can take at its
- * ordinary zoom keeps the layout it has always had. A browser goes narrower —
- * a phone, a tab dragged thin — and so does the desktop app zoomed in, whose
- * window is measured in CSS pixels and is then narrower than it looks; the
- * narrow layout is right there too, since everything on it is bigger. Below
- * the line a 240px column left the conversation 135px: a composer wrapping its
+ * `electron/main.mjs`), so the desktop app at its ordinary zoom only ever
+ * loses the column to `MIN_READING` below. A browser goes narrower — a phone,
+ * a tab dragged thin — and so does the desktop app zoomed in, whose window is
+ * measured in CSS pixels and is then narrower than it looks. Below the line a
+ * 240px column left the conversation 135px: a composer wrapping its
  * placeholder a word to a line and a header whose title was one pixel wide.
  * So below it the sidebar floats over the conversation instead of standing
- * beside it, and a panel docked on the right takes the conversation's whole
- * width while it is open.
+ * beside it.
  */
 export const NARROW_WINDOW = 720
+
+/**
+ * The narrowest conversation that stands beside anything.
+ *
+ * A wide window could still squeeze it: at 720px a 240px sidebar and a 280px
+ * right panel left 198px. So the sidebar gives up its column first
+ * (`sidebarCannotHaveColumn`), and only then does the right panel cover the
+ * conversation (`rightPanelOverlays`) — navigation before the thing being
+ * consulted, and that before the work. See docs/decisions.md.
+ */
+export const MIN_READING = 400
+
+/**
+ * The divider between two columns, which is taken from one of them. Measured
+ * in the live window: with the arithmetic done on sizes alone the
+ * conversation stood at 398px beside a sidebar and a panel, and at 399px
+ * beside the panel alone — never the 400 it promised.
+ */
+export const SEAM = 1
 
 /**
  * Where the sidebar is drawn.

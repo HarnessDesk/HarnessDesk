@@ -106,7 +106,15 @@ const Lead = ({ message, size = 'md', line }: { message: NoticeMessage; size?: '
   const lineSize = line ?? size
   return (
     <span data-slot="notice-lead" className={cn('flex shrink-0 items-center overflow-visible', lineSize === 'sm' ? 'h-(--hd-line-sm)' : 'h-(--hd-line)')}>
-      <span className={styles.tile} data-tone={tone} data-size={size} aria-hidden>
+      <span
+        className={styles.tile}
+        data-tone={tone}
+        data-size={size}
+        // An Agent's message leads with that Agent's face, and a face takes the
+        // person's chosen shape; a tone's icon stays the tile it was.
+        {...(message.mark ? { 'data-face': '' } : {})}
+        aria-hidden
+      >
         {message.mark ?? <Glyph size={size === 'sm' ? 12 : 14} />}
       </span>
     </span>
@@ -287,6 +295,18 @@ const ComposerNoticeRow = ({ message, onDismiss, onMute }: { message: NoticeMess
 /** The composer notices, stacked over the composer they are about. */
 export const ComposerNoticeStack = ({ children }: { children: ReactNode }) => (
   <div className={styles.composerStack} data-slot="composer-notices">
+    {children}
+  </div>
+)
+
+/**
+ * The short status lines over a composer — who is working, what sending does
+ * besides send — as one tinted strip rather than loose sentences on the
+ * page's own ground. It styles its direct children, so any line can ride in
+ * it, and two or more join: no gap, only the outer corners round.
+ */
+export const ComposerTail = ({ children }: { children: ReactNode }) => (
+  <div className={styles.tail} data-slot="composer-tail">
     {children}
   </div>
 )

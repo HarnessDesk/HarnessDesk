@@ -489,6 +489,23 @@ export const AppearanceSection = () => {
             />
           }
         />
+        <Row
+          title="Faces"
+          /* Earned: the label cannot say which marks follow it. An account's
+             ring and a thing's tile keep their own shape. */
+          desc="Agents and people, wherever they appear. Accounts keep their ring."
+          control={
+            <Segmented
+              label="Faces"
+              value={snapshot.faces}
+              options={[
+                { value: 'square', label: 'Square' },
+                { value: 'round', label: 'Round' },
+              ]}
+              onChange={(next) => store.setFaces(next)}
+            />
+          }
+        />
       </Rows>
 
       <SectionHead name="Code" />

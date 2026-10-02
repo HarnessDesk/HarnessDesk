@@ -28,6 +28,11 @@
   border-radius: var(--hd-radius-sm);
 }
 
+/* An Agent's face in the tile takes the shape chosen for faces, at either size. */
+.tile[data-face] {
+  border-radius: var(--hd-face-radius);
+}
+
 .tile[data-tone='info'] {
   background: var(--hd-primary-muted);
   color: var(--hd-primary-ink);
@@ -141,6 +146,37 @@
 /* Nothing to say: no room taken. */
 .composerStack:empty {
   display: none;
+}
+
+/* The composer's tail: its lines are one strip. `display: contents` keeps each
+   line a child of the dock's own flow; the strip is drawn on the lines. */
+.tail {
+  display: contents;
+}
+
+.tail > * {
+  min-height: var(--hd-control-h);
+  padding-inline: var(--hd-space-3);
+  border-radius: var(--hd-radius);
+  background: var(--hd-muted);
+  color: var(--hd-secondary-foreground);
+  font-size: var(--hd-text-sm);
+}
+
+/* Two or more lines are one strip, not a stack of bars: they meet with no gap
+   and only the outer corners round. The last keeps the step to the box. */
+.tail > :not(:last-child) {
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+}
+
+.tail > :not(:first-child) {
+  border-start-start-radius: 0;
+  border-start-end-radius: 0;
+}
+
+.tail > :last-child {
+  margin-bottom: var(--hd-space-1-5);
 }
 
 /* Over a composer the strip is one more bar in the stack, not a rule across
