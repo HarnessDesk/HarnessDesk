@@ -19,6 +19,7 @@ import {
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuState,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -72,13 +73,6 @@ import { RuntimeMark } from './BrandIcons'
 import { DeleteSession } from './DeleteSession'
 import { WorkspaceMenu } from './WorkspaceMenu'
 import styles from './Sidebar.module.css'
-
-const SidebarMenuState = ({ label, compact, children }: { label: string; compact: ReactNode; children: ReactNode }) => (
-  <span data-slot="sidebar-menu-state" role="img" aria-label={label} title={label} className="inline-flex min-w-0 shrink-0 items-center">
-    <span data-sidebar-menu-state-full aria-hidden="true" className="inline-flex min-w-0 group-hover/menu-item:hidden group-focus-within/menu-item:hidden">{children}</span>
-    <span data-sidebar-menu-state-compact aria-hidden="true" className="hidden shrink-0 group-hover/menu-item:inline-flex group-focus-within/menu-item:inline-flex">{compact}</span>
-  </span>
-)
 
 /**
  * The session list, grouped by the folder each session belongs to.
@@ -290,9 +284,7 @@ const SessionRow = memo(({
                    glyphs must remain readable beside it. */
                 <span className="flex min-w-0 items-center gap-(--hd-space-1)" title={label}>
                   <span className="min-w-0 truncate">{label}</span>
-                  {need && <SidebarMenuState label={need.reason} compact={<Dot state="limit" variant="navigation" />}>
-                    <Chip tone="warning">{need.reason}</Chip>
-                  </SidebarMenuState>}
+                  {need && <SidebarMenuState label={need.reason} tone="warning" state="limit" />}
                 </span>
               }
             />
@@ -736,14 +728,8 @@ const RoomRow = ({
           label={<span className="flex min-w-0 items-center gap-(--hd-space-1)">
             <span className="min-w-0 truncate">{name}</span>
             {goal && (waiting
-              ? <SidebarMenuState label="Needs you" compact={<Dot state="limit" variant="navigation" />}>
-                  <Chip tone="warning">Needs you</Chip>
-                </SidebarMenuState>
-              : <SidebarMenuState label={goalWords({ goal: goal.goal, activity: goal.activity }).label} compact={<Dot state="available" variant="navigation" />}>
-                  <Chip tone={goalWords({ goal: goal.goal, activity: goal.activity }).tone}>
-                    {goalWords({ goal: goal.goal, activity: goal.activity }).label}
-                  </Chip>
-                </SidebarMenuState>)}
+              ? <SidebarMenuState label="Needs you" tone="warning" state="limit" />
+              : <SidebarMenuState label={goalWords({ goal: goal.goal, activity: goal.activity }).label} tone={goalWords({ goal: goal.goal, activity: goal.activity }).tone} state="available" />)}
           </span>}
         />
         {held > 0 && <SidebarMenuBadge title={`${held} held ${held === 1 ? 'message' : 'messages'} waiting for you`}>

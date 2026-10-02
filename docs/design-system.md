@@ -1911,6 +1911,12 @@ Initials inside a row's neutral mark. They identify the thing without becoming i
 
 Compact facts whose dot separators belong to the role, not to each caller.
 
+### `SidebarMenuState`
+
+`packages/ui/src/design/patterns/SidebarMenuState.tsx`
+
+A conversation or room's earned state chip yields to the row's action rail.
+
 ## Known drift
 
 The app predates this system. These are the places it has not caught up, counted
