@@ -1,6 +1,9 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { stripVTControlCharacters } from 'node:util'
+import type { Readable } from 'node:stream'
 
+import { assertCheckCleanup, checkGroupAlive, recordCheckProcess, type CheckProcessOwner } from './check-processes.js'
 import { TAIL_LIMIT } from './records.js'
 
 export { TAIL_LIMIT }
@@ -23,8 +26,8 @@ export { TAIL_LIMIT }
  * **What stopping it means.** It runs in its own process group, and a timeout
  * or a quit stops that group: the shell and every process that stays in it. A
  * process that leaves the group — a daemon, anything started in a session of
- * its own — is not stopped, and a desk that ends abruptly stops nothing. The
- * guarantee is the group, and nothing wider.
+ * its own — is not stopped. Durable host launches are stopped on the next
+ * startup after an abrupt exit. The guarantee is the group, and nothing wider.
  *
  * The flow engine's `runCheck` (`flows.ts`) keeps nothing of what a command
  * prints; a check a person runs from a card has to be able to say why it
@@ -106,17 +109,6 @@ const stopGroup = (child: ChildProcess): void => {
   }
 }
 
-/** Whether anything remains in the command's process group. */
-const groupAlive = (child: ChildProcess): boolean => {
-  if (child.pid === undefined) return false
-  try {
-    process.kill(-child.pid, 0)
-    return true
-  } catch {
-    return false
-  }
-}
-
 /** The most a flow's bounded check context may weigh, as UTF-8 JSON, before a check refuses to spawn at all. */
 export const FLOW_CONTEXT_LIMIT = 64 * 1024
 
@@ -133,9 +125,14 @@ export const runCommand = (
      * Refused before anything spawns when it would exceed `FLOW_CONTEXT_LIMIT`.
      */
     readonly flowContext?: string
+    /** Host-owned durable launch journal; the child waits until its pgid is synced. */
+    readonly processDir?: string
+    /** Host-derived card identity, retained with the group so uncertain cleanup blocks this card. */
+    readonly processOwner?: CheckProcessOwner
+    readonly onStarted?: () => void
   },
 ): Promise<CommandRun> =>
-  new Promise((resolve) => {
+  new Promise((resolve, reject) => {
     if (where.signal?.aborted) {
       resolve({ exit: null, timedOut: false, tail: 'It was stopped: the desk closed.' })
       return
@@ -144,27 +141,43 @@ export const runCommand = (
       resolve({ exit: null, timedOut: false, tail: 'Its flow context is too large, so it was never started.' })
       return
     }
+    if (where.processDir && where.processOwner) assertCheckCleanup(where.processDir, where.processOwner)
     let printed = ''
     let settled = false
     let timedOut = false
     let shellExit: number | null = null
     let stopped: string | null = null
     let afterExit: ReturnType<typeof setTimeout> | null = null
-    const child = spawn(command, {
+    let forget: (() => void) | undefined
+    const gated = where.processDir !== undefined
+    // The supervisor retains its identity until the host kills the entire group,
+    // even if the command finishes after the host dies. fd 3 reports the command's
+    // exit without giving the command access to the supervisor's status pipe.
+    const child = gated ? spawn('/bin/sh', ['-c', 'IFS= read -r ready || exit; /bin/sh -c "$1" 3>&- & command_pid=$!; wait "$command_pid"; status=$?; trap "" PIPE; printf "%s\\n" "$status" >&3; exec 1>&- 2>&- 3>&-; while :; do sleep 60 & wait $!; done', `hd-check-${randomUUID()}`, command], {
+      cwd: where.cwd, detached: true, env: { ...checkEnvironment(), ...(where.flowContext !== undefined ? { HARNESSDESK_FLOW_CONTEXT: where.flowContext } : {}) },
+      stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
+    }) : spawn(command, {
       cwd: where.cwd,
       shell: true,
       detached: true,
       env: { ...checkEnvironment(), ...(where.flowContext !== undefined ? { HARNESSDESK_FLOW_CONTEXT: where.flowContext } : {}) },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    const finish = (exit: number | null, said?: string): void => {
+    const finish = (exit: number | null, said?: string, problem?: Error): void => {
       if (settled) return
       settled = true
       clearTimeout(timer)
       if (afterExit) clearTimeout(afterExit)
       where.signal?.removeEventListener('abort', stop)
+      if (problem) {
+        // No result or evidence may claim completion, and startup still has
+        // the exact recorded group to reconcile before any recovered retry.
+        reject(problem)
+        return
+      }
       const text = plain(printed)
       const joined = said ? `${text}${text === '' || text.endsWith('\n') ? '' : '\n'}${said}` : text
+      try { forget?.() } catch { /* Keep the record: startup will reconcile a stale, already-dead group. */ }
       resolve({ exit, timedOut, tail: joined.slice(-TAIL_LIMIT) })
     }
     let waitingForGroup = false
@@ -172,8 +185,13 @@ export const runCommand = (
       if (settled || waitingForGroup) return
       waitingForGroup = true
       const look = (): void => {
-        if (groupAlive(child)) {
-          setTimeout(look, 10)
+        try {
+          if (child.pid !== undefined && checkGroupAlive(child.pid)) {
+            setTimeout(look, 10)
+            return
+          }
+        } catch (error) {
+          finish(null, undefined, new Error('The check process group could not be confirmed stopped. Resolve its cleanup before running another check.', { cause: error }))
           return
         }
         finish(stopped === null ? shellExit : null, stopped ?? undefined)
@@ -195,14 +213,46 @@ export const runCommand = (
       stopGroup(child)
     }
     where.signal?.addEventListener('abort', stop, { once: true })
+    child.stdin?.on('error', () => { /* A failed launch closes the handshake pipe. */ })
+    child.once('spawn', () => {
+      try {
+        if (where.processDir) forget = recordCheckProcess(where.processDir, child.pid!, where.processOwner)
+        if (where.signal?.aborted) { stop(); return }
+        if (gated) child.stdin!.end('start\n')
+        where.onStarted?.()
+      } catch (error) {
+        stopped = `It did not start: ${error instanceof Error ? error.message : String(error)}`
+        stopGroup(child)
+      }
+    })
     child.stdout?.on('data', keep)
     child.stderr?.on('data', keep)
+    let reported = false
+    let ended = 0
+    if (gated) {
+      const endStream = (): void => { ended += 1; if (reported && ended === 2) stopGroup(child) }
+      child.stdout?.on('end', endStream)
+      child.stderr?.on('end', endStream)
+      let status = ''
+      const statusPipe = child.stdio[3] as Readable | null
+      statusPipe?.on('data', (chunk: Buffer) => {
+        status += chunk.toString('utf8')
+        if (reported || !status.includes('\n')) return
+        reported = true
+        shellExit = Number(status.trim())
+        if (ended === 2) stopGroup(child)
+        else {
+          afterExit = setTimeout(() => stopGroup(child), AFTER_EXIT_MS)
+          afterExit.unref?.()
+        }
+      })
+    }
     child.on('error', (error) => finish(null, `It did not start: ${error.message}`))
     child.on('exit', (code, killedBy) => {
-      shellExit = killedBy ? null : code
+      if (!reported) shellExit = killedBy ? null : code
       // The streams close after the shell exits; a child still holding them is
       // ended after the grace period, then the result waits until the group is gone.
-      if (stopped === null) {
+      if (!gated && stopped === null) {
         afterExit = setTimeout(() => stopGroup(child), AFTER_EXIT_MS)
         afterExit.unref?.()
       }

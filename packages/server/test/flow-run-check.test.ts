@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict'
+import { execFileSync, spawn } from 'node:child_process'
+import { once } from 'node:events'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
 import type { BoardEvidence, Evidence, EvidenceRecord, EvidenceView, FlowExecution, FlowPreview, GoalView, Intent } from '@harnessdesk/protocol'
 
+import { EvidenceStore } from '../src/evidence/store.js'
+import { recordCheckProcess, recoverCheckProcesses } from '../src/evidence/check-processes.js'
 import { TAIL_LIMIT } from '../src/evidence/run.js'
 import { evidenceGuard } from '../src/flow-evidence.js'
 import { RUN_CHECK_CLEAN, RUN_CHECK_PER_CARD, RUN_CHECK_PER_TURN } from '../src/flow-execution.js'
@@ -343,4 +347,187 @@ test('a run_check checkout a crash left behind is removed when the desk starts a
   const listed = await repo.git('worktree', 'list', '--porcelain')
   assert.equal(listed.includes(left.split('/').pop()!), false, 'and git no longer lists it')
   assert.ok(existsSync(other), 'a folder that is not a check checkout is left alone')
+})
+
+for (const mainExits of [false, true]) test(`startup stops the recorded group, including grandchildren, with the command ${mainExits ? 'finished' : 'still running'}`, async (t) => {
+  const stateDir = tempDir('hd-flow-process-restart-')
+  const processDir = join(stateDir, 'evidence', 'check-processes')
+  const childFile = join(stateDir, 'child.mjs')
+  await writeFile(childFile, `import { spawn } from 'node:child_process'; import { existsSync, renameSync, writeFileSync } from 'node:fs';
+const child = spawn('sleep', ['30'], { stdio: 'ignore' });
+writeFileSync('children.pending', JSON.stringify([process.pid, child.pid])); renameSync('children.pending', 'children.json'); ${mainExits ? "child.unref(); const timer = setInterval(() => { if (existsSync('release-main')) clearInterval(timer) }, 10);" : 'setInterval(() => {}, 1000);'}`)
+  const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`
+  const launcher = spawn(process.execPath, ['--input-type=module', '-e', `
+import { runCommand } from ${JSON.stringify(new URL('../src/evidence/run.js', import.meta.url).href)};
+await runCommand(${JSON.stringify(`${quote(process.execPath)} ${quote(childFile)}`)}, {
+ cwd: ${JSON.stringify(stateDir)}, timeoutSec: 30, processDir: ${JSON.stringify(processDir)}, onStarted: () => console.log('started')
+});`], { stdio: ['ignore', 'pipe', 'pipe'] })
+  const outsider = spawn('sleep', ['30'], { stdio: 'ignore', detached: true })
+  let pgid: number | undefined
+  t.after(() => {
+    launcher.kill('SIGKILL')
+    outsider.kill('SIGKILL')
+    if (pgid) { try { process.kill(-pgid, 'SIGKILL') } catch { /* Gone. */ } }
+  })
+  const deadline = Date.now() + 5000
+  while (!existsSync(join(stateDir, 'children.json'))) {
+    if (Date.now() > deadline) throw new Error('The staged check never started.')
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  const records = await readdir(processDir)
+  assert.equal(records.length, 1)
+  pgid = (JSON.parse(await readFile(join(processDir, records[0]!), 'utf8')) as { pgid: number }).pgid
+  const children = JSON.parse(await readFile(join(stateDir, 'children.json'), 'utf8')) as number[]
+  const exited = once(launcher, 'exit')
+  launcher.kill('SIGKILL')
+  await exited
+  if (mainExits) {
+    await writeFile(join(stateDir, 'release-main'), 'go')
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    assert.doesNotThrow(() => process.kill(pgid!, 0), 'the supervisor retains the recorded identity after the main command exits')
+  }
+  for (const pid of mainExits ? children.slice(1) : children) assert.doesNotThrow(() => process.kill(pid, 0), 'the old check outlived its host')
+  assert.doesNotThrow(() => process.kill(-pgid!, 0))
+  const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), builtinAgents: tempDir('hd-restart-process-agents-'), catalogRefreshMs: 0 })
+  t.after(() => host.dispose())
+  await host.start()
+  for (const pid of children) {
+    let status = ''
+    try { status = execFileSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' }).trim() } catch { /* Reaped. */ }
+    assert.ok(status === '' || status.startsWith('Z') || status.startsWith('X') || status.includes('E'), `check child ${pid} cannot run again`)
+  }
+  assert.doesNotThrow(() => process.kill(outsider.pid!, 0), 'an unrelated group was not signalled')
+  assert.deepEqual(await readdir(processDir), [], 'recovery durably clears the stopped group')
+  await host.dispose()
+})
+
+test('startup refuses an unreadable check launch journal before recovering flows', async (t) => {
+  const stateDir = tempDir('hd-check-invalid-journal-')
+  const processDir = join(stateDir, 'evidence', 'check-processes')
+  await mkdir(processDir, { recursive: true })
+  await writeFile(join(processDir, 'launch.json'), '{broken')
+  const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), builtinAgents: tempDir('hd-check-invalid-agents-'), catalogRefreshMs: 0 })
+  t.after(() => host.dispose())
+  let recovered = false
+  t.mock.method(host.flowsPlane, 'load', async () => { recovered = true })
+  await assert.rejects(host.start(), /JSON/)
+  assert.equal(recovered, false)
+  assert.equal(await readFile(join(processDir, 'launch.json'), 'utf8'), '{broken', 'uncertain records remain available')
+})
+
+test('a live group without its recorded leader is never signalled, keeps its journal, and refuses startup', async (t) => {
+  const stateDir = tempDir('hd-check-missing-leader-')
+  const processDir = join(stateDir, 'evidence', 'check-processes')
+  await mkdir(processDir, { recursive: true })
+  const leader = spawn('/bin/sh', ['-c', 'sleep 30 & echo $!; wait'], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] })
+  let child = 0
+  t.after(() => { try { process.kill(-leader.pid!, 'SIGKILL') } catch { /* Gone. */ } })
+  const [output] = await once(leader.stdout!, 'data') as [Buffer]
+  child = Number(output.toString().trim())
+  const exited = once(leader, 'exit')
+  leader.kill('SIGKILL')
+  await exited
+  const path = join(processDir, 'launch.json')
+  const record = JSON.stringify({ version: 1, pgid: leader.pid, identity: 'a'.repeat(64) })
+  await writeFile(path, record)
+  await assert.rejects(recoverCheckProcesses(processDir), /identity|identified/)
+  assert.doesNotThrow(() => process.kill(child, 0), 'the unrelated surviving child was never killed')
+  assert.equal(await readFile(path, 'utf8'), record)
+  const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), builtinAgents: tempDir('hd-check-missing-agents-'), catalogRefreshMs: 0 })
+  t.after(() => host.dispose())
+  await assert.rejects(host.start(), /identity|identified/)
+  assert.doesNotThrow(() => process.kill(child, 0))
+})
+
+for (const stopped of [false, true]) test(`an EPERM probe ${stopped ? 'clears a group proven gone' : 'refuses a group with live members'}`, async (t) => {
+  const processDir = join(tempDir('hd-check-permission-probe-'), 'processes')
+  const leader = spawn('sleep', ['30'], { detached: true, stdio: 'ignore' })
+  t.after(() => leader.kill('SIGKILL'))
+  await once(leader, 'spawn')
+  recordCheckProcess(processDir, leader.pid!)
+  const files = await readdir(processDir)
+  if (stopped) {
+    const exited = once(leader, 'exit')
+    leader.kill('SIGKILL')
+    await exited
+  }
+  const kill = process.kill.bind(process)
+  let signals = 0
+  t.mock.method(process, 'kill', (pid: number, signal?: NodeJS.Signals | number) => {
+    if (pid === -leader.pid!) {
+      if (signal === 0) throw Object.assign(new Error('staged permission refusal'), { code: 'EPERM' })
+      signals += 1
+    }
+    return kill(pid, signal)
+  })
+  if (stopped) {
+    await recoverCheckProcesses(processDir)
+    assert.deepEqual(await readdir(processDir), [])
+  } else {
+    await assert.rejects(recoverCheckProcesses(processDir), /staged permission refusal/)
+    assert.deepEqual(await readdir(processDir), files, 'uncertain ownership keeps its record')
+  }
+  assert.equal(signals, 0, 'no signal is authorized by an EPERM probe')
+})
+
+test('the real wire retry returns at launch, stays busy through downstream settlement and preserves both outputs', async (t) => {
+  const repo = await makeRepo('hd-check-wire-retry-')
+  await writeFile(join(repo.dir, 'again.mjs'), `import { existsSync, writeFileSync } from 'node:fs';
+if (!existsSync('attempt')) { writeFileSync('attempt', 'first'); console.log('first answer'); }
+else { writeFileSync('started-again', 'yes'); const timer = setInterval(() => { if (existsSync('release')) { clearInterval(timer); console.log('second answer'); } }, 20); }`)
+  await repo.git('add', '.')
+  await repo.git('commit', '-q', '-m', 'staged check')
+  const stateDir = tempDir('hd-check-wire-state-')
+  const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), builtinAgents: tempDir('hd-check-wire-agents-'), catalogRefreshMs: 0 })
+  t.after(() => host.dispose())
+  await host.start()
+  await host.call('workspace/open', { path: repo.dir })
+  const source = 'version: 2\nname: Check again\nroles:\n  gate: { kind: check, run: "node again.mjs", exits: { "0": no-pr }, otherwise: retry, timeout: 30 }\n  person: { kind: person, outcomes: [done] }\nseed: { role: gate, title: Check it }\nrules:\n  - { id: person, on: gate, then: { role: person, title: Decide } }\n'
+  const preview = await host.call('flow/preview', { root: repo.dir, source }) as FlowPreview
+  assert.ok(preview.token, JSON.stringify(preview.problems))
+  const run = await host.call('flow/start-goal', { root: repo.dir, source, token: preview.token!, sentence: 'Staged retry' }) as FlowExecution
+  await host.flowsPlane.flush()
+  assert.equal(host.flowsPlane.executionOf(run.id)!.state, 'running')
+  const card = host.flowsPlane.executionOf(run.id)!.rounds[0]!.cards[0]!
+  const goalRoot = (await host.call('goal/read', { goal: run.goal }) as GoalView).goal.root
+  const processDir = join(stateDir, 'evidence', 'check-processes')
+  const retained = spawn('sleep', ['30'], { detached: true, stdio: 'ignore' })
+  t.after(() => retained.kill('SIGKILL'))
+  await once(retained, 'spawn')
+  recordCheckProcess(processDir, retained.pid!, { board: run.goal, card })
+  const refused = await host.call('flow/preview', { root: goalRoot, source, retry: { run: run.id, card } }) as FlowPreview
+  assert.equal(refused.token, null, 'retained cleanup refuses fresh consent before a card is reopened')
+  assert.match(refused.problems[0]!.text, /cleanup.*before running this card again/i)
+  const exited = once(retained, 'exit')
+  retained.kill('SIGKILL')
+  await exited
+  await recoverCheckProcesses(processDir)
+  const consent = await host.call('flow/preview', { root: goalRoot, source, retry: { run: run.id, card } }) as FlowPreview
+  assert.ok(consent.token, JSON.stringify(consent.problems))
+  assert.equal(consent.commands.length, 1)
+  const start = Date.now()
+  const retried = await host.call('flow/check/retry', { run: run.id, card, token: consent.token! }) as FlowExecution
+  assert.ok(Date.now() - start < 2000, 'a 30-second check responds on launch')
+  assert.equal(retried.state, 'running')
+  assert.equal(retried.operations.find((one) => one.card === card && one.kind === 'check')!.state, 'started')
+  assert.equal((await readdir(join(stateDir, 'evidence', 'check-processes'))).length, 1)
+  await assert.rejects(host.call('flow/check/retry', { run: run.id, card, token: consent.token! }), /changed/)
+  const person = host.flowsPlane.executionOf(run.id)!.rounds[1]!.cards[0]!
+  await host.call('team/intent', { room: run.goal, id: person, action: 'done', outcome: 'done' })
+  await host.flowsPlane.wakeEvidence(run.goal)
+  const deadline = Date.now() + 5000
+  while (host.flowsPlane.executionOf(run.id)!.state === 'running' && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.equal(host.flowsPlane.executionOf(run.id)!.state, 'settled', 'downstream can finish while the earlier retry is live')
+  const busy = await host.call('evidence/board', { room: run.goal }) as BoardEvidence
+  assert.equal(busy.cards.find((one) => one.card === card)!.running.length, 1, 'the retry is still counted as board work')
+  await writeFile(join(repo.dir, 'release'), 'done')
+  await host.flowsPlane.flush()
+  const goal = await host.call('goal/read', { goal: run.goal }) as GoalView
+  assert.equal(goal.board.intents.find((one) => one.id === card)!.state, 'done')
+  const saved = await new EvidenceStore(join(stateDir, 'evidence'), () => {}).read(goalRoot, 'evidence')
+  const facts = saved.lines.flatMap((one) => one.type === 'evidence' && one.record.fact.kind === 'check' ? [one.record.fact] : [])
+  assert.ok(facts.some((one) => one.tail === 'first answer\n'), 'previous output is retained in the durable history')
+  assert.ok(facts.some((one) => one.tail === 'second answer\n'), 'fresh output is durably observed')
+  assert.equal(host.flowsPlane.executionOf(run.id)!.state, 'settled')
+  assert.deepEqual(await readdir(join(stateDir, 'evidence', 'check-processes')), [])
 })

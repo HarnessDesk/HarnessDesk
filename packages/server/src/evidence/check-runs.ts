@@ -2,6 +2,7 @@ import { CheckUnseenError, type EvidenceRecord, type Intent, type NamedCheck, ty
 
 import { repositoryRoot } from '../worktree.js'
 import type { RunningChecks } from './board.js'
+import { assertCheckCleanup } from './check-processes.js'
 import { readChecksAt } from './checks-file.js'
 import { mintId } from './records.js'
 import { canonical, headMarkOf, headOf, projectOf, revisionAt, type HeadMark, type Revision } from './revision.js'
@@ -66,6 +67,7 @@ export interface CheckRunsPort {
 }
 
 export interface CheckRunsParts {
+  readonly processDir?: string
   readonly store: EvidenceStore
   readonly seen: CommandsSeen
   readonly seats: SeatBook
@@ -112,10 +114,17 @@ export class CheckRuns {
       settled: admitting.then(
         () => running,
         () => undefined,
-      ),
+      ).catch((error: unknown) => {
+        this.#parts.port.log('a check could not finish', {
+          room, card, check: name, error: error instanceof Error ? error.message : String(error),
+        })
+      }),
     }
     this.#active.add(active)
-    void active.settled.finally(() => this.#active.delete(active))
+    void active.settled.then(
+      () => this.#active.delete(active),
+      () => this.#active.delete(active),
+    )
     return admitting.then(() => ({ started: true }) as const)
   }
 
@@ -214,6 +223,14 @@ export class CheckRuns {
 
     const busy = this.#parts.running.start(room, card, check.name, this.#now())
     if (busy) throw new Error(`${busy.name} is running on #${card}, and one check runs on a card at a time.`)
+    // Refuse unresolved cleanup to the caller before announcing a start.
+    // runCommand checks again at launch; a later failure is logged by Active.
+    try {
+      if (this.#parts.processDir) assertCheckCleanup(this.#parts.processDir, { board: room, card })
+    } catch (error) {
+      this.#parts.running.end(room, card)
+      throw error
+    }
     const seat =
       intent.state === 'claimed' && intent.claim
         ? (this.#parts.seats.latestKeptOf(intent.claim.runtime, intent.claim.sessionId)?.id ?? null)
@@ -262,7 +279,11 @@ export class CheckRuns {
     readonly project: string
     readonly signal: AbortSignal
   }): Promise<void> {
-    const result = await runCommand(run.check.run, { cwd: run.cwd, timeoutSec: run.check.timeout, signal: run.signal })
+    const result = await runCommand(run.check.run, {
+      cwd: run.cwd, timeoutSec: run.check.timeout, signal: run.signal,
+      processOwner: { board: run.room, card: run.card },
+      ...(this.#parts.processDir ? { processDir: this.#parts.processDir } : {}),
+    })
     if (run.signal.aborted) {
       this.#parts.port.log('a check was stopped because the desk closed; it left no evidence', {
         room: run.room,

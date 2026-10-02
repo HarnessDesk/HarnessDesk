@@ -57,7 +57,7 @@ export const FlowRunStatus = ({ execution }: FlowRunStatusProps) => {
   )
 }
 
-const RetryCheck = ({ run, card, onClose }: { readonly run: string; readonly card: number; readonly onClose: () => void }) => {
+export const RetryCheck = ({ run, card, onClose }: { readonly run: string; readonly card: number; readonly onClose: () => void }) => {
   const store = useStore()
   const [preview, setPreview] = useState<FlowPreview | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
@@ -99,14 +99,15 @@ const RetryCheck = ({ run, card, onClose }: { readonly run: string; readonly car
       onCancel={onClose}
     >
       <Note>
-        The desk stopped after starting this check and cannot tell whether it finished. Its partial output is kept
-        either way; running it again is your explicit consent.
+        This runs the same command in the card’s checkout as it is now. Its previous output is kept;
+        running it again is your explicit consent.
       </Note>
       {command && (
         <div className="flex flex-col gap-(--hd-space-2)">
           <CodeText as="code">{`${command.run} — in ${command.cwd}, ${command.timeout}s`}</CodeText>
         </div>
       )}
+      {preview?.problems.map((one, index) => <Note key={index}>{one.text}</Note>)}
       {problem && <Banner tone="danger" title="This cannot be run again">{problem}</Banner>}
       {!preview && !problem && <Note>Checking whether this can still be run…</Note>}
     </ConfirmDialog>

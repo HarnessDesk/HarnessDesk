@@ -1362,7 +1362,13 @@ class PreviewStore {
     mode === 'update' ? PREVIEW_FLOW_UPDATE : PREVIEW_FLOW_CUSTOMIZE
   applyFlowUpdate = async (): Promise<FlowUpdateResult> => ({ state: 'applied', written: PREVIEW_FLOW_UPDATE.edits.map((edit) => edit.path), message: 'The flow update was applied.' })
   readFlowExecution = async (): Promise<FlowExecution> => { throw new Error('[preview] no live flow execution to read here') }
-  previewFlowRetry = async (): Promise<FlowPreview> => ({ ...FIX_PREVIEW, token: null, problems: [{ level: 'error', at: 'run', text: 'This flow or its seating changed. Review the dry run again before starting.' }] })
+  previewFlowRetry = async (): Promise<FlowPreview> => ({
+    ...FIX_PREVIEW,
+    token: 'preview-retry-token',
+    seats: [],
+    commands: FIX_PREVIEW.commands.map((command) => ({ ...command, cwd: '/work/storefront' })),
+    guards: [],
+  })
   retryFlowCheck = async (): Promise<FlowExecution> => { throw new Error('[preview] no live flow run to retry here') }
 
   // --- the front door --------------------------------------------------

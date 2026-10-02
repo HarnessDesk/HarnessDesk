@@ -1271,6 +1271,7 @@ export class Host {
       // The host commits a card's own work for its Seat, git hardened (`commit_work`, #1074).
       commitWork: (cwd, before, message) => commitCardWork(cwd, before, message),
       runCheck: (command, where, card) => this.#evidence.runFlowCheck(command, where, card),
+      assertCheckCleanup: (goal, card) => this.#evidence.assertFlowCheckCleanup(goal, card),
       // A fresh detached checkout for one `run_check`, git hardened, removed after (#1082).
       checkoutAt: async (cwd, at, options) => {
         const stateDir = this.#state.directory
@@ -1521,6 +1522,7 @@ export class Host {
         return runtime.info.presentation.pluginToolsUnavailable ?? `${runtime.info.presentation.name} cannot use HarnessDesk's tools in this checkout, so it cannot claim a card`
       },
       perToolMcpApproval: (runtimeName) => this.#runtimes.get(runtimeId(runtimeName))?.info.capabilities.perToolMcpApproval === true,
+      previewCheck: (run, card) => this.#flows.previewCheck(run, card),
       storedRun: async (run) => this.#flows.storedRun(run),
       // A front-door token's target, read again from git and the forge at Start: never the facts the preview saw.
       resolveTarget: async (context) => {
@@ -2189,6 +2191,7 @@ export class Host {
     this.#applyBrowserSettings()
     this.#applyTeamSettings()
     await this.#applyPluginSettings()
+    await this.#evidence.recoverProcesses()
     await this.#evidence.load().catch((error: unknown) => {
       this.#logger.error('the Seat records this desk keeps could not be read', {
         error: error instanceof Error ? error.message : String(error),

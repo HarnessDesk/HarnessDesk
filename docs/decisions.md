@@ -1260,3 +1260,50 @@ upstream in google-gemini/gemini-cli#29595; the card and the warning can go once
 
 **The rule:** when an agent can't prove who is asking, the desk explains the question and the choices and leaves the
 answer to the person; it answers for the agent only on a claim made by code the desk ships.
+
+
+## A check retry is a fresh consent to one card, and a launch survives only in its recorded group
+
+The Flow pilot found a check that answered `no-pr` had no way back: reopening
+its board card left the run settled. Restarting instead left a detached check
+alive, while the retry either refused the checkout that check had changed or
+held the person's request until the whole command ended. (#1245)
+
+A finished or interrupted check on a running or stalled run uses the same
+consent dialog from its own card. A stopped or settled run refuses the retry
+and asks the person to start a new run. Its preview binds the frozen command,
+card, attempt, checkout and the
+revision there now. A moved checkout after the preview refuses; the same
+checkout changed by the old check can be explicitly approved. Starting reopens
+that card, preserves previous evidence, and returns at launch. Completion stays
+in the run's queue and advances an unanswered final round normally; a check
+from an earlier round never duplicates its already-created downstream rounds
+or changes their run's state and reason. Only the current final check round
+can restart routing. A retry admitted before its run ends stays counted as
+busy work; Stop aborts it inside the queue as well as before it, and wrapping
+waits for the command, evidence and card completion to settle.
+
+A detached shell waits at a launch handshake until the host has synced its
+exact pgid and leader identity in a host-owned journal. Startup stops only those
+recorded groups before recovering runs, rejects signalling a reused leader,
+and refuses to proceed if cleanup cannot be established. A live group with no
+matching leader identity keeps its journal and refuses startup; the supervisor
+holds that identity until the whole group is stopped, even after the command
+finishes. Recovery failures refuse startup independently of Seat-record reads.
+Live completion and timeout cleanup use the same proof as startup: an EPERM
+probe alone cannot establish that a group is gone. Uncertain cleanup retains
+the launch journal and refuses a check result or evidence of completion.
+Retry admission also reads that host-owned journal, by the recorded card and
+verified process identity, and refuses another attempt while its cleanup is
+unresolved. It never signals an unverified group or identifies one by its
+command text. Old records without a card identity conservatively block a retry
+until cleanup is established.
+Concurrent retries wait for their live siblings before routing the round.
+Children outside the recorded group are outside this guarantee.
+Interrupted work still needs fresh
+consent, since killing a process cannot undo its effects.
+
+The existing statechart already expresses a retry: `otherwise: retry` plus a
+rule back to the check, or an unconditional final rule for every non-landing
+outcome. `retry` remains an ordinary outcome, never a reserved command with an
+unbounded implicit loop; the run's round and progress budgets still apply.

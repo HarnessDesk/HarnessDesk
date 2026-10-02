@@ -1,4 +1,4 @@
-import { isAbsolute, normalize } from 'node:path'
+import { isAbsolute, normalize, join } from 'node:path'
 
 import { factsOfGoal, type BackupFile, type BoardEvidence, type EvidenceRecord, type EvidenceView, type GoalReceiptEvidenceSeat, type Intent, type ProjectChecks, type TeamState, type TriggerFact, type WireNotification } from '@harnessdesk/protocol'
 
@@ -6,6 +6,7 @@ import type { ReviewAppendOutcome } from '../flow-evidence.js'
 import type { CredentialCipher } from '../credentials.js'
 import type { SeatedAs } from '../registry.js'
 import { boardEvidence, freshnessReader, RunningChecks } from './board.js'
+import { assertCheckCleanup, recoverCheckProcesses } from './check-processes.js'
 import { CheckRuns } from './check-runs.js'
 import { readChecks } from './checks-file.js'
 import type { GhInCheckout } from './forge.js'
@@ -81,6 +82,7 @@ export const cardStart = (
 
 export class EvidencePlane {
   readonly #settling = new Map<string, Set<Promise<void>>>()
+  readonly #flowChecking = new Map<string, Set<Promise<unknown>>>()
   readonly #looks = new Set<Promise<void>>()
   readonly store: EvidenceStore
   readonly seats: SeatBook
@@ -91,6 +93,7 @@ export class EvidencePlane {
   readonly checks: CheckRuns
   /** Looks at a card's branch: its diff, its pull request and the forge's checks (`observe.ts`). */
   readonly observer: Observer
+  readonly #checkProcessDir: string
   readonly #port: EvidencePort
   readonly #now: () => number
   /** The last stamp a board read took: each is later than the one before, whatever the clock does. */
@@ -99,6 +102,7 @@ export class EvidencePlane {
   readonly #lookDrainMs: number
 
   constructor(options: EvidenceOptions, port: EvidencePort) {
+    this.#checkProcessDir = join(options.dir, 'check-processes')
     this.#port = port
     this.#now = options.now ?? Date.now
     this.#lookDrainMs = options.lookDrainMs ?? LOOK_DRAIN_MS
@@ -120,6 +124,7 @@ export class EvidencePlane {
       ...(options.now ? { now: options.now } : {}),
     })
     this.checks = new CheckRuns({
+      processDir: this.#checkProcessDir,
       store: this.store,
       seen: this.seen,
       seats: this.seats,
@@ -139,6 +144,11 @@ export class EvidencePlane {
       ...(options.now ? { now: options.now } : {}),
       log: (message, details) => port.log(message, details),
     })
+  }
+
+  /** Must succeed before startup can recover any Flow, independently of optional Seat reads. */
+  async recoverProcesses(): Promise<void> {
+    await recoverCheckProcesses(this.#checkProcessDir)
   }
 
   /** Reads what a previous launch recorded. Once, at start. */
@@ -444,6 +454,7 @@ export class EvidencePlane {
     await this.seats.settled()
     await Promise.all([...(this.#settling.get(room) ?? [])])
     await this.checks.settledFor(room)
+    await Promise.all([...(this.#flowChecking.get(room) ?? [])])
     await this.store.flush()
   }
 
@@ -559,11 +570,14 @@ export class EvidencePlane {
       readonly timeoutSec: number
       readonly card?: { readonly room: string; readonly intent: number; readonly name: string; readonly round: number }
     },
-    run: (command: string, where: { readonly cwd: string; readonly timeoutSec: number }) => Promise<{ readonly status: number | null }>,
+    run: (command: string, where: Parameters<typeof runCommand>[1]) => Promise<{ readonly status: number | null }>,
   ): Promise<{ readonly status: number | null }> {
     const card = where.card
     const revision = card ? await revisionOf(where.cwd) : null
-    const result = await run(command, { cwd: where.cwd, timeoutSec: where.timeoutSec })
+    const result = await run(command, {
+      cwd: where.cwd, timeoutSec: where.timeoutSec, processDir: this.#checkProcessDir,
+      ...(card ? { processOwner: { board: card.room, card: card.intent } } : {}),
+    })
     const board = card ? this.#port.board(card.room) : null
     if (!card || !revision || !board) return result
     const project = await projectOf(board.cwd ?? board.root)
@@ -614,12 +628,35 @@ export class EvidencePlane {
    */
   async runFlowCheck(
     command: string,
-    where: { readonly cwd: string; readonly timeoutSec: number; readonly flowContext?: string; readonly signal?: AbortSignal },
+    where: { readonly cwd: string; readonly timeoutSec: number; readonly flowContext?: string; readonly signal?: AbortSignal; readonly onStarted?: () => void },
     card: { readonly goal: string; readonly card: number; readonly name: string; readonly round: number; readonly advisory?: true },
+  ): Promise<{ readonly result: CommandRun; readonly evidence: string | null; readonly problem: string | null }> {
+    this.assertFlowCheckCleanup(card.goal, card.card)
+    const busy = this.running.start(card.goal, card.card, card.name, this.#now())
+    if (busy) throw new Error(`${busy.name} is running on #${card.card}, and one check runs on a card at a time.`)
+    const pending = this.#flowChecking.get(card.goal) ?? new Set<Promise<unknown>>()
+    this.#flowChecking.set(card.goal, pending)
+    const work = this.#runFlowCheck(command, where, card).finally(() => {
+      this.running.end(card.goal, card.card)
+      pending.delete(work)
+      if (pending.size === 0) this.#flowChecking.delete(card.goal)
+      this.announce(card.goal)
+    })
+    pending.add(work)
+    this.announce(card.goal)
+    return work
+  }
+
+  async #runFlowCheck(
+    command: string,
+    where: Parameters<EvidencePlane['runFlowCheck']>[1],
+    card: Parameters<EvidencePlane['runFlowCheck']>[2],
   ): Promise<{ readonly result: CommandRun; readonly evidence: string | null; readonly problem: string | null }> {
     const revision = await revisionOf(where.cwd)
     const result = await runCommand(command, {
-      cwd: where.cwd, timeoutSec: where.timeoutSec,
+      cwd: where.cwd, timeoutSec: where.timeoutSec, processDir: this.#checkProcessDir,
+      processOwner: { board: card.goal, card: card.card },
+      ...(where.onStarted ? { onStarted: where.onStarted } : {}),
       ...(where.flowContext !== undefined ? { flowContext: where.flowContext } : {}),
       ...(where.signal ? { signal: where.signal } : {}),
     })
@@ -652,6 +689,11 @@ export class EvidencePlane {
     }
     this.announce(card.goal)
     return { result, evidence: record.id, problem: null }
+  }
+
+  /** A retry preview and its redemption both refuse a card's unresolved recorded cleanup. */
+  assertFlowCheckCleanup(goal: string, card: number): void {
+    assertCheckCleanup(this.#checkProcessDir, { board: goal, card })
   }
 
   /**

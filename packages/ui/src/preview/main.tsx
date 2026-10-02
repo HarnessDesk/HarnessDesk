@@ -16,7 +16,7 @@ import { ProjectTriggers } from '../components/ProjectTriggers'
 import { TriggerArm } from '../components/TriggerArm'
 import { FlowUpdate } from '../components/FlowUpdate'
 import { RaceStart } from '../components/RaceStart'
-import { FlowRunStatus } from '../components/FlowRunStatus'
+import { FlowRunStatus, RetryCheck } from '../components/FlowRunStatus'
 import { AppearanceSection } from '../components/SettingsYou'
 import { LibrarySection } from '../components/Library'
 import { AgentsWindow } from '../components/AgentsWindow'
@@ -444,6 +444,7 @@ const Preview = () => {
     | 'save as agent'
     | 'what was observed'
     | 'run a check'
+    | 'retry check'
     | 'flow update'
     | 'flow customize'
     | 'race'
@@ -506,7 +507,7 @@ const Preview = () => {
         <Dial
           label="dialog"
           value={dialog}
-          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed', 'run a check', 'flow update', 'flow customize', 'race', 'trigger arm'] as const}
+          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed', 'run a check', 'retry check', 'flow update', 'flow customize', 'race', 'trigger arm'] as const}
           onChange={setDialog}
         />
         <Dial label="trigger arm scene" value={armScene} options={TRIGGER_ARM_SCENES} onChange={setArmScene} />
@@ -547,6 +548,7 @@ const Preview = () => {
         />
       )}
       {dialog === 'new session' && <NewSessionChoice onClose={() => setDialog('off')} />}
+      {dialog === 'retry check' && <RetryCheck run="run-preview" card={7} onClose={() => setDialog('off')} />}
       {dialog === 'flow update' && (
         <FlowUpdate root={PREVIEW_ROOT} id="old-fix" mode="update" onClose={() => setDialog('off')} onApplied={() => setDialog('off')} />
       )}

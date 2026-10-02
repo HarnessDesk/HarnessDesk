@@ -15,10 +15,12 @@ import { Chip, Dialog, Field, Input, Note, RowChoice, Rows, Text } from '../desi
 import { runtimeTint } from '../lib/accounts'
 import { FACT_COLUMNS, flowStepOf, placeCard, type FactColumn, type Placement } from '../lib/board-facts'
 import { brandForRuntime } from '../lib/brands'
+import { namedGoalRun } from '../lib/goal-run'
 import { shortSha } from '../lib/git-refs'
 import { useSnapshot, useStore } from '../state/context'
 import { AddWork } from './AddWork'
 import { EvidenceChips } from './EvidenceChips'
+import { RetryCheck } from './FlowRunStatus'
 import { RunCheck } from './RunCheck'
 import { FrontDoor } from './FrontDoor'
 import { HandOut } from './HandOut'
@@ -240,6 +242,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
      empty state below rather than an error. */
   const board = snapshot.teams.get(room)
   const goal = snapshot.goals.get(room)
+  const namedRun = namedGoalRun(goal)
   const intents = board?.intents ?? []
   const openCards = intents.filter((one) => one.state === 'open' && !one.claim).length
   /* The front door's own reusable-empty-Goal rule: no Seats yet. A Goal
@@ -261,6 +264,13 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   useEffect(() => {
     void store.loadFlowRuns(room)
   }, [store, room])
+
+  // A board restored without its room pane must recover the same execution;
+  // finished checks still need their role and operation to offer Run again.
+  useEffect(() => {
+    if (!namedRun || snapshot.flowExecutions.has(namedRun)) return
+    void store.readFlowExecution(namedRun).catch(() => {})
+  }, [snapshot.flowExecutions, namedRun, store])
 
   useEffect(() => {
     const read = (): void => void store.loadBoardEvidence(room)
@@ -389,7 +399,13 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
    * "I considered this and have nothing" where omitting it says nothing at
    * all, which is what the wire's optional fields are for.
    */
+  const [retryCard, setRetryCard] = useState<{ run: string; card: number } | null>(null)
   const act = (id: number, verb: Verb, reason?: string, outcome?: string): void => {
+    if (verb === 'reopen') {
+      const card = board?.intents.find((one) => one.id === id)
+      const step = card ? flowStepOf(card, undefined, [...snapshot.flowExecutions.values()].filter((one) => one.goal === room)) : null
+      if (step?.kind === 'check' && step.run) { setRetryCard({ run: step.run, card: id }); return }
+    }
     void (outcome !== undefined
       ? store.teamIntent(room, id, verb, reason, outcome)
       : reason !== undefined
@@ -614,6 +630,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
           onCancel={() => setAsking(null)}
         />
       )}
+      {retryCard && <RetryCheck run={retryCard.run} card={retryCard.card} onClose={() => setRetryCard(null)} />}
       {handing && (
         <HandOut
           room={room}
@@ -787,6 +804,11 @@ const IntentCard = ({
     [intent, room, snapshot.flowRuns, snapshot.flowExecutions],
   )
 
+  const checkOperation = role?.kind === 'check' && role.run
+    ? snapshot.flowExecutions.get(role.run)?.operations.find((one) => one.kind === 'check' && one.card === intent.id)
+    : null
+  const canRetryCheck = checkOperation?.state === 'finished' || checkOperation?.state === 'uncertain'
+
   const openReviewDialog = async (): Promise<void> => {
     if (!role?.review || !role.run) return
     const answer = role.outcomes.length === 1 ? role.outcomes[0]! : null
@@ -922,7 +944,9 @@ const IntentCard = ({
     ...(intent.state === 'claimed'
       ? [{ verb: 'release' as const, label: `Take it back off ${holderName}` }]
       : []),
-    ...(intent.state === 'done' || intent.state === 'abandoned' || intent.state === 'blocked'
+    ...(role?.kind === 'check'
+      ? canRetryCheck ? [{ verb: 'reopen' as const, label: 'Run this check again…' }] : []
+      : intent.state === 'done' || intent.state === 'abandoned' || intent.state === 'blocked'
       ? [{ verb: 'reopen' as const, label: 'Put back in play' }]
       : []),
     /* Stopping is not finishing and not dropping: it says the work should not
