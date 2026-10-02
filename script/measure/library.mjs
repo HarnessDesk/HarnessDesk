@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdir, mkdtemp, readdir, rm, unlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -28,12 +28,22 @@ const CREDENTIAL_ROOTS = [
   '.azure', '.kube', '.netrc', '.npmrc', '.npm', '.docker', '.gnupg', '.pki',
   '.git-credentials', 'Library/Keychains', 'Library/Application Support',
 ]
-const FACT_KEYS = new Set(['rulesFiles', 'catalogue', 'precedence', 'rejections', 'skillRoots', 'refresh', 'mcp', 'signedOutCatalogue'])
-const unmeasuredFacts = () => Object.fromEntries([...FACT_KEYS].map((key) => [key, { status: 'could-not-ask' }]))
+export const KEYCHAIN_READ_ONLY = 'keychain-read-only'
+// The owner chose this exception on 2026-10-01 so Claude Code, Cursor and Grok Build can use their existing subscription sign-in, which lives in the keychain.
+const KEYCHAIN_READ_ONLY_AGENTS = new Set(['claude-code', 'cursor', 'grok-build'])
+const FACT_KEYS = new Set(['rulesFiles', 'catalogue', 'reportsCatalogue', 'precedence', 'rejections', 'reportsRejections', 'skillRoots', 'refresh', 'mcp', 'signedOutCatalogue'])
+const unmeasuredFacts = () => ({
+  rulesFiles: { status: 'could-not-ask' }, catalogue: { status: 'could-not-ask' }, reportsCatalogue: false,
+  precedence: { status: 'could-not-ask' }, rejections: { status: 'could-not-ask' }, reportsRejections: false,
+  skillRoots: [],
+  refresh: { status: 'could-not-ask', catalogueRefresh: 'none', skillToggle: false, openSessionSeesChange: 'unknown' },
+  mcp: { status: 'could-not-ask' }, signedOutCatalogue: { status: 'unknown' },
+})
 const SAFE_FACT_STRINGS = new Set([
   'user', 'project', 'unknown', 'asked', 'could-not-ask', 'none', 'live', 'restart', 'available', 'empty',
   'connected', 'disconnected', 'accepted', 'rejected', 'enabled', 'disabled', 'loaded', 'not-loaded',
   'true', 'false', 'fixture', 'read', 'not-read', 'reported', 'not-reported', 'visible', 'not-visible',
+  'no-session', 'session-created',
 ])
 const SAFE_TEXT_WORDS = new Set([
   'a', 'an', 'and', 'agent', 'available', 'app-server', 'are', 'as', 'build', 'catalogue', 'codex',
@@ -44,6 +54,9 @@ const SAFE_TEXT_WORDS = new Set([
   'supports', 'reports', 'rejections', 'precedence', 'roots', 'limits', 'question', 'server', 'launch',
   'selected', 'launched', 'own', 'available', 'and', 'not', 'registered', 'unregistered', 'binary', 'isolated', 'isolate', 'test',
   'failed', 'safely', 'privacy', 'allowlist', 'parsed', 'facts', 'answer', 'needs', 'sign-in', 'measured', 'is',
+  'candidate', 'unreadable', 'no', 'while',
+  'created',
+  'below', 'supported', 'floor',
   'exact', 'version', 'changed', 'during', 'discovery', 'couldnt', 'capture', 'an', 'installed', 'available', 'its', 'list',
   'openai', 'claude', 'opencode', 'cline', 'hermes', 'codebuddy', 'kimi', 'pi', 'grok', 'copilot', 'antigravity', 'devin',
   'model', 'required', 'unavailable', 'listing', 'session', 'acp', 'out', 'initialize', 'request', 'cannot', 'isolation',
@@ -105,13 +118,20 @@ function safeText(value, fixture) {
   return [...value.toLowerCase().matchAll(/[a-z][a-z0-9+-]*/g)].every(([word]) => SAFE_TEXT_WORDS.has(word) || fixtureWords.has(word) || fixedWords.has(word))
 }
 
+const safeRelativeFactPath = (value) => typeof value === 'string'
+  && /^(?:~\/|\.\/|\.[A-Za-z0-9_-]+\/)[A-Za-z0-9_./-]+$/.test(value)
+  && !value.split('/').includes('..')
+
 function safeFact(value, fixture, depth = 0) {
   if (depth > 8) return false
   if (value === null || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) return true
-  if (typeof value === 'string') return fixtureTokens(fixture).includes(value) || SAFE_FACT_STRINGS.has(value)
+  if (typeof value === 'string') return fixtureTokens(fixture).includes(value) || SAFE_FACT_STRINGS.has(value) || safeRelativeFactPath(value)
   if (Array.isArray(value)) return value.length <= 500 && value.every((item) => safeFact(item, fixture, depth + 1))
   if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
-    return Object.entries(value).length <= 500 && Object.entries(value).every(([key, item]) => /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(key) && !/(?:account|token|secret|email|path|credential|password|cookie|auth)/i.test(key) && safeFact(item, fixture, depth + 1))
+    return Object.entries(value).length <= 500 && Object.entries(value).every(([key, item]) => {
+      const safePath = key === 'path' && safeRelativeFactPath(item)
+      return /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(key) && (safePath || !/(?:account|token|secret|email|path|credential|password|cookie|auth)/i.test(key)) && (safePath || safeFact(item, fixture, depth + 1))
+    })
   }
   return false
 }
@@ -244,52 +264,115 @@ export const safeEnv = (fixture, cwd = fixture.repo) => ({
   cwd,
 })
 
-export function makeSandboxProfile(root, realHome = homedir()) {
-  if (process.platform !== 'darwin' || !existsSync('/usr/bin/sandbox-exec')) return null
-  return sandboxProfileText(realpathSync(realHome))
+export function nodeInstallPrefix(binary = process.execPath) {
+  const realBinary = realpathSync(binary)
+  return dirname(dirname(realBinary))
 }
 
-export function verifySandbox(profilePath, fixtureRoot) {
-  const canaryHome = join(fixtureRoot, 'sandbox-canary-home')
+export function makeSandboxProfile(root, realHome = homedir(), options = {}) {
+  if (process.platform !== 'darwin' || !existsSync('/usr/bin/sandbox-exec')) return null
+  const canonicalFixtureRoot = realpathSync(root)
+  return sandboxProfileText(realpathSync(realHome), {
+    fixtureRoot: canonicalFixtureRoot,
+    fixtureRoots: [...new Set([resolve(root), canonicalFixtureRoot])],
+    readPaths: [nodeInstallPrefix(), ...(options.readPaths ?? [])], isolation: options.isolation ?? 'strict',
+  })
+}
+
+export function verifySandbox(profilePath, fixtureRoot, { isolation = 'strict', readPaths = [] } = {}) {
+  const fixtureAlias = resolve(fixtureRoot)
+  const canonicalFixtureRoot = realpathSync(fixtureRoot)
+  fixtureRoot = canonicalFixtureRoot
+  const outsideRoot = mkdtempSync('/tmp/hd-measure-outside-')
+  const canaryHome = join(outsideRoot, 'sandbox-canary-home')
   mkdirSync(canaryHome, { recursive: true })
   const canonicalCanaryHome = realpathSync(canaryHome)
-  const canaryProfilePath = join(fixtureRoot, 'canary-profile.sb')
-  const controlPath = join(fixtureRoot, 'control.sb')
-  const controlFile = join(canonicalCanaryHome, 'control-canary')
-  const profile = makeSandboxProfile(fixtureRoot)
-  if (!profile || readFileSync(profilePath, 'utf8') !== profile) return false
+  const canaryProfilePath = join(fixtureRoot, `canary-${isolation}.sb`)
+  const controlPath = join(fixtureRoot, `control-${isolation}.sb`)
+  const unrelated = join(canonicalCanaryHome, 'unrelated-canary.txt')
+  const insideWrite = join(fixtureRoot, 'tmp', 'write-canary.txt')
+  const insideAliasWrite = join(fixtureAlias, 'tmp', 'alias-write-canary.txt')
+  const outsideWrite = join(outsideRoot, 'write-canary.txt')
+  const siblingCredential = join(outsideRoot, 'sibling-credentials', 'credential-canary.txt')
+  const runtimeCanaryAlias = join(outsideRoot, 'agent-runtime-canary')
+  const keychainCanary = join(canonicalCanaryHome, 'Library/Keychains/read-canary')
+  const credentialInRuntime = join(runtimeCanaryAlias, 'credential-canary', 'secret.txt')
+  const fixtureRead = join(fixtureRoot, 'tmp', 'read-canary.txt')
+  mkdirSync(dirname(keychainCanary), { recursive: true })
+  mkdirSync(dirname(siblingCredential), { recursive: true })
+  mkdirSync(runtimeCanaryAlias, { recursive: true })
+  const runtimeCanaryRoot = realpathSync(runtimeCanaryAlias)
+  const runtimeCanary = join(runtimeCanaryRoot, 'runtime-canary.txt')
+  mkdirSync(dirname(credentialInRuntime), { recursive: true })
+  mkdirSync(dirname(fixtureRead), { recursive: true })
+  writeFileSync(unrelated, 'synthetic home canary')
+  writeFileSync(siblingCredential, 'synthetic sibling credential canary')
+  writeFileSync(runtimeCanary, 'synthetic runtime canary')
+  writeFileSync(credentialInRuntime, 'synthetic runtime credential canary')
+  writeFileSync(fixtureRead, 'synthetic fixture read canary')
+  writeFileSync(keychainCanary, 'synthetic keychain canary')
+  const profile = readFileSync(profilePath, 'utf8')
+  const canaryProfile = sandboxProfileText(canonicalCanaryHome, {
+    fixtureRoot,
+    fixtureRoots: [...new Set([fixtureAlias, fixtureRoot])],
+    readPaths: [nodeInstallPrefix(), runtimeCanaryRoot],
+    additionalDeniedPaths: [canonicalCanaryHome, dirname(siblingCredential), realpathSync(dirname(siblingCredential)), join(runtimeCanaryRoot, 'credential-canary')],
+    isolation,
+  })
+  const hostProfile = makeSandboxProfile(fixtureAlias, homedir(), { isolation, readPaths })
+  if (!hostProfile || profile !== hostProfile) { rmSync(outsideRoot, { recursive: true, force: true }); return false }
   const realHome = realpathSync(homedir())
-  const canaryProfile = sandboxProfileText(canonicalCanaryHome)
-  if (profile.split(realHome).join(canonicalCanaryHome) !== canaryProfile) return false
+  const expectedProfile = sandboxProfileText(realHome, { fixtureRoot, fixtureRoots: [...new Set([fixtureAlias, fixtureRoot])], readPaths: [nodeInstallPrefix(), ...readPaths], isolation })
+  if (profile !== expectedProfile) { rmSync(outsideRoot, { recursive: true, force: true }); return false }
   writeFileSync(canaryProfilePath, canaryProfile)
-
-  const canaryRoots = [...new Set(deniedHomePaths(canonicalCanaryHome)
-    .filter((path) => isWithin(canonicalCanaryHome, path)))]
-  if (!canaryRoots.length) return false
-  const canaryPaths = canaryRoots.map((path, index) => join(path, `canary-${index}`))
-  for (const path of canaryPaths) {
-    mkdirSync(dirname(path), { recursive: true })
-    writeFileSync(path, 'sandbox denial canary')
-  }
-  writeFileSync(controlFile, 'sandbox control canary')
   const runCanary = (script, path) => spawnSync('/usr/bin/sandbox-exec', [
     '-f', canaryProfilePath, process.execPath, '-e', script, path,
   ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5_000 })
   const succeeded = (result) => Boolean(result && !result.error && !result.signal && result.status === 0)
-  const denyScript = `
+  const deniedRead = runCanary(`
     const fs = require('node:fs');
-    const path = process.argv[1];
-    let readDenied = false, writeDenied = false;
-    try { fs.readFileSync(path); } catch (error) { readDenied = ['EPERM', 'EACCES'].includes(error.code); }
-    try { fs.writeFileSync(path, 'must be denied'); } catch (error) { writeDenied = ['EPERM', 'EACCES'].includes(error.code); }
-    if (!readDenied || !writeDenied) process.exit(31);
-  `
-  for (const path of canaryPaths) if (!succeeded(runCanary(denyScript, path))) return false
-  const readableControl = runCanary(
-    `const fs = require('node:fs'); if (fs.readFileSync(process.argv[1], 'utf8') !== 'sandbox control canary') process.exit(32);`,
-    controlFile,
-  )
-  if (!succeeded(readableControl)) return false
+    try { fs.readFileSync(process.argv[1]); process.exit(31); } catch (error) { if (!['EPERM', 'EACCES'].includes(error.code)) process.exit(32); }
+  `, unrelated)
+  const deniedSiblingCredential = runCanary(`
+    const fs = require('node:fs');
+    try { fs.readFileSync(process.argv[1]); process.exit(40); } catch (error) { if (!['EPERM', 'EACCES'].includes(error.code)) process.exit(41); }
+  `, siblingCredential)
+  const allowedRuntimeRead = runCanary(`require('node:fs').readFileSync(process.argv[1])`, runtimeCanary)
+  const deniedRuntimeCredential = runCanary(`
+    const fs = require('node:fs');
+    try { fs.readFileSync(process.argv[1]); process.exit(42); } catch (error) { if (!['EPERM', 'EACCES'].includes(error.code)) process.exit(43); }
+  `, credentialInRuntime)
+  const allowedFixtureRead = runCanary(`require('node:fs').readFileSync(process.argv[1])`, fixtureRead)
+  const deniedWrite = runCanary(`
+    const fs = require('node:fs');
+    try { fs.writeFileSync(process.argv[1], 'must be denied'); process.exit(33); } catch (error) { if (!['EPERM', 'EACCES'].includes(error.code)) process.exit(34); }
+  `, outsideWrite)
+  const allowedWrite = runCanary(`require('node:fs').writeFileSync(process.argv[1], 'fixture write allowed')`, insideWrite)
+  const spawnedTrue = runCanary(`
+    const { spawnSync } = require('node:child_process');
+    const child = spawnSync('/usr/bin/true');
+    if (child.error || child.status !== 0) process.exit(44);
+  `, fixtureRead)
+  const keychainRead = runCanary(`
+    const fs = require('node:fs');
+    try { fs.readFileSync(process.argv[1]); process.exit(${isolation === KEYCHAIN_READ_ONLY ? '0' : '35'}); } catch (error) { process.exit(${isolation === KEYCHAIN_READ_ONLY ? '36' : "['EPERM', 'EACCES'].includes(error.code) ? 0 : 37"}); }
+  `, keychainCanary)
+  const keychainWrite = runCanary(`
+    const fs = require('node:fs');
+    try { fs.writeFileSync(process.argv[1], 'must be denied'); process.exit(38); } catch (error) { if (!['EPERM', 'EACCES'].includes(error.code)) process.exit(39); }
+  `, keychainCanary)
+  const allowedAliasWrite = runCanary(`require('node:fs').writeFileSync(process.argv[1], 'fixture alias write allowed')`, insideAliasWrite)
+  const canaries = [
+    ['file-read-data outside fixture', deniedRead], ['file-read-data sibling credential', deniedSiblingCredential],
+    ['file-read-data allowed runtime', allowedRuntimeRead], ['file-read-data credential under runtime', deniedRuntimeCredential],
+    ['file-read-data fixture', allowedFixtureRead], ['spawn /usr/bin/true', spawnedTrue],
+    ['file-write outside fixture', deniedWrite], ['file-write canonical fixture', allowedWrite],
+    ['file-write fixture alias', allowedAliasWrite], ['keychain read', keychainRead], ['keychain write denial', keychainWrite],
+  ]
+  if (!canaries.every(([, result]) => succeeded(result))) {
+    console.error(canaries.filter(([, result]) => !succeeded(result)).map(([name, result]) => `${name}: exit=${result?.status} error=${result?.error?.message ?? ''} stderr=${result?.stderr ?? ''}`).join('\n'))
+    rmSync(outsideRoot, { recursive: true, force: true }); return false
+  }
 
   const service = `harnessdesk-measure-canary-${process.pid}`
   const keychain = join(fixtureRoot, 'canary.keychain-db')
@@ -299,7 +382,7 @@ export function verifySandbox(profilePath, fixtureRoot) {
   // lookup must succeed under the control and fail under the real profile:
   // that difference pins the refusal on the deny rule, not on the sandbox
   // environment, the keychain path, or an "item not found" for any other reason.
-  writeFileSync(controlPath, readFileSync(profilePath, 'utf8').split('\n').filter((line) => !/mach-lookup/.test(line)).join('\n'))
+  writeFileSync(controlPath, profile.split('\n').filter((line) => !/^\(deny mach-lookup/.test(line)).join('\n'))
   const security = (args, profile = null) => spawnSync(
     profile ? '/usr/bin/sandbox-exec' : '/usr/bin/security',
     profile ? ['-f', profile, '/usr/bin/security', ...args] : args,
@@ -318,21 +401,40 @@ export function verifySandbox(profilePath, fixtureRoot) {
     const control = security(['find-generic-password', '-s', service, keychain], controlPath)
     if (!succeeded(control)) return false
     const inside = security(['find-generic-password', '-s', service, keychain], profilePath)
-    const deniedBySandbox = Boolean(inside) && !inside.error && !inside.signal && inside.status !== 0
-    passed = deniedBySandbox
+    const keychainReadAllowed = isolation === KEYCHAIN_READ_ONLY
+      ? succeeded(inside)
+      : Boolean(inside) && !inside.error && !inside.signal && inside.status !== 0
+    passed = keychainReadAllowed
   } finally {
     if (existsSync(keychain)) {
       const deleted = security(['delete-keychain', keychain])
       if (!succeeded(deleted)) passed = false
     }
+    rmSync(outsideRoot, { recursive: true, force: true })
   }
   return passed
 }
 
-export function sandboxProfileText(realHome, extraDeniedRoots = []) {
-  const blocked = [...deniedHomePaths(realHome), ...extraDeniedRoots]
-  const denies = blocked.map((path) => `(deny file-read* file-write* (subpath ${JSON.stringify(path)}))`).join('\n')
-  return `(version 1)\n(allow default)\n${denies}\n(deny mach-lookup (global-name "com.apple.securityd"))\n(deny mach-lookup (global-name "com.apple.SecurityServer"))\n`
+export function sandboxProfileText(realHome, { fixtureRoot = '/tmp/fixture', fixtureRoots = [], readPaths = [], additionalDeniedPaths = [], isolation = 'strict' } = {}) {
+  if (isolation !== 'strict' && isolation !== KEYCHAIN_READ_ONLY) throw new Error('unknown isolation profile')
+  const allowedFixtureRoots = [...new Set([fixtureRoot, ...fixtureRoots].map((path) => resolve(path)))]
+  const allowedInstallRoots = [...new Set(readPaths.map((path) => resolve(path)))]
+  const keychainRoot = resolve(join(realHome, 'Library/Keychains'))
+  const deniedRoots = [...new Set([
+    ...deniedHomePaths(realHome).filter((path) => isolation !== KEYCHAIN_READ_ONLY || resolve(path) !== keychainRoot),
+    ...additionalDeniedPaths.map((path) => resolve(path)),
+  ])]
+  const keychainRead = isolation === KEYCHAIN_READ_ONLY
+    ? `(allow file-read* (subpath ${JSON.stringify(keychainRoot)}))\n`
+    : ''
+  const keychainServices = isolation === KEYCHAIN_READ_ONLY
+    ? ''
+    : `(deny mach-lookup (global-name "com.apple.securityd"))\n(deny mach-lookup (global-name "com.apple.SecurityServer"))\n`
+  const fixtureWrites = allowedFixtureRoots.map((path) => `(allow file-write* (subpath ${JSON.stringify(path)}))`).join('\n')
+  const fixtureReads = allowedFixtureRoots.map((path) => `(allow file-read* (subpath ${JSON.stringify(path)}))`).join('\n')
+  const installReads = allowedInstallRoots.map((path) => `(allow file-read* (subpath ${JSON.stringify(path)}))`).join('\n')
+  const finalDenials = deniedRoots.map((path) => `(deny file-read* file-write* (subpath ${JSON.stringify(path)}))`).join('\n')
+  return `(version 1)\n(allow default)\n(deny file-read* file-write* (subpath "/Users"))\n(deny file-read* file-write* (subpath "/Volumes"))\n(deny file-write*)\n${fixtureWrites}\n(allow file-write* (literal "/dev/null"))\n(allow file-write* (regex #"^/dev/tty"))\n${fixtureReads}\n${installReads}\n${finalDenials}\n${keychainRead}${keychainServices}`
 }
 
 export function normalizeVersion(value) {
@@ -341,7 +443,30 @@ export function normalizeVersion(value) {
     : 'unknown'
 }
 
-export async function prepareSandbox(fixture) {
+export function installReadRoot(realPath) {
+  const parts = resolve(realPath).split('/').filter(Boolean)
+  const versions = parts.lastIndexOf('versions')
+  if (versions >= 0 && parts[versions + 1]) return `/${parts.slice(0, versions + 2).join('/')}`
+  const modules = parts.lastIndexOf('node_modules')
+  if (modules >= 0 && parts[modules + 1]) return `/${parts.slice(0, modules + 1).join('/')}`
+  const parent = dirname(realPath)
+  return parent === realPath ? null : parent
+}
+
+export function installDiscoveryState({ candidateCount, copies = [], chosen = null, unsafeCount = 0 }) {
+  if (chosen) return 'chosen'
+  if (copies.some((copy) => copy.standing === 'unreadable' || copy.unreadable)) return 'unreadable'
+  if (!candidateCount) return 'absent'
+  if (unsafeCount) return 'unsafe'
+  if (copies.some((copy) => copy.standing === 'too-old')) return 'below-floor'
+  return 'unreadable'
+}
+
+export function shouldAskAgent(agent) {
+  return !KEYCHAIN_READ_ONLY_AGENTS.has(agent.id)
+}
+
+export async function prepareSandbox(fixture, { isolation = 'strict', readPaths = [] } = {}) {
   fixture.isolation.preflightPassed = false
   fixture.isolation.available = false
   VERIFIED_FIXTURES.delete(fixture)
@@ -349,14 +474,16 @@ export async function prepareSandbox(fixture) {
     fixture.isolation.reason = 'cannot isolate: macOS sandbox-exec unavailable'
     return false
   }
-  const profile = makeSandboxProfile(fixture.root)
+  const profile = makeSandboxProfile(fixture.root, homedir(), { isolation, readPaths })
   if (!profile) {
     fixture.isolation.reason = 'cannot isolate: sandbox profile unavailable'
     return false
   }
   await writeFile(fixture.isolation.profilePath, profile, 'utf8')
   fixture.isolation.profileText = profile
-  fixture.isolation.preflightPassed = verifySandbox(fixture.isolation.profilePath, fixture.root)
+  fixture.isolation.profile = isolation
+  fixture.isolation.readPaths = readPaths
+  fixture.isolation.preflightPassed = verifySandbox(fixture.isolation.profilePath, fixture.root, { isolation, readPaths })
   fixture.isolation.available = fixture.isolation.preflightPassed
   fixture.isolation.reason = fixture.isolation.preflightPassed ? '' : 'cannot isolate: sandbox profile preflight failed'
   if (fixture.isolation.preflightPassed) VERIFIED_FIXTURES.set(fixture, profile)
@@ -367,10 +494,7 @@ export function agentHomeIsIsolated(agent, fixture) {
   if (!fixture.isolation.preflightPassed || VERIFIED_FIXTURES.get(fixture) !== fixture.isolation.profileText) return false
   const declared = agent.id === 'codex' ? { path: '~/.codex' } : agent.home
   if (!declared?.path) return false
-  const realHome = realpathSync(homedir())
-  const home = declared.path.startsWith('~/') ? join(realHome, declared.path.slice(2)) : resolve(realHome, declared.path)
-  const homeDenied = fixture.isolation.profileText.includes(`(subpath ${JSON.stringify(home)})`)
-  if (!homeDenied) return false
+  if (!fixture.isolation.profileText.includes('(allow default)')) return false
   if (!declared.env) return true
   if (!VENDOR_HOMES.includes(declared.env)) return false
   const override = safeEnv(fixture)[declared.env]
@@ -383,7 +507,7 @@ export function run(command, args, fixture, { cwd = fixture.repo, timeoutMs = 60
   const env = { ...safeEnv(fixture), ...envOverrides, cwd }
   assertIsolatedEnv(env, fixture.root)
   const profilePath = fixture.isolation.profilePath
-  if (readFileSync(profilePath, 'utf8') !== fixture.isolation.profileText || makeSandboxProfile(fixture.root) !== fixture.isolation.profileText) throw new Error('cannot isolate: verified sandbox profile changed')
+  if (readFileSync(profilePath, 'utf8') !== fixture.isolation.profileText || makeSandboxProfile(fixture.root, homedir(), { isolation: fixture.isolation.profile, readPaths: fixture.isolation.readPaths }) !== fixture.isolation.profileText) throw new Error('cannot isolate: verified sandbox profile changed')
   const sandboxEnv = { ...env, cwd: fixture.repo }
   return new Promise((resolveRun, rejectRun) => {
     const child = spawn('/usr/bin/sandbox-exec', ['-f', profilePath, command, ...args], {
@@ -430,7 +554,7 @@ export function normalizeFixtureTokens(value, allowed) {
 
 export function validateResult(result, fixture) {
   if (!fixture || !Array.isArray(fixtureTokens(fixture))) throw new Error('fixture-derived result allowlist is required')
-  const allowedKeys = new Set(['agent', 'agentId', 'version', 'measured', 'interface', 'question', 'rawAnswer', 'facts', 'status', 'reason'])
+  const allowedKeys = new Set(['agent', 'agentId', 'version', 'measured', 'interface', 'question', 'rawAnswer', 'facts', 'status', 'reason', 'isolation', 'auth'])
   if (!result || typeof result !== 'object' || Array.isArray(result) || Object.keys(result).some((key) => !allowedKeys.has(key))) throw new Error('result has fields outside the strict schema')
   for (const key of ['agent', 'agentId', 'version', 'measured', 'interface', 'question']) {
     if (typeof result[key] !== 'string' || !result[key].trim()) throw new Error(`${key} is required`)
@@ -442,8 +566,12 @@ export function validateResult(result, fixture) {
   if (!result.facts || typeof result.facts !== 'object' || Array.isArray(result.facts)) throw new Error('facts must be an object')
   if (Object.keys(result.facts).some((key) => !FACT_KEYS.has(key)) || !safeFact(result.facts, fixture)) throw new Error('facts are outside the fixture-derived allowlist')
   if (result.status !== 'asked' && result.status !== 'could-not-ask') throw new Error('status must be asked or could-not-ask')
+  if (result.isolation !== undefined && result.isolation !== KEYCHAIN_READ_ONLY) throw new Error('isolation is not allowlisted')
+  if (result.auth !== undefined && result.auth !== 'owner subscription sign-in') throw new Error('auth is not allowlisted')
+  if ((result.isolation === KEYCHAIN_READ_ONLY) !== (result.auth === 'owner subscription sign-in')) throw new Error('keychain exception results must carry isolation and auth together')
   const signedOutStatus = result.facts?.signedOutCatalogue?.status ?? result.facts?.signedOutCatalogue
-  if (typeof result.rawAnswer !== 'string' || (result.status === 'asked' && !result.rawAnswer.trim() && !['available', 'empty'].includes(signedOutStatus))) throw new Error('rawAnswer is required for asked results')
+  const observedSessionOutcome = ['no-session', 'session-created'].includes(result.facts?.signedOutCatalogue?.observation)
+  if (typeof result.rawAnswer !== 'string' || (result.status === 'asked' && !result.rawAnswer.trim() && !['available', 'empty'].includes(signedOutStatus) && !observedSessionOutcome)) throw new Error('rawAnswer is required for asked results')
   if (result.rawAnswer && result.rawAnswer.split('\n').some((line) => !fixtureTokens(fixture).includes(line))) throw new Error('rawAnswer must contain only fixture-derived tokens')
   if (result.status === 'could-not-ask' && result.rawAnswer !== '') throw new Error('could-not-ask results cannot persist an answer')
   if (result.status === 'could-not-ask' && (typeof result.reason !== 'string' || !safeText(result.reason, fixture))) throw new Error('reason is outside the fixture-derived allowlist')
@@ -457,7 +585,8 @@ export function registerProbe(agentId, probe) {
 }
 
 export async function askAgent(agent, fixture) {
-  const base = { agent: agent.name, agentId: agent.id, version: agent.version ?? 'unknown', measured: new Date().toISOString().slice(0, 10), interface: 'not selected', question: 'Probe the agent through its own interface', rawAnswer: '', facts: {}, fixtureRoot: fixture.root }
+  const exception = fixture.isolation.profile === KEYCHAIN_READ_ONLY
+  const base = { agent: agent.name, agentId: agent.id, version: agent.version ?? 'unknown', measured: new Date().toISOString().slice(0, 10), interface: 'not selected', question: 'Probe the agent through its own interface', rawAnswer: '', facts: unmeasuredFacts(), ...(exception ? { isolation: KEYCHAIN_READ_ONLY, auth: 'owner subscription sign-in' } : {}), fixtureRoot: fixture.root }
   if (!fixture.isolation.preflightPassed || !agentHomeIsIsolated(agent, fixture)) return { ...base, status: 'could-not-ask', reason: 'cannot isolate' }
   const probe = PROBES.get(agent.id)
   if (!probe) return { ...base, status: 'could-not-ask', reason: 'no safe probe registered' }
@@ -465,13 +594,13 @@ export async function askAgent(agent, fixture) {
     const answer = await probe(agent, fixture)
     if (answer.status === 'could-not-ask') {
       const reason = typeof answer.reason === 'string' && safeText(answer.reason, fixture) ? answer.reason : 'probe failed safely'
-      const facts = answer.facts && Object.keys(answer.facts).every((key) => FACT_KEYS.has(key)) && safeFact(answer.facts, fixture) ? answer.facts : {}
+      const facts = answer.facts && Object.keys(answer.facts).every((key) => FACT_KEYS.has(key)) && safeFact(answer.facts, fixture) ? { ...unmeasuredFacts(), ...answer.facts } : base.facts
       return { ...base, interface: safeText(answer.interface, fixture) ? answer.interface : base.interface, question: safeText(answer.question, fixture) ? answer.question : base.question, facts, status: 'could-not-ask', reason }
     }
     const normalizedRaw = redact(answer.rawAnswer ?? '', fixtureTokens(fixture), fixture.root)
     const signedOutStatus = answer.facts?.signedOutCatalogue?.status ?? answer.facts?.signedOutCatalogue
-    const observedListing = ['available', 'empty'].includes(signedOutStatus)
-    if (!normalizedRaw && !observedListing) return { ...base, status: 'could-not-ask', reason: 'answer failed the fixture-only privacy allowlist' }
+    const observedSignedOutOutcome = ['available', 'empty'].includes(signedOutStatus) || ['no-session', 'session-created'].includes(answer.facts?.signedOutCatalogue?.observation)
+    if (!normalizedRaw && !observedSignedOutOutcome) return { ...base, status: 'could-not-ask', reason: 'answer failed the fixture-only privacy allowlist' }
     const facts = answer.facts ?? {}
     if (!safeFact(facts, fixture) || Object.keys(facts).some((key) => !FACT_KEYS.has(key))) return { ...base, status: 'could-not-ask', reason: 'parsed facts failed the privacy allowlist' }
     if (!safeText(answer.interface ?? base.interface, fixture)) return { ...base, status: 'could-not-ask', reason: 'probe interface failed the privacy allowlist' }
@@ -502,6 +631,9 @@ export async function writeResult(result, directory = RESULT_DIR_PATH, fixture) 
   const versionSlug = String(safe.version).replace(/[^A-Za-z0-9.+_-]/g, '-')
   const path = join(directory, `${agentSlug}-${versionSlug}.json`)
   await mkdir(dirname(path), { recursive: true })
+  for (const oldName of await readdir(directory)) {
+    if (oldName.startsWith(`${agentSlug}-`) && oldName.endsWith('.json') && join(directory, oldName) !== path) await unlink(join(directory, oldName))
+  }
   await writeFile(path, `${JSON.stringify(safe, null, 2)}\n`, { encoding: 'utf8', flag: 'w' })
   return path
 }
@@ -512,27 +644,67 @@ export async function findAgentInstall(agent, fixture) {
     ? { commands: ['codex'], versionArgs: ['--version'] }
     : agent.cli
   const locateOptions = { home: homedir(), env: { PATH: process.env.PATH ?? '' } }
-  const candidates = candidatePaths(spec, locateOptions).filter(existsSync)
-  if (!agentHomeIsIsolated(agent, fixture)) return { chosen: null, cannotIsolate: true }
-  const protectedRoots = deniedHomePaths(realpathSync(homedir()))
-  const candidateNeedsDeniedAccess = candidates.some((path) => {
-    let real = path
-    try { real = realpathSync(path) } catch {}
-    return protectedRoots.some((root) => isWithin(root, path) || isWithin(root, real))
-  })
-  if (candidateNeedsDeniedAccess) return { chosen: null, cannotIsolate: true }
+  const candidatePathsAll = candidatePaths(spec, locateOptions)
+  const candidates = []
+  const unreadablePaths = []
+  for (const path of candidatePathsAll) {
+    try {
+      if (statSync(path).isFile()) candidates.push(path)
+    } catch (error) {
+      if (!['ENOENT', 'ENOTDIR'].includes(error?.code)) unreadablePaths.push(path)
+    }
+  }
+  const realHome = realpathSync(homedir())
+  const declared = agent.id === 'codex' ? '~/.codex' : agent.home?.path
+  if (!declared) return { chosen: null, copies: [], state: 'unsafe' }
+  const agentHome = declared.startsWith('~/') ? join(realHome, declared.slice(2)) : resolve(realHome, declared)
+  const copyRoots = []
+  const unsafeCopies = []
+  const candidateRecords = []
+  for (const path of candidates) {
+    try {
+      const realPath = realpathSync(path)
+      const installRoot = installReadRoot(realPath)
+      if (isWithin(realHome, realPath) && (!installRoot || !isWithin(agentHome, installRoot) && !isWithin(realHome, installRoot) || installRoot === agentHome || CREDENTIAL_ROOTS.some((root) => installRoot === join(realHome, root)))) {
+        unsafeCopies.push({ path, reason: 'cannot isolate: install directory overlaps agent configuration' })
+        continue
+      }
+      if (!installRoot) {
+        unsafeCopies.push({ path, reason: 'cannot isolate: install runtime boundary unavailable' })
+        continue
+      }
+      copyRoots.push(installRoot)
+      candidateRecords.push({ path, realPath, installRoot })
+    } catch {
+      candidateRecords.push({ path, unreadable: true })
+    }
+  }
+  if (unsafeCopies.length && !candidateRecords.length && !unreadablePaths.length) return { chosen: null, copies: unsafeCopies, state: installDiscoveryState({ candidateCount: candidates.length, copies: unsafeCopies, unsafeCount: unsafeCopies.length }) }
+  const isolation = KEYCHAIN_READ_ONLY_AGENTS.has(agent.id) ? KEYCHAIN_READ_ONLY : 'strict'
+  if (!await prepareSandbox(fixture, { isolation, readPaths: copyRoots })) return { chosen: null, copies: [], state: 'unsafe' }
+  if (!agentHomeIsIsolated(agent, fixture)) return { chosen: null, copies: [], state: 'unsafe' }
+  if (!candidates.length) {
+    const copies = [...unsafeCopies, ...unreadablePaths.map((path) => ({ path, standing: 'unreadable' }))]
+    return { chosen: null, copies, state: installDiscoveryState({ candidateCount: unreadablePaths.length + unsafeCopies.length, copies, unsafeCount: unsafeCopies.length }) }
+  }
+  if (!candidateRecords.length) return { chosen: null, copies: unsafeCopies, state: 'unsafe' }
   const found = await findInstalls(spec, {
     ...locateOptions,
     probe: async (path, args) => {
       try {
-        const result = await run(path, [...args], fixture, { timeoutMs: 10_000 })
+        const candidate = candidateRecords.find((entry) => entry.path === path)
+        if (!candidate || candidate.unreadable) return null
+        const result = await run(candidate.realPath, [...args], fixture, { timeoutMs: 10_000 })
         return result.code === 0 ? `${result.stdout}\n${result.stderr}` : null
       } catch {
         return null
       }
     },
   })
-  return { chosen: judgeInstalls(found, { minVersion: spec.minVersion }).chosen, cannotIsolate: false }
+  const judged = judgeInstalls(found, { minVersion: spec.minVersion })
+  const copies = [...judged.copies, ...unsafeCopies, ...unreadablePaths.map((path) => ({ path, standing: 'unreadable' }))]
+  const chosen = judged.chosen ? { ...judged.chosen, path: judged.chosen.realPath } : null
+  return { chosen, copies, state: installDiscoveryState({ candidateCount: candidates.length, copies, chosen, unsafeCount: unsafeCopies.length }) }
 }
 
 export async function main(args = process.argv.slice(2)) {
@@ -545,21 +717,26 @@ export async function main(args = process.argv.slice(2)) {
     const root = await mkdtemp('/tmp/hd-measure-')
     try {
       const fixture = await createFixture(root)
-      await prepareSandbox(fixture)
-      const homeSafe = fixture.isolation.preflightPassed && agentHomeIsIsolated(agent, fixture)
-      const installResult = homeSafe ? await findAgentInstall(agent, fixture) : { chosen: null, cannotIsolate: true }
+      const installResult = await findAgentInstall(agent, fixture)
       const install = installResult.chosen
       const command = install?.path
       const discovered = command
         ? await captureHelpVersion({ ...agent, command }, fixture)
         : null
-      const result = command && discovered?.value && discovered.value === install.version
+      const result = command && discovered?.value && discovered.value === install.version && shouldAskAgent(agent)
         ? await askAgent({ ...agent, command, version: discovered.value }, fixture)
+        : command && discovered?.value && discovered.value === install.version
+          ? {
+              agent: agent.name, agentId: agent.id, version: discovered.value, measured: new Date().toISOString().slice(0, 10),
+              interface: 'not launched', question: 'Is an installed build available?', rawAnswer: '', facts: unmeasuredFacts(),
+              status: 'could-not-ask', isolation: KEYCHAIN_READ_ONLY, auth: 'owner subscription sign-in', reason: 'needs sign-in, not measured',
+            }
         : {
             agent: agent.name, agentId: agent.id, version: 'unknown', measured: new Date().toISOString().slice(0, 10),
             interface: 'not launched', question: 'Is an installed build available?', rawAnswer: '', facts: unmeasuredFacts(),
             status: 'could-not-ask',
-            reason: !fixture.isolation.available || installResult.cannotIsolate ? 'cannot isolate' : !install ? 'binary not installed' : !discovered?.value ? 'could not capture an exact version' : 'installed version changed during discovery',
+            ...(fixture.isolation.profile === KEYCHAIN_READ_ONLY ? { isolation: KEYCHAIN_READ_ONLY, auth: 'owner subscription sign-in' } : {}),
+            reason: !fixture.isolation.available || installResult.state === 'unsafe' ? 'cannot isolate' : installResult.state === 'absent' ? 'binary not installed' : installResult.state === 'unreadable' ? 'installed candidate version unreadable' : installResult.state === 'below-floor' ? 'installed version below supported floor' : !discovered?.value ? 'could not capture an exact version' : 'installed version changed during discovery',
           }
       await writeResult(result, RESULT_DIR_PATH, fixture)
       process.stdout.write(`${result.status}: ${agent.id} ${result.version}\n`)

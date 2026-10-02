@@ -2,9 +2,9 @@
   "agent": "OpenClaw",
   "agentId": "openclaw",
   "version": "2026.8.2",
-  "measured": "2026-10-01",
+  "measured": "2026-10-02",
   "interface": "not selected",
-  "question": "signed out list agent skills",
+  "question": "no session while signed out",
   "rawAnswer": "",
   "facts": {
     "rulesFiles": {
@@ -13,27 +13,29 @@
     "catalogue": {
       "status": "could-not-ask"
     },
+    "reportsCatalogue": false,
     "precedence": {
       "status": "could-not-ask"
     },
     "rejections": {
       "status": "could-not-ask"
     },
-    "skillRoots": {
-      "status": "could-not-ask"
-    },
+    "reportsRejections": false,
+    "skillRoots": [],
     "refresh": {
-      "status": "unknown"
+      "status": "unknown",
+      "catalogueRefresh": "none",
+      "skillToggle": false,
+      "openSessionSeesChange": "unknown"
     },
     "mcp": {
       "status": "unknown"
     },
     "signedOutCatalogue": {
       "status": "unknown",
-      "commandCount": 0,
-      "skillsListed": false
+      "observation": "unknown"
     }
   },
   "status": "could-not-ask",
-  "reason": "ACP session unavailable"
+  "reason": "ACP initialize unavailable"
 }

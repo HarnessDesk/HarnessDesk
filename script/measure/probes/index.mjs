@@ -29,8 +29,11 @@ export function summarizeAcpMessages(messages) {
   const newSession = messages.find((message) => message.id === 2)
   const commandUpdate = messages.find((message) => message.method === 'session/update' && message.params?.update?.sessionUpdate === 'available_commands_update')
   const commands = commandUpdate?.params?.update?.availableCommands ?? []
-  const signedOutFailure = messages.some((message) => message.id === 2 && message.error)
-  return { initialized: messages.some((message) => message.id === 1 && !message.error), sessionCreated: Boolean(newSession?.result), signedOutFailure, commandCount: Array.isArray(commands) ? commands.length : 0 }
+  const initialized = messages.some((message) => message.id === 1 && !message.error)
+  const sessionCreated = Boolean(newSession?.result)
+  const signedOutFailure = Boolean(newSession?.error)
+  const signedOutObservation = sessionCreated ? 'session-created' : signedOutFailure ? 'no-session' : 'unknown'
+  return { initialized, sessionCreated, signedOutFailure, commandCount: Array.isArray(commands) ? commands.length : 0, signedOutObservation }
 }
 
 export function parseRejectionWords(errors) {
@@ -169,10 +172,15 @@ async function codexProbe(agent, fixture) {
   const resultFacts = {
     rulesFiles: { status: 'could-not-ask' },
     catalogue: { reported: reportedNames, userPresent: initialSkills.some((skill) => skill.name === 'measure-user'), projectPresent: initialSkills.some((skill) => skill.name === 'measure-project'), auxiliaryPresent: initialSkills.some((skill) => skill.name === 'measure-with-auxiliary') },
+    reportsCatalogue: Boolean(resultOf(parsed.before)),
     precedence: { duplicateUserPresent: duplicate.some((skill) => skill.scope === 'user'), duplicateProjectPresent: duplicate.some((skill) => skill.scope === 'repo'), duplicateCount: duplicate.length },
     rejections: { missingDescriptionListed: initialSkills.some((skill) => skill.name === 'measure-no-description'), missingDescriptionError: errors.some((error) => String(error.path).includes('measure-no-description')), oversizedListed: initialSkills.some((skill) => skill.name === 'measure-oversized'), oversizedError: errors.some((error) => String(error.path).includes('measure-oversized')), rejectionWords: parseRejectionWords(errors), errorCount: errors.length },
-    skillRoots: { userFound: initialSkills.some((skill) => skill.scope === 'user'), projectFound: initialSkills.some((skill) => skill.scope === 'repo') },
-    refresh: { forceReloadChangedDescription: refreshed?.description === 'REFRESHED_SENTINEL', runtimeRefreshSupported: Boolean(resultOf(parsed.refresh) && !parsed.refresh.error), runtimeRefreshRejected: Boolean(parsed.refresh?.error), openSessionSeesChange: 'unknown' },
+    reportsRejections: Boolean(resultOf(parsed.before)),
+    skillRoots: [
+      ...(initialSkills.some((skill) => skill.scope === 'user') ? [{ path: '~/.codex/skills', scope: 'user' }] : []),
+      ...(initialSkills.some((skill) => skill.scope === 'repo') ? [{ path: '.codex/skills', scope: 'project' }] : []),
+    ],
+    refresh: { catalogueRefresh: refreshed?.description === 'REFRESHED_SENTINEL' ? 'live' : 'none', skillToggle: false, forceReloadChangedDescription: refreshed?.description === 'REFRESHED_SENTINEL', runtimeRefreshSupported: Boolean(resultOf(parsed.refresh) && !parsed.refresh.error), runtimeRefreshRejected: Boolean(parsed.refresh?.error), openSessionSeesChange: 'unknown' },
     mcp: { fixtureConfigured: Object.hasOwn(configuredMcp, 'measure_fixture') || (Array.isArray(mcpStatuses) && mcpStatuses.some((status) => status.name === 'measure_fixture')), status: !Array.isArray(mcpStatuses) || !mcpStatuses.length ? 'unknown' : mcpStatuses.some((status) => status.runtimeStatus === 'connected') ? 'connected' : 'disconnected' },
     signedOutCatalogue: { status: initialSkills.length ? 'available' : 'empty' },
   }
@@ -198,16 +206,17 @@ async function acpProbe(agent, fixture) {
   const summary = summarizeAcpMessages(parseAcpOutput(execution.stdout))
   const modelReasons = {
     rulesFiles: { status: 'could-not-ask' }, catalogue: { status: 'could-not-ask' },
+    reportsCatalogue: false, reportsRejections: false,
     precedence: { status: 'could-not-ask' }, rejections: { status: 'could-not-ask' },
-    skillRoots: { status: 'could-not-ask' }, refresh: { status: 'unknown' }, mcp: { status: 'unknown' },
-    signedOutCatalogue: { status: summary.commandCount ? 'available' : summary.sessionCreated ? 'empty' : 'unknown', commandCount: summary.commandCount, skillsListed: false },
+    skillRoots: [], refresh: { status: 'unknown', catalogueRefresh: 'none', skillToggle: false, openSessionSeesChange: 'unknown' }, mcp: { status: 'unknown' },
+    signedOutCatalogue: { status: 'unknown', observation: summary.signedOutObservation },
   }
-  if (summary.initialized && summary.sessionCreated) return {
-    interface: 'ACP session/new', question: 'signed out list agent skills', facts: modelReasons,
+  if (summary.initialized && ['session-created', 'no-session'].includes(summary.signedOutObservation)) return {
+    interface: 'ACP session/new', question: summary.signedOutObservation === 'no-session' ? 'no session while signed out' : 'session created while signed out', facts: modelReasons,
     rawAnswer: '', status: 'asked',
   }
-  const reason = summary.signedOutFailure ? 'needs sign-in a model answer is required' : 'ACP session unavailable'
-  return { interface: 'ACP session/new', question: 'signed out list agent skills', facts: modelReasons, status: 'could-not-ask', reason }
+  const reason = 'ACP initialize unavailable'
+  return { interface: 'ACP session/new', question: 'no session while signed out', facts: modelReasons, status: 'could-not-ask', reason }
 }
 
 export function installProbes(harness) {

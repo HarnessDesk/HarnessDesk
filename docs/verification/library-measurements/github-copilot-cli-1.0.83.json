@@ -1,7 +1,7 @@
 {
-  "agent": "Gemini CLI",
-  "agentId": "gemini",
-  "version": "0.62.0",
+  "agent": "GitHub Copilot",
+  "agentId": "github-copilot-cli",
+  "version": "1.0.83",
   "measured": "2026-10-02",
   "interface": "not selected",
   "question": "no session while signed out",

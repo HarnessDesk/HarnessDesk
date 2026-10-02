@@ -2,7 +2,7 @@
   "agent": "Codex",
   "agentId": "codex",
   "version": "0.155.0",
-  "measured": "2026-10-01",
+  "measured": "2026-10-02",
   "interface": "codex app-server skills/list",
   "question": "catalogue precedence rejections refresh mcp",
   "rawAnswer": "measure-sentinel",
@@ -23,6 +23,7 @@
       "projectPresent": true,
       "auxiliaryPresent": true
     },
+    "reportsCatalogue": true,
     "precedence": {
       "duplicateUserPresent": true,
       "duplicateProjectPresent": true,
@@ -40,11 +41,20 @@
       },
       "errorCount": 1
     },
-    "skillRoots": {
-      "userFound": true,
-      "projectFound": true
-    },
+    "reportsRejections": true,
+    "skillRoots": [
+      {
+        "path": "~/.codex/skills",
+        "scope": "user"
+      },
+      {
+        "path": ".codex/skills",
+        "scope": "project"
+      }
+    ],
     "refresh": {
+      "catalogueRefresh": "live",
+      "skillToggle": false,
       "forceReloadChangedDescription": true,
       "runtimeRefreshSupported": false,
       "runtimeRefreshRejected": true,

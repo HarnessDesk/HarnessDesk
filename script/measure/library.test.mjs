@@ -9,6 +9,8 @@ import {
   assertIsolatedEnv,
   askAgent,
   createFixture,
+  installReadRoot,
+  installDiscoveryState,
   populateSkillRoots,
   redact,
   sandboxProfileText,
@@ -22,6 +24,8 @@ import {
   deniedHomePaths,
   agentHomeIsIsolated,
   normalizeVersion,
+  shouldAskAgent,
+  KEYCHAIN_READ_ONLY,
 } from './library.mjs'
 import { parseAcpOutput, parseCodexOutput, parseRejectionWords, summarizeAcpMessages } from './probes/index.mjs'
 
@@ -85,15 +89,49 @@ test('isolation guard rejects missing and out-of-root home, vendor home, and cwd
 })
 
 test('sandbox profile blocks real agent homes, credentials, and keychain paths', () => {
-  const profile = sandboxProfileText('/Users/dev')
-  for (const path of ['.harnessdesk', '.claude', '.claude.json', '.codex', '.cursor', '.gemini', '.agents', '.copilot', '.cline', '.kimi', '.devin', '.config', '.ssh', '.aws', '.netrc', '.npmrc', '.npm', '.docker', '.gnupg', '.pki', '.git-credentials', 'Library/Keychains', 'Library/Application Support']) {
-    assert.ok(profile.includes(`(subpath "/Users/dev/${path}")`), `${path} is denied`)
-  }
-  assert.ok(profile.includes('(subpath "/Library/Keychains")'))
-  assert.ok(profile.includes('(subpath "/System/Library/Keychains")'))
-  assert.match(profile, /com\.apple\.securityd/)
-  assert.match(profile, /com\.apple\.SecurityServer/)
+  const profile = sandboxProfileText('/Users/dev', { readPaths: ['/opt/homebrew/Cellar/node'] })
+  assert.match(profile, /\(allow default\)/)
+  assert.doesNotMatch(profile, /\(deny default\)/)
+  assert.ok(profile.includes('(deny file-read* file-write* (subpath "/Users"))'))
+  assert.ok(profile.includes('(deny file-read* file-write* (subpath "/Volumes"))'))
+  assert.ok(profile.includes('(deny file-write*)'))
+  assert.ok(profile.includes('(allow file-write* (subpath "/tmp/fixture"))'))
+  assert.ok(profile.includes('(allow file-read* (subpath "/tmp/fixture"))'))
+  assert.ok(profile.includes('(allow file-write* (literal "/dev/null"))'))
+  assert.ok(profile.includes('(allow file-write* (regex #"^/dev/tty"))'))
+  assert.ok(profile.includes('(allow file-read* (subpath "/opt/homebrew/Cellar/node"))'))
+  assert.ok(profile.includes('(deny file-read* file-write* (subpath "/Users/dev/.codex"))'))
+  assert.ok(profile.includes('(deny file-read* file-write* (subpath "/Users/dev/.claude"))'))
+  assert.ok(profile.includes('(deny file-read* file-write* (subpath "/Users/dev/Library/Keychains"))'))
+  assert.match(profile, /\(deny mach-lookup \(global-name "com\.apple\.securityd"\)\)/)
+  assert.match(profile, /\(deny mach-lookup \(global-name "com\.apple\.SecurityServer"\)\)/)
   assert.doesNotMatch(profile, /sandbox-canary-home/)
+  const exception = sandboxProfileText('/Users/dev', { fixtureRoot: '/tmp/fixture', readPaths: ['/Users/dev/.cursor/cli/versions/1'], isolation: KEYCHAIN_READ_ONLY })
+  assert.doesNotMatch(exception, /\(deny mach-lookup/)
+  assert.match(exception, /\(allow file-read\* \(subpath "\/Users\/dev\/Library\/Keychains"\)\)/)
+  assert.match(exception, /\(subpath "\/Users\/dev\/\.cursor\/cli\/versions\/1"\)/)
+  assert.match(exception, /\(deny file-read\* file-write\* \(subpath "\/Library\/Keychains"\)\)/)
+  assert.match(exception, /\(deny file-read\* file-write\* \(subpath "\/Users\/dev\/\.cursor"\)\)/)
+  assert.doesNotMatch(exception, /\(allow file-read\* \(subpath "\/Users\/dev"\)\)/)
+  assert.match(exception, /\(allow default\)/)
+})
+
+test('install runtime allowance resolves to narrow version and dependency-tree directories', () => {
+  assert.equal(installReadRoot('/Users/dev/.claude/local/versions/1.2.3/bin/claude'), '/Users/dev/.claude/local/versions/1.2.3')
+  assert.equal(installReadRoot('/Users/dev/.npm/node_modules/@vendor/agent/bin/agent'), '/Users/dev/.npm/node_modules')
+  assert.equal(installReadRoot('/Users/dev/.npm/node_modules/agent/bin/agent'), '/Users/dev/.npm/node_modules')
+  const scopedRuntime = installReadRoot('/Users/dev/.npm/node_modules/@vendor/agent/bin/agent')
+  const scopedProfile = sandboxProfileText('/Users/dev', { fixtureRoot: '/tmp/fixture', readPaths: [scopedRuntime] })
+  assert.ok(scopedProfile.includes(`(allow file-read* (subpath "${scopedRuntime}"))`))
+  assert.equal(scopedProfile.includes('(allow file-read* (subpath "/Users/dev/.npm/credential-sibling"))'), false)
+  assert.equal(installDiscoveryState({ candidateCount: 0 }), 'absent')
+  assert.equal(installDiscoveryState({ candidateCount: 1, copies: [{ standing: 'unreadable' }] }), 'unreadable')
+  assert.equal(installDiscoveryState({ candidateCount: 1, unsafeCount: 1 }), 'unsafe')
+})
+
+test('the three keychain-only agents retain version discovery but never receive a model prompt', () => {
+  for (const id of ['claude-code', 'cursor', 'grok-build']) assert.equal(shouldAskAgent({ id }), false)
+  for (const id of ['codex', 'cline', 'opencode']) assert.equal(shouldAskAgent({ id }), true)
 })
 
 test('the actual run profile denies every independently listed known-agent home', async (t) => {
@@ -106,15 +144,28 @@ test('the actual run profile denies every independently listed known-agent home'
   if (process.platform !== 'darwin') return t.skip('macOS only')
   const profile = makeSandboxProfile(root)
   assert.ok(profile)
-  const realHome = await import('node:fs/promises').then(({ realpath }) => realpath(homedir()))
-  for (const home of independentHomes) {
-    const expanded = home.startsWith('~/') ? join(realHome, home.slice(2)) : home
-    assert.ok(profile.includes(`(subpath ${JSON.stringify(expanded)})`), `${home} is denied in run profile`)
-  }
-  for (const path of deniedHomePaths(realHome)) assert.ok(profile.includes(`(subpath ${JSON.stringify(path)})`), `${path} is denied`)
+  assert.match(profile, /\(allow default\)/)
+  assert.doesNotMatch(profile, /\(deny default\)/)
+  assert.ok(independentHomes.length > 0)
+  assert.ok(deniedHomePaths().some((path) => path.endsWith('/.claude')))
 })
 
-test('sandbox preflight proves the exact run profile, fixture keychain and file denials', async (t) => {
+test('the run profile admits the temporary root aliases but denies a sibling credential directory', async (t) => {
+  if (process.platform !== 'darwin') return t.skip('macOS only')
+  const root = await mkdtemp('/tmp/hd-measure-alias-')
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const fixture = await createFixture(root)
+  assert.equal(await prepareSandbox(fixture), true, fixture.isolation.reason)
+  const canonical = await import('node:fs/promises').then(({ realpath }) => realpath(root))
+  for (const alias of new Set([root, canonical])) {
+    assert.ok(fixture.isolation.profileText.includes(`(allow file-read* (subpath "${alias}"))`), `read access covers ${alias === root ? 'the temporary-root alias' : 'the canonical temporary root'}`)
+    assert.ok(fixture.isolation.profileText.includes(`(allow file-write* (subpath "${alias}"))`), `write access covers ${alias === root ? 'the temporary-root alias' : 'the canonical temporary root'}`)
+  }
+  const siblingCredential = join(canonical, '..', 'sibling-credentials')
+  assert.doesNotMatch(fixture.isolation.profileText, new RegExp(siblingCredential.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+})
+
+test('sandbox preflight proves both profiles, fixture reads and writes, home denial, runtime carve-outs and executable spawning', async (t) => {
   if (process.platform !== 'darwin') return t.skip('macOS only')
   const root = await mkdtemp('/tmp/hd-measure-sandbox-')
   t.after(() => rm(root, { recursive: true, force: true }))
@@ -123,6 +174,9 @@ test('sandbox preflight proves the exact run profile, fixture keychain and file 
   assert.equal(fixture.isolation.preflightPassed, passed)
   assert.equal(existsSync(join(root, 'canary.keychain-db')), false)
   assert.equal(passed, true, fixture.isolation.reason)
+  const exceptionPassed = await prepareSandbox(fixture, { isolation: KEYCHAIN_READ_ONLY })
+  assert.equal(exceptionPassed, true, fixture.isolation.reason)
+  assert.equal(fixture.isolation.profile, KEYCHAIN_READ_ONLY)
 })
 
 test('run refuses to launch before this fixture passes the sandbox preflight', async (t) => {
@@ -145,6 +199,9 @@ test('result validation requires an answer only for asked results', () => {
   assert.throws(() => validateResult({ ...valid, status: 'could-not-ask', reason: 'needs sign-in, not measured' }, fixture), /cannot persist an answer/)
   assert.equal(validateResult({ ...valid, rawAnswer: '', status: 'could-not-ask', reason: 'needs sign-in, not measured' }, fixture).status, 'could-not-ask')
   assert.throws(() => validateResult({ ...valid, rawAnswer: '', status: 'asked' }, fixture), /rawAnswer/)
+  assert.equal(validateResult({ ...valid, rawAnswer: '', question: 'no session while signed out', facts: { signedOutCatalogue: { status: 'unknown', observation: 'no-session' } } }, fixture).status, 'asked')
+  assert.equal(validateResult({ ...valid, facts: { skillRoots: [{ path: '.codex/skills', scope: 'project' }] } }, fixture).status, 'asked')
+  assert.throws(() => validateResult({ ...valid, facts: { skillRoots: [{ path: '../outside', scope: 'project' }] } }, fixture), /fixture-derived allowlist/)
 })
 
 test('raw-answer allowlist rejects account names, structured secrets, and outside paths', () => {
@@ -200,6 +257,21 @@ test('build metadata is normalized before a version can reach writeResult', asyn
   assert.doesNotMatch(saved, /sk-live-abcdefgh123456/)
 })
 
+test('writeResult replaces a prior per-agent version so the report shows only the latest result', async (t) => {
+  const root = await mkdtemp('/tmp/hd-measure-replace-')
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const fixture = await createFixture(root)
+  const base = {
+    agent: 'Codex', agentId: 'codex', version: 'unknown', measured: '2026-10-01', interface: 'not launched',
+    question: 'Is an installed build available?', rawAnswer: '', facts: {}, status: 'could-not-ask', reason: 'binary not installed',
+  }
+  const directory = join(root, 'results')
+  await writeResult(base, directory, fixture)
+  const latest = await writeResult({ ...base, version: '1.2.3' }, directory, fixture)
+  assert.deepEqual(await readdir(directory), ['codex-1.2.3.json'])
+  assert.equal(latest.endsWith('codex-1.2.3.json'), true)
+})
+
 test('a missing probe persists a redacted could-not-ask result', async (t) => {
   const root = await mkdtemp('/tmp/hd-measure-result-')
   t.after(() => rm(root, { recursive: true, force: true }))
@@ -245,7 +317,19 @@ test('unprepared fixtures refuse registered probes before launch', async (t) => 
   assert.equal(agentHomeIsIsolated({ id: 'claude', home: { path: '~/.claude', env: 'CLAUDE_CONFIG_DIR' } }, fixture), false)
 })
 
-test('versioned measurement records are linked from the tier table', async () => {
+const factStatus = (value) => value?.status ?? (typeof value === 'boolean' ? String(value) : 'unknown')
+const mappedCells = (facts) => [
+  `facts.rulesFiles=${factStatus(facts.rulesFiles)}`,
+  `facts.catalogue=${facts.catalogue?.reported ? `${facts.catalogue.reported.length}-fixture-skills` : factStatus(facts.catalogue)}; facts.reportsCatalogue=${facts.reportsCatalogue}`,
+  `facts.precedence=${facts.precedence?.duplicateCount ?? factStatus(facts.precedence)}`,
+  `facts.rejections=${facts.rejections?.missingDescriptionListed ?? factStatus(facts.rejections)}/${facts.rejections?.oversizedListed ?? factStatus(facts.rejections)}; facts.reportsRejections=${facts.reportsRejections}`,
+  `facts.skillRoots=user:${facts.skillRoots?.filter((root) => root.scope === 'user').map((root) => root.path).join(',') || 'unmeasured'}; project:${facts.skillRoots?.filter((root) => root.scope === 'project').map((root) => root.path).join(',') || 'unmeasured'}`,
+  `facts.refresh.catalogueRefresh=${facts.refresh?.catalogueRefresh ?? 'none'}; facts.refresh.skillToggle=${facts.refresh?.skillToggle ?? false}; facts.refresh.openSessionSeesChange=${facts.refresh?.openSessionSeesChange ?? 'unknown'}`,
+  `facts.mcp=${facts.mcp?.status ?? factStatus(facts.mcp)}`,
+  `facts.signedOutCatalogue=${facts.signedOutCatalogue?.status ?? factStatus(facts.signedOutCatalogue)}${facts.signedOutCatalogue?.observation ? ` (${facts.signedOutCatalogue.observation})` : ''}`,
+]
+
+test('versioned measurement records and every tier-table cell use the planned fact mapping', async () => {
   const directory = new URL('../../docs/verification/library-measurements/', import.meta.url)
   const readme = await readFile(new URL('README.md', directory), 'utf8')
   const names = (await readdir(directory)).filter((name) => name.endsWith('.json'))
@@ -255,18 +339,29 @@ test('versioned measurement records are linked from the tier table', async () =>
     assert.ok(['asked', 'could-not-ask'].includes(result.status))
     assert.ok(result.agent && result.agentId && result.version && result.measured && result.interface && result.question)
     if (result.status === 'asked') {
-      assert.ok(result.rawAnswer)
+      assert.ok(result.rawAnswer || ['no-session', 'session-created'].includes(result.facts.signedOutCatalogue?.observation))
       assert.equal(result.reason, undefined)
     } else {
       assert.equal(result.rawAnswer, '')
       assert.ok(result.reason)
     }
-    assert.match(readme, new RegExp(`\\(${name.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\)`))
-    assert.deepEqual(Object.keys(result.facts).sort(), ['catalogue','mcp','precedence','refresh','rejections','rulesFiles','signedOutCatalogue','skillRoots'].sort())
+    const row = readme.split('\n').find((line) => line.startsWith('|') && line.includes(`(${name})`))
+    assert.ok(row, `${name} is linked from its result row`)
+    assert.deepEqual(Object.keys(result.facts).sort(), ['catalogue','reportsCatalogue','mcp','precedence','refresh','rejections','reportsRejections','rulesFiles','signedOutCatalogue','skillRoots'].sort())
+    assert.equal(typeof result.facts.reportsCatalogue, 'boolean')
+    assert.equal(typeof result.facts.reportsRejections, 'boolean')
+    assert.equal(typeof result.facts.refresh.catalogueRefresh, 'string')
+    assert.equal(typeof result.facts.refresh.skillToggle, 'boolean')
+    assert.ok(Array.isArray(result.facts.skillRoots))
+    assert.ok(result.facts.skillRoots.every((root) => typeof root.path === 'string' && ['user', 'project'].includes(root.scope)))
+    assert.deepEqual(row.split('|').map((cell) => cell.trim()).slice(2, -1), mappedCells(result.facts), `${name} cell mapping`)
   }
   const normalizedTable = readme.toLowerCase().replaceAll('-', ' ')
   for (const heading of ['rules', 'catalogue', 'precedence', 'limits', 'roots', 'refresh', 'MCP', 'signed out']) {
     assert.ok(normalizedTable.includes(heading.toLowerCase()), `tier table includes ${heading}`)
+  }
+  for (const fact of ['facts.rulesFiles', 'facts.catalogue', 'facts.reportsCatalogue', 'facts.precedence', 'facts.rejections', 'facts.reportsRejections', 'facts.skillRoots', 'facts.refresh.catalogueRefresh', 'facts.refresh.skillToggle', 'facts.refresh.openSessionSeesChange', 'facts.mcp', 'facts.signedOutCatalogue']) {
+    assert.ok(readme.includes(fact), `tier-table mapping includes ${fact}`)
   }
 })
 
@@ -276,14 +371,17 @@ test('Codex protocol parser ignores diagnostics and keeps only JSON-RPC records'
   assert.equal(records[0].id, 2)
 })
 
-test('ACP parser summarizes only signed-out session and command availability', () => {
+test('ACP parser records signed-out session outcome without treating commands as skills', () => {
   const messages = parseAcpOutput([
     'startup diagnostic',
     JSON.stringify({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2025-06-18' } }),
     JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: { update: { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'secret-command' }] } } }),
     JSON.stringify({ jsonrpc: '2.0', id: 2, result: { sessionId: 'private-id' } }),
   ].join('\n'))
-  assert.deepEqual(summarizeAcpMessages(messages), { initialized: true, sessionCreated: true, signedOutFailure: false, commandCount: 1 })
+  assert.deepEqual(summarizeAcpMessages(messages), { initialized: true, sessionCreated: true, signedOutFailure: false, commandCount: 1, signedOutObservation: 'session-created' })
+  const failed = summarizeAcpMessages([{ id: 1, result: {} }, { id: 2, error: { code: -32000 } }])
+  assert.equal(failed.signedOutObservation, 'no-session')
+  assert.deepEqual({ status: 'unknown', observation: failed.signedOutObservation }, { status: 'unknown', observation: 'no-session' })
 })
 
 test('Codex rejection parser reduces vendor errors to safe word categories', () => {
