@@ -177,6 +177,8 @@ runs in `snapshot.flowExecutions`.
 
 ## PR 1 — The overview model
 
+**Status.** Merged as #1276; this section is kept as the record of what it was asked to do.
+
 **Goal.** One pure function turns what the window already holds into the rows
 the Overview draws, in the app's words, ordered by precedence.
 
@@ -196,7 +198,7 @@ the Overview draws, in the app's words, ordered by precedence.
   - `type SeatState = 'needs-you' | 'unread' | 'working' | 'idle'`
   - `interface SeatRow { seat: string; name: string; role: string | null; card: { id: number; title: string } | null; round: number | null; state: SeatState; reason: string | null; doing: string | null; since: number | null; cost: { unit: 'money' | 'turns'; value: number; estimated: boolean } | null }`
   - `interface NeedsYouItem { kind: 'card' | 'question' | 'approval'; seat: string | null; card: number | null; summary: string; since: number }`
-  - `interface RunStrip { run: string; state: 'running' | 'settled' | 'stopped' | 'stalled'; round: number | null; role: string | null; startedAt: number | null; reviewRounds: { used: number; of: number } | null; total: { money: number | null; turns: number | null } }`
+  - `interface RunStrip { run: string; state: 'running' | 'settled' | 'stopped' | 'stalled'; round: number | null; role: string | null; startedAt: number; reviewRounds: { used: number; of: number } | null; total: { money: number | null; turns: number | null } }`
   - `teamOverview(input): { run: RunStrip | null; needsYou: NeedsYouItem[]; seats: SeatRow[] }`
   - `doingLine(previous, next, now): { line: string | null; at: number }`: the 2.5-second hold, as a pure function.
 - [ ] Rules, each with a test:
@@ -231,7 +233,7 @@ the Overview draws, in the app's words, ordered by precedence.
 - #1278, and how the two readers get members today: the rail's Agents list and its empty state in `TeamRoomPane.tsx` (the roster from `store.teamPeers`, which answers the board's `members`; the empty-state sentence near `No agents in this room yet`); the sidebar's `roomMembers` and the `inRooms` set in `SessionTree.tsx`. A Flow's membership is the Goal's Seats (`GoalView.members` in `snapshot.goals`; `FlowExecution.rounds[].seats` names the ones a Run opened by role); `lib/goal-run.ts` shows how the window already reads a Goal's Run.
 
 **Scope.**
-- [ ] `packages/ui/src/components/TeamOverview.tsx`: the Run strip (name, round and role, started, review budget, total as "$1.43 · 96 turns", no actions yet), the **Needs you** list (rows render; their buttons arrive with PR 8), and the seats table (seat face and name, role, card, round, state chip, doing line, time in state, cost). Idle is plain muted text. The strip's *started* reads `RunStrip.startedAt`, which is null until PR 5 projects it, and the strip then leaves it out (if PR 1 shipped the field as required, relax it to `number | null` there). The cost cell shows the unit it has, and its title says why ("This account is not metered, so turns are counted").
+- [ ] `packages/ui/src/components/TeamOverview.tsx`: the Run strip (name, round and role, started, review budget, total as "$1.43 · 96 turns", no actions yet), the **Needs you** list (rows render; their buttons arrive with PR 8), and the seats table (seat face and name, role, card, round, state chip, doing line, time in state, cost). Idle is plain muted text. PR 1 (merged as #1276) takes the Run's start time from its caller (`TeamOverviewInput.run.startedAt`, and `RunStrip.startedAt: number`), but the window cannot read a Run's start today: `FlowExecution` does not carry it until PR 5 projects it. This PR relaxes both to `number | null`, passes null, and the strip leaves *started* out; once PR 5 has landed it passes `execution.startedAt`. The cost cell shows the unit it has, and its title says why ("This account is not metered, so turns are counted").
 - [ ] Narrow width (the pane's own narrow rule): a seat is one `ListRow`: face, name and state chip on the title's line, the doing line beneath, the cost at the end.
 - [ ] `TeamRoomPane.tsx`: **Overview** as the rail's first item, the default when a Flow run exists on the Team (a Team without one still opens on Chat). The header chip's existing rule is unchanged.
 - [ ] A Team with no run: the strip is absent; the table still lists the seats (state, card, time).
