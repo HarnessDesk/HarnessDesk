@@ -128,6 +128,7 @@ import { CredentialBroker, plainCipher, type CredentialCipher } from './credenti
 import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
 import { canonicalDestination } from './git-worktree.js'
+import { dropFlowBase, fetchFlowBase } from './flow-base.js'
 import { Worktrees, createDetached, managedWorktreePath, openRepositoryRoot, remove as removeWorktree, removeCheckoutsLeftBehind, repositoryOf } from './worktree.js'
 import { commitCardWork } from './card-commit.js'
 import type { InventoryAgent } from '@harnessdesk/agent-inventory'
@@ -1186,6 +1187,14 @@ export class Host {
       builtinRoot: options.builtinFlows ?? builtinFlowRoot(),
       confine: (root) => this.#confineRoom(root),
     }), new FlowExecutions(new ExecutionFiles(join(this.#state.directory, 'flows-v2')), this.#team, {
+      fetchBase: async (root, base, run) => {
+        await this.#confineRoom(root)
+        return fetchFlowBase(root, base, run)
+      },
+      dropBase: async (root, run) => {
+        await this.#confineRoom(root)
+        await dropFlowBase(root, run)
+      },
       providerOf: (runtime, cwd) => this.#providerOf(runtime, cwd),
       presentationOf: (runtime) => this.#runtimes.get(runtime)?.info.presentation.name ?? null,
       // `info.provider` is `undefined` only for a runtime with no provider
@@ -1249,9 +1258,9 @@ export class Host {
       commitWork: (cwd, before, message) => commitCardWork(cwd, before, message),
       runCheck: (command, where, card) => this.#evidence.runFlowCheck(command, where, card),
       // A fresh detached checkout for one `run_check`, git hardened, removed after (#1082).
-      checkoutAt: async (cwd, at) => {
+      checkoutAt: async (cwd, at, options) => {
         const stateDir = this.#state.directory
-        const path = await createDetached(cwd, { name: `check-${at.slice(0, 12)}`, at, stateDir })
+        const path = await createDetached(cwd, { name: `${options?.retained ? 'flow-check' : 'check'}-${at.slice(0, 12)}`, at, stateDir })
         return { cwd: path, remove: async () => { await removeWorktree(path, { force: true, stateDir }) } }
       },
     }, {
