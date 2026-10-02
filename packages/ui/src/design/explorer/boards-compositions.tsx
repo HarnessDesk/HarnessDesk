@@ -2,6 +2,7 @@ import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 
 import {
   NO_CAPABILITIES,
+  isBusy,
   runtimeId,
   type FindingRunView,
   type LedgerDay,
@@ -16,7 +17,7 @@ import {
 import { FindingDecision } from '../../components/FindingDecision'
 import { WindowControls } from '../../components/WindowControls'
 import { splitRefusal } from '../../panels/PanelActions'
-import { SideBySide } from '../../components/SideBySide'
+import { SideBySide, sideBySideTileEntry } from '../../components/SideBySide'
 import { Menu, MenuItem } from '..'
 import { OverviewStrip, type StripMetric } from '../../components/usage/OverviewStrip'
 
@@ -29,6 +30,7 @@ import {
   PlusIcon,
   SearchIcon,
   ShieldAlertIcon,
+  TeamIcon,
   TerminalIcon,
   UsageIcon,
 } from '../../components/Icons'
@@ -171,6 +173,8 @@ import { dock, emptyWorkbench } from '../../state/workbench'
 import type { PaneView } from '../../state/layout'
 import { emptySideBySide, type SideBySideState } from '../../lib/side-by-side'
 import { SIDE_BY_SIDE_KEYS, SIDE_BY_SIDE_MEMBERS, sideBySideStore } from '../../preview/side-by-side-fixture'
+import { runtimeTint } from '../../lib/accounts'
+import { seatCeilingOf } from '../../lib/ceilings'
 import { planRows, shapeCountsOf, type PlanRow } from '../../lib/plans-table'
 import {
   Counts,
@@ -231,8 +235,8 @@ import { PlanCard } from '../patterns/PlanCard'
  */
 
 /** A labelled cell in a state matrix, drawn the way the primitive boards draw one. */
-const Case = ({ label, children }: { label: string; children: React.ReactNode }) => (
-  <div className={styles.case}>
+const Case = ({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) => (
+  <div className={className ? `${styles.case} ${className}` : styles.case}>
     <div className={styles.caseLabel}>{label}</div>
     <div className={styles.caseBody}>{children}</div>
   </div>
@@ -970,35 +974,75 @@ const sideBySideState = (count: 2 | 4): SideBySideState => {
 const SideBySideBoard = () => {
   const [two, setTwo] = useState(() => sideBySideState(2))
   const [four, setFour] = useState(() => sideBySideState(4))
-  const store = useMemo(sideBySideStore, [])
+  const [narrow, setNarrow] = useState(() => sideBySideState(4))
+  const plainStore = useMemo(() => sideBySideStore({ noGoal: true }), [])
+  const statesStore = useMemo(() => sideBySideStore({ noGoal: true, working: true, stopped: true, ready: true }), [])
   const memberOf = (key: (typeof SIDE_BY_SIDE_KEYS)[number]) => {
     const member = SIDE_BY_SIDE_MEMBERS[SIDE_BY_SIDE_KEYS.indexOf(key)]
     return member ? { nickname: member.nickname, agent: member.agent, model: member.model } : undefined
   }
-  const grid = (state: SideBySideState, onChange: Dispatch<SetStateAction<SideBySideState>>, paneId: string) => (
-    <div className="h-96 w-full min-w-0">
-      <SideBySide
-        state={state}
-        onChange={onChange}
-        paneId={paneId}
-        memberOf={memberOf}
-        entryOf={(key) => {
-          const index = SIDE_BY_SIDE_KEYS.indexOf(key)
-          return index < 0 ? null : { tint: index % 2 === 0 ? 'blue' : 'violet', busy: false }
-        }}
-        onOpenMember={() => {}}
-        conversationProps={{ onChooseProject: () => {}, onSignIn: () => {}, onOpenUsage: () => {}, onOpenRuntimes: () => {} }}
-      />
-    </div>
+  const entryOf = (store: AppStore, key: (typeof SIDE_BY_SIDE_KEYS)[number]) => {
+    const snapshot = store.getSnapshot()
+    const session = snapshot.sessions.get(key)
+    if (!session) return null
+    return sideBySideTileEntry({
+      tint: runtimeTint(session.runtime, snapshot.accountsByRuntime, snapshot.accountPrefs),
+      // Public catalogue frames keep agent marks neutral even when the staged
+      // fixture uses runtime IDs internally to resolve the conversation.
+      brand: null,
+      busy: isBusy(session),
+      waitingForYou: snapshot.approvals.some((approval) => approval.key === key),
+      ceiling: seatCeilingOf(session.settings, [], session.runtime, session.id),
+      lastTurnStatus: session.turns.at(-1)?.status,
+    })
+  }
+  const grid = (
+    state: SideBySideState,
+    onChange: Dispatch<SetStateAction<SideBySideState>>,
+    paneId: string,
+    store: AppStore,
+    widthClass = 'h-96 w-full min-w-0',
+  ) => (
+    <StoreProvider store={store}>
+      <div className={widthClass}>
+        <SideBySide
+          state={state}
+          onChange={onChange}
+          paneId={paneId}
+          memberOf={memberOf}
+          entryOf={(key) => entryOf(store, key)}
+          onOpenMember={() => {}}
+          conversationProps={{ onChooseProject: () => {}, onSignIn: () => {}, onOpenUsage: () => {}, onOpenRuntimes: () => {} }}
+        />
+      </div>
+    </StoreProvider>
   )
   return (
-    <StoreProvider store={store}>
+    <>
       <div className={styles.matrix}>
-        <Case label="room — Side by side · two members">{grid(two, setTwo, 'catalog-side-by-side-two')}</Case>
-        <Case label="room — Side by side · four members">{grid(four, setFour, 'catalog-side-by-side-four')}</Case>
+        <Case label="room rail — Side by side · disabled with its reason">
+          <div className="w-full max-w-80">
+            <ListRows>
+              <ListRow
+                as="button"
+                size="sm"
+                nav
+                aria-disabled="true"
+                title="Side by side"
+                subtitle="Watch a member to put it here"
+                lead={<IconTile size="sm" tint="violet"><TeamIcon /></IconTile>}
+              />
+            </ListRows>
+          </div>
+        </Case>
+        <Case className="col-span-full" label="room — Side by side · two members, grid without a composer">{grid(two, setTwo, 'catalog-side-by-side-two', plainStore)}</Case>
+        <Case className="col-span-full" label="room — Side by side · four members, tile states and ceiling">{grid(four, setFour, 'catalog-side-by-side-four', statesStore)}</Case>
+        <Case label="room — Side by side · narrow tabs">
+          {grid(narrow, setNarrow, 'catalog-side-by-side-narrow', plainStore, 'h-96 w-100 max-w-full')}
+        </Case>
       </div>
       <Rule>A room keeps the members you chose as tiles. Width changes the arrangement; focus stays visible in the tile header.</Rule>
-    </StoreProvider>
+    </>
   )
 }
 
