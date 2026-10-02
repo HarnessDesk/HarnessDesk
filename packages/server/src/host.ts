@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, isAbsolute, join } from 'node:path'
+import { basename, isAbsolute, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import type { BrowserSettings } from '@harnessdesk/cordis-host'
@@ -5441,11 +5441,18 @@ export class Host {
       readonly attachments?: SessionAttachments
     },
   ): Promise<OpenedSeat> {
-    const identity = await this.#admitShellProject(where.project ?? this.#shellProject, where.cwd)
+    const requestedCwd = await realpath(where.cwd).catch(() => '')
+    const requested = await shellCheckoutIdentity(requestedCwd)
+    const requestedRoot = requested?.checkoutRoot ?? requestedCwd
+    const identity = await this.#admitShellProject(where.project ?? this.#shellProject, requestedRoot)
     if (!identity) throw new Error('The Seat project is outside every project opened here. Open it first.')
     const project = identity.project
-    const cwd = await this.#worktrees.shellRoot(project, where.cwd, identity.gitCommonDir, identity.checkoutRoot)
-    if (!samePath(cwd, await realpath(where.cwd).catch(() => ''))) {
+    const cwd = await this.#worktrees.shellRoot(project, requestedRoot, identity.gitCommonDir, identity.checkoutRoot)
+    // A subfolder names its checkout, but live Git metadata cannot admit a
+    // foreign repository or redirect a folder outside that checkout into it.
+    if (!samePath(cwd, requestedRoot) ||
+      requested && !samePath(requested.gitCommonDir, identity.gitCommonDir ?? '') ||
+      !(samePath(cwd, requestedCwd) || requestedCwd.startsWith(`${cwd}${sep}`))) {
       throw new Error('The Seat checkout is not admitted for this project. Open that checkout first.')
     }
     const runtime = this.#runtime({ runtime: seat.runtime })

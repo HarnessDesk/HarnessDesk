@@ -240,6 +240,54 @@ test('opening a project subfolder keeps the repository as the default shell anch
   assert.deepEqual(d.host.registry.get(d.agent.info.id, opened.id)!.shellCheckout, { project: d.project, cwd: d.lane.path })
 })
 
+for (const kind of ['main', 'opened linked'] as const) {
+  test(`the ordinary UI Agent start from the ${kind} checkout subfolder reaches the admitted checkout`, async (t) => {
+    const d = await rig(t)
+    await d.seat(d.project)
+    const checkout = kind === 'main' ? d.project : join(d.base, 'opened-linked')
+    if (kind === 'opened linked') await git(d.project, 'worktree', 'add', '-b', 'opened-linked', checkout)
+    const subfolder = join(checkout, 'src')
+    await mkdir(subfolder)
+    await d.host.call('workspace/open', { path: subfolder })
+    await d.host.call('workspace/forget', { path: d.project })
+    const create = t.mock.method(d.agent, 'createSession')
+    // startAsAgent uses the opened folder for both the dry run and the real start.
+    const [plan] = await d.host.call('agent/seat/dry', { ids: ['probe'], project: subfolder })
+    assert.ok(plan)
+    assert.notEqual(plan?.winner, null)
+    assert.equal(create.mock.callCount(), 0)
+    const opened = await d.host.call('agent/seat', { id: 'probe', cwd: subfolder, project: subfolder })
+    assert.equal(create.mock.calls[0]!.arguments[0]!.cwd, checkout)
+    assert.equal(opened.cwd, checkout)
+    assert.deepEqual(d.host.registry.get(d.agent.info.id, opened.id)!.shellCheckout, { project: d.project, cwd: checkout })
+    const scope = { runtime: d.agent.info.id, sessionId: opened.id, workspaceRoot: d.other }
+    assert.deepEqual(await d.kernel.invokeTool(d.tool.id, {}, scope), { ok: true, content: [{ type: 'text', text: checkout }] })
+    assert.equal((await d.host.call('context/resolve', { id: d.where.id, ...scope })).text, checkout)
+    if (kind === 'opened linked') {
+      const sibling = join(d.base, 'unopened-linked')
+      await git(d.project, 'worktree', 'add', '-b', 'unopened-linked', sibling)
+      await mkdir(join(sibling, 'src'))
+      await assert.rejects(d.host.call('agent/seat', { id: 'probe', cwd: join(sibling, 'src'), project: subfolder }), /Seat checkout.*not admitted/i)
+      assert.equal(create.mock.callCount(), 1)
+    }
+  })
+}
+
+for (const redirect of ['core.worktree', 'gitdir file'] as const) {
+  test(`a foreign folder redirected to the admitted checkout by ${redirect} cannot start a Seat`, async (t) => {
+    const d = await rig(t)
+    await d.seat(d.project)
+    if (redirect === 'core.worktree') await git(d.other, 'config', 'core.worktree', d.project)
+    else {
+      await rm(join(d.other, '.git'), { recursive: true })
+      await writeFile(join(d.other, '.git'), `gitdir: ${join(d.project, '.git')}\n`)
+    }
+    const create = t.mock.method(d.agent, 'createSession')
+    await assert.rejects(d.seat(d.other), /Seat checkout.*not admitted/i)
+    assert.equal(create.mock.callCount(), 0)
+  })
+}
+
 test('an opened linked checkout admits its canonical repository project independently of cwd', async (t) => {
   const d = await rig(t)
   await d.seat()
