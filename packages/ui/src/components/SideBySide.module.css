@@ -35,11 +35,10 @@
 }
 
 .member {
-  display: grid;
+  display: grid; /* desk: flex -> grid, member names take space before model detail in both interfaces */
   flex: 1 1 auto;
   grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr);
   align-items: center;
-  gap: var(--hd-space-2);
   min-width: 0;
 }
 
@@ -53,11 +52,15 @@
   /* The grid gives the name its whole width before assigning the model any
      space. A name longer than the available column still wraps inside it. */
   min-width: 0;
+  margin-inline-start: var(--hd-space-2);
   overflow-wrap: anywhere;
 }
 
 .model {
   min-width: 0;
+  /* Keep the detail's spacing in its shrinking track: a grid gap would
+     reserve it even when the detail has no room, squeezing the name. */
+  margin-inline-start: var(--hd-space-2);
 }
 
 .body {
