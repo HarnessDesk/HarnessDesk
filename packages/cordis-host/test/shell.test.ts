@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { mkdtemp, mkdir, realpath, rm, symlink } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-import { ExtensionKernel, type HarnessPlugin } from '../src/index.js'
+import { ExtensionKernel, type HarnessContext, type HarnessPlugin } from '../src/index.js'
 
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 60))
 
@@ -52,4 +55,47 @@ test('a command that never finished is not exit 1, and says why (#161)', { skip:
   // The control: a command's own exit keeps its number.
   assert.equal((await run('sh', ['-c', 'exit 1'])).exitCode, 1)
   assert.equal((await run('sh', ['-c', 'exit 2'])).exitCode, 2)
+})
+
+
+test('shell calls keep concurrent invocation checkouts separate and confine explicit cwd to each', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'hd-shell-lanes-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const project = join(root, 'project')
+  const one = join(root, 'one')
+  const two = join(root, 'two')
+  await Promise.all([mkdir(project), mkdir(two), mkdir(join(one, 'child'), { recursive: true })])
+  await symlink(two, join(one, 'escape'))
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  kernel.setWorkspace({ root: project, branch: 'main' })
+  await kernel.load({
+    manifest: { id: 'shell-lanes', name: 'Shell lanes', permissions: { workspace: { read: true }, shell: true } },
+    plugin: {
+      name: 'shell-lanes', inject: ['tools', 'shell'],
+      apply(ctx: HarnessContext) {
+        ctx.tools.register({
+          name: 'where', description: '', inputSchema: { type: 'object' },
+          execute: async (args: { cwd?: string; delay?: boolean }) => {
+            if (args.delay) await new Promise((resolve) => setTimeout(resolve, 40))
+            return (await ctx.shell.run(process.execPath, ['-e', 'process.stdout.write(process.cwd())'], args)).stdout
+          },
+        })
+      },
+    },
+  } as HarnessPlugin)
+  await settle()
+  const id = kernel.list('tool')[0]!.id
+  const run = (workspaceRoot: string | undefined, args = {}) => kernel.invokeTool(id, args, workspaceRoot ? { workspaceRoot } : {})
+  const output = (result: Awaited<ReturnType<typeof run>>) => result.ok ? result.content : result.error
+  const [first, second] = await Promise.all([run(one, { delay: true }), run(two)])
+  assert.deepEqual(output(first), [{ type: 'text', text: await realpath(one) }])
+  assert.deepEqual(output(second), [{ type: 'text', text: await realpath(two) }])
+  assert.deepEqual(output(await run(one, { cwd: 'child' })), [{ type: 'text', text: await realpath(join(one, 'child')) }])
+  for (const cwd of [project, two, '../two', 'escape']) {
+    const refused = await run(one, { cwd })
+    assert.equal(refused.ok, false, cwd)
+    assert.match(String(output(refused)), /outside the open workspace/)
+  }
+  assert.deepEqual(output(await run(undefined)), [{ type: 'text', text: await realpath(project) }])
 })

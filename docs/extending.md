@@ -104,6 +104,14 @@ Built-in plugins are held to their manifests exactly like third-party ones. That
 is deliberate: a permission model only stays correct if the code you ship every
 day runs through it.
 
+During a tool call or context resolution, `ctx.shell.run` defaults to the
+calling conversation's checkout, including an isolated lane outside the open
+project. The host supplies that root through the invocation scope; tool
+arguments cannot replace it. An explicit `cwd` is resolved against that root
+and must remain inside it, with the same manifest grants and symlink checks.
+Without a checkout in the invocation scope, the open workspace remains the
+default and boundary.
+
 **Installed plugins run in the plugin host process** — a supervised child that
 holds no window, no wire server, and no credential. A plugin that calls
 `process.exit` takes down only that process; a plugin that spins is killed from

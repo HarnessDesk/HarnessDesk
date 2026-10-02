@@ -9,6 +9,10 @@ move is real work and is not news to a person weighing an upgrade.
 
 HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
 
+- **An isolated seat can open its own pull request.** Git tools now run in
+  the calling conversation's checkout, so status, branch context and forge
+  commands see the lane's branch rather than the project's branch. (Fixes #1235)
+
 - **A reviewer that already raised a finding is now told plainly how to close
   it on a later round.** A blocking finding could be fixed, confirmed fixed in
   two reviewers' own prose, and still sit Open forever: only the Agent that
