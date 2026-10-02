@@ -198,9 +198,9 @@ async function watch(args: Arguments): Promise<number> {
       for await (const event of client.events()) {
         if (event.type === 'end') { ending = event; continue }
         if (!args.raw || event.type === 'hello') write(event)
-        if (args.raw && event.type === 'hello') {
+        if (event.type === 'hello') {
           const current = client
-          raw = (async () => { for await (const notification of current.notifications()) jsonLine(notification) })().catch(error => { rawFailure = error })
+          raw = (async () => { for await (const notification of current.notifications()) if (args.raw) jsonLine(notification) })().catch(error => { rawFailure = error })
         }
         if (args.until && event.type === 'run.changed' && event.run === args.run && ['settled', 'stopped', 'stalled'].includes(event.state)) {
           reachedUntil = true
@@ -208,7 +208,7 @@ async function watch(args: Arguments): Promise<number> {
         }
       }
     } catch (error) { failure = error }
-    // The raw stream drains before end, so end is last even with buffered notifications.
+    // Consume both independent queues in every mode; raw output drains before end.
     await raw
     if (ending) write(reachedUntil && !signalCode ? { ...ending, reason: 'until' } : ending)
     if (failure || rawFailure) throw failure ?? rawFailure

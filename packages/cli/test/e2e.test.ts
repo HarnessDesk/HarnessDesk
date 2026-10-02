@@ -13,12 +13,12 @@ const { silent, start, stop } = await import(new URL('../../../server/dist/test/
 const { makeRepo } = await import(new URL('../../../server/dist/test/fixtures/evidence-desk.js', import.meta.url).href) as typeof import('../../server/test/fixtures/evidence-desk.js')
 
 const bin = fileURLToPath(new URL('../src/bin.js', import.meta.url))
-const launch = (t: TestContext, directory: string, home: string, args: readonly string[], cwd?: string) => {
-  const child = spawn(process.execPath, [bin, ...args], { cwd, env: { ...process.env, HARNESSDESK_CLIENT_DIR: directory, HARNESSDESK_HOME: home }, stdio: ['ignore', 'pipe', 'pipe'] })
+const launch = (t: TestContext, directory: string, home: string, args: readonly string[], cwd?: string, preload?: string) => {
+  const child = spawn(process.execPath, [...(preload ? ['--import', preload] : []), bin, ...args], { cwd, env: { ...process.env, HARNESSDESK_CLIENT_DIR: directory, HARNESSDESK_HOME: home }, stdio: preload ? ['ignore', 'pipe', 'pipe', 'ipc'] : ['ignore', 'pipe', 'pipe'] })
   let stdout = '', stderr = ''
   const changed = new Set<() => void>()
-  child.stdout.on('data', chunk => { stdout += chunk.toString(); for (const wake of changed) wake() })
-  child.stderr.on('data', chunk => { stderr += chunk.toString() })
+  child.stdout!.on('data', chunk => { stdout += chunk.toString(); for (const wake of changed) wake() })
+  child.stderr!.on('data', chunk => { stderr += chunk.toString() })
   const exit = new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('close', resolve) })
   const timer = setTimeout(() => child.kill('SIGKILL'), 15_000)
   t.after(async () => { clearTimeout(timer); if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); await exit })
@@ -196,8 +196,65 @@ const stub = async (t: TestContext, reconnectCode?: string, terminalState?: 'sta
   await new Promise<void>(resolve => server.listen(socket, resolve)); await chmod(socket, 0o600)
   await writeFile(socket.replace('.sock', '.json'), JSON.stringify({ home, pid: process.pid, startedAt: 1, hostVersion: 'demo', protocolVersion: 1 }), { mode: 0o600 })
   t.after(async () => { for (const ws of sockets.clients) ws.terminate(); await new Promise<void>(resolve => sockets.close(() => server.close(() => resolve()))); await rm(directory, { recursive: true, force: true }) })
-  return { directory, home, helloSeen, drop: () => first!.terminate() }
+  return { directory, home, helloSeen, drop: () => first!.terminate(), send: (notification: object) => first!.send(JSON.stringify(notification)) }
 }
+
+test('stable watch consumes the independent raw queue while emitting only stable events', async t => {
+  const r = await stub(t, 'incompatible')
+  const core = new URL('../../../client/dist/src/index.js', import.meta.url).href
+  const wrapper = join(r.directory, 'observed-client.mjs')
+  const preload = join(r.directory, 'observe-notifications.mjs')
+  // Observe reads of the real client's queue without replacing its transport or projections.
+  await writeFile(wrapper, `
+export * from ${JSON.stringify(core)}
+import { connect as actualConnect } from ${JSON.stringify(core)}
+export async function connect(options) {
+  const client = await actualConnect(options)
+  return {
+    ...client,
+    get hello() { return client.hello },
+    async *notifications() {
+      for await (const notification of client.notifications()) {
+        process.send({ type: 'raw-consumed' })
+        yield notification
+      }
+    },
+  }
+}
+`)
+  await writeFile(preload, `
+import { registerHooks } from 'node:module'
+registerHooks({ resolve(specifier, context, next) {
+  if (specifier === '@harnessdesk/client' && context.parentURL.endsWith('/cli/dist/src/cli.js')) {
+    return { url: new URL('./observed-client.mjs', import.meta.url).href, shortCircuit: true }
+  }
+  return next(specifier, context)
+} })
+`)
+  const child = launch(t, r.directory, r.home, ['watch', '--json'], undefined, preload)
+  let consumed = 0
+  const drained = new Promise<boolean>(resolve => {
+    child.child.on('message', message => {
+      if ((message as { type?: string }).type === 'raw-consumed' && ++consumed === 3) resolve(true)
+    })
+  })
+  await child.until(lines => lines[0]?.type === 'hello')
+  for (const state of ['open', 'claimed', 'done']) r.send({ method: 'team/changed', params: { state: {
+    id: 'demo-team', intents: [{ id: 1, state, title: 'Synthetic snapshot', outcome: null }], members: [], channel: [],
+  } } })
+  await child.until(lines => lines.some(event => event.type === 'card.changed' && event.state === 'done'))
+  let timer: ReturnType<typeof setTimeout>
+  const deadline = new Promise<boolean>(resolve => { timer = setTimeout(() => resolve(false), 2_000) })
+  t.after(() => clearTimeout(timer!))
+  assert.equal(await Promise.race([drained, deadline]), true, 'stable watch must consume all three delivered raw snapshots')
+  assert.equal(consumed, 3)
+  child.child.kill('SIGINT')
+  assert.equal(await child.exit, 130, child.output().stderr)
+  assert.equal(child.lines()[0].type, 'hello')
+  assert.equal(child.lines().at(-1).type, 'end')
+  assert.equal(child.lines().filter(event => event.type === 'card.changed').length, 3)
+  assert.ok(child.lines().every(event => event.type && !event.method), 'normal watch must not print raw envelopes')
+})
 
 test('incompatible hello exits 6', async t => {
   const r = await stub(t)
