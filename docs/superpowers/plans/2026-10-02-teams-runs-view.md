@@ -114,42 +114,61 @@ That session owns the clients design (#1271) and its implementation: the client
 door, `client/hello`, `client/subscribe`, `flow/executions`,
 `flow/execution/stop`, `@harnessdesk/client`, and the stable event vocabulary
 (`run.changed`, `card.changed`, `team.changed`, `waiting`, `waiting.cleared`,
-`notice`, `gap`, `end`). This plan asks it to add the following to its
-implementation, additively within version 1 (the owner approved this, decision
-7):
+`notice`, `gap`, `end`). It accepted this plan's four requests, with two changes
+to their shape (agreed 2026-10-02, now in its spec's event table and its PR 1b):
 
-1. **`seat.changed`**
-
-   ```ts
-   { type: 'seat.changed', team, seat, role, card: number | null,
-     state: 'working' | 'waiting' | 'idle',
-     doing: { kind: 'tool' | 'thinking' | 'waiting' | 'idle', tool?: string, target?: string } | null,
-     since: string /* ISO */ }
-   ```
-
-   At most one per seat every 2.5 seconds. `doing` is structured, and each
-   client renders it with the one shared lookup for tool names; it carries a
-   tool and at most a path, never a command's text, a URL or an environment
-   value.
-2. **`review.changed`**
+1. **`seat.changed`.** The **host derives it** and sends one `seat/activity`
+   notification per seat on a `seats` topic, at most once every 2.5 seconds; the
+   library maps it one to one. Reason: deriving it in each client would send
+   every seat's whole transcript stream to the command line and later a phone.
+   - The derivation of the in-flight tool, with the one tool-name lookup (today
+     `packages/ui/src/lib/tool-names.ts`), **moves into `packages/protocol`**,
+     with a re-export left in the UI so this plan's imports do not change.
+   - `doing` is structured: `{ kind: 'tool' | 'thinking' | 'waiting' | 'idle',
+     tool?: string, target?: string }`, a tool and at most a path, never a
+     command's text, a URL or an environment value.
+   - PR 1's `doingLine` 2.5-second hold stays a pure function. In PR 16 the
+     window may read `seat/activity` instead of its own snapshot, or keep both.
+2. **`review.changed`**, keyed by round, in the desk's own words:
 
    ```ts
-   { type: 'review.changed', team, run, card: number,
-     state: 'recorded' | 'posted' | 'not-posted' | 'none',
+   { type: 'review.changed', team, run, round: number, cards: number[],
+     state: 'local' | 'pending' | 'posted' | 'partial' | 'uncertain' | 'none',
      reason: string | null, pr: number | null }
    ```
 
-   Derived from the records `finding/publications` already reads.
+   It comes from `finding/run`'s `publication` and is read again on
+   `finding/changed`. (`finding/publications` lists only the postings a person
+   must look at, so a post that succeeded is not in it.) The window maps these
+   words to its own chips in its selector, not on the wire (PR 7 has the table).
 3. **Optional fields:** `attempt`, `continues` and `revision` on `run.changed`;
-   `seat` and `since` on `card.changed`.
-4. **Core selectors** in `@harnessdesk/client`: `teamOverview(state)` and
-   `runTimeline(state, run)`, returning the shapes PR 1 and PR 3 define here.
-   The command line's `status` and `run show` call them.
+   `seat` and `since` on `card.changed`. Each is present only when the desk's own
+   record carries it, never filled from when a client noticed something.
+   `card.changed.since` is the claim's `at` while claimed, and absent until a
+   record holds it. `attempt`, `continues` and `revision` pass through once PR 5
+   lands.
+4. **Selectors.** Home: `@harnessdesk/client/views`, pure, no transport; the
+   window imports only that entry and the other session adds the layering rule.
+   **This plan owns the selector code and its tests**: PR 1 and PR 3, written in
+   `packages/ui/src/lib` over plain data. The other session owns the package, the
+   state feed and the gate; when `status` and `run show` need the selectors it
+   moves the files into `client/views` and leaves a re-export in the UI, so
+   nothing here breaks. Cost needs `insight/goal`, which joins the read tier in
+   its PR 1b.
 
-Which of their PRs unblocks which of ours: `flow/execution/stop` unblocks PR 10;
-the stream, the two events and the core selectors unblock PR 16. The window does
-not need `flow/executions` (the run list): it already holds its runs in
-`snapshot.flowExecutions`.
+Its order: PR 1 (the read-only door, the library, `desks`, `status`, `teams`,
+`runs`, `watch`), PR 1b (the `seats` and review topics, both events, the `views`
+entry), PR 2 (starting a flow), PR 3 (`flow/execution/stop`, #1247). It will say
+when its PR 3 lands (this plan's PR 10) and when 1b and the moved selectors land
+(this plan's PR 16). If PR 10 cannot wait for its PR 3, it can pull
+`flow/execution/stop` forward into a small host PR of its own; PR 10 follows the
+Overview and the Run view in this plan anyway, so it can wait.
+
+**Both sessions edit `flow-execution.ts`** (PR 5's revision, `continues`, `brief`
+and `end` here; stop there). Fetch main first; whoever lands second rebases.
+
+The window does not need `flow/executions` (the run list): it already holds its
+runs in `snapshot.flowExecutions`.
 
 ---
 
@@ -184,7 +203,7 @@ the Overview draws, in the app's words, ordered by precedence.
   - `working` when a turn runs or the seat holds a claimed card; `idle` otherwise. A card blocked by the graph (`blockedBy: 'graph'`) is idle and says "after #n" in `card`.
   - `cost.unit` is `money` only when the runtime's `capabilities.metered` is true and the report's provenance has a rate; otherwise `turns`. `estimated` follows the report's provenance. When the report is unavailable, `cost` is `null`, never zero.
   - The doing line is a sentence from the latest in-flight tool call through `toolSentence`. A path may appear. A command's text, a URL and an environment value never do.
-- [ ] Do not read from a component, the store object or a module-level cache: the input is plain data, so the same function can move to `@harnessdesk/client` (PR 16).
+- [ ] Do not read from a component, the store object or a module-level cache: the input is plain data, so the same file can move to `@harnessdesk/client/views` (the other session moves it and leaves a re-export). Keep importing the tool-name lookup from `lib/tool-names.ts`: it is moving into `packages/protocol` with a re-export left in the UI, so the import does not change.
 
 **Not in this PR.** Any component, any wire call, any CSS.
 
@@ -320,18 +339,19 @@ the Overview draws, in the app's words, ordered by precedence.
 
 **Goal.** A review that was not posted is visible on the Run, with the reason and a way to post it.
 
-**Read first.** Spec: "A review that was never posted" and the `review-not-posted` frame; `packages/protocol/src/findings.ts` (`FindingPublicationsView`, `FindingPublicationItem`, `FindingPublishAction`); `packages/ui/src/components/FindingPublications.tsx` (the existing post-again, skip and backfill controls); `store.readFindingPublications`.
+**Read first.** Spec: "A review that was never posted", its table of the desk's words, and the `review-not-posted` frame. `packages/protocol/src/findings.ts`: `FindingRunView` (`round`, `publication`, `reason`, `boundPr`, `unbound`), `FindingPublicationsView` and `FindingPublicationItem` (only postings a person must look at, plus the backfill), `FindingPublishAction`. `packages/ui/src/components/FindingPublications.tsx` (the existing post-again, skip and backfill controls) and `GoalFindings.tsx`; `store.readFindingPublications`. `docs/flows.md` § "Findings, budgets and blind rounds": confirm what `local`, `pending`, `partial` and `uncertain` mean before wording anything.
 
 **Scope.**
-- [ ] On a review's timeline row: a chip, **Posted to #n** (neutral) or **Not posted** (warning, because a person acts).
-- [ ] In the inspector's Review section: the reason (an item's `reason`, or the view's `backfillRefusal`); **Copy review**, which always works; **Post to pull request**, enabled only when the view offers an item to post again or a backfill, calling `finding/publish` with that action, and with a title that says what it does ("Posts this review to pull request #n as you. Nothing else changes.").
+- [ ] A pure `lib/review-publication.ts` mapping the desk's per-round `publication` to the row's chip and tone, exactly as the spec's table: `posted` is **Posted to #n** (neutral), `pending` is **Waiting to post** (neutral), `partial` is **Partly posted** (warning), `uncertain` is **Not confirmed** (warning), `local` is **Not posted** (warning) when a pull request is bound and posting is on, otherwise **Kept on the desk** (neutral); no findings, no chip. Tested on every row of the table.
+- [ ] The state is per round and comes from `finding/run` for the round the desk is reading. For an earlier round use the findings' own publication records where they say it, and show nothing where they cannot; never guess.
+- [ ] On a review's timeline row: the chip. In the inspector's Review section: the reason (`FindingRunView.reason`, an item's `reason`, or the publications view's `backfillRefusal`), **Copy review** (always works), and **Post to pull request**, enabled only when `finding/publications` offers an item to post again or a backfill, calling `finding/publish` with that action, with a title that says what it does ("Posts this review to pull request #n as you. Nothing else changes.").
 - [ ] Reuse what `FindingPublications.tsx` already does for the call and its refusals; extract the shared piece rather than writing a second.
 - [ ] Refresh on the `finding/changed` notification.
 - [ ] The desk never posts on its own; no new automatic behaviour.
 
-**Not in this PR.** Posting a handoff's text when no review candidate exists (#1265, a host change).
+**Not in this PR.** Posting a handoff's text when no review candidate exists (#1265, a host change), and the `review.changed` event (the other session's PR 1b).
 
-**Verify.** Component tests for posted, prepared, uncertain, no item and a refusal; the button is disabled with the reason when nothing can be posted; frames (light, dark).
+**Verify.** A test per row of the mapping table; component tests for posted, pending, partial, uncertain, local with and without a bound pull request, and no findings; the button is disabled with the reason when nothing can be posted; frames (light, dark).
 
 **Done when.** The #1248 case reads as "Not posted, here is why, here is the button", on the Run.
 
@@ -486,11 +506,11 @@ the Overview draws, in the app's words, ordered by precedence.
 
 **Goal.** The window and the command line derive the same views from the same code.
 
-**Waits for.** The Wire client and CLI session's stream, `seat.changed`, `review.changed`, and the core selectors `teamOverview` and `runTimeline`, merged.
+**Waits for.** The Wire client and CLI session's PR 1b (the `seat/activity` and review topics, `seat.changed`, `review.changed`, the `views` entry) and the selectors moved into `@harnessdesk/client/views`, merged.
 
 **Scope.**
 - [ ] Feed the window's views from the client core's selectors, adapting the store snapshot to the stream's state shape; delete the window-only derivations PR 1 and PR 3 wrote once they are identical.
-- [ ] Consume `seat.changed`'s structured `doing` and render it with the one shared lookup.
+- [ ] Read `seat/activity` (structured `doing`) instead of the window's own snapshot, rendering it with the one shared lookup in `packages/protocol`; keep both until the two agree. Map the desk's `review.changed` words to the chips PR 7 defines.
 - [ ] Replay one scripted stream through the window and through the command line's `status` and `run show`, and assert they agree.
 
 **Verify.** The replay test; the existing component and browser specs unchanged; `pnpm verify`.

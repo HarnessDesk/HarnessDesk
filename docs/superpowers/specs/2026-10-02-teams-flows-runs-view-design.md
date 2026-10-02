@@ -237,7 +237,7 @@ the name.
 | **A card** | The seat's face, `#n · title`, the outcome word as a chip, how long. | The outcome is one word from the role's own vocabulary. It is neutral: a verdict is a fact, not a health reading. Only an outcome that ends the Run without a next step is toned. |
 | **A check** | `pnpm verify`, its outcome (Passed, Failed, Timed out, or the Flow's own word), how long. | A check run more than once shows its attempts under the card. |
 | **A person's step** | The step's sentence, and *Needs you* while it waits. | Its buttons are in the inspector and on the Overview. |
-| **Findings and what became of them** | "2 findings" and where they went: *Posted to #128*, or *Not posted* with the reason. | The answer to a review that was never posted. |
+| **Findings and what became of them** | "2 findings" and where they went, in the desk's own words: *Posted to #128*, or *Not posted* with the reason. | The answer to a review that was never posted. The words and their tones are in the table below the frame. |
 | **The end** | Why the Run ended, in the host's words, and the doors that lead on. | Only when it has ended. |
 
 The row for work in flight is the same row, with the doing line beneath it and
@@ -273,8 +273,24 @@ document:
 
 ![A review that was not posted](https://raw.githubusercontent.com/HarnessDesk/HarnessDesk/screenshots/team-run-view/review-not-posted-light.png)
 
-The row says *Not posted* in the warning tone, because a person has to act. The
-inspector says why in the host's words, and offers **Copy review**, which
+The row says *Not posted* in the warning tone, because a person has to act. Its
+chip follows the desk's own per-round state, the `publication` that
+`finding/run` carries, so the window invents no state of its own:
+
+| The desk says | The row says | Tone |
+| --- | --- | --- |
+| `posted` | Posted to #n | neutral |
+| `pending` | Waiting to post | neutral |
+| `partial` | Partly posted | warning |
+| `uncertain` | Not confirmed | warning |
+| `local`, with a pull request bound and posting on | Not posted | warning |
+| `local`, otherwise | Kept on the desk | neutral |
+| a round with no findings | no chip | |
+
+That state is per round and read for the round the desk is reading. For an
+earlier round the row shows what the findings' own publication records say, and
+nothing where they cannot say, rather than a guess. The inspector says why in
+the host's words, and offers **Copy review**, which
 always works, and **Post to pull request**, which the host offers only when it
 can and says what it will do on hover ("Posts this review to pull request
 #1259 as you. Nothing else changes."). The desk never posts a handoff's text
@@ -493,21 +509,24 @@ know").
 | A Run's state, round, reason | `run.changed` | Exists. **Adds** optional `attempt`, `continues` (the Run it continues) and `revision` (the Flow's digest). |
 | A card's state, outcome, title | `card.changed` | Exists. **Adds** optional `seat` (who holds it) and `since`. |
 | What waits for a person | `waiting`, `waiting.cleared` | Exists. |
-| A seat's state and what it is doing | none | **New: `seat.changed`**, `{ team, seat, role, card, state: 'working' \| 'waiting' \| 'idle', doing, since }`. `doing` is structured (`{ kind: 'tool' \| 'thinking' \| 'waiting' \| 'idle', tool?, target? }`) and each client puts it into words with the one shared lookup, so a phone and a terminal say what the window says. Sent at most once per seat every 2.5 seconds. |
-| What became of a review | none | **New: `review.changed`**, `{ team, run, card, state: 'recorded' \| 'posted' \| 'not-posted' \| 'none', reason, pr? }`, from the same publication records `finding/publications` reads. |
+| A seat's state and what it is doing | none | **New: `seat.changed`**, `{ team, seat, role, card, state: 'working' \| 'waiting' \| 'idle', doing, since }`. The **host derives it** and sends one `seat/activity` notification per seat on a `seats` topic, at most once every 2.5 seconds; the client library maps it one to one. (Deriving it in each client would mean sending every seat's whole transcript stream to the command line and, later, a phone.) `doing` is structured (`{ kind: 'tool' \| 'thinking' \| 'waiting' \| 'idle', tool?, target? }`), and the derivation of the in-flight tool, with the one tool-name lookup, moves into `packages/protocol` so the host, the command line and the window share it. |
+| What became of a review | none | **New: `review.changed`**, `{ team, run, round, cards, state: 'local' \| 'pending' \| 'posted' \| 'partial' \| 'uncertain' \| 'none', reason, pr }`: the desk's own words, keyed by round with the round's cards, from `finding/run`'s `publication`, and read again on `finding/changed`. (`finding/publications` lists only the postings a person must look at, so a successful post is not in it.) The window maps those words to its own chips in the selector, never on the wire. |
 | The list of Runs; one Run's rounds and journal | `flow/executions`, `flow/execution` | In the clients design's phase 1; the Run detail exists. |
-| Cost | A read of the Team's recorded usage (`readGoalInsight`), not an event | Exists. |
+| Cost | A read of the Team's recorded usage (`insight/goal`), not an event | Exists; it joins the clients design's read tier. |
 | Whether *you* have read it | Nothing | The window's own state. It never goes on the wire. |
 | Stop | `flow/execution/stop` | The clients design's phase 3 (#1247). |
 
 **One set of selectors.** Two pure functions, `teamOverview(state)` and
 `runTimeline(state, run)`, turn the event state into exactly what the table and
-the timeline draw. They belong in `@harnessdesk/client`'s core, which already
-has no Node in it, so the window, the command line and Mobile call the same
-code. The command line's `status` and `run show` are the same selectors with a
-terminal's words. Until that library exists, the window may compute them from
-its own snapshot, provided the output has the same shape; replacing the input
-is then mechanical.
+the timeline draw. They belong in `@harnessdesk/client/views`: pure, no
+transport, and the window imports only that entry (a layering rule holds it).
+The command line's `status` and `run show` are the same selectors with a
+terminal's words. The selector code and its tests are written first in
+`packages/ui/src/lib` over plain data (the plan's PR 1 and PR 3); the clients
+design moves the files into `client/views` when the command line needs them and
+leaves a re-export behind, so nothing in the window breaks. Until the stream
+exists, the window feeds them from its own snapshot, provided the output has the
+same shape; replacing the input is then mechanical.
 
 **What the stream must not carry.** Agent text is untrusted and stays so: a
 card's handoff and a finding's text reach a client as data to be sanitised
@@ -532,8 +551,11 @@ commit, and none of them ships a surface by itself:
 3. `flow/check/retry` works on any finished check and returns when the check
    has started (#1245).
 4. A `brief` input on a Run, frozen with it, and the `{{brief}}` slot.
-5. `seat.changed` and `review.changed`, and the optional fields above, each
-   declared in the clients design's event table and its gate test.
+5. `seat/activity` (host-derived and throttled, mapped to `seat.changed`),
+   `review.changed`, and the optional fields above. A field is present only
+   where the desk's own record carries it, never filled from when a client
+   noticed something. Each is declared in the clients design's event table and
+   its gate test; that design added them in its second pull request.
 6. `{ available, why }` on each control: the stop, retry and run-again
    previews already return a refusal string; this makes it one shape.
 7. A Team's usage read grouped by seat, from the report's existing breakdowns.
