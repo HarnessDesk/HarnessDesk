@@ -78,10 +78,10 @@
   align-items: center;
   justify-content: center;
   inset-inline-end: var(--hd-sidebar-end-window-inset);
-  width: var(--hd-icon-target);
+  width: var(--hd-icon-target); /* desk: auto → 24px, the count takes one target on the end rail. */
 }
 
-.winNavCountBadgeWithTrail {
+.winNavBadgeWithTrail {
   inset-inline-end: calc(var(--hd-sidebar-end-window-inset) + var(--hd-sidebar-end-action-step));
 }
 

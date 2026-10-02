@@ -177,7 +177,7 @@ export const WindowNavItem = ({
         onClick={onClick}
       />
       {count !== undefined && (
-        <SidebarMenuBadge className={`${styles.winNavBadge} ${trail ? styles.winNavCountBadgeWithTrail : ''}`}>
+        <SidebarMenuBadge className={`${styles.winNavBadge} ${trail ? styles.winNavBadgeWithTrail : ''}`}>
           <Text role="meta" ink="navigation" numeric className={styles.winNavCount}>{count}</Text>
         </SidebarMenuBadge>
       )}

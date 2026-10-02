@@ -84,8 +84,8 @@
 
 .navSecondary {
   flex: none;
-  width: var(--hd-icon-target);
-  margin-right: calc(var(--hd-sidebar-end-header-inset) - var(--hd-bar-pad) - var(--hd-space-1-5));
+  width: var(--hd-icon-target); /* desk: 26px → 24px, the shared target the trailing rail steps by. */
+  margin-right: calc(var(--hd-sidebar-end-header-inset) - var(--hd-bar-pad) - var(--hd-space-1-5)); /* desk: 2px → 12px, the header control ends on the sidebar's end rail. */
 }
 
 .groupLabel,

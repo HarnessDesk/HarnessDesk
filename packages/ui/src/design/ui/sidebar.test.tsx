@@ -49,8 +49,9 @@ it('keeps the menu label geometry and the badge/action slot fixed across hover s
   expect(rest).toContain('text-base')
   expect(slotClass(rest, 'badge')).toContain('sidebar-menu-trailing-slot')
   expect(slotClass(rest, 'action')).toContain('sidebar-menu-trailing-slot')
-  expect(slotClass(rest, 'badge')).toContain('end-(--hd-sidebar-end-rail)')
-  expect(slotClass(rest, 'action')).toContain('end-(--hd-sidebar-end-rail)')
+  // The row's end rail (`--sidebar-menu-end-rail`, derived from `--hd-sidebar-end-rail` in sidebar.css).
+  expect(slotClass(rest, 'badge')).toContain('end-(--sidebar-menu-end-rail)')
+  expect(slotClass(rest, 'action')).toContain('end-(--sidebar-menu-end-rail)')
   expect(slotClass(rest, 'action')).toContain('bg-sidebar')
   expect(slotClass(rest, 'action')).toContain('group-hover/menu-item:opacity-100')
   expect(slotClass(rest, 'action')).toContain('group-focus-within/menu-item:opacity-100')
