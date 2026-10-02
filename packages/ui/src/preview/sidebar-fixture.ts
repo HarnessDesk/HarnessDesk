@@ -43,7 +43,9 @@ const account = (label: string): Account => ({ kind: 'oauth', label, email: labe
 
 export const previewAccounts: Record<string, AccountStatus> = {
   [CODEX]: { signedIn: true, accounts: [account('shane@harnessdesk.app')] },
-  [CURSOR]: { signedIn: true, accounts: [account('Shane-Cursor')] },
+  // Keep the longest realistic account visible in the seat menu as a width
+  // specimen; its usage row is the matching request-based fixture below.
+  [CURSOR]: { signedIn: true, accounts: [account('Shane-Cursor'), account('legacy-cursor@harnessdesk.app')] },
   [CLAUDE]: { signedIn: true, accounts: [account('shane@harnessdesk.app')] },
 } as unknown as Record<string, AccountStatus>
 

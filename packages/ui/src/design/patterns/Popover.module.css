@@ -88,6 +88,10 @@
   width: var(--anchor-width, auto); /* desk: content width → the trigger's, for a menu opened from a full-width row */
 }
 
+.panel[data-width='wide'] {
+  width: var(--hd-popover-width-wide);
+}
+
 .groupLabel {
   font-size: var(--hd-text-sm);
   /* The one weight rule every group label follows (`design/ui/group-label.tsx`):

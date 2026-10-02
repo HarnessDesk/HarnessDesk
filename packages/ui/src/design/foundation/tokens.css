@@ -437,6 +437,10 @@ body {
      the bar shares one x. */
   --hd-bar-ink: calc(var(--hd-bar-pad) + var(--hd-nav-inset) + var(--hd-border-width));
   --hd-column: 736px;
+  /* A menu that keeps its own readable width while the control that opens it
+     sits in a column the person can drag: the seat menu's account rows and
+     usage line each fit on one line at this width. */
+  --hd-popover-width-wide: 320px;
 
   /* A row whose trailing action floats over its own label rather than taking
      room from it. The label fades out under the action instead of stopping at
