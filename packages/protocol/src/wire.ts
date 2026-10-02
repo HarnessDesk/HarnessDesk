@@ -1385,6 +1385,16 @@ export interface HostMethods {
     params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly id: string }
     result: null
   }
+  /** Replaces one waiting message's content without changing its place in the queue. */
+  'turn/queue/update': {
+    params: {
+      readonly runtime: RuntimeId
+      readonly sessionId: SessionId
+      readonly id: string
+      readonly input: readonly UserContent[]
+    }
+    result: null
+  }
   /** Moves one waiting message to `to`, a zero-based position, clamped. */
   'turn/queue/move': {
     params: {
@@ -2692,14 +2702,15 @@ export type WireNotification =
   | {
       /**
        * A conversation the host no longer holds and no window should draw:
-       * deleted, or opened for a seat, passed over and discarded. Without this
-       * a window kept the row the conversation's `session/started` gave it
+       * deleted, or opened for a seat and passed over. `deleted` is true only
+       * when the runtime confirmed deletion; a pass-over may instead be
+       * archived. Without this, a window kept the row the conversation's `session/started` gave it
        * until it was reloaded — and a reload brought it back from the host's
        * own record. A seat passed over that somebody used meanwhile is not
        * discarded, and sends none: it stays, as it is.
        */
       readonly method: 'session/removed'
-      readonly params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }
+      readonly params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly deleted: boolean }
     }
   | {
       /**

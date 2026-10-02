@@ -3510,6 +3510,10 @@ export class Host {
       },
       queue: {
         push: (record) => this.#pushQueue(record),
+        update: (record, id, input) => {
+          this.registry.updateQueued(record, id, input)
+          this.#pushQueue(record)
+        },
         drain: (record) => this.#drain(record),
         nextId: () => this.#nextQueuedId(),
         busy: (record) => this.#queueBusy(record),
@@ -5576,7 +5580,7 @@ export class Host {
       const asked = owner ? await this.#askToDelete(owner, id) : null
       // Then out of the host's records and every window, before any file is touched.
       this.registry.delete(runtime, id)
-      this.#push({ method: 'session/removed', params: { runtime, sessionId: id } })
+      this.#push({ method: 'session/removed', params: { runtime, sessionId: id, deleted: asked === 'deleted' } })
       const left: SeatLeft | null = owner && asked ? await this.#leftAs(owner, id, asked) : { kind: 'unasked' }
       await this.#forgetSeat(runtime, id, left)
       return left

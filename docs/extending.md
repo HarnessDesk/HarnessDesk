@@ -704,8 +704,11 @@ privileged path:
 and the reviewed full `head` commit (40 or 64 lowercase hexadecimal characters),
 accepts an optional `method` of `squash`, `merge` or `rebase`, and defaults to
 `squash`. The forge call uses `--match-head-commit`, so it refuses instead of
-merging if the branch moved after review. Only a seat at the `merge` ceiling may
-reach the tool.
+merging if the branch moved after review. Before merging, it reads every check-run
+on that commit and refuses unless the newest run of every check name is complete
+with a `success`, `skipped` or `neutral` conclusion; no check-runs or an unreadable
+CI state also refuse. Use `pr_checks` to watch CI, then retry once it is green.
+Only a seat at the `merge` ceiling may reach the tool.
 
 ### What not to build
 

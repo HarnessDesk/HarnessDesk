@@ -1,5 +1,6 @@
 import {
   isNotification,
+  parseSessionRemovedParams,
   type AgentEvent,
   type HostMethodName,
   type HostParams,
@@ -139,6 +140,13 @@ export class Transport {
         return
       }
       if (isNotification(message)) {
+        if (message.method === 'session/removed') {
+          try {
+            message = { ...message, params: parseSessionRemovedParams(message.params) }
+          } catch {
+            return
+          }
+        }
         if (message.method === 'event') this.handlers.onEvent(message.params.runtime, message.params.event)
         this.handlers.onNotification(message)
         return

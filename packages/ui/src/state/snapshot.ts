@@ -64,6 +64,7 @@ import type { PlanEdit } from '../lib/plan-edits'
 import type { ConnectionStatus } from '../lib/transport'
 
 import { emptyLayout, panes, type Layout } from './layout'
+import type { RecoverableDraft } from './drafts'
 
 /**
  * An Agent that could not be seated, and why each seat it would take could
@@ -375,6 +376,8 @@ export interface AppSnapshot {
    * and a conversation with nothing waiting has no entry.
    */
   readonly queues: ReadonlyMap<SessionKey, SessionQueue>
+  /** Drafts the host refused, kept by conversation and for this window's lifetime. */
+  readonly recoverableDrafts: ReadonlyMap<SessionKey, readonly RecoverableDraft[]>
   /**
    * What each conversation has running in the background, keyed like the
    * sessions. The runtime's own list, relayed by the host; a conversation
@@ -811,6 +814,7 @@ const EMPTY: AppSnapshot = {
   draftRouteId: null,
   sessions: new Map(),
   queues: new Map(),
+  recoverableDrafts: new Map(),
   tasks: new Map(),
   history: [],
   historyLoading: false,
@@ -903,6 +907,7 @@ export const emptySnapshot = (): AppSnapshot => ({
   triggerAttention: {},
   sessions: new Map(),
   queues: new Map(),
+  recoverableDrafts: new Map(),
   tasks: new Map(),
   foldersGone: new Map(),
   loadingSessions: new Set(),
