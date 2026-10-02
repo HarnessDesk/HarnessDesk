@@ -295,7 +295,7 @@ export const sessionMethods = {
        the conversation it points at, which is exactly when it is needed. */
     await ctx.evidence.seats.closed(runtime.info.id, id, 'deleted')
     // Every window, not only the one that asked: another may be drawing it.
-    ctx.push({ method: 'session/removed', params: { runtime: runtime.info.id, sessionId: id } })
+    ctx.push({ method: 'session/removed', params: { runtime: runtime.info.id, sessionId: id, deleted: true } })
     return {
       disposition: outcome?.disposition ?? 'removed',
       ...(outcome?.removed !== undefined ? { removed: outcome.removed } : {}),

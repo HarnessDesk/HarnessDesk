@@ -64,6 +64,8 @@ import { CoverageFrames } from './frames-coverage'
 import { PersonReviewBoard } from '../design/surfaces/surfaces'
 import { SettingsFrames } from './frames-settings'
 import { TranscriptFrames } from './frames-transcript'
+import { LibraryDevFrames } from './frames-library-dev'
+import { LibraryOptionFrames } from './frames-library-options'
 import { SideBySideFrames } from './frames-side-by-side'
 import { ComposerSlotsFrames } from './frames-composer-slots'
 import '../styles/app.css'
@@ -84,6 +86,11 @@ const SHOW_DENSE = new URLSearchParams(window.location.search).has('dense')
    `preview.html?side-by-side`; the design page's own board draws the grid
    for the coverage sweep. */
 const SHOW_SIDE_BY_SIDE = new URLSearchParams(window.location.search).has('side-by-side')
+/* The Library's UX option mockups are a design record for the owner, not a
+   shipped surface: they render only on `preview.html?library-options`, so the
+   default page the UI-system census reads holds shipped components alone.
+   Phase 1 of the Library plan deletes them once the real components exist. */
+const SHOW_LIBRARY_OPTIONS = new URLSearchParams(window.location.search).has('library-options')
 const SHOW_COMPOSER_SLOTS = new URLSearchParams(window.location.search).has('composer-slots')
 /* Which of the Dashboard's five rail rows the preview frame opens on — the
    rig's own way to shoot each view without clicking through the rail by
@@ -945,6 +952,8 @@ const Preview = () => {
           <LibrarySection />
         </div>
       </Frame>
+      {SHOW_LIBRARY_OPTIONS && <LibraryDevFrames />}
+      {SHOW_LIBRARY_OPTIONS && <LibraryOptionFrames />}
       <Frame id="settings-appearance" title="Settings › Appearance">
         <div className="p-4">
           <AppearanceSection />

@@ -390,7 +390,7 @@ describe('restoring a layout with a conversation docked', () => {
       handlers: { onNotification(notification: unknown): void }
     }
 
-    transport.handlers.onNotification({ method: 'session/removed', params: { runtime: AGENT, sessionId: sessionId('s-2') } })
+    transport.handlers.onNotification({ method: 'session/removed', params: { runtime: AGENT, sessionId: sessionId('s-2'), deleted: true } })
 
     expect(
       mountedViews(store.getSnapshot().workbench).some(

@@ -439,7 +439,7 @@ describe('turns dropped under the window', () => {
 describe('a conversation the host removed', () => {
   const handlers = () => (store.transport as unknown as { handlers: TransportEvents }).handlers
   const removed = (id = ID) =>
-    handlers().onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: id } })
+    handlers().onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: id, deleted: true } })
   const asked = (method: HostMethodName) =>
     vi.mocked(store.transport.request).mock.calls.filter(([called]) => called === method)
 
