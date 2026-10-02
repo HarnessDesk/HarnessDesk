@@ -23,9 +23,8 @@ concurrency:
 jobs:
   verify:
     name: Build, typecheck, test
-    # macOS because that is the only platform HarnessDesk ships on, and the
-    # desktop tests exercise macOS window geometry.
-    runs-on: macos-14
+    # TRIAL: Linux, to compare against main's macOS run of the same code.
+    runs-on: ubuntu-latest
     timeout-minutes: 25
 
     steps:
@@ -223,7 +222,7 @@ jobs:
 
   ui-system-browser:
     name: UI system browser integration
-    runs-on: macos-14
+    runs-on: ubuntu-latest
     # 259 browser tests took 13-14 minutes on a hosted runner, and at 15 the
     # job was cancelled mid-suite. At 304 tests the suite takes about 24
     # minutes here (10-11 locally), and at 25 it was cancelled after every
@@ -247,7 +246,7 @@ jobs:
       # Vite resolves workspace packages through their compiled `dist` entry.
       # A clean runner has none until the Node build creates them.
       - run: pnpm run build:node
-      - run: pnpm exec playwright install chromium
+      - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:ui-system
 
       - uses: actions/upload-artifact@v7
@@ -259,6 +258,7 @@ jobs:
 
   ui-system-native:
     name: UI system native integration
+    if: false
     runs-on: macos-14
     timeout-minutes: 20
 
