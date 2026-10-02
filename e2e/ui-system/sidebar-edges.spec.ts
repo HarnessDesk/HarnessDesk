@@ -658,3 +658,85 @@ test('nested board and expanded room keep trailing marks on their own label line
     await expectHeaderItemsCentered(row, label, 'hover')
   }
 })
+
+// These are shipped Sidebar, SessionTree and AppWindow rows, not anatomy specimens.
+test('real section headers start at the row icon inset', async ({ page }) => {
+  await page.goto('/design.html?view=sidebar')
+  const sidebar = page.locator('[data-catalog-example="sidebar"] [data-region="sidebar-header"]')
+    .locator('xpath=ancestor::div[contains(@class,"sidebar_")][last()]').first()
+  const frame = sidebar.locator('xpath=parent::*')
+  await expect(sidebar.getByText('Working · 2', { exact: true })).toBeVisible()
+  await expect(sidebar.getByText('Pinned · 1', { exact: true })).toBeVisible()
+  for (const width of [200, 260, 320, 520]) {
+    await frame.evaluate((node, next) => { (node as HTMLElement).style.width = `${next}px` }, width)
+    await sidebar.evaluate((node) => { (node as HTMLElement).style.width = '100%' })
+    const icon = sidebar.locator('[data-draggable] [data-slot="sidebar-menu-icon"]').first()
+    const iconX = (await box(icon)).x
+    for (const header of [sidebar.getByText('Projects', { exact: true }), sidebar.getByText('Other projects', { exact: true }),
+      ]) {
+      const x = await header.evaluate((node) => {
+        const range = document.createRange(); range.selectNodeContents(node)
+        return range.getBoundingClientRect().x
+      })
+      expect.soft(Math.abs(x - iconX), `${await header.textContent()} at ${width}px: header x=${x}, row icon x=${iconX}`).toBeLessThanOrEqual(1)
+    }
+    for (const group of await sidebar.locator('[data-slot="sidebar-group"]').all()) {
+      const header = group.locator(':scope > [data-slot="group-label"]')
+      if (await header.count() === 0) continue
+      const x = await header.evaluate((node) => { const range = document.createRange(); range.selectNodeContents(node); return range.getBoundingClientRect().x })
+      const rowX = (await box(group.locator('[data-slot="sidebar-menu-icon"]').first())).x
+      expect.soft(Math.abs(x - rowX), `${await header.textContent()} at ${width}px: header x=${x}, row icon x=${rowX}`).toBeLessThanOrEqual(1)
+    }
+  }
+  await page.goto('/design.html?view=app-window')
+  const nav = page.getByRole('navigation', { name: 'Window navigation' })
+  const navFrame = nav.locator('xpath=parent::*').locator('xpath=parent::*')
+  for (const width of [200, 260, 320, 520]) {
+    await navFrame.evaluate((node, next) => { (node as HTMLElement).style.gridTemplateColumns = `${next}px minmax(0, 1fr)` }, width)
+    for (const group of await nav.locator('[data-slot="sidebar-group"]').all()) {
+      const header = group.locator(':scope > [data-slot="group-label"]')
+      const icon = group.locator('[data-slot="sidebar-menu-icon"]').first()
+      const x = await header.evaluate((node) => { const range = document.createRange(); range.selectNodeContents(node); return range.getBoundingClientRect().x })
+      expect.soft(Math.abs(x - (await box(icon)).x), `AppWindow ${await header.textContent()} at ${width}px`).toBeLessThanOrEqual(1)
+    }
+  }
+})
+
+test('real working room keeps its whole chip before the fade and count, then folds on hover', async ({ page }, testInfo) => {
+  await page.goto('/design.html?view=sidebar')
+  const sidebar = page.locator('[data-catalog-example="sidebar"] [data-region="sidebar-header"]')
+    .locator('xpath=ancestor::div[contains(@class,"sidebar_")][last()]').first()
+  const frame = sidebar.locator('xpath=parent::*')
+  const room = sidebar.getByRole('button', { name: 'Room Finish the checkout boundary', exact: true })
+    .locator('xpath=ancestor::li[@data-slot="sidebar-menu-item"][1]')
+  const label = room.locator(':scope > div > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-label"]')
+  const chip = label.locator('[data-sidebar-menu-state-full] [data-slot="chip"]')
+  const title = label.locator('[data-slot="sidebar-menu-label-content"] > span > span').first()
+  const count = room.locator(':scope > div > [data-slot="sidebar-menu-badge"]')
+  const action = room.locator(':scope > div > [data-slot="sidebar-menu-action"]')
+  const measurements = []
+  await expect(count).toHaveText('1')
+  for (const width of [200, 260, 320, 520]) {
+    await frame.evaluate((node, next) => { (node as HTMLElement).style.width = `${next}px` }, width)
+    await sidebar.evaluate((node) => { (node as HTMLElement).style.width = '100%' })
+    await room.scrollIntoViewIfNeeded()
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    await page.mouse.move(0, 0)
+    await expect(chip).toBeVisible()
+    const labelBox = await box(label), chipBox = await box(chip), countBox = await box(count), actionBox = await box(action)
+    const fade = await label.evaluate((node) => getComputedStyle(node).maskImage === 'none' ? 0 : Number.parseFloat(getComputedStyle(node).getPropertyValue('--hd-space-8')))
+    const clipRight = await label.locator('[data-slot="sidebar-menu-label-content"]').evaluate((node) => node.getBoundingClientRect().right - Number.parseFloat(getComputedStyle(node).paddingRight))
+    expect.soft(chipBox.x + chipBox.width, `Working chip clips content by ${chipBox.x + chipBox.width - clipRight}px at ${width}px`).toBeLessThanOrEqual(clipRight + 0.1)
+    expect.soft(chipBox.x, `Working chip begins outside label at ${width}px`).toBeGreaterThanOrEqual(labelBox.x)
+    expect.soft(chipBox.x + chipBox.width, `Working chip runs into fade at ${width}px`).toBeLessThanOrEqual(labelBox.x + labelBox.width - fade)
+    expect.soft(intersection(chipBox, countBox), `Working chip overlaps held count at ${width}px`).toBe(false)
+    expect.soft(intersection(chipBox, actionBox), `Working chip overlaps action reservation at ${width}px`).toBe(false)
+    measurements.push({ width, chip: chipBox, contentRight: clipRight, title: await box(title) })
+    await room.locator(':scope > div > [data-slot="sidebar-menu-button"]').hover()
+    await expect(chip).toBeHidden()
+    await expect(label.locator('[data-sidebar-menu-state-compact] [data-slot="dot"]')).toBeVisible()
+    expect(await box(label), `room label changed on hover at ${width}px`).toEqual(labelBox)
+  }
+  await testInfo.attach('working-room-chip.json', { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' })
+  console.info('WORKING_ROOM_CHIP', JSON.stringify(measurements))
+})

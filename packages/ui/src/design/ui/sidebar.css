@@ -14,7 +14,8 @@
   flex-shrink: 0;
 }
 
-[data-slot="sidebar-menu-item"]:has(> [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-state"], > div > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-state"]) > :is([data-slot="sidebar-menu-button"], div > [data-slot="sidebar-menu-button"]) [data-slot="sidebar-menu-label"] {
+[data-slot="sidebar-menu-item"]:has(> [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-state"]) > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-label"],
+[data-slot="sidebar-menu-item"]:has(> div > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-state"]) > div > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-label"] {
   display: flex;
   height: var(--hd-icon-target);
   align-items: center;
@@ -82,4 +83,9 @@
 
 [data-slot="sidebar-menu-item"]:has([data-slot="sidebar-menu-action"][data-show-on-hover][data-state="open"]) [data-sidebar-menu-state-compact] {
   display: inline-flex;
+}
+
+/* A group heading begins where the row's icon begins, in either rail. */
+[data-slot="sidebar-group"] > [data-slot="group-label"] {
+  padding-inline-start: var(--hd-sidebar-start-inset);
 }

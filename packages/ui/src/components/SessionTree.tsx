@@ -1746,8 +1746,7 @@ export const SessionTree = ({ now }: { now: number }) => {
         <div>
           <SidebarMenu><SidebarMenuItem>
             <SidebarMenuButton
-              icon={<DisclosureChevron open={othersOpen} size="xs" className={styles.groupChevron} />}
-              label="Other projects"
+              label={<span className="flex items-center gap-(--hd-space-2)">Other projects<DisclosureChevron open={othersOpen} size="xs" className={styles.groupChevron} /></span>}
               aria-expanded={othersOpen}
               onClick={() => setOthersOpen(!othersOpen)}
               {...(dragging && !far.some((group) => group.root === dragging) ? { 'data-insert': 'into' } : {})}

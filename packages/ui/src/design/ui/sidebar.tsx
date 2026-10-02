@@ -63,7 +63,7 @@ const SidebarMenuItem = ({ className, style, trailingActions = 1, trailingMarks 
 )
 
 const sidebarMenuButtonVariants = cva(
-  'peer/menu-button flex w-full min-w-0 items-center gap-(--hd-space-2) overflow-hidden rounded-(--hd-nav-radius) ps-(--hd-space-2) text-left text-base text-sidebar-foreground transition-colors hover:bg-sidebar-accent focus-visible:bg-sidebar-accent active:bg-sidebar-accent disabled:pointer-events-none disabled:opacity-50 data-[active=true]:bg-(--hd-sidebar-selected) data-[active=true]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[active=true]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[active=true]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] [&>svg]:size-4 [&>svg]:shrink-0',
+  'peer/menu-button flex w-full min-w-0 items-center gap-(--hd-space-2) overflow-hidden rounded-(--hd-nav-radius) ps-(--hd-sidebar-start-inset) text-left text-base text-sidebar-foreground transition-colors hover:bg-sidebar-accent focus-visible:bg-sidebar-accent active:bg-sidebar-accent disabled:pointer-events-none disabled:opacity-50 data-[active=true]:bg-(--hd-sidebar-selected) data-[active=true]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[active=true]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[active=true]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] [&>svg]:size-4 [&>svg]:shrink-0',
   {
     variants: {
       size: {

@@ -137,6 +137,7 @@
   align-items: center;
   gap: var(--hd-space-1-5);
   padding: var(--hd-label-space, var(--hd-space-1-5)) var(--hd-bar-pad) var(--hd-space-1) var(--hd-bar-ink);
+  padding-inline-start: calc(var(--hd-rail-inset) + var(--hd-sidebar-start-inset));
   /* Header actions end on the sidebar's text column. */
   padding-inline-end: var(--hd-sidebar-end-header-inset);
 }

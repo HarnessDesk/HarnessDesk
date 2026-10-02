@@ -220,6 +220,7 @@ body {
      sidebar edge. The row-local rail subtracts the row gutter and half target;
      AppWindow rows subtract their 20px group gutter. Header controls use the
      full-edge inset. Hover actions step by one target. */
+  --hd-sidebar-start-inset: var(--hd-space-2);
   --hd-sidebar-end-column: var(--hd-space-8);
   --hd-sidebar-end-header-inset: calc(var(--hd-sidebar-end-column) - var(--hd-space-1-5));
   --hd-sidebar-end-rail: calc(var(--hd-sidebar-end-column) - var(--hd-icon-target) / 2 - var(--hd-space-2));

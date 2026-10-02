@@ -235,13 +235,13 @@ const sidebarNeedApproval = (id: string) => ({
 } as const)
 const fullSidebarStore = previewStore({
   ...sidebarSnapshot,
-  history: sidebarSnapshot.history.map((entry) => entry.id === 's0' && entry.runtime === runtimeId('codex')
+  history: sidebarSnapshot.history.map((entry) => ['s0', 's1', 's2'].includes(entry.id) && entry.runtime === runtimeId('codex')
     ? { ...entry, status: { type: 'active' } }
     : entry),
   listPrefs: {
     ...sidebarSnapshot.listPrefs,
     pinned: [PREVIEW_ROOT],
-    pinnedSessions: [String(sessionKey(runtimeId('codex'), 's0' as SessionId))],
+    pinnedSessions: [String(sessionKey(runtimeId('codex'), 's4' as SessionId))],
     collapsed: ['/work/harnessdesk-mobile'],
   },
   approvals: ['s0', 'c1'].map((id) => ({
@@ -258,11 +258,17 @@ const fullSidebarStore = previewStore({
       status: { type: 'active' },
       git: previewHistory[0]!.git,
     } as never,
-  ),
+  ).set(sessionKey(runtimeId('codex'), 's2' as SessionId), { ...previewSession, id: 's2' as SessionId, status: { type: 'active' }, turns: [{ id: turnId('sidebar-working'), status: 'inProgress', items: [] }] } as never)
+    .set(sessionKey(runtimeId('codex'), 's1' as SessionId), { ...previewSession, id: 's1' as SessionId, status: { type: 'active' }, turns: [{ id: turnId('sidebar-working'), status: 'inProgress', items: [] }] } as never),
   goals: new Map([
     ...sidebarSnapshot.goals,
     [PREVIEW_ROOM, { ...PREVIEW_GOAL, goal: { ...PREVIEW_GOAL.goal, id: PREVIEW_ROOM } }],
   ]),
+  teams: new Map(sidebarSnapshot.teams).set('goal-working', {
+    ...sidebarSnapshot.teams.get('goal-working')!,
+    members: sidebarSnapshot.teams.get(PREVIEW_ROOM)!.members.slice(1),
+    channel: sidebarSnapshot.teams.get(PREVIEW_ROOM)!.channel.filter((entry) => entry.kind === 'message' && entry.state === 'held'),
+  }),
   foldersGone: new Map([
     [previewHistory[2]!.cwd, 'This worktree folder is no longer available.'],
     ['/work/harnessdesk-site', 'This project folder is no longer available.'],

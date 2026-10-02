@@ -138,6 +138,7 @@ Measured from the app rather than invented: a 4px base with half-steps, which is
 | `--hd-space-2` | `8px` |
 | `--hd-space-2-5` | `10px` |
 | `--hd-space-3` | `12px` |
+| `--hd-sidebar-start-inset` | `8px` |
 | `--hd-sidebar-end-column` | `32px` |
 | `--hd-sidebar-end-header-inset` | `calc(32px - 6px)` |
 | `--hd-sidebar-end-rail` | `calc(32px - 24px / 2 - 8px)` |
