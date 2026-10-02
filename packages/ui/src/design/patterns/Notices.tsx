@@ -83,7 +83,7 @@ const Lead = ({ message, size = 'md', line }: { message: NoticeMessage; size?: '
         data-size={size}
         // An Agent's message leads with that Agent's face, and a face takes the
         // person's chosen shape; a tone's icon stays the tile it was.
-        {...(message.mark ? { 'data-face': '' } : {})}
+        {...(message.mark ? { 'data-shape': 'face' } : {})}
         aria-hidden
       >
         {message.mark ?? <Glyph size={size === 'sm' ? 12 : 14} />}

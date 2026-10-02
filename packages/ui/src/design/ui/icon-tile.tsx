@@ -68,6 +68,9 @@ type IconTileProps = React.ComponentProps<'span'> &
 const IconTile = ({ className, size, shape, tone, tint, color, style, ...props }: IconTileProps) => (
   <span
     data-slot="icon-tile"
+    /* Declared, so the faces rule (`e2e/ui-system/faces.spec.ts`) can find
+       every place someone is drawn without guessing from a class. */
+    data-shape={shape ?? 'square'}
     {...(color ? { 'data-color': '' } : {})}
     {...(tint ? { 'data-tint': tint } : {})}
     {...(!color && !tint ? { 'data-tone': tone ?? 'neutral' } : {})}
