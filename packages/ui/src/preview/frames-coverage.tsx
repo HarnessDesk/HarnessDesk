@@ -82,6 +82,7 @@ const noticeLayoutStore = (id: string, options: {
   readonly split?: boolean
   readonly splitBoardFocus?: boolean
   readonly folderGone?: boolean
+  readonly stripSurface?: boolean
 } = {}) => {
   const paneId = `${id}-pane`
   const view = options.view ?? { kind: 'conversation' as const, session: PREVIEW_SESSION_KEY }
@@ -109,7 +110,7 @@ const noticeLayoutStore = (id: string, options: {
   const active = noticeBase.sessions.get(PREVIEW_SESSION_KEY)!
   const result = previewStore({
     ...noticeBase,
-    status: 'open',
+    status: options.stripSurface ? 'reconnecting' : 'open',
     activeRuntime: runtimeId('codex'),
     activeSessionKey: PREVIEW_SESSION_KEY,
     account: null,
@@ -243,6 +244,8 @@ export const CoverageFrames = () => {
       <NoticeLayoutFrame id="coverage-notice-zoomed-dock" title="Notice placement — zoomed dock" options={{ zoom: 'right' }} />
       <NoticeLayoutFrame id="coverage-notice-split-composers" title="Notice placement — split with two composers" options={{ split: true }} />
       <NoticeLayoutFrame id="coverage-notice-split-unfocused-composer" title="Notice placement — visible composer beside focused activity" options={{ split: true, splitBoardFocus: true }} />
+      <NoticeLayoutFrame id="coverage-notice-composer-strip" title="Notice placement — dropped link above the composer" options={{ stripSurface: true }} />
+      <NoticeLayoutFrame id="coverage-notice-pane-bar-strip" title="Notice placement — dropped link below a tool pane bar" options={{ view: { kind: 'activity' as const } as never, stripSurface: true }} />
       <Frame id="coverage-library" title="Library — changes made from here">
         <div className="p-4"><LibraryHistory refreshedAt={0} home="/home/u" onFlow={() => {}} /></div>
       </Frame>
