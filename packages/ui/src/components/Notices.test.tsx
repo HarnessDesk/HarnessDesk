@@ -796,6 +796,37 @@ it('does not count a hidden composer and strip outlet as visible mounts', () => 
   expect(strips[0]?.closest('[data-slot="workbench-notice-fallback"]')).not.toBeNull()
 })
 
+it('counts a notice under an inert or aria-hidden ancestor as visible: it is covered or described away, not removed', () => {
+  const rect = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(
+    { x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 20, width: 100, height: 20, toJSON: () => ({}) } as DOMRect,
+  )
+  const held = document.createElement('div')
+  held.setAttribute('inert', '')
+  const described = document.createElement('div')
+  described.setAttribute('aria-hidden', 'true')
+  const probe = document.createElement('div')
+  described.append(probe)
+  held.append(described)
+  container.append(held)
+  const seen: boolean[] = []
+  const stop = observeNoticeLayout(probe, (visible) => seen.push(visible))
+  try {
+    expect(seen).toEqual([true])
+    // The same wrapper made `hidden` is the case the fallback exists for.
+    const gone = document.createElement('div')
+    gone.hidden = true
+    const inside = document.createElement('div')
+    gone.append(inside)
+    container.append(gone)
+    const unseen: boolean[] = []
+    observeNoticeLayout(inside, (visible) => unseen.push(visible))()
+    expect(unseen).toEqual([false])
+  } finally {
+    stop()
+    rect.mockRestore()
+  }
+})
+
 it('does not repeat a registry write when ResizeObserver reports unchanged visibility', () => {
   const observers: Array<{ trigger: () => void }> = []
   const previous = globalThis.ResizeObserver

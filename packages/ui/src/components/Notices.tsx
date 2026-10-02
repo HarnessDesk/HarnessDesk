@@ -322,8 +322,11 @@ const hasRenderedLayout = (probe: HTMLElement): boolean => {
   let box: { left: number; top: number; right: number; bottom: number } | null = null
   for (let element: HTMLElement | null = probe; element; element = element.parentElement) {
     const style = getComputedStyle(element)
+    // Paint, not interactivity or exposure: an `inert` ancestor (the floating
+    // sidebar's scrim holds the main content so) and `aria-hidden` leave the
+    // notice on screen, so they must not hand it to the fallback.
     if (
-      element.hidden || element.hasAttribute('inert') || element.getAttribute('aria-hidden') === 'true' || style.display === 'none' ||
+      element.hidden || style.display === 'none' ||
       style.visibility === 'hidden' || style.visibility === 'collapse' || Number(style.opacity) === 0
     ) return false
     path.push(element)
@@ -374,7 +377,7 @@ export const observeNoticeLayout = (probe: HTMLElement, onChange: (visible: bool
   const mutation = new MutationObserver(update)
   for (let element: HTMLElement | null = probe; element; element = element.parentElement) {
     resize?.observe(element)
-    mutation.observe(element, { attributes: true, attributeFilter: ['class', 'style', 'hidden', 'inert', 'aria-hidden'] })
+    mutation.observe(element, { attributes: true, attributeFilter: ['class', 'style', 'hidden'] })
   }
   return () => {
     resize?.disconnect()
