@@ -265,7 +265,7 @@ export const SideBySide = ({
                 {card(key, (
                   <span className={styles.member}>
                     <span className={styles.mark}>
-                      <IconTile size="sm" tint={entry?.tint ?? 'blue'}>
+                      <IconTile size="sm" shape="face" tint={entry?.tint ?? 'blue'}>
                         {entry?.brand ? <BrandMark brand={entry.brand} size={13} /> : <AgentIcon />}
                       </IconTile>
                       {entry?.busy && <Dot state="ready" variant="presence" pulse aria-hidden />}

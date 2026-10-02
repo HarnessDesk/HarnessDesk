@@ -440,9 +440,9 @@ export const NoticeStripOutlet = ({ host }: { readonly host: boolean }) => {
     // A kind that belongs on the composer still has to reach someone: when
     // the focused mount is not a composer that is actually visible — a
     // board-only layout, a folder that is gone where the composer would be,
-    // a zoomed dock, the narrow window's overlay — the strip this outlet
+    // a zoomed dock, the right panel's overlay — the strip this outlet
     // hosts is the fallback rather than the message going unseen.
-    if (place === 'strip' || (place === 'composer' && !focusedComposerVisible(snapshot.workbench, snapshot.narrowWindow))) {
+    if (place === 'strip' || (place === 'composer' && !focusedComposerVisible(snapshot.workbench, snapshot.windowWidth))) {
       messages.push(standing.message)
       dismissals.set(standing.message.id, standing.dismiss)
     }

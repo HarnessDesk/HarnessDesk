@@ -103,6 +103,7 @@ export { Banner, BannerAction, BannerStack, type BannerTone } from './primitives
 export {
   ComposerNotice,
   ComposerNoticeStack,
+  ComposerTail,
   InboxList,
   InboxPanel,
   NoticeCard,
@@ -192,7 +193,7 @@ export {
   type ChannelMessageProps,
   type ChannelState,
 } from './patterns/ChannelMessage'
-export { AgentCard, CardBand, CardCrest, CardCrestBody, CardShell, type AgentCardAction, type AgentCardCaution, type AgentCardSubject } from './patterns/AgentCard'
+export { AgentCard, MemberName, CardBand, CardCrest, CardCrestBody, CardShell, type AgentCardAction, type AgentCardCaution, type AgentCardSubject } from './patterns/AgentCard'
 export * from './patterns/DockPanel'
 export { Checklist, ChecklistItem, type ChecklistState } from './patterns/Checklist'
 export { KindGlyph, StatePill, publicationVerb, stateTone, type StateToneState } from './patterns/PublicationCard'

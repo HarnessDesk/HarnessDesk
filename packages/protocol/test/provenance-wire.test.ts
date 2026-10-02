@@ -22,6 +22,33 @@ test('all five provenance verbs validate their actual request envelopes', () => 
   }
 })
 
+test('queued-message edits validate the complete replacement input', () => {
+  const input = [
+    { type: 'text', text: 'updated instruction' },
+    { type: 'mention', name: 'plan.md', path: '/work/plan.md' },
+  ]
+  const parsed = parseClientMessage(request('turn/queue/update', {
+    runtime: 'codex', sessionId: 's1', id: 'q1', input,
+  }))
+  assert.equal(parsed.method, 'turn/queue/update')
+  const accepted = (parsed as unknown as { params: { input: { type: string; text?: string; name?: string }[] } }).params.input
+  assert.deepEqual(accepted.map((part) => part.type === 'text'
+    ? { type: part.type, text: part.text }
+    : { type: part.type, name: part.name }), [
+    { type: 'text', text: 'updated instruction' },
+    { type: 'mention', name: 'plan.md' },
+  ])
+  assert.throws(() => parseClientMessage(request('turn/queue/update', {
+    runtime: 'codex', sessionId: 's1', id: 'q1', input: [{ type: 'unknown' }],
+  })), ValidationError)
+  assert.throws(() => parseClientMessage(request('turn/queue/update', {
+    runtime: 'codex', sessionId: 's1', id: 'q1', input: [],
+  })), ValidationError)
+  assert.throws(() => parseClientMessage(request('turn/queue', {
+    runtime: 'codex', sessionId: 's1', input: [],
+  })), ValidationError)
+})
+
 test('root and Seat bounds reject before any host dispatch can run', () => {
   let dispatched = 0
   for (const root of ['', 'x'.repeat(4097), '/work/\0project', 12, null]) {

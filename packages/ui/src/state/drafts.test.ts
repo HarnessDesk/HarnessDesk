@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { SessionKey } from '@harnessdesk/protocol'
 
@@ -31,6 +31,23 @@ describe('the live draft a conversation keeps', () => {
     expect(drafts.live(a)).toBeNull()
   })
 
+  it('does not let a late refusal recreate drafts for a deleted conversation', () => {
+    const drafts = new Drafts()
+    drafts.setLive(a, { text: 'being sent', attachments: [] })
+    drafts.forget(a)
+
+    const late = drafts.addRecoverable(a, {
+      text: 'being sent',
+      attachments: [],
+      detail: 'Restore it.',
+    })
+
+    expect(late).toBeNull()
+    expect(drafts.live(a)).toBeNull()
+    expect(drafts.recoverable(a)).toEqual([])
+    expect(new Drafts().recoverable(a)).toEqual([])
+  })
+
   it('gives a store without its own drafts one of its own, never shared with another store', () => {
     const one = {}
     const two = {}
@@ -42,18 +59,129 @@ describe('the live draft a conversation keeps', () => {
   })
 })
 
-describe('a message put back into its conversation', () => {
-  it('keeps what was typed there since, field by field, and tells whoever is drawing it', () => {
+describe('draft reload storage', () => {
+  const storageKey = 'harnessdesk:drafts:v1'
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    sessionStorage.clear()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('flushes the newest live and recoverable drafts on pagehide', () => {
     const drafts = new Drafts()
-    const heard = vi.fn()
-    const stop = drafts.onPutBack(a, heard)
+    drafts.setLive(a, { text: 'newest', attachments: [] })
+    drafts.addRecoverable(a, { text: 'refused', attachments: [], detail: 'Restore it.' })
+    window.dispatchEvent(new Event('pagehide'))
+
+    const restored = new Drafts()
+    expect(restored.live(a)?.text).toBe('newest')
+    expect(restored.recoverable(a)[0]?.text).toBe('refused')
+  })
+
+  it('removes restored and emptied drafts synchronously before a fresh store reads', () => {
+    const drafts = new Drafts()
+    const entry = drafts.addRecoverable(a, { text: 'refused', attachments: [], detail: 'Restore it.' })
+    drafts.restore(a, entry!.id)
+    const afterRestore = new Drafts()
+    expect(afterRestore.recoverable(a)).toEqual([])
+
+    drafts.setLive(a, { text: '', attachments: [] })
+    const afterSend = new Drafts()
+    expect(afterSend.live(a)).toBeNull()
+  })
+
+  it('swaps the restored entry with the current live draft', () => {
+    const drafts = new Drafts()
+    drafts.setLive(a, { text: 'typed meanwhile', attachments: [] })
+    const entry = drafts.addRecoverable(a, { text: 'failed send', attachments: [], detail: 'Restore it.' })
+    const restored = drafts.restore(a, entry!.id)
+    expect(restored?.text).toBe('failed send')
+    expect(drafts.live(a)?.text).toBe('failed send')
+    expect(drafts.recoverable(a).map((item) => item.text)).toEqual(['typed meanwhile'])
+  })
+
+  it('mirrors text and path chips but never image data URLs', () => {
+    const drafts = new Drafts()
+    const imagePath = `data:image/png;base64,${'A'.repeat(2 * 1024 * 1024)}`
+    drafts.setLive(a, {
+      text: 'keep this text',
+      attachments: [
+        { id: 'file', name: 'a.ts', path: '/repo/a.ts', kind: 'file' },
+        { id: 'image', name: 'paste.png', path: imagePath, kind: 'image' },
+      ],
+    })
+    drafts.addRecoverable(a, {
+      text: 'refused text',
+      attachments: [{ id: 'image', name: 'paste.png', path: imagePath, kind: 'image' }],
+      detail: 'Restore the refused message.',
+    })
+    vi.advanceTimersByTime(300)
+    const raw = sessionStorage.getItem(storageKey) ?? ''
+    expect(raw).toContain('keep this text')
+    expect(raw).toContain('/repo/a.ts')
+    expect(raw).not.toContain('data:image')
+    const restored = new Drafts()
+    expect(restored.live(a)?.attachments.map((item) => item.kind)).toEqual(['file'])
+    expect(restored.recoverable(a)[0]?.detail).toContain('Images are not kept across a reload.')
+    expect(restored.recoverable(a)[0]?.attachments).toEqual([])
+  })
+
+  it('keeps a visible warning when a restored image is omitted from the reload mirror', () => {
+    const drafts = new Drafts()
+    const imagePath = 'data:image/png;base64,abc123'
+    const entry = drafts.addRecoverable(a, {
+      text: 'send this with the image',
+      attachments: [{ name: 'paste.png', path: imagePath, kind: 'image' }],
+      detail: 'Restore the refused message.',
+    })
+
+    const restored = drafts.restore(a, entry!.id)
+    const afterReload = new Drafts()
+
+    expect(restored?.imagesWillBeLostOnReload).toBe(true)
+    expect(afterReload.live(a)?.attachments).toEqual([])
+    expect(afterReload.live(a)?.imagesWillBeLostOnReload).toBe(true)
+  })
+
+  it('removes stale stored data and reports memory-only when storage still throws', () => {
+    const memory = new Map<string, string>([[storageKey, '{"stale":true}']])
+    const storage = {
+      getItem: (key: string) => memory.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        if (value.length > 40) throw new Error('quota')
+        memory.set(key, value)
+      },
+      removeItem: (key: string) => { memory.delete(key) },
+    }
+    const drafts = new Drafts(storage)
+    drafts.addRecoverable(a, { text: 'a sufficiently large draft that cannot fit', attachments: [], detail: 'Restore it.' })
+    window.dispatchEvent(new Event('pagehide'))
+    expect(memory.has(storageKey)).toBe(false)
+    expect(drafts.recoverable(a)[0]?.detail).toContain('Not saved for a reload — it stays only while this window is open.')
+  })
+
+  it('flushes on visibilitychange when the document becomes hidden', () => {
+    const drafts = new Drafts()
+    drafts.setLive(a, { text: 'hidden latest', attachments: [] })
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(new Drafts().live(a)?.text).toBe('hidden latest')
+  })
+})
+
+describe('a refused message in its conversation', () => {
+  it('keeps the refusal beside the live draft so Restore can swap them', () => {
+    const drafts = new Drafts()
     drafts.setLive(a, { text: 'typed since', attachments: [] })
     drafts.putBack(a, { text: 'the failed one', attachments: [{ id: '1', name: 'a.ts', path: '/a.ts', kind: 'file' }] })
     expect(drafts.live(a)?.text).toBe('typed since')
-    expect(drafts.live(a)?.attachments).toHaveLength(1)
-    expect(heard).toHaveBeenCalledWith(drafts.live(a))
-    stop()
-    drafts.putBack(a, { text: 'again', attachments: [] })
-    expect(heard).toHaveBeenCalledTimes(1)
+    expect(drafts.recoverable(a)).toHaveLength(1)
+    const restored = drafts.restore(a, drafts.recoverable(a)[0]!.id)
+    expect(restored?.text).toBe('the failed one')
+    expect(drafts.recoverable(a).map((item) => item.text)).toEqual(['typed since'])
   })
 })

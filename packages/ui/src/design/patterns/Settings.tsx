@@ -654,6 +654,12 @@ const TEXT_ROLE = {
   // A page band's heading, below the page title and above a subject.
   section: 'text-(length:--hd-text-lg) leading-(--hd-line-lg) font-semibold',
   subject: 'text-base leading-(--hd-line) font-medium',
+  // The name of someone — an agent at work or a person — wherever a face is
+  // drawn: a chat's sender, a member named inside a sentence. Heavier than a
+  // subject because a face and its name are one thing, and the name is what
+  // the eye lands on first. The only name role in semibold besides the three
+  // that title a page.
+  member: 'text-base leading-(--hd-line) font-semibold',
   row: 'text-sm leading-(--hd-line-sm) font-medium',
   navigation: 'text-sm leading-(--hd-line-sm) font-normal',
   muted: 'text-sm leading-(--hd-line-sm) font-normal',
@@ -677,6 +683,7 @@ const TEXT_ROLE_INK = {
   page: undefined,
   section: 'text-(--hd-foreground)',
   subject: 'text-(--hd-foreground)',
+  member: 'text-(--hd-foreground)',
   row: 'text-(--hd-foreground)',
   navigation: 'text-(--hd-foreground)',
   muted: 'text-(--hd-secondary-foreground)',
@@ -1172,9 +1179,11 @@ export const DetailHead = ({
  * not.
  *
  * It is the avatar above — the plate and the hairline the account marks wear —
- * squared, because a person is not an account: account marks are rings, the
- * avatars were drawn as squared tiles (`assets/avatars/README.md`), and the
- * seat reads as "you, and the pen you will pick up" because the two differ.
+ * in the face shape, because a person is not an account: account marks are
+ * rings, a face is whatever the person chose for faces (`--hd-face-radius`,
+ * squared unless they picked round; the avatars were drawn as squared tiles,
+ * `assets/avatars/README.md`), and it is the same corner the agents' marks
+ * beside it wear.
  * The corner steps up the radius scale with the size, so the seat's 24px and
  * the profile page's 44px read as one object at two sizes.
  *
@@ -1201,7 +1210,7 @@ export const Face = ({
   return (
     <span
       className={className ? `${styles.avatar} ${className}` : styles.avatar}
-      data-shape="square"
+      data-shape="face"
       {...(size === undefined
         ? { 'data-fill': '' }
         : { 'data-size': size > 32 ? 'm' : 's', style: { width: size, height: size } })}

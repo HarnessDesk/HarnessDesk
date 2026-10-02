@@ -50,8 +50,9 @@ import styles from './explorer.module.css'
  * onto `body`, which is the same mechanism a foundation uses and the same one a
  * user-defined theme would.
  *
- * Only three, and each is a value the whole interface turns on: how round
- * things are, how tall a control is, and what the brand colour is. A dial per
+ * Only four, and each is a value the whole interface turns on: how round
+ * things are, how tall a control is, what the brand colour is, and what shape
+ * a face is. A dial per
  * token would be a token inspector, which the Tokens board already is.
  */
 const DIALS = [
@@ -69,6 +70,20 @@ const DIALS = [
       { value: '0px', label: 'square' },
       { value: '10px', label: 'default' },
       { value: '14px', label: 'round' },
+    ],
+  },
+  {
+    id: 'faces',
+    label: 'Faces',
+    token: '--hd-face-radius',
+    /* The larger face follows, so a seat and a profile page stay one shape. */
+    also: (value: string) => ({
+      '--hd-face-radius-lg': value === 'var(--hd-radius-full)' ? 'var(--hd-radius-full)' : 'var(--hd-radius)',
+    }),
+    fallback: 0,
+    options: [
+      { value: 'var(--hd-radius-sm)', label: 'square' },
+      { value: 'var(--hd-radius-full)', label: 'round' },
     ],
   },
   {

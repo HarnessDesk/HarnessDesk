@@ -61,7 +61,7 @@ describe('the dim over a narrow window', () => {
   })
 
   it('lays a right panel over the conversation in a narrow window', () => {
-    expect(blockAfter('.shell[data-narrow] .right {')).toMatch(/position:\s*absolute;[^}]*inset:\s*0/)
+    expect(blockAfter('.shell[data-right-overlay] .right {')).toMatch(/position:\s*absolute;[^}]*inset:\s*0/)
   })
 
   it('hides the covered main surface and drops its draggable title-bar region', () => {

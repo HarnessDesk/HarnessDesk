@@ -202,8 +202,8 @@ import {
 } from './layout'
 import {
   DOCKS,
-  NARROW_WINDOW,
   areaVisible,
+  sidebarCannotHaveColumn,
   sidebarPlacement,
   activate as activateIn,
   activeTerminal,
@@ -307,14 +307,15 @@ export type {
   SeatRefusal,
   StoredCredential,
 } from './snapshot'
-import { Drafts } from './drafts'
+import { Drafts, type NewRecoverableDraft, type RecoverableDraft } from './drafts'
+export type { RecoverableDraft } from './drafts'
 export { emptySnapshot } from './snapshot'
 
 export type UnheldCeilings = 'seat' | 'refuse'
 
 export class AppStore {
   /** What each conversation has typed and not sent. See `state/drafts`. */
-  readonly drafts = new Drafts()
+  readonly drafts: Drafts
   #captureEpoch = 0
   #captureList = 0
   /**
@@ -519,6 +520,11 @@ export class AppStore {
   readonly transport: Transport
 
   constructor(url = transportUrl()) {
+    this.drafts = new Drafts(undefined, {
+      onMemoryOnly: () => this.notice('warning', 'Draft not saved for a reload — it stays only while this window is open.'),
+    })
+    this.#snapshot = { ...this.#snapshot, recoverableDrafts: this.drafts.recoverableSnapshot() }
+    this.drafts.onRecoverableChange(() => this.#patch({ recoverableDrafts: this.drafts.recoverableSnapshot() }))
     this.transport = new Transport(url, {
       onEvent: (runtime, event) => this.#onEvent(runtime, event),
       onNotification: (notification) => {
@@ -644,7 +650,10 @@ export class AppStore {
           if (this.#agentsRequested) void this.loadAgentPlans()
         }
         if (notification.method === 'session/removed') {
-          this.#dropRemoved(sessionKey(notification.params.runtime, notification.params.sessionId))
+          this.#dropRemoved(
+            sessionKey(notification.params.runtime, notification.params.sessionId),
+            notification.params.deleted,
+          )
         }
         if (notification.method === 'agent/changed') {
           /* A file under the roster moved, or this machine's seats did. Read
@@ -684,7 +693,10 @@ export class AppStore {
           }
         }
         if (notification.method === 'session/removed') {
-          this.#dropRemoved(sessionKey(notification.params.runtime, notification.params.sessionId))
+          this.#dropRemoved(
+            sessionKey(notification.params.runtime, notification.params.sessionId),
+            notification.params.deleted,
+          )
         }
         if (notification.method === 'usage/updated') {
           // One account at a time, so a slow source never holds up a fast one.
@@ -2801,10 +2813,12 @@ export class AppStore {
    * (`#deleting`). Nothing is asked of the host for it: the host has already
    * let it go.
    *
-   * A window that never held it is left exactly as it was — no new snapshot,
-   * so nothing on screen draws again for a conversation it never showed.
+   * Recoveries are pruned only when `session/removed` confirms deletion:
+   * pass-over can archive a conversation instead. A window that never held it
+   * is left exactly as it was — no new snapshot, so nothing on screen draws
+   * again for a conversation it never showed.
    */
-  #dropRemoved(key: SessionKey): void {
+  #dropRemoved(key: SessionKey, deleted: boolean): void {
     const { sessions, queues, tasks, history, approvals } = this.#snapshot
     const shown = panes(this.#snapshot.layout.root).filter((pane) => sessionOf(pane) === key)
     const docked = mountedViewsIn(this.#snapshot.workbench).filter(
@@ -2812,8 +2826,9 @@ export class AppStore {
     )
     const listed = history.some((entry) => sessionKey(entry.runtime, entry.id) === key)
     const waiting = approvals.some((entry) => entry.key === key)
-    const held =
-      sessions.has(key) || queues.has(key) || tasks.has(key) || listed || waiting || shown.length > 0 || docked.length > 0
+    const held = sessions.has(key) || queues.has(key) || tasks.has(key) || listed || waiting ||
+      shown.length > 0 || docked.length > 0 ||
+      (deleted && (this.drafts.live(key) !== null || this.drafts.recoverable(key).length > 0))
     if (!held) return
     // Where it was on screen first, so the focus moves with the panes rather
     // than being left on a conversation nothing can open any more.
@@ -2829,6 +2844,7 @@ export class AppStore {
     nextSessions.delete(key)
     nextQueues.delete(key)
     nextTasks.delete(key)
+    if (deleted) this.drafts.forget(key)
     this.#patch({
       sessions: nextSessions,
       queues: nextQueues,
@@ -5642,12 +5658,14 @@ export class AppStore {
     }
   }
 
-  async steer(input: readonly UserContent[], key = this.#snapshot.activeSessionKey): Promise<void> {
-    if (!key) return
+  async steer(input: readonly UserContent[], key = this.#snapshot.activeSessionKey): Promise<boolean> {
+    if (!key) return false
     try {
       await this.transport.request('turn/steer', { ...address(key), input })
+      return true
     } catch (error) {
       this.notice('error', describe(error))
+      return false
     }
   }
 
@@ -5661,6 +5679,23 @@ export class AppStore {
   }
 
   // ---------------------------------------------------------------- the queue
+
+  /** Keep refused draft content in the conversation-owned draft store. */
+  addRecoverableDraft(
+    key: SessionKey,
+    draft: NewRecoverableDraft,
+  ): void {
+    this.drafts.addRecoverable(key, draft)
+  }
+
+  removeRecoverableDraft(key: SessionKey, id: number): void {
+    this.drafts.removeRecoverable(key, id)
+  }
+
+  /** Restore one refusal and retain the displaced live draft as another entry. */
+  restoreRecoverableDraft(key: SessionKey, id: number): import('./drafts').Draft | null {
+    return this.drafts.restore(key, id)
+  }
 
   /**
    * Holds a message until the running turn ends. The host decides whether it
@@ -5690,6 +5725,12 @@ export class AppStore {
     } catch (error) {
       this.notice('warning', describe(error))
     }
+  }
+
+  /** Replaces one queued message in place; the caller decides how to recover a refusal. */
+  async updateQueued(id: string, input: readonly UserContent[], key = this.#snapshot.activeSessionKey): Promise<void> {
+    if (!key) return
+    await this.transport.request('turn/queue/update', { ...address(key), id, input })
   }
 
   async moveQueued(id: string, to: number, key = this.#snapshot.activeSessionKey): Promise<void> {
@@ -5945,6 +5986,9 @@ export class AppStore {
         preferences['corners'] === 'round'
           ? { corners: preferences['corners'] }
           : {}),
+        ...(preferences['faces'] === 'square' || preferences['faces'] === 'round'
+          ? { faces: preferences['faces'] }
+          : {}),
         ...(preferences['look'] === 'desk' || preferences['look'] === 'studio'
           ? { look: preferences['look'] }
           : {}),
@@ -6178,29 +6222,38 @@ export class AppStore {
   }
 
   /**
-   * The window crossed `NARROW_WINDOW`. Either way a floating sidebar is put
-   * away: narrowing a window is not a request to cover the conversation, and
+   * The window's width changed. `#patch` derives `narrowWindow` from it and the
+   * workbench, and puts a floating sidebar away whenever that line is crossed:
+   * narrowing a window is not a request to cover the conversation, and
    * widening one gives back the column as it was left.
    */
-  setNarrowWindow(narrow: boolean): void {
-    if (narrow === this.#snapshot.narrowWindow) return
-    this.#patch({ narrowWindow: narrow, sidebarFloating: false })
+  setWindowWidth(width: number): void {
+    if (width === this.#snapshot.windowWidth) return
+    this.#patch({ windowWidth: width })
   }
-
   /**
-   * Whether the window can afford the sidebar a column, known before the
-   * first frame. Learned after the first paint instead, the window would draw
-   * a column and then fold it away in front of the reader.
+   * The window's width, known before the first frame. Learned after the first
+   * paint instead, the window would draw a column and then fold it away in
+   * front of the reader. A media query can no longer answer it alone — the
+   * line moves with the docks — so the width itself is kept, once per frame.
    *
    * The window's width rather than the workbench's: the workbench is the whole
-   * window in every place it is mounted, and a media query answers before
-   * there is a box to measure.
+   * window in every place it is mounted, and `innerWidth` answers before there
+   * is a box to measure.
    */
   #watchWindowWidth(): void {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
-    const query = window.matchMedia(`(max-width: ${NARROW_WINDOW - 0.02}px)`)
-    this.#snapshot = { ...this.#snapshot, narrowWindow: query.matches }
-    query.addEventListener?.('change', (event) => this.setNarrowWindow(event.matches))
+    if (typeof window === 'undefined') return
+    const width = window.innerWidth
+    const narrowWindow = sidebarCannotHaveColumn(this.#snapshot.workbench, width)
+    this.#snapshot = { ...this.#snapshot, windowWidth: width, narrowWindow }
+    let frame: number | null = null
+    window.addEventListener('resize', () => {
+      if (frame !== null) return
+      frame = window.requestAnimationFrame(() => {
+        frame = null
+        this.#patch({ windowWidth: window.innerWidth })
+      })
+    })
   }
 
   /**
@@ -6264,6 +6317,11 @@ export class AppStore {
   setAccent(accent: AppSnapshot['accent']): void {
     this.#patch({ accent })
     void this.#writePreference({ accent }, 'The accent colour')
+  }
+
+  setFaces(faces: AppSnapshot['faces']): void {
+    this.#patch({ faces })
+    void this.#writePreference({ faces }, 'The shape of faces')
   }
 
   setCorners(corners: AppSnapshot['corners']): void {
@@ -6933,6 +6991,17 @@ export class AppStore {
    */
   #patch(patch: Partial<AppSnapshot>): void {
     const next = { ...this.#snapshot, ...patch }
+    // Whether the sidebar can have a column follows the window and the docks,
+    // so it is settled here, where both change, rather than by each caller —
+    // and again below if this method rewrites the workbench itself.
+    const settleNarrow = (): void => {
+      const narrowWindow = sidebarCannotHaveColumn(next.workbench, next.windowWidth)
+      if (narrowWindow !== next.narrowWindow) {
+        next.narrowWindow = narrowWindow
+        next.sidebarFloating = false
+      }
+    }
+    if (patch.windowWidth !== undefined || patch.workbench !== undefined) settleNarrow()
     // The focused conversation: the focused pane's, or — when a tool pane has
     // focus — the conversation it belongs to, so the composer's commands and
     // the details column stay on the work the tool was opened for.
@@ -6987,6 +7056,9 @@ export class AppStore {
     if (outlived) {
       next.workbench = unzoomIn(next.workbench)
       next.detailsTab = visibleInspector(next.workbench)
+      // The unzoom changes what the predicate reads: a zoom answered "no
+      // right panel to fit" and the panel is now drawn beside the sidebar.
+      settleNarrow()
     }
     next.activeSessionKey = activeSessionKey
     // A hand-off belongs to the draft it was handed to, and the draft is the

@@ -94,7 +94,10 @@ const QUEUE: SessionQueue = {
   status: 'waiting',
   reason: null,
   messages: [
-    { id: 'q1', state: 'queued', queuedAt: Date.now() - 60_000, input: [{ type: 'text', text: 'Then run the worktree tests again and tell me which ones still fail.' }] },
+    { id: 'q1', state: 'queued', queuedAt: Date.now() - 60_000, input: [
+      { type: 'text', text: 'Then run the worktree tests again and tell me which ones still fail.' },
+      { type: 'mention', name: 'review.md', path: '/preview/review.md' },
+    ] },
     { id: 'q2', state: 'queued', queuedAt: Date.now() - 40_000, input: [{ type: 'text', text: 'Also check that a detached worktree is still listed after the filter.' }] },
     { id: 'q3', state: 'queued', queuedAt: Date.now() - 20_000, input: [{ type: 'text', text: 'Open a draft pull request when both pass.' }] },
   ],

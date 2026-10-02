@@ -127,6 +127,23 @@ export const softTint = cva('', {
   defaultVariants: { tint: 'blue' },
 })
 
+/** An identity tint as a solid ground for a face, with the accent's ink. */
+export const solidTint = cva('', {
+  variants: {
+    tint: {
+      blue: 'bg-(--hd-tint-blue-ink) text-(--hd-accent-foreground)',
+      green: 'bg-(--hd-tint-green-ink) text-(--hd-accent-foreground)',
+      amber: 'bg-(--hd-tint-amber-ink) text-(--hd-accent-foreground)',
+      violet: 'bg-(--hd-tint-violet-ink) text-(--hd-accent-foreground)',
+      rose: 'bg-(--hd-tint-rose-ink) text-(--hd-accent-foreground)',
+      teal: 'bg-(--hd-tint-teal-ink) text-(--hd-accent-foreground)',
+      orange: 'bg-(--hd-tint-orange-ink) text-(--hd-accent-foreground)',
+      sky: 'bg-(--hd-tint-sky-ink) text-(--hd-accent-foreground)',
+    },
+  },
+  defaultVariants: { tint: 'blue' },
+})
+
 /** A tint as a solid dot — the marker on a board column's name. */
 export const dotTint = cva('', {
   variants: {

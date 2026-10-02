@@ -36,7 +36,10 @@ import {
   areaOfMount,
   areaVisible,
   cornerArea,
+  rightPanelOverlays,
   dockLimits,
+  MIN_READING,
+  SEAM,
   dockViews,
   MAX_RATIO,
   MIN_RATIO,
@@ -175,7 +178,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   const showSidebar = placement !== 'away'
   const floating = placement === 'floating'
   const column = placement === 'column'
-  const rightPanelOverlay = narrow && rightPanelDrawn(workbench) && areaVisible(workbench, 'main')
+  const rightPanelOverlay = rightPanelOverlays(workbench, snapshot.windowWidth)
 
   useLayoutEffect(() => {
     if (rightPanelDrawn(workbench)) {
@@ -237,7 +240,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
    * whenever there are buttons at all, while the area named here keeps it for
    * the row underneath.
    */
-  const corner = hasTrafficLights() ? cornerArea(workbench, column) : null
+  const corner = hasTrafficLights() ? cornerArea(workbench, column, snapshot.windowWidth) : null
 
   const sidebarBox = useRef<HTMLDivElement>(null)
   const content = useRef<HTMLDivElement>(null)
@@ -262,6 +265,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
       {...(corner ? { 'data-lights': corner } : {})}
       {...(dragging ? { 'data-dragging': '' } : {})}
       {...(narrow ? { 'data-narrow': '' } : {})}
+      {...(rightPanelOverlay ? { 'data-right-overlay': '' } : {})}
     >
       {/* The dim behind a floating sidebar. Pressing it is the plainest way
           to put the sidebar away, and it is what keeps a press meant for the
@@ -385,17 +389,29 @@ const RightPanel = () => {
   // seam goes with it: there is nothing on the other side of it to resize
   // against, and a handle that moves nothing is a handle that looks broken.
   const zoomed = workbench.zoom?.area === 'right'
-  // A narrow window has no room for a panel beside the conversation, so the
-  // panel takes the conversation's width while it is open, and the seam goes
-  // for the same reason it goes in a zoom: nothing beside it to trade with.
-  const sized = !zoomed && !snapshot.narrowWindow
-  // Zoomed, or laid over a narrow window's main area, this is the panel being
+  // When fewer than 400px remain beside the panel, it covers the conversation
+  // and the seam goes for the same reason it goes in a zoom: nothing beside it
+  // to trade with.
+  const overlay = rightPanelOverlays(workbench, snapshot.windowWidth)
+  const sized = !zoomed && !overlay
+  // Zoomed, or laid over the main area, this is the panel being
   // read, and the strip above the panes rides here instead of the main area.
-  const noticeHost = noticeArea(workbench, snapshot.narrowWindow) === 'right'
+  const noticeHost = noticeArea(workbench, snapshot.windowWidth) === 'right'
+  const min = dockLimits('right').min
+  const max = Math.max(
+    min,
+    Math.min(
+      dockLimits('right').max,
+      snapshot.windowWidth -
+        (sidebarPlacement(snapshot) === 'column' ? workbench.sidebar.size + SEAM : 0) -
+        SEAM -
+        MIN_READING,
+    ),
+  )
   return (
     <>
       {sized && (
-        <AreaSeam area="right" orientation="vertical" label="Resize the right panel" direction={-1} />
+        <AreaSeam area="right" orientation="vertical" label="Resize the right panel" direction={-1} max={max} />
       )}
       <div
         className={styles.right}
@@ -865,11 +881,13 @@ const AreaSeam = ({
   orientation,
   label,
   direction,
+  max: maxOverride,
 }: {
   area: DockId
   orientation: 'vertical' | 'horizontal'
   label: string
   direction: 1 | -1
+  max?: number
 }) => {
   const store = useStore()
   const shell = useContext(ShellContext)
@@ -886,6 +904,7 @@ const AreaSeam = ({
   }, [shell, area, size])
 
   const limits = dockLimits(area)
+  const max = maxOverride === undefined ? limits.max : Math.min(limits.max, maxOverride)
   /* What the store will hold once it is told `next` — the same clamp and the
      same rounding `resizeDock` applies, so the two can be compared. */
   const landing = (next: number): number =>
@@ -896,7 +915,8 @@ const AreaSeam = ({
       orientation={orientation}
       label={label}
       size={size}
-      {...limits}
+      min={limits.min}
+      max={max}
       direction={direction}
       onResize={(next) => shell.current?.style.setProperty(LIVE[area], `${Math.round(next)}px`)}
       /* Abandoned: the override is the only thing holding the size the pointer

@@ -90,7 +90,14 @@ afterEach(() => {
 })
 
 const rig = (extra: Partial<AppSnapshot> = {}, workbench: Model = emptyWorkbench()) => {
-  let snapshot = { ...emptySnapshot(), status: 'open', workbench, layout: workbench.main, ...extra } as AppSnapshot
+  let snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    workbench,
+    layout: workbench.main,
+    ...(extra.narrowWindow ? { windowWidth: 679 } : {}),
+    ...extra,
+  } as AppSnapshot
   const listeners = new Set<() => void>()
   const patch = (next: Partial<AppSnapshot>): void => {
     snapshot = { ...snapshot, ...next }
@@ -116,6 +123,9 @@ const rig = (extra: Partial<AppSnapshot> = {}, workbench: Model = emptyWorkbench
       },
     })),
     focusView: vi.fn((id: string | null) => patch({ workbench: { ...snapshot.workbench, focus: id } })),
+    resizePanel: vi.fn((area: keyof Pick<Model, 'sidebar' | 'right' | 'bottom'>, size: number) => patch({
+      workbench: { ...snapshot.workbench, [area]: { ...snapshot.workbench[area], size } },
+    })),
     activateView: vi.fn(),
   } as unknown as AppStore & { closeFloatingSidebar: ReturnType<typeof vi.fn> }
   return { store, patch }
@@ -422,7 +432,7 @@ it('returns focus to the conversation target, or its composer when that target i
   expect(view).not.toBeNull()
 
   opener!.focus()
-  patch({ narrowWindow: true })
+  patch({ narrowWindow: true, windowWidth: 679 })
   expect(opener?.closest('[inert]')).not.toBeNull()
   view!.focus()
   patch({ workbench: { ...docked, right: { ...docked.right, collapsed: true } } })
@@ -431,7 +441,7 @@ it('returns focus to the conversation target, or its composer when that target i
   // A stale opener must not strand focus when its node was removed/disabled.
   patch({ workbench: docked })
   opener!.focus()
-  patch({ narrowWindow: true })
+  patch({ narrowWindow: true, windowWidth: 679 })
   act(() => {
     view!.focus()
     opener!.remove()
@@ -482,7 +492,7 @@ it('restores into the currently focused expanded pane and returns logical focus 
   const originalTarget = container.querySelector<HTMLElement>(`[data-pane-id="${originalPane.id}"] button`)
   const panelView = container.querySelector<HTMLButtonElement>('[data-testid="view-changes"]')
   originalTarget!.focus()
-  patch({ narrowWindow: true })
+  patch({ narrowWindow: true, windowWidth: 679 })
   panelView!.focus()
   expect(store.getSnapshot().workbench.focus).not.toBeNull()
 
@@ -514,7 +524,7 @@ it('falls back to the focused file pane when its conversation target and compose
   const opener = container.querySelector<HTMLElement>(`[data-pane-id="${pane.id}"] button`)
   const dockedView = container.querySelector<HTMLButtonElement>('[data-testid="view-changes"]')
   opener!.focus()
-  patch({ narrowWindow: true })
+  patch({ narrowWindow: true, windowWidth: 679 })
   dockedView!.focus()
 
   const fileLayout = {
@@ -540,7 +550,7 @@ it('does not restore a saved node after its pane switches to another view', () =
   const savedTarget = container.querySelector<HTMLElement>(`[data-pane-id="${pane.id}"] button`)
   const dockedView = container.querySelector<HTMLButtonElement>('[data-testid="view-changes"]')
   act(() => savedTarget!.focus())
-  patch({ narrowWindow: true })
+  patch({ narrowWindow: true, windowWidth: 679 })
   act(() => dockedView!.focus())
 
   const changedLayout = {
@@ -560,7 +570,7 @@ it('does not restore a saved node after its pane switches to another view', () =
   expect(document.activeElement).not.toBe(document.body)
 })
 
-it('a panel on the right takes the conversation’s width in a narrow window, and has no seam', () => {
+it('a panel on the right overlays only below 400px remaining and otherwise keeps its seam', () => {
   const docked = dock(emptyWorkbench(), 'right', { kind: 'changes' })
   const wide = rig({}, docked)
   render(wide.store)
@@ -569,11 +579,39 @@ it('a panel on the right takes the conversation’s width in a narrow window, an
   expect(seam('Resize the right panel')).not.toBeNull()
   expect(panel?.style.width).toBe('var(--panel-right)')
 
-  const narrow = rig({ narrowWindow: true }, docked)
+  const narrow = rig({ narrowWindow: true, windowWidth: 700 }, {
+    ...docked,
+    right: { ...docked.right, size: 280 },
+  })
   render(narrow.store)
-  expect(seam('Resize the right panel')).toBeNull()
+  expect(seam('Resize the right panel')).not.toBeNull()
+  expect(container.querySelector('[data-right-panel-overlay]')).toBeNull()
+  expect(container.querySelector('[data-testid="in-the-conversation"]')?.closest('[inert]')).toBeNull()
+  act(() => seam('Resize the right panel')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })))
+  expect(narrow.store.getSnapshot().workbench.right.size).toBe(299)
   const boxes = [...container.querySelectorAll<HTMLElement>('[style]')].filter(
     (box) => box.style.width === 'var(--panel-right)',
   )
-  expect(boxes).toEqual([])
+  expect(boxes).toHaveLength(1)
+
+  const overlay = rig({ narrowWindow: true, windowWidth: 679 }, {
+    ...docked,
+    right: { ...docked.right, size: 280 },
+  })
+  render(overlay.store)
+  expect(seam('Resize the right panel')).toBeNull()
+  expect(container.querySelector('[data-right-panel-overlay]')).not.toBeNull()
+  expect([...container.querySelectorAll<HTMLElement>('[style]')].filter(
+    (box) => box.style.width === 'var(--panel-right)',
+  )).toEqual([])
+})
+
+it('clamps the right seam so the standing sidebar and conversation keep 400px each', () => {
+  const docked = dock(emptyWorkbench(), 'right', { kind: 'changes' })
+  const { store } = rig({ windowWidth: 1200 }, docked)
+  render(store)
+  const handle = seam('Resize the right panel')!
+  act(() => handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })))
+  expect(store.resizePanel).toHaveBeenCalled()
+  expect(store.getSnapshot().workbench.right.size).toBe(558)
 })
