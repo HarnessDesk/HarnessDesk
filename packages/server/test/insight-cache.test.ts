@@ -156,3 +156,78 @@ test('growth between discovery and stream opening still reports a limited respon
   assert.ok(first.gaps.includes(INSIGHT_BYTE_LIMIT_MESSAGE))
   assert.equal((await ledger.readInsight(query)).samples.length, 2)
 })
+
+test('large source sample counts survive cold and cached reads within the shared byte budget', async (t) => {
+  const dir = tempDir('hd-insight-large-cache-')
+  const alpha = join(dir, 'alpha'); const beta = join(dir, 'beta')
+  await mkdir(alpha); await mkdir(beta)
+  // More observations than V8 accepts as arguments, comfortably below 64 MiB.
+  const observations = 150_000
+  const content = meta + Array.from({ length: observations }, (_, index) => `${JSON.stringify({
+    timestamp: new Date(Date.parse('2026-09-20') + index).toISOString(), type: 'event_msg',
+    payload: { type: 'token_count', info: { last_token_usage: { input_tokens: 10, output_tokens: 1 } } },
+  })}\n`).join('')
+  const limit = Buffer.byteLength(content)
+  await writeFile(join(alpha, 'rollout.jsonl'), content)
+  await writeFile(join(beta, 'rollout.jsonl'), meta + event(1))
+  const ledger = new Ledger({ stateDir: dir, insightByteLimit: limit,
+    corpora: [{ runtime: 'alpha', kind: 'codex', root: alpha }, { runtime: 'beta', kind: 'codex', root: beta }],
+    pricing: new Pricing({ cachePath: join(dir, 'rates.json'), overlayPath: join(dir, 'pricing.json'), fetchCatalogue: async () => ({}) }) })
+  t.after(() => ledger.close())
+  const count = reads(t, dir)
+  const first = await ledger.readInsight(query)
+  assert.equal(count.bytes(), limit, 'the large source spends the budget; the next source is not read')
+  assert.equal(first.samples.length, observations)
+  assert.ok(first.gaps.includes(INSIGHT_BYTE_LIMIT_MESSAGE))
+  assert.ok(!first.gaps.includes('A recorded usage source could not be read.'))
+  const second = await ledger.readInsight(query, { refresh: true })
+  assert.equal(second.samples.filter((sample) => sample.runtime === 'alpha').length, observations)
+  assert.equal(second.samples.filter((sample) => sample.runtime === 'beta').length, 1)
+  assert.equal(count.bytes(), limit + Buffer.byteLength(meta + event(1)), 'the cached large source reads no bytes')
+  assert.ok(!second.gaps.includes(INSIGHT_BYTE_LIMIT_MESSAGE))
+  assert.ok(!second.gaps.includes('A recorded usage source could not be read.'))
+})
+
+for (const kind of ['claude', 'qwen'] as const) {
+  for (const continuation of ['append', 'budget'] as const) {
+    test(`${kind} deduplicates older message IDs across ${continuation} scans with first-observation values`, async (t) => {
+      const dir = tempDir('hd-insight-dedup-cache-')
+      const corpus = join(dir, 'corpus'); const chats = join(corpus, 'project', 'chats')
+      await mkdir(chats, { recursive: true })
+      const path = join(chats, 'messages.jsonl')
+      const record = (id: number, input = 10) => `${JSON.stringify({
+        type: 'assistant', timestamp: '2026-09-20T00:00:00.000Z', cwd: query.root,
+        ...(kind === 'claude'
+          ? { message: { id: `message-${id}`, model: 'test-model', usage: { input_tokens: input, output_tokens: 1 } } }
+          : { uuid: `message-${id}`, model: 'test-model', usageMetadata: { promptTokenCount: input, cachedContentTokenCount: 0, candidatesTokenCount: 1, thoughtsTokenCount: 0, toolUsePromptTokenCount: 0 } }),
+      })}\n`
+      const prefix = Array.from({ length: 65 }, (_, index) => record(index)).join('')
+      const suffix = record(0, 999) + record(65)
+      await writeFile(path, prefix + (continuation === 'budget' ? suffix : ''))
+      const options = { stateDir: dir, corpora: [{ runtime: 'alpha', kind, root: corpus }],
+        pricing: new Pricing({ cachePath: join(dir, 'rates.json'), overlayPath: join(dir, 'pricing.json'), fetchCatalogue: async () => ({}) }) }
+      const ledger = new Ledger({ ...options, ...(continuation === 'budget' ? { insightByteLimit: Buffer.byteLength(prefix) } : {}) })
+      t.after(() => ledger.close())
+      const count = reads(t, corpus)
+      const first = await ledger.readInsight(query)
+      assert.equal(first.samples.length, 65)
+      if (continuation === 'append') await appendFile(path, suffix)
+      const continued = await ledger.readInsight(query, { refresh: true })
+      assert.deepEqual(count.starts, [0, Buffer.byteLength(prefix)])
+      assert.equal(count.bytes(), Buffer.byteLength(prefix + suffix))
+      assert.equal(continued.samples.length, 66, 'only the new message adds an observation')
+      assert.equal(continued.samples.find((sample) => sample.requestId === 'message-0')?.input.value, 10)
+      assert.equal(continued.samples.reduce((sum, sample) => sum + (sample.input.value ?? 0), 0), 660)
+      const fresh = new Ledger(options); t.after(() => fresh.close())
+      const full = await fresh.readInsight(query)
+      const values = (detail: typeof full) => detail.samples.map((sample) => [sample.key, sample.input, sample.output, sample.usd])
+      assert.deepEqual(values(continued), values(full), 'continuation agrees with a full-file scan')
+      const cached = await ledger.readInsight(query)
+      assert.deepEqual(values(cached), values(continued))
+      await writeFile(path, record(0, 7))
+      const rewritten = await ledger.readInsight(query)
+      assert.equal(rewritten.samples.length, 1)
+      assert.equal(rewritten.samples[0]?.input.value, 7, 'rewrites discard source-wide seen observations')
+    })
+  }
+}

@@ -86,7 +86,7 @@ export interface ScanResult {
   readonly hours: readonly UsageHourRow[]
   /** Bytes consumed, to resume from. */
   readonly offset: number
-  /** Message ids seen at the end of the file, so a resume cannot re-count them. */
+  /** Message IDs for deduplication: source-wide for Insight, trailing for aggregate scans. */
   readonly tail: readonly string[]
   /**
    * Bytes actually read from the source in this call — what an Insight
@@ -126,8 +126,10 @@ const pendingTurnsFrom = (tail: readonly string[]): PendingTurn[] => {
 
 const scannerIdsFrom = (tail: readonly string[]): string[] => tail.filter((entry) => !entry.startsWith(PENDING_TURNS_TAIL))
 
-const scannerTail = (ids: readonly string[], pendingTurns: readonly PendingTurn[]): string[] => [
-  ...ids.slice(-TAIL),
+// Insight retains source-wide samples, so its cursor must retain source-wide
+// IDs too: a repeated old message after an append is still the same call.
+const scannerTail = (ids: readonly string[], pendingTurns: readonly PendingTurn[], insight?: InsightScanOptions): string[] => [
+  ...(insight?.incremental ? ids : ids.slice(-TAIL)),
   ...(pendingTurns.length > 0 ? [`${PENDING_TURNS_TAIL}${JSON.stringify(pendingTurns)}`] : []),
 ]
 
@@ -847,7 +849,7 @@ export const scanClaudeTranscript = async (
   }
   // Claude's consecutive candidates collapse to the last one before a model;
   // keeping earlier unanswered candidates cannot change a later result.
-  return { rows: [...into.rows.values()], hours: [...into.hours.values()], offset: consumed, tail: scannerTail(order, unresolved.slice(-1)), bytesRead, ...(limited === undefined ? {} : { limited }) }
+  return { rows: [...into.rows.values()], hours: [...into.hours.values()], offset: consumed, tail: scannerTail(order, unresolved.slice(-1), insight), bytesRead, ...(limited === undefined ? {} : { limited }) }
 }
 
 /** The Gemini API's own counts, which Qwen Code records as it received them. */
@@ -970,7 +972,7 @@ export const scanQwenTranscript = async (
     }
     addTurn(into, target.path, target.runtime, entry.at, nextModel, entry.project, entry.count ?? 1)
   }
-  return { rows: [...into.rows.values()], hours: [...into.hours.values()], offset: consumed, tail: scannerTail(order, compactPendingTurns(unresolved)), bytesRead, ...(limited === undefined ? {} : { limited }) }
+  return { rows: [...into.rows.values()], hours: [...into.hours.values()], offset: consumed, tail: scannerTail(order, compactPendingTurns(unresolved), insight), bytesRead, ...(limited === undefined ? {} : { limited }) }
 }
 
 interface GeminiMessage {
