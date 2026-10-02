@@ -308,6 +308,10 @@ ctx.context.register({
   it left off. Throwing is for a provider that should have answered and could
   not: that stops the send, because a message silently missing what its chip
   promised misleads the agent.
+- During resolution, `ctx.workspace`, relative filesystem paths, shell working
+  directories and the workspace permission gate use the supplied conversation's
+  or draft's `workspaceRoot`. Concurrent resolutions keep separate roots; a
+  resolution without one uses the open workspace.
 - Resolution receives `(scope, ref)` and can return a plain `string` or `{
   text?, image? }` (e.g. for a screenshot). It resolves over the wire as
   `context/resolve { id, ref?, runtime?, workspaceRoot? }` → `{ label, text,

@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
+
 import type { Context } from '@deepseek-ai/cordis'
 import {
   pluginInstanceId,
@@ -36,15 +38,24 @@ export interface RegisteredPlugin {
 export class HostRuntime {
   readonly #byInstance = new Map<string, RegisteredPlugin>()
   #workspace: WorkspaceState = { root: null, branch: null }
+  readonly #contextWorkspace = new AsyncLocalStorage<WorkspaceState>()
 
   constructor(readonly store: ContributionStore) {}
 
   get workspace(): WorkspaceState {
-    return this.#workspace
+    return this.#contextWorkspace.getStore() ?? this.#workspace
   }
 
   setWorkspace(state: WorkspaceState): void {
     this.#workspace = state
+  }
+
+  /** Context resolves in the directory supplied for this conversation or draft. */
+  withContextWorkspace<T>(root: string | undefined, run: () => T): T {
+    const workspace = root === undefined || root === this.#workspace.root
+      ? this.#workspace
+      : { root, branch: null }
+    return this.#contextWorkspace.run(workspace, run)
   }
 
   /** Records a plugin and returns the context metadata that identifies it. */
@@ -55,7 +66,7 @@ export class HostRuntime {
     const entry: RegisteredPlugin = {
       instanceId,
       permissions,
-      gate: new PermissionGate(permissions, () => this.#workspace.root),
+      gate: new PermissionGate(permissions, () => this.workspace.root),
     }
     this.#byInstance.set(instanceId, entry)
     return { entry, meta: { [OWNER]: instanceId } }
