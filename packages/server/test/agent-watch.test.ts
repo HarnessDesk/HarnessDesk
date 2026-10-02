@@ -816,8 +816,166 @@ const linkRecovery = async (t: TestContext) => {
     await unlink(link)
     await symlink(to, link)
   }
-  return { instance, project, firstReal, secondReal, made, clock, said, box, rootWatch, firstWatch, retarget, rescans: () => rescans }
+  return { instance, project, agents, link, firstReal, secondReal, made, clock, said, box, rootWatch, firstWatch, retarget, rescans: () => rescans }
 }
+
+test('(F7, #1206) polling overtaking an outstanding native rescan delivers exactly one notice', async (t) => {
+  const p = await linkRecovery(t)
+  let release!: () => void
+  p.box.hold = () => {
+    p.box.hold = null
+    return new Promise<void>((resolve) => { release = resolve })
+  }
+  await p.retarget()
+  p.rootWatch.listener('rename', 'scout')
+  p.clock.advance(30)
+  await until(() => release !== undefined, 'the native scan to be held before applying')
+  assert.deepEqual(p.said, [p.project], 'the native notice has already been delivered')
+  p.clock.advance(1_000)
+  await until(() => p.clock.scheduledWithDelay(1_000) >= 2, 'polling to finish or skip the outstanding scan')
+  p.clock.advance(30)
+  release()
+  await until(() => p.made.some((one) => one.dir === p.secondReal), 'the native scan to apply its new target')
+  const checks = p.clock.scheduledWithDelay(1_000)
+  p.clock.advance(1_000)
+  await until(() => p.clock.scheduledWithDelay(1_000) > checks, 'the next polling pass to complete')
+  p.clock.advance(30)
+  assert.deepEqual(p.said, [p.project], 'an already delivered native notice cannot be repeated by polling')
+})
+
+test('(F7, #1206) 50 projects without top-level links do no idle reconciliation', async (t) => {
+  const root = tempDir('hd-agent-watch-no-links-')
+  const projects = Array.from({ length: 50 }, (_, i) => join(root, `project-${i}`))
+  await Promise.all(projects.map((project) => mkdir(join(project, '.harnessdesk', 'agents'), { recursive: true })))
+  const clock = fakeClock()
+  let scans = 0
+  const instance = new AgentWatch({ roots: [], changed: () => {}, watchFn: quietWatcher, clock, onRescan: () => { scans++ } })
+  t.after(() => instance.dispose())
+  await instance.watchProjects(projects)
+  await until(() => scans === 50, 'all initial top-level reads')
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  clock.advance(30_000)
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  assert.equal(clock.scheduledWithDelay(1_000), 0, 'roots with nothing to retarget need no poll timer')
+  assert.equal(scans, 50, 'idle projects are read once at discovery')
+})
+
+test('(F7, #1206) native discovery starts polling and removal of the last link stops it', async (t) => {
+  const p = await linkRecovery(t)
+  await unlink(p.link)
+  p.rootWatch.listener('rename', 'scout')
+  p.clock.advance(30)
+  await until(() => p.firstWatch.closed, 'the last link to be retired')
+  assert.equal(p.clock.pendingCount(), 0, 'removing the last top-level link stops idle checks')
+  await symlink(join('..', '..', 'shared', 'first'), p.link)
+  p.rootWatch.listener('rename', 'scout')
+  p.clock.advance(30)
+  await until(() => p.made.filter((one) => one.dir === p.firstReal).length === 2, 'native discovery to attach the new link')
+  p.said.length = 0
+  await p.retarget()
+  p.clock.advance(1_000)
+  await until(() => p.made.some((one) => one.dir === p.secondReal), 'discovery to have started silent-retarget recovery')
+  p.clock.advance(30)
+  assert.deepEqual(p.said, [p.project])
+})
+
+test('(F7, #1206) rapid retargets cannot apply an older reconciliation snapshot', async (t) => {
+  const p = await linkRecovery(t)
+  let release!: () => void
+  p.box.hold = () => {
+    p.box.hold = null
+    return new Promise<void>((resolve) => { release = resolve })
+  }
+  await p.retarget()
+  p.clock.advance(1_000)
+  await until(() => release !== undefined, 'the intermediate target snapshot to be held')
+  await p.retarget(join('..', '..', 'shared', 'first'))
+  p.rootWatch.listener('rename', 'scout')
+  const scans = p.rescans()
+  p.clock.advance(30)
+  await until(() => p.rescans() > scans, 'the final native retarget to be read')
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  release()
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  p.clock.advance(30)
+  assert.ok(!p.firstWatch.closed, 'the final target retains its unchanged watcher')
+  assert.ok(!p.made.some((one) => one.dir === p.secondReal), 'the superseded intermediate target is never attached')
+  assert.deepEqual(p.said, [p.project])
+})
+
+test('(F7, #1206) replacing a root retires its held reconciliation and follows the replacement', async (t) => {
+  const p = await linkRecovery(t)
+  let release!: () => void
+  p.box.hold = () => {
+    p.box.hold = null
+    return new Promise<void>((resolve) => { release = resolve })
+  }
+  await p.retarget()
+  p.clock.advance(1_000)
+  await until(() => release !== undefined, 'the old root reconciliation to be held')
+  const replacement = join(p.project, 'replacement-agents')
+  await mkdir(replacement)
+  const replacementReal = await realpath(replacement)
+  await symlink(p.firstReal, join(replacement, 'scout'))
+  await rm(p.agents, { recursive: true })
+  await symlink(replacementReal, p.agents)
+  p.rootWatch.listener('rename', null)
+  await until(() => p.made.some((one) => one.dir === replacementReal), 'the replacement root to be followed')
+  await until(() => p.made.filter((one) => one.dir === p.firstReal).length === 2, 'the replacement root link to be attached')
+  assert.ok(p.rootWatch.closed && p.firstWatch.closed)
+  release()
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  p.clock.advance(30)
+  assert.ok(!p.made.some((one) => one.dir === p.secondReal), 'the old root snapshot cannot attach its target')
+  assert.deepEqual(p.said, [p.project])
+  const newWatch = p.made.filter((one) => one.dir === p.firstReal).at(-1)!
+  newWatch.listener('change', 'AGENT.md')
+  p.clock.advance(30)
+  assert.deepEqual(p.said, [p.project, p.project], 'the replacement target remains live')
+})
+
+test('(F7, #1206) close then reopen cannot revive the old reconciliation chain', async (t) => {
+  const p = await linkRecovery(t)
+  let release!: () => void
+  p.box.hold = () => {
+    p.box.hold = null
+    return new Promise<void>((resolve) => { release = resolve })
+  }
+  await p.retarget()
+  p.clock.advance(1_000)
+  await until(() => release !== undefined, 'the old project reconciliation to be held')
+  await p.instance.watchProjects([])
+  await p.retarget(join('..', '..', 'shared', 'first'))
+  await p.instance.watchProjects([p.project])
+  await until(() => p.made.filter((one) => one.dir === p.firstReal).length === 2, 'the reopened project to attach its target')
+  const checks = p.clock.scheduledWithDelay(1_000)
+  release()
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  assert.equal(p.clock.scheduledWithDelay(1_000), checks, 'the retired owner cannot schedule another polling chain')
+  assert.ok(!p.made.some((one) => one.dir === p.secondReal))
+  assert.deepEqual(p.said, [], 'reopening performs quiet initial discovery')
+  const scans = p.rescans()
+  p.clock.advance(1_000)
+  await until(() => p.clock.scheduledWithDelay(1_000) > checks, 'the reopened owner to reconcile')
+  assert.equal(p.rescans(), scans + 1, 'only the new owner polls')
+})
+
+test('(F7, #1206) disposal during outstanding reconciliation attaches nothing and schedules nothing', async (t) => {
+  const p = await linkRecovery(t)
+  let release!: () => void
+  p.box.hold = () => new Promise<void>((resolve) => { release = resolve })
+  await p.retarget()
+  p.clock.advance(1_000)
+  await until(() => release !== undefined, 'reconciliation to reach its apply boundary')
+  p.instance.dispose()
+  release()
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  p.clock.advance(30_000)
+  assert.ok(p.made.every((one) => one.closed))
+  assert.ok(!p.made.some((one) => one.dir === p.secondReal))
+  assert.deepEqual(p.said, [])
+  assert.equal(p.clock.pendingCount(), 0)
+})
 
 test('(F7, #1206) a retarget with no native event is noticed, the old target is retired, and the new one is live', async (t) => {
   const p = await linkRecovery(t)
@@ -878,6 +1036,12 @@ test('(F7, #1206) a silent retarget outside the project retires the admitted tar
   p.clock.advance(30)
   assert.deepEqual(p.said, [p.project], 'removing an admitted link target changes the roster')
   assert.ok(!p.made.some((one) => one.dir === outsideReal), 'reconciliation follows the roster confinement rule')
+  p.said.length = 0
+  await p.retarget()
+  p.clock.advance(1_000)
+  await until(() => p.made.some((one) => one.dir === p.secondReal), 'a refused link to become admitted after another silent retarget')
+  p.clock.advance(30)
+  assert.deepEqual(p.said, [p.project], 'a top-level link still needs polling while its target is refused')
 })
 
 test('(F7, #1206) closing a project cancels reconciliation, including a scan already reading its links', async (t) => {
