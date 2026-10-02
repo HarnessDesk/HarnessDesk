@@ -425,6 +425,10 @@ body {
      the bar shares one x. */
   --hd-bar-ink: calc(var(--hd-bar-pad) + var(--hd-nav-inset) + var(--hd-border-width));
   --hd-column: 736px;
+  /* A menu that keeps its own readable width while the control that opens it
+     sits in a column the person can drag: the seat menu's account rows and
+     usage line each fit on one line at this width. */
+  --hd-popover-width-wide: 320px;
 
   /* A row whose trailing action floats over its own label rather than taking
      room from it. The label fades out under the action instead of stopping at
@@ -622,9 +626,6 @@ body {
      you can always reach, including from inside Settings. */
   --hd-z-palette: 47;
   --hd-z-popover: 50;
-  /* Long account pickers keep their own readable width while their anchor
-     follows the resizable sidebar. */
-  --hd-popover-width-wide: 320px;
   /* A modal sheet: sign-in. Above the menus, because it is the one surface
      that must not be talked over; below a dialog, because a dialog opened
      from inside it is still a dialog. */

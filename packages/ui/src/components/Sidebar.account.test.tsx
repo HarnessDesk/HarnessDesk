@@ -186,13 +186,7 @@ it('marks the default in the menu, chooses on a seat’s press, and signs out of
   expect(selectRuntime).toHaveBeenCalledWith(CODEX)
 })
 
-it('sizes the seat menu independently of the sidebar trigger', () => {
-  mount()
-  click(row())
-  expect(document.querySelector('[data-slot="popover-popup"]')?.getAttribute('data-width')).toBe('wide')
-})
-
-it('opens its own width above the footer row', () => {
+it('opens above the footer row at a width of its own, not the sidebar’s', () => {
   mount()
   click(row())
   const panel = document.querySelector('[role="menu"]')?.closest('[data-width]')

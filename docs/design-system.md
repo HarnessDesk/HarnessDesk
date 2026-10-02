@@ -211,6 +211,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-rail-inset` | `8px` |
 | `--hd-bar-ink` | `calc(8px + 8px + 1px)` |
 | `--hd-column` | `736px` |
+| `--hd-popover-width-wide` | `320px` |
 | `--hd-fade-edge` | `16px` |
 | `--hd-fade` | `linear-gradient(to right, #000 calc(100% - 16px), transparent)` |
 | `--hd-composer-min` | `44px` |
@@ -311,7 +312,6 @@ Stacking is a system, not a race. A component that needs to sit above another ta
 | `--hd-z-window` | `45` |
 | `--hd-z-palette` | `47` |
 | `--hd-z-popover` | `50` |
-| `--hd-popover-width-wide` | `320px` |
 | `--hd-z-sheet` | `60` |
 | `--hd-z-dialog` | `100` |
 | `--hd-z-toast` | `200` |
