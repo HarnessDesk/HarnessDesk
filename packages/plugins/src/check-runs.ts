@@ -15,9 +15,15 @@ export interface CheckRunsAssessment {
    attempt there is: a rerun still queued must hide the older success it is
    about to replace, never sit behind it. So a run without a start time is
    newer than any run with one, and the id settles runs that tie. */
+/* Only a non-empty string is a start time: null, undefined and '' all mean
+   the run has not started, and an empty string must not be compared as if it
+   were a very old timestamp. */
+const startedAt = (run: CheckRun): string | null =>
+  typeof run.started_at === 'string' && run.started_at !== '' ? run.started_at : null
+
 const newestFirst = (a: CheckRun, b: CheckRun): number => {
-  const aStarted = a.started_at ?? null
-  const bStarted = b.started_at ?? null
+  const aStarted = startedAt(a)
+  const bStarted = startedAt(b)
   if (aStarted === null && bStarted !== null) return -1
   if (aStarted !== null && bStarted === null) return 1
   if (aStarted !== null && bStarted !== null) {

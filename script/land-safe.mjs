@@ -34,13 +34,18 @@ const readJsonLines = (raw) => {
 // replace, never sit behind it (it used to sort as the oldest, so a queued
 // rerun next to an older success read as green). A run without a start time is
 // newer than any run with one, and the id settles runs that tie.
+// Only a non-empty string is a start time: null, undefined and '' all mean the
+// run has not started, and an empty string must not be compared as if it were
+// a very old timestamp.
+const startedAt = (run) => (typeof run.started_at === 'string' && run.started_at !== '' ? run.started_at : null)
+
 const newestFirst = (a, b) => {
-  const aStarted = a.started_at ?? null
-  const bStarted = b.started_at ?? null
+  const aStarted = startedAt(a)
+  const bStarted = startedAt(b)
   if (aStarted === null && bStarted !== null) return -1
   if (aStarted !== null && bStarted === null) return 1
   if (aStarted !== null && bStarted !== null) {
-    const time = String(bStarted).localeCompare(String(aStarted))
+    const time = bStarted.localeCompare(aStarted)
     if (time !== 0) return time
   }
   return Number(b.id ?? 0) - Number(a.id ?? 0)

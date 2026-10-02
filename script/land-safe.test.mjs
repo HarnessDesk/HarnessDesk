@@ -183,6 +183,17 @@ test('a queued rerun with no start time is not green, however it is listed besid
   }
 })
 
+test('an empty or missing start time means not started, never a very old one', () => {
+  const older = good('Build, typecheck, test', { id: 1, started_at: '2026-09-30T11:00:00Z' })
+  for (const started_at of ['', undefined]) {
+    const queued = good('Build, typecheck, test', { id: 2, started_at, status: 'queued', conclusion: null })
+    if (started_at === undefined) delete queued.started_at
+    for (const runs of [[older, queued], [queued, older]]) {
+      assert.equal(assessCheckRuns([...runs, ...checksGreen().slice(1)], 'head-sha').green, false, `started_at ${JSON.stringify(started_at)}`)
+    }
+  }
+})
+
 test('between two runs that have not started, the higher id is the newest', () => {
   const finished = good('Build, typecheck, test', { id: 3, started_at: null })
   const queued = good('Build, typecheck, test', { id: 4, started_at: null, status: 'queued', conclusion: null })
