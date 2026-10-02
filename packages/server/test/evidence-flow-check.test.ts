@@ -8,6 +8,7 @@ import type { BoardEvidence, FlowRun, GoalView, TeamState, WireNotification } fr
 import { assertCheckCleanup } from '../src/evidence/check-processes.js'
 import { EvidencePlane } from '../src/evidence/plane.js'
 import { canonical } from '../src/evidence/revision.js'
+import { runCommand } from '../src/evidence/run.js'
 import { runCheck } from '../src/flows.js'
 import { evidenceDesk, makeRepo, until } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
@@ -68,6 +69,39 @@ for (const producer of ['named', 'legacy Flow'] as const) {
     assert.deepEqual(await readdir(processDir), [], 'both commands clean up their own journals')
   })
 }
+
+test('a legacy Flow check refuses unresolved cleanup to its caller without an unhandled rejection', async () => {
+  const repo = await makeRepo()
+  const dir = tempDir('hd-legacy-check-refusal-')
+  const plane = new EvidencePlane({ dir, seenFile: join(dir, 'seen.json') }, {
+    board: () => ({ id: 'goal-1', root: repo.dir, intents: [] } as unknown as TeamState),
+    cwdOf: () => null, push: () => {}, log: () => {},
+  })
+  const controller = new AbortController()
+  let launched!: () => void
+  const launch = new Promise<void>((resolve) => { launched = resolve })
+  const earlier = runCommand('sleep 30', {
+    cwd: repo.dir, timeoutSec: 30, signal: controller.signal,
+    processDir: join(dir, 'check-processes'), processOwner: { board: 'goal-1', card: 3 }, onStarted: launched,
+  })
+  const unhandled: unknown[] = []
+  const probe = (reason: unknown): void => { unhandled.push(reason) }
+  process.on('unhandledRejection', probe)
+  try {
+    await launch
+    await assert.rejects(plane.flowCheck('touch duplicate', {
+      cwd: repo.dir, timeoutSec: 5, card: { room: 'goal-1', intent: 3, name: 'gate', round: 1 },
+    }, runCheck), /Cleanup of an earlier check could not be confirmed/)
+    await assert.rejects(readFile(join(repo.dir, 'duplicate')), { code: 'ENOENT' })
+    assert.deepEqual((await plane.store.read(await canonical(repo.dir), 'evidence')).lines, [])
+  } finally {
+    controller.abort()
+    await earlier
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    process.off('unhandledRejection', probe)
+  }
+  assert.deepEqual(unhandled, [])
+})
 
 test('a Flow check journals its host-owned card identity and stays busy through the Goal evidence barrier', async () => {
   const repo = await makeRepo()

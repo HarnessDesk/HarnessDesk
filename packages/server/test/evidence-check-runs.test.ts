@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
+import childProcess from 'node:child_process'
 import { access, chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { syncBuiltinESMExports } from 'node:module'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 
 import {
@@ -16,6 +18,7 @@ import {
 
 import { EvidencePlane } from '../src/evidence/plane.js'
 import { canonical } from '../src/evidence/revision.js'
+import { runCommand } from '../src/evidence/run.js'
 import { whichOnPath } from '../src/installs/which.js'
 import { evidenceDesk, makeRepo, until, type Repo } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
@@ -65,6 +68,7 @@ const rig = async (text: string, options: {
   cwdOf?: (runtime: string, id: string) => string | null
   root?: string
   canMutateBoard?: (board: string) => boolean
+  log?: (message: string, details?: Readonly<Record<string, unknown>>) => void
 } = {}): Promise<Rig> => {
   const repo = await makeRepo()
   const state = tempDir('hd-check-runs-state-')
@@ -88,7 +92,7 @@ const rig = async (text: string, options: {
       board: (room) => (room === 'room-1' ? board : null),
       cwdOf: options.cwdOf ?? (() => null),
       push: () => {},
-      log: () => {},
+      log: options.log ?? (() => {}),
       canMutateBoard: options.canMutateBoard ?? (() => true),
     },
   )
@@ -150,6 +154,66 @@ const settled = (r: Rig, count: number): Promise<EvidenceRecord[]> =>
     const facts = await r.facts()
     return facts.length >= count && r.plane.running.of('room-1').length === 0 ? facts : null
   }, `${count} check fact(s)`)
+
+test('a named check refuses unresolved cleanup to its caller without an unhandled rejection', async () => {
+  const r = await rig('verify: { run: touch MARKERS/duplicate, timeout: 5 }\n')
+  const shown = await unseen(r.plane.checks.run('room-1', 1, 'verify'))
+  const controller = new AbortController()
+  let launched!: () => void
+  const launch = new Promise<void>((resolve) => { launched = resolve })
+  const earlier = runCommand('sleep 30', {
+    cwd: r.repo.dir, timeoutSec: 30, signal: controller.signal,
+    processDir: join(dirname(r.seenFile), 'evidence', 'check-processes'),
+    processOwner: { board: 'room-1', card: 1 }, onStarted: launched,
+  })
+  const unhandled: unknown[] = []
+  const probe = (reason: unknown): void => { unhandled.push(reason) }
+  process.on('unhandledRejection', probe)
+  try {
+    await launch
+    await assert.rejects(r.plane.checks.run('room-1', 1, 'verify', answer(shown)), /Cleanup of an earlier check could not be confirmed/)
+    await r.plane.checks.settledFor('room-1')
+    assert.deepEqual(r.plane.running.of('room-1'), [])
+    assert.equal(await exists(join(r.markers, 'duplicate')), false)
+    assert.deepEqual(await r.facts(), [])
+  } finally {
+    controller.abort()
+    await earlier
+    await r.plane.checks.stop()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    process.off('unhandledRejection', probe)
+  }
+  assert.deepEqual(unhandled, [])
+})
+
+test('a named check records a runner throw after admission and settles without an unhandled rejection', async (t) => {
+  const logged: { message: string; details?: Readonly<Record<string, unknown>> }[] = []
+  const r = await rig('verify: { run: touch MARKERS/duplicate, timeout: 5 }\n', {
+    log: (message, details) => { logged.push({ message, ...(details ? { details } : {}) }) },
+  })
+  const shown = await unseen(r.plane.checks.run('room-1', 1, 'verify'))
+  const spawn = t.mock.method(childProcess, 'spawn', () => { throw new Error('staged check launch failure') })
+  syncBuiltinESMExports()
+  const unhandled: unknown[] = []
+  const probe = (reason: unknown): void => { unhandled.push(reason) }
+  process.on('unhandledRejection', probe)
+  try {
+    await r.plane.checks.run('room-1', 1, 'verify', answer(shown))
+    await r.plane.checks.settledFor('room-1')
+    assert.ok(logged.some(({ details }) => details?.room === 'room-1' && details.card === 1 &&
+      details.check === 'verify' && details.error === 'staged check launch failure'))
+    assert.deepEqual(r.plane.running.of('room-1'), [])
+    assert.equal(await exists(join(r.markers, 'duplicate')), false)
+    assert.deepEqual(await r.facts(), [])
+  } finally {
+    spawn.mock.restore()
+    syncBuiltinESMExports()
+    await r.plane.checks.stop()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    process.off('unhandledRejection', probe)
+  }
+  assert.deepEqual(unhandled, [])
+})
 
 test('nothing runs before a person has seen the command, and the refusal carries it verbatim', async () => {
   const r = await rig('verify: { run: touch MARKERS/verify, timeout: 30 }\n')
