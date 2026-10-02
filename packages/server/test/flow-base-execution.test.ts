@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { dropFlowBase, fetchFlowBase } from '../src/flow-base.js'
@@ -205,3 +207,74 @@ test('recovery removes a manual base pin whose start died before making its Goal
   assert.deepEqual(removed, [fetched])
   assert.equal(rig.executions.stored(fetched!)?.state, 'stopped')
 })
+
+for (const during of ['start', 'recovery'] as const) {
+  for (const failure of ['interruption', 'deletion failure'] as const) {
+    test(`pending base deletion survives ${failure} during ${during} and preserves successful refs`, async (t) => {
+      const repo = await makeRepo('hd-base-cleanup-')
+      const remote = tempDir('hd-base-cleanup-remote-')
+      await repo.git('clone', '--no-hardlinks', repo.dir, remote)
+      await repo.git('remote', 'add', 'origin', remote)
+      let fetched = ''
+      let deletionFails = false
+      const removed: string[] = []
+      const rig = await goalRig(t, {
+        fetchBase: async (_root, base, id) => { fetched = id; return fetchFlowBase(repo.dir, base, id) },
+        dropBase: async (_root, id) => {
+          removed.push(id)
+          if (deletionFails) throw new Error('simulated ref deletion failure')
+          await dropFlowBase(repo.dir, id)
+        },
+      })
+      const successful = await rig.start(FLOW.replace('dev: { kind: agent, uses: writer, grant: edit }',
+        'dev: { kind: person, outcomes: [done] }'), AGENTS)
+      assert.equal(successful.state, 'running')
+      const retained = successful.base!.at
+      const startSave = rig.files.save.bind(rig.files)
+      const interruptAbort = () => {
+        const save = rig.files.save.bind(rig.files)
+        rig.files.save = async (run) => {
+          await save(run)
+          if (run.state === 'stopped') {
+            rig.files.dead = true
+            throw new Error('simulated process exit after durable abort, before ref deletion')
+          }
+        }
+      }
+      if (during === 'start') {
+        if (failure === 'interruption') interruptAbort()
+        else deletionFails = true
+        rig.files.failOnce = (run) => Boolean(run.base && run.operations.some((op) => op.key === 'start'))
+      } else {
+        rig.files.dieWhen = (run) => Boolean(run.base && run.operations.some((op) => op.key === 'start'))
+      }
+      await assert.rejects(rig.start(FLOW, AGENTS), /journal/i)
+      const aborted = fetched
+      const abortedRef = `refs/harnessdesk/flow-base/${aborted}`
+      assert.equal(await repo.git('rev-parse', abortedRef), retained)
+      if (during === 'recovery') {
+        // The first restart dies (or cannot delete) after conclusively aborting the interrupted start.
+        rig.files.save = startSave
+        rig.files.dead = false
+        rig.files.dieWhen = null
+        // Flows.load reads through the same engine's files, as a fresh process does.
+        if (failure === 'interruption') interruptAbort()
+        else deletionFails = true
+        await rig.flows.load()
+      }
+      const saved = JSON.parse(await readFile(join(rig.dir, 'flows-v2', `${aborted}.json`), 'utf8'))
+      assert.equal(saved.state, 'stopped', 'the abort is durable even though cleanup did not finish')
+      assert.equal(await repo.git('rev-parse', abortedRef), retained, 'the fault left the aborted ref behind')
+      const attempts = removed.length
+      deletionFails = false
+      await rig.restart()
+      await assert.rejects(repo.git('rev-parse', '--verify', abortedRef))
+      assert.deepEqual(removed.slice(attempts), [aborted])
+      assert.equal(rig.executions.stored(aborted)?.operations.find((op) => op.key === 'drop-base')?.state, 'finished')
+      assert.equal(await repo.git('rev-parse', `refs/harnessdesk/flow-base/${successful.id}`), retained)
+      assert.ok(!removed.includes(successful.id), 'successful runs are never offered for deletion')
+      await rig.restart()
+      assert.equal(removed.length, attempts + 1, 'finished cleanup is not retried')
+    })
+  }
+}

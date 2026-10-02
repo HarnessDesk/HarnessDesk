@@ -2449,8 +2449,16 @@ export class FlowExecutions {
     return this.#put(this.#operation({ ...this.#get(run.id), base: pin }, 'fetch-base', { kind: 'round', state: 'finished', card: null, seat: null }))
   }
 
+  #pendingBaseDrop(run: StoredFlowExecution): StoredFlowExecution {
+    return run.baseRoot ? this.#operation(run, 'drop-base', { kind: 'round', state: 'started', card: null, seat: null }) : run
+  }
+
   async #dropBase(run: StoredFlowExecution): Promise<void> {
-    if (run.baseRoot) await this.#port.dropBase?.(run.baseRoot, run.id)
+    if (!run.baseRoot) return
+    if (!this.#port.dropBase) throw new Error('This desk cannot remove an aborted Flow base ref.')
+    // Deleting an absent ref is safe too: a crash may leave only the completion write pending.
+    await this.#port.dropBase(run.baseRoot, run.id)
+    await this.#put(this.#operation(this.#get(run.id), 'drop-base', { kind: 'round', state: 'finished', card: null, seat: null }))
   }
 
   /** Only a durable refusal before adoption makes deleting this run’s ref conclusive. */
@@ -2460,7 +2468,7 @@ export class FlowExecutions {
       (!run.intake && this.#port.goalsOf(id).length)) return
     try {
       const reason = error instanceof Error ? error.message : String(error)
-      const stopped = await this.#put({ ...run, state: 'stopped', reason })
+      const stopped = await this.#put(this.#pendingBaseDrop({ ...run, state: 'stopped', reason }))
       await this.#dropBase(stopped)
     } catch (failure) {
       // If the journal is gone too, recovery must treat the fetch as uncertain; it cannot repeat it.
@@ -3860,6 +3868,14 @@ export class FlowExecutions {
       if (run.legacyRun) continue
       this.#runs.set(run.id, run)
     }
+    // A durable abort and its cleanup intent are one write. Retry even a stopped run,
+    // and keep the intent pending if deletion or its completion write fails again.
+    for (const run of [...this.#runs.values()]) {
+      if (!run.operations.some((op) => op.key === 'drop-base' && op.state === 'started')) continue
+      await this.#queue.within(run.id, () => this.#dropBase(run)).catch((error: unknown) => {
+        this.#port.log('an aborted Flow base ref could not be removed at restart', { run: run.id, error: error instanceof Error ? error.message : String(error) })
+      })
+    }
     for (const run of [...this.#runs.values()]) {
       if (run.state !== 'running') continue
       await this.#queue.within(run.id, () => this.#reconcile(run.id)).catch((error: unknown) => {
@@ -3918,8 +3934,8 @@ export class FlowExecutions {
       }
       if (goals.length === 0) {
         // Nothing outside the desk happened yet; the person starts it again rather than the desk guessing its folder.
-        const stopped = await this.#put(this.#operation({ ...run, state: 'stopped', reason: 'This run stopped before its Goal was made. Start it again.' },
-          'start', { kind: 'round', state: 'finished', card: null, seat: null }))
+        const stopped = await this.#put(this.#pendingBaseDrop(this.#operation({ ...run, state: 'stopped', reason: 'This run stopped before its Goal was made. Start it again.' },
+          'start', { kind: 'round', state: 'finished', card: null, seat: null })))
         await this.#dropBase(stopped)
         return
       }
