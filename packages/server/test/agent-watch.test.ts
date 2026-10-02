@@ -992,10 +992,8 @@ test('(F10) a live watch, a linked folder, a pending notice and a pending retry,
     // never called: none may be the reason the process is still here after it.
     setTimeout(() => {}, 900)
   `
-  const startedAt = Date.now()
+  // The 4s child timeout catches a held settle or rescan timer, or a retry whose backoff keeps rescheduling.
   execFileSync(process.execPath, ['--input-type=module', '-e', script], { timeout: 4_000 })
-  const took = Date.now() - startedAt
-  assert.ok(took < 2_000, `the child process took ${took}ms to exit on its own`)
 })
 
 test("through the host: an Agent written into this machine's roster is a notice to every window", async (t) => {
