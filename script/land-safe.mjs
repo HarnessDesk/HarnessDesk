@@ -29,9 +29,20 @@ const readJsonLines = (raw) => {
   }
 }
 
+// A run that has not started has no `started_at`, and it is the latest attempt
+// there is: a rerun still queued must hide the older success it is about to
+// replace, never sit behind it (it used to sort as the oldest, so a queued
+// rerun next to an older success read as green). A run without a start time is
+// newer than any run with one, and the id settles runs that tie.
 const newestFirst = (a, b) => {
-  const time = String(b.started_at ?? '').localeCompare(String(a.started_at ?? ''))
-  if (time !== 0) return time
+  const aStarted = a.started_at ?? null
+  const bStarted = b.started_at ?? null
+  if (aStarted === null && bStarted !== null) return -1
+  if (aStarted !== null && bStarted === null) return 1
+  if (aStarted !== null && bStarted !== null) {
+    const time = String(bStarted).localeCompare(String(aStarted))
+    if (time !== 0) return time
+  }
   return Number(b.id ?? 0) - Number(a.id ?? 0)
 }
 

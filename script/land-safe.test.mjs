@@ -173,6 +173,23 @@ test('a newer success supersedes an old failed run with the same name', () => {
   assert.equal(assessCheckRuns(checks, 'head-sha').green, true)
 })
 
+test('a queued rerun with no start time is not green, however it is listed beside an older success', () => {
+  const older = good('Build, typecheck, test', { id: 1, started_at: '2026-09-30T11:00:00Z' })
+  const queued = good('Build, typecheck, test', { id: 2, started_at: null, status: 'queued', conclusion: null })
+  for (const runs of [[older, queued], [queued, older]]) {
+    const decision = assessCheckRuns([...runs, ...checksGreen().slice(1)], 'head-sha')
+    assert.equal(decision.green, false)
+    assert.equal(decision.newest.get('Build, typecheck, test').status, 'queued')
+  }
+})
+
+test('between two runs that have not started, the higher id is the newest', () => {
+  const finished = good('Build, typecheck, test', { id: 3, started_at: null })
+  const queued = good('Build, typecheck, test', { id: 4, started_at: null, status: 'queued', conclusion: null })
+  assert.equal(assessCheckRuns([finished, queued, ...checksGreen().slice(1)], 'head-sha').green, false)
+  assert.equal(assessCheckRuns([queued, { ...finished, id: 5 }, ...checksGreen().slice(1)], 'head-sha').green, true)
+})
+
 test('a newer failure supersedes an old success with the same name', () => {
   const checks = [
     good('Build, typecheck, test', { id: 1, started_at: '2026-09-30T11:00:00Z' }),
