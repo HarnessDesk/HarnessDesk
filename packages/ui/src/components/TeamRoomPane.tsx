@@ -1278,7 +1278,7 @@ export const TeamRoomPane = ({
         {/* The rail's edge, which the narrow room takes away with the split. */}
         <Separator orientation="vertical" className={styles.railEdge} />
 
-        <div className={styles.body}>
+        <div className={styles.body} data-slot="room-body">
           {/* Only drawn by the narrow-room container query. The label names what
               it goes back to, because "back" alone in a pane with no history is
               a direction, not a destination. */}
@@ -2385,7 +2385,6 @@ const Room = ({
                 room={room}
                 members={loaded ? members : null}
                 messaging={messaging}
-                noticeVisible={pendingApproval === null}
                 /* The same card the rail and the chat draw, off the same one
                    reader. `Open` is the only verb worth offering on a chip:
                    the member is already addressed, so Message would be the

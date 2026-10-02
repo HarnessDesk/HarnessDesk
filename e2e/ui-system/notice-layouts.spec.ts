@@ -21,6 +21,7 @@ test('real Workbench and Panes put each notice in one mounted outlet', async ({ 
       'coverage-notice-narrow-overlay',
       'coverage-notice-room-board',
       'coverage-notice-room-pending-approval',
+      'coverage-notice-room-container-query',
       'coverage-notice-folder-gone',
       'coverage-notice-zoomed-sidebar',
       'coverage-notice-zoomed-dock',
@@ -63,7 +64,29 @@ test('real Workbench and Panes put each notice in one mounted outlet', async ({ 
   await expectOneNotice(paneBarStrip, 'strip')
   await expect(paneBarStrip.locator('[data-slot="notice-strip"]').locator('xpath=ancestor::*[@data-pane-id]')).toHaveCount(1)
   expect(await paneBarStrip.locator('[data-slot="notice-strip"]').evaluate((strip) =>
-    strip.previousElementSibling?.matches('[data-slot="dock-panel-bar"]') ?? false,
+    strip.parentElement?.previousElementSibling?.matches('[data-slot="dock-panel-bar"]') ?? false,
   )).toBe(true)
 
+})
+
+test('a container-hidden room composer gives the notice to the fallback, then takes it back when widened', async ({ page }) => {
+  await page.goto('/preview.html')
+  const frame = layout(page, 'coverage-notice-room-container-query')
+  await frame.scrollIntoViewIfNeeded()
+  const body = frame.locator('[data-slot="room-body"]')
+  const visibleNoticeCount = (): Promise<number> => frame.locator('[data-slot="composer-notice"], [data-slot="notice-strip"]').evaluateAll((nodes) =>
+    nodes.filter((node) => node.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && node.getClientRects().length > 0).length,
+  )
+
+  await expect(frame.getByRole('button', { name: /Board/ })).toBeVisible()
+  await expect(body).toBeHidden()
+  await expect.poll(visibleNoticeCount).toBe(1)
+  await expect(frame.locator('[data-slot="workbench-notice-fallback"][data-area="main"] [data-slot="notice-strip"]')).toBeVisible()
+
+  await frame.getByTestId('notice-layout-canvas').evaluate((canvas) => { (canvas as HTMLElement).style.width = '1400px' })
+  await expect(body).toBeVisible()
+  await expect.poll(visibleNoticeCount).toBe(1)
+  const composerStrip = frame.locator('[data-slot="composer-notices"] [data-slot="notice-strip"]')
+  await expect(composerStrip).toBeVisible()
+  await expect(frame.locator('[data-slot="workbench-notice-fallback"][data-area="main"] [data-slot="notice-strip"]')).toHaveCount(0)
 })

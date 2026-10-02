@@ -14,7 +14,7 @@ import type { PaneView } from '../state/layout'
 import { afterDismiss, emptyNoticePolicy, withKept, withMuted, withoutKept, withSurface, type NoticeIdentity } from '../lib/notice-policy'
 import { kept as keptInInbox, type InboxEntry } from '../lib/inbox'
 import { ShellProvider } from '../panels/views'
-import { ComposerMountsProvider, ComposerNotices, NoticeMountVisibility, NoticeStripFallback, Notices, NoticeStripOutlet, useInboxMessages } from './Notices'
+import { ComposerMountsProvider, ComposerNotices, NoticeStripFallback, Notices, NoticeStripOutlet, observeNoticeLayout, useInboxMessages } from './Notices'
 
 const showToast = vi.fn()
 vi.mock('../design', async (importOriginal) => ({
@@ -57,6 +57,10 @@ let root: Root
 beforeEach(() => {
   window.localStorage.clear()
   showToast.mockClear()
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    x: 0, y: 0, left: 0, top: 0, right: 120, bottom: 80, width: 120, height: 80,
+    toJSON: () => ({}),
+  } as DOMRect)
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -65,6 +69,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.restoreAllMocks()
 })
 
 const HOUR = 3_600_000
@@ -776,10 +781,8 @@ it('does not count a hidden composer and strip outlet as visible mounts', () => 
       <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
         <ComposerMountsProvider>
           <div hidden>
-            <NoticeMountVisibility visible={false}>
-              <NoticeStripOutlet host area="main" hostId="covered-composer-strip" />
-              <ComposerNotices />
-            </NoticeMountVisibility>
+            <NoticeStripOutlet host area="main" hostId="covered-composer-strip" />
+            <ComposerNotices />
           </div>
           <NoticeStripFallback area="main" />
         </ComposerMountsProvider>
@@ -790,6 +793,32 @@ it('does not count a hidden composer and strip outlet as visible mounts', () => 
   expect(strips).toHaveLength(1)
   expect(strips[0]?.closest('[hidden]')).toBeNull()
   expect(strips[0]?.closest('[data-slot="workbench-notice-fallback"]')).not.toBeNull()
+})
+
+it('does not repeat a registry write when ResizeObserver reports unchanged visibility', () => {
+  const observers: Array<{ trigger: () => void }> = []
+  const previous = globalThis.ResizeObserver
+  globalThis.ResizeObserver = class {
+    constructor(private readonly callback: ResizeObserverCallback) {
+      observers.push({ trigger: () => callback([], this as unknown as ResizeObserver) })
+    }
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  } as unknown as typeof ResizeObserver
+  const probe = document.createElement('div')
+  container.append(probe)
+  const registryWrite = vi.fn()
+  const stop = observeNoticeLayout(probe, (visible) => { if (visible) registryWrite() })
+  try {
+    expect(registryWrite).toHaveBeenCalledTimes(1)
+    observers[0]?.trigger()
+    observers[0]?.trigger()
+    expect(registryWrite).toHaveBeenCalledTimes(1)
+  } finally {
+    stop()
+    globalThis.ResizeObserver = previous
+  }
 })
 
 it('a conversation composer with no pane context still speaks for the window’s active session, and a dismiss removes its question', () => {

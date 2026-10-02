@@ -35,7 +35,7 @@ import {
 import { BrandMark } from './BrandIcons'
 import { AgentIcon, SendIcon, TeamIcon } from './Icons'
 import { ComposerNoticeStack, Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, Popover } from '../design'
-import { ComposerNotices, NoticeMountVisibility, NoticeStripOutlet } from './Notices'
+import { ComposerNotices, NoticeStripOutlet } from './Notices'
 import { mainNoticeHost } from '../state/workbench'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
 
@@ -161,7 +161,6 @@ export const RoomComposer = ({
   card,
   onTrouble,
   onPosted,
-  noticeVisible = true,
 }: {
   /** See `RoomComposerHandle`. React 19 passes this as an ordinary prop. */
   readonly ref?: Ref<RoomComposerHandle>
@@ -169,8 +168,6 @@ export const RoomComposer = ({
   /** The roster, or null while the host has not answered yet. */
   readonly members: readonly RoomMember[] | null
   readonly messaging: boolean
-  /** False while the parent keeps this composer mounted beneath its approval card. */
-  readonly noticeVisible?: boolean
   /**
    * A member's name card, hung off the chip that carries them.
    *
@@ -512,12 +509,10 @@ export const RoomComposer = ({
         a conversation's own composer — what stops a turn here and what an
         Agent in this room is waiting on someone to decide, over the room's
         box as over a conversation's. */}
-    <NoticeMountVisibility visible={noticeVisible}>
-      <ComposerNoticeStack>
-        <NoticeStripOutlet host={isNoticeHost} area="main" hostId={`room-composer:${mount?.id ?? 'unmounted'}`} />
-        <ComposerNotices />
-      </ComposerNoticeStack>
-    </NoticeMountVisibility>
+    <ComposerNoticeStack>
+      <NoticeStripOutlet host={isNoticeHost} area="main" hostId={`room-composer:${mount?.id ?? 'unmounted'}`} />
+      <ComposerNotices />
+    </ComposerNoticeStack>
     <ComposerShell className="relative">
       {mention && (
         <TriggerMenu

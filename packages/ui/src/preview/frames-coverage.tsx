@@ -84,6 +84,7 @@ const noticeLayoutStore = (id: string, options: {
   readonly folderGone?: boolean
   readonly stripSurface?: boolean
   readonly pendingRoomApproval?: boolean
+  readonly narrowRoom?: boolean
 } = {}) => {
   const paneId = `${id}-pane`
   const view = options.view ?? { kind: 'conversation' as const, session: PREVIEW_SESSION_KEY }
@@ -118,6 +119,7 @@ const noticeLayoutStore = (id: string, options: {
     account: null,
     accountsByRuntime: {},
     agentNotices: [],
+    preferencesLoaded: true,
     noticePolicy: { muted: [], records: {}, seen: [], surfaces: {}, kept: [] },
     narrowWindow: options.narrow ?? false,
     usage: [noticePace],
@@ -133,7 +135,7 @@ const noticeLayoutStore = (id: string, options: {
 
 const NoticeLayoutFrame = ({ id, title, options }: { readonly id: string; readonly title: string; readonly options?: Parameters<typeof noticeLayoutStore>[1] }) => (
   <Frame id={id} title={title}>
-    <div className="h-[620px] min-w-0 overflow-hidden border">
+    <div data-testid="notice-layout-canvas" className="h-[620px] min-w-0 overflow-hidden border" style={options?.narrowRoom ? { width: '900px' } : undefined}>
       <StoreProvider store={noticeLayoutStore(id, options)}>
         <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
           <Workbench sidebar={<div className="p-2">Preview sidebar</div>} />
@@ -243,6 +245,7 @@ export const CoverageFrames = () => {
       <NoticeLayoutFrame id="coverage-notice-narrow-overlay" title="Notice placement — narrow window overlay" options={{ narrow: true }} />
       <NoticeLayoutFrame id="coverage-notice-room-board" title="Notice placement — room board without a composer" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never }} />
       <NoticeLayoutFrame id="coverage-notice-room-pending-approval" title="Notice placement — room composer hidden by an approval" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never, pendingRoomApproval: true }} />
+      <NoticeLayoutFrame id="coverage-notice-room-container-query" title="Notice placement — narrow room rail hides its body" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never, stripSurface: true, narrowRoom: true }} />
       <NoticeLayoutFrame id="coverage-notice-folder-gone" title="Notice placement — folder-gone conversation" options={{ folderGone: true }} />
       <NoticeLayoutFrame id="coverage-notice-zoomed-sidebar" title="Notice placement — zoomed sidebar" options={{ zoom: 'sidebar' }} />
       <NoticeLayoutFrame id="coverage-notice-zoomed-dock" title="Notice placement — zoomed dock" options={{ zoom: 'right' }} />

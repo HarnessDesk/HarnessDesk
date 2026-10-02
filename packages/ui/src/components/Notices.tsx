@@ -314,13 +314,81 @@ interface ComposerMountRegistry {
 }
 
 const ComposerMountsContext = createContext<ComposerMountRegistry | null>(null)
-const NoticeMountVisibleContext = createContext(true)
 const NO_ROOM_MEMBERS: readonly string[] = []
 
-/** Marks notice outlets inside a mounted wrapper that is hidden from view. */
-export const NoticeMountVisibility = ({ visible, children }: { readonly visible: boolean; readonly children: ReactNode }) => (
-  <NoticeMountVisibleContext.Provider value={visible}>{children}</NoticeMountVisibleContext.Provider>
-)
+const hasRenderedLayout = (probe: HTMLElement): boolean => {
+  if (!probe.isConnected) return false
+  const path: HTMLElement[] = []
+  let box: { left: number; top: number; right: number; bottom: number } | null = null
+  for (let element: HTMLElement | null = probe; element; element = element.parentElement) {
+    const style = getComputedStyle(element)
+    if (
+      element.hidden || element.hasAttribute('inert') || element.getAttribute('aria-hidden') === 'true' || style.display === 'none' ||
+      style.visibility === 'hidden' || style.visibility === 'collapse' || Number(style.opacity) === 0
+    ) return false
+    path.push(element)
+    const rect = element.getBoundingClientRect()
+    if (box === null && rect.width > 0 && rect.height > 0) {
+      box = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
+    }
+  }
+  if (box === null) return false
+
+  for (const element of path) {
+    // The document viewport scrolls the page; it is not an element wrapper
+    // that hides a mounted notice just because its preview frame is offscreen.
+    if (element === document.documentElement || element === document.body) continue
+    const style = getComputedStyle(element)
+    const rect = element.getBoundingClientRect()
+    const clipX = ['hidden', 'clip', 'scroll', 'auto'].includes(style.overflowX)
+    const clipY = ['hidden', 'clip', 'scroll', 'auto'].includes(style.overflowY)
+    if (clipX) {
+      const left = rect.left + element.clientLeft
+      const right = left + (element.clientWidth || rect.width)
+      box.left = Math.max(box.left, left)
+      box.right = Math.min(box.right, right)
+    }
+    if (clipY) {
+      const top = rect.top + element.clientTop
+      const bottom = top + (element.clientHeight || rect.height)
+      box.top = Math.max(box.top, top)
+      box.bottom = Math.min(box.bottom, bottom)
+    }
+    if (box.right <= box.left || box.bottom <= box.top) return false
+  }
+  return true
+}
+
+/** Observe the actual DOM wrapper and report only transitions in rendered layout. */
+export const observeNoticeLayout = (probe: HTMLElement, onChange: (visible: boolean) => void): (() => void) => {
+  let previous: boolean | null = null
+  const update = (): void => {
+    const visible = hasRenderedLayout(probe)
+    if (visible === previous) return
+    previous = visible
+    onChange(visible)
+  }
+  update()
+
+  const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update)
+  const mutation = new MutationObserver(update)
+  for (let element: HTMLElement | null = probe; element; element = element.parentElement) {
+    resize?.observe(element)
+    mutation.observe(element, { attributes: true, attributeFilter: ['class', 'style', 'hidden', 'inert', 'aria-hidden'] })
+  }
+  return () => {
+    resize?.disconnect()
+    mutation.disconnect()
+  }
+}
+
+const useNoticeLayout = () => {
+  const [probe, setProbe] = useState<HTMLElement | null>(null)
+  const [visible, setVisible] = useState(false)
+  const ref = useCallback((element: HTMLElement | null) => setProbe(element), [])
+  useLayoutEffect(() => probe ? observeNoticeLayout(probe, setVisible) : undefined, [probe])
+  return { ref, visible }
+}
 
 const sameMount = (left: ComposerMountRecord, right: ComposerMount): boolean =>
   left.key === right.key && left.paneId === right.paneId && left.session === right.session &&
@@ -386,11 +454,12 @@ const useRegisterComposerMount = (mount: ComposerMount): void => {
   useLayoutEffect(() => register?.(mount), [register, mount.key, mount.paneId, mount.session, members, mount.runtime, mount.area, mount.mountId, mount.focused, mount.visible])
 }
 
-const useRegisterStripHost = (host: boolean, area: AreaId | undefined, key: string | undefined): void => {
+const useRegisterStripHost = (host: boolean, area: AreaId | undefined, key: string | undefined) => {
   const registry = useContext(ComposerMountsContext)
   const register = registry?.registerStripHost
-  const visible = useContext(NoticeMountVisibleContext)
-  useLayoutEffect(() => host && visible && area && key ? register?.({ area, key }) : undefined, [register, host, visible, area, key])
+  const layout = useNoticeLayout()
+  useLayoutEffect(() => host && layout.visible && area && key ? register?.({ area, key }) : undefined, [register, host, layout.visible, area, key])
+  return layout
 }
 
 /** Workbench fallback: use the named area only when no mounted outlet registered there. */
@@ -515,7 +584,7 @@ export const ComposerNotices = () => {
   const sessionKeyOfPane = useSessionKey()
   const runtime = useRuntime()
   const registry = useContext(ComposerMountsContext)
-  const noticeMountVisible = useContext(NoticeMountVisibleContext)
+  const layout = useNoticeLayout()
   const standing = useStanding()
   const roomForMount = pane?.view.kind === 'room' ? pane.view.room : null
   const roomMembers = roomForMount !== null ? (snapshot.teams.get(roomForMount)?.members ?? NO_ROOM_MEMBERS) : NO_ROOM_MEMBERS
@@ -531,8 +600,8 @@ export const ComposerNotices = () => {
     area: mountArea,
     mountId,
     focused,
-    visible: noticeMountVisible && (mount ? composerVisible(snapshot, mountArea, mountId) : focused),
-  }), [mountKey, pane?.paneId, mountId, sessionKeyOfPane, roomMembers, runtime.id, mountArea, focused, noticeMountVisible, mount, snapshot.narrowWindow, snapshot.workbench, snapshot.layout.expanded])
+    visible: layout.visible && (mount ? composerVisible(snapshot, mountArea, mountId) : focused),
+  }), [mountKey, pane?.paneId, mountId, sessionKeyOfPane, roomMembers, runtime.id, mountArea, focused, layout.visible, mount, snapshot.narrowWindow, snapshot.workbench, snapshot.layout.expanded])
   useRegisterComposerMount(composerMount)
   const mounts = registry?.mounts ?? []
   const outlet = standing ? standingOutlet(snapshot, standing, mounts, registry !== null) : null
@@ -550,29 +619,20 @@ export const ComposerNotices = () => {
     const from = sessionKey(notice.from.runtime, notice.from.sessionId as SessionId)
     return members !== null ? members.includes(from) : sessionKeyOfPane !== null && from === sessionKeyOfPane
   }) : []
-  if (!showStanding && asking.length === 0) return null
   return (
-    <>
-      {showStanding && standing ? (
-        <ComposerNotice message={standing.message} onDismiss={standing.dismiss} onMute={standing.mute} />
-      ) : null}
+    <div className="contents" ref={layout.ref}>
+      {showStanding && standing ? <ComposerNotice message={standing.message} onDismiss={standing.dismiss} onMute={standing.mute} /> : null}
       {asking.map((notice) => {
         const sender = snapshot.runtimes.find((info) => info.id === notice.from.runtime)
-        return (
-          <ComposerNotice
-            key={notice.id}
-            message={{
-              id: notice.id,
-              tone: 'info',
-              title: notice.title,
-              ...(notice.body ? { body: notice.body } : {}),
-              ...(sender ? { mark: <RuntimeMark runtime={sender} size={14} /> } : {}),
-            }}
-            onDismiss={() => store.dismissAgentNotice(notice.id)}
-          />
-        )
+        return <ComposerNotice key={notice.id} message={{
+          id: notice.id,
+          tone: 'info',
+          title: notice.title,
+          ...(notice.body ? { body: notice.body } : {}),
+          ...(sender ? { mark: <RuntimeMark runtime={sender} size={14} /> } : {}),
+        }} onDismiss={() => store.dismissAgentNotice(notice.id)} />
       })}
-    </>
+    </div>
   )
 }
 
@@ -595,14 +655,12 @@ export const NoticeStripOutlet = ({
   readonly area?: AreaId
   readonly hostId?: string
 }) => {
-  const mountVisible = useContext(NoticeMountVisibleContext)
-  const visibleHost = host && mountVisible
-  useRegisterStripHost(visibleHost, area, hostId)
+  const layout = useRegisterStripHost(host, area, hostId)
   const snapshot = useSnapshot()
   const registry = useContext(ComposerMountsContext)
   const standing = useStanding()
   const offer = useImportOffer()
-  if (!visibleHost) return null
+  if (!host) return null
   const messages: NoticeMessage[] = []
   const dismissals = new Map<string, () => void>()
   if (standing) {
@@ -615,13 +673,14 @@ export const NoticeStripOutlet = ({
     messages.push(offer.message)
     dismissals.set(offer.message.id, offer.dismiss)
   }
-  if (messages.length === 0) return null
   return (
-    <NoticeStrip
-      messages={messages}
-      onDismiss={(id) => dismissals.get(id)?.()}
-      onMute={(id) => (standing && id === standing.message.id ? standing.mute : undefined)}
-    />
+    <div className="contents" ref={layout.ref}>
+      {layout.visible && messages.length > 0 ? <NoticeStrip
+        messages={messages}
+        onDismiss={(id) => dismissals.get(id)?.()}
+        onMute={(id) => (standing && id === standing.message.id ? standing.mute : undefined)}
+      /> : null}
+    </div>
   )
 }
 
