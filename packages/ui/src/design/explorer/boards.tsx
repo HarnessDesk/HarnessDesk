@@ -829,6 +829,14 @@ const NOTICE_ASK: NoticeMessage = {
   action: { label: 'Continue with Alpha', onSelect: () => {} },
 }
 
+const NOTICE_LONG_PATH: NoticeMessage = {
+  id: 'long-path',
+  tone: 'warning',
+  title: 'Alpha can continue.',
+  body: `https://example.com/${'unbreakablepathsegment'.repeat(8)}`,
+  action: { label: 'Continue with Alpha', onSelect: () => {} },
+}
+
 /* Every surface in every state the app can put it in, drawn by the shipped
    components with the props the app passes: one message and several, with and
    without an action, dismissable and not, the second dismissal's "Stop showing
@@ -848,6 +856,11 @@ const NoticesBoard = () => {
           <NoticeCard messages={NOTICE_CARD} onDismiss={() => {}} />
         </div>
       </Case>
+      <Case label="card: long path wraps beside its controls">
+        <div style={{ width: 'calc(var(--hd-space-16) * 3.5)' }}>
+          <NoticeCard messages={[NOTICE_LONG_PATH]} onDismiss={() => {}} />
+        </div>
+      </Case>
       <Case label="card: dismissed twice before — the × offers Stop showing this">
         <div style={{ width: 'calc(var(--hd-space-16) * 3.5)' }}>
           <NoticeCard messages={NOTICE_CARD.slice(1)} onDismiss={() => {}} onMute={() => () => {}} />
@@ -861,6 +874,11 @@ const NoticesBoard = () => {
       <Case label="composer: two lines with an action and dismiss">
         <div style={{ width: 'min(var(--hd-column), 100%)' }}>
           <ComposerNotice message={NOTICE_ASK} onDismiss={() => {}} />
+        </div>
+      </Case>
+      <Case label="composer: long path wraps before its action and dismiss">
+        <div style={{ width: 'calc(var(--hd-space-16) * 5)' }}>
+          <ComposerNotice message={NOTICE_LONG_PATH} onDismiss={() => {}} />
         </div>
       </Case>
       <Case label="composer: each tone, with and without an action or a dismiss">
@@ -968,6 +986,16 @@ const BannerBoard = () => (
         </section>
       </Card>
       <Banner tone="warning" title="Alpha can continue." actions={<BannerAction onClick={() => {}}>Continue with Alpha</BannerAction>} onDismiss={() => {}} />
+      <div style={{ width: 'calc(var(--hd-space-16) * 5)' }}>
+        <Banner
+          tone="warning"
+          title="Alpha can continue."
+          actions={<BannerAction onClick={() => {}}>Continue with Alpha</BannerAction>}
+          onDismiss={() => {}}
+        >
+          https://example.com/{'unbreakablepathsegment'.repeat(8)}
+        </Banner>
+      </div>
       <Banner
         tone="warning"
         title="Alpha needs your decision."
