@@ -55,7 +55,7 @@ import { AddMember } from './AddMember'
 import { MemberHoverCard, type MemberCardFacts } from './AgentCards'
 import { Approvals } from './Approvals'
 import { Conversation } from './Conversation'
-import { SideBySide, type TileEntry } from './SideBySide'
+import { SideBySide, sideBySideTileEntry } from './SideBySide'
 import { ChannelStream, readChannel } from './Channel'
 import { RoomComposer, type RoomComposerHandle } from './RoomComposer'
 import { TeamBoardPane } from './TeamBoardPane'
@@ -1302,18 +1302,17 @@ export const TeamRoomPane = ({
                 const member = memberOf(key)
                 return member ? { nickname: member.nickname, agent: member.agent, model: member.model ?? undefined } : undefined
               }}
-              entryOf={(key): TileEntry | null => {
+              entryOf={(key) => {
                 const entry = roster.find((one) => one.key === key)
                 if (!entry) return null
-                const last = snapshot.sessions.get(key)?.turns.at(-1)?.status
-                return {
+                return sideBySideTileEntry({
                   tint: entry.tint,
                   brand: entry.brand,
                   busy: entry.busy,
                   waitingForYou: snapshot.approvals.some((approval) => approval.key === key),
                   ceiling: entry.ceiling,
-                  ...(last === 'completed' ? { ended: 'done' as const } : last === 'interrupted' || last === 'failed' ? { ended: 'stopped' as const } : {}),
-                }
+                  lastTurnStatus: snapshot.sessions.get(key)?.turns.at(-1)?.status,
+                })
               }}
               onOpenMember={(key) => show(key)}
               conversationProps={{ onChooseProject, onSignIn, onOpenUsage, onOpenRuntimes }}
