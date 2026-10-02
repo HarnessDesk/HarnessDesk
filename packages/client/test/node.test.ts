@@ -5,7 +5,7 @@ import { createServer } from 'node:http'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { WebSocketServer } from 'ws'
-import { findDesks, resolveDesk, localTransport, type DeskPointer } from '../src/node.js'
+import { findDesks, resolveDesk, localTransport, canonicalProject, type DeskPointer } from '../src/node.js'
 import { WireCallError } from '../src/index.js'
 
 const rig = async () => {
@@ -36,6 +36,16 @@ const rig = async () => {
   return { directory, home, socketPath, pointerPath, desk, urls, write, env: { HARNESSDESK_CLIENT_DIR: directory },
     cleanup: async () => { for (const ws of sockets.clients) ws.terminate(); await new Promise<void>(resolve => sockets.close(() => server.close(() => resolve()))); await fs.rm(directory, { recursive: true, force: true }) } }
 }
+
+test('canonicalProject matches host realpath and resolve fallback for relative aliases', async t => {
+  const directory = await fs.mkdtemp('/tmp/hd-door-'); t.after(() => fs.rm(directory, { recursive: true, force: true }))
+  const { relative, resolve } = await import('node:path')
+  const project = join(directory, 'project'); await fs.mkdir(project)
+  const alias = join(directory, 'alias'); await fs.symlink(project, alias)
+  assert.equal(await canonicalProject(relative(process.cwd(), alias)), await fs.realpath(project))
+  const absent = relative(process.cwd(), join(directory, 'missing'))
+  assert.equal(await canonicalProject(absent), resolve(absent))
+})
 
 test('findDesks reads live pointers without modifying them', async t => {
   const r = await rig(); t.after(r.cleanup)

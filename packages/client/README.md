@@ -63,7 +63,10 @@ arrival order independently of calls. Consume each stream once; buffers are
 unbounded, so close the client when observation is finished.
 
 The Node entry exports `DeskPointer`, `findDesks({ env? })`,
-`resolveDesk({ home?, env? })`, and `localTransport(desk)`. Discovery only reads;
+`resolveDesk({ home?, env? })`, `localTransport(desk)`, and
+`canonicalProject(path)`. The project helper matches the host's identity:
+filesystem realpath when available, otherwise an absolute resolved path.
+Discovery only reads;
 it excludes stale pointers and never deletes them. An explicit home is
 authoritative, then `HARNESSDESK_HOME`, then `~/.harnessdesk`. A missing desk
 raises `noDesk` and names other live desks. Unsafe ownership, modes or symlinks

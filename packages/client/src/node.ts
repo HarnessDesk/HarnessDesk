@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import { connect as connectSocket } from 'node:net'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { WebSocket } from 'ws'
 import type { HostToClient } from '@harnessdesk/protocol'
 import { WireCallError, type ClientTransport } from './index.js'
@@ -16,6 +16,11 @@ export interface DeskPointer {
   readonly socketPath: string
 }
 type Environment = Readonly<Record<string, string | undefined>>
+/** Match the host's project identity: realpath when present, absolute path otherwise. */
+export async function canonicalProject(project: string): Promise<string> {
+  try { return await fs.realpath(project) }
+  catch { return resolve(project) }
+}
 const uid = () => {
   if (!process.getuid) throw new WireCallError('noDesk', 'The local client door is not available on this platform.')
   return process.getuid()

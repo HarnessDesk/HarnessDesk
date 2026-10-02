@@ -102,6 +102,25 @@ importers:
         specifier: workspace:*
         version: link:../adapter-testkit
 
+  packages/cli:
+    dependencies:
+      '@harnessdesk/client':
+        specifier: workspace:*
+        version: link:../client
+      '@harnessdesk/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+    devDependencies:
+      '@harnessdesk/server':
+        specifier: workspace:*
+        version: link:../server
+      '@types/ws':
+        specifier: ^8.5.13
+        version: 8.18.1
+      ws:
+        specifier: ^8.18.0
+        version: 8.21.3
+
   packages/client:
     dependencies:
       '@harnessdesk/protocol':
