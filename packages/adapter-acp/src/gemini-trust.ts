@@ -77,8 +77,8 @@ const canonical = (path: string): string => {
 }
 
 const normalize = (path: string): string => {
-  const normalized = resolve(path).replaceAll('\\', '/')
-  return process.platform === 'win32' || process.platform === 'darwin' ? normalized.toLowerCase() : normalized
+  const resolved = resolve(path)
+  return process.platform === 'win32' ? resolved.replaceAll('\\', '/').toLowerCase() : resolved
 }
 
 const contains = (parent: string, child: string): boolean => {

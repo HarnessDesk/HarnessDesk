@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { DEFAULT_FLOW_BUDGET, type AgentEntry, type FlowEntry, type FlowPolicy, type FlowPreview, type FlowPreviewSeat, type FlowProblem } from '@harnessdesk/protocol'
 
-import { ActionError, Banner, Chip, CodeText, Field, Input, NativeSelect, Note, NoteList, Rows, Row, SectionHead, Text } from '../design'
+import { ActionError, Banner, Button, Chip, CodeText, Field, Input, NativeSelect, Note, NoteList, Rows, Row, SectionHead, Text, Textarea } from '../design'
 import { agentName, firstReason, fixWords, markFor, reasonWords, seatTaken } from '../lib/agents'
 import { evidenceGuardsWords, messagingWords } from '../lib/flows'
 import { useSnapshot, useStore } from '../state/context'
@@ -64,6 +64,18 @@ export const FlowStart = ({ root, disabled, onChange }: FlowStartProps) => {
   /* Bumped on every choice or edit, so a preview that lands after a newer one
      was already asked for is a stale reply rather than a late correction. */
   const sequence = useRef(0)
+  // A pending import withholds even a valid preview for the previous text.
+  // Keep the latest checked choice so a refused file can leave it intact.
+  const briefReading = useRef(false)
+  const checkedChoice = useRef<FlowChoice | null>(null)
+  const reportChoice = useCallback((choice: FlowChoice | null): void => {
+    checkedChoice.current = choice
+    onChange(briefReading.current ? null : choice)
+  }, [onChange])
+  const readingBrief = useCallback((reading: boolean): void => {
+    briefReading.current = reading
+    onChange(reading ? null : checkedChoice.current)
+  }, [onChange])
 
   useEffect(() => {
     let live = true
@@ -95,28 +107,29 @@ export const FlowStart = ({ root, disabled, onChange }: FlowStartProps) => {
     async (text: string, nextVars: Readonly<Record<string, string>>): Promise<void> => {
       const mine = ++sequence.current
       const generation = store.flowGeneration()
-      onChange(null)
+      reportChoice(null)
       try {
         const dry = await store.previewFlow(root, text, nextVars)
         if (mine !== sequence.current || generation !== store.flowGeneration()) return
         setPreview(dry)
-        if (startable(dry)) onChange({ source: text, token: dry.token!, vars: nextVars })
+        if (startable(dry)) reportChoice({ source: text, token: dry.token!, vars: nextVars })
       } catch (error) {
         if (mine !== sequence.current) return
         setProblem(error instanceof Error ? error.message : 'That flow could not be checked.')
       }
     },
-    [onChange, root, store],
+    [reportChoice, root, store],
   )
 
   const choose = useCallback(
     async (next: string): Promise<void> => {
       sequence.current += 1
+      briefReading.current = false
       setId(next)
       setPreview(null)
       setProblem(null)
       setVars({})
-      onChange(null)
+      reportChoice(null)
       if (next === NONE) {
         setSource('')
         return
@@ -138,7 +151,7 @@ export const FlowStart = ({ root, disabled, onChange }: FlowStartProps) => {
         setVars(defaults)
         if (inputs.length === 0) {
           setPreview(learn)
-          if (startable(learn)) onChange({ source: text, token: learn.token!, vars: {} })
+          if (startable(learn)) reportChoice({ source: text, token: learn.token!, vars: {} })
         } else {
           await runPreview(text, defaults)
         }
@@ -147,7 +160,7 @@ export const FlowStart = ({ root, disabled, onChange }: FlowStartProps) => {
         setProblem(error instanceof Error ? error.message : 'That flow could not be read.')
       }
     },
-    [onChange, root, runPreview, store],
+    [reportChoice, root, runPreview, store],
   )
 
   const setVar = useCallback(
@@ -225,7 +238,9 @@ export const FlowStart = ({ root, disabled, onChange }: FlowStartProps) => {
         </Banner>
       )}
 
-      {flow && flow.inputs.map((input) => (
+      {flow && flow.inputs.map((input) => input.id === 'brief' ? (
+        <BriefInput key={`${root}:${id}:brief`} value={vars.brief ?? ''} disabled={disabled} onChange={(value) => setVar('brief', value)} onReadingChange={readingBrief} />
+      ) : (
         <Field key={input.id} label={input.label}>
           {(control) => (
             <Input
@@ -239,6 +254,95 @@ export const FlowStart = ({ root, disabled, onChange }: FlowStartProps) => {
 
       {preview && !legacy && <FlowPreviewReport preview={preview} flow={flow} warnings={warnings} roster={roster} />}
     </div>
+  )
+}
+
+/** Files are imported into the variable, never attached to the Run. */
+const BRIEF_FILE_CAP = 64 * 1024
+const BriefInput = ({ value, disabled, onChange, onReadingChange }: {
+  readonly value: string
+  readonly disabled?: boolean
+  readonly onChange: (value: string) => void
+  readonly onReadingChange: (reading: boolean) => void
+}) => {
+  const picker = useRef<HTMLInputElement>(null)
+  const sequence = useRef(0)
+  // Other inputs can change while a file is read; use their latest vars.
+  const change = useRef(onChange)
+  change.current = onChange
+  const readingChange = useRef(onReadingChange)
+  readingChange.current = onReadingChange
+  const [reading, setReading] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+  useEffect(() => {
+    sequence.current += 1
+    setReading(false)
+    readingChange.current(false)
+    return () => { sequence.current += 1 }
+  }, [disabled])
+
+  const read = async (file: File): Promise<void> => {
+    const mine = ++sequence.current
+    setProblem(null)
+    if (file.size > BRIEF_FILE_CAP) {
+      setProblem('Choose a text file no larger than 64 KiB (65,536 bytes).')
+      return
+    }
+    if (!file.type.startsWith('text/') && !/\.(txt|md|markdown)$/i.test(file.name)) {
+      setProblem('Choose a text file (.txt or .md).')
+      return
+    }
+    setReading(true)
+    onReadingChange(true)
+    try {
+      const text = await file.text()
+      if (mine !== sequence.current) return
+      if (text.includes('\0')) {
+        setProblem('Choose a text file (.txt or .md).')
+        return
+      }
+      change.current(text)
+    } catch {
+      if (mine === sequence.current) setProblem('That text file could not be read. Try another file.')
+    } finally {
+      if (mine === sequence.current) {
+        setReading(false)
+        onReadingChange(false)
+      }
+    }
+  }
+
+  return (
+    <Field label="Brief" error={problem ?? undefined}>
+      {(control) => (
+        <>
+          <Textarea
+            {...control}
+            rows={4}
+            controlSize="paragraphs"
+            value={value}
+            disabled={disabled}
+            onChange={(event) => {
+              sequence.current += 1
+              setReading(false)
+              setProblem(null)
+              onChange(event.target.value)
+              onReadingChange(false)
+            }}
+          />
+          <div>
+            <Button variant="secondary" size="sm" disabled={disabled || reading} onClick={() => picker.current?.click()}>
+              {reading ? 'Reading…' : 'Attach a file…'}
+            </Button>
+            <Input ref={picker} type="file" accept="text/*,.txt,.md,.markdown" hidden disabled={disabled || reading} onChange={(event) => {
+              const file = event.target.files?.[0]
+              event.target.value = ''
+              if (file) void read(file)
+            }} />
+          </div>
+        </>
+      )}
+    </Field>
   )
 }
 

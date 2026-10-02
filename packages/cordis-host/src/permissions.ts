@@ -174,10 +174,8 @@ const resolved = (path: string): string | null => {
  * host cannot traverse is one the plugin cannot traverse either.
  */
 const canonical = (path: string): string => {
-  /* On Windows (or Windows paths like C:\...), use win32 path utilities if walk
-     has a drive letter or backslash, so lexical walk-up handles drive roots correctly
-     on non-Windows hosts running tests. */
-  const isWinPath = /^[a-zA-Z]:[/\\]/.test(path)
+  // Drive letters and backslashes name Windows paths only on Windows.
+  const isWinPath = process.platform === 'win32' && /^[a-zA-Z]:[/\\]/.test(path)
   const isAbs = isWinPath ? win32.isAbsolute(path) : isAbsolute(path)
   let walk = isAbs ? path : resolve(path)
   const missing: string[] = []
@@ -214,10 +212,9 @@ export const pathWithin = (root: string, path: string): boolean => {
      only the filesystem knows, so both sides are asked of it. */
   const base = canonical(root)
   const target = canonical(path)
-  const normBase = base.replace(/\\/g, '/').replace(/\/+$/, '')
-  const normTarget = target.replace(/\\/g, '/').replace(/\/+$/, '')
-  const isWin =
-    process.platform === 'win32' || (/^[a-zA-Z]:\//.test(normBase) && /^[a-zA-Z]:\//.test(normTarget))
+  const isWin = process.platform === 'win32'
+  const normBase = (isWin ? base.replace(/\\/g, '/') : base).replace(/\/+$/, '')
+  const normTarget = (isWin ? target.replace(/\\/g, '/') : target).replace(/\/+$/, '')
 
   if (isWin ? normTarget.toLowerCase() === normBase.toLowerCase() : normTarget === normBase) return true
 

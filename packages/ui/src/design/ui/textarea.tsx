@@ -29,6 +29,8 @@ const textareaVariants = cva(
         compact: 'min-h-8 resize-y px-2 py-1',
         composer:
           'min-h-(--hd-composer-min) max-h-(--hd-composer-max) resize-none px-4 pt-4 pb-1.5 leading-(--hd-composer-line)',
+        /* Paragraph input grows from four lines to twelve, then scrolls. */
+        paragraphs: 'min-h-[calc(var(--hd-line)*4+var(--hd-space-3))] max-h-[calc(var(--hd-line)*12+var(--hd-space-3))] resize-none overflow-y-auto px-2.5 py-1.5 text-base',
       },
     },
     defaultVariants: { variant: 'default', size: 'default' },

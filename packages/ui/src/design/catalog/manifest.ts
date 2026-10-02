@@ -1,6 +1,6 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
 export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page' | 'summary' | 'start' | 'end'
-export type CatalogSize = 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'table-row' | 'bare' | 'composer' | 'sidebar-nav'
+export type CatalogSize = 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'table-row' | 'bare' | 'composer' | 'sidebar-nav' | 'paragraphs'
 export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out' | 'editing' | 'empty-edit' | 'recoverable' | 'memory-only' | 'image-warning' | 'trailing-glyph-rest' | 'trailing-glyph-action' | 'working' | 'needs-you' | 'pinned' | 'worktree' | 'folder-gone' | 'long-title' | 'room-folded' | 'room-expanded' | 'more-sessions' | 'other-projects' | 'filtered' | 'menu-open' | 'folded-state' | 'nested-rail'
 
 export type CatalogEntry = {
@@ -341,7 +341,7 @@ Object.assign(SIZES, {
   'disclosure-chevron': ['xs', 'sm', 'default', 'lg'],
   'native-select': ['default', 'compact'],
   switch: ['default', 'sm'],
-  textarea: ['default', 'compact', 'composer'],
+  textarea: ['default', 'compact', 'composer', 'paragraphs'],
   'toggle-group': ['default', 'sm', 'lg'],
   sidebar: ['sm', 'default', 'lg'],
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
@@ -558,6 +558,7 @@ export const CANONICAL_PATTERN_MODULES = [
  * it, and it is the exemption the check looks for.
  */
 export const PRODUCT_SURFACES = [
+  ['surface.flow-brief', 'flow-brief', 'Flow Brief paragraphs and capped text-file import', 'packages/ui/src/components/FlowStart.tsx', false, 'packages/ui/src/components/NewSessionChoice.tsx', 'FlowBriefSurface'],
   ['surface.dashboard', 'dashboard', 'Plan usage, cost and limits', 'packages/ui/src/components/Usage.tsx', false, 'packages/ui/src/app/App.tsx', 'DashboardSurface'],
   ['surface.group', 'group', 'Room, board and agent collaboration', 'packages/ui/src/components/TeamBoardPane.tsx', false, 'packages/ui/src/panels/builtins.tsx', 'GroupSurface'],
   ['surface.conversation', 'conversation', 'Complete transcript and approval', 'packages/ui/src/components/Conversation.tsx', false, 'packages/ui/src/panels/builtins.tsx', 'ConversationSurface'],

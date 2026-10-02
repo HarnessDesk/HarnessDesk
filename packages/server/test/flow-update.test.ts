@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { chmod, lstat, mkdir, readFile, realpath, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, open, readFile, realpath, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -207,16 +207,25 @@ rules:
   - { id: check, on: writer, when: { every: done }, then: { role: checker, title: Check } }
 `
 
-test('the flow and its journal are replaced by rename, never rewritten in place', async () => {
+test('the flow and its journal are replaced by rename, never rewritten in place', async (t) => {
   const { project, path, state, updates } = await setup()
   const preview = await updates.preview(project, 'review')
   const journal = join(state, 'flow-updates', `${createHash('sha256').update(`${await realpath(project)}\0review`).digest('hex')}.json`)
-  const journalBefore = await lstat(journal)
-  const flowBefore = await lstat(path)
+  // Keep the original inodes alive: Linux may reuse an unlinked journal's
+  // number during the update's successive atomic replacements.
+  const journalHandle = await open(journal, 'r')
+  t.after(() => journalHandle.close())
+  const flowHandle = await open(path, 'r')
+  t.after(() => flowHandle.close())
+  const journalBefore = await journalHandle.stat()
+  const flowBefore = await flowHandle.stat()
+  const journalBytes = await readFile(journal, 'utf8')
 
   assert.equal((await updates.apply(project, preview.token)).state, 'applied')
   assert.notEqual((await lstat(path)).ino, flowBefore.ino, 'the flow was truncated and rewritten in place')
   assert.notEqual((await lstat(journal)).ino, journalBefore.ino, 'the journal was truncated and rewritten in place')
+  assert.equal(await readFile(flowHandle, 'utf8'), legacy)
+  assert.equal(await readFile(journalHandle, 'utf8'), journalBytes)
   assert.deepEqual(await readdir(join(project, '.harnessdesk', 'flows')), ['review.yml'])
   assert.deepEqual(await readdir(join(project, '.harnessdesk', 'agents')), ['review-writer'])
   assert.deepEqual(await readdir(join(state, 'flow-updates')), [journal.split('/').at(-1)])
@@ -251,15 +260,15 @@ test('a planted Agents link is refused before any Agent is written through it', 
   assert.equal(await readFile(path, 'utf8'), legacy)
 })
 
-test('without an any-component no-follow open the update is shown but never applied', async () => {
+test('on an unsupported platform the update is shown but never applied', async () => {
   const scratch = tempDir('hd-flow-update-')
   const project = join(scratch, 'project')
   const state = join(scratch, 'state')
   await mkdir(join(project, '.harnessdesk', 'flows'), { recursive: true })
   const path = join(project, '.harnessdesk', 'flows', 'review.yml')
   await writeFile(path, legacy, 'utf8')
-  const catalogue = new FlowCatalog({ confine: async () => {}, platform: 'linux' })
-  const updates = new FlowUpdates({ stateDir: state, catalogue, platform: 'linux' })
+  const catalogue = new FlowCatalog({ confine: async () => {}, platform: 'win32' })
+  const updates = new FlowUpdates({ stateDir: state, catalogue, platform: 'win32' })
 
   const preview = await updates.preview(project, 'review')
   assert.equal(preview.edits.length, 2)

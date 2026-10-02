@@ -78,9 +78,9 @@ test('a planted link is never written through, whether an ancestor or the target
   assert.equal(await readFile(join(outside, 'secret.yml'), 'utf8'), 'outside bytes')
 })
 
-test('without an any-component no-follow open, every write refuses and nothing is written', async () => {
+test('an unsupported platform refuses every write and leaves the tree untouched', async () => {
   const { project } = await planted()
-  const tree = await ConfinedTree.open(project, { platform: 'linux' })
+  const tree = await ConfinedTree.open(project, { platform: 'win32' })
   assert.equal(tree.writable, false)
   await assert.rejects(tree.ensureDir('made'), /cannot change files/i)
   await assert.rejects(tree.createFolder('real/agent', [['AGENT.md', 'text']], '.tmp-'), /cannot change files/i)
@@ -89,6 +89,38 @@ test('without an any-component no-follow open, every write refuses and nothing i
   assert.deepEqual((await readdir(project)).sort(), ['real'])
   assert.deepEqual((await readdir(join(project, 'real'))).sort(), ['deeper'])
   assert.equal(await readFile(join(project, 'real', 'deeper', 'file.yml'), 'utf8'), 'inside bytes')
+})
+
+test('Linux component checks permit confined writes and refuse planted links for every write verb', async () => {
+  const { project, outside } = await planted()
+  await symlink(outside, join(project, 'top'))
+  await symlink(outside, join(project, 'real', 'middle'))
+  await symlink(join(outside, 'secret.yml'), join(project, 'real', 'target.yml'))
+  const tree = await ConfinedTree.open(project, { platform: 'linux' })
+  assert.equal(tree.writable, true)
+  await tree.ensureDir('made/agents')
+  await tree.createFolder('made/agents/one', [['AGENT.md', 'brief']], '.tmp-')
+  await tree.createFile('made/file.yml', 'file')
+  await tree.createAtomic('made/atomic.yml', 'atomic')
+  await tree.put('made/state.json', 'state')
+  assert.equal(await tree.replace('real/deeper/file.yml', 'inside bytes', 'after'), 'replaced')
+  assert.equal(await tree.read('made/agents/one/AGENT.md', 1024), 'brief')
+  assert.equal(await tree.read('made/file.yml', 1024), 'file')
+  assert.equal(await tree.read('made/atomic.yml', 1024), 'atomic')
+  assert.equal(await tree.read('made/state.json', 1024), 'state')
+  for (const ancestor of ['top', 'real/middle']) {
+    await assert.rejects(tree.ensureDir(`${ancestor}/new`), /link/i)
+    await assert.rejects(tree.createFolder(`${ancestor}/agent`, [['AGENT.md', 'planted']], '.tmp-'), /link/i)
+    await assert.rejects(tree.createFile(`${ancestor}/new.yml`, 'planted'), /link/i)
+    await assert.rejects(tree.createAtomic(`${ancestor}/atomic.yml`, 'planted'), /link/i)
+    await assert.rejects(tree.put(`${ancestor}/journal.json`, 'planted'), /link/i)
+    await assert.rejects(tree.replace(`${ancestor}/secret.yml`, 'outside bytes', 'replaced'), /link/i)
+  }
+  await assert.rejects(tree.replace('real/target.yml', 'outside bytes', 'replaced'), /link/i)
+  await assert.rejects(tree.createFile('real/target.yml', 'planted'), /link/i)
+  await assert.rejects(tree.createAtomic('real/target.yml', 'planted'), { code: 'EEXIST' })
+  assert.deepEqual((await readdir(outside)).sort(), ['deeper', 'secret.yml'])
+  assert.equal(await readFile(join(outside, 'secret.yml'), 'utf8'), 'outside bytes')
 })
 
 test('replace renames a synced sibling over the target and never rewrites it in place', async () => {

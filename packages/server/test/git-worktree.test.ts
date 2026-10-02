@@ -184,7 +184,9 @@ test('add passes on git’s refusal when the branch is checked out somewhere els
   await assert.rejects(
     () => add(repo, 'two', { kind: 'existing', branch: 'shared' }, state),
     (error: Error) => {
-      assert.match(error.message, /already used by worktree/)
+      // Git versions differ in how they describe the same branch conflict.
+      assert.match(error.message, /already (?:used by worktree|checked out at)/)
+      assert.ok(error.message.includes('shared'))
       // Where it is already checked out is the useful half of that sentence.
       assert.ok(error.message.includes(first.path))
       return true
@@ -464,4 +466,16 @@ test('add starts a new branch from a relative revision', async () => {
   const { repo, state, first } = await twoCommits()
   const made = await add(repo, 'from-parent', { kind: 'new', branch: 'from-parent', base: 'HEAD^' }, state)
   assert.equal((await git(made.path, 'rev-parse', 'HEAD')).trim(), first)
+})
+
+
+test('worktree destination confinement refuses a POSIX slash/backslash collision', { skip: process.platform === 'win32' }, async () => {
+  const { repo, beside, state } = await seedRepo()
+  const admitted = join(beside, 'a', 'b')
+  const nestedRepo = join(admitted, 'repo')
+  await mkdir(nestedRepo, { recursive: true })
+  await git(nestedRepo, 'init', '-q', '-b', 'main')
+  await git(nestedRepo, 'commit', '--allow-empty', '-qm', 'root')
+  const foreign = join(beside, 'a\\b', 'side')
+  await assert.rejects(() => add(nestedRepo, foreign, { kind: 'detach', at: 'HEAD' }, state), /New worktrees are made beside the repository/)
 })

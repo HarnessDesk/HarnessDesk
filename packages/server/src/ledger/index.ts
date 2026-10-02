@@ -15,6 +15,7 @@ import { runtimeId, type LedgerDay,
 } from '@harnessdesk/protocol'
 
 import { Pricing, defaultPricingPaths, type ModelRates } from './pricing.js'
+import { sameCanonicalPath } from '../path-identity.js'
 import { safeLedgerDiagnostic } from './diagnostics.js'
 import type { RemoteEventsSource } from './remote.js'
 import { HOUR_CAPABLE_KINDS, listTargets, scanFile, wholeFile, type CorpusSpec, type ScanTarget } from './scan.js'
@@ -299,7 +300,7 @@ export class Ledger {
         gaps.push('A recorded usage source could not be read.')
       }
     }
-    const selected = detailSamples.filter((sample) => sample.project === query.root && sample.from !== null && sample.from >= query.from && sample.from < query.to)
+    const selected = detailSamples.filter((sample) => sample.project !== null && sameCanonicalPath(sample.project, query.root) && sample.from !== null && sample.from >= query.from && sample.from < query.to)
     const priced = selected.map((sample) => {
       if (sample.usd.value !== null || !sample.model) return sample
       const rates = this.#pricing.rateObservation(sample.model).rates
@@ -321,7 +322,7 @@ export class Ledger {
        reference for migrations; normal Insight reads return from source rows. */
     if (options.refresh) await this.scan()
     const checkedAt = this.#now()
-    const rows = this.#store.since(startOfDay(query.from)).filter((row) => row.day < query.to && row.project === query.root)
+    const rows = this.#store.since(startOfDay(query.from)).filter((row) => row.day < query.to && sameCanonicalPath(row.project, query.root))
     const sources = new Map<string, InsightSource>()
     const samples: UsageSample[] = rows.map((row, index) => {
       const sourceId = `ledger:${index}:${row.runtime}:${row.day}`

@@ -9,6 +9,7 @@
 export { ExtensionKernel, type HarnessPlugin, type KernelLogger, type KernelOptions, type PluginManifest } from './kernel.js'
 export { PermissionDenied, PermissionGate, hostAllowed, pathWithin } from './permissions.js'
 export { ContributionStore } from './store.js'
+export { canonicalScopeQuery } from './workspace-scope.js'
 export {
   MANIFEST_FILENAME,
   ManifestError,

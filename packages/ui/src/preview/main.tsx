@@ -70,6 +70,7 @@ import { LibraryDevFrames } from './frames-library-dev'
 import { LibraryOptionFrames } from './frames-library-options'
 import { SideBySideFrames } from './frames-side-by-side'
 import { ComposerSlotsFrames } from './frames-composer-slots'
+import { BRIEF_SCENES, FlowBriefDialog, type BriefScene } from './flow-brief-content'
 import '../styles/app.css'
 
 const SHOW_COMPOSER = new URLSearchParams(window.location.search).has('composer')
@@ -1039,7 +1040,9 @@ createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        <Preview />
+        {new URLSearchParams(window.location.search).has('flow-brief')
+          ? <FlowBriefDialog scene={(BRIEF_SCENES.find((one) => one === new URLSearchParams(window.location.search).get('flow-brief')) ?? 'empty') as BriefScene} />
+          : <Preview />}
       </AppWindowMode.Provider>
     </StoreProvider>
   </StrictMode>,

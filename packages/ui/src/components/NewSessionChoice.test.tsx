@@ -375,7 +375,12 @@ it('flow starts exactly one Goal through its host operation', async () => {
   const { store } = rig()
   vi.mocked(store.flowCatalog).mockResolvedValue([FLOW])
   vi.mocked(store.flowSource).mockResolvedValue('version: 2\nname: Fix\n')
-  vi.mocked(store.previewFlow).mockResolvedValue(FLOW_PREVIEW)
+  if (FLOW_PREVIEW.compiled.document.format !== 'agents') throw new Error('Expected an Agent flow fixture')
+  vi.mocked(store.previewFlow).mockResolvedValue({
+    ...FLOW_PREVIEW, compiled: { ...FLOW_PREVIEW.compiled, document: {
+      format: 'agents', flow: { ...FLOW_PREVIEW.compiled.document.flow, inputs: [{ id: 'brief', label: 'Brief' }] },
+    } },
+  })
   vi.mocked(store.startFlowGoal).mockResolvedValue(FLOW_EXECUTION)
   const onClose = render(store)
 
@@ -394,12 +399,68 @@ it('flow starts exactly one Goal through its host operation', async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field, 'Ship the fix')
     field.dispatchEvent(new Event('input', { bubbles: true }))
   })
+  const brief = 'Fix the ticket.\n\nKeep the interface.\n\nVerify the result.'
+  const area = document.querySelector('textarea')!
+  expect(area).not.toBeNull()
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(area, brief)
+    area.dispatchEvent(new Event('input', { bubbles: true }))
+  })
   act(() => button('Start').click())
   await act(async () => {})
 
-  expect(store.startFlowGoal).toHaveBeenCalledWith({ root: '/repo', source: 'version: 2\nname: Fix\n', token: 'tok-1', sentence: 'Ship the fix', vars: {} })
+  expect(store.startFlowGoal).toHaveBeenCalledWith({ root: '/repo', source: 'version: 2\nname: Fix\n', token: 'tok-1', sentence: 'Ship the fix', vars: { brief } })
   expect(store.createGoal).not.toHaveBeenCalled()
   expect(store.openGoal).toHaveBeenCalledWith('goal-1')
+  expect(onClose).toHaveBeenCalled()
+})
+
+it('Start waits for an imported brief and its preview, then submits the file text', async () => {
+  const { store } = rig()
+  vi.mocked(store.flowCatalog).mockResolvedValue([FLOW])
+  vi.mocked(store.flowSource).mockResolvedValue('version: 2\nname: Fix\n')
+  if (FLOW_PREVIEW.compiled.document.format !== 'agents') throw new Error('Expected an Agent flow fixture')
+  const preview: FlowPreview = {
+    ...FLOW_PREVIEW, compiled: { ...FLOW_PREVIEW.compiled, document: {
+      format: 'agents', flow: { ...FLOW_PREVIEW.compiled.document.flow, inputs: [{ id: 'brief', label: 'Brief', default: 'Previous brief' }] },
+    } },
+  }
+  vi.mocked(store.previewFlow).mockResolvedValue(preview)
+  vi.mocked(store.startFlowGoal).mockResolvedValue(FLOW_EXECUTION)
+  const onClose = render(store)
+  act(() => kindRow('Flow').click())
+  act(() => button('Continue').click())
+  await act(async () => {})
+  await act(async () => choose(document.querySelector('select')!, 'fix'))
+  const title = document.querySelector<HTMLInputElement>('[aria-label="What finishes this?"]')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(title, 'Ship the fix')
+    title.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(button('Start').disabled).toBe(false)
+
+  let resolveFile!: (text: string) => void
+  const file = new File(['New file brief'], 'brief.txt', { type: 'text/plain' })
+  Object.defineProperty(file, 'text', { value: () => new Promise<string>((resolve) => { resolveFile = resolve }) })
+  const picker = document.querySelector<HTMLInputElement>('input[type="file"]')!
+  await act(async () => {
+    Object.defineProperty(picker, 'files', { configurable: true, value: [file] })
+    picker.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  expect(button('Reading…').disabled).toBe(true)
+  expect(button('Start').disabled).toBe(true)
+  act(() => button('Start').click())
+  expect(store.startFlowGoal).not.toHaveBeenCalled()
+
+  let resolvePreview!: (value: FlowPreview) => void
+  vi.mocked(store.previewFlow).mockImplementationOnce(() => new Promise((resolve) => { resolvePreview = resolve }))
+  await act(async () => resolveFile('New file brief'))
+  expect(document.querySelector('textarea')?.value).toBe('New file brief')
+  expect(button('Start').disabled).toBe(true)
+  await act(async () => resolvePreview({ ...preview, token: 'file-token' }))
+  expect(button('Start').disabled).toBe(false)
+  await act(async () => button('Start').click())
+  expect(store.startFlowGoal).toHaveBeenCalledExactlyOnceWith({ root: '/repo', source: 'version: 2\nname: Fix\n', token: 'file-token', sentence: 'Ship the fix', vars: { brief: 'New file brief' } })
   expect(onClose).toHaveBeenCalled()
 })
 

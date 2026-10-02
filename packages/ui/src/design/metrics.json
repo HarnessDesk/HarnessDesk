@@ -119,6 +119,14 @@
     "pad": "6 10 6 10",
     "radius": 8
   },
+  "adopted/textarea/size/paragraphs": {
+    "h": 92,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "6 10 6 10",
+    "radius": 8
+  },
   "adopted/textarea/variant/code": {
     "h": 32,
     "text": 12,

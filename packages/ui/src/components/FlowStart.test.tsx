@@ -384,3 +384,154 @@ it("a long guard sentence wraps as the round row's description, not its value co
   const wrapped = [...container.querySelectorAll('[data-wrap]')].map((el) => el.textContent ?? '').join(' | ')
   expect(wrapped).toContain('A passing “verify” check at the selected revision')
 })
+
+const briefPreview = (): FlowPreview => ({
+  ...emptyPreview(),
+  compiled: compiled({ flow: {
+    version: 2, name: 'Fix', inputs: [{ id: 'brief', label: 'Instructions', default: 'Existing draft' }, { id: 'ticket', label: 'Ticket', default: '42' }],
+    roles: [], rules: [], seed: { role: 'fixer', title: 'Fix the ticket' }, messaging: 'board-only', wait: 240,
+  } }),
+})
+
+const chooseBrief = async () => {
+  const theStore = store({ entries: [ENTRY('brief'), ENTRY('plain')], source: (id) => id, preview: (source) => source === 'brief' ? briefPreview() : emptyPreview() })
+  const onChange = vi.fn()
+  render(theStore, onChange)
+  await act(async () => {})
+  await select('brief')
+  return { theStore, onChange }
+}
+
+const editBrief = async (value: string) => {
+  const control = container.querySelector('textarea')!
+  expect(control).not.toBeNull()
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(control, value)
+    control.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
+const attachBrief = async (file: File) => {
+  const input = container.querySelector<HTMLInputElement>('input[type="file"]')!
+  expect(input).not.toBeNull()
+  await act(async () => {
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] })
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+}
+
+it('only a declared brief is multiline; other inputs keep their labels and defaults', async () => {
+  await chooseBrief()
+  const area = container.querySelector('textarea')!
+  expect(area).not.toBeNull()
+  expect(area.value).toBe('Existing draft')
+  expect(container.querySelector(`label[for="${area.id}"]`)?.textContent).toBe('Brief')
+  expect(container.querySelector('input:not([type="file"])')?.getAttribute('value')).toBe('42')
+  expect(container.textContent).toContain('Ticket')
+  expect(container.textContent).toContain('Attach a file…')
+  await select('plain')
+  expect(container.querySelector('textarea')).toBeNull()
+  expect(container.querySelector('input[type="file"]')).toBeNull()
+})
+
+it('paragraphs reach the preview and the start choice intact as vars.brief', async () => {
+  const { theStore, onChange } = await chooseBrief()
+  const brief = 'Fix the ticket.\n\nKeep the current interface.\n\nVerify the result.'
+  await editBrief(brief)
+  expect(theStore.previewFlow).toHaveBeenLastCalledWith('/repo', 'brief', { brief, ticket: '42' })
+  expect(onChange).toHaveBeenLastCalledWith({ source: 'brief', token: 't', vars: { brief, ticket: '42' } })
+})
+
+it('a text file replaces the brief through the same vars path, including a file at the cap', async () => {
+  const { theStore } = await chooseBrief()
+  const text = 'A'.repeat(64 * 1024)
+  const file = new File([text], 'brief.md', { type: 'text/markdown' })
+  Object.defineProperty(file, 'text', { value: async () => text })
+  await attachBrief(file)
+  expect(container.querySelector('textarea')?.value).toBe(text)
+  expect(theStore.previewFlow).toHaveBeenLastCalledWith('/repo', 'brief', { brief: text, ticket: '42' })
+})
+
+it('an oversized file is refused before reading and names the cap, preserving the draft', async () => {
+  await chooseBrief()
+  const file = new File(['A'.repeat(64 * 1024 + 1)], 'brief.txt', { type: 'text/plain' })
+  const read = vi.fn()
+  Object.defineProperty(file, 'text', { value: read })
+  await attachBrief(file)
+  expect(read).not.toHaveBeenCalled()
+  expect(container.textContent).toContain('64 KiB')
+  expect(container.querySelector('textarea')?.value).toBe('Existing draft')
+})
+
+it('a non-text or unreadable file preserves the draft and shows a refusal', async () => {
+  await chooseBrief()
+  const binary = new File(['pdf'], 'brief.pdf', { type: 'application/pdf' })
+  const read = vi.fn()
+  Object.defineProperty(binary, 'text', { value: read })
+  await attachBrief(binary)
+  expect(read).not.toHaveBeenCalled()
+  expect(container.textContent).toContain('Choose a text file')
+  const file = new File(['text'], 'brief.txt', { type: 'text/plain' })
+  Object.defineProperty(file, 'text', { value: async () => { throw new Error('unreadable') } })
+  await attachBrief(file)
+  expect(container.textContent).toContain('could not be read')
+  expect(container.querySelector('textarea')?.value).toBe('Existing draft')
+})
+
+it('a late file read cannot replace newer typing or the newly selected flow', async () => {
+  const { theStore, onChange } = await chooseBrief()
+  let resolve!: (text: string) => void
+  const file = new File(['old'], 'brief.txt', { type: 'text/plain' })
+  Object.defineProperty(file, 'text', { value: () => new Promise<string>((done) => { resolve = done }) })
+  await attachBrief(file)
+  await editBrief('Newer typing')
+  expect(onChange).toHaveBeenLastCalledWith({ source: 'brief', token: 't', vars: { brief: 'Newer typing', ticket: '42' } })
+  await act(async () => resolve('Old file'))
+  expect(container.querySelector('textarea')?.value).toBe('Newer typing')
+  await attachBrief(file)
+  await select('plain')
+  await act(async () => resolve('Old file'))
+  expect(theStore.previewFlow).toHaveBeenLastCalledWith('/repo', 'plain', {})
+  expect(onChange).toHaveBeenLastCalledWith({ source: 'plain', token: 't', vars: {} })
+})
+
+it('preview replies for other inputs cannot enable Start during a file read', async () => {
+  const { theStore, onChange } = await chooseBrief()
+  let resolvePreview!: (preview: FlowPreview) => void
+  vi.mocked(theStore.previewFlow).mockImplementationOnce(() => new Promise((resolve) => { resolvePreview = resolve }))
+  const ticket = container.querySelector<HTMLInputElement>('input:not([type="file"])')!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(ticket, '43')
+    ticket.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  let resolveFile!: (text: string) => void
+  const file = new File(['File brief'], 'brief.txt', { type: 'text/plain' })
+  Object.defineProperty(file, 'text', { value: () => new Promise<string>((resolve) => { resolveFile = resolve }) })
+  await attachBrief(file)
+  await act(async () => resolvePreview(briefPreview()))
+  expect(onChange).toHaveBeenLastCalledWith(null)
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(ticket, '44')
+    ticket.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(onChange).toHaveBeenLastCalledWith(null)
+  await act(async () => resolveFile('File brief'))
+  expect(onChange).toHaveBeenLastCalledWith({ source: 'brief', token: 't', vars: { brief: 'File brief', ticket: '44' } })
+})
+
+it.each(['unreadable', 'binary'])('a pending %s file restores the valid choice without changing the draft', async (kind) => {
+  const { onChange } = await chooseBrief()
+  const previous = onChange.mock.calls.at(-1)![0]
+  let resolve!: (text: string) => void
+  let reject!: (error: Error) => void
+  const file = new File(['text'], 'brief.txt', { type: 'text/plain' })
+  Object.defineProperty(file, 'text', { value: () => new Promise<string>((done, fail) => { resolve = done; reject = fail }) })
+  await attachBrief(file)
+  expect(onChange).toHaveBeenLastCalledWith(null)
+  await act(async () => {
+    if (kind === 'unreadable') reject(new Error('unreadable'))
+    else resolve('binary\0text')
+  })
+  expect(container.querySelector('textarea')?.value).toBe('Existing draft')
+  expect(onChange).toHaveBeenLastCalledWith(previous)
+})

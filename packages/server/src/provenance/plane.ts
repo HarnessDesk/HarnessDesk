@@ -8,6 +8,7 @@ import type {
 
 import type { EvidencePlane } from '../evidence/plane.js'
 import { foldSeats } from '../evidence/records.js'
+import { sameCanonicalPath } from '../path-identity.js'
 import { exportProvenance, importProvenance } from './backup.js'
 import { admitProject, checkoutRoot, gitReader, oid, type GitReader, type RepoHandle } from './git.js'
 import { captureHealth } from './health.js'
@@ -469,7 +470,7 @@ export class ProvenancePlane {
     const state = this.#registered(root)
     if (!id || id.length > 200 || /[\x00-\x1f\x7f]/.test(id)) throw new Error('Expected a Seat id.')
     const seat = this.#port.evidence.seats.byId(id)
-    if (!seat || seat.checkout.project !== state.project) {
+    if (!seat || !sameCanonicalPath(seat.checkout.project, state.project)) {
       return { seat: null, session: null, unavailable: 'This Seat record is unavailable in this project.' }
     }
     if (seat.restored) return { seat, session: null, unavailable: 'This Seat record came from another backup.' }

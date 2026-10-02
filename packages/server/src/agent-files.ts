@@ -153,7 +153,7 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
  * real file the same way a genuine swap should be refused. Elsewhere than
  * macOS this is `0`: the last-step `O_NOFOLLOW` plus the
  * `fstat`-against-classification identity check below still hold there, and
- * the desk ships and runs its CI on macOS only.
+ * the checked ancestor walk in `openNoFollow` still refuses planted links.
  */
 const NOFOLLOW_ANY = process.platform === 'darwin' ? 0x20000000 : 0
 
@@ -167,8 +167,25 @@ const NOFOLLOW_ANY = process.platform === 'darwin' ? 0x20000000 : 0
  * different moment — one while a link was still there to refuse, the other
  * once it was gone again.
  */
-const openNoFollow = (path: string, flags: number, mode?: number) =>
-  open(path, flags | (NOFOLLOW_ANY || constants.O_NOFOLLOW), mode)
+const openNoFollow = async (path: string, flags: number, mode?: number) => {
+  if (!NOFOLLOW_ANY) {
+    // Callers supply canonical-root-plus-joins paths. Inspect every ancestor
+    // again at the content open, including one swapped after classification.
+    // This enforces the static-tree boundary; Node cannot close a same-user
+    // path-swap race between this walk and open on Linux.
+    const ancestors: string[] = []
+    for (let at = dirname(path); ; at = dirname(at)) {
+      ancestors.push(at)
+      if (dirname(at) === at) break
+    }
+    for (const ancestor of ancestors.reverse()) {
+      const info = await lstat(ancestor)
+      if (info.isSymbolicLink()) throw Object.assign(new Error(`${ancestor} was replaced by a link.`), { code: 'ELOOP' })
+      if (!info.isDirectory()) throw Object.assign(new Error(`${ancestor} is not a folder.`), { code: 'ENOTDIR' })
+    }
+  }
+  return open(path, flags | (NOFOLLOW_ANY || constants.O_NOFOLLOW), mode)
+}
 
 /**
  * Creates text under `writeAgentFolder`'s canonical temporary path, with
