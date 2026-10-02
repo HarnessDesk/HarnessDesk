@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
+import fs from 'node:fs'
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -207,6 +209,29 @@ test('Node install prefixes are safe read roots only when they stay outside unre
 
 test('the current Node install prefix passes its real-home safety check', () => {
   assert.doesNotThrow(() => nodeInstallPrefix())
+})
+
+test('sandbox preparation refuses an unsafe Node prefix without writing a profile or exposing a path', async (t) => {
+  if (process.platform !== 'darwin') return t.skip('macOS only')
+  const root = await mkdtemp('/tmp/hd-measure-unsafe-node-')
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const fixture = await createFixture(root)
+  const realpath = fs.realpathSync
+  const mock = t.mock.method(fs, 'realpathSync', (path, ...args) => path === process.execPath
+    ? '/Volumes/Fixture/node/bin/node'
+    : realpath(path, ...args))
+  syncBuiltinESMExports()
+  t.after(() => {
+    mock.mock.restore()
+    syncBuiltinESMExports()
+  })
+
+  assert.equal(await prepareSandbox(fixture), false)
+  assert.equal(fixture.isolation.reason, 'cannot isolate: the Node install directory is not a safe read root')
+  assert.doesNotMatch(fixture.isolation.reason, /[/\\]/)
+  assert.equal(fixture.isolation.available, false)
+  assert.equal(fixture.isolation.preflightPassed, false)
+  assert.equal(existsSync(fixture.isolation.profilePath), false)
 })
 
 test('a Node prefix in the real home cannot be checked against the synthetic canary home', () => {
