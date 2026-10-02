@@ -632,7 +632,8 @@ export class CodexSession implements AgentSession {
    *
    * With the verb the thread's history takes (`undoTurns`): `thread/rollback`
    * is refused a paginated thread — every thread Codex has started since
-   * 0.151.0 — after a deprecation notice, so Undo failed there under two toasts.
+   * 0.151.0 — and removed in 0.160.0, so newer Codex versions cannot undo a
+   * legacy thread either.
    */
   async rollback(turns: number): Promise<void> {
     await undoTurns(this.deps.server, this.deps.thread, turns)

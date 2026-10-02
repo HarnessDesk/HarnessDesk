@@ -1,5 +1,5 @@
 {
-  "codexCliVersion": "0.155.0",
+  "codexCliVersion": "0.160.0",
   "generatedFrom": "codex app-server generate-ts --experimental",
-  "fileCount": 861
+  "fileCount": 875
 }

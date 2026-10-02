@@ -104,6 +104,7 @@ const AvatarStack = ({
              be relied on to read. */
           role="img"
           aria-label={member.name}
+          data-shape={shape}
           className={cn(box, corner, 'border border-(--hd-card) bg-(--hd-card)')}
         >
           {/* The root carries the name, so the image must not repeat it. */}
@@ -122,6 +123,7 @@ const AvatarStack = ({
       ))}
       {overflow > 0 && (
         <span
+          data-shape={shape}
           title={members
             .slice(max)
             .map((member) => member.name)

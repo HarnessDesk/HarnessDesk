@@ -8,9 +8,10 @@
  * it is interrupting, so severity is carried by the icon alone, and weight by
  * whether the card goes away on its own.
  *
- * Everything beside the text sits on the card's centre line. The icon, the
- * actions, and the dismiss are all one thing each; only the text column has a
- * top and a bottom, so it is the thing the rest align to, not the title.
+ * One-line copy shares its centre with the lead and controls. When copy wraps,
+ * the lead and the dismiss follow the first line (a trailing control reads
+ * against the title, never the wrapping block) while the actions, a block of
+ * controls of their own, stay centred on the card.
  */
 
 /* Toasts keep to the top-right corner, under the header. The bottom-right is
@@ -31,9 +32,7 @@
   width: min(400px, calc(100vw - 32px));
 }
 
-/* The room the card is given. Whether its actions fit beside its words is a
-   question about the card's own width, which the card cannot ask of itself —
-   so it is asked of this, a box exactly as wide as the card. */
+/* The card stays inside the reading column. */
 .frame {
   container: hd-banner / inline-size;
   width: min(var(--hd-column), 100%);
@@ -41,12 +40,6 @@
 
 .banner {
   display: flex;
-  /* The icon and the dismiss are centred on the title's own first line
-     (below), not on the card's whole height, which put both 12px low the
-     moment a description wrapped to a second line. The actions row keeps
-     the card's centre — it is its own block of controls, not a lead or a
-     trailing glyph reading against the title. */
-  align-items: flex-start; /* desk: center → flex-start, the icon and dismiss carry their own nudge onto the title's line instead */
   gap: var(--hd-space-4); /* desk: canonical One UI System scale */
   width: min(var(--hd-column), 100%);
   padding: var(--hd-space-4) var(--hd-space-4) var(--hd-space-4) var(--hd-space-5); /* desk: canonical One UI System scale */
@@ -58,6 +51,10 @@
   color: var(--hd-foreground);
   text-align: left;
   animation: enter var(--hd-duration-enter) var(--hd-ease-out); /* desk: 0.16s on the symmetric curve → the enter token and the arrival curve */
+}
+
+.banner[data-slot='alert'] {
+  align-items: center; /* desk: flex-start → center so one-line copy and controls share a midpoint */
 }
 
 @keyframes enter {
@@ -91,12 +88,13 @@
   flex: none;
   display: inline-grid;
   place-items: center;
+  align-self: center; /* desk: icon centres with one line; wrapped copy overrides to its first line */
+  height: var(--hd-line);
   color: var(--hd-muted-foreground);
-  /* The icon is smaller than the title's line, so centring it on the card
-     (the old `align-items: center`) put it 1–2px high once the card grew a
-     second line; this drops it back onto the title's own centre. 17px is
-     the glyph the tone icons render at (`DEFAULT_ICON`, above). */
-  margin-top: calc((var(--hd-line) - 17px) / 2);
+}
+
+.banner[data-wrapped] .icon {
+  align-self: flex-start; /* desk: a wrapped banner lead stays with its first line */
 }
 
 .banner[data-tone='info'] .icon {
@@ -114,7 +112,13 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  justify-content: center;
+  min-height: var(--hd-btn-h);
   gap: 2px;
+}
+
+.banner[data-compact] .text {
+  min-height: var(--hd-icon-target);
 }
 
 .title {
@@ -150,8 +154,7 @@
   align-items: center;
   gap: 8px;
   padding-left: 10px;
-  /* Its own block of controls, not a lead reading against the title — it
-     keeps the card's centre rather than the icon/dismiss's first-line rule. */
+  /* Its own block of controls keeps the card's centre. */
   align-self: center;
 }
 
@@ -201,14 +204,20 @@
   border-radius: 50%;
   background: none;
   color: var(--hd-muted-foreground);
-  /* Its hit target is taller than the title's line, so pulling the whole
-     button up by half the difference lands its own centre — and the glyph
-     inside it — on the title's centre, the way a smaller lead is pushed
-     down onto the same line. `--hd-btn-h-sm` rather than a literal 28: a
-     foundation is free to move it (Studio's comfortable density takes it to
-     34), and a literal here would silently stop matching the box the `size`
-     prop actually draws. */
+}
+
+/* Wrapped copy: the hit target is taller than the title's line, so it hangs
+   from the top and is pulled up by half the difference, which lands its own
+   centre — and the glyph inside it — on the title's first line. The compact
+   card's dismiss is `size="icon-xs"`, whose box is `--hd-icon-target`; a
+   foundation may move either token, so neither is a literal here. */
+.banner[data-wrapped] .dismiss {
+  align-self: flex-start; /* desk: center → flex-start, wrapped copy puts the dismiss on its first line */
   margin-top: calc((var(--hd-line) - var(--hd-btn-h-sm)) / 2);
+}
+
+.banner[data-wrapped][data-compact] .dismiss {
+  margin-top: calc((var(--hd-line) - var(--hd-icon-target)) / 2);
 }
 
 .dismiss:hover {
@@ -216,20 +225,9 @@
   color: var(--hd-foreground);
 }
 
-.banner[data-compact] .dismiss {
-  /* The compact card's dismiss is `size="icon-xs"` (Banner.tsx), whose box is
-     `--hd-icon-target` — the same token, not a second literal for the same
-     number. */
-  margin-top: calc((var(--hd-line) - var(--hd-icon-target)) / 2);
-}
-
-/* Too narrow for the words and the actions side by side, the actions take a
-   line of their own under the words, at the end where they always sit —
-   rather than the words going down to a letter a line beside them, which is
-   what a phone's width got. The icon, the words and the dismiss keep the one
-   centre line. A toast keeps its single row: it carries one line and at most
-   one short action, and its stack is never wider than this anyway. */
-@container hd-banner (max-width: 600px) {
+/* Too narrow for copy and actions side by side: fold the actions below the
+   copy, while the lead keeps following wrapped copy's first line. */
+@container hd-banner (max-width: 400px) {
   .banner:not([data-compact]) {
     flex-wrap: wrap;
     row-gap: var(--hd-space-3);

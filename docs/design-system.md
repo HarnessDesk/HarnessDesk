@@ -213,6 +213,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-rail-inset` | `8px` |
 | `--hd-bar-ink` | `calc(8px + 8px + 1px)` |
 | `--hd-column` | `736px` |
+| `--hd-popover-width-wide` | `320px` |
 | `--hd-fade-edge` | `16px` |
 | `--hd-fade` | `linear-gradient(to right, #000 calc(100% - 16px), transparent)` |
 | `--hd-composer-min` | `44px` |

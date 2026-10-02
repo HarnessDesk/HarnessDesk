@@ -618,14 +618,13 @@ export const AccountFooter = ({
     <Bar rule="top" ref={accountRef}>
       <Popover
         title={here ? `New sessions run as ${nextAs}` : 'Accounts and settings'}
-        /* Opens upward from the footer and stays inside the sidebar, the row's
-           own width: the menu belongs to this row, not to the transcript it
-           would otherwise be laid over. */
+        /* Opens upward from the footer. Its width belongs to the menu so a
+           narrow sidebar does not fold the account and usage rows. */
         side="top"
         sideAlign="start"
         sideOffset={6}
         fullWidth
-        panelWidth="trigger"
+        panelWidth="wide"
         triggerClassName={buttonVariants({ variant: 'navigation', size: 'navigation', className: styles.accountRow })}
         label={accountTrigger}
         onOpenChange={(next) => {

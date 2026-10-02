@@ -13,6 +13,7 @@ import { ItemView } from '../../components/Items'
 import { Markdown } from '../../components/Markdown'
 import { PublicationCard } from '../../components/Publication'
 import { QuestionWaitSection } from '../../components/SettingsQuestionWait'
+import { AccountFooter, Sidebar } from '../../components/Sidebar'
 import { Mount } from '../../preview/harness'
 import { BOARD_TOOL_FRAMES, boardToolFrame } from '../../preview/approval-fixture'
 import { StoreProvider } from '../../state/context'
@@ -312,9 +313,33 @@ const SidebarBoard = () => (
       </div>
       <Separator />
       <div className="flex shrink-0 flex-col gap-(--hd-space-2) p-(--hd-space-2)">
-        <SidebarMenu>
-          <SidebarMenuItem><SidebarMenuButton icon={<UserIcon size={16} />} label="Jane Doe" /></SidebarMenuItem>
-        </SidebarMenu>
+        <div
+          data-catalog-case="seat-menu-width"
+          className="w-[calc(var(--sidebar-width)-var(--hd-space-16)-var(--hd-space-4))]"
+        >
+          <Mount>
+            <AccountFooter onOpenSettings={() => {}} onOpenUsage={() => {}} onSignIn={() => {}} />
+          </Mount>
+        </div>
+      </div>
+    </div>
+    <div className="grid gap-(--hd-space-2)">
+      <Text role="navigation">Real sidebar menus at a narrow column width</Text>
+      <div
+        data-catalog-case="sidebar-menu-widths"
+        className="h-[calc(var(--sidebar-width)*2)] w-[calc(var(--sidebar-width)-var(--hd-space-16)-var(--hd-space-4))] overflow-hidden rounded-(--hd-radius) border border-sidebar-border bg-sidebar text-sidebar-foreground"
+      >
+        <Mount>
+          <Sidebar
+            onOpenSettings={() => {}}
+            onOpenPlugins={() => {}}
+            onOpenAgents={() => {}}
+            onOpenUsage={() => {}}
+            onBrowseFolders={() => {}}
+            onSignIn={() => {}}
+            onSearch={() => {}}
+          />
+        </Mount>
       </div>
     </div>
   </div>
@@ -787,7 +812,7 @@ const NOTICE_CARD: NoticeMessage[] = [
   { id: 'offer', title: 'Skills and servers to share', body: 'Your other agents have some this machine could use. Nothing is copied until you confirm.', action: { label: 'Review in Library', onSelect: () => {} } },
 ]
 const NOTICE_STRIP: NoticeMessage[] = [
-  { id: 'pace', tone: 'warning', title: 'Claude Code is on course to run out in 51m.', action: { label: 'Switch agent', onSelect: () => {} } },
+  { id: 'pace', tone: 'warning', title: 'Alpha can continue.', body: 'Continue when ready.', action: { label: 'Continue with Alpha', onSelect: () => {} } },
   { id: 'signin', tone: 'danger', title: 'Cursor is not signed in.', action: { label: 'Sign in', onSelect: () => {} } },
 ]
 const NOTICE_STRIP_MANY: NoticeMessage[] = [
@@ -832,8 +857,17 @@ const ChecklistBoard = () => (
 const NOTICE_ASK: NoticeMessage = {
   id: 'ask',
   tone: 'info',
-  title: 'Keep the old retry count, or raise it to five?',
-  body: 'Five covers the documented flaps; three matches the other clients.',
+  title: 'Alpha needs your decision.',
+  body: 'Choose how Alpha retries after the failed check.',
+  action: { label: 'Continue with Alpha', onSelect: () => {} },
+}
+
+const NOTICE_LONG_PATH: NoticeMessage = {
+  id: 'long-path',
+  tone: 'warning',
+  title: 'Alpha can continue.',
+  body: `https://example.com/${'unbreakablepathsegment'.repeat(8)}`,
+  action: { label: 'Continue with Alpha', onSelect: () => {} },
 }
 
 const NOTICE_COMPOSER: NoticeMessage = {
@@ -862,9 +896,29 @@ const NoticesBoard = () => {
           <NoticeCard messages={NOTICE_CARD} onDismiss={() => {}} />
         </div>
       </Case>
+      <Case label="card: long path wraps beside its controls">
+        <div style={{ width: 'calc(var(--hd-space-16) * 3.5)' }}>
+          <NoticeCard messages={[NOTICE_LONG_PATH]} onDismiss={() => {}} />
+        </div>
+      </Case>
       <Case label="card: dismissed twice before — the × offers Stop showing this">
         <div style={{ width: 'calc(var(--hd-space-16) * 3.5)' }}>
           <NoticeCard messages={NOTICE_CARD.slice(1)} onDismiss={() => {}} onMute={() => () => {}} />
+        </div>
+      </Case>
+      <Case label="composer: one line with an action and dismiss">
+        <div style={{ width: 'min(var(--hd-column), 100%)' }}>
+          <ComposerNotice message={NOTICE_STRIP[0]!} onDismiss={() => {}} />
+        </div>
+      </Case>
+      <Case label="composer: two lines with an action and dismiss">
+        <div style={{ width: 'min(var(--hd-column), 100%)' }}>
+          <ComposerNotice message={NOTICE_ASK} onDismiss={() => {}} />
+        </div>
+      </Case>
+      <Case label="composer: long path wraps before its action and dismiss">
+        <div style={{ width: 'calc(var(--hd-space-16) * 5)' }}>
+          <ComposerNotice message={NOTICE_LONG_PATH} onDismiss={() => {}} />
         </div>
       </Case>
       <Case label="composer: a standing condition, in the outlet for its visible conversation">
@@ -977,6 +1031,25 @@ const BannerBoard = () => (
           <ChangeStats added={12} removed={3} className="ml-auto" />
         </section>
       </Card>
+      <Banner tone="warning" title="Alpha can continue." actions={<BannerAction onClick={() => {}}>Continue with Alpha</BannerAction>} onDismiss={() => {}} />
+      <div style={{ width: 'calc(var(--hd-space-16) * 5)' }}>
+        <Banner
+          tone="warning"
+          title="Alpha can continue."
+          actions={<BannerAction onClick={() => {}}>Continue with Alpha</BannerAction>}
+          onDismiss={() => {}}
+        >
+          https://example.com/{'unbreakablepathsegment'.repeat(8)}
+        </Banner>
+      </div>
+      <Banner
+        tone="warning"
+        title="Alpha needs your decision."
+        actions={<BannerAction onClick={() => {}}>Continue with Alpha</BannerAction>}
+        onDismiss={() => {}}
+      >
+        Choose how Alpha retries after the failed check.
+      </Banner>
       <Banner tone="neutral" title="A newer version of the agent is available." onDismiss={() => {}}>
         1.4.2 is installed; 1.5.0 adds the thing you asked about.
       </Banner>

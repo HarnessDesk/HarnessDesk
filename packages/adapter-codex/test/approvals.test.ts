@@ -252,6 +252,7 @@ test('a user-verification elicitation (0.155.0) is cancelled and said, never dra
       params: {
         ...from,
         mode: 'openai/userVerification',
+        _meta: null,
         title: 'Confirm the transfer',
         description: 'Approve it with the key on this device.',
         challenge: 'c2lnbi1tZQ',

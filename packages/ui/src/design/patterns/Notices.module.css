@@ -29,7 +29,7 @@
 }
 
 /* An Agent's face in the tile takes the shape chosen for faces, at either size. */
-.tile[data-face] {
+.tile[data-shape='face'] {
   border-radius: var(--hd-face-radius);
 }
 
@@ -115,8 +115,15 @@
 }
 
 .cardBody {
+  min-width: 0;
+  overflow-wrap: anywhere;
   margin: 0;
   color: var(--hd-muted-foreground);
+}
+
+.card [data-part='notice-title'] {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* The one thing to do, under the words it answers. */
@@ -182,7 +189,7 @@
 
 .composer {
   display: flex;
-  align-items: flex-start; /* desk: center → flex-start, the wrapped notice lead sits on its first line */
+  align-items: center; /* desk: flex-start → center so a one-line notice shares the controls' midpoint */
   gap: var(--hd-space-2-5);
   min-height: var(--hd-space-10);
   padding: var(--hd-space-1-5) var(--hd-space-1-5) var(--hd-space-1-5) var(--hd-space-2);
@@ -197,6 +204,24 @@
   flex: 1;
   min-width: 0;
   text-wrap: pretty;
+}
+
+.composer .line {
+  display: flex;
+  align-items: center;
+  min-height: var(--hd-btn-h-sm);
+}
+
+.lineText {
+  min-width: 0;
+}
+
+.composer .lineText {
+  overflow-wrap: anywhere;
+}
+
+.composer[data-wrapped] > [data-slot='notice-lead'] {
+  align-self: flex-start; /* desk: a wrapped notice lead stays with its first line */
 }
 
 .lineTitle {

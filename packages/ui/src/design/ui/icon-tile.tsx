@@ -82,6 +82,10 @@ const IconTile = ({ className, size, shape, tone, tint, color, style, ...props }
     )}
     style={color ? ({ ...style, '--tile-color': color } as React.CSSProperties) : style}
     {...props}
+    /* Declared, so the faces rule (`e2e/ui-system/faces.spec.ts`) can find
+       every place someone is drawn without guessing from a class. After the
+       spread, so a caller's attribute cannot hide a face from it. */
+    data-shape={shape ?? 'square'}
   />
 )
 
