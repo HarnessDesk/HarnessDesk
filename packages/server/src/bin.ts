@@ -4,6 +4,8 @@ import { dirname, resolve } from 'node:path'
 
 import { createDefaultHost, loadBuiltinPlugins } from './bootstrap.js'
 import { recordCrash } from './crash.js'
+import { openClientDoor } from './client-door.js'
+import { defaultStateDir } from './state.js'
 import { serve } from './server.js'
 
 /**
@@ -51,10 +53,16 @@ const running = await serve({
   uiRoot,
 })
 
+const clientDoor = await openClientDoor({
+  host, logger, home: defaultStateDir(),
+  hostVersion: (await host.call('host/hello', { clientVersion: 'host' })).hostVersion,
+})
+
 process.stdout.write(`\nHarnessDesk host ready\n  ${running.url}/?token=${running.token}\n\n`)
 
 const shutdown = async (signal: string): Promise<void> => {
   logger.info('shutting down', { signal })
+  await clientDoor?.close()
   await running.close()
   await host.dispose()
   await extensions.dispose()
