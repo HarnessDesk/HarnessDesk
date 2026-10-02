@@ -42,8 +42,16 @@ const STATE = tempDir('cursor-acp-idx-')
  */
 const CURSOR_HOME = tempDir('cursor-acp-home-')
 
-const make = (): AcpRuntime =>
+// The bridge also discovers chats and skills relative to HOME, independently
+// of CURSOR_CONFIG_DIR. Keep both roots inside the test's synthetic home.
+const isolatedRuntime = (config: ConstructorParameters<typeof AcpRuntime>[0]): AcpRuntime =>
   new AcpRuntime({
+    ...config,
+    env: { HOME: CURSOR_HOME, CURSOR_CONFIG_DIR: CURSOR_HOME, ...config.env },
+  })
+
+const make = (): AcpRuntime =>
+  isolatedRuntime({
     id: 'cursor',
     name: 'Cursor Agent',
     command: process.execPath,
@@ -67,7 +75,7 @@ describeAdapterConformance('cursor-acp', {
  */
 test('the tool server is accepted through a generated plugin directory', async () => {
   const reasons: string[] = []
-  const runtime = new AcpRuntime({
+  const runtime = isolatedRuntime({
     id: 'cursor',
     name: 'Cursor Agent',
     command: process.execPath,
@@ -545,12 +553,12 @@ test('a Cursor conversation survives the bridge process', async () => {
   const { mkdtempSync: mkTemp, rmSync } = await import('node:fs')
   const dir = mkTemp(join(tmpdir(), 'cursor-acp-state-'))
   const withState = (): AcpRuntime =>
-    new AcpRuntime({
+    isolatedRuntime({
       id: 'cursor',
       name: 'Cursor Agent',
       command: process.execPath,
       args: [BRIDGE],
-      env: { CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: dir },
+      env: { CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: dir, CURSOR_CONFIG_DIR: CURSOR_HOME },
     })
 
   const first = withState()
@@ -671,7 +679,7 @@ test('an envelope is what wrapContext writes, so any other whitespace before `so
 test('a conversation is named through a turn: by its block\'s label, or by the next turn when the block has none', async () => {
   // Round 3 of #167: titleOf and previewFor were tested alone, never through a turn into sessions.json.
   const dir = tempDir('cursor-acp-preview-')
-  const runtime = new AcpRuntime({
+  const runtime = isolatedRuntime({
     id: 'cursor',
     name: 'Cursor Agent',
     command: process.execPath,
@@ -710,7 +718,7 @@ test('a conversation is named through a turn: by its block\'s label, or by the n
   }
   // The list a desk reads after a restart: conversations not open in this
   // process are the bridge's own session/list, where the name is read.
-  const later = new AcpRuntime({
+  const later = isolatedRuntime({
     id: 'cursor',
     name: 'Cursor Agent',
     command: process.execPath,
@@ -742,7 +750,7 @@ test('the list preserves unmarked context lookalikes and <context- as stored wor
       ],
     }),
   )
-  const runtime = new AcpRuntime({
+  const runtime = isolatedRuntime({
     id: 'cursor',
     name: 'Cursor Agent',
     command: process.execPath,
@@ -766,7 +774,7 @@ test('the model list ages out, so a long-lived bridge sees models Cursor adds la
   // TTL 0: every session/new re-asks; the extra-models file is what Cursor
   // "added" between the two asks.
   const extra = join(tempDir('cursor-acp-extra-'), 'models.txt')
-  const runtime = new AcpRuntime({
+  const runtime = isolatedRuntime({
     id: 'cursor',
     name: 'Cursor Agent',
     command: process.execPath,
@@ -806,7 +814,7 @@ test('a family is named without the window its flat labels carry', async () => {
     'orb-2-high - Orb 2 1M\norb-2-high-thinking - Orb 2 1M Thinking\norb-2-low - Orb 2 1M Low\n' +
       'spark-3 - Spark 3 200K\nzed-4k-high - Zed-4K High\n',
   )
-  const runtime = new AcpRuntime({
+  const runtime = isolatedRuntime({
     id: 'cursor',
     name: 'Cursor Agent',
     command: process.execPath,
@@ -844,7 +852,13 @@ test('a family is named without the window its flat labels carry', async () => {
 test('a conversation Cursor has no record of is refused as an unknown id, not an internal error', async () => {
   const child = spawn(process.execPath, [BRIDGE], {
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: STATE, CURSOR_CONFIG_DIR: CURSOR_HOME },
+    env: {
+      ...process.env,
+      HOME: CURSOR_HOME,
+      CURSOR_ACP_COMMAND: FAKE,
+      CURSOR_ACP_STATE_DIR: STATE,
+      CURSOR_CONFIG_DIR: CURSOR_HOME,
+    },
   })
   const answers = new Map<number, (message: Record<string, unknown>) => void>()
   createInterface({ input: child.stdout }).on('line', (line) => {
@@ -1027,7 +1041,7 @@ test('a chat started in Cursor is listed under Cursor’s name and resumes from 
   })
   writeChat(home, cwd, 'an-empty-draft', { hasConversation: false, updatedAtMs: Date.now() })
 
-  const runtime = new AcpRuntime({
+  const runtime = isolatedRuntime({
     id: 'cursor',
     name: 'Cursor Agent',
     command: process.execPath,
@@ -1075,7 +1089,7 @@ test('Max mode is offered once Cursor has named the model\'s windows', async () 
   // `--model` slug pins the window it was minted with. So the switch can only
   // be offered for a model the CLI has already written parameters for.
   const home = tempDir('cursor-acp-home-')
-  const runtime = new AcpRuntime({
+  const runtime = isolatedRuntime({
     id: 'cursor',
     name: 'Cursor Agent',
     command: process.execPath,
@@ -1140,7 +1154,7 @@ test('Max mode is offered once Cursor has named the model\'s windows', async () 
  * this was changed — `pong` doubled, `acknowledged and standing by` did not.
  */
 test('a reply shorter than the old length floor is not doubled', async () => {
-  const runtime = new AcpRuntime({
+  const runtime = isolatedRuntime({
     id: 'cursor',
     name: 'Cursor Agent',
     command: process.execPath,
@@ -1165,7 +1179,7 @@ test('a reply shorter than the old length floor is not doubled', async () => {
 })
 
 test('a tool call completed with a null or non-object result does not crash the bridge (#406)', async () => {
-  const runtime = new AcpRuntime({
+  const runtime = isolatedRuntime({
     id: 'cursor',
     name: 'Cursor Agent',
     command: process.execPath,
@@ -1191,7 +1205,7 @@ test('a tool call completed with a null or non-object result does not crash the 
 test('updating config option when model catalog omits auto does not fail (#407)', async () => {
   const extraModelsFile = join(tempDir('cursor-models-'), 'extra-models.txt')
   // When models command produces no 'auto', only named models
-  const runtime = new AcpRuntime({
+  const runtime = isolatedRuntime({
     id: 'cursor',
     name: 'Cursor Agent',
     command: process.execPath,
@@ -1232,7 +1246,7 @@ const spawnsIn = (log: string): string[] =>
 
 test('a CLI that dies before its first word is started again, and the turn completes', async () => {
   const counter = join(tempDir('cursor-acp-flaky-'), 'count')
-  const runtime = new AcpRuntime({
+  const runtime = isolatedRuntime({
     id: 'cursor',
     name: 'Cursor Agent',
     command: process.execPath,
@@ -1254,7 +1268,7 @@ test('a CLI that dies before its first word is started again, and the turn compl
 
 test('a refusal that names the models the account offers is the account\'s answer, and is not retried', async () => {
   const log = join(tempDir('cursor-acp-named-'), 'spawns')
-  const runtime = new AcpRuntime({
+  const runtime = isolatedRuntime({
     id: 'cursor',
     name: 'Cursor Agent',
     command: process.execPath,
@@ -1279,7 +1293,7 @@ test('only a few cursor-agents boot at once; the rest wait for a seat', async ()
   const dir = tempDir('cursor-acp-gate-')
   const hold = join(dir, 'go')
   const log = join(dir, 'spawns')
-  const runtime = new AcpRuntime({
+  const runtime = isolatedRuntime({
     id: 'cursor',
     name: 'Cursor Agent',
     command: process.execPath,
@@ -1332,7 +1346,7 @@ test('a Stop while a turn waits for a start seat ends it, and nothing is spawned
   const dir = tempDir('cursor-acp-stop-gate-')
   const hold = join(dir, 'go')
   const log = join(dir, 'spawns')
-  const runtime = new AcpRuntime({
+  const runtime = isolatedRuntime({
     id: 'cursor',
     name: 'Cursor Agent',
     command: process.execPath,
@@ -1389,7 +1403,7 @@ test('a Stop while a turn waits for a start seat ends it, and nothing is spawned
 test('a Stop during the pause before another attempt ends the turn without another start', async () => {
   const dir = tempDir('cursor-acp-stop-pause-')
   const counter = join(dir, 'count')
-  const runtime = new AcpRuntime({
+  const runtime = isolatedRuntime({
     id: 'cursor',
     name: 'Cursor Agent',
     command: process.execPath,
@@ -1429,7 +1443,7 @@ test('a scratch config that will not go into place is removed, and the turn stil
   // beside it, and the turn goes on with the user's own settings.
   const state = tempDir('cursor-acp-scratch-')
   mkdirSync(join(state, 'cli-config', 'cli-config.json'), { recursive: true })
-  const runtime = new AcpRuntime({
+  const runtime = isolatedRuntime({
     id: 'cursor',
     name: 'Cursor Agent',
     command: process.execPath,
@@ -1459,7 +1473,7 @@ test('a scratch config that will not go into place is removed, and the turn stil
  */
 test('the briefing goes ahead of the first prompt the agent reads, and not again after that', async () => {
   const log = join(tempDir('cursor-acp-briefing-'), 'spawns')
-  const runtime = new AcpRuntime({
+  const runtime = isolatedRuntime({
     id: 'cursor',
     name: 'Cursor Agent',
     command: process.execPath,
@@ -1498,7 +1512,7 @@ test('the briefing goes ahead of the first prompt the agent reads, and not again
 })
 
 test('deleteSession removes temporary artifacts left by tool plugins and image spills', async () => {
-  const runtime = new AcpRuntime({
+  const runtime = isolatedRuntime({
     id: 'cursor',
     name: 'Cursor Agent',
     command: process.execPath,
@@ -1525,7 +1539,7 @@ test('deleteSession removes temporary artifacts left by tool plugins and image s
 })
 
 test('deleteSession rejects traversal session IDs and does not remove outside directories', async () => {
-  const runtime = new AcpRuntime({
+  const runtime = isolatedRuntime({
     id: 'cursor',
     name: 'Cursor Agent',
     command: process.execPath,
@@ -1556,7 +1570,13 @@ test('deleteSession rejects traversal session IDs and does not remove outside di
 test('session/load validates sessionId and refuses path traversal (#413)', async () => {
   const child = spawn(process.execPath, [BRIDGE], {
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: STATE, CURSOR_CONFIG_DIR: CURSOR_HOME },
+    env: {
+      ...process.env,
+      HOME: CURSOR_HOME,
+      CURSOR_ACP_COMMAND: FAKE,
+      CURSOR_ACP_STATE_DIR: STATE,
+      CURSOR_CONFIG_DIR: CURSOR_HOME,
+    },
   })
   const answers = new Map<number, (message: Record<string, unknown>) => void>()
   createInterface({ input: child.stdout }).on('line', (line) => {

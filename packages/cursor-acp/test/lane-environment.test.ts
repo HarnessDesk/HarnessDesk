@@ -103,6 +103,7 @@ test('the actual bridge child gets both environments and re-applies one after re
       command: process.execPath,
       args: [BRIDGE],
       env: {
+        HOME: home,
         CURSOR_ACP_COMMAND: FAKE,
         CURSOR_CONFIG_DIR: join(home, 'config'),
         CURSOR_ACP_STATE_DIR: join(home, 'state'),
