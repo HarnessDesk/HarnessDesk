@@ -24,8 +24,8 @@ export interface ClockTimer {
 
 /**
  * The one shape this module ever schedules a delay through: every settle
- * timer (`#poke`, `#scheduleRescan`) and the retry backoff (`#retry`) go
- * through this rather than calling `setTimeout`/`clearTimeout` directly, so a
+ * timer (`#poke`, `#scheduleRescan`), link reconciliation and retry backoff
+ * goes through this rather than calling `setTimeout`/`clearTimeout` directly, so a
  * test can hold time still while a real burst of filesystem events lands —
  * however unevenly a loaded machine spaces them out — and then move it
  * forward itself, in one step, to settle the burst on its own terms instead
@@ -72,7 +72,9 @@ const realClock: Clock = {
  * its target is watched too: wherever it leads for this machine's roots, and
  * for a project only where the roster's walk keeps it inside. These link
  * watchers live and die with their root, and of two readings of a top level
- * only the later one is applied.
+ * only the later one is applied. A periodic reading reconciles these targets
+ * too: a native unlink/re-link event can be lost, even after the watcher has
+ * worked, and that must not leave the old target watched indefinitely.
  *
  * Deeper links are read but not watched. The roster reads through a link at
  * any depth below a root — a folder linked inside an Agent's folder, an
@@ -104,8 +106,8 @@ export interface AgentWatchOptions {
   readonly watchFn?: WatchFn
   /**
    * Test-only: replaces every `setTimeout`/`clearTimeout` this watch
-   * schedules — both settle timers and the retry backoff. The host never
-   * passes this; it defaults to the real clock.
+   * schedules — settle timers, link reconciliation and retry backoffs. The
+   * host never passes this; it defaults to the real clock.
    */
   readonly clock?: Clock
   /**
@@ -138,6 +140,8 @@ const RETRY_MAX_MS = 5_000
  * name it wants keeps not being there.
  */
 const READY_MS = 100
+/** Top-level links only: recover a missed native retarget without walking the subtree. */
+const LINK_CHECK_MS = 1_000
 
 /** One root the watch follows: whose it is, where it is, and what it must stay inside. */
 interface Follow {
@@ -227,6 +231,8 @@ export class AgentWatch {
    * own.
    */
   readonly #rescanTimers = new Map<string, { readonly scope: string | null; readonly timer: ClockTimer }>()
+  /** Independent of native bursts: a lost event cannot schedule its own recovery. */
+  readonly #linkCheckTimers = new Map<string, { readonly scope: string | null; readonly timer: ClockTimer }>()
   /** A watch that could not be made, waiting on its backoff to retry through `#follow`. */
   readonly #retries = new Map<string, { readonly scope: string | null; readonly timer: ClockTimer }>()
   /**
@@ -250,7 +256,12 @@ export class AgentWatch {
    */
   readonly #runs = new Map<string, { readonly scope: string | null; readonly delay: number }>()
   /** The latest reading of each root's top level; one that finishes after a later one began applies nothing. */
-  readonly #rescans = new Map<string, { readonly scope: string | null; readonly generation: number }>()
+  readonly #rescans = new Map<string, {
+    readonly scope: string | null
+    readonly generation: number
+    /** Last applied view, rather than successfully opened watchers: a failed watch is not a roster change. */
+    readonly targets?: ReadonlyMap<string, string>
+  }>()
   #rescanCount = 0
   #projects: readonly string[] = []
   #disposed = false
@@ -293,6 +304,8 @@ export class AgentWatch {
     this.#timers.clear()
     for (const one of this.#rescanTimers.values()) this.#clock.clearTimeout(one.timer)
     this.#rescanTimers.clear()
+    for (const one of this.#linkCheckTimers.values()) this.#clock.clearTimeout(one.timer)
+    this.#linkCheckTimers.clear()
     for (const one of this.#retries.values()) this.#clock.clearTimeout(one.timer)
     this.#retries.clear()
     for (const one of this.#readyTimers.values()) this.#clock.clearTimeout(one.timer)
@@ -326,6 +339,11 @@ export class AgentWatch {
       if (one.scope !== scope) continue
       this.#clock.clearTimeout(one.timer)
       this.#rescanTimers.delete(key)
+    }
+    for (const [key, one] of [...this.#linkCheckTimers]) {
+      if (one.scope !== scope) continue
+      this.#clock.clearTimeout(one.timer)
+      this.#linkCheckTimers.delete(key)
     }
     for (const [key, one] of [...this.#readyTimers]) {
       if (one.scope !== scope) continue
@@ -383,6 +401,32 @@ export class AgentWatch {
   }
 
   /**
+   * One bounded top-level read per interval, after the previous read finishes.
+   * Native events neither reset this timer nor stop it: proving a listener
+   * worked once does not prove it will report every later unlink/re-link.
+   * The owner's identity prevents a late read from reviving a replaced watch
+   * or a project closed and reopened while the read was pending.
+   */
+  #scheduleLinkCheck(follow: Follow, owner: { readonly close: () => void }): void {
+    const key = keyOf(follow)
+    if (!this.#alive(follow.scope) || this.#watchers.get(key) !== owner) return
+    this.#cancelLinkCheck(key)
+    const timer = this.#clock.setTimeout(() => {
+      this.#linkCheckTimers.delete(key)
+      if (!this.#alive(follow.scope) || this.#watchers.get(key) !== owner) return
+      void this.#rescanLinks(follow, true).then(() => this.#scheduleLinkCheck(follow, owner))
+    }, LINK_CHECK_MS)
+    timer.unref?.()
+    this.#linkCheckTimers.set(key, { scope: follow.scope, timer })
+  }
+
+  #cancelLinkCheck(key: string): void {
+    const pending = this.#linkCheckTimers.get(key)
+    if (pending) this.#clock.clearTimeout(pending.timer)
+    this.#linkCheckTimers.delete(key)
+  }
+
+  /**
    * `noticeIfThere`, run again on a backoff from `delay` (`READY_MS` the
    * first time, doubling, capped at `RETRY_MAX_MS` and repeating there) —
    * see the long comment where this is first called, in `#follow`'s walk-up
@@ -437,6 +481,7 @@ export class AgentWatch {
    * open them again behind this.
    */
   #closeLinks(key: string): void {
+    this.#cancelLinkCheck(key)
     const prefix = linksOf(key)
     for (const [linkKey, one] of [...this.#links]) {
       if (!linkKey.startsWith(prefix)) continue
@@ -511,7 +556,10 @@ export class AgentWatch {
           if (now !== real) this.#refollow(follow)
         })
       })
-      void this.#rescanLinks(follow)
+      const owner = this.#watchers.get(keyOf(follow))
+      void this.#rescanLinks(follow).then(() => {
+        if (owner) this.#scheduleLinkCheck(follow, owner)
+      })
       return
     }
     /* Not there, or leading where the roster will not read — a link a project
@@ -626,6 +674,7 @@ export class AgentWatch {
     this.#watchers.delete(key)
     this.#cancelRetry(key)
     this.#cancelReady(key)
+    this.#cancelLinkCheck(key)
     /* A project closed while this follow's own awaits were pending gets no
        watcher, and any made a moment ago (above) is already closed: every
        await between here and `#follow`'s start can race `watchProjects`
@@ -660,11 +709,11 @@ export class AgentWatch {
    * read — or by the root being followed afresh — applies nothing: the later
    * one's view is the newer.
    */
-  async #rescanLinks(follow: Follow): Promise<void> {
+  async #rescanLinks(follow: Follow, noticeChanges = false): Promise<void> {
     if (!this.#alive(follow.scope)) return
     const key = keyOf(follow)
     const generation = ++this.#rescanCount
-    this.#rescans.set(key, { scope: follow.scope, generation })
+    this.#rescans.set(key, { scope: follow.scope, generation, targets: this.#rescans.get(key)?.targets })
     const wanted = new Map<string, string>()
     const root = await reach(follow.target, follow.within)
     // A root that resolves above its own Agents folder — the project root
@@ -693,6 +742,16 @@ export class AgentWatch {
     // Test-only: see `AgentWatchOptions.onRescan`. The host never sets it.
     await this.#options.onRescan?.(follow)
     if (!this.#alive(follow.scope) || this.#rescans.get(key)?.generation !== generation) return
+    const previous = this.#rescans.get(key)?.targets
+    this.#rescans.set(key, { scope: follow.scope, generation, targets: wanted })
+    // Initial discovery is quiet. Native-triggered scans already have a
+    // notice, and update this same view so a later check cannot repeat it.
+    if (
+      noticeChanges && previous !== undefined &&
+      (previous.size !== wanted.size || [...previous].some(([name, target]) => wanted.get(name) !== target))
+    ) {
+      this.#poke(follow.scope)
+    }
     const prefix = linksOf(key)
     for (const [linkKey, existing] of [...this.#links]) {
       if (!linkKey.startsWith(prefix)) continue
