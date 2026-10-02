@@ -1160,7 +1160,10 @@ it('does not spin on a project that has no board', async () => {
      cascade stops it where it happens and fails this test by name. */
   let reads = 0
   const real = store.getSnapshot.bind(store)
-  const CEILING = 100
+  /* A runaway is thousands, not a hundred. A settled room reads the snapshot
+     about 110 times (the notice hosts register, then measure, before the tree
+     is still); the bound is far enough above that to be a ceiling on a loop. */
+  const CEILING = 200
   ;(store as { getSnapshot: () => unknown }).getSnapshot = () => {
     reads += 1
     if (reads > CEILING) {
@@ -1653,6 +1656,9 @@ it("draws the room's tail — the live line and the composer's notice — as one
   await render(store)
   const line = container.querySelector<HTMLElement>('[data-slot="room-live-line"]')
   const notice = container.querySelector<HTMLElement>('[data-slot="room-composer-notice"]')
+  const tail = container.querySelector('[data-slot="composer-tail"]')
+  expect(tail?.contains(line)).toBe(true)
+  expect(tail?.contains(notice)).toBe(true)
   expect(line?.textContent).toContain('is working')
   expect(notice?.textContent).toContain('is working — that copy waits')
   expect(notice?.getAttribute('role')).toBe('status')
@@ -2116,6 +2122,12 @@ it('draws a pending approval in flow, in the composer’s slot — not a dialog,
   const box = container.querySelector('textarea')
   expect(box, 'the composer stays mounted').not.toBeNull()
   expect(box!.closest('[hidden]'), 'and is hidden while the card holds the slot').not.toBeNull()
+  // The live line is the tail's first line and stays, where it says who is waiting;
+  // the notice about what sending would do goes with the box it describes.
+  const live = container.querySelector('[data-slot="room-live-line"]')
+  expect(live, 'the live line stays mounted').not.toBeNull()
+  expect(live!.closest('[hidden]'), 'and stays visible under the approval').toBeNull()
+  expect(container.querySelector('[data-slot="room-composer-notice"]'), 'the composer notice is not drawn under the approval').toBeNull()
   expect(document.querySelector('[role="dialog"], [role="alertdialog"]')).toBeNull()
   expect(document.querySelector('[data-slot="dialog-overlay"], [data-slot="approval-dialog-scope"]')).toBeNull()
   // The thread above it stays in the accessibility tree, and interactive.

@@ -441,7 +441,7 @@ const composerVisible = (snapshot: AppSnapshot, area: AreaId, mountId: string): 
   if (!areaVisible(workbench, area)) return false
   if (area === 'main') {
     if (snapshot.layout.expanded !== null && snapshot.layout.expanded !== mountId) return false
-    return noticeArea(workbench, snapshot.narrowWindow) === 'main'
+    return noticeArea(workbench, snapshot.windowWidth) === 'main'
   }
   const dock = workbench[area]
   return !dock.collapsed && visibleViews(dock).some((entry) => entry.id === mountId)
@@ -480,7 +480,7 @@ const standingOutlet = (snapshot: AppSnapshot, standing: Standing, mounts: reado
   const place = placeOf(snapshot.noticePolicy, standing)
   if (place === 'composer' && (hasRegistry
     ? standingComposer(mounts, standing.runtime) === null
-    : !focusedComposerVisible(snapshot.workbench, snapshot.narrowWindow))) return 'strip'
+    : !focusedComposerVisible(snapshot.workbench, snapshot.windowWidth))) return 'strip'
   return place
 }
 
@@ -601,13 +601,13 @@ export const ComposerNotices = () => {
     mountId,
     focused,
     visible: layout.visible && (mount ? composerVisible(snapshot, mountArea, mountId) : focused),
-  }), [mountKey, pane?.paneId, mountId, sessionKeyOfPane, roomMembers, runtime.id, mountArea, focused, layout.visible, mount, snapshot.narrowWindow, snapshot.workbench, snapshot.layout.expanded])
+  }), [mountKey, pane?.paneId, mountId, sessionKeyOfPane, roomMembers, runtime.id, mountArea, focused, layout.visible, mount, snapshot.windowWidth, snapshot.workbench, snapshot.layout.expanded])
   useRegisterComposerMount(composerMount)
   const mounts = registry?.mounts ?? []
   const outlet = standing ? standingOutlet(snapshot, standing, mounts, registry !== null) : null
   const selectedStanding = standing && registry
     ? standingComposer(mounts, standing.runtime)?.key === composerMount.key
-    : focused && (standing ? focusedComposerVisible(snapshot.workbench, snapshot.narrowWindow) : false)
+    : focused && (standing ? focusedComposerVisible(snapshot.workbench, snapshot.windowWidth) : false)
   const showStanding = selectedStanding && outlet === 'composer' && standing !== null
   const room = pane?.view.kind === 'room' ? pane.view.room : null
   const members = room !== null ? (snapshot.teams.get(room)?.members ?? []) : null

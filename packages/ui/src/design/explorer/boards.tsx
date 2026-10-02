@@ -21,6 +21,7 @@ import {
   Checklist,
   ChecklistItem,
   ComposerNoticeStack,
+  ComposerTail,
   InboxPanel,
   InboxList,
   NoticeCard,
@@ -47,6 +48,7 @@ import {
   Card,
   ChangeStats,
   AgentCard,
+  MemberName,
   ApprovalCode,
   ApprovalDialog,
   ApprovalMeta,
@@ -97,6 +99,7 @@ import {
   StatePill,
   Spinner,
   Text,
+  TurnWorkLive,
   TextMark,
   Switch,
   SwitchShape,
@@ -766,9 +769,10 @@ const FaceBoard = () => (
     </div>
     </Specimen>
     <p className={styles.rule}>
-      A person is a squared tile; an account is a ring. The tile is the shared avatar primitive — one plate, one
-      hairline — its corner stepping up the radius scale as it grows, and the house mark for any
-      face this build does not ship: the third tile is an id no build has.
+      A person is a face; an account is a ring. A face is square unless the person chose round (the Faces dial
+      above), and its corner follows that choice at every size. The tile is the shared avatar primitive — one
+      plate, one hairline — its corner stepping up as it grows, and the house mark for any face this build
+      does not ship: the third tile is an id no build has.
     </p>
   </>
 )
@@ -866,6 +870,14 @@ const NoticesBoard = () => {
           <ComposerNoticeStack>
             <ComposerNotice message={NOTICE_COMPOSER} onDismiss={() => {}} />
           </ComposerNoticeStack>
+        </div>
+      </Case>
+      <Case label="composer tail: the live line and a state notice are one strip">
+        <div style={{ width: 'min(var(--hd-column), 100%)' }}>
+          <ComposerTail>
+            <TurnWorkLive settled>Alpha is waiting for your approval</TurnWorkLive>
+            <TurnWorkLive settled>Board-only is on: agents cannot message each other. You still can.</TurnWorkLive>
+          </ComposerTail>
         </div>
       </Case>
       <Case label="composer: an Agent asks, and the strip sharing the stack">
@@ -1612,7 +1624,7 @@ const MessageBoard = () => (
         </StoreProvider>
       </div>
     </Case>
-    <Case label="a long sent message — clamped past twelve lines, with the toggle">
+    <Case label="a long sent message — clamped past twelve lines, fading its last line">
       <div className="w-full" data-testid="message-user-long">
         <StoreProvider store={catalogueStore}>
           <ItemView item={CATALOGUE_USER_LONG} root="/workspace" />
@@ -1833,6 +1845,17 @@ export const DialogBoard = () => {
             ))}
           </div>
         </Case>
+        <Case label="member name: a member inside a sentence wears its face and the strong ink">
+          <div className={styles.stack} data-catalog-case="member-name">
+            <span>
+              <MemberName name="Alpha" tint="violet" mark={<PluginIcon size={10} />} /> is working
+            </span>
+            <span>
+              <MemberName name="Alpha" tint="violet" mark={<PluginIcon size={10} />} />,{' '}
+              <MemberName name="Beta" tint="green" mark={<PluginIcon size={10} />} /> are not open; sending opens them too.
+            </span>
+          </div>
+        </Case>
         <Case label="publication card">
           <PublicationCard reference={{
             kind: 'pullRequest', action: 'opened', repo: 'acme/harnessdesk', number: 42,
@@ -1986,7 +2009,8 @@ const ChannelBoard = () => (
     </Case>
 
     <p className={styles.rule}>
-      One density, and the transcript&rsquo;s parts. Each row is a transcript
+      One density, and the transcript&rsquo;s parts. Sender names are semibold; expected delivery
+      stays off the visible header line and is available from the timestamp title and screen-reader text. Each row is a transcript
       item &mdash; a grouped message and a board event are its light register
       &mdash; the face is the room&rsquo;s identity tile on the sender&rsquo;s
       tint, the attribution is one run of facts at the left (name, who it

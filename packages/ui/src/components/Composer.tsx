@@ -190,7 +190,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   const key = useSessionKey()
   const focused = useIsFocusedPane()
   const mount = useMount()
-  const isNoticeHost = mount?.area === 'main' && mainNoticeHost(snapshot.workbench, snapshot.narrowWindow) === mount.id
+  const isNoticeHost = mount?.area === 'main' && mainNoticeHost(snapshot.workbench, snapshot.windowWidth) === mount.id
   const textarea = useRef<HTMLTextAreaElement>(null)
   const filePicker = useRef<HTMLInputElement>(null)
 

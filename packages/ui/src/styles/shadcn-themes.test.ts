@@ -103,3 +103,22 @@ describe('the Corners dial', () => {
     })
   }
 })
+
+describe('the Faces dial', () => {
+  /* Round faces is one pair of tokens and nothing else: an account's ring was
+     already round, and a thing's tile staying square is what keeps a round
+     face reading as someone. A Faces block that reached into the radius
+     ladder would turn every card and control round too. */
+  const block = /body\[data-hd-faces='round'\]\s*\{([^}]*)\}/.exec(themes)?.[1] ?? ''
+  const names = [...block.matchAll(/(--[\w-]+)\s*:/g)].map((hit) => hit[1])
+
+  it('rounds both face sizes and nothing else', () => {
+    expect(names.sort()).toEqual(['--hd-face-radius', '--hd-face-radius-lg'])
+    expect(block).toMatch(/--hd-face-radius:\s*var\(--hd-radius-full\)/)
+  })
+
+  it('defaults to square, on the ladder a mark stands on', () => {
+    expect(tokens).toMatch(/--hd-face-radius:\s*var\(--hd-radius-sm\);/)
+    expect(tokens).toMatch(/--hd-face-radius-lg:\s*var\(--hd-radius\);/)
+  })
+})

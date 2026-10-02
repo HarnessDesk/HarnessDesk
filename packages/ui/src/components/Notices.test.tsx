@@ -174,6 +174,7 @@ const mountNarrowOverlay = (): ReturnType<typeof makeStore> => {
   const session = sessionKey('a' as never, 's1' as never)
   const store = makeStore({
     workbench: narrowOverlayOnFocusedComposer({ kind: 'conversation', session }),
+    windowWidth: 679,
     narrowWindow: true,
     usage: [racing('a')],
   })

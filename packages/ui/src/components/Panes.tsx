@@ -59,7 +59,7 @@ const PaneView = ({ pane }: { pane: PaneNode }) => {
   const snapshot = useSnapshot()
   const titleOf = useViewTitle()
   const focused = snapshot.layout.focused === pane.id
-  const isNoticeHost = mainNoticeHost(snapshot.workbench, snapshot.narrowWindow) === pane.id
+  const isNoticeHost = mainNoticeHost(snapshot.workbench, snapshot.windowWidth) === pane.id
 
   // Focus is tracked, not drawn: a ring around the focused pane was a
   // second thing to read on every screen, and with one conversation at a

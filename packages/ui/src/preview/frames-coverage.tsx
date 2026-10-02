@@ -129,7 +129,9 @@ const noticeLayoutStore = (id: string, options: {
     sessions: new Map([[PREVIEW_SESSION_KEY, active]]),
     ...(options.folderGone ? { foldersGone: new Map([[active.cwd, 'The preview folder is unavailable.']]) } : {}),
   } as never)
-  if (options.narrow) result.setNarrowWindow(true)
+  // Under the window's narrow threshold, and narrower than a right panel needs
+  // beside a readable conversation: the panel covers the main area.
+  if (options.narrow) result.setWindowWidth(679)
   return result
 }
 
