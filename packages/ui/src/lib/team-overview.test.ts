@@ -106,9 +106,46 @@ describe('teamOverview', () => {
     expect(result.seats[1]).toMatchObject({ seat: 'Beta', state: 'idle', card: null })
   })
 
-  it('does not attribute an old block or another runtime\'s block to a seat', () => {
-    for (const signal of [blockedSignal('Alpha', { at: 199 }), blockedSignal('Alpha', { by: { kind: 'agent', runtime: runtimeId('agent-b'), sessionId: 'Alpha', title: 'Alpha' } })]) {
-      const result = teamOverview(input({ seats: [seat('Alpha')], cards: [card(1, { state: 'blocked', blockedBy: 'hand', blockedReason: 'Choose a target' })], signals: [signal] }))
+  it('retains a hand block after asynchronous stop capture updates the card', () => {
+    const result = teamOverview(input({
+      seats: [seat('Alpha')],
+      cards: [card(1, { state: 'blocked', claim: null, blockedBy: 'hand', blockedReason: 'Choose a target', updatedAt: 201, until: 'a'.repeat(40) })],
+      signals: [blockedSignal('Alpha')],
+    }))
+    expect(result.seats[0]).toMatchObject({ seat: 'Alpha', state: 'needs-you', reason: 'Choose a target', card: { id: 1 }, round: null })
+  })
+
+  it.each(['added', 'claimed', 'released', 'unblocked', 'completed', 'abandoned', 'reopened'] as const)(
+    'does not revive a hand block superseded by a %s signal', (signal) => {
+      const result = teamOverview(input({
+        seats: [seat('Alpha')],
+        cards: [card(1, { state: 'blocked', blockedBy: 'hand', blockedReason: 'Choose a target' })],
+        // Lifecycle order is authoritative even when timestamps share a millisecond.
+        signals: [blockedSignal('Alpha'), blockedSignal('Alpha', { id: 'later', signal })],
+      }))
+      expect(result.seats[0]).toMatchObject({ state: 'idle', card: null, reason: null })
+    },
+  )
+
+  it('uses the latest blocker despite later metadata and unrelated or conflict signals', () => {
+    const result = teamOverview(input({
+      seats: [seat('Alpha'), seat('Beta')],
+      cards: [card(1, { state: 'blocked', blockedBy: 'hand', blockedReason: 'Choose a target', updatedAt: 202 })],
+      signals: [blockedSignal('Alpha'), blockedSignal('Beta', { id: 'new-block', at: 201 }),
+        blockedSignal('Alpha', { id: 'other-card', intent: 2, at: 202 }),
+        blockedSignal('Alpha', { id: 'refused-claim', signal: 'conflict', at: 203 })],
+    }))
+    expect(result.seats[0]).toMatchObject({ seat: 'Beta', state: 'needs-you', card: { id: 1 }, reason: 'Choose a target' })
+    expect(result.seats[1]).toMatchObject({ seat: 'Alpha', state: 'idle', card: null })
+  })
+
+  it('does not attribute another runtime\'s block or a later person block to a seat', () => {
+    for (const by of [{ kind: 'agent', runtime: runtimeId('agent-b'), sessionId: 'Alpha', title: 'Alpha' }, { kind: 'user' }] as const) {
+      const result = teamOverview(input({
+        seats: [seat('Alpha')],
+        cards: [card(1, { state: 'blocked', blockedBy: 'hand', blockedReason: 'Choose a target' })],
+        signals: [blockedSignal('Alpha'), blockedSignal('Alpha', { id: 'new-block', by })],
+      }))
       expect(result.seats[0]).toMatchObject({ state: 'idle', card: null })
     }
   })

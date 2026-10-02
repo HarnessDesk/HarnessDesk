@@ -85,6 +85,7 @@ export interface TeamOverviewInput {
   readonly cards: readonly Intent[]
   readonly run: { readonly execution: FlowExecution; readonly startedAt: number } | null
   readonly report: InsightReport | null
+  /** Held channel signals in append order, including card lifecycle transitions. */
   readonly signals?: readonly TeamSignal[]
   /** Runtime facts, including historical Seats no longer in the window's roster. */
   readonly runtimeCapabilities?: ReadonlyMap<string, Pick<RuntimeCapabilities, 'metered'>>
@@ -191,8 +192,12 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
     if (card.claim) return input.seats.find((seat) =>
       seat.record.session.runtime === card.claim?.runtime && seat.record.session.sessionId === card.claim?.sessionId)
     if (card.state === 'blocked' && card.blockedBy === 'hand') {
+      // Stop capture and other metadata writes advance updatedAt without
+      // changing the block. Only a later lifecycle transition supersedes it;
+      // a refused claim's conflict signal does not change card ownership.
       const signal = [...(input.signals ?? [])].reverse().find((one) =>
-        one.intent === card.id && one.signal === 'blocked' && one.at >= card.updatedAt)
+        one.intent === card.id && one.signal !== 'conflict')
+      if (signal && signal.signal !== 'blocked') return undefined
       const actor = signal?.by
       if (actor?.kind === 'agent') return input.seats.find((seat) =>
         seat.record.session.runtime === actor.runtime && seat.record.session.sessionId === actor.sessionId)

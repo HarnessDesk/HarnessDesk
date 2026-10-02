@@ -18,9 +18,11 @@ fact rather than a request for the person.
 
 A person's unanswered card waits only while its own round is open in a
 running or stalled Run. A hand block retains its Seat through the blocking
-agent's channel signal when release clears the claim, or through the Run's
-explicit seat/card journal. Neither a shared role name nor matching session
-ids across runtimes establish ownership.
+agent's latest card lifecycle signal when release clears the claim, or through
+the Run's explicit seat/card journal. A later lifecycle transition supersedes
+the block; stop capture and other metadata updates do not. A refused claim's
+conflict signal leaves ownership unchanged. Neither a shared role name nor
+matching session ids across runtimes establish ownership.
 
 Cost comes from the Seat's own Team-scoped Insight partition, in money only
 for a metered runtime with known rate provenance, otherwise in recorded turns.
