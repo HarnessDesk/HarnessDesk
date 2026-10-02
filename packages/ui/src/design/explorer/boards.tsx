@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 
-import { runtimeId, sessionKey, sessionId, turnId, type AgentItem, type FileChange, type SessionId, type SessionQueue, type Turn } from '@harnessdesk/protocol'
+import { approvalId, runtimeId, sessionKey, sessionId, turnId, type AgentItem, type FileChange, type SessionId, type SessionQueue, type Turn } from '@harnessdesk/protocol'
 
 import { AlertIcon, BranchIcon, BriefIcon, CaretIcon, CheckIcon, CrossIcon, FilterIcon, FolderGoneIcon, FolderIcon, MoreIcon, PinIcon, PlusIcon, PluginIcon, SearchIcon, SettingsIcon, TeamIcon, TerminalIcon, TodoPendingIcon, UsageIcon, UserIcon } from '../../components/Icons'
 import { MessageQueue } from '../../components/MessageQueue'
@@ -218,9 +218,9 @@ const SIDEBAR_CATALOG_STATES = [
   'more-sessions', 'other-projects', 'filtered', 'menu-open', 'folded-state', 'nested-rail',
 ] as const
 const sidebarSnapshot = store.getSnapshot()
-const sidebarNeedApproval = {
-  id: 'sidebar-row-approval',
-  sessionId: 's0',
+const sidebarNeedApproval = (id: string) => ({
+  id: approvalId('sidebar-row-approval'),
+  sessionId: sessionId(id),
   type: 'command',
   kind: 'command',
   command: 'pnpm test',
@@ -232,7 +232,7 @@ const sidebarNeedApproval = {
     { id: 'allow', label: 'Allow', intent: 'approve' },
     { id: 'deny', label: 'Deny', intent: 'deny' },
   ],
-} as const
+} as const)
 const fullSidebarStore = previewStore({
   ...sidebarSnapshot,
   history: sidebarSnapshot.history.map((entry) => entry.id === 's0' && entry.runtime === runtimeId('codex')
@@ -246,7 +246,7 @@ const fullSidebarStore = previewStore({
   },
   approvals: ['s0', 'c1'].map((id) => ({
     key: sessionKey(runtimeId('codex'), id as SessionId),
-    approval: { ...sidebarNeedApproval, sessionId: id },
+    approval: sidebarNeedApproval(id),
   })) as AppSnapshot['approvals'],
   sessions: new Map(sidebarSnapshot.sessions).set(
     sessionKey(runtimeId('codex'), 's0' as SessionId),

@@ -1,6 +1,8 @@
 /* Inline state marks share the row's end column when their full label folds. */
 [data-slot="sidebar-menu-item"] {
   --sidebar-menu-end-rail: var(--hd-sidebar-end-rail);
+  --sidebar-menu-trailing-marks: 0;
+  --sidebar-menu-trailing-actions: 1;
 }
 
 [data-slot="sidebar-group-content"] [data-slot="sidebar-menu-item"] {
