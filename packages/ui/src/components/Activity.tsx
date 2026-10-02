@@ -158,7 +158,11 @@ export const Activity = ({ query, onFoot }: { query: string; onFoot: ReportFoot 
               <PanelRow
                 key={`${row.at}-${index}`}
                 mark={
-                  <IconTile size="sm" shape="face">
+                  /* A row whose agent is known wears that agent's mark, a face. One
+                     whose runtime this window cannot name falls back to the
+                     event's own glyph, which is not someone, so it stays a plain
+                     square tile whatever shape faces are. */
+                  <IconTile size="sm" shape={info ? 'face' : 'square'}>
                     {info ? <RuntimeMark runtime={info} size={12} /> : iconOf(row)}
                   </IconTile>
                 }
