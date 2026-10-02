@@ -54,6 +54,17 @@ test('user message content preserves text and mentions', () => {
   assert.deepEqual(mapped.content[1], { type: 'mention', name: 'README.md', path: '/w/README.md' })
 })
 
+test('a file-backed Codex user image remains visible without a display URL', () => {
+  const mapped = map({
+    type: 'userMessage',
+    id: 'user-file-image',
+    content: [{ type: 'image', fileId: 'file-123' }],
+  } as Message)
+  assert.equal(mapped.type, 'userMessage')
+  if (mapped.type !== 'userMessage') return
+  assert.deepEqual(mapped.content, [{ type: 'text', text: '[image attachment unavailable]' }])
+})
+
 test('peels HarnessDesk context envelopes from the Codex user text', () => {
   const mapped = map({
     type: 'userMessage',
@@ -240,6 +251,19 @@ test('a namespaced functionCallOutput keeps its namespace, and content items map
   if (mapped.type !== 'toolCall') return
   assert.deepEqual(mapped.source, { kind: 'dynamic', namespace: 'harnessdesk' })
   assert.deepEqual(mapped.result, [{ type: 'text', text: 'opened' }])
+})
+
+test('a file-backed functionCallOutput image remains visible without a display URL', () => {
+  const mapped = map({
+    type: 'functionCallOutput',
+    id: 'fco-file-image',
+    name: 'read_image',
+    namespace: null,
+    output: [{ type: 'input_image', file_id: 'file-123' }],
+  } as Parameters<typeof mapItem>[0])
+  assert.equal(mapped.type, 'toolCall')
+  if (mapped.type !== 'toolCall') return
+  assert.deepEqual(mapped.result, [{ type: 'text', text: '[image attachment unavailable]' }])
 })
 
 test('a failed dynamic call shows the reason it came with, and the constant only when it came with none (#241)', () => {

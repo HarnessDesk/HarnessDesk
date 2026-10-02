@@ -126,7 +126,10 @@ const mapUserContent = (input: UserInput): UserContent => {
     case 'text':
       return { type: 'text', text: input.text }
     case 'image':
-      return { type: 'image', url: input.url, detail: input.detail as UserContent extends never ? never : 'low' | 'high' | 'auto' | undefined }
+      if ('url' in input) {
+        return { type: 'image', url: input.url, detail: input.detail as UserContent extends never ? never : 'low' | 'high' | 'auto' | undefined }
+      }
+      return { type: 'text', text: '[image attachment unavailable]' }
     case 'localImage':
       return { type: 'localImage', path: input.path }
     case 'skill':
@@ -314,7 +317,8 @@ const mapFunctionCallOutputContent = (
     case 'input_text':
       return { type: 'text', text: part.text }
     case 'input_image':
-      return { type: 'image', url: part.image_url, mimeType: '' }
+      if ('image_url' in part) return { type: 'image', url: part.image_url, mimeType: '' }
+      return { type: 'text', text: '[image attachment unavailable]' }
     default:
       return { type: 'json', value: part }
   }

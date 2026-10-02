@@ -102,6 +102,7 @@ export const mcpToolCall: ThreadItem = {
   status: 'completed',
   arguments: { scope: 'default' },
   appContext: null,
+  mcpAppUi: null,
   pluginId: 'build-ios-apps@openai-curated-remote',
   readOnlyHint: null,
   result: {
@@ -121,6 +122,7 @@ export const mcpToolCallFailed: ThreadItem = {
   status: 'failed',
   arguments: {},
   appContext: null,
+  mcpAppUi: null,
   pluginId: null,
   readOnlyHint: null,
   result: null,
