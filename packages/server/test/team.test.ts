@@ -4305,6 +4305,30 @@ test("a message's label names its sender's ceiling, and asks the receiver not to
   assert.equal(plain?.text, `Thanks.\n\n${AGENT_MESSAGE_NOTICE}`)
 })
 
+test('room membership compares resolved projects while preserving the saved root', async (t) => {
+  const { team, port, teamPort } = await rig(t)
+  const parent = await mkdtemp(join(tmpdir(), 'harnessdesk-room-membership-link-'))
+  t.after(() => rm(parent, { recursive: true, force: true }))
+  const project = join(parent, 'widgets')
+  const alias = join(parent, 'linked-widgets')
+  const foreign = join(parent, 'other-project')
+  await mkdir(project)
+  await mkdir(foreign)
+  await symlink(project, alias)
+  // The room predates canonical Seat admission; its saved spelling stays put.
+  teamPort.rootOf = async (cwd) => cwd
+  const room = await team.createRoom(alias, 'Linked widgets')
+  const canonical = await realpath(project)
+  port.peers = [peer({ sessionId: 'canonical-seat', cwd: canonical })]
+  await team.joinRoom(room.id, port.peers[0]!.runtime, 'canonical-seat')
+  assert.equal(team.stateFor(room.id).root, alias)
+  assert.deepEqual(team.stateFor(room.id).members, [sessionKey('codex', 'canonical-seat' as never)])
+
+  port.peers.push(peer({ sessionId: 'foreign-seat', cwd: await realpath(foreign) }))
+  await assert.rejects(team.joinRoom(room.id, port.peers[1]!.runtime, 'foreign-seat'), /outside/)
+  assert.equal(team.stateFor(room.id).members.length, 1)
+})
+
 test('wire rooms carry a resolved root for links without changing the saved room', async (t) => {
   const { team, port, dir, teamPort } = await rig(t)
   const parent = await mkdtemp(join(tmpdir(), 'harnessdesk-room-link-'))

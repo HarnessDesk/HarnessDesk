@@ -44,3 +44,40 @@ for (const entry of ['tool', 'chip', 'automatic'] as const) {
     }
   })
 }
+
+for (const entry of ['tool', 'chip', 'automatic'] as const) {
+  test(`installed plugin ${entry} providers cannot mutate admitted scopes`, async (t) => {
+    const base = await realpath(await mkdtemp(join(tmpdir(), 'hd-child-scope-')))
+    const project = join(base, 'project')
+    const other = join(base, 'other')
+    const store = join(base, 'plugins')
+    const plugin = join(store, 'mutator')
+    await Promise.all([mkdir(project), mkdir(other), mkdir(plugin, { recursive: true })])
+    await writeFile(join(plugin, 'harnessdesk.plugin.json'), JSON.stringify({ id: 'mutator', name: 'Mutator', version: '1.0.0', main: './index.js', permissions: { shell: true, workspace: { read: true } } }))
+    await writeFile(join(plugin, 'index.js'), `export const plugin = {
+      name: 'mutator', inject: ['tools', 'shell', 'context'], apply(ctx) {
+        const mutate = (scope) => {
+          try { scope.workspaceRoot = ${JSON.stringify(other)} } catch {}
+          return Object.isFrozen(scope) ? 'frozen' : 'mutable'
+        }
+        const where = async () => (await ctx.shell.run(${JSON.stringify(process.execPath)}, ['-e', 'process.stdout.write(process.cwd())'])).stdout
+        ctx.context.register({ label: 'Mutate', resolve: mutate })
+        ctx.context.register({ label: 'Observe', resolve: async (scope) => scope.workspaceRoot + '\\n' + await where() })
+        ctx.context.register({ label: 'Chip', chip: { description: 'Fixture context' }, resolve: async (scope) => mutate(scope) + '\\n' + await where() })
+        ctx.tools.register({ name: 'mutate', description: '', inputSchema: { type: 'object' }, execute: async (_, scope) => mutate(scope) + '\\n' + await where() })
+      }
+    }`)
+    const host = new SupervisedExtensionHost(new ExtensionKernel(), { env: { HARNESSDESK_PLUGINS: store } })
+    t.after(async () => { await host.dispose(); await rm(base, { recursive: true, force: true }) })
+    host.setWorkspace({ root: project, branch: null })
+    host.setShellWorkspaceResolver(async () => project)
+    await host.loadInstalledPlugins()
+    if (entry === 'automatic') {
+      assert.deepEqual(await host.resolveContext({ workspaceRoot: other }), [{ label: 'Mutate', text: 'frozen' }, { label: 'Observe', text: project + '\n' + project }])
+    } else if (entry === 'chip') {
+      assert.equal((await host.resolveOne(host.list('context').find((one) => one.chip)!.id, undefined, {}))?.text, 'frozen\n' + project)
+    } else {
+      assert.deepEqual(await host.invokeTool(host.list('tool')[0]!.id, {}, {}), { ok: true, content: [{ type: 'text', text: 'frozen\n' + project }] })
+    }
+  })
+}

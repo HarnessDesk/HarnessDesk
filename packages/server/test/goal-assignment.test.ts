@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
 import type { SeatRecord } from '@harnessdesk/protocol'
@@ -27,6 +30,21 @@ const rig = (over: Partial<AssignmentPort> = {}) => {
   }
   return { kept, writes, port, service: new Assignments(port) }
 }
+
+test('a canonical conversation project can be assigned to a Goal saved through an alias', async (t) => {
+  const parent = await mkdtemp(join(tmpdir(), 'hd-assignment-alias-'))
+  t.after(() => rm(parent, { recursive: true, force: true }))
+  const project = join(parent, 'project')
+  const alias = join(parent, 'alias')
+  await mkdir(project)
+  await symlink(project, alias)
+  const { service, writes } = rig({
+    goal: (id) => goal(id, { root: alias, cwd: alias }),
+    known: async () => ({ project: await realpath(project), busy: false }),
+  })
+  assert.equal((await service.assign('g1', 1, session)).board, 'g1')
+  assert.deepEqual(writes, ['g1:1'])
+})
 
 test('concurrent assignments of one conversation keep exactly one Goal Seat', async () => {
   const { kept, writes, service } = rig()

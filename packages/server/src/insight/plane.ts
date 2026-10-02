@@ -10,6 +10,7 @@ import type { MachineSeatingFile } from '../agent-seating-file.js'
 import type { GoalPlane } from '../goals/plane.js'
 import type { Ledger } from '../ledger/index.js'
 import { seatFor, seatWindowOf } from './attribution.js'
+import { sameCanonicalPath } from '../path-identity.js'
 import { pairedCosts } from './compare.js'
 import { sumMeasures } from './measures.js'
 
@@ -117,8 +118,8 @@ export class InsightPlane implements InsightReadApi {
     const generatedAt = this.#now()
     const detail = await this.port.ledger().readInsight(query, { refresh: true })
     if (detail.samples.length === 0 && detail.gaps.length === 0) return emptyReport(query.root, query.from, query.to, generatedAt)
-    const projectGoals = this.port.goals.store.list().map((document) => document.goal).filter((goal) => goal.root === query.root)
-    const projectSeats = this.port.seats().filter((seat) => seat.checkout.project === query.root)
+    const projectGoals = this.port.goals.store.list().map((document) => document.goal).filter((goal) => sameCanonicalPath(goal.root, query.root))
+    const projectSeats = this.port.seats().filter((seat) => sameCanonicalPath(seat.checkout.project, query.root))
     const runtimeSeats = query.runtime === undefined ? projectSeats : projectSeats.filter((seat) => seat.session.runtime === query.runtime)
     const seats = selectedSeatIds ? runtimeSeats.filter((seat) => selectedSeatIds.has(seat.id)) : runtimeSeats
     const runtimeSamples = query.runtime === undefined ? detail.samples : detail.samples.filter((sample) => sample.runtime === query.runtime)
@@ -176,7 +177,7 @@ export class InsightPlane implements InsightReadApi {
     const document = this.port.goals.store.read(id)
     const to = this.#now(); const from = Math.max(0, to - 90 * DAY)
     const receipt = document.receipt
-    const seatIds = new Set(receipt?.seats ?? this.port.seats().filter((seat) => seat.checkout.project === document.goal.root && seat.board === id).map((seat) => seat.id))
+    const seatIds = new Set(receipt?.seats ?? this.port.seats().filter((seat) => sameCanonicalPath(seat.checkout.project, document.goal.root) && seat.board === id).map((seat) => seat.id))
     const report = await this.#usage({ root: document.goal.root, from, to }, seatIds)
     return { ...report, goal: id, receipt: receipt?.id ?? null, goals: [document.goal], seats: report.seats,
       gaps: receipt ? report.gaps : [...report.gaps, 'This Goal is not wrapped; its history is so far, not a receipt.'] }
@@ -187,7 +188,7 @@ export class InsightPlane implements InsightReadApi {
     const projects = this.port.goals.store.list().map((document) => document.goal.root)
     const selectedRoot = root ?? projects[0]
     if (!selectedRoot) return emptyReport(null, from, to, to)
-    const seats = this.port.seats().filter((seat) => seat.agent?.id === agent && seat.agent.origin === origin && seat.checkout.project === selectedRoot)
+    const seats = this.port.seats().filter((seat) => seat.agent?.id === agent && seat.agent.origin === origin && sameCanonicalPath(seat.checkout.project, selectedRoot))
     const report = await this.#usage({ root: selectedRoot, from, to }, new Set(seats.map((seat) => seat.id)))
     return { ...report, seats, gaps: seats.length === 0 ? [...report.gaps, 'No historical Seats were recorded for this Agent.'] : report.gaps }
   }

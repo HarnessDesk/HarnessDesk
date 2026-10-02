@@ -128,7 +128,8 @@ import { CredentialBroker, plainCipher, type CredentialCipher } from './credenti
 import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
 import { canonicalDestination } from './git-worktree.js'
-import { Worktrees, createDetached, managedWorktreePath, openRepositoryRoot, remove as removeWorktree, removeCheckoutsLeftBehind, repositoryOf } from './worktree.js'
+import { canonicalPath } from './path-identity.js'
+import { samePath, Worktrees, createDetached, managedWorktreePath, openRepositoryRoot, remove as removeWorktree, removeCheckoutsLeftBehind, repositoryOf } from './worktree.js'
 import { commitCardWork } from './card-commit.js'
 import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 import { LibraryUsageReader } from './library-usage.js'
@@ -240,6 +241,8 @@ export interface ExtensionHost extends CapabilityRegistry {
  * reported (`CodexSession.setOption`).
  */
 export interface OpenedSeat {
+  /** Host-admitted placement, independent of the requested session directory. */
+  readonly checkout?: { readonly project: string; readonly cwd: string }
   readonly runtime: string
   readonly sessionId: string
   readonly running: SeatRunning
@@ -1661,7 +1664,7 @@ export class Host {
       },
       openLegacySeat: async (input, goal) => {
         const cwd = goal.cwd
-        const opened = await this.#openSeat(input.spec, { cwd, title: input.title, ceiling: ceilingOfPermission(input.permission) })
+        const opened = await this.#openSeat(input.spec, { cwd, project: goal.root, title: input.title, ceiling: ceilingOfPermission(input.permission) })
         try {
           const held = await this.#holdSeat(opened.runtime, opened.sessionId, ceilingOfPermission(input.permission))
           const record = await this.#evidence.seats.opened({
@@ -1672,7 +1675,7 @@ export class Host {
             passedOver: [],
             standing: { kind: 'permission', permission: input.permission },
             ceiling: held.ceiling,
-            cwd,
+            ...(opened.checkout ?? { cwd, project: goal.root }),
             session: { runtime: opened.runtime, sessionId: opened.sessionId },
             board: goal.id,
             role: input.role,
@@ -2154,7 +2157,10 @@ export class Host {
   async start(): Promise<void> {
     this.#goalWriter = await acquireDeskWriter(this.#state.directory)
     await this.#state.load()
-    this.#shellProject = this.#state.state.workspaces[0]?.realPath ?? this.#state.state.workspaces[0]?.path ?? null
+    const shellFolder = this.#state.state.workspaces[0]?.realPath ?? this.#state.state.workspaces[0]?.path
+    // Resolve and re-admit it in #shellWorkspace, when needed; a slow Git
+    // probe must not hold startup while the remembered project is restored.
+    this.#shellProject = shellFolder ?? null
     await this.#laneStore.load()
     // Everything that restores a stored setting runs here, after the file has
     // been read, and never in the constructor. Until it did, a board left
@@ -2884,17 +2890,39 @@ export class Host {
   /** The last project opened by the host, never a runtime-reported session directory. */
   #shellProject: string | null = null
 
+  /** Only person-opened projects admit shell authority; session listings never do. */
+  async #admitShellProject(project: string | null | undefined): Promise<string | undefined> {
+    if (!project || !isAbsolute(project)) return undefined
+    const real = await realpath(project).catch(() => undefined)
+    if (!real) return undefined
+    const wanted = await projectOf(real)
+    for (const entry of this.#state.state.workspaces) {
+      const saved = entry.realPath ?? entry.path
+      if (!isAbsolute(saved)) continue
+      const opened = await realpath(saved).catch(() => undefined)
+      // A replaced open folder cannot authorize its replacement.
+      if (!opened || !samePath(saved, opened)) continue
+      const root = await projectOf(opened)
+      if (samePath(root, wanted)) return root
+    }
+    return undefined
+  }
+
   async #shellWorkspace(scope: ScopeQuery): Promise<string | undefined> {
     const record = scope.runtime && scope.sessionId ? this.registry.get(scope.runtime, scope.sessionId) : undefined
-    // Durable, locally kept Seats restore authority after a host restart; imported Seats cannot.
+    // Durable records are candidates, re-admitted against person-opened projects on every invocation.
     const kept = record && !record.shellCheckout ? this.#evidence.seats.latestKeptOf(record.runtime, record.session.id) : null
-    if (record && kept?.checkout.project) {
-      const cwd = await this.#worktrees.shellRoot(kept.checkout.project, kept.checkout.cwd)
-      record.shellCheckout = { project: kept.checkout.project, cwd }
+    const checkout = record?.shellCheckout ?? kept?.checkout
+    const admitted = await this.#admitShellProject(checkout?.project)
+    const project = admitted ?? await this.#admitShellProject(this.#shellProject)
+    if (!project) {
+      if (this.#shellProject) throw new Error('The project checkout changed or is no longer open. Open it again before running shell commands.')
+      return undefined
     }
-    const checkout = record?.shellCheckout
-    const project = checkout?.project ?? this.#shellProject
-    return project ? this.#worktrees.shellRoot(project, checkout?.cwd) : undefined
+    // A foreign or stale project loses its cwd as well; it cannot authorize a lane of the fallback project.
+    const cwd = await this.#worktrees.shellRoot(project, admitted ? checkout?.cwd : undefined)
+    if (record) record.shellCheckout = { project, cwd }
+    return cwd
   }
 
   /** The folder a live session works in, straight off the registry; null when that session is not live. */
@@ -4249,7 +4277,7 @@ export class Host {
     const git = await gitService.status(described.path)
     // Plugins scope their filesystem access to the open workspace, so the
     // kernel has to learn about the change at the same moment the host does.
-    this.#shellProject = realPath
+    this.#shellProject = await projectOf(realPath)
     this.#extensions?.setWorkspace({ root: described.path, branch: git?.branch ?? null })
     // Fire-and-forget: opening a folder must not wait on re-pointing the
     // roster's watch, which walks every open project's ancestors afresh.
@@ -5380,18 +5408,22 @@ export class Host {
     seat: FlowSeat,
     where: {
       readonly cwd: string
+      readonly project?: string
       readonly title: string
       readonly environment?: Readonly<Record<string, string>>
       readonly ceiling?: CeilingLevel
       readonly attachments?: SessionAttachments
     },
   ): Promise<OpenedSeat> {
+    const project = await this.#admitShellProject(where.project ?? this.#shellProject)
+    if (!project) throw new Error('The Seat project is outside every project opened here. Open it first.')
+    const cwd = await this.#worktrees.shellRoot(project, where.cwd)
     const runtime = this.#runtime({ runtime: seat.runtime })
     // The lane is found by its checkout, from the desk's own lane record; the
     // cwd is the confinement and every runtime takes it. The six values go to
     // a runtime that can take them per session, and are said in the standing
     // order either way (`laneEnvironmentFor`, `#orderSeat`).
-    const lane = where.environment ?? environmentForCheckout(where.cwd, this.#lanes.list())
+    const lane = where.environment ?? environmentForCheckout(cwd, this.#lanes.list())
     const environment = laneEnvironmentFor(runtime, lane)
     if (lane && this.#extensions && !this.#extensions.setBrowserResolver) {
       throw new Error(
@@ -5407,7 +5439,7 @@ export class Host {
     let live: Awaited<ReturnType<typeof runtime.createSession>>
     try {
       live = await runtime.createSession({
-        cwd: where.cwd,
+        cwd,
         ...(where.ceiling ? { requestedCeiling: where.ceiling } : {}),
         ...(environment ? { environment } : {}),
         ...(seat.model ? { model: seat.model } : {}),
@@ -5440,16 +5472,14 @@ export class Host {
     this.#seating.set(sessionKey(runtime.info.id, live.id), { live, reached: false, removing: false })
     try {
       const session = this.#attach(runtime, live.id, live)
-      const project = await projectOf(where.cwd)
-      if (project) {
-        const cwd = await this.#worktrees.shellRoot(project, where.cwd)
-        this.registry.get(runtime.info.id, live.id)!.shellCheckout = { project, cwd }
-      }
+      const checkout = Object.freeze({ project, cwd })
+      this.registry.get(runtime.info.id, live.id)!.shellCheckout = checkout
       await live.setTitle(where.title).catch(() => {})
       await this.#names.set(runtime.info.id, live.id, where.title)
       await this.#applySeatPicks(live, seat)
       const ran = live.options()
       return {
+        checkout,
         runtime: String(runtime.info.id),
         sessionId: String(session.id),
         running: runningOf(ran, live.settings()),
@@ -6184,12 +6214,9 @@ export class Host {
       this.#boardRoots.set(cwd, project)
       return project
     }
-    /* No repository, so the open workspaces answer — as the person spelled
-       them, deliberately not canonicalised. A folder git knows nothing about
-       has no `repo` on its sessions either, and the tree keys those by the
-       folder each conversation reported. Resolving `/tmp/demo` to
-       `/private/tmp/demo` here would put the room in a folder none of its own
-       sessions is grouped under, which is the very split this is closing.
+    /* No repository, so the open workspaces answer. Compare their canonical
+       locations with the canonical Seat cwd, but return the person's saved
+       spelling: rooms and the tree still use that spelling as their key.
 
        Longest match, not first match. `roots` is in most-recently-opened
        order, so `find` made membership depend on which workspace the person
@@ -6200,11 +6227,16 @@ export class Host {
     const roots = [
       ...new Set(this.#state.state.workspaces.map((entry) => entry.path.replace(/\/+$/, ''))),
     ]
-    const target = cwd.replace(/\/+$/, '')
+    const target = canonicalPath(cwd).replace(/\/+$/, '')
     let found: string | null = null
+    let longest = -1
     for (const root of roots) {
-      if (target !== root && !target.startsWith(`${root}/`)) continue
-      if (found === null || root.length > found.length) found = root
+      const realRoot = canonicalPath(root).replace(/\/+$/, '')
+      if (target !== realRoot && !target.startsWith(`${realRoot}/`)) continue
+      if (realRoot.length > longest) {
+        found = root
+        longest = realRoot.length
+      }
     }
     this.#boardRoots.set(cwd, found)
     return found

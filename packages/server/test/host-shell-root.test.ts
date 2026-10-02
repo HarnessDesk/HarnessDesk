@@ -15,6 +15,7 @@ import { bridgeCallerFor } from '../src/bootstrap.js'
 import { invokeForBridge } from '../src/tool-gateway.js'
 import { Host } from '../src/host.js'
 import { Worktrees } from '../src/worktree.js'
+import { EvidenceStore } from '../src/evidence/store.js'
 import { StateStore } from '../src/state.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { silent } from './fixtures/harness.js'
@@ -41,7 +42,9 @@ async function rig(t: TestContext, runtime?: AgentRuntime) {
   const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), extensions: kernel, builtinAgents: join(base, 'agents'), libraryHome: join(base, 'library') })
   const agent = runtime ?? new FakeRuntime()
   host.register(agent)
-  t.after(async () => { await host.dispose(); await kernel.dispose() })
+  let disposed = false
+  const dispose = async () => { if (!disposed) { disposed = true; await host.dispose(); await kernel.dispose() } }
+  t.after(dispose)
   await host.start()
   await host.call('workspace/open', { path: project })
   await kernel.load({
@@ -70,7 +73,7 @@ async function rig(t: TestContext, runtime?: AgentRuntime) {
     await writeFile(join(agentRoot, 'AGENT.md'), `---\nname: Probe\npermission: read\nprefer: [${agent.info.id}]\n---\nRead the checkout.\n`)
     return host.call('agent/seat', { id: 'probe', cwd, project })
   }
-  return { host, kernel, agent, base, project, other, stateDir, lane, seat, tool, where, diff }
+  return { host, kernel, agent, base, project, other, stateDir, lane, seat, tool, where, diff, dispose }
 }
 
 for (const forged of ['other repository', 'home'] as const) {
@@ -144,4 +147,106 @@ test('a replaced project root cannot widen the shell’s project fallback', asyn
   await rename(d.project, join(d.base, 'original-project'))
   await symlink(d.other, d.project)
   await assert.rejects(d.host.call('context/resolve', { id: d.where.id, workspaceRoot: d.other }), /project checkout changed/i)
+})
+
+for (const kind of ['home', 'other repository', 'symlink into another repository'] as const) {
+  test(`agent/seat keeps open project A as its anchor with cwd naming ${kind}`, async (t) => {
+    const d = await rig(t)
+    const link = join(d.base, 'foreign-link')
+    await symlink(d.other, link)
+    const candidate = kind === 'home' ? homedir() : kind === 'other repository' ? d.other : link
+    const opened = await d.seat(candidate)
+    const scope = { runtime: d.agent.info.id, sessionId: opened.id }
+    const placement = d.host.registry.get(d.agent.info.id, opened.id)!.shellCheckout
+    assert.deepEqual(placement, { project: d.project, cwd: d.project })
+    assert.equal(opened.cwd, d.project, 'the runtime opens only the admitted checkout')
+    assert.equal((await d.host.call('evidence/seat', { runtime: d.agent.info.id, sessionId: opened.id }))?.checkout.project, d.project)
+    assert.deepEqual(await d.kernel.resolveContext(scope), [{ label: 'Automatic location', text: d.project }])
+  })
+}
+
+for (const replacement of ['foreign repository', 'deleted lane'] as const) {
+  test(`a ${replacement} at a placed lane falls back before the next shell invocation`, async (t) => {
+    const d = await rig(t)
+    const opened = await d.seat()
+    await rm(d.lane.path, { recursive: true, force: true })
+    if (replacement === 'foreign repository') {
+      await run('git', ['init', '-q', '-b', 'main', d.lane.path])
+      await writeFile(join(d.lane.path, 'file.txt'), 'foreign fixture')
+      await git(d.lane.path, 'add', '.')
+      await git(d.lane.path, 'commit', '-qm', 'Foreign fixture')
+    }
+    assert.equal((await d.host.call('context/resolve', { id: d.where.id, runtime: d.agent.info.id, sessionId: opened.id })).text, d.project)
+  })
+}
+
+test('case-insensitive project and lane spellings keep the canonical placement', async (t) => {
+  const d = await rig(t)
+  const spelling = d.project.toUpperCase()
+  try { await realpath(spelling) } catch { t.skip('the filesystem is case-sensitive'); return }
+  await d.seat()
+  const opened = await d.host.call('agent/seat', { id: 'probe', cwd: d.lane.path.toUpperCase(), project: spelling })
+  assert.deepEqual(d.host.registry.get(d.agent.info.id, opened.id)!.shellCheckout, { project: d.project, cwd: d.lane.path })
+})
+
+test('restart re-admits forged durable placement against opened projects', async (t) => {
+  const d = await rig(t)
+  const opened = await d.seat()
+  await d.dispose()
+  const folder = new EvidenceStore(join(d.stateDir, 'evidence')).folderOf(d.project)
+  const path = join(folder, 'seats.ndjson')
+  const lines = (await readFile(path, 'utf8')).trim().split('\n').map((line) => JSON.parse(line))
+  for (const line of lines) if (line.type === 'seat') line.record.checkout = { ...line.record.checkout, project: d.other, cwd: d.other }
+  await rm(path)
+  await new EvidenceStore(join(d.stateDir, 'evidence')).append(d.other, 'seats', lines)
+  const kernel = new ExtensionKernel()
+  const restarted = new Host({ logger: silent, state: new StateStore(join(d.stateDir, 'state.json')), extensions: kernel, builtinAgents: join(d.base, 'agents'), libraryHome: join(d.base, 'library') })
+  const agent = new FakeRuntime()
+  restarted.register(agent)
+  t.after(async () => { await restarted.dispose(); await kernel.dispose() })
+  await restarted.start()
+  restarted.registry.upsert({ ...opened, runtime: agent.info.id }, null)
+  assert.equal((await restarted.call('evidence/seat', { runtime: agent.info.id, sessionId: opened.id }))?.checkout.project, d.other, 'the forged local placement really loaded')
+  // Use the host's real admission resolver, with a shell command in the new kernel.
+  await kernel.load({ manifest: { id: 'restored-probe', name: 'Restored probe', permissions: { shell: true, workspace: { read: true } } }, plugin: {
+    name: 'restored-probe', inject: ['context', 'shell'], apply(ctx: HarnessContext) {
+      ctx.context.register({ label: 'Restored location', chip: { description: 'Fixture context' }, resolve: async () => (await ctx.shell.run(process.execPath, ['-e', 'process.stdout.write(process.cwd())'])).stdout })
+    },
+  } } as HarnessPlugin)
+  await new Promise((resolve) => setTimeout(resolve, 60))
+  assert.equal((await restarted.call('context/resolve', { id: kernel.list('context')[0]!.id, runtime: agent.info.id, sessionId: opened.id })).text, d.project)
+})
+
+test('omitting project uses the opened project even when cwd names another repository', async (t) => {
+  const d = await rig(t)
+  await d.seat()
+  const opened = await d.host.call('agent/seat', { id: 'probe', cwd: d.other })
+  assert.deepEqual(d.host.registry.get(d.agent.info.id, opened.id)!.shellCheckout, { project: d.project, cwd: d.project })
+  assert.equal((await d.host.call('evidence/seat', { runtime: d.agent.info.id, sessionId: opened.id }))?.checkout.project, d.project)
+})
+
+test('a runtime-listed repository cannot admit a Seat project the person never opened', async (t) => {
+  const d = await rig(t)
+  await d.seat()
+  d.host.registry.upsert({ id: sessionId('foreign-listed'), runtime: d.agent.info.id, cwd: d.other, status: { type: 'idle' }, createdAt: 0, updatedAt: 0, turns: [], itemsLoaded: true }, null)
+  await assert.rejects(d.host.call('agent/seat', { id: 'probe', project: d.other, cwd: d.other }), /outside every project opened here/)
+})
+
+test('opening a project subfolder keeps the repository as the default shell anchor', async (t) => {
+  const d = await rig(t)
+  await d.seat()
+  const subfolder = join(d.project, 'src')
+  await mkdir(subfolder)
+  await d.host.call('workspace/open', { path: subfolder })
+  const opened = await d.host.call('agent/seat', { id: 'probe', cwd: d.lane.path })
+  assert.deepEqual(d.host.registry.get(d.agent.info.id, opened.id)!.shellCheckout, { project: d.project, cwd: d.lane.path })
+})
+
+test('an opened linked checkout admits its canonical repository project independently of cwd', async (t) => {
+  const d = await rig(t)
+  await d.seat()
+  await d.host.call('workspace/open', { path: d.lane.path })
+  const opened = await d.host.call('agent/seat', { id: 'probe', project: d.lane.path, cwd: d.lane.path })
+  assert.deepEqual(d.host.registry.get(d.agent.info.id, opened.id)!.shellCheckout, { project: d.project, cwd: d.lane.path })
+  assert.equal((await d.host.call('evidence/seat', { runtime: d.agent.info.id, sessionId: opened.id }))?.checkout.project, d.project)
 })

@@ -321,6 +321,7 @@ export interface HostContext {
       seat: FlowSeat,
       where: {
         readonly cwd: string
+        readonly project?: string
         readonly title: string
         readonly environment?: Readonly<Record<string, string>>
         /** The role's frozen ceiling, applied before the runtime opens the conversation. */
