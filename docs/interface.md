@@ -260,6 +260,13 @@ says where it actually ran. Agents that report no git join the project another
 session placed their folder in. The current project stays open; the rest fold
 under **Other projects**.
 
+Trailing marks and actions share one inset rail. A full state chip ends on the
+available rail beside the title; only the title truncates. Hover, focus or an
+open menu folds that row’s chip to its state dot and puts its actions on the
+rail, without taking more title space. At narrow row widths a count beside a
+state chip hides first, returning when there is room. A room and each of its
+members reveal their actions independently.
+
 The conversation list has one Tab stop: it enters at the active conversation,
 or the first row when none is active, and the next Tab leaves the list. Use ↑ / ↓
 to move through its visible rows, including project headings, rooms, members

@@ -1,92 +1,115 @@
-/* Inline state marks share the row's end column when their full label folds. */
+/* Every row resets its own state: a nested list never inherits a parent's hover. */
 [data-slot="sidebar-menu-item"] {
+  container: sidebar-row / inline-size;
   --sidebar-menu-end-rail: var(--hd-sidebar-end-rail);
   --sidebar-menu-trailing-marks: 0;
   --sidebar-menu-trailing-actions: 1;
+  --sidebar-menu-mark-reserve: calc(0 * var(--hd-sidebar-end-action-step));
+  --sidebar-menu-action-reserve: var(--hd-sidebar-end-action-step);
+  --sidebar-menu-action-opacity: 0;
+  --sidebar-menu-action-events: none;
+  --sidebar-menu-mark-shift: var(--hd-space-0);
+  --sidebar-menu-state-extra: calc(-1 * var(--hd-sidebar-end-action-step));
+  --sidebar-menu-state-full: inline-flex;
+  --sidebar-menu-state-compact: none;
+  --sidebar-menu-state-position: static;
+  --sidebar-menu-state-width: auto;
+  --sidebar-menu-state-translate: none;
+  --sidebar-menu-count-yield: calc(0 * var(--hd-sidebar-end-action-step));
 }
 
 [data-slot="sidebar-group-content"] [data-slot="sidebar-menu-item"] {
   --sidebar-menu-end-rail: calc(var(--hd-sidebar-end-rail) - var(--hd-space-2));
 }
 
-[data-slot="sidebar-menu-state"] {
-  height: var(--hd-icon-target);
-  flex-shrink: 0;
+[data-sidebar-trailing-marks="1"] { --sidebar-menu-mark-reserve: var(--hd-sidebar-end-action-step); }
+[data-sidebar-trailing-marks="2"] { --sidebar-menu-mark-reserve: var(--hd-sidebar-end-double-action-step); }
+[data-sidebar-trailing-marks="3"] { --sidebar-menu-mark-reserve: var(--hd-sidebar-end-triple-action-step); }
+[data-sidebar-trailing-marks="4"] { --sidebar-menu-mark-reserve: calc(4 * var(--hd-sidebar-end-action-step)); }
+[data-sidebar-trailing-actions="2"] { --sidebar-menu-action-reserve: var(--hd-sidebar-end-double-action-step); }
+
+/* The hover surface is the row's button/actions, or its own header wrapper.
+   A room's nested list is a sibling of that wrapper, never part of the surface. */
+[data-slot="sidebar-menu-item"]:has(> [data-slot="sidebar-menu-action"][data-show-on-hover], > div > [data-slot="sidebar-menu-action"][data-show-on-hover]):has(
+  > [data-slot="sidebar-menu-button"]:is(:hover, :focus-within),
+  > [data-slot="sidebar-menu-badge"]:hover,
+  > [data-slot="sidebar-menu-action"]:is(:hover, :focus-within, [data-state="open"], [data-popup-open]),
+  > div:is(:hover, :focus-within),
+  > div > [data-slot="sidebar-menu-action"]:is([data-state="open"], [data-popup-open])
+) {
+  --sidebar-menu-action-opacity: 1;
+  --sidebar-menu-action-events: auto;
+  --sidebar-menu-mark-shift: calc(-1 * var(--sidebar-menu-action-reserve));
+  --sidebar-menu-state-extra: var(--sidebar-menu-action-reserve);
+  --sidebar-menu-state-full: none;
+  --sidebar-menu-state-compact: inline-flex;
+  --sidebar-menu-state-position: absolute;
+  --sidebar-menu-state-width: var(--hd-icon-target);
+  --sidebar-menu-state-translate: 0 -50%;
 }
 
-[data-slot="sidebar-menu-item"]:has(> [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-state"]) > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-label"],
-[data-slot="sidebar-menu-item"]:has(> div > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-state"]) > div > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-label"] {
-  display: flex;
-  height: var(--hd-icon-target);
-  align-items: center;
+[data-slot="sidebar-menu-action"][data-show-on-hover] {
+  opacity: var(--sidebar-menu-action-opacity);
+  pointer-events: var(--sidebar-menu-action-events);
 }
 
-/* A marked row keeps its title inside the same fixed slots at rest and while
-   its hover controls appear. The row declarations are also the badge/action
-   slot counts, so this reservation cannot drift from the rail grammar. */
-[data-sidebar-trailing-marks="1"] {
-  --sidebar-menu-mark-reserve: var(--hd-sidebar-end-action-step);
+[data-slot="sidebar-menu-badge"][data-sidebar="menu-badge"] {
+  translate: var(--sidebar-menu-mark-shift) -50%;
 }
 
-[data-sidebar-trailing-marks="2"] {
-  --sidebar-menu-mark-reserve: var(--hd-sidebar-end-double-action-step);
-}
-
-[data-sidebar-trailing-marks="3"] {
-  --sidebar-menu-mark-reserve: var(--hd-sidebar-end-triple-action-step);
-}
-
-[data-sidebar-trailing-marks="4"] {
-  --sidebar-menu-mark-reserve: calc(4 * var(--hd-sidebar-end-action-step));
-}
-
-[data-sidebar-trailing-actions="1"] {
-  --sidebar-menu-action-reserve: var(--hd-sidebar-end-action-step);
-}
-
-[data-sidebar-trailing-actions="2"] {
-  --sidebar-menu-action-reserve: var(--hd-sidebar-end-double-action-step);
-}
-
-[data-sidebar-trailing-marks] > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-label-content"],
-[data-sidebar-trailing-marks] > div > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-label-content"] {
+/* Ordinary marked rows keep their title box fixed while marks step left. */
+[data-sidebar-trailing-marks] > [data-slot="sidebar-menu-button"]:not(:has([data-slot="sidebar-menu-state"])) [data-slot="sidebar-menu-label-content"],
+[data-sidebar-trailing-marks] > div > [data-slot="sidebar-menu-button"]:not(:has([data-slot="sidebar-menu-state"])) [data-slot="sidebar-menu-label-content"] {
   padding-inline-end: calc(var(--sidebar-menu-end-rail) + var(--sidebar-menu-mark-reserve));
 }
 
-[data-sidebar-trailing-marks]:has(> [data-slot="sidebar-menu-action"][data-show-on-hover], > div > [data-slot="sidebar-menu-action"][data-show-on-hover]) > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-label-content"],
-[data-sidebar-trailing-marks]:has(> [data-slot="sidebar-menu-action"][data-show-on-hover], > div > [data-slot="sidebar-menu-action"][data-show-on-hover]) > div > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-label-content"] {
+[data-sidebar-trailing-marks]:has(> [data-slot="sidebar-menu-action"][data-show-on-hover], > div > [data-slot="sidebar-menu-action"][data-show-on-hover]) > [data-slot="sidebar-menu-button"]:not(:has([data-slot="sidebar-menu-state"])) [data-slot="sidebar-menu-label-content"],
+[data-sidebar-trailing-marks]:has(> [data-slot="sidebar-menu-action"][data-show-on-hover], > div > [data-slot="sidebar-menu-action"][data-show-on-hover]) > div > [data-slot="sidebar-menu-button"]:not(:has([data-slot="sidebar-menu-state"])) [data-slot="sidebar-menu-label-content"] {
   padding-inline-end: calc(var(--sidebar-menu-end-rail) + var(--sidebar-menu-mark-reserve) + var(--sidebar-menu-action-reserve));
 }
 
-[data-sidebar-trailing-actions="1"]:has([data-slot="sidebar-menu-action"][data-show-on-hover]):is(:hover, :focus-within) [data-slot="sidebar-menu-badge"],
-[data-sidebar-trailing-actions="1"]:has([data-slot="sidebar-menu-action"][data-show-on-hover][data-state="open"]) [data-slot="sidebar-menu-badge"] {
-  translate: calc(-1 * var(--hd-sidebar-end-action-step)) -50%;
+/* A whole state chip takes its actual width, flush to the available rail.
+   Only the title truncates. No faded chip or unused action slot at rest. */
+[data-sidebar-trailing-marks][data-slot="sidebar-menu-item"] > [data-slot="sidebar-menu-button"]:has([data-slot="sidebar-menu-state"]) [data-slot="sidebar-menu-label"],
+[data-sidebar-trailing-marks][data-slot="sidebar-menu-item"] > div > [data-slot="sidebar-menu-button"]:has([data-slot="sidebar-menu-state"]) [data-slot="sidebar-menu-label"] {
+  display: flex;
+  height: var(--hd-icon-target);
+  align-items: center;
+  mask-image: none;
 }
 
-[data-sidebar-trailing-actions="2"]:has([data-slot="sidebar-menu-action"][data-show-on-hover]):is(:hover, :focus-within) [data-slot="sidebar-menu-badge"],
-[data-sidebar-trailing-actions="2"]:has([data-slot="sidebar-menu-action"][data-show-on-hover][data-state="open"]) [data-slot="sidebar-menu-badge"] {
-  translate: calc(-1 * var(--hd-sidebar-end-double-action-step)) -50%;
+[data-sidebar-trailing-marks][data-slot="sidebar-menu-item"] > [data-slot="sidebar-menu-button"]:has([data-slot="sidebar-menu-state"]) [data-slot="sidebar-menu-label-content"],
+[data-sidebar-trailing-marks][data-slot="sidebar-menu-item"] > div > [data-slot="sidebar-menu-button"]:has([data-slot="sidebar-menu-state"]) [data-slot="sidebar-menu-label-content"] {
+  flex: 1;
+  padding-inline-end: calc(var(--sidebar-menu-end-rail) + var(--sidebar-menu-mark-reserve) - var(--sidebar-menu-count-yield) + var(--sidebar-menu-state-extra));
 }
 
-[data-slot="sidebar-menu-item"]:has([data-slot="sidebar-menu-action"][data-show-on-hover]):is(:hover, :focus-within) [data-slot="sidebar-menu-state"],
-[data-slot="sidebar-menu-item"]:has([data-slot="sidebar-menu-action"][data-show-on-hover][data-state="open"]) [data-slot="sidebar-menu-state"] {
-  position: absolute;
-  inset-inline-end: calc(
-    var(--sidebar-menu-end-rail) +
-    (var(--sidebar-menu-trailing-marks) - 1 + var(--sidebar-menu-trailing-actions)) * var(--hd-sidebar-end-action-step)
-  );
+[data-slot="sidebar-menu-button"]:has([data-slot="sidebar-menu-state"]) [data-slot="sidebar-menu-label-content"] > span > :first-child {
+  flex: 1;
+}
+
+[data-slot="sidebar-menu-state"] {
+  height: var(--hd-icon-target);
+  flex-shrink: 0;
+  position: var(--sidebar-menu-state-position); /* desk: full chip is in flow at rest; only the hover dot is absolute. */
+  inset-inline-end: calc(var(--sidebar-menu-end-rail) + (var(--sidebar-menu-trailing-marks) - 1 + var(--sidebar-menu-trailing-actions)) * var(--hd-sidebar-end-action-step) - var(--sidebar-menu-count-yield));
   top: 50%;
-  width: var(--hd-icon-target);
+  width: var(--sidebar-menu-state-width); /* desk: full chip uses its real width; the hover dot keeps a target slot. */
   justify-content: center;
-  translate: 0 -50%;
+  translate: var(--sidebar-menu-state-translate); /* desk: centre only the absolute hover dot, not the full chip in flow. */
 }
 
-[data-slot="sidebar-menu-item"]:has([data-slot="sidebar-menu-action"][data-show-on-hover][data-state="open"]) [data-sidebar-menu-state-full] {
-  display: none;
-}
+[data-sidebar-menu-state-full] { display: var(--sidebar-menu-state-full); }
+[data-sidebar-menu-state-compact] { display: var(--sidebar-menu-state-compact); }
 
-[data-slot="sidebar-menu-item"]:has([data-slot="sidebar-menu-action"][data-show-on-hover][data-state="open"]) [data-sidebar-menu-state-compact] {
-  display: inline-flex;
+/* Counts yield before the title or chip at narrow row widths, including members. */
+@container sidebar-row (max-width: 200px) {
+  [data-slot="sidebar-menu-button"]:has([data-slot="sidebar-menu-state"]):has(~ [data-sidebar-count]) {
+    --sidebar-menu-count-yield: var(--hd-sidebar-end-action-step);
+  }
+  [data-slot="sidebar-menu-button"]:has([data-slot="sidebar-menu-state"]) ~ [data-sidebar-count] {
+    display: none; /* desk: a count beside a whole state chip yields first in a narrow row. */
+  }
 }
 
 /* A group heading begins where the row's icon begins, in either rail. */

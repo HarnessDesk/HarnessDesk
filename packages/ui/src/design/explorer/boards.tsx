@@ -242,7 +242,7 @@ const SidebarBoard = () => (
         </SidebarMenuItem>
         <SidebarMenuItem trailingMarks={2} data-catalog-title-case="room row with goal and held-message marks">
           <SidebarMenuButton label={<span className="flex min-w-0 items-center gap-(--hd-space-1)"><span className="min-w-0 truncate">Refund integration room with a deliberately long descriptive name</span><SidebarMenuState label="Needs you" tone="warning" state="limit" /></span>} />
-          <SidebarMenuBadge aria-label="Held messages">3</SidebarMenuBadge>
+          <SidebarMenuBadge kind="count" aria-label="Held messages">3</SidebarMenuBadge>
           <SidebarMenuAction showOnHover aria-label="Show agents in refund integration room"><MoreIcon size={12} /></SidebarMenuAction>
         </SidebarMenuItem>
         <SidebarMenuItem trailingMarks={1} data-catalog-title-case="nested room member">
@@ -282,7 +282,7 @@ const SidebarBoard = () => (
         onSignIn={() => {}}
         onSearch={() => {}}
       /></Mount>
-      <span aria-hidden="true" data-sidebar-end-column-guide className="pointer-events-none absolute inset-y-0 right-(--hd-sidebar-end-column) z-50 w-(--hd-space-px) bg-(--hd-foreground) opacity-40" />
+      <span aria-hidden="true" data-sidebar-end-rail-guide className="pointer-events-none absolute inset-y-0 right-[calc(var(--hd-sidebar-end-column)-var(--hd-icon-target)/2)] z-50 w-(--hd-space-px) bg-(--hd-foreground) opacity-40" />
     </div>
     <div className="grid grid-cols-3 gap-(--hd-space-2)" aria-label="Sidebar menu row sizes">
       {SIDEBAR_CATALOG_SIZES.map((size) => <SidebarMenuButton key={size} size={size} data-catalog-size={size} label={`Conversation · ${size}`} />)}
