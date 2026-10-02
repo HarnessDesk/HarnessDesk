@@ -161,10 +161,11 @@ A flow whose only gates are opinions is one to be suspicious of. A check's
 command is the one thing a flow file makes happen on your machine, so the dry
 run prints every one of them verbatim and nothing runs until you press start.
 
-**Run a check again.** Any finished check card offers *Run this check again…*,
-including a check whose unmatched outcome settled the run. Reopening a check
-from the board uses the same **Run this check again?** consent dialog. It shows
-that card's exact command, checkout and timeout; confirm starts that one card,
+**Run a check again.** A finished or interrupted check card on a running or
+stalled run offers *Run this check again…*. A stopped or settled run refuses
+the retry; start a new run instead. Reopening a check from the board uses the
+same **Run this check again?** consent dialog. It shows that card's exact
+command, checkout and timeout; confirm on a live run starts that one card,
 keeps its previous evidence and output, and returns when the child has started.
 The new output and answer arrive when it finishes. Sibling checks are not run
 again. A fresh preview accepts the checkout at its current revision, including
@@ -202,8 +203,8 @@ budget: { rounds: 3, without-progress: 2 }
 For an existing landing rule, put an unconditional rule (omit `when:`) last to
 catch all other outcomes, including explicit `exits:` words such as `no-pr`.
 Rules still fire in file order, and the normal round and progress budgets bound
-the loop. Without a matching rule the run settles for the person, who can still
-run its check again from the card.
+the loop. Without a matching rule the run settles; start a new run to run its
+check again.
 
 ### Permissions
 

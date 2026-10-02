@@ -1,14 +1,73 @@
 import assert from 'node:assert/strict'
-import { chmod, readFile, readdir } from 'node:fs/promises'
+import { chmod, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
 import type { BoardEvidence, FlowRun, GoalView, TeamState, WireNotification } from '@harnessdesk/protocol'
 
+import { assertCheckCleanup } from '../src/evidence/check-processes.js'
 import { EvidencePlane } from '../src/evidence/plane.js'
 import { canonical } from '../src/evidence/revision.js'
+import { runCheck } from '../src/flows.js'
 import { evidenceDesk, makeRepo, until } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
+
+for (const producer of ['named', 'legacy Flow'] as const) {
+  test(`a running ${producer} check does not block Flow checks on another board`, async () => {
+    const repo = await makeRepo()
+    await mkdir(join(repo.dir, '.harnessdesk'))
+    await writeFile(join(repo.dir, '.harnessdesk', 'checks.yml'), 'hold: { run: sleep 30, timeout: 30 }\n')
+    await repo.git('add', '.')
+    await repo.git('commit', '-q', '-m', 'declare the holding check')
+    const dir = tempDir('hd-check-coexistence-')
+    const processDir = join(dir, 'check-processes')
+    const plane = new EvidencePlane({ dir, seenFile: join(dir, 'seen.json') }, {
+      board: (room) => ['goal-a', 'goal-b'].includes(room)
+        ? ({ id: room, root: repo.dir, intents: [{ id: 3, state: 'open' }] } as unknown as TeamState)
+        : null,
+      cwdOf: () => null, push: () => {}, log: () => {},
+    })
+    const controller = new AbortController()
+    let legacy: Promise<unknown> | undefined
+    try {
+      if (producer === 'named') {
+        await plane.checks.run('goal-a', 3, 'hold', {
+          seen: 'sleep 30', digest: await repo.git('rev-parse', 'HEAD:.harnessdesk/checks.yml'),
+        })
+      } else {
+        legacy = plane.flowCheck('sleep 30', {
+          cwd: repo.dir, timeoutSec: 30, card: { room: 'goal-a', intent: 3, name: 'hold', round: 1 },
+        }, (command, where) => {
+          const launch = { ...where, signal: controller.signal }
+          return runCheck(command, launch)
+        })
+      }
+      const file = await until(async () => {
+        const files = (await readdir(processDir).catch(() => [])).filter((name) => name.endsWith('.json'))
+        return files.length === 1 ? files[0]! : null
+      }, `the ${producer} check's launch journal`)
+
+      // Same card number, different board: both automatic and subsequent
+      // launches on B must finish while A's command is still running.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const result = await plane.runFlowCheck('true', { cwd: repo.dir, timeoutSec: 5 }, {
+          goal: 'goal-b', card: 3, name: 'gate', round: 1,
+        })
+        assert.equal(result.result.exit, 0)
+        assert.equal(result.problem, null)
+        assert.ok(result.evidence)
+      }
+      const saved = JSON.parse(await readFile(join(processDir, file), 'utf8')) as { owner?: unknown }
+      assert.deepEqual(saved.owner, { board: 'goal-a', card: 3 })
+      assert.throws(() => assertCheckCleanup(processDir, { board: 'goal-a', card: 3 }), /cleanup/)
+    } finally {
+      controller.abort()
+      await plane.checks.stop()
+      if (legacy) await legacy
+    }
+    assert.deepEqual(await readdir(processDir), [], 'both commands clean up their own journals')
+  })
+}
 
 test('a Flow check journals its host-owned card identity and stays busy through the Goal evidence barrier', async () => {
   const repo = await makeRepo()

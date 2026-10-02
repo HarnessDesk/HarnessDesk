@@ -570,11 +570,14 @@ export class EvidencePlane {
       readonly timeoutSec: number
       readonly card?: { readonly room: string; readonly intent: number; readonly name: string; readonly round: number }
     },
-    run: (command: string, where: { readonly cwd: string; readonly timeoutSec: number; readonly processDir?: string }) => Promise<{ readonly status: number | null }>,
+    run: (command: string, where: Parameters<typeof runCommand>[1]) => Promise<{ readonly status: number | null }>,
   ): Promise<{ readonly status: number | null }> {
     const card = where.card
     const revision = card ? await revisionOf(where.cwd) : null
-    const result = await run(command, { cwd: where.cwd, timeoutSec: where.timeoutSec, processDir: this.#checkProcessDir })
+    const result = await run(command, {
+      cwd: where.cwd, timeoutSec: where.timeoutSec, processDir: this.#checkProcessDir,
+      ...(card ? { processOwner: { board: card.room, card: card.intent } } : {}),
+    })
     const board = card ? this.#port.board(card.room) : null
     if (!card || !revision || !board) return result
     const project = await projectOf(board.cwd ?? board.root)

@@ -214,7 +214,7 @@ const now = (): number => Date.now()
  */
 export const runCheck = async (
   command: string,
-  where: { readonly cwd: string; readonly timeoutSec: number; readonly processDir?: string },
+  where: Parameters<typeof runCommand>[1],
 ): Promise<{ readonly status: number | null }> => ({ status: (await runCommand(command, where)).exit })
 
 export class Flows implements TeamFlows {
