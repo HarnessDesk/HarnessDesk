@@ -60,7 +60,7 @@ export const rolesAtPredecessor = (compiled: CompiledFlow, againRole: string | n
   const apartAlways = new Set<string>()
   const writerOptions = (id: string): readonly boolean[] => {
     const one = role.get(id)
-    if (one?.kind !== 'agent' || one.isolate || apartAlways.has(id)) return [true]
+    if (one?.kind !== 'agent' || one.isolate || flow.base !== undefined || apartAlways.has(id)) return [true]
     return apartPossible.has(id) ? [false, true] : [false]
   }
   const handedStates = (handed: readonly string[]): readonly (readonly { readonly apart: boolean }[])[] => {

@@ -1,4 +1,4 @@
-import { runtimeId, sessionKey, type Session, type SessionId, type SessionKey, type TeamPeerInfo } from '@harnessdesk/protocol'
+import { approvalId, runtimeId, sessionKey, type Session, type SessionId, type SessionKey, type TeamPeerInfo } from '@harnessdesk/protocol'
 
 import type { AppSnapshot, AppStore } from '../state/store'
 import { previewStore } from './harness'
@@ -18,6 +18,8 @@ const ANSWERS = [
 ] as const
 
 type SideBySideFixtureOptions = {
+  /** Hold Beta on a command approval, so its tile and tab both wait for the person. */
+  readonly waiting?: boolean
   /** Give Alpha an active turn and its held ceiling chip. */
   readonly working?: boolean
   /** Give Gamma a turn that stopped before completion. */
@@ -34,7 +36,7 @@ const exchange = (key: string, index: number, options: SideBySideFixtureOptions)
     : [
     {
       id: `${key}-t1`,
-      status: index === 0 && options.working
+      status: (index === 0 && options.working) || (index === 1 && options.waiting)
         ? 'inProgress'
         : index === 2 && options.stopped
           ? 'interrupted'
@@ -90,7 +92,24 @@ export const sideBySideStore = (options: SideBySideFixtureOptions = {}): AppStor
     displayName: 'Model A',
     description: 'Preview model',
   }))
-  const own = previewStore({ ...snapshot, sessions, runtimes, models } as Partial<AppSnapshot>)
+  const approvals: AppSnapshot['approvals'] = options.waiting ? [{
+    key: SIDE_BY_SIDE_KEYS[1]!,
+    approval: {
+      id: approvalId('side-by-side-waiting'),
+      sessionId: SIDE_BY_SIDE_MEMBERS[1].id as SessionId,
+      type: 'command',
+      command: 'pnpm test',
+      cwd: '/workspace/demo-client',
+      reason: 'Run the retry tests before handing the change over.',
+      requestedAt: 0,
+      actions: [],
+      options: [
+        { id: 'deny', label: 'Deny', intent: 'deny' },
+        { id: 'approve', label: 'Approve', intent: 'approve' },
+      ],
+    },
+  }] : []
+  const own = previewStore({ ...snapshot, sessions, runtimes, models, approvals } as Partial<AppSnapshot>)
   const peers: readonly TeamPeerInfo[] = SIDE_BY_SIDE_MEMBERS.map((member) => ({
     runtime: member.runtime,
     sessionId: member.id,

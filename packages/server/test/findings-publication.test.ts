@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { EvidenceRecord, FindingView } from '@harnessdesk/protocol'
+import type { EvidenceRecord, EvidenceView, FindingView } from '@harnessdesk/protocol'
 
-import { isFindingPublication, Publications, type PublicationEntry } from '../src/findings/publication.js'
+import { boundPullRequest, isFindingPublication, Publications, type PublicationEntry } from '../src/findings/publication.js'
 import { FakeFindingForge, type SendOutcome } from './fixtures/fake-finding-forge.js'
 import { findingsRig, SHA1, SHA2, type FindingsRig } from './fixtures/findings-rig.js'
 
@@ -107,6 +107,58 @@ const review = async (r: Rig, options: { second?: boolean } = {}): Promise<{ fir
   }
   return { first, second }
 }
+
+const prView = (number: number, observedAt: number, state: 'open' | 'closed' | 'merged' = 'open'): EvidenceView => ({
+  record: { id: `pr-${number}-${observedAt}`, observedAt,
+    fact: { kind: 'pr', number, head: SHA1, state, url: `https://github.com/acme/widgets/pull/${number}` } },
+  freshness: { state: 'fresh' }, by: null,
+})
+
+test('the latest PR observation binds even when another PR was observed before it', () => {
+  const latest = prView(7, 20)
+  const stray = prView(9, 10)
+  assert.deepEqual(boundPullRequest([latest, stray]), { kind: 'bound', repo: 'acme/widgets', pr: 7 })
+  assert.deepEqual(boundPullRequest([stray, latest]), { kind: 'bound', repo: 'acme/widgets', pr: 7 })
+  assert.deepEqual(boundPullRequest([prView(9, 20), latest]), { kind: 'bound', repo: 'acme/widgets', pr: 7 },
+    'equal observation times use append order')
+})
+
+test('a latest closed or merged PR does not fall back to an older open observation', () => {
+  for (const state of ['closed', 'merged'] as const) {
+    assert.equal(boundPullRequest([prView(7, 10), prView(7, 20, state)]).kind, 'none')
+  }
+})
+
+test('restored PR observations cannot supersede a locally observed binding', () => {
+  const restored = prView(9, 30)
+  assert.deepEqual(boundPullRequest([prView(7, 10), {
+    ...restored, record: { ...restored.record, restored: { at: 40 } },
+  }]), { kind: 'bound', repo: 'acme/widgets', pr: 7 })
+  assert.equal(boundPullRequest([{ ...restored, record: { ...restored.record, restored: { at: 40 } } }]).kind, 'none')
+})
+
+test('an invalid latest PR address does not fall back to an older valid observation', () => {
+  const latest = prView(9, 20)
+  assert.equal(boundPullRequest([prView(7, 10), {
+    ...latest, record: { ...latest.record, fact: { ...latest.record.fact, kind: 'pr', number: 9, head: SHA1,
+      state: 'open', url: 'https://example.com/pull/9' } },
+  }]).kind, 'none')
+})
+
+test('a stray historical PR does not prevent a closed review round from posting', async (t) => {
+  const r = await publicationRig(t, { bind: false })
+  const { f, forge } = r
+  f.rig.facts.set(f.goal, [prView(9, 0).record])
+  r.bindPullRequest()
+  await review(r)
+  await f.finishReviews('request-changes')
+  await r.pub.idle()
+  assert.equal(r.entries().length, 4)
+  assert.ok(r.entries().every((entry) => entry.pr === 7 && entry.state === 'posted'))
+  assert.equal(forge.sends.length, 4)
+  await r.restart()
+  assert.equal(forge.sends.length, 4, 'restart does not send the round again')
+})
 
 test('first finisher publishes nothing', async (t) => {
   const r = await publicationRig(t)

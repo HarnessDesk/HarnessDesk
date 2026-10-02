@@ -58,10 +58,22 @@ export interface FlowBudget {
 /** What a new-format run gets when its file names no budget. */
 export const DEFAULT_FLOW_BUDGET: FlowBudget = { rounds: 3, withoutProgress: 2 }
 
+/** Fetch a configured remote at start; absent branch means its advertised default (HEAD). */
+export interface FlowBase {
+  readonly remote: string
+  readonly branch?: string
+}
+
+/** Frozen before any Seat opens, and reused by every later or recovered round. */
+export interface FlowBasePin extends FlowBase {
+  readonly at: string
+}
+
 export interface FlowPolicy {
   readonly version: 2
   readonly name: string
   readonly description?: string
+  readonly base?: FlowBase
   readonly inputs: readonly FlowInput[]
   readonly roles: readonly FlowPolicyRole[]
   readonly rules: readonly FlowPolicyRule[]
@@ -163,6 +175,7 @@ export interface FlowExecution {
   readonly version: 2
   readonly id: string
   readonly goal: string
+  readonly base?: FlowBasePin
   readonly document: FlowDocument
   readonly state: 'running' | 'settled' | 'stopped' | 'stalled'
   readonly rounds: readonly FlowRoundState[]

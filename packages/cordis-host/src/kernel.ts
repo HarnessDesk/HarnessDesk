@@ -500,7 +500,9 @@ export class ExtensionKernel implements CapabilityRegistry {
       const resolver = this.#store.get(contribution.id)?.resolver
       if (!resolver) continue
       try {
-        const text = await withTimeout(Promise.resolve(inShellWorkspace(workspaceRoot, () => resolver(Object.freeze({ ...query })))), 5_000)
+        // Scope every workspace capability to the host-admitted checkout, never the caller's hint.
+        const text = await withTimeout(this.#runtime.withContextWorkspace(workspaceRoot, () =>
+          Promise.resolve(inShellWorkspace(workspaceRoot, () => resolver(Object.freeze({ ...query }))))), 5_000)
         if (typeof text === 'string' && text.trim().length > 0) {
           out.push({ label: contribution.label, text })
         }
@@ -529,7 +531,8 @@ export class ExtensionKernel implements CapabilityRegistry {
        Nothing offers it out of scope now, and this is the half that does not
        depend on the caller having asked the right question. */
     if (!scopeApplies(entry.contribution.scope, scope)) return null
-    const value = await withTimeout(Promise.resolve(inShellWorkspace(workspaceRoot, () => entry.resolver!(scope, ref))), 30_000)
+    const value = await withTimeout(this.#runtime.withContextWorkspace(workspaceRoot, () =>
+      Promise.resolve(inShellWorkspace(workspaceRoot, () => entry.resolver!(scope, ref)))), 30_000)
     if (typeof value === 'string') return { label: entry.contribution.label, text: value }
     return {
       label: entry.contribution.label,

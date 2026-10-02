@@ -40,6 +40,7 @@ import {
 } from '../design'
 import { ComposerNotices, NoticeStripOutlet } from './Notices'
 import { ComposerNoticeStack } from '../design'
+import { mainNoticeHost } from '../state/workbench'
 import { availableCommands, matchCommands, type CommandDefinition } from '../state/commands'
 import { contributionsHere, scopeHere } from '../lib/contributions'
 import { opensEnvelope, splitContext, wrapContext } from '../lib/context-envelope'
@@ -59,7 +60,6 @@ import {
   useStore,
 } from '../state/context'
 import { useMount } from '../panels/mount'
-import { mainNoticeHost } from '../state/workbench'
 import { Slot } from '../slots/registry'
 import {
   AlertIcon,
@@ -190,10 +190,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   const key = useSessionKey()
   const focused = useIsFocusedPane()
   const mount = useMount()
-  // Whether this composer is the one the strip above the panes rides — the
-  // layout's own answer (`mainNoticeHost`), not a mount racing another for
-  // the title: a docked conversation's `mount.id` never matches a main pane's.
-  const isNoticeHost = mainNoticeHost(snapshot.workbench, snapshot.windowWidth) === mount?.id
+  const isNoticeHost = mount?.area === 'main' && mainNoticeHost(snapshot.workbench, snapshot.windowWidth) === mount.id
   const textarea = useRef<HTMLTextAreaElement>(null)
   const filePicker = useRef<HTMLInputElement>(null)
 
@@ -1051,7 +1048,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
           waiting on you to decide — on the composer it is about, never over
           another pane. */}
       <ComposerNoticeStack>
-        <NoticeStripOutlet host={isNoticeHost} />
+        <NoticeStripOutlet host={isNoticeHost} area="main" hostId={`composer:${mount?.id ?? 'unmounted'}`} />
         <ComposerNotices />
         {storedRecoverable.map(({ key: ownerKey, item }) => (
           <ComposerNotice

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { runtimeId, type FlowPreview } from '@harnessdesk/protocol'
+import { runtimeId, type FlowPreview, type UsageReport } from '@harnessdesk/protocol'
 
 import { AgentPageSections, FieldEditDialog, PreferFieldDialog } from '../components/AgentFields'
 import { HandoffSheet, ModeControl, MoreControl, PermissionControl } from '../components/ComposerControls'
@@ -18,12 +18,15 @@ import { AsleepAlert, Runway } from '../components/usage/shared'
 import { UncommittedFiles, WorktreeProblem } from '../components/WorktreeAlerts'
 import { Boundary } from './boundary'
 import { Dial, Frame } from './main'
-import { libraryColumnsFor, LIBRARY, PREVIEW_AGENTS, PREVIEW_SESSION_KEY, previewStore, store } from './harness'
+import { libraryColumnsFor, LIBRARY, PREVIEW_AGENTS, PREVIEW_ROOM, PREVIEW_SESSION_KEY, previewStore, store } from './harness'
 import { PREVIEW_ROOT, previewUsage } from './sidebar-fixture'
 import { GEMINI_UNTRUSTED_PREVIEW, REVIEWER_REASONS_PREVIEW } from './flow-fixture'
 import { ShellProvider } from '../panels/views'
 import { StoreProvider } from '../state/context'
 import type { AppStore } from '../state/store'
+import type { LayoutNode } from '../state/layout'
+import { emptyWorkbench } from '../state/workbench'
+import { Workbench } from '../panels/Workbench'
 
 const COLUMNS = libraryColumnsFor(LIBRARY.runtimes)
 const base = store.getSnapshot()
@@ -38,6 +41,115 @@ const coverageStore = previewStore({
     turns: [...active.turns, { status: 'inProgress', items: [{ id: 'coverage-command', type: 'command', status: 'inProgress', command: 'pnpm verify', startedAt: Date.now() - 12_000, actions: [] }] }],
   } as never]]),
 })
+const noticeBase = store.getSnapshot()
+const noticeWorkbench = (() => {
+  const workbench = emptyWorkbench()
+  return {
+    ...workbench,
+    main: {
+      root: { kind: 'pane' as const, id: 'notice-pane', view: { kind: 'conversation' as const, session: PREVIEW_SESSION_KEY } },
+      focused: 'notice-pane',
+      expanded: null,
+    },
+    right: {
+      ...workbench.right,
+      root: {
+        kind: 'stack' as const,
+        id: 'notice-overlay',
+        views: [{ id: 'notice-overlay-view', view: { kind: 'activity' as const } }],
+        active: 'notice-overlay-view',
+      },
+    },
+  }
+})()
+const noticePace: UsageReport = {
+  runtime: runtimeId('codex'),
+  account: null,
+  plan: null,
+  lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 90, windowMinutes: 10_080, resetsAt: Date.now() + 3.5 * 24 * 60 * 60_000, usageKnown: true }],
+  credits: null,
+  spend: null,
+  reached: null,
+  source: { kind: 'api', label: 'from the preview fixture' },
+  fetchedAt: Date.now(),
+  staleAfterMs: 60_000,
+  error: null,
+}
+const noticeLayoutStore = (id: string, options: {
+  readonly view?: Extract<LayoutNode, { kind: 'pane' }>['view']
+  readonly narrow?: boolean
+  readonly zoom?: 'sidebar' | 'right' | 'bottom' | null
+  readonly split?: boolean
+  readonly splitBoardFocus?: boolean
+  readonly folderGone?: boolean
+  readonly stripSurface?: boolean
+  readonly pendingRoomApproval?: boolean
+  readonly narrowRoom?: boolean
+} = {}) => {
+  const paneId = `${id}-pane`
+  const view = options.view ?? { kind: 'conversation' as const, session: PREVIEW_SESSION_KEY }
+  const second = options.split ? {
+    kind: 'pane' as const,
+    id: `${id}-other`,
+    view: options.splitBoardFocus ? { kind: 'activity' as const } : { kind: 'conversation' as const, session: PREVIEW_SESSION_KEY },
+  } : null
+  const root = second ? {
+    kind: 'split' as const, id: `${id}-split`, direction: 'row' as const, ratio: 0.5,
+        first: { kind: 'pane' as const, id: paneId, view }, second,
+  } : { kind: 'pane' as const, id: paneId, view }
+  const workbench = {
+    ...noticeWorkbench,
+    main: { root, focused: second ? second.id : paneId, expanded: null },
+    ...(options.zoom === 'sidebar' ? {
+      sidebar: {
+        ...noticeWorkbench.sidebar,
+        root: { kind: 'stack' as const, id: `${id}-sidebar`, views: [{ id: `${id}-sidebar-view`, view: { kind: 'activity' as const } }], active: `${id}-sidebar-view` },
+      },
+    } : {}),
+    ...(options.zoom === 'right' ? { zoom: { area: 'right' as const, scope: 'window' as const } } : {}),
+    ...(options.zoom === 'sidebar' ? { zoom: { area: 'sidebar' as const, scope: 'window' as const } } : {}),
+  }
+  const active = noticeBase.sessions.get(PREVIEW_SESSION_KEY)!
+  const approvalKey = noticeBase.teams.get(PREVIEW_ROOM)?.members[0] ?? PREVIEW_SESSION_KEY
+  const result = previewStore({
+    ...noticeBase,
+    status: options.stripSurface ? 'reconnecting' : 'open',
+    activeRuntime: runtimeId('codex'),
+    activeSessionKey: PREVIEW_SESSION_KEY,
+    account: null,
+    accountsByRuntime: {},
+    agentNotices: [],
+    preferencesLoaded: true,
+    noticePolicy: { muted: [], records: {}, seen: [], surfaces: {}, kept: [] },
+    narrowWindow: options.narrow ?? false,
+    usage: [noticePace],
+    workbench,
+    ...(options.pendingRoomApproval ? { approvals: [{ key: approvalKey, approval: { id: 'preview-room-approval', type: 'command', kind: 'shell', command: 'pnpm test', cwd: PREVIEW_ROOT } }] as never } : {}),
+    layout: { ...noticeBase.layout, root, focused: second ? second.id : paneId, expanded: null },
+    sessions: new Map([[PREVIEW_SESSION_KEY, active]]),
+    ...(options.folderGone ? { foldersGone: new Map([[active.cwd, 'The preview folder is unavailable.']]) } : {}),
+  } as never)
+  // Under the window's narrow threshold, and narrower than a right panel needs
+  // beside a readable conversation: the panel covers the main area.
+  if (options.narrow) result.setWindowWidth(679)
+  return result
+}
+
+const NoticeLayoutFrame = ({ id, title, options }: { readonly id: string; readonly title: string; readonly options?: Parameters<typeof noticeLayoutStore>[1] }) => (
+  <Frame id={id} title={title}>
+    <div
+      data-testid="notice-layout-canvas"
+      className="h-[620px] min-w-0 overflow-hidden border"
+      style={options?.narrowRoom ? { width: '900px' } : undefined}
+    >
+      <StoreProvider store={noticeLayoutStore(id, options)}>
+        <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
+          <Workbench sidebar={<div className="p-2">Preview sidebar</div>} />
+        </ShellProvider>
+      </StoreProvider>
+    </div>
+  </Frame>
+)
 const DIALOGS = ['off', 'edit agent', 'prefer agent', 'handoff', 'confirm', 'worktree', 'import', 'resolve', 'plan', 'library flow', 'add agents'] as const
 type Dialog = (typeof DIALOGS)[number]
 
@@ -71,6 +183,28 @@ const SelectedFlowPreview = ({ preview }: { readonly preview: FlowPreview }) => 
     </StoreProvider>
   )
 }
+
+/* Whole windows, each a real `Workbench`, drawn to show where a notice goes.
+   Every one carries its own composer, model control and conversation rail, so
+   on the default page they would multiply what the specs there look for by
+   one of each — `preview.html?notice-placement` is where they live, gated the
+   way `?empty` and `?side-by-side` are, and where `notice-layouts.spec.ts`
+   reads them. */
+export const NoticePlacementFrames = () => (
+  <>
+    <NoticeLayoutFrame id="coverage-notice-narrow-overlay" title="Notice placement — narrow window overlay" options={{ narrow: true }} />
+    <NoticeLayoutFrame id="coverage-notice-room-board" title="Notice placement — room board without a composer" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never }} />
+    <NoticeLayoutFrame id="coverage-notice-room-pending-approval" title="Notice placement — room composer hidden by an approval" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never, pendingRoomApproval: true }} />
+    <NoticeLayoutFrame id="coverage-notice-room-container-query" title="Notice placement — narrow room rail hides its body" options={{ view: { kind: 'room', room: PREVIEW_ROOM } as never, stripSurface: true, narrowRoom: true }} />
+    <NoticeLayoutFrame id="coverage-notice-folder-gone" title="Notice placement — folder-gone conversation" options={{ folderGone: true }} />
+    <NoticeLayoutFrame id="coverage-notice-zoomed-sidebar" title="Notice placement — zoomed sidebar" options={{ zoom: 'sidebar' }} />
+    <NoticeLayoutFrame id="coverage-notice-zoomed-dock" title="Notice placement — zoomed dock" options={{ zoom: 'right' }} />
+    <NoticeLayoutFrame id="coverage-notice-split-composers" title="Notice placement — split with two composers" options={{ split: true }} />
+    <NoticeLayoutFrame id="coverage-notice-split-unfocused-composer" title="Notice placement — visible composer beside focused activity" options={{ split: true, splitBoardFocus: true }} />
+    <NoticeLayoutFrame id="coverage-notice-composer-strip" title="Notice placement — dropped link above the composer" options={{ stripSurface: true }} />
+    <NoticeLayoutFrame id="coverage-notice-pane-bar-strip" title="Notice placement — dropped link below a tool pane bar" options={{ view: { kind: 'activity' as const } as never, stripSurface: true }} />
+  </>
+)
 
 /**
  * State-gated exports get a truthful fixture here rather than a file-wide

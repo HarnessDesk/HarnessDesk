@@ -14,6 +14,8 @@ import { sameCanonicalPath } from '../path-identity.js'
 import { pairedCosts } from './compare.js'
 import { sumMeasures } from './measures.js'
 
+import { INSIGHT_BYTE_LIMIT_MESSAGE } from '../ledger/insight.js'
+
 const DAY = 86_400_000
 const unknown = (unit: InsightMetric['unit'], basis: InsightMetric['basis'] = 'unknown'): InsightMetric =>
   ({ value: null, quality: 'unknown', unit, basis, sourceIds: [], coverage: 'none', missing: ['No recorded measurement.'] })
@@ -163,6 +165,7 @@ export class InsightPlane implements InsightReadApi {
     })
     const unallocated = amounts(unattributed, sourceFor(unattributed), detail.gaps)
     return {
+      scan: detail.gaps.some((gap) => gap === INSIGHT_BYTE_LIMIT_MESSAGE || gap.startsWith('Insight stopped before')) ? 'partial' : 'complete',
       id: randomUUID(), generatedAt, query, goals: allGoals, seats, goal: null, receipt: null, totals: total, elapsedMs: total.activeMs,
       breakdowns: [
         { dimension: 'seat', rows: seatRows, unattributed: unallocated, reason: 'Recorded corpus rows without a unique historical Seat remain unattributed.' },

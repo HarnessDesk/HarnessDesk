@@ -812,8 +812,12 @@ const NOTICE_CARD: NoticeMessage[] = [
   { id: 'offer', title: 'Skills and servers to share', body: 'Your other agents have some this machine could use. Nothing is copied until you confirm.', action: { label: 'Review in Library', onSelect: () => {} } },
 ]
 const NOTICE_STRIP: NoticeMessage[] = [
-  { id: 'pace', tone: 'warning', title: 'Claude Code is on course to run out in 51m.', action: { label: 'Switch agent', onSelect: () => {} } },
+  { id: 'pace', tone: 'warning', title: 'Alpha can continue.', body: 'Continue when ready.', action: { label: 'Continue with Alpha', onSelect: () => {} } },
   { id: 'signin', tone: 'danger', title: 'Cursor is not signed in.', action: { label: 'Sign in', onSelect: () => {} } },
+]
+const NOTICE_STRIP_MANY: NoticeMessage[] = [
+  { id: 'strip-limit', tone: 'warning', title: 'Agent B has reached its weekly limit.' },
+  { id: 'strip-signin', tone: 'danger', title: 'Agent C is not signed in.' },
 ]
 const NOTICE_INBOX: InboxMessage[] = [
   { id: 'i0', tone: 'info', from: 'Reviewer', title: 'Keep the old retry count, or raise it to five?', body: 'Five covers the documented flaps; three matches the other clients.', action: { label: 'Start as a task', onSelect: () => {} }, at: NOTICE_NOW - 60_000 },
@@ -853,8 +857,24 @@ const ChecklistBoard = () => (
 const NOTICE_ASK: NoticeMessage = {
   id: 'ask',
   tone: 'info',
-  title: 'Keep the old retry count, or raise it to five?',
-  body: 'Five covers the documented flaps; three matches the other clients.',
+  title: 'Alpha needs your decision.',
+  body: 'Choose how Alpha retries after the failed check.',
+  action: { label: 'Continue with Alpha', onSelect: () => {} },
+}
+
+const NOTICE_LONG_PATH: NoticeMessage = {
+  id: 'long-path',
+  tone: 'warning',
+  title: 'Alpha can continue.',
+  body: `https://example.com/${'unbreakablepathsegment'.repeat(8)}`,
+  action: { label: 'Continue with Alpha', onSelect: () => {} },
+}
+
+const NOTICE_COMPOSER: NoticeMessage = {
+  id: 'composer-limit',
+  tone: 'warning',
+  title: 'This conversation cannot start until its agent reconnects.',
+  body: 'The current conversation stays here while the connection is restored.',
 }
 
 /* Every surface in every state the app can put it in, drawn by the shipped
@@ -876,9 +896,36 @@ const NoticesBoard = () => {
           <NoticeCard messages={NOTICE_CARD} onDismiss={() => {}} />
         </div>
       </Case>
+      <Case label="card: long path wraps beside its controls">
+        <div style={{ width: 'calc(var(--hd-space-16) * 3.5)' }}>
+          <NoticeCard messages={[NOTICE_LONG_PATH]} onDismiss={() => {}} />
+        </div>
+      </Case>
       <Case label="card: dismissed twice before — the × offers Stop showing this">
         <div style={{ width: 'calc(var(--hd-space-16) * 3.5)' }}>
           <NoticeCard messages={NOTICE_CARD.slice(1)} onDismiss={() => {}} onMute={() => () => {}} />
+        </div>
+      </Case>
+      <Case label="composer: one line with an action and dismiss">
+        <div style={{ width: 'min(var(--hd-column), 100%)' }}>
+          <ComposerNotice message={NOTICE_STRIP[0]!} onDismiss={() => {}} />
+        </div>
+      </Case>
+      <Case label="composer: two lines with an action and dismiss">
+        <div style={{ width: 'min(var(--hd-column), 100%)' }}>
+          <ComposerNotice message={NOTICE_ASK} onDismiss={() => {}} />
+        </div>
+      </Case>
+      <Case label="composer: long path wraps before its action and dismiss">
+        <div style={{ width: 'calc(var(--hd-space-16) * 5)' }}>
+          <ComposerNotice message={NOTICE_LONG_PATH} onDismiss={() => {}} />
+        </div>
+      </Case>
+      <Case label="composer: a standing condition, in the outlet for its visible conversation">
+        <div style={{ width: 'min(var(--hd-column), 100%)' }}>
+          <ComposerNoticeStack>
+            <ComposerNotice message={NOTICE_COMPOSER} onDismiss={() => {}} />
+          </ComposerNoticeStack>
         </div>
       </Case>
       <Case label="composer: each tone, with and without an action or a dismiss">
@@ -906,11 +953,11 @@ const NoticesBoard = () => {
           </ComposerNoticeStack>
         </div>
       </Case>
-      <Case label="strip: one message">
-        <NoticeStrip messages={NOTICE_STRIP.slice(0, 1)} onDismiss={() => {}} />
+      <Case label="strip: one static component example">
+        <NoticeStrip messages={[NOTICE_STRIP[0]!]} onDismiss={() => {}} />
       </Case>
       <Case label="strip: several, paged">
-        <NoticeStrip messages={NOTICE_STRIP} onDismiss={() => {}} />
+        <NoticeStrip messages={NOTICE_STRIP_MANY} onDismiss={() => {}} />
       </Case>
       <Case label="inbox: the bell and its panel; unread tints the bell">
         <div className="flex items-start gap-(--hd-space-4)">
@@ -993,6 +1040,25 @@ const BannerBoard = () => (
           <ChangeStats added={12} removed={3} className="ml-auto" />
         </section>
       </Card>
+      <Banner tone="warning" title="Alpha can continue." actions={<BannerAction onClick={() => {}}>Continue with Alpha</BannerAction>} onDismiss={() => {}} />
+      <div style={{ width: 'calc(var(--hd-space-16) * 5)' }}>
+        <Banner
+          tone="warning"
+          title="Alpha can continue."
+          actions={<BannerAction onClick={() => {}}>Continue with Alpha</BannerAction>}
+          onDismiss={() => {}}
+        >
+          https://example.com/{'unbreakablepathsegment'.repeat(8)}
+        </Banner>
+      </div>
+      <Banner
+        tone="warning"
+        title="Alpha needs your decision."
+        actions={<BannerAction onClick={() => {}}>Continue with Alpha</BannerAction>}
+        onDismiss={() => {}}
+      >
+        Choose how Alpha retries after the failed check.
+      </Banner>
       <Banner tone="neutral" title="A newer version of the agent is available." onDismiss={() => {}}>
         1.4.2 is installed; 1.5.0 adds the thing you asked about.
       </Banner>

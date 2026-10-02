@@ -1167,6 +1167,13 @@ class PreviewStore {
     for (const listener of this.#listeners) listener()
   }
 
+  /* The window's width, as the app's store takes it (`setWindowWidth`): a frame
+     that stands for a narrow window states the width rather than a flag. */
+  setWindowWidth(width: number): void {
+    if (width === this.#snapshot.windowWidth) return
+    this.patch({ windowWidth: width })
+  }
+
   /* Closing a turn-files card, with the function the app's store runs. */
   closeTurnFiles(key: string, turnId: string): void {
     this.patch({ closedTurnFiles: withClosedTurnFiles(this.#snapshot.closedTurnFiles, key, turnId) })

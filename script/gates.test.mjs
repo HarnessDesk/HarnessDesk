@@ -3066,12 +3066,13 @@ const mainTestScript = (shape, carveOuts) =>
 test('the test glob is written one way everywhere it is run (#256)', () => {
   // Five encodings of one glob: the two runners, the two workflows, and prune-dist's own reading of dist.
   const repo = repoRoot
-  // package.json's own `test` script and the release workflow still run
-  // every compiled test through this one glob, unchanged.
-  for (const file of ['package.json', '.github/workflows/release.yml']) {
-    const text = fs.readFileSync(path.join(repo, file), 'utf8')
-    assert.ok(text.includes(TEST_GLOB), `${file} runs the tests by the glob prune-dist.mjs writes`)
-  }
+  const scripts = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).scripts
+  const releaseWorkflow = fs.readFileSync(path.join(repoRoot, '.github/workflows/release.yml'), 'utf8')
+  const { top, dist, tests } = distSegments(TEST_GLOB)
+  assert.ok(scripts.test.includes(`find ${top}/*/${dist}/${tests} -name '*.test.js'`),
+    'package.json finds every compiled Node test beneath the same directory prune-dist.mjs writes')
+  assert.ok(releaseWorkflow.includes(TEST_GLOB),
+    '.github/workflows/release.yml runs the tests by the glob prune-dist.mjs writes')
   // The gate and CI split the four flow-host-evidence end-to-end files into
   // their own run, at a wider `--test-timeout` than the rest (#1000's
   // review, round 2: Node 22 caps that flag per test file, cumulatively, and
@@ -3081,7 +3082,6 @@ test('the test glob is written one way everywhere it is run (#256)', () => {
   // instead to the same directory shape prune-dist.mjs reads dist by, and to
   // naming the files carved out of it, so a change to either drifting from
   // the other still fails here rather than silently narrowing what runs.
-  const { top, dist, tests } = distSegments(TEST_GLOB)
   const shape = `${top}/*/${dist}/${tests}`
   // The one package these files live under, literally — not `*`. The
   // server's intake test files were split out the same way (#1003).
@@ -3110,6 +3110,23 @@ test('the test glob is written one way everywhere it is run (#256)', () => {
           `${file} uses the exact main test invocation in the active Node tests step`)
       }
     }
+  }
+})
+
+test('the root test script bounds Node suites like verify does (#1175)', () => {
+  const scripts = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).scripts
+  const { top, dist, tests } = distSegments(TEST_GLOB)
+  const shape = `${top}/*/${dist}/${tests}`
+  const carveOuts = CARVED_OUT.map((name) => `${top}/server/${dist}/${tests}/${name}`)
+  const main = mainTestScript(shape, carveOuts)
+  const escapedMain = `bash -c "${main.replaceAll('$', '\\$')}"`
+
+  assert.ok(scripts.test.includes(escapedMain), 'the root test script uses verify’s 120-second Node test run')
+  for (const carveOut of carveOuts) {
+    assert.ok(
+      scripts.test.includes(`node --test --test-timeout=600000 "${carveOut}"`),
+      `the root test script gives the carved-out run its 600-second Node timeout (${carveOut})`,
+    )
   }
 })
 

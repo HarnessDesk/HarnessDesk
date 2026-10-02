@@ -5,7 +5,7 @@ import { mkdirSync, renameSync, realpathSync, symlinkSync, watch, type FSWatcher
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, unlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
-import { test } from 'node:test'
+import { test, type TestContext } from 'node:test'
 
 import { AgentWatch, type Clock, type WatchFn } from '../src/agent-watch.js'
 import { Agents } from '../src/agents.js'
@@ -774,6 +774,378 @@ test('(F7) a top-level link inside a project is followed where it still resolves
   await writeFile(join(shared, 'AGENT.md'), brief('Stale write.'))
   await pause(600)
   assert.deepEqual(said, [], 'the old target is no longer watched once the link points elsewhere')
+})
+
+/*
+ * #1206: a native watcher can lose an unlink/re-link event. The filesystem
+ * below is real, but these watchers report only the events explicitly sent
+ * by the test, so recovery cannot accidentally pass on another native event.
+ */
+const linkRecovery = async (t: TestContext) => {
+  const root = tempDir('hd-agent-watch-recovery-')
+  const project = join(root, 'project')
+  const agents = join(project, '.harnessdesk', 'agents')
+  const first = join(project, 'shared', 'first')
+  const second = join(project, 'shared', 'second')
+  await mkdir(agents, { recursive: true })
+  await mkdir(first, { recursive: true })
+  await mkdir(second, { recursive: true })
+  const link = join(agents, 'scout')
+  await symlink(join('..', '..', 'shared', 'first'), link)
+  const [agentsReal, firstReal, secondReal] = await Promise.all([realpath(agents), realpath(first), realpath(second)])
+  const made: { dir: string; listener: Parameters<WatchFn>[2]; closed: boolean }[] = []
+  const watchFn: WatchFn = (dir, _options, listener) => {
+    const entry = { dir, listener, closed: false }
+    made.push(entry)
+    return Object.assign(new EventEmitter(), { close: () => { entry.closed = true } }) as unknown as FSWatcher
+  }
+  const clock = fakeClock()
+  const { said, changed } = heard()
+  const box: { hold: (() => Promise<void>) | null } = { hold: null }
+  let rescans = 0
+  const instance = new AgentWatch({
+    roots: [], changed, settleMs: 30, watchFn, clock,
+    onRescan: () => { rescans++; return box.hold?.() },
+  })
+  t.after(() => instance.dispose())
+  await instance.watchProjects([project])
+  await until(() => made.some((one) => one.dir === firstReal), 'the original link target to be watched')
+  const rootWatch = made.find((one) => one.dir === agentsReal)!
+  const firstWatch = made.find((one) => one.dir === firstReal)!
+  const retarget = async (to = join('..', '..', 'shared', 'second')) => {
+    await unlink(link)
+    await symlink(to, link)
+  }
+  return { instance, project, agents, link, firstReal, secondReal, made, clock, said, box, rootWatch, firstWatch, retarget, rescans: () => rescans }
+}
+
+test('(F7, #1206) polling overtaking an outstanding native rescan delivers exactly one notice', async (t) => {
+  const p = await linkRecovery(t)
+  let release!: () => void
+  p.box.hold = () => {
+    p.box.hold = null
+    return new Promise<void>((resolve) => { release = resolve })
+  }
+  await p.retarget()
+  p.rootWatch.listener('rename', 'scout')
+  p.clock.advance(30)
+  await until(() => release !== undefined, 'the native scan to be held before applying')
+  assert.deepEqual(p.said, [p.project], 'the native notice has already been delivered')
+  p.clock.advance(1_000)
+  await until(() => p.clock.scheduledWithDelay(1_000) >= 2, 'polling to finish or skip the outstanding scan')
+  p.clock.advance(30)
+  release()
+  await until(() => p.made.some((one) => one.dir === p.secondReal), 'the native scan to apply its new target')
+  const checks = p.clock.scheduledWithDelay(1_000)
+  p.clock.advance(1_000)
+  await until(() => p.clock.scheduledWithDelay(1_000) > checks, 'the next polling pass to complete')
+  p.clock.advance(30)
+  assert.deepEqual(p.said, [p.project], 'an already delivered native notice cannot be repeated by polling')
+})
+
+test('(F7, #1206) 50 projects without top-level links do no idle reconciliation', async (t) => {
+  const root = tempDir('hd-agent-watch-no-links-')
+  const projects = Array.from({ length: 50 }, (_, i) => join(root, `project-${i}`))
+  await Promise.all(projects.map((project) => mkdir(join(project, '.harnessdesk', 'agents'), { recursive: true })))
+  const clock = fakeClock()
+  let scans = 0
+  const instance = new AgentWatch({ roots: [], changed: () => {}, watchFn: quietWatcher, clock, onRescan: () => { scans++ } })
+  t.after(() => instance.dispose())
+  await instance.watchProjects(projects)
+  await until(() => scans === 50, 'all initial top-level reads')
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  clock.advance(30_000)
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  assert.equal(clock.scheduledWithDelay(1_000), 0, 'roots with nothing to retarget need no poll timer')
+  assert.equal(scans, 50, 'idle projects are read once at discovery')
+})
+
+test('(F7, #1206) an empty scan retains recovery for a silent re-add within the backoff cap', async (t) => {
+  const p = await linkRecovery(t)
+  await unlink(p.link)
+  p.clock.advance(1_000)
+  await until(() => p.firstWatch.closed, 'polling to observe the empty root and retire the last link')
+  p.clock.advance(30)
+  assert.deepEqual(p.said, [p.project], 'removal has its own notice')
+  assert.equal(p.clock.pendingCount(), 1, 'a root that held links keeps a recovery check')
+  p.clock.advance(1_000)
+  await until(() => p.clock.scheduledWithDelay(5_000) === 1, 'an unchanged empty snapshot to back off')
+  p.said.length = 0
+  p.clock.advance(5_000)
+  await until(() => p.clock.scheduledWithDelay(5_000) === 2, 'empty recovery to repeat at the cap')
+  assert.deepEqual(p.said, [], 'unchanged empty scans are quiet')
+  await symlink(join('..', '..', 'shared', 'second'), p.link)
+  // No root callback: recovery must attach and announce the new target itself.
+  p.clock.advance(4_999)
+  assert.ok(!p.made.some((one) => one.dir === p.secondReal), 'the capped check is not due yet')
+  const checks = p.clock.scheduledWithDelay(1_000)
+  p.clock.advance(1)
+  await until(() => p.made.some((one) => one.dir === p.secondReal), 'silent re-add to attach within five seconds')
+  assert.ok(p.clock.scheduledWithDelay(1_000) > checks, 'a changed snapshot resets recovery to one second')
+  p.clock.advance(30)
+  assert.deepEqual(p.said, [p.project], 'the silent re-add has its own notice')
+  p.said.length = 0
+  p.made.find((one) => one.dir === p.secondReal)!.listener('change', 'AGENT.md')
+  p.clock.advance(30)
+  assert.deepEqual(p.said, [p.project], 'the recovered target reports subsequent edits')
+  await p.instance.watchProjects([])
+  assert.equal(p.clock.pendingCount(), 0, 'closing cancels the retained recovery check')
+})
+
+test('(F7, #1206) native discovery shortens an empty-root recovery backoff', async (t) => {
+  const p = await linkRecovery(t)
+  await unlink(p.link)
+  p.rootWatch.listener('rename', 'scout')
+  p.clock.advance(30)
+  await until(() => p.firstWatch.closed, 'the native scan to retire the last link')
+  p.clock.advance(1_000)
+  await until(() => p.clock.scheduledWithDelay(5_000) === 1, 'empty recovery to back off')
+  await symlink(join('..', '..', 'shared', 'first'), p.link)
+  const checks = p.clock.scheduledWithDelay(1_000)
+  p.rootWatch.listener('rename', 'scout')
+  p.clock.advance(30)
+  await until(() => p.made.filter((one) => one.dir === p.firstReal).length === 2, 'native discovery to attach the new link')
+  assert.ok(p.clock.scheduledWithDelay(1_000) > checks, 'native discovery replaces the pending five-second check')
+  p.said.length = 0
+  await p.retarget()
+  p.clock.advance(1_000)
+  await until(() => p.made.some((one) => one.dir === p.secondReal), 'discovery to have started silent-retarget recovery')
+  p.clock.advance(30)
+  assert.deepEqual(p.said, [p.project])
+  p.instance.dispose()
+  assert.equal(p.clock.pendingCount(), 0, 'dispose cancels recovery')
+})
+
+test('(F7, #1206) rapid retargets cannot apply an older reconciliation snapshot', async (t) => {
+  const p = await linkRecovery(t)
+  let release!: () => void
+  p.box.hold = () => {
+    p.box.hold = null
+    return new Promise<void>((resolve) => { release = resolve })
+  }
+  await p.retarget()
+  p.clock.advance(1_000)
+  await until(() => release !== undefined, 'the intermediate target snapshot to be held')
+  await p.retarget(join('..', '..', 'shared', 'first'))
+  p.rootWatch.listener('rename', 'scout')
+  const scans = p.rescans()
+  p.clock.advance(30)
+  await until(() => p.rescans() > scans, 'the final native retarget to be read')
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  release()
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  p.clock.advance(30)
+  assert.ok(!p.firstWatch.closed, 'the final target retains its unchanged watcher')
+  assert.ok(!p.made.some((one) => one.dir === p.secondReal), 'the superseded intermediate target is never attached')
+  assert.deepEqual(p.said, [p.project])
+})
+
+test('(F7, #1206) replacing a root retires its held reconciliation and follows the replacement', async (t) => {
+  const p = await linkRecovery(t)
+  let release!: () => void
+  p.box.hold = () => {
+    p.box.hold = null
+    return new Promise<void>((resolve) => { release = resolve })
+  }
+  await p.retarget()
+  p.clock.advance(1_000)
+  await until(() => release !== undefined, 'the old root reconciliation to be held')
+  const replacement = join(p.project, 'replacement-agents')
+  await mkdir(replacement)
+  const replacementReal = await realpath(replacement)
+  await symlink(p.firstReal, join(replacement, 'scout'))
+  await rm(p.agents, { recursive: true })
+  await symlink(replacementReal, p.agents)
+  p.rootWatch.listener('rename', null)
+  await until(() => p.made.some((one) => one.dir === replacementReal), 'the replacement root to be followed')
+  await until(() => p.made.filter((one) => one.dir === p.firstReal).length === 2, 'the replacement root link to be attached')
+  assert.ok(p.rootWatch.closed && p.firstWatch.closed)
+  release()
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  p.clock.advance(30)
+  assert.ok(!p.made.some((one) => one.dir === p.secondReal), 'the old root snapshot cannot attach its target')
+  assert.deepEqual(p.said, [p.project])
+  const newWatch = p.made.filter((one) => one.dir === p.firstReal).at(-1)!
+  newWatch.listener('change', 'AGENT.md')
+  p.clock.advance(30)
+  assert.deepEqual(p.said, [p.project, p.project], 'the replacement target remains live')
+})
+
+test('(F7, #1206) close then reopen cannot revive the old reconciliation chain', async (t) => {
+  const p = await linkRecovery(t)
+  let release!: () => void
+  p.box.hold = () => {
+    p.box.hold = null
+    return new Promise<void>((resolve) => { release = resolve })
+  }
+  await p.retarget()
+  p.clock.advance(1_000)
+  await until(() => release !== undefined, 'the old project reconciliation to be held')
+  await p.instance.watchProjects([])
+  await p.retarget(join('..', '..', 'shared', 'first'))
+  await p.instance.watchProjects([p.project])
+  await until(() => p.made.filter((one) => one.dir === p.firstReal).length === 2, 'the reopened project to attach its target')
+  const checks = p.clock.scheduledWithDelay(1_000)
+  release()
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  assert.equal(p.clock.scheduledWithDelay(1_000), checks, 'the retired owner cannot schedule another polling chain')
+  assert.ok(!p.made.some((one) => one.dir === p.secondReal))
+  assert.deepEqual(p.said, [], 'reopening performs quiet initial discovery')
+  const scans = p.rescans()
+  p.clock.advance(1_000)
+  await until(() => p.clock.scheduledWithDelay(1_000) > checks, 'the reopened owner to reconcile')
+  assert.equal(p.rescans(), scans + 1, 'only the new owner polls')
+})
+
+test('(F7, #1206) disposal during outstanding reconciliation attaches nothing and schedules nothing', async (t) => {
+  const p = await linkRecovery(t)
+  let release!: () => void
+  p.box.hold = () => new Promise<void>((resolve) => { release = resolve })
+  await p.retarget()
+  p.clock.advance(1_000)
+  await until(() => release !== undefined, 'reconciliation to reach its apply boundary')
+  p.instance.dispose()
+  release()
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  p.clock.advance(30_000)
+  assert.ok(p.made.every((one) => one.closed))
+  assert.ok(!p.made.some((one) => one.dir === p.secondReal))
+  assert.deepEqual(p.said, [])
+  assert.equal(p.clock.pendingCount(), 0)
+})
+
+test('(F7, #1206) a retarget with no native event is noticed, the old target is retired, and the new one is live', async (t) => {
+  const p = await linkRecovery(t)
+  // First prove both existing watches have worked. The fallback must survive a
+  // later lost event, not merely wait until the first event proves readiness.
+  const initial = p.rescans()
+  p.firstWatch.listener('change', 'AGENT.md')
+  p.rootWatch.listener('change', 'unchanged.txt')
+  p.clock.advance(30)
+  await until(() => p.rescans() > initial, 'the proven root watcher’s initial rescan')
+  assert.deepEqual(p.said, [p.project])
+  p.said.length = 0
+  await p.retarget()
+  p.clock.advance(1_000)
+  await until(() => p.made.some((one) => one.dir === p.secondReal), 'the new target after a lost retarget event')
+  assert.ok(p.firstWatch.closed, 'the old target must be retired without a native event')
+  p.clock.advance(30)
+  assert.deepEqual(p.said, [p.project], 'the retarget has its own notice without another write')
+  p.said.length = 0
+  const newWatch = p.made.find((one) => one.dir === p.secondReal)!
+  newWatch.listener('change', 'AGENT.md')
+  p.clock.advance(30)
+  assert.deepEqual(p.said, [p.project], 'the new target reports subsequent edits')
+})
+
+test('(F7, #1206) reconciliation is quiet for unchanged links and does not repeat a native retarget notice', async (t) => {
+  const p = await linkRecovery(t)
+  const before = p.rescans()
+  p.clock.advance(1_000)
+  await until(() => p.rescans() > before, 'an unchanged link to be reconciled')
+  // Completion schedules the next check after applying the scan, so counting
+  // that timer synchronizes past the async read rather than guessing a pause.
+  await until(() => p.clock.scheduledWithDelay(1_000) >= 2, 'the next reconciliation to be scheduled')
+  p.clock.advance(30)
+  assert.deepEqual(p.said, [], 'an unchanged roster needs no notice')
+  await p.retarget()
+  p.rootWatch.listener('rename', 'scout')
+  p.clock.advance(30)
+  await until(() => p.made.some((one) => one.dir === p.secondReal), 'the native event to follow the new target')
+  assert.deepEqual(p.said, [p.project])
+  const scans = p.rescans()
+  const checks = p.clock.scheduledWithDelay(1_000)
+  p.clock.advance(1_000)
+  await until(() => p.rescans() > scans && p.clock.scheduledWithDelay(1_000) > checks, 'reconciliation after the native rescan')
+  p.clock.advance(30)
+  assert.deepEqual(p.said, [p.project], 'polling must not repeat a change the native rescan already applied')
+  await p.instance.watchProjects([])
+  assert.equal(p.clock.pendingCount(), 0, 'closing cancels the pending reconciliation timer')
+})
+
+test('(F7, #1206) a silent retarget outside the project retires the admitted target without watching outside', async (t) => {
+  const p = await linkRecovery(t)
+  const outside = tempDir('hd-agent-watch-outside-')
+  const outsideReal = await realpath(outside)
+  await p.retarget(outsideReal)
+  p.clock.advance(1_000)
+  await until(() => p.firstWatch.closed, 'the old target to be retired after a refused retarget')
+  p.clock.advance(30)
+  assert.deepEqual(p.said, [p.project], 'removing an admitted link target changes the roster')
+  assert.ok(!p.made.some((one) => one.dir === outsideReal), 'reconciliation follows the roster confinement rule')
+  p.said.length = 0
+  await p.retarget()
+  p.clock.advance(1_000)
+  await until(() => p.made.some((one) => one.dir === p.secondReal), 'a refused link to become admitted after another silent retarget')
+  p.clock.advance(30)
+  assert.deepEqual(p.said, [p.project], 'a top-level link still needs polling while its target is refused')
+})
+
+test('(F7, #1206) closing a project cancels reconciliation, including a scan already reading its links', async (t) => {
+  const p = await linkRecovery(t)
+  let release!: () => void
+  p.box.hold = () => new Promise<void>((resolve) => { release = resolve })
+  await p.retarget()
+  p.clock.advance(1_000)
+  await until(() => release !== undefined, 'reconciliation to reach its apply boundary')
+  await p.instance.watchProjects([])
+  release()
+  // All native watchers were retired synchronously; any asynchronous scan
+  // completing after close must schedule neither a watcher nor another timer.
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  p.clock.advance(10_000)
+  assert.ok(p.made.every((one) => one.closed))
+  assert.ok(!p.made.some((one) => one.dir === p.secondReal))
+  assert.deepEqual(p.said, [])
+  assert.equal(p.clock.pendingCount(), 0)
+})
+
+test('(F7, #1206) real watchers recover a retarget when its root events are withheld', async (t) => {
+  const root = tempDir('hd-agent-watch-recovery-')
+  const project = join(root, 'project')
+  const agents = join(project, '.harnessdesk', 'agents')
+  const first = join(project, 'shared', 'first')
+  const second = join(project, 'shared', 'second')
+  await mkdir(agents, { recursive: true })
+  await mkdir(first, { recursive: true })
+  await mkdir(second, { recursive: true })
+  const link = join(agents, 'scout')
+  await symlink(join('..', '..', 'shared', 'first'), link)
+  const agentsReal = await realpath(agents)
+  const active = new Set<string>()
+  const { said, changed } = heard()
+  const instance = new AgentWatch({
+    roots: [], changed, settleMs: 30,
+    watchFn: (dir, options, listener) => {
+      active.add(dir)
+      const watcher = watch(dir, options, (event, filename) => {
+        // Keep the real root watcher alive but lose its callbacks. Changes
+        // at linked targets still use the real filesystem and native watch.
+        if (dir !== agentsReal) listener(event, filename)
+      })
+      watcher.on('close', () => active.delete(dir))
+      return watcher
+    },
+  })
+  t.after(() => instance.dispose())
+  await instance.watchProjects([project])
+  let n = 0
+  await proveLive(() => said.length > 0, () => writeFile(join(first, 'AGENT.md'), brief(`First ${n++}.`)), 'the original target to prove itself live')
+  await settled()
+  said.length = 0
+  await unlink(link)
+  await symlink(join('..', '..', 'shared', 'second'), link)
+  await until(() => said.length > 0, 'the retarget’s own notice without its native root events')
+  await until(() => !active.has(realpathSync(first)) && active.has(realpathSync(second)), 'the recovered target watches')
+  await settled()
+  said.length = 0
+  await proveLive(() => said.length > 0, () => writeFile(join(second, 'AGENT.md'), brief(`Second ${n++}.`)), 'the real new target to report an edit')
+  assert.ok(said.every((one) => one === project))
+  await settled()
+  said.length = 0
+  await writeFile(join(first, 'AGENT.md'), brief('Old target.'))
+  await pause(600)
+  assert.deepEqual(said, [], 'the retired target is silent after real recovery')
 })
 
 /*
@@ -1597,7 +1969,11 @@ test('(P3) the top-level link rescan runs once per settled burst, not once per f
   // above reset — actually be pending, so the advance right after can flush
   // it before the count below starts from a clean zero.
   await settled()
-  clock.advance(1_000)
+  const initial = rescans
+  // Move only the native debounce window: periodic reconciliation has its
+  // own interval and is not a rescan charged to this burst (#1206).
+  clock.advance(30)
+  await until(() => rescans > initial, 'the initial native rescan to complete')
   rescans = 0
 
   for (let n = 0; n < 20; n++) await writeFile(join(project, '.harnessdesk', 'agents', 'scout', `f${n}.txt`), 'x')
@@ -1606,7 +1982,8 @@ test('(P3) the top-level link rescan runs once per settled burst, not once per f
   // timer early, however they are spaced, because the clock that timer runs
   // on is frozen until the `advance` below moves it.
   await settled()
-  clock.advance(1_000)
+  clock.advance(30)
+  await until(() => rescans > 0, 'the burst’s asynchronous rescan to complete')
   assert.equal(rescans, 1, `20 rapid changes beneath the root caused ${rescans} rescans, not one settled burst`)
 })
 

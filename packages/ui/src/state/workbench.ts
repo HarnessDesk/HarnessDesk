@@ -951,14 +951,12 @@ export const rightPanelOverlays = (workbench: Workbench, windowWidth: number): b
  * if there is one and the first pane otherwise hosts it. A dock zoomed to
  * take the room takes the strip with it, since the main area it would
  * otherwise have ridden has no box; so does a right panel that covers the
- * whole main area. `null` is a zoomed sidebar, which is no
- * place for a desk-wide strip: `NoticeStripOutlet`'s own fallback then
- * carries a composer-bound notice instead, and nothing stands in for one
- * that belongs on the strip until the sidebar is unzoomed.
+ * whole main area. A zoomed sidebar carries the strip in its own fallback
+ * host, alongside the panel content.
  */
-export const noticeArea = (workbench: Workbench, windowWidth: number): 'main' | 'right' | 'bottom' | null => {
+export const noticeArea = (workbench: Workbench, windowWidth: number): 'main' | 'right' | 'bottom' | 'sidebar' => {
   const zoom = workbench.zoom
-  if (zoom !== null && zoom.area !== 'main') return zoom.area === 'sidebar' ? null : zoom.area
+  if (zoom !== null && zoom.area !== 'main') return zoom.area
   if (rightPanelOverlays(workbench, windowWidth)) return 'right'
   return 'main'
 }
@@ -972,8 +970,7 @@ const firstPane = (node: LayoutNode): PaneId => (node.kind === 'pane' ? node.id 
  * pane then on screen), and otherwise the tree's own first leaf.
  *
  * `null` when `noticeArea` answers anything else: the strip then belongs to
- * a dock (`right`/`bottom`), or to nobody (a zoomed sidebar), and no pane in
- * the split tree is the one carrying it.
+ * a dock or zoomed sidebar, and no pane in the split tree is carrying it.
  */
 export const mainNoticeHost = (workbench: Workbench, windowWidth: number): PaneId | null =>
   noticeArea(workbench, windowWidth) === 'main' ? (workbench.main.expanded ?? firstPane(workbench.main.root)) : null

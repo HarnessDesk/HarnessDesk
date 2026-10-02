@@ -528,6 +528,36 @@ wait: 240
 budget: { rounds: 3, without-progress: 2 }
 ```
 
+### Start from a fetched base
+
+An optional v2 `base` chooses where the Team starts:
+
+```yaml
+base: { remote: origin }                # fetch the remote's default branch
+# Or choose a named branch:
+# base: { remote: upstream, branch: main }
+```
+
+The remote must already be configured in the project; this field does not
+take a URL. The preview says that Start will fetch, but makes no network
+request. Start fetches the remote's current default (`HEAD`) or the named
+branch, then freezes the full commit id in the run before opening any Seat.
+A missing remote, missing branch or failed fetch refuses the start; a cached
+remote-tracking ref is never used as a fallback.
+
+Every Seat gets a managed lane cut from that commit, including roles without
+`isolate: true`. The person's project branch, index and uncommitted files stay
+as they are. Later rounds handed one writer's finished commit start from that
+work instead, and recovery reuses the frozen base without fetching again.
+A check with no predecessor runs in a retained managed checkout of the base;
+its explicit relative `cwd`, if any, is resolved inside that checkout.
+The host retains a ref for the run so the base remains reachable if the remote
+moves. Trigger starts use the same fetch and pin, before their first dispatch.
+
+A Flow with `base` starts a new Goal from a project. It cannot also reuse an
+existing Goal or name a review target; that target already chooses its own
+commit. Omit `base` to keep the existing checkout-based start behavior.
+
 A role's own file no longer carries an Agent's brief, answers or ceiling —
 those come from the resolved Agent named in `uses:`, the same one Settings ›
 Agents lists. Every agent role needs `uses:` to name at least one Agent.
@@ -565,7 +595,7 @@ And when a round does close on a word no rule takes anywhere, the run settles
 at once, naming the exact card and word — never a wait for a later ceiling to
 notice.
 
-Every Seat of a round is seated at once, and a round that is not
+Every Seat of a round is seated at once, and a round with no `base` that is not
 `isolate: true` seats them all in the one working tree. When that ceiling lets
 them commit — `edit`, `publish` or `merge` — they move each other's HEAD and
 land commits on each other's branches, so the dry run, and with it the start,

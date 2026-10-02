@@ -325,6 +325,11 @@ ctx.context.register({
   it left off. Throwing is for a provider that should have answered and could
   not: that stops the send, because a message silently missing what its chip
   promised misleads the agent.
+- During resolution, `ctx.workspace`, relative filesystem paths, shell working
+  directories and the workspace permission gate use the checkout admitted by
+  the host for the conversation or draft; a caller's `workspaceRoot` cannot
+  replace it. Concurrent resolutions keep separate roots; without an admitted
+  checkout, resolution uses the open workspace.
 - Resolution receives `(scope, ref)` and can return a plain `string` or `{
   text?, image? }` (e.g. for a screenshot). It resolves over the wire as
   `context/resolve { id, ref?, runtime?, workspaceRoot? }` → `{ label, text,
@@ -721,11 +726,20 @@ privileged path:
 and the reviewed full `head` commit (40 or 64 lowercase hexadecimal characters),
 accepts an optional `method` of `squash`, `merge` or `rebase`, and defaults to
 `squash`. The forge call uses `--match-head-commit`, so it refuses instead of
-merging if the branch moved after review. Before merging, it reads every check-run
-on that commit and refuses unless the newest run of every check name is complete
-with a `success`, `skipped` or `neutral` conclusion; no check-runs or an unreadable
-CI state also refuse. Use `pr_checks` to watch CI, then retry once it is green.
-Only a seat at the `merge` ceiling may reach the tool.
+merging if the branch moved after review. Before merging, it reads the rules
+and classic protection summary for the pull request's base branch and unions
+their required checks. A required check's newest run must be complete with a
+`success`, `skipped` or `neutral` conclusion; when GitHub identifies the
+required app, only a run from that app counts.
+Only an explicit allowlist of rule types known not to gate on CI is ignored;
+any other rule type makes the requirements unreadable and keeps the every-check
+fallback.
+Missing, pending or failed required checks refuse the merge, while other
+check-runs are ignored. If the requirements are absent or cannot be read, the
+tool falls back to the earlier conservative rule: every check-run on the commit
+must be green, and no check-runs or unreadable CI state refuse. Use `pr_checks`
+to watch CI, then retry once it is green. Only a seat at the `merge` ceiling may
+reach the tool.
 
 ### What not to build
 

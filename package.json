@@ -45,7 +45,7 @@
     "build:node": "tsc -b && node script/copy-fixtures.mjs && node script/prune-dist.mjs",
     "clean": "rm -rf packages/*/dist",
     "typecheck": "tsc -b --noEmit && pnpm --filter @harnessdesk/ui run typecheck",
-    "test": "pnpm run build:node && node --test --test-reporter=spec \"packages/*/dist/test/**/*.test.js\" && pnpm --filter @harnessdesk/ui run test && pnpm --filter @harnessdesk/desktop run test",
+    "test": "pnpm run build:node && bash -c \"node --test --test-timeout=120000 \\$(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js')\" && node --test --test-timeout=600000 \"packages/server/dist/test/flow-host-evidence-*.test.js\" && node --test --test-timeout=600000 \"packages/server/dist/test/intake-*.test.js\" && pnpm --filter @harnessdesk/ui run test && pnpm --filter @harnessdesk/desktop run test",
     "test:gates": "node --test \"script/*.test.mjs\"",
     "dev": "pnpm run build && pnpm --filter @harnessdesk/desktop run dev",
     "serve": "pnpm run build && node packages/server/dist/src/bin.js",

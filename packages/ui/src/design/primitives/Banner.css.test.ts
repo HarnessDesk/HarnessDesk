@@ -27,18 +27,34 @@ const blockAfter = (opening: string): string => {
   throw new Error(`${opening} never closes`)
 }
 
-describe('a banner in a narrow column', () => {
-  it('is framed by a box its own layout can query, and by nothing that contains its layout', () => {
-    expect(blockAfter('.frame {')).toMatch(/container:\s*hd-banner\s*\/\s*inline-size/)
-    /* A query container, measured in #192's review to neither move a fixed
-       child nor trap its stacking; `contain: layout` would do both, and the ×
-       menu inside the card is fixed and not portalled. */
+describe('banner centring', () => {
+  it('keeps the card inside its width boundary without containing its contents', () => {
+    expect(blockAfter('.frame {')).toMatch(/width:\s*min\(var\(--hd-column\),\s*100%\)/)
     expect(blockAfter('.frame {')).not.toMatch(/(^|[\s;{])contain:/)
+    expect(blockAfter('.frame {')).toMatch(/container:\s*hd-banner\s*\/\s*inline-size/)
   })
 
-  it('gives its actions a line of their own below 600px, after the words — and leaves a compact banner be', () => {
-    const narrow = blockAfter('@container hd-banner (max-width: 600px)')
-    expect(narrow).toMatch(/\.banner:not\(\[data-compact\]\)\s*\{[^}]*flex-wrap:\s*wrap/)
-    expect(narrow).toMatch(/\.banner:not\(\[data-compact\]\) \.actions\s*\{[^}]*order:\s*1;[^}]*flex-basis:\s*100%/)
+  it('moves non-compact actions below the copy when the card is narrow', () => {
+    expect(css).toMatch(/@container hd-banner \(max-width:\s*400px\)\s*\{[\s\S]*?\.banner:not\(\[data-compact\]\)\s*\{[^}]*flex-wrap:\s*wrap/s)
+    const actions = blockAfter('.banner:not([data-compact]) .actions {')
+    expect(actions).toMatch(/order:\s*1/)
+    expect(actions).toMatch(/flex-basis:\s*100%/)
+    expect(actions).toMatch(/justify-content:\s*flex-end/)
+    expect(actions).toMatch(/padding-left:\s*0/)
+  })
+
+  it('centres one-line text and controls, with a wrapped lead on line one', () => {
+    const banner = blockAfter(".banner[data-slot='alert'] {")
+    const text = blockAfter('.text {')
+    expect(banner).toMatch(/align-items:\s*center/)
+    expect(text).toMatch(/justify-content:\s*center/)
+    expect(text).toMatch(/min-height:\s*var\(--hd-btn-h\)/)
+    expect(blockAfter('.banner[data-wrapped] .icon {')).toMatch(/align-self:\s*flex-start/)
+    // One line: the dismiss shares the centre. Wrapped: it hangs from the top and is pulled onto the title's line.
+    expect(blockAfter('.dismiss {')).not.toMatch(/margin-top:/)
+    const wrappedDismiss = blockAfter('.banner[data-wrapped] .dismiss {')
+    expect(wrappedDismiss).toMatch(/align-self:\s*flex-start/)
+    expect(wrappedDismiss).toMatch(/margin-top:\s*calc\(\(var\(--hd-line\) - var\(--hd-btn-h-sm\)\) \/ 2\)/)
+    expect(blockAfter('.banner[data-wrapped][data-compact] .dismiss {')).toMatch(/var\(--hd-icon-target\)/)
   })
 })

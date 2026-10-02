@@ -1,6 +1,6 @@
 import type { ForgeSeat, HarnessContext, HarnessPlugin } from '@harnessdesk/cordis-host'
 import { DESK_POST_MARKER, GIT_READ_HARDENING_ARGS, type ForgeReference, type ScopeQuery } from '@harnessdesk/protocol'
-import { assessCheckRuns } from './check-runs.js'
+import { assessCheckRuns, type RequiredCheck } from './check-runs.js'
 
 /**
  * Git tools, available to every agent.
@@ -329,6 +329,157 @@ const stateOf = (pr: GhPullRequest): ForgeReference['state'] =>
 const repoOf = (url: string): string => {
   const found = /^https?:\/\/[^/]+\/([^/]+\/[^/]+)\/(?:pull|issues)\/\d+/.exec(url)
   return found?.[1] ?? ''
+}
+
+const parseCheckRequirement = (value: unknown, appField: 'integration_id' | 'app_id'): RequiredCheck | null => {
+  if (!value || typeof value !== 'object') return null
+  const entry = value as Record<string, unknown>
+  if (typeof entry.context !== 'string' || entry.context.trim() === '') return null
+  if (!Object.hasOwn(entry, appField)) return null
+  const appId = entry[appField]
+  if (appId !== null && (!Number.isSafeInteger(appId) || Number(appId) < 0)) return null
+  return { context: entry.context, integrationId: typeof appId === 'number' ? appId : null }
+}
+
+const uniqueRequirements = (checks: readonly RequiredCheck[]): RequiredCheck[] => {
+  const unique = new Map<string, RequiredCheck>()
+  for (const check of checks) unique.set(`${check.context}\0${check.integrationId ?? 'any'}`, check)
+  return [...unique.values()]
+}
+
+const recordOf = (value: unknown): Record<string, unknown> | null =>
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+
+// An allowlist keeps new or unsupported CI-gating rules unreadable, preserving
+// the every-check fallback. Only rules known not to gate on CI may be ignored.
+const NON_CI_RULE_TYPES = new Set([
+  'deletion',
+  'non_fast_forward',
+  'creation',
+  'update',
+  'required_linear_history',
+  'required_signatures',
+  'pull_request',
+  'commit_message_pattern',
+  'commit_author_email_pattern',
+  'committer_email_pattern',
+  'branch_name_pattern',
+  'tag_name_pattern',
+  'file_path_restriction',
+  'max_file_path_length',
+  'file_extension_restriction',
+  'max_file_size',
+])
+
+/** Parse every entry; an incomplete rule cannot be hidden by a valid sibling. */
+const requirementsFromRulesets = (value: unknown): RequiredCheck[] | null => {
+  if (!Array.isArray(value)) return null
+  const requirements: RequiredCheck[] = []
+  for (const rawRule of value) {
+    const rule = recordOf(rawRule)
+    if (!rule || typeof rule.type !== 'string' || rule.type.trim() === '') return null
+    const parameters = recordOf(rule.parameters)
+    const type = rule.type.trim()
+    if (type !== 'required_status_checks') {
+      if (!NON_CI_RULE_TYPES.has(type)) return null
+      if (parameters && Object.hasOwn(parameters, 'required_status_checks')) return null
+      continue
+    }
+    const checks = parameters?.required_status_checks
+    if (!Array.isArray(checks) || checks.length === 0) return null
+    for (const check of checks) {
+      const requirement = parseCheckRequirement(check, 'integration_id')
+      if (!requirement) return null
+      requirements.push(requirement)
+    }
+  }
+  return requirements
+}
+
+/** Parse the readable classic-protection summary carried by the branch resource. */
+const requirementsFromClassicSummary = (value: unknown): RequiredCheck[] | null => {
+  const branch = recordOf(value)
+  if (!branch || typeof branch.protected !== 'boolean') return null
+  const protection = recordOf(branch.protection)
+  if (!protection || typeof protection.enabled !== 'boolean') return null
+  const statusChecks = recordOf(protection.required_status_checks)
+  if (
+    !statusChecks ||
+    !Array.isArray(statusChecks.contexts) ||
+    !Array.isArray(statusChecks.checks) ||
+    typeof statusChecks.enforcement_level !== 'string'
+  ) return null
+
+  const requirements: RequiredCheck[] = []
+  for (const context of statusChecks.contexts) {
+    if (typeof context !== 'string' || context.trim() === '') return null
+    requirements.push({ context, integrationId: null })
+  }
+  for (const check of statusChecks.checks) {
+    const requirement = parseCheckRequirement(check, 'app_id')
+    if (!requirement) return null
+    requirements.push(requirement)
+  }
+
+  if (!protection.enabled || statusChecks.enforcement_level === 'off') return []
+  return requirements
+}
+
+/**
+ * Read GitHub's required checks for the PR's base branch. Rulesets and classic
+ * branch protection both contribute requirements. An unreadable or incomplete
+ * answer from either source keeps the older all-checks gate in force.
+ */
+const readRequiredChecks = async (
+  gh: (args: readonly string[]) => Promise<string>,
+  repository: string,
+  baseBranch: string | undefined,
+): Promise<readonly RequiredCheck[] | null> => {
+  if (repository === '' || !baseBranch) return null
+  const branch = encodeURIComponent(baseBranch)
+  const rulesetRequirements: RequiredCheck[] = []
+  let rulesReadable = false
+  try {
+    let complete = false
+    let pagesRead = 0
+    for (let page = 1; page <= 10; page += 1) {
+      const answer = JSON.parse(await gh([
+        'api',
+        `repos/${repository}/rules/branches/${branch}?per_page=100&page=${page}`,
+      ])) as unknown
+      pagesRead = page
+      if (!Array.isArray(answer) || answer.length > 100) break
+      const pageRequirements = requirementsFromRulesets(answer)
+      if (!pageRequirements) break
+      rulesetRequirements.push(...pageRequirements)
+      if (answer.length < 100) {
+        complete = true
+        break
+      }
+    }
+    rulesReadable = complete && pagesRead < 10
+  } catch {
+    // Still read the branch summary below; either unreadable source keeps the
+    // all-check fallback in force.
+  }
+
+  let classicAnswer: unknown
+  let classicReadable = false
+  try {
+    classicAnswer = JSON.parse(await gh(['api', `repos/${repository}/branches/${branch}`])) as unknown
+    classicReadable = true
+  } catch {
+    // No response code establishes absence: the conservative all-check gate
+    // remains in force unless the summary itself is readable.
+  }
+  if (!rulesReadable || !classicReadable) return null
+
+  const classicRequirements = requirementsFromClassicSummary(classicAnswer)
+  if (!classicRequirements) return null
+  const unique = uniqueRequirements([...rulesetRequirements, ...classicRequirements])
+  return unique.length > 0 ? unique : null
 }
 
 const excerptOf = (body: string | null | undefined): string | null => {
@@ -744,7 +895,7 @@ export const gitPlugin: HarnessPlugin = {
       ctx.tools.register({
         name: 'pr_merge',
         description:
-          'Merge a pull request, through HarnessDesk, with the person’s own gh — only one you were asked to merge, only at the reviewed commit, and only after every check on that commit is green. If CI is running, failed, or cannot be read, the desk refuses; use pr_checks to watch CI and retry once it is green. GitHub also refuses if the branch moved since review. Squash unless told otherwise. Only a seat whose ceiling is merge may call this; the desk refuses it for any other.',
+          'Merge a pull request, through HarnessDesk, with the person’s own gh — only one you were asked to merge, only at the reviewed commit, and only after every required check on the base branch is green. It reads the base branch’s rules and classic protection summary and uses their combined requirements; if either answer cannot be read, every check on the commit must be green. A missing, pending or failed required check refuses the merge. GitHub also refuses if the branch moved since review. Squash unless told otherwise. Only a seat whose ceiling is merge may call this; the desk refuses it for any other.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -766,6 +917,7 @@ export const gitPlugin: HarnessPlugin = {
             throw new Error('method must be squash, merge or rebase.')
           }
           const current = await viewPullRequest(selector)
+          const requiredChecks = await readRequiredChecks(gh, repoOf(current.url), current.baseRefName)
           let runs: { name: string; id: number | string; started_at: string | null; status: string; conclusion: string | null }[]
           try {
             const raw = await gh([
@@ -779,8 +931,10 @@ export const gitPlugin: HarnessPlugin = {
           } catch {
             throw new Error(`Not merged: CI state could not be read on ${head.slice(0, 7)}. Try again when GitHub is reachable.`)
           }
-          if (runs.length === 0) throw new Error('Not merged: no CI has reported on this commit.')
-          const ci = assessCheckRuns(runs)
+          if (runs.length === 0 && !requiredChecks?.length) {
+            throw new Error('Not merged: no CI has reported on this commit.')
+          }
+          const ci = assessCheckRuns(runs, requiredChecks)
           if (!ci.green) throw new Error(`Not merged: CI is not green on ${head.slice(0, 7)}. ${ci.reason}`)
           /* The commit message is the repository's to choose. Only when its
              setting for this method uses the pull request's description is the

@@ -1,4 +1,4 @@
-import { useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
 
 import { AlertIcon, BellOffIcon, CrossIcon, InfoIcon } from '../../components/Icons'
 import { ContextMenu, MenuItem, type MenuPoint } from '../patterns/Menu'
@@ -74,22 +74,48 @@ export const Banner = ({
   children?: ReactNode
 }) => {
   const [menuAt, setMenuAt] = useState<MenuPoint | null>(null)
+  const textRef = useRef<HTMLDivElement>(null)
+  const [wrapped, setWrapped] = useState(false)
+  useLayoutEffect(() => {
+    const element = textRef.current
+    if (!element) return
+    const update = () => {
+      const tops: number[] = []
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+      while (walker.nextNode()) {
+        const node = walker.currentNode as Text
+        if (!node.textContent?.trim()) continue
+        const range = document.createRange()
+        if (typeof range.getClientRects !== 'function') return
+        range.selectNodeContents(node)
+        tops.push(...[...range.getClientRects()].filter(rect => rect.width > 0 && rect.height > 0).map(rect => rect.top))
+      }
+      tops.sort((a, b) => a - b)
+      const lines = tops.filter((top, index) => index === 0 || Math.abs(top - tops[index - 1]!) >= 1).length
+      setWrapped(lines > 1)
+    }
+    update()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(update)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [title, children])
 
   return (
-    /* The frame is the card's width, given a name a query can ask: see
-       `.frame` in the stylesheet. */
+    /* Keep the card within its reading column. */
     <div className={styles.frame}>
     <Alert
       tone="neutral"
       className={styles.banner}
       data-tone={tone}
+      {...(wrapped ? { 'data-wrapped': '' } : {})}
       {...(compact ? { 'data-compact': '' } : {})}
       /* Passed through, `undefined` included: a persistent banner must not be
          an assertive live region. See design/ui/alert.tsx. */
       role={role}
     >
-      <span className={styles.icon}>{icon ?? DEFAULT_ICON[tone]}</span>
-      <AlertContent className={styles.text}>
+      <span className={styles.icon} data-part="banner-icon">{icon ?? DEFAULT_ICON[tone]}</span>
+      <AlertContent ref={textRef} className={styles.text}>
         {title !== undefined && <AlertTitle className={styles.title}>{title}</AlertTitle>}
         {children !== undefined && (
           <AlertDescription className={styles.body}>{children}</AlertDescription>

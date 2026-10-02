@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { runtimeId, sessionId, type ExtensionEvent } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, type ExtensionEvent, type ScopeQuery } from '@harnessdesk/protocol'
 
 import { ExtensionKernel, setBrowserEngine, type HarnessContext, type HarnessPlugin } from '../src/index.js'
 
@@ -16,6 +16,62 @@ import { ExtensionKernel, setBrowserEngine, type HarnessContext, type HarnessPlu
  */
 
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 60))
+
+for (const entry of ['automatic', 'chip'] as const) {
+  test(`${entry} context scopes workspace capabilities to concurrent host-admitted checkouts`, async (t) => {
+    const base = await realpath(await mkdtemp(join(tmpdir(), 'hd-context-admission-')))
+    const roots = ['desk', 'team-a', 'team-b'].map((name) => join(base, name))
+    for (const [i, root] of roots.entries()) {
+      await mkdir(root)
+      await writeFile(join(root, 'marker.txt'), String(i))
+    }
+    const kernel = new ExtensionKernel()
+    t.after(async () => { await kernel.dispose(); await rm(base, { recursive: true, force: true }) })
+    kernel.setWorkspace({ root: roots[0]!, branch: 'desk-branch' })
+    const callers = [sessionId('team-a'), sessionId('team-b')]
+    kernel.setShellWorkspaceResolver(async (scope) => roots[callers.indexOf(scope.sessionId!) + 1])
+    let arrived = 0
+    let release = (): void => {}
+    const together = new Promise<void>((resolve) => { release = resolve })
+    let context: HarnessContext | undefined
+    await kernel.load({
+      manifest: { id: 'context-admission', name: 'Context admission', permissions: { shell: true, workspace: { read: true, write: false } } },
+      plugin: {
+        name: 'context-admission', inject: ['context', 'workspace', 'fs', 'shell'],
+        apply(ctx: HarnessContext) {
+          context = ctx
+          ctx.context.register({
+            label: 'Location', ...(entry === 'chip' ? { chip: { description: 'Fixture context' } } : {}),
+            resolve: async (scope: ScopeQuery) => {
+              if (++arrived === 2) release()
+              await together
+              return JSON.stringify({
+                root: ctx.workspace.root, branch: ctx.workspace.branch, query: scope.workspaceRoot,
+                marker: await ctx.fs.read('marker.txt'),
+                cwd: (await ctx.shell.run(process.execPath, ['-e', 'process.stdout.write(process.cwd())'])).stdout,
+                deskDenied: await ctx.fs.read(join(roots[0]!, 'marker.txt')).then(() => false, () => true),
+              })
+            },
+          })
+        },
+      },
+    })
+    await settle()
+    const contribution = kernel.list('context')[0]!
+    const results = await Promise.all(callers.map((caller, i) => {
+      const scope = { runtime: runtimeId('fixture'), sessionId: caller, workspaceRoot: roots[2 - i]! }
+      return entry === 'chip' ? kernel.resolveOne(contribution.id, undefined, scope)
+        : kernel.resolveContext(scope).then((rows) => rows[0])
+    }))
+    for (const [i, result] of results.entries()) {
+      assert.deepEqual(JSON.parse(result?.text ?? 'null'), {
+        root: roots[i + 1], branch: null, query: roots[i + 1], marker: String(i + 1), cwd: roots[i + 1], deskDenied: true,
+      }, 'a caller hint cannot select the workspace or widen its filesystem permission gate')
+    }
+    assert.equal(context!.workspace.root, roots[0], 'the desk workspace is unchanged after both resolutions')
+    assert.equal(context!.workspace.branch, 'desk-branch')
+  })
+}
 
 for (const entry of ['tool', 'chip', 'automatic'] as const) {
   test(`workspace-scoped ${entry} matches an opened alias after host shell admission`, async (t) => {

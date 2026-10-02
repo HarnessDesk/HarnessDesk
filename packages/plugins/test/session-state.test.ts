@@ -9,7 +9,7 @@ import { promisify } from 'node:util'
 import { ExtensionKernel } from '@harnessdesk/cordis-host'
 import { runtimeId, type ContributionId, type ScopeQuery, type SessionId, type ToolResult } from '@harnessdesk/protocol'
 
-import { checkpointPlugin, guardrailsPlugin, testsPlugin } from '../src/index.js'
+import { checkpointPlugin, gitPlugin, guardrailsPlugin, testsPlugin } from '../src/index.js'
 import { PerSession, scopeKey } from '../src/session-state.js'
 
 /**
@@ -37,6 +37,39 @@ const toolNamed = (kernel: ExtensionKernel, name: string): ContributionId => {
 }
 const text = (result: ToolResult): string =>
   result.ok && result.content[0]?.type === 'text' ? result.content[0].text : `!${result.ok ? '' : result.error}`
+
+// ---------------------------------------------------------------- git context
+
+test('Git context and chips read each conversation checkout concurrently', async (t) => {
+  const home = await mkdtemp(join(tmpdir(), 'harnessdesk-git-context-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  const repos = [join(home, 'desk'), join(home, 'team-a'), join(home, 'team-b')]
+  for (const [i, cwd] of repos.entries()) {
+    await run('git', ['init', '-q', '-b', `branch-${i}`, cwd])
+    await run('git', ['-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', 'commit', '--allow-empty', '-qm', 'Initial fixture'], { cwd })
+    await writeFile(join(cwd, `file-${i}.txt`), `team ${i}`, 'utf8')
+  }
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  kernel.setWorkspace({ root: repos[0]!, branch: 'branch-0' })
+  await kernel.load(gitPlugin)
+  await settle()
+  const scopes = [{ ...A, workspaceRoot: repos[1]! }, { ...B, workspaceRoot: repos[2]! }]
+  const chip = kernel.list('context').find((entry) => entry.label === 'Uncommitted changes')!
+  assert.ok(chip)
+  const results = await Promise.all(scopes.map(async (scope) => ({
+    context: await kernel.resolveContext(scope),
+    chip: await kernel.resolveOne(chip.id, undefined, scope),
+  })))
+  for (const [i, result] of results.entries()) {
+    assert.equal(result.context.find((entry) => entry.label === 'Git')?.text,
+      `The workspace is on git branch \`branch-${i + 1}\`.`)
+    assert.match(result.chip?.text ?? '', new RegExp(`file-${i + 1}\\.txt`))
+    assert.doesNotMatch(result.chip?.text ?? '', /file-0\.txt/)
+  }
+  assert.equal((await kernel.resolveContext({})).find((entry) => entry.label === 'Git')?.text,
+    'The workspace is on git branch `branch-0`.', 'scoped resolution does not change the desk workspace')
+})
 
 // ------------------------------------------------------------------ guardrails
 

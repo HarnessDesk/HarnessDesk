@@ -258,8 +258,8 @@ export const SideBySide = ({
               onFocusCapture={() => focus(key)}
             >
               <Bar as="header" rule="bottom" active={isFocused && shown.shown.length > 1}
-                /* A name longer than the bar wraps whole — it never truncates —
-                   and the bar grows to hold it. */
+                /* Agent and model detail give way before the name; a name
+                   longer than its column wraps and the bar grows to hold it. */
                 grow
                 className={styles.header}>
                 {card(key, (

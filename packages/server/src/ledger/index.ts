@@ -21,6 +21,7 @@ import type { RemoteEventsSource } from './remote.js'
 import { HOUR_CAPABLE_KINDS, listTargets, scanFile, wholeFile, type CorpusSpec, type ScanTarget } from './scan.js'
 import { LedgerStore, type UsageRow } from './store.js'
 import { INSIGHT_BYTE_LIMIT, INSIGHT_BYTE_LIMIT_MESSAGE, InsightBudgetExceededError, InsightSourceChangedError, type UsageDetail, type UsageSample } from './insight.js'
+import { InsightCache } from './insight-cache.js'
 
 /**
  * Tokens and money, read off the agents' own transcripts.
@@ -155,6 +156,8 @@ export class Ledger {
   #progress: ScanProgress = IDLE
   #scanning: Promise<void> | null = null
   #warmed: Promise<void> | null = null
+  readonly #insightCache = new InsightCache()
+  #insightRead: Promise<unknown> = Promise.resolve()
 
   constructor(options: LedgerOptions) {
     this.#options = options
@@ -220,12 +223,18 @@ export class Ledger {
    * leave those amounts unattributed rather than manufacture a join.
    */
   async readInsight(query: InsightQuery, options: { readonly refresh?: boolean; readonly signal?: AbortSignal } = {}): Promise<UsageDetail> {
+    const read = this.#insightRead.then(() => this.#readInsight(query, options))
+    this.#insightRead = read.catch(() => undefined)
+    return read
+  }
+
+  async #readInsight(query: InsightQuery, options: { readonly refresh?: boolean; readonly signal?: AbortSignal }): Promise<UsageDetail> {
     if (!Number.isFinite(query.from) || !Number.isFinite(query.to) || query.from >= query.to) {
       throw new Error('Choose a valid Insight time range.')
     }
     if (query.to - query.from > 90 * DAY) throw new Error('Insight reads at most 90 days at once.')
     if (options.signal?.aborted) throw new DOMException('Insight read cancelled.', 'AbortError')
-    /* Insight deliberately reads the source records once at their native granularity.
+    /* Insight caches source records at their native granularity.
        The SQLite ledger remains the fast aggregate dashboard, but has already
        discarded the call identity needed for conservative historical joins. */
     await this.warm()
@@ -266,15 +275,19 @@ export class Ledger {
       // discovery: a source rewritten or appended to after `listTargets` ran
       // can be larger now than that stale figure says, and trusting it here
       // would let such a source spend past what this read promises overall.
-      if (bytes >= this.#insightByteLimit) { gaps.push(INSIGHT_BYTE_LIMIT_MESSAGE); break }
+      if (target.mtime < query.from) continue
       try {
-        const result = await scanFile(target, 0, [], { emit: (sample) => detailSamples.push(sample), signal: options.signal, byteLimit: this.#insightByteLimit - bytes })
+        const result = await this.#insightCache.read(target, this.#insightByteLimit - bytes, options.signal)
         // `bytesRead`, never `offset`: `offset` is the incremental-scan
         // cursor, advanced only for a line actually committed, and a line
         // `take()` rejects as not JSON was still read off disk before it
         // was rejected — `offset` alone said none of it had been (round 3
         // review).
         bytes += result.bytesRead
+        for (const sample of result.samples) {
+          detailSamples.push({ ...sample, source: { ...sample.source, checkedAt: this.#now() } })
+        }
+        if (result.limited && !gaps.includes(INSIGHT_BYTE_LIMIT_MESSAGE)) gaps.push(INSIGHT_BYTE_LIMIT_MESSAGE)
       } catch (error) {
         if ((error as { name?: string }).name === 'AbortError') throw error
         if (error instanceof InsightBudgetExceededError) { gaps.push(INSIGHT_BYTE_LIMIT_MESSAGE); break }
