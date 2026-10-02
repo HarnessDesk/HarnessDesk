@@ -202,6 +202,20 @@ That is enough for every loop this has needed, and resisting a general rule
 engine is what keeps "can this rule ever fire?" and "does this loop have an
 exit?" exactly answerable.
 
+### The brief input
+
+A Flow that declares an input named `brief` gets a **Brief** text area in the
+start dialog, separate from the Goal's title. Paste paragraphs, or use
+**Attach a file…** to replace the field with a text file up to 64 KiB
+(65,536 bytes). Start waits while the file is read and its text is checked.
+A refused or unreadable file leaves the draft and its checked choice intact. The
+area grows to twelve lines, then scrolls. Flows without that input keep their
+ordinary fields.
+
+The brief travels through the same input variables as every other field.
+Use `{{brief}}` in an order or detail to hand its text to a Seat; keep the
+card's title a short sentence of its own.
+
 ### Slots
 
 Every template — a title, a detail, a role's order — may carry `{{slots}}`.
