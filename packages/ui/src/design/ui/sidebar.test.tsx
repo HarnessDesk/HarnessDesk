@@ -49,14 +49,37 @@ it('keeps the menu label geometry and the badge/action slot fixed across hover s
   expect(rest).toContain('text-base')
   expect(slotClass(rest, 'badge')).toContain('sidebar-menu-trailing-slot')
   expect(slotClass(rest, 'action')).toContain('sidebar-menu-trailing-slot')
-  expect(slotClass(rest, 'badge')).toContain('end-(--hd-space-1)')
-  expect(slotClass(rest, 'action')).toContain('end-(--hd-space-1)')
+  // The row's end rail (`--sidebar-menu-end-rail`, derived from `--hd-sidebar-end-rail` in sidebar.css).
+  expect(slotClass(rest, 'badge')).toContain('end-(--sidebar-menu-end-rail)')
+  expect(slotClass(rest, 'action')).toContain('end-(--sidebar-menu-end-rail)')
   expect(slotClass(rest, 'action')).toContain('bg-sidebar')
   expect(slotClass(rest, 'action')).toContain('group-hover/menu-item:opacity-100')
   expect(slotClass(rest, 'action')).toContain('group-focus-within/menu-item:opacity-100')
   expect(slotClass(rest, 'action')).toContain('data-[state=open]:opacity-100')
   expect(rest).not.toContain('pe-(--hd-space-8)')
   expect(hover).not.toContain('pe-(--hd-space-8)')
+})
+
+it('keeps the mark fixed and assigns the action rail around declared marks', () => {
+  const one = renderToStaticMarkup(
+    <SidebarMenuItem trailingMarks={1}>
+      <SidebarMenuButton label="One action" />
+      <SidebarMenuBadge>1</SidebarMenuBadge>
+      <SidebarMenuAction showOnHover aria-label="Actions">More</SidebarMenuAction>
+    </SidebarMenuItem>,
+  )
+  const two = renderToStaticMarkup(
+    <SidebarMenuItem trailingActions={2} trailingMarks={1}>
+      <SidebarMenuButton label="Two actions" trailingActions={2} />
+      <SidebarMenuBadge aria-label="Pinned">Pinned</SidebarMenuBadge>
+      <SidebarMenuAction showOnHover aria-label="Add">Add</SidebarMenuAction>
+      <SidebarMenuAction showOnHover aria-label="Actions">More</SidebarMenuAction>
+    </SidebarMenuItem>,
+  )
+
+  expect(one).toContain('data-sidebar-trailing-marks="1"')
+  expect(two).toContain('data-sidebar-trailing-actions="2"')
+  expect(two).toContain('data-sidebar-trailing-marks="1"')
 })
 
 it('lets an empty trailing slot use the whole row for its label', () => {

@@ -15,7 +15,7 @@ import { expect, test, type Page } from '@playwright/test'
   no frame happened to run first.
 */
 
-const label = 'Learn from every single tab of the settings screen'
+const label = 'Draft the 2.5 migration notes after reviewing the sidebar target behavior'
 
 test('a Diff hunk jump lands in the same task with motion reduced', async ({ page }) => {
   await page.goto('/design.html?view=code')
@@ -131,7 +131,7 @@ test('a scripted transcript jump lands in the same task with motion reduced', as
   expect(read.top).toBeLessThan(before)
 })
 
-test('a focused row keeps its checkout mark fixed before the next frame', async ({ page }) => {
+test('a focused row shifts its checkout mark immediately before the next frame', async ({ page }) => {
   await page.goto('/preview.html')
   const row = page.locator('[data-region="session-row"] [data-slot="sidebar-menu-item"]').filter({
     has: page.locator(`button[aria-label="Actions for ${label}"]`),
@@ -161,8 +161,9 @@ test('a focused row keeps its checkout mark fixed before the next frame', async 
     return { resting, first, later: box(), started }
   })
   // The trailing action overlays its fixed slot; focus does not resize the row.
-  expect(read.later.right).toBe(read.resting.right)
   expect(read.first).toEqual(read.later)
+  expect(read.later.left).toBe(read.resting.left - 24)
+  expect(read.later.right).toBe(read.resting.right - 24)
   expect(read.started).toEqual([])
 })
 

@@ -2,6 +2,7 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
+import './sidebar.css'
 
 /*
  * Vendored from shadcn/ui's Base UI Sidebar grammar, adapted to the desk's
@@ -10,13 +11,14 @@ import { cn } from '@/lib/utils'
  * would give one sidebar two owners. This file supplies its presentational
  * parts, and leaves the outer column and its state to the workbench.
  *
- * Menu rows keep one measure at every size and density. The trailing action
- * overlays the badge or state mark in the same fixed slot, so hover never
- * takes width from the label. The app's document rule draws the one focus ring.
+ * Menu rows keep one measure at every size and density. Hover actions take
+ * the end rail while each declared mark steps left by the action count; the
+ * title reserves both slots without changing its box. The app's document
+ * rule draws the one focus ring.
  */
 
 const sidebarMenuTrailingSlotClass =
-  'sidebar-menu-trailing-slot absolute end-(--hd-space-1) top-1/2 z-10 inline-flex size-(--hd-icon-target) -translate-y-1/2 items-center justify-center rounded-md text-sidebar-foreground transition-colors'
+  'sidebar-menu-trailing-slot absolute end-(--sidebar-menu-end-rail) top-1/2 z-10 inline-flex size-(--hd-icon-target) -translate-y-1/2 items-center justify-center rounded-md text-sidebar-foreground transition-colors'
 
 const SidebarGroup = ({ className, ...props }: React.ComponentProps<'section'>) => (
   <section data-slot="sidebar-group" data-sidebar="group" className={cn('relative flex w-full min-w-0 flex-col px-(--hd-space-2)', className)} {...props} />
@@ -34,19 +36,34 @@ const SidebarMenu = ({ className, nested = false, horizontal = false, ...props }
     className={cn(
       'flex w-full min-w-0 gap-(--hd-space-0-5)',
       horizontal ? 'flex-row items-center gap-(--hd-space-1) px-(--hd-space-2)' : 'flex-col',
-      nested && 'ms-5 border-s border-sidebar-border ps-(--hd-space-2)',
+      nested && 'ms-5 w-[calc(100%-var(--hd-space-5))] border-s border-sidebar-border ps-(--hd-space-2)',
       className,
     )}
     {...props}
   />
 )
 
-const SidebarMenuItem = ({ className, ...props }: React.ComponentProps<'li'>) => (
-  <li data-slot="sidebar-menu-item" data-sidebar="menu-item" className={cn('group/menu-item relative min-w-0', className)} {...props} />
+const SidebarMenuItem = ({ className, style, trailingActions = 1, trailingMarks = 0, ...props }: React.ComponentProps<'li'> & { trailingActions?: 1 | 2; trailingMarks?: 0 | 1 | 2 | 3 | 4 }) => (
+  <li
+    data-slot="sidebar-menu-item"
+    data-sidebar="menu-item"
+    data-sidebar-trailing-actions={trailingActions}
+    data-sidebar-trailing-marks={trailingMarks}
+    style={{
+      ...style,
+      '--sidebar-menu-trailing-actions': trailingActions,
+      '--sidebar-menu-trailing-marks': trailingMarks,
+    } as React.CSSProperties}
+    className={cn(
+      'group/menu-item relative min-w-0',
+      className,
+    )}
+    {...props}
+  />
 )
 
 const sidebarMenuButtonVariants = cva(
-  'peer/menu-button flex w-full min-w-0 items-center gap-(--hd-space-2) overflow-hidden rounded-(--hd-nav-radius) ps-(--hd-space-2) text-left text-base text-sidebar-foreground transition-colors hover:bg-sidebar-accent focus-visible:bg-sidebar-accent active:bg-sidebar-accent disabled:pointer-events-none disabled:opacity-50 data-[active=true]:bg-(--hd-sidebar-selected) data-[active=true]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[active=true]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[active=true]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] [&>svg]:size-4 [&>svg]:shrink-0',
+  'peer/menu-button flex w-full min-w-0 items-center gap-(--hd-space-2) overflow-hidden rounded-(--hd-nav-radius) ps-(--hd-sidebar-start-inset) text-left text-base text-sidebar-foreground transition-colors hover:bg-sidebar-accent focus-visible:bg-sidebar-accent active:bg-sidebar-accent disabled:pointer-events-none disabled:opacity-50 data-[active=true]:bg-(--hd-sidebar-selected) data-[active=true]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[active=true]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[active=true]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] [&>svg]:size-4 [&>svg]:shrink-0',
   {
     variants: {
       size: {
@@ -109,6 +126,7 @@ const SidebarMenuAction = ({ className, showOnHover = false, type = 'button', ..
     type={type}
     data-slot="sidebar-menu-action"
     data-sidebar="menu-action"
+    {...(showOnHover ? { 'data-show-on-hover': '' } : {})}
     className={cn(
       sidebarMenuTrailingSlotClass,
       'bg-sidebar hover:bg-sidebar-accent focus-visible:bg-sidebar-accent',
@@ -119,14 +137,22 @@ const SidebarMenuAction = ({ className, showOnHover = false, type = 'button', ..
   />
 )
 
-const SidebarMenuBadge = ({ className, ...props }: React.ComponentProps<'span'>) => (
-  <span
-    data-slot="sidebar-menu-badge"
-    data-sidebar="menu-badge"
-    className={cn(sidebarMenuTrailingSlotClass, 'pointer-events-none whitespace-nowrap px-(--hd-space-1) text-xs tabular-nums', className)}
-    {...props}
-  />
-)
+const SidebarMenuBadge = ({ className, onClick, ...props }: React.ComponentProps<'span'>) => {
+  const mark = props.role === 'img'
+  return (
+    <span
+      data-slot="sidebar-menu-badge"
+      data-sidebar="menu-badge"
+      className={cn(sidebarMenuTrailingSlotClass, 'pointer-events-none whitespace-nowrap px-(--hd-space-1) text-xs tabular-nums transition-transform', mark && 'pointer-events-auto', className)}
+      onClick={mark ? (event) => {
+        onClick?.(event)
+        const button = event.currentTarget.closest('[data-slot="sidebar-menu-item"]')?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')
+        button?.click()
+      } : onClick}
+      {...props}
+    />
+  )
+}
 
 export {
   SidebarGroup,

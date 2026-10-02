@@ -33,7 +33,7 @@ it('offers a full-line seam without changing separator semantics', () => {
   const handle = container.querySelector<HTMLElement>('[data-slot="resize-handle"]')
   expect(handle?.dataset['appearance']).toBe('line')
   expect(handle?.getAttribute('role')).toBe('separator')
-  expect(handle?.className).toContain('bg-(--hd-border)')
+  expect(handle?.className).toContain('bg-transparent')
   expect(handle?.className).toContain('hover:bg-(--hd-accent)')
   expect(handle?.querySelector('[aria-hidden="true"]')).toBeNull()
 })
