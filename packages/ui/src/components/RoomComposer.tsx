@@ -17,6 +17,7 @@ import {
   type TeamPeerInfo,
 } from '@harnessdesk/protocol'
 
+import type { Tint } from '../lib/accounts'
 import type { Brand } from '../lib/brands'
 import { closeMentionGap, cycle, detectMention, stripMention } from '../lib/triggers'
 import { useSnapshot, useStore } from '../state/context'
@@ -35,7 +36,7 @@ import {
 } from '../design'
 import { BrandMark } from './BrandIcons'
 import { AgentIcon, SendIcon, TeamIcon } from './Icons'
-import { ComposerNoticeStack, Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, Popover } from '../design'
+import { ComposerNoticeStack, ComposerTail, MemberName, Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, Popover } from '../design'
 import { ComposerNotices, NoticeStripOutlet } from './Notices'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
 
@@ -57,6 +58,8 @@ export interface RoomMember {
   readonly busy: boolean
   readonly canUseBoard: boolean
   readonly title: string | null
+  /** The account's ring, the colour the rail draws this member's face in. */
+  readonly tint?: Tint
 }
 
 /**
@@ -87,10 +90,19 @@ export interface RoomComposerHandle {
  * A run of members, named. Three and then a count, because the sentence this
  * lands in is read at a glance and a room can hold a hundred.
  */
-const nameList = (members: readonly RoomMember[]): string => {
-  const names = members.map((one) => one.peer.nickname)
-  if (names.length <= 3) return names.join(', ')
-  return `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`
+const nameList = (members: readonly RoomMember[]): ReactNode => {
+  const named = (one: RoomMember): ReactNode => (
+    <MemberName
+      key={one.key}
+      name={one.peer.nickname}
+      tint={one.tint}
+      mark={one.brand ? <BrandMark brand={one.brand} size={10} /> : <AgentIcon size={10} />}
+    />
+  )
+  const shown = members.slice(0, 3)
+  const parts = shown.flatMap((one, index) => (index === 0 ? [named(one)] : [', ', named(one)]))
+  if (members.length <= 3) return <>{parts}</>
+  return <>{parts} and {members.length - 3} more</>
 }
 
 /** The audience, named the way a person would say it. */
@@ -159,6 +171,8 @@ export const RoomComposer = ({
   members,
   messaging,
   card,
+  statusLine,
+  suspended = false,
   onTrouble,
   onPosted,
 }: {
@@ -182,6 +196,10 @@ export const RoomComposer = ({
    * paints over the list and races the pick.
    */
   readonly card?: (key: SessionKey, node: ReactNode) => ReactNode
+  /** The Team's live activity line, joined with this composer's state notice. */
+  readonly statusLine?: ReactNode
+  /** Keep the composer state mounted while an approval occupies its slot. */
+  readonly suspended?: boolean
   readonly onTrouble: (message: string | null) => void
   /** A post of your own always brings the reader back to the floor. */
   readonly onPosted: () => void
@@ -191,7 +209,7 @@ export const RoomComposer = ({
   const mount = useMount()
   // Whether this room's own strip is the one the layout has chosen to carry
   // the desk-wide messages — never a second, competing answer of its own.
-  const isNoticeHost = mainNoticeHost(snapshot.workbench, snapshot.narrowWindow) === mount?.id
+  const isNoticeHost = mainNoticeHost(snapshot.workbench, snapshot.windowWidth) === mount?.id
   const textarea = useRef<HTMLTextAreaElement>(null)
   const [draft, setDraft] = useState('')
   /** Empty is everyone. The default, and the common case by a distance. */
@@ -450,61 +468,69 @@ export const RoomComposer = ({
    * true one wins; everything else that is also true is a second sentence
    * nobody asked for.
    */
-  const notice =
-    (
-      [
-        over && {
-          tone: 'warn',
-          text: `${draft.length.toLocaleString()} characters — the room's limit is ${limit.toLocaleString()}. Put long material on the board as a context package.`,
-        },
-        empty && {
-          tone: 'muted',
-          text: 'No agents in this room yet. Add one from the roster.',
-        },
-        boardless.length > 0 && {
-          tone: 'warn',
-          text: `${nameList(boardless)} will read this, but cannot claim work — the board's tools are not reachable from ${boardless.length === 1 ? 'it' : 'them'}.`,
-        },
-        /* Below the two above, which are about the message not landing as
-           written, and above the queueing note, which is about *when* it
-           lands. This one is about what sending does besides send. */
-        away.length > 0 && {
-          tone: 'muted',
-          text:
-            away.length === recipients.length
-              ? `${nameList(away)} ${away.length === 1 ? 'is' : 'are'} not open — sending opens ${away.length === 1 ? 'that conversation' : 'those conversations'} and delivers.`
-              : `${nameList(away)} ${away.length === 1 ? 'is' : 'are'} not open; sending opens ${away.length === 1 ? 'it' : 'them'} too.`,
-        },
-        /* Whether the *message* waits or only one copy of it does. A broadcast
-           to five where one is mid-turn goes to four of them now, and "this
-           waits for the turn to end" over that is a sentence the channel
-           contradicts a second later. */
-        queued.length > 0 && {
-          tone: 'muted',
-          text:
-            queued.length === recipients.length
-              ? `${nameList(queued)} ${queued.length === 1 ? 'is' : 'are'} working — this waits for the turn${queued.length === 1 ? '' : 's'} to end.`
-              : `${nameList(queued)} ${queued.length === 1 ? 'is' : 'are'} working — ${queued.length === 1 ? 'that copy waits' : 'those copies wait'} for the turn${queued.length === 1 ? '' : 's'} to end. The rest go now.`,
-        },
-        !messaging && {
-          tone: 'muted',
-          text: 'Board-only is on: the agents cannot message each other. You still can.',
-        },
-      ] as const
-    ).find((one): one is { readonly tone: 'warn' | 'muted'; readonly text: string } => one !== false) ?? null
+  const notices: readonly (false | { readonly tone: 'warn' | 'muted'; readonly text: ReactNode })[] = [
+    over && {
+      tone: 'warn',
+      text: `${draft.length.toLocaleString()} characters — the room's limit is ${limit.toLocaleString()}. Put long material on the board as a context package.`,
+    },
+    empty && {
+      tone: 'muted',
+      text: 'No agents in this room yet. Add one from the roster.',
+    },
+    boardless.length > 0 && {
+      tone: 'warn',
+      text: <>{nameList(boardless)} will read this, but cannot claim work — the board's tools are not reachable from {boardless.length === 1 ? 'it' : 'them'}.</>,
+    },
+    /* Below the two above, which are about the message not landing as
+       written, and above the queueing note, which is about *when* it
+       lands. This one is about what sending does besides send. */
+    away.length > 0 && {
+      tone: 'muted',
+      text:
+        away.length === recipients.length
+          ? <>{nameList(away)} {away.length === 1 ? 'is' : 'are'} not open — sending opens {away.length === 1 ? 'that conversation' : 'those conversations'} and delivers.</>
+          : <>{nameList(away)} {away.length === 1 ? 'is' : 'are'} not open; sending opens {away.length === 1 ? 'it' : 'them'} too.</>,
+    },
+    /* Whether the *message* waits or only one copy of it does. A broadcast
+       to five where one is mid-turn goes to four of them now, and "this
+       waits for the turn to end" over that is a sentence the channel
+       contradicts a second later. */
+    queued.length > 0 && {
+      tone: 'muted',
+      text:
+        queued.length === recipients.length
+          ? <>{nameList(queued)} {queued.length === 1 ? 'is' : 'are'} working — this waits for the turn{queued.length === 1 ? '' : 's'} to end.</>
+          : <>{nameList(queued)} {queued.length === 1 ? 'is' : 'are'} working — {queued.length === 1 ? 'that copy waits' : 'those copies wait'} for the turn{queued.length === 1 ? '' : 's'} to end. The rest go now.</>,
+    },
+    !messaging && {
+      tone: 'muted',
+      text: 'Board-only is on: the agents cannot message each other. You still can.',
+    },
+  ]
+  const notice = notices.find((one) => one !== false) || null
 
   return (
     <>
+    <ComposerTail>
+    {statusLine}
     {/* What sending will do, said over the box rather than inside it, as one
         more line of the room's tail: the transcript's live line, settled —
         the same box, size and ink as who is working above it — so the tail
         speaks in one voice and the box holds only the words and the ways to
         send them. It changes only when the audience does. */}
-    {notice && (
+    {/* Hidden with the box while an approval holds the slot: what sending
+        would do is moot until there is a box to send from. */}
+    {notice && !suspended && (
       <TurnWorkLive settled data-slot="room-composer-notice">
         {notice.tone === 'warn' ? <Text role="prose" tone="warning">{notice.text}</Text> : notice.text}
       </TurnWorkLive>
     )}
+    </ComposerTail>
+    {/* The box and what is stacked over it are hidden under an approval's card,
+        on a plain wrapper: `ComposerShell` is `display: flex`, which beats the
+        `hidden` attribute, so hiding the shell itself left the textarea on
+        screen. */}
+    <div hidden={suspended}>
     {/* A dropped link, whatever the person moved to the strip, and — same as
         a conversation's own composer — what stops a turn here and what an
         Agent in this room is waiting on someone to decide, over the room's
@@ -670,6 +696,7 @@ export const RoomComposer = ({
         </ComposerSend>
       </ComposerTools>
     </ComposerShell>
+    </div>
     </>
   )
 }

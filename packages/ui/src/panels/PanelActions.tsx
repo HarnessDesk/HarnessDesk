@@ -1,9 +1,21 @@
+import { useRef, useState } from 'react'
+
 import { CaretIcon, CrossIcon, ExpandIcon, PanelIcon, RestoreIcon } from '../components/Icons'
 import { Button, Menu, MenuItem, MenuLabel, Popover } from '../design'
 import { useMountControls } from './mount'
 import { useViewTitle } from './views'
-import { AREA_NAME } from '../state/workbench'
+import { AREA_NAME, MIN_SPLIT_HALF, MIN_SPLIT_HALF_H } from '../state/workbench'
 import styles from './PanelActions.module.css'
+
+type SplitBox = Pick<DOMRect, 'width' | 'height'>
+
+/** Explain why a split would leave either half too small to use. */
+export const splitRefusal = (direction: 'row' | 'column', box: SplitBox): string | null => {
+  const needed = direction === 'row' ? MIN_SPLIT_HALF * 2 : MIN_SPLIT_HALF_H * 2
+  const actual = direction === 'row' ? box.width : box.height
+  if (actual >= needed) return null
+  return `Needs ${needed}px; this panel is ${Math.round(actual)}px`
+}
 
 /**
  * What can be done to a panel: split it, move it, give it the room, put it
@@ -117,6 +129,11 @@ export const PanelActions = ({ where = 'view' }: { where?: 'strip' | 'view' }) =
 const SplitAndMoveMenu = () => {
   const panel = useMountControls()
   const titleOf = useViewTitle()
+  const trigger = useRef<HTMLButtonElement>(null)
+  const [refusal, setRefusal] = useState<{ row: string | null; column: string | null }>({
+    row: null,
+    column: null,
+  })
   if (!panel) return null
   const { view, destinations, splittable } = panel
   if (destinations.length === 0 && !splittable) return null
@@ -130,6 +147,13 @@ const SplitAndMoveMenu = () => {
       label={<PanelIcon size={14} />}
       title={`Move or split ${titleOf(view)}`}
       align="right"
+      triggerRef={trigger}
+      onOpenChange={(open) => {
+        if (!open) return
+        const box = trigger.current?.closest<HTMLElement>('[data-slot="dock-panel"]')?.getBoundingClientRect()
+        if (!box) return
+        setRefusal({ row: splitRefusal('row', box), column: splitRefusal('column', box) })
+      }}
     >
       {(close) => (
         <Menu close={close}>
@@ -140,6 +164,7 @@ const SplitAndMoveMenu = () => {
               <MenuLabel>Split this panel</MenuLabel>
               <MenuItem
                 label="Side by side"
+                disabled={refusal.row ?? false}
                 onSelect={() => {
                   panel.split('row')
                   close()
@@ -147,6 +172,7 @@ const SplitAndMoveMenu = () => {
               />
               <MenuItem
                 label="One above the other"
+                disabled={refusal.column ?? false}
                 onSelect={() => {
                   panel.split('column')
                   close()

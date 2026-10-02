@@ -1013,7 +1013,7 @@ const IntentCard = ({
               className="flex min-w-0 flex-1 items-center gap-1.5"
               actions={[{ label: 'Open', primary: true, onSelect: onOpenHolder }]}
             >
-              <IconTile size="sm" tint={holderTint}>
+              <IconTile size="sm" shape="face" tint={holderTint}>
                 {runtime ? (
                   <BrandMark brand={brandForRuntime(runtime) ?? 'openai'} size={12} />
                 ) : (

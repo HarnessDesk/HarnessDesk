@@ -48,8 +48,10 @@ it('a message is a transcript item with the sender’s identity tile for a face'
   const tile = row().querySelector('[data-slot="icon-tile"]')
   expect(tile?.getAttribute('data-tint')).toBe('green')
   expect(tile?.getAttribute('aria-hidden')).toBe('true')
-  // The name is the subject of the row, said in words beside the face.
-  expect(row().querySelector('[data-slot="text"][data-role="subject"]')?.textContent).toBe('Reviewer')
+  // A face, so it takes the shape chosen for faces rather than the tile's own corner.
+  expect(tile?.className).toContain('rounded-(--hd-face-radius)')
+  // The name is a member's, said in words beside the face.
+  expect(row().querySelector('[data-slot="text"][data-role="member"]')?.textContent).toBe('Reviewer')
 })
 
 it('reads the attribution as one run at the left: name, who it reached, when, how it went', () => {
@@ -65,20 +67,24 @@ it('reads the attribution as one run at the left: name, who it reached, when, ho
   const text = row().textContent ?? ''
   expect(text.indexOf('Reviewer')).toBeLessThan(text.indexOf('to Builder'))
   expect(text.indexOf('to Builder')).toBeLessThan(text.indexOf('03:35 PM'))
-  // The time and the outcome are one list of facts, in that order.
+  // Delivery stays available on the timestamp but leaves the visible line.
   const facts = row().querySelector('[data-slot="meta-list"]')
-  expect([...(facts?.children ?? [])].map((one) => one.textContent)).toEqual(['03:35 PM', 'delivered'])
+  expect([...(facts?.children ?? [])].map((one) => one.textContent)).toEqual(['03:35 PM, delivered'])
+  expect(facts?.querySelector('span')?.getAttribute('title')).toBe('delivered')
+  expect(facts?.querySelector('.sr-only')?.textContent).toBe(', delivered')
 })
 
 it('delivery is said out loud, and an answer says where it landed', () => {
   render(<ChannelMessage from="R" at="1" state="delivered" text="x" />)
-  expect(row().textContent).toContain('delivered')
+  expect(row().querySelector('[data-slot="meta-list"]')?.textContent).toContain('delivered')
+  expect(row().querySelector('[data-slot="meta-list"] > span')?.getAttribute('title')).toBe('delivered')
 
   render(<ChannelMessage from="R" at="1" state="shown" text="x" />)
   // `shown` is the loop guard working, not a delivery that failed: the answer
   // is recorded here on purpose. Naming it by what it is not made three
   // working replies read as three errors in a live run.
-  expect(row().textContent).toContain('in the room')
+  expect(row().querySelector('[data-slot="meta-list"] > span')?.getAttribute('title')).toBe('in the room')
+  expect(row().querySelector('.sr-only')?.textContent).toBe(', in the room')
   expect(row().textContent).not.toContain('not sent')
 })
 
@@ -100,8 +106,13 @@ it('a grouped message keeps the body, drops the header, and keeps its time in th
   render(<ChannelMessage from="Reviewer" at="03:35 PM" state="delivered" text="And one more." grouped />)
   expect(row().hasAttribute('data-grouped')).toBe(true)
   expect(row().querySelector('[data-slot="icon-tile"]')).toBeNull()
-  expect(row().querySelector('[data-role="subject"]')).toBeNull()
-  expect(row().querySelector('[data-slot="text"][data-role="meta"]')?.textContent).toBe('03:35 PM')
+  expect(row().querySelector('[data-role="member"]')).toBeNull()
+  // The time is all that shows, but the delivery state stays reachable on it,
+  // hover and screen reader both, as on a full header.
+  const time = row().querySelector('[data-slot="text"][data-role="meta"]')
+  expect(time?.textContent).toBe('03:35 PM, delivered')
+  expect(time?.getAttribute('title')).toBe('delivered')
+  expect(time?.querySelector('.sr-only')?.textContent).toBe(', delivered')
   expect(row().textContent).toContain('And one more.')
 })
 

@@ -7,6 +7,7 @@ import { MessageQueue } from '../../components/MessageQueue'
 import { RuntimeMark } from '../../components/BrandIcons'
 import { DiffView } from '../../components/Diff'
 import { TurnFiles } from '../../components/TurnFiles'
+import { Notices } from '../../components/Notices'
 import { Toaster } from '../ui/toast'
 import { ItemView } from '../../components/Items'
 import { Markdown } from '../../components/Markdown'
@@ -21,6 +22,7 @@ import {
   Checklist,
   ChecklistItem,
   ComposerNoticeStack,
+  ComposerTail,
   InboxPanel,
   InboxList,
   NoticeCard,
@@ -47,6 +49,7 @@ import {
   Card,
   ChangeStats,
   AgentCard,
+  MemberName,
   ApprovalCode,
   ApprovalDialog,
   ApprovalMeta,
@@ -97,6 +100,7 @@ import {
   StatePill,
   Spinner,
   Text,
+  TurnWorkLive,
   TextMark,
   Switch,
   SwitchShape,
@@ -766,9 +770,10 @@ const FaceBoard = () => (
     </div>
     </Specimen>
     <p className={styles.rule}>
-      A person is a squared tile; an account is a ring. The tile is the shared avatar primitive — one plate, one
-      hairline — its corner stepping up the radius scale as it grows, and the house mark for any
-      face this build does not ship: the third tile is an id no build has.
+      A person is a face; an account is a ring. A face is square unless the person chose round (the Faces dial
+      above), and its corner follows that choice at every size. The tile is the shared avatar primitive — one
+      plate, one hairline — its corner stepping up as it grows, and the house mark for any face this build
+      does not ship: the third tile is an id no build has.
     </p>
   </>
 )
@@ -857,6 +862,14 @@ const NoticesBoard = () => {
             <ComposerNotice message={{ ...NOTICE_STRIP[1]!, id: 'signin-2' }} />
             <ComposerNotice message={{ id: 'plain', title: 'Reconnecting to the host…' }} />
           </ComposerNoticeStack>
+        </div>
+      </Case>
+      <Case label="composer tail: the live line and a state notice are one strip">
+        <div style={{ width: 'min(var(--hd-column), 100%)' }}>
+          <ComposerTail>
+            <TurnWorkLive settled>Alpha is waiting for your approval</TurnWorkLive>
+            <TurnWorkLive settled>Board-only is on: agents cannot message each other. You still can.</TurnWorkLive>
+          </ComposerTail>
         </div>
       </Case>
       <Case label="composer: an Agent asks, and the strip sharing the stack">
@@ -1174,6 +1187,17 @@ const catalogueTurnFilesStore = {
   closeTurnFiles: () => {},
   setDetailsTab: () => {},
   openFile: () => {},
+  dismissNotice: () => {},
+} as unknown as AppStore
+const catalogueRefusedMessage = 'Cannot put back /workspace/src/empty.ts: the agent recorded no content for it. Nothing was changed.'
+const catalogueRefusedSnapshot = {
+  ...catalogueTurnFilesSnapshot,
+  notices: [{ id: 'catalogue-undo-refused', level: 'error', message: catalogueRefusedMessage, at: 0 }],
+}
+const catalogueRefusedTurnFilesStore = {
+  ...catalogueTurnFilesStore,
+  getSnapshot: () => catalogueRefusedSnapshot,
+  revertTurn: async () => ({ done: false, unrecoverable: true, partial: false }),
 } as unknown as AppStore
 const CATALOGUE_TURN: Turn = { id: turnId('catalogue-turn'), items: [], status: 'completed', diff: null }
 const CATALOGUE_TURN_ONE: readonly FileChange[] = [
@@ -1184,6 +1208,37 @@ const CATALOGUE_TURN_SEVERAL: readonly FileChange[] = [
   { path: '/workspace/src/receipt.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-old\n+new\n' },
   { path: '/workspace/src/tax.ts', kind: { type: 'add' }, diff: '+export const tax = 0\n' },
 ]
+const CATALOGUE_UNRECOVERABLE_CHANGES: readonly FileChange[] = [
+  { path: '/workspace/src/checkout.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-old\n+new\n' },
+  { path: '/workspace/src/empty.ts', kind: { type: 'delete' }, diff: '' },
+  { path: '/workspace/src/receipt.ts', kind: { type: 'add' }, diff: '+export const receipt = true\n' },
+]
+const CATALOGUE_UNRECOVERABLE_TURN = {
+  id: turnId('catalogue-unrecoverable'),
+  items: [{ id: 'catalogue-file-changes', type: 'fileChange', changes: CATALOGUE_UNRECOVERABLE_CHANGES }],
+  status: 'completed',
+  diff: null,
+} as unknown as Turn
+const CATALOGUE_PARTIAL_CHANGES: readonly FileChange[] = [
+  { path: '/workspace/src/profile.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-before\n+after\n' },
+  { path: '/workspace/src/settings.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-before\n+after\n' },
+  { path: '/workspace/src/summary.ts', kind: { type: 'add' }, diff: 'export const summary = true\n' },
+]
+const CATALOGUE_PARTIAL_TURN = {
+  id: turnId('catalogue-partial'),
+  items: [{ id: 'catalogue-partial-file-changes', type: 'fileChange', changes: CATALOGUE_PARTIAL_CHANGES }],
+  status: 'completed',
+  diff: null,
+} as unknown as Turn
+const cataloguePartialTurnFilesStore = {
+  ...catalogueTurnFilesStore,
+  // A host can report this result when it cannot take its failed pass back
+  // after reverting at least one recorded file. This staged answer belongs to
+  // the multi-file turn above, whose complete content makes each step undoable.
+  revertTurn: async (id: Turn['id']) => id === CATALOGUE_PARTIAL_TURN.id
+    ? { done: false, unrecoverable: false, partial: true }
+    : { done: false, unrecoverable: false, partial: false },
+} as unknown as AppStore
 const CatalogueRevertedTurnFiles = () => {
   const host = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -1192,6 +1247,14 @@ const CatalogueRevertedTurnFiles = () => {
     host.current?.querySelector<HTMLButtonElement>('button[title^="Put these files back"]')?.click()
   }, [])
   return <div ref={host}><TurnFiles turn={CATALOGUE_TURN} changes={CATALOGUE_TURN_SEVERAL} root="/workspace" /></div>
+}
+const CatalogueUndoTurnFiles = ({ turn, changes }: { turn: Turn; changes: readonly FileChange[] }) => {
+  const host = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    // Resolve the real card's Undo action through the staged store answer.
+    host.current?.querySelector<HTMLButtonElement>('button[title^="Put these files back"]')?.click()
+  }, [])
+  return <div ref={host}><TurnFiles turn={turn} changes={changes} root="/workspace" /></div>
 }
 const CATALOGUE_DIFF = [
   'diff --git a/src/new.ts b/src/new.ts',
@@ -1419,6 +1482,18 @@ const CodeBoard = () => (
         <CatalogueRevertedTurnFiles />
       </StoreProvider>
     </Case>
+    <Case label="Undo refused: the unrecoverable file is named and the rest can be put back">
+      <StoreProvider store={catalogueRefusedTurnFilesStore}>
+        <Notices />
+        <Toaster />
+        <CatalogueUndoTurnFiles turn={CATALOGUE_UNRECOVERABLE_TURN} changes={CATALOGUE_UNRECOVERABLE_CHANGES} />
+      </StoreProvider>
+    </Case>
+    <Case label="partial Undo: Close stays greyed until the half changed turn is resolved">
+      <StoreProvider store={cataloguePartialTurnFilesStore}>
+        <CatalogueUndoTurnFiles turn={CATALOGUE_PARTIAL_TURN} changes={CATALOGUE_PARTIAL_CHANGES} />
+      </StoreProvider>
+    </Case>
     <Case label="a runtime's own command record, unwrapped as the command plate">
       <div className="w-full" data-testid="runtime-command-result-sample" data-register="light">
         <StoreProvider store={catalogueStore}>
@@ -1603,7 +1678,7 @@ const MessageBoard = () => (
         </StoreProvider>
       </div>
     </Case>
-    <Case label="a long sent message — clamped past twelve lines, with the toggle">
+    <Case label="a long sent message — clamped past twelve lines, fading its last line">
       <div className="w-full" data-testid="message-user-long">
         <StoreProvider store={catalogueStore}>
           <ItemView item={CATALOGUE_USER_LONG} root="/workspace" />
@@ -1824,6 +1899,17 @@ export const DialogBoard = () => {
             ))}
           </div>
         </Case>
+        <Case label="member name: a member inside a sentence wears its face and the strong ink">
+          <div className={styles.stack} data-catalog-case="member-name">
+            <span>
+              <MemberName name="Alpha" tint="violet" mark={<PluginIcon size={10} />} /> is working
+            </span>
+            <span>
+              <MemberName name="Alpha" tint="violet" mark={<PluginIcon size={10} />} />,{' '}
+              <MemberName name="Beta" tint="green" mark={<PluginIcon size={10} />} /> are not open; sending opens them too.
+            </span>
+          </div>
+        </Case>
         <Case label="publication card">
           <PublicationCard reference={{
             kind: 'pullRequest', action: 'opened', repo: 'acme/harnessdesk', number: 42,
@@ -1977,7 +2063,8 @@ const ChannelBoard = () => (
     </Case>
 
     <p className={styles.rule}>
-      One density, and the transcript&rsquo;s parts. Each row is a transcript
+      One density, and the transcript&rsquo;s parts. Sender names are semibold; expected delivery
+      stays off the visible header line and is available from the timestamp title and screen-reader text. Each row is a transcript
       item &mdash; a grouped message and a board event are its light register
       &mdash; the face is the room&rsquo;s identity tile on the sender&rsquo;s
       tint, the attribution is one run of facts at the left (name, who it

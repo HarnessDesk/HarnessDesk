@@ -1,7 +1,106 @@
 import assert from 'node:assert/strict'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { delimiter, join, resolve } from 'node:path'
+import { spawnSync } from 'node:child_process'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 
-import { assessCheckRuns, landSafe, REQUIRED_CHECKS } from './land-safe.mjs'
+import { assessCheckRuns, isEntryPoint, landSafe, REQUIRED_CHECKS } from './land-safe.mjs'
+
+const scriptPath = fileURLToPath(new URL('./land-safe.mjs', import.meta.url))
+
+const withCliFixture = (callback) => {
+  const directory = mkdtempSync(join(tmpdir(), 'land-safe-test-'))
+  try {
+    const bin = join(directory, 'bin')
+    const command = join(bin, 'gh')
+    const scriptLink = join(directory, 'land-safe.mjs')
+    const directoryLink = join(directory, 'script-link')
+    const fakeGh = `#!/usr/bin/env node
+const args = process.argv.slice(2)
+if (process.env.LAND_SAFE_FAKE_ERROR === '1') {
+  process.stderr.write('fake gh failure\\n')
+  process.exit(9)
+}
+if (args[0] === 'pr' && args[1] === 'view') {
+  process.stdout.write(JSON.stringify({ headRefOid: 'head-sha', baseRefName: 'main', state: 'OPEN', isDraft: false, mergeCommit: { oid: 'merge-sha' } }))
+} else if (args[0] === 'api' && args[1].includes('/branches/')) {
+  process.stdout.write('base-sha')
+} else if (args[0] === 'api' && args[1].includes('/check-runs')) {
+  const checks = ${JSON.stringify(REQUIRED_CHECKS)}.map((name, index) => ({ id: index + 1, name, started_at: '2026-09-30T12:00:00Z', head_sha: 'head-sha', app: { slug: 'github-actions' }, status: 'completed', conclusion: 'success' }))
+  if (process.env.LAND_SAFE_FAKE_RED === '1') checks[0].status = 'in_progress'
+  process.stdout.write(checks.map(JSON.stringify).join('\\n'))
+}
+`
+    mkdirSync(bin)
+    writeFileSync(command, fakeGh)
+    chmodSync(command, 0o755)
+    symlinkSync(scriptPath, scriptLink)
+    symlinkSync(resolve(scriptPath, '..'), directoryLink, 'dir')
+    callback({ directory, scriptLink, directoryLink, env: { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH}` } })
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+}
+
+const runCli = (script, args = [], env = process.env) =>
+  spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', env })
+
+const decisionLines = (stdout) => stdout.split(/\r?\n/).filter((line) => line.startsWith('DECISION:'))
+
+test('symlinked entry paths run the CLI and refuse a pending check', () => {
+  withCliFixture(({ scriptLink, directoryLink, env }) => {
+    for (const script of [scriptLink, join(directoryLink, 'land-safe.mjs')]) {
+      const result = runCli(script, ['42', '--repo', 'acme/widgets'], { ...env, LAND_SAFE_FAKE_RED: '1' })
+      assert.equal(result.status, 2, result.stderr)
+      assert.equal(decisionLines(result.stdout).length, 1, result.stdout)
+      assert.match(result.stdout, /DECISION: not green; PR 42 was not merged\./)
+    }
+  })
+})
+
+test('a symlinked entry path reports a green dry run', () => {
+  withCliFixture(({ scriptLink, env }) => {
+    const result = runCli(scriptLink, ['42', '--repo', 'acme/widgets', '--dry-run'], env)
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(decisionLines(result.stdout).length, 1, result.stdout)
+    assert.match(result.stdout, /DECISION: green at head-sha; dry run, PR 42 was not merged\./)
+  })
+})
+
+test('bad arguments through a symlink print an error decision and fail', () => {
+  withCliFixture(({ scriptLink, env }) => {
+    const result = runCli(scriptLink, [], env)
+    assert.equal(result.status, 1)
+    assert.equal(decisionLines(result.stdout).length, 1, result.stdout)
+    assert.equal(decisionLines(result.stdout)[0], 'DECISION: error; nothing was merged.')
+  })
+})
+
+test('a landing error through a symlink prints one PR error decision and fails', () => {
+  withCliFixture(({ scriptLink, env }) => {
+    const result = runCli(scriptLink, ['42', '--repo', 'acme/widgets'], { ...env, LAND_SAFE_FAKE_ERROR: '1' })
+    assert.equal(result.status, 1)
+    assert.equal(decisionLines(result.stdout).length, 1, result.stdout)
+    assert.equal(decisionLines(result.stdout)[0], 'DECISION: error; PR 42 was not merged.')
+    assert.match(result.stderr, /land-safe: Command failed/)
+  })
+})
+
+test('importing the module does not run the CLI', () => {
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', `import(${JSON.stringify(new URL('./land-safe.mjs', import.meta.url).href)})`], { encoding: 'utf8' })
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.stdout, '')
+})
+
+test('entry-point detection canonicalizes symlinked argv paths', () => {
+  withCliFixture(({ scriptLink }) => {
+    assert.equal(isEntryPoint(new URL('./land-safe.mjs', import.meta.url).href, scriptLink), true)
+    assert.equal(isEntryPoint(new URL('./land-safe.mjs', import.meta.url).href, undefined), false)
+    assert.equal(isEntryPoint(new URL('./land-safe.mjs', import.meta.url).href, join(tmpdir(), 'unrelated.mjs')), false)
+  })
+})
 
 const good = (name, overrides = {}) => ({
   id: 1,
@@ -188,4 +287,15 @@ test('merge is reported only after fresh PR state includes the merge commit', as
   assert.equal(code, 0)
   assert.match(h.output().stdout, /DECISION: merged PR 42 at head-sha; merge commit confirmed-merge-sha/)
   assert.equal(h.calls.filter((args) => args[0] === 'pr' && args[1] === 'view').length, 3)
+})
+
+test('an unconfirmed merge never says the PR was not merged', async () => {
+  const h = harness({ prStates: ['OPEN', 'OPEN', 'CLOSED'] })
+  const code = await landSafe({ pr: '42', repo: 'owner/repo' }, h.runner, h.io)
+  assert.equal(code, 1)
+  assert.ok(h.calls.some((args) => args[0] === 'pr' && args[1] === 'merge'))
+  const { stdout, stderr } = h.output()
+  assert.match(stdout, /DECISION: error; the merge of PR 42 was asked for and is not confirmed/)
+  assert.doesNotMatch(stdout, /was not merged/)
+  assert.match(stderr, /merge was not confirmed for PR 42/)
 })

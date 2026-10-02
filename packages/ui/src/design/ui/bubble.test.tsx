@@ -60,4 +60,13 @@ describe('BubbleContent', () => {
     const clamped = renderToStaticMarkup(<BubbleContent clampLines={9}>long</BubbleContent>)
     expect(clamped).toContain('calc(var(--hd-line) * 9)')
   })
+
+  it('fades the final line only when an overflowing caller opts in', () => {
+    const faded = renderToStaticMarkup(<BubbleContent clampLines={9} fadeOverflow>long</BubbleContent>)
+    expect(faded).toContain('mask-image:linear-gradient(to bottom, var(--hd-foreground) calc(100% - var(--hd-line)), transparent)')
+    const plain = renderToStaticMarkup(<BubbleContent clampLines={9}>long</BubbleContent>)
+    expect(plain).not.toContain('mask-image')
+    const open = renderToStaticMarkup(<BubbleContent clampLines={9} fadeOverflow expanded>long</BubbleContent>)
+    expect(open).not.toContain('mask-image')
+  })
 })
