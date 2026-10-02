@@ -271,6 +271,7 @@ test('replacement subscribe changes event topics and is replayed on reconnect', 
   first.emit(execution()); first.emit(cards())
   const events = client.events()[Symbol.asyncIterator]()
   await next(events)
+  assert.equal((await next(events)).type, 'gap')
   assert.equal((await next(events)).type, 'card.changed')
   first.close()
   assert.equal((await next(events)).type, 'gap')
@@ -288,4 +289,138 @@ test('drop just after the initial subscribe response still reconnects', async ()
   await waitFor(() => second.requests.some(r => r.method === 'client/subscribe'))
   assert.equal(opens, 2)
   client.close()
+})
+
+const personBaseline = (id: string): WireNotification[] => [execution(run({ id: `run-${id}`, goal: id })), cards({ ...board(), id })]
+
+test('accepted replacement resets the selected projection before its synchronous whole baseline', async t => {
+  const transport = new ScriptedTransport()
+  transport.baseline = personBaseline('team-a')
+  const client = await connect({ transport: async () => transport, client: clientInfo, subscribe: { topics: ['waiting'] } })
+  t.after(() => client.close())
+  transport.baseline = personBaseline('team-b')
+  await client.call('client/subscribe', { topics: ['waiting'], scope: { team: 'team-b' as never } })
+  client.close()
+  const all: ClientEvent[] = []
+  for await (const event of client.events()) all.push(event)
+  assert.deepEqual(all.map(e => e.type), ['hello', 'waiting', 'gap', 'waiting', 'end'])
+  assert.equal(all[2]?.type === 'gap' && all[2].reason, 'subscription-changed')
+  assert.equal(all[3]?.type === 'waiting' && all[3].id, 'card:team-b:1')
+})
+
+test('unsubscribe then resubscribe replays unchanged items after each accepted boundary', async t => {
+  const transport = new ScriptedTransport()
+  transport.baseline = personBaseline('team-a')
+  const client = await connect({ transport: async () => transport, client: clientInfo, subscribe: { topics: ['waiting'] } })
+  t.after(() => client.close())
+  transport.baseline = []
+  await client.call('client/subscribe', { topics: [] })
+  transport.baseline = personBaseline('team-a')
+  await client.call('client/subscribe', { topics: ['waiting'] })
+  client.close()
+  const all: ClientEvent[] = []
+  for await (const event of client.events()) all.push(event)
+  assert.deepEqual(all.map(e => e.type), ['hello', 'waiting', 'gap', 'gap', 'waiting', 'end'])
+  assert.equal(all[4]?.type === 'waiting' && all[4].id, 'card:team-a:1')
+})
+
+test('a refused replacement preserves acknowledged topics and projection throughout the proposal', async t => {
+  const transport = new ScriptedTransport()
+  transport.baseline = personBaseline('team-a')
+  const client = await connect({ transport: async () => transport, client: clientInfo, subscribe: { topics: ['waiting'] } })
+  t.after(() => client.close())
+  const original = transport.send.bind(transport)
+  transport.send = request => { if (request.method === 'client/subscribe') transport.requests.push(request); else original(request) }
+  const proposal = client.call('client/subscribe', { topics: ['teams'] })
+  const refused = assert.rejects(proposal, e => e instanceof WireCallError && e.code === 'tierNotGranted')
+  transport.emit(execution(run({ id: 'run-team-a', goal: 'team-a', state: 'stopped' })))
+  transport.message({ id: transport.requests.at(-1)!.id, ok: false, error: { code: 'tierNotGranted', message: 'Refused' } })
+  await refused
+  client.close()
+  const all: ClientEvent[] = []
+  for await (const event of client.events()) all.push(event)
+  assert.deepEqual(all.map(e => e.type), ['hello', 'waiting', 'waiting.cleared', 'end'])
+})
+
+for (const code of ['incompatible', 'deskTooOld', 'notOnClientSurface', 'tierNotGranted']) {
+  test(`fatal reconnect ${code} emits error end, then throws original wire error without a third transport`, async t => {
+    const first = new ScriptedTransport(), second = new ScriptedTransport()
+    let opens = 0
+    second.send = request => {
+      second.requests.push(request)
+      second.message({ id: request.id, ok: false, error: { code, message: 'Cannot reconnect', details: 'Specific detail', data: { retry: false } } })
+    }
+    const client = await connect({ transport: async () => ++opens === 1 ? first : second, client: clientInfo })
+    t.after(() => client.close())
+    first.close()
+    const all: ClientEvent[] = []
+    let caught: unknown
+    try { for await (const event of client.events()) all.push(event) } catch (error) { caught = error }
+    assert.deepEqual(all.map(e => e.type), ['hello', 'end'])
+    const end = all.at(-1)
+    assert.equal(end?.type === 'end' && end.reason, 'error')
+    assert.ok(caught instanceof WireCallError)
+    assert.equal(caught.code, code)
+    assert.equal(caught.message, 'Cannot reconnect')
+    assert.equal(caught.details, 'Specific detail')
+    assert.deepEqual(caught.data, { retry: false })
+    await assert.rejects(client.notifications()[Symbol.asyncIterator]().next(), error => error === caught)
+    await new Promise(resolve => setTimeout(resolve, 125))
+    assert.equal(opens, 2)
+  })
+}
+
+test('scoped public subscribe deadline includes its execution read and preserves the accepted selection', async t => {
+  const first = new ScriptedTransport(), second = new ScriptedTransport()
+  let opens = 0
+  const client = await connect({ transport: async () => ++opens === 1 ? first : second, client: clientInfo, subscribe: { topics: ['teams'] } })
+  t.after(() => client.close())
+  first.reply = false
+  const selected = { topics: ['runs'] as const, scope: { run: 'run-1' } }
+  let failure: unknown
+  void client.call('client/subscribe', selected, { deadlineMs: 10 }).catch(error => { failure = error })
+  await new Promise(resolve => setTimeout(resolve, 40))
+  assert.ok(failure instanceof WireCallError && failure.code === 'deadline', 'the whole scoped call uses the deadline')
+  assert.equal(first.requests.filter(r => r.method === 'flow/execution').length, 1)
+  first.close()
+  await waitFor(() => second.requests.some(r => r.method === 'client/subscribe'))
+  assert.deepEqual(second.requests.find(r => r.method === 'client/subscribe')?.params, selected)
+})
+
+test('two concurrent refused replacements never become the reconnect selection', async t => {
+  const first = new ScriptedTransport(), second = new ScriptedTransport()
+  let opens = 0
+  const selected = { topics: ['teams'] as const }
+  const client = await connect({ transport: async () => ++opens === 1 ? first : second, client: clientInfo, subscribe: selected })
+  t.after(() => client.close())
+  const original = first.send.bind(first)
+  first.send = request => { if (request.method === 'client/subscribe') first.requests.push(request); else original(request) }
+  const one = assert.rejects(client.call('client/subscribe', { topics: ['runs'], scope: { run: 'missing-a' } }), e => e instanceof WireCallError && e.code === 'notFound')
+  const two = assert.rejects(client.call('client/subscribe', { topics: ['runs'], scope: { run: 'missing-b' } }), e => e instanceof WireCallError && e.code === 'notFound')
+  for (const request of first.requests.slice(-2)) first.message({ id: request.id, ok: false, error: { code: 'notFound', message: 'Run missing' } })
+  await Promise.all([one, two])
+  first.close()
+  await waitFor(() => second.requests.some(r => r.method === 'client/subscribe'))
+  assert.deepEqual(second.requests.find(r => r.method === 'client/subscribe')?.params, selected)
+})
+
+test('unacknowledged replacement timeout discards late scope data and reconnects the acknowledged selection', async t => {
+  const first = new ScriptedTransport(), second = new ScriptedTransport()
+  first.baseline = second.baseline = personBaseline('team-a')
+  let opens = 0
+  const selected = { topics: ['waiting'] as const }
+  const client = await connect({ transport: async () => ++opens === 1 ? first : second, client: clientInfo, subscribe: selected })
+  t.after(() => client.close())
+  const original = first.send.bind(first)
+  first.send = request => { if (request.method === 'client/subscribe') first.requests.push(request); else original(request) }
+  await assert.rejects(client.call('client/subscribe', { topics: ['waiting'], scope: { team: 'team-b' as never } }, { deadlineMs: 5 }), e => e instanceof WireCallError && e.code === 'deadline')
+  first.message({ id: first.requests.at(-1)!.id, ok: true, result: null })
+  for (const notification of personBaseline('team-b')) first.emit(notification)
+  await waitFor(() => second.requests.some(r => r.method === 'client/subscribe'))
+  assert.deepEqual(second.requests.find(r => r.method === 'client/subscribe')?.params, selected)
+  client.close()
+  const all: ClientEvent[] = []
+  for await (const event of client.events()) all.push(event)
+  assert.deepEqual(all.map(e => e.type), ['hello', 'waiting', 'gap', 'waiting', 'end'])
+  assert.ok(all.every(e => e.type !== 'waiting' || e.id === 'card:team-a:1'))
 })

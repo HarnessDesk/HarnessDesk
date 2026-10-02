@@ -27,7 +27,8 @@ functions that detach their listeners. `close` closes that transport.
 `connect` needs a factory, so it can open a fresh transport after a loss.
 
 Calls have a 30-second deadline by default, overridable with
-`{ deadlineMs }`. Calls are never retried. A lost transport rejects its
+`{ deadlineMs }`. A scoped subscription uses that one deadline for both its
+subscription and its follow-up execution read. Calls are never retried. A lost transport rejects its
 in-flight calls with `WireCallError.code === 'disconnected'`. A method
 missing from the handshake's advertised methods rejects locally with
 `deskTooOld`. Wire refusals preserve their code, message, details and data;
@@ -40,9 +41,22 @@ subscription, and emits `gap` before the new whole-state baseline. Consumers
 should discard their previous projection on `gap` and rebuild from the events
 that follow. Scoped subscriptions also read `flow/execution` after subscribing,
 so they observe runs that ended during a disconnect. A replacement
-`client/subscribe` call changes both event topics and the subscription replayed
-on the next connection. `host/shutdown` emits `end` with `desk-closed` and stops
-reconnection. `close()` emits `end` with `interrupted`.
+`client/subscribe` call commits only on the desk's successful acknowledgement,
+then emits `gap` with `subscription-changed` and resets its projection before
+the new whole baseline arrives. Refused proposals leave the acknowledged topics,
+projection and reconnect selection intact, including concurrent proposals.
+Unsubscribing and resubscribing replay unchanged items. An accepted subscription
+remains selected even if its extra execution read exceeds the call's deadline.
+An unacknowledged subscription timeout discards that uncertain connection and
+reconnects the last acknowledged selection, so a late baseline cannot be mixed
+into the previous scope.
+
+`host/shutdown` emits `end` with `desk-closed` and stops reconnection. `close()`
+emits `end` with `interrupted`. A fatal protocol or permission refusal during
+reconnection emits `end` with `error`, then `events()` throws the original
+`WireCallError` after its buffered events have been read. `notifications()` also
+throws that same error after its buffered notifications. These failures stop
+reconnection; `desk-closed` is reserved for an actual shutdown notification.
 
 `notifications()` is **unstable raw wire vocabulary**. Both streams buffer
 arrival order independently of calls. Consume each stream once; buffers are

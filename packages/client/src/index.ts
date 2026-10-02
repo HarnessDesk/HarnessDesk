@@ -27,7 +27,7 @@ export type ClientEvent = EventBase & (
   | ({ readonly type: 'waiting' | 'waiting.cleared' } & WaitingItem)
   | { readonly type: 'notice'; readonly team: string | null; readonly text: string }
   | { readonly type: 'gap'; readonly reason: string }
-  | { readonly type: 'end'; readonly reason: 'interrupted' | 'until' | 'desk-closed' }
+  | { readonly type: 'end'; readonly reason: 'interrupted' | 'until' | 'desk-closed' | 'error' }
 )
 export interface Client {
   /** Updated to the latest successful handshake after reconnecting. */
@@ -48,23 +48,28 @@ export interface ConnectOptions {
 /** Unbounded ordered queues deliberately isolate transport progress from consumers. */
 class Queue<T> implements AsyncIterable<T> {
   private values: T[] = []
-  private readers: ((value: IteratorResult<T>) => void)[] = []
+  private readers: { resolve(value: IteratorResult<T>): void; reject(error: WireCallError): void }[] = []
+  private failure: WireCallError | undefined
   private ended = false
   push(value: T) {
     if (this.ended) return
     const reader = this.readers.shift()
-    if (reader) reader({ done: false, value })
+    if (reader) reader.resolve({ done: false, value })
     else this.values.push(value)
   }
-  end() {
+  end(error?: WireCallError) {
     this.ended = true
-    for (const reader of this.readers.splice(0)) reader({ done: true, value: undefined })
+    this.failure = error
+    for (const reader of this.readers.splice(0)) {
+      if (error) reader.reject(error)
+      else reader.resolve({ done: true, value: undefined })
+    }
   }
   [Symbol.asyncIterator](): AsyncIterator<T> {
     return { next: () => {
       if (this.values.length) return Promise.resolve({ done: false, value: this.values.shift()! })
-      if (this.ended) return Promise.resolve({ done: true, value: undefined })
-      return new Promise(resolve => this.readers.push(resolve))
+      if (this.ended) return this.failure ? Promise.reject(this.failure) : Promise.resolve({ done: true, value: undefined })
+      return new Promise((resolve, reject) => this.readers.push({ resolve, reject }))
     } }
   }
 }
@@ -182,16 +187,22 @@ class Observation {
 export async function connect(options: ConnectOptions): Promise<Client> {
   const events = new Queue<ClientEvent>(), notifications = new Queue<WireNotification>()
   const emit = (event: EventBody) => events.push({ v: 1, at: new Date().toISOString(), ...event } as ClientEvent)
-  const observation = new Observation(new Set(options.subscribe?.topics ?? []), emit)
-  let subscription = options.subscribe
+  const observation = new Observation(new Set(), emit)
+  // Proposals never become observation/reconnect state until their wire acknowledgement.
+  let acknowledgedSubscription: HostParams<'client/subscribe'> | undefined
   let transport: ClientTransport | null = null
   let hello: HostResult<'client/hello'>
   let nextId = 1, generation = 0
-  let ended = false, ready = false, reconnecting = false
+  let ended = false, ready = false, reconnecting = false, readyToReconnect = false
   let detach: (() => void)[] = []
   let retryTimer: ReturnType<typeof setTimeout> | undefined
   let wakeRetry: (() => void) | undefined
-  const pending = new Map<number, { resolve(value: unknown): void; reject(error: WireCallError): void; timer: ReturnType<typeof setTimeout> }>()
+  const pending = new Map<number, {
+    resolve(value: unknown): void
+    reject(error: WireCallError): void
+    timer: ReturnType<typeof setTimeout>
+    acknowledged?: () => void
+  }>()
   const failCalls = () => {
     for (const call of pending.values()) { clearTimeout(call.timer); call.reject(new WireCallError('disconnected', 'The desk connection was lost.')) }
     pending.clear()
@@ -202,55 +213,83 @@ export async function connect(options: ConnectOptions): Promise<Client> {
     for (const off of detach.splice(0)) off()
     failCalls()
   }
-  const finish = (reason: 'interrupted' | 'desk-closed') => {
+  const finish = (reason: 'interrupted' | 'desk-closed' | 'error', error?: WireCallError) => {
     if (ended) return
     ended = true
     const current = transport
     drop()
     clearTimeout(retryTimer); wakeRetry?.()
-    emit({ type: 'end', reason }); events.end(); notifications.end()
+    emit({ type: 'end', reason }); events.end(error); notifications.end(error)
     current?.close()
   }
-  const request = <M extends ClientMethodName>(method: M, params: HostParams<M>, deadlineMs = 30_000): Promise<HostResult<M>> => {
+  const lose = (current: ClientTransport) => {
+    if (ended || transport !== current) return
+    drop()
+    current.close()
+    if (readyToReconnect && !reconnecting) void reconnect()
+  }
+  const deadlineError = (method: ClientMethodName) => new WireCallError('deadline', `The desk did not answer ${method} before its deadline.`)
+  const request = <M extends ClientMethodName>(method: M, params: HostParams<M>, deadlineAt = Date.now() + 30_000,
+    hooks: { acknowledged?: () => void; uncertain?: () => void } = {}): Promise<HostResult<M>> => {
     const current = transport
     if (!current || ended) return Promise.reject(new WireCallError('disconnected', 'The desk is disconnected.'))
+    const remaining = deadlineAt - Date.now()
+    if (remaining <= 0) return Promise.reject(deadlineError(method))
     const id = nextId++
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(id)
-        reject(new WireCallError('deadline', `The desk did not answer ${method} before its deadline.`))
-      }, deadlineMs)
-      pending.set(id, { resolve: value => resolve(value as HostResult<M>), reject, timer })
+        reject(deadlineError(method))
+        hooks.uncertain?.()
+      }, remaining)
+      pending.set(id, { resolve: value => resolve(value as HostResult<M>), reject, timer, acknowledged: hooks.acknowledged })
       try { current.send({ id, method, params }) }
       catch (error) {
         clearTimeout(timer); pending.delete(id)
         reject(new WireCallError('disconnected', error instanceof Error ? error.message : String(error)))
+        hooks.uncertain?.()
       }
     })
   }
-  const call: Client['call'] = async (method, params, settings) => {
+  const refusal = (method: ClientMethodName): WireCallError | undefined => {
     // Runtime checking complements the exported allowlist type for JavaScript callers.
-    if (!Object.hasOwn(CLIENT_METHODS, method)) return Promise.reject(new WireCallError('notOnClientSurface', `The client surface does not include ${method}.`))
-    if (!ready || ended) return Promise.reject(new WireCallError('disconnected', 'The desk is disconnected.'))
-    if (!hello.methods.includes(method)) return Promise.reject(new WireCallError('deskTooOld', `This desk does not offer ${method}; update the desk.`))
-    if (method !== 'client/subscribe') return request(method, params, settings?.deadlineMs)
-    const previous = subscription
-    const next = params as HostParams<'client/subscribe'>
-    subscription = next
-    observation.subscribe(next)
-    let accepted = false
-    try {
-      const result = await request(method, params, settings?.deadlineMs)
-      accepted = true
-      if (next.scope?.run) {
-        const execution = await call('flow/execution', { run: next.scope.run })
+    if (!Object.hasOwn(CLIENT_METHODS, method)) return new WireCallError('notOnClientSurface', `The client surface does not include ${method}.`)
+    if (!ready || ended) return new WireCallError('disconnected', 'The desk is disconnected.')
+    if (!hello.methods.includes(method)) return new WireCallError('deskTooOld', `This desk does not offer ${method}; update the desk.`)
+    return undefined
+  }
+  const subscribe = async (params: HostParams<'client/subscribe'>, deadlineAt: number, boundary: string | null) => {
+    const refused = refusal('client/subscribe')
+    if (refused) throw refused
+    const next = { topics: [...params.topics], ...(params.scope ? { scope: { ...params.scope } } : {}) }
+    const current = transport!, mine = generation
+    const result = await request('client/subscribe', next, deadlineAt, {
+      acknowledged: () => {
+        acknowledgedSubscription = next
+        observation.reset()
+        observation.subscribe(next)
+        if (boundary) emit({ type: 'gap', reason: boundary })
+      },
+      // A late ACK could otherwise relabel new-scope notifications with the old scope.
+      uncertain: () => lose(current),
+    })
+    if (next.scope?.run) {
+      const readRefused = refusal('flow/execution')
+      if (readRefused) throw readRefused
+      const execution = await request('flow/execution', { run: next.scope.run }, deadlineAt)
+      // A concurrent newer ACK or reconnect has already replaced this projection.
+      if (acknowledgedSubscription === next && transport === current && generation === mine) {
         observation.accept({ method: 'flow/execution-changed', params: { execution } })
       }
-      return result
-    } catch (error) {
-      if (!accepted && subscription === next) { subscription = previous; observation.subscribe(previous) }
-      throw error
     }
+    return result
+  }
+  const call: Client['call'] = async (method, params, settings) => {
+    const deadlineAt = Date.now() + (settings?.deadlineMs ?? 30_000)
+    const refused = refusal(method)
+    if (refused) throw refused
+    if (method !== 'client/subscribe') return request(method, params, deadlineAt)
+    return await subscribe(params as HostParams<'client/subscribe'>, deadlineAt, 'subscription-changed') as HostResult<typeof method>
   }
   const open = async (reconnected: boolean) => {
     const current = await options.transport()
@@ -267,8 +306,11 @@ export async function connect(options: ConnectOptions): Promise<Client> {
         const call = pending.get(message.id)
         if (!call) return
         clearTimeout(call.timer); pending.delete(message.id)
-        if (message.ok) call.resolve(message.result)
-        else call.reject(new WireCallError(message.error.code, message.error.message, message.error.details ?? null, message.error.data))
+        if (message.ok) {
+          // The door sends its baseline immediately after its response, not after our await.
+          call.acknowledged?.()
+          call.resolve(message.result)
+        } else call.reject(new WireCallError(message.error.code, message.error.message, message.error.details ?? null, message.error.data))
       }
     }), current.onClose(() => {
       if (ended || transport !== current) return
@@ -280,15 +322,15 @@ export async function connect(options: ConnectOptions): Promise<Client> {
       if (hello.protocolVersion !== CLIENT_PROTOCOL) throw new WireCallError('incompatible', 'The client and desk speak different protocol versions.')
       ready = true
       readyToReconnect = true
-      if (reconnected) { observation.reset(); emit({ type: 'gap', reason: 'disconnected' }) }
-      else emit({ type: 'hello', desk: hello.desk, hostVersion: hello.hostVersion, protocolVersion: hello.protocolVersion, tiers: hello.tiers })
-      if (subscription) await call('client/subscribe', subscription)
+      if (!reconnected) emit({ type: 'hello', desk: hello.desk, hostVersion: hello.hostVersion, protocolVersion: hello.protocolVersion, tiers: hello.tiers })
+      const selection = reconnected ? acknowledgedSubscription : options.subscribe
+      if (selection) await subscribe(selection, Date.now() + 30_000, reconnected ? 'disconnected' : null)
+      else if (reconnected) { observation.reset(); emit({ type: 'gap', reason: 'disconnected' }) }
     } catch (error) {
       if (transport === current) { drop(); current.close() }
       throw error
     }
   }
-  let readyToReconnect = false
   const reconnect = async () => {
     reconnecting = true
     let delay = 50
@@ -298,14 +340,14 @@ export async function connect(options: ConnectOptions): Promise<Client> {
       if (ended) break
       try { await open(true); if (ready) break }
       catch (error) {
-        // Protocol incompatibility is terminal; a lost socket alone is recoverable.
-        if (error instanceof WireCallError && ['incompatible', 'deskTooOld', 'notOnClientSurface'].includes(error.code)) { finish('desk-closed'); break }
+        // Retry connection loss/absence, not a desk's explicit protocol or permission refusal.
+        if (error instanceof WireCallError && !['disconnected', 'deadline', 'noDesk'].includes(error.code)) { finish('error', error); break }
       }
       delay = Math.min(delay * 2, 1000)
     }
     reconnecting = false
   }
-  try { await open(false); readyToReconnect = true }
+  try { await open(false) }
   catch (error) { finish('interrupted'); throw error }
   return { get hello() { return hello }, call, events: () => events, notifications: () => notifications, close: () => finish('interrupted') }
 }
