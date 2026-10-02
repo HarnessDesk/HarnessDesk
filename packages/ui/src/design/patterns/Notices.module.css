@@ -73,11 +73,6 @@
   cursor: pointer;
 }
 
-.linkLabel {
-  text-box-trim: trim-both;
-  text-box-edge: cap alphabetic;
-}
-
 .link:hover {
   text-decoration: underline;
 }
@@ -176,12 +171,6 @@
 
 .lineText {
   min-width: 0;
-}
-
-.composer:not([data-wrapped]) .lineText,
-.strip .line {
-  text-box-trim: trim-both;
-  text-box-edge: cap alphabetic;
 }
 
 .composer[data-wrapped] > [data-slot='notice-lead'] {

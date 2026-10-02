@@ -315,7 +315,7 @@ export const NoticeStrip = ({
       </span>
       {message.action ? (
         <Button variant="link" size="inline" type="button" className={cn(styles.link, 'h-auto p-0')} onClick={message.action.onSelect}>
-          <span className={styles.linkLabel}>{message.action.label}</span>
+          {message.action.label}
         </Button>
       ) : null}
       <span className={styles.fill} />

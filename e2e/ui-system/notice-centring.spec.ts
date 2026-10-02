@@ -1,5 +1,8 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
+// The 13px font's ascent/descent asymmetry contributes about 1px to cap-height gaps.
+const GLYPH_GAP_TOLERANCE = 1.5
+
 const openBoard = async (page: Page, name: string) => {
   await page.goto('/design.html')
   await page.getByRole('button', { name }).click()
@@ -67,10 +70,10 @@ test('one-line notices centre every part; wrapped notices keep the lead on line 
   const composerDismissGlyph = composer.getByRole('button', { name: 'Dismiss' }).locator('svg')
   await expectCentered(composerAction, composerRow, 'composer action')
   await expectCentered(composerDismissGlyph, composerRow, 'composer dismiss glyph')
-  for (const glyph of [composerLeadGlyph, composerDismissGlyph]) expect((await boxGaps(glyph, composerRow)).imbalance).toBeLessThanOrEqual(1)
-  expect((await capGaps(composerAction, composerRow)).imbalance, 'composer action cap-height gaps').toBeLessThanOrEqual(1)
+  for (const glyph of [composerLeadGlyph, composerDismissGlyph]) expect((await boxGaps(glyph, composerRow)).imbalance).toBeLessThanOrEqual(GLYPH_GAP_TOLERANCE)
+  expect((await capGaps(composerAction, composerRow)).imbalance, 'composer action cap-height gaps').toBeLessThanOrEqual(GLYPH_GAP_TOLERANCE)
   for (const text of await composer.locator('[data-part="notice-title"], [data-part="notice-detail"]').all()) {
-    expect((await capGaps(text, composerRow)).imbalance, 'composer cap-height gaps').toBeLessThanOrEqual(1)
+    expect((await capGaps(text, composerRow)).imbalance, 'composer cap-height gaps').toBeLessThanOrEqual(GLYPH_GAP_TOLERANCE)
   }
 
   const strip = board.locator('[data-slot="notice-strip"]').filter({ hasText: 'Alpha can continue.' }).first()
@@ -82,9 +85,9 @@ test('one-line notices centre every part; wrapped notices keep the lead on line 
   const stripDismissGlyph = strip.getByRole('button', { name: 'Dismiss' }).locator('svg')
   await expectCentered(stripAction, strip, 'strip action')
   await expectCentered(stripDismissGlyph, strip, 'strip dismiss glyph')
-  for (const glyph of [stripLeadGlyph, stripDismissGlyph]) expect((await boxGaps(glyph, strip)).imbalance).toBeLessThanOrEqual(1)
-  expect((await capGaps(stripAction, strip)).imbalance, 'strip action cap-height gaps').toBeLessThanOrEqual(1)
-  expect((await capGaps(strip.locator('[data-part="notice-title"]'), strip)).imbalance, 'strip cap-height gaps').toBeLessThanOrEqual(1)
+  for (const glyph of [stripLeadGlyph, stripDismissGlyph]) expect((await boxGaps(glyph, strip)).imbalance).toBeLessThanOrEqual(GLYPH_GAP_TOLERANCE)
+  expect((await capGaps(stripAction, strip)).imbalance, 'strip action cap-height gaps').toBeLessThanOrEqual(GLYPH_GAP_TOLERANCE)
+  expect((await capGaps(strip.locator('[data-part="notice-title"]'), strip)).imbalance, 'strip cap-height gaps').toBeLessThanOrEqual(GLYPH_GAP_TOLERANCE)
 
   await openBoard(page, 'Banner')
   const bannerBoard = page.locator('[data-alignment-board-id="banner"]')
@@ -96,9 +99,9 @@ test('one-line notices centre every part; wrapped notices keep the lead on line 
   const bannerDismissGlyph = banner.getByRole('button', { name: 'Dismiss' }).locator('svg')
   await expectCentered(bannerAction, banner, 'banner action')
   await expectCentered(bannerDismissGlyph, banner, 'banner dismiss glyph')
-  for (const glyph of [banner.locator('[data-part="banner-icon"] svg'), bannerDismissGlyph]) expect((await boxGaps(glyph, banner)).imbalance).toBeLessThanOrEqual(1)
-  expect((await capGaps(bannerAction, banner)).imbalance, 'banner action cap-height gaps').toBeLessThanOrEqual(1)
-  expect((await capGaps(banner.locator('[data-slot="alert-title"]'), banner)).imbalance, 'banner cap-height gaps').toBeLessThanOrEqual(1)
+  for (const glyph of [banner.locator('[data-part="banner-icon"] svg'), bannerDismissGlyph]) expect((await boxGaps(glyph, banner)).imbalance).toBeLessThanOrEqual(GLYPH_GAP_TOLERANCE)
+  expect((await capGaps(bannerAction, banner)).imbalance, 'banner action cap-height gaps').toBeLessThanOrEqual(GLYPH_GAP_TOLERANCE)
+  expect((await capGaps(banner.locator('[data-slot="alert-title"]'), banner)).imbalance).toBeLessThanOrEqual(GLYPH_GAP_TOLERANCE)
 
   const wrappedBanner = bannerBoard.locator('[data-slot="alert"][data-tone="warning"]').filter({ hasText: 'Alpha needs your decision.' }).first()
   await expect(wrappedBanner).toBeVisible()

@@ -34,7 +34,6 @@ it('gives one-line composer copy a control-height box and moves its lead only wh
   expect(noticeCss).toMatch(/\.composer\s*\{[^}]*align-items:\s*center/s)
   expect(noticeCss).toMatch(/\.composer \.line\s*\{[^}]*min-height:\s*var\(--hd-btn-h-sm\)/s)
   expect(noticeCss).toMatch(/\.composer\[data-wrapped\] > \[data-slot='notice-lead'\]\s*\{[^}]*align-self:\s*flex-start/s)
-  expect(noticeCss).toMatch(/\.composer:not\(\[data-wrapped\]\) \.lineText,[\s\S]*?text-box-trim:\s*trim-both;[\s\S]*?text-box-edge:\s*cap alphabetic/)
 })
 
 const button = (name: string) =>
