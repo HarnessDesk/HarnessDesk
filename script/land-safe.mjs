@@ -120,9 +120,14 @@ export const landSafe = async (
   try {
     // What was reviewed is what lands: a push after the approving review would
     // otherwise merge whatever head happens to be green at that moment.
-    if (!anyHead && !head) throw new Error(headRequired)
+    // Strict on purpose: a caller of this function does not pass through the
+    // command line's parser, so an empty head or a truthy non-boolean must not
+    // read as "unreviewed is fine" or as "a head was named".
+    if (typeof anyHead !== 'boolean') throw new Error('anyHead must be true or false')
+    if (head !== undefined && (typeof head !== 'string' || head === '')) throw new Error('head must be the reviewed commit, not empty')
     // The two are opposites: with both given, --any-head would quietly skip the check --head asks for.
-    if (anyHead && head) throw new Error('--head and --any-head are opposites; pass one')
+    if (anyHead && head !== undefined) throw new Error('--head and --any-head are opposites; pass one')
+    if (!anyHead && head === undefined) throw new Error(headRequired)
     if (!repo) repo = run(runner, ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'])
     const initial = readPr(runner, pr, repo)
     if (initial.isDraft) throw new Error(`PR ${pr} is a draft; refusing to land`)

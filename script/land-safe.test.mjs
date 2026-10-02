@@ -208,6 +208,24 @@ test('the function refuses --head together with --any-head, as the command line 
   assert.match(h.output().stdout, /DECISION: error; PR 42 was not merged\./)
 })
 
+test('the function reads --any-head and --head strictly: an empty head or a truthy non-boolean never opens the unreviewed mode', async () => {
+  for (const options of [
+    { head: '', anyHead: true },
+    { head: '' },
+    { head: 42 },
+    { anyHead: 'false' },
+    { anyHead: 1 },
+    { anyHead: 'true', head: 'head-sha' },
+    { head: null },
+  ]) {
+    const h = harness()
+    const code = await landSafe({ pr: '42', repo: 'owner/repo', ...options }, h.runner, h.io)
+    assert.equal(code, 1, JSON.stringify(options))
+    assert.deepEqual(h.calls, [], JSON.stringify(options))
+    assert.match(h.output().stdout, /DECISION: error; PR 42 was not merged\./, JSON.stringify(options))
+  }
+})
+
 test('--any-head lands the current head and says it is unreviewed', async () => {
   const h = harness({
     heads: ['whatever-is-green', 'whatever-is-green', 'whatever-is-green'],
