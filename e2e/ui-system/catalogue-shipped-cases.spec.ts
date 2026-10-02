@@ -36,6 +36,15 @@ test('the catalogue renders shipped composer slots and Side by side cases', asyn
   await expect(narrow.getByRole('tablist', { name: 'Side by side tiles' })).toBeVisible()
   await expect(narrow.getByRole('tab')).toHaveCount(4)
   await expect(narrow.getByRole('dialog')).toHaveCount(0)
+
+  const waiting = caseLabel(page, 'room — Side by side · two members, waiting for you')
+  await expect(waiting.locator('[data-slot="side-by-side-tile"]')).toHaveCount(2)
+  await expect(waiting.getByRole('dialog', { name: 'Run this command?' })).toBeVisible()
+  await expect(waiting.locator('[data-slot="side-by-side-tile"][aria-label="Beta"]').getByText('Waiting for you', { exact: true })).toBeVisible()
+
+  const waitingTabs = caseLabel(page, 'room — Side by side · narrow tabs with a waiting mark')
+  await expect(waitingTabs.getByRole('tab', { name: 'Beta waiting for you' }).getByLabel('waiting for you')).toBeVisible()
+  await expect(waitingTabs.getByRole('dialog', { name: 'Run this command?' })).toBeVisible()
 })
 
 test('the catalogue renders refused and partial TurnFiles states', async ({ page }) => {
