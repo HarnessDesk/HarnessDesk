@@ -3,7 +3,7 @@
 > **For the Lead and for Teams:** each "PR n" below is a brief that stands on
 > its own. Copy its section, and "Rules for every PR", into a Team's brief file.
 > Steps use checkbox (`- [ ]`) syntax. The design is approved (owner,
-> 2026-10-02, decisions 1 to 8 as recommended):
+> 2026-10-02, all nine decisions as recommended; the Flow view is the relay drawing):
 > `docs/superpowers/specs/2026-10-02-teams-flows-runs-view-design.md`. Read its
 > sections named in a brief before writing anything.
 
@@ -455,7 +455,7 @@ the Overview draws, in the app's words, ordered by precedence.
 
 **Goal.** The Flow a Run started with, drawn to be looked at.
 
-**Read first.** Spec: "The Flow view" (every bullet of "How it is drawn"), the frames `flow-blueprint`, `flow-overlay` and `flow-hero`, and the considered `flow-alt-track`; `components/ShapeGraph.tsx` and `lib/shapes.ts` (the editor's graph, left as it is); `docs/design.md` § "Shapes say what a mark is".
+**Read first.** Spec: "The Flow view" (every bullet of "How it is drawn"), the frames `flow-blueprint`, `flow-overlay` and `flow-hero`, and `flow-alt-track` (the look the owner set aside: take its bold traveled route and solid check badges, not its layout); `components/ShapeGraph.tsx` and `lib/shapes.ts` (the editor's graph, left as it is); `docs/design.md` § "Shapes say what a mark is".
 
 **Scope.**
 - [ ] `packages/ui/src/lib/flow-layout.ts` (pure): steps left to right in the order their rules reach them, loops below the main line, a Flow's own `layout.positions` winning; edge geometry derived from the node boxes.

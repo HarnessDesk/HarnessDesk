@@ -1,6 +1,6 @@
 # Seeing and steering Teams, Flows and Runs: the Run view first
 
-*2026-10-02. Approved by the owner the same day, decisions 1 to 8 as
+*2026-10-02. Approved by the owner the same day, every decision as
 recommended (listed at the end); nothing here is built yet. It covers how the window shows and controls a Team's work: who is doing what, one
 Run's history, and what a person can do about it. It shares one stream of
 facts with the clients design for the command line and Mobile (#1271). The
@@ -411,7 +411,7 @@ arrowheads are data geometry (as a chart's are) and are recorded as that in the
 design audit, not excused. The editor's graph (`ShapeGraph`) adopts the same
 drawing afterwards, so what is edited and what is run look alike.
 
-**Considered and set aside: a track.** A drawing where steps are stations on a
+**Considered and set aside: a track** (the owner chose the relay over it, decision 9). A drawing where steps are stations on a
 line and a loop is a siding makes the prettier still for a straight Flow, and
 its bold traveled line is the best idea in it, so that idea is kept. It holds
 only for a Flow that is a line with a simple loop; a Flow with two branches has
@@ -619,8 +619,8 @@ a person's step, over the clients design's relay, with the same selectors.
 
 ## Decisions for the owner
 
-The owner decided 1 to 8 on 2026-10-02, every one as recommended. Decision 9
-is the Flow view's look, drawn after.
+The owner decided all nine on 2026-10-02, every one as recommended. Decision 9
+is the Flow view's look, which was drawn after the other eight and chosen last.
 
 | # | Decision | Recommended |
 | --- | --- | --- |
@@ -632,7 +632,7 @@ is the Flow view's look, drawn after.
 | 6 | **How cost is shown.** Per seat in the seat's own unit (money where the account is metered and the rate known, turns otherwise), with its provenance on hover. | Yes. |
 | 7 | **Two additions to the clients design's event stream** (`seat.changed`, `review.changed`, and optional fields). It was approved as written, so this is a change to it. | Yes; additive within version 1. |
 | 8 | **Settled Teams.** They fold into *Ready to wrap* and leave the sidebar when nothing waits on the person. Hiding never deletes. | Yes. |
-| 9 | **The Flow view's look.** The relay drawing (cards and labelled edges, any Flow), or the track (stations on a line, a straight Flow only). | The relay. Open: asked for after the other eight. |
+| 9 | **The Flow view's look.** The relay drawing (cards and labelled edges, any Flow), or the track (stations on a line, a straight Flow only). | **The relay.** Chosen by the owner, with the track's bold traveled line kept. |
 
 ## Open questions
 
