@@ -24,16 +24,19 @@ const widthOf = (locator: Locator): Promise<number> => locator.evaluate((node) =
 /**
  * The whole of a box lies inside a window `width` wide — once it has settled:
  * the sidebar slides in and the columns trade width over a transition, and the
- * suite's reduced motion is what makes that instant, not this spec.
+ * suite's reduced motion is what makes that instant, not this spec. A poll
+ * accepts the first sample that matches, so the box is let settle and read
+ * again: one that is only inside on its way somewhere else is not.
  */
 const insideWindow = async (locator: Locator, width: number, what: string): Promise<void> => {
-  await expect
-    .poll(async () => {
-      const box = await locator.boundingBox()
-      if (box === null) return 'not on screen'
-      return box.x >= 0 && box.x + box.width <= width ? 'inside' : `x ${box.x}, width ${box.width}`
-    }, `${what} lies inside a ${width}px window`)
-    .toBe('inside')
+  const where = async (): Promise<string> => {
+    const box = await locator.boundingBox()
+    if (box === null) return 'not on screen'
+    return box.x >= 0 && box.x + box.width <= width ? 'inside' : `x ${box.x}, width ${box.width}`
+  }
+  await expect.poll(where, `${what} lies inside a ${width}px window`).toBe('inside')
+  await settled(locator)
+  expect(await where(), `${what} lies inside a ${width}px window (once settled)`).toBe('inside')
 }
 
 /** Two reads of a box, a poll apart, agree: whatever was sliding has stopped. */
