@@ -233,9 +233,10 @@ const SidebarBoard = () => (
           <SidebarMenuButton trailingOverlay label="Long conversation titles can use the full row width at rest" />
           <SidebarMenuAction showOnHover aria-label="Empty slot actions"><MoreIcon size={14} /></SidebarMenuAction>
         </SidebarMenuItem>
-        <SidebarMenuItem data-catalog-label-case="badge" data-catalog-state="folded-state">
-          <SidebarMenuButton trailingOverlay label="A status badge yields its space to the hover action" />
+        <SidebarMenuItem trailingMarks={2} data-catalog-label-case="badge" data-catalog-state="folded-state">
+          <SidebarMenuButton trailingOverlay label="A status chip folds beside a count and hover action" />
           <SidebarBoardState label="Working" compact={<Dot state="signin" variant="navigation" />}>Working</SidebarBoardState>
+          <SidebarMenuBadge aria-label="Unread messages">2</SidebarMenuBadge>
           <SidebarMenuAction showOnHover aria-label="Badge row actions"><MoreIcon size={14} /></SidebarMenuAction>
         </SidebarMenuItem>
       </SidebarMenu>
@@ -252,7 +253,7 @@ const SidebarBoard = () => (
         </SidebarMenuItem>
       </SidebarMenu>
     </div>
-    <div className="h-[48rem] w-[12.5rem] max-w-full overflow-hidden rounded-(--hd-radius) border border-sidebar-border">
+    <div className="relative h-[48rem] w-[12.5rem] max-w-full overflow-hidden rounded-(--hd-radius) border border-sidebar-border">
       <Mount with={fullSidebarStore}><ProductSidebar
         onOpenSettings={() => {}}
         onOpenPlugins={() => {}}
@@ -262,6 +263,7 @@ const SidebarBoard = () => (
         onSignIn={() => {}}
         onSearch={() => {}}
       /></Mount>
+      <span aria-hidden="true" data-sidebar-end-column-guide className="pointer-events-none absolute inset-y-0 right-(--hd-sidebar-end-column) z-50 w-(--hd-space-px) bg-(--hd-foreground) opacity-40" />
     </div>
     <div className="grid grid-cols-3 gap-(--hd-space-2)" aria-label="Sidebar menu row sizes">
       {SIDEBAR_CATALOG_SIZES.map((size) => <SidebarMenuButton key={size} size={size} data-catalog-size={size} label={`Conversation · ${size}`} />)}

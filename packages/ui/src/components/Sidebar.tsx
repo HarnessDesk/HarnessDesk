@@ -199,6 +199,7 @@ export const Sidebar = ({
           )}
           filtering={filtering}
           keepLabelWhenFiltering
+          data-surface=""
           data-filtered={query ? '' : undefined}
         >
           <div className={styles.filter}>
@@ -218,7 +219,7 @@ export const Sidebar = ({
           </div>
           <SessionListControls />
           <Button
-            variant="muted" size="icon-sm" edge="end" edgeGlyph={13} className={styles.iconButton}
+            variant="muted" size="icon-xs" edge="end" edgeGlyph={12} className={styles.listAddButton}
             onClick={onBrowseFolders} title="Open a project folder" aria-label="Open a project folder"
           ><PlusIcon size={13} /></Button>
         </NavigationGroupHeader>
@@ -280,7 +281,7 @@ const WorktreeMenu = ({ onChoose }: { readonly onChoose: (kind: 'goal' | 'flow' 
       title="More ways to start"
       drop="down"
       align="right"
-      triggerClassName={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: styles.navSecondary })}
+      triggerClassName={buttonVariants({ variant: 'ghost', size: 'icon-xs', className: styles.navSecondary })}
       label={<CaretIcon size={14} />}
       onOpenChange={(open) => open && void store.loadWorktrees()}
     >

@@ -86,6 +86,7 @@ const has = (name) => argv.includes(`--${name}`)
 const OUT = resolve(flag('out', `${APP}/docs/images/app`))
 const WIDTH = Number(flag('width', '1440'))
 const HEIGHT = Number(flag('height', '900'))
+const SIDEBAR_WIDTH = Number(flag('sidebar-width', ''))
 const THEMES = flag('theme') ? [flag('theme')] : ['light', 'dark']
 /* The README room tile needs a deliberately compact real room: enough cards
    for four claims and two named collisions, but not the expanded board
@@ -157,6 +158,10 @@ const q = (value) => JSON.stringify(value)
 
 try {
   await cdp.send('Emulation.setDeviceMetricsOverride', { width: WIDTH, height: HEIGHT, deviceScaleFactor: 2, mobile: false })
+  if (Number.isFinite(SIDEBAR_WIDTH) && SIDEBAR_WIDTH > 0) {
+    await cdp.eval(`document.body.style.setProperty('--hd-sidebar-width', ${q(`${SIDEBAR_WIDTH}px`)})`)
+    say(`sidebar ${SIDEBAR_WIDTH}px`)
+  }
   /* app.css answers `prefers-reduced-motion` with a rule of its own, and the
      media query reads the system setting, which is this machine's rather than
      the take's. Emulated here, for the window alone. */
@@ -471,16 +476,23 @@ try {
           if (text.left - box.left < parseFloat(css.paddingLeft) - 1 || box.right - text.right < parseFloat(css.paddingRight) - 1) faults.push('Settings segment label overflows its option')
         }
         for (const row of document.querySelectorAll('[data-slot="sidebar-menu-item"]:hover')) {
-          const action = row.querySelector('[data-slot="sidebar-menu-action"][aria-haspopup="menu"]')
-          if (!action || !visible(action)) continue
-          const actionBox = action.getBoundingClientRect()
-          for (const badge of row.querySelectorAll('[data-slot="sidebar-menu-badge"]')) {
-            const badgeBox = badge.getBoundingClientRect()
-            // Badges and the hover action intentionally share the fixed trailing slot.
-            if (Math.abs(badgeBox.left - actionBox.left) > 1 || Math.abs(badgeBox.right - actionBox.right) > 1) faults.push('sidebar badge left its hover action slot')
-          }
-          for (const mark of row.querySelectorAll('[role="img"][aria-label^="Folder is gone"], [role="img"][aria-label^="Worktree "]')) {
-            if (mark.getBoundingClientRect().right > actionBox.left) faults.push('sidebar hover action overlaps metadata')
+          const actions = [...row.querySelectorAll(':scope > [data-slot="sidebar-menu-action"]')].filter(visible)
+          if (!actions.length) continue
+          const column = document.querySelector('nav[aria-label="Workspace actions"]')?.parentElement?.getBoundingClientRect().right - 32
+          if (!Number.isFinite(column)) continue
+          const marks = Number(row.getAttribute('data-sidebar-trailing-marks') ?? 0)
+          for (let index = 0; index < actions.length; index++) {
+            const actionBox = actions[index].getBoundingClientRect()
+            const expectedCenter = column - (marks + actions.length - index - 1) * 24
+            if (Math.abs((actionBox.left + actionBox.right) / 2 - expectedCenter) > 1) faults.push('sidebar hover action left its derived end-column slot')
+            for (const badge of row.querySelectorAll(':scope > [data-slot="sidebar-menu-badge"]')) {
+              const badgeBox = badge.getBoundingClientRect()
+              if (badgeBox.left < actionBox.right && actionBox.left < badgeBox.right && badgeBox.top < actionBox.bottom && actionBox.top < badgeBox.bottom) faults.push('sidebar hover action overlaps a trailing badge')
+            }
+            for (const mark of row.querySelectorAll(':scope > [role="img"][aria-label^="Folder is gone"], :scope > [role="img"][aria-label^="Worktree "]')) {
+              const markBox = mark.getBoundingClientRect()
+              if (markBox.left < actionBox.right && actionBox.left < markBox.right && markBox.top < actionBox.bottom && actionBox.top < markBox.bottom) faults.push('sidebar hover action overlaps metadata')
+            }
           }
         }
         // A popup on its way out (Base UI marks it \`data-ending-style\` for the
@@ -1958,6 +1970,11 @@ rules:
     })()`)
     await sleep(700)
   }
+  SCENES['session-rest'] = { leaveOverlay: true, run: async () => {
+    await stageSidebarMarks()
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 0, y: 0 })
+    await sleep(200)
+  } }
   const hover = async (selector) => {
     // Hover-only actions have no box until their row is entered.
     const rowPoint = await cdp.json(`(() => {
@@ -1981,9 +1998,9 @@ rules:
     await stageSidebarMarks()
     await hover('[data-slot="sidebar-menu-item"]:has(> [data-slot="sidebar-menu-button"][aria-expanded]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]')
   } }
-  SCENES['session-hover'] = { leaveOverlay: true, hover: '[data-slot="sidebar-menu-item"]:has([role="img"][aria-label^="Folder is gone"]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]', run: async () => {
+  SCENES['session-hover'] = { leaveOverlay: true, hover: '[data-slot="sidebar-menu-item"]:has([role="img"][aria-label^="Worktree "]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]', run: async () => {
     await stageSidebarMarks()
-    const selector = '[data-slot="sidebar-menu-item"]:has([role="img"][aria-label^="Folder is gone"]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]'
+    const selector = '[data-slot="sidebar-menu-item"]:has([role="img"][aria-label^="Worktree "]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]'
     await hover(selector)
   } }
   /**

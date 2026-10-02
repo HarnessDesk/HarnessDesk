@@ -198,6 +198,14 @@ const SessionRow = memo(({
             ? 'signin'
             : 'available'
   const worktree = isWorktreeSession(summary)
+  const hasActivityMark = backgrounded > 0 || traceShown || summary.status.type === 'active'
+  const badgeSlot = (step: 0 | 1 | 2) => step === 0
+    ? undefined
+    : step === 1
+      ? 'end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-action-step))]'
+      : 'end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-double-action-step))]'
+  const worktreeSlot = badgeSlot(hasActivityMark ? 1 : 0)
+  const folderGoneSlot = badgeSlot((worktree ? 1 : 0) + (hasActivityMark ? 1 : 0) as 0 | 1 | 2)
   const rowRef = useRef<HTMLButtonElement>(null)
   /* Brought on screen when it becomes the active one. A list long enough to
      hold a month of review rooms keeps the conversation being typed into
@@ -227,7 +235,7 @@ const SessionRow = memo(({
 
   return (
     <SidebarMenu className={styles.rowWrap} data-region="session-row" data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount} onContextMenu={menu.open}>
-      <SidebarMenuItem className="list-none" data-menu-open={menu.at ? '' : undefined}>
+      <SidebarMenuItem className="list-none" trailingMarks={Number(Boolean(folderGone)) + Number(worktree) + Number(hasActivityMark) as 0 | 1 | 2 | 3} data-menu-open={menu.at ? '' : undefined}>
         {renaming ? (
           <Input
             variant="quiet" controlSize="row" className={styles.renameInput}
@@ -282,23 +290,28 @@ const SessionRow = memo(({
                    glyphs must remain readable beside it. */
                 <span className="flex min-w-0 items-center gap-(--hd-space-1)" title={label}>
                   <span className="min-w-0 truncate">{label}</span>
-                  {need && <Chip tone="warning">{need.reason}</Chip>}
+                  {need && <SidebarMenuState label={need.reason} compact={<Dot state="limit" variant="navigation" />}>
+                    <Chip tone="warning">{need.reason}</Chip>
+                  </SidebarMenuState>}
                 </span>
               }
             />
-            {folderGone ? (
-              <SidebarMenuBadge role="img"
+            {folderGone && (
+              <SidebarMenuBadge className={folderGoneSlot}
+                role="img"
                 aria-label={`Folder is gone — ${folderName(summary.cwd)}`}
                 title={`${folderGone}\nThe transcript can be read; nothing more can be sent to it.`}>
                 <Text role="meta"><FolderGoneIcon size={11} /></Text>
               </SidebarMenuBadge>
-            ) : worktree ? (
-              <SidebarMenuBadge role="img"
+            )}
+            {worktree && (
+              <SidebarMenuBadge className={worktreeSlot}
+                role="img"
                 aria-label={`Worktree ${summary.git?.branch ?? folderName(summary.cwd)}`}
                 title={`Worktree · ${summary.git?.branch ?? folderName(summary.cwd)}\n${summary.cwd}`}>
                 <Text role="meta"><BranchIcon size={11} /></Text>
               </SidebarMenuBadge>
-            ) : null}
+            )}
             {(backgrounded > 0 || traceShown || summary.status.type === 'active') && (
               <SidebarMenuBadge aria-label={backgrounded > 0 ? 'Background tasks running' : traceShown ? TRACE_LABEL[trace] : 'Working'}>
                 <Dot state={dotState} variant="navigation"
@@ -404,9 +417,7 @@ export const SessionListControls = () => {
         title="How this list is shown"
         drop="down"
         align="left"
-        triggerEdge="end"
-        triggerEdgeGlyph={13}
-        triggerClassName={buttonVariants({ variant: 'muted', size: 'icon-sm' })}
+        triggerClassName={buttonVariants({ variant: 'muted', size: 'icon-xs', className: styles.headerDisplayAction })}
         label={<SlidersIcon size={13} />}
       >
         {(close) => (
@@ -552,7 +563,7 @@ const GroupHead = ({
       onContextMenu={menu.open}
     >
       <SidebarMenu>
-        <SidebarMenuItem data-current={current ? '' : undefined}>
+        <SidebarMenuItem trailingActions={2} trailingMarks={pinned ? 1 : 0} data-current={current ? '' : undefined}>
           <SidebarMenuButton
             trailingActions={2}
             data-draggable=""
@@ -569,13 +580,13 @@ const GroupHead = ({
             </>}
             label={<span className="flex min-w-0 items-center gap-(--hd-space-1)" >
               <Text role="navigation" ink={current ? 'primary' : undefined} truncate className={styles.groupName}>{group.name}</Text>
-              {stopped && <span title={`${stopped.reason} ${stopped.nextStep}`}><Chip tone="neutral" label="Capture stopped" /></span>}
+              {stopped && <span title={`${stopped.reason} ${stopped.nextStep}`} className="group-hover/menu-item:hidden group-focus-within/menu-item:hidden"><Chip tone="neutral" label="Capture stopped" /></span>}
             </span>}
           />
           {pinned && <SidebarMenuBadge title="Pinned" aria-label="Pinned"><PinIcon size={11} /></SidebarMenuBadge>}
           <Tooltip>
             <TooltipTrigger data-slot="sidebar-menu-action" render={
-              <SidebarMenuAction showOnHover className="end-(--hd-space-8)"
+              <SidebarMenuAction showOnHover className="end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-action-step))]"
                 onClick={() => void store.startSessionIn(actualRoot)}
                 aria-label={`New session in ${group.name}`}>
                 <PlusIcon size={12} />
@@ -728,9 +739,11 @@ const RoomRow = ({
               ? <SidebarMenuState label="Needs you" compact={<Dot state="limit" variant="navigation" />}>
                   <Chip tone="warning">Needs you</Chip>
                 </SidebarMenuState>
-              : <Chip tone={goalWords({ goal: goal.goal, activity: goal.activity }).tone}>
-                  {goalWords({ goal: goal.goal, activity: goal.activity }).label}
-                </Chip>)}
+              : <SidebarMenuState label={goalWords({ goal: goal.goal, activity: goal.activity }).label} compact={<Dot state="available" variant="navigation" />}>
+                  <Chip tone={goalWords({ goal: goal.goal, activity: goal.activity }).tone}>
+                    {goalWords({ goal: goal.goal, activity: goal.activity }).label}
+                  </Chip>
+                </SidebarMenuState>)}
           </span>}
         />
         {held > 0 && <SidebarMenuBadge title={`${held} held ${held === 1 ? 'message' : 'messages'} waiting for you`}>

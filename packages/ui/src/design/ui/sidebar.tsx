@@ -2,6 +2,7 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
+import './sidebar.css'
 
 /*
  * Vendored from shadcn/ui's Base UI Sidebar grammar, adapted to the desk's
@@ -10,13 +11,14 @@ import { cn } from '@/lib/utils'
  * would give one sidebar two owners. This file supplies its presentational
  * parts, and leaves the outer column and its state to the workbench.
  *
- * Menu rows keep one measure at every size and density. The trailing action
- * overlays the badge or state mark in the same fixed slot, so hover never
- * takes width from the label. The app's document rule draws the one focus ring.
+ * Menu rows keep one measure at every size and density. Marks keep their
+ * declared slots; hover actions step left by those target widths, so they
+ * never cover a mark or take width from the label. The app's document rule
+ * draws the one focus ring.
  */
 
 const sidebarMenuTrailingSlotClass =
-  'sidebar-menu-trailing-slot absolute end-(--hd-sidebar-end-rail) top-1/2 z-10 inline-flex size-(--hd-icon-target) -translate-y-1/2 items-center justify-center rounded-md text-sidebar-foreground transition-colors'
+  'sidebar-menu-trailing-slot absolute end-(--sidebar-menu-end-rail) top-1/2 z-10 inline-flex size-(--hd-icon-target) -translate-y-1/2 items-center justify-center rounded-md text-sidebar-foreground transition-colors'
 
 const SidebarGroup = ({ className, ...props }: React.ComponentProps<'section'>) => (
   <section data-slot="sidebar-group" data-sidebar="group" className={cn('relative flex w-full min-w-0 flex-col px-(--hd-space-2)', className)} {...props} />
@@ -41,15 +43,14 @@ const SidebarMenu = ({ className, nested = false, horizontal = false, ...props }
   />
 )
 
-const SidebarMenuItem = ({ className, ...props }: React.ComponentProps<'li'>) => (
+const SidebarMenuItem = ({ className, trailingActions = 1, trailingMarks = 0, ...props }: React.ComponentProps<'li'> & { trailingActions?: 1 | 2; trailingMarks?: 0 | 1 | 2 | 3 }) => (
   <li
     data-slot="sidebar-menu-item"
     data-sidebar="menu-item"
+    data-sidebar-trailing-actions={trailingActions}
+    data-sidebar-trailing-marks={trailingMarks}
     className={cn(
       'group/menu-item relative min-w-0',
-      'has-[[data-slot=sidebar-menu-action][data-show-on-hover]]:hover:[&_[data-slot=sidebar-menu-badge]]:-translate-x-(--hd-icon-target)',
-      'has-[[data-slot=sidebar-menu-action][data-show-on-hover]]:focus-within:[&_[data-slot=sidebar-menu-badge]]:-translate-x-(--hd-icon-target)',
-      'has-[[data-slot=sidebar-menu-action][data-show-on-hover][data-state=open]]:[&_[data-slot=sidebar-menu-badge]]:-translate-x-(--hd-icon-target)',
       className,
     )}
     {...props}
@@ -131,14 +132,22 @@ const SidebarMenuAction = ({ className, showOnHover = false, type = 'button', ..
   />
 )
 
-const SidebarMenuBadge = ({ className, ...props }: React.ComponentProps<'span'>) => (
-  <span
-    data-slot="sidebar-menu-badge"
-    data-sidebar="menu-badge"
-    className={cn(sidebarMenuTrailingSlotClass, 'pointer-events-none whitespace-nowrap px-(--hd-space-1) text-xs tabular-nums transition-transform', className)}
-    {...props}
-  />
-)
+const SidebarMenuBadge = ({ className, onClick, ...props }: React.ComponentProps<'span'>) => {
+  const mark = props.role === 'img'
+  return (
+    <span
+      data-slot="sidebar-menu-badge"
+      data-sidebar="menu-badge"
+      className={cn(sidebarMenuTrailingSlotClass, 'pointer-events-none whitespace-nowrap px-(--hd-space-1) text-xs tabular-nums transition-transform', mark && 'pointer-events-auto', className)}
+      onClick={mark ? (event) => {
+        onClick?.(event)
+        const button = event.currentTarget.closest('[data-slot="sidebar-menu-item"]')?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')
+        button?.click()
+      } : onClick}
+      {...props}
+    />
+  )
+}
 
 export {
   SidebarGroup,

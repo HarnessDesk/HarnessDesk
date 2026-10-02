@@ -59,6 +59,28 @@ it('keeps the menu label geometry and the badge/action slot fixed across hover s
   expect(hover).not.toContain('pe-(--hd-space-8)')
 })
 
+it('keeps the mark fixed and assigns the action rail around declared marks', () => {
+  const one = renderToStaticMarkup(
+    <SidebarMenuItem trailingMarks={1}>
+      <SidebarMenuButton label="One action" />
+      <SidebarMenuBadge>1</SidebarMenuBadge>
+      <SidebarMenuAction showOnHover aria-label="Actions">More</SidebarMenuAction>
+    </SidebarMenuItem>,
+  )
+  const two = renderToStaticMarkup(
+    <SidebarMenuItem trailingActions={2} trailingMarks={1}>
+      <SidebarMenuButton label="Two actions" trailingActions={2} />
+      <SidebarMenuBadge aria-label="Pinned">Pinned</SidebarMenuBadge>
+      <SidebarMenuAction showOnHover aria-label="Add">Add</SidebarMenuAction>
+      <SidebarMenuAction showOnHover aria-label="Actions">More</SidebarMenuAction>
+    </SidebarMenuItem>,
+  )
+
+  expect(one).toContain('data-sidebar-trailing-marks="1"')
+  expect(two).toContain('data-sidebar-trailing-actions="2"')
+  expect(two).toContain('data-sidebar-trailing-marks="1"')
+})
+
 it('lets an empty trailing slot use the whole row for its label', () => {
   const markup = renderToStaticMarkup(<SidebarMenuButton label="A long conversation title" />)
   const label = markup.match(/data-slot="sidebar-menu-label" class="([^"]+)"/)?.[1]

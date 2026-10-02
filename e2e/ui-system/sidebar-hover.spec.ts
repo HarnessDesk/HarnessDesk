@@ -219,6 +219,7 @@ test(`workspace hover keeps its pin visible and label width fixed (${theme})`, a
         await page.mouse.move(1400, 0)
         await open.blur()
         const before = await settled(branch)
+        const goneBefore = await settled(gone)
         await row.hover()
         await expect(action).toBeVisible()
         const moved = await settled(branch)
@@ -229,12 +230,16 @@ test(`workspace hover keeps its pin visible and label width fixed (${theme})`, a
             contentType: 'application/json',
           })
         }
-        // Same trade as the workspace head above: the marks step aside for the
-        // ⋯ rather than being covered by it, and they keep their line.
-        expect(moved.left).toBeLessThanOrEqual(before.left)
+        // Marks keep their declared slots; the action takes the next free
+        // target to their left rather than covering or moving either mark.
+        expect(moved.left).toBe(before.left)
         expect(moved.top).toBe(before.top)
-        for (const mark of [branch, gone]) {
-          expect((await settled(mark)).right).toBeLessThanOrEqual((await settled(action)).left)
+        const actionBox = await settled(action)
+        expect(actionBox.left + actionBox.width / 2).toBe(before.left + before.width / 2 - 48)
+        for (const [mark, resting] of [[branch, before], [gone, goneBefore]] as const) {
+          const markBox = await settled(mark)
+          expect(markBox).toEqual(resting)
+          expect(markBox.right <= actionBox.left || actionBox.right <= markBox.left).toBe(true)
           expect(await unobstructed(mark)).toBe(true)
         }
         expect(await unobstructed(action)).toBe(true)

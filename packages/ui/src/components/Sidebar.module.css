@@ -84,8 +84,8 @@
 
 .navSecondary {
   flex: none;
-  width: 26px;
-  margin-right: var(--hd-space-0-5);
+  width: var(--hd-icon-target);
+  margin-right: calc(var(--hd-sidebar-end-header-inset) - var(--hd-bar-pad) - var(--hd-space-1-5));
 }
 
 .groupLabel,
@@ -169,6 +169,15 @@
 .iconButton {
   flex: none;
   width: var(--hd-btn-h-sm);
+}
+
+.listAddButton {
+  flex: none;
+  width: var(--hd-icon-target);
+}
+
+.headerDisplayAction {
+  margin-inline-end: calc(-1 * var(--hd-space-1-5));
 }
 
 .triage {

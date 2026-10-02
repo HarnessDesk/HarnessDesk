@@ -216,7 +216,17 @@ body {
   --hd-space-2: 8px;
   --hd-space-2-5: 10px;
   --hd-space-3: 12px;
-  --hd-sidebar-end-rail: var(--hd-space-3);
+  /* Trailing marks share the centre of one 24px action slot, 32px from the
+     sidebar edge. The row-local rail subtracts the row gutter and half target;
+     AppWindow rows subtract their 20px group gutter. Header controls use the
+     full-edge inset. Hover actions step by one target. */
+  --hd-sidebar-end-column: var(--hd-space-8);
+  --hd-sidebar-end-header-inset: calc(var(--hd-sidebar-end-column) - var(--hd-space-1-5));
+  --hd-sidebar-end-rail: calc(var(--hd-sidebar-end-column) - var(--hd-icon-target) / 2 - var(--hd-space-2));
+  --hd-sidebar-end-window-inset: calc(var(--hd-sidebar-end-column) - var(--hd-icon-target) / 2 - var(--hd-space-5));
+  --hd-sidebar-end-action-step: var(--hd-icon-target);
+  --hd-sidebar-end-double-action-step: calc(var(--hd-sidebar-end-action-step) + var(--hd-sidebar-end-action-step));
+  --hd-sidebar-end-triple-action-step: calc(var(--hd-sidebar-end-double-action-step) + var(--hd-sidebar-end-action-step));
   --hd-space-4: 16px;
   --hd-space-5: 20px;
   --hd-space-6: 24px;

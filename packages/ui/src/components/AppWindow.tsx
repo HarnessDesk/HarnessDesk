@@ -176,12 +176,12 @@ export const WindowNavItem = ({
         aria-current={selected ? 'page' : undefined}
         onClick={onClick}
       />
-      {(count !== undefined || trail) && (
-        <SidebarMenuBadge className={styles.winNavBadge}>
-          {count !== undefined && <Text role="meta" ink="navigation" numeric className={styles.winNavCount}>{count}</Text>}
-          {trail}
+      {count !== undefined && (
+        <SidebarMenuBadge className={`${styles.winNavBadge} ${trail ? styles.winNavCountBadgeWithTrail : ''}`}>
+          <Text role="meta" ink="navigation" numeric className={styles.winNavCount}>{count}</Text>
         </SidebarMenuBadge>
       )}
+      {trail && <SidebarMenuBadge className={styles.winNavBadge}>{trail}</SidebarMenuBadge>}
     </SidebarMenuItem>
   </SidebarMenu>
 )
