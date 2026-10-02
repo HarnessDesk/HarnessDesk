@@ -311,8 +311,10 @@ conversation 135px: a composer wrapping its placeholder a word to a line, a
 title one pixel wide.
 
 Below 720px the sidebar floats over the conversation instead, and a panel on
-the right takes the conversation's width while it is open. Three things were
-chosen rather than defaulted:
+the right takes the conversation's width while it is open — a second half that
+the entry below amends: the panel now covers the conversation only when fewer
+than 400px would be left beside it. Three things were chosen rather than
+defaulted:
 
 - **The line is the desktop window's own minimum**, not a width picked for
   phones, so at its ordinary zoom no width the desktop app can take lays
@@ -360,7 +362,7 @@ in a fixed order:
   line does not move when it is toggled.
 - **The panel goes second.** It covers the conversation only once fewer than
   400px would be left beside it, no longer merely because the window is under
-  720px: at 700px a 280px panel and a 420px conversation stand side by side.
+  720px: at 700px a 280px panel and a 419px conversation stand side by side.
 - **A seam cannot undo it.** While two columns stand, the right seam stops
   where the conversation would drop under 400px.
 

@@ -22,6 +22,7 @@ import {
   mountOfTerminal,
   moveView,
   noticeArea,
+  SEAM,
   readWorkbench,
   rightPanelOverlays,
   removeAt,
@@ -493,14 +494,14 @@ describe('protecting the reading column', () => {
   })
 
   test.each([
-    [900, false, 620],
-    [720, false, 440],
-    [700, false, 420],
+    [900, false, 619],
+    [720, false, 439],
+    [700, false, 419],
   ])('%i keeps the panel beside main with %s overlay state and %i main pixels', (width, overlay, main) => {
     const workbench = right()
     expect(sidebarCannotHaveColumn(workbench, width)).toBe(true)
     expect(rightPanelOverlays(workbench, width)).toBe(overlay)
-    expect(width - workbench.right.size).toBe(main)
+    expect(width - workbench.right.size - SEAM).toBe(main)
   })
 
   test('the divider is counted: the panel covers main from 680, not 679', () => {

@@ -160,7 +160,8 @@
   overflow: hidden;
 }
 
-/* A right dock takes the whole content row below the narrow-window threshold.
+/* A right dock takes the whole content row once fewer than `MIN_READING` px
+   would remain beside it (`rightPanelOverlays`).
    Hide the covered main surface as well as making it inert in Workbench: on
    macOS, a draggable title-bar region can composite above ordinary overlays. */
 .main[data-right-panel-overlay] {

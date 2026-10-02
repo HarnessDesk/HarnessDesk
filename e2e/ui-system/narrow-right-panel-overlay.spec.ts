@@ -27,7 +27,7 @@ test('a narrow right-panel overlay hides the covered conversation and returns fo
     }
   }
 
-  // With a 460px right panel, 880px leaves 420px for the reading column.
+  // With a 460px right panel, 880px leaves 419px for the reading column (the divider is the 1px).
   await page.setViewportSize({ width: 880, height: 900 })
   await page.getByRole('button', { name: 'Show sidebar' }).click()
   await expect(main).not.toHaveAttribute('data-right-panel-overlay', '')
