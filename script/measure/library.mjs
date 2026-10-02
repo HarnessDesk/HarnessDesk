@@ -29,7 +29,7 @@ const CREDENTIAL_ROOTS = [
   '.git-credentials', 'Library/Keychains', 'Library/Application Support',
 ]
 export const KEYCHAIN_READ_ONLY = 'keychain-read-only'
-// The owner chose this exception on 2026-10-01 so Claude Code, Cursor and Grok Build can use their existing subscription sign-in, which lives in the keychain.
+// This exception differs from strict only by allowing keychain reads and omitting the two keychain Mach denials; both profiles retain the keychain write denial, and (allow default) is required for Node and system frameworks to start.
 const KEYCHAIN_READ_ONLY_AGENTS = new Set(['claude-code', 'cursor', 'grok-build'])
 const FACT_KEYS = new Set(['rulesFiles', 'catalogue', 'reportsCatalogue', 'precedence', 'rejections', 'reportsRejections', 'skillRoots', 'refresh', 'mcp', 'signedOutCatalogue'])
 const unmeasuredFacts = () => ({
@@ -328,7 +328,48 @@ export function verifySandbox(profilePath, fixtureRoot, { isolation = 'strict', 
   const runCanary = (script, path) => spawnSync('/usr/bin/sandbox-exec', [
     '-f', canaryProfilePath, process.execPath, '-e', script, path,
   ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5_000 })
+  const runUnderProfile = (profilePath, script, path) => spawnSync('/usr/bin/sandbox-exec', [
+    '-f', profilePath, process.execPath, '-e', script, path,
+  ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5_000 })
   const succeeded = (result) => Boolean(result && !result.error && !result.signal && result.status === 0)
+  const sharedName = `harnessdesk-measure-${randomBytes(12).toString('hex')}`
+  const usersShared = join('/', 'Users', 'Shared')
+  const sharedReadCanary = join(usersShared, `${sharedName}-read`)
+  const sharedWriteCanary = join(usersShared, `${sharedName}-write`)
+  let sharedFileCreated = false
+  let sharedReadPath = usersShared
+  try {
+    try {
+      writeFileSync(sharedReadCanary, 'temporary sandbox canary')
+      sharedFileCreated = true
+      sharedReadPath = sharedReadCanary
+    } catch {
+      // A directory listing is the read probe when the canary file cannot be created.
+    }
+    const sharedReadScript = sharedFileCreated
+      ? `const fs = require('node:fs'); try { fs.readFileSync(process.argv[1]); process.exit(51); } catch (error) { process.exit(['EPERM', 'EACCES'].includes(error.code) ? 0 : 52); }`
+      : `const fs = require('node:fs'); try { fs.readdirSync(process.argv[1]); process.exit(51); } catch (error) { process.exit(['EPERM', 'EACCES'].includes(error.code) ? 0 : 52); }`
+    const sharedDeniedRead = runUnderProfile(profilePath, sharedReadScript, sharedReadPath)
+    const sharedDeniedWrite = runUnderProfile(profilePath, `const fs = require('node:fs'); try { fs.writeFileSync(process.argv[1], 'temporary sandbox canary'); process.exit(53); } catch (error) { process.exit(['EPERM', 'EACCES'].includes(error.code) ? 0 : 54); }`, sharedWriteCanary)
+    const controlProfile = readFileSync(profilePath, 'utf8')
+      .split('\n')
+      .filter((line) => line !== `(deny file-read* file-write* (subpath ${JSON.stringify(join('/', 'Users'))}))`)
+      .join('\n') + `\n(allow file-write* (literal ${JSON.stringify(sharedWriteCanary)}))\n`
+    writeFileSync(controlPath, controlProfile)
+    const controlReadScript = sharedFileCreated
+      ? `require('node:fs').readFileSync(process.argv[1])`
+      : `require('node:fs').readdirSync(process.argv[1])`
+    const sharedControlRead = runUnderProfile(controlPath, controlReadScript, sharedReadPath)
+    const sharedControlWrite = runUnderProfile(controlPath, `require('node:fs').writeFileSync(process.argv[1], 'temporary sandbox canary')`, sharedWriteCanary)
+    if (![sharedDeniedRead, sharedDeniedWrite].every(succeeded) || ![sharedControlRead, sharedControlWrite].every(succeeded)) {
+      console.error(`real /Users blanket denial differential: denied read exit=${sharedDeniedRead?.status} error=${sharedDeniedRead?.error?.code ?? ''}; denied write exit=${sharedDeniedWrite?.status} error=${sharedDeniedWrite?.error?.code ?? ''}; control read exit=${sharedControlRead?.status} error=${sharedControlRead?.error?.code ?? ''}; control write exit=${sharedControlWrite?.status} error=${sharedControlWrite?.error?.code ?? ''}`)
+      rmSync(outsideRoot, { recursive: true, force: true })
+      return false
+    }
+  } finally {
+    if (sharedFileCreated) rmSync(sharedReadCanary, { force: true })
+    rmSync(sharedWriteCanary, { force: true })
+  }
   const deniedRead = runCanary(`
     const fs = require('node:fs');
     try { fs.readFileSync(process.argv[1]); process.exit(31); } catch (error) { if (!['EPERM', 'EACCES'].includes(error.code)) process.exit(32); }
@@ -421,7 +462,7 @@ export function sandboxProfileText(realHome, { fixtureRoot = '/tmp/fixture', fix
   const allowedInstallRoots = [...new Set(readPaths.map((path) => resolve(path)))]
   const keychainRoot = resolve(join(realHome, 'Library/Keychains'))
   const deniedRoots = [...new Set([
-    ...deniedHomePaths(realHome).filter((path) => isolation !== KEYCHAIN_READ_ONLY || resolve(path) !== keychainRoot),
+    ...deniedHomePaths(realHome),
     ...additionalDeniedPaths.map((path) => resolve(path)),
   ])]
   const keychainRead = isolation === KEYCHAIN_READ_ONLY
@@ -451,6 +492,11 @@ export function installReadRoot(realPath) {
   if (modules >= 0 && parts[modules + 1]) return `/${parts.slice(0, modules + 1).join('/')}`
   const parent = dirname(realPath)
   return parent === realPath ? null : parent
+}
+
+export function installRootIsSafe(installRoot, realHome) {
+  const root = resolve(installRoot)
+  return !['/', '/Users', '/Volumes'].includes(root) && !isWithin(root, realHome)
 }
 
 export function installDiscoveryState({ candidateCount, copies = [], chosen = null, unsafeCount = 0 }) {
@@ -665,6 +711,10 @@ export async function findAgentInstall(agent, fixture) {
     try {
       const realPath = realpathSync(path)
       const installRoot = installReadRoot(realPath)
+      if (installRoot && !installRootIsSafe(installRoot, realHome)) {
+        unsafeCopies.push({ path, reason: 'cannot isolate: install directory contains the real home' })
+        continue
+      }
       if (isWithin(realHome, realPath) && (!installRoot || !isWithin(agentHome, installRoot) && !isWithin(realHome, installRoot) || installRoot === agentHome || CREDENTIAL_ROOTS.some((root) => installRoot === join(realHome, root)))) {
         unsafeCopies.push({ path, reason: 'cannot isolate: install directory overlaps agent configuration' })
         continue

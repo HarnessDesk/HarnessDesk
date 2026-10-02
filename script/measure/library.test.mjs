@@ -10,6 +10,7 @@ import {
   askAgent,
   createFixture,
   installReadRoot,
+  installRootIsSafe,
   installDiscoveryState,
   populateSkillRoots,
   redact,
@@ -116,6 +117,27 @@ test('sandbox profile blocks real agent homes, credentials, and keychain paths',
   assert.match(exception, /\(allow default\)/)
 })
 
+test('strict and keychain-read-only profiles differ only by keychain read and Mach service rules', () => {
+  const realHome = '/Users/dev'
+  const options = { fixtureRoot: '/tmp/fixture', readPaths: ['/opt/homebrew/Cellar/node'] }
+  const strict = sandboxProfileText(realHome, options)
+  const exception = sandboxProfileText(realHome, { ...options, isolation: KEYCHAIN_READ_ONLY })
+  const lines = (profile) => new Set(profile.trimEnd().split('\n'))
+  const strictLines = lines(strict)
+  const exceptionLines = lines(exception)
+  const onlyStrict = [...strictLines].filter((line) => !exceptionLines.has(line)).sort()
+  const onlyException = [...exceptionLines].filter((line) => !strictLines.has(line)).sort()
+  assert.deepEqual(onlyStrict, [
+    '(deny mach-lookup (global-name "com.apple.SecurityServer"))',
+    '(deny mach-lookup (global-name "com.apple.securityd"))',
+  ])
+  assert.deepEqual(onlyException, [
+    '(allow file-read* (subpath "/Users/dev/Library/Keychains"))',
+  ])
+  assert.ok([...strictLines].some((line) => line.startsWith('(deny file-read* file-write* (subpath "/Users/dev/Library/Keychains")')))
+  assert.ok([...exceptionLines].some((line) => line.startsWith('(deny file-read* file-write* (subpath "/Users/dev/Library/Keychains")')))
+})
+
 test('install runtime allowance resolves to narrow version and dependency-tree directories', () => {
   assert.equal(installReadRoot('/Users/dev/.claude/local/versions/1.2.3/bin/claude'), '/Users/dev/.claude/local/versions/1.2.3')
   assert.equal(installReadRoot('/Users/dev/.npm/node_modules/@vendor/agent/bin/agent'), '/Users/dev/.npm/node_modules')
@@ -127,6 +149,14 @@ test('install runtime allowance resolves to narrow version and dependency-tree d
   assert.equal(installDiscoveryState({ candidateCount: 0 }), 'absent')
   assert.equal(installDiscoveryState({ candidateCount: 1, copies: [{ standing: 'unreadable' }] }), 'unreadable')
   assert.equal(installDiscoveryState({ candidateCount: 1, unsafeCount: 1 }), 'unsafe')
+})
+
+test('install roots equal to or above the real home cannot be allowed', () => {
+  const realHome = '/Users/dev'
+  for (const root of [realHome, '/Users', '/', '/Volumes']) {
+    assert.equal(installRootIsSafe(root, realHome), false, root)
+  }
+  assert.equal(installRootIsSafe('/opt/homebrew/Cellar/node', realHome), true)
 })
 
 test('the three keychain-only agents retain version discovery but never receive a model prompt', () => {
