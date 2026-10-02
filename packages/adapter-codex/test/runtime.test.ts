@@ -934,6 +934,41 @@ test('a selected profile reaches thread/start and the context window is read bac
   assert.equal(usage?.contextWindow, 872_000, 'the number is the fake app-server usage report')
 })
 
+test('a selected profile is revalidated at start after discovery', async (t) => {
+  const { mkdtempSync, rmSync, writeFileSync, unlinkSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const codexHome = mkdtempSync(join(tmpdir(), 'codex-profile-runtime-'))
+  const profilePath = join(codexHome, 'sol.config.toml')
+  writeFileSync(profilePath, 'model = "gpt-5.6-sol"\n')
+  const runtime = makeRuntime({ FAKE_CODEX_ECHO_STARTS: '1' }, { codexHome })
+  t.after(() => runtime.dispose())
+  t.after(() => rmSync(codexHome, { recursive: true, force: true }))
+  await runtime.start()
+  const tape = recorder(runtime)
+
+  for (const change of ['malformed', 'missing'] as const) {
+    writeFileSync(profilePath, 'model = "gpt-5.6-sol"\n')
+    const discovered = await runtime.defaultSessionOptions('/w', { [CODEX_PROFILE_OPTION_ID]: 'sol' })
+    const choice = discovered.find((option) => option.id === CODEX_PROFILE_OPTION_ID)
+    assert.ok(choice?.type === 'select' && choice.choices.some((entry) => entry.value === 'sol' && !entry.disabled))
+    if (change === 'malformed') writeFileSync(profilePath, 'model = ["not-a-model"]\n')
+    else unlinkSync(profilePath)
+
+    await assert.rejects(
+      () => runtime.createSession({ cwd: '/w', options: { [CODEX_PROFILE_OPTION_ID]: 'sol' } }),
+      /sol\.config\.toml/,
+      `${change} profile must be refused at session start`,
+    )
+  }
+
+  assert.equal(
+    noticeMessages(tape.events).filter((message) => message.startsWith('STARTED ')).length,
+    0,
+    'a rejected selection never reaches thread/start',
+  )
+})
+
 test('a profile outside the bounded discovery set cannot be started by a retained selection', async (t) => {
   const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
