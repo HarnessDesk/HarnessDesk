@@ -5,7 +5,7 @@ import type { AuditRow } from '../state/store'
 import { RuntimeMark } from './BrandIcons'
 import type { ReportFoot } from './Details'
 import { AlertIcon, CheckIcon, SessionIcon, ShieldIcon, ZapIcon } from './Icons'
-import { AccountMark } from '../design'
+import { IconTile } from '../design'
 import { GroupLine, PanelEmpty, PanelRow, RowTime } from './Panel'
 
 /**
@@ -15,7 +15,8 @@ import { GroupLine, PanelEmpty, PanelRow, RowTime } from './Panel'
  *
  * A row is a sentence about something that happened, and the agent that did
  * it wears its own mark. No ring: these rows are about agents, and a ring is
- * how an account is told from another account.
+ * how an account is told from another account. The mark is a face, so it
+ * follows the shape the person chose for faces.
  */
 
 const timeOf = (at: number): string =>
@@ -157,9 +158,13 @@ export const Activity = ({ query, onFoot }: { query: string; onFoot: ReportFoot 
               <PanelRow
                 key={`${row.at}-${index}`}
                 mark={
-                  <AccountMark size="sm">
+                  /* A row whose agent is known wears that agent's mark, a face. One
+                     whose runtime this window cannot name falls back to the
+                     event's own glyph, which is not someone, so it stays a plain
+                     square tile whatever shape faces are. */
+                  <IconTile size="sm" shape={info ? 'face' : 'square'}>
                     {info ? <RuntimeMark runtime={info} size={12} /> : iconOf(row)}
-                  </AccountMark>
+                  </IconTile>
                 }
                 title={describe(row)}
                 sub={nameOf(row.runtime)}

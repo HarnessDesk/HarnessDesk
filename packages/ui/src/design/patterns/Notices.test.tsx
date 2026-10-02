@@ -149,6 +149,13 @@ it('a message from an Agent leads with its face instead of the tone dot', async 
   expect(host.querySelector('[data-testid="face"]')).toBeTruthy()
   expect(host.querySelector('svg')).toBeNull()
   expect(host.querySelector('[data-testid="face"]')?.parentElement?.parentElement?.className).toContain('h-(--hd-line)')
+  // It is a face, so it takes the shape chosen for faces; a tone's icon does not.
+  expect(host.querySelector('[data-testid="face"]')?.parentElement?.hasAttribute('data-face')).toBe(true)
+})
+
+it('a tone leads with its icon in the plain tile, not a face', async () => {
+  await act(() => root.render(<ComposerNotice message={{ id: 'plain', title: 'Reconnecting.', tone: 'warning' }} />))
+  expect(host.querySelector('svg')?.parentElement?.hasAttribute('data-face')).toBe(false)
 })
 
 it('work that takes a moment is one toast that turns into how it ended', () => {

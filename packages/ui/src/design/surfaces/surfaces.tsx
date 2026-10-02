@@ -11,6 +11,7 @@ import { SignIn } from '../../components/SignIn'
 import { Sidebar } from '../../components/Sidebar'
 import { TeamBoardPane } from '../../components/TeamBoardPane'
 import { TeamRoomPane } from '../../components/TeamRoomPane'
+import { Text } from '..'
 import { TerminalSurface as TerminalPane } from '../../components/TerminalPane'
 import { Usage } from '../../components/Usage'
 import { MountProvider } from '../../panels/mount'
@@ -23,6 +24,7 @@ import { cardEvidence, checkView, EVIDENCE_ROOM } from '../../preview/evidence-f
 import { PREVIEW_FLOW_CARD, sceneFlowExecution } from '../../preview/flow-fixture'
 import { PREVIEW_FLOW_GOAL } from '../../preview/goal-fixture'
 import { denseTurns, PREVIEW_ROOT, previewHistory, previewSession } from '../../preview/sidebar-fixture'
+import { ComposerSlotsContent } from '../../preview/composer-slots-content'
 import { SIGN_IN_SELECTED, signInSeed } from '../../preview/signin-fixture'
 import styles from './surfaces.module.css'
 
@@ -458,6 +460,13 @@ export const ComposerSurface = () => (
         <Composer onChooseProject={() => {}} />
       </PaneProvider>
     </Frame>
+  </Mount>
+)
+
+/** The fixed-slot catalogue case, using the same real controls as the preview frame. */
+export const ComposerSlotsSurface = () => (
+  <Mount>
+    <Frame height="page"><div className="h-full overflow-auto"><ComposerSlotsContent /></div></Frame>
   </Mount>
 )
 

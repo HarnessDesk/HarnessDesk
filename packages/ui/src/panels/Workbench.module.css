@@ -160,7 +160,8 @@
   overflow: hidden;
 }
 
-/* A right dock takes the whole content row below the narrow-window threshold.
+/* A right dock takes the whole content row once fewer than `MIN_READING` px
+   would remain beside it (`rightPanelOverlays`).
    Hide the covered main surface as well as making it inert in Workbench: on
    macOS, a draggable title-bar region can composite above ordinary overlays. */
 .main[data-right-panel-overlay] {
@@ -355,16 +356,17 @@
  */
 /* -------------------------------------------------------- narrow windows
  *
- * Below `NARROW_WINDOW` (state/workbench.ts) a column beside the conversation
- * costs more than the conversation can spare, so the sidebar floats instead:
- * out of the row, over the conversation, at the width it had, sliding in from
- * the edge it lives on. What it covers is dimmed and cannot be reached until
- * it goes — `Workbench` marks it inert, with the notices floating beside the
- * workbench — and pressing the dim puts it away.
+ * The sidebar gives up its column below `NARROW_WINDOW` (state/workbench.ts),
+ * or when it, a drawn right panel and `MIN_READING` do not fit: it floats
+ * instead, out of the row, over the conversation, at the width it had, sliding
+ * in from the edge it lives on. What it covers is dimmed and cannot be reached
+ * until it goes — `Workbench` marks it inert, with the notices floating beside
+ * the workbench — and pressing the dim puts it away.
  *
- * A panel docked on the right does the same on its own side: while it is open
- * it takes the conversation's width, since a column beside a conversation this
- * narrow would leave a column of nothing on both sides of the seam.
+ * A panel docked on the right does the same on its own side, but later: only
+ * once fewer than `MIN_READING` px would be left beside it does it take the
+ * conversation's width while it is open, since a column beside a conversation
+ * that narrow would leave nothing worth reading.
  */
 
 .shell[data-narrow] .sidebar {
@@ -437,13 +439,20 @@
   }
 }
 
-.shell[data-narrow] .middle {
+.shell[data-narrow] .middle,
+.shell[data-right-overlay] .middle {
   position: relative;
 }
 
 /* Over the conversation's own raised layers — its composer dock — and under
-   the notices, which belong on top of whatever is being read. */
-.shell[data-narrow] .right {
+   the notices, which belong on top of whatever is being read.
+
+   Keyed on the overlay itself, not on `data-narrow`: a window that has only
+   lost the sidebar's column still has room for the panel beside the
+   conversation (`MIN_READING`), and a panel laid absolutely over a visible
+   conversation was the bug this selector had once the two stopped meaning
+   the same thing. */
+.shell[data-right-overlay] .right {
   position: absolute;
   inset: 0;
   z-index: var(--hd-z-sticky);

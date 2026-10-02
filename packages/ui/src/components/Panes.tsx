@@ -42,7 +42,7 @@ export const Panes = () => {
   // nobody is hosting it instead. `mainNoticeHost` is pure layout state, so
   // this is the one place a pane is chosen, never a mount racing another for
   // the title.
-  const host = mainNoticeHost(snapshot.workbench, snapshot.narrowWindow)
+  const host = mainNoticeHost(snapshot.workbench, snapshot.windowWidth)
   return (
     <div className={styles.root}>
       <Node node={snapshot.layout.root} primary={host} />

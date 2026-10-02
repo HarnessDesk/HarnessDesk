@@ -40,3 +40,14 @@ it('says which identity or which tone it wears, so a reader can ask the tile rat
   expect(coloured).not.toContain('data-tint')
   expect(coloured).not.toContain('data-tone')
 })
+
+it('fills a tinted face and keeps other tinted shapes on the soft wash', () => {
+  const face = renderToStaticMarkup(<IconTile shape="face" tint="violet">A</IconTile>)
+  expect(face).toContain('bg-(--hd-tint-violet-ink)')
+  expect(face).toContain('text-(--hd-accent-foreground)')
+  const square = renderToStaticMarkup(<IconTile shape="square" tint="violet">A</IconTile>)
+  expect(square).toContain('bg-(--hd-tint-violet-fill)')
+  expect(square).toContain('text-(--hd-tint-violet-ink)')
+  const round = renderToStaticMarkup(<IconTile shape="round" tint="violet">A</IconTile>)
+  expect(round).toContain('bg-(--hd-tint-violet-fill)')
+})
