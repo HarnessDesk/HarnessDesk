@@ -209,7 +209,7 @@ export const RoomComposer = ({
   const mount = useMount()
   // Whether this room's own strip is the one the layout has chosen to carry
   // the desk-wide messages — never a second, competing answer of its own.
-  const isNoticeHost = mainNoticeHost(snapshot.workbench, snapshot.narrowWindow) === mount?.id
+  const isNoticeHost = mainNoticeHost(snapshot.workbench, snapshot.windowWidth) === mount?.id
   const textarea = useRef<HTMLTextAreaElement>(null)
   const [draft, setDraft] = useState('')
   /** Empty is everyone. The default, and the common case by a distance. */

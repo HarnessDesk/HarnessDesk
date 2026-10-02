@@ -8,7 +8,7 @@ test('a narrow right-panel overlay hides the covered conversation and returns fo
   await expect(tab).toBeVisible()
   await expect(meters).toContainText(/out/i)
 
-  for (const width of [510, 710]) {
+  for (const width of [510, 710, 840]) {
     await page.setViewportSize({ width, height: 900 })
     await expect(main).toHaveAttribute('data-right-panel-overlay', '')
     await expect(main).toHaveAttribute('inert', '')
@@ -27,10 +27,27 @@ test('a narrow right-panel overlay hides the covered conversation and returns fo
     }
   }
 
-  await page.setViewportSize({ width: 720, height: 900 })
+  // With a 460px right panel, 880px leaves 419px for the reading column (the divider is the 1px).
+  await page.setViewportSize({ width: 880, height: 900 })
+  await page.getByRole('button', { name: 'Show sidebar' }).click()
   await expect(main).not.toHaveAttribute('data-right-panel-overlay', '')
   await expect(main).not.toHaveAttribute('inert', '')
   await expect.poll(() => main.evaluate((node) => getComputedStyle(node).visibility)).toBe('visible')
+  await expect.poll(() => main.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThanOrEqual(400)
+  await expect(page.getByRole('dialog', { name: 'Sidebar' })).toBeVisible()
+
+  await page.setViewportSize({ width: 1000, height: 900 })
+  await expect(main).not.toHaveAttribute('data-right-panel-overlay', '')
+  await expect(page.getByRole('dialog', { name: 'Sidebar' })).toBeVisible()
+  await expect.poll(() => main.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThanOrEqual(400)
+
+  await page.setViewportSize({ width: 1200, height: 900 })
+  await page.getByRole('button', { name: 'Show sidebar' }).click()
+  await expect(main).not.toHaveAttribute('data-right-panel-overlay', '')
+  await expect(page.getByRole('dialog', { name: 'Sidebar' })).toHaveCount(0)
+  await expect.poll(() => main.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThanOrEqual(400)
+  // All three columns stand: nothing is floating or laid over.
+  await expect(page.locator('[data-narrow]')).toHaveCount(0)
 
   const composer = page.locator('textarea').first()
   await composer.focus()
