@@ -41,6 +41,7 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
   const breakdown = report.breakdowns.find((entry) => entry.dimension === dimension)
   const failedSources = report.sources.filter((source) => source.problem !== null)
   return <>
+    {report.scan === 'partial' ? <Note><Chip tone="warning" title="Source scan reached its limit">Partial</Chip></Note> : null}
     <Rows>
       {!breakdown ? <Row title={`Recorded usage has no ${view} attribution.`} /> : breakdown.rows.length === 0 ? <Row title={view === 'goal' ? 'No Goal usage was recorded' : 'No Agent usage was recorded'} desc={breakdown.reason ?? 'Unknown historical usage remains unassigned.'} /> : breakdown.rows.map((row) => {
         const click = view === 'goal' && row.goal ? () => onGoal(row.goal!) : null
@@ -54,6 +55,6 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
     {/* A gap belongs to the whole read, not to one row, and Note carries no
         card padding of its own — inside Rows its text sat flush against the
         card's edge. Outside it, Note's own margin is the spacing. */}
-    {report.gaps.map((gap) => <Note key={gap} tone="warn">{gap}</Note>)}
+    {report.gaps.filter((gap) => report.scan !== 'partial' || !gap.startsWith('Insight stopped')).map((gap) => <Note key={gap} tone="warn">{gap}</Note>)}
   </>
 }

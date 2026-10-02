@@ -74,6 +74,9 @@ export interface ScanTarget {
   readonly path: string
   readonly size: number
   readonly mtime: number
+  /** File identity survives appends and changes on replacement. */
+  readonly identity?: string
+  readonly changedAt?: number
   readonly kind: CorpusKind
 }
 
@@ -95,6 +98,7 @@ export interface ScanResult {
    * `offset`; there is nothing else it could mean for a whole-file read.
    */
   readonly bytesRead: number
+  readonly limited?: boolean
 }
 
 /** How many trailing ids are carried across a resume boundary. */
@@ -421,6 +425,11 @@ const parseTime = (value: unknown): number | null => {
  * `pending` itself from ever holding more than that, whatever the file
  * contains between newlines.
  *
+ * Insight's incremental mode bounds the stream to exactly `budget` bytes
+ * and returns a limited prefix with its cursor. A line split by that bound
+ * stays unconsumed; the next read resumes at its beginning. Other callers
+ * keep the existing budget-exceeded exception and one-byte EOF probe.
+ *
  * Returns `offset` — the resume cursor, advanced only for lines actually
  * committed — beside `bytesRead`, the stream's own count of bytes pulled
  * from the file regardless of whether the last one was committed (round 3
@@ -433,8 +442,9 @@ const readLines = async (
   offset: number,
   onLine: (record: unknown, bytes: number) => void,
   budget?: number,
-): Promise<{ offset: number; bytesRead: number }> => {
-  const stream = nodeFs.createReadStream(path, budget === undefined ? { start: offset } : { start: offset, end: offset + budget })
+  resumeSize?: number,
+): Promise<{ offset: number; bytesRead: number; limited?: boolean }> => {
+  const stream = nodeFs.createReadStream(path, budget === undefined ? { start: offset } : { start: offset, end: offset + budget - (resumeSize === undefined ? 0 : 1) })
   let consumed = offset
   let pending: Buffer = Buffer.alloc(0)
   const spend = (bytes: number): void => {
@@ -467,11 +477,15 @@ const readLines = async (
      then on and that last record is never counted — not on the next pass,
      and not on a full rescan either, because the newline it is waiting for
      is never coming. */
-  if (pending.length > 0) {
+  // Discovery can race an append. Measure the end again before calling a
+  // bounded prefix complete; the next request will see the new metadata.
+  const endSize = resumeSize === undefined ? undefined : (await nodeFsPromises.stat(path)).size
+  const limited = endSize !== undefined && offset + stream.bytesRead < endSize
+  if (pending.length > 0 && !limited) {
     spend(pending.length)
     take(pending.toString('utf8'), pending.length, onLine, (added) => (consumed += added))
   }
-  return { offset: consumed, bytesRead: stream.bytesRead }
+  return { offset: consumed, bytesRead: stream.bytesRead, ...(resumeSize === undefined ? {} : { limited }) }
 }
 
 const NEWLINE = 0x0a
@@ -540,7 +554,7 @@ export const scanCodexRollout = async (
      the tail carried them has an offset and nothing else, and reads them once
      from the part of the file it had already counted (review, round 2). */
   const context = contextFrom(tail) ?? (offset > 0 ? await contextBefore(target.path, offset) : unknownContext())
-  const { offset: consumed, bytesRead } = await readLines(target.path, offset, (raw) => {
+  const { offset: consumed, bytesRead, limited } = await readLines(target.path, offset, (raw) => {
     const record = raw as CodexRecord
     // A manual or automatic `/compact` writes `turn_context` again right
     // after `compacted`, inside the very same turn -- compaction is not a
@@ -593,8 +607,8 @@ export const scanCodexRollout = async (
       input: typeof last.input_tokens === 'number' && typeof last.cached_input_tokens === 'number' ? Math.max(0, last.input_tokens - last.cached_input_tokens) : last.input_tokens,
       output: last.output_tokens, cacheRead: last.cached_input_tokens, cacheWrite: undefined,
     }, 'call', null, context.sessionId ?? null)
-  }, insight?.byteLimit)
-  return { rows: [...into.rows.values()], hours: [...into.hours.values()], offset: consumed, tail: [JSON.stringify(context)], bytesRead }
+  }, insight?.byteLimit, insight?.incremental ? target.size : undefined)
+  return { rows: [...into.rows.values()], hours: [...into.hours.values()], offset: consumed, tail: [JSON.stringify(context)], bytesRead, ...(limited === undefined ? {} : { limited }) }
 }
 
 interface CodexContext {
@@ -772,7 +786,7 @@ export const scanClaudeTranscript = async (
   // while a turn at the end of the chunk stays in the cursor tail until its
   // reply arrives on a later scan.
   const pending: PendingEntry[] = pendingTurnsFrom(tail)
-  const { offset: consumed, bytesRead } = await readLines(target.path, offset, (raw) => {
+  const { offset: consumed, bytesRead, limited } = await readLines(target.path, offset, (raw) => {
     const record = raw as ClaudeRecord
     if (isClaudeUserTurn(record)) {
       const at = parseTime(record.timestamp)
@@ -803,7 +817,7 @@ export const scanClaudeTranscript = async (
     emit(insight, target, id ?? JSON.stringify(raw), at, model, project || null, {
       input: usage.input_tokens, output: usage.output_tokens, cacheRead: usage.cache_read_input_tokens, cacheWrite: usage.cache_creation_input_tokens,
     }, 'call')
-  }, insight?.byteLimit)
+  }, insight?.byteLimit, insight?.incremental ? target.size : undefined)
   // Consecutive turn candidates with no model call between them are one
   // turn, not several: a slash command's own line and its real prompt both
   // survive `isClaudeUserTurn`, and a local command's line does too when it
@@ -833,7 +847,7 @@ export const scanClaudeTranscript = async (
   }
   // Claude's consecutive candidates collapse to the last one before a model;
   // keeping earlier unanswered candidates cannot change a later result.
-  return { rows: [...into.rows.values()], hours: [...into.hours.values()], offset: consumed, tail: scannerTail(order, unresolved.slice(-1)), bytesRead }
+  return { rows: [...into.rows.values()], hours: [...into.hours.values()], offset: consumed, tail: scannerTail(order, unresolved.slice(-1)), bytesRead, ...(limited === undefined ? {} : { limited }) }
 }
 
 /** The Gemini API's own counts, which Qwen Code records as it received them. */
@@ -898,7 +912,7 @@ export const scanQwenTranscript = async (
   // this pass sees, never the previous one — while a turn at the end of the
   // chunk stays in the cursor tail until its reply arrives on a later scan.
   const pending: PendingEntry[] = pendingTurnsFrom(tail)
-  const { offset: consumed, bytesRead } = await readLines(target.path, offset, (raw) => {
+  const { offset: consumed, bytesRead, limited } = await readLines(target.path, offset, (raw) => {
     const record = raw as QwenRecord
     if (record.type === 'user') {
       const at = parseTime(record.timestamp)
@@ -938,7 +952,7 @@ export const scanQwenTranscript = async (
     })
     add(into, target.path, target.runtime, at, model, project, aggregateTokens(aggregate))
     emit(insight, target, id ?? JSON.stringify(raw), at, model, project || null, tokens, 'call')
-  }, insight?.byteLimit)
+  }, insight?.byteLimit, insight?.incremental ? target.size : undefined)
   let lastModel = -1
   for (let index = pending.length - 1; index >= 0; index -= 1) {
     if (pending[index]?.kind === 'model') {
@@ -956,7 +970,7 @@ export const scanQwenTranscript = async (
     }
     addTurn(into, target.path, target.runtime, entry.at, nextModel, entry.project, entry.count ?? 1)
   }
-  return { rows: [...into.rows.values()], hours: [...into.hours.values()], offset: consumed, tail: scannerTail(order, compactPendingTurns(unresolved)), bytesRead }
+  return { rows: [...into.rows.values()], hours: [...into.hours.values()], offset: consumed, tail: scannerTail(order, compactPendingTurns(unresolved)), bytesRead, ...(limited === undefined ? {} : { limited }) }
 }
 
 interface GeminiMessage {
@@ -1433,8 +1447,8 @@ const walkJsonl = async (
   limit: number,
   unreadable: (folder: string, error: unknown) => void,
   keep: (path: string) => boolean = () => true,
-): Promise<{ path: string; size: number; mtime: number }[]> => {
-  const found: { path: string; size: number; mtime: number }[] = []
+): Promise<Omit<ScanTarget, 'runtime' | 'kind'>[]> => {
+  const found: Omit<ScanTarget, 'runtime' | 'kind'>[] = []
   const visit = async (dir: string, depth: number): Promise<void> => {
     if (found.length >= limit) return
     let entries
@@ -1463,7 +1477,7 @@ const walkJsonl = async (
       if (!entry.name.endsWith('.jsonl') || !keep(full)) continue
       try {
         const info = await nodeFsPromises.stat(full)
-        found.push({ path: full, size: info.size, mtime: Math.round(info.mtimeMs) })
+        found.push({ path: full, size: info.size, mtime: info.mtimeMs, identity: `${info.dev}:${info.ino}:${info.birthtimeMs}`, changedAt: info.ctimeMs })
       } catch {
         // Deleted between the listing and the stat.
       }
@@ -1519,7 +1533,7 @@ const inChats = (path: string): boolean => basename(dirname(path)) === 'chats'
 const databaseTarget = async (
   path: string,
   unreadable: (path: string, error: unknown) => void,
-): Promise<{ path: string; size: number; mtime: number } | null> => {
+): Promise<Omit<ScanTarget, 'runtime' | 'kind'> | null> => {
   let main
   try {
     main = await nodeFsPromises.stat(path)
@@ -1533,14 +1547,18 @@ const databaseTarget = async (
   }
   let size = main.size
   let mtime = main.mtimeMs
+  let changedAt = main.ctimeMs
+  let identity = `${main.dev}:${main.ino}:${main.birthtimeMs}`
   try {
     const wal = await nodeFsPromises.stat(`${path}-wal`)
     size += wal.size
     mtime = Math.max(mtime, wal.mtimeMs)
+    changedAt = Math.max(changedAt, wal.ctimeMs)
+    identity += `:${wal.dev}:${wal.ino}:${wal.birthtimeMs}`
   } catch {
     // No log: every write is in the main file.
   }
-  return { path, size, mtime: Math.round(mtime) }
+  return { path, size, mtime, identity, changedAt }
 }
 
 export const listTargets = async (

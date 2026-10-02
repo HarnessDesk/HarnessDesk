@@ -107,6 +107,8 @@ export interface InsightBreakdown {
 }
 
 export interface InsightReport {
+  /** Source scan completeness, independent of whether money has a known rate. */
+  readonly scan?: 'complete' | 'partial'
   readonly id: string
   readonly generatedAt: number
   readonly query: { readonly root: string | null; readonly from: number; readonly to: number }
