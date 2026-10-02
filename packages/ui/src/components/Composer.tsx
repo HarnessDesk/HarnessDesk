@@ -15,6 +15,7 @@ import {
   Attachment as AttachmentTile,
   AttachmentMedia,
   Button,
+  ComposerNotice,
   ComposerChip,
   ComposerChips,
   ComposerDropHint,
@@ -79,7 +80,7 @@ import {
 import { AgentControl, ComposerTrack, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from './ComposerControls'
 import { ContextUsage } from './ContextUsage'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
-import { draftsOf } from '../state/drafts'
+import { draftsOf, UNSCOPED_RECOVERY_KEY } from '../state/drafts'
 import styles from './Composer.module.css'
 
 /**
@@ -121,6 +122,17 @@ interface Attachment {
    * send time, when the active agent may be a different one entirely.
    */
   readonly runtime?: RuntimeId
+}
+
+interface Draft {
+  readonly text: string
+  readonly attachments: readonly Attachment[]
+}
+
+interface RecoverableDetail {
+  readonly text: string
+  readonly attachments?: readonly Omit<Attachment, 'id'>[]
+  readonly reason: string
 }
 
 let attachmentCounter = 0
@@ -185,12 +197,12 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   const textarea = useRef<HTMLTextAreaElement>(null)
   const filePicker = useRef<HTMLInputElement>(null)
 
-  /* The draft belongs to the conversation, not to this composer: a tile
-     returned to the grid, a tab switched or a window reloaded draws a new
-     composer, and what was typed is waiting for it. See state/drafts. */
   const drafts = draftsOf(store)
   const [text, setText] = useState(() => (key ? (drafts.live(key)?.text ?? '') : ''))
   const [attachments, setAttachments] = useState<Attachment[]>(() => (key ? [...(drafts.live(key)?.attachments ?? [])] : []))
+  const [imageReloadWarning, setImageReloadWarning] = useState(
+    () => key ? drafts.live(key)?.imagesWillBeLostOnReload === true : false,
+  )
   /* Which conversation's draft `text` holds, and whether this composer is
      still drawn: words are only ever saved to — or put back into — the
      conversation they were typed for. Layout effects, not passive ones: a
@@ -208,23 +220,19 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     }
   }, [])
   useLayoutEffect(() => {
-    if (key && draftOf.current === key) drafts.setLive(key, { text, attachments })
-  }, [drafts, key, text, attachments])
-  // A message put back by a composer that has gone (see `putBack`): shown
-  // here when this composer is drawing its conversation now.
-  useLayoutEffect(() => {
-    if (!key) return
-    return drafts.onPutBack(key, (draft) => {
-      setText((current) => (current.trim().length > 0 ? current : draft.text))
-      setAttachments((current) => (current.length > 0 ? current : [...draft.attachments]))
-    })
-  }, [drafts, key])
+    const imagesWillBeLostOnReload =
+      imageReloadWarning || attachments.some((attachment) => attachment.kind === 'image')
+    if (key && draftOf.current === key) {
+      drafts.setLive(key, { text, attachments, imagesWillBeLostOnReload })
+    }
+  }, [drafts, key, text, attachments, imageReloadWarning])
   useLayoutEffect(() => {
     if (draftOf.current === key) return
     draftOf.current = key
     const held = key ? drafts.live(key) : null
     setText(held?.text ?? '')
     setAttachments(held ? [...held.attachments] : [])
+    setImageReloadWarning(held?.imagesWillBeLostOnReload === true)
   }, [drafts, key])
   // Drag-and-drop: the counter survives the enter/leave pairs every child
   // fires as the pointer crosses it, so the highlight does not flicker.
@@ -576,6 +584,40 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
    * call to make: it sends at once when nothing is running and holds it when
    * something is, so the two states cannot disagree across a round trip.
    */
+  const recoverDraft = useCallback((draft: Draft, originKey: ReturnType<typeof sessionKey> | null) => {
+    // The store scopes this to the originating conversation, so a late reply
+    // cannot put one conversation's words into a reused composer for another.
+    // Every refusal takes this path, including an empty composer, so it survives
+    // a remount. Restoring transfers it to the composer and removes the record.
+    if (originKey) store.addRecoverableDraft(originKey, {
+      text: draft.text,
+      attachments: draft.attachments,
+      detail: 'Restore the refused message to the composer; your current draft stays available.',
+      reason: 'refused',
+    })
+    else store.addRecoverableDraft(UNSCOPED_RECOVERY_KEY, {
+      text: draft.text,
+      attachments: draft.attachments,
+      detail: 'This message failed before a conversation was created. Restore it to the composer you choose.',
+      reason: 'refused',
+    })
+  }, [store])
+
+  const storedRecoverable = [
+    ...(key ? (snapshot.recoverableDrafts.get(key) ?? []).map((item) => ({ key, item })) : []),
+    ...(snapshot.recoverableDrafts.get(UNSCOPED_RECOVERY_KEY) ?? [])
+      .map((item) => ({ key: UNSCOPED_RECOVERY_KEY, item })),
+  ]
+  const restoreStoredDraft = useCallback((ownerKey: ReturnType<typeof sessionKey>, id: number) => {
+    const restored = store.restoreRecoverableDraft(ownerKey, id)
+    if (!restored) return
+    setText(restored.text)
+    setAttachments(restored.attachments.map((attachment) => ({ ...attachment, id: nextAttachmentId() })))
+    setImageReloadWarning(
+      restored.imagesWillBeLostOnReload === true || restored.attachments.some((attachment) => attachment.kind === 'image'),
+    )
+  }, [store])
+
   const deliver = useCallback(async (mode: 'auto' | 'now' = 'auto', release: () => void = () => {}) => {
     // `/open src/a.ts` is a command with an argument, not a message that
     // happens to start with a slash — and that holds however the draft is
@@ -720,25 +762,15 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     if (key) release()
 
     if (mode === 'now' && busy && canSteer) {
-      await store.steer(content, key)
+      const accepted = await store.steer(content, key)
+      if (!accepted) recoverDraft(draft, key)
       return
     }
     // A message that did not get anywhere goes back in the box. Losing what
     // was typed is the failure this whole feature exists to prevent, so the
     // one path that can fail has to put it back.
     const delivered = await store.queue(content, key)
-    if (!delivered) {
-      /* Back to the conversation it was written for. This composer may have
-         moved on to another conversation, or been taken away, while the send
-         was out: put back into whatever it shows now, the words would sit —
-         and could be sent — under a conversation they were never meant for. */
-      if (mounted.current && draftOf.current === key) {
-        setText((current) => (current.trim().length > 0 ? current : draft.text))
-        setAttachments((current) => (current.length > 0 ? current : draft.attachments))
-      } else if (key) {
-        drafts.putBack(key, draft)
-      }
-    }
+    if (!delivered) recoverDraft(draft, key)
   }, [
     acceptsImages,
     agentName,
@@ -751,6 +783,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     handoff,
     images.length,
     key,
+    recoverDraft,
     scope,
     store,
     text,
@@ -919,6 +952,22 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   // "edit" on a queued message — hands the focused composer a draft to finish.
   useEffect(() => {
     if (!focused) return
+    const onRecoverable = (event: Event): void => {
+      const detail = (event as CustomEvent<RecoverableDetail>).detail
+      if (!detail || typeof detail.text !== 'string') return
+      const draft: Draft = {
+        text: detail.text,
+        attachments: (detail.attachments ?? []).map((attachment) => ({
+          ...attachment,
+          id: nextAttachmentId(),
+        })),
+      }
+      if (key) store.addRecoverableDraft(key, {
+        text: draft.text,
+        attachments: draft.attachments,
+        detail: `Could not save the queued message: ${detail.reason} Your edited text is available to restore.`,
+      })
+    }
     const onCompose = (event: Event): void => {
       const raw = (event as CustomEvent<string | ComposeDetail>).detail
       const detail = typeof raw === 'string' ? { text: raw, replace: false } : raw
@@ -947,9 +996,13 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       }
       textarea.current?.focus()
     }
+    window.addEventListener('harnessdesk:recoverable-draft', onRecoverable)
     window.addEventListener('harnessdesk:compose', onCompose)
-    return () => window.removeEventListener('harnessdesk:compose', onCompose)
-  }, [focused])
+    return () => {
+      window.removeEventListener('harnessdesk:compose', onCompose)
+      window.removeEventListener('harnessdesk:recoverable-draft', onRecoverable)
+    }
+  }, [focused, key, store])
 
   const placeholder = useMemo(() => {
     if (!session && !canType) {
@@ -1000,6 +1053,28 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       <ComposerNoticeStack>
         <NoticeStripOutlet host={isNoticeHost} />
         <ComposerNotices />
+        {storedRecoverable.map(({ key: ownerKey, item }) => (
+          <ComposerNotice
+            key={`stored-${ownerKey}-${item.id}`}
+            message={{
+              id: `composer-stored-recoverable-draft-${item.id}`,
+              tone: 'warning',
+              title: item.reason === 'edit' ? 'Edit not saved.' : 'Message not sent.',
+              body: item.detail,
+              action: { label: 'Restore', onSelect: () => restoreStoredDraft(ownerKey, item.id) },
+            }}
+          />
+        ))}
+        {(imageReloadWarning || attachments.some((attachment) => attachment.kind === 'image')) && (
+          <ComposerNotice
+            message={{
+              id: 'composer-image-reload-warning',
+              tone: 'warning',
+              title: 'Image not saved for reload.',
+              body: 'Attach it again after reopening HarnessDesk.',
+            }}
+          />
+        )}
       </ComposerNoticeStack>
       <ComposerShell
         className={`${styles.shell} ${styles.anchor}`}
