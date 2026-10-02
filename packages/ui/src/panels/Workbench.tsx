@@ -25,7 +25,7 @@ import {
 } from '../design'
 import { Menu, MenuItem, MenuLabel, Popover, dismissOverlays } from '../design'
 import { CaretIcon, ExpandIcon, MoreIcon, RestoreIcon } from '../components/Icons'
-import { NoticeStripOutlet } from '../components/Notices'
+import { ComposerMountsProvider, NoticeStripFallback, NoticeStripOutlet } from '../components/Notices'
 import { Panes } from '../components/Panes'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
 import { findPane, sameView, type PaneView } from '../state/layout'
@@ -247,6 +247,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   useFloatingSidebar(floating, sidebarBox, content)
 
   return (
+    <ComposerMountsProvider>
     <DragContext.Provider value={{ dragging, setDragging }}>
     <ShellContext.Provider value={shell}>
     <WorkbenchCanvas
@@ -315,6 +316,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
             column where a person looks for it. That slot is the plugin
             mounting point too, which is the arrangement worth keeping: the
             app's own panels arrive by the same door a plugin's will. */}
+        {noticeArea(workbench, snapshot.windowWidth) === 'sidebar' && <NoticeStripFallback area="sidebar" />}
         {sidebar}
         <DropZone area="sidebar" />
       </WorkbenchRail>
@@ -356,6 +358,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
               if (pane) mainFocus.current = { target: event.target, paneId: pane.id, view: pane.view }
             }}
           >
+            {noticeArea(workbench, snapshot.windowWidth) === 'main' && <NoticeStripFallback area="main" />}
             <Panes />
             <DropZone area="main" />
           </div>
@@ -366,6 +369,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
     </WorkbenchCanvas>
     </ShellContext.Provider>
     </DragContext.Provider>
+    </ComposerMountsProvider>
   )
 }
 
@@ -418,7 +422,8 @@ const RightPanel = () => {
         style={sized ? { width: 'var(--panel-right)' } : undefined}
         {...(noticeHost ? { 'data-notice-host': '' } : {})}
       >
-        {noticeHost && <NoticeStripOutlet host />}
+        {noticeHost && <NoticeStripOutlet host area="right" hostId="workbench:right" />}
+        {noticeHost && <NoticeStripFallback area="right" />}
         <PanelArea area="right" />
       </div>
     </>
@@ -427,14 +432,14 @@ const RightPanel = () => {
 
 const BottomPanel = () => {
   const store = useStore()
-  const workbench = useSnapshot().workbench
+  const snapshot = useSnapshot()
+  const workbench = snapshot.workbench
   const dock = workbench.bottom
   const shown = areaVisible(workbench, 'bottom')
   if (dockViews(dock).length === 0 || !shown) return <EdgeDropZone area="bottom" />
   const zoomed = workbench.zoom?.area === 'bottom'
   const height = dock.collapsed || zoomed ? undefined : 'var(--panel-bottom)'
-  // Zoomed is the one place `noticeArea` ever answers `bottom`.
-  const noticeHost = zoomed
+  const noticeHost = noticeArea(workbench, snapshot.windowWidth) === 'bottom'
   return (
     <>
       {!dock.collapsed && !zoomed && (
@@ -445,7 +450,8 @@ const BottomPanel = () => {
         style={height ? { height } : undefined}
         {...(noticeHost ? { 'data-notice-host': '' } : {})}
       >
-        {noticeHost && <NoticeStripOutlet host />}
+        {noticeHost && <NoticeStripOutlet host area="bottom" hostId="workbench:bottom" />}
+        {noticeHost && <NoticeStripFallback area="bottom" />}
         <PanelArea area="bottom" />
       </div>
     </>

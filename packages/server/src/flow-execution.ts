@@ -11,6 +11,8 @@ import type {
   FindingRunState,
   FindingSeries,
   FlowBinding,
+  FlowBase,
+  FlowBasePin,
   FlowCheck,
   FlowCheckContext,
   FlowExecution,
@@ -88,6 +90,8 @@ export type StoredFlowExecution = FlowExecution & {
   reviewPackets?: Readonly<Record<string, ReviewPacketPin>>
   /** Each closed round's release decision and every comment it posts, journaled before the first is sent. */
   publication?: StoredPublication
+  /** Repository of the journaled pre-adoption fetch, retained for aborted-start cleanup. */
+  baseRoot?: string
 }
 
 const cardFinishedAnswer = (card: number): string => `Card #${card} is already finished, so there is nothing to hand this answer to.`
@@ -144,7 +148,7 @@ export const UNREACHABLE = (cards: readonly number[], predecessor: number, why: 
 
 /** Why a Seat was given no work: it did not open at the predecessor commit its lane was cut from. */
 export const NOT_AT_BASE = (card: number, base: string): string =>
-  `The Seat for card #${card} did not open at ${base.slice(0, 12)}, the commit the work it is handed was finished at, so it was given no work. Start a new run.`
+  `The Seat for card #${card} did not open at ${base.slice(0, 12)}, the commit this card starts from, so it was given no work. Start a new run.`
 
 /** What `startGoal` is handed: a compiled, authorized policy. Preview and its token are a later step's. */
 export interface FlowStartRequest {
@@ -209,7 +213,9 @@ export const NOT_AT_TARGET = (card: number): string =>
 /** Why a review of a branch, a pull request or a diff does not land on an existing Goal. */
 export const REVIEW_OWN_GOAL = 'A review of a branch, a pull request or a diff starts a Goal of its own. Start it from the project instead of this Goal.'
 export const DISPATCH_HELD = 'This run is waiting for its trigger firing to be recorded before it sends any work.'
-/** What a trigger's run says when what it would run no longer matches what was armed. */
+/** An intent without a durable pin is refused without repeating the fetch. */
+export const BASE_FETCH_UNCERTAIN = 'The Flow base fetch was interrupted before its commit was recorded. It will not be fetched again automatically. Start a new run.'
+/** What a trigger’s run says when what it would run no longer matches what was armed. */
 export const TRIGGER_CLOSURE_CHANGED = 'What this trigger runs changed after it fired, so nothing was started. Arm it again, then start this work.'
 /** A run id a trigger reserves. */
 export const TRIGGER_RUN_ID = /^flow-trigger-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
@@ -219,6 +225,10 @@ export const TRIGGER_RUN_ID = /^flow-trigger-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}
  * boundary; the rest are the reads and sends a round cannot happen without.
  */
 export interface FlowExecutionPort {
+  /** Fetches the configured base once, after its intent is journaled and before adoption. */
+  fetchBase?(root: string, base: FlowBase, run: string): Promise<FlowBasePin>
+  /** Deletes only an aborted, unadopted run’s retained base ref. */
+  dropBase?(root: string, run: string): Promise<void>
   /** Which vendor a session of this runtime in `cwd` reaches, as its adapter reports it; null when unknown. */
   providerOf(runtime: string, cwd: string): Promise<string | null>
   /**
@@ -307,9 +317,10 @@ export interface FlowExecutionPort {
   /**
    * A fresh checkout of `cwd`'s repository at commit `at`, detached, cut with
    * hardened git (no hook runs), for one `run_check` (#1082). `remove` takes
-   * it away, forced, whatever the check left in it.
+   * it away, forced, whatever the check left in it. A retained Flow base
+   * check is named apart from temporary checks and survives startup cleanup.
    */
-  checkoutAt?(cwd: string, at: string): Promise<{ readonly cwd: string; remove(): Promise<void> }>
+  checkoutAt?(cwd: string, at: string, options?: { readonly retained?: true }): Promise<{ readonly cwd: string; remove(): Promise<void> }>
   commitWork?(cwd: string, before: readonly string[], message: string): Promise<
     { readonly commit: string; readonly paths: readonly string[] } | { readonly refused: string }
   >
@@ -440,6 +451,7 @@ export const projectExecution = (run: StoredFlowExecution): FlowExecution => ({
   ...(run.intake ? { intake: run.intake } : {}),
   ...(run.requireHeld ? { requireHeld: true as const } : {}),
   ...(run.target ? { target: run.target } : {}),
+  ...(run.base ? { base: run.base } : {}),
 })
 
 /** A new-format run's findings bookkeeping, frozen at its start: the budget its file named, or the default. */
@@ -2426,6 +2438,44 @@ export class FlowExecutions {
 
   // ---------------------------------------------------------------- start
 
+  async #fetchBase(run: StoredFlowExecution, root: string, base: FlowBase): Promise<StoredFlowExecution> {
+    if (!this.#port.fetchBase) throw new Error('This desk cannot fetch a Flow base. No work was started.')
+    // The intent must survive even if the process exits after Git succeeds and before its pin is saved.
+    await this.#put(this.#operation({ ...run, baseRoot: root }, 'fetch-base', { kind: 'round', state: 'started', card: null, seat: null }))
+    const pin = await this.#port.fetchBase(root, base, run.id)
+    if (pin.remote !== base.remote || pin.branch !== base.branch || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(pin.at)) {
+      throw new Error('The fetched Flow base could not be pinned to a commit. No work was started.')
+    }
+    return this.#put(this.#operation({ ...this.#get(run.id), base: pin }, 'fetch-base', { kind: 'round', state: 'finished', card: null, seat: null }))
+  }
+
+  #pendingBaseDrop(run: StoredFlowExecution): StoredFlowExecution {
+    return run.baseRoot ? this.#operation(run, 'drop-base', { kind: 'round', state: 'started', card: null, seat: null }) : run
+  }
+
+  async #dropBase(run: StoredFlowExecution): Promise<void> {
+    if (!run.baseRoot) return
+    if (!this.#port.dropBase) throw new Error('This desk cannot remove an aborted Flow base ref.')
+    // Deleting an absent ref is safe too: a crash may leave only the completion write pending.
+    await this.#port.dropBase(run.baseRoot, run.id)
+    await this.#put(this.#operation(this.#get(run.id), 'drop-base', { kind: 'round', state: 'finished', card: null, seat: null }))
+  }
+
+  /** Only a durable refusal before adoption makes deleting this run’s ref conclusive. */
+  async #abortBaseStart(id: string, error: unknown): Promise<void> {
+    const run = this.#runs.get(id)
+    if (!run?.baseRoot || run.rounds.length || run.operations.some((op) => op.key === 'start' && op.state === 'finished') ||
+      (!run.intake && this.#port.goalsOf(id).length)) return
+    try {
+      const reason = error instanceof Error ? error.message : String(error)
+      const stopped = await this.#put(this.#pendingBaseDrop({ ...run, state: 'stopped', reason }))
+      await this.#dropBase(stopped)
+    } catch (failure) {
+      // If the journal is gone too, recovery must treat the fetch as uncertain; it cannot repeat it.
+      this.#port.log('an aborted Flow base start could not be cleaned up', { run: id, error: failure instanceof Error ? failure.message : String(failure) })
+    }
+  }
+
   async startGoal(request: FlowStartRequest): Promise<FlowExecution> {
     const refused = this.refusal()
     if (refused) throw new Error(refused)
@@ -2442,11 +2492,12 @@ export class FlowExecutions {
     if (request.target && !request.requireHeld) throw new Error('Only a front-door start names what it works on.')
     // A Goal made by a person was never pinned to a commit, so a review of one starts a Goal of its own.
     if (request.goal && request.target?.head) throw new Error(REVIEW_OWN_GOAL)
+    if (policy.base && (request.goal || request.target)) throw new Error('A Flow with a remote base starts a new Goal from the project. Remove base to review a target or reuse a Goal.')
     if (request.goal && !this.#port.reserveGoal) throw new Error('This desk cannot reuse a Goal for a run.')
     const id = `flow-${this.#now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
     const at = this.#now()
     // The start is journaled before the Goal exists — or before an empty one is reserved — so a restart finds the Goal by this run rather than making or reserving another.
-    let run = await this.#put(this.#operation({
+    let run: StoredFlowExecution = {
       version: 2, id, goal: '', document: request.compiled.document, state: 'running', rounds: [], operations: [],
       legacyRun: null, reason: null, compiled: request.compiled, source: request.source, sourcePath: request.sourcePath,
       vars, startedAt: at, updatedAt: at, authorization: request.authorization, operationTimes: {},
@@ -2456,7 +2507,15 @@ export class FlowExecutions {
       ...(request.requireHeld ? { requireHeld: true as const } : {}),
       ...(request.goal ? { reserving: { goal: request.goal.id, revision: request.goal.revision } } : {}),
       ...(request.target ? { target: request.target } : {}),
-    }, 'start', { kind: 'round', state: 'started', card: null, seat: null }))
+    }
+    try {
+      if (policy.base) run = await this.#fetchBase(run, request.cwd ?? request.root, policy.base)
+      run = await this.#put(this.#operation(run, 'start', { kind: 'round', state: 'started', card: null, seat: null }))
+    } catch (error) {
+      await this.#abortBaseStart(id, error)
+      throw error
+    }
+    const base = run.base
     let goal: { readonly id: string }
     if (request.goal) {
       try {
@@ -2471,12 +2530,17 @@ export class FlowExecutions {
       }
       goal = { id: request.goal.id }
     } else {
-      goal = await this.#port.createGoal({
-        root: request.root, ...(request.cwd ? { cwd: request.cwd } : {}), sentence: request.sentence.trim() || policy.name,
-        origin: { kind: 'flow', run: id },
-        // Every Seat of a review of a branch, a pull request or a diff works at the commit its preview resolved.
-        ...(request.target?.head ? { at: request.target.head } : {}),
-      })
+      try {
+        goal = await this.#port.createGoal({
+          root: request.root, ...(request.cwd ? { cwd: request.cwd } : {}), sentence: request.sentence.trim() || policy.name,
+          origin: { kind: 'flow', run: id },
+          // Every Seat of a review of a branch, a pull request or a diff works at the commit its preview resolved.
+          ...(base || request.target?.head ? { at: base?.at ?? request.target!.head! } : {}),
+        })
+      } catch (error) {
+        await this.#abortBaseStart(id, error)
+        throw error
+      }
     }
     run = await this.#put(this.#operation({ ...this.#get(id), goal: goal.id }, 'start', { kind: 'round', state: 'finished', card: null, seat: null }))
     await this.#queue.within(id, () => this.#afterStart(id))
@@ -2542,7 +2606,14 @@ export class FlowExecutions {
         if (existing.goal !== request.goal || existing.intake?.key !== request.key) {
           throw new TriggerRefusal('Another run already holds this trigger’s reserved id. Nothing was adopted.')
         }
-        if (existing.state === 'running' && existing.rounds.length === 0) await this.#afterStart(request.id)
+        if (existing.state === 'running' && existing.rounds.length === 0) {
+          // A saved pin can precede adoption; use that commit even offline, never fetch again.
+          if (!existing.operations.some((op) => op.key === 'start')) {
+            if (policyOf(existing).base && !existing.base) throw new TriggerRefusal(BASE_FETCH_UNCERTAIN)
+            await this.#put(this.#operation(existing, 'start', { kind: 'round', state: 'finished', card: null, seat: null }))
+          }
+          await this.#afterStart(request.id)
+        }
         return this.#projectExecution(this.#get(request.id))
       }
       const origin = triggered.originOf(request.goal)
@@ -2563,7 +2634,7 @@ export class FlowExecutions {
       // Only the flow's own defaults: no title, body or comment from outside becomes a variable.
       for (const input of policy.inputs) vars[input.id] = input.default ?? ''
       const at = this.#now()
-      await this.#put(this.#operation({
+      let run: StoredFlowExecution = {
         version: 2, id: request.id, goal: request.goal, document: compiled.document,
         state: reason ? 'stopped' : 'running', rounds: [], operations: [], legacyRun: null, reason,
         compiled, source: closure.source, sourcePath: null, vars, startedAt: at, updatedAt: at,
@@ -2579,7 +2650,14 @@ export class FlowExecutions {
           key: request.key, trigger: request.definition.id, closureDigest: request.closureDigest,
           dispatchHeld: true, again: request.definition.again,
         },
-      }, 'start', { kind: 'round', state: 'finished', card: null, seat: null }))
+      }
+      try {
+        if (!reason && policy.base) run = await this.#fetchBase(run, request.root, policy.base)
+        await this.#put(this.#operation(run, 'start', { kind: 'round', state: 'finished', card: null, seat: null }))
+      } catch (error) {
+        await this.#abortBaseStart(request.id, error)
+        throw error
+      }
       if (!reason) await this.#afterStart(request.id)
       return this.#projectExecution(this.#get(request.id))
     })
@@ -3001,7 +3079,7 @@ export class FlowExecutions {
    * read it through, stops the round.
    */
   async #planSeats(run: StoredFlowExecution, round: FlowRoundState, isolate: boolean, dependsOn: readonly number[]): Promise<SeatPlan | string> {
-    if (dependsOn.length === 0) return { base: null, handed: [] }
+    if (dependsOn.length === 0) return { base: run.base?.at ?? null, handed: [] }
     const closure = await this.#closure(run, dependsOn)
     const board = this.#team.stateFor(run.goal)
     const shared = board.cwd ?? board.root
@@ -3014,8 +3092,8 @@ export class FlowExecutions {
     const handed = closure.subjects.map((one) => ({ card: one.card, at: one.at, branch: one.checkout.branch, cwd: one.checkout.cwd }))
     // The one rule a dry run states too (`rolesAtPredecessor`), so what it said is what runs.
     const where = handedCheckout(isolate, handed.map((one) => ({ apart: one.cwd !== shared })))
-    if (where === 'own') return { base: null, handed: [] }
-    return { base: where === 'lane' ? handed[0]!.at : null, handed }
+    if (where === 'own') return { base: run.base?.at ?? null, handed: [] }
+    return { base: where === 'lane' ? handed[0]!.at : run.base?.at ?? null, handed }
   }
 
   async #seatRound(
@@ -3063,6 +3141,19 @@ export class FlowExecutions {
       if (prior?.state === 'finished' && prior.seat) {
         const kept = this.#port.seatOf(prior.seat)
         if (!kept) return fail(`The Seat recorded for card #${card} can no longer be read. Its work is kept; start a new run.`)
+        // The Seat's journal can land before validation. A recovery still proves its lane and initial HEAD before its first order.
+        if (isolate || base !== null) {
+          const lane = this.#port.laneOf(kept)
+          if (!lane || lane.cwd !== kept.checkout.cwd || lane.ports.end < lane.ports.start || !lane.browserProfile) {
+            openedNow.push(String(kept.id))
+            return fail(LANE_REFUSED)
+          }
+        }
+        const handed = run.operations.some((one) => one.key === `turn:${round.n}:${index}` && one.state === 'finished')
+        if (!handed && base !== null && (await this.#port.headOf(kept.checkout.cwd, null)).at !== base) {
+          openedNow.push(String(kept.id))
+          return fail(NOT_AT_BASE(card, base))
+        }
         seats.push(kept)
         continue
       }
@@ -3176,6 +3267,22 @@ export class FlowExecutions {
       await turn('finished')
       return null
     }
+    const run = this.#get(id)
+    const found = cardId === null ? null : this.#cardOf(run.goal, cardId)
+    const plan = found?.run.id === id ? run.seatPlans?.[String(found.round.n)] : undefined
+    // Recovery can resume directly from a journaled Seat, before seating completed.
+    // Prove its initial commit before its first order, but let later turns keep its work.
+    const handed = run.operations.some((one) => one.kind === 'turn' && one.card === cardId && one.seat === String(seat.id) && one.state === 'finished')
+    if (!handed && plan?.base != null) {
+      const lane = this.#port.laneOf(seat)
+      const reason = !lane || lane.cwd !== seat.checkout.cwd || lane.ports.end < lane.ports.start || !lane.browserProfile
+        ? LANE_REFUSED
+        : (await this.#port.headOf(seat.checkout.cwd, null)).at !== plan.base ? NOT_AT_BASE(cardId!, plan.base) : null
+      if (reason !== null) {
+        await this.#release(run.goal, [String(seat.id)], true, id)
+        return reason
+      }
+    }
     if (this.#port.busy?.(seat)) {
       await turn('prepared')
       return null
@@ -3203,7 +3310,7 @@ export class FlowExecutions {
     const round = found?.run.id === run.id ? found.round : undefined
     const packet = round ? run.reviewPackets?.[String(round.n)]?.text ?? null : null
     const seating = round ? run.seatPlans?.[String(round.n)] : undefined
-    const handed = !seating || seating.handed.length === 0 ? null : seating.base !== null
+    const handed = !seating || seating.handed.length === 0 ? null : seating.handed.length === 1 && seating.base === seating.handed[0]!.at
       ? `Your checkout was cut at ${seating.base}, the commit ${seating.handed.map((one) => `card #${one.card}`).join(' and ')} finished at, so the work you are handed is already in it.`
       : [
         'The work you are handed is on more than one line, and every one of these commits is in this repository, so your own checkout reaches each by its id (git show <commit>:<path>, git diff <commit> <commit>):',
@@ -3264,6 +3371,7 @@ export class FlowExecutions {
     const at = async (cwd: string): Promise<string | null> => (await this.#port.headOf(cwd, null)).at
     if (check.cwd) {
       if (isAbsolute(check.cwd)) return { context, targets: [{ cwd: base, at: null }], refused: CHECK_CWD_OUTSIDE }
+      if (run.base) return this.#baseCheck(run, base, check.cwd, context)
       let cwd: string
       try {
         cwd = await (await ConfinedTree.open(base)).resolveDir(insideRelative(check.cwd))
@@ -3279,7 +3387,27 @@ export class FlowExecutions {
     if (closure.subjects.length > 0) {
       return { context, targets: closure.subjects.map((one) => ({ cwd: one.checkout.cwd, at: one.at })), refused: null }
     }
+    if (run.base) return this.#baseCheck(run, base, null, context)
     return { context, targets: [{ cwd: base, at: await at(base) }], refused: null }
+  }
+
+  /** A check with no predecessor uses a retained managed checkout of the frozen base, so its evidence remains readable. */
+  async #baseCheck(run: StoredFlowExecution, root: string, relative: string | null, context: string): Promise<CheckPlan> {
+    if (!this.#port.checkoutAt || !run.base) throw new Error('This desk cannot open a checkout for the Flow base check.')
+    // Refuse traversal before making a checkout; resolve symlinks against the fetched tree, never stale local files.
+    if (relative !== null) {
+      try { insideRelative(relative) } catch { return { context, targets: [{ cwd: root, at: null }], refused: CHECK_CWD_OUTSIDE } }
+    }
+    const checkout = await this.#port.checkoutAt(root, run.base.at, { retained: true })
+    let cwd = checkout.cwd
+    if (relative !== null) {
+      try { cwd = await (await ConfinedTree.open(cwd)).resolveDir(insideRelative(relative)) }
+      catch {
+        await checkout.remove()
+        return { context, targets: [{ cwd: root, at: null }], refused: CHECK_CWD_OUTSIDE }
+      }
+    }
+    return { context, targets: [{ cwd, at: run.base.at }], refused: null }
   }
 
   /**
@@ -3692,8 +3820,9 @@ export class FlowExecutions {
    * than leaving it running over nothing.
    */
   async #sameSeat(id: string, seat: SeatRecord, cardId: number, roleId: string, why: 'turn-ended' | 'released' | 'relaunched' | 'answered'): Promise<boolean> {
-    const role = policyOf(this.#get(id)).roles.find((one) => one.id === roleId)
-    if (role?.kind === 'agent' && role.isolate) {
+    const run = this.#get(id)
+    const role = policyOf(run).roles.find((one) => one.id === roleId)
+    if (role?.kind === 'agent' && (role.isolate || run.base !== undefined)) {
       const lane = this.#port.laneOf(seat)
       if (!lane || lane.cwd !== seat.checkout.cwd || !lane.browserProfile) {
         await this.#stall(id, `The Seat for card #${cardId} no longer has its own checkout, ports and browser profile, so it was not re-armed.`)
@@ -3739,6 +3868,14 @@ export class FlowExecutions {
       if (run.legacyRun) continue
       this.#runs.set(run.id, run)
     }
+    // A durable abort and its cleanup intent are one write. Retry even a stopped run,
+    // and keep the intent pending if deletion or its completion write fails again.
+    for (const run of [...this.#runs.values()]) {
+      if (!run.operations.some((op) => op.key === 'drop-base' && op.state === 'started')) continue
+      await this.#queue.within(run.id, () => this.#dropBase(run)).catch((error: unknown) => {
+        this.#port.log('an aborted Flow base ref could not be removed at restart', { run: run.id, error: error instanceof Error ? error.message : String(error) })
+      })
+    }
     for (const run of [...this.#runs.values()]) {
       if (run.state !== 'running') continue
       await this.#queue.within(run.id, () => this.#reconcile(run.id)).catch((error: unknown) => {
@@ -3782,6 +3919,12 @@ export class FlowExecutions {
 
   async #reconcile(id: string): Promise<void> {
     let run = this.#get(id)
+    const fetching = run.operations.find((op) => op.key === 'fetch-base')
+    if (fetching && !run.base) {
+      await this.#put(this.#operation({ ...run, state: 'stopped', reason: BASE_FETCH_UNCERTAIN }, 'fetch-base',
+        { kind: 'round', state: 'uncertain', card: null, seat: null }))
+      return
+    }
     // An interrupted start: find its Goal by origin before ever making another.
     if (run.goal === '') {
       const goals = this.#port.goalsOf(id)
@@ -3791,8 +3934,9 @@ export class FlowExecutions {
       }
       if (goals.length === 0) {
         // Nothing outside the desk happened yet; the person starts it again rather than the desk guessing its folder.
-        await this.#put(this.#operation({ ...run, state: 'stopped', reason: 'This run stopped before its Goal was made. Start it again.' },
-          'start', { kind: 'round', state: 'finished', card: null, seat: null }))
+        const stopped = await this.#put(this.#pendingBaseDrop(this.#operation({ ...run, state: 'stopped', reason: 'This run stopped before its Goal was made. Start it again.' },
+          'start', { kind: 'round', state: 'finished', card: null, seat: null })))
+        await this.#dropBase(stopped)
         return
       }
       run = await this.#put(this.#operation({ ...run, goal: goals[0]! }, 'start', { kind: 'round', state: 'finished', card: null, seat: null }))

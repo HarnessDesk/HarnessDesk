@@ -1360,6 +1360,10 @@ rl.on('line', (line) => {
       return
 
     case 'thread/rollback': {
+      if (since(160)) {
+        send({ id, error: { code: -32600, message: 'Invalid request: unknown variant `thread/rollback`' } })
+        return
+      }
       // Said to every client but Codex's own terminal, before anything else.
       notify('deprecationNotice', { summary: DEPRECATED.rollback, details: null })
       const history = historyOf(params.threadId)

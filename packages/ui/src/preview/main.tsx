@@ -62,7 +62,7 @@ import { BOARD_TOOL_FRAMES, boardToolFrame } from './approval-fixture'
 import { MessageQueue } from '../components/MessageQueue'
 import { GoalFrames } from './frames-goals'
 import { PanelFrames } from './frames-panels'
-import { CoverageFrames } from './frames-coverage'
+import { CoverageFrames, NoticePlacementFrames } from './frames-coverage'
 import { PersonReviewBoard } from '../design/surfaces/surfaces'
 import { SettingsFrames } from './frames-settings'
 import { TranscriptFrames } from './frames-transcript'
@@ -94,6 +94,11 @@ const SHOW_SIDE_BY_SIDE = new URLSearchParams(window.location.search).has('side-
    Phase 1 of the Library plan deletes them once the real components exist. */
 const SHOW_LIBRARY_OPTIONS = new URLSearchParams(window.location.search).has('library-options')
 const SHOW_COMPOSER_SLOTS = new URLSearchParams(window.location.search).has('composer-slots')
+/* Eleven whole `Workbench` windows that show where a notice goes: each one adds
+   a composer, a model control and a conversation rail of its own, so they
+   render only on `preview.html?notice-placement` and the default page keeps one
+   of each. */
+const SHOW_NOTICE_PLACEMENT = new URLSearchParams(window.location.search).has('notice-placement')
 const SHOW_BOARD_TOOL_APPROVALS = new URLSearchParams(window.location.search).has('board-tool-approvals')
 /* Which of the Dashboard's five rail rows the preview frame opens on — the
    rig's own way to shoot each view without clicking through the rail by
@@ -1022,6 +1027,7 @@ const Preview = () => {
       <CoverageFrames />
       {SHOW_SIDE_BY_SIDE && <SideBySideFrames />}
       {SHOW_COMPOSER_SLOTS && <ComposerSlotsFrames />}
+      {SHOW_NOTICE_PLACEMENT && <NoticePlacementFrames />}
     </div>
   )
 }

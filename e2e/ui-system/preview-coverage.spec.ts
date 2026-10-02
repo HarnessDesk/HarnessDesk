@@ -265,10 +265,12 @@ test.describe('preview coverage', () => {
     let allComponents: readonly string[] = []
 
     // -- preview.html: the page's own frames, then every dial's every option.
-    // `?composer` and `?empty` gate two more frames the plain page never
-    // draws — a composer with a picture, a queue, and the pane with no
-    // session at all — so both are visited too.
-    for (const query of ['', '?composer', '?empty', '?board-tool-approvals']) {
+    // `?composer`, `?empty`, `?board-tool-approvals` and `?notice-placement` gate
+    // frames the plain page never draws — a composer with a picture, a queue,
+    // and the pane with no session at all; the board's tool approvals; whole
+    // windows whose Workbench draws the notice's fallback host — so each is
+    // visited too.
+    for (const query of ['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement']) {
       await page.goto(`/preview.html${query}`)
       await page.waitForTimeout(1200)
       const result = await collectCoverage(page)

@@ -73,6 +73,8 @@ export const ApprovalChoiceHint = ({ className, ...props }: ComponentProps<'span
  * The pane-local approval surface. Base UI owns focus containment, Escape,
  * dismissal semantics, and screen-reader dialog behavior; this pattern keeps
  * the safety policy explicit and keeps the portal inside its conversation.
+ * The warning mark hangs in a gutter; title and body share one text column
+ * in both placements.
  *
  * `placement="docked"` is the same question in a composer's slot instead: a
  * card in normal flow, as wide as the composer it stands in for, with the
