@@ -25,7 +25,7 @@ import {
 } from '../design'
 import { Menu, MenuItem, MenuLabel, Popover, dismissOverlays } from '../design'
 import { CaretIcon, ExpandIcon, MoreIcon, RestoreIcon } from '../components/Icons'
-import { ComposerMountsProvider, NoticeStripOutlet } from '../components/Notices'
+import { ComposerMountsProvider, NoticeStripFallback, NoticeStripOutlet } from '../components/Notices'
 import { Panes } from '../components/Panes'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
 import { findPane, sameView, type PaneView } from '../state/layout'
@@ -312,7 +312,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
             column where a person looks for it. That slot is the plugin
             mounting point too, which is the arrangement worth keeping: the
             app's own panels arrive by the same door a plugin's will. */}
-        {noticeArea(workbench, snapshot.narrowWindow) === 'sidebar' && <NoticeStripOutlet host />}
+        {noticeArea(workbench, snapshot.narrowWindow) === 'sidebar' && <NoticeStripFallback area="sidebar" />}
         {sidebar}
         <DropZone area="sidebar" />
       </WorkbenchRail>
@@ -354,7 +354,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
               if (pane) mainFocus.current = { target: event.target, paneId: pane.id, view: pane.view }
             }}
           >
-            {noticeArea(workbench, snapshot.narrowWindow) === 'main' && <NoticeStripOutlet host />}
+            {noticeArea(workbench, snapshot.narrowWindow) === 'main' && <NoticeStripFallback area="main" />}
             <Panes />
             <DropZone area="main" />
           </div>
@@ -406,7 +406,8 @@ const RightPanel = () => {
         style={sized ? { width: 'var(--panel-right)' } : undefined}
         {...(noticeHost ? { 'data-notice-host': '' } : {})}
       >
-        {noticeHost && <NoticeStripOutlet host />}
+        {noticeHost && <NoticeStripOutlet host area="right" hostId="workbench:right" />}
+        {noticeHost && <NoticeStripFallback area="right" />}
         <PanelArea area="right" />
       </div>
     </>
@@ -433,7 +434,8 @@ const BottomPanel = () => {
         style={height ? { height } : undefined}
         {...(noticeHost ? { 'data-notice-host': '' } : {})}
       >
-        {noticeHost && <NoticeStripOutlet host />}
+        {noticeHost && <NoticeStripOutlet host area="bottom" hostId="workbench:bottom" />}
+        {noticeHost && <NoticeStripFallback area="bottom" />}
         <PanelArea area="bottom" />
       </div>
     </>

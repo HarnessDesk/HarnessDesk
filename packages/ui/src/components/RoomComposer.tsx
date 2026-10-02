@@ -35,7 +35,8 @@ import {
 import { BrandMark } from './BrandIcons'
 import { AgentIcon, SendIcon, TeamIcon } from './Icons'
 import { ComposerNoticeStack, Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, Popover } from '../design'
-import { ComposerNotices } from './Notices'
+import { ComposerNotices, NoticeStripOutlet } from './Notices'
+import { mainNoticeHost } from '../state/workbench'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
 
 /**
@@ -188,6 +189,7 @@ export const RoomComposer = ({
   const store = useStore()
   const snapshot = useSnapshot()
   const mount = useMount()
+  const isNoticeHost = mount?.area === 'main' && mainNoticeHost(snapshot.workbench, snapshot.narrowWindow) === mount.id
   // Whether this room's own strip is the one the layout has chosen to carry
   // the desk-wide messages — never a second, competing answer of its own.
   const textarea = useRef<HTMLTextAreaElement>(null)
@@ -508,6 +510,7 @@ export const RoomComposer = ({
         Agent in this room is waiting on someone to decide, over the room's
         box as over a conversation's. */}
     <ComposerNoticeStack>
+      <NoticeStripOutlet host={isNoticeHost} area="main" hostId={`room-composer:${mount?.id ?? 'unmounted'}`} />
       <ComposerNotices />
     </ComposerNoticeStack>
     <ComposerShell className="relative">

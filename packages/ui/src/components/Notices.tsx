@@ -309,6 +309,8 @@ interface ComposerMountRecord extends ComposerMount {
 interface ComposerMountRegistry {
   readonly mounts: readonly ComposerMountRecord[]
   readonly register: (mount: ComposerMount) => () => void
+  readonly stripHosts: readonly { readonly key: string; readonly area: AreaId }[]
+  readonly registerStripHost: (host: { readonly key: string; readonly area: AreaId }) => () => void
 }
 
 const ComposerMountsContext = createContext<ComposerMountRegistry | null>(null)
@@ -320,9 +322,10 @@ const sameMount = (left: ComposerMountRecord, right: ComposerMount): boolean =>
   left.focused === right.focused && left.visible === right.visible &&
   left.roomMembers.length === right.roomMembers.length && left.roomMembers.every((key, index) => key === right.roomMembers[index])
 
-/** Wraps the real workbench so only composer instances that actually mounted can claim a notice. */
+/** Wraps the real workbench so notice outlets can register their mounted composers and strip hosts. */
 export const ComposerMountsProvider = ({ children }: { readonly children: ReactNode }) => {
   const [mounts, setMounts] = useState<readonly ComposerMountRecord[]>([])
+  const [stripHosts, setStripHosts] = useState<readonly { readonly key: string; readonly area: AreaId; readonly token: number }[]>([])
   const sequence = useRef(0)
   const register = useCallback((mount: ComposerMount) => {
     const token = ++sequence.current
@@ -334,7 +337,12 @@ export const ComposerMountsProvider = ({ children }: { readonly children: ReactN
     })
     return () => setMounts((current) => current.filter((entry) => entry.key !== mount.key || entry.token !== token))
   }, [])
-  const value = useMemo(() => ({ mounts, register }), [mounts, register])
+  const registerStripHost = useCallback((host: { readonly key: string; readonly area: AreaId }) => {
+    const token = ++sequence.current
+    setStripHosts((current) => [...current.filter((entry) => entry.key !== host.key), { ...host, token }])
+    return () => setStripHosts((current) => current.filter((entry) => entry.key !== host.key || entry.token !== token))
+  }, [])
+  const value = useMemo(() => ({ mounts, register, stripHosts, registerStripHost }), [mounts, register, stripHosts, registerStripHost])
   return <ComposerMountsContext.Provider value={value}>{children}</ComposerMountsContext.Provider>
 }
 
@@ -367,6 +375,19 @@ const useRegisterComposerMount = (mount: ComposerMount): void => {
   const registry = useContext(ComposerMountsContext)
   const register = registry?.register
   useLayoutEffect(() => register?.(mount), [register, mount])
+}
+
+const useRegisterStripHost = (host: boolean, area: AreaId | undefined, key: string | undefined): void => {
+  const registry = useContext(ComposerMountsContext)
+  const register = registry?.registerStripHost
+  useLayoutEffect(() => host && area && key ? register?.({ area, key }) : undefined, [register, host, area, key])
+}
+
+/** Workbench fallback: use the named area only when no mounted outlet registered there. */
+export const NoticeStripFallback = ({ area }: { readonly area: AreaId }) => {
+  const registry = useContext(ComposerMountsContext)
+  if (registry?.stripHosts.some((host) => host.area === area)) return null
+  return <div className="contents" data-slot="workbench-notice-fallback" data-area={area}><NoticeStripOutlet host /></div>
 }
 
 /**
@@ -545,16 +566,25 @@ export const ComposerNotices = () => {
 }
 
 /**
- * The slim strip above the panes: a dropped link, and whatever the person
- * moved here — drawn only where `host` says the layout has chosen it.
+ * A dropped link, and whatever the person moved to the strip. Existing
+ * composer, pane-bar and dock hosts pass `host` from layout state and register
+ * their area; Workbench fallbacks draw only when that area has no registered
+ * host.
  *
- * `host` is passed in by each caller from pure layout state (`mainNoticeHost`
- * for a pane in the split tree, `noticeArea` directly for a docked panel), so
- * "which outlet draws the shared messages" is decided the same way for every
- * render rather than raced for at mount time — a caller that is not the
- * layout's answer renders nothing here, ever, not even for one frame.
+ * Registration follows the actual React mount. This keeps a composer that
+ * disappears behind a board-only room or a folder-gone screen from blocking
+ * the fallback that can still draw the notice.
  */
-export const NoticeStripOutlet = ({ host }: { readonly host: boolean }) => {
+export const NoticeStripOutlet = ({
+  host,
+  area,
+  hostId,
+}: {
+  readonly host: boolean
+  readonly area?: AreaId
+  readonly hostId?: string
+}) => {
+  useRegisterStripHost(host, area, hostId)
   const snapshot = useSnapshot()
   const registry = useContext(ComposerMountsContext)
   const standing = useStanding()

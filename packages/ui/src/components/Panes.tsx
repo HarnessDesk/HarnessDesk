@@ -12,8 +12,10 @@ import { beginResize, endResize, markDragging } from '../lib/resizing'
 import { MountProvider } from '../panels/mount'
 import { PanelActions } from '../panels/PanelActions'
 import { ViewHost, useViewTitle, views } from '../panels/views'
+import { NoticeStripOutlet } from './Notices'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
 import { sessionOf, type LayoutNode, type Pane as PaneNode, type Split } from '../state/layout'
+import { mainNoticeHost } from '../state/workbench'
 import styles from './Panes.module.css'
 
 /**
@@ -57,6 +59,7 @@ const PaneView = ({ pane }: { pane: PaneNode }) => {
   const snapshot = useSnapshot()
   const titleOf = useViewTitle()
   const focused = snapshot.layout.focused === pane.id
+  const isNoticeHost = mainNoticeHost(snapshot.workbench, snapshot.narrowWindow) === pane.id
 
   // Focus is tracked, not drawn: a ring around the focused pane was a
   // second thing to read on every screen, and with one conversation at a
@@ -99,6 +102,9 @@ const PaneView = ({ pane }: { pane: PaneNode }) => {
                 <PanelActions where="strip" />
               </DockPanelActions>
             </DockPanelBar>
+          )}
+          {needsStrip(pane.view) && isNoticeHost && (
+            <NoticeStripOutlet host area="main" hostId={`pane-bar:${pane.id}`} />
           )}
           <div className={styles.screen}>
             <ViewHost view={pane.view} />

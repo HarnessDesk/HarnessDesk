@@ -37,8 +37,9 @@ import {
   PopoverOptionMark,
   Text,
 } from '../design'
-import { ComposerNotices } from './Notices'
+import { ComposerNotices, NoticeStripOutlet } from './Notices'
 import { ComposerNoticeStack } from '../design'
+import { mainNoticeHost } from '../state/workbench'
 import { availableCommands, matchCommands, type CommandDefinition } from '../state/commands'
 import { contributionsHere, scopeHere } from '../lib/contributions'
 import { opensEnvelope, splitContext, wrapContext } from '../lib/context-envelope'
@@ -177,6 +178,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   const key = useSessionKey()
   const focused = useIsFocusedPane()
   const mount = useMount()
+  const isNoticeHost = mount?.area === 'main' && mainNoticeHost(snapshot.workbench, snapshot.narrowWindow) === mount.id
   const textarea = useRef<HTMLTextAreaElement>(null)
   const filePicker = useRef<HTMLInputElement>(null)
 
@@ -993,6 +995,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
           waiting on you to decide — on the composer it is about, never over
           another pane. */}
       <ComposerNoticeStack>
+        <NoticeStripOutlet host={isNoticeHost} area="main" hostId={`composer:${mount?.id ?? 'unmounted'}`} />
         <ComposerNotices />
       </ComposerNoticeStack>
       <ComposerShell

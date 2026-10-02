@@ -938,8 +938,7 @@ const firstPane = (node: LayoutNode): PaneId => (node.kind === 'pane' ? node.id 
  * pane then on screen), and otherwise the tree's own first leaf.
  *
  * `null` when `noticeArea` answers anything else: the strip then belongs to
- * a dock (`right`/`bottom`), or to nobody (a zoomed sidebar), and no pane in
- * the split tree is the one carrying it.
+ * a dock or zoomed sidebar, and no pane in the split tree is carrying it.
  */
 export const mainNoticeHost = (workbench: Workbench, narrow: boolean): PaneId | null =>
   noticeArea(workbench, narrow) === 'main' ? (workbench.main.expanded ?? firstPane(workbench.main.root)) : null
