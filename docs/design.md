@@ -1003,7 +1003,9 @@ When adding a control, row or surface to HarnessDesk:
   the title *and* its description.
 - A single line is centred in its container. In a notice row, text, lead, action
   and dismiss share one centre; when copy wraps, the lead moves to its first
-  line while the action and dismiss stay centred on the row. Measure text by its
+  line while the action stays centred on the row. A banner's dismiss follows
+  the lead onto the first line, the layout rule for every trailing control
+  (`edge-alignment.spec.ts` holds it). Measure text by its
   cap-height glyph box. The font's own ascent/descent asymmetry (about 1px at
   13px) is a separate, pending correction. Trailing notice buttons use
   `edge="end"` so the glyph, not the hit target, lands on the surface edge.

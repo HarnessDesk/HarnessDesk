@@ -9,8 +9,9 @@
  * whether the card goes away on its own.
  *
  * One-line copy shares its centre with the lead and controls. When copy wraps,
- * the lead follows the first line while actions and dismiss stay centred on
- * the card.
+ * the lead and the dismiss follow the first line (a trailing control reads
+ * against the title, never the wrapping block) while the actions, a block of
+ * controls of their own, stay centred on the card.
  */
 
 /* Toasts keep to the top-right corner, under the header. The bottom-right is
@@ -203,7 +204,20 @@
   border-radius: 50%;
   background: none;
   color: var(--hd-muted-foreground);
-  /* desk: removed line-height margin offsets; the card now centers the hit target */
+}
+
+/* Wrapped copy: the hit target is taller than the title's line, so it hangs
+   from the top and is pulled up by half the difference, which lands its own
+   centre — and the glyph inside it — on the title's first line. The compact
+   card's dismiss is `size="icon-xs"`, whose box is `--hd-icon-target`; a
+   foundation may move either token, so neither is a literal here. */
+.banner[data-wrapped] .dismiss {
+  align-self: flex-start; /* desk: center → flex-start, wrapped copy puts the dismiss on its first line */
+  margin-top: calc((var(--hd-line) - var(--hd-btn-h-sm)) / 2);
+}
+
+.banner[data-wrapped][data-compact] .dismiss {
+  margin-top: calc((var(--hd-line) - var(--hd-icon-target)) / 2);
 }
 
 .dismiss:hover {

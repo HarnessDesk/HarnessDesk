@@ -50,6 +50,11 @@ describe('banner centring', () => {
     expect(text).toMatch(/justify-content:\s*center/)
     expect(text).toMatch(/min-height:\s*var\(--hd-btn-h\)/)
     expect(blockAfter('.banner[data-wrapped] .icon {')).toMatch(/align-self:\s*flex-start/)
+    // One line: the dismiss shares the centre. Wrapped: it hangs from the top and is pulled onto the title's line.
     expect(blockAfter('.dismiss {')).not.toMatch(/margin-top:/)
+    const wrappedDismiss = blockAfter('.banner[data-wrapped] .dismiss {')
+    expect(wrappedDismiss).toMatch(/align-self:\s*flex-start/)
+    expect(wrappedDismiss).toMatch(/margin-top:\s*calc\(\(var\(--hd-line\) - var\(--hd-btn-h-sm\)\) \/ 2\)/)
+    expect(blockAfter('.banner[data-wrapped][data-compact] .dismiss {')).toMatch(/var\(--hd-icon-target\)/)
   })
 })

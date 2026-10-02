@@ -147,7 +147,7 @@ test('one-line notices centre every part; wrapped notices keep the lead on line 
   expect(titleLine).toBeDefined()
   expect(Math.abs(wrappedIcon!.y + wrappedIcon!.height / 2 - (titleLine!.top + titleLine!.height / 2)), 'wrapped banner lead stays on the first line').toBeLessThanOrEqual(1)
   expect(Math.abs(wrappedAction!.y + wrappedAction!.height / 2 - (wrappedRow!.y + wrappedRow!.height / 2)), 'wrapped banner action centres on the card').toBeLessThanOrEqual(1)
-  expect(Math.abs(wrappedDismiss!.y + wrappedDismiss!.height / 2 - (wrappedRow!.y + wrappedRow!.height / 2)), 'wrapped banner dismiss centres on the card').toBeLessThanOrEqual(1)
+  expect(Math.abs(wrappedDismiss!.y + wrappedDismiss!.height / 2 - (titleLine!.top + titleLine!.height / 2)), 'wrapped banner dismiss stays on the first line').toBeLessThanOrEqual(1)
 
   await openBoard(page, 'Notices')
   const wrapped = page.locator('[data-alignment-board-id="notices"] [data-slot="composer-notice"]').filter({ hasText: 'Alpha needs your decision.' }).first()
