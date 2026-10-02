@@ -112,6 +112,10 @@ and must remain inside it, with the same manifest grants and symlink checks.
 Without a checkout in the invocation scope, the open workspace remains the
 default and boundary.
 
+The host admits managed lanes and the particular linked checkout the person
+opened, using the project identity captured at open. A new Seat whose requested
+checkout is not admitted is refused before its agent starts.
+
 **Installed plugins run in the plugin host process** — a supervised child that
 holds no window, no wire server, and no credential. A plugin that calls
 `process.exit` takes down only that process; a plugin that spins is killed from
@@ -156,6 +160,11 @@ ctx.tools.register({
 ```
 
 Valid scopes are `global` · `workspace` · `agent` · `session` · `turn`.
+
+Workspace scope roots are captured as canonical paths at registration. Listing
+and invocation use the same canonical identity, so opening a folder through an
+alias does not change which tools or context apply. Scope matching grants no
+shell authority: execution still uses only the root admitted by the host.
 
 Scope decides where a contribution is **offered**, not only where it may run.
 The composer's **Add context** list, the slash palette, a contributed panel and

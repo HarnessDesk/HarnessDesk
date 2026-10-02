@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 
 import {
   BrowserInvocations,
+  canonicalScopeQuery,
   setEditorEngine,
   setForgeEngine,
   setTeamEngine,
@@ -1053,6 +1054,7 @@ export class SupervisedExtensionHost {
     kind: K,
     query?: ScopeQuery,
   ): readonly Extract<CapabilityContribution, { kind: K }>[] {
+    if (query) query = canonicalScopeQuery(query)
     const applies = (contribution: CapabilityContribution): boolean =>
       contribution.kind === kind && (!query || scopeApplies(contribution.scope, query))
     return [
@@ -1079,7 +1081,7 @@ export class SupervisedExtensionHost {
   async #shellScope(scope: ScopeQuery): Promise<ScopeQuery> {
     const { workspaceRoot: _hint, ...identity } = scope
     const workspaceRoot = await this.#shellWorkspaceResolver(scope)
-    return { ...identity, ...(workspaceRoot === undefined ? {} : { workspaceRoot }) }
+    return Object.freeze(canonicalScopeQuery({ ...identity, ...(workspaceRoot === undefined ? {} : { workspaceRoot }) }))
   }
 
   setBrowserResolver(resolve: (scope: ScopeQuery) => string | undefined): void {

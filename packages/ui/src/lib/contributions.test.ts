@@ -89,6 +89,18 @@ describe('what applies here', () => {
     expect(offered.map((entry) => String(entry.id))).toEqual(['this-session', 'this-workspace', 'this-agent'])
   })
 
+  it('offers canonical workspace scopes when the opened path is an alias', () => {
+    const aliased = snapshot({
+      ...base,
+      workspace: { path: '/opened/project', realPath: '/canonical/project', name: 'project' } as AppSnapshot['workspace'],
+      contributions: [
+        command('this-workspace', { kind: 'workspace', root: '/canonical/project' }),
+        command('other-workspace', { kind: 'workspace', root: '/elsewhere' }),
+      ],
+    })
+    expect(offeredHere(aliased, key).map((entry) => String(entry.id))).toEqual(['this-workspace'])
+  })
+
   it('withholds a turn-scoped contribution, which no call from the window could match', () => {
     // `command/run` and `context/resolve` name a conversation and never a turn,
     // so the host could not find it either. See `scopeHere`.

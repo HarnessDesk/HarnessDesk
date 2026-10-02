@@ -151,19 +151,17 @@ test('a replaced project root cannot widen the shell’s project fallback', asyn
   await assert.rejects(d.host.call('context/resolve', { id: d.where.id, workspaceRoot: d.other }), /project checkout changed/i)
 })
 
-for (const kind of ['home', 'other repository', 'symlink into another repository'] as const) {
-  test(`agent/seat keeps open project A as its anchor with cwd naming ${kind}`, async (t) => {
+for (const kind of ['home', 'other repository', 'symlink into another repository', 'unopened linked checkout'] as const) {
+  test(`agent/seat refuses cwd naming ${kind} before opening a runtime session`, async (t) => {
     const d = await rig(t)
     const link = join(d.base, 'foreign-link')
     await symlink(d.other, link)
-    const candidate = kind === 'home' ? homedir() : kind === 'other repository' ? d.other : link
-    const opened = await d.seat(candidate)
-    const scope = { runtime: d.agent.info.id, sessionId: opened.id }
-    const placement = d.host.registry.get(d.agent.info.id, opened.id)!.shellCheckout
-    assert.deepEqual(placement, { project: d.project, cwd: d.project })
-    assert.equal(opened.cwd, d.project, 'the runtime opens only the admitted checkout')
-    assert.equal((await d.host.call('evidence/seat', { runtime: d.agent.info.id, sessionId: opened.id }))?.checkout.project, d.project)
-    assert.deepEqual(await d.kernel.resolveContext(scope), [{ label: 'Automatic location', text: d.project }])
+    const unopened = join(d.base, 'unopened')
+    await git(d.project, 'worktree', 'add', '-b', 'unopened', unopened)
+    const candidate = kind === 'home' ? homedir() : kind === 'other repository' ? d.other : kind === 'unopened linked checkout' ? unopened : link
+    const create = t.mock.method(d.agent, 'createSession')
+    await assert.rejects(d.seat(candidate), /Seat checkout.*not admitted/i)
+    assert.equal(create.mock.callCount(), 0)
   })
 }
 
@@ -219,12 +217,10 @@ test('restart re-admits forged durable placement against opened projects', async
   assert.equal((await restarted.call('context/resolve', { id: kernel.list('context')[0]!.id, runtime: agent.info.id, sessionId: opened.id })).text, d.project)
 })
 
-test('omitting project uses the opened project even when cwd names another repository', async (t) => {
+test('omitting project cannot relocate a new Seat from a foreign cwd to the opened project', async (t) => {
   const d = await rig(t)
   await d.seat()
-  const opened = await d.host.call('agent/seat', { id: 'probe', cwd: d.other })
-  assert.deepEqual(d.host.registry.get(d.agent.info.id, opened.id)!.shellCheckout, { project: d.project, cwd: d.project })
-  assert.equal((await d.host.call('evidence/seat', { runtime: d.agent.info.id, sessionId: opened.id }))?.checkout.project, d.project)
+  await assert.rejects(d.host.call('agent/seat', { id: 'probe', cwd: d.other }), /Seat checkout.*not admitted/i)
 })
 
 test('a runtime-listed repository cannot admit a Seat project the person never opened', async (t) => {
@@ -251,6 +247,36 @@ test('an opened linked checkout admits its canonical repository project independ
   const opened = await d.host.call('agent/seat', { id: 'probe', project: d.lane.path, cwd: d.lane.path })
   assert.deepEqual(d.host.registry.get(d.agent.info.id, opened.id)!.shellCheckout, { project: d.project, cwd: d.lane.path })
   assert.equal((await d.host.call('evidence/seat', { runtime: d.agent.info.id, sessionId: opened.id }))?.checkout.project, d.project)
+})
+
+test('an explicitly opened unmanaged linked checkout starts its Agent and shell in that checkout', async (t) => {
+  const d = await rig(t)
+  await d.seat()
+  const checkout = join(d.base, 'person-opened')
+  const sibling = join(d.base, 'unopened-sibling')
+  await git(d.project, 'worktree', 'add', '-b', 'person-opened', checkout)
+  await git(d.project, 'worktree', 'add', '-b', 'unopened-sibling', sibling)
+  assert.equal((await new Worktrees(d.stateDir).list(d.project)).find((entry) => entry.path === checkout)?.managed, false)
+  await d.host.call('workspace/open', { path: checkout })
+  const saved = JSON.parse(await readFile(join(d.stateDir, 'state.json'), 'utf8')).workspaces[0]
+  assert.equal(saved.shellIdentity.checkoutRoot, checkout)
+  assert.equal(await shellProjectUnchanged(checkout, saved.shellIdentity), true)
+  const create = t.mock.method(d.agent, 'createSession')
+  const opened = await d.host.call('agent/seat', { id: 'probe', project: checkout, cwd: checkout })
+  assert.equal(create.mock.calls[0]!.arguments[0]!.cwd, checkout)
+  assert.equal(opened.cwd, checkout)
+  assert.deepEqual(d.host.registry.get(d.agent.info.id, opened.id)!.shellCheckout, { project: d.project, cwd: checkout })
+  const scope = { runtime: d.agent.info.id, sessionId: opened.id, workspaceRoot: d.other }
+  assert.deepEqual(await d.kernel.invokeTool(d.tool.id, {}, scope), { ok: true, content: [{ type: 'text', text: checkout }] })
+  assert.equal((await d.host.call('context/resolve', { id: d.where.id, ...scope })).text, checkout)
+  assert.deepEqual(await d.kernel.resolveContext(scope), [{ label: 'Automatic location', text: checkout }])
+  await assert.rejects(d.host.call('agent/seat', { id: 'probe', project: checkout, cwd: sibling }), /Seat checkout.*not admitted/i)
+  assert.equal(create.mock.callCount(), 1, 'opening one linked checkout never admits an unopened sibling')
+  await d.host.call('workspace/open', { path: d.project })
+  assert.deepEqual(await d.kernel.invokeTool(d.tool.id, {}, scope), { ok: true, content: [{ type: 'text', text: checkout }] },
+    'opening the main checkout again does not revoke the still-open linked checkout')
+  const another = await d.host.call('agent/seat', { id: 'probe', project: d.project, cwd: checkout })
+  assert.equal(another.cwd, checkout)
 })
 
 for (const change of ['core.worktree=/', 'core.worktree=another repository', '.git replaced by a gitdir file'] as const) {

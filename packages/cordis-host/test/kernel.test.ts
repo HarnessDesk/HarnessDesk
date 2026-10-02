@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { runtimeId, sessionId, type ExtensionEvent } from '@harnessdesk/protocol'
 
-import { ExtensionKernel, setBrowserEngine, type HarnessPlugin } from '../src/index.js'
+import { ExtensionKernel, setBrowserEngine, type HarnessContext, type HarnessPlugin } from '../src/index.js'
 
 /**
  * The extension kernel, exercised through the real Cordis runtime.
@@ -16,6 +16,59 @@ import { ExtensionKernel, setBrowserEngine, type HarnessPlugin } from '../src/in
  */
 
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 60))
+
+for (const entry of ['tool', 'chip', 'automatic'] as const) {
+  test(`workspace-scoped ${entry} matches an opened alias after host shell admission`, async (t) => {
+    const base = await realpath(await mkdtemp(join(tmpdir(), 'hd-workspace-scope-')))
+    const project = join(base, 'project')
+    const alias = join(base, 'alias')
+    const other = join(base, 'other')
+    await Promise.all([mkdir(project), mkdir(other)])
+    await symlink(project, alias)
+    const kernel = new ExtensionKernel()
+    t.after(async () => { await kernel.dispose(); await rm(base, { recursive: true, force: true }) })
+    kernel.setWorkspace({ root: alias, branch: null })
+    let admitted = project
+    kernel.setShellWorkspaceResolver(async () => admitted)
+    await kernel.load({
+      manifest: { id: 'aliased', name: 'Aliased', permissions: { shell: true, workspace: { read: true, write: false } } },
+      plugin: {
+        name: 'aliased', inject: ['tools', 'context', 'workspace', 'shell'],
+        apply(ctx: HarnessContext) {
+          const scope = { kind: 'workspace' as const, root: ctx.workspace.root! }
+          const where = async (query: { workspaceRoot?: string }) => query.workspaceRoot + '\n' +
+            (await ctx.shell.run(process.execPath, ['-e', 'process.stdout.write(process.cwd())'])).stdout
+          ctx.tools.register({ name: 'where', description: '', inputSchema: {}, scope, execute: (_, query) => where(query) })
+          ctx.context.register({ label: 'Chip', chip: { description: 'Fixture context' }, scope, resolve: where })
+          ctx.context.register({ label: 'Automatic', scope, resolve: where })
+        },
+      },
+    })
+    await settle()
+    const query = { workspaceRoot: alias }
+    const tool = kernel.list('tool', query)[0]!
+    const chip = kernel.list('context', query).find((one) => one.chip)!
+    const expected = project + '\n' + project
+    const resolve = async (scope = query) => {
+      if (entry === 'tool') return kernel.invokeTool(tool.id, {}, scope)
+      if (entry === 'chip') return kernel.resolveOne(chip.id, undefined, scope)
+      return kernel.resolveContext(scope)
+    }
+    const answer = entry === 'tool' ? { ok: true, content: [{ type: 'text', text: expected }] }
+      : entry === 'chip' ? { label: 'Chip', text: expected } : [{ label: 'Automatic', text: expected }]
+    assert.deepEqual(await resolve(), answer)
+    assert.deepEqual(await resolve({ workspaceRoot: other }), answer, 'caller hints cannot replace host admission')
+    assert.deepEqual(tool.scope, { kind: 'workspace', root: project }, 'registration captures the canonical scope')
+    assert.deepEqual(kernel.list('tool', { workspaceRoot: project }), [tool])
+    assert.deepEqual(kernel.list('tool', { workspaceRoot: other }), [])
+    admitted = other
+    await rm(alias)
+    await symlink(other, alias)
+    const refused = entry === 'tool' ? { ok: false, error: 'That tool is not available in this scope.' } : entry === 'chip' ? null : []
+    assert.deepEqual(await resolve(), refused, 'retargeting an alias cannot move a registered scope')
+    assert.deepEqual(kernel.list('tool', query), [])
+  })
+}
 
 const echoTool: HarnessPlugin = {
   manifest: { id: 'echo', name: 'Echo' },

@@ -48,6 +48,7 @@ import {
   UiService,
 } from './services.js'
 import { ContributionStore } from './store.js'
+import { canonicalScopeQuery } from './workspace-scope.js'
 
 /**
  * The extension kernel.
@@ -405,7 +406,7 @@ export class ExtensionKernel implements CapabilityRegistry {
   async #shellScope(scope: ScopeQuery): Promise<ScopeQuery> {
     const { workspaceRoot: _hint, ...identity } = scope
     const workspaceRoot = await this.#shellWorkspaceResolver(scope)
-    return Object.freeze({ ...identity, ...(workspaceRoot === undefined ? {} : { workspaceRoot }) })
+    return Object.freeze(canonicalScopeQuery({ ...identity, ...(workspaceRoot === undefined ? {} : { workspaceRoot }) }))
   }
 
   #browserResolver: (scope: ScopeQuery) => string | undefined = () => 'default'

@@ -244,8 +244,8 @@ export class Worktrees {
     return list(repoRoot, this.stateDir)
   }
 
-  /** A shell boundary is a real project or one of this host's linked checkouts, never caller metadata. */
-  async shellRoot(project: string, candidate?: string, gitCommonDir: string | null = null): Promise<string> {
+  /** A shell boundary is a captured project, its opened checkout or a managed lane, never caller metadata. */
+  async shellRoot(project: string, candidate?: string, gitCommonDir: string | null = null, openedCheckoutRoot: string | null = null): Promise<string> {
     assertAbsolute(project)
     const root = await realpath(project)
     if (!samePath(root, project)) throw new Error('The project checkout changed its canonical location. Open it again before running shell commands.')
@@ -257,11 +257,12 @@ export class Worktrees {
       const checkout = await realpath(candidate)
       if (samePath(checkout, parse(checkout).root) || samePath(checkout, await realpath(homedir()))) return root
       if (samePath(checkout, root)) return root
-      const registered = (await this.list(root)).find((entry) => entry.managed && samePath(entry.path, checkout))
+      const registered = (await this.list(root)).find((entry) =>
+        samePath(entry.path, checkout) && (entry.managed || openedCheckoutRoot !== null && samePath(checkout, openedCheckoutRoot)))
       // A listing path replaced by a link no longer names the checkout it registered.
       if (!registered || !samePath(await realpath(registered.path), registered.path)) return root
       const repository = await shellCheckoutIdentity(checkout)
-      // Only the identity captured at open authorizes a managed lane.
+      // Only the identity captured at open authorizes a linked checkout.
       return repository && gitCommonDir && samePath(repository.checkoutRoot, checkout) && samePath(repository.gitCommonDir, gitCommonDir) ? checkout : root
     } catch {
       return root

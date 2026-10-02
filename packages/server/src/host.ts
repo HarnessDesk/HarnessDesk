@@ -2903,12 +2903,18 @@ export class Host {
   #shellProject: string | null = null
 
   /** Only person-opened projects admit shell authority; session listings never do. */
-  async #admitShellProject(project: string | null | undefined): Promise<ShellProjectIdentity | undefined> {
+  async #admitShellProject(project: string | null | undefined, checkout?: string): Promise<ShellProjectIdentity | undefined> {
     if (!project || !isAbsolute(project)) return undefined
     const real = await realpath(project).catch(() => undefined)
     if (!real) return undefined
     const wanted = await shellCheckoutIdentity(real)
-    for (const entry of this.#state.state.workspaces) {
+    const preferred = checkout && isAbsolute(checkout) ? await realpath(checkout).catch(() => undefined) : undefined
+    // Several person-opened checkouts can share a project. Prefer the captured
+    // identity naming this placement; the candidate itself grants nothing.
+    const matches = (identity: unknown) => preferred !== undefined && isShellProjectIdentity(identity) && samePath(identity.checkoutRoot, preferred)
+    const entries = [...this.#state.state.workspaces].sort((a, b) =>
+      Number(matches(b.shellIdentity)) - Number(matches(a.shellIdentity)))
+    for (const entry of entries) {
       const identity = entry.shellIdentity
       const opened = entry.realPath
       if (!isShellProjectIdentity(identity) || typeof opened !== 'string' || !isAbsolute(opened)) continue
@@ -2931,7 +2937,7 @@ export class Host {
     // Durable records are candidates, re-admitted against person-opened projects on every invocation.
     const kept = record && !record.shellCheckout ? this.#evidence.seats.latestKeptOf(record.runtime, record.session.id) : null
     const checkout = record?.shellCheckout ?? kept?.checkout
-    const admitted = await this.#admitShellProject(checkout?.project)
+    const admitted = await this.#admitShellProject(checkout?.project, checkout?.cwd)
     const identity = admitted ?? await this.#admitShellProject(this.#shellProject)
     if (!identity) {
       if (this.#shellProject) throw new Error('The project checkout changed or is no longer open. Open it again before running shell commands.')
@@ -2939,7 +2945,7 @@ export class Host {
     }
     // A foreign or stale project loses its cwd as well; it cannot authorize a lane of the fallback project.
     const project = identity.project
-    const cwd = await this.#worktrees.shellRoot(project, admitted ? checkout?.cwd : undefined, identity.gitCommonDir)
+    const cwd = await this.#worktrees.shellRoot(project, admitted ? checkout?.cwd : undefined, identity.gitCommonDir, identity.checkoutRoot)
     if (record) record.shellCheckout = { project, cwd }
     return cwd
   }
@@ -5435,10 +5441,13 @@ export class Host {
       readonly attachments?: SessionAttachments
     },
   ): Promise<OpenedSeat> {
-    const identity = await this.#admitShellProject(where.project ?? this.#shellProject)
+    const identity = await this.#admitShellProject(where.project ?? this.#shellProject, where.cwd)
     if (!identity) throw new Error('The Seat project is outside every project opened here. Open it first.')
     const project = identity.project
-    const cwd = await this.#worktrees.shellRoot(project, where.cwd, identity.gitCommonDir)
+    const cwd = await this.#worktrees.shellRoot(project, where.cwd, identity.gitCommonDir, identity.checkoutRoot)
+    if (!samePath(cwd, await realpath(where.cwd).catch(() => ''))) {
+      throw new Error('The Seat checkout is not admitted for this project. Open that checkout first.')
+    }
     const runtime = this.#runtime({ runtime: seat.runtime })
     // The lane is found by its checkout, from the desk's own lane record; the
     // cwd is the confinement and every runtime takes it. The six values go to
