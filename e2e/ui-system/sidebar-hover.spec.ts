@@ -222,10 +222,13 @@ test(`workspace hover keeps its pin visible and label width fixed (${theme})`, a
         await row.scrollIntoViewIfNeeded()
         await page.mouse.move(1400, 0)
         await open.blur()
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+        await page.waitForTimeout(300)
         const before = await settled(branch)
         const goneBefore = await settled(gone)
         await row.hover()
         await expect(action).toBeVisible()
+        await page.waitForTimeout(300)
         const moved = await settled(branch)
         if (width === 260) {
           await row.screenshot({ path: testInfo.outputPath('session-hover.png') })
@@ -234,15 +237,15 @@ test(`workspace hover keeps its pin visible and label width fixed (${theme})`, a
             contentType: 'application/json',
           })
         }
-        // Marks keep their declared slots; the action takes the next free
-        // target to their left rather than covering or moving either mark.
-        expect(moved.left).toBe(before.left)
+        // The action takes the rail and each mark yields one shared target.
+        expect(moved.left).toBe(before.left - 24)
         expect(moved.top).toBe(before.top)
         const actionBox = await settled(action)
-        expect(actionBox.left + actionBox.width / 2).toBe(before.left + before.width / 2 - 48)
+        expect(actionBox.left + actionBox.width / 2).toBe(before.left + before.width / 2)
         for (const [mark, resting] of [[branch, before], [gone, goneBefore]] as const) {
           const markBox = await settled(mark)
-          expect(markBox).toEqual(resting)
+          expect(markBox.left).toBe(resting.left - 24)
+          expect(markBox.top).toBe(resting.top)
           expect(markBox.right <= actionBox.left || actionBox.right <= markBox.left).toBe(true)
           expect(await unobstructed(mark)).toBe(true)
         }

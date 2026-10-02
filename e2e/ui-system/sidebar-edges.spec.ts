@@ -39,6 +39,93 @@ const textInk = async (locator: Locator) => locator.evaluate((node) => {
   })).filter(({ width, height }) => width > 0 && height > 0)
 })
 
+test('hover actions take the rail and every trailing mark moves by the declared action count', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.goto('/design.html?view=sidebar')
+  const example = page.locator('[data-catalog-example="sidebar"]')
+  const anatomy = example.locator('[aria-label="Sidebar trailing slot anatomy"]')
+  const rows = anatomy.locator('[data-catalog-title-case]')
+  const center = async (locator: Locator) => {
+    const rect = await box(locator)
+    return rect.x + rect.width / 2
+  }
+
+  for (const width of [200, 220, 260, 320]) {
+    await anatomy.locator('[data-slot="sidebar-menu"]').evaluateAll((lists, next) => {
+      for (const list of lists) (list as HTMLElement).style.width = `${next}px`
+    }, width)
+    for (let rowIndex = 0; rowIndex < await rows.count(); rowIndex += 1) {
+      const row = rows.nth(rowIndex)
+      const caseName = await row.getAttribute('data-catalog-title-case') ?? 'marked row'
+      const actions = row.locator(':scope > [data-slot="sidebar-menu-action"]')
+      const actionCount = await actions.count()
+      if (actionCount === 0) continue
+      const action = actions.last()
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+      await page.mouse.move(0, 0)
+      await action.evaluate((node) => { node.removeAttribute('data-state'); node.setAttribute('aria-expanded', 'false') })
+      await page.waitForTimeout(300)
+      const button = row.locator(':scope > [data-slot="sidebar-menu-button"], :scope > div > [data-slot="sidebar-menu-button"]').first()
+      const label = button.locator('[data-slot="sidebar-menu-label"]')
+      const title = label.locator('[data-slot="sidebar-menu-label-content"]')
+      const badges = row.locator(':scope > [data-slot="sidebar-menu-badge"], :scope > div > [data-slot="sidebar-menu-badge"]')
+      const stateMarks = row.locator('[data-slot="sidebar-menu-state"]')
+      const labelAtRest = await box(label)
+      const badgeCentersAtRest: number[] = []
+      for (let markIndex = 0; markIndex < await badges.count(); markIndex += 1) badgeCentersAtRest.push(await center(badges.nth(markIndex)))
+      const rail = await row.evaluate((node, target) => ({
+        center: node.getBoundingClientRect().right - target,
+        target,
+      }), await row.evaluate((node) => Number.parseFloat(getComputedStyle(node).getPropertyValue('--hd-sidebar-end-action-step'))))
+      const expectedMove = actionCount * rail.target
+
+      for (const state of ['hover', 'focus', 'menu-open'] as const) {
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+        await page.mouse.move(0, 0)
+        await action.evaluate((node) => { node.removeAttribute('data-state'); node.setAttribute('aria-expanded', 'false') })
+        if (state === 'hover') await row.hover()
+        if (state === 'focus') await button.focus()
+        if (state === 'menu-open') await action.evaluate((node) => { node.setAttribute('data-state', 'open'); node.setAttribute('aria-expanded', 'true') })
+        await page.waitForTimeout(300)
+        await expect(action).toHaveCSS('opacity', '1')
+        const labelBox = await box(label)
+        expect(labelBox, `${caseName} label box moved at ${width}px (${state})`).toEqual(labelAtRest)
+        for (let actionIndex = 0; actionIndex < actionCount; actionIndex += 1) {
+          const actionCenter = await center(actions.nth(actionIndex))
+          const expectedActionCenter = rail.center - (actionCount - actionIndex - 1) * rail.target
+          expect(Math.abs(actionCenter - expectedActionCenter), `${caseName} action ${actionIndex} misses its rail column by ${Math.round(actionCenter - expectedActionCenter)}px at ${width}px (${state})`).toBeLessThanOrEqual(1)
+        }
+
+        const titleRects = await textInk(title)
+        const actionBoxes: Awaited<ReturnType<typeof box>>[] = []
+        for (let actionIndex = 0; actionIndex < actionCount; actionIndex += 1) {
+          const currentAction = actions.nth(actionIndex)
+          const actionBox = await box(currentAction)
+          actionBoxes.push(actionBox)
+          for (const ink of titleRects) expect(intersection(ink, actionBox), `${caseName} title ink overlaps action ${actionIndex} at ${width}px (${state})`).toBe(false)
+        }
+        for (let markIndex = 0; markIndex < await badges.count(); markIndex += 1) {
+          const mark = badges.nth(markIndex)
+          const markCenter = await center(mark)
+          expect(Math.abs(markCenter - (badgeCentersAtRest[markIndex]! - expectedMove)), `${caseName} mark ${markIndex} did not move left by ${expectedMove}px at ${width}px (${state})`).toBeLessThanOrEqual(1)
+          const markBox = await box(mark)
+          for (let actionIndex = 0; actionIndex < actionBoxes.length; actionIndex += 1) expect(intersection(markBox, actionBoxes[actionIndex]!), `${caseName} mark ${markIndex} overlaps action ${actionIndex} at ${width}px (${state})`).toBe(false)
+          for (const ink of titleRects) expect(intersection(ink, markBox), `${caseName} title ink overlaps mark ${markIndex} at ${width}px (${state})`).toBe(false)
+        }
+        for (let markIndex = 0; markIndex < await stateMarks.count(); markIndex += 1) {
+          const mark = stateMarks.nth(markIndex)
+          const markBox = await box(mark)
+          const stateCenter = markBox.x + markBox.width / 2
+          expect(Math.abs(stateCenter - (rail.center - expectedMove)), `${caseName} state mark misses its shifted slot at ${width}px (${state})`).toBeLessThanOrEqual(1)
+          for (let actionIndex = 0; actionIndex < actionBoxes.length; actionIndex += 1) expect(intersection(markBox, actionBoxes[actionIndex]!), `${caseName} state mark overlaps action ${actionIndex} at ${width}px (${state})`).toBe(false)
+          for (const ink of titleRects) expect(intersection(ink, markBox), `${caseName} title ink overlaps state mark at ${width}px (${state})`).toBe(false)
+        }
+      }
+      await action.evaluate((node) => { node.removeAttribute('data-state'); node.setAttribute('aria-expanded', 'false') })
+    }
+  }
+})
+
 test('marked sidebar titles clear every trailing box without changing label geometry', async ({ page }) => {
   await page.goto('/design.html?view=sidebar')
   const example = page.locator('[data-catalog-example="sidebar"]')
@@ -162,7 +249,9 @@ test('sidebar state marks yield to actions and every trailing control stays on t
         if (await trailing.count() === 0) continue
         await row.hover()
         await expect(trailing).toBeVisible()
-        expect(intersection(await box(mark), await box(trailing)), `${await mark.getAttribute('aria-label')} state/action overlap at ${width}px (hover)`).toBe(false)
+        const stateBox = await box(mark)
+        const actionBox = await box(trailing)
+        expect(intersection(stateBox, actionBox), `${await mark.getAttribute('aria-label')} state/action overlap at ${width}px (hover): ${JSON.stringify({ stateBox, actionBox, rowText: await row.innerText(), marks: await row.getAttribute('data-sidebar-trailing-marks'), translate: await mark.evaluate((node) => getComputedStyle(node).translate) })}`).toBe(false)
         await row.locator('[data-slot="sidebar-menu-button"]').first().focus()
         expect(intersection(await box(mark), await box(trailing)), `${await mark.getAttribute('aria-label')} state/action overlap at ${width}px (focus)`).toBe(false)
       }
@@ -204,8 +293,7 @@ test('sidebar state marks yield to actions and every trailing control stays on t
             const action = actions.nth(actionIndex)
             await expect(action).toHaveCSS('opacity', '1')
             const actionBox = await box(action)
-            const markCount = Number(await row.getAttribute('data-sidebar-trailing-marks') ?? 0)
-            const expectedCenter = columnCenter - (markCount + await actions.count() - actionIndex - 1) * 24
+            const expectedCenter = columnCenter - (await actions.count() - actionIndex - 1) * 24
             const actionName = await action.getAttribute('aria-label')
             const actionInk = action.locator('svg').first()
             const actionInkBox = await actionInk.count() ? await box(actionInk) : actionBox
@@ -221,8 +309,8 @@ test('sidebar state marks yield to actions and every trailing control stays on t
               const badgeInkBox = await badgeInk.count() ? await box(badgeInk) : badgeBox
               const badgeClass = await badge.getAttribute('class') ?? ''
               const declaredSlot = badgeClass.includes('double-action-step') ? 2 : badgeClass.includes('action-step') ? 1 : 0
-              const expectedBadgeCenter = columnCenter - declaredSlot * 24
-              expect(Math.abs(badgeInkBox.x + badgeInkBox.width / 2 - expectedBadgeCenter), `${await badge.getAttribute('aria-label') ?? 'row badge'} visible ink moved from its fixed slot at ${width}px (${focus ? 'focus' : 'hover'})`).toBeLessThanOrEqual(1)
+              const expectedBadgeCenter = columnCenter - declaredSlot * 24 - (await actions.count()) * 24
+              expect(Math.abs(badgeInkBox.x + badgeInkBox.width / 2 - expectedBadgeCenter), `${await badge.getAttribute('aria-label') ?? 'row badge'} visible ink misses its shifted slot at ${width}px (${focus ? 'focus' : 'hover'})`).toBeLessThanOrEqual(1)
             }
             for (let chipIndex = 0; chipIndex < await chips.count(); chipIndex += 1) {
               const chip = chips.nth(chipIndex)
@@ -282,16 +370,16 @@ test('worktree and missing-folder glyphs use the end rail without moving the lab
       const tooltipBox = await box(tooltip)
       const viewport = page.viewportSize()!
       const plainBox = (value: NonNullable<Awaited<ReturnType<typeof box>>>) => ({ x: value.x, y: value.y, width: value.width, height: value.height })
+      const actionTarget = actionBox.width
 
       expect(Math.abs(restInk.x + restInk.width / 2 - markColumn), `${label} visible ink centre misses its end-column slot at ${width}px`).toBeLessThanOrEqual(1)
       expect(Math.abs(restGlyph.x + restGlyph.width / 2 - (countBox.x + countBox.width / 2) + (label.startsWith('Folder is gone') && pairedMark ? 24 : 0)), `glyph slot misses its count-column slot at ${width}px`).toBeLessThanOrEqual(1)
-      const markCount = Number(await row.getAttribute('data-sidebar-trailing-marks') ?? 0)
-      expect(Math.abs(actionInk.x + actionInk.width / 2 - (endColumn - markCount * 24)), `${label} action glyph misses the rail after its marks at ${width}px`).toBeLessThanOrEqual(1)
+      expect(Math.abs(actionInk.x + actionInk.width / 2 - endColumn), `${label} action glyph misses the end rail at ${width}px`).toBeLessThanOrEqual(1)
       expect(actionBox.x, `action begins outside sidebar at ${width}px`).toBeGreaterThanOrEqual(sidebarBox.x)
       expect(actionBox.x + actionBox.width, `action exceeds sidebar inset at ${width}px`).toBeLessThanOrEqual(sidebarBox.x + sidebarBox.width - 20 + 1)
-      expect(hoverGlyph).toEqual(restGlyph)
-      expect(hoverInk).toEqual(restInk)
-      expect(Math.abs(actionBox.x + actionBox.width / 2 - (endColumn - markCount * 24)), `${label} action target misses the shared column after its marks at ${width}px`).toBeLessThanOrEqual(1)
+      expect(Math.abs(hoverGlyph.x + hoverGlyph.width / 2 - (restGlyph.x + restGlyph.width / 2 - actionTarget)), `${label} mark does not move left by one action at ${width}px`).toBeLessThanOrEqual(1)
+      expect(Math.abs(hoverInk.x + hoverInk.width / 2 - (restInk.x + restInk.width / 2 - actionTarget)), `${label} visible ink does not move left by one action at ${width}px`).toBeLessThanOrEqual(1)
+      expect(Math.abs(actionBox.x + actionBox.width / 2 - endColumn), `${label} action target misses the shared column at ${width}px`).toBeLessThanOrEqual(1)
       expect(hoverLabel).toEqual(restLabel)
       expect(tooltipBox.x, `tooltip begins outside window at ${width}px`).toBeGreaterThanOrEqual(0)
       expect(tooltipBox.x + tooltipBox.width, `tooltip exceeds window at ${width}px`).toBeLessThanOrEqual(viewport.width)
@@ -309,11 +397,11 @@ test('worktree and missing-folder glyphs use the end rail without moving the lab
 
       await button.focus()
       expect(await box(labelBox)).toEqual(restLabel)
-      expect(await box(action)).toEqual(actionBox)
+      expect(Math.abs((await box(action)).x + actionBox.width / 2 - endColumn), `${label} focused action misses the shared column at ${width}px`).toBeLessThanOrEqual(1)
       await action.click()
       await expect(action).toHaveAttribute('data-state', 'open')
       const openGlyph = await box(glyph)
-      expect(openGlyph).toEqual(restGlyph)
+      expect(Math.abs(openGlyph.x + openGlyph.width / 2 - (restGlyph.x + restGlyph.width / 2 - actionTarget)), `${label} open-menu mark does not move left by one action at ${width}px`).toBeLessThanOrEqual(1)
       expect(await box(labelBox)).toEqual(restLabel)
       await page.keyboard.press('Escape')
     }
@@ -355,9 +443,9 @@ test('worktree and missing-folder glyphs use the end rail without moving the lab
       const addBox = await box(addAction)
       const moreBox = await box(moreAction)
       const shiftedPin = await box(pinned)
-      expect(Math.abs(addBox.x + addBox.width / 2 - (endColumn - 48)), `project + action misses its shifted slot at ${width}px`).toBeLessThanOrEqual(1)
-      expect(Math.abs(moreBox.x + moreBox.width / 2 - (endColumn - 24)), `project ⋯ action misses its shifted slot at ${width}px`).toBeLessThanOrEqual(1)
-      expect(Math.abs(pinnedInk.x + pinnedInk.width / 2 - shiftedPin.x - shiftedPin.width / 2), `Pinned badge moved from its fixed slot at ${width}px (${focus ? 'focus' : 'hover'})`).toBeLessThanOrEqual(1)
+      expect(Math.abs(addBox.x + addBox.width / 2 - (endColumn - 24)), `project + action misses its adjacent slot at ${width}px`).toBeLessThanOrEqual(1)
+      expect(Math.abs(moreBox.x + moreBox.width / 2 - endColumn), `project ⋯ action misses the end rail at ${width}px`).toBeLessThanOrEqual(1)
+      expect(Math.abs(pinnedInk.x + pinnedInk.width / 2 - (shiftedPin.x + shiftedPin.width / 2 + 48)), `Pinned badge did not move left by two action targets at ${width}px (${focus ? 'focus' : 'hover'})`).toBeLessThanOrEqual(1)
       expect(intersection(shiftedPin, addBox), `Pinned badge overlaps project + at ${width}px (${focus ? 'focus' : 'hover'})`).toBe(false)
       expect(intersection(shiftedPin, moreBox), `Pinned badge overlaps project ⋯ at ${width}px (${focus ? 'focus' : 'hover'})`).toBe(false)
     }

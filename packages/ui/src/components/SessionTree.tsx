@@ -235,7 +235,7 @@ const SessionRow = memo(({
 
   return (
     <SidebarMenu className={styles.rowWrap} data-region="session-row" data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount} onContextMenu={menu.open}>
-      <SidebarMenuItem className="list-none" trailingMarks={Number(Boolean(folderGone)) + Number(worktree) + Number(hasActivityMark) as 0 | 1 | 2 | 3} data-menu-open={menu.at ? '' : undefined}>
+      <SidebarMenuItem className="list-none" trailingMarks={Math.min(3, Number(Boolean(folderGone)) + Number(worktree) + Number(hasActivityMark) + Number(Boolean(need))) as 0 | 1 | 2 | 3} data-menu-open={menu.at ? '' : undefined}>
         {renaming ? (
           <Input
             variant="quiet" controlSize="row" className={styles.renameInput}
@@ -715,7 +715,7 @@ const RoomRow = ({
 
   return (
     <SidebarMenu data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount}>
-      <SidebarMenuItem trailingMarks={Number(held > 0) as 0 | 1}>
+      <SidebarMenuItem trailingMarks={Number(held > 0) + Number(Boolean(goal)) as 0 | 1 | 2}>
         <div className="relative min-w-0">
           <SidebarMenuButton
             trailingOverlay

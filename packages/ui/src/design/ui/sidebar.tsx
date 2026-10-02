@@ -11,10 +11,10 @@ import './sidebar.css'
  * would give one sidebar two owners. This file supplies its presentational
  * parts, and leaves the outer column and its state to the workbench.
  *
- * Menu rows keep one measure at every size and density. Marks keep their
- * declared slots; hover actions step left by those target widths, so they
- * never cover a mark or take width from the label. The app's document rule
- * draws the one focus ring.
+ * Menu rows keep one measure at every size and density. Hover actions take
+ * the end rail while each declared mark steps left by the action count; the
+ * title reserves both slots without changing its box. The app's document
+ * rule draws the one focus ring.
  */
 
 const sidebarMenuTrailingSlotClass =

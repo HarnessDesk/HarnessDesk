@@ -233,9 +233,14 @@ const SidebarBoard = () => (
           <SidebarMenuButton trailingOverlay label="Long conversation titles can use the full row width at rest" />
           <SidebarMenuAction showOnHover aria-label="Empty slot actions"><MoreIcon size={14} /></SidebarMenuAction>
         </SidebarMenuItem>
-        <SidebarMenuItem trailingMarks={3} data-catalog-label-case="badge" data-catalog-title-case="conversation with branch folder-gone and working marks" data-catalog-state="folded-state">
+        <SidebarMenuItem trailingMarks={2} data-catalog-title-case="conversation with worktree and folder-gone marks">
           <SidebarMenuButton trailingOverlay label="Pin the flaky inventory test after reconciling every retry branch" />
-          <SidebarBoardState label="Working" compact={<Dot state="signin" variant="navigation" />}>Working</SidebarBoardState>
+          <SidebarMenuBadge role="img" className="end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-action-step))]" aria-label="Folder is gone — inventory-retry"><FolderGoneIcon size={11} /></SidebarMenuBadge>
+          <SidebarMenuBadge role="img" aria-label="Worktree feat/inventory-retry"><BranchIcon size={11} /></SidebarMenuBadge>
+          <SidebarMenuAction showOnHover aria-haspopup="menu" aria-expanded="false" aria-label="Actions for inventory retry"><MoreIcon size={14} /></SidebarMenuAction>
+        </SidebarMenuItem>
+        <SidebarMenuItem trailingMarks={3} data-catalog-label-case="badge" data-catalog-title-case="conversation with branch folder-gone and working marks" data-catalog-state="folded-state">
+          <SidebarMenuButton trailingOverlay label={<span className="flex min-w-0 items-center gap-(--hd-space-1)"><span className="min-w-0 truncate">Pin the flaky inventory test after reconciling every retry branch</span><SidebarBoardState label="Working" compact={<Dot state="signin" variant="navigation" />}>Working</SidebarBoardState></span>} />
           <SidebarMenuBadge role="img" className="end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-double-action-step))]" aria-label="Worktree feat/inventory-retry"><BranchIcon size={11} /></SidebarMenuBadge>
           <SidebarMenuBadge role="img" className="end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-action-step))]" aria-label="Folder is gone — inventory-retry"><FolderGoneIcon size={11} /></SidebarMenuBadge>
           <SidebarMenuBadge aria-label="Working"><Dot state="signin" variant="navigation" /></SidebarMenuBadge>
@@ -244,11 +249,11 @@ const SidebarBoard = () => (
         <SidebarMenuItem trailingMarks={1} trailingActions={2} data-catalog-title-case="pinned project head with two actions">
           <SidebarMenuButton trailingActions={2} label="harnessdesk-project-name-kept-long-to-exercise-the-pinned-project-heading" />
           <SidebarMenuBadge aria-label="Pinned"><PinIcon size={11} /></SidebarMenuBadge>
-          <SidebarMenuAction showOnHover aria-label="New session in harnessdesk-project-name-kept-long"><PlusIcon size={12} /></SidebarMenuAction>
+          <SidebarMenuAction showOnHover className="end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-action-step))]" aria-label="New session in harnessdesk-project-name-kept-long"><PlusIcon size={12} /></SidebarMenuAction>
           <SidebarMenuAction showOnHover aria-label="Actions for harnessdesk-project-name-kept-long"><MoreIcon size={12} /></SidebarMenuAction>
         </SidebarMenuItem>
-        <SidebarMenuItem trailingMarks={1} data-catalog-title-case="room row with count">
-          <SidebarMenuButton label="Refund integration room with a deliberately long descriptive name" />
+        <SidebarMenuItem trailingMarks={2} data-catalog-title-case="room row with goal and held-message marks">
+          <SidebarMenuButton label={<span className="flex min-w-0 items-center gap-(--hd-space-1)"><span className="min-w-0 truncate">Refund integration room with a deliberately long descriptive name</span><SidebarBoardState label="Needs you" compact={<Dot state="limit" variant="navigation" />}><Chip tone="warning">Needs you</Chip></SidebarBoardState></span>} />
           <SidebarMenuBadge aria-label="Held messages">3</SidebarMenuBadge>
           <SidebarMenuAction showOnHover aria-label="Show agents in refund integration room"><MoreIcon size={12} /></SidebarMenuAction>
         </SidebarMenuItem>
