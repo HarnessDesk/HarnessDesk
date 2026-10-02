@@ -261,9 +261,11 @@ session placed their folder in. The current project stays open; the rest fold
 under **Other projects**.
 
 Trailing marks and actions share one inset rail. A full state chip ends on the
-available rail beside the title; only the title truncates. Hover, focus or an
-open menu folds that row’s chip to its state dot and puts its actions on the
-rail, without taking more title space. At narrow row widths a count beside a
+available rail beside the title; only the title truncates. The chip's visible
+right edge aligns with the session dot's right edge, inside the trailing
+control's larger hit target. Hover, focus or an open menu folds that row’s
+chip to its state dot and puts its actions on the rail, without taking more
+title space. At narrow row widths a count beside a
 state chip hides first, returning when there is room. A room and each of its
 members reveal their actions independently.
 

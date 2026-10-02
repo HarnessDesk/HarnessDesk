@@ -18,21 +18,21 @@ afterEach(() => {
   container.remove()
 })
 
-it('names the state once while the chip and compact dot remain decorative', () => {
+it.each(['Working', 'Needs you', 'Approval', 'Queued message', 'Question', 'Wrapping', 'Ready to wrap', 'Wrapped'])('names %s once while the chip and compact dot remain decorative', (label) => {
   act(() => root.render(
     <SidebarMenu><SidebarMenuItem trailingMarks={2}>
-      <SidebarMenuButton label={<span>Checkout <SidebarMenuState label="Needs you" tone="warning" state="limit" /></span>} />
+      <SidebarMenuButton label={<span>Checkout <SidebarMenuState label={label} tone="warning" state="limit" /></span>} />
     </SidebarMenuItem></SidebarMenu>,
   ))
   const state = container.querySelector('[data-slot="sidebar-menu-state"]')
   expect(state?.getAttribute('role')).toBe('img')
-  expect(state?.getAttribute('aria-label')).toBe('Needs you')
-  expect(state?.getAttribute('title')).toBe('Needs you')
+  expect(state?.getAttribute('aria-label')).toBe(label)
+  expect(state?.getAttribute('title')).toBe(label)
   expect(state?.closest('[data-slot="sidebar-menu-label"]')).not.toBeNull()
   const full = state?.querySelector('[data-sidebar-menu-state-full]')
   const compact = state?.querySelector('[data-sidebar-menu-state-compact]')
   expect(full?.getAttribute('aria-hidden')).toBe('true')
   expect(compact?.getAttribute('aria-hidden')).toBe('true')
-  expect(full?.querySelector('[data-slot="chip"]')?.textContent).toBe('Needs you')
+  expect(full?.querySelector('[data-slot="chip"]')?.textContent).toBe(label)
   expect(compact?.querySelector('[data-slot="dot"]')?.getAttribute('data-variant')).toBe('navigation')
 })

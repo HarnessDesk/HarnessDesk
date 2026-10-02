@@ -1995,7 +1995,24 @@ rules:
       return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
     })()`)
     await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
-    await sleep(250)
+    let previousGeometry
+    await waitForSnapshot(() => cdp.json(`(() => {
+      const target = document.querySelector(${q(selector)})
+      const row = target?.closest('[data-slot="sidebar-menu-item"]')
+      if (!target || !row) throw new Error('missing hover target')
+      const actions = [...row.querySelectorAll(':scope > [data-slot="sidebar-menu-action"], :scope > div > [data-slot="sidebar-menu-action"]')]
+      const marks = [...row.querySelectorAll(':scope > [data-slot="sidebar-menu-badge"], :scope > div > [data-slot="sidebar-menu-badge"]')]
+      const moving = document.getAnimations().some(animation =>
+        animation.playState === 'running' && animation.effect?.getComputedTiming().endTime !== Infinity)
+      return {
+        ready: target.matches(':hover') && !moving && actions.length > 0 && actions.every(node => getComputedStyle(node).opacity === '1'),
+        geometry: JSON.stringify([...actions, ...marks].map(node => node.getBoundingClientRect().toJSON())),
+      }
+    })()`), snapshot => {
+      const settled = snapshot.ready && snapshot.geometry === previousGeometry
+      previousGeometry = snapshot.ready ? snapshot.geometry : undefined
+      return settled
+    })
   }
   const workspaceHoverAction = '[data-slot="sidebar-menu-item"]:has(> [data-slot="sidebar-menu-button"][aria-expanded]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]'
   SCENES['workspace-hover'] = { leaveOverlay: true, hover: workspaceHoverAction, run: async () => {
