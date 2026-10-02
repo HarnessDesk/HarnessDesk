@@ -43,12 +43,17 @@ const SidebarMenu = ({ className, nested = false, horizontal = false, ...props }
   />
 )
 
-const SidebarMenuItem = ({ className, trailingActions = 1, trailingMarks = 0, ...props }: React.ComponentProps<'li'> & { trailingActions?: 1 | 2; trailingMarks?: 0 | 1 | 2 | 3 }) => (
+const SidebarMenuItem = ({ className, style, trailingActions = 1, trailingMarks = 0, ...props }: React.ComponentProps<'li'> & { trailingActions?: 1 | 2; trailingMarks?: 0 | 1 | 2 | 3 }) => (
   <li
     data-slot="sidebar-menu-item"
     data-sidebar="menu-item"
     data-sidebar-trailing-actions={trailingActions}
     data-sidebar-trailing-marks={trailingMarks}
+    style={{
+      ...style,
+      '--sidebar-menu-trailing-actions': trailingActions,
+      '--sidebar-menu-trailing-marks': trailingMarks,
+    } as React.CSSProperties}
     className={cn(
       'group/menu-item relative min-w-0',
       className,

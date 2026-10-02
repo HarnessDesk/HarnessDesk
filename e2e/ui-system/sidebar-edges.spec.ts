@@ -3,6 +3,11 @@ import { expect, test, type Locator } from '@playwright/test'
 const intersection = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) =>
   a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
 
+const overlapSize = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) => ({
+  width: Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)),
+  height: Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y)),
+})
+
 const box = async (locator: Locator) => {
   const value = await locator.boundingBox()
   expect(value, `expected a visible box for ${await locator.getAttribute('data-slot')}`).not.toBeNull()
@@ -519,4 +524,135 @@ test('sidebar resize highlight is idle-only on hover, without a stuck seam state
   expect(await seam.evaluate((node) => node.matches(':focus-visible'))).toBe(true)
   const focusedOutline = await seam.evaluate((node) => getComputedStyle(node).outlineStyle)
   expect(focusedOutline).not.toBe('none')
+})
+
+test('real session and room rows keep every visible trailing mark in its own slot', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.goto('/design.html?view=sidebar')
+  const example = page.locator('[data-catalog-example="sidebar"]')
+  const sidebars = example.locator('[data-region="sidebar-header"]').locator('xpath=ancestor::div[contains(@class,"sidebar_")][last()]')
+  const sidebar = sidebars.first()
+  const frame = sidebar.locator('xpath=parent::*')
+  const session = sidebar.locator('[data-region="session-row"] [data-slot="sidebar-menu-item"]')
+    .filter({ hasText: 'Pin the flaky inventory test after reconciling every retry branch' })
+  const room = sidebar.locator('[data-slot="sidebar-menu-button"][aria-label="Room Approve the migration evidence"][data-held]')
+    .locator('xpath=ancestor::li[@data-slot="sidebar-menu-item"][1]')
+
+  const expectNoTrailingOverlap = async (row: Locator, label: string, stateName: string) => {
+    const state = row.locator('[data-slot="sidebar-menu-state"]')
+    const full = state.locator('[data-sidebar-menu-state-full] [data-slot="chip"]')
+    const compact = state.locator('[data-sidebar-menu-state-compact] [data-slot="dot"]')
+    const atoms: Array<{ locator: Locator; label: string }> = []
+    if (await full.isVisible()) atoms.push({ locator: full, label: 'state chip' })
+    if (await compact.isVisible()) atoms.push({ locator: compact, label: 'state dot' })
+    const badges = row.locator(':scope > [data-slot="sidebar-menu-badge"], :scope > div > [data-slot="sidebar-menu-badge"]')
+    for (let index = 0; index < await badges.count(); index += 1) {
+      const badge = badges.nth(index)
+      if (await badge.isVisible()) atoms.push({ locator: badge, label: await badge.getAttribute('aria-label') ?? `mark ${index}` })
+    }
+    const actions = row.locator(':scope > [data-slot="sidebar-menu-action"], :scope > div > [data-slot="sidebar-menu-action"]')
+    for (let index = 0; index < await actions.count(); index += 1) {
+      const action = actions.nth(index)
+      if (await action.isVisible() && await action.evaluate((node) => getComputedStyle(node).opacity) !== '0') {
+        atoms.push({ locator: action, label: await action.getAttribute('aria-label') ?? `action ${index}` })
+      }
+    }
+    for (let left = 0; left < atoms.length; left += 1) {
+      for (let right = left + 1; right < atoms.length; right += 1) {
+        const first = await box(atoms[left]!.locator)
+        const second = await box(atoms[right]!.locator)
+        const overlap = overlapSize(first, second)
+        expect(overlap.width === 0 || overlap.height === 0,
+          `${label}: ${atoms[left]!.label} overlaps ${atoms[right]!.label} by ${overlap.width}×${overlap.height}px at 260px (${stateName}); ${JSON.stringify({ first, second })}`,
+        ).toBe(true)
+      }
+    }
+  }
+
+  await expect(session).toHaveCount(1)
+  await expect(session).toHaveAttribute('data-sidebar-trailing-marks', '3')
+  await expect(session.locator('[data-slot="sidebar-menu-state"]')).toHaveCount(1)
+  await expect(session.locator('[data-slot="sidebar-menu-badge"][aria-label^="Worktree "]')).toHaveCount(1)
+  await expect(session.locator('[data-slot="sidebar-menu-badge"] [data-live]')).toHaveCount(1)
+  await expect(room).toHaveCount(1)
+  await expect(room.locator('[data-slot="sidebar-menu-badge"][title="1 held message waiting for you"]')).toHaveText('1')
+  await expect(room.locator('[data-slot="sidebar-menu-state"]')).toHaveAttribute('aria-label', 'Needs you')
+
+  await frame.evaluate((node) => { (node as HTMLElement).style.width = '260px' })
+  for (let index = 0; index < await sidebars.count(); index += 1) {
+    await sidebars.nth(index).evaluate((node) => { (node as HTMLElement).style.width = '100%' })
+  }
+  for (const [row, label] of [[room, 'real room row'], [session, 'real session row']] as const) {
+    await row.scrollIntoViewIfNeeded()
+    const button = row.locator('[data-slot="sidebar-menu-button"]').first()
+    const action = row.locator('[data-slot="sidebar-menu-action"]').first()
+    for (const stateName of ['rest', 'hover', 'focus-within', 'menu-open'] as const) {
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+      await page.mouse.move(0, 0)
+      await action.evaluate((node) => { node.removeAttribute('data-state'); node.setAttribute('aria-expanded', 'false') })
+      if (stateName === 'hover') await button.hover()
+      if (stateName === 'focus-within') await button.focus()
+      if (stateName === 'menu-open') await action.evaluate((node) => { node.setAttribute('data-state', 'open'); node.setAttribute('aria-expanded', 'true') })
+      await expectNoTrailingOverlap(row, label, stateName)
+    }
+  }
+})
+
+test('nested board and expanded room keep trailing marks on their own label line', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.goto('/design.html?view=sidebar')
+  const example = page.locator('[data-catalog-example="sidebar"]')
+  const anatomy = example.locator('[aria-label="Sidebar trailing slot anatomy"]')
+  const nestedList = example.locator('[aria-label="Nested row end rail"]')
+  const sidebars = example.locator('[data-region="sidebar-header"]').locator('xpath=ancestor::div[contains(@class,"sidebar_")][last()]')
+  const sidebar = sidebars.first()
+  const frame = sidebar.locator('xpath=parent::*')
+  const productRoom = sidebar.locator('[data-slot="sidebar-menu-button"][aria-label="Room Approve the migration evidence"][data-held]')
+    .locator('xpath=ancestor::li[@data-slot="sidebar-menu-item"][1]')
+  const roomToggle = productRoom.locator(':scope > div > [data-slot="sidebar-menu-action"]')
+
+  const expectHeaderItemsCentered = async (row: Locator, label: string, mode: string) => {
+    const line = await box(row.locator(':scope > div > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-label"], :scope > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-label"]').first())
+    const centerY = line.y + line.height / 2
+    const marks = row.locator(':scope > [data-slot="sidebar-menu-badge"], :scope > div > [data-slot="sidebar-menu-badge"]')
+    for (let index = 0; index < await marks.count(); index += 1) {
+      const mark = await box(marks.nth(index))
+      const delta = mark.y + mark.height / 2 - centerY
+      expect(Math.abs(delta), `${label} mark ${index} misses its own label line by ${delta}px (${mode})`).toBeLessThanOrEqual(1)
+    }
+    const actions = row.locator(':scope > [data-slot="sidebar-menu-action"], :scope > div > [data-slot="sidebar-menu-action"]')
+    for (let index = 0; index < await actions.count(); index += 1) {
+      const action = await box(actions.nth(index))
+      const delta = action.y + action.height / 2 - centerY
+      expect(Math.abs(delta), `${label} action ${index} misses its own label line by ${delta}px (${mode})`).toBeLessThanOrEqual(1)
+    }
+  }
+
+  await anatomy.locator('[data-slot="sidebar-menu"]').evaluateAll((lists) => {
+    for (const list of lists) (list as HTMLElement).style.width = '260px'
+  })
+  await nestedList.evaluate((node) => { (node as HTMLElement).style.width = '260px' })
+  await frame.evaluate((node) => { (node as HTMLElement).style.width = '260px' })
+  for (let index = 0; index < await sidebars.count(); index += 1) {
+    await sidebars.nth(index).evaluate((node) => { (node as HTMLElement).style.width = '100%' })
+  }
+
+  const nestedHead = nestedList.locator('[data-catalog-title-case="nested room head"]')
+  const nestedMember = nestedList.locator('[data-catalog-title-case="nested member row"]')
+  for (const [row, label] of [[nestedHead, 'nested board room head'], [nestedMember, 'nested board member']] as const) {
+    await expectHeaderItemsCentered(row, label, 'rest')
+    await row.locator(':scope > div > [data-slot="sidebar-menu-button"], :scope > [data-slot="sidebar-menu-button"]').first().hover()
+    await expectHeaderItemsCentered(row, label, 'hover')
+  }
+
+  await expect(productRoom).toHaveCount(1)
+  if (await roomToggle.getAttribute('aria-expanded') !== 'true') await roomToggle.click()
+  const productMember = productRoom.locator('[data-nested="true"] [data-region="session-row"] [data-slot="sidebar-menu-item"]').first()
+  await expect(productMember).toBeVisible()
+  for (const [row, label] of [[productRoom, 'product room head'], [productMember, 'product room member']] as const) {
+    await row.scrollIntoViewIfNeeded()
+    await expectHeaderItemsCentered(row, label, 'rest')
+    await row.locator(':scope > div > [data-slot="sidebar-menu-button"], :scope > [data-slot="sidebar-menu-button"]').first().hover()
+    await expectHeaderItemsCentered(row, label, 'hover')
+  }
 })

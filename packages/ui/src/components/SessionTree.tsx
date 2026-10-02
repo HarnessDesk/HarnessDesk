@@ -74,7 +74,7 @@ import { WorkspaceMenu } from './WorkspaceMenu'
 import styles from './Sidebar.module.css'
 
 const SidebarMenuState = ({ label, compact, children }: { label: string; compact: ReactNode; children: ReactNode }) => (
-  <span data-slot="sidebar-menu-state" role="img" aria-label={label} title={label} className="inline-flex min-w-0 items-center">
+  <span data-slot="sidebar-menu-state" role="img" aria-label={label} title={label} className="inline-flex min-w-0 shrink-0 items-center">
     <span data-sidebar-menu-state-full aria-hidden="true" className="inline-flex min-w-0 group-hover/menu-item:hidden group-focus-within/menu-item:hidden">{children}</span>
     <span data-sidebar-menu-state-compact aria-hidden="true" className="hidden shrink-0 group-hover/menu-item:inline-flex group-focus-within/menu-item:inline-flex">{compact}</span>
   </span>

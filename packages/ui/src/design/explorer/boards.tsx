@@ -13,10 +13,11 @@ import { ItemView } from '../../components/Items'
 import { Markdown } from '../../components/Markdown'
 import { PublicationCard } from '../../components/Publication'
 import { QuestionWaitSection } from '../../components/SettingsQuestionWait'
-import { Mount, previewStore, store } from '../../preview/harness'
+import { Mount, PREVIEW_ROOM, previewStore, store } from '../../preview/harness'
 import { Sidebar as ProductSidebar } from '../../components/Sidebar'
 import { WindowGroup, WindowNav, WindowNavIdentity, WindowNavItem, WindowNavStateMark, WindowPage } from '../../components/AppWindow'
-import { PREVIEW_ROOT, previewHistory } from '../../preview/sidebar-fixture'
+import { PREVIEW_ROOT, previewHistory, previewSession } from '../../preview/sidebar-fixture'
+import { PREVIEW_GOAL } from '../../preview/goal-fixture'
 import { BOARD_TOOL_FRAMES, boardToolFrame } from '../../preview/approval-fixture'
 import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../../state/store'
@@ -216,13 +217,49 @@ const SIDEBAR_CATALOG_STATES = [
   'long-title', 'room-folded', 'room-expanded',
   'more-sessions', 'other-projects', 'filtered', 'menu-open', 'folded-state', 'nested-rail',
 ] as const
+const sidebarSnapshot = store.getSnapshot()
+const sidebarNeedApproval = {
+  id: 'sidebar-row-approval',
+  sessionId: 's0',
+  type: 'command',
+  kind: 'command',
+  command: 'pnpm test',
+  cwd: PREVIEW_ROOT,
+  requestedAt: Date.now(),
+  reason: 'The row geometry fixture is waiting for review.',
+  actions: [{ type: 'unknown', command: 'pnpm test' }],
+  options: [
+    { id: 'allow', label: 'Allow', intent: 'approve' },
+    { id: 'deny', label: 'Deny', intent: 'deny' },
+  ],
+} as const
 const fullSidebarStore = previewStore({
+  ...sidebarSnapshot,
   listPrefs: {
-    ...store.getSnapshot().listPrefs,
+    ...sidebarSnapshot.listPrefs,
     pinned: [PREVIEW_ROOT],
     pinnedSessions: [String(sessionKey(runtimeId('codex'), 's0' as SessionId))],
-    collapsed: ['room-preview', '/work/harnessdesk-mobile'],
+    collapsed: ['/work/harnessdesk-mobile'],
   },
+  approvals: ['s0', 'c1'].map((id) => ({
+    key: sessionKey(runtimeId('codex'), id as SessionId),
+    approval: { ...sidebarNeedApproval, sessionId: id },
+  })) as AppSnapshot['approvals'],
+  sessions: new Map(sidebarSnapshot.sessions).set(
+    sessionKey(runtimeId('codex'), 's0' as SessionId),
+    {
+      ...previewSession,
+      id: 's0' as SessionId,
+      title: previewHistory[0]!.title,
+      cwd: previewHistory[0]!.cwd,
+      status: { type: 'active' },
+      git: previewHistory[0]!.git,
+    } as never,
+  ),
+  goals: new Map([
+    ...sidebarSnapshot.goals,
+    [PREVIEW_ROOM, { ...PREVIEW_GOAL, goal: { ...PREVIEW_GOAL.goal, id: PREVIEW_ROOM } }],
+  ]),
   foldersGone: new Map([
     [previewHistory[2]!.cwd, 'This worktree folder is no longer available.'],
     ['/work/harnessdesk-site', 'This project folder is no longer available.'],
@@ -272,9 +309,11 @@ const SidebarBoard = () => (
       </SidebarMenu>
       <SidebarMenu aria-label="Nested row end rail">
         <SidebarMenuItem trailingMarks={1} data-catalog-title-case="nested room head">
-          <SidebarMenuButton label="Release room for coordinating the long-running storefront migration" />
-          <SidebarMenuBadge aria-label="Room member count">2</SidebarMenuBadge>
-          <SidebarMenuAction showOnHover aria-label="Release room actions"><MoreIcon size={14} /></SidebarMenuAction>
+          <div className="relative min-w-0">
+            <SidebarMenuButton label="Release room for coordinating the long-running storefront migration" />
+            <SidebarMenuBadge aria-label="Room member count">2</SidebarMenuBadge>
+            <SidebarMenuAction showOnHover aria-label="Release room actions"><MoreIcon size={14} /></SidebarMenuAction>
+          </div>
           <SidebarMenu nested>
             <SidebarMenuItem trailingMarks={1} data-catalog-title-case="nested member row" data-catalog-state="nested-rail">
               <SidebarMenuButton size="sm" label="Untitled member session with a deliberately long title" />

@@ -506,6 +506,7 @@ interface Seed {
   readonly branch: string
   readonly ago: number
   readonly runtime?: RuntimeId
+  readonly status?: SessionSummary['status']
 }
 
 const seed = (root: string, entries: readonly Seed[], offset = 0): SessionSummary[] =>
@@ -516,7 +517,7 @@ const seed = (root: string, entries: readonly Seed[], offset = 0): SessionSummar
         runtime: entry.runtime ?? CODEX,
         title: entry.title,
         cwd: entry.cwd,
-        status: { type: 'idle' },
+        status: entry.status ?? { type: 'idle' },
         createdAt: minutes(entry.ago + 60),
         updatedAt: minutes(entry.ago),
         git: { branch: entry.branch, dirty: false },
@@ -535,7 +536,7 @@ export const previewHistory: SessionSummary[] = [
   ...seed(
     HOME,
     [
-      { title: 'Pin the flaky inventory test after reconciling every retry branch', cwd: worktree('dupe-accounts-91c2'), branch: 'fix/dupe-accounts', ago: 4 },
+      { title: 'Pin the flaky inventory test after reconciling every retry branch', cwd: worktree('dupe-accounts-91c2'), branch: 'fix/dupe-accounts', ago: 4, status: { type: 'active' } },
       { title: 'Add fixtures for the refund path before extending the checkout matrix', cwd: worktree('worktree-mgmt-4f10'), branch: 'feat/worktrees', ago: 26 },
       { title: 'Draft the 2.5 migration notes after reviewing the sidebar target behavior', cwd: worktree('settings-audit-77aa'), branch: 'chore/settings-audit', ago: 90 },
       { title: 'Codex Clade DeepSeek — Research', cwd: worktree('research-2b41'), branch: 'docs/research', ago: 150, runtime: CURSOR },
