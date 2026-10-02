@@ -1422,6 +1422,9 @@ export const AccountMark = ({
   children: ReactNode
 }) => createElement(as, {
   ...props,
+  // An account is a ring, never a face: declared so the faces rule can tell
+  // the two apart on a screen that draws both.
+  'data-shape': 'round',
   ...(as === 'button' ? { type: 'button' } : {}),
   className: cx(styles.avatar, as === 'button' && styles.avatarButton, size === 'sm' && styles.avatarSm, size === 'lg' && styles.avatarLg, size === 'dot' && styles.avatarDot, className),
 }, children)

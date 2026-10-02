@@ -29,7 +29,7 @@
 }
 
 /* An Agent's face in the tile takes the shape chosen for faces, at either size. */
-.tile[data-face] {
+.tile[data-shape='face'] {
   border-radius: var(--hd-face-radius);
 }
 

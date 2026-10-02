@@ -51,3 +51,15 @@ it('fills a tinted face and keeps other tinted shapes on the soft wash', () => {
   const round = renderToStaticMarkup(<IconTile shape="round" tint="violet">A</IconTile>)
   expect(round).toContain('bg-(--hd-tint-violet-fill)')
 })
+
+it('declares the shape it drew, and a caller cannot say otherwise', () => {
+  // The faces rule reads `data-shape` to find everyone drawn on screen, so it
+  // has to be the tile's own word: a spread attribute that replaced it would
+  // hide a face from both the face check and the agent-mark check.
+  expect(renderToStaticMarkup(<IconTile shape="face">A</IconTile>)).toContain('data-shape="face"')
+  expect(renderToStaticMarkup(<IconTile shape="round">A</IconTile>)).toContain('data-shape="round"')
+  expect(renderToStaticMarkup(<IconTile>A</IconTile>)).toContain('data-shape="square"')
+  const overridden = renderToStaticMarkup(<IconTile shape="face" data-shape="square">A</IconTile>)
+  expect(overridden).toContain('data-shape="face"')
+  expect(overridden).not.toContain('data-shape="square"')
+})

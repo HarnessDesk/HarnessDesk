@@ -674,6 +674,32 @@ A tinted face is filled with its tint's ink and uses the accent foreground for
 its mark or initials. Other tinted tiles, including square and round ones,
 keep the soft tint wash.
 
+A new surface cannot draw someone in a fixed corner without a test failing.
+`IconTile`, `AvatarStack`, `Face`, `AccountMark` and a notice's face each declare
+what they drew with `data-shape` (`face`, `round`, `square`), and two tests read
+the result:
+
+- `design/faces.census.test.ts` reads the source of every screen and refuses an
+  agent's mark (`BrandMark`, `RuntimeMark`, `AgentIcon`) in an `IconTile` that is
+  not a `face`, an `AvatarStack` that is not, and an `IconTile` whose shape is
+  decided at run time (its mark may arrive as a prop, so it has to be named). It
+  reaches the screens a page cannot mount, such as the Agents panel's rows. A
+  tile on its exception list is a claim that it is not someone, or that another
+  test pins its shape, with the reason beside it; the entry also counts the tiles
+  it excuses, so a second one in the same file is a finding until it is named.
+- `e2e/ui-system/faces.spec.ts` ("rule: faces") measures the mounted screens
+  under each Faces setting: every declared face computes `--hd-face-radius` and
+  is filled solid (a notice's face keeps its tone's translucent wash, and is held
+  to the wash its tone paints: not opaque, not faint, not gone), every tile that
+  holds an agent's mark is a face, an account's ring or a named exception, and
+  each surface it lists (the rail, the chat, a notice, a board holder, the
+  Activity rows, a channel, your seat and profile, side by side, an avatar
+  stack) is present as a face.
+
+Draw a new face with one of those primitives. If it needs its own markup, it
+declares `data-shape="face"` and takes `--hd-face-radius`, and the surface goes
+in the spec's list.
+
 ## The Team composer tail
 
 Short live activity and a notice about what sending does sit in one tinted

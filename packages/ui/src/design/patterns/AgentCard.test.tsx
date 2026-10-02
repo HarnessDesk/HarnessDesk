@@ -60,6 +60,23 @@ it('draws nothing but the crest when that is all it knows', () => {
   expect(bands()).toBe(0)
 })
 
+/**
+ * The crest's mark arrives through `subject.mark`, so the source scan in
+ * `design/faces.census.test.ts` cannot see what an `AgentCard` holds. What
+ * keeps the crest one shape with its subject's everywhere else is this: a
+ * harness is a thing (square), an account a ring, a session or a member someone
+ * (a face, which follows the Faces setting).
+ */
+it.each([
+  ['agent', 'square'],
+  ['account', 'round'],
+  ['session', 'face'],
+  ['member', 'face'],
+] as const)('draws a %s crest as a %s', (kind, shape) => {
+  render({ ...BARE, kind })
+  expect(container.querySelector('[data-slot="icon-tile"]')?.getAttribute('data-shape')).toBe(shape)
+})
+
 it('does not draw a Running band for a harness that reports no model or state', () => {
   render({ ...BARE, running: { model: null, version: '2.1.259', state: null } })
   // The version alone is not a reading: a band saying only "2.1.259" is a
