@@ -404,6 +404,22 @@ it('the rail is the roster: who is here, and what each of them is holding', asyn
 })
 
 /**
+ * A member's name in the rail is drawn in the navigation pair (13/400) today,
+ * the same as the sidebar's rows. jsdom has no stylesheet, so this pins the
+ * role the row declares; the names rule in `e2e/ui-system/rules.spec.ts`
+ * measures the pair in a browser.
+ */
+it('draws a member’s name in the rail in the navigation role', async () => {
+  const { store } = rig()
+  await render(store)
+
+  const title = row('API migration').querySelector('[data-slot="list-row-title"]')
+  expect(title?.getAttribute('data-role')).toBe('navigation')
+  expect(title?.className).toContain('font-normal')
+  expect(title?.className).not.toContain('font-semibold')
+})
+
+/**
  * A trigger seats an agent under its own name, so an untitled conversation's
  * nickname and its title are the same word — "Triager" the agent, "Triager"
  * the conversation nobody renamed. The row used to print both: "Triager
