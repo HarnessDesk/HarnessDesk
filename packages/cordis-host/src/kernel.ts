@@ -395,6 +395,19 @@ export class ExtensionKernel implements CapabilityRegistry {
     return [...this.#plugins.values()].map((entry) => this.#describe(entry))
   }
 
+  #shellWorkspaceResolver: (scope: ScopeQuery) => Promise<string | undefined> = async (scope) => scope.workspaceRoot
+
+  /** Host-only admission, applied before any plugin sees the invocation scope. */
+  setShellWorkspaceResolver(resolve: (scope: ScopeQuery) => Promise<string | undefined>): void {
+    this.#shellWorkspaceResolver = resolve
+  }
+
+  async #shellScope(scope: ScopeQuery): Promise<ScopeQuery> {
+    const { workspaceRoot: _hint, ...identity } = scope
+    const workspaceRoot = await this.#shellWorkspaceResolver(scope)
+    return { ...identity, ...(workspaceRoot === undefined ? {} : { workspaceRoot }) }
+  }
+
   #browserResolver: (scope: ScopeQuery) => string | undefined = () => 'default'
   readonly #invocations = new Map<string, number>()
 
@@ -413,6 +426,7 @@ export class ExtensionKernel implements CapabilityRegistry {
     scope: ScopeQuery,
     inherited?: BrowserIdentity | null,
   ): Promise<ToolResult> {
+    scope = await this.#shellScope(scope)
     const entry = this.#store.get(id)
     if (!entry?.executor) {
       return { ok: false, error: `No tool is registered with id ${String(id)}` }
@@ -475,6 +489,7 @@ export class ExtensionKernel implements CapabilityRegistry {
   }
 
   async resolveContext(query: ScopeQuery): Promise<readonly { label: string; text: string }[]> {
+    query = await this.#shellScope(query)
     const out: { label: string; text: string }[] = []
     for (const contribution of this.#store.list('context', query)) {
       // A chip is attached on purpose; it does not ride every turn.
@@ -502,6 +517,7 @@ export class ExtensionKernel implements CapabilityRegistry {
     ref: string | undefined,
     scope: ScopeQuery,
   ): Promise<{ label: string; text: string; image?: ContextImage } | null> {
+    scope = await this.#shellScope(scope)
     const entry = this.#store.get(id)
     if (!entry || entry.contribution.kind !== 'context' || !entry.resolver) return null
     /* `list` has always applied the contribution's scope; resolving one by id

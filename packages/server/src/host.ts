@@ -212,6 +212,7 @@ export interface ExtensionHost extends CapabilityRegistry {
   /** Where an agent's `browser_open` puts the page. See `BrowserSettings`. */
   setBrowserSettings(settings: BrowserSettings): void
   setBrowserResolver?(resolve: (scope: ScopeQuery) => string | undefined): void
+  setShellWorkspaceResolver(resolve: (scope: ScopeQuery) => Promise<string | undefined>): void
   /** Reads a manifest for the consent dialog; imports nothing. */
   inspectPlugin(specifier: string): Promise<{
     id: string
@@ -1767,6 +1768,7 @@ export class Host {
       },
     })
     this.#extensions = options.extensions ?? null
+    this.#extensions?.setShellWorkspaceResolver((scope) => this.#shellWorkspace(scope))
     this.#extensions?.setBrowserResolver?.((scope) => {
       if (!scope.runtime || !scope.sessionId) return undefined
       const record = this.registry.get(scope.runtime, scope.sessionId)
@@ -2152,6 +2154,7 @@ export class Host {
   async start(): Promise<void> {
     this.#goalWriter = await acquireDeskWriter(this.#state.directory)
     await this.#state.load()
+    this.#shellProject = this.#state.state.workspaces[0]?.realPath ?? this.#state.state.workspaces[0]?.path ?? null
     await this.#laneStore.load()
     // Everything that restores a stored setting runs here, after the file has
     // been read, and never in the constructor. Until it did, a board left
@@ -2876,6 +2879,22 @@ export class Host {
     } catch {
       return false
     }
+  }
+
+  /** The last project opened by the host, never a runtime-reported session directory. */
+  #shellProject: string | null = null
+
+  async #shellWorkspace(scope: ScopeQuery): Promise<string | undefined> {
+    const record = scope.runtime && scope.sessionId ? this.registry.get(scope.runtime, scope.sessionId) : undefined
+    // Durable, locally kept Seats restore authority after a host restart; imported Seats cannot.
+    const kept = record && !record.shellCheckout ? this.#evidence.seats.latestKeptOf(record.runtime, record.session.id) : null
+    if (record && kept?.checkout.project) {
+      const cwd = await this.#worktrees.shellRoot(kept.checkout.project, kept.checkout.cwd)
+      record.shellCheckout = { project: kept.checkout.project, cwd }
+    }
+    const checkout = record?.shellCheckout
+    const project = checkout?.project ?? this.#shellProject
+    return project ? this.#worktrees.shellRoot(project, checkout?.cwd) : undefined
   }
 
   /** The folder a live session works in, straight off the registry; null when that session is not live. */
@@ -4230,6 +4249,7 @@ export class Host {
     const git = await gitService.status(described.path)
     // Plugins scope their filesystem access to the open workspace, so the
     // kernel has to learn about the change at the same moment the host does.
+    this.#shellProject = realPath
     this.#extensions?.setWorkspace({ root: described.path, branch: git?.branch ?? null })
     // Fire-and-forget: opening a folder must not wait on re-pointing the
     // roster's watch, which walks every open project's ancestors afresh.
@@ -5420,6 +5440,11 @@ export class Host {
     this.#seating.set(sessionKey(runtime.info.id, live.id), { live, reached: false, removing: false })
     try {
       const session = this.#attach(runtime, live.id, live)
+      const project = await projectOf(where.cwd)
+      if (project) {
+        const cwd = await this.#worktrees.shellRoot(project, where.cwd)
+        this.registry.get(runtime.info.id, live.id)!.shellCheckout = { project, cwd }
+      }
       await live.setTitle(where.title).catch(() => {})
       await this.#names.set(runtime.info.id, live.id, where.title)
       await this.#applySeatPicks(live, seat)

@@ -95,10 +95,10 @@ export const pluginMethods = {
         text: `Terminal in ${last.cwd}${last.exitCode !== null ? ` (exited ${last.exitCode})` : ''}:\n${last.text}`,
       }
     }
+    // workspaceRoot is a renderer hint; only the host resolves shell authority.
     const resolved = await ctx.extensions().resolveOne(params.id as ContributionId, params.ref, {
       ...(params.runtime ? { runtime: params.runtime } : {}),
       ...(params.sessionId ? { sessionId: params.sessionId } : {}),
-      ...(params.workspaceRoot ? { workspaceRoot: params.workspaceRoot } : {}),
     })
     if (!resolved) throw new Error('That context provider is no longer available.')
     return resolved

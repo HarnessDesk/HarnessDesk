@@ -122,6 +122,12 @@ export const writeToolLauncher = (directory: string, execPath: string, entry: st
   return launcher
 }
 
+/** A bridge reads only the checkout the host assigned, never the peer's cwd. */
+export const bridgeCallerFor = (host: Pick<Host, 'registry'>, runtime: string, id: string): BridgeCaller => ({
+  runtime, sessionId: id,
+  get workspaceRoot() { return host.registry.get(runtimeId(runtime), sessionId(id))?.shellCheckout?.cwd },
+})
+
 export interface ToolServerOptions {
   readonly electron?: boolean
   readonly execPath?: string
@@ -361,10 +367,7 @@ export const createDefaultHost = (
     }
   }
   const claimCaller = (runtime: string) => (token: string, id: string) => {
-    callers.set(token, {
-      runtime, sessionId: id,
-      get workspaceRoot() { return host.registry.get(runtimeId(runtime), sessionId(id))?.session.cwd },
-    })
+    callers.set(token, bridgeCallerFor(host, runtime, id))
     bounded(callers)
   }
   // Which runtime a bridge's token belongs to, known from the moment the

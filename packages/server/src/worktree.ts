@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdir, readdir, realpath, rm } from 'node:fs/promises'
-import { basename, join, resolve, sep } from 'node:path'
+import { homedir } from 'node:os'
+import { basename, isAbsolute, join, parse, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 
 import type { RepoInfo, Worktree, WorktreeChanges } from '@harnessdesk/protocol'
@@ -218,6 +219,26 @@ export class Worktrees {
 
   list(repoRoot: string): Promise<Worktree[]> {
     return list(repoRoot, this.stateDir)
+  }
+
+  /** A shell boundary is a real project or one of this host's linked checkouts, never caller metadata. */
+  async shellRoot(project: string, candidate?: string): Promise<string> {
+    assertAbsolute(project)
+    const root = await realpath(project)
+    if (!samePath(root, project)) throw new Error('The project checkout changed its canonical location. Open it again before running shell commands.')
+    if (!candidate || !isAbsolute(candidate)) return root
+    try {
+      const checkout = await realpath(candidate)
+      if (samePath(checkout, parse(checkout).root) || samePath(checkout, await realpath(homedir()))) return root
+      if (samePath(checkout, root)) return root
+      const registered = (await this.list(root)).find((entry) => entry.managed && samePath(entry.path, checkout))
+      // A listing path replaced by a link no longer names the checkout it registered.
+      if (!registered || !samePath(await realpath(registered.path), registered.path)) return root
+      const [repository, owner] = await Promise.all([repositoryRoot(checkout), repositoryRoot(root)])
+      return repository && owner && samePath(repository, owner) ? checkout : root
+    } catch {
+      return root
+    }
   }
 
   create(repoRoot: string, options: { readonly name: string; readonly base?: string }): Promise<Worktree> {
