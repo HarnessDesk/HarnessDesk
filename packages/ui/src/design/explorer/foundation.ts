@@ -136,7 +136,7 @@ export const TOKEN_GROUPS: {
   { title: 'Interactive', kind: 'color', match: (n) => /^--hd-(hover|active|selected)$/.test(n) },
   { title: 'Shape', kind: 'plain', match: (n) => /^--hd-(radius|border-width)/.test(n) },
   { title: 'Type', kind: 'plain', match: (n) => /^--hd-(text|heading|line|weight|font)/.test(n) },
-  { title: 'Measure', kind: 'plain', match: (n) => /^--hd-(control-h|row-h|column)/.test(n) },
+  { title: 'Measure', kind: 'plain', match: (n) => /^--hd-(control-h|row-h|column|popover-width)/.test(n) },
   { title: 'Motion', kind: 'plain', match: (n) => /^--hd-(ease|duration)/.test(n) },
   { title: 'Elevation', kind: 'plain', match: (n) => /^--hd-shadow/.test(n) },
   { title: 'Layer', kind: 'plain', match: (n) => /^--hd-z-/.test(n) },

@@ -1,0 +1,42 @@
+{
+  "agent": "Claude",
+  "agentId": "claude-code",
+  "version": "2.1.285",
+  "measured": "2026-10-02",
+  "interface": "not launched",
+  "question": "Is an installed build available?",
+  "rawAnswer": "",
+  "facts": {
+    "rulesFiles": {
+      "status": "could-not-ask"
+    },
+    "catalogue": {
+      "status": "could-not-ask"
+    },
+    "reportsCatalogue": false,
+    "precedence": {
+      "status": "could-not-ask"
+    },
+    "rejections": {
+      "status": "could-not-ask"
+    },
+    "reportsRejections": false,
+    "skillRoots": [],
+    "refresh": {
+      "status": "could-not-ask",
+      "catalogueRefresh": "none",
+      "skillToggle": false,
+      "openSessionSeesChange": "unknown"
+    },
+    "mcp": {
+      "status": "could-not-ask"
+    },
+    "signedOutCatalogue": {
+      "status": "unknown"
+    }
+  },
+  "status": "could-not-ask",
+  "isolation": "strict",
+  "auth": "no sign-in used",
+  "reason": "needs sign-in, not measured"
+}

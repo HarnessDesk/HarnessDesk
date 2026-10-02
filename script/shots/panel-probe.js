@@ -17,9 +17,10 @@
     }
     return box
   }
+  // A word the header folds away (`position: absolute; width: 1px; clip-path: inset(50%)`) keeps its padding box but draws nothing: it is read out, not seen, and it is not an overlap.
   const visible = (el) => {
     const r = effectiveBox(el), s = getComputedStyle(el)
-    return r.right - r.left > 1 && r.bottom - r.top > 1 && s.display !== 'none' && s.visibility !== 'hidden' && Number(s.opacity) > 0
+    return r.right - r.left > 1 && r.bottom - r.top > 1 && s.display !== 'none' && s.visibility !== 'hidden' && Number(s.opacity) > 0 && s.clipPath !== 'inset(50%)'
   }
   const box = (el) => { const r = el.getBoundingClientRect(); return { x:r.x, y:r.y, width:r.width, height:r.height, top:r.top, right:r.right, bottom:r.bottom, left:r.left } }
   const activeLayer = [...document.querySelectorAll('[class*="layer"]:not([data-hidden])')].find(visible)

@@ -1163,3 +1163,31 @@ already answers the question every entry point asks it.
 weakest guard that still means what the shape wants (`any`, not `every`, for
 "at least one usable result"); and a role's width is the file's own fact, not
 something only one entry point happens to supply.
+
+## A seat whose agent asks before every MCP tool is explained to its person, never answered for
+
+Claude Code's bridge is ours, so it can say which MCP server asked, and the host answers a flow seat's request for the
+desk's own board tools (the bridge's structured claim, never a title). Gemini CLI is not behind a bridge of ours. Its
+permission request for an MCP tool carries a title such as `list_intents (harnessdesk MCP Server)` and nothing that
+names the server or the raw tool: the structured fields the protocol allows for that (`_meta`, `rawInput`) are not
+filled, and a server the client supplies in `session/new` has no `trust` field. A title can be imitated, and a
+trusted folder's own Gemini settings can define a server with the same name, so answering "allow" on a title match
+would hand a stranger the desk's board. The desk therefore doesn't answer, and it doesn't write Gemini's settings
+either (the agent owns its own world).
+
+What the desk does instead is say it, in the product's plain words. The permission card, only when the request names
+one of the desk's board tools in the exact form, says what the agent wants to do with the board, and that the desk
+can't confirm which server is asking. "Allow once" stays the filled choice; the agent's own grants stay quiet and
+apart, so a lasting grant is a deliberate click. The adapter types each grant from the agent's own option ids (one
+tool for this session, a whole server for this session, beyond the session) and declares the words, so the card reads
+data and never parses English. Where Gemini offers no lasting grant, the card says how to turn that on in its settings,
+and the setting key sits in a hover title, not in the line. The flow preview warns, before a run, that the first time,
+this agent asks once for each HarnessDesk tool it uses. A server-wide session grant keeps the agent's own explicit label, so a broader grant is never
+softened to read like the narrow one.
+
+This is a workaround, and it only makes the prompts understandable: they remain. What would remove them is for the
+agent to say which server asked, or to let a client trust the server it supplied, for that session only. That is asked
+upstream in google-gemini/gemini-cli#29595; the card and the warning can go once it lands.
+
+**The rule:** when an agent can't prove who is asking, the desk explains the question and the choices and leaves the
+answer to the person; it answers for the agent only on a claim made by code the desk ships.

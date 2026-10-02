@@ -458,7 +458,7 @@ export const CANONICAL_UI_MODULES = [
   ['breadcrumb', 'adopted', 'Hierarchical location trail'],
   ['bubble', 'message', 'What a chat message part’s words stand on'],
   ['button', 'button', 'All action and icon buttons'],
-  ['sidebar', 'sidebar', 'Navigation column anatomy, with one fixed row and trailing slot'],
+  ['sidebar', 'sidebar', 'Navigation column and its fixed-width seat menu'],
   ['card', 'adopted', 'Generic grouped surface'],
   ['chart', 'chart', 'Panel-sized quantitative charts'],
   ['composer', 'composer', 'Shared composer presentation shell'],

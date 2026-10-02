@@ -934,6 +934,42 @@ test('a selected profile reaches thread/start and the context window is read bac
   assert.equal(usage?.contextWindow, 872_000, 'the number is the fake app-server usage report')
 })
 
+test('a selected profile is revalidated at start after discovery', async (t) => {
+  const { mkdtempSync, readFileSync, rmSync, writeFileSync, unlinkSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const codexHome = mkdtempSync(join(tmpdir(), 'codex-profile-runtime-'))
+  const profilePath = join(codexHome, 'sol.config.toml')
+  const callsPath = join(codexHome, 'calls.log')
+  writeFileSync(profilePath, 'model = "gpt-5.6-sol"\n')
+  const runtime = makeRuntime({ FAKE_CODEX_CALLS: callsPath }, { codexHome })
+  t.after(() => runtime.dispose())
+  t.after(() => rmSync(codexHome, { recursive: true, force: true }))
+  await runtime.start()
+
+  for (const change of ['malformed', 'missing'] as const) {
+    writeFileSync(profilePath, 'model = "gpt-5.6-sol"\n')
+    const discovered = await runtime.defaultSessionOptions('/w', { [CODEX_PROFILE_OPTION_ID]: 'sol' })
+    const choice = discovered.find((option) => option.id === CODEX_PROFILE_OPTION_ID)
+    assert.ok(choice?.type === 'select' && choice.choices.some((entry) => entry.value === 'sol' && !entry.disabled))
+    if (change === 'malformed') writeFileSync(profilePath, 'model = ["not-a-model"]\n')
+    else unlinkSync(profilePath)
+
+    await assert.rejects(
+      () => runtime.createSession({ cwd: '/w', options: { [CODEX_PROFILE_OPTION_ID]: 'sol' } }),
+      /sol\.config\.toml/,
+      `${change} profile must be refused at session start`,
+    )
+  }
+
+  const calls = readFileSync(callsPath, 'utf8').split('\n').filter(Boolean)
+  assert.ok(calls.includes('initialize'), 'the fake app-server request log is populated')
+  assert.ok(
+    !calls.includes('thread/start'),
+    `a rejected selection never sends thread/start; fake saw: ${calls.join(', ')}`,
+  )
+})
+
 test('a profile outside the bounded discovery set cannot be started by a retained selection', async (t) => {
   const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')

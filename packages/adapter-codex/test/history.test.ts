@@ -2,9 +2,10 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { CodexAppServer } from '@harnessdesk/codex'
+import { CodexAppServer, type CodexProtocol } from '@harnessdesk/codex'
 import { sessionId, type AgentEvent, type Session } from '@harnessdesk/protocol'
 
+import { undoTurns } from '../src/history.js'
 import { CodexRuntime } from '../src/index.js'
 
 /**
@@ -252,6 +253,23 @@ test('Undo rolls a legacy conversation back, and Codex’s notice for that one s
   await live.rollback!(1)
   assert.deepEqual(turnIds(await runtime.readSession(live.id)), ['turn-l1'])
   assert.deepEqual(await deprecations(), ['thread/rollback is deprecated and will be removed soon'])
+})
+
+test('Codex 0.160.0 refuses legacy undo without sending the removed rollback method', async () => {
+  const requests: string[] = []
+  const server = {
+    installation: { path: '/codex', version: 'codex-cli 0.160.0', semver: [0, 160, 0] as const },
+    request: async (method: string) => {
+      requests.push(method)
+      return {}
+    },
+  } as unknown as CodexAppServer
+
+  await assert.rejects(
+    undoTurns(server, { id: 'thread-legacy' } as CodexProtocol.v2.Thread, 1),
+    /Codex 0\.160\.0 and later cannot undo legacy conversations/,
+  )
+  assert.deepEqual(requests, [])
 })
 
 test('a fork arrives with the history it copied, read in pages, and Codex says nothing', async (t) => {

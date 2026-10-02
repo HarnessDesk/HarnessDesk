@@ -36,14 +36,21 @@ import { describe, expect, it } from 'vitest'
  * `data-shape`).
  *
  * An entry in the exception list is a claim that what the tile holds is not
- * someone, or that another test pins its shape, and it names why. It also says
- * how many tiles it excuses, and an entry whose count is not what the source
- * holds fails: a second tile in the same file is a finding until it is named,
- * and the list cannot outlive the thing it excuses.
+ * someone, or that another test pins its shape, and it names why. It records
+ * the tile's identity as well as its shape, so a different tile in the same
+ * file needs its own entry. It also says how many matching tiles it excuses,
+ * and fails when that count is wrong or below one, so the list cannot outlive
+ * the thing it excuses.
  */
 const AGENT_MARKS = new Set(['BrandMark', 'RuntimeMark', 'AgentIcon'])
 
-type Finding = { readonly file: string; readonly line: number; readonly tag: string; readonly shape: string }
+type Finding = {
+  readonly file: string
+  readonly line: number
+  readonly tag: string
+  readonly shape: string
+  readonly identity: string
+}
 
 const tagName = (node: ts.JsxElement | ts.JsxSelfClosingElement): string =>
   (ts.isJsxElement(node) ? node.openingElement : node).tagName.getText()
@@ -82,6 +89,26 @@ const holdsAgentMark = (node: ts.Node): boolean => {
   return found
 }
 
+/** What this tile holds, or the shape expression when its mark arrives by prop. */
+const identityOf = (node: ts.JsxElement | ts.JsxSelfClosingElement): string => {
+  const marks: string[] = []
+  const visit = (child: ts.Node): void => {
+    if ((ts.isJsxSelfClosingElement(child) || ts.isJsxOpeningElement(child)) && AGENT_MARKS.has(child.tagName.getText())) {
+      marks.push(child.getText())
+    }
+    ts.forEachChild(child, visit)
+  }
+  visit(node)
+  if (marks.length) return marks.join('|')
+
+  const shape = attributesOf(node).properties.find(
+    (property): property is ts.JsxAttribute => ts.isJsxAttribute(property) && property.name.getText() === 'shape',
+  )
+  const initializer = shape?.initializer
+  const expression = initializer && ts.isJsxExpression(initializer) ? initializer.expression : initializer
+  return `${tagName(node)}:${expression?.getText() ?? 'default'}`
+}
+
 /** The tiles in `source` that draw someone in a shape that is not a face. */
 const scanFaces = (file: string, source: string): Finding[] => {
   const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
@@ -94,11 +121,13 @@ const scanFaces = (file: string, source: string): Finding[] => {
         const shape = shapeOf(node, 'square')
         // An agent's mark in a tile that is not a face, or a shape this cannot
         // read at all: what such a tile holds may arrive through a prop.
-        if ((holdsAgentMark(node) && shape !== 'face') || shape === 'dynamic') found.push({ file, line, tag, shape })
+        if ((holdsAgentMark(node) && shape !== 'face') || shape === 'dynamic') {
+          found.push({ file, line, tag, shape, identity: identityOf(node) })
+        }
       }
       if (tag === 'AvatarStack') {
         const shape = shapeOf(node, 'face')
-        if (shape !== 'face') found.push({ file, line, tag, shape })
+        if (shape !== 'face') found.push({ file, line, tag, shape, identity: identityOf(node) })
       }
     }
     ts.forEachChild(node, visit)
@@ -107,11 +136,18 @@ const scanFaces = (file: string, source: string): Finding[] => {
   return found
 }
 
-type Exception = { readonly file: string; readonly shape: string; readonly tiles: number; readonly why: string }
+type Exception = {
+  readonly file: string
+  readonly shape: string
+  readonly identity: string
+  readonly tiles: number
+  readonly why: string
+}
 
 /**
  * Tiles that hold an agent's mark and are deliberately not a face. Keyed by the
- * file and the shape the tile can take, and by how many tiles it excuses (a
+ * file, the shape the tile can take, and what it holds (or its shape expression
+ * when the mark arrives by prop), then by how many matching tiles it excuses (a
  * second one in the same file is a new claim, so it is a finding until named);
  * each says why it is not someone.
  */
@@ -119,18 +155,21 @@ const NOT_SOMEONE: readonly Exception[] = [
   {
     file: 'components/SetupDesk.tsx',
     shape: 'square',
+    identity: '<RuntimeMark runtime={info} size={14} />',
     tiles: 1,
     why: 'a harness the desk found on this Mac is a thing, so it is a square: a face is an agent at work, and nothing here is working yet',
   },
   {
     file: 'design/patterns/AgentCard.tsx',
     shape: 'dynamic',
+    identity: 'IconTile:CREST_SHAPE[subject.kind]',
     tiles: 1,
     why: 'the crest follows what its subject is (a harness a square, an account a ring, a session or a member a face), and its mark arrives as a prop; AgentCard.test.tsx pins the shape of each kind',
   },
   {
     file: 'components/Activity.tsx',
     shape: 'face|square',
+    identity: '<RuntimeMark runtime={info} size={12} />',
     tiles: 1,
     why: 'a row whose agent is known wears its mark as a face; the square branch is an event\'s own glyph, which is not someone',
   },
@@ -147,12 +186,16 @@ const settle = (findings: readonly Finding[], exceptions: readonly Exception[]) 
   const unnamed: Finding[] = []
   for (const finding of findings) {
     const entry = exceptions.find(
-      (one) => one.file === finding.file && one.shape === finding.shape && (used.get(one) ?? 0) < one.tiles,
+      (one) => one.file === finding.file && one.shape === finding.shape && one.identity === finding.identity
+        && (used.get(one) ?? 0) < one.tiles,
     )
     if (entry) used.set(entry, (used.get(entry) ?? 0) + 1)
     else unnamed.push(finding)
   }
-  return { unnamed, wrong: exceptions.filter((entry) => (used.get(entry) ?? 0) !== entry.tiles) }
+  return {
+    unnamed,
+    wrong: exceptions.filter((entry) => entry.tiles < 1 || (used.get(entry) ?? 0) !== entry.tiles),
+  }
 }
 
 /* Every `.tsx` the app ships, as text: Vite reads them, so this needs no
@@ -201,14 +244,51 @@ describe('faces: every tile that draws someone is a face', () => {
   })
 
   it('excuses exactly the tiles an exception names, and no others in its file', () => {
-    const tile = (line: number): Finding => ({ file: 'a.tsx', line, tag: 'IconTile', shape: 'dynamic' })
-    const entry: Exception = { file: 'a.tsx', shape: 'dynamic', tiles: 1, why: 'x' }
+    const tile = (line: number): Finding => ({
+      file: 'a.tsx', line, tag: 'IconTile', shape: 'dynamic', identity: 'IconTile:shape',
+    })
+    const entry: Exception = { file: 'a.tsx', shape: 'dynamic', identity: 'IconTile:shape', tiles: 1, why: 'x' }
     // One entry for one tile: a second dynamic tile in the same file is a finding, not a free pass.
     expect(settle([tile(3), tile(9)], [entry]).unnamed.map((finding) => finding.line)).toEqual([9])
     expect(settle([tile(3)], [entry])).toEqual({ unnamed: [], wrong: [] })
     // An entry that says two and finds one, or finds none, is out of date.
     expect(settle([tile(3)], [{ ...entry, tiles: 2 }]).wrong).toHaveLength(1)
     expect(settle([], [entry]).wrong).toHaveLength(1)
+    // Zero cannot describe a useful claim, even if the scan found no tiles.
+    expect(settle([], [{ ...entry, tiles: 0 }]).wrong).toHaveLength(1)
+  })
+
+  it('binds an exception to the tile it names, not another tile of the same shape', () => {
+    const oldTile = {
+      file: 'a.tsx',
+      line: 3,
+      tag: 'IconTile',
+      shape: 'square',
+      identity: '<BrandMark brand="codex" />',
+    } as Finding
+    const replacement = {
+      ...oldTile,
+      line: 7,
+      identity: '<RuntimeMark runtime={runtime} />',
+    }
+    const entry = {
+      file: 'a.tsx',
+      shape: 'square',
+      tiles: 1,
+      identity: '<BrandMark brand="codex" />',
+      why: 'x',
+    } as Exception
+
+    expect(settle([replacement], [entry]).unnamed).toEqual([replacement])
+    expect(settle([replacement], [entry]).wrong).toEqual([entry])
+  })
+
+  it('records the mark a tile holds as its identity', () => {
+    const finding = scanFaces(
+      'a.tsx',
+      'const a = <IconTile shape="square"><BrandMark brand="codex" /></IconTile>',
+    )[0]
+    expect(finding?.identity).toBe('<BrandMark brand="codex" />')
   })
 
   it('refuses an AvatarStack that is not a face', () => {

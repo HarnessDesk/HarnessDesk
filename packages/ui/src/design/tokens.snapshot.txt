@@ -190,6 +190,7 @@
 --hd-placeholder-foreground = rgb(71, 71, 71)
 --hd-popover = rgb(255, 255, 255)
 --hd-popover-foreground = rgb(27, 27, 27)
+--hd-popover-width-wide = 320px
 --hd-press = none
 --hd-primary = rgb(52, 88, 240)
 --hd-primary-foreground = rgb(255, 255, 255)
@@ -696,6 +697,7 @@
 --hd-placeholder-foreground = rgb(177, 177, 177)
 --hd-popover = rgb(33, 33, 33)
 --hd-popover-foreground = rgb(231, 231, 231)
+--hd-popover-width-wide = 320px
 --hd-press = none
 --hd-primary = rgb(112, 142, 250)
 --hd-primary-foreground = rgb(17, 17, 17)
@@ -1212,6 +1214,7 @@
 --hd-placeholder-foreground = rgb(71, 71, 71)
 --hd-popover = rgb(255, 255, 255)
 --hd-popover-foreground = rgb(27, 27, 27)
+--hd-popover-width-wide = 320px
 --hd-press = translateY(1px)
 --hd-primary = rgb(52, 88, 240)
 --hd-primary-foreground = rgb(255, 255, 255)
@@ -1730,6 +1733,7 @@
 --hd-placeholder-foreground = rgb(177, 177, 177)
 --hd-popover = rgb(33, 33, 33)
 --hd-popover-foreground = rgb(231, 231, 231)
+--hd-popover-width-wide = 320px
 --hd-press = translateY(1px)
 --hd-primary = rgb(112, 142, 250)
 --hd-primary-foreground = rgb(17, 17, 17)
