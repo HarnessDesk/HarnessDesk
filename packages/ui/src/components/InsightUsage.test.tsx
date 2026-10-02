@@ -182,3 +182,11 @@ it('keeps a group-level gap note outside the Rows card rather than flush against
   const card = wrappedDesc!.parentElement!.parentElement!.parentElement!
   expect(card.contains(note!)).toBe(false)
 })
+
+it('shows a budget-limited report as a single Partial chip', async () => {
+  const partial = Object.assign(report(), { scan: 'partial', gaps: ['Insight stopped at 64 MiB of source data. Choose a narrower range.'] })
+  const store = { subscribe: () => () => {}, getSnapshot: emptySnapshot } as unknown as AppStore
+  await act(async () => { root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} report={partial} /></StoreProvider>) })
+  expect([...container.querySelectorAll('[data-slot="chip"]')].filter((chip) => chip.textContent === 'Partial')).toHaveLength(1)
+  expect(container.textContent).not.toContain('Insight stopped at')
+})

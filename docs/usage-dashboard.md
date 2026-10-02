@@ -1583,3 +1583,21 @@ has no window to run out of, so it belongs in `credits`, and the card says
 - **Not a second history.** The ledger holds daily roll-ups, not transcripts.
 - **Not networked.** Nothing leaves the machine. No sync, no telemetry, and no
   account emails in any log.
+
+## Opening project usage
+
+The host caches parsed Insight observations and each source's size, modification
+and change times, file identity, parser context and byte cursor for its lifetime.
+Repeat opens and timed refreshes read no unchanged transcript bytes. JSONL
+sources resume at their cursor when appended; a shrink, replacement or same-size
+rewrite resets the source. Rewritten chat snapshots and databases (including
+write-ahead-log changes) are read whole when changed. Files last modified before
+the requested range are skipped before reading their contents.
+
+Each request keeps the existing shared 64 MiB source-data budget and 10,000-file
+ceiling. A JSONL prefix stopped by the byte budget is cached with its cursor, so
+later reads can continue. An oversized whole-file source stays partial. The
+Insight response qualifies totals and carries `scan: 'partial'` when a scan
+limit was reached; Projects shows **Partial** in a chip. Missing measurements
+and unreadable-source warnings retain their own qualification. The cache is
+local to the running host and does not write transcripts or receipt evidence.

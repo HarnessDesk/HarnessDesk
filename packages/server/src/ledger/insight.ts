@@ -33,6 +33,8 @@ export interface InsightScanOptions {
   readonly emit: (sample: UsageSample) => void
   readonly signal?: AbortSignal
   readonly byteLimit: number
+  /** Return a resumable bounded JSONL prefix instead of throwing at the limit. */
+  readonly incremental?: boolean
 }
 
 /** The fixed source-data ceiling one Insight read may spend, across every source together. */
