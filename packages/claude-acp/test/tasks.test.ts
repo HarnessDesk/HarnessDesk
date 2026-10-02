@@ -30,7 +30,9 @@ const make = (env: Record<string, string> = {}): AcpRuntime =>
     command: process.execPath,
     args: [BRIDGE],
     env: {
+      HOME: scratch('claude-acp-tasks-home-'),
       CLAUDE_CODE_EXECUTABLE: FAKE,
+      CLAUDE_CONFIG_DIR: scratch('claude-acp-tasks-config-'),
       CLAUDE_ACP_STATE_DIR: scratch('claude-acp-tasks-state-'),
       CLAUDECODE: '',
       ...env,

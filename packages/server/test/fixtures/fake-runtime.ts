@@ -362,6 +362,7 @@ export class FakeRuntime implements AgentRuntime {
       pluginTools: false,
       instructions: false,
       backgroundTasks: true,
+      perToolMcpApproval: false,
       archiveHistory: true,
   nameHistory: true,
       deleteHistory: true,

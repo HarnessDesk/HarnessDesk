@@ -17,6 +17,41 @@ import { expect, test, type Page } from '@playwright/test'
 
 const label = 'Learn from every single tab of the settings screen'
 
+test('a scripted transcript jump lands in the same task with motion reduced', async ({ page }) => {
+  await page.goto('/preview.html')
+  expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true)
+  const scroller = page.locator('[data-live-transcript]')
+  await expect(scroller).toBeVisible()
+  await scroller.evaluate((node) => {
+    const element = node as HTMLElement
+    element.style.height = '150px'
+    element.style.maxHeight = '150px'
+    element.scrollTop = element.scrollHeight
+  })
+  const rail = page.locator('nav[aria-label="Jump to a message"]')
+  await expect(rail).toBeVisible()
+
+  await page.evaluate(() => {
+    const original = HTMLElement.prototype.scrollIntoView
+    HTMLElement.prototype.scrollIntoView = function (options) {
+      original.call(this, options)
+      const scroller = document.querySelector<HTMLElement>('[data-live-transcript]')!
+      ;(window as unknown as { __scrollRead?: { behavior: ScrollBehavior, top: number } }).__scrollRead = {
+        behavior: typeof options === 'object' ? options.behavior ?? 'auto' : 'auto',
+        top: scroller.scrollTop,
+      }
+    }
+  })
+
+  const before = await scroller.evaluate((node) => (node as HTMLElement).scrollTop)
+  await rail.getByRole('option').first().click()
+  const read = await page.evaluate(() =>
+    (window as unknown as { __scrollRead: { behavior: ScrollBehavior, top: number } }).__scrollRead,
+  )
+  expect(read.behavior).toBe('auto')
+  expect(read.top).toBeLessThan(before)
+})
+
 test('a focused row keeps its checkout mark fixed before the next frame', async ({ page }) => {
   await page.goto('/preview.html')
   const row = page.locator('[data-region="session-row"] [data-slot="sidebar-menu-item"]').filter({

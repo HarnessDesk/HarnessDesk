@@ -109,6 +109,7 @@ test('the actual bridge child gets both environments and re-applies one after re
       command: process.execPath,
       args: [BRIDGE],
       env: {
+        HOME: home,
         CLAUDE_CODE_EXECUTABLE: FAKE,
         CLAUDE_CONFIG_DIR: join(home, 'config'),
         CLAUDE_ACP_STATE_DIR: join(home, 'state'),

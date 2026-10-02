@@ -190,6 +190,7 @@ const CAPABILITIES = {
   hooks: true,
   pluginTools: true,
   backgroundTasks: true,
+  perToolMcpApproval: false,
   // `developerInstructions` on every thread verb: Codex has had an
   // instruction layer of its own since before this desk existed.
   instructions: true,

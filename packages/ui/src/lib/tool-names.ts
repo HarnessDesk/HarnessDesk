@@ -1,4 +1,4 @@
-import type { CapabilityContribution, PluginInstance } from '@harnessdesk/protocol'
+import { FLOW_BOARD_TOOL_NAMES, type CapabilityContribution, type PluginInstance } from '@harnessdesk/protocol'
 
 /**
  * A tool call, said the way a person would say it.
@@ -249,4 +249,39 @@ export const toolsOfPlugin = (
     out.set(contribution.name, sentence)
   }
   return out
+}
+
+/**
+ * What each of the desk's board tools does, as the end of "<agent> wants to use HarnessDesk's board to …".
+ *
+ * A plugin's own description is a noun phrase for a reader of the tool list, not something that follows "wants
+ * to", so a permission card says it in a verb phrase. Keyed by the shared tool list, so a board tool added without
+ * its words fails the compiler, and a card never falls back to the wire name.
+ */
+export const BOARD_TOOL_PHRASES: Readonly<Record<(typeof FLOW_BOARD_TOOL_NAMES)[number], string>> = {
+  list_intents: "list the board's work items",
+  add_intent: 'add a work item to the board',
+  claim_work: 'claim a work item',
+  claim_next: 'claim the next work item',
+  await_work: 'wait for new work on the board',
+  await_member: "wait for another agent's turn to finish",
+  check_conflicts: 'check whether files are already claimed',
+  complete_claim: 'mark its work item done',
+  commit_work: 'commit its work',
+  run_check: "run the flow's check",
+  release_claim: 'hand its work item back to the board',
+  get_context: 'read what a finished work item left for it',
+  get_team_status: 'see who is on the team and what each holds',
+  review_candidates: 'list the revisions it can review',
+  record_review: 'record its review on the board',
+  raise_finding: 'record a finding from its review',
+  repair_finding: 'say it has repaired a finding',
+  decide_finding: 'judge a finding it raised earlier',
+  list_findings: "list the board's findings",
+}
+
+/** A board tool as a verb phrase; an unknown name falls back to its identifier as lower-case words, never the wire name. */
+export const boardToolPhrase = (tool: string): string => {
+  const bare = bareToolName(tool) as (typeof FLOW_BOARD_TOOL_NAMES)[number]
+  return BOARD_TOOL_PHRASES[bare] ?? toolWords(tool).toLowerCase()
 }

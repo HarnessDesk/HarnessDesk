@@ -32,7 +32,7 @@ import { RemoveWorktree } from './../components/RemoveWorktree'
 import { Sidebar } from '../components/Sidebar'
 import { TeamBoardPane } from '../components/TeamBoardPane'
 import { TeamRoomPane } from '../components/TeamRoomPane'
-import { NativeSelect } from '../design'
+import { ApprovalDialog, ApprovalReason, NativeSelect } from '../design'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
 import { AppWindowMode } from '../components/AppWindow'
@@ -57,6 +57,7 @@ import { PREVIEW_FLOW_GOAL, PREVIEW_GOAL, PREVIEW_TRIGGER_GOAL } from './goal-fi
 import { GOAL_INTAKE_SCENES, sceneArmPreview, sceneGoalStatus, triggerFiring, triggerHistoryPage, triggerProjectView, TRIGGER_ARM_SCENES, type GoalIntakeScene, type TriggerArmScene } from './intake-fixture'
 import { FLOW_EXECUTION_SCENES, sceneFlowExecution, type FlowExecutionScene } from './flow-fixture'
 import { COMPOSER_SESSION_KEY, composerStore } from './composer-fixture'
+import { BOARD_TOOL_FRAMES, boardToolFrame } from './approval-fixture'
 import { MessageQueue } from '../components/MessageQueue'
 import { GoalFrames } from './frames-goals'
 import { PanelFrames } from './frames-panels'
@@ -97,6 +98,7 @@ const SHOW_COMPOSER_SLOTS = new URLSearchParams(window.location.search).has('com
    render only on `preview.html?notice-placement` and the default page keeps one
    of each. */
 const SHOW_NOTICE_PLACEMENT = new URLSearchParams(window.location.search).has('notice-placement')
+const SHOW_BOARD_TOOL_APPROVALS = new URLSearchParams(window.location.search).has('board-tool-approvals')
 /* Which of the Dashboard's five rail rows the preview frame opens on — the
    rig's own way to shoot each view without clicking through the rail by
    hand: `preview.html?view=spend`. Falls back to the dial beside the frame. */
@@ -586,6 +588,22 @@ const Preview = () => {
           <TeamBoardPane room={PREVIEW_ROOM} />
         </div>
       </Frame>
+
+      {/* The two real permission-card states shown by the design catalogue:
+          Gemini offered an allow-always choice, or its permanent approval
+          setting is off. */}
+      {SHOW_BOARD_TOOL_APPROVALS && <div className="grid grid-cols-3 gap-4">
+        {BOARD_TOOL_FRAMES.map(({ state, caseId, title }) => {
+          const frame = boardToolFrame(state, () => {})
+          return (
+            <Frame key={state} id={caseId} title={title}>
+              <ApprovalDialog title="Permission" icon={null} focused={false} focusKey={`preview-board-tool-${state}`} placement="docked" actions={frame.actions}>
+                <ApprovalReason title={frame.note.title}>{frame.note.text}</ApprovalReason>
+              </ApprovalDialog>
+            </Frame>
+          )
+        })}
+      </div>}
       <Frame id="board-person-review" title="Board — choose an attempt for the person judge">
         <div className="h-[560px]">
           <PersonReviewBoard />

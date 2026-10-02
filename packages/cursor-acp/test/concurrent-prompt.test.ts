@@ -16,6 +16,7 @@ test('concurrent session/prompt calls for the same session reject immediately wi
   process.env['CURSOR_ACP_COMMAND'] = FAKE
   process.env['CURSOR_ACP_STATE_DIR'] = STATE
   process.env['CURSOR_CONFIG_DIR'] = CURSOR_HOME
+  process.env['HOME'] = CURSOR_HOME
 
   const input = new PassThrough()
   const output = new PassThrough()

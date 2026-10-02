@@ -14,6 +14,7 @@ import { Markdown } from '../../components/Markdown'
 import { PublicationCard } from '../../components/Publication'
 import { QuestionWaitSection } from '../../components/SettingsQuestionWait'
 import { Mount } from '../../preview/harness'
+import { BOARD_TOOL_FRAMES, boardToolFrame } from '../../preview/approval-fixture'
 import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../../state/store'
 import {
@@ -1768,7 +1769,7 @@ const MessageBoard = () => (
 )
 
 export const DialogBoard = () => {
-  const [open, setOpen] = useState<null | 'plain' | 'form' | 'confirm' | 'approval' | 'lightbox'>(null)
+  const [open, setOpen] = useState<null | 'plain' | 'form' | 'confirm' | 'approval' | 'board-tool-approval' | 'lightbox'>(null)
   const [name, setName] = useState('')
   const [ceiling, setCeiling] = useState<'read' | 'edit' | 'publish' | 'merge' | 'unavailable'>('read')
   return (
@@ -1781,6 +1782,7 @@ export const DialogBoard = () => {
             Delete conversation
           </Button>
           <Button variant="outline" onClick={() => setOpen('approval')}>Approval</Button>
+          <Button variant="outline" onClick={() => setOpen('board-tool-approval')}>Approval · board tool</Button>
           <Button variant="outline" onClick={() => setOpen('lightbox')}>Lightbox</Button>
         </Case>
       </div>
@@ -1869,6 +1871,27 @@ export const DialogBoard = () => {
           <ApprovalCode>pnpm verify</ApprovalCode>
           <ApprovalMeta label="in">/workspace</ApprovalMeta>
         </ApprovalDialog>
+      )}
+      {open === 'board-tool-approval' && (
+        <div className={styles.stack}>
+          {BOARD_TOOL_FRAMES.map(({ state, caseId }) => {
+            const frame = boardToolFrame(state, () => setOpen(null))
+            return (
+              <div key={state} data-catalog-case={caseId}>
+                <ApprovalDialog
+                  title="Permission"
+                  icon={<PluginIcon size={16} />}
+                  focused
+                  focusKey={`catalog-board-tool-${state}`}
+                  placement="docked"
+                  actions={frame.actions}
+                >
+                  <ApprovalReason title={frame.note.title}>{frame.note.text}</ApprovalReason>
+                </ApprovalDialog>
+              </div>
+            )
+          })}
+        </div>
       )}
       {open === 'lightbox' && (
         <Lightbox
