@@ -28,6 +28,8 @@ import {
   discoveryIsolation,
   shouldAskAgent,
   KEYCHAIN_READ_ONLY,
+  nodeInstallPrefix,
+  nodeInstallPrefixFor,
 } from './library.mjs'
 import { parseAcpOutput, parseCodexOutput, parseRejectionWords, summarizeAcpMessages } from './probes/index.mjs'
 
@@ -178,6 +180,39 @@ test('install roots that encompass a home or a whole volume cannot be allowed', 
     join('/', 'UsersX'), join('/', 'Volumesfoo'),
   ]
   assert.deepEqual(accepted.filter((root) => !installRootIsSafe(root, realHome)), [])
+})
+
+test('Node install prefixes are safe read roots only when they stay outside unrelated homes and volumes', () => {
+  const realHome = '/Users/dev'
+  const refused = [
+    ['/Users/other/.nvm/versions/node/v22/bin/node', realHome], // hd-secrets-ok synthetic path
+    ['/Volumes/Disk/node/bin/node', realHome],
+    ['/Users/dev/bin/node', realHome],
+    ['/Users/node', realHome], // hd-secrets-ok synthetic path
+    ['/Volumes/node', realHome],
+    ['/Users/Shared/node/bin/node', realHome], // hd-secrets-ok synthetic path
+  ]
+  for (const [binary, home] of refused) {
+    assert.throws(() => nodeInstallPrefixFor(binary, home), (error) => {
+      assert.equal(error.message, 'cannot isolate: the Node install directory is not a safe read root')
+      assert.doesNotMatch(error.message, /\/Users|\/Volumes/)
+      return true
+    }, binary)
+  }
+  assert.equal(nodeInstallPrefixFor('/opt/homebrew/Cellar/node/22.1.0/bin/node', realHome), '/opt/homebrew/Cellar/node/22.1.0')
+  assert.equal(nodeInstallPrefixFor('/usr/local/bin/node', realHome), '/usr/local')
+  assert.equal(nodeInstallPrefixFor('/Users/dev/.nvm/versions/node/v22/bin/node', realHome), '/Users/dev/.nvm/versions/node/v22')
+  assert.equal(nodeInstallPrefixFor('/UsersX/node/bin/node', realHome), '/UsersX/node')
+})
+
+test('the current Node install prefix passes its real-home safety check', () => {
+  assert.doesNotThrow(() => nodeInstallPrefix())
+})
+
+test('a Node prefix in the real home cannot be checked against the synthetic canary home', () => {
+  const nodeInRealHome = '/Users/dev/.nvm/versions/node/v22/bin/node'
+  assert.equal(nodeInstallPrefixFor(nodeInRealHome, '/Users/dev'), '/Users/dev/.nvm/versions/node/v22')
+  assert.throws(() => nodeInstallPrefixFor(nodeInRealHome, '/tmp/sandbox-canary-home'), /Node install directory is not a safe read root/)
 })
 
 test('discovery always uses strict isolation, including keychain-only agents', () => {

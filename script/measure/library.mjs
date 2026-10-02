@@ -264,18 +264,24 @@ export const safeEnv = (fixture, cwd = fixture.repo) => ({
   cwd,
 })
 
-export function nodeInstallPrefix(binary = process.execPath) {
-  const realBinary = realpathSync(binary)
-  return dirname(dirname(realBinary))
+export function nodeInstallPrefixFor(realBinary, realHome) {
+  const prefix = dirname(dirname(realBinary))
+  if (!installRootIsSafe(prefix, realHome)) throw new Error('cannot isolate: the Node install directory is not a safe read root')
+  return prefix
+}
+
+export function nodeInstallPrefix(binary = process.execPath, realHome = realpathSync(homedir())) {
+  return nodeInstallPrefixFor(realpathSync(binary), realHome)
 }
 
 export function makeSandboxProfile(root, realHome = homedir(), options = {}) {
   if (process.platform !== 'darwin' || !existsSync('/usr/bin/sandbox-exec')) return null
   const canonicalFixtureRoot = realpathSync(root)
-  return sandboxProfileText(realpathSync(realHome), {
+  const canonicalRealHome = realpathSync(realHome)
+  return sandboxProfileText(canonicalRealHome, {
     fixtureRoot: canonicalFixtureRoot,
     fixtureRoots: [...new Set([resolve(root), canonicalFixtureRoot])],
-    readPaths: [nodeInstallPrefix(), ...(options.readPaths ?? [])], isolation: options.isolation ?? 'strict',
+    readPaths: [nodeInstallPrefix(process.execPath, canonicalRealHome), ...(options.readPaths ?? [])], isolation: options.isolation ?? 'strict',
   })
 }
 
