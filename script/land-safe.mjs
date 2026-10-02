@@ -13,7 +13,8 @@ export const REQUIRED_CHECKS = Object.freeze([
 ])
 const REQUIRED_CHECK_APP = 'github-actions'
 
-const usage = 'Usage: node script/land-safe.mjs <pr> [--repo owner/name] [--dry-run]'
+const usage = 'Usage: node script/land-safe.mjs <pr> (--head <sha> | --any-head) [--repo owner/name] [--dry-run]'
+const headRequired = 'name the reviewed head with --head <sha>, or pass --any-head to land whatever head is green now'
 
 const cliRunner = (args) =>
   execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] })
@@ -29,9 +30,25 @@ const readJsonLines = (raw) => {
   }
 }
 
+// A run that has not started has no `started_at`, and it is the latest attempt
+// there is: a rerun still queued must hide the older success it is about to
+// replace, never sit behind it (it used to sort as the oldest, so a queued
+// rerun next to an older success read as green). A run without a start time is
+// newer than any run with one, and the id settles runs that tie.
+// Only a non-empty string is a start time: null, undefined and '' all mean the
+// run has not started, and an empty string must not be compared as if it were
+// a very old timestamp.
+const startedAt = (run) => (typeof run.started_at === 'string' && run.started_at !== '' ? run.started_at : null)
+
 const newestFirst = (a, b) => {
-  const time = String(b.started_at ?? '').localeCompare(String(a.started_at ?? ''))
-  if (time !== 0) return time
+  const aStarted = startedAt(a)
+  const bStarted = startedAt(b)
+  if (aStarted === null && bStarted !== null) return -1
+  if (aStarted !== null && bStarted === null) return 1
+  if (aStarted !== null && bStarted !== null) {
+    const time = bStarted.localeCompare(aStarted)
+    if (time !== 0) return time
+  }
   return Number(b.id ?? 0) - Number(a.id ?? 0)
 }
 
@@ -93,7 +110,7 @@ const printReport = (io, decision) => {
 
 /** Execute the guarded landing flow using an injectable gh-compatible runner. */
 export const landSafe = async (
-  { pr, repo, dryRun = false },
+  { pr, repo, dryRun = false, head, anyHead = false },
   runner = cliRunner,
   io = { stdout: process.stdout, stderr: process.stderr },
 ) => {
@@ -101,12 +118,28 @@ export const landSafe = async (
   // an error can honestly say: the merge may have gone through.
   let mergeAsked = false
   try {
+    // What was reviewed is what lands: a push after the approving review would
+    // otherwise merge whatever head happens to be green at that moment.
+    // Strict on purpose: a caller of this function does not pass through the
+    // command line's parser, so an empty head or a truthy non-boolean must not
+    // read as "unreviewed is fine" or as "a head was named".
+    if (typeof anyHead !== 'boolean') throw new Error('anyHead must be true or false')
+    if (head !== undefined && (typeof head !== 'string' || head === '')) throw new Error('head must be the reviewed commit, not empty')
+    // The two are opposites: with both given, --any-head would quietly skip the check --head asks for.
+    if (anyHead && head !== undefined) throw new Error('--head and --any-head are opposites; pass one')
+    if (!anyHead && head === undefined) throw new Error(headRequired)
     if (!repo) repo = run(runner, ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'])
     const initial = readPr(runner, pr, repo)
     if (initial.isDraft) throw new Error(`PR ${pr} is a draft; refusing to land`)
     if (initial.state !== 'OPEN') throw new Error(`PR ${pr} is ${String(initial.state).toLowerCase()}, not open`)
     const sha = initial.headRefOid
     if (!sha || !initial.baseRefName) throw new Error('GitHub did not return the PR head SHA and base branch')
+    if (anyHead) {
+      write(io.stderr, 'land-safe: warning: --any-head lands whatever head is green now, reviewed or not.')
+    } else if (head !== sha) {
+      write(io.stdout, `DECISION: PR ${pr} is at ${sha}, not the reviewed ${head}; it was not merged.`)
+      return 2
+    }
 
     const baseTip = readBaseTip(runner, repo, initial.baseRefName)
     const decision = assessCheckRuns(readCheckRuns(runner, repo, sha), sha)
@@ -165,13 +198,19 @@ export const parseArgs = (argv) => {
   const [pr, ...rest] = argv
   if (!pr || !/^\d+$/.test(pr)) throw new Error(usage)
   let repo
+  let head
+  let anyHead = false
   let dryRun = false
   for (let i = 0; i < rest.length; i += 1) {
     if (rest[i] === '--dry-run' && !dryRun) dryRun = true
+    else if (rest[i] === '--any-head' && !anyHead) anyHead = true
+    else if (rest[i] === '--head' && !head && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(rest[i + 1] ?? '')) head = rest[++i]
     else if (rest[i] === '--repo' && !repo && rest[i + 1] && /^[^/]+\/[^/]+$/.test(rest[i + 1])) repo = rest[++i]
     else throw new Error(usage)
   }
-  return { pr, repo, dryRun }
+  if (head && anyHead) throw new Error(`${usage}\n--head and --any-head are opposites; pass one.`)
+  if (!head && !anyHead) throw new Error(`${headRequired}\n${usage}`)
+  return { pr, repo, dryRun, head, anyHead }
 }
 
 export const isEntryPoint = (metaUrl, argv1) => {

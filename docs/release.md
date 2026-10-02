@@ -107,8 +107,12 @@ macOS's 104-byte `sun_path` limit and crashes the runtime rather than failing
 the test cleanly.
 
 Open the PR, wait for CI, and land it through `node script/land-safe.mjs
-<pr> [--repo owner/name]`. The script reads check-runs for the PR's current
-head SHA, requires `Build, typecheck, test`, `UI system browser integration`
+<pr> --head <sha> [--repo owner/name]`, where `<sha>` is the full commit that
+was reviewed. It refuses (exit 2, saying why) unless the PR is still at that
+commit, so a push after the approving review is never merged unreviewed; that
+same commit is what it hands to the merge. `--any-head` instead lands whatever
+head is green now and says so in a warning; naming neither is an error. The
+script reads check-runs for the PR's head SHA, requires `Build, typecheck, test`, `UI system browser integration`
 and `UI system native integration` to have completed successfully, and checks
 that both the head and base branch tip stayed put
 before it asks GitHub to squash-merge that exact head. This avoids the stale
