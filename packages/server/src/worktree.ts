@@ -32,6 +32,29 @@ import { HARDENED_GIT_CONFIG } from './git-hardening.js'
 
 const run = promisify(execFile)
 
+interface CheckoutIdentity {
+  readonly checkoutRoot: string
+  readonly gitCommonDir: string
+  readonly gitDir: string
+}
+
+/** Live metadata is evidence of an unchanged identity, never new shell authority. */
+export const shellCheckoutIdentity = async (folder: string): Promise<CheckoutIdentity | null> => {
+  try {
+    const [common, dir, top] = (await run('git', ['-C', folder, ...HARDENED_GIT_CONFIG,
+      'rev-parse', '--path-format=absolute', '--git-common-dir', '--git-dir', '--show-toplevel',
+    ], {
+      env: { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))), GIT_OPTIONAL_LOCKS: '0' },
+      timeout: 20_000, maxBuffer: 1024 * 1024,
+    })).stdout.trimEnd().split('\n')
+    if (!common || !dir || !top) return null
+    const [gitCommonDir, gitDir, checkoutRoot] = await Promise.all([realpath(common), realpath(dir), realpath(top)])
+    return { gitCommonDir, gitDir, checkoutRoot }
+  } catch {
+    return null
+  }
+}
+
 export class WorktreeDirtyError extends Error {
   constructor(
     readonly path: string,
@@ -222,10 +245,13 @@ export class Worktrees {
   }
 
   /** A shell boundary is a real project or one of this host's linked checkouts, never caller metadata. */
-  async shellRoot(project: string, candidate?: string): Promise<string> {
+  async shellRoot(project: string, candidate?: string, gitCommonDir: string | null = null): Promise<string> {
     assertAbsolute(project)
     const root = await realpath(project)
     if (!samePath(root, project)) throw new Error('The project checkout changed its canonical location. Open it again before running shell commands.')
+    if (samePath(root, parse(root).root) || samePath(root, await realpath(homedir()))) {
+      throw new Error('The filesystem root or home directory cannot be a shell boundary. Open a project folder instead.')
+    }
     if (!candidate || !isAbsolute(candidate)) return root
     try {
       const checkout = await realpath(candidate)
@@ -234,8 +260,9 @@ export class Worktrees {
       const registered = (await this.list(root)).find((entry) => entry.managed && samePath(entry.path, checkout))
       // A listing path replaced by a link no longer names the checkout it registered.
       if (!registered || !samePath(await realpath(registered.path), registered.path)) return root
-      const [repository, owner] = await Promise.all([repositoryRoot(checkout), repositoryRoot(root)])
-      return repository && owner && samePath(repository, owner) ? checkout : root
+      const repository = await shellCheckoutIdentity(checkout)
+      // Only the identity captured at open authorizes a managed lane.
+      return repository && gitCommonDir && samePath(repository.checkoutRoot, checkout) && samePath(repository.gitCommonDir, gitCommonDir) ? checkout : root
     } catch {
       return root
     }

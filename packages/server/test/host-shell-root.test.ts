@@ -250,3 +250,63 @@ test('an opened linked checkout admits its canonical repository project independ
   assert.deepEqual(d.host.registry.get(d.agent.info.id, opened.id)!.shellCheckout, { project: d.project, cwd: d.lane.path })
   assert.equal((await d.host.call('evidence/seat', { runtime: d.agent.info.id, sessionId: opened.id }))?.checkout.project, d.project)
 })
+
+for (const change of ['core.worktree=/', 'core.worktree=another repository', '.git replaced by a gitdir file'] as const) {
+  test(`shell admission refuses ${change} after workspace open`, async (t) => {
+    const d = await rig(t)
+    const opened = await d.seat()
+    if (change === '.git replaced by a gitdir file') {
+      await rename(join(d.project, '.git'), join(d.base, 'original-git'))
+      await writeFile(join(d.project, '.git'), `gitdir: ${join(d.other, '.git')}\n`)
+    } else {
+      await git(d.project, 'config', 'core.worktree', change === 'core.worktree=/' ? '/' : d.other)
+    }
+    const scope = { runtime: d.agent.info.id, sessionId: opened.id }
+    await assert.rejects(d.host.call('context/resolve', { id: d.where.id, ...scope }), /project checkout changed/i)
+    await assert.rejects(d.host.call('context/resolve', { id: d.where.id }), /project checkout changed/i)
+    await assert.rejects(d.seat(), /project checkout changed|outside every project opened here/i)
+    await assert.rejects(d.kernel.invokeTool(d.tool.id, {}, scope), /project checkout changed/i)
+    await assert.rejects(d.kernel.resolveContext(scope), /project checkout changed/i)
+  })
+}
+
+test('workspace open records a linked checkout identity and still executes in its lane', async (t) => {
+  const d = await rig(t)
+  await d.seat()
+  await d.host.call('workspace/open', { path: d.lane.path })
+  const saved = JSON.parse(await readFile(join(d.stateDir, 'state.json'), 'utf8')).workspaces[0]
+  assert.deepEqual(saved.shellIdentity, {
+    project: d.project,
+    checkoutRoot: d.lane.path,
+    gitCommonDir: await realpath(join(d.project, '.git')),
+  }, 'the host must keep the opened Git identity instead of deriving authority again')
+  const opened = await d.host.call('agent/seat', { id: 'probe', project: d.lane.path, cwd: d.lane.path })
+  const scope = { runtime: d.agent.info.id, sessionId: opened.id }
+  assert.deepEqual(await d.kernel.invokeTool(d.tool.id, {}, scope), { ok: true, content: [{ type: 'text', text: d.lane.path }] })
+  assert.equal((await d.host.call('context/resolve', { id: d.where.id, ...scope })).text, d.lane.path)
+})
+
+test('restart retains the opened project identity after core.worktree changes', async (t) => {
+  const d = await rig(t)
+  await d.dispose()
+  await git(d.project, 'config', 'core.worktree', d.other)
+  const kernel = new ExtensionKernel()
+  const restarted = new Host({ logger: silent, state: new StateStore(join(d.stateDir, 'state.json')), extensions: kernel, builtinAgents: join(d.base, 'agents'), libraryHome: join(d.base, 'library') })
+  t.after(async () => { await restarted.dispose(); await kernel.dispose() })
+  await restarted.start()
+  await kernel.load({ manifest: { id: 'restart-probe', name: 'Restart probe', permissions: { shell: true, workspace: { read: true } } }, plugin: {
+    name: 'restart-probe', inject: ['context', 'shell'], apply(ctx: HarnessContext) {
+      ctx.context.register({ label: 'Restart location', chip: { description: 'Fixture context' }, resolve: async () => (await ctx.shell.run(process.execPath, ['-e', 'process.stdout.write(process.cwd())'])).stdout })
+    },
+  } } as HarnessPlugin)
+  await new Promise((resolve) => setTimeout(resolve, 60))
+  await assert.rejects(restarted.call('context/resolve', { id: kernel.list('context')[0]!.id }), /project checkout changed/i)
+})
+
+for (const kind of ['filesystem root', 'home directory'] as const) {
+  test(`shell boundaries refuse ${kind} even as the project fallback`, async (t) => {
+    const d = await rig(t)
+    const worktrees = new Worktrees(d.stateDir)
+    await assert.rejects(worktrees.shellRoot(kind === 'filesystem root' ? '/' : await realpath(homedir())), /home directory|filesystem root/i)
+  })
+}

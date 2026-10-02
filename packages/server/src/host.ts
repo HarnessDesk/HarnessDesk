@@ -129,13 +129,14 @@ import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
 import { canonicalDestination } from './git-worktree.js'
 import { canonicalPath } from './path-identity.js'
-import { samePath, Worktrees, createDetached, managedWorktreePath, openRepositoryRoot, remove as removeWorktree, removeCheckoutsLeftBehind, repositoryOf } from './worktree.js'
+import { samePath, shellCheckoutIdentity, Worktrees, createDetached, managedWorktreePath, openRepositoryRoot, remove as removeWorktree, removeCheckoutsLeftBehind, repositoryOf } from './worktree.js'
 import { commitCardWork } from './card-commit.js'
 import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 import { LibraryUsageReader } from './library-usage.js'
 import type { Logger } from './log.js'
 import { SessionRegistry, seatedSession, seatedSettings, type SessionRecord } from './registry.js'
-import { StateStore } from './state.js'
+import { StateStore, type ShellProjectIdentity } from './state.js'
+import { captureShellProject, isShellProjectIdentity, shellProjectUnchanged } from './shell-project.js'
 import { EditorPlane } from './editor-plane.js'
 import { EvidencePlane } from './evidence/plane.js'
 import { GhFindingForge, type GhApiRunner } from './findings/forge.js'
@@ -602,7 +603,8 @@ export class Host {
   browserProfileAllowed(profile: string): boolean {
     return this.#lanes
       .list()
-      .some((lane) => lane.browserProfile === profile && lane.state !== 'released')
+      // Profile names are opaque identifiers, not filesystem paths.
+      .some((lane) => Object.is(lane.browserProfile, profile) && lane.state !== 'released')
   }
 
   readonly registry = new SessionRegistry()
@@ -853,8 +855,16 @@ export class Host {
         if (matches.length !== 1 || !matches[0]?.branch) return null
         return { cwd: matches[0].path, branch: matches[0].branch }
       },
-      active: (lane) => this.#evidence.seats.all().some((seat) => !seat.closed && !seat.restored && (seat.id === lane.seat || seat.board === lane.goal && lane.cwd !== '' && seat.checkout.cwd === lane.cwd)),
-      busy: (lane) => this.registry.all().some((record) => record.session.cwd === lane.cwd && isBusy(record.session)),
+      active: (lane) => {
+        const cwd = lane.cwd ? canonicalPath(lane.cwd) : null
+        return this.#evidence.seats.all().some((seat) => !seat.closed && !seat.restored && (
+          seat.id === lane.seat || seat.board === lane.goal && cwd !== null && samePath(canonicalPath(seat.checkout.cwd), cwd)
+        ))
+      },
+      busy: (lane) => {
+        const cwd = lane.cwd ? canonicalPath(lane.cwd) : null
+        return cwd !== null && this.registry.all().some((record) => isBusy(record.session) && samePath(canonicalPath(record.session.cwd), cwd))
+      },
     })
     this.#credentials = new CredentialBroker(
       join(this.#state.directory, 'credentials.json'),
@@ -1776,9 +1786,10 @@ export class Host {
       if (!scope.runtime || !scope.sessionId) return undefined
       const record = this.registry.get(scope.runtime, scope.sessionId)
       if (!record) return undefined
+      const cwd = canonicalPath(record.session.cwd)
       const matches = this.#lanes
         .list()
-        .filter((lane) => lane.cwd !== '' && lane.cwd === record.session.cwd)
+        .filter((lane) => lane.cwd !== '' && samePath(canonicalPath(lane.cwd), cwd))
       if (matches.length > 1) throw new Error('This checkout has conflicting browser lanes.')
       const lane = matches[0]
       if (lane?.state === 'released') {
@@ -2158,9 +2169,9 @@ export class Host {
     this.#goalWriter = await acquireDeskWriter(this.#state.directory)
     await this.#state.load()
     const shellFolder = this.#state.state.workspaces[0]?.realPath ?? this.#state.state.workspaces[0]?.path
-    // Resolve and re-admit it in #shellWorkspace, when needed; a slow Git
-    // probe must not hold startup while the remembered project is restored.
-    this.#shellProject = shellFolder ?? null
+    // Restore the captured grant, never derive one from Git during startup.
+    const shellIdentity = this.#state.state.workspaces[0]?.shellIdentity
+    this.#shellProject = isShellProjectIdentity(shellIdentity) ? shellIdentity.project : shellFolder ?? null
     await this.#laneStore.load()
     // Everything that restores a stored setting runs here, after the file has
     // been read, and never in the constructor. Until it did, a board left
@@ -2411,9 +2422,10 @@ export class Host {
   #withHostHistory(id: RuntimeId, page: Page<SessionSummary>, query?: ListSessionsQuery): Page<SessionSummary> {
     if (query?.cursor) return page
     const rows = new Map(page.data.map((row) => [String(row.id), row]))
+    const cwd = query?.cwd ? canonicalPath(query.cwd) : null
     for (const record of this.registry.all()) {
       const session = record.session
-      if (record.runtime !== id || rows.has(String(session.id)) || (query?.cwd && query.cwd !== session.cwd)) continue
+      if (record.runtime !== id || rows.has(String(session.id)) || (cwd !== null && !samePath(cwd, canonicalPath(session.cwd)))) continue
       rows.set(String(session.id), {
         id: session.id,
         runtime: id,
@@ -2719,7 +2731,7 @@ export class Host {
       name: document.goal.sentence,
       updatedAt: document.goal.updatedAt,
       root: document.goal.root,
-      ...(document.goal.cwd === document.goal.root ? {} : { cwd: document.goal.cwd }),
+      ...(samePath(canonicalPath(document.goal.cwd), canonicalPath(document.goal.root)) ? {} : { cwd: document.goal.cwd }),
       members: [],
       intents: document.board.intents,
       channel: document.board.channel,
@@ -2891,19 +2903,25 @@ export class Host {
   #shellProject: string | null = null
 
   /** Only person-opened projects admit shell authority; session listings never do. */
-  async #admitShellProject(project: string | null | undefined): Promise<string | undefined> {
+  async #admitShellProject(project: string | null | undefined): Promise<ShellProjectIdentity | undefined> {
     if (!project || !isAbsolute(project)) return undefined
     const real = await realpath(project).catch(() => undefined)
     if (!real) return undefined
-    const wanted = await projectOf(real)
+    const wanted = await shellCheckoutIdentity(real)
     for (const entry of this.#state.state.workspaces) {
-      const saved = entry.realPath ?? entry.path
-      if (!isAbsolute(saved)) continue
-      const opened = await realpath(saved).catch(() => undefined)
-      // A replaced open folder cannot authorize its replacement.
-      if (!opened || !samePath(saved, opened)) continue
-      const root = await projectOf(opened)
-      if (samePath(root, wanted)) return root
+      const identity = entry.shellIdentity
+      const opened = entry.realPath
+      if (!isShellProjectIdentity(identity) || typeof opened !== 'string' || !isAbsolute(opened)) continue
+      // Only stored roots or a checkout of the stored Git identity can be candidates.
+      const named = samePath(real, identity.project) || samePath(real, opened) || samePath(real, identity.checkoutRoot)
+      const related = wanted && identity.gitCommonDir !== null && samePath(wanted.gitCommonDir, identity.gitCommonDir)
+      if (!named && !related) continue
+      if (!await shellProjectUnchanged(opened, identity)) {
+        throw new Error('The project checkout changed or is no longer open. Open it again before running shell commands.')
+      }
+      // A redirected candidate cannot redefine the captured project either.
+      if (!named && (!wanted || !samePath(real, wanted.checkoutRoot))) continue
+      return identity
     }
     return undefined
   }
@@ -2914,13 +2932,14 @@ export class Host {
     const kept = record && !record.shellCheckout ? this.#evidence.seats.latestKeptOf(record.runtime, record.session.id) : null
     const checkout = record?.shellCheckout ?? kept?.checkout
     const admitted = await this.#admitShellProject(checkout?.project)
-    const project = admitted ?? await this.#admitShellProject(this.#shellProject)
-    if (!project) {
+    const identity = admitted ?? await this.#admitShellProject(this.#shellProject)
+    if (!identity) {
       if (this.#shellProject) throw new Error('The project checkout changed or is no longer open. Open it again before running shell commands.')
       return undefined
     }
     // A foreign or stale project loses its cwd as well; it cannot authorize a lane of the fallback project.
-    const cwd = await this.#worktrees.shellRoot(project, admitted ? checkout?.cwd : undefined)
+    const project = identity.project
+    const cwd = await this.#worktrees.shellRoot(project, admitted ? checkout?.cwd : undefined, identity.gitCommonDir)
     if (record) record.shellCheckout = { project, cwd }
     return cwd
   }
@@ -4267,8 +4286,9 @@ export class Host {
     // already did before it needed a comparison key at all — a call per
     // entry, unbounded over up to 50 remembered folders, is exactly the cost
     // recording it here avoids.
-    const realPath = await this.#realPath(described.path)
-    const record = { ...described, lastOpenedAt: Date.now(), realPath }
+    const realPath = await realpath(described.path)
+    const shellIdentity = await captureShellProject(realPath)
+    const record = { ...described, lastOpenedAt: Date.now(), realPath, shellIdentity }
     await this.#state.touchWorkspace(record)
     // Here, not at one call site: `workspace/pick` opens a workspace too, and
     // only `workspace/open` was clearing this. A folder that resolved to no
@@ -4277,7 +4297,7 @@ export class Host {
     const git = await gitService.status(described.path)
     // Plugins scope their filesystem access to the open workspace, so the
     // kernel has to learn about the change at the same moment the host does.
-    this.#shellProject = await projectOf(realPath)
+    this.#shellProject = shellIdentity.project
     this.#extensions?.setWorkspace({ root: described.path, branch: git?.branch ?? null })
     // Fire-and-forget: opening a folder must not wait on re-pointing the
     // roster's watch, which walks every open project's ancestors afresh.
@@ -5415,9 +5435,10 @@ export class Host {
       readonly attachments?: SessionAttachments
     },
   ): Promise<OpenedSeat> {
-    const project = await this.#admitShellProject(where.project ?? this.#shellProject)
-    if (!project) throw new Error('The Seat project is outside every project opened here. Open it first.')
-    const cwd = await this.#worktrees.shellRoot(project, where.cwd)
+    const identity = await this.#admitShellProject(where.project ?? this.#shellProject)
+    if (!identity) throw new Error('The Seat project is outside every project opened here. Open it first.')
+    const project = identity.project
+    const cwd = await this.#worktrees.shellRoot(project, where.cwd, identity.gitCommonDir)
     const runtime = this.#runtime({ runtime: seat.runtime })
     // The lane is found by its checkout, from the desk's own lane record; the
     // cwd is the confinement and every runtime takes it. The six values go to
@@ -6232,7 +6253,8 @@ export class Host {
     let longest = -1
     for (const root of roots) {
       const realRoot = canonicalPath(root).replace(/\/+$/, '')
-      if (target !== realRoot && !target.startsWith(`${realRoot}/`)) continue
+      // Both paths are already canonical and trimmed; containment uses the same exact spelling.
+      if (!Object.is(target, realRoot) && !target.startsWith(`${realRoot}/`)) continue
       if (realRoot.length > longest) {
         found = root
         longest = realRoot.length
