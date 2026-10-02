@@ -311,6 +311,7 @@ Stacking is a system, not a race. A component that needs to sit above another ta
 | `--hd-z-window` | `45` |
 | `--hd-z-palette` | `47` |
 | `--hd-z-popover` | `50` |
+| `--hd-popover-width-wide` | `320px` |
 | `--hd-z-sheet` | `60` |
 | `--hd-z-dialog` | `100` |
 | `--hd-z-toast` | `200` |

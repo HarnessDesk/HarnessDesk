@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 
 import { runtimeId, sessionKey, sessionId, turnId, type AgentItem, type FileChange, type Turn } from '@harnessdesk/protocol'
 
-import { AlertIcon, BranchIcon, BriefIcon, CaretIcon, CheckIcon, CrossIcon, FilterIcon, FolderIcon, MoreIcon, PlusIcon, PluginIcon, SearchIcon, TeamIcon, TerminalIcon, TodoPendingIcon, UsageIcon, UserIcon } from '../../components/Icons'
+import { AlertIcon, BranchIcon, BriefIcon, CaretIcon, CheckIcon, CrossIcon, FilterIcon, FolderIcon, MoreIcon, PlusIcon, PluginIcon, SearchIcon, TeamIcon, TerminalIcon, TodoPendingIcon, UsageIcon } from '../../components/Icons'
 import { RuntimeMark } from '../../components/BrandIcons'
 import { DiffView } from '../../components/Diff'
 import { TurnFiles } from '../../components/TurnFiles'
@@ -11,6 +11,7 @@ import { ItemView } from '../../components/Items'
 import { Markdown } from '../../components/Markdown'
 import { PublicationCard } from '../../components/Publication'
 import { QuestionWaitSection } from '../../components/SettingsQuestionWait'
+import { AccountFooter, Sidebar } from '../../components/Sidebar'
 import { Mount } from '../../preview/harness'
 import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppStore } from '../../state/store'
@@ -309,9 +310,33 @@ const SidebarBoard = () => (
       </div>
       <Separator />
       <div className="flex shrink-0 flex-col gap-(--hd-space-2) p-(--hd-space-2)">
-        <SidebarMenu>
-          <SidebarMenuItem><SidebarMenuButton icon={<UserIcon size={16} />} label="Jane Doe" /></SidebarMenuItem>
-        </SidebarMenu>
+        <div
+          data-catalog-case="seat-menu-width"
+          className="w-[calc(var(--sidebar-width)-var(--hd-space-16)-var(--hd-space-4))]"
+        >
+          <Mount>
+            <AccountFooter onOpenSettings={() => {}} onOpenUsage={() => {}} onSignIn={() => {}} />
+          </Mount>
+        </div>
+      </div>
+    </div>
+    <div className="grid gap-(--hd-space-2)">
+      <Text role="navigation">Real sidebar menus at a narrow column width</Text>
+      <div
+        data-catalog-case="sidebar-menu-widths"
+        className="h-[calc(var(--sidebar-width)*2)] w-[calc(var(--sidebar-width)-var(--hd-space-16)-var(--hd-space-4))] overflow-hidden rounded-(--hd-radius) border border-sidebar-border bg-sidebar text-sidebar-foreground"
+      >
+        <Mount>
+          <Sidebar
+            onOpenSettings={() => {}}
+            onOpenPlugins={() => {}}
+            onOpenAgents={() => {}}
+            onOpenUsage={() => {}}
+            onBrowseFolders={() => {}}
+            onSignIn={() => {}}
+            onSearch={() => {}}
+          />
+        </Mount>
       </div>
     </div>
   </div>

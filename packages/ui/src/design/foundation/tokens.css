@@ -622,6 +622,9 @@ body {
      you can always reach, including from inside Settings. */
   --hd-z-palette: 47;
   --hd-z-popover: 50;
+  /* Long account pickers keep their own readable width while their anchor
+     follows the resizable sidebar. */
+  --hd-popover-width-wide: 320px;
   /* A modal sheet: sign-in. Above the menus, because it is the one surface
      that must not be talked over; below a dialog, because a dialog opened
      from inside it is still a dialog. */

@@ -133,11 +133,10 @@ export const Popover = ({
   /** Remove horizontal inset and keep icon marks full-size in a tight trigger. */
   tightTrigger?: boolean
   /**
-   * `trigger` draws the panel exactly as wide as the row that opened it, so a
-   * menu opened from a full-width row reads as that row unfolding rather than
-   * as a card set down beside it.
+   * `trigger` follows the anchor width; `wide` uses the foundation's shared
+   * wide-panel width while still respecting the viewport clamp.
    */
-  panelWidth?: 'content' | 'trigger'
+  panelWidth?: 'content' | 'trigger' | 'wide'
   onOpenChange?: (open: boolean) => void
   /** Colours the trigger by risk, for controls where neutral would mislead. */
   tone?: 'calm' | 'warn' | 'alert'
@@ -261,7 +260,7 @@ export const Popover = ({
               ref={panel}
               aria-labelledby={triggerId}
               className={styles.panel}
-              data-width={panelWidth === 'trigger' ? 'trigger' : undefined}
+              data-width={panelWidth === 'trigger' || panelWidth === 'wide' ? panelWidth : undefined}
               initialFocus={false}
               finalFocus={() => {
                 const requested = externalReturnFocus.current

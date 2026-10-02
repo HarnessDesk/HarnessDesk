@@ -24,6 +24,8 @@ import { execFileSync } from 'node:child_process'
  *
  *   node script/shots/shoot.mjs --survey          # what is on screen
  *   node script/shots/shoot.mjs --scene board     # one scene, both themes
+ *   node script/shots/shoot.mjs --scene sidebar-menu --sidebar-width 200
+ *                                                 # one narrow-sidebar take
  *   node script/shots/shoot.mjs --all             # every scene, both themes
  *   HD_SHOTS_CONTEXT=1 node script/shots/shoot.mjs --all
  *                                                 # every context-panel ring
@@ -1913,6 +1915,8 @@ rules:
     await sleep(700)
   } }
   SCENES['sidebar-menu'] = { leaveOverlay: true, run: async () => {
+    const sidebarWidth = Number(flag('sidebar-width', '0'))
+    if (sidebarWidth > 0) await cdp.eval(`${STORE}.resizePanel('sidebar', ${sidebarWidth}); true`)
     const opened = await cdp.eval(`(() => {
       const button = document.querySelector('button[class*="accountRow"]')
       if (!button) return false
