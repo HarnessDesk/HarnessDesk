@@ -16,6 +16,8 @@ import { invokeForBridge } from '../src/tool-gateway.js'
 import { Host } from '../src/host.js'
 import { Worktrees } from '../src/worktree.js'
 import { EvidenceStore } from '../src/evidence/store.js'
+import { captureShellProject, shellProjectUnchanged } from '../src/shell-project.js'
+import { LaneStore } from '../src/goals/lanes.js'
 import { StateStore } from '../src/state.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { silent } from './fixtures/harness.js'
@@ -26,10 +28,10 @@ const git = async (cwd: string, ...args: string[]) => (await run('git', ['-C', c
   env: { ...process.env, GIT_AUTHOR_NAME: 'Jane Doe', GIT_AUTHOR_EMAIL: 'dev@example.com', GIT_COMMITTER_NAME: 'Jane Doe', GIT_COMMITTER_EMAIL: 'dev@example.com' },
 })).stdout
 
-async function rig(t: TestContext, runtime?: AgentRuntime) {
+async function rig(t: TestContext, runtime?: AgentRuntime, collision = false) {
   const base = await realpath(tempDir('hd-shell-authority-'))
-  const project = join(base, 'project')
-  const other = join(base, 'other')
+  const project = join(base, collision ? 'a/b' : 'project')
+  const other = join(base, collision ? 'a\\b' : 'other')
   const stateDir = join(base, 'state')
   for (const cwd of [project, other]) {
     await run('git', ['init', '-q', '-b', 'main', cwd])
@@ -310,3 +312,90 @@ for (const kind of ['filesystem root', 'home directory'] as const) {
     await assert.rejects(worktrees.shellRoot(kind === 'filesystem root' ? '/' : await realpath(homedir())), /home directory|filesystem root/i)
   })
 }
+
+
+test('POSIX core.worktree slash/backslash collision invalidates identity and refuses shell', { skip: process.platform === 'win32' }, async (t) => {
+  const d = await rig(t, undefined, true)
+  const identity = await captureShellProject(d.project)
+  const opened = await d.seat()
+  await git(d.project, 'config', 'core.worktree', d.other)
+  assert.equal(await shellProjectUnchanged(d.project, identity), false)
+  const scope = { runtime: d.agent.info.id, sessionId: opened.id }
+  await assert.rejects(d.host.call('context/resolve', { id: d.diff.id, ...scope }), /project checkout changed/i)
+  await assert.rejects(d.kernel.invokeTool(d.tool.id, {}, scope), /project checkout changed/i)
+  await assert.rejects(d.kernel.resolveContext(scope), /project checkout changed/i)
+  await assert.rejects(d.seat(), /project checkout changed|outside every project opened here/i)
+})
+
+test('POSIX browser lane membership keeps slash/backslash checkouts distinct', { skip: process.platform === 'win32' }, async (t) => {
+  const base = await realpath(tempDir('hd-browser-membership-'))
+  const cwd = join(base, 'a/b')
+  const foreign = join(base, 'a\\b')
+  await mkdir(cwd, { recursive: true })
+  await mkdir(foreign)
+  const stateDir = join(base, 'state')
+  const lanes = new LaneStore(stateDir)
+  await lanes.load()
+  await lanes.save({ id: 'collision', goal: 'fixture-goal', seat: null, cwd, branch: '',
+    ports: { start: 30000, end: 30019 }, browserProfile: 'lane-11111111-1111-1111-1111-111111111111', state: 'released', createdAt: 1 })
+  const kernel = new ExtensionKernel()
+  let resolveBrowser!: Parameters<ExtensionKernel['setBrowserResolver']>[0]
+  const original = kernel.setBrowserResolver.bind(kernel)
+  t.mock.method(kernel, 'setBrowserResolver', (resolve: typeof resolveBrowser) => {
+    resolveBrowser = resolve
+    original(resolve)
+  })
+  const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), extensions: kernel,
+    builtinAgents: join(base, 'agents'), libraryHome: join(base, 'library') })
+  t.after(async () => { await host.dispose(); await kernel.dispose() })
+  await host.start()
+  const agent = new FakeRuntime()
+  const id = sessionId('browser-membership')
+  const session = { id, runtime: agent.info.id, cwd, status: { type: 'idle' } as const,
+    createdAt: 0, updatedAt: 0, turns: [], itemsLoaded: true }
+  host.registry.upsert(session, null)
+  const scope = { runtime: agent.info.id, sessionId: id }
+  assert.throws(() => resolveBrowser(scope), /lane was released/, 'control: the actual lane is found')
+  host.registry.upsert({ ...session, cwd: foreign }, null)
+  assert.equal(resolveBrowser(scope), 'default', 'a distinct POSIX folder cannot select the released browser lane')
+})
+
+test('legacy workspace record without identity refuses shell until workspace open', async (t) => {
+  const d = await rig(t)
+  await d.dispose()
+  const path = join(d.stateDir, 'state.json')
+  const state = JSON.parse(await readFile(path, 'utf8'))
+  for (const entry of state.workspaces) delete entry.shellIdentity
+  await writeFile(path, JSON.stringify(state))
+  const kernel = new ExtensionKernel()
+  const host = new Host({ logger: silent, state: new StateStore(path), extensions: kernel,
+    builtinAgents: join(d.base, 'agents'), libraryHome: join(d.base, 'library') })
+  t.after(async () => { await host.dispose(); await kernel.dispose() })
+  await host.start()
+  await kernel.load({ manifest: { id: 'legacy-probe', name: 'Legacy probe', permissions: { shell: true, workspace: { read: true } } },
+    plugin: { name: 'legacy-probe', inject: ['context', 'shell'], apply(ctx: HarnessContext) {
+      ctx.context.register({ label: 'Legacy location', chip: { description: 'Fixture context' },
+        resolve: async () => (await ctx.shell.run(process.execPath, ['-e', 'process.stdout.write(process.cwd())'])).stdout })
+    } } } as HarnessPlugin)
+  await new Promise((resolve) => setTimeout(resolve, 60))
+  const id = kernel.list('context')[0]!.id
+  await assert.rejects(host.call('context/resolve', { id }), /project checkout changed/i)
+  await host.call('workspace/open', { path: d.project })
+  assert.equal((await host.call('context/resolve', { id })).text, d.project)
+})
+
+test('ambient GIT_DIR and GIT_WORK_TREE cannot redirect captured or validated identity', async (t) => {
+  const d = await rig(t)
+  const expected = await captureShellProject(d.project)
+  const keys = ['GIT_DIR', 'GIT_WORK_TREE'] as const
+  const saved = keys.map((key) => process.env[key])
+  try {
+    process.env.GIT_DIR = join(d.other, '.git')
+    process.env.GIT_WORK_TREE = d.other
+    assert.deepEqual(await captureShellProject(d.project), expected)
+    assert.equal(await shellProjectUnchanged(d.project, expected), true)
+    assert.equal((await d.host.call('context/resolve', { id: d.where.id })).text, d.project)
+  } finally {
+    keys.forEach((key, index) => { const value = saved[index]; if (value === undefined) delete process.env[key]; else process.env[key] = value })
+  }
+})

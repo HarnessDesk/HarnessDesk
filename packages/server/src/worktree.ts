@@ -305,16 +305,11 @@ export const isManagedWorktree = (worktreePath: string, home: string): boolean =
     : normPath.startsWith(prefix)
 }
 
-/**
- * Whether two paths name the same location across platform separator and
- * Windows drive-letter casing variations.
- */
+/** Canonical POSIX paths are exact; only Windows folds separators and casing. */
 export const samePath = (a: string, b: string): boolean => {
-  const normA = a.replace(/\\/g, '/').replace(/\/+$/, '')
-  const normB = b.replace(/\\/g, '/').replace(/\/+$/, '')
-  const isWin =
-    process.platform === 'win32' || (/^[a-zA-Z]:\//.test(normA) && /^[a-zA-Z]:\//.test(normB))
-  return isWin ? normA.toLowerCase() === normB.toLowerCase() : normA === normB
+  if (process.platform !== 'win32') return a === b
+  const normalize = (path: string): string => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+  return normalize(a) === normalize(b)
 }
 
 export const parseWorktreeList = (porcelain: string, home: string): Worktree[] => {
