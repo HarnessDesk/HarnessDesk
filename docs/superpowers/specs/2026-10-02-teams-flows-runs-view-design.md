@@ -68,8 +68,9 @@ a chat and without a hand step.** Three claims anyone can check:
   own. On the host's side: `#runtimeIsIdle`
   in `host.ts` is false while any Seat on the runtime is not closed, and also
   while any of its conversations holds a live handle. Nothing in the engine
-  closes a Seat when its card is done; wrapping the Team (`closeSeats`) or a
-  person closing the conversation does. So a Team that wrote and reviewed
+  closes a Seat when its card is done. Wrapping the Team (`closeSeats`) and
+  deleting a conversation close a Seat; closing a conversation (`session/close`)
+  only lets go of its live handle and leaves the Seat open and a member. So a Team that wrote and reviewed
   keeps both agents' processes up until it is wrapped.
 - **A seat's state is in the channel, not in a list.** The rail draws a light
   on a working seat, and the chat says "Alpha is working". Nothing puts the
@@ -223,7 +224,7 @@ State, in the words the app already uses:
 
 | State | A seat is here when | Notes |
 | --- | --- | --- |
-| **Needs you** | A card addressed to a person waits, a question or a tool approval is open, or the seat has said it is blocked and given a reason. | A Run that is stalled, that ended on an outcome no rule follows, or that holds a review it could not post is also *Needs you*, on the Team and the Run. The reason is the earned line. |
+| **Needs you** | A card addressed to a person waits, a question or a tool approval is open, or the seat has said it is blocked and given a reason. | A Run that is stalled, that ended on an outcome no rule follows, or that holds a review it could not post is also *Needs you*, on the Team and the Run (the unposted review once the publication state is read, plan PR 7). The reason is the earned line. |
 | **Unread** | Something from this seat arrived since you last opened its conversation. | Window only. The command line shows three states. |
 | **Working** | A turn is running, or it holds a claimed card. | |
 | **Idle** | Anything else. A seat whose card waits on another (`blockedBy: graph`) is idle, and its card cell says "after #2". | |
@@ -630,13 +631,18 @@ commit, and none of them ships a surface by itself:
    session's own `close()`, which must also drop it from the adapter's session
    map (or `stopForIdle` refuses), and reopens it with `resumeSession`. On
    every other runtime the process keeps running and what the person sees is
-   unchanged. A message, or opening the conversation, reconnects it through the
-   path a restarted agent's members already use (`detached`, reopened by the
-   next delivery). It never closes the Seat and never changes a card.
+   unchanged. The release follows `session/close`: the live handle is closed
+   and `live` is null, while `detached` stays false, because the handle was let
+   go on purpose and not lost to a restart. The Seat stays a member, and the next
+   thing addressed to it (a message, opening the conversation) reopens it. It
+   never closes the Seat and never changes a card.
 9. The receipt remembers each Seat's conversation: `GoalReceiptMember.session`,
    written at wrap from the Seat's own record, so a wrapped Team's Seats can
    still be opened. A receipt wrapped earlier falls back to the session of a
    Seat that answered, and otherwise lists the Seat without a link.
+10. A wrapped Team's Seats refuse new work: a send, a steer or a queued send
+    into a conversation that is a Seat of a wrapped Goal is refused with "This
+    Team is wrapped". Today `turn/send` reaches the session without asking.
 
 ## Phasing
 
