@@ -51,8 +51,9 @@ export const scopeHere = (
      resolution in `Composer.tsx`, derive the agent from the key for the same
      reason). */
   const addressed = key ? splitSessionKey(key) : null
+  const workspaceRoot = snapshot.workspace?.realPath ?? snapshot.workspace?.path
   return {
-    ...(snapshot.workspace?.path ? { workspaceRoot: snapshot.workspace.path } : {}),
+    ...(workspaceRoot ? { workspaceRoot } : {}),
     ...(addressed
       ? { runtime: addressed.runtime, sessionId: addressed.id }
       : snapshot.activeRuntime

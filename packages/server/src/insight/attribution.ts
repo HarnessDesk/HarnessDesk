@@ -1,4 +1,5 @@
 import type { SeatRecord } from '@harnessdesk/protocol'
+import { sameCanonicalPath } from '../path-identity.js'
 
 export interface SeatWindow {
   readonly id: string
@@ -28,7 +29,7 @@ export function seatFor(sample: UsageWindow, seats: readonly SeatWindow[]): stri
   if (!Number.isFinite(sample.from) || !Number.isFinite(sample.to) || sample.to < sample.from) return null
   const matches = seats.filter((seat) => !seat.restored
     && seat.runtime === sample.runtime && seat.sessionId === sample.sessionId
-    && seat.project === sample.project && sample.from! >= seat.openedAt
+    && sameCanonicalPath(seat.project, sample.project!) && sample.from! >= seat.openedAt
     && (seat.closedAt === null || sample.to! < seat.closedAt))
   return matches.length === 1 ? matches[0]!.id : null
 }

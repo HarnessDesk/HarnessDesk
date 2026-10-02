@@ -75,11 +75,26 @@ const MAX_BUNDLE_BYTES = 1024 * 1024
  * the same reason: plain `O_NOFOLLOW` refuses a link only at a path's last
  * component, and an ancestor swapped for one after this walk classified it
  * would be followed like any other lookup. Elsewhere than macOS this reads
- * `0`; the per-file `O_NOFOLLOW` below and the identity re-check still hold
- * there, and this desk ships and runs its CI on macOS only.
+ * `0`; the ancestor walk below plus per-file `O_NOFOLLOW` and the identity
+ * re-check enforce the same hostile static-tree boundary there.
  */
 const NOFOLLOW_ANY = process.platform === 'darwin' ? 0x20000000 : 0
-const openNoFollow = (path: string, flags: number) => open(path, flags | (NOFOLLOW_ANY || constants.O_NOFOLLOW))
+const openNoFollow = async (path: string, flags: number) => {
+  if (!NOFOLLOW_ANY) {
+    const ancestors: string[] = []
+    for (let at = dirname(path); ; at = dirname(at)) {
+      ancestors.push(at)
+      if (dirname(at) === at) break
+    }
+    for (const ancestor of ancestors.reverse()) {
+      const info = await lstat(ancestor)
+      if (info.isSymbolicLink() || !info.isDirectory()) {
+        throw new Error(`${ancestor} was replaced before its contents could be read.`)
+      }
+    }
+  }
+  return open(path, flags | (NOFOLLOW_ANY || constants.O_NOFOLLOW))
+}
 
 const GIT_DIR_FOLDED = '.git'
 const foldedSegment = (segment: string): string => segment.normalize('NFC').toLowerCase()

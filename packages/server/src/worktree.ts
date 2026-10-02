@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdir, readdir, realpath, rm } from 'node:fs/promises'
-import { basename, join, resolve, sep } from 'node:path'
+import { homedir } from 'node:os'
+import { basename, isAbsolute, join, parse, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 
 import type { RepoInfo, Worktree, WorktreeChanges } from '@harnessdesk/protocol'
@@ -30,6 +31,29 @@ import { HARDENED_GIT_CONFIG } from './git-hardening.js'
  */
 
 const run = promisify(execFile)
+
+interface CheckoutIdentity {
+  readonly checkoutRoot: string
+  readonly gitCommonDir: string
+  readonly gitDir: string
+}
+
+/** Live metadata is evidence of an unchanged identity, never new shell authority. */
+export const shellCheckoutIdentity = async (folder: string): Promise<CheckoutIdentity | null> => {
+  try {
+    const [common, dir, top] = (await run('git', ['-C', folder, ...HARDENED_GIT_CONFIG,
+      'rev-parse', '--path-format=absolute', '--git-common-dir', '--git-dir', '--show-toplevel',
+    ], {
+      env: { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))), GIT_OPTIONAL_LOCKS: '0' },
+      timeout: 20_000, maxBuffer: 1024 * 1024,
+    })).stdout.trimEnd().split('\n')
+    if (!common || !dir || !top) return null
+    const [gitCommonDir, gitDir, checkoutRoot] = await Promise.all([realpath(common), realpath(dir), realpath(top)])
+    return { gitCommonDir, gitDir, checkoutRoot }
+  } catch {
+    return null
+  }
+}
 
 export class WorktreeDirtyError extends Error {
   constructor(
@@ -220,6 +244,31 @@ export class Worktrees {
     return list(repoRoot, this.stateDir)
   }
 
+  /** A shell boundary is a captured project, its opened checkout or a managed lane, never caller metadata. */
+  async shellRoot(project: string, candidate?: string, gitCommonDir: string | null = null, openedCheckoutRoot: string | null = null): Promise<string> {
+    assertAbsolute(project)
+    const root = await realpath(project)
+    if (!samePath(root, project)) throw new Error('The project checkout changed its canonical location. Open it again before running shell commands.')
+    if (samePath(root, parse(root).root) || samePath(root, await realpath(homedir()))) {
+      throw new Error('The filesystem root or home directory cannot be a shell boundary. Open a project folder instead.')
+    }
+    if (!candidate || !isAbsolute(candidate)) return root
+    try {
+      const checkout = await realpath(candidate)
+      if (samePath(checkout, parse(checkout).root) || samePath(checkout, await realpath(homedir()))) return root
+      if (samePath(checkout, root)) return root
+      const registered = (await this.list(root)).find((entry) =>
+        samePath(entry.path, checkout) && (entry.managed || openedCheckoutRoot !== null && samePath(checkout, openedCheckoutRoot)))
+      // A listing path replaced by a link no longer names the checkout it registered.
+      if (!registered || !samePath(await realpath(registered.path), registered.path)) return root
+      const repository = await shellCheckoutIdentity(checkout)
+      // Only the identity captured at open authorizes a linked checkout.
+      return repository && gitCommonDir && samePath(repository.checkoutRoot, checkout) && samePath(repository.gitCommonDir, gitCommonDir) ? checkout : root
+    } catch {
+      return root
+    }
+  }
+
   create(repoRoot: string, options: { readonly name: string; readonly base?: string }): Promise<Worktree> {
     return create(repoRoot, { ...options, stateDir: this.stateDir })
   }
@@ -242,31 +291,24 @@ export class Worktrees {
  * worktree directory.
  *
  * Git reports paths with forward slashes on every platform, while Node's path
- * functions produce backslashes on Windows. Both are normalized to forward
- * slashes before comparing, and on Windows drive letters are compared
- * case-insensitively.
+ * functions produce backslashes on Windows. On Windows only, separators and
+ * casing are folded; POSIX backslashes are literal filename characters.
  */
 export const isManagedWorktree = (worktreePath: string, home: string): boolean => {
-  const normPath = worktreePath.replace(/\\/g, '/').replace(/\/+$/, '')
-  const normHome = home.replace(/\\/g, '/').replace(/\/+$/, '')
+  const isWin = process.platform === 'win32'
+  const normPath = (isWin ? worktreePath.replace(/\\/g, '/') : worktreePath).replace(/\/+$/, '')
+  const normHome = (isWin ? home.replace(/\\/g, '/') : home).replace(/\/+$/, '')
   const prefix = `${normHome}/`
-  const isWin =
-    process.platform === 'win32' || (/^[a-zA-Z]:\//.test(normPath) && /^[a-zA-Z]:\//.test(normHome))
   return isWin
     ? normPath.toLowerCase().startsWith(prefix.toLowerCase())
     : normPath.startsWith(prefix)
 }
 
-/**
- * Whether two paths name the same location across platform separator and
- * Windows drive-letter casing variations.
- */
+/** Canonical POSIX paths are exact; only Windows folds separators and casing. */
 export const samePath = (a: string, b: string): boolean => {
-  const normA = a.replace(/\\/g, '/').replace(/\/+$/, '')
-  const normB = b.replace(/\\/g, '/').replace(/\/+$/, '')
-  const isWin =
-    process.platform === 'win32' || (/^[a-zA-Z]:\//.test(normA) && /^[a-zA-Z]:\//.test(normB))
-  return isWin ? normA.toLowerCase() === normB.toLowerCase() : normA === normB
+  if (process.platform !== 'win32') return a === b
+  const normalize = (path: string): string => path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+  return normalize(a) === normalize(b)
 }
 
 export const parseWorktreeList = (porcelain: string, home: string): Worktree[] => {
@@ -489,11 +531,10 @@ export const openRepositoryRoot = async (path: string, roots: readonly string[])
   )
   const opened = await Promise.all(roots.map((root) => canonical(root)))
   const within = (inner: string, outer: string): boolean => {
-    const normInner = inner.replace(/\\/g, '/').replace(/\/+$/, '')
-    const normOuter = outer.replace(/\\/g, '/').replace(/\/+$/, '')
+    const isWin = process.platform === 'win32'
+    const normInner = (isWin ? inner.replace(/\\/g, '/') : inner).replace(/\/+$/, '')
+    const normOuter = (isWin ? outer.replace(/\\/g, '/') : outer).replace(/\/+$/, '')
     const prefix = `${normOuter}/`
-    const isWin =
-      process.platform === 'win32' || (/^[a-zA-Z]:\//.test(normInner) && /^[a-zA-Z]:\//.test(normOuter))
     if (isWin ? normInner.toLowerCase() === normOuter.toLowerCase() : normInner === normOuter) return true
     return isWin
       ? normInner.toLowerCase().startsWith(prefix.toLowerCase())

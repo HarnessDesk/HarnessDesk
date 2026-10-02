@@ -6,6 +6,8 @@ import { promisify } from 'node:util'
 import { Service, type Context } from '@deepseek-ai/cordis'
 
 import type { HostRuntime } from './runtime.js'
+import { PermissionGate } from './permissions.js'
+import { currentShellWorkspace } from './shell-workspace.js'
 
 /**
  * Capability-scoped access to the outside world.
@@ -162,8 +164,11 @@ export class ShellService extends Service {
     const owner = this.runtime.owner(this.ctx)
     owner.gate.assertShell(`${command} ${args.join(' ')}`)
 
-    const cwd = options.cwd ? resolveInWorkspace(this.runtime, options.cwd) : this.runtime.workspace.root
-    if (cwd) owner.gate.assertWorkspaceRead(cwd)
+    // A lane may live outside the project's checkout. Its host-supplied root
+    // is both the default and the boundary; an explicit cwd cannot widen it.
+    const root = currentShellWorkspace() ?? this.runtime.workspace.root
+    const cwd = options.cwd ? resolve(root ?? '.', options.cwd) : root
+    if (cwd) new PermissionGate(owner.permissions, () => root).assertWorkspaceRead(cwd)
 
     const timeoutMs = options.timeoutMs ?? 30_000
     /* The command as a sentence about it names it: its name, and its first

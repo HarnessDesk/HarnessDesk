@@ -39,6 +39,8 @@ const hasQueuedContent = (input: readonly UserContent[]): boolean =>
  */
 
 export interface SessionRecord {
+  /** Host-assigned shell checkout, separate from every runtime read and replay. */
+  shellCheckout: { readonly project: string; readonly cwd: string } | null
   session: Session
   readonly runtime: RuntimeId
   /** Present only while the session is attached to a live runtime handle. */
@@ -303,6 +305,7 @@ export class SessionRegistry {
       tasks: [],
       seatedAs: this.#restore?.(session.runtime, session.id) ?? null,
       attachmentSeat: null,
+      shellCheckout: null,
     }
     record.session = seatedSession(this.#settle(record, inherited), record.seatedAs)
     this.#records.set(sessionKey(session.runtime, session.id), record)

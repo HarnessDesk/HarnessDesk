@@ -35,6 +35,7 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { ConfinedTree } from './confined-tree.js'
+import { sameCanonicalPath } from './path-identity.js'
 import { pathsAddedSince } from './evidence/revision.js'
 import { cardVars, guardHolds } from './flow.js'
 import { SeatBusyRefusal } from './goals/plane.js'
@@ -3083,7 +3084,7 @@ export class FlowExecutions {
     const closure = await this.#closure(run, dependsOn)
     const board = this.#team.stateFor(run.goal)
     const shared = board.cwd ?? board.root
-    const apart = (cwd: string): boolean => isolate || cwd !== shared
+    const apart = (cwd: string): boolean => isolate || !sameCanonicalPath(cwd, shared)
     // Work no checkout can be given stops the round, unless the card shares that work's own tree.
     for (const one of closure.unsettled) {
       const seat = this.#seatForCard(run, one.card).seat
@@ -3091,7 +3092,7 @@ export class FlowExecutions {
     }
     const handed = closure.subjects.map((one) => ({ card: one.card, at: one.at, branch: one.checkout.branch, cwd: one.checkout.cwd }))
     // The one rule a dry run states too (`rolesAtPredecessor`), so what it said is what runs.
-    const where = handedCheckout(isolate, handed.map((one) => ({ apart: one.cwd !== shared })))
+    const where = handedCheckout(isolate, handed.map((one) => ({ apart: !sameCanonicalPath(one.cwd, shared) })))
     if (where === 'own') return { base: run.base?.at ?? null, handed: [] }
     return { base: where === 'lane' ? handed[0]!.at : run.base?.at ?? null, handed }
   }

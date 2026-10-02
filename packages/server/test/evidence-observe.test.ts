@@ -331,7 +331,7 @@ test('through the host: a card its holder finishes leaves the diff it was finish
     return read.cards.some((card) => card.facts.some((fact) => fact.record.fact.kind === 'diff')) ? read : null
   }, 'the diff the finished card left')
   const diff = board.cards[0]?.facts.find((fact) => fact.record.fact.kind === 'diff')
-  assert.deepEqual(diff?.record.checkout, { cwd: repo.dir, branch: 'work' })
+  assert.deepEqual(diff?.record.checkout, { cwd: await canonical(repo.dir), branch: 'work' })
   assert.deepEqual(diff?.by, { agent: 'Scout', seat: session.settings?.seatLabel ?? '' })
   assert.equal(
     board.cards[0]?.facts.some((fact) => fact.record.fact.kind === 'check'),
