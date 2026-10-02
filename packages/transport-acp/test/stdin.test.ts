@@ -17,7 +17,14 @@ import { AcpConnection } from '../src/index.js'
  * which a live run produced. The connection listens, so the write is a
  * logged line and the request is left to the exit that follows.
  */
-const settle = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+const waitForLog = async (lines: readonly string[], pattern: RegExp, what: string): Promise<void> => {
+  const deadline = Date.now() + 10_000
+  while (Date.now() <= deadline) {
+    if (lines.some((line) => pattern.test(line))) return
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  assert.fail(`timed out waiting for ${what}; captured log: ${JSON.stringify(lines)}`)
+}
 
 test('a write after the agent shut its stdin is noted, not thrown', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-stdin-'))
@@ -25,7 +32,7 @@ test('a write after the agent shut its stdin is noted, not thrown', async () => 
   // Closes its end of the pipe at once and lingers, which is the shape of the
   // race: the descriptor itself has to go — `process.stdin.destroy()` leaves
   // it open and every write still lands in the kernel's buffer.
-  await writeFile(agent, `import { closeSync } from 'node:fs'; closeSync(0); setTimeout(() => process.exit(0), 1500)`)
+  await writeFile(agent, `import { closeSync } from 'node:fs'; closeSync(0); process.stderr.write('stdin closed\\n'); setTimeout(() => process.exit(0), 5000)`)
 
   const stderr: string[] = []
   const uncaught: unknown[] = []
@@ -40,16 +47,15 @@ test('a write after the agent shut its stdin is noted, not thrown', async () => 
       onStderr: (line) => stderr.push(line),
     })
     await connection.start()
-    await settle(300)
+    await waitForLog(stderr, /^stdin closed$/, 'the child to close stdin')
     const pending = connection.request('initialize', {}).catch((error: unknown) => error)
-    await settle(600)
+    await waitForLog(stderr, /agent stdin: .*EPIPE/, 'the agent stdin EPIPE log line')
     assert.deepEqual(uncaught, [], 'an EPIPE on stdin must never escape as an uncaught exception')
     assert.ok(
       stderr.some((line) => /agent stdin: .*EPIPE/.test(line)),
       `the pipe error is logged where the agent's own stderr goes: ${JSON.stringify(stderr)}`,
     )
     // The exit that follows fails the request, the way any crash does.
-    await settle(1800)
     const outcome = await pending
     assert.ok(outcome instanceof Error, 'the request is failed by the exit, not left hanging')
     await connection.stop()
