@@ -382,7 +382,8 @@ const composerVisible = (snapshot: AppSnapshot, area: AreaId, mountId: string): 
 const useRegisterComposerMount = (mount: ComposerMount): void => {
   const registry = useContext(ComposerMountsContext)
   const register = registry?.register
-  useLayoutEffect(() => register?.(mount), [register, mount])
+  const members = JSON.stringify(mount.roomMembers)
+  useLayoutEffect(() => register?.(mount), [register, mount.key, mount.paneId, mount.session, members, mount.runtime, mount.area, mount.mountId, mount.focused, mount.visible])
 }
 
 const useRegisterStripHost = (host: boolean, area: AreaId | undefined, key: string | undefined): void => {
@@ -531,7 +532,7 @@ export const ComposerNotices = () => {
     mountId,
     focused,
     visible: noticeMountVisible && (mount ? composerVisible(snapshot, mountArea, mountId) : focused),
-  }), [mountKey, pane?.paneId, mountId, sessionKeyOfPane, roomMembers, runtime.id, mountArea, focused, noticeMountVisible, mount !== null, snapshot.narrowWindow, snapshot.workbench, snapshot.layout.expanded])
+  }), [mountKey, pane?.paneId, mountId, sessionKeyOfPane, roomMembers, runtime.id, mountArea, focused, noticeMountVisible, mount, snapshot.narrowWindow, snapshot.workbench, snapshot.layout.expanded])
   useRegisterComposerMount(composerMount)
   const mounts = registry?.mounts ?? []
   const outlet = standing ? standingOutlet(snapshot, standing, mounts, registry !== null) : null
