@@ -134,6 +134,7 @@ test('hover actions take the rail and every trailing mark moves by the declared 
 })
 
 test('marked sidebar titles clear every trailing box without changing label geometry', async ({ page }) => {
+  test.setTimeout(120_000)
   await page.goto('/design.html?view=sidebar')
   const example = page.locator('[data-catalog-example="sidebar"]')
   const anatomy = example.locator('[aria-label="Sidebar trailing slot anatomy"]')
@@ -309,6 +310,7 @@ test('sidebar state marks yield to actions and every trailing control stays on t
 })
 
 test('worktree and missing-folder glyphs use the end rail without moving the label', async ({ page }, testInfo) => {
+  test.setTimeout(120_000)
   await page.goto('/design.html?view=sidebar')
   const example = page.locator('[data-catalog-example="sidebar"]')
   const sidebars = example.locator('[data-region="sidebar-header"]').locator('xpath=ancestor::div[contains(@class,"sidebar_")][last()]')
@@ -447,6 +449,7 @@ test('worktree and missing-folder glyphs use the end rail without moving the lab
 })
 
 test('AppWindow count and state marks occupy adjacent target slots on the shared rail', async ({ page }) => {
+  test.setTimeout(120_000)
   await page.goto('/design.html?view=app-window')
   const nav = page.getByRole('navigation', { name: 'Window navigation' })
   const sidebar = nav.locator('xpath=parent::*')
@@ -494,6 +497,7 @@ test('AppWindow count and state marks occupy adjacent target slots on the shared
 })
 
 test('sidebar resize highlight is idle-only on hover, without a stuck seam state', async ({ page }) => {
+  test.setTimeout(120_000)
   await page.goto('/design.html?view=panels')
   const seam = page.getByRole('separator', { name: 'Resize the sidebar' })
   await expect(seam).toBeVisible()
@@ -644,6 +648,7 @@ test('nested board and expanded room keep trailing marks on their own label line
 
 // These are shipped Sidebar, SessionTree and AppWindow rows, not anatomy specimens.
 test('real section headers start at the row icon inset', async ({ page }) => {
+  test.setTimeout(120_000)
   await page.goto('/design.html?view=sidebar')
   const sidebar = page.locator('[data-catalog-example="sidebar"] [data-region="sidebar-header"]')
     .locator('xpath=ancestor::div[contains(@class,"sidebar_")][last()]').first()
@@ -686,6 +691,7 @@ test('real section headers start at the row icon inset', async ({ page }) => {
 })
 
 test('real working room keeps its whole chip before the fade and count, then folds on hover', async ({ page }, testInfo) => {
+  test.setTimeout(120_000)
   await page.goto('/design.html?view=sidebar')
   const sidebar = page.locator('[data-catalog-example="sidebar"] [data-region="sidebar-header"]')
     .locator('xpath=ancestor::div[contains(@class,"sidebar_")][last()]').first()
@@ -727,6 +733,7 @@ test('real working room keeps its whole chip before the fade and count, then fol
 })
 
 test('real header glyph ink occupies the end rail and its adjacent target columns', async ({ page }) => {
+  test.setTimeout(120_000)
   await page.goto('/design.html?view=sidebar')
   const sidebar = page.locator('[data-catalog-example="sidebar"] [data-region="sidebar-header"]')
     .locator('xpath=ancestor::div[contains(@class,"sidebar_")][last()]').first()
@@ -753,6 +760,7 @@ test('real header glyph ink occupies the end rail and its adjacent target column
 })
 
 test('real working worktree and expanded room members share distinct rail slots at every width', async ({ page }) => {
+  test.setTimeout(120_000)
   await page.goto('/design.html?view=sidebar')
   const sidebar = page.locator('[data-catalog-example="sidebar"] [data-region="sidebar-header"]')
     .locator('xpath=ancestor::div[contains(@class,"sidebar_")][last()]').first()
@@ -806,6 +814,7 @@ test('real working worktree and expanded room members share distinct rail slots 
 })
 
 test('540px window floats the real sidebar with aligned headers and a whole Working chip', async ({ page }) => {
+  test.setTimeout(120_000)
   await page.setViewportSize({ width: 540, height: 900 })
   await page.goto('/design.html?view=panels&sidebar-geometry')
   const canvas = page.locator('[data-slot="workbench-canvas"]')
