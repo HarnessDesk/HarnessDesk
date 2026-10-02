@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
+import { makeRepo } from './fixtures/evidence-desk.js'
+import { git } from './fixtures/flow-host-evidence.js'
 import { child, onDisk, prFact, sha, type CrashAt } from './fixtures/intake-restart.js'
 import { tempDir } from './scratch.js'
 
@@ -86,4 +88,30 @@ test('a new head after a crash lands in the same Goal as one more round', async 
   assert.equal(after.rounds.length, 2)
   assert.equal(count(after.events, 'open:'), 2)
   assert.equal(count(after.events, 'order:'), 2)
+})
+
+test('offline Intake recovery refuses a fetch interrupted before its pin was journaled without fetching again', async () => {
+  const home = tempDir('hd-intake-base-crash-')
+  const repo = await makeRepo('hd-intake-base-local-')
+  const remote = tempDir('hd-intake-base-remote-')
+  await repo.git('clone', '--no-hardlinks', repo.dir, remote)
+  await repo.git('remote', 'add', 'origin', remote)
+  const fact = prFact(7, sha('a'), 'opened')
+  assert.equal((await child(home, [fact], 'base-fetched', repo.dir)).exited, 'crash')
+  const reserved = (await journal(home)).operations[0]!
+  const fetched = await repo.git('rev-parse', `refs/harnessdesk/flow-base/${reserved.run}`)
+  await git(remote, 'commit', '--allow-empty', '-m', 'later remote head')
+  await repo.git('remote', 'set-url', 'origin', join(home, 'offline'))
+
+  assert.equal((await child(home, [fact], null, repo.dir)).exited, 'done')
+  const after = await onDisk(home)
+  assert.equal(count(after.events, 'fetch:'), 1, 'recovery never retries the network operation')
+  assert.equal(await repo.git('rev-parse', `refs/harnessdesk/flow-base/${reserved.run}`), fetched)
+  assert.equal(after.runs.length, 1, 'the pre-fetch intent survived the process exit')
+  assert.equal(after.runs[0]?.state, 'stopped')
+  const saved = JSON.parse(await readFile(join(home, 'flows-v2', `${reserved.run}.json`), 'utf8')) as { reason: string }
+  assert.match(saved.reason, /base.*interrupted|fetch.*uncertain/i)
+  assert.equal(after.rounds.length, 0)
+  assert.equal(count(after.events, 'open:') + count(after.events, 'order:'), 0)
+  assert.deepEqual((await journal(home)).operations, [], 'Intake records the refusal instead of retrying forever')
 })

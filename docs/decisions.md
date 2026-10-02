@@ -1180,7 +1180,11 @@ uses the existing lane allocator, and the host checks its actual `HEAD` before
 handing it work. A later card handed one predecessor's commit starts from
 that work, preserving the dependent-checkout contract. Checks without a
 predecessor use a retained managed detached checkout of the frozen base so
-their evidence stays readable. A restart never fetches the base again.
+their evidence stays readable. The run journals the fetch intent before Git
+runs, then the completed pin before adoption. Recovery reuses that pin offline;
+an intent without a pin is uncertain and refuses with a reason, never fetching
+again automatically. A conclusively aborted start that adopted no Goal or
+round removes its own per-run ref. Successful runs keep their refs.
 
 Updating the person's checkout would disturb their branch, index and draft
 work. Requiring an Agent to fetch in its brief would leave the starting commit

@@ -9,6 +9,7 @@ import {
   type TeamState, type TriggerDefinition, type TriggerFact,
 } from '@harnessdesk/protocol'
 
+import { fetchFlowBase } from '../../src/flow-base.js'
 import { EvidencePlane } from '../../src/evidence/plane.js'
 import { ExecutionFiles, FlowExecutions, type FlowExecutionPort } from '../../src/flow-execution.js'
 import { FlowPreviews } from '../../src/flow-preview.js'
@@ -73,9 +74,11 @@ export const prFact = (pr: number, head: string, action: 'opened' | 'pushed', ov
   title: `Change ${pr}`, body: '', url: `https://github.com/${REPO}/pull/${pr}`, trigger: null, ...over,
 })
 
-export type CrashAt = AdmissionStep | 'goal' | 'evidence' | 'round' | null
+export type CrashAt = AdmissionStep | 'goal' | 'evidence' | 'round' | 'base-fetched' | null
 
 export interface DeskOptions {
+  /** Local Git repository used only by the remote-base interruption regression. */
+  readonly baseRoot?: string
   readonly definition?: TriggerDefinition
   /** Where the process exits (the child) or throws (in-process), the moment that step is durable. */
   readonly crashAt?: CrashAt
@@ -239,6 +242,12 @@ export const desk = async (home: string, options: DeskOptions = {}) => {
   // The flow engine, with a Seat's conversation faked the way the flow rig fakes it.
   let opened = seats.size
   const port: FlowExecutionPort = {
+    ...(options.baseRoot ? { fetchBase: async (_root: string, base: Parameters<typeof fetchFlowBase>[1], run: string) => {
+      log(`fetch:${run}`)
+      const pin = await fetchFlowBase(options.baseRoot!, base, run)
+      crash('base-fetched')
+      return pin
+    } } : {}),
     providerOf: async (runtime) => `vendor-${runtime}`,
     canDispatch: (goal) => goals.canDispatch(goal),
     createGoal: async () => { throw new Error('a trigger’s run never makes its own Goal') },
@@ -302,7 +311,7 @@ export const desk = async (home: string, options: DeskOptions = {}) => {
   const closures = new TriggerClosures({
     flowSource: async (_root, id) => {
       if (id !== 'review-pr') throw new Error(`There is no flow called "${id}".`)
-      return { source: REVIEW_FLOW, origin: 'project', path: '.harnessdesk/flows/review-pr.yml' }
+      return { source: options.baseRoot ? `${REVIEW_FLOW}\nbase: { remote: origin }\n` : REVIEW_FLOW, origin: 'project', path: '.harnessdesk/flows/review-pr.yml' }
     },
     preview: (root, source, againRole) => previews.freeze(root, source, { againRole }),
   })
@@ -452,9 +461,9 @@ export const onDisk = async (home: string) => {
 // ------------------------------------------------------------ the child
 
 /** Runs this file in a fresh Node process over `home`: offers each fact, exits early at `crashAt`. */
-export const child = (home: string, facts: readonly TriggerFact[], crashAt: CrashAt = null): Promise<{ readonly answers: readonly OfferAnswer[]; readonly exited: string }> =>
+export const child = (home: string, facts: readonly TriggerFact[], crashAt: CrashAt = null, baseRoot?: string): Promise<{ readonly answers: readonly OfferAnswer[]; readonly exited: string }> =>
   new Promise((resolve, reject) => {
-    execFile(process.execPath, [fileURLToPath(import.meta.url), JSON.stringify({ home, facts, crashAt })], {
+    execFile(process.execPath, [fileURLToPath(import.meta.url), JSON.stringify({ home, facts, crashAt, baseRoot })], {
       env: { ...process.env, HD_INTAKE_CHILD: '1' }, timeout: 60_000,
     }, (error, stdout, stderr) => {
       if (error) {
@@ -467,8 +476,8 @@ export const child = (home: string, facts: readonly TriggerFact[], crashAt: Cras
   })
 
 const main = async (): Promise<void> => {
-  const { home, facts, crashAt } = JSON.parse(process.argv[2]!) as { home: string; facts: TriggerFact[]; crashAt: CrashAt }
-  const built = await desk(home, { crashAt })
+  const { home, facts, crashAt, baseRoot } = JSON.parse(process.argv[2]!) as { home: string; facts: TriggerFact[]; crashAt: CrashAt; baseRoot?: string }
+  const built = await desk(home, { crashAt, ...(baseRoot ? { baseRoot } : {}) })
   // Startup order: the journal finishes what it began before any source is read.
   await built.admission.recover()
   const answers: OfferAnswer[] = []

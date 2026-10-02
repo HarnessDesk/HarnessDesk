@@ -90,6 +90,8 @@ export type StoredFlowExecution = FlowExecution & {
   reviewPackets?: Readonly<Record<string, ReviewPacketPin>>
   /** Each closed round's release decision and every comment it posts, journaled before the first is sent. */
   publication?: StoredPublication
+  /** Repository of the journaled pre-adoption fetch, retained for aborted-start cleanup. */
+  baseRoot?: string
 }
 
 const cardFinishedAnswer = (card: number): string => `Card #${card} is already finished, so there is nothing to hand this answer to.`
@@ -211,7 +213,9 @@ export const NOT_AT_TARGET = (card: number): string =>
 /** Why a review of a branch, a pull request or a diff does not land on an existing Goal. */
 export const REVIEW_OWN_GOAL = 'A review of a branch, a pull request or a diff starts a Goal of its own. Start it from the project instead of this Goal.'
 export const DISPATCH_HELD = 'This run is waiting for its trigger firing to be recorded before it sends any work.'
-/** What a trigger's run says when what it would run no longer matches what was armed. */
+/** An intent without a durable pin is refused without repeating the fetch. */
+export const BASE_FETCH_UNCERTAIN = 'The Flow base fetch was interrupted before its commit was recorded. It will not be fetched again automatically. Start a new run.'
+/** What a trigger’s run says when what it would run no longer matches what was armed. */
 export const TRIGGER_CLOSURE_CHANGED = 'What this trigger runs changed after it fired, so nothing was started. Arm it again, then start this work.'
 /** A run id a trigger reserves. */
 export const TRIGGER_RUN_ID = /^flow-trigger-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
@@ -221,8 +225,10 @@ export const TRIGGER_RUN_ID = /^flow-trigger-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}
  * boundary; the rest are the reads and sends a round cannot happen without.
  */
 export interface FlowExecutionPort {
-  /** Fetches the configured base once before a run is journaled or any Goal/Seat starts. */
+  /** Fetches the configured base once, after its intent is journaled and before adoption. */
   fetchBase?(root: string, base: FlowBase, run: string): Promise<FlowBasePin>
+  /** Deletes only an aborted, unadopted run’s retained base ref. */
+  dropBase?(root: string, run: string): Promise<void>
   /** Which vendor a session of this runtime in `cwd` reaches, as its adapter reports it; null when unknown. */
   providerOf(runtime: string, cwd: string): Promise<string | null>
   /**
@@ -2432,13 +2438,34 @@ export class FlowExecutions {
 
   // ---------------------------------------------------------------- start
 
-  async #fetchBase(root: string, base: FlowBase, run: string): Promise<FlowBasePin> {
+  async #fetchBase(run: StoredFlowExecution, root: string, base: FlowBase): Promise<StoredFlowExecution> {
     if (!this.#port.fetchBase) throw new Error('This desk cannot fetch a Flow base. No work was started.')
-    const pin = await this.#port.fetchBase(root, base, run)
+    // The intent must survive even if the process exits after Git succeeds and before its pin is saved.
+    await this.#put(this.#operation({ ...run, baseRoot: root }, 'fetch-base', { kind: 'round', state: 'started', card: null, seat: null }))
+    const pin = await this.#port.fetchBase(root, base, run.id)
     if (pin.remote !== base.remote || pin.branch !== base.branch || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(pin.at)) {
       throw new Error('The fetched Flow base could not be pinned to a commit. No work was started.')
     }
-    return pin
+    return this.#put(this.#operation({ ...this.#get(run.id), base: pin }, 'fetch-base', { kind: 'round', state: 'finished', card: null, seat: null }))
+  }
+
+  async #dropBase(run: StoredFlowExecution): Promise<void> {
+    if (run.baseRoot) await this.#port.dropBase?.(run.baseRoot, run.id)
+  }
+
+  /** Only a durable refusal before adoption makes deleting this run’s ref conclusive. */
+  async #abortBaseStart(id: string, error: unknown): Promise<void> {
+    const run = this.#runs.get(id)
+    if (!run?.baseRoot || run.rounds.length || run.operations.some((op) => op.key === 'start' && op.state === 'finished') ||
+      (!run.intake && this.#port.goalsOf(id).length)) return
+    try {
+      const reason = error instanceof Error ? error.message : String(error)
+      const stopped = await this.#put({ ...run, state: 'stopped', reason })
+      await this.#dropBase(stopped)
+    } catch (failure) {
+      // If the journal is gone too, recovery must treat the fetch as uncertain; it cannot repeat it.
+      this.#port.log('an aborted Flow base start could not be cleaned up', { run: id, error: failure instanceof Error ? failure.message : String(failure) })
+    }
   }
 
   async startGoal(request: FlowStartRequest): Promise<FlowExecution> {
@@ -2460,10 +2487,9 @@ export class FlowExecutions {
     if (policy.base && (request.goal || request.target)) throw new Error('A Flow with a remote base starts a new Goal from the project. Remove base to review a target or reuse a Goal.')
     if (request.goal && !this.#port.reserveGoal) throw new Error('This desk cannot reuse a Goal for a run.')
     const id = `flow-${this.#now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
-    const base = policy.base ? await this.#fetchBase(request.cwd ?? request.root, policy.base, id) : undefined
     const at = this.#now()
     // The start is journaled before the Goal exists — or before an empty one is reserved — so a restart finds the Goal by this run rather than making or reserving another.
-    let run = await this.#put(this.#operation({
+    let run: StoredFlowExecution = {
       version: 2, id, goal: '', document: request.compiled.document, state: 'running', rounds: [], operations: [],
       legacyRun: null, reason: null, compiled: request.compiled, source: request.source, sourcePath: request.sourcePath,
       vars, startedAt: at, updatedAt: at, authorization: request.authorization, operationTimes: {},
@@ -2473,8 +2499,15 @@ export class FlowExecutions {
       ...(request.requireHeld ? { requireHeld: true as const } : {}),
       ...(request.goal ? { reserving: { goal: request.goal.id, revision: request.goal.revision } } : {}),
       ...(request.target ? { target: request.target } : {}),
-      ...(base ? { base } : {}),
-    }, 'start', { kind: 'round', state: 'started', card: null, seat: null }))
+    }
+    try {
+      if (policy.base) run = await this.#fetchBase(run, request.cwd ?? request.root, policy.base)
+      run = await this.#put(this.#operation(run, 'start', { kind: 'round', state: 'started', card: null, seat: null }))
+    } catch (error) {
+      await this.#abortBaseStart(id, error)
+      throw error
+    }
+    const base = run.base
     let goal: { readonly id: string }
     if (request.goal) {
       try {
@@ -2489,12 +2522,17 @@ export class FlowExecutions {
       }
       goal = { id: request.goal.id }
     } else {
-      goal = await this.#port.createGoal({
-        root: request.root, ...(request.cwd ? { cwd: request.cwd } : {}), sentence: request.sentence.trim() || policy.name,
-        origin: { kind: 'flow', run: id },
-        // Every Seat of a review of a branch, a pull request or a diff works at the commit its preview resolved.
-        ...(base || request.target?.head ? { at: base?.at ?? request.target!.head! } : {}),
-      })
+      try {
+        goal = await this.#port.createGoal({
+          root: request.root, ...(request.cwd ? { cwd: request.cwd } : {}), sentence: request.sentence.trim() || policy.name,
+          origin: { kind: 'flow', run: id },
+          // Every Seat of a review of a branch, a pull request or a diff works at the commit its preview resolved.
+          ...(base || request.target?.head ? { at: base?.at ?? request.target!.head! } : {}),
+        })
+      } catch (error) {
+        await this.#abortBaseStart(id, error)
+        throw error
+      }
     }
     run = await this.#put(this.#operation({ ...this.#get(id), goal: goal.id }, 'start', { kind: 'round', state: 'finished', card: null, seat: null }))
     await this.#queue.within(id, () => this.#afterStart(id))
@@ -2560,7 +2598,14 @@ export class FlowExecutions {
         if (existing.goal !== request.goal || existing.intake?.key !== request.key) {
           throw new TriggerRefusal('Another run already holds this trigger’s reserved id. Nothing was adopted.')
         }
-        if (existing.state === 'running' && existing.rounds.length === 0) await this.#afterStart(request.id)
+        if (existing.state === 'running' && existing.rounds.length === 0) {
+          // A saved pin can precede adoption; use that commit even offline, never fetch again.
+          if (!existing.operations.some((op) => op.key === 'start')) {
+            if (policyOf(existing).base && !existing.base) throw new TriggerRefusal(BASE_FETCH_UNCERTAIN)
+            await this.#put(this.#operation(existing, 'start', { kind: 'round', state: 'finished', card: null, seat: null }))
+          }
+          await this.#afterStart(request.id)
+        }
         return this.#projectExecution(this.#get(request.id))
       }
       const origin = triggered.originOf(request.goal)
@@ -2577,12 +2622,11 @@ export class FlowExecutions {
       // Whether a seat can be taken right now is read again when the run seats, never taken for a changed closure.
       const errors = [...compiled.problems, ...closure.preview.problems].filter((one) => one.level === 'error' && !one.availability)
       const reason = closure.digest !== request.closureDigest || closure.problems.length > 0 || errors.length > 0 ? TRIGGER_CLOSURE_CHANGED : null
-      const base = !reason && policy.base ? await this.#fetchBase(request.root, policy.base, request.id) : undefined
       const vars: Record<string, string> = {}
       // Only the flow's own defaults: no title, body or comment from outside becomes a variable.
       for (const input of policy.inputs) vars[input.id] = input.default ?? ''
       const at = this.#now()
-      await this.#put(this.#operation({
+      let run: StoredFlowExecution = {
         version: 2, id: request.id, goal: request.goal, document: compiled.document,
         state: reason ? 'stopped' : 'running', rounds: [], operations: [], legacyRun: null, reason,
         compiled, source: closure.source, sourcePath: null, vars, startedAt: at, updatedAt: at,
@@ -2592,14 +2636,20 @@ export class FlowExecutions {
           approvedAt: at,
         },
         operationTimes: {},
-        ...(base ? { base } : {}),
         // The narrower of the trigger's and the flow's loop limits, frozen for the life of the run.
         findings: { ...startingFindings(policy), budget: effectiveBudget(request.definition.budget, policy.budget) },
         intake: {
           key: request.key, trigger: request.definition.id, closureDigest: request.closureDigest,
           dispatchHeld: true, again: request.definition.again,
         },
-      }, 'start', { kind: 'round', state: 'finished', card: null, seat: null }))
+      }
+      try {
+        if (!reason && policy.base) run = await this.#fetchBase(run, request.root, policy.base)
+        await this.#put(this.#operation(run, 'start', { kind: 'round', state: 'finished', card: null, seat: null }))
+      } catch (error) {
+        await this.#abortBaseStart(request.id, error)
+        throw error
+      }
       if (!reason) await this.#afterStart(request.id)
       return this.#projectExecution(this.#get(request.id))
     })
@@ -3853,6 +3903,12 @@ export class FlowExecutions {
 
   async #reconcile(id: string): Promise<void> {
     let run = this.#get(id)
+    const fetching = run.operations.find((op) => op.key === 'fetch-base')
+    if (fetching && !run.base) {
+      await this.#put(this.#operation({ ...run, state: 'stopped', reason: BASE_FETCH_UNCERTAIN }, 'fetch-base',
+        { kind: 'round', state: 'uncertain', card: null, seat: null }))
+      return
+    }
     // An interrupted start: find its Goal by origin before ever making another.
     if (run.goal === '') {
       const goals = this.#port.goalsOf(id)
@@ -3862,8 +3918,9 @@ export class FlowExecutions {
       }
       if (goals.length === 0) {
         // Nothing outside the desk happened yet; the person starts it again rather than the desk guessing its folder.
-        await this.#put(this.#operation({ ...run, state: 'stopped', reason: 'This run stopped before its Goal was made. Start it again.' },
+        const stopped = await this.#put(this.#operation({ ...run, state: 'stopped', reason: 'This run stopped before its Goal was made. Start it again.' },
           'start', { kind: 'round', state: 'finished', card: null, seat: null }))
+        await this.#dropBase(stopped)
         return
       }
       run = await this.#put(this.#operation({ ...run, goal: goals[0]! }, 'start', { kind: 'round', state: 'finished', card: null, seat: null }))

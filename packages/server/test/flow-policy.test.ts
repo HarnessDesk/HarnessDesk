@@ -54,6 +54,19 @@ test('malformed remote bases are refused at their own fields', () => {
   }
 })
 
+test('hostile remote names and branch options are refused before compilation', async (t) => {
+  const cases = [
+    ...['--upload-pack=evil', 'origin:refs/heads/main', '*', 'HEAD^', 'main@{1}', '/tmp/repo', './repo', '../repo', 'ext::evil', 'file:///tmp/repo']
+      .map((remote) => [`{ remote: ${JSON.stringify(remote)} }`, 'base.remote']),
+    ['{ remote: origin, branch: "--upload-pack=evil" }', 'base.branch'],
+  ]
+  for (const [base, at] of cases) await t.test(base!, () => {
+    const parsed = parseFlowPolicy(`${source('    kind: agent\n    uses: writer')}\nbase: ${base}\n`)
+    assert.equal(parsed.document, null, base!)
+    assert.ok(parsed.problems.some((one) => one.level === 'error' && one.at === at))
+  })
+})
+
 test('a remote base gives concurrent writers their own lanes even without isolate', () => {
   const parsed = parseFlowPolicy(`${source('    kind: agent\n    uses: writer\n    count: 2\n    grant: edit')}\nbase: { remote: origin }\n`)
   assert.ok(parsed.document, JSON.stringify(parsed.problems))

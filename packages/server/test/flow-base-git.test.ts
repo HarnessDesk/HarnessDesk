@@ -59,3 +59,15 @@ test('parallel starts retain separate fetched branch commits in the same reposit
   assert.equal(await repo.git('rev-parse', 'refs/harnessdesk/flow-base/flow-one'), main)
   assert.equal(await repo.git('rev-parse', 'refs/harnessdesk/flow-base/flow-two'), feature)
 })
+
+test('hostile branch refspecs, revisions, paths and helpers are refused without changing refs', async () => {
+  const repo = await makeRepo('hd-base-hostile-')
+  const remote = tempDir('hd-base-hostile-remote-')
+  await repo.git('clone', '--no-hardlinks', repo.dir, remote)
+  await repo.git('remote', 'add', 'origin', remote)
+  const before = await repo.git('show-ref')
+  for (const branch of ['--upload-pack=evil', 'main:refs/heads/owned', '*', 'main*', 'HEAD^', 'main~1', 'main@{1}', '/tmp/repo', '../main', 'ext::evil']) {
+    await assert.rejects(fetchFlowBase(repo.dir, { remote: 'origin', branch }, 'hostile-branch'), /base.*fetched/i, branch)
+    assert.equal(await repo.git('show-ref'), before, branch)
+  }
+})

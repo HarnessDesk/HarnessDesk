@@ -28,3 +28,14 @@ export const fetchFlowBase = async (root: string, base: FlowBase, run: string): 
     throw new Error(`The Flow base could not be fetched from remote "${base.remote}" (${base.branch ?? 'default branch'}). Check the remote and branch, then start again. No work was started.`)
   }
 }
+
+/** Remove a conclusively aborted run’s ref, leaving every successful run’s pin alone. */
+export const dropFlowBase = async (root: string, run: string): Promise<void> => {
+  const ref = `refs/harnessdesk/flow-base/${run}`
+  await exec('git', ['-C', root, ...HARDENED_GIT_CONFIG, 'check-ref-format', ref])
+  try {
+    await exec('git', ['-C', root, ...HARDENED_GIT_CONFIG, 'update-ref', '-d', ref])
+  } catch {
+    throw new Error('The aborted Flow’s base ref could not be removed.')
+  }
+}

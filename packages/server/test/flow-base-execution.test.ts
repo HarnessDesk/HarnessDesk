@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
+import { dropFlowBase, fetchFlowBase } from '../src/flow-base.js'
+import { makeRepo } from './fixtures/evidence-desk.js'
+import { tempDir } from './scratch.js'
+import type { TriggerStartRequest } from '../src/flow-execution.js'
 import { sourceDigest } from '../src/flow-execution.js'
 import { executionOf } from '../src/flow-recovery.js'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
@@ -132,4 +136,72 @@ test('a reader at the initial base receives the actual commits of multiple prede
   assert.match(order, /card #1:.*written in \/repo\/\.lanes\/1/)
   assert.match(order, /card #2:.*written in \/repo\/\.lanes\/2/)
   assert.ok(!order.includes('already in it'), 'the initial base does not contain either writer’s later work')
+})
+
+test('a trigger reuses a completed base pin offline when adoption was interrupted', async (t) => {
+  let fetches = 0
+  let offline = false
+  const rig = await goalRig(t, { fetchBase: async (_root, base) => {
+    fetches += 1
+    if (offline) throw new Error('offline')
+    return { ...base, at: BASE }
+  } })
+  let request: TriggerStartRequest | undefined
+  const start = rig.flows.startTriggered.bind(rig.flows)
+  rig.flows.startTriggered = (input) => { request = input; return start(input) }
+  rig.files.dieWhen = (run) => Boolean(run.base && run.operations.some((op) => op.key === 'start'))
+  await assert.rejects(rig.startTriggered(FLOW, AGENTS), /journal|crash/i)
+  offline = true
+  await rig.restart()
+  const recovered = await rig.flows.startTriggered(request!)
+  assert.equal(recovered.state, 'running', recovered.reason ?? '')
+  assert.equal(recovered.base?.at, BASE)
+  assert.equal(fetches, 1)
+  assert.equal(recovered.rounds.length, 1)
+  assert.equal(rig.seats.size, 0, 'Intake has not released dispatch')
+})
+
+test('a failed pre-fetch journal write performs no fetch and creates no Goal', async (t) => {
+  let fetches = 0
+  const rig = await goalRig(t, { fetchBase: async (_root, base) => { fetches += 1; return { ...base, at: BASE } } })
+  rig.files.failOnce = () => true
+  await assert.rejects(rig.start(FLOW, AGENTS), /journal/i)
+  assert.equal(fetches, 0)
+  assert.equal(rig.goals.size, 0)
+})
+
+test('a manual start conclusively aborted before adoption removes only its own base ref', async (t) => {
+  const repo = await makeRepo('hd-base-aborted-')
+  const remote = tempDir('hd-base-aborted-remote-')
+  await repo.git('clone', '--no-hardlinks', repo.dir, remote)
+  await repo.git('remote', 'add', 'origin', remote)
+  const retained = await fetchFlowBase(repo.dir, { remote: 'origin' }, 'successful-run')
+  const removed: string[] = []
+  let fetched: string | undefined
+  const rig = await goalRig(t, {
+    fetchBase: async (_root, base, id) => { fetched = id; return fetchFlowBase(repo.dir, base, id) },
+    dropBase: async (_root, id) => { removed.push(id); await dropFlowBase(repo.dir, id) },
+  })
+  rig.files.failOnce = (run) => Boolean(run.base && run.operations.some((op) => op.key === 'start'))
+  await assert.rejects(rig.start(FLOW, AGENTS), /journal/i)
+  assert.deepEqual(removed, [fetched])
+  await assert.rejects(repo.git('rev-parse', '--verify', `refs/harnessdesk/flow-base/${fetched}`))
+  assert.equal(await repo.git('rev-parse', 'refs/harnessdesk/flow-base/successful-run'), retained.at)
+  assert.equal(rig.goals.size, 0)
+  assert.equal(rig.executions.stored(fetched!)?.state, 'stopped')
+})
+
+test('recovery removes a manual base pin whose start died before making its Goal', async (t) => {
+  const removed: string[] = []
+  let fetched: string | undefined
+  const rig = await goalRig(t, {
+    fetchBase: async (_root, base, id) => { fetched = id; return { ...base, at: BASE } },
+    dropBase: async (_root, id) => { removed.push(id) },
+  })
+  rig.files.dieWhen = (run) => Boolean(run.base && run.operations.some((op) => op.key === 'start'))
+  await assert.rejects(rig.start(FLOW, AGENTS), /journal/i)
+  assert.deepEqual(removed, [], 'a process exit cannot conclusively abort the start')
+  await rig.restart()
+  assert.deepEqual(removed, [fetched])
+  assert.equal(rig.executions.stored(fetched!)?.state, 'stopped')
 })

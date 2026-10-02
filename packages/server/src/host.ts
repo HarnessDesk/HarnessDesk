@@ -128,7 +128,7 @@ import { CredentialBroker, plainCipher, type CredentialCipher } from './credenti
 import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
 import { canonicalDestination } from './git-worktree.js'
-import { fetchFlowBase } from './flow-base.js'
+import { dropFlowBase, fetchFlowBase } from './flow-base.js'
 import { Worktrees, createDetached, managedWorktreePath, openRepositoryRoot, remove as removeWorktree, removeCheckoutsLeftBehind, repositoryOf } from './worktree.js'
 import { commitCardWork } from './card-commit.js'
 import type { InventoryAgent } from '@harnessdesk/agent-inventory'
@@ -1190,6 +1190,10 @@ export class Host {
       fetchBase: async (root, base, run) => {
         await this.#confineRoom(root)
         return fetchFlowBase(root, base, run)
+      },
+      dropBase: async (root, run) => {
+        await this.#confineRoom(root)
+        await dropFlowBase(root, run)
       },
       providerOf: (runtime, cwd) => this.#providerOf(runtime, cwd),
       presentationOf: (runtime) => this.#runtimes.get(runtime)?.info.presentation.name ?? null,

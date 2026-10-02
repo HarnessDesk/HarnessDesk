@@ -243,9 +243,16 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
   if (!reparsed.document || reparsed.document.format !== 'agents') bad('source is no longer an Agent flow')
   const requestedBase = reparsed.document!.format === 'agents' ? reparsed.document!.flow.base : undefined
   const pin = raw['base']
+  const baseRoot = raw['baseRoot']
+  const fetching = (raw['operations'] as { key: string; kind: string; state: string; card: unknown; seat: unknown }[]).find((op) => op.key === 'fetch-base')
+  const pendingFetch = fetching && ['started', 'uncertain'].includes(fetching.state) && !keys.has('start') && (raw['rounds'] as unknown[]).length === 0
+  if (baseRoot !== undefined && (!text(baseRoot) || !baseRoot || !requestedBase || !fetching)) bad('has a base fetch it cannot describe')
+  if (fetching && (baseRoot === undefined || fetching.kind !== 'round' || fetching.card !== null || fetching.seat !== null ||
+    !['started', 'finished', 'uncertain'].includes(fetching.state) || (fetching.state === 'finished' && pin === undefined) ||
+    (pin === undefined && !pendingFetch))) bad('has a base fetch it cannot describe')
   // A trigger whose closure was refused never fetched or opened a round. Every run that could dispatch must retain its pin.
   const neverStarted = raw['state'] === 'stopped' && (raw['rounds'] as unknown[]).length === 0
-  if (requestedBase && !(pin === undefined && neverStarted)) {
+  if (requestedBase && !(pin === undefined && (neverStarted || pendingFetch))) {
     if (!object(pin) || pin['remote'] !== requestedBase.remote || pin['branch'] !== requestedBase.branch ||
       typeof pin['at'] !== 'string' || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(pin['at'])) bad('has a remote base it cannot describe')
   }
