@@ -121,6 +121,8 @@ export const landSafe = async (
     // What was reviewed is what lands: a push after the approving review would
     // otherwise merge whatever head happens to be green at that moment.
     if (!anyHead && !head) throw new Error(headRequired)
+    // The two are opposites: with both given, --any-head would quietly skip the check --head asks for.
+    if (anyHead && head) throw new Error('--head and --any-head are opposites; pass one')
     if (!repo) repo = run(runner, ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'])
     const initial = readPr(runner, pr, repo)
     if (initial.isDraft) throw new Error(`PR ${pr} is a draft; refusing to land`)

@@ -199,6 +199,15 @@ test('with neither --head nor --any-head nothing is read and nothing is merged',
   assert.match(h.output().stdout, /DECISION: error; PR 42 was not merged\./)
 })
 
+test('the function refuses --head together with --any-head, as the command line does, before reading or merging anything', async () => {
+  const h = harness({ heads: ['pushed-after-review', 'pushed-after-review', 'pushed-after-review'] })
+  const code = await landSafe({ pr: '42', repo: 'owner/repo', head: 'head-sha', anyHead: true }, h.runner, h.io)
+  assert.equal(code, 1)
+  assert.deepEqual(h.calls, [])
+  assert.match(h.output().stderr, /opposites/)
+  assert.match(h.output().stdout, /DECISION: error; PR 42 was not merged\./)
+})
+
 test('--any-head lands the current head and says it is unreviewed', async () => {
   const h = harness({
     heads: ['whatever-is-green', 'whatever-is-green', 'whatever-is-green'],
