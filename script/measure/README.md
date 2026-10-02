@@ -14,7 +14,7 @@ Before launching a probe, `sandbox-exec` preflight checks the exact profile. The
 
 Claude Code, Cursor, and Grok Build use the named `keychain-read-only` profile for version/help discovery. It allows reads under the real home’s `Library/Keychains` and leaves the two security service lookups available; keychain writes remain denied. No ACP initialization or model prompt is sent for these agents, and their measurements remain `could-not-ask`. Preflight repeats the file canaries and checks the keychain read differential. Their results identify `isolation: keychain-read-only` and `auth: owner subscription sign-in`; persisted fields use strict allowlists and redact every field.
 
-Install discovery keeps absent candidates, unreadable versions, and unsafe-to-isolate install roots separate. It resolves symlinks before selecting a narrowly scoped install directory; a package or `versions/<version>` directory inside an agent home can be allowed, but the whole config home cannot. Node-based agents also get the resolved Node install prefix. Unsafe or inseparable roots remain `could-not-ask` with a path class in the reason; no real path is persisted.
+Install discovery keeps absent candidates, unreadable versions, and unsafe-to-isolate install roots separate. It resolves symlinks before selecting a narrowly scoped install directory; a package or `versions/<version>` directory inside an agent home can be allowed, but the whole config home cannot. An install directory that is a whole home or a whole volume is refused. Node-based agents also get the resolved Node install prefix. Unsafe or inseparable roots remain `could-not-ask` with a path class in the reason; no real path is persisted.
 
 Interface selection and scope:
 

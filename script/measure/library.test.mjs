@@ -151,12 +151,23 @@ test('install runtime allowance resolves to narrow version and dependency-tree d
   assert.equal(installDiscoveryState({ candidateCount: 1, unsafeCount: 1 }), 'unsafe')
 })
 
-test('install roots equal to or above the real home cannot be allowed', () => {
+test('install roots that encompass a home or a whole volume cannot be allowed', () => {
   const realHome = '/Users/dev'
-  for (const root of [realHome, '/Users', '/', '/Volumes']) {
-    assert.equal(installRootIsSafe(root, realHome), false, root)
-  }
-  assert.equal(installRootIsSafe('/opt/homebrew/Cellar/node', realHome), true)
+  const usersRoot = join('/', 'Users')
+  const volumesRoot = join('/', 'Volumes')
+  const otherHome = join(usersRoot, 'other')
+  const diskRoot = join(volumesRoot, 'Disk')
+  const separator = String.fromCharCode(47)
+  const refused = [
+    otherHome, `${otherHome}${separator}`, `${usersRoot}//other`, realHome, `${realHome}/..`, usersRoot,
+    volumesRoot, diskRoot, '/',
+  ]
+  assert.deepEqual(refused.filter((root) => installRootIsSafe(root, realHome)), [])
+  const accepted = [
+    '/opt/homebrew/lib/node_modules', join(otherHome, 'tools', 'v1'), join(diskRoot, 'tools', 'node_modules'),
+    join('/', 'UsersX'), join('/', 'Volumesfoo'),
+  ]
+  assert.deepEqual(accepted.filter((root) => !installRootIsSafe(root, realHome)), [])
 })
 
 test('the three keychain-only agents retain version discovery but never receive a model prompt', () => {

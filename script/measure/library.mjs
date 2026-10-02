@@ -496,7 +496,9 @@ export function installReadRoot(realPath) {
 
 export function installRootIsSafe(installRoot, realHome) {
   const root = resolve(installRoot)
-  return !['/', '/Users', '/Volumes'].includes(root) && !isWithin(root, realHome)
+  const components = root.split('/').filter(Boolean)
+  const isWholeHomeOrVolume = (components[0] === 'Users' || components[0] === 'Volumes') && components.length === 2
+  return !['/', '/Users', '/Volumes'].includes(root) && !isWholeHomeOrVolume && !isWithin(root, realHome)
 }
 
 export function installDiscoveryState({ candidateCount, copies = [], chosen = null, unsafeCount = 0 }) {
