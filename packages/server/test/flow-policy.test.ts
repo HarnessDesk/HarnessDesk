@@ -26,6 +26,41 @@ const agent = (id: string, ceiling: 'read' | 'edit' | 'publish' | 'merge' = 'edi
   },
 })
 
+test('a remote base round-trips, with the remote default or an explicit branch', () => {
+  for (const base of ['{ remote: origin }', '{ remote: upstream, branch: release/next }']) {
+    const parsed = parseFlowPolicy(`${source('    kind: agent\n    uses: writer')}\nbase: ${base}\n`)
+    assert.equal(parsed.document?.format, 'agents', JSON.stringify(parsed.problems))
+    if (parsed.document?.format !== 'agents') return
+    const policy = parsed.document.flow
+    assert.deepEqual(policy.base, base.includes('upstream')
+      ? { remote: 'upstream', branch: 'release/next' } : { remote: 'origin' })
+    const again = parseFlowPolicy(serializeFlowPolicy(policy))
+    assert.equal(again.document?.format, 'agents')
+    if (again.document?.format === 'agents') assert.deepEqual(again.document.flow.base, policy.base)
+  }
+})
+
+test('malformed remote bases are refused at their own fields', () => {
+  for (const [base, at] of [
+    ['origin/main', 'base'], ['null', 'base'], ['{}', 'base.remote'],
+    ['{ remote: 3 }', 'base.remote'], ['{ remote: "" }', 'base.remote'],
+    ['{ remote: "-origin" }', 'base.remote'], ['{ remote: "https://example.com/repo" }', 'base.remote'],
+    ['{ remote: origin, branch: "" }', 'base.branch'], ['{ remote: origin, branch: 3 }', 'base.branch'],
+    ['{ remote: origin, fetch: false }', 'base.fetch'],
+  ] as const) {
+    const parsed = parseFlowPolicy(`${source('    kind: agent\n    uses: writer')}\nbase: ${base}\n`)
+    assert.equal(parsed.document, null, base)
+    assert.ok(parsed.problems.some((one) => one.level === 'error' && one.at === at), `${base}: ${JSON.stringify(parsed.problems)}`)
+  }
+})
+
+test('a remote base gives concurrent writers their own lanes even without isolate', () => {
+  const parsed = parseFlowPolicy(`${source('    kind: agent\n    uses: writer\n    count: 2\n    grant: edit')}\nbase: { remote: origin }\n`)
+  assert.ok(parsed.document, JSON.stringify(parsed.problems))
+  const compiled = compileFlowPolicy(parsed.document!, [agent('writer')])
+  assert.deepEqual(compiled.problems.filter((one) => one.level === 'error'), [])
+})
+
 const source = (role: string) => `
 version: 2
 name: Policy

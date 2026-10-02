@@ -194,7 +194,7 @@ export interface GoalRig {
 
 export const goalRig = async (
   t: { after(fn: () => Promise<void>): void },
-  options: { readonly releaseStallMs?: number } = {},
+  options: { readonly releaseStallMs?: number; readonly fetchBase?: FlowExecutionPort['fetchBase'] } = {},
 ): Promise<GoalRig> => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-flow-goal-'))
   const peers: TeamPeer[] = []
@@ -333,6 +333,7 @@ export const goalRig = async (
     if (record) rig.seats.set(id, { ...record, closed: { at: Date.now(), why: 'released' } })
   }
   const port: FlowExecutionPort = {
+    ...(options.fetchBase ? { fetchBase: options.fetchBase } : {}),
     providerOf: async (runtime) => rig.providers.get(runtime) ?? null,
     presentationOf: (runtime) => rig.presentations.get(runtime) ?? null,
     canReadProvider: (runtime) => rig.readableProviders.has(runtime),

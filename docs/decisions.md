@@ -1164,6 +1164,34 @@ weakest guard that still means what the shape wants (`any`, not `every`, for
 "at least one usable result"); and a role's width is the file's own fact, not
 something only one entry point happens to supply.
 
+## A Flow can choose a fetched base without moving the person's checkout
+
+A lane cut from the project's current `HEAD` inherits a stale checkout. The
+Flow pilot worked around that by making a new clone for every Team (#1244).
+An optional v2 `base: { remote: origin, branch: main }` now fetches a configured
+remote when Start is pressed; omitting `branch` fetches its advertised default
+`HEAD`. The preview explains the fetch and the managed lanes without making a
+network request. Failure refuses the start before any Goal or Seat opens.
+
+The fetched commit is frozen in the run and retained under a per-run Git ref,
+so simultaneous starts cannot overwrite each other's base and a later remote
+move cannot leave recovery depending on an unreachable object. Every Seat
+uses the existing lane allocator, and the host checks its actual `HEAD` before
+handing it work. A later card handed one predecessor's commit starts from
+that work, preserving the dependent-checkout contract. Checks without a
+predecessor use a retained managed detached checkout of the frozen base so
+their evidence stays readable. A restart never fetches the base again.
+
+Updating the person's checkout would disturb their branch, index and draft
+work. Requiring an Agent to fetch in its brief would leave the starting commit
+to an instruction rather than the host. Both are avoided by using the same
+commit-pinning seam as review starts. An existing Goal or explicit review
+target cannot also take a remote base: they already own their starting place.
+Flows without a base keep their existing semantics.
+
+**The rule:** a declared remote base is fetched once and pinned before work
+starts; a stale cached ref never substitutes for a failed fetch.
+
 ## A seat whose agent asks before every MCP tool is explained to its person, never answered for
 
 Claude Code's bridge is ours, so it can say which MCP server asked, and the host answers a flow seat's request for the

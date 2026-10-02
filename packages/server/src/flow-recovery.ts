@@ -241,6 +241,15 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
   }
   const reparsed = parseFlowPolicy(raw['source'] as string)
   if (!reparsed.document || reparsed.document.format !== 'agents') bad('source is no longer an Agent flow')
+  const requestedBase = reparsed.document!.format === 'agents' ? reparsed.document!.flow.base : undefined
+  const pin = raw['base']
+  // A trigger whose closure was refused never fetched or opened a round. Every run that could dispatch must retain its pin.
+  const neverStarted = raw['state'] === 'stopped' && (raw['rounds'] as unknown[]).length === 0
+  if (requestedBase && !(pin === undefined && neverStarted)) {
+    if (!object(pin) || pin['remote'] !== requestedBase.remote || pin['branch'] !== requestedBase.branch ||
+      typeof pin['at'] !== 'string' || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(pin['at'])) bad('has a remote base it cannot describe')
+  }
+  if (pin !== undefined && (!requestedBase || target !== undefined || reserving !== undefined)) bad('has a remote base that conflicts with its start')
   if (JSON.stringify(reparsed.document) !== JSON.stringify(raw['document']) || JSON.stringify((compiled as { document: unknown }).document) !== JSON.stringify(raw['document'])) {
     bad('document does not match the text it was started from')
   }
