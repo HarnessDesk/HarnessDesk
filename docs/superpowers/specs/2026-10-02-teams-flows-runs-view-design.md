@@ -308,7 +308,7 @@ Run, in which case it is absent.
 | **Abandon a card** | The card's inspector | Abandons it, and says first that the rule after its role still fires. Offers *Stop the run instead*. | `team/intent` (`abandon`) | The card is open or claimed. | Ends the Run. |
 | **Approve, Deny** | Overview *Needs you* | A tool approval or a question. | `approval/respond` | The seat has one open. **Window only**: no outside client answers approvals (#1271). | Appear in any other client. |
 | **Open pull request** | Run header, the findings row | Opens the pull request in the browser. | None; the link comes from the forge facts the Run already carries | A pull request is bound to the Run. | Merge. Merging stays a step the Flow gives to a check or a person. |
-| **Post the review** | The inspector's Review section | Posts recorded findings to the pull request. | The host's own, behind #1248 and #1265 | The host says it can, and why. | Run without a press. |
+| **Post the review** | The inspector's Review section | Posts what is waiting: an item to post again, or the rounds a backfill would release. | `finding/publish` (exists: post again, skip, backfill), read with `finding/publications`. The case with no review candidate at all needs #1265. | The host has an item awaiting a person or a backfill to offer; otherwise its `backfillRefusal` is shown as the reason. | Run without a press. |
 | **Hide settled** | The Teams page | Folds a Team out of Active until it changes. | None; kept on this machine | The Team is settled with nothing waiting. | Delete anything. |
 
 **Pause and resume are not offered.** The engine has no pause, and a runtime's
@@ -539,6 +539,9 @@ commit, and none of them ships a surface by itself:
 7. A Team's usage read grouped by seat, from the report's existing breakdowns.
 
 ## Phasing
+
+The pull requests below are written out one by one, each as a brief a Team can
+take cold, in `docs/superpowers/plans/2026-10-02-teams-runs-view.md`.
 
 Small pull requests, each usable on its own, each with its catalogue boards
 (every new state: empty, failed, pending, narrow, dark) and its entry in
