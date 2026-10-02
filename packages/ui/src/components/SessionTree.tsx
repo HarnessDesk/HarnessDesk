@@ -202,8 +202,8 @@ const SessionRow = memo(({
   const badgeSlot = (step: 0 | 1 | 2) => step === 0
     ? undefined
     : step === 1
-      ? 'end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-action-step))]'
-      : 'end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-double-action-step))]'
+      ? 'end-[calc(var(--sidebar-menu-end-rail)+var(--hd-sidebar-end-action-step))]'
+      : 'end-[calc(var(--sidebar-menu-end-rail)+var(--hd-sidebar-end-double-action-step))]'
   const worktreeSlot = badgeSlot(hasActivityMark ? 1 : 0)
   const folderGoneSlot = badgeSlot((worktree ? 1 : 0) + (hasActivityMark ? 1 : 0) as 0 | 1 | 2)
   const rowRef = useRef<HTMLButtonElement>(null)

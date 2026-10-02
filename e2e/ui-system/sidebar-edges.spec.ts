@@ -83,6 +83,8 @@ test('hover actions take the rail and every trailing mark moves by the declared 
         target,
       }), await row.evaluate((node) => Number.parseFloat(getComputedStyle(node).getPropertyValue('--hd-sidebar-end-action-step'))))
       const expectedMove = actionCount * rail.target
+      const declaredMarks = Number(await row.getAttribute('data-sidebar-trailing-marks') ?? 0)
+      const expectedStateOffset = (declaredMarks - 1 + actionCount) * rail.target
 
       for (const state of ['hover', 'focus', 'menu-open'] as const) {
         await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
@@ -121,7 +123,7 @@ test('hover actions take the rail and every trailing mark moves by the declared 
           const mark = stateMarks.nth(markIndex)
           const markBox = await box(mark)
           const stateCenter = markBox.x + markBox.width / 2
-          expect(Math.abs(stateCenter - (rail.center - expectedMove)), `${caseName} state mark misses its shifted slot at ${width}px (${state})`).toBeLessThanOrEqual(1)
+          expect(Math.abs(stateCenter - (rail.center - expectedStateOffset)), `${caseName} state mark misses its declared leftmost slot by ${Math.round(stateCenter - (rail.center - expectedStateOffset))}px at ${width}px (${state})`).toBeLessThanOrEqual(1)
           for (let actionIndex = 0; actionIndex < actionBoxes.length; actionIndex += 1) expect(intersection(markBox, actionBoxes[actionIndex]!), `${caseName} state mark overlaps action ${actionIndex} at ${width}px (${state})`).toBe(false)
           for (const ink of titleRects) expect(intersection(ink, markBox), `${caseName} title ink overlaps state mark at ${width}px (${state})`).toBe(false)
         }

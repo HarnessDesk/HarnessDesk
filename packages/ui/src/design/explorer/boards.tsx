@@ -235,6 +235,9 @@ const sidebarNeedApproval = {
 } as const
 const fullSidebarStore = previewStore({
   ...sidebarSnapshot,
+  history: sidebarSnapshot.history.map((entry) => entry.id === 's0' && entry.runtime === runtimeId('codex')
+    ? { ...entry, status: { type: 'active' } }
+    : entry),
   listPrefs: {
     ...sidebarSnapshot.listPrefs,
     pinned: [PREVIEW_ROOT],
