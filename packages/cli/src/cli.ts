@@ -26,7 +26,7 @@ export const COMMANDS = [
   { name: 'status', methods: ['client/hello', 'goal/list', 'flow/executions'], flags: [], execute: status },
   { name: 'teams', methods: ['goal/list'], flags: ['project'], execute: teams },
   { name: 'runs', methods: ['flow/executions'], flags: ['team', 'project', 'all'], execute: runs },
-  { name: 'watch', methods: ['client/subscribe', 'flow/execution'], flags: ['team', 'run', 'project', 'until', 'raw'], execute: watch },
+  { name: 'watch', methods: ['client/subscribe', 'flow/execution', 'finding/run'], flags: ['team', 'run', 'project', 'until', 'raw'], execute: watch },
 ] as const satisfies readonly Command[]
 
 class UsageError extends Error {}

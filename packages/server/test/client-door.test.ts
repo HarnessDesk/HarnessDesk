@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 import test from 'node:test'
 import WebSocket from 'ws'
-import { approvalId, type WireNotification } from '@harnessdesk/protocol'
+import { approvalId, type SeatActivity, type WireNotification } from '@harnessdesk/protocol'
 import * as doorModule from '../src/client-door.js'
 import { Client, silent, start, stop } from './fixtures/harness.js'
 
@@ -575,3 +575,116 @@ test('a replacement failing after snapshot collection retains the old selection 
   await peer.call('goal/list', {})
   assert.ok(peer.messages.slice(before).some(m => m.method === 'flow/execution-changed' && m.params.execution.state === 'settled'))
 })
+
+const activityRig = async (t: any) => {
+  const { home, directory, h, door, module } = await rig(t)
+  await door.close()
+  await h.host.call('workspace/open', { path: home })
+  const preview = await h.host.call('flow/preview', { root: home, source })
+  const run = await h.host.call('flow/start-goal', { root: home, source, sentence: 'Synthetic activity', token: preview.token! })
+  let broadcast!: (notification: WireNotification) => void
+  const add = h.host.addBroadcaster.bind(h.host)
+  Object.defineProperty(h.host, 'addBroadcaster', { value: (callback: typeof broadcast) => { broadcast = callback; return add(callback) } })
+  let current: SeatActivity = { goal: run.goal, seat: 'demo:seat', role: 'reviewer', card: null, state: 'idle', doing: null }
+  Object.defineProperty(h.host, 'seatActivities', { configurable: true, value: () => [current, { ...current, goal: 'other' }] })
+  const reopened = await module.openClientDoor({ host: h.host, logger: silent, home, directory, hostVersion: 'test' })
+  assert.ok(reopened)
+  t.after(() => reopened.close())
+  const peer = await Peer.open(reopened.socketPath)
+  t.after(() => peer.socket.close())
+  await peer.hello()
+  return { h, home, run, peer, broadcast, get current() { return current }, change(state: SeatActivity['state']) {
+    current = { ...current, state, doing: state === 'working' ? { kind: 'thinking' } : null }
+    broadcast({ method: 'seat/activity', params: current })
+  } }
+}
+
+test('seat baselines and review changes follow Team, run and project scope and topic selection', async t => {
+  const r = await activityRig(t)
+  const { peer, run, home, broadcast } = r
+  const review = await peer.call('finding/run', { goal: run.goal, run: run.id })
+  assert.equal(review.ok, true)
+  assert.equal(review.result.goal, run.goal)
+  assert.deepEqual(review.result.rounds, [])
+  for (const scope of [{ team: run.goal }, { run: run.id }, { project: home }, { team: 'other-team' }]) {
+    const before = peer.messages.length
+    assert.equal((await peer.call('client/subscribe', { topics: ['seats', 'reviews'], scope })).ok, true)
+    broadcast({ method: 'finding/changed', params: { goal: run.goal, revision: 1 } })
+    broadcast({ method: 'finding/changed', params: { goal: 'other', revision: 2 } })
+    r.change('working')
+    broadcast({ method: 'seat/activity', params: { ...r.current, goal: 'other' } })
+    await peer.call('goal/list', {})
+    const notifications = peer.messages.slice(before).filter(m => 'method' in m)
+    if ('team' in scope && scope.team === 'other-team') assert.deepEqual(notifications, [])
+    else {
+      assert.equal(notifications.filter(m => m.method === 'seat/activity').length, 2)
+      assert.ok(notifications.every(m => m.params.goal === run.goal))
+      assert.deepEqual(notifications.filter(m => m.method === 'finding/changed').map(m => m.params.revision), [1])
+    }
+  }
+  for (const topics of [['seats'], ['reviews'], ['teams']]) {
+    assert.equal((await peer.call('client/subscribe', { topics, scope: { team: run.goal } })).ok, true)
+    await peer.call('goal/list', {})
+    const before = peer.messages.length
+    broadcast({ method: 'finding/changed', params: { goal: run.goal, revision: 3 } })
+    r.change('idle')
+    await peer.call('goal/list', {})
+    const methods = peer.messages.slice(before).filter(m => 'method' in m).map(m => m.method)
+    assert.deepEqual(methods, topics[0] === 'reviews' ? ['finding/changed'] : topics[0] === 'seats' ? ['seat/activity'] : [])
+  }
+})
+
+for (const phase of ['before seat read', 'during seat read'] as const) {
+  test(`subscribe reconciles seat snapshots received ${phase}`, async t => {
+    const r = await activityRig(t)
+    const { peer, h, run } = r
+    const { entered, release } = holdNextRead(h.host)
+    t.after(release)
+    if (phase === 'during seat read') Object.defineProperty(h.host, 'seatActivities', { value: () => {
+      const sampled = r.current
+      r.change('waiting')
+      r.change('working')
+      return [sampled]
+    } })
+    const subscribing = peer.call('client/subscribe', { topics: ['seats'], scope: { team: run.goal } })
+    await entered
+    if (phase === 'before seat read') { r.change('waiting'); r.change('working') }
+    release()
+    assert.equal((await subscribing).ok, true)
+    await peer.call('goal/list', {})
+    assert.deepEqual(peer.messages.filter(m => m.method === 'seat/activity').map(m => m.params.state), ['working'])
+    r.change('idle')
+    await peer.call('goal/list', {})
+    assert.deepEqual(peer.messages.filter(m => m.method === 'seat/activity').map(m => m.params.state), ['working', 'idle'])
+  })
+}
+
+for (const accepted of [true, false]) {
+  test(`a ${accepted ? 'successful' : 'refused'} replacement preserves queued seat snapshots and review invalidations`, async t => {
+    const r = await activityRig(t)
+    const { peer, h, run } = r
+    assert.equal((await peer.call('client/subscribe', { topics: ['seats', 'reviews'], scope: { team: run.goal } })).ok, true)
+    await peer.call('goal/list', {})
+    const before = peer.messages.length
+    const { entered, release } = holdNextRead(h.host)
+    t.after(release)
+    const preceding = peer.call('goal/list', {})
+    await entered
+    if (!accepted) Object.defineProperty(h.host, 'pendingApprovalEvents', { value: () => { throw new Error('Synthetic approval baseline failure') } })
+    const replacing = peer.call('client/subscribe', { topics: ['seats', 'reviews', 'waiting'], scope: { team: run.goal } })
+    await new Promise<void>(resolve => { peer.socket.once('pong', () => resolve()); peer.socket.ping() })
+    r.change('waiting')
+    r.broadcast({ method: 'finding/changed', params: { goal: run.goal, revision: 4 } })
+    r.change('working')
+    r.broadcast({ method: 'finding/changed', params: { goal: run.goal, revision: 5 } })
+    release()
+    assert.equal((await preceding).ok, true)
+    assert.equal((await replacing).ok, accepted)
+    await peer.call('goal/list', {})
+    assert.deepEqual(peer.messages.slice(before).filter(m => m.method === 'seat/activity').map(m => m.params.state), accepted ? ['working'] : ['waiting', 'working'])
+    assert.deepEqual(peer.messages.slice(before).filter(m => m.method === 'finding/changed').map(m => m.params.revision), [4, 5])
+    r.change('idle')
+    await peer.call('goal/list', {})
+    assert.equal(peer.messages.filter(m => m.method === 'seat/activity').at(-1).params.state, 'idle')
+  })
+}
