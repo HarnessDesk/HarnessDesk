@@ -1362,7 +1362,13 @@ class PreviewStore {
     mode === 'update' ? PREVIEW_FLOW_UPDATE : PREVIEW_FLOW_CUSTOMIZE
   applyFlowUpdate = async (): Promise<FlowUpdateResult> => ({ state: 'applied', written: PREVIEW_FLOW_UPDATE.edits.map((edit) => edit.path), message: 'The flow update was applied.' })
   readFlowExecution = async (): Promise<FlowExecution> => { throw new Error('[preview] no live flow execution to read here') }
-  previewFlowRetry = async (): Promise<FlowPreview> => ({ ...FIX_PREVIEW, token: null, problems: [{ level: 'error', at: 'run', text: 'This flow or its seating changed. Review the dry run again before starting.' }] })
+  previewFlowRetry = async (): Promise<FlowPreview> => ({
+    ...FIX_PREVIEW,
+    token: 'preview-retry-token',
+    seats: [],
+    commands: FIX_PREVIEW.commands.map((command) => ({ ...command, cwd: '/work/storefront' })),
+    guards: [],
+  })
   retryFlowCheck = async (): Promise<FlowExecution> => { throw new Error('[preview] no live flow run to retry here') }
 
   // --- the front door --------------------------------------------------
@@ -1752,7 +1758,7 @@ class PreviewStore {
     // second account wedged into this shared fixture (BLOCKING 3's fix: a
     // runtime only ever carries one account's report, so a second account
     // here would show nothing real).
-    [this.#planKey('claude', 'shane@harnessdesk.app'), { fee: { amount: 200, currency: 'USD', period: 'month', source: 'user', setAt: Date.now() } }],
+    [this.#planKey('claude', 'dev@example.com'), { fee: { amount: 200, currency: 'USD', period: 'month', source: 'user', setAt: Date.now() } }],
   ])
   readonly #planSuggestions: PlanSuggestion[] = [
     { runtime: runtimeId('claude'), planMatch: 'Pro', amount: 20, currency: 'USD', period: 'month', sourceUrl: 'https://claude.com/pricing', checkedAt: '2026-09-26' },

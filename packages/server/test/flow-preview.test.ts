@@ -515,3 +515,16 @@ test('a known same-provider clash is refused even when another writer\'s provide
   assert.deepEqual(independentProviderReason(null, new Set(['openai'])), { kind: 'unknownProvider' })
   assert.equal(independentProviderReason('anthropic', new Set(['openai'])), null)
 })
+
+test('retrying one finished check uses its frozen policy even if its earlier Agent is no longer available', async () => {
+  const state = rig()
+  const frozen = (await new FlowPreviews(state.port).freeze('/repo', FLOW)).compiled
+  state.agentsRoster = []
+  const target = { command: { role: 'gate', run: 'pnpm verify', cwd: '/repo/lane', timeout: 900 }, at: 'a'.repeat(40), stamp: 'attempt-1' }
+  const previews = new FlowPreviews({ ...state.port, storedRun: async () => ({ source: FLOW, vars: {}, compiled: frozen }), previewCheck: async () => target })
+  const preview = await previews.preview('/repo', FLOW, {}, { run: 'flow-1', card: 3 })
+  assert.ok(preview.token, 'an unavailable earlier Agent does not block a consented mechanical recheck')
+  assert.deepEqual(preview.commands, [target.command], 'only this card’s command and actual checkout are shown')
+  assert.deepEqual(preview.seats, [])
+  assert.ok(await previews.redeem(preview.token!, '/repo', FLOW, {}))
+})

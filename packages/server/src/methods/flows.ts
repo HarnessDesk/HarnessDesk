@@ -91,6 +91,7 @@ export const flowMethods = {
    * Goal together.
    */
   'flow/start-goal': async (ctx, params) => {
+    if (ctx.flowPreviews.retryTarget(params.token)) throw new Error(CHANGED_PREVIEW)
     const redeemed = await ctx.flowPreviews.redeem(params.token, params.root, params.source, params.vars ?? {})
     if (!redeemed) throw new Error(CHANGED_PREVIEW)
     /* The held-seat policy and the reused Goal are the token's, never the
@@ -137,17 +138,18 @@ export const flowMethods = {
   'flow/execution/source': (ctx, params) => {
     const stored = ctx.flows.storedRun(params.run)
     if (!stored) throw new Error(`There is no saved source for flow run ${params.run}.`)
-    return stored
+    return { source: stored.source, vars: stored.vars }
   },
 
   /**
-   * Re-runs an interrupted check, once a person has looked. The token is a
+   * Re-runs a finished or interrupted check, once a person has looked. The token is a
    * fresh `flow/preview` one, additionally bound to this exact run and card —
    * `flow/preview`'s own `retry` param is what mints it, validated there
    * against the run's saved source and inputs, so nothing here re-chooses the
    * command or checkout.
    */
   'flow/check/retry': async (ctx, params) => {
+    const approved = ctx.flowPreviews.retryCheck(params.token)
     const bound = ctx.flowPreviews.retryTarget(params.token)
     if (!bound || bound.run !== params.run || bound.card !== params.card) throw new Error(CHANGED_PREVIEW)
     const stored = ctx.flows.storedRun(params.run)
@@ -156,7 +158,7 @@ export const flowMethods = {
     const goal = await ctx.goals.view(execution.goal)
     const redeemed = await ctx.flowPreviews.redeem(params.token, goal.goal.root, stored.source, stored.vars)
     if (!redeemed) throw new Error(CHANGED_PREVIEW)
-    return ctx.flows.retryCheck(params.run, params.card)
+    return ctx.flows.retryCheck(params.run, params.card, approved)
   },
 
   'flow/answer/continue': (ctx, params) => ctx.flows.continueAnswer(params.run),

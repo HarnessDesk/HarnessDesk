@@ -74,22 +74,25 @@
 }
 
 .winNavBadge {
-  width: auto; /* desk: let the shared trailing badge size to its contents. */
-  gap: var(--hd-space-1); /* desk: keep state marks compact inside that slot. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inset-inline-end: var(--hd-sidebar-end-window-inset);
+  width: var(--hd-icon-target); /* desk: auto → 24px, the count takes one target on the end rail. */
+}
+
+.winNavBadgeWithTrail {
+  inset-inline-end: calc(var(--hd-sidebar-end-window-inset) + var(--hd-sidebar-end-action-step));
 }
 
 .winNavCount {
   flex: none;
 }
 
-/* A nav item that carries both a count and a state puts the state last, so
-   the eye lands on the thing that needs doing. */
 .winNavDot {
-  margin-left: auto;
-}
-
-.winNavCount + .winNavDot {
-  margin-left: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* You, first: set off from the pages under it by the gap a group takes,

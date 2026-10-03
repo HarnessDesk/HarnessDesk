@@ -24,7 +24,11 @@ test('conversation labels reach the row rail without changing box width on hover
       expect(rest).not.toBeNull()
       expect(buttonBox).not.toBeNull()
       expect(Math.abs(rest!.x + rest!.width - buttonBox!.x - buttonBox!.width)).toBeLessThanOrEqual(1)
-      if (kind === 'badge') await expect(row.locator('[data-slot="sidebar-menu-badge"]')).toBeVisible()
+      if (kind === 'badge') {
+        const marks = row.locator('[data-slot="sidebar-menu-badge"]')
+        await expect(marks).toHaveCount(3)
+        for (let index = 0; index < await marks.count(); index += 1) await expect(marks.nth(index)).toBeVisible()
+      }
       await row.hover()
       await expect(action).toBeVisible()
       const hover = await label.boundingBox()
@@ -203,7 +207,7 @@ test(`workspace hover keeps its pin visible and label width fixed (${theme})`, a
       await sidebar(page).getByRole('button', { name: 'How this list is shown', exact: true }).click()
       await page.getByRole('menuitem', { name: /^Density\b/ }).hover()
       await page.getByRole('menuitemradio', { name: density, exact: true }).click()
-      const label = 'Learn from every single tab of the settings screen'
+      const label = 'Draft the 2.5 migration notes after reviewing the sidebar target behavior'
       const row = page.locator('[data-region="session-row"] [data-slot="sidebar-menu-item"]').filter({
         has: page.locator(`button[aria-label="Actions for ${label}"]`),
       })
@@ -218,9 +222,13 @@ test(`workspace hover keeps its pin visible and label width fixed (${theme})`, a
         await row.scrollIntoViewIfNeeded()
         await page.mouse.move(1400, 0)
         await open.blur()
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+        await page.waitForTimeout(300)
         const before = await settled(branch)
+        const goneBefore = await settled(gone)
         await row.hover()
         await expect(action).toBeVisible()
+        await page.waitForTimeout(300)
         const moved = await settled(branch)
         if (width === 260) {
           await row.screenshot({ path: testInfo.outputPath('session-hover.png') })
@@ -229,12 +237,16 @@ test(`workspace hover keeps its pin visible and label width fixed (${theme})`, a
             contentType: 'application/json',
           })
         }
-        // Same trade as the workspace head above: the marks step aside for the
-        // ⋯ rather than being covered by it, and they keep their line.
-        expect(moved.left).toBeLessThanOrEqual(before.left)
+        // The action takes the rail and each mark yields one shared target.
+        expect(moved.left).toBe(before.left - 24)
         expect(moved.top).toBe(before.top)
-        for (const mark of [branch, gone]) {
-          expect((await settled(mark)).right).toBeLessThanOrEqual((await settled(action)).left)
+        const actionBox = await settled(action)
+        expect(actionBox.left + actionBox.width / 2).toBe(before.left + before.width / 2)
+        for (const [mark, resting] of [[branch, before], [gone, goneBefore]] as const) {
+          const markBox = await settled(mark)
+          expect(markBox.left).toBe(resting.left - 24)
+          expect(markBox.top).toBe(resting.top)
+          expect(markBox.right <= actionBox.left || actionBox.right <= markBox.left).toBe(true)
           expect(await unobstructed(mark)).toBe(true)
         }
         expect(await unobstructed(action)).toBe(true)

@@ -112,7 +112,7 @@ const ResizeHandle = ({
       className={cn(
         'group/resize relative flex shrink-0 items-center justify-center',
         appearance === 'line' &&
-          'bg-(--hd-border) hover:bg-(--hd-accent) data-[dragging]:bg-(--hd-accent) after:absolute after:content-[\'\']',
+          'bg-transparent hover:bg-(--hd-accent) data-[dragging]:bg-(--hd-accent) after:absolute after:content-[\'\']',
         orientation === 'vertical'
           ? appearance === 'line'
             ? 'w-(--hd-border-width) cursor-col-resize after:inset-y-0 after:-inset-x-1'

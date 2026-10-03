@@ -23,9 +23,11 @@ import { Mount, PREVIEW_ROOM, PREVIEW_SESSION_KEY, previewStore } from '../../pr
 import { cardEvidence, checkView, EVIDENCE_ROOM } from '../../preview/evidence-fixture'
 import { PREVIEW_FLOW_CARD, sceneFlowExecution } from '../../preview/flow-fixture'
 import { PREVIEW_FLOW_GOAL } from '../../preview/goal-fixture'
+import { sidebarGeometryFixture } from '../../preview/sidebar-geometry-fixture'
 import { denseTurns, PREVIEW_ROOT, previewHistory, previewSession } from '../../preview/sidebar-fixture'
 import { ComposerSlotsContent } from '../../preview/composer-slots-content'
 import { SIGN_IN_SELECTED, signInSeed } from '../../preview/signin-fixture'
+import { FlowBriefCases } from '../../preview/flow-brief-content'
 import styles from './surfaces.module.css'
 
 const PERSON_REVIEW_ROOM = 'room-person-review'
@@ -884,6 +886,7 @@ export const ToolsSurface = () => (
  * something here is what the app would do.
  */
 const panelsStore = previewStore({
+  ...(new URLSearchParams(window.location.search).has('sidebar-geometry') ? sidebarGeometryFixture(previewStore().getSnapshot()) : {}),
   workbench: (
     [
       ['right', { kind: 'changes' }],
@@ -952,3 +955,6 @@ export const SignInSurface = () => (
     </Frame>
   </Mount>
 )
+
+/** The shipped Brief input and file-import states, on synthetic data. */
+export const FlowBriefSurface = () => <FlowBriefCases />

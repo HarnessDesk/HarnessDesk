@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict'
-import { execFileSync, spawn } from 'node:child_process'
-import { readFile, writeFile } from 'node:fs/promises'
+import childProcess, { execFileSync, spawn } from 'node:child_process'
+import { readFileSync, readdirSync } from 'node:fs'
+import { readFile, readdir, writeFile } from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { checkEnvironment, runCommand, TAIL_LIMIT } from '../src/evidence/run.js'
+import { recordCheckProcess } from '../src/evidence/check-processes.js'
 import { tempDir } from './scratch.js'
 
 /*
@@ -255,3 +258,140 @@ test('a check asked to start after the desk has begun closing never starts', asy
   assert.deepEqual(run, { exit: null, timedOut: false, tail: 'It was stopped: the desk closed.' })
   await assert.rejects(readFile(join(cwd, 'started')))
 })
+
+test('a durable check launch records its pgid before running the command and announces launch before exit', async () => {
+  const dir = tempDir('hd-check-launch-')
+  const controller = new AbortController()
+  let announced = false
+  const where = {
+    cwd: dir, timeoutSec: 30, signal: controller.signal,
+    processDir: join(dir, 'processes'),
+    onStarted: () => { announced = true },
+  }
+  const running = runCommand('sleep 30', where)
+  try {
+    const deadline = Date.now() + 1000
+    while (!announced && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10))
+    assert.equal(announced, true, 'launch is acknowledged without waiting for exit')
+    const { readdir } = await import('node:fs/promises')
+    const records = await readdir(where.processDir)
+    assert.equal(records.length, 1, 'the exact group is durably recoverable')
+    const saved = JSON.parse(await readFile(join(where.processDir, records[0]!), 'utf8')) as { pgid: number }
+    assert.ok(saved.pgid > 1)
+    assert.doesNotThrow(() => process.kill(-saved.pgid, 0), 'that group exists')
+  } finally {
+    controller.abort()
+    await running
+  }
+})
+
+test('a durable launch preserves the command’s nonzero status and cannot execute if its journal cannot be saved', async () => {
+  const dir = tempDir('hd-check-status-')
+  const result = await runCommand('exit 7', { cwd: dir, timeoutSec: 5, processDir: join(dir, 'processes') })
+  assert.equal(result.exit, 7, 'the waiting shell must preserve its child’s status')
+  await writeFile(join(dir, 'not-a-directory'), 'staged storage fault')
+  let started = false
+  const refused = await runCommand('touch forbidden', { cwd: dir, timeoutSec: 5, processDir: join(dir, 'not-a-directory', 'processes'), onStarted: () => { started = true } })
+  assert.equal(started, false)
+  assert.equal(refused.exit, null)
+  await assert.rejects(readFile(join(dir, 'forbidden')))
+})
+
+test('journal admission allows sibling cards but refuses a second check on the same recorded card', async () => {
+  const cwd = tempDir('hd-check-sibling-')
+  const processDir = join(cwd, 'processes')
+  const controller = new AbortController()
+  const tasks: Promise<unknown>[] = []
+  try {
+    for (const card of [3, 4]) {
+      let launched!: () => void
+      const launch = new Promise<void>((resolve) => { launched = resolve })
+      tasks.push(runCommand('sleep 30', { cwd, timeoutSec: 30, processDir, processOwner: { board: 'goal-1', card }, signal: controller.signal, onStarted: launched }))
+      await launch
+    }
+    assert.equal((await readdir(processDir)).length, 2)
+    await assert.rejects(runCommand('touch duplicate', { cwd, timeoutSec: 5, processDir, processOwner: { board: 'goal-1', card: 3 } }), /cleanup/)
+    await assert.rejects(readFile(join(cwd, 'duplicate')))
+  } finally {
+    controller.abort()
+    await Promise.all(tasks)
+  }
+})
+
+test('a mismatched recorded leader never blocks or signals an unrelated live process group', async (t) => {
+  const cwd = tempDir('hd-check-reused-leader-')
+  const processDir = join(cwd, 'processes')
+  const owner = { board: 'goal-1', card: 3 }
+  const other = spawn('sleep', ['30'], { detached: true, stdio: 'ignore' })
+  t.after(() => other.kill('SIGKILL'))
+  await new Promise<void>((resolve) => other.once('spawn', resolve))
+  recordCheckProcess(processDir, other.pid!, owner)
+  const [file] = await readdir(processDir)
+  const path = join(processDir, file!)
+  const recorded = JSON.parse(await readFile(path, 'utf8')) as { identity: string }
+  await writeFile(path, JSON.stringify({ ...recorded, identity: '0'.repeat(64) }))
+  const kill = process.kill.bind(process)
+  const signals: unknown[] = []
+  t.mock.method(process, 'kill', (pid: number, signal?: NodeJS.Signals | number) => {
+    if (pid === -other.pid! && signal !== 0) signals.push(signal)
+    return kill(pid, signal)
+  })
+  assert.equal((await runCommand('true', { cwd, timeoutSec: 5, processDir, processOwner: owner })).exit, 0)
+  assert.deepEqual(signals, [])
+  assert.doesNotThrow(() => kill(other.pid!, 0))
+})
+
+for (const ending of ['completion', 'timeout'] as const) {
+  for (const members of ['live', 'unreadable', 'gone'] as const) {
+    test(`live ${ending} cleanup under EPERM keeps its journal unless the group is proven gone (${members})`, async (t) => {
+      const dir = tempDir('hd-check-live-probe-')
+      const processDir = join(dir, 'processes')
+      const kill = process.kill.bind(process)
+      const ps = childProcess.execFileSync
+      let pgid = 0
+      t.mock.method(process, 'kill', (pid: number, signal?: NodeJS.Signals | number) => {
+        if (pgid && pid === -pgid && signal === 0) throw Object.assign(new Error('staged permission refusal'), { code: 'EPERM' })
+        return kill(pid, signal)
+      })
+      // A different-uid member may remain after an otherwise successful group
+      // signal. Stage that process-table observation around a real launch/kill.
+      const table = t.mock.method(childProcess, 'execFileSync', (...args: Parameters<typeof ps>) => {
+        if (args[0] === 'ps' && args[1]?.[0] === '-axo') {
+          if (members === 'unreadable') throw new Error('staged process table failure')
+          return `${pgid} ${members === 'live' ? 'S' : 'Z'}\n`
+        }
+        return ps(...args)
+      })
+      syncBuiltinESMExports()
+      try {
+        const where = {
+          cwd: dir, timeoutSec: ending === 'completion' ? 5 : 1, processDir,
+          processOwner: { board: 'goal-1', card: 3 },
+          onStarted: () => {
+            const [file] = readdirSync(processDir)
+            pgid = (JSON.parse(readFileSync(join(processDir, file!), 'utf8')) as { pgid: number }).pgid
+          },
+        }
+        const running = runCommand(ending === 'completion' ? 'true' : 'exec sleep 30', where)
+        if (members === 'gone') {
+          const result = await running
+          assert.equal(result.exit, ending === 'completion' ? 0 : null)
+          assert.equal(result.timedOut, ending === 'timeout')
+          assert.deepEqual(await readdir(processDir), [])
+        } else {
+          await assert.rejects(running, /process group.*not.*(?:confirm|prove)|cleanup.*not/i)
+          assert.equal((await readdir(processDir)).length, 1, 'uncertain cleanup retains the durable launch record')
+          let startedAgain = false
+          await assert.rejects(runCommand('touch duplicate', { ...where, onStarted: () => { startedAgain = true } }), /cleanup|previous check/i)
+          assert.equal(startedAgain, false, 'a matching retry cannot launch while cleanup is unresolved')
+          await assert.rejects(readFile(join(dir, 'duplicate')))
+          assert.equal((await readdir(processDir)).length, 1, 'the retry leaves the original record intact')
+        }
+      } finally {
+        table.mock.restore()
+        syncBuiltinESMExports()
+        if (pgid) { try { kill(-pgid, 'SIGKILL') } catch { /* Gone. */ } }
+      }
+    })
+  }
+}

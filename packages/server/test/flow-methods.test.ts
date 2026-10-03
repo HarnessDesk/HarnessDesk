@@ -52,6 +52,7 @@ const fakeCtx = (overrides: Partial<{
         redeemCalls.push({ token, root, source, vars })
         return { compiled: emptyCompiled, commands: [] }
       },
+      retryCheck: () => undefined,
       retryTarget: (token: string) => (token === 'retry-tok' ? { run: 'flow-1', card: 3 } : null),
     },
     flowUpdates: {
@@ -155,4 +156,11 @@ test('flow/update and flow/customize route to FlowUpdates, not each other', asyn
   await flowMethods['flow/customize/apply'](ctx, { root: '/repo', id: 'y', token: 'c1' })
   assert.equal(updateCalls.length, 2)
   assert.equal(customizeCalls.length, 2)
+})
+
+test('a retry consent token cannot start a new Goal or seat its frozen Agents', async () => {
+  const startCalls: unknown[] = []
+  const ctx = fakeCtx({ startCalls })
+  await assert.rejects(flowMethods['flow/start-goal'](ctx, { root: '/repo', source: 'version: 2', token: 'retry-tok', sentence: 'Go' }), /changed/)
+  assert.deepEqual(startCalls, [])
 })

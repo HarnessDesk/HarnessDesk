@@ -16,7 +16,7 @@ import { ProjectTriggers } from '../components/ProjectTriggers'
 import { TriggerArm } from '../components/TriggerArm'
 import { FlowUpdate } from '../components/FlowUpdate'
 import { RaceStart } from '../components/RaceStart'
-import { FlowRunStatus } from '../components/FlowRunStatus'
+import { FlowRunStatus, RetryCheck } from '../components/FlowRunStatus'
 import { AppearanceSection } from '../components/SettingsYou'
 import { LibrarySection } from '../components/Library'
 import { AgentsWindow } from '../components/AgentsWindow'
@@ -41,6 +41,7 @@ import {
   Boundary,
   EDGE_ROOM,
   EMPTY_ROOM,
+  Mount,
   PREVIEW_EMPTY_SESSION_KEY,
   PREVIEW_PLANS,
   PREVIEW_ROOM,
@@ -69,6 +70,7 @@ import { LibraryDevFrames } from './frames-library-dev'
 import { LibraryOptionFrames } from './frames-library-options'
 import { SideBySideFrames } from './frames-side-by-side'
 import { ComposerSlotsFrames } from './frames-composer-slots'
+import { BRIEF_SCENES, FlowBriefDialog, type BriefScene } from './flow-brief-content'
 import '../styles/app.css'
 
 const SHOW_COMPOSER = new URLSearchParams(window.location.search).has('composer')
@@ -103,9 +105,11 @@ const SHOW_BOARD_TOOL_APPROVALS = new URLSearchParams(window.location.search).ha
    rig's own way to shoot each view without clicking through the rail by
    hand: `preview.html?view=spend`. Falls back to the dial beside the frame. */
 const DASHBOARD_VIEW_PARAM = new URLSearchParams(window.location.search).get('view')
+const SIDEBAR_VARIANT_PARAM = new URLSearchParams(window.location.search).get('sidebar')
 /* Painted only when asked for: the fixture draws its two pictures at load. */
 const composerWaiting = SHOW_COMPOSER ? composerStore(store.getSnapshot()) : store
 const composerPaused = SHOW_COMPOSER ? composerStore(store.getSnapshot(), true) : store
+const sidebarNoFolderStore = previewStore({ workspace: null, workspaces: [], history: [], activeSessionKey: null })
 
 const previewProvenance = commitProvenance({ seats: [{ ...provenanceSeat(7), runtime: 'codex', session: { runtime: 'codex', sessionId: 'conversation-7' } }] })
 const previewMutable = store as unknown as { patch(partial: Partial<AppSnapshot>): void }
@@ -440,6 +444,7 @@ const Preview = () => {
     | 'save as agent'
     | 'what was observed'
     | 'run a check'
+    | 'retry check'
     | 'flow update'
     | 'flow customize'
     | 'race'
@@ -502,7 +507,7 @@ const Preview = () => {
         <Dial
           label="dialog"
           value={dialog}
-          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed', 'run a check', 'flow update', 'flow customize', 'race', 'trigger arm'] as const}
+          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed', 'run a check', 'retry check', 'flow update', 'flow customize', 'race', 'trigger arm'] as const}
           onChange={setDialog}
         />
         <Dial label="trigger arm scene" value={armScene} options={TRIGGER_ARM_SCENES} onChange={setArmScene} />
@@ -543,6 +548,7 @@ const Preview = () => {
         />
       )}
       {dialog === 'new session' && <NewSessionChoice onClose={() => setDialog('off')} />}
+      {dialog === 'retry check' && <RetryCheck run="run-preview" card={7} onClose={() => setDialog('off')} />}
       {dialog === 'flow update' && (
         <FlowUpdate root={PREVIEW_ROOT} id="old-fix" mode="update" onClose={() => setDialog('off')} onApplied={() => setDialog('off')} />
       )}
@@ -933,10 +939,10 @@ const Preview = () => {
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[380px_1fr]">
         {/* The sidebar at its real width, on the plate it really sits on:
             the right edge only reads true against the column's own ground. */}
-        <Frame id="sidebar-column" title="Sidebar — the column and its right edge">
+        <Frame id="sidebar-column" title="Sidebar — 240px column">
           <div
             className="h-[720px]"
-            style={{ width: 260, background: 'var(--hd-sidebar-plate, transparent)' }}
+            style={{ width: 240, background: 'var(--hd-sidebar-plate, transparent)' }}
           >
             <Sidebar
               onOpenSettings={() => {}}
@@ -949,6 +955,34 @@ const Preview = () => {
             />
           </div>
         </Frame>
+        {SIDEBAR_VARIANT_PARAM === 'compact' && <Frame id="sidebar-compact" title="Sidebar — 200px column">
+          <div className="h-[720px]" style={{ width: 200, background: 'var(--hd-sidebar-plate, transparent)' }}>
+            <Sidebar
+              onOpenSettings={() => {}}
+              onOpenPlugins={() => {}}
+              onOpenAgents={() => {}}
+              onOpenUsage={() => {}}
+              onBrowseFolders={() => {}}
+              onSignIn={() => {}}
+              onSearch={() => {}}
+            />
+          </div>
+        </Frame>}
+        {SIDEBAR_VARIANT_PARAM === 'no-folder' && <Frame id="sidebar-no-folder" title="Sidebar — no project folder">
+          <div className="h-[540px]" style={{ width: 240, background: 'var(--hd-sidebar-plate, transparent)' }}>
+            <Mount with={sidebarNoFolderStore}>
+              <Sidebar
+                onOpenSettings={() => {}}
+                onOpenPlugins={() => {}}
+                onOpenAgents={() => {}}
+                onOpenUsage={() => {}}
+                onBrowseFolders={() => {}}
+                onSignIn={() => {}}
+                onSearch={() => {}}
+              />
+            </Mount>
+          </div>
+        </Frame>}
         <Frame id="goal-roster" title="Goal — state, roster and channel">
           <div className="h-[540px]">
             <TeamRoomPane room={PREVIEW_GOAL.goal.id} />
@@ -1008,7 +1042,9 @@ createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        <Preview />
+        {new URLSearchParams(window.location.search).has('flow-brief')
+          ? <FlowBriefDialog scene={(BRIEF_SCENES.find((one) => one === new URLSearchParams(window.location.search).get('flow-brief')) ?? 'empty') as BriefScene} />
+          : <Preview />}
       </AppWindowMode.Provider>
     </StoreProvider>
   </StrictMode>,

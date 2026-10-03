@@ -1,8 +1,9 @@
-import { watch, type FSWatcher } from 'node:fs'
+import { type FSWatcher } from 'node:fs'
 import { readdir, realpath } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 
 import { resolveWithin } from './agents.js'
+import { watchRoster } from './recursive-watch.js'
 
 /**
  * The one shape this module ever calls `node:fs`'s `watch` with: a path, a
@@ -690,7 +691,7 @@ export class AgentWatch {
        dropping the project mid-flight, and this one check, at the single
        place every one of those paths converges, covers all of them. */
     if (!this.#alive(follow.scope)) return
-    const watchFn = this.#options.watchFn ?? watch
+    const watchFn = this.#options.watchFn ?? watchRoster
     let watcher: FSWatcher
     try {
       watcher = watchFn(dir, { recursive, persistent: false }, (_event, filename) => {
@@ -785,7 +786,7 @@ export class AgentWatch {
       existing.close()
       watchers.delete(name)
     }
-    const watchFn = this.#options.watchFn ?? watch
+    const watchFn = this.#options.watchFn ?? watchRoster
     for (const [name, target] of wanted) {
       if (!this.#alive(follow.scope)) return
       if (watchers.has(name)) continue

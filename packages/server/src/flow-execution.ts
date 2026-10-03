@@ -111,10 +111,17 @@ export interface ReviewPacketPin {
 /**
  * Where and at which revision each card of a check round runs, decided once
  * when the round opens and journaled beside its cards. A first run and every
- * retry read this and nothing else: a card never re-derives its checkout
+ * retry keep these checkouts: a card never re-derives its checkout
  * from whichever writers happen to be clean later, and a checkout whose head
- * has moved since is refused rather than checked in its new state.
+ * has moved since is refused unless a fresh retry preview authorizes its current revision.
  */
+/** The facts the person saw when authorizing one repeat of a check card. */
+export interface CheckRetry {
+  readonly command: { readonly role: string; readonly run: string; readonly cwd: string; readonly timeout: number }
+  readonly at: string | null
+  readonly stamp: string
+}
+
 export interface CheckPlan {
   /** `HARNESSDESK_FLOW_CONTEXT`, as every card of the round receives it. */
   readonly context: string
@@ -334,10 +341,12 @@ export interface FlowExecutionPort {
    */
   runCheck(
     command: string,
-    where: { readonly cwd: string; readonly timeoutSec: number; readonly flowContext?: string; readonly signal?: AbortSignal },
+    where: { readonly cwd: string; readonly timeoutSec: number; readonly flowContext?: string; readonly signal?: AbortSignal; readonly onStarted?: () => void },
     /** `advisory`: a Seat's `run_check` — recorded so no rule counts it (#1082). */
     card: { readonly goal: string; readonly card: number; readonly name: string; readonly round: number; readonly advisory?: true },
   ): Promise<{ readonly result: { readonly exit: number | null; readonly timedOut: boolean; readonly tail: string }; readonly evidence: string | null; readonly problem: string | null }>
+  /** Admission checks only the host's verified recorded process identity, never the checkout. */
+  assertCheckCleanup?(goal: string, card: number): void
 }
 
 /** A person decision's actions on one run, each run inside the run's queue a `withDecision` step already holds. */
@@ -777,6 +786,8 @@ export class FlowExecutions {
   #disposed = false
   /** The checks running now, by Goal: what a pause or a stop aborts without waiting for the run's queue. */
   readonly #checks = new Map<string, Set<AbortController>>()
+  readonly #checking = new Map<Promise<unknown>, string>()
+  readonly #liveCheckOperations = new Map<string, AbortController>()
   /** `run_check` asks by `goal#card`: the turn they were last counted on, how many in it, how many in all (#1082). */
   readonly #checkAsks = new Map<string, { readonly turn: number; readonly inTurn: number; readonly total: number }>()
   /** Cards with a `run_check` running now, by `goal#card`: one at a time on a card. */
@@ -832,6 +843,7 @@ export class FlowExecutions {
   dispose(): void {
     if (this.#disposed) return
     this.#disposed = true
+    for (const controllers of this.#checks.values()) for (const controller of controllers) controller.abort()
     for (const pending of this.#pendingReleases.values()) clearTimeout(pending.timer)
     this.#pendingReleases.clear()
   }
@@ -841,8 +853,8 @@ export class FlowExecutions {
     do {
       if (++guard > 10_000) throw new Error('FlowExecutions.idle() never quieted down.')
       await this.#queue.idle()
-      await Promise.all([...this.#closing])
-    } while (this.#closing.size > 0)
+      await Promise.all([...this.#closing, ...this.#checking.keys()])
+    } while (this.#closing.size > 0 || this.#checking.size > 0)
     await this.#queue.idle()
   }
 
@@ -3432,20 +3444,26 @@ export class FlowExecutions {
 
   async #runOneCheck(
     id: string, round: FlowRoundState, check: FlowCheck, card: number, index: number,
-    target: CheckPlan['targets'][number], flowContext: string,
+    target: CheckPlan['targets'][number], flowContext: string, background = false,
   ): Promise<boolean> {
     const key = `check:${round.n}:${index}`
+    const live = `${id}:${key}`
+    const stall = async (reason: string): Promise<void> => {
+      if (this.#get(id).rounds.at(-1)?.n === round.n) await this.#stall(id, reason)
+      else this.#port.log('an earlier check failed', { run: id, card, reason })
+    }
     let run = this.#get(id)
     const prior = run.operations.find((one) => one.key === key)
     if (prior?.state === 'finished') return true
     if (prior?.state === 'started' || prior?.state === 'uncertain') {
-      await this.#stall(id, `This check was interrupted. Inspect its effects, then choose Run again.`)
+      if (prior.state === 'started' && this.#liveCheckOperations.has(live)) return false
+      await stall(`This check was interrupted. Inspect its effects, then choose Run again.`)
       return false
     }
     if (target.at !== null) {
       const head = await this.#port.headOf(target.cwd, null)
       if (head.at !== target.at) {
-        await this.#stall(id, `Card #${card}'s checkout has moved since this check was planned at ${target.at.slice(0, 12)}, so it was not run. Start a new run to check what is there now.`)
+        await stall(`Card #${card}'s checkout has moved since this check was planned at ${target.at.slice(0, 12)}, so it was not run. Start a new run to check what is there now.`)
         return false
       }
     }
@@ -3455,7 +3473,7 @@ export class FlowExecutions {
       const verdict = await this.#gateOf(id)
       if (!verdict.ok) {
         if (verdict.transient) await this.#hold(id, verdict.reason)
-        else await this.#stall(id, verdict.reason)
+        else await stall(verdict.reason)
         return false
       }
     }
@@ -3463,28 +3481,59 @@ export class FlowExecutions {
     const controller = new AbortController()
     const running = this.#checks.get(run.goal) ?? new Set<AbortController>()
     this.#checks.set(run.goal, running.add(controller))
-    let outcome: Awaited<ReturnType<FlowExecutionPort['runCheck']>>
-    try {
-      outcome = await this.#port.runCheck(check.run, { cwd: target.cwd, timeoutSec: check.timeout, flowContext, signal: controller.signal }, { goal: run.goal, card, name: round.role, round: round.n })
-    } finally {
-      running.delete(controller)
-      if (running.size === 0) this.#checks.delete(run.goal)
+    let launched!: () => void
+    const started = new Promise<void>((resolve) => { launched = resolve })
+    const execute = async (): Promise<boolean> => {
+      let outcome: Awaited<ReturnType<FlowExecutionPort['runCheck']>>
+      try {
+        outcome = await this.#port.runCheck(check.run, {
+          cwd: target.cwd, timeoutSec: check.timeout, flowContext, signal: controller.signal, onStarted: launched,
+        }, { goal: run.goal, card, name: round.role, round: round.n })
+      } catch (error) {
+        outcome = { result: { exit: null, timedOut: false, tail: '' }, evidence: null, problem: error instanceof Error ? error.message : String(error) }
+      } finally {
+        launched()
+        running.delete(controller)
+        if (running.size === 0) this.#checks.delete(run.goal)
+      }
+      const complete = async (): Promise<boolean> => {
+        if (controller.signal.aborted) {
+          /* Stopped part-way by a pause or a stop: whatever it did is its own, and
+             is never run again on its own — a person looks, then chooses Run again. */
+          await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'uncertain', card, seat: null }))
+          if (this.#get(id).state === 'running') await stall(CHECK_INTERRUPTED)
+          return false
+        }
+        if (outcome.problem) {
+          await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'uncertain', card, seat: null }))
+          await stall(outcome.problem)
+          return false
+        }
+        await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'finished', card, seat: null }))
+        const said = check.exits[String(outcome.result.exit)] ?? check.otherwise
+        await this.#team.intentAction(run.goal, card, 'done', outcome.result.tail.slice(0, 400) || undefined, said)
+        return true
+      }
+      if (!background) return complete()
+      return this.#queue.within(id, async () => {
+        const ok = await complete()
+        if (ok && this.#get(id).state === 'running' && this.#get(id).rounds.at(-1)?.n === round.n) {
+          const opened = await this.#runCheckRound(id, round, check)
+          if (opened) await this.#advance(id)
+        }
+        return ok
+      })
     }
-    if (controller.signal.aborted) {
-      /* Stopped part-way by a pause or a stop: whatever it did is its own, and
-         is never run again on its own — a person looks, then chooses Run again. */
-      await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'uncertain', card, seat: null }))
-      await this.#stall(id, CHECK_INTERRUPTED)
-      return false
-    }
-    if (outcome.problem) {
-      await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'uncertain', card, seat: null }))
-      await this.#stall(id, outcome.problem)
-      return false
-    }
-    await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'finished', card, seat: null }))
-    const said = check.exits[String(outcome.result.exit)] ?? check.otherwise
-    await this.#team.intentAction(run.goal, card, 'done', outcome.result.tail.slice(0, 400) || undefined, said)
+    this.#liveCheckOperations.set(live, controller)
+    const task = execute().finally(() => {
+      if (this.#liveCheckOperations.get(live) === controller) this.#liveCheckOperations.delete(live)
+    })
+    if (!background) return task
+    this.#checking.set(task, id)
+    void task.finally(() => this.#checking.delete(task)).catch((error: unknown) => {
+      this.#port.log('a retried check could not finish', { run: id, card, error: String(error) })
+    })
+    await started
     return true
   }
 
@@ -3493,36 +3542,63 @@ export class FlowExecutions {
     return false
   }
 
+  /** Snapshot of the exact card, attempt and checkout shown by a retry preview. */
+  async previewCheck(id: string, card: number): Promise<CheckRetry> {
+    const run = this.#get(id)
+    const found = this.#cardOf(run.goal, card)
+    if (!found || found.run.id !== id) throw new Error(`Card #${card} belongs to no round of this run.`)
+    const role = policyOf(run).roles.find((one) => one.id === found.round.role)
+    const key = `check:${found.round.n}:${found.slot}`
+    const operation = run.operations.find((one) => one.key === key)
+    if (role?.kind !== 'check' || !operation || !['finished', 'uncertain'].includes(operation.state)) throw new Error('This check is not waiting to be run again.')
+    if (run.intake?.dispatchHeld) throw new Error(DISPATCH_HELD)
+    if (run.state === 'settled' || run.state === 'stopped') throw new Error(`This run is ${run.state}. Start a new run to run this check again.`)
+    if (!['running', 'stalled'].includes(run.state)) throw new Error('This flow run cannot run a check.')
+    this.#port.assertCheckCleanup?.(run.goal, card)
+    const mutable = this.#port.canDispatch(run.goal)
+    if (mutable && !mutable.ok) throw new Error(mutable.reason)
+    const plan = run.checkPlans?.[String(found.round.n)]
+    const target = plan?.targets[found.slot]
+    if (!target || plan?.refused) throw new Error(plan?.refused ?? CHECK_UNPLANNED)
+    const head = await this.#port.headOf(target.cwd, null)
+    return { command: { role: role.id, run: role.check.run, cwd: target.cwd, timeout: role.check.timeout }, at: head.at,
+      stamp: sourceDigest(JSON.stringify([operation, run.operationTimes[key], target])) }
+  }
+
   /**
-   * The person's own "Run again" for an uncertain check: the operation is
+   * The person's own "Run again" for a finished or uncertain check: the operation is
    * re-armed exactly as a fresh round-open would run it, only once — the
    * caller (`flow/check/retry`) has already redeemed a token bound to this
    * exact run and card, so nothing here re-chooses the command or checkout.
    */
-  async retryCheck(id: string, card: number): Promise<FlowExecution> {
+  async retryCheck(id: string, card: number, approved?: CheckRetry): Promise<FlowExecution> {
     return this.#queue.within(id, async () => {
       let run = this.#get(id)
-      const found = this.#cardOf(run.goal, card)
-      if (!found || found.run.id !== id) throw new Error(`Card #${card} belongs to no round of this run.`)
-      const { round } = found
-      const role = policyOf(run).roles.find((one) => one.id === round.role)
-      if (role?.kind !== 'check') throw new Error(`Card #${card} is not a check.`)
-      const key = `check:${round.n}:${found.slot}`
-      const operation = run.operations.find((one) => one.key === key)
-      if (operation?.state !== 'uncertain') throw new Error('This check is not waiting to be run again.')
-      if (run.intake?.dispatchHeld) throw new Error(DISPATCH_HELD)
-      if (run.state !== 'running' && run.state !== 'stalled') throw new Error(run.reason ?? 'This flow run is not running.')
-      /*
-       * Re-armed, not resumed: this call is the person's one explicit consent
-       * to run this exact card again, so only its own stale `uncertain`
-       * record is cleared before `#runCheckRound` is asked to run the round
-       * once more. Every other card of the round — already finished, or a
-       * different one still `uncertain` — is untouched, and `#runOneCheck`'s
-       * own "finished" guard skips it without a second spawn.
-       */
-      run = await this.#put({ ...run, state: 'running', reason: null, operations: run.operations.filter((one) => one.key !== key) })
-      const opened = await this.#runCheckRound(id, round, role.check)
-      if (opened) await this.#advance(id)
+      const fresh = await this.previewCheck(id, card)
+      if (approved && JSON.stringify(fresh) !== JSON.stringify(approved)) throw new Error('This check or its checkout changed. Review the check again.')
+      const found = this.#cardOf(run.goal, card)!
+      const { round, slot } = found
+      const role = policyOf(run).roles.find((one) => one.id === round.role)!
+      if (role.kind !== 'check') throw new Error('This card is not a check.')
+      const key = `check:${round.n}:${slot}`
+      const plan = run.checkPlans![String(round.n)]!
+      // A fresh consent can accept the same checkout at the revision it now holds.
+      // Without a preview, internal callers retain the original revision guard.
+      const target = approved ? { cwd: fresh.command.cwd, at: fresh.at } : plan.targets[slot]!
+      const last = run.rounds.at(-1)?.n === round.n
+      // Only the current check round can restart routing. An earlier retry
+      // changes its own answer, never the downstream run's state or reason.
+      const operations = run.operations.filter((one) => one.key !== key && !(last && one.key === `close:${round.n}`))
+      const operationTimes = { ...run.operationTimes }
+      delete operationTimes[key]
+      if (last) delete operationTimes[`close:${round.n}`]
+      run = await this.#put({ ...run, ...(last ? { state: 'running' as const, reason: null } : {}), operations, operationTimes,
+        rounds: last ? run.rounds.map((one) => one.n === round.n ? { ...one, state: 'running' as const } : one) : run.rounds,
+        checkPlans: { ...run.checkPlans, [String(round.n)]: { ...plan, targets: plan.targets.map((one, index) => index === slot ? target : one) } },
+      })
+      await this.#team.intentAction(run.goal, card, 'reopen')
+      await this.#team.flush()
+      await this.#runOneCheck(id, round, role.check, card, slot, target, plan.context, true)
       return this.#projectExecution(this.#get(id))
     })
   }
@@ -3660,17 +3736,24 @@ export class FlowExecutions {
 
   // ----------------------------------------------------------------- stop
 
-  stop(id: string, why = 'the person stopped this flow'): Promise<FlowExecution> {
-    return this.#queue.within(id, async () => {
+  async stop(id: string, why = 'the person stopped this flow'): Promise<FlowExecution> {
+    this.interruptChecks(this.#get(id).goal)
+    const tasks = await this.#queue.within(id, async () => {
+      // A retry ahead of Stop may only now have created its controller.
+      this.interruptChecks(this.#get(id).goal)
+      const tasks = [...this.#checking].filter(([, run]) => run === id).map(([task]) => task)
       await this.#finish(id, 'stopped', why)
-      return this.#projectExecution(this.#get(id))
+      return tasks
     })
+    // Completion uses this same queue: drain outside it, before Stop or wrap returns.
+    await Promise.all(tasks)
+    return this.#projectExecution(this.#get(id))
   }
 
   /** Stops every live run on a Goal, inside each run's own queue: the wrap barrier. */
   async stopGoal(goal: string, why: string): Promise<void> {
     for (const run of [...this.#runs.values()]) {
-      if (run.goal === goal && (run.state === 'running' || run.state === 'stalled')) await this.stop(run.id, why)
+      if (run.goal === goal && (run.state === 'running' || run.state === 'stalled' || [...this.#checking.values()].includes(run.id))) await this.stop(run.id, why)
     }
   }
 
@@ -3969,7 +4052,9 @@ export class FlowExecutions {
     if (uncertain && run.state === 'running') {
       await this.#put({
         ...run, state: 'stalled',
-        reason: uncertain.kind === 'turn'
+        reason: uncertain.kind === 'check'
+          ? CHECK_INTERRUPTED
+          : uncertain.kind === 'turn'
           ? `The order for card #${uncertain.card} may not have reached its Seat while the desk was stopped. Check that conversation, then start a new run.`
           : `A step for card #${uncertain.card ?? '?'} was interrupted while the desk was stopped. Check this Goal’s conversations, then start a new run.`,
       })

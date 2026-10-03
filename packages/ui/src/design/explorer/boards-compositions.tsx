@@ -243,7 +243,7 @@ const Case = ({ label, children, className }: { label: string; children: React.R
 )
 
 const TEXTAREA_CATALOG_VARIANTS = ['default', 'editor', 'code', 'inline', 'composer'] as const
-const TEXTAREA_CATALOG_SIZES = ['default', 'compact', 'composer'] as const
+const TEXTAREA_CATALOG_SIZES = ['default', 'compact', 'composer', 'paragraphs'] as const
 const TEXTAREA_CATALOG_STATES = ['default', 'focus-visible', 'disabled', 'error'] as const
 const ATTACHMENT_CATALOG_VARIANTS = ['default'] as const
 const ATTACHMENT_CATALOG_SIZES = ['sm', 'default', 'lg'] as const

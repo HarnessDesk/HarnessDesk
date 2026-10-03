@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 
 import { Boundary } from '../../preview/boundary'
 import { PropagationPage } from '../showcase/PropagationPage'
@@ -25,6 +25,7 @@ import { COMPOSITION_BOARDS } from './boards-compositions'
  * a row mounts that row's screen — a shared helper hides the export, and
  * every tab then looks like it loads all of them.
  */
+const FlowBriefSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.FlowBriefSurface })))
 const ComposerSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ComposerSurface })))
 const ComposerSlotsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ComposerSlotsSurface })))
 const DashboardSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.DashboardSurface })))
@@ -130,6 +131,7 @@ const DIALS = [
  * tab renders is the same lie as a drawing, in words.
  */
 const SURFACES = [
+  { id: 'flow-brief', title: 'Flow brief', about: 'The shipped Brief input: empty, filled, long, refused file and reading. Switch the theme or narrow the window to inspect the same control.', render: FlowBriefSurface },
   {
     id: 'dashboard',
     title: 'Dashboard',
@@ -288,6 +290,11 @@ export const Explorer = () => {
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system')
   const [foundation, setFoundation] = useState<string>(FOUNDATIONS[0]?.id ?? 'current')
   const [dials, setDials] = useState<DialState>(DIAL_DEFAULTS)
+  const bodyRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    bodyRef.current?.scrollTo({ top: 0 })
+  }, [boardId])
 
   useEffect(() => {
     const url = new URL(window.location.href)
@@ -434,7 +441,7 @@ export const Explorer = () => {
             />
           </div>
         </div>
-        <div className={styles.body} data-alignment-board-id={surface?.id ?? board?.id ?? boardId}>
+        <div ref={bodyRef} className={styles.body} data-alignment-board-id={surface?.id ?? board?.id ?? boardId}>
           {boardId === 'coverage' ? (
             <CoverageBoard />
           ) : surface ? (

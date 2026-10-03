@@ -161,6 +161,51 @@ A flow whose only gates are opinions is one to be suspicious of. A check's
 command is the one thing a flow file makes happen on your machine, so the dry
 run prints every one of them verbatim and nothing runs until you press start.
 
+**Run a check again.** A finished or interrupted check card on a running or
+stalled run offers *Run this check again…*. A stopped or settled run refuses
+the retry; start a new run instead. Reopening a check from the board uses the
+same **Run this check again?** consent dialog. It shows that card's exact
+command, checkout and timeout; confirm on a live run starts that one card,
+keeps its previous evidence and output, and returns when the child has started.
+The new output and answer arrive when it finishes. Sibling checks are not run
+again. A fresh preview accepts the checkout at its current revision, including
+changes the previous check made; movement after that preview requires another
+preview. A check already running cannot be duplicated. Rechecking an earlier
+round updates its evidence without reopening downstream rounds already created.
+
+Before a host-started check can execute its command, the host durably records
+its exact process group. Startup stops those recorded groups before recovering
+Flow runs; an interrupted check waits for this same consent dialog, never starts
+a second copy automatically. Only the recorded groups are signalled, with a
+leader identity check guarding against a reused process ID. A process that
+leaves its check's group is outside that guarantee.
+
+**Route a non-landing outcome back to a check.** `retry` is an outcome word,
+like `fail`; pair it with a rule rather than relying on the word to execute
+anything by itself:
+
+```yaml
+roles:
+  land:
+    kind: check
+    run: node land.mjs
+    exits: { 0: landed }
+    otherwise: retry
+seed: { role: land, title: Land the reviewed commit }
+rules:
+  - id: try-again
+    on: land
+    when: { every: retry }
+    then: { role: land, title: Try landing again }
+budget: { rounds: 3, without-progress: 2 }
+```
+
+For an existing landing rule, put an unconditional rule (omit `when:`) last to
+catch all other outcomes, including explicit `exits:` words such as `no-pr`.
+Rules still fire in file order, and the normal round and progress budgets bound
+the loop. Without a matching rule the run settles; start a new run to run its
+check again.
+
 ### Permissions
 
 The standing order handed to a seat is **generated** from its role's legacy
@@ -201,6 +246,20 @@ when: { every: [approve, accept] }        # a list is "one of"
 That is enough for every loop this has needed, and resisting a general rule
 engine is what keeps "can this rule ever fire?" and "does this loop have an
 exit?" exactly answerable.
+
+### The brief input
+
+A Flow that declares an input named `brief` gets a **Brief** text area in the
+start dialog, separate from the Goal's title. Paste paragraphs, or use
+**Attach a file…** to replace the field with a text file up to 64 KiB
+(65,536 bytes). Start waits while the file is read and its text is checked.
+A refused or unreadable file leaves the draft and its checked choice intact. The
+area grows to twelve lines, then scrolls. Flows without that input keep their
+ordinary fields.
+
+The brief travels through the same input variables as every other field.
+Use `{{brief}}` in an order or detail to hand its text to a Seat; keep the
+card's title a short sentence of its own.
 
 ### Slots
 
@@ -782,9 +841,15 @@ checkout — rather than picking one of them for an aggregate command. Naming
 relative to the Goal's own checkout, with every subject still visible to the
 command through the bounded `HARNESSDESK_FLOW_CONTEXT` JSON (never an
 arbitrary environment map). Each card's checkout and revision are journaled
-when its round opens; a retry runs there or, if that checkout's head has
-moved since, stalls and says so. A writer whose checkout has uncommitted
-changes stops the round before any command runs.
+when its round opens. Automatic dispatch refuses a checkout whose head moved
+since that plan. A person can retry at its current revision after a fresh
+preview, still in that card's own checkout. A stopped or settled run refuses
+the retry and asks you to start a new run. A retained launch whose recorded
+group is not proven gone blocks another attempt on that card until its
+cleanup is resolved. A retry that started before the run ended still counts
+as busy work; Stop and wrapping wait for its command and completion to finish.
+A writer whose checkout has uncommitted changes stops the round before any
+command runs.
 
 **A card's checkout holds the work it is handed.** An agent card is handed
 its predecessors' work through the same walk: the nearest cards back along

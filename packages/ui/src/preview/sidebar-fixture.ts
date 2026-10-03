@@ -142,7 +142,9 @@ export const previewUsage: UsageReport[] = [
     runtime: CURSOR,
     account: 'Shane-Cursor',
     plan: 'Pro',
-    lanes: [lane('plan', 'Plan', 9, 30 * 1_440, 0.72)],
+    // Near its plan limit so the real sidebar's Dashboard attention badge is
+    // present beside the destination, not only on the Dashboard screen.
+    lanes: [lane('plan', 'Plan', 84, 30 * 1_440, 0.72)],
     credits: { remaining: 10.66, used: 39.34, unit: 'USD' },
     spend: null,
     reached: null,
@@ -535,9 +537,9 @@ export const previewHistory: SessionSummary[] = [
   ...seed(
     HOME,
     [
-      { title: 'Duplicate Codex accounts logged in twice', cwd: worktree('dupe-accounts-91c2'), branch: 'fix/dupe-accounts', ago: 4 },
-      { title: 'Worktree Management', cwd: worktree('worktree-mgmt-4f10'), branch: 'feat/worktrees', ago: 26 },
-      { title: 'Learn from every single tab of the settings screen', cwd: worktree('settings-audit-77aa'), branch: 'chore/settings-audit', ago: 90 },
+      { title: 'Pin the flaky inventory test after reconciling every retry branch', cwd: worktree('dupe-accounts-91c2'), branch: 'fix/dupe-accounts', ago: 4 },
+      { title: 'Add fixtures for the refund path before extending the checkout matrix', cwd: worktree('worktree-mgmt-4f10'), branch: 'feat/worktrees', ago: 26 },
+      { title: 'Draft the 2.5 migration notes after reviewing the sidebar target behavior', cwd: worktree('settings-audit-77aa'), branch: 'chore/settings-audit', ago: 90 },
       { title: 'Codex Clade DeepSeek — Research', cwd: worktree('research-2b41'), branch: 'docs/research', ago: 150, runtime: CURSOR },
       { title: '[done] Agents icon to circle-gauge', cwd: worktree('agents-icon-7e7e24'), branch: 'claude/agents-icon', ago: 260 },
       { title: 'Panel system', cwd: HOME, branch: 'feat/panel-system', ago: 400 },

@@ -100,6 +100,8 @@ export interface GoalRig {
   checkEvidenceFails: boolean
   /** Checks run until their signal aborts, as a long command a pause or a stop kills; told when one starts. */
   checksRunUntilStopped: (() => void) | null
+  /** Hold individual check completions to exercise concurrent sibling retries. */
+  waitCheck: ((cwd: string) => Promise<void>) | null
   /** Checkouts whose check evidence append fails, one check at a time: how one card of a fan-out is left uncertain. */
   readonly failEvidenceIn: Set<string>
   /** Every check's own `cwd`, in call order — how a fan-out's distinct checkouts are told apart. */
@@ -222,6 +224,7 @@ export const goalRig = async (
     checkOutcomes: new Map<string, { exit: number | null; timedOut: boolean; tail: string }>(),
     checkEvidenceFails: false,
     checksRunUntilStopped: null,
+    waitCheck: null,
     failEvidenceIn: new Set<string>(),
     checkCwds: [] as string[],
     checkContexts: [] as (string | undefined)[],
@@ -404,6 +407,7 @@ export const goalRig = async (
     },
     runCheck: async (command, where, card) => {
       rig.events.push(`check:${command}`)
+      where.onStarted?.()
       if (rig.checksRunUntilStopped) {
         const started = rig.checksRunUntilStopped
         const stopped = new Promise<void>((resolve) => where.signal?.addEventListener('abort', () => resolve(), { once: true }))
@@ -414,6 +418,7 @@ export const goalRig = async (
       }
       rig.checkCwds.push(where.cwd)
       rig.checkContexts.push(where.flowContext)
+      await rig.waitCheck?.(where.cwd)
       const outcome = rig.checkOutcomes.get(command) ?? { exit: 0, timedOut: false, tail: '' }
       const fails = rig.checkEvidenceFails || rig.failEvidenceIn.delete(where.cwd)
       if (!fails) {

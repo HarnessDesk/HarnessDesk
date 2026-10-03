@@ -73,6 +73,7 @@ export {
   type TextProps,
   type TextRole,
 } from './patterns/Settings'
+export { SidebarMenuState, type SidebarMenuStateProps } from './patterns/SidebarMenuState'
 export { Button, buttonVariants, buttonEdge } from './ui/button'
 export {
   SidebarGroup, SidebarGroupContent, SidebarMenu,

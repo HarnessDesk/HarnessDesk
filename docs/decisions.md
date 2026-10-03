@@ -42,6 +42,41 @@ the command line's actual calls as a person's surface.
 entry that names its required tier; the outside door never exposes the
 window's whole wire.
 
+---
+
+## The Team overview is derived from held facts, with no reader of its own
+
+The overview model turns plain Seat, card, Run, approval and Insight data into
+rows. It reads no component, store, clock or cache, so the later shared client
+selector can keep the same exported contract. Needs you precedes Unread,
+Working and Idle; unread marks remain the window's own. A Run's stall does
+not make every Seat blocked, and a graph dependency is an idle Seat's card
+fact rather than a request for the person.
+
+A person's unanswered card waits only while its own round is open in a
+running or stalled Run. A hand block retains its Seat through the blocking
+agent's latest card lifecycle signal when release clears the claim, or through
+the Run's explicit seat/card journal. A later lifecycle transition supersedes
+the block; stop capture and other metadata updates do not. A refused claim's
+conflict signal leaves ownership unchanged. Neither a shared role name nor
+matching session ids across runtimes establish ownership.
+
+Cost comes from the Seat's own Team-scoped Insight partition, in money only
+for a metered runtime with known rate provenance, otherwise in recorded turns.
+The Run adds money only from those eligible Seat partitions; historical
+Seats use their recorded runtime identity and supplied metering capability.
+Its turn count remains the Team's recorded total. An unavailable figure stays
+null. The doing line uses the shared tool-name
+lookup with only a tool and a path; commands, queries and environment values
+stay in the transcript. Its caller owns the displayed line and its 2.5-second
+hold. This model adds no screen or read method; those follow in the
+[approved Teams/Runs plan](https://github.com/HarnessDesk/HarnessDesk/pull/1272).
+
+**The rule:** one plain-data contract derives the rows; no overview fact is
+invented to fill a missing observation.
+
+---
+
 ## The host runs a declared check for an agent; an agent is never given the network
 
 A Seat that only reads — a reviewer, a tester, an acceptance check — can ask
@@ -599,11 +634,14 @@ API cannot close that race anyway, so the code does not pretend to.
 Every read and write the flow catalogue, the flow update, its journal and the
 Agent files it creates make goes through one module, `confined-tree.ts`. It
 resolves the root once and pins its identity, so an update previewed against
-one folder is refused against a folder that replaced it. Every open below the
-root uses macOS's `O_NOFOLLOW_ANY`, which refuses a link at any component.
-Where that flag does not exist, reads walk each component without following
-it, and every write fails closed with a refusal rather than falling back to a
-last-component `O_NOFOLLOW`. A file is replaced by writing a synced sibling,
+one folder is refused against a folder that replaced it. On macOS, every open
+below the root uses `O_NOFOLLOW_ANY`, which refuses a link at any component.
+On Linux, every open walks each component with `lstat`, refusing links and
+non-directory ancestors, then uses `O_NOFOLLOW` for the final name. An exclusive
+create may have a missing final name; its ancestors still have to pass the
+same checks. Both paths enforce the static-tree threat model above, without
+claiming to prevent a same-user process swapping paths. Other platforms refuse
+writes. A file is replaced by writing a synced sibling,
 checking that the target still holds the previewed bytes (or already holds
 the new ones), renaming the sibling over it and syncing the folder. It is
 never truncated in place, a person's edit since the preview is kept, and a
@@ -611,7 +649,8 @@ crash leaves the old bytes or the new ones, which the update journal, written
 the same way, can replay.
 
 **The rule:** no fs call on a project path bypasses the confined tree, and no
-write there happens on a platform without an any-component no-follow open.
+write there happens without checking every component for links, with the
+macOS kernel flag or the Linux component walk.
 
 ## An evidence guard judges revisions, found by card and revision, never by round
 
@@ -1258,3 +1297,50 @@ upstream in google-gemini/gemini-cli#29595; the card and the warning can go once
 
 **The rule:** when an agent can't prove who is asking, the desk explains the question and the choices and leaves the
 answer to the person; it answers for the agent only on a claim made by code the desk ships.
+
+
+## A check retry is a fresh consent to one card, and a launch survives only in its recorded group
+
+The Flow pilot found a check that answered `no-pr` had no way back: reopening
+its board card left the run settled. Restarting instead left a detached check
+alive, while the retry either refused the checkout that check had changed or
+held the person's request until the whole command ended. (#1245)
+
+A finished or interrupted check on a running or stalled run uses the same
+consent dialog from its own card. A stopped or settled run refuses the retry
+and asks the person to start a new run. Its preview binds the frozen command,
+card, attempt, checkout and the
+revision there now. A moved checkout after the preview refuses; the same
+checkout changed by the old check can be explicitly approved. Starting reopens
+that card, preserves previous evidence, and returns at launch. Completion stays
+in the run's queue and advances an unanswered final round normally; a check
+from an earlier round never duplicates its already-created downstream rounds
+or changes their run's state and reason. Only the current final check round
+can restart routing. A retry admitted before its run ends stays counted as
+busy work; Stop aborts it inside the queue as well as before it, and wrapping
+waits for the command, evidence and card completion to settle.
+
+A detached shell waits at a launch handshake until the host has synced its
+exact pgid and leader identity in a host-owned journal. Startup stops only those
+recorded groups before recovering runs, rejects signalling a reused leader,
+and refuses to proceed if cleanup cannot be established. A live group with no
+matching leader identity keeps its journal and refuses startup; the supervisor
+holds that identity until the whole group is stopped, even after the command
+finishes. Recovery failures refuse startup independently of Seat-record reads.
+Live completion and timeout cleanup use the same proof as startup: an EPERM
+probe alone cannot establish that a group is gone. Uncertain cleanup retains
+the launch journal and refuses a check result or evidence of completion.
+Retry admission also reads that host-owned journal, by the recorded card and
+verified process identity, and refuses another attempt while its cleanup is
+unresolved. It never signals an unverified group or identifies one by its
+command text. Old records without a card identity conservatively block a retry
+until cleanup is established.
+Concurrent retries wait for their live siblings before routing the round.
+Children outside the recorded group are outside this guarantee.
+Interrupted work still needs fresh
+consent, since killing a process cannot undo its effects.
+
+The existing statechart already expresses a retry: `otherwise: retry` plus a
+rule back to the check, or an unconditional final rule for every non-landing
+outcome. `retry` remains an ordinary outcome, never a reserved command with an
+unbounded implicit loop; the run's round and progress budgets still apply.

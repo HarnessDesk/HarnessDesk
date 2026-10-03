@@ -1868,7 +1868,7 @@ export interface HostMethods {
   /**
    * What this flow would do, spending nothing: every seat it would open, every
    * check command verbatim, every guard's requirements, and everything wrong
-   * with it. `retry` binds the preview to an interrupted check's exact saved
+   * with it. `retry` binds the preview to a finished or interrupted check's exact saved
    * source and inputs instead of the text of a fresh edit.
    */
   'flow/preview': {
@@ -1892,7 +1892,7 @@ export interface HostMethods {
    * session.
    */
   'flow/execution/source': { params: { readonly run: string }; result: { readonly source: string; readonly vars: Readonly<Record<string, string>> } }
-  /** Runs an interrupted check again, once a person has reviewed it — a fresh preview token, bound to this exact run and card. */
+  /** Starts a finished or interrupted check again after fresh consent; returns on launch. The preview token binds the run, card, attempt and current checkout revision. */
   'flow/check/retry': { params: { readonly run: string; readonly card: number; readonly token: string }; result: FlowExecution }
   /** Hands a stopped run's kept answer (`FlowExecution.keptAnswer`) to the same Seat again, and the run goes on; refused, the answer still kept, while it cannot be delivered. */
   'flow/answer/continue': { params: { readonly run: string }; result: FlowExecution }
