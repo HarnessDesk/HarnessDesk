@@ -1,0 +1,1459 @@
+{
+  "stage": "after",
+  "browser": "153.0.8010.12",
+  "platform": "darwin",
+  "observations": [
+    {
+      "surface": "catalogue",
+      "theme": "light",
+      "lang": "zh-Hans",
+      "text": "你好，世界",
+      "computed": {
+        "family": "Geist, -apple-system, \"system-ui\", \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", \"PingFang TC\", \"Microsoft JhengHei\", \"Noto Sans CJK TC\", \"Hiragino Sans\", \"Yu Gothic\", Meiryo, \"Noto Sans CJK JP\", \"Apple SD Gothic Neo\", \"Malgun Gothic\", \"Noto Sans CJK KR\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "size": "14px",
+        "weight": "400",
+        "line": "20px"
+      },
+      "latin": [
+        {
+          "familyName": "Geist",
+          "postScriptName": "Geist-Regular",
+          "isCustomFont": true,
+          "glyphCount": 16
+        }
+      ],
+      "glyphs": [
+        {
+          "glyph": "你",
+          "fonts": [
+            {
+              "familyName": "蘋方-簡",
+              "postScriptName": "PingFangSC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "好",
+          "fonts": [
+            {
+              "familyName": "蘋方-簡",
+              "postScriptName": "PingFangSC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "，",
+          "fonts": [
+            {
+              "familyName": "蘋方-簡",
+              "postScriptName": "PingFangSC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "世",
+          "fonts": [
+            {
+              "familyName": "蘋方-簡",
+              "postScriptName": "PingFangSC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "界",
+          "fonts": [
+            {
+              "familyName": "蘋方-簡",
+              "postScriptName": "PingFangSC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "surface": "catalogue",
+      "theme": "light",
+      "lang": "zh-Hant",
+      "text": "你好，世界",
+      "computed": {
+        "family": "Geist, -apple-system, \"system-ui\", \"Segoe UI\", \"PingFang TC\", \"Microsoft JhengHei\", \"Noto Sans CJK TC\", \"PingFang SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", \"Hiragino Sans\", \"Yu Gothic\", Meiryo, \"Noto Sans CJK JP\", \"Apple SD Gothic Neo\", \"Malgun Gothic\", \"Noto Sans CJK KR\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "size": "14px",
+        "weight": "400",
+        "line": "20px"
+      },
+      "latin": [
+        {
+          "familyName": "Geist",
+          "postScriptName": "Geist-Regular",
+          "isCustomFont": true,
+          "glyphCount": 16
+        }
+      ],
+      "glyphs": [
+        {
+          "glyph": "你",
+          "fonts": [
+            {
+              "familyName": "蘋方-繁",
+              "postScriptName": "PingFangTC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "好",
+          "fonts": [
+            {
+              "familyName": "蘋方-繁",
+              "postScriptName": "PingFangTC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "，",
+          "fonts": [
+            {
+              "familyName": "蘋方-繁",
+              "postScriptName": "PingFangTC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "世",
+          "fonts": [
+            {
+              "familyName": "蘋方-繁",
+              "postScriptName": "PingFangTC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "界",
+          "fonts": [
+            {
+              "familyName": "蘋方-繁",
+              "postScriptName": "PingFangTC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "surface": "catalogue",
+      "theme": "light",
+      "lang": "ja",
+      "text": "こんにちは世界",
+      "computed": {
+        "family": "Geist, -apple-system, \"system-ui\", \"Segoe UI\", \"Hiragino Sans\", \"Yu Gothic\", Meiryo, \"Noto Sans CJK JP\", \"PingFang SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", \"PingFang TC\", \"Microsoft JhengHei\", \"Noto Sans CJK TC\", \"Apple SD Gothic Neo\", \"Malgun Gothic\", \"Noto Sans CJK KR\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "size": "14px",
+        "weight": "400",
+        "line": "20px"
+      },
+      "latin": [
+        {
+          "familyName": "Geist",
+          "postScriptName": "Geist-Regular",
+          "isCustomFont": true,
+          "glyphCount": 16
+        }
+      ],
+      "glyphs": [
+        {
+          "glyph": "こ",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "ん",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "に",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "ち",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "は",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "世",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "界",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "surface": "catalogue",
+      "theme": "light",
+      "lang": "ko",
+      "text": "안녕하세요 세계",
+      "computed": {
+        "family": "Geist, -apple-system, \"system-ui\", \"Segoe UI\", \"Apple SD Gothic Neo\", \"Malgun Gothic\", \"Noto Sans CJK KR\", \"PingFang SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", \"PingFang TC\", \"Microsoft JhengHei\", \"Noto Sans CJK TC\", \"Hiragino Sans\", \"Yu Gothic\", Meiryo, \"Noto Sans CJK JP\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "size": "14px",
+        "weight": "400",
+        "line": "20px"
+      },
+      "latin": [
+        {
+          "familyName": "Geist",
+          "postScriptName": "Geist-Regular",
+          "isCustomFont": true,
+          "glyphCount": 16
+        }
+      ],
+      "glyphs": [
+        {
+          "glyph": "안",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "녕",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "하",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "세",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "요",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": " ",
+          "fonts": [
+            {
+              "familyName": "Geist",
+              "postScriptName": "Geist-Regular",
+              "isCustomFont": true,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "세",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "계",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "surface": "catalogue",
+      "theme": "dark",
+      "lang": "zh-Hans",
+      "text": "你好，世界",
+      "computed": {
+        "family": "Geist, -apple-system, \"system-ui\", \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", \"PingFang TC\", \"Microsoft JhengHei\", \"Noto Sans CJK TC\", \"Hiragino Sans\", \"Yu Gothic\", Meiryo, \"Noto Sans CJK JP\", \"Apple SD Gothic Neo\", \"Malgun Gothic\", \"Noto Sans CJK KR\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "size": "14px",
+        "weight": "400",
+        "line": "20px"
+      },
+      "latin": [
+        {
+          "familyName": "Geist",
+          "postScriptName": "Geist-Regular",
+          "isCustomFont": true,
+          "glyphCount": 16
+        }
+      ],
+      "glyphs": [
+        {
+          "glyph": "你",
+          "fonts": [
+            {
+              "familyName": "蘋方-簡",
+              "postScriptName": "PingFangSC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "好",
+          "fonts": [
+            {
+              "familyName": "蘋方-簡",
+              "postScriptName": "PingFangSC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "，",
+          "fonts": [
+            {
+              "familyName": "蘋方-簡",
+              "postScriptName": "PingFangSC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "世",
+          "fonts": [
+            {
+              "familyName": "蘋方-簡",
+              "postScriptName": "PingFangSC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "界",
+          "fonts": [
+            {
+              "familyName": "蘋方-簡",
+              "postScriptName": "PingFangSC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "surface": "catalogue",
+      "theme": "dark",
+      "lang": "zh-Hant",
+      "text": "你好，世界",
+      "computed": {
+        "family": "Geist, -apple-system, \"system-ui\", \"Segoe UI\", \"PingFang TC\", \"Microsoft JhengHei\", \"Noto Sans CJK TC\", \"PingFang SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", \"Hiragino Sans\", \"Yu Gothic\", Meiryo, \"Noto Sans CJK JP\", \"Apple SD Gothic Neo\", \"Malgun Gothic\", \"Noto Sans CJK KR\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "size": "14px",
+        "weight": "400",
+        "line": "20px"
+      },
+      "latin": [
+        {
+          "familyName": "Geist",
+          "postScriptName": "Geist-Regular",
+          "isCustomFont": true,
+          "glyphCount": 16
+        }
+      ],
+      "glyphs": [
+        {
+          "glyph": "你",
+          "fonts": [
+            {
+              "familyName": "蘋方-繁",
+              "postScriptName": "PingFangTC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "好",
+          "fonts": [
+            {
+              "familyName": "蘋方-繁",
+              "postScriptName": "PingFangTC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "，",
+          "fonts": [
+            {
+              "familyName": "蘋方-繁",
+              "postScriptName": "PingFangTC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "世",
+          "fonts": [
+            {
+              "familyName": "蘋方-繁",
+              "postScriptName": "PingFangTC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "界",
+          "fonts": [
+            {
+              "familyName": "蘋方-繁",
+              "postScriptName": "PingFangTC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "surface": "catalogue",
+      "theme": "dark",
+      "lang": "ja",
+      "text": "こんにちは世界",
+      "computed": {
+        "family": "Geist, -apple-system, \"system-ui\", \"Segoe UI\", \"Hiragino Sans\", \"Yu Gothic\", Meiryo, \"Noto Sans CJK JP\", \"PingFang SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", \"PingFang TC\", \"Microsoft JhengHei\", \"Noto Sans CJK TC\", \"Apple SD Gothic Neo\", \"Malgun Gothic\", \"Noto Sans CJK KR\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "size": "14px",
+        "weight": "400",
+        "line": "20px"
+      },
+      "latin": [
+        {
+          "familyName": "Geist",
+          "postScriptName": "Geist-Regular",
+          "isCustomFont": true,
+          "glyphCount": 16
+        }
+      ],
+      "glyphs": [
+        {
+          "glyph": "こ",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "ん",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "に",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "ち",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "は",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "世",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "界",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "surface": "catalogue",
+      "theme": "dark",
+      "lang": "ko",
+      "text": "안녕하세요 세계",
+      "computed": {
+        "family": "Geist, -apple-system, \"system-ui\", \"Segoe UI\", \"Apple SD Gothic Neo\", \"Malgun Gothic\", \"Noto Sans CJK KR\", \"PingFang SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", \"PingFang TC\", \"Microsoft JhengHei\", \"Noto Sans CJK TC\", \"Hiragino Sans\", \"Yu Gothic\", Meiryo, \"Noto Sans CJK JP\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "size": "14px",
+        "weight": "400",
+        "line": "20px"
+      },
+      "latin": [
+        {
+          "familyName": "Geist",
+          "postScriptName": "Geist-Regular",
+          "isCustomFont": true,
+          "glyphCount": 16
+        }
+      ],
+      "glyphs": [
+        {
+          "glyph": "안",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "녕",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "하",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "세",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "요",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": " ",
+          "fonts": [
+            {
+              "familyName": "Geist",
+              "postScriptName": "Geist-Regular",
+              "isCustomFont": true,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "세",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "계",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "surface": "preview",
+      "theme": "light",
+      "lang": "zh-Hans",
+      "text": "你好，世界",
+      "computed": {
+        "family": "Geist, -apple-system, \"system-ui\", \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", \"PingFang TC\", \"Microsoft JhengHei\", \"Noto Sans CJK TC\", \"Hiragino Sans\", \"Yu Gothic\", Meiryo, \"Noto Sans CJK JP\", \"Apple SD Gothic Neo\", \"Malgun Gothic\", \"Noto Sans CJK KR\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "size": "14px",
+        "weight": "400",
+        "line": "20px"
+      },
+      "latin": [
+        {
+          "familyName": "Geist",
+          "postScriptName": "Geist-Regular",
+          "isCustomFont": true,
+          "glyphCount": 16
+        }
+      ],
+      "glyphs": [
+        {
+          "glyph": "你",
+          "fonts": [
+            {
+              "familyName": "蘋方-簡",
+              "postScriptName": "PingFangSC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "好",
+          "fonts": [
+            {
+              "familyName": "蘋方-簡",
+              "postScriptName": "PingFangSC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "，",
+          "fonts": [
+            {
+              "familyName": "蘋方-簡",
+              "postScriptName": "PingFangSC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "世",
+          "fonts": [
+            {
+              "familyName": "蘋方-簡",
+              "postScriptName": "PingFangSC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "界",
+          "fonts": [
+            {
+              "familyName": "蘋方-簡",
+              "postScriptName": "PingFangSC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "surface": "preview",
+      "theme": "light",
+      "lang": "zh-Hant",
+      "text": "你好，世界",
+      "computed": {
+        "family": "Geist, -apple-system, \"system-ui\", \"Segoe UI\", \"PingFang TC\", \"Microsoft JhengHei\", \"Noto Sans CJK TC\", \"PingFang SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", \"Hiragino Sans\", \"Yu Gothic\", Meiryo, \"Noto Sans CJK JP\", \"Apple SD Gothic Neo\", \"Malgun Gothic\", \"Noto Sans CJK KR\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "size": "14px",
+        "weight": "400",
+        "line": "20px"
+      },
+      "latin": [
+        {
+          "familyName": "Geist",
+          "postScriptName": "Geist-Regular",
+          "isCustomFont": true,
+          "glyphCount": 16
+        }
+      ],
+      "glyphs": [
+        {
+          "glyph": "你",
+          "fonts": [
+            {
+              "familyName": "蘋方-繁",
+              "postScriptName": "PingFangTC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "好",
+          "fonts": [
+            {
+              "familyName": "蘋方-繁",
+              "postScriptName": "PingFangTC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "，",
+          "fonts": [
+            {
+              "familyName": "蘋方-繁",
+              "postScriptName": "PingFangTC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "世",
+          "fonts": [
+            {
+              "familyName": "蘋方-繁",
+              "postScriptName": "PingFangTC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "界",
+          "fonts": [
+            {
+              "familyName": "蘋方-繁",
+              "postScriptName": "PingFangTC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "surface": "preview",
+      "theme": "light",
+      "lang": "ja",
+      "text": "こんにちは世界",
+      "computed": {
+        "family": "Geist, -apple-system, \"system-ui\", \"Segoe UI\", \"Hiragino Sans\", \"Yu Gothic\", Meiryo, \"Noto Sans CJK JP\", \"PingFang SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", \"PingFang TC\", \"Microsoft JhengHei\", \"Noto Sans CJK TC\", \"Apple SD Gothic Neo\", \"Malgun Gothic\", \"Noto Sans CJK KR\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "size": "14px",
+        "weight": "400",
+        "line": "20px"
+      },
+      "latin": [
+        {
+          "familyName": "Geist",
+          "postScriptName": "Geist-Regular",
+          "isCustomFont": true,
+          "glyphCount": 16
+        }
+      ],
+      "glyphs": [
+        {
+          "glyph": "こ",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "ん",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "に",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "ち",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "は",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "世",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "界",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "surface": "preview",
+      "theme": "light",
+      "lang": "ko",
+      "text": "안녕하세요 세계",
+      "computed": {
+        "family": "Geist, -apple-system, \"system-ui\", \"Segoe UI\", \"Apple SD Gothic Neo\", \"Malgun Gothic\", \"Noto Sans CJK KR\", \"PingFang SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", \"PingFang TC\", \"Microsoft JhengHei\", \"Noto Sans CJK TC\", \"Hiragino Sans\", \"Yu Gothic\", Meiryo, \"Noto Sans CJK JP\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "size": "14px",
+        "weight": "400",
+        "line": "20px"
+      },
+      "latin": [
+        {
+          "familyName": "Geist",
+          "postScriptName": "Geist-Regular",
+          "isCustomFont": true,
+          "glyphCount": 16
+        }
+      ],
+      "glyphs": [
+        {
+          "glyph": "안",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "녕",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "하",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "세",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "요",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": " ",
+          "fonts": [
+            {
+              "familyName": "Geist",
+              "postScriptName": "Geist-Regular",
+              "isCustomFont": true,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "세",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "계",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "surface": "preview",
+      "theme": "dark",
+      "lang": "zh-Hans",
+      "text": "你好，世界",
+      "computed": {
+        "family": "Geist, -apple-system, \"system-ui\", \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", \"PingFang TC\", \"Microsoft JhengHei\", \"Noto Sans CJK TC\", \"Hiragino Sans\", \"Yu Gothic\", Meiryo, \"Noto Sans CJK JP\", \"Apple SD Gothic Neo\", \"Malgun Gothic\", \"Noto Sans CJK KR\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "size": "14px",
+        "weight": "400",
+        "line": "20px"
+      },
+      "latin": [
+        {
+          "familyName": "Geist",
+          "postScriptName": "Geist-Regular",
+          "isCustomFont": true,
+          "glyphCount": 16
+        }
+      ],
+      "glyphs": [
+        {
+          "glyph": "你",
+          "fonts": [
+            {
+              "familyName": "蘋方-簡",
+              "postScriptName": "PingFangSC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "好",
+          "fonts": [
+            {
+              "familyName": "蘋方-簡",
+              "postScriptName": "PingFangSC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "，",
+          "fonts": [
+            {
+              "familyName": "蘋方-簡",
+              "postScriptName": "PingFangSC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "世",
+          "fonts": [
+            {
+              "familyName": "蘋方-簡",
+              "postScriptName": "PingFangSC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "界",
+          "fonts": [
+            {
+              "familyName": "蘋方-簡",
+              "postScriptName": "PingFangSC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "surface": "preview",
+      "theme": "dark",
+      "lang": "zh-Hant",
+      "text": "你好，世界",
+      "computed": {
+        "family": "Geist, -apple-system, \"system-ui\", \"Segoe UI\", \"PingFang TC\", \"Microsoft JhengHei\", \"Noto Sans CJK TC\", \"PingFang SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", \"Hiragino Sans\", \"Yu Gothic\", Meiryo, \"Noto Sans CJK JP\", \"Apple SD Gothic Neo\", \"Malgun Gothic\", \"Noto Sans CJK KR\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "size": "14px",
+        "weight": "400",
+        "line": "20px"
+      },
+      "latin": [
+        {
+          "familyName": "Geist",
+          "postScriptName": "Geist-Regular",
+          "isCustomFont": true,
+          "glyphCount": 16
+        }
+      ],
+      "glyphs": [
+        {
+          "glyph": "你",
+          "fonts": [
+            {
+              "familyName": "蘋方-繁",
+              "postScriptName": "PingFangTC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "好",
+          "fonts": [
+            {
+              "familyName": "蘋方-繁",
+              "postScriptName": "PingFangTC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "，",
+          "fonts": [
+            {
+              "familyName": "蘋方-繁",
+              "postScriptName": "PingFangTC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "世",
+          "fonts": [
+            {
+              "familyName": "蘋方-繁",
+              "postScriptName": "PingFangTC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "界",
+          "fonts": [
+            {
+              "familyName": "蘋方-繁",
+              "postScriptName": "PingFangTC-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "surface": "preview",
+      "theme": "dark",
+      "lang": "ja",
+      "text": "こんにちは世界",
+      "computed": {
+        "family": "Geist, -apple-system, \"system-ui\", \"Segoe UI\", \"Hiragino Sans\", \"Yu Gothic\", Meiryo, \"Noto Sans CJK JP\", \"PingFang SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", \"PingFang TC\", \"Microsoft JhengHei\", \"Noto Sans CJK TC\", \"Apple SD Gothic Neo\", \"Malgun Gothic\", \"Noto Sans CJK KR\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "size": "14px",
+        "weight": "400",
+        "line": "20px"
+      },
+      "latin": [
+        {
+          "familyName": "Geist",
+          "postScriptName": "Geist-Regular",
+          "isCustomFont": true,
+          "glyphCount": 16
+        }
+      ],
+      "glyphs": [
+        {
+          "glyph": "こ",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "ん",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "に",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "ち",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "は",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "世",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "界",
+          "fonts": [
+            {
+              "familyName": "Hiragino Sans",
+              "postScriptName": "HiraginoSans-W3",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "surface": "preview",
+      "theme": "dark",
+      "lang": "ko",
+      "text": "안녕하세요 세계",
+      "computed": {
+        "family": "Geist, -apple-system, \"system-ui\", \"Segoe UI\", \"Apple SD Gothic Neo\", \"Malgun Gothic\", \"Noto Sans CJK KR\", \"PingFang SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", \"PingFang TC\", \"Microsoft JhengHei\", \"Noto Sans CJK TC\", \"Hiragino Sans\", \"Yu Gothic\", Meiryo, \"Noto Sans CJK JP\", \"Helvetica Neue\", Helvetica, Arial, sans-serif",
+        "size": "14px",
+        "weight": "400",
+        "line": "20px"
+      },
+      "latin": [
+        {
+          "familyName": "Geist",
+          "postScriptName": "Geist-Regular",
+          "isCustomFont": true,
+          "glyphCount": 16
+        }
+      ],
+      "glyphs": [
+        {
+          "glyph": "안",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "녕",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "하",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "세",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "요",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": " ",
+          "fonts": [
+            {
+              "familyName": "Geist",
+              "postScriptName": "Geist-Regular",
+              "isCustomFont": true,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "세",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        },
+        {
+          "glyph": "계",
+          "fonts": [
+            {
+              "familyName": "Apple SD Gothic Neo",
+              "postScriptName": "AppleSDGothicNeo-Regular",
+              "isCustomFont": false,
+              "glyphCount": 1
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
