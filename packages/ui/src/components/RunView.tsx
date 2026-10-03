@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Banner, Button, Chip, EmptyState, IconTile, ListRow, ListRows, PaneColumn, Separator, Text } from '../design'
 import { openExternal } from '../lib/desktop'
+import { commitDate } from '../lib/git-refs'
 import type { runTimeline } from '../lib/run-timeline'
 import { sanitizeHtml } from '../lib/sanitize'
 import { doingLine, type DoingLine } from '../lib/team-overview'
@@ -54,7 +55,8 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
             held.current.set(row.id, line)
             const duration = row.durationMs ?? (row.working && row.since !== null ? Math.max(0, now - row.since) : null)
             const rest = row.status === 'Done' || row.status === 'Abandoned' || row.status === 'Waiting' || row.status === 'Result unavailable'
-            const status = row.status && (rest ? <Text role="meta">{row.status}</Text> : <Chip tone={row.attention ? 'warning' : 'neutral'}>{words(row.status)}</Chip>)
+            const selectedChip = selectedRow === row.id && !row.attention
+            const status = row.status && (rest ? <Text role="meta">{row.status}</Text> : <Chip tone={row.attention ? 'warning' : 'neutral'} variant={selectedChip ? 'outline' : 'default'} emphasis={selectedChip}>{words(row.status)}</Chip>)
             const title = <span className="flex min-w-0 flex-wrap items-center gap-2">
               <Text role={row.kind === 'round' ? 'section' : 'row'} className="min-w-0 break-words whitespace-normal [overflow-wrap:anywhere]">{words(row.title)}</Text>
               {status}
@@ -69,7 +71,7 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
               subtitle={row.kind !== 'end' && (row.detail || (row.working && line.line)) ? <span data-slot="run-detail" className={row.kind === 'brief' ? 'line-clamp-2' : 'whitespace-pre-line'}>{words(row.detail ?? line.line ?? '')}</span> : undefined}
               wrapSubtitle
               meta={row.kind === 'end' && row.detail ? <Banner tone={row.attention ? 'warning' : 'neutral'} title={row.title}>{words(row.detail)}</Banner>
-                : row.kind === 'start' && row.since !== null ? <Text role="meta">{new Date(row.since).toLocaleString()}</Text> : undefined} />
+                : row.kind === 'start' && row.since !== null ? <Text role="meta">{commitDate(row.since, now)}</Text> : undefined} />
           })}
         </ListRows>
         {!model.rows.some(row => row.kind === 'round') && <EmptyState title="No rounds have opened yet" />}

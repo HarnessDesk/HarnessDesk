@@ -34,3 +34,18 @@ it('shows the empty timeline when the Run has a brief but no rounds yet', () => 
     expect(container.textContent).toContain('No rounds have opened yet')
   } finally { act(() => root.unmount()) }
 })
+
+it('reads Start with the existing short clock, without seconds or a raw locale date', () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date(2026, 9, 3, 12, 45))
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  const model = runTimeline({ execution: { ...overviewRun(), startedAt: new Date(2026, 9, 3, 12, 34, 56).getTime() }, cards: [] })
+  try {
+    act(() => root.render(<RunView model={model} number={1} selectedRow={null} onSelect={() => {}} />))
+    const start = container.querySelector('[data-kind="start"]')!.textContent
+    expect(start).toContain('12:34')
+    expect(start).not.toContain('12:34:56')
+    expect(start).not.toContain('/2026')
+  } finally { act(() => root.unmount()); vi.useRealTimers() }
+})

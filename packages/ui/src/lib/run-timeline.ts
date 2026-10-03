@@ -1,5 +1,6 @@
 import type { BoardEvidence, FindingView, FlowExecution, Intent, TeamSignal } from '@harnessdesk/protocol'
 import { lifecycleWords } from './findings'
+import { wordOf } from './agents'
 
 /**
  * Plain-data contract for the later client/views move: runTimeline(input)
@@ -79,7 +80,8 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
       const operation = [...execution.operations].reverse().find(one => one.kind === 'check' && one.card === id)
       const uncertain = role?.kind === 'check' && operation?.state === 'uncertain'
       const working = role?.kind === 'check' ? operation?.state === 'started' : card.state === 'claimed'
-      let status: string = card.outcome ?? (working ? 'Working' : card.state === 'done' ? 'Done' : card.state === 'abandoned' ? 'Abandoned' : card.state === 'blocked' ? 'Blocked' : 'Waiting')
+      const outcome = card.outcome == null ? null : wordOf(card.outcome)
+      let status: string = outcome ?? (working ? 'Working' : card.state === 'done' ? 'Done' : card.state === 'abandoned' ? 'Abandoned' : card.state === 'blocked' ? 'Blocked' : 'Waiting')
       let title = `#${id} · ${card.title}`
       let kind: RunTimelineRow['kind'] = 'card'
       const personWaiting = role?.kind === 'person' && (execution.state === 'running' || execution.state === 'stalled') && round.state !== 'closed'
@@ -92,7 +94,7 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
           .map(one => one.record).filter(one => one.round === round.n && one.fact.kind === 'check' && one.fact.name === round.role && one.fact.run === title)
           .sort((a, b) => b.observedAt - a.observedAt)[0]?.fact
         status = uncertain ? 'Needs you' : working ? 'Working' : card.outcome && !['pass', 'fail', 'passed', 'failed'].includes(card.outcome)
-          ? card.outcome : result?.kind === 'check' ? result.timedOut ? 'Timed out' : result.exit === 0 ? 'Passed' : 'Failed' : card.outcome ?? 'Result unavailable'
+          ? outcome! : result?.kind === 'check' ? result.timedOut ? 'Timed out' : result.exit === 0 ? 'Passed' : 'Failed' : outcome ?? 'Result unavailable'
       }
       const attention = uncertain || personWaiting || (execution.end?.kind === 'unrouted' && execution.end.card === id)
       rows.push(row(`${kind}-${round.n}-${id}`, kind, title, { round: round.n, card: id,

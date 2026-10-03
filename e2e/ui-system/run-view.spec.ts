@@ -44,6 +44,9 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.locator('#run-view-pending')).toContainText('Reading checks and findings')
     await expect(page.locator('#run-view-failed')).toContainText('Some Run details could not be read')
     await expect(page.locator('#run-view-empty')).toContainText('No rounds have opened yet')
+    await expect(page.locator('#run-view-findings [data-kind="findings"]')).toContainText('2 findings')
+    await expect(page.locator('#run-view-findings [data-kind="findings"]')).toContainText('Repair accepted by reviewer')
+    await expect(page.locator('#run-view-findings [data-row="round-3"]')).toContainText('1 of 1 answered')
     const many = page.locator('#run-view-many [data-slot="run-scroll"]')
     expect(await many.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
     const rig = page.locator('#run-view-team')
@@ -56,12 +59,54 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     await page.setViewportSize({ width: 390, height: 900 })
     await page.goto(`/preview.html?run-view&theme=${theme}`)
-    const findings = page.locator('#run-view-findings [data-kind="findings"]')
+    const findings = page.locator('#run-view-damaged-findings [data-kind="findings"]')
     await expect(findings).toContainText('Unreadable · The finding history has a missing sequence.')
     await expect(findings).toContainText('Repair claimed · awaiting review')
     await expect(findings).toContainText('Repair accepted by reviewer')
     const detail = findings.locator('[data-slot="run-detail"]')
     expect(await detail.evaluate(el => ({ clipped: el.scrollHeight > el.clientHeight + 1,
       overflow: el.scrollWidth > el.clientWidth + 1 }))).toEqual({ clipped: false, overflow: false })
+  })
+
+  test(`selected Run chips retain readable ink and a visible boundary in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto(`/preview.html?run-view&theme=${theme}`)
+    const selected = page.locator('#run-view-many [data-row="card-3-3"]')
+    await selected.click()
+    const ratios = await selected.evaluate(row => {
+      const chip = row.querySelector('[data-slot="chip"]')!
+      const canvas = document.createElement('canvas')
+      canvas.width = canvas.height = 1
+      const ctx = canvas.getContext('2d')!
+      const rgba = (color: string) => {
+        ctx.clearRect(0, 0, 1, 1)
+        ctx.fillStyle = color
+        ctx.fillRect(0, 0, 1, 1)
+        return Array.from(ctx.getImageData(0, 0, 1, 1).data)
+      }
+      const over = (front: number[], back: number[]) => front.slice(0, 3).map((v, i) => v * front[3]! / 255 + back[i]! * (1 - front[3]! / 255))
+      const ground = (el: Element) => {
+        const chain: Element[] = []
+        for (let parent: Element | null = el; parent; parent = parent.parentElement) chain.unshift(parent)
+        return chain.reduce((bg, one) => over(rgba(getComputedStyle(one).backgroundColor), bg), [255, 255, 255])
+      }
+      const luminance = (rgb: number[]) => rgb.map(v => {
+        v /= 255
+        return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
+      }).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i]!, 0)
+      const contrast = (a: number[], b: number[]) => {
+        const high = Math.max(luminance(a), luminance(b))
+        const low = Math.min(luminance(a), luminance(b))
+        return (high + 0.05) / (low + 0.05)
+      }
+      const style = getComputedStyle(chip)
+      const fill = ground(chip)
+      const rowFill = ground(row)
+      const edgeColor = style.boxShadow.match(/(?:rgba?|color)\([^)]*\)/)?.[0]
+      return { ink: contrast(over(rgba(style.color), fill), fill),
+        boundary: Math.max(contrast(fill, rowFill), edgeColor ? contrast(over(rgba(edgeColor), rowFill), rowFill) : 1) }
+    })
+    expect(ratios.ink).toBeGreaterThanOrEqual(4.5)
+    expect(ratios.boundary).toBeGreaterThanOrEqual(3)
   })
 }

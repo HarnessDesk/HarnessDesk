@@ -15,6 +15,17 @@ const signal = (at: number, event: TeamSignal['signal']): TeamSignal => ({ id: `
 const evidence: BoardEvidence = { room: 'team', stamp: 400, checks: [], refused: [], unreadable: null, cards: [{ card: 1, running: [], facts: [{ freshness: { state: 'fresh' }, by: null, record: { id: 'check', observedAt: 350, round: 1, fact: { kind: 'check', name: 'verify', run: 'pnpm verify', exit: 0, timedOut: false, at: 'abc', dirty: false, tail: 'passed' } } }] }] }
 
 describe('runTimeline', () => {
+  it.each([
+    ['published', 'Published'], ['committed', 'Committed'], ['approve', 'Approve'],
+    ['request-changes', 'Request changes'], ['agreed', 'Agreed'], ['disagree', 'Disagree'],
+    ['pass', 'Pass'], ['fail', 'Fail'], ['passed', 'Passed'], ['failed', 'Failed'],
+    ['no-pr', 'No pr'], ['needs_follow_up', 'Needs follow up'],
+  ])('reads the verdict %s in the shared app vocabulary as %s', (outcome, status) => {
+    for (const role of ['writer', 'person', 'verify']) {
+      const execution = run({ rounds: [{ ...run().rounds[0]!, role }] })
+      expect(runTimeline({ execution, cards: [card({ state: 'done', outcome })] }).rows.find(row => row.card === 1)?.status).toBe(status)
+    }
+  })
   it.each(['running', 'settled', 'stopped', 'stalled'] as const)('reads %s without inventing unavailable fields', state => {
     const model = runTimeline({ execution: run({ state }), cards: [card()] })
     expect(model.header.state).toBe(state)
@@ -49,7 +60,7 @@ describe('runTimeline', () => {
     const execution = run({ state: 'settled', end: { kind: 'unrouted', card: 1, outcome: 'no-pr' }, reason: 'The landing check answered no-pr; no rule continues from it', rounds: [{ ...run().rounds[0]!, role: 'person' }] })
     const model = runTimeline({ execution, cards: [card({ state: 'done', claim: null, outcome: 'no-pr' })] })
     expect(model.header.needsYou).toBe(true)
-    expect(model.rows.find(row => row.kind === 'person')?.status).toBe('no-pr')
+    expect(model.rows.find(row => row.kind === 'person')?.status).toBe('No pr')
     expect(runTimeline({ execution: run({ rounds: [{ ...run().rounds[0]!, role: 'person' }] }), cards: [card({ state: 'open', claim: null })] }).rows.find(row => row.kind === 'person')).toMatchObject({ status: 'Needs you', attention: true })
     expect(model.rows.at(-1)).toMatchObject({ title: 'Ended without a next step', detail: execution.reason })
   })
@@ -107,5 +118,5 @@ it('attributes a card to its recorded Seat when recovery reordered the round ros
 it('does not use a manual same-name check as a Flow result without round attribution', () => {
   const execution = run({ rounds: [{ ...run().rounds[0]!, role: 'verify' }] })
   const manual = { ...evidence, cards: evidence.cards.map(one => ({ ...one, facts: one.facts.map(view => ({ ...view, record: { ...view.record, round: null, fact: { ...view.record.fact, exit: 1 } } })) })) } as BoardEvidence
-  expect(runTimeline({ execution, cards: [card({ state: 'done', outcome: 'pass' })], evidence: manual }).rows.find(row => row.kind === 'check')?.status).toBe('pass')
+  expect(runTimeline({ execution, cards: [card({ state: 'done', outcome: 'pass' })], evidence: manual }).rows.find(row => row.kind === 'check')?.status).toBe('Pass')
 })

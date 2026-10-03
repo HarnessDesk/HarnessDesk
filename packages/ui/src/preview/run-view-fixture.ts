@@ -2,7 +2,7 @@ import { runtimeId, type BoardEvidence, type FindingView, type FlowExecution, ty
 import { overviewRun, overviewTeamStore } from './team-overview-fixture'
 import { runTimeline } from '../lib/run-timeline'
 
-export const RUN_VIEW_STATES = ['running', 'settled', 'complete', 'stopped', 'stalled', 'findings', 'many', 'narrow', 'empty', 'pending', 'failed', 'person'] as const
+export const RUN_VIEW_STATES = ['running', 'settled', 'complete', 'stopped', 'stalled', 'findings', 'damaged-findings', 'many', 'narrow', 'empty', 'pending', 'failed', 'person'] as const
 export type RunScene = typeof RUN_VIEW_STATES[number]
 const at = Date.now() - 1_200_000
 const card = (id: number, working = false, start = at): Intent => ({ id, title: id === 1 ? 'Retry the checkout call on a 502' : id === 2 ? 'Verify the change' : id === 3 ? 'Review the change' : 'Answer the review',
@@ -32,6 +32,9 @@ export const runFixture = (scene: RunScene = 'running') => {
   const findings: FindingView[] = scene === 'empty' || scene === 'complete' ? [] : [{ id: 'finding-retry', origin: { goal: execution.goal, run: execution.id, round: 3, card: 3, seat: 'seat-1', at: 'abc123' }, ownerGoal: execution.goal,
     title: 'The retry loop needs a ceiling', body: 'Cap the attempts.', category: 'ordinary', blocking: true, related: null, anchor: null, lifecycle: { state: 'open', confirmed: false, repairs: [] }, sequence: 1, evidence: [], posted: [], restored: false, problem: null }]
   if (scene === 'findings') {
+    findings.push({ ...findings[0]!, id: 'finding-accepted', title: 'Keep the last failure visible', lifecycle: { state: 'repaired', confirmed: true, repairs: ['def456'] } })
+  }
+  if (scene === 'damaged-findings') {
     const original = findings[0]!
     findings.push(
       { ...original, id: 'finding-claimed', title: 'The backoff needs a cap', lifecycle: { state: 'repaired', confirmed: false, repairs: ['def456'] } },
