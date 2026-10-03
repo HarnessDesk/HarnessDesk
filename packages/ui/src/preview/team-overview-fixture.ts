@@ -23,13 +23,14 @@ export const overviewInput = (scene:OverviewScene):TeamOverviewInput => {
 export const overviewModel = (scene:OverviewScene) => teamOverview(overviewInput(scene))
 
 /** Membership shape measured on the host rig, with the older list emptied to cover #1278. */
-export const overviewTeamStore = () => {
- const input=overviewInput('done')
+export const overviewTeamStore = (scene: 'done' | 'running' | 'needs-you' | 'stalled' = 'done') => {
+ const input=overviewInput(scene)
  const seats=input.seats.slice(0,2).map(one=>one.record as SeatRecord)
- const board={...PREVIEW_GOAL.board,id:'overview-team',name:'Retry the checkout call',root:'/work/storefront',members:[],intents:[card(0,true),card(1,true)],channel:input.signals!.slice(0,2),nicknames:{}}
+ const board={...PREVIEW_GOAL.board,id:'overview-team',name:'Retry the checkout call',root:'/work/storefront',members:[],intents:input.cards.slice(0,2),channel:input.signals!.slice(0,2),nicknames:{}}
  const goal:GoalView={...PREVIEW_GOAL,goal:{...PREVIEW_GOAL.goal,id:board.id,sentence:board.name,root:board.root,cwd:board.root,origin:{kind:'person'}},board,members:seats,activity:null}
- const run=overviewRun('settled')
- const sessions=new Map(seats.map((one,n)=>[sessionKey(one.session.runtime,one.session.sessionId),session(n)]))
- const base=previewStore({teams:new Map([[board.id,board]]),goals:new Map([[board.id,goal]]),flowExecutions:new Map([[run.id,run]]),sessions,history:[...sessions.values()],inbox:[],approvals:[],workspace:{path:board.root,name:'Storefront',lastOpenedAt:at},workspaces:[{path:board.root,name:'Storefront',lastOpenedAt:at}],listPrefs:{...previewStore().getSnapshot().listPrefs,collapsed:[],pinned:[]}})
+ const run=overviewRun(scene==='done'?'settled':scene==='stalled'?'stalled':'running')
+ const sessions=new Map(input.seats.slice(0,2).map(one=>[sessionKey(one.record.session.runtime,one.record.session.sessionId),one.session!]))
+ const approvals=scene==='needs-you'?input.seats.flatMap(one=>one.approvals.map(approval=>({key:sessionKey(one.record.session.runtime,one.record.session.sessionId),approval}))):[]
+ const base=previewStore({teams:new Map([[board.id,board]]),goals:new Map([[board.id,goal]]),flowExecutions:new Map([[run.id,run]]),sessions,history:[...sessions.values()],inbox:[],approvals,workspace:{path:board.root,name:'Storefront',lastOpenedAt:at},workspaces:[{path:board.root,name:'Storefront',lastOpenedAt:at}],listPrefs:{...previewStore().getSnapshot().listPrefs,collapsed:[],pinned:[]}})
  return new Proxy(base,{get(target,key){if(key==='teamPeers')return async()=>[];if(key==='readGoalInsight')return async()=>overviewReport();return Reflect.get(target,key)}})
 }

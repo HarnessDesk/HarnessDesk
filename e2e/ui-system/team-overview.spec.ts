@@ -11,6 +11,17 @@ for (const theme of ['light','dark'] as const) {
   expect(await wide.locator('[data-seat]').evaluateAll(rows=>rows.map(row=>row.textContent))).toEqual(expect.arrayContaining([expect.stringContaining('Needs you'),expect.stringContaining('Unread'),expect.stringContaining('Working'),expect.stringContaining('Idle')]))
   expect(await wide.locator('[data-seat]').evaluateAll(rows=>rows.map(row=>row.getAttribute('data-seat')))).toEqual(['seat-1','seat-2','seat-0','seat-3'])
   await expect(wide.locator('[data-shape="face"]')).toHaveCount(4)
+  // The face centres on the name's first painted line, not the name + role block.
+  for (const row of await wide.locator('[data-seat]').all()) {
+   const delta = await row.evaluate(e => {
+    const face = e.querySelector('[data-slot="icon-tile"]')!.getBoundingClientRect()
+    const name = e.querySelector('[data-slot="text"][data-role="row"]')!
+    const range = document.createRange(); range.selectNodeContents(name)
+    const line = range.getClientRects()[0]!
+    return Math.abs((face.top + face.bottom) / 2 - (line.top + line.bottom) / 2)
+   })
+   expect(delta).toBeLessThan(1.5)
+  }
   const doing=wide.locator('[data-seat="seat-0"] [data-slot="seat-doing"]')
   await expect(doing).toHaveAttribute('title',/Edit/)
   expect(await doing.evaluate(e=>e.scrollWidth>e.clientWidth)).toBe(true)
@@ -68,6 +79,35 @@ for (const theme of ['light','dark'] as const) {
     return {whiteSpace:style.whiteSpace,textOverflow:style.textOverflow,lines:range.getClientRects().length,fits:e.scrollWidth<=e.clientWidth&&e.scrollHeight<=e.clientHeight,inside:[...range.getClientRects()].every(r=>r.left>=bounds.left-1&&r.right<=bounds.right+1&&r.bottom<=bounds.bottom+1)}
    })).toMatchObject({whiteSpace:'normal',textOverflow:'clip',fits:true,inside:true})
    if (scene==='narrow') expect(await sentence.evaluate(e=>e.getBoundingClientRect().height)).toBeGreaterThan(30)
+  }
+ })
+}
+
+for (const theme of ['light', 'dark'] as const) {
+ test(`Team Overview: the Run strip keeps live status and clickable faces align in ${theme}`, async ({ page }) => {
+  await page.goto(`/preview.html?team-overview&theme=${theme}`)
+  await page.evaluate(() => document.fonts.ready)
+  for (const [scene, sentence] of [
+   ['running', 'Alpha is working'],
+   ['needs-you', 'Beta is waiting for your approval'],
+   ['stalled', 'Choose the target before this Run can continue'],
+  ]) {
+   const overview = page.locator(`#team-overview-live-${scene} [data-slot="team-overview"]`)
+   await expect(overview.locator('[aria-label="Run"] [data-slot="room-live-line"]')).toContainText(sentence!)
+   for (const row of await overview.locator('[data-slot="table-row"][data-seat]').all()) {
+    const delta = await row.evaluate(e => {
+     const face = e.querySelector('[data-slot="icon-tile"]')!.getBoundingClientRect()
+     const name = e.querySelector('button [data-role="row"]')!
+     const range = document.createRange(); range.selectNodeContents(name)
+     const line = range.getClientRects()[0]!
+     const role = e.querySelector('[data-slot="table-cell"] [data-role="meta"]')
+     const roleRange = document.createRange(); if (role) roleRange.selectNodeContents(role)
+     return { face: Math.abs((face.top + face.bottom) / 2 - (line.top + line.bottom) / 2),
+      column: role ? Math.abs(line.left - roleRange.getClientRects()[0]!.left) : 0 }
+    })
+    expect(delta.face).toBeLessThan(1.5)
+    expect(delta.column).toBeLessThan(1.5)
+   }
   }
  })
 }

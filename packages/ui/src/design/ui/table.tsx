@@ -120,15 +120,20 @@ const TableHead = ({
  * `align` is the cell's half of the column's alignment, which `TableHead`
  * already carries: a column the head sets flush right is a column of figures,
  * so its cells are set flush right in tabular digits and line up under it.
+ * A `lead` centres a face or mark on the first text line, even when the cell
+ * carries metadata beneath its label.
  */
 const TableCell = ({
   className,
   variant = 'default',
   align = 'start',
+  lead,
+  children,
   ...props
 }: Omit<React.ComponentProps<'td'>, 'align'> & {
   variant?: 'default' | 'matrix' | 'flush' | 'detail' | 'footer' | 'panel'
   align?: 'start' | 'end'
+  lead?: React.ReactNode
 }) => (
   <td
     data-slot="table-cell"
@@ -145,7 +150,14 @@ const TableCell = ({
       className,
     )}
     {...props}
-  />
+  >
+    {lead != null ? (
+      <div className="flex items-start gap-2">
+        <span data-slot="table-cell-lead" className="inline-flex h-(--hd-line-sm) shrink-0 items-center">{lead}</span>
+        {children}
+      </div>
+    ) : children}
+  </td>
 )
 
 const TableCaption = ({

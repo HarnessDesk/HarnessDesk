@@ -833,6 +833,12 @@ wrap, Wrapping or Wrapped; those words describe activity, not an evidence
 verdict. Opening a Goal keeps the existing Board, Chat and Members destinations.
 Membership comes from its open Seats. Releasing a Seat closes that membership
 record without deleting the conversation or checkout.
+Finishing a Run keeps its Seats listed and their conversations available for
+follow-ups. When an agent can reopen its conversations and stop its process
+on idle, a finished Seat lets go of its live conversation after ten quiet
+minutes without outstanding work; the process stops once the agent is unused.
+Opening or messaging it reconnects to the same conversation. Agents without
+both capabilities keep their processes as before.
 
 **New session → A Goal** asks what finishes the work, then optionally seats
 Agents. The ordinary conversation path is unchanged: Enter and Command-N still
@@ -924,8 +930,10 @@ anything running unattended.
 ### A Team's Overview
 
 Overview is the Team rail's first destination and opens by default when the
-Team has a Run. It shows that Run's round and recorded usage, what needs you,
-and every Seat in attention order. Finished Seats stay in the Agents list;
+Team has a Run. Its Run strip keeps the live line: who is working, what
+waits on you, why it stalled or stopped, and any release still pending. The
+header keeps the revision it reviews. It shows that Run's round and recorded
+usage, what needs you, and every Seat in attention order. Finished Seats stay in the Agents list;
 the Overview folds them into a disclosure such as **3 done**. A question,
 unread notice or new work brings a Seat out of that fold. The sidebar nests
 its conversation under the same Team, even after its process has rested.

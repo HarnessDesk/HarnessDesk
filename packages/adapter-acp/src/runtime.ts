@@ -787,6 +787,9 @@ export class AcpRuntime implements AgentRuntime {
    * conversation, when the agent deletes it, and with this runtime.
    */
   readonly #openedIn = new Map<SessionId, string>()
+  /** Loads owned only by readSession; an explicit resume takes ownership. */
+  readonly #transientReads = new Set<SessionId>()
+  readonly #reads = new Map<SessionId, Promise<Session>>()
   readonly #listeners = new Set<(event: AgentEvent) => void>()
   readonly #healthListeners = new Set<(health: RuntimeHealth) => void>()
   readonly #infoListeners = new Set<() => void>()
@@ -1299,7 +1302,6 @@ export class AcpRuntime implements AgentRuntime {
     await this.#connection.stop()
     this.#sessions.clear()
     this.#resuming.clear()
-    this.#openedIn.clear()
     this.#probe = null
     this.#probeId = null
     this.#setHealth({ state: 'idle' })
@@ -1974,12 +1976,32 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   async readSession(id: SessionId): Promise<Session> {
+    const reading = this.#reads.get(id)
+    if (reading) return reading
+    const resuming = this.#resuming.get(id)
+    if (resuming) return (await resuming as AcpSession).snapshot()
     const live = this.#sessions.get(id)
     if (live && id !== this.#probeId) return live.snapshot()
-    // ACP has no read-only fetch; loading *is* reading. Free of tokens: a
-    // load replays the stored conversation, it does not prompt anything.
-    const loaded = await this.resumeSession(id)
-    return (loaded as AcpSession).snapshot()
+    // ACP has no read-only fetch; loading replays without prompting. A read
+    // owns its temporary handle until an explicit resume takes ownership.
+    this.#transientReads.add(id)
+    const read = (async () => {
+      try {
+        const loaded = await this.#resumeSession(id)
+        return (loaded as AcpSession).snapshot()
+      } finally {
+        if (this.#transientReads.delete(id)) await this.#sessions.get(id)?.close()
+      }
+    })()
+    this.#reads.set(id, read)
+    try { return await read } finally {
+      if (this.#reads.get(id) === read) this.#reads.delete(id)
+    }
+  }
+
+  /** Release only this handle; the agent owns the stored conversation. */
+  releaseSession(session: AgentSession): void {
+    if (this.#sessions.get(session.id) === session) this.#sessions.delete(session.id)
   }
 
   /**
@@ -2482,6 +2504,11 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   async resumeSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
+    this.#transientReads.delete(id)
+    return this.#resumeSession(id, options)
+  }
+
+  async #resumeSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
     const saved = this.#environments.get(id)
     const environment = options.environment ? laneEnvironmentOf(options.environment) : saved
     const requestedCeiling = options.requestedCeiling ?? this.#sessionCeilings.get(id)
@@ -2497,7 +2524,7 @@ export class AcpRuntime implements AgentRuntime {
     const inFlight = this.#resuming.get(id)
     if (inFlight) {
       await inFlight
-      return this.resumeSession(id, options)
+      return this.#resumeSession(id, options)
     }
     const live = this.#sessions.get(id)
     // Live, but opened with no filter at all — a read loads a conversation
@@ -3802,7 +3829,8 @@ class AcpSession implements AgentSession {
   }
 
   async close(): Promise<void> {
-    // ACP has no explicit close; dropping our handle is the whole gesture.
+    // ACP has no explicit close. Forget the handle, never the agent's history.
+    this.#host.releaseSession(this)
   }
 
   // ------------------------------------------------------------------ internal

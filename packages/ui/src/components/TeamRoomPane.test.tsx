@@ -1749,6 +1749,7 @@ it("names a person-started flow's own stop reason on the live line, as a proper 
   }
   const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
   await render(store)
+  expect(container.querySelector('[data-slot="team-overview"] [data-kind="stop"]')?.textContent).toBe('The person stopped this flow')
   act(() => row('Chat').click())
   await act(async () => {})
 
@@ -1777,6 +1778,7 @@ it("names a stalled run's own reason on the live line, lines kept, as a wait on 
   }
   const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
   await render(store)
+  expect(container.querySelector('[data-slot="team-overview"] [data-kind="stall"] .whitespace-pre-line')?.textContent).toBe(reason)
   act(() => row('Chat').click())
   await act(async () => {})
 
@@ -1799,6 +1801,9 @@ it('offers to continue a kept answer and disables the action with the visible re
   }
   const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
   await render(store)
+  const overviewButton = container.querySelector<HTMLButtonElement>('[data-slot="team-overview"] [data-kind="stall"] button')
+  expect(overviewButton?.disabled).toBe(true)
+  expect(overviewButton?.title).toBe(reason)
   act(() => row('Chat').click())
   await act(async () => {})
   const button = document.querySelector<HTMLButtonElement>('[data-kind="stall"] button')!
@@ -1816,6 +1821,11 @@ it('sends an enabled kept answer through the store verb with its run id', async 
   }
   const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
   await render(store)
+  const overviewButton = container.querySelector<HTMLButtonElement>('[data-slot="team-overview"] [data-kind="stall"] button')
+  expect(overviewButton).not.toBeNull()
+  act(() => overviewButton!.click())
+  expect(store.continueFlowAnswer).toHaveBeenCalledWith('run-1')
+  vi.mocked(store.continueFlowAnswer).mockClear()
   act(() => row('Chat').click())
   await act(async () => {})
   const button = document.querySelector<HTMLButtonElement>('[data-kind="stall"] button')!
@@ -1840,6 +1850,7 @@ it('shows a pending release’s own sentence on its own line for a settled run, 
   }
   const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
   await render(store)
+  expect(container.querySelector('[data-slot="team-overview"] [data-slot="room-pending-release-line"]')?.textContent).toBe(note)
   act(() => row('Chat').click())
   await act(async () => {})
 

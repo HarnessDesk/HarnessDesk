@@ -1480,6 +1480,10 @@ state beside its name and cost at the end. The rail, Overview and sidebar use
 one conversation-keyed membership list, including Seats a Flow opened and
 conversations whose process is no longer held.
 
+The Run strip uses the Team chat's live line, including a kept answer's way
+on and a pending release. A Seat's face centres on its name's first line,
+with the role beneath.
+
 Attention summaries use ListRow's wrapping sentence slot, so questions and
 approval reasons arrive whole even in a narrow pane. Recorded usage is read
 when Overview is selected, on card completion while it is shown, and each

@@ -6,18 +6,13 @@
     }
   },
   "trailing-glyph-off-column": {
-    "count": 15,
+    "count": 10,
     "signatures": {
       "design.html / code / trailing-glyph-off-column / [data-testid=diff-sample]": 1,
       "design.html / code / trailing-glyph-off-column / [data-testid=markdown-code-sample]": 1,
       "design.html / conversation / trailing-glyph-off-column / div > [composer-dock] > [pane-column] > [alert] > [button]": 1,
       "design.html / conversation-map-dense / trailing-glyph-off-column / [data-testid=conversation-map-dense]": 1,
       "design.html / conversation-map-preview-open / trailing-glyph-off-column / [data-testid=conversation-map-preview-open]": 1,
-      "design.html / group / trailing-glyph-off-column / [data-testid=group-run-kept-answer-seat-gone]": 1,
-      "design.html / group / trailing-glyph-off-column / [data-testid=group-run-kept-answer]": 1,
-      "design.html / group / trailing-glyph-off-column / [data-testid=group-run-stalled-on-a-seat]": 1,
-      "design.html / group / trailing-glyph-off-column / [data-testid=group-run-stopped-on-a-question]": 1,
-      "design.html / group / trailing-glyph-off-column / [data-testid=group-run-stopped-with-a-release-pending]": 1,
       "design.html / message / trailing-glyph-off-column / [data-testid=message-user-image]": 1,
       "design.html / message / trailing-glyph-off-column / [data-testid=message-user-long]": 1,
       "design.html / message / trailing-glyph-off-column / [data-testid=message-user-short]": 1,

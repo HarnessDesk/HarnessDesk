@@ -153,6 +153,7 @@ import { projectOf, revisionOf, upstreamTipOf } from './evidence/revision.js'
 import type { SeatOpening } from './evidence/records.js'
 import { SEEN_FILE } from './evidence/seen.js'
 import { Terminals } from './terminals.js'
+import { SeatHeldCards } from './seat-held-cards.js'
 import { SessionArchive } from './archive.js'
 import { ForgePlane, type ForgePlaneOptions } from './forge.js'
 import { publicationsIn, withPublications } from './publications.js'
@@ -461,6 +462,8 @@ export interface HostOptions {
   readonly startTimeoutMs?: number
   /** How long an ACP helper can remain unused before its process is stopped. */
   readonly idleStopMs?: number
+  /** How long a finished Seat stays quiet before its live handle is released. */
+  readonly seatRestMs?: number
   /**
    * How long a direct send counts the conversation as busy while the agent
    * has not yet accepted it. See `SEND_ACCEPT_DEADLINE_MS`.
@@ -576,6 +579,7 @@ export type Broadcast = (notification: WireNotification) => void
  */
 const REOPEN_REFUSALS_TO_LET_GO = 2
 const IDLE_STOP_MS = 10 * 60_000
+const SEAT_REST_MS = IDLE_STOP_MS
 const LIVE_RUNTIME_METHODS = new Set<PropertyKey>([
   'createSession', 'resumeSession', 'forkSession', 'readSession', 'searchSessions', 'archiveSession',
   'deleteSession', 'setOption', 'setSkillEnabled', 'login', 'cancelLogin', 'submitLoginCode',
@@ -613,7 +617,11 @@ export class Host {
   readonly #startingRuntimes = new Map<string, Promise<void>>()
   readonly #stoppingRuntimes = new Map<string, Promise<boolean>>()
   readonly #runtimeActivity = new Map<string, number>()
+  readonly #sessionActivity = new Map<string, number>()
   readonly #idleSince = new Map<string, number>()
+  readonly #seatQuietSince = new Map<string, { since: number; changedAt: number }>()
+  readonly #restingSessions = new Map<string, Promise<void>>()
+  readonly #seatHeldCards: SeatHeldCards
   #idleReaper: ReturnType<typeof setInterval> | null = null
   readonly #subscriptions: Unsubscribe[] = []
   /** Kept apart from `#subscriptions` so one runtime can be dropped alone. */
@@ -887,6 +895,7 @@ export class Host {
       this.#logger.warn(message, details),
     )
     this.#archive = new SessionArchive(join(this.#state.directory, 'archive.json'))
+    this.#seatHeldCards = new SeatHeldCards(join(this.#state.directory, 'seat-held-cards.json'))
     this.#names = new SessionNames(join(this.#state.directory, 'names.json'))
     // Beside `agents.json` and everything else the desk keeps, so a test rig or
     // a HARNESSDESK_HOME that moves the state directory moves these with it.
@@ -1010,14 +1019,16 @@ export class Host {
       // exactly the conversations the user's own composer reopens without a
       // word, which made a room's members vanish on every catalogue refresh.
       send: async (runtime, id, text, allowed, from) => {
-        await dispatchAfter(
+        // Acceptance can precede turn/started: keep the lifecycle held until
+        // the agent answers, just as a direct send's pending mark does.
+        await this.#withRuntimeActivity(this.#runtime({ runtime }), () => dispatchAfter(
           allowed ?? (() => ({ ok: true })),
           () => this.#teamLive(runtime, id),
           async (live) => {
             if (from) await this.#startTurn(runtime, id, from, () => live.send([{ type: 'text', text }]))
             else await live.send([{ type: 'text', text }])
           },
-        )
+        ), id)
       },
       steer: async (runtime, id, text, allowed, from) => {
         await dispatchAfter(
@@ -1993,9 +2004,10 @@ export class Host {
         }
         if (LIVE_RUNTIME_METHODS.has(key)) {
           return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
+            if (typeof args[0] === 'string') await this.#restingSessions.get(sessionKey(id, args[0]))
             await this.#ensureStarted(target)
             return Reflect.apply(member, target, args)
-          })
+          }, typeof args[0] === 'string' && key !== 'readSession' && key !== 'searchSessions' ? args[0] : undefined)
         }
         return member.bind(target)
       },
@@ -2179,6 +2191,11 @@ export class Host {
   async start(): Promise<void> {
     this.#goalWriter = await acquireDeskWriter(this.#state.directory)
     await this.#state.load()
+    await this.#seatHeldCards.load().catch((error: unknown) => {
+      this.#logger.warn('the Seat held-card history could not be read; unknown work will not rest', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
     const shellFolder = this.#state.state.workspaces[0]?.realPath ?? this.#state.state.workspaces[0]?.path
     // Restore the captured grant, never derive one from Git during startup.
     const shellIdentity = this.#state.state.workspaces[0]?.shellIdentity
@@ -2396,13 +2413,23 @@ export class Host {
     if (stopping) await stopping
   }
 
-  async #withRuntimeActivity<T>(runtime: AgentRuntime, operation: () => Promise<T>): Promise<T> {
+  async #withRuntimeActivity<T>(runtime: AgentRuntime, operation: () => Promise<T>, session?: string): Promise<T> {
     const id = String(runtime.info.id)
     this.#runtimeActivity.set(id, (this.#runtimeActivity.get(id) ?? 0) + 1)
     this.#idleSince.delete(id)
+    const key = session === undefined ? null : sessionKey(id, session)
+    if (key !== null) {
+      this.#seatQuietSince.delete(key)
+      this.#sessionActivity.set(key, (this.#sessionActivity.get(key) ?? 0) + 1)
+    }
     try {
       return await operation()
     } finally {
+      if (key !== null) {
+        const active = (this.#sessionActivity.get(key) ?? 1) - 1
+        if (active === 0) this.#sessionActivity.delete(key)
+        else this.#sessionActivity.set(key, active)
+      }
       const active = (this.#runtimeActivity.get(id) ?? 1) - 1
       if (active === 0) {
         this.#runtimeActivity.delete(id)
@@ -2414,7 +2441,7 @@ export class Host {
   #startIdleReaper(): void {
     const delay = this.options.idleStopMs ?? IDLE_STOP_MS
     if (delay <= 0 || this.#idleReaper !== null) return
-    const cadence = Math.max(10, Math.min(1_000, delay))
+    const cadence = Math.max(10, Math.min(1_000, delay, this.options.seatRestMs ?? SEAT_REST_MS))
     this.#idleReaper = setInterval(() => {
       for (const runtime of this.#runtimes.values()) void this.#reapIdleRuntime(runtime, delay)
     }, cadence)
@@ -2428,7 +2455,71 @@ export class Host {
       record.tasks.some((task) => task.state === 'running')
     ))) return false
     if (this.registry.all().some((record) => record.runtime === id && record.queue.messages.length > 0)) return false
-    return !this.#evidence.seats.all().some((seat) => seat.session.runtime === id && seat.closed === null && !seat.restored)
+    return !this.#evidence.seats.all().some((seat) => seat.session.runtime === id && seat.closed === null && !seat.restored && !this.#seatIsResting(seat))
+  }
+
+  /** One rule for release and idle shutdown; a Seat that never held work stays live. */
+  #seatIsResting(seat: SeatRecord): boolean {
+    const key = sessionKey(seat.session.runtime, seat.session.sessionId)
+    const runtime = this.#runtimes.get(seat.session.runtime)
+    const record = this.registry.get(runtimeId(seat.session.runtime), makeSessionId(seat.session.sessionId))
+    const delay = this.options.seatRestMs ?? SEAT_REST_MS
+    let changedAt = seat.openedAt
+    let quiet = delay > 0 && !seat.closed && !seat.restored && seat.board !== null &&
+      runtime?.info.capabilities.resume === true && Boolean(runtime.stopForIdle) &&
+      (this.#sessionActivity.get(key) ?? 0) === 0
+    if (quiet && seat.board) {
+      quiet = (!record || (record.running.size === 0 && record.approvals.size === 0 && record.queue.messages.length === 0 &&
+        !record.tasks.some((task) => task.state === 'running') && !this.#queueBusy(record))) &&
+        !this.#draining.has(key) && !this.#reattaching.has(key)
+      try {
+        const board = this.#team.stateFor(seat.board)
+        const cards = this.#seatHeldCards.cardsFor(seat, board, (card) => this.#flows.bindingOf(seat.board!, card)?.session)
+        quiet = quiet && cards.length > 0 && cards.every((card) => card.state === 'done')
+        changedAt = Math.max(changedAt, ...cards.map((card) => card.updatedAt))
+      } catch {
+        quiet = false // An unreadable board is never permission to drop a handle.
+      }
+    }
+    if (!quiet) {
+      this.#seatQuietSince.delete(key)
+      return false
+    }
+    const prior = this.#seatQuietSince.get(key)
+    if (!prior || prior.changedAt !== changedAt) {
+      this.#seatQuietSince.set(key, { since: Date.now(), changedAt })
+      return false
+    }
+    return Date.now() - prior.since >= delay
+  }
+
+  async #restSeats(runtime: AgentRuntime): Promise<void> {
+    if (this.#disposed || runtime.health().state !== 'ready') return
+    for (const seat of this.#evidence.seats.all()) {
+      if (seat.session.runtime !== runtime.info.id || !this.#seatIsResting(seat)) continue
+      const key = sessionKey(seat.session.runtime, seat.session.sessionId)
+      const record = this.registry.get(runtime.info.id, makeSessionId(seat.session.sessionId))
+      if (!record?.live || this.#restingSessions.has(key)) continue
+      const live = record.live
+      // Publish before close yields: sends and opens wait, then resume the same id.
+      const resting = Promise.resolve().then(async () => {
+        if (!this.#seatIsResting(seat) || record.live !== live) return
+        await live.close()
+        if (record.live === live) {
+          record.live = null
+          record.detached = false
+        }
+      })
+      this.#restingSessions.set(key, resting)
+      try {
+        await resting
+      } catch (error) {
+        this.#seatQuietSince.delete(key)
+        this.#logger.warn('a finished Seat could not release its conversation', { runtime: runtime.info.id, error: String(error) })
+      } finally {
+        if (this.#restingSessions.get(key) === resting) this.#restingSessions.delete(key)
+      }
+    }
   }
 
   #withHostHistory(id: RuntimeId, page: Page<SessionSummary>, query?: ListSessionsQuery): Page<SessionSummary> {
@@ -2454,6 +2545,7 @@ export class Host {
   }
 
   async #reapIdleRuntime(runtime: AgentRuntime, delay: number): Promise<void> {
+    await this.#restSeats(runtime)
     const id = String(runtime.info.id)
     if (!runtime.stopForIdle || runtime.health().state !== 'ready' || !this.#runtimeIsIdle(runtime.info.id)) {
       this.#idleSince.delete(id)
@@ -2806,6 +2898,7 @@ export class Host {
       document = this.#goalStore.read(state.id)
     } catch {
       const at = state.updatedAt || Date.now()
+      await this.#seatHeldCards.observe(this.#evidence.seats.all(), state, (card) => this.#flows.bindingOf(state.id, card)?.session)
       await this.#goalStore.save({
         version: 1,
         goal: {
@@ -2848,6 +2941,7 @@ export class Host {
     }
     const at = state.updatedAt || Date.now()
     const intents = state.intents
+    await this.#seatHeldCards.observe(this.#evidence.seats.all(), state, (card) => this.#flows.bindingOf(state.id, card)?.session)
     await this.#goalStore.save({
       ...document,
       goal: {
@@ -3069,6 +3163,7 @@ export class Host {
     if (document.restored || document.goal.state === 'wrapped') {
       throw new Error('This Goal is read-only. Start another Goal for new work.')
     }
+    await this.#seatHeldCards.observe(this.#evidence.seats.all(), state, (card) => this.#flows.bindingOf(goal, card)?.session)
     const at = Date.now()
     const legacy = options.whole && document.legacy ? this.#team.legacyFor(goal) : null
     await this.#goalStore.save({
@@ -4925,9 +5020,11 @@ export class Host {
    * refusal is real and has to name what is actually lost.
    */
   async #liveFor(runtime: RuntimeId, id: SessionId): Promise<AgentSession> {
+    const key = sessionKey(runtime, id)
+    this.#seatQuietSince.delete(key)
+    await this.#restingSessions.get(key)
     const held = this.registry.get(runtime, id)
     if (held?.live) return held.live
-    const key = `${runtime}\u0000${id}`
     // Two calls arriving together — a send and the option write beside it —
     // must resume once between them, not once each.
     const already = this.#reattaching.get(key)
@@ -6044,6 +6141,10 @@ export class Host {
           )
         : []
     const record = this.registry.apply(runtime, event)
+    if (record && (event.type === 'turn/started' || event.type === 'turn/completed' || event.type === 'approval/requested' ||
+      (event.type === 'session/tasks' && event.tasks.some((task) => task.state === 'running')))) {
+      this.#seatQuietSince.delete(recordKey(record))
+    }
     // A trigger Goal's Seat started or ended a turn: its meter reads usage with it.
     if ((event.type === 'turn/started' || event.type === 'turn/completed') && record) {
       const seated = this.#evidence.seats.all().find((candidate) => candidate.session.runtime === runtime &&
