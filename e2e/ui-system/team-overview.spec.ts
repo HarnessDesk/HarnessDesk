@@ -48,3 +48,21 @@ for (const theme of ['light','dark'] as const) {
   await expect(tree.locator('[data-slot="sidebar-menu-button"]').filter({hasText:'Reviewer conversation'})).toHaveCount(1)
  })
 }
+
+for (const theme of ['light','dark'] as const) {
+ test(`Team Overview: attention sentences wrap whole in ${theme}`, async ({page}) => {
+  await page.goto(`/preview.html?team-overview&theme=${theme}`)
+  for (const scene of ['running','narrow']) {
+   const attention=page.locator(`#team-overview-${scene} [aria-label="Needs you"]`)
+   const sentence=attention.locator('[data-slot="list-row-subtitle"]')
+   await expect(sentence).toHaveText(/choose whether to keep the original payment method/)
+   expect(await sentence.evaluate(e=>{
+    const style=getComputedStyle(e)
+    const range=document.createRange();range.selectNodeContents(e)
+    const bounds=e.getBoundingClientRect()
+    return {whiteSpace:style.whiteSpace,textOverflow:style.textOverflow,lines:range.getClientRects().length,fits:e.scrollWidth<=e.clientWidth&&e.scrollHeight<=e.clientHeight,inside:[...range.getClientRects()].every(r=>r.left>=bounds.left-1&&r.right<=bounds.right+1&&r.bottom<=bounds.bottom+1)}
+   })).toMatchObject({whiteSpace:'normal',textOverflow:'clip',fits:true,inside:true})
+   if (scene==='narrow') expect(await sentence.evaluate(e=>e.getBoundingClientRect().height)).toBeGreaterThan(30)
+  }
+ })
+}

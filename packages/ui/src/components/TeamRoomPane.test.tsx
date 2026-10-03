@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import {
+  runtimeId,
   sessionId,
   sessionKey,
   type FlowExecution,
@@ -3256,8 +3257,11 @@ it('keeps a finished Seat on the rail with a quiet Done state after its process 
     id: 'reviewer-seat', session: { runtime: 'claude', sessionId: 'k1' },
     role: 'reviewer', openedAt: 1, closed: null, agent: { name: 'Reviewer' },
   }] } as unknown as GoalView
-  const finished = { ...state.intents[0]!, state: 'done', claim: { runtime: 'claude', sessionId: 'k1', at: 1 } } as Intent
-  const { store } = rig([], undefined, { members: [], intents: [finished] }, view)
+  const finished = { ...state.intents[0]!, state: 'done', claim: null } as Intent
+  const { store } = rig([], undefined, { members: [], intents: [finished], channel: [{
+    id: 'completed-review', kind: 'signal', at: 2, signal: 'completed', intent: finished.id, title: finished.title,
+    by: { kind: 'agent', runtime: runtimeId('claude'), sessionId: 'k1', title: 'Reviewer' },
+  }] }, view)
   await render(store)
   const rail = container.querySelector('aside')!
   expect(rail.textContent).toContain('Reviewer')
@@ -3284,4 +3288,35 @@ it('includes recorded spend from earlier Seats using the runtime capabilities al
   Object.assign(store, { readGoalInsight: vi.fn(async () => usage) })
   await render(store)
   expect(container.querySelector('[aria-label="Run"]')?.textContent).toContain('$0.80')
+})
+
+it('reads usage only while Overview is selected and stops polling when it is left', async () => {
+ const runs = new Map<string,FlowExecution>()
+ const {store,pushes}=rig([],undefined,{members:[]},GOAL,runs)
+ const readGoalInsight=vi.fn(async()=>null)
+ Object.assign(store,{readGoalInsight})
+ await render(store)
+ expect(readGoalInsight).not.toHaveBeenCalled()
+ const pick=async(label:string)=>{
+  const button=[...container.querySelectorAll('aside button')].find(one=>one.textContent?.startsWith(label)) as HTMLButtonElement
+  await act(async()=>{button.click()})
+ }
+ await pick('Overview')
+ expect(readGoalInsight).toHaveBeenCalledTimes(1)
+ await pick('Chat')
+ await pushes({intents:state.intents.map(one=>({...one,state:'done',claim:null})) as Intent[]})
+ expect(readGoalInsight).toHaveBeenCalledTimes(1)
+ runs.set('usage-run',{version:2,id:'usage-run',goal:ROOM,state:'running',reason:null,legacyRun:null,operations:[],rounds:[],document:{format:'agents',flow:{name:'Build',roles:[],rules:[]}}} as unknown as FlowExecution)
+ await pushes({updatedAt:3})
+ expect(readGoalInsight).toHaveBeenCalledTimes(1)
+ vi.useFakeTimers()
+ try {
+  await pick('Overview')
+  expect(readGoalInsight).toHaveBeenCalledTimes(2)
+  await act(async()=>{await vi.advanceTimersByTimeAsync(60_000)})
+  expect(readGoalInsight).toHaveBeenCalledTimes(3)
+  await pick('Chat')
+  await act(async()=>{await vi.advanceTimersByTimeAsync(60_000)})
+  expect(readGoalInsight).toHaveBeenCalledTimes(3)
+ } finally {vi.useRealTimers()}
 })

@@ -22,7 +22,10 @@ agent's latest card lifecycle signal when release clears the claim, or through
 the Run's explicit seat/card journal. A later lifecycle transition supersedes
 the block; stop capture and other metadata updates do not. A refused claim's
 conflict signal leaves ownership unchanged. Neither a shared role name nor
-matching session ids across runtimes establish ownership.
+matching session ids across runtimes establish ownership. Completed cards
+retain the completing agent through the latest card lifecycle signal, including
+manual cards and cards from earlier Runs after the host clears their claims;
+refused claims and metadata capture leave that attribution intact.
 
 Cost comes from the Seat's own Team-scoped Insight partition, in money only
 for a metered runtime with known rate provenance, otherwise in recorded turns.

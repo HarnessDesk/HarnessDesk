@@ -1477,3 +1477,8 @@ need attention. At a narrow pane width each Seat becomes one ListRow, with its
 state beside its name and cost at the end. The rail, Overview and sidebar use
 one conversation-keyed membership list, including Seats a Flow opened and
 conversations whose process is no longer held.
+
+Attention summaries use ListRow's wrapping sentence slot, so questions and
+approval reasons arrive whole even in a narrow pane. Recorded usage is read
+when Overview is selected, on card completion while it is shown, and each
+minute of a running Run while it stays selected.

@@ -13,7 +13,7 @@
  * the seat's nickname or RuntimeInfo.presentation. Unread marks belong to the
  * window. The caller supplies the run's start time: FlowExecution has none.
  * InsightMetric.basis carries rate provenance; quality/coverage qualify it.
- * Channel signals retain hand-block ownership when a release clears a claim.
+ * Channel signals retain hand-block and completion ownership after claims clear.
  * Historical seat money uses supplied runtime capabilities; unknown metering
  * stays unknown. Run turns use the Team total, money only eligible seat rows.
  * Text remains plain data; consumers render agent text through sanitize.ts.
@@ -192,6 +192,17 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
   const ownerOf = (card: Intent): TeamOverviewSeat | undefined => {
     if (card.claim) return input.seats.find((seat) =>
       seat.record.session.runtime === card.claim?.runtime && seat.record.session.sessionId === card.claim?.sessionId)
+    if (card.state === 'done') {
+      // Completion clears the claim, including on manual cards and earlier
+      // Runs whose seat/card journal is not the current Run's. Metadata writes
+      // and refused claims do not supersede the completing actor.
+      const signal = [...(input.signals ?? [])].reverse().find((one) =>
+        one.intent === card.id && one.signal !== 'conflict')
+      if (signal && signal.signal !== 'completed') return undefined
+      const actor = signal?.by
+      if (actor?.kind === 'agent') return input.seats.find((seat) =>
+        seat.record.session.runtime === actor.runtime && seat.record.session.sessionId === actor.sessionId)
+    }
     if (card.state === 'blocked' && card.blockedBy === 'hand') {
       // Stop capture and other metadata writes advance updatedAt without
       // changing the block. Only a later lifecycle transition supersedes it;

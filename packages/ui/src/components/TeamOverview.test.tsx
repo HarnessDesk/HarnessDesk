@@ -28,3 +28,10 @@ it('renders agent text without executable markup',()=>{
  render([row('<img src=x onerror="alert(1)">')])
  expect(box.querySelector('img')).toBeNull()
 })
+it('uses the wrapping sentence slot for attention text',()=>{
+ const summary='Choose whether the checkout retry should keep the original payment method before this review can continue.'
+ act(()=>root.render(<TeamOverview model={{run:null,seats:[],needsYou:[{kind:'question',seat:null,card:null,summary,since:1}]}} />))
+ const sentence=box.querySelector('[aria-label="Needs you"] [data-slot="list-row-subtitle"]')
+ expect(sentence?.textContent).toBe(summary)
+ expect(sentence?.hasAttribute('data-wrap-subtitle')).toBe(true)
+})
