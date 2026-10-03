@@ -127,6 +127,7 @@ import {
   Separator,
 } from '..'
 import { Specimen } from './specimen'
+import { CjkSpecimen } from '../../preview/cjk-specimen'
 import styles from './explorer.module.css'
 
 /**
@@ -731,6 +732,9 @@ const HeadBoard = () => (
       the whole heading scale — a screen that wants a third size is asking for a size the system
       does not have.
     </p>
+    <Specimen caption="CJK — reading text, Button, Chip and Input; the document language orders the shared font stack">
+      <CjkSpecimen />
+    </Specimen>
   </>
 )
 
