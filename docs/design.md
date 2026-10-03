@@ -59,7 +59,9 @@ and a primary button stays ink (`--hd-solid`), as the section on buttons says.
 
 ### The sizes
 
-The rule is a split: **13px is the chrome, 14px is what is read.** The counts
+The two default running sizes are **13px for chrome and 14px for reading**.
+12px carries meta facts and existing compact controls; headings, readouts and
+documents keep their named larger roles. The counts
 are a different fact and worth keeping separate from it — by volume the app is
 12px and 13px, because a screen is nearly all furniture and most of the
 furniture is smaller than a row's own title.
@@ -68,8 +70,8 @@ furniture is smaller than a row's own title.
 | --- | --- | --- | --- |
 | `--hd-text-xs` | 12px | counts, badges, tags, timestamps, per-file diff numbers, the smallest button label, the hint under a form field | 217 |
 | `--hd-text-sm` | 13px | the chrome: rows, navigation, settings rows, menu items, button labels, a form field's label, notes | 215 |
-| `--hd-text` | 14px | what is read: the transcript, the composer, inputs | 82 |
-| `--hd-text-lg` | 16px | a dialog's title | 16 |
+| `--hd-text` | 14px | what is read: the transcript, the composer, inputs and content names | 82 |
+| `--hd-text-lg` | 16px | a section heading or metric readout | 16 |
 | `--hd-heading` | 20px | every page's title — a list page's and a detail page's alike — and the wordmark | 14 |
 | `--hd-title` | 24px | reserved; no page head wears it since the detail head joined the page title (#832). Markdown's h1 fallback | 0 |
 | `--hd-display` | 36px | a figure that fills a card | 1 |
@@ -119,7 +121,7 @@ The pair is the default, not the only legal answer, and the deviation that is
 allowed has a direction. **Text that wraps may take the next line up; nothing
 takes a line tighter than its own.** Counted today: 132 rules on the pair, 38 a
 step looser, none tighter. The 38 are almost all a 12px caption set on the 13px
-step's 18px line, which is the same trade prose makes at the other end of the
+step's 20px line, which is the same trade prose makes at the other end of the
 scale and for the same reason — a paragraph needs air between its lines and a
 row does not. A tighter line is not a trade, it is a crush.
 
@@ -152,7 +154,7 @@ are doing; screens do not invent a new spelling for the same job:
 | section | 16 / semibold | a page band's heading (a Dashboard band) — below the page title, above a subject (#1122) |
 | group label | 13 / normal, secondary ink | the word over a group — a card of rows, a rail's list, a section of a page (`GroupLabel`). Sentence case, always: no label outside a `Keycap` is set in capitals |
 | subject | 14 / medium | the name of the thing a pane, a dialog or a card is about |
-| member | 14 / semibold | the name of someone — an agent at work or a person — beside its face: a chat's sender, a member named inside a sentence (`MemberName`) |
+| member | 14 / medium | the name of someone — an agent at work or a person — beside its face: a chat's sender, a member named inside a sentence (`MemberName`); `--hd-member-weight` owns the weight |
 | row | 13 / medium | the title of a setting, and the word above a control |
 | navigation | 13 / normal | the name of one thing in a navigable list |
 | muted | 13 / normal | a description under a name, and chrome that labels rather than names |
@@ -171,15 +173,15 @@ dialog names one question and a page names a place, and 16 said neither.
 | step | line | ratio |
 | --- | --- | --- |
 | 12px | `--hd-line-xs` 16px | 1.33 |
-| 13px | `--hd-line-sm` 18px | 1.385 |
-| 14px | `--hd-line` 21px | 1.5 |
+| 13px | `--hd-line-sm` 20px | 1.538 |
+| 14px | `--hd-line` 20px | 1.429 |
 | 16px | `--hd-line-lg` 24px | 1.5 |
 | 20px | `--hd-line-heading` 28px | 1.4 |
 | 24px | `--hd-line-title` 30px | 1.25 |
 | 36px | `--hd-line-display` 40px | 1.11 |
 
-Larger type wants a tighter ratio, which is why the column falls from 1.5 to
-1.11 rather than holding one number. Prose is the exception in the other
+The Desk foundation sets both running sizes on a 20px line. Above those
+sizes the ratios tighten from 1.5 to 1.11. Prose is the exception in the other
 direction: the transcript is set on 1.625, because a paragraph wraps and a row
 does not.
 
@@ -365,8 +367,8 @@ what produced those thirty captions.
 | weight | where |
 | --- | --- |
 | 400 | everything, unless named below |
-| 500 | a pane's title, a settings nav row, a settings row's title, button labels |
-| 600 | reserved — the sidebar's app name and a page title only |
+| 500 | subject and member names, row titles and button labels |
+| 600 | wordmark and page (20px), section (16px), figure (36px) and metric (16px) roles; document headings keep their prose scale |
 
 A column of bold is a column of shouting. Selection is marked by a filled pill
 and a check, never by making one row heavier than its neighbours. Button labels
@@ -827,10 +829,10 @@ difference is a deliberate interface choice; the sections below say which.
 Every element wearing a name role — `Text role=…` (`design/patterns/
 Settings.tsx`) or `PageHead`'s own title — computes one of the pairs the
 "Named text roles" table above states: wordmark and page at 20/600, section at
-16/600, subject at 14/500, member at 14/600, row at 13/500, navigation and
-muted at 13/400. Section is the one role at 16px; section, wordmark, page and
-member are the only name roles in semibold, and member is the only one that
-names someone. The dashboard
+16/600, subject and member at 14/500, row at 13/500, navigation and
+muted at 13/400. Section is the one name role at 16px; section, wordmark and
+page are the name roles in semibold. A content name uses the member role,
+including chat senders and inline roster status names. The dashboard
 readouts `Text` also draws (`meta`, `figure`, `metric`, `value`, `prose`) are
 not names and sit outside the rule; `figure`/`metric` are deliberately
 semibold.

@@ -66,6 +66,18 @@ it('owns the keycap role used by search surfaces', () => {
   expect(container.querySelector('kbd[data-slot="keycap"]')?.textContent).toBe('esc')
 })
 
+it('reads a content member’s weight from the foundation while retaining explicit weight overrides', () => {
+  act(() => root.render(<>
+    <Text role="member">Alpha</Text>
+    <Text role="member" weight="semibold">Beta</Text>
+  </>))
+  const [member, override] = [...container.querySelectorAll<HTMLElement>('[data-role="member"]')]
+  expect(member?.className).toContain('font-(--hd-member-weight)')
+  expect(member?.className).not.toContain('font-semibold')
+  expect(override?.className).toContain('font-semibold')
+  expect(override?.className).not.toContain('font-(--hd-member-weight)')
+})
+
 it('gives a text mark a tone only when it judges, and the muted ink otherwise', () => {
   act(() => root.render(
     <>
