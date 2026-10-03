@@ -294,7 +294,9 @@ environment switch. Catalogue/source/preview calls are reads; opening a project
 and starting or stopping a Flow require `run`. The person stop closes the
 round before interrupting its capable Seats; a completion already queued, a
 round still being prepared and any later turn completion fire no rule and open
-no card, and a stop that fails to save queues what it held back again.
+no card, and a stop that fails to save queues what it held back again. A stop
+on a run that already ended returns it unchanged and still cancels what it had
+not sent.
 `team/intent` admits only abandon at `run` and done at `answer`. A
 done requires the frozen Flow's live person role and a declared outcome.
 The shared board mutation preserves the first answer to be saved and its

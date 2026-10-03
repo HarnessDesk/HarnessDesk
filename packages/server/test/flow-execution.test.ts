@@ -1664,3 +1664,47 @@ test('a stop that fails to save lets the completion it held back open its round'
   assert.equal(rig.flows.executionOf(run.id)!.state, 'running')
   assert.ok(rig.board(run.goal).intents.some(card => card.role === 'reviewer'), 'the rule the completion fires opens its card')
 })
+
+/*
+ * #1315. Stop's cleanup can be retried. A Stop ends the run and then tells the
+ * listeners that cancel what the run had released and not yet sent
+ * (`onRunStopped`). The run is stopped for good once its own write lands, so a
+ * listener that failed after that left a stopped run and a Stop that said it
+ * had failed — and asking again was answered from the ended run without
+ * telling the listener, so the retry succeeded having cancelled nothing.
+ */
+test('a stop whose cleanup failed is finished by asking again', async t => {
+  const rig = await goalRig(t)
+  const run = await rig.start(THREE_STAGES, AGENTS)
+  const told: string[] = []
+  let failing = true
+  rig.flows.onRunStopped(async (id) => {
+    told.push(id)
+    if (failing) { failing = false; throw new Error('the cancellation could not be written') }
+  })
+  await assert.rejects(rig.flows.stopRun(run.id, 'The person stopped it'), /the cancellation could not be written/)
+  const ended = rig.flows.executionOf(run.id)!
+  assert.equal(ended.state, 'stopped', 'the run itself ended: it is only what follows the Stop that failed')
+  assert.equal(ended.reason, 'The person stopped it')
+  const again = await rig.flows.stopRun(run.id, 'A later reason')
+  assert.deepEqual(told, [run.id, run.id], 'the second Stop did what the first could not finish')
+  assert.deepEqual(again, ended, 'and answered with the run as it ended, never rewritten by the later reason')
+  assert.deepEqual(rig.flows.executionOf(run.id), ended)
+})
+
+test('stopping a run that already settled tells the stop listeners, and leaves it as it settled', async t => {
+  const rig = await goalRig(t)
+  const run = await rig.start(FAN_OUT, FAN_OUT_AGENTS)
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+  await rig.team.complete(2, { outcome: 'request-changes' }, rig.sessionOf('seat-2'))
+  await rig.flows.flush()
+  const settled = rig.flows.executionOf(run.id)!
+  assert.equal(settled.state, 'settled')
+  const told: string[] = []
+  rig.flows.onRunStopped(async (id) => { told.push(id) })
+  assert.deepEqual(await rig.flows.stopRun(run.id, 'A person stops what settled'), settled, 'an ended run is answered as it stands')
+  assert.deepEqual(told, [run.id], 'but what it had not yet sent is still cancelled')
+  assert.deepEqual(rig.flows.executionOf(run.id), settled)
+})

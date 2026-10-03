@@ -447,12 +447,18 @@ export class Flows implements TeamFlows {
    * the listeners (`onRunStopped`); a comment already on its way is read
    * back, never rolled back. The wrap barrier (`stopGoal`) is not a Stop: a
    * wrap waits for its findings' posting instead.
+   *
+   * A run that has already ended is answered as it ended — its result is
+   * neither rewritten nor refused — but its listeners are told all the same.
+   * They are idempotent, and they are the part of a Stop that can fail after
+   * the run is stopped for good: asking again has to finish it, and a run
+   * that settled around an unfinished batch has a Stop that reaches that too.
    */
   async stopRun(id: string, why?: string, by: 'person' | 'desk' = 'person'): Promise<FlowExecution> {
     if (!this.#executions?.stored(id)) throw new Error(`There is no flow run ${id}.`)
     const current = this.executionOf(id)!
-    if (current.state === 'settled' || current.state === 'stopped') return current
-    const stopped = await this.#executions.stop(id, why, by)
+    const ended = current.state === 'settled' || current.state === 'stopped'
+    const stopped = ended ? current : await this.#executions.stop(id, why, by)
     for (const listener of this.#runStopped) await listener(id)
     return stopped
   }

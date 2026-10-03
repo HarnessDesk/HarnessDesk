@@ -153,7 +153,9 @@ through `clientsMayAnswer: true`; `HARNESSDESK_CLIENTS_MAY_ANSWER=1` grants
 it for scripted desks. The host checks that choice for every call, including
 connections whose hello was earlier.
 
-`flow/execution/stop` needs `run` and returns ended runs unchanged.
+`flow/execution/stop` needs `run` and returns ended runs unchanged, yet still
+cancels whatever such a run had not sent, so a Stop whose cancellation failed
+is finished by asking again.
 `team/intent` is action-tiered: `abandon` needs `run`; `done` needs `answer`
 and a live card the frozen Flow addressed to a person, with one of that
 role's declared outcomes. Other actions remain off the client surface.

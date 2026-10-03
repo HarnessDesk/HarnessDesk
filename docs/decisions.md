@@ -62,6 +62,12 @@ retry included, waits for how that save turns out before it is decided. An
 identical window decision retry then remains a quiet no-op; clients and
 changed answers receive `alreadyAnswered`, or take the card if the save failed.
 
+A Stop ends the run, then cancels what it had not sent. The second is a write
+of its own after the run is stopped for good, and it can fail, so a Stop on a
+run that already ended is answered with that run unchanged but still does it
+again: asking twice finishes what one could not, and a run that settled around
+an unfinished batch can have its unsent comments cancelled too.
+
 A start redeems a single-use preview token that freezes source, inputs,
 seat overrides and attendance. Those choices survive in the execution and
 receipt; they do not rewrite the Flow's file. An unattended start reuses the
