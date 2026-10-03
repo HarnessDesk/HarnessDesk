@@ -24,6 +24,16 @@ import { repositoryOf } from '../src/worktree.js'
 const run = promisify(execFile)
 const git = async (cwd: string, ...args: string[]): Promise<string> => (await run('git', ['-C', cwd, ...args])).stdout
 
+/** Parse the stored message with Git's default divider handling, as the commit tool does. */
+const parsedTrailers = async (cwd: string): Promise<string> => {
+  const message = await git(cwd, 'log', '-1', '--format=%B')
+  return new Promise((resolve, reject) => {
+    const child = execFile('git', ['-C', cwd, 'interpret-trailers', '--parse'], (error, stdout) =>
+      error ? reject(error) : resolve(stdout))
+    child.stdin?.end(message)
+  })
+}
+
 const repo = async (t: TestContext): Promise<string> => {
   const base = await realpath(await mkdtemp(join(tmpdir(), 'harnessdesk-card-commit-')))
   t.after(() => rm(base, { recursive: true, force: true }))
@@ -146,6 +156,66 @@ test('an exact co-author trailer alongside other final trailers remains unchange
   assert.equal(await git(root, 'log', '-1', '--format=%B'), `${message}\n`)
   assert.equal((await git(root, 'log', '-1', '--format=%(trailers:key=Co-authored-by,valueonly)')).trim(),
     'HarnessDesk Agent <agent@harnessdesk.app>')
+})
+
+test('commit_work inserts parsed credit before Git’s message divider, preserving the suffix', async (t) => {
+  for (const newline of ['\n', '\r\n']) {
+    for (const divider of ['---', '--- details', '---\tdetails']) {
+      const root = await repo(t)
+      const before = await snapshot(root)
+      await writeFile(join(root, 'notes.md'), 'x\n')
+      const body = `Write the notes${newline}${newline}Summary${newline}`
+      const suffix = `${divider}${newline}Details${newline}---${newline}More details`
+      const done = await commitCardWork(root, before, body + suffix)
+      assert.ok('commit' in done, JSON.stringify(done))
+      assert.equal(await parsedTrailers(root), `${coauthor}\n`, 'git recognizes exactly one co-author trailer before the divider')
+      assert.equal(await git(root, 'log', '-1', '--format=%B'), `${body}\n${coauthor}\n\n${suffix}\n`,
+        'all supplied text stays in order around the inserted trailer')
+    }
+  }
+})
+
+test('only existing parsed credit before Git’s message divider suppresses attribution', async (t) => {
+  for (const newline of ['\n', '\r\n']) {
+    for (const creditedBefore of [true, false]) {
+      const root = await repo(t)
+      const before = await snapshot(root)
+      await writeFile(join(root, 'notes.md'), 'x\n')
+      const body = `Write the notes${newline}${newline}Summary${newline}${newline}`
+      const suffix = `---${newline}Details${newline}${newline}${coauthor}${newline}`
+      const message = creditedBefore ? `${body}${coauthor}${newline}${newline}${suffix}` : body + suffix
+      const done = await commitCardWork(root, before, message)
+      assert.ok('commit' in done, JSON.stringify(done))
+      assert.equal(await parsedTrailers(root), `${coauthor}\n`, 'credit in the ignored suffix does not count as attribution')
+      assert.equal(await git(root, 'log', '-1', '--format=%B'),
+        creditedBefore ? `${message}\n` : `${body}${coauthor}\n\n${suffix}\n`)
+    }
+  }
+})
+
+test('commit_work appends credit after lines Git does not recognize as a message divider', async (t) => {
+  for (const ending of ['---details', '----', ' ---', '---\u00a0details', '---\vdetails', '---\fdetails']) {
+    const root = await repo(t)
+    const before = await snapshot(root)
+    await writeFile(join(root, 'notes.md'), 'x\n')
+    const message = `Write the notes\n\nSummary\n${ending}`
+    const done = await commitCardWork(root, before, message)
+    assert.ok('commit' in done, JSON.stringify(done))
+    assert.equal(await parsedTrailers(root), `${coauthor}\n`)
+    assert.equal(await git(root, 'log', '-1', '--format=%B'), `${message}\n\n${coauthor}\n\n`)
+  }
+})
+
+test('commit_work handles a message divider at the start or without a final newline', async (t) => {
+  for (const body of ['', 'Write the notes\n\nSummary\n']) {
+    const root = await repo(t)
+    const before = await snapshot(root)
+    await writeFile(join(root, 'notes.md'), 'x\n')
+    const done = await commitCardWork(root, before, `${body}---`)
+    assert.ok('commit' in done, JSON.stringify(done))
+    assert.equal(await parsedTrailers(root), `${coauthor}\n`)
+    assert.equal(await git(root, 'log', '-1', '--format=%B'), `${body}${body ? '\n' : '\n\n'}${coauthor}\n\n---\n`)
+  }
 })
 
 test('a hand commit keeps the person’s message and identity without a co-author trailer', async (t) => {

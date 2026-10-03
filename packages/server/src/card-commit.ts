@@ -51,8 +51,15 @@ const attributedMessage = async (cwd: string, message: string): Promise<string> 
     const trailers = await gitWithInput(cwd, ['interpret-trailers', '--parse'], message, isolatedEnv())
     if (trailers.split('\n').includes(COAUTHOR_TRAILER)) return message
   }
-  const separator = /\r?\n\r?\n$/.test(message) ? '' : message.endsWith('\n') ? '\n' : '\n\n'
-  return `${message}${separator}${COAUTHOR_TRAILER}\n`
+  // Git ignores a line beginning with --- followed by space, tab, CR or LF,
+  // and everything after it. A terminal --- becomes a divider when credit
+  // adds a newline, so insert before that too. Preserve the entire suffix.
+  const divider = /(?:^|\n)(?=---(?:[ \t\r\n]|$))/.exec(message)
+  const end = divider ? divider.index + divider[0].length : message.length
+  const body = message.slice(0, end)
+  const suffix = message.slice(end)
+  const separator = /\r?\n\r?\n$/.test(body) ? '' : body.endsWith('\n') ? '\n' : '\n\n'
+  return `${body}${separator}${COAUTHOR_TRAILER}\n${suffix ? `\n${suffix}` : ''}`
 }
 
 export type CardCommit =
