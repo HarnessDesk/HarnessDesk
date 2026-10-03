@@ -1,43 +1,47 @@
-# Team Overview preview evidence
+# Team Overview round 4 evidence
 
-All 26 preview frames and both catalogue frames below were rendered from the production components in the preview harness with synthetic identities, then inspected by eye. The catalogue mounts the same ten Overview cases at `design.html?view=team-overview`; the preview is `preview.html?team-overview`.
+Repair source: `14fa41c68892b8ceb1608370f934a9e1b82561e8`. Review source: `6252f14f84da4505f3c1daf87b613d6a65caf322`, which merges main's `ccc4e99a5c0e403ce1b14fe87f727f9be5ee11d1`. The merge adds Seat-rest host behavior; the rendered Overview components are unchanged from the repair source.
 
-PR title: **Team Overview: keep every Flow Seat visible**
+All 34 frames use the preview harness and synthetic identities. Each image was opened individually and inspected in both themes. The six `live-*` frames mount the production TeamRoomPane and show its shared live status line in the Run strip. The other frames cover the standalone Overview model, folded and expanded completed Seats, nested sidebar conversations, and narrow geometry.
 
-Review round 3 repair source: `23eb1fd4fb69c7d92b2606ecfb76342e4e190e0f` on `team-overview-pr2`, merging `60677c931dea1828124d92b1b103b98c8757de53` from `origin/main`. Every one of the 28 frames was recaptured after that merge, opened individually, and inspected in both themes.
+The repair restores stall reasons, stopped-on-question guidance, the kept-answer action and refusal, and pending-release text through the existing RoomLiveLine. The front-door revision pin already passed and remains visible. TableCell now owns the first-line lead alignment: faces align with names, and role text shares the name's left edge. The census retains every prior ceiling except the five improved trailing-glyph signatures, reducing that count from 15 to 10.
 
-The bullets were a capture-harness defect: the standalone SessionTree omitted the production Sidebar's RailSection wrapper, so its outer lists missed the scoped reset and retained `list-style: disc` and 40px browser padding. The production Sidebar computed `list-style: none`. The preview now uses the same RailSection; its browser regression failed on the two outer lists before this fix and passed afterward. The Team row continues to use SidebarMenuState, inheriting main's quiet Chip variant. Both sidebar frames show coloured Working text on the inset rail, with no pill or bullets.
+| Scene inspected | Light | Dark | Observation in both frames |
+| --- | --- | --- | --- |
+| Production running | [light](live-running-light.png) | [dark](live-running-dark.png) | Run says Alpha is working; face marks centre on the first name line. |
+| Production needs you | [light](live-needs-you-light.png) | [dark](live-needs-you-dark.png) | Run says Beta is waiting for your approval; the attention sentence arrives whole. |
+| Production stalled | [light](live-stalled-light.png) | [dark](live-stalled-dark.png) | Run says Choose the target before this Run can continue; rows retain aligned faces. |
+| Running | [light](running-light.png) | [dark](running-dark.png) | Attention, unread, working and idle precedence stays visible. |
+| Needs you | [light](needs-you-light.png) | [dark](needs-you-dark.png) | Approval sentence wraps without clipping. |
+| Unread | [light](unread-light.png) | [dark](unread-dark.png) | Unread state remains distinct from quiet resting text. |
+| Idle | [light](idle-light.png) | [dark](idle-dark.png) | Resting ink stays quiet, and faces align with names. |
+| Stalled model | [light](stalled-light.png) | [dark](stalled-dark.png) | Recorded stall reason and the Needs-you state remain visible. |
+| No Run | [light](no-run-light.png) | [dark](no-run-dark.png) | The Seat list remains visible without a Run card. |
+| No Seats | [light](no-seats-light.png) | [dark](no-seats-dark.png) | The Team empty state remains legible. |
+| Three done, folded | [light](done-light.png) | [dark](done-dark.png) | Disclosure keeps the completed count. |
+| Three done, expanded | [light](done-open-light.png) | [dark](done-open-dark.png) | All three finished rows remain available, with aligned faces. |
+| Narrow | [light](narrow-light.png) | [dark](narrow-dark.png) | Four Seats stay within the pane; the attention sentence wraps whole. |
+| Team, folded | [light](team-light.png) | [dark](team-dark.png) | Agents 2 and the 2 done disclosure remain present. |
+| Team, expanded | [light](team-open-light.png) | [dark](team-open-dark.png) | Both finished Seats, their role text and Done state remain legible. |
+| Nested conversations | [light](sidebar-light.png) | [dark](sidebar-dark.png) | Working uses quiet text; nested conversations have no bullets. |
+| Catalogue narrow | [light](catalog-narrow-light.png) | [dark](catalog-narrow-dark.png) | Same narrow component geometry, with no horizontal overflow. |
 
-Inspection: running and needs-you retain attention order and whole attention sentences; unread and idle retain quiet resting ink; stalled and no-run show their recorded state; no-seats retains the Team empty state; done and done-open retain the fold and all three finished Seats. Narrow and catalogue-narrow keep all four Seats within the pane. Team and team-open keep Agents 2, Done labels and both finished Seats. All images contain only the synthetic preview identities.
+Validation on the review source:
 
-Validation for this source: 305 focused UI tests passed; UI typecheck, strict design audit and catalogue coverage passed. The eight named browser suites passed 60 of 61 tests (exit 1): Overview, sidebar rail geometry, hover, quiet roles, seat menus, faces and side-by-side passed. The additional `sidebar-keyboard.spec.ts:39` assertion failed because it infers a project parent from the previous expanded row, while the first conversation is now a nested Team member and ArrowLeft correctly focuses that Team. The identical failure reproduced on the already-approved round-2 head `4f5d856a939be2fdad3a920b87dae78a3e628fc3`; the test passes on main at `60677c931dea1828124d92b1b103b98c8757de53`. This round leaves that earlier test assumption unchanged under its repair-only scope. The unpiped `TMPDIR=/tmp/hdv pnpm verify` run printed `All checks passed.` (exit 0).
+- The whole unsharded `pnpm test:ui-system` run exited 0: 410 passed, one investigation-only vertical-centering audit skipped (the repository's default).
+- The added Overview assertions failed before the repair; the component suite then passed all 131 tests.
+- `pnpm design:alignment` passed and lowered only the five improved signatures.
+- `pnpm test:ui-system:native` exited 0: `native UI system smoke: 38 app frames plus About, relaunch persistence verified`.
+- Unpiped `TMPDIR=/tmp/hdv pnpm verify` exited 0: `All checks passed.`
 
-What changed: Overview shows Run status, attention and recorded usage, shares conversation-keyed Seats with the rail and sidebar, and folds finished Seats while retaining their rows. The synthetic Host rig returned one board member and open Goal Seat during writing, then two of each during review and after settling, with both `closed` fields null; regressions also cover an empty older roster. How to test: run the focused UI tests, UI typecheck, named browser specs, strict design audit and the unpiped full verification gate; actions, wrapped receipts and host process lifecycle remain in their planned PRs.
-
-Closes #1278
+The first full browser run reported 408 passed, one skipped and two failures: the trajectory assertion read the original fixture instead of the staged ledger, and an overlapping diagnostic removed an active trace file. Trajectory passed alone, the contrast case passed three isolated runs, and both passed in the clean full run above. No assertion, retry setting or check was weakened.
 
 ```sh
-pnpm --filter @harnessdesk/ui exec vitest run src/lib/team-seats.test.ts src/lib/team-overview.test.ts src/components/TeamOverview.test.tsx src/components/TeamRoomPane.test.tsx src/components/SessionTree.test.tsx src/design/patterns/SidebarMenuState.test.tsx src/design/patterns/Settings.chip.test.tsx src/design/ui/sidebar.test.tsx
-pnpm --filter @harnessdesk/ui run typecheck
-pnpm exec playwright test -c playwright.ui-system.config.ts e2e/ui-system/team-overview.spec.ts e2e/ui-system/sidebar-edges.spec.ts e2e/ui-system/sidebar-hover.spec.ts e2e/ui-system/sidebar-roles.spec.ts e2e/ui-system/sidebar-keyboard.spec.ts e2e/ui-system/sidebar-seat-menu.spec.ts e2e/ui-system/faces.spec.ts e2e/ui-system/side-by-side.spec.ts
-node script/design-audit.mjs --strict
-node script/ui-catalog.mjs
-mkdir -p /tmp/hdv && TMPDIR=/tmp/hdv pnpm verify
+pnpm --filter @harnessdesk/ui exec vitest run src/components/TeamRoomPane.test.tsx src/components/TeamOverview.test.tsx
+pnpm design:alignment
+pnpm test:ui-system
+pnpm test:ui-system:native
+TMPDIR=/tmp/hdv pnpm verify
 ```
 
-| State | Light | Dark |
-| --- | --- | --- |
-| Running | [running-light.png](running-light.png) | [running-dark.png](running-dark.png) |
-| Needs you | [needs-you-light.png](needs-you-light.png) | [needs-you-dark.png](needs-you-dark.png) |
-| Unread | [unread-light.png](unread-light.png) | [unread-dark.png](unread-dark.png) |
-| Idle | [idle-light.png](idle-light.png) | [idle-dark.png](idle-dark.png) |
-| Stalled Run | [stalled-light.png](stalled-light.png) | [stalled-dark.png](stalled-dark.png) |
-| No Run | [no-run-light.png](no-run-light.png) | [no-run-dark.png](no-run-dark.png) |
-| No Seats | [no-seats-light.png](no-seats-light.png) | [no-seats-dark.png](no-seats-dark.png) |
-| Three done, folded | [done-light.png](done-light.png) | [done-dark.png](done-dark.png) |
-| Three done, open | [done-open-light.png](done-open-light.png) | [done-open-dark.png](done-open-dark.png) |
-| Narrow | [narrow-light.png](narrow-light.png) | [narrow-dark.png](narrow-dark.png) |
-| Team with two done, folded | [team-light.png](team-light.png) | [team-dark.png](team-dark.png) |
-| Team with two done, open | [team-open-light.png](team-open-light.png) | [team-open-dark.png](team-open-dark.png) |
-| Nested conversations | [sidebar-light.png](sidebar-light.png) | [sidebar-dark.png](sidebar-dark.png) |
-| Catalogue narrow | [catalog-narrow-light.png](catalog-narrow-light.png) | [catalog-narrow-dark.png](catalog-narrow-dark.png) |
+Closes #1278
