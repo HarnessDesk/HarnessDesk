@@ -848,8 +848,13 @@ proves the marked caption is ignored.
 
 The small `ListRow` title uses the navigation pair (13/400), including when
 selected; selection is shown by the row's fill. Its default title remains the
-subject pair (14/500). The Dashboard's band heads are `section` (16/600),
+subject pair (14/500). The title declares which (`data-role`), and the rule
+reads it against that pair exactly. The Dashboard's band heads are `section` (16/600),
 drawn through `SectionHead`'s heading level (#1122).
+
+The owner's 1A decision on 2026-10-03 keeps list navigation and the Team
+rail's member rows at 13/400. The heavier rail variant proposed in #1220 is
+not planned; a member named in the rail follows its navigation role.
 
 ### Group labels
 
