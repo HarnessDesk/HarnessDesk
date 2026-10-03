@@ -3448,3 +3448,23 @@ it.each(['running', 'settled'] as const)('discovers an uncached %s Run when open
   await act(async () => nav.click())
   expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('Triage')
 })
+
+
+it('a wrapped Team keeps receipt Seats and its Run readable while dispatching verbs are disabled', async () => {
+ const execution = {version:2,id:'wrapped-run',goal:ROOM,state:'settled',reason:null,operations:[],rounds:[],document:{format:'agents',flow:{name:'Completed review',roles:[],rules:[]}}} as unknown as FlowExecution
+ const goal: GoalView = {...GOAL,goal:{...GOAL.goal,state:'wrapped',origin:{kind:'flow',run:execution.id}},members:[],receipt:{version:1,id:'receipt',goal:ROOM,sentence:GOAL.goal.sentence,summary:'Reviewed.',wrappedAt:2,cards:[],seats:['kept','lost'],members:[{seat:'kept',agent:'Writer',seatLabel:'Alpha',session:{runtime:'codex',sessionId:'c1'}},{seat:'lost',agent:null,seatLabel:'Gamma'}],answers:[],evidence:[],lanes:[],revisions:[],citations:[],gaps:[]}}
+ const {store}=rig([],undefined,{members:[]},goal,new Map([[execution.id,execution]]))
+ await render(store)
+ expect(container.querySelector('aside')?.textContent).toContain('Writer')
+ expect(container.querySelector('aside')?.textContent).toContain('Gamma')
+ expect(container.textContent).toContain('Conversation not kept')
+ for (const label of ['Seat an Agent in this Goal','Hold messages at the board']) {
+  const button=container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)
+  expect(button?.disabled).toBe(true);expect(button?.title).toBe('This Team is wrapped')
+ }
+ const pick=async(label:string)=>{const button=[...container.querySelectorAll<HTMLButtonElement>('aside button')].find(one=>(label==='Run'?one.textContent?.startsWith(label):one.textContent===label));expect(button).toBeTruthy();act(()=>button!.click());await act(async()=>{})}
+ await pick('Run');expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('Completed review')
+ await pick('Receipt');expect(container.textContent).toContain('As recorded when wrapped')
+ act(()=>row('Writer').click());await act(async()=>{})
+ expect(container.querySelector('[data-testid="conversation"]')?.textContent).toContain(String(sessionKey('codex','c1')))
+})

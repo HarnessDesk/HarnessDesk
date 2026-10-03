@@ -1,7 +1,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { FindingPublicationsView } from '@harnessdesk/protocol'
+import type { FindingPublicationsView, GoalView } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
@@ -47,6 +47,19 @@ const type = (textarea: HTMLTextAreaElement, text: string): void => {
     textarea.dispatchEvent(new Event('input', { bubbles: true }))
   })
 }
+
+it('disables every posting action in a wrapped Team with the record reason', async () => {
+  const publish = vi.fn(async () => view())
+  const store = rig(async () => view({ backfill: { pr: 7, rounds: [{ round: 1, findings: 1, reviews: 1 }], stamp: STAMP }, backfillRefusal: null }), publish)
+  Object.assign(store.getSnapshot(), { goals: new Map([['g1', { goal: { state: 'wrapped' } } as unknown as GoalView]]) })
+  await render(store)
+  for (const label of ['Post again', 'Skip…', 'Post earlier rounds…']) {
+    expect(button(label).disabled).toBe(true)
+    expect(button(label).title).toBe('This Team is wrapped')
+    act(() => button(label).click())
+  }
+  expect(publish).not.toHaveBeenCalled()
+})
 
 it('reads the run’s postings explicitly and shows each one needing a person with the desk’s reason, whole', async () => {
   const store = rig(async () => view(), async () => view())

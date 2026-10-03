@@ -1,3 +1,4 @@
+import { isRecordConversation, RECORD_REASON } from '../lib/team-record'
 import {
   useCallback,
   useEffect,
@@ -188,6 +189,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   const snapshot = useSnapshot()
   const session = useActiveSession()
   const key = useSessionKey()
+  const record = isRecordConversation(snapshot.goals.values(), key)
   const focused = useIsFocusedPane()
   const mount = useMount()
   const isNoticeHost = mount?.area === 'main' && mainNoticeHost(snapshot.workbench, snapshot.windowWidth) === mount.id
@@ -251,7 +253,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   // No session yet is not a locked composer: typing is how a session starts.
   // Only a missing workspace or a runtime that is not ready blocks input.
   const ready = snapshot.health?.state === 'ready' || snapshot.health?.state === 'idle'
-  const canType = Boolean(session) || (ready && Boolean(snapshot.workspace))
+  const canType = !record && (Boolean(session) || (ready && Boolean(snapshot.workspace)))
   // A hand-off chip rides on the draft only; it leaves with the first message.
   const handoff = session ? null : snapshot.draftHandoff
   /* What may be offered *here* — this conversation, its agent, this project.
@@ -1002,6 +1004,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   }, [focused, key, store])
 
   const placeholder = useMemo(() => {
+    if (record) return RECORD_REASON
     if (!session && !canType) {
       return snapshot.workspace ? 'Waiting for the runtime…' : 'Choose a project folder to begin'
     }
@@ -1015,7 +1018,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       return `Adds to the ${waiting} message${waiting === 1 ? '' : 's'} already waiting`
     }
     return 'Describe a task — / for commands, @ for files'
-  }, [busy, canSteer, canType, session, snapshot.workspace, waiting])
+  }, [record, busy, canSteer, canType, session, snapshot.workspace, waiting])
 
   // Whether pressing send delivers now or hands the message to the queue.
   // A running turn is the usual reason; a queue held behind a stopped turn
@@ -1348,14 +1351,14 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
               Two saturated coins side by side read as two competing primary
               buttons, which is what this replaces. */}
           <ComposerTrack name="send">
-          {(!busy || canSend) && (
+          {(record || !busy || canSend) && (
             <ComposerSend
               type="button"
               data-when={!canSend ? 'nothing' : deferred ? 'later' : 'now'}
               disabled={!canSend}
               onClick={() => void submit()}
               aria-label={deferred ? 'Queue' : 'Send'}
-              {...(sendTitle ? { title: sendTitle } : {})}
+              {...(record ? { title: RECORD_REASON } : sendTitle ? { title: sendTitle } : {})}
             >
               <SendIcon size={15} />
             </ComposerSend>
@@ -1365,7 +1368,8 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
               type="button"
               onClick={() => void store.interrupt(key)}
               aria-label="Stop"
-              title="Stop this turn"
+              disabled={record}
+              title={record ? RECORD_REASON : "Stop this turn"}
             >
               <StopIcon size={12} />
             </ComposerSend>

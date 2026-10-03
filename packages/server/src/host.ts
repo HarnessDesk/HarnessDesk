@@ -1027,24 +1027,26 @@ export class Host {
       send: async (runtime, id, text, allowed, from) => {
         // Acceptance can precede turn/started: keep the lifecycle held until
         // the agent answers, just as a direct send's pending mark does.
-        await this.#withRuntimeActivity(this.#runtime({ runtime }), () => dispatchAfter(
+        await this.#holdDispatch({ runtime, sessionId: makeSessionId(id) }, () => this.#withRuntimeActivity(this.#runtime({ runtime }), () => dispatchAfter(
           allowed ?? (() => ({ ok: true })),
           () => this.#teamLive(runtime, id),
           async (live) => {
+            this.#assertDispatchable({ runtime, sessionId: makeSessionId(id) })
             if (from) await this.#startTurn(runtime, id, from, () => live.send([{ type: 'text', text }]))
             else await live.send([{ type: 'text', text }])
           },
-        ), id)
+        ), id))
       },
       steer: async (runtime, id, text, allowed, from) => {
-        await dispatchAfter(
+        await this.#holdDispatch({ runtime, sessionId: makeSessionId(id) }, () => dispatchAfter(
           allowed ?? (() => ({ ok: true })),
           () => this.#teamLive(runtime, id),
           async (live) => {
+            this.#assertDispatchable({ runtime, sessionId: makeSessionId(id) })
             await live.steer([{ type: 'text', text }])
             if (from) this.#markRunningTurn(runtime, id, this.#messageCause(from))
           },
-        )
+        ))
       },
       goalMembers: (goal) => {
         const document = this.#goalStore.list().find((candidate) => candidate.goal.id === goal)
@@ -1600,12 +1602,14 @@ export class Host {
         return { root, cwd }
       },
       known: async (runtime: string, session: string) => {
+        this.#assertDispatchable({ runtime: runtimeId(runtime), sessionId: makeSessionId(session) })
         const agent = this.#runtimes.get(runtime)
         if (!agent) return null
         const id = makeSessionId(session)
         const record = this.registry.get(runtime as RuntimeId, id)
         const held = record?.live ? record.session : await this.#hostRead(agent, id).catch(() => null)
         if (!held) return null
+        this.#assertDispatchable({ runtime: runtimeId(runtime), sessionId: id })
         const project = await this.#boardRootOf(held.cwd)
         return project ? { project, busy: isBusy(held) } : null
       },
@@ -1626,6 +1630,7 @@ export class Host {
         return this.registry.attachmentSeatOf(session.runtime as RuntimeId, makeSessionId(session.sessionId)) !== null
       },
       opening: async (goal: string, session, id: SeatId): Promise<SeatOpening> => {
+        this.#assertDispatchable({ runtime: runtimeId(session.runtime), sessionId: makeSessionId(session.sessionId) })
         const previous = this.#evidence.seats.latestKeptOf(session.runtime, session.sessionId)
         const runtime = this.#runtimes.get(session.runtime)
         const held = this.registry.get(session.runtime as RuntimeId, makeSessionId(session.sessionId))
@@ -1661,7 +1666,8 @@ export class Host {
       flow: (goal: string) => this.#flows.runsFor(goal).find((run) => run.state === 'running' || run.state === 'stalled'),
       busy: (session) => {
         const record = this.registry.get(session.runtime as RuntimeId, makeSessionId(session.sessionId))
-        return record ? isBusy(record.session) : false
+        const key = String(sessionKey(session.runtime, session.sessionId))
+        return this.#dispatching.has(key) || this.#draining.has(key) || (record ? this.#queueBusy(record) : false)
       },
       waits: () => false,
       stranded: (goal: string, card: number) => this.#goalStranded(goal, card),
@@ -3027,6 +3033,44 @@ export class Host {
     }
   }
 
+  /** Closing membership never turns a wrapped conversation into a loose one. */
+  #assertDispatchable(params: { runtime: RuntimeId; sessionId: SessionId }): void {
+    const matches = (session: { runtime: string; sessionId: string } | undefined) =>
+      session?.runtime === params.runtime && session.sessionId === params.sessionId
+    for (const document of this.#goalStore.list()) {
+      if (this.#goals.lifecycle(document.goal.id) === 'open') continue
+      if (document.receipt?.members?.some(one => matches(one.session)) ||
+        document.receipt?.answers.some(one => matches(one.session)) ||
+        this.#evidence.seats.all().some(one => one.board === document.goal.id && !one.restored && matches(one.session))) {
+        throw new Error('This Team is wrapped')
+      }
+    }
+  }
+
+  /** Runtime acceptance is work even before a turn/started event arrives. */
+  readonly #dispatching = new Map<string, number>()
+
+  async #dispatch<T>(params: { runtime: RuntimeId; sessionId: SessionId }, work: (live: AgentSession) => Promise<T>): Promise<T> {
+    return this.#holdDispatch(params, async () => {
+      const live = await this.#live(params)
+      this.#assertDispatchable(params)
+      return work(live)
+    })
+  }
+
+  async #holdDispatch<T>(params: { runtime: RuntimeId; sessionId: SessionId }, work: () => Promise<T>): Promise<T> {
+    this.#assertDispatchable(params)
+    const key = String(sessionKey(params.runtime, params.sessionId))
+    this.#dispatching.set(key, (this.#dispatching.get(key) ?? 0) + 1)
+    try {
+      return await work()
+    } finally {
+      const remaining = this.#dispatching.get(key)! - 1
+      if (remaining) this.#dispatching.set(key, remaining)
+      else this.#dispatching.delete(key)
+    }
+  }
+
   /** Whether a Goal's board can no longer change — wrapped, or brought by a backup — so its document is the last word. */
   #goalFinal(goal: string): boolean {
     try {
@@ -3662,6 +3706,8 @@ export class Host {
         bindUsage: (runtime, binding) => this.bindUsage(runtime, binding),
       },
       sessions: {
+        assertDispatchable: (params) => this.#assertDispatchable(params),
+        dispatch: (params, work) => this.#dispatch(params, work),
         live: (params) => this.#live(params),
         record: (params) => this.#record(params),
         read: (runtime, id) => this.#read(runtime, id),
@@ -5430,7 +5476,7 @@ export class Host {
     return isBusy(record.session) || this.#sendingNow.has(recordKey(record))
   }
 
-  async #sendNow(record: SessionRecord, input: readonly UserContent[]): Promise<void> {
+  async #sendNow(record: SessionRecord, input: readonly UserContent[]): Promise<TurnId> {
     const key = recordKey(record)
     // The mark is owned: only the send that set it may take it off. A send
     // whose deadline passed, and whose agent then answered after a later send
@@ -5446,8 +5492,7 @@ export class Host {
     }
     const deadline = setTimeout(release, this.options.sendAcceptDeadlineMs ?? SEND_ACCEPT_DEADLINE_MS)
     try {
-      const live = await this.#live({ runtime: record.runtime, sessionId: record.session.id })
-      await live.send(input)
+      return await this.#dispatch({ runtime: record.runtime, sessionId: record.session.id }, live => live.send(input))
     } catch (error) {
       release()
       throw error
@@ -5477,6 +5522,7 @@ export class Host {
       let live = record.live
       if (!live) {
         try {
+          this.#assertDispatchable({ runtime: record.runtime, sessionId: record.session.id })
           live = await this.#liveFor(record.runtime, record.session.id)
         } catch (error) {
           this.registry.pauseQueue(record, describeError(error))
@@ -5494,7 +5540,7 @@ export class Host {
       if (!sending) return
       this.#pushQueue(record)
       try {
-        await live.send(sending.input)
+        await this.#dispatch({ runtime: record.runtime, sessionId: record.session.id }, current => current.send(sending.input))
         this.registry.cancelQueued(record, sending.id)
         this.#pushQueue(record)
       } catch (error) {

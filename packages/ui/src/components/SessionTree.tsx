@@ -38,7 +38,7 @@ import { agentGroups, agentKey, agentKeyOf } from '../lib/accounts'
 import { folderName, groupByProject, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, roomGroupRootOf, type ProjectGroup } from '../lib/projects'
 import { captureForRoot } from '../lib/provenance'
 import { sessionLabel } from '../lib/sessions'
-import { teamSeats } from '../lib/team-seats'
+import { teamSeats, hasConversation } from '../lib/team-seats'
 import { goalRunOf } from '../lib/goal-run'
 import { goalName, goalWords } from '../lib/goals'
 import { ACTIVE_STATES, TRACE_LABEL, traceOf } from '../lib/trace'
@@ -649,8 +649,9 @@ const roomMembers = (
   )
   const filtered = snapshot.listPrefs.agent !== null
   return teamSeats(snapshot.goals.get(room.id), room, goalRunOf(room.id, snapshot.goals.get(room.id), snapshot.flowExecutions))
+    .filter(hasConversation)
     .map(({key, record, name}) => shown.get(String(key)) ?? snapshot.sessions.get(key) ?? (
-      record.openedAt > 0 ? {
+      (record.openedAt > 0 || snapshot.goals.get(room.id)?.receipt) ? {
         id: record.session.sessionId as SessionSummary['id'], runtime: record.session.runtime as SessionSummary['runtime'],
         title: name, cwd: room.cwd ?? room.root, status: { type: 'idle' as const },
         createdAt: record.openedAt, updatedAt: room.updatedAt,
@@ -757,6 +758,9 @@ const RoomRow = ({
           <DisclosureChevron open={open} size="xs" />
         </SidebarMenuAction>
         </div>
+        {open && teamSeats(goal, room, goalRunOf(room.id, goal, snapshot.flowExecutions)).filter(one => !hasConversation(one)).map(one => (
+          <SidebarMenu nested key={one.record.id}><SidebarMenuItem><SidebarMenuButton disabled title="Conversation not kept" label={one.name} /></SidebarMenuItem></SidebarMenu>
+        ))}
         {open && members.length > 0 && (
           <SidebarMenu nested>
             {members.map((summary) => (

@@ -725,3 +725,10 @@ it('another surface in the room can address a member through the handle', () => 
 it('every member has a key of its own', () => {
   expect(new Set([OPUS, GPT, GEMINI].map(key)).size).toBe(3)
 })
+
+
+it('a wrapped Team disables the room composer with its reason', () => {
+ Object.assign(snapshot,{goals:new Map([[ROOM,{goal:{id:ROOM,state:'wrapped'}} as never]])})
+ try { rig();expect(box().disabled).toBe(true);expect(box().placeholder).toBe('This Team is wrapped') }
+ finally {Object.assign(snapshot,{goals:new Map()})}
+})

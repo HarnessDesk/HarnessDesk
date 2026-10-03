@@ -1,3 +1,4 @@
+import { TeamRecordBoard } from '../../preview/frames-team-record'
 import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
 import { TeamOverviewBoard } from '../../preview/frames-team-overview'
@@ -2935,6 +2936,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'Teams on the desk',
     about: 'Attention first, settled work folded, and recorded usage in its own unit.',
     render: TeamsPageBoard,
+  },
+  {
+    id: 'team-record',
+    title: 'The wrapped Team',
+    about: 'The receipt, conversations and Run stay readable after work ends.',
+    render: TeamRecordBoard,
   },
   {
     id: 'team-overview',

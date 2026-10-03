@@ -1513,3 +1513,16 @@ quiet text. Wrapped record titles keep their lead on the first line. Sentences w
 narrow widths, while the brief previews two lines.
 The `run-view` catalogue board mounts the production component for every Run
 state, empty and failed reads, a long timeline, and the narrow pane.
+
+### The wrapped Team
+
+Wrap retains the same pane and navigation, opening on Receipt. The receipt
+scrolls in the body, leaving the rail and its Agents available. Overview and
+Run stay readable. The shared Seat list reads the receipt's captured
+conversations, then an older receipt's answers; an unlinked Seat remains a
+face and name with **Conversation not kept**, without an opening action.
+Dispatching controls and both composers are disabled with **This Team is
+wrapped**. The sidebar keeps those conversations under its collapsed Wrapped
+group. The `team-record` catalogue board mounts the production pane with
+retained conversations, an older receipt, no Seats and a narrow rail; its
+preview also mounts the production sidebar.

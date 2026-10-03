@@ -1486,3 +1486,15 @@ it('a board opened after restart loads its named Flow execution so finished chec
   await render(store)
   expect(store.readFlowExecution).toHaveBeenCalledWith('saved-check-run')
 })
+
+
+it('a wrapped Team disables adding, assigning, answering, reopening and abandoning work', async () => {
+ const goal={goal:{id:ROOM,state:'wrapped',origin:{kind:'person'}},members:[]} as unknown as GoalView
+ const {store}=rig([intent({})],{},undefined,goal)
+ await render(store)
+ const add=container.querySelector<HTMLButtonElement>('button[aria-label^="New job"]')!
+ expect(add.disabled).toBe(true);expect(add.title).toBe('This Team is wrapped')
+ const items=await menuItems(1)
+ expect(items.length).toBeGreaterThan(0)
+ for (const item of items) {expect(item.getAttribute('aria-disabled')).toBe('true');expect(item.textContent).toContain('This Team is wrapped')}
+})

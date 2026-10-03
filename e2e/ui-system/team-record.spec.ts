@@ -1,0 +1,52 @@
+import { expect, test } from '@playwright/test'
+
+for (const theme of ['light','dark'] as const) {
+ test(`Wrapped Team: receipt, rail, conversations and Run stay readable in ${theme}`, async ({page}) => {
+  await page.goto(`/preview.html?team-record&theme=${theme}`)
+  const frame=page.locator('#team-record-wrapped')
+  await expect(frame.getByText('As recorded when wrapped',{exact:true})).toBeVisible()
+  const rail=frame.locator('aside')
+  await expect(rail.locator('[data-slot="list-row"]').filter({hasText:'Alpha'})).toBeVisible()
+  await expect(rail.locator('[data-slot="list-row"]').filter({hasText:'Beta'})).toBeVisible()
+  for (const name of ['Seat an Agent in this Goal','Hold messages at the board']) {
+   await expect(frame.getByRole('button',{name,exact:true})).toBeDisabled()
+   await expect(frame.getByRole('button',{name,exact:true})).toHaveAttribute('title','This Team is wrapped')
+  }
+  await rail.getByRole('button',{name:/^Run/}).click()
+  await expect(frame.locator('[data-slot="run-view"]')).toContainText('Build and review')
+  await rail.locator('[data-slot="list-row"]').filter({hasText:'Alpha'}).click()
+  await expect(frame.locator('textarea[data-slot="composer-text"]')).toBeDisabled()
+  await expect(frame.locator('textarea[data-slot="composer-text"]')).toHaveAttribute('placeholder','This Team is wrapped')
+  await expect(frame.locator('[data-slot="composer-send"]')).toBeDisabled()
+  await expect(frame.getByRole('button',{name:'Ask the agent to try again',exact:true})).toBeDisabled()
+  await expect(frame.getByRole('button',{name:'Ask the agent to try again',exact:true})).toHaveAttribute('title','This Team is wrapped')
+  const older=page.locator('#team-record-older')
+  await expect(older.locator('aside')).toContainText('Gamma')
+  await expect(older.locator('aside')).toContainText('Conversation not kept')
+  const missing=older.locator('aside [data-slot="list-row"]').filter({hasText:'Gamma'})
+  await expect(missing.getByRole('button')).toHaveCount(0)
+  await older.locator('aside').getByRole('button',{name:'Overview',exact:true}).click()
+  await expect(older.locator('[data-slot="team-overview"]')).toContainText('Gamma')
+  await expect(older.locator('[data-slot="team-overview"]')).toContainText('Conversation not kept')
+  await expect(older.locator('[data-slot="team-overview"]').getByRole('button',{name:'Gamma',exact:true})).toHaveCount(0)
+ })
+ test(`Wrapped Team: sidebar keeps the nested conversations and unlinked Seat in ${theme}`, async ({page}) => {
+  await page.goto(`/preview.html?team-record&theme=${theme}`)
+  const sidebar=page.locator('#team-record-sidebar')
+  await sidebar.getByRole('button',{name:'Wrapped · 1',exact:true}).click()
+  await expect(sidebar.locator('button[data-slot="sidebar-menu-button"]').filter({hasText:'Writer conversation'})).toBeVisible()
+  await expect(sidebar.locator('button[data-slot="sidebar-menu-button"]').filter({hasText:'Reviewer conversation'})).toBeVisible()
+  await expect(sidebar.getByRole('button',{name:'Gamma',exact:true})).toBeDisabled()
+  await expect(sidebar.getByRole('button',{name:'Gamma',exact:true})).toHaveAttribute('title','Conversation not kept')
+ })
+ test(`Wrapped Team: narrow rail and receipt stay inside their frame in ${theme}`, async ({page}) => {
+  await page.goto(`/preview.html?team-record&theme=${theme}`)
+  const frame=page.locator('#team-record-narrow')
+  await frame.getByRole('button',{name:'Agents',exact:true}).click()
+  await expect(frame.locator('aside [data-slot="list-row"]').filter({hasText:'Alpha'})).toBeVisible()
+  expect(await frame.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+  await frame.locator('aside').getByRole('button',{name:'Receipt',exact:true}).click()
+  await expect(frame.getByText('As recorded when wrapped',{exact:true})).toBeVisible()
+  expect(await frame.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+ })
+}

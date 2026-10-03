@@ -12,6 +12,12 @@ it('lists a legacy member once when it is also a Goal Seat', () => {
  expect(teamSeats(goal([record('a','one')]), team([sessionKey('agent-a','one'),sessionKey('agent-b','one')]),run)).toHaveLength(2)
 })
 it('a Team with no Run and no members is empty', () => { expect(teamSeats(null,team(),null)).toEqual([]) })
-it('a wrapped Team uses only its legacy members until receipt support arrives', () => {
- expect(teamSeats({ ...goal([record('a','one')]), goal: { state: 'wrapped' } } as GoalView,team(),run)).toEqual([])
+it('a wrapped Team reads its receipt, falls back to answered conversations and keeps unlinked Seats', () => {
+ const wrapped = { ...goal([]), goal: { id:'team', state:'wrapped' }, receipt: {
+  seats:['a','b','missing'], members:[{seat:'a',agent:'Writer',seatLabel:'Alpha',session:{runtime:'agent-a',sessionId:'one'}},{seat:'b',agent:'Reviewer',seatLabel:'Beta'},{seat:'missing',agent:null,seatLabel:'Gamma'}],
+  answers:[{seat:'b',session:{runtime:'agent-b',sessionId:'two'}}],
+ } } as unknown as GoalView
+ expect(teamSeats(wrapped,team([sessionKey('wrong','stale')]),run).map(one=>[one.record.id,one.key,one.name])).toEqual([
+  ['a',sessionKey('agent-a','one'),'Writer'],['b',sessionKey('agent-b','two'),'Reviewer'],['missing',null,'Gamma'],
+ ])
 })

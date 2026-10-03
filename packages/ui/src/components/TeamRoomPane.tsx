@@ -23,7 +23,8 @@ import { runtimeTint, type Tint } from '../lib/accounts'
 import { brandForRuntime } from '../lib/brands'
 import { elapsedSince } from '../lib/clock'
 import { goalRunOf, namedGoalRun } from '../lib/goal-run'
-import { teamSeats } from '../lib/team-seats'
+import { teamSeats, hasConversation } from '../lib/team-seats'
+import { isRecord, RECORD_REASON } from '../lib/team-record'
 import { teamOverview } from '../lib/team-overview'
 import { TeamOverview } from './TeamOverview'
 import { RunView } from './RunView'
@@ -242,6 +243,7 @@ export const TeamRoomPane = ({
   const store = useStore()
   const snapshot = useSnapshot()
   const goal = snapshot.goals.get(room)
+  const record = isRecord(goal)
   /** Shared by the bar's full Wrap button and its narrow ⋯ fallback. */
   const wrapDisabled = goal ? goalActions(goal.goal).disabled || goal.problem !== null : true
   /**
@@ -379,8 +381,8 @@ export const TeamRoomPane = ({
     mount?.view.kind === 'room' ? mount.view.sideBySide : undefined,
     mount?.view.kind === 'room' ? mount.view.watching : undefined,
   ))
-  const [open, setOpen] = useState<'overview' | 'run' | 'board' | 'room' | 'findings' | 'side-by-side' | SessionKey>(
-    () => (grid.tiles.length > 0 ? 'side-by-side' : flowExecution ? 'overview' : 'room'),
+  const [open, setOpen] = useState<'overview' | 'receipt' | 'run' | 'board' | 'room' | 'findings' | 'side-by-side' | SessionKey>(
+    () => (record && goal?.receipt ? 'receipt' : grid.tiles.length > 0 ? 'side-by-side' : flowExecution ? 'overview' : 'room'),
   )
   /* Which half a *narrow* room is showing. Two columns need width; when the
      pane has none — a three-way split, or the details panel open beside it —
@@ -394,9 +396,9 @@ export const TeamRoomPane = ({
     // Runs are loaded after the Team opens. Apply its default only until the
     // person chooses a destination; a push must not take them away from Chat.
     if (destination.current.chosen || grid.tiles.length > 0) return
-    setOpen(flowExecution ? 'overview' : 'room')
+    setOpen(record && goal?.receipt ? 'receipt' : flowExecution ? 'overview' : 'room')
     setOnRail(!flowExecution)
-  }, [room, flowExecution?.id])
+  }, [room, flowExecution?.id, record])
   const [chosenRun, setChosenRun] = useState<string | null>(null)
   const [selectedRunRows, setSelectedRunRows] = useState<ReadonlyMap<string, string>>(new Map())
   const runs = useMemo(() => [...snapshot.flowExecutions.values()].filter(one => one.goal === room)
@@ -458,12 +460,13 @@ export const TeamRoomPane = ({
    */
   const [railTrouble, setRailTrouble] = useState<string | null>(null)
 
-  const show = (next: 'overview' | 'run' | 'board' | 'room' | 'findings' | 'side-by-side' | SessionKey): void => {
+  const show = (next: 'overview' | 'receipt' | 'run' | 'board' | 'room' | 'findings' | 'side-by-side' | SessionKey): void => {
     destination.current.chosen = true
     setOnRail(false)
     /* Written against the literals rather than narrowed: `SessionKey` is a
        branded string, so comparing it to `'board'` tells the compiler nothing
        and the union survives into the other branch. */
+    if (next === 'receipt') return setOpen('receipt')
     if (next === 'overview') return setOpen('overview')
     if (next === 'run') return setOpen('run')
     if (next === 'board') return setOpen('board')
@@ -653,7 +656,7 @@ export const TeamRoomPane = ({
 
   /* Narrowed once, here, so the provider below gets a `SessionKey` and not a
      union the compiler has to be argued with at the call site. */
-  const singleMember: SessionKey | null = open === 'overview' || open === 'run' || open === 'board' || open === 'room' || open === 'findings' || open === 'side-by-side' ? null : open
+  const singleMember: SessionKey | null = open === 'receipt' || open === 'overview' || open === 'run' || open === 'board' || open === 'room' || open === 'findings' || open === 'side-by-side' ? null : open
   /**
    * Open the conversation behind any column that has one.
    *
@@ -712,7 +715,9 @@ export const TeamRoomPane = ({
   /* The roster as a list. `here` is already taken, by the count of
      conversations *in the folder* — which is the other half of the zero-state
      below and deliberately a different number. */
-  const seats = useMemo(() => teamSeats(goal, team, flowExecution), [goal, team, flowExecution])
+  const allSeats = useMemo(() => teamSeats(goal, team, flowExecution), [goal, team, flowExecution])
+  const seats = useMemo(() => allSeats.filter(hasConversation), [allSeats])
+  const unlinked = useMemo(() => allSeats.filter(one => !hasConversation(one)), [allSeats])
   const members = useMemo(() => {
     return seats.map(seat => {
       const peer = peers?.find(one => sessionKey(one.runtime, one.sessionId) === seat.key)
@@ -873,7 +878,7 @@ export const TeamRoomPane = ({
     setGrid((was) => forgetMissing(was, present))
     // A member opened on its own who has left takes the body back to the chat.
     setOpen((was) =>
-      was === 'overview' || was === 'run' || was === 'board' || was === 'room' || was === 'findings' || was === 'side-by-side' || present.has(was as SessionKey) ? was : 'room',
+      was === 'receipt' || was === 'overview' || was === 'run' || was === 'board' || was === 'room' || was === 'findings' || was === 'side-by-side' || present.has(was as SessionKey) ? was : 'room',
     )
   }, [peers, roster])
 
@@ -1090,7 +1095,8 @@ export const TeamRoomPane = ({
                  and the title (sighted, on hover) keeps the fuller sentence. */
               aria-label="Hold messages at the board"
               aria-pressed={!messaging}
-              title={
+              disabled={record}
+              title={record ? RECORD_REASON :
                 messaging
                   ? 'Members can message each other. Press to hold messages at the board — claims and signals continue.'
                   : 'Messages wait for the board. Press to let members message each other again.'
@@ -1112,7 +1118,7 @@ export const TeamRoomPane = ({
               on a dependency, already wrapped), never on who opened it. */}
           {goal && (
             <span className={styles.barWrapFull}>
-              <Button size="sm" disabled={wrapDisabled} onClick={() => setWrapping(true)}>
+              <Button size="sm" disabled={wrapDisabled} title={record ? RECORD_REASON : undefined} onClick={() => setWrapping(true)}>
                 Wrap
               </Button>
             </span>
@@ -1127,6 +1133,7 @@ export const TeamRoomPane = ({
                 <Menu close={close}>
                   <MenuItem
                     label={messaging ? 'Hold messages at the board' : 'Let members message each other'}
+                    disabled={record ? RECORD_REASON : false}
                     onSelect={() => {
                       void toggleMessaging()
                       close()
@@ -1150,14 +1157,6 @@ export const TeamRoomPane = ({
       </Bar>
       {goal ? <GoalHeader view={goal} /> : null}
       {flowExecution ? <FlowRunStatus execution={flowExecution} /> : null}
-      {goal?.receipt ? (
-        <>
-          <GoalReceipt receipt={goal.receipt} root={goal.goal.root} onOpenFinding={setReceiptFinding} />
-          <FindingCarry source={goal} />
-          <GoalReceiptCost receipt={goal.receipt} />
-          {receiptFinding ? <FindingDetail goal={goal.goal.id} finding={receiptFinding} onClose={() => setReceiptFinding(null)} /> : null}
-        </>
-      ) : null}
       {/* The one failure this row can have, said out loud and across the whole
           room: the chat's own trouble line is inside the chat, and a toggle
           that failed while the board was up had nowhere to say so. */}
@@ -1188,6 +1187,7 @@ export const TeamRoomPane = ({
                 the row can be tabbed to, so the row itself has to be the stop.
                 The member rows below stay divs — see the note on MemberCard. */}
             <ListRow as="button" size="sm" nav interactive selected={open === 'overview'} onClick={() => show('overview')} lead={<IconTile size="sm"><TeamIcon /></IconTile>} title="Overview" />
+            {goal?.receipt && <ListRow as="button" size="sm" nav interactive selected={open === 'receipt'} onClick={() => show('receipt')} lead={<IconTile size="sm"><PlanIcon /></IconTile>} title="Receipt" />}
             {flowExecution && <ListRow as="button" size="sm" nav interactive selected={open === 'run'} onClick={() => show('run')}
               lead={<IconTile size="sm"><PlanIcon /></IconTile>} title="Run" trail={<Text role="meta" numeric>{runs.length}</Text>} />}
             <ListRow
@@ -1277,12 +1277,13 @@ export const TeamRoomPane = ({
               sending it something, and coming back to see whether it had
               appeared. */}
           <NavigationGroupHeader label="Agents">
-            <Text role="meta" numeric className={styles.count}>{roster.length}</Text>
+            <Text role="meta" numeric className={styles.count}>{allSeats.length}</Text>
             {goal ? <Button
               type="button"
               variant="ghost" size="icon-sm" edge="end" edgeGlyph={13} className={styles.railAdd}
               aria-label="Seat an Agent in this Goal"
-              title="Seat an Agent in this Goal"
+              disabled={record}
+              title={record ? RECORD_REASON : "Seat an Agent in this Goal"}
               onClick={() => setAdding(true)}
             >
               <PlusIcon size={13} />
@@ -1338,7 +1339,7 @@ export const TeamRoomPane = ({
                      sight. They are different facts now — a room keeps its
                      members across a quit — and this line is only ever the
                      second one. */
-                  here === 0
+                  record ? 'No Agents were kept in this Team’s receipt.' : here === 0
                     ? 'No agents in this Team yet, and no conversations in this project either. + starts one and puts it in.'
                     : here === 1
                       ? 'No agents in this Team yet. One conversation is open in this project — + adds an agent.'
@@ -1355,13 +1356,14 @@ export const TeamRoomPane = ({
                 single line above them does not, and cost a line of height on
                 every one of them. */}
             {idleShared && <Note ink="muted" className={styles.railEmpty}>None of these agents has used the board yet.</Note>}
+            {unlinked.map(seat => <ListRow key={seat.record.id} size="sm" title={seat.name} subtitle="Conversation not kept" lead={<IconTile shape="face" size="sm"><AgentIcon /></IconTile>} />)}
             {shown.map((member) => (
               <MemberRow
                 key={member.key}
                 member={member}
                 idleSaidAbove={idleShared}
-                onRemove={() => leave(member.key)}
-                onInbound={(mode) => setInbound(member.key, mode)}
+                onRemove={record ? undefined : () => leave(member.key)}
+                onInbound={record ? undefined : (mode) => setInbound(member.key, mode)}
                 /* Selected means "what the body shows", as every other rail
                    row means: the member opened on its own. A member on a
                    tile is shown by the Side by side row, which is selected
@@ -1395,8 +1397,19 @@ export const TeamRoomPane = ({
               Agents
             </Button>
           </span>
-          {open === 'overview' ? (
-            <TeamOverview model={overview} onRun={() => show('run')}
+          {open === 'receipt' ? (
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {goal?.receipt ? (
+                <>
+                  <GoalReceipt receipt={goal.receipt} root={goal.goal.root} onOpenFinding={setReceiptFinding} />
+                  <FindingCarry source={goal} />
+                  <GoalReceiptCost receipt={goal.receipt} />
+                  {receiptFinding ? <FindingDetail goal={goal.goal.id} finding={receiptFinding} onClose={() => setReceiptFinding(null)} /> : null}
+                </>
+              ) : null}
+            </div>
+          ) : open === 'overview' ? (
+            <TeamOverview model={{...overview,seats:[...overview.seats,...unlinked.map(seat => ({seat:seat.record.id,name:seat.name,role:seat.role,card:null,round:null,state:'idle' as const,reason:'Conversation not kept',doing:null,since:null,cost:null,done:false}))]}} unavailable={new Set(unlinked.map(seat=>seat.record.id))} onRun={() => show('run')}
               faces={new Map(seats.map(seat => {
                 const runtime = snapshot.runtimes.find(one => one.id === seat.record.session.runtime)
                 const brand = runtime ? brandForRuntime(runtime) : null
@@ -1761,9 +1774,9 @@ const MemberRow = ({
   onOpen: () => void
   onWatch: () => void
   /** Take this member out of the room. On the card, never on the row. */
-  onRemove: () => void
+  onRemove?: () => void
   /** Set what it does with messages sent to it. On the card, like the rest. */
-  onInbound: (mode: TeamInbound) => void
+  onInbound?: (mode: TeamInbound) => void
 }) => {
   const { peer } = member
   const inboundState = INBOUND_MODES.find((mode) => mode.value === peer.inbound)?.state ?? null

@@ -851,6 +851,12 @@ port start, block width and browser-profile isolation. Retained descriptors show
 their Goal, Seat and checkout. Releasing ports never claims to remove files.
 Wrapped Goals open an immutable receipt headed **As recorded when wrapped**;
 partial answers, gaps, unknown spend and dirty retained lanes remain visible.
+A wrapped Team opens on **Receipt** and keeps Overview, Run and its Agents
+rail. The sidebar's Wrapped group keeps the same conversations. Older receipts
+use a Seat's kept answer to find its conversation; a Seat without one says
+**Conversation not kept**. These conversations remain readable, with their
+composer disabled: **This Team is wrapped**. Adding, assigning, answering,
+posting and running checks are disabled with that same reason.
 A receipt's Citations row opens each memory citation's own retained detail in
 a dialog, the same read-only view a project's Memory section opens.
 

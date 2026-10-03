@@ -1444,3 +1444,20 @@ measured.
 
 **The rule:** the interface language chooses its CJK fallback in the
 foundation; no component chooses a language's face itself.
+
+
+## Wrapping ends dispatch, while the receipt keeps conversations readable
+
+Closing a Seat ends membership. It does not erase the conversation or turn it
+into new work: a receipt now captures each Seat's own session pointer along
+with its name. Older receipts resolve a conversation only from that Seat's
+kept answer, and otherwise keep its name without a link. The rail, Overview
+and sidebar all read that same list. Receipt opens in the pane's scrolling
+body, so the record never pushes its own navigation away.
+
+The renderer uses one wrapped-state rule for dispatching controls and
+conversation composers. The host refuses sends, steers and queued dispatch
+before reopening and again at delivery, including a queue draining after a
+wrap. Closed Seat history and receipt pointers preserve that refusal after
+restart. Run history remains a read; wrapping and deletion keep their existing
+lifecycles. This implements PR 18 of the approved Teams/Runs plan.

@@ -1110,7 +1110,7 @@ export class GoalPlane {
       // from `GoalView.members`, which answers `[]` the moment this Goal
       // wraps (see `membersOf`). A receipt read after that has nowhere else
       // to learn a Seat's name from.
-      members: seats.map((seat) => ({ seat: seat.id, agent: seat.agent?.name.trim() || null, seatLabel: seat.seatLabel })),
+      members: seats.map((seat) => ({ seat: seat.id, agent: seat.agent?.name.trim() || null, seatLabel: seat.seatLabel, session: seat.session })),
       evidence: evidenceRefs.map((ref) => ref.id),
       evidenceSeats: evidenceRefs,
       answers: answersRead.flatMap((read) => read.answer ? [read.answer] : []),
