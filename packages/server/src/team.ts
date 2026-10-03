@@ -404,6 +404,9 @@ export interface TeamPort {
  * null and nothing on this plane behaves differently from the day before.
  */
 export interface TeamFlows {
+  /** Person-card identity from the run's frozen policy; independent of its answer state. */
+  personCard?(room: string, intent: Intent): { readonly live: boolean; readonly outcomes: readonly string[] } | null
+
   /**
    * Why this card may not answer that — or null, which is the answer for
    * every card that belongs to no run. Synchronous, because it decides
@@ -1467,10 +1470,25 @@ export class Team {
     outcome?: string,
     /** The person's own context package, for the round that depends on this. */
     context?: string,
+    /** Host-owned provenance from the client door; never accepted in wire params. */
+    client?: string,
   ): Promise<void> {
     const board = this.#mutableBoardById(room)
     const intent = board.intents.find((entry) => entry.id === id)
     if (!intent) throw new Error(`There is no intent #${id} on this board.`)
+    const person = this.#flows?.personCard?.(board.id, intent) ?? null
+    // Decide and mutate before the first await: every window and socket shares
+    // this referee. A loser cannot replace the winner's context or signal.
+    if ((action === 'done' || action === 'abandon') && (client !== undefined || person !== null) &&
+        (intent.state === 'done' || intent.state === 'abandoned')) {
+      throw Object.assign(new Error('This card was already answered.'), { wireCode: 'alreadyAnswered' })
+    }
+    if (client !== undefined && action === 'done' && (!person || !person.live)) {
+      throw Object.assign(new Error('Only a live card addressed to a person may be answered by a client.'), { wireCode: 'refused' })
+    }
+    if (client !== undefined && action === 'done' && !person!.outcomes.includes(outcome?.trim() ?? '')) {
+      throw Object.assign(new Error('This outcome is not an answer the person role declares.'), { wireCode: 'refused' })
+    }
     /* The same answer to a card already answered that way is a retry (a
        person's pick answered once, a second press), not news: nothing is
        signalled or handed to its flow twice. A new context package is not a
@@ -1504,8 +1522,8 @@ export class Team {
          the Done column showed why the work had once been stopped instead of
          how it finished. */
       const undo = this.#undoFor(board, [id])
-      this.#patchIntent(board, id, { state: 'abandoned', claim: null, blockedReason: null, blockedBy: null })
-      this.#signal(board, by, 'abandoned', intent, null)
+      this.#patchIntent(board, id, { state: 'abandoned', claim: null, blockedReason: null, blockedBy: null, ...(reason?.trim() ? { note: reason.trim() } : {}) })
+      this.#signal(board, by, 'abandoned', intent, reason?.trim() || null)
       undo.mark()
       const saved = this.#commit(board, true, undo)
       // Never past a save that failed — `#afterSaved`'s own rule, kept here because what follows must also await the stop capture before it runs.
@@ -1524,7 +1542,7 @@ export class Team {
     } else if (action === 'done') {
       const said = outcome?.trim() || null
       const refusal = this.#flows?.refuseOutcome(board.id, intent, said) ?? null
-      if (refusal) throw new Error(refusal)
+      if (refusal) throw Object.assign(new Error(refusal), client !== undefined ? { wireCode: 'refused' } : {})
       const undo = this.#undoFor(board, board.intents.filter((one) => one.id === id || one.state === 'blocked').map((one) => one.id))
       this.#patchIntent(board, id, {
         state: 'done',
@@ -1536,7 +1554,7 @@ export class Team {
            finished card done by hand does not erase the package it left. */
         ...(context?.trim() ? { handoff: context.trim() } : {}),
       })
-      this.#signal(board, by, 'completed', intent, said ? `you answered ${said}` : 'marked done by you')
+      this.#signal(board, by, 'completed', intent, client !== undefined ? `answered from the command line (${client}): ${said}` : said ? `you answered ${said}` : 'marked done by you')
       this.#unblock(board, by)
       undo.mark()
       const saved = this.#commit(board, true, undo)

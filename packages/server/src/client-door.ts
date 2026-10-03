@@ -5,9 +5,9 @@ import { createServer } from 'node:http'
 import { connect as connectSocket } from 'node:net'
 import { join } from 'node:path'
 import {
-  CLIENT_METHODS, CLIENT_PROTOCOL, parseClientEnvelope, parseClientMessage,
+  CLIENT_METHODS, CLIENT_PROTOCOL, clientTierFor, parseClientEnvelope, parseClientMessage,
   wireCodeOf, wireDataOf, wireError,
-  type ClientMethodName, type ClientTier, type ClientTopic, type FlowExecutionSummary, type GoalView, type HostParams,
+  type ClientTier, type ClientTopic, type FlowExecutionSummary, type GoalView, type HostParams,
   type HostToClient, type WireNotification,
 } from '@harnessdesk/protocol'
 import { WebSocketServer, type WebSocket } from 'ws'
@@ -46,10 +46,11 @@ export const topicsOf = (notification: WireNotification): readonly ClientTopic[]
   }
 }
 
-export const clientRefusal = (method: string, hello: boolean, tiers: readonly ClientTier[]): string | null => {
-  if (!Object.hasOwn(CLIENT_METHODS, method)) return 'notOnClientSurface'
+export const clientRefusal = (method: string, hello: boolean, tiers: readonly ClientTier[], params?: unknown): string | null => {
+  const tier = clientTierFor(method, params)
+  if (tier === null) return 'notOnClientSurface'
   if (!hello && method !== 'client/hello') return 'helloFirst'
-  if (!tiers.includes(CLIENT_METHODS[method as ClientMethodName])) return 'tierNotGranted'
+  if (!tiers.includes(tier)) return 'tierNotGranted'
   return null
 }
 
@@ -227,9 +228,10 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
       ws.on('message', raw => enqueue(async () => {
         let value: unknown
         let envelope: ReturnType<typeof parseClientEnvelope>
+        let tier: ClientTier | null = null
         const refuse = (id: number | null, method: string | undefined, code: string, message: string, data?: unknown) => {
           audit({ kind: 'client/refused', client: identity, statedPid, method, outcome: 'refused', code,
-            ...(method && Object.hasOwn(CLIENT_METHODS, method) ? { tier: CLIENT_METHODS[method as ClientMethodName] } : {}) })
+            ...(tier !== null ? { tier } : {}) })
           if (id !== null) send({ id, ok: false, error: wireError(code, message, null, data) })
         }
         try { value = JSON.parse(raw.toString()); envelope = parseClientEnvelope(value) }
@@ -238,7 +240,9 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
           refuse(id, undefined, 'badRequest', String(error)); return
         }
         const { id, method } = envelope
-        const refused = clientRefusal(method, hello, options.host.clientTiers())
+        const params = typeof value === 'object' && value !== null && 'params' in value ? value.params : undefined
+        tier = clientTierFor(method, params)
+        const refused = clientRefusal(method, hello, options.host.clientTiers(), params)
         if (refused) { refuse(id, method, refused, `Client request refused: ${refused}.`); return }
         let parsed
         try { parsed = parseClientMessage(value) }
@@ -266,7 +270,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
           } catch (error) {
             const code = wireCodeOf(error) ?? 'methodFailed'
             send({ id, ok: false, error: wireError(code, String(error), null, wireDataOf(error)) })
-            audit({ kind: 'client/call', client: identity, statedPid, method, tier: CLIENT_METHODS[method as ClientMethodName], outcome: 'failed', code })
+            audit({ kind: 'client/call', client: identity, statedPid, method, tier: tier!, outcome: 'failed', code })
           }
           return
         }
@@ -333,15 +337,17 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
             for (const notification of baseline.values()) send(notification)
             for (const notification of approvals) send(notification)
           } else {
-            const result = await options.host.call(parsed.method, parsed.params as never)
+            const result = parsed.method === 'team/intent'
+              ? await options.host.clientIntent(parsed.params as HostParams<'team/intent'>, identity)
+              : await options.host.call(parsed.method, parsed.params as never)
             send({ id, ok: true, result })
           }
-          audit({ kind: 'client/call', client: identity, statedPid, method, tier: CLIENT_METHODS[method as ClientMethodName], outcome: 'ok' })
+          audit({ kind: 'client/call', client: identity, statedPid, method, tier: tier!, outcome: 'ok' })
         } catch (error) {
           const code = wireCodeOf(error) ?? 'methodFailed'
           send({ id, ok: false, error: wireError(code, error instanceof Error ? error.message : String(error),
             typeof (error as { details?: unknown })?.details === 'string' ? (error as { details: string }).details : null, wireDataOf(error)) })
-          audit({ kind: 'client/call', client: identity, statedPid, method, tier: CLIENT_METHODS[method as ClientMethodName], outcome: 'failed', code })
+          audit({ kind: 'client/call', client: identity, statedPid, method, tier: tier!, outcome: 'failed', code })
         } finally {
           proposal = null
         }

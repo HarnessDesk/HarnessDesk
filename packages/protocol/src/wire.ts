@@ -1752,7 +1752,8 @@ export interface HostMethods {
        */
       readonly context?: string
     }
-    result: null
+    /** The window keeps null; a client abandon reports the continuation it observed. */
+    result: null | { readonly role: string | null; readonly nextRole: string | null }
   }
   /**
    * The user posts into the channel — to one conversation, or to everyone

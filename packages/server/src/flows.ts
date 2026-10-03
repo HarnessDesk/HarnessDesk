@@ -2,7 +2,7 @@ import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { sameCanonicalPath } from './path-identity.js'
 
-import { sessionKey } from '@harnessdesk/protocol'
+import { flowStepOf, sessionKey } from '@harnessdesk/protocol'
 import type {
   CompiledFlow,
   EvidenceRecord,
@@ -1028,6 +1028,12 @@ export class Flows implements TeamFlows {
    * — and the failure is invisible: the card finishes, the board looks right,
    * and the next round simply never opens.
    */
+  /** The frozen run, never a caller's role label, decides who a card addresses. */
+  personCard(room: string, intent: Intent): { readonly live: boolean; readonly outcomes: readonly string[] } | null {
+    const step = flowStepOf(intent, undefined, this.executionsFor(room))
+    return step?.kind === 'person' ? { live: step.live, outcomes: step.outcomes } : null
+  }
+
   refuseOutcome(room: string, intent: Intent, outcome: string | null): string | null {
     if (this.#modernCard(room, intent.id)) return this.#executions!.refuseOutcome(room, intent, outcome)
     const run = this.#runFor(room, intent.id)

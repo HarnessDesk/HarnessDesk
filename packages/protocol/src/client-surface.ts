@@ -10,6 +10,8 @@ export const CLIENT_METHODS = {
   'client/hello': 'read',
   'client/subscribe': 'read',
   'goal/list': 'read',
+  'goal/read': 'read',
+  'team/intent': 'answer',
   'flow/catalog': 'read',
   'flow/source': 'read',
   'flow/preview': 'read',
@@ -21,6 +23,22 @@ export const CLIENT_METHODS = {
   'finding/run': 'read',
   'insight/goal': 'read',
 } as const satisfies Partial<Record<HostMethodName, ClientTier>>
+
+/** The action, not the broad method name, grants the verb. Omitted and
+ * unknown actions stay off the surface, before ordinary params validation. */
+export const CLIENT_ACTION_TIERS = {
+  'team/intent': { abandon: 'run', done: 'answer' },
+} as const satisfies Partial<Record<HostMethodName, Readonly<Record<string, ClientTier>>>>
+
+export function clientTierFor(method: string, params?: unknown): ClientTier | null {
+  if (!Object.hasOwn(CLIENT_METHODS, method)) return null
+  if (method === 'team/intent') {
+    const action = typeof params === 'object' && params !== null && 'action' in params ? params.action : undefined
+    return typeof action === 'string' && Object.hasOwn(CLIENT_ACTION_TIERS['team/intent'], action)
+      ? CLIENT_ACTION_TIERS['team/intent'][action as 'done' | 'abandon'] : null
+  }
+  return CLIENT_METHODS[method as keyof typeof CLIENT_METHODS]
+}
 
 export type ClientMethodName = keyof typeof CLIENT_METHODS
 /** The local user's private socket is the authority to spend. Tiers restrict

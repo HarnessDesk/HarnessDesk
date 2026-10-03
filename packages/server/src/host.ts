@@ -2696,6 +2696,21 @@ export class Host {
       ? [...CLIENT_TIERS_GRANTED_BY_DEFAULT, 'answer'] : CLIENT_TIERS_GRANTED_BY_DEFAULT
   }
 
+  /** The client's name is stated attribution, not authority. The door's live
+   * action tier is checked again here; wire params cannot spoof provenance. */
+  async clientIntent(params: HostParams<'team/intent'>, client: string): Promise<HostResult<'team/intent'>> {
+    if (params.action !== 'done' && params.action !== 'abandon') throw Object.assign(new Error('This action is not on the client surface.'), { wireCode: 'notOnClientSurface' })
+    if (params.action === 'done' && !this.clientTiers().includes('answer')) throw Object.assign(new Error('This desk has not granted client answers.'), { wireCode: 'tierNotGranted' })
+    const before = this.#flows.executionsFor(params.room).find(run => run.rounds.some(round => round.cards.includes(params.id)))
+    const round = before?.rounds.find(round => round.cards.includes(params.id))
+    await this.#team.intentAction(params.room, params.id, params.action, params.reason, params.outcome, params.context, client)
+    await this.#team.flush()
+    if (params.action === 'done') return null
+    await this.#flows.flush()
+    const after = before ? this.#flows.executionOf(before.id) : null
+    return { role: round?.role ?? null, nextRole: after?.rounds.find(one => one.n > (round?.n ?? Infinity))?.role ?? null }
+  }
+
   recordClientAudit(entry: Omit<ClientAuditEntry, 'at' | 'via'>): void {
     this.#audit.append({ at: Date.now(), via: 'client', ...entry })
   }
