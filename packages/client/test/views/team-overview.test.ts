@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { approvalId, itemId, runtimeId, sessionId, turnId } from '@harnessdesk/protocol'
+import { approvalId, itemId, runtimeId, sessionId, turnId, currentTurn, inFlightItem, isBusy, seatDoing, type SeatActivity } from '@harnessdesk/protocol'
 
 import type { AgentItem, Approval, FlowExecution, InsightAmounts, InsightMetric, InsightReport, Intent, Session, TeamSignal } from '@harnessdesk/protocol'
 
@@ -380,4 +380,42 @@ it('does not invent completion ownership across runtimes, people or superseded s
   [blockedSignal('Alpha',{signal:'completed',by:{kind:'user'}})],
   [blockedSignal('Alpha',{signal:'completed'}),blockedSignal('Alpha',{id:'reopened',signal:'reopened'})],
  ]) assert.equal(teamOverview(input({seats:[seat('Alpha')],cards:[card(1,{state:'done',claim:null})],signals})).seats[0]?.done, false)
+})
+
+describe('host activity input', () => {
+  const scenarios = [
+    { name: 'idle', live: { ...session('Alpha', [], false), turns: [] }, cards: [], approvals: [] },
+    { name: 'read with a path', live: session('Alpha', [tool('Read', { path: 'src/a.ts' })]), cards: [], approvals: [] },
+    { name: 'command', live: session('Alpha', [{ id: itemId('command'), type: 'command' as const, command: 'echo demo', cwd: '/project', origin: 'agent' as const, status: 'inProgress' as const, actions: [] }]), cards: [], approvals: [] },
+    { name: 'thinking', live: session('Alpha'), cards: [], approvals: [] },
+    { name: 'approval', live: session('Alpha'), cards: [], approvals: [approval('Alpha')] },
+    { name: 'claim without a turn', live: { ...session('Alpha', [], false), turns: [] }, cards: [card(1, { state: 'claimed', claim: claim('Alpha') })], approvals: [] },
+  ]
+  for (const scenario of scenarios) it(`matches a session for ${scenario.name}`, () => {
+    const one = seat('Alpha', { session: scenario.live, approvals: scenario.approvals })
+    const claimed = scenario.cards.find(c => c.state === 'claimed')
+    const busy = isBusy(scenario.live)
+    const state = scenario.approvals.length ? 'waiting' : busy || claimed ? 'working' : 'idle'
+    const latest = state === 'working' ? inFlightItem(scenario.live) : undefined
+    const activity: SeatActivity = {
+      goal: 'team', seat: 'agent-a:Alpha', role: 'builder', card: claimed?.id ?? null, state,
+      doing: state === 'working' ? latest ? seatDoing(latest) : { kind: 'thinking' } : null,
+      since: state === 'waiting' ? scenario.approvals[0]?.requestedAt : state === 'working' ? currentTurn(scenario.live)?.startedAt ?? claimed?.claim?.at : undefined,
+    }
+    const outside = { ...one, session: null, activity }
+    assert.deepEqual(teamOverview(input({ seats: [outside], cards: scenario.cards })), teamOverview(input({ seats: [one], cards: scenario.cards })))
+  })
+  it('prefers a matching conversation and falls back from a different runtime', () => {
+    const activity: SeatActivity = { goal: 'team', seat: 'agent-a:Alpha', role: 'builder', card: null, state: 'working', doing: { kind: 'tool', tool: 'command' }, since: 230 }
+    const matching = { ...seat('Alpha', { session: session('Alpha', [tool('Read', { path: 'src/a.ts' })]) }), activity }
+    assert.equal(teamOverview(input({ seats: [matching] })).seats[0]?.doing, 'Read src/a.ts')
+    const different = { ...matching, session: { ...matching.session!, runtime: runtimeId('agent-b') } }
+    assert.partialDeepStrictEqual(teamOverview(input({ seats: [different] })).seats[0], { doing: 'Running a command', since: 230 })
+  })
+  it('does not invent needs-you from activity waiting alone', () => {
+    const outside = { ...seat('Alpha'), activity: { goal: 'team', seat: 'agent-a:Alpha', role: 'builder', card: null, state: 'waiting' as const, doing: null, since: 275 } }
+    const result = teamOverview(input({ seats: [outside] }))
+    assert.deepEqual(result.needsYou, [])
+    assert.equal(result.seats[0]?.state, 'idle')
+  })
 })

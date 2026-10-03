@@ -11,7 +11,7 @@
  * Nullable facts stay null. All timestamps are epoch milliseconds. No store,
  * clock, component, DOM or mutable cache is read here. Names are supplied from
  * the seat's nickname or RuntimeInfo.presentation. Unread marks belong to the
- * window. The caller supplies the run's start time: FlowExecution has none.
+ * window. The caller still supplies the run's start time.
  * InsightMetric.basis carries rate provenance; quality/coverage qualify it.
  * Channel signals retain hand-block and completion ownership after claims clear.
  * Historical seat money uses supplied runtime capabilities; unknown metering
@@ -32,6 +32,7 @@ import {
   type Intent,
   type RuntimeCapabilities,
   type SeatRecord,
+  type SeatActivity,
   type Session,
   type TeamSignal,
 } from '@harnessdesk/protocol'
@@ -76,6 +77,7 @@ export interface TeamOverviewSeat {
   readonly name: string
   readonly runtime: { readonly capabilities: Pick<RuntimeCapabilities, 'metered'> } | null
   readonly session: Session | null
+  readonly activity?: SeatActivity | null
   readonly unreadSince: number | null
   readonly approvals: readonly Approval[]
 }
@@ -191,6 +193,7 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
   const seats: SeatRow[] = input.seats.map((seat) => {
     const card = activeCards.find((one) => ownerOf(one)?.record.id === seat.record.id) ?? null
     const session = seat.session?.runtime === seat.record.session.runtime && seat.session.id === seat.record.session.sessionId ? seat.session : null
+    const activity = session ? null : seat.activity
     const turn = session ? currentTurn(session) : undefined
     const waits: NeedsYouItem[] = seat.approvals.filter((request) => request.sessionId === seat.record.session.sessionId).map((request) => ({
       kind: request.type === 'userInput' || request.type === 'elicitation' ? 'question' : 'approval',
@@ -201,7 +204,7 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
     waits.sort((a, b) => a.since - b.since)
     const waiting = waits[0]
     const blocked = card?.state === 'blocked' && card.blockedBy === 'hand' && card.blockedReason?.trim() ? card : null
-    const busy = session ? isBusy(session) : false
+    const busy = session ? isBusy(session) : activity?.state === 'working'
     const state: SeatState = waiting || blocked ? 'needs-you'
       : seat.unreadSince !== null ? 'unread'
         : busy || card?.state === 'claimed' ? 'working' : 'idle'
@@ -220,10 +223,10 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
       seat: seat.record.id, name: seat.name, role: card?.role ?? round?.role ?? seat.record.role,
       card: card ? { id: card.id, title: card.title + (dependencies.length ? ` · after ${dependencies.map((id) => `#${id}`).join(', ')}` : '') } : null,
       round: round?.n ?? null, state, reason: blocked?.blockedReason ?? waiting?.summary ?? null,
-      doing: latest ? toolLine(latest, sentences) : null,
+      doing: latest ? toolLine(latest, sentences) : activity?.doing?.kind === 'tool' ? doingSentence(activity.doing, sentences) : null,
       since: state === 'needs-you' ? waiting?.since ?? blocked?.updatedAt ?? null
         : state === 'unread' ? seat.unreadSince
-          : state === 'working' ? busy ? turn?.startedAt ?? card?.claim?.at ?? null : card?.claim?.at ?? null
+          : state === 'working' ? busy ? turn?.startedAt ?? activity?.since ?? card?.claim?.at ?? null : card?.claim?.at ?? null
             : card?.state === 'blocked' ? card.updatedAt : turn?.completedAt ?? seat.record.openedAt,
       cost: costOf(input, seat),
     }
