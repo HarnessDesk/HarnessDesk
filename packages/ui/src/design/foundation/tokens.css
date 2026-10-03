@@ -39,6 +39,38 @@
  * declarations answer to it.
  */
 
+/* --- cjk faces -----------------------------------------------------------
+   CJK faces are ordered by the document's interface language, not by a
+   component or by which platform happens to supply a shared Han glyph.
+   Keep this choice together: --hd-font-family below is still the single
+   interface face token, and restoring its old literal rolls this back. */
+:root {
+  --hd-font-cjk-sc: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC';
+  --hd-font-cjk-tc: 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans CJK TC';
+  --hd-font-cjk-ja: 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP';
+  --hd-font-cjk-ko: 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans CJK KR';
+  --hd-font-cjk-fallback: var(--hd-font-cjk-sc), var(--hd-font-cjk-tc), var(--hd-font-cjk-ja), var(--hd-font-cjk-ko);
+}
+
+/* === Language order =====================================================
+   :lang also matches regional subtags. Untagged, English and zh-Hans keep
+   the default SC-first order; common Traditional region tags agree with
+   zh-Hant even when they omit the script subtag. */
+:root:lang(zh-Hant),
+:root:lang(zh-TW),
+:root:lang(zh-HK),
+:root:lang(zh-MO) {
+  --hd-font-cjk-fallback: var(--hd-font-cjk-tc), var(--hd-font-cjk-sc), var(--hd-font-cjk-ja), var(--hd-font-cjk-ko);
+}
+
+:root:lang(ja) {
+  --hd-font-cjk-fallback: var(--hd-font-cjk-ja), var(--hd-font-cjk-sc), var(--hd-font-cjk-tc), var(--hd-font-cjk-ko);
+}
+
+:root:lang(ko) {
+  --hd-font-cjk-fallback: var(--hd-font-cjk-ko), var(--hd-font-cjk-sc), var(--hd-font-cjk-tc), var(--hd-font-cjk-ja);
+}
+
 body {
   /* --- the faces ---------------------------------------------------------
      Geist carries the interface, bundled at
@@ -46,13 +78,14 @@ body {
      wait on a CDN. Every size in this system is drawn against its metrics, so
      a row occupies the space the layout was drawn for.
 
-     The stack keeps the platform's tail so CJK still resolves. The code face
+     Latin stays Geist first; the document language orders the explicit
+     macOS, Windows and Noto CJK stacks above. The code face
      is ui-monospace and then the platform's own mono, never a downloaded
      face: code should look the same on every machine, and most machines do
      not have the fashionable one. Neither stack ends in a bare `monospace`,
      because Windows CJK falls back to SimSun from there. */
-  --hd-font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-    'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --hd-font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', var(--hd-font-cjk-fallback),
+    'Helvetica Neue', Helvetica, Arial, sans-serif;
   --hd-font-code: ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas,
     'Liberation Mono', 'PingFang SC', 'Microsoft YaHei';
   --hdp-font-family: var(--hd-font-family);

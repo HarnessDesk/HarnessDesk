@@ -1388,3 +1388,37 @@ The existing statechart already expresses a retry: `otherwise: retry` plus a
 rule back to the check, or an unconditional final rule for every non-landing
 outcome. `retry` remains an ordinary outcome, never a reserved command with an
 unbounded implicit loop; the run's round and progress budgets still apply.
+
+## CJK font fallback follows the document language
+
+*Owner decision: 2026-10-03, typography 5B.* A Chinese-first list made the
+Japanese review sample use Hiragino Sans GB for five glyphs and PingFang SC
+for two on macOS. Each language now has a foundation token: Simplified Chinese
+is PingFang SC, Microsoft YaHei, Noto Sans CJK SC; Traditional Chinese is
+PingFang TC, Microsoft JhengHei, Noto Sans CJK TC; Japanese is Hiragino Sans,
+Yu Gothic, Meiryo, Noto Sans CJK JP; Korean is Apple SD Gothic Neo, Malgun
+Gothic, Noto Sans CJK KR.
+
+The old `--hd-font-family` value was `'Geist', -apple-system,
+BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif`.
+The new value is `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+var(--hd-font-cjk-fallback), 'Helvetica Neue', Helvetica, Arial, sans-serif`.
+The fallback token defaults to SC, TC, Japanese, Korean. `:root:lang(zh-Hant)`
+and the Traditional region tags zh-TW, zh-HK and zh-MO put TC first;
+`:root:lang(ja)` puts Japanese first; `:root:lang(ko)` puts Korean first.
+Regional subtags follow the same rule. Each keeps the remaining lists in
+their default relative order. Components still read `--hd-font-family`;
+Latin stays Geist first, and code keeps its existing separate stack. No size,
+weight, line or trim value changes.
+
+[The per-glyph measurement](typography-cjk/measurement.md) records matching
+document/sample languages in both themes, on the catalogue and preview.
+Every Japanese glyph now uses Hiragino Sans on macOS. Windows face names are
+included and their computed order is tested, but Windows rendering was not
+measured.
+
+**One-line rollback:** set `--hd-font-family` back to `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif` in `packages/ui/src/design/foundation/tokens.css`, then regenerate the token snapshot, native foundation and design documentation.
+
+**The rule:** the interface language chooses its CJK fallback in the
+foundation; no component chooses a language's face itself.
