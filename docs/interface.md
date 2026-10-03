@@ -927,6 +927,27 @@ whole of what a save does — the existing Triggers section's own preview and
 explicit **Arm**, bound to the committed bytes, are still what consents to
 anything running unattended.
 
+### The Teams page
+
+**Teams**, in the left menu beside Agents, lists every Team by project, with
+Needs you before Unread, Working and Idle. Within a state, the oldest known
+wait comes first; an unknown time or usage figure stays a dash. The filters
+open on **Active** and carry counts for **Needs you** and **Settled**.
+A row names the work, shows its Seats' faces and recorded usage, and earns its
+second line with a round or a reason for waiting. A dot means the Team changed
+since you last opened it here.
+Every state reads as quiet coloured text on the sentence's line. A settled
+row carries its Run's end reason when recorded; otherwise it has no second line.
+
+Quiet settled Teams fold into **Ready to wrap** below Active and leave the
+sidebar. A dependency or unfinished follow-up keeps a Team active even after
+its Run settles. **Hide** folds settled work out of Active until it changes;
+**Settled** still holds it and offers **Show in Active**. These choices and
+read marks stay on this Mac. Neither changes the Team or what Wrap does.
+At a narrow width, this page's short navigation rail becomes a top row,
+then one column when that row no longer fits. Its readings move beneath
+the sentence, leaving a waiting reason whole.
+
 ### A Team's Overview
 
 Overview is the Team rail's first destination and opens by default when the

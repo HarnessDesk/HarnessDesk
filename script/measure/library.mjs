@@ -29,7 +29,7 @@ const CREDENTIAL_ROOTS = [
   '.git-credentials', 'Library/Keychains', 'Library/Application Support',
 ]
 export const KEYCHAIN_READ_ONLY = 'keychain-read-only'
-// Defined and pinned by a test for a later explicit ask-run only; discovery uses strict for every agent, and no code path selects this profile in this release.
+// Discovery stays strict; only an explicitly selected ask run can use this profile.
 const KEYCHAIN_READ_ONLY_AGENTS = new Set(['claude-code', 'cursor', 'grok-build'])
 const FACT_KEYS = new Set(['rulesFiles', 'catalogue', 'reportsCatalogue', 'precedence', 'rejections', 'reportsRejections', 'skillRoots', 'refresh', 'mcp', 'signedOutCatalogue'])
 const unmeasuredFacts = () => ({
@@ -43,7 +43,7 @@ const SAFE_FACT_STRINGS = new Set([
   'user', 'project', 'unknown', 'asked', 'could-not-ask', 'none', 'live', 'restart', 'available', 'empty',
   'connected', 'disconnected', 'accepted', 'rejected', 'enabled', 'disabled', 'loaded', 'not-loaded',
   'true', 'false', 'fixture', 'read', 'not-read', 'reported', 'not-reported', 'visible', 'not-visible',
-  'no-session', 'session-created',
+  'no-session', 'session-created', 'yes', 'no', 'measure_fixture',
 ])
 const SAFE_TEXT_WORDS = new Set([
   'a', 'an', 'and', 'agent', 'available', 'app-server', 'are', 'as', 'build', 'catalogue', 'codex',
@@ -60,6 +60,7 @@ const SAFE_TEXT_WORDS = new Set([
   'exact', 'version', 'changed', 'during', 'discovery', 'couldnt', 'capture', 'an', 'installed', 'available', 'its', 'list',
   'openai', 'claude', 'opencode', 'cline', 'hermes', 'codebuddy', 'kimi', 'pi', 'grok', 'copilot', 'antigravity', 'devin',
   'model', 'required', 'unavailable', 'listing', 'session', 'acp', 'out', 'initialize', 'request', 'cannot', 'isolation',
+  'key', 'provided', 'prompt', 'cap', 'reached', 'timed', 'requested', 'json', 'already', 'used',
 ])
 
 const write = async (path, body) => {
@@ -106,8 +107,10 @@ export function deniedHomePaths(realHome = homedir()) {
 const fixtureTokens = (fixture) => [...new Set([
   ...Object.values(fixture.ruleSentinels),
   ...Object.values(fixture.skills).map((path) => basename(path)),
-  'measure-with-auxiliary', 'AUXILIARY_FILE_SENTINEL', 'USER_COPY_SENTINEL', 'PROJECT_COPY_SENTINEL',
-])]
+  ...(fixture.skillEntries ?? []).map((entry) => entry.sentinel),
+  ...(fixture.refreshTokens ?? []),
+  'measure-with-auxiliary', 'measure_fixture', 'AUXILIARY_FILE_SENTINEL', 'USER_COPY_SENTINEL', 'PROJECT_COPY_SENTINEL',
+].filter(Boolean))]
 
 const sensitiveString = /(?:[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|(?:sk|gh[pousr]?|xox[baprs])-[-A-Za-z0-9_]{8,}|eyJ[A-Za-z0-9_-]{16,}|Jane Doe|access[_-]?token|refresh[_-]?token|id[_-]?token|api[_-]?key|authorization|bearer\s|password|cookie|secret|\/(?:Users|home|tmp|private|var|Library|System)\/|(?:^|\s)~\/|[A-Z]:\\Users\\)/i
 
@@ -122,15 +125,17 @@ const safeRelativeFactPath = (value) => typeof value === 'string'
   && /^(?:~\/|\.\/|\.[A-Za-z0-9_-]+\/)[A-Za-z0-9_./-]+$/.test(value)
   && !value.split('/').includes('..')
 
-function safeFact(value, fixture, depth = 0) {
+function safeFact(value, fixture, depth = 0, boundedCounts = false) {
   if (depth > 8) return false
-  if (value === null || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) return true
+  if (value === null) return !boundedCounts
+  if (typeof value === 'boolean') return true
+  if (typeof value === 'number') return boundedCounts ? Number.isInteger(value) && value >= 0 && value <= 500 : Number.isFinite(value)
   if (typeof value === 'string') return fixtureTokens(fixture).includes(value) || SAFE_FACT_STRINGS.has(value) || safeRelativeFactPath(value)
-  if (Array.isArray(value)) return value.length <= 500 && value.every((item) => safeFact(item, fixture, depth + 1))
+  if (Array.isArray(value)) return value.length <= 500 && value.every((item) => safeFact(item, fixture, depth + 1, boundedCounts))
   if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
     return Object.entries(value).length <= 500 && Object.entries(value).every(([key, item]) => {
       const safePath = key === 'path' && safeRelativeFactPath(item)
-      return /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(key) && (safePath || !/(?:account|token|secret|email|path|credential|password|cookie|auth)/i.test(key)) && (safePath || safeFact(item, fixture, depth + 1))
+      return /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(key) && (safePath || !/(?:account|token|secret|email|path|credential|password|cookie|auth)/i.test(key)) && (safePath || safeFact(item, fixture, depth + 1, boundedCounts))
     })
   }
   return false
@@ -162,6 +167,7 @@ export async function createFixture(root) {
       auxiliary: join(repo, '.codex/skills/measure-with-auxiliary'),
     },
     ruleSentinels: {},
+    skillEntries: [],
     mcp: [join(home, '.codex/config.toml'), join(repo, '.cursor/mcp.json')],
     mcpPeer: join(root, 'fixture-mcp.mjs'),
   }
@@ -214,13 +220,19 @@ export async function populateSkillRoots(fixture, roots) {
       const root = path.startsWith('~/') ? join(fixture.home, path.slice(2)) : join(fixture.repo, path)
       for (const name of names) {
         const destination = join(root, name)
-        const description = name === 'measure-no-description' ? null : `${scope.toUpperCase()}_${name}_SENTINEL`
+        const slug = path.replace(/^~\//, '').replace(/\./g, 'dot-').replace(/[^A-Za-z0-9_-]+/g, '-')
+        const description = name === 'measure-no-description' ? null : `${scope.toUpperCase()}_${slug}_${name}_SENTINEL`
         const body = skillBody(name, description, name === 'measure-oversized' ? 'x'.repeat(1_100_000) : undefined)
         await write(join(destination, 'SKILL.md'), body)
         if (name === 'measure-with-auxiliary') await write(join(destination, 'references', 'measure-reference.md'), 'AUXILIARY_FILE_SENTINEL\n')
         written.push({ path, scope, name, sentinel: description })
       }
     }
+  }
+  fixture.skillEntries ??= []
+  for (const entry of written) {
+    fixture.skillEntries = fixture.skillEntries.filter((old) => old.path !== entry.path || old.name !== entry.name)
+    fixture.skillEntries.push(entry)
   }
   return written
 }
@@ -513,6 +525,49 @@ export function discoveryIsolation() {
   return 'strict'
 }
 
+export function parseArgs(args) {
+  const usage = () => { throw new Error('usage: node script/measure/library.mjs --all OR --agent <id> [--ask [--env <NAME>]]') }
+  const options = { ask: false }
+  const seen = new Set()
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]
+    if (seen.has(arg)) usage()
+    seen.add(arg)
+    if (arg === '--all') options.all = true
+    else if (arg === '--ask') options.ask = true
+    else if (arg === '--agent' || arg === '--env') {
+      const value = args[++index]
+      if (!value || !/^[A-Za-z0-9_-]+$/.test(value) || value.startsWith('--')) usage()
+      options[arg === '--agent' ? 'agentId' : 'envName'] = value
+    } else usage()
+  }
+  if (Boolean(options.all) === Boolean(options.agentId) || options.all && options.ask || options.envName && !options.ask) usage()
+  return options
+}
+
+export function measurementIsolation(agent, options) {
+  return options.ask === true && !options.all && options.agentId === agent.id && KEYCHAIN_READ_ONLY_AGENTS.has(agent.id) ? KEYCHAIN_READ_ONLY : 'strict'
+}
+
+// This function is serialized into the probe driver, so admission happens at
+// each protocol send, including failed requests, rather than in model text.
+export function createPromptBudget() {
+  let count = 0
+  return () => {
+    if (count >= 3) throw new Error('prompt cap reached')
+    count += 1
+    return count
+  }
+}
+
+export function askEnvironment(agent, name, environment = process.env) {
+  if (!name) return { envOverrides: {}, allowedEnv: [] }
+  if (!agent.auth?.secrets?.some((secret) => secret.env === name)) throw new Error('environment name not declared for this agent')
+  const value = environment[name]
+  if (typeof value !== 'string' || !value) return { reason: 'key not provided', envOverrides: {}, allowedEnv: [] }
+  return { envOverrides: { [name]: value }, allowedEnv: [name] }
+}
+
 export function installDiscoveryState({ candidateCount, copies = [], chosen = null, unsafeCount = 0 }) {
   if (chosen) return 'chosen'
   if (copies.some((copy) => copy.standing === 'unreadable' || copy.unreadable)) return 'unreadable'
@@ -631,12 +686,13 @@ export function validateResult(result, fixture) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(result.measured)) throw new Error('measured must be a date')
   for (const key of ['interface', 'question']) if (!safeText(result[key], fixture)) throw new Error(`${key} is outside the fixture-derived allowlist`)
   if (!result.facts || typeof result.facts !== 'object' || Array.isArray(result.facts)) throw new Error('facts must be an object')
-  if (Object.keys(result.facts).some((key) => !FACT_KEYS.has(key)) || !safeFact(result.facts, fixture)) throw new Error('facts are outside the fixture-derived allowlist')
+  const modelFacts = ['ACP model prompt', 'app-server model prompt'].includes(result.interface)
+  if (Object.keys(result.facts).some((key) => !FACT_KEYS.has(key)) || !safeFact(result.facts, fixture, 0, modelFacts)) throw new Error('facts are outside the fixture-derived allowlist')
   if (result.status !== 'asked' && result.status !== 'could-not-ask') throw new Error('status must be asked or could-not-ask')
   if (result.isolation !== undefined && !['strict', KEYCHAIN_READ_ONLY].includes(result.isolation)) throw new Error('isolation is not allowlisted')
-  if (result.auth !== undefined && !['no sign-in used', 'owner subscription sign-in'].includes(result.auth)) throw new Error('auth is not allowlisted')
-  const strictDiscovery = result.isolation === 'strict' && result.auth === 'no sign-in used'
-  const keychainException = result.isolation === KEYCHAIN_READ_ONLY && result.auth === 'owner subscription sign-in'
+  if (result.auth !== undefined && !['no sign-in used', 'owner subscription sign-in', 'environment key'].includes(result.auth)) throw new Error('auth is not allowlisted')
+  const strictDiscovery = result.isolation === 'strict' && ['no sign-in used', 'environment key'].includes(result.auth)
+  const keychainException = result.isolation === KEYCHAIN_READ_ONLY && KEYCHAIN_READ_ONLY_AGENTS.has(result.agentId) && ['owner subscription sign-in', 'environment key', 'no sign-in used'].includes(result.auth)
   if ((result.isolation !== undefined || result.auth !== undefined) && !strictDiscovery && !keychainException) throw new Error('isolation and auth must describe one supported profile')
   const signedOutStatus = result.facts?.signedOutCatalogue?.status ?? result.facts?.signedOutCatalogue
   const observedSessionOutcome = ['no-session', 'session-created'].includes(result.facts?.signedOutCatalogue?.observation)
@@ -653,17 +709,30 @@ export function registerProbe(agentId, probe) {
   PROBES.set(agentId, probe)
 }
 
-export async function askAgent(agent, fixture) {
-  const exception = fixture.isolation.profile === KEYCHAIN_READ_ONLY
-  const base = { agent: agent.name, agentId: agent.id, version: agent.version ?? 'unknown', measured: new Date().toISOString().slice(0, 10), interface: 'not selected', question: 'Probe the agent through its own interface', rawAnswer: '', facts: unmeasuredFacts(), ...(exception ? { isolation: KEYCHAIN_READ_ONLY, auth: 'owner subscription sign-in' } : {}), fixtureRoot: fixture.root }
+const MODEL_RUNS = new WeakSet()
+
+export async function askAgent(agent, fixture, options = {}) {
+  const base = { agent: agent.name, agentId: agent.id, version: agent.version ?? 'unknown', measured: new Date().toISOString().slice(0, 10), interface: 'not selected', question: 'Probe the agent through its own interface', rawAnswer: '', facts: unmeasuredFacts(), ...(options.ask ? { isolation: fixture.isolation.profile ?? 'strict', auth: 'no sign-in used' } : {}), fixtureRoot: fixture.root }
+  const environment = options.ask ? askEnvironment(agent, options.envName) : null
+  if (environment?.reason) return { ...base, status: 'could-not-ask', reason: environment.reason }
   if (!fixture.isolation.preflightPassed || !agentHomeIsIsolated(agent, fixture)) return { ...base, status: 'could-not-ask', reason: 'cannot isolate' }
+  if ((fixture.isolation.profile ?? 'strict') !== measurementIsolation(agent, options)) return { ...base, status: 'could-not-ask', reason: 'cannot isolate' }
+  let modelOptions
+  if (options.ask) {
+    if (options.agentId !== agent.id || options.all) return { ...base, status: 'could-not-ask', reason: 'cannot isolate' }
+    if (MODEL_RUNS.has(fixture)) return { ...base, status: 'could-not-ask', reason: 'model session already used' }
+    MODEL_RUNS.add(fixture)
+    modelOptions = { ask: true, ...environment }
+    if (environment.allowedEnv.length) base.auth = 'environment key'
+  }
   const probe = PROBES.get(agent.id)
   if (!probe) return { ...base, status: 'could-not-ask', reason: 'no safe probe registered' }
   try {
-    const answer = await probe(agent, fixture)
+    const answer = await probe(agent, fixture, modelOptions)
+    if (options.ask && fixture.isolation.profile === KEYCHAIN_READ_ONLY && answer.prompted === true && base.auth !== 'environment key') base.auth = 'owner subscription sign-in'
     if (answer.status === 'could-not-ask') {
       const reason = typeof answer.reason === 'string' && safeText(answer.reason, fixture) ? answer.reason : 'probe failed safely'
-      const facts = answer.facts && Object.keys(answer.facts).every((key) => FACT_KEYS.has(key)) && safeFact(answer.facts, fixture) ? { ...unmeasuredFacts(), ...answer.facts } : base.facts
+      const facts = answer.facts && Object.keys(answer.facts).every((key) => FACT_KEYS.has(key)) && safeFact(answer.facts, fixture, 0, options.ask === true) ? { ...unmeasuredFacts(), ...answer.facts } : base.facts
       return { ...base, interface: safeText(answer.interface, fixture) ? answer.interface : base.interface, question: safeText(answer.question, fixture) ? answer.question : base.question, facts, status: 'could-not-ask', reason }
     }
     const normalizedRaw = redact(answer.rawAnswer ?? '', fixtureTokens(fixture), fixture.root)
@@ -671,7 +740,7 @@ export async function askAgent(agent, fixture) {
     const observedSignedOutOutcome = ['available', 'empty'].includes(signedOutStatus) || ['no-session', 'session-created'].includes(answer.facts?.signedOutCatalogue?.observation)
     if (!normalizedRaw && !observedSignedOutOutcome) return { ...base, status: 'could-not-ask', reason: 'answer failed the fixture-only privacy allowlist' }
     const facts = answer.facts ?? {}
-    if (!safeFact(facts, fixture) || Object.keys(facts).some((key) => !FACT_KEYS.has(key))) return { ...base, status: 'could-not-ask', reason: 'parsed facts failed the privacy allowlist' }
+    if (!safeFact(facts, fixture, 0, options.ask === true) || Object.keys(facts).some((key) => !FACT_KEYS.has(key))) return { ...base, status: 'could-not-ask', reason: 'parsed facts failed the privacy allowlist' }
     if (!safeText(answer.interface ?? base.interface, fixture)) return { ...base, status: 'could-not-ask', reason: 'probe interface failed the privacy allowlist' }
     if (!safeText(answer.question ?? base.question, fixture)) return { ...base, status: 'could-not-ask', reason: 'probe question failed the privacy allowlist' }
     const result = {
@@ -707,7 +776,7 @@ export async function writeResult(result, directory = RESULT_DIR_PATH, fixture) 
   return path
 }
 
-export async function findAgentInstall(agent, fixture) {
+export async function findAgentInstall(agent, fixture, options = {}) {
   const { candidatePaths, findInstalls, judgeInstalls } = await import('../../packages/server/dist/src/installs/locate.js')
   const spec = agent.id === 'codex'
     ? { commands: ['codex'], versionArgs: ['--version'] }
@@ -723,6 +792,7 @@ export async function findAgentInstall(agent, fixture) {
       if (!['ENOENT', 'ENOTDIR'].includes(error?.code)) unreadablePaths.push(path)
     }
   }
+  if (options.ask && !candidates.length && !unreadablePaths.length) return { chosen: null, copies: [], state: 'absent' }
   const realHome = realpathSync(homedir())
   const declared = agent.id === 'codex' ? '~/.codex' : agent.home?.path
   if (!declared) return { chosen: null, copies: [], state: 'unsafe' }
@@ -780,17 +850,49 @@ export async function findAgentInstall(agent, fixture) {
   return { chosen, copies, state: installDiscoveryState({ candidateCount: candidates.length, copies, chosen, unsafeCount: unsafeCopies.length }) }
 }
 
+async function measureModel(agent, fixture, options) {
+  const base = {
+    agent: agent.name, agentId: agent.id, version: agent.version, measured: new Date().toISOString().slice(0, 10),
+    interface: 'not launched', question: 'Is an installed build available?', rawAnswer: '', facts: unmeasuredFacts(),
+    status: 'could-not-ask', isolation: 'strict', auth: 'no sign-in used',
+  }
+  const environment = askEnvironment(agent, options.envName)
+  if (environment.reason) return { ...base, reason: environment.reason }
+  const readPaths = [...fixture.isolation.readPaths]
+  if (agent.acp?.bridge) {
+    const { candidatePaths } = await import('../../packages/server/dist/src/installs/locate.js')
+    const candidates = candidatePaths({ commands: [agent.acp.bridge.command] }, { home: homedir(), env: { PATH: process.env.PATH ?? '' } })
+    let bridgePath
+    for (const candidate of candidates) {
+      try {
+        const path = realpathSync(candidate)
+        const root = installReadRoot(path)
+        if (statSync(path).isFile() && root && installRootIsSafe(root, realpathSync(homedir()))) { bridgePath = path; readPaths.push(root); break }
+      } catch { /* absent or unsafe bridge candidates are not launched */ }
+    }
+    if (!bridgePath) return { ...base, reason: 'model launch unavailable' }
+    agent = { ...agent, acp: { ...agent.acp, bridge: { ...agent.acp.bridge, command: bridgePath } } }
+  }
+  const isolation = measurementIsolation(agent, options)
+  if (!await prepareSandbox(fixture, { isolation, readPaths })) return { ...base, reason: 'cannot isolate' }
+  await populateSkillRoots(fixture, agent.id === 'codex' ? { user: ['~/.codex/skills', '~/.agents/skills'], project: ['.codex/skills', '.agents/skills'] } : KNOWN_SKILL_ROOTS[agent.brand] ?? { user: [], project: [] })
+  return askAgent(agent, fixture, options)
+}
+
 export async function main(args = process.argv.slice(2)) {
-  if (!args.includes('--all')) throw new Error('usage: node script/measure/library.mjs --all')
+  const options = parseArgs(args)
   const probes = await import('./probes/index.mjs')
-  probes.installProbes({ run, registerProbe })
+  probes.installProbes({ run, registerProbe, createPromptBudget })
   const { KNOWN_AGENTS } = await import('../../packages/server/dist/src/installs/known-agents.js')
-  const agents = [{ id: 'codex', name: 'Codex' }, ...KNOWN_AGENTS]
+  const registry = [{ id: 'codex', name: 'Codex' }, ...KNOWN_AGENTS]
+  const agents = options.all ? registry : registry.filter((agent) => agent.id === options.agentId)
+  if (!agents.length) throw new Error('agent is not registered')
+  const environment = options.envName ? askEnvironment(agents[0], options.envName) : {}
   for (const agent of agents) {
     const root = await mkdtemp('/tmp/hd-measure-')
     try {
       const fixture = await createFixture(root)
-      const installResult = await findAgentInstall(agent, fixture)
+      const installResult = environment.reason ? { chosen: null, state: 'missing-key' } : await findAgentInstall(agent, fixture, options)
       const install = installResult.chosen
       const command = install?.path
       const discovered = command
@@ -799,7 +901,9 @@ export async function main(args = process.argv.slice(2)) {
       const discoveryMetadata = shouldAskAgent(agent)
         ? {}
         : { isolation: discoveryIsolation(agent), auth: 'no sign-in used' }
-      const result = command && discovered?.value && discovered.value === install.version && shouldAskAgent(agent)
+      const result = options.ask && command && discovered?.value && discovered.value === install.version
+        ? await measureModel({ ...agent, command, version: discovered.value }, fixture, options)
+        : command && discovered?.value && discovered.value === install.version && shouldAskAgent(agent)
         ? await askAgent({ ...agent, command, version: discovered.value }, fixture)
         : command && discovered?.value && discovered.value === install.version
           ? {
@@ -812,7 +916,8 @@ export async function main(args = process.argv.slice(2)) {
             interface: 'not launched', question: 'Is an installed build available?', rawAnswer: '', facts: unmeasuredFacts(),
             status: 'could-not-ask',
             ...discoveryMetadata,
-            reason: !fixture.isolation.available || installResult.state === 'unsafe' ? 'cannot isolate' : installResult.state === 'absent' ? 'binary not installed' : installResult.state === 'unreadable' ? 'installed candidate version unreadable' : installResult.state === 'below-floor' ? 'installed version below supported floor' : !discovered?.value ? 'could not capture an exact version' : 'installed version changed during discovery',
+            ...(options.ask ? { isolation: 'strict', auth: 'no sign-in used' } : {}),
+            reason: environment.reason ?? (options.ask && installResult.state === 'absent' ? 'binary not installed' : !fixture.isolation.available || installResult.state === 'unsafe' ? 'cannot isolate' : installResult.state === 'absent' ? 'binary not installed' : installResult.state === 'unreadable' ? 'installed candidate version unreadable' : installResult.state === 'below-floor' ? 'installed version below supported floor' : !discovered?.value ? 'could not capture an exact version' : 'installed version changed during discovery'),
           }
       await writeResult(result, RESULT_DIR_PATH, fixture)
       process.stdout.write(`${result.status}: ${agent.id} ${result.version}\n`)
@@ -823,4 +928,6 @@ export async function main(args = process.argv.slice(2)) {
   return 0
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) process.exitCode = await main()
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  try { process.exitCode = await main() } catch { process.stderr.write('measurement refused: invalid arguments or unavailable isolation\n'); process.exitCode = 1 }
+}

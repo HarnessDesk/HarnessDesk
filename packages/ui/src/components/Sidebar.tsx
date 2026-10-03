@@ -72,6 +72,7 @@ export const Sidebar = ({
   onOpenSettings,
   onOpenPlugins,
   onOpenAgents,
+  onOpenTeams,
   onOpenUsage,
   onBrowseFolders,
   onSignIn,
@@ -82,13 +83,14 @@ export const Sidebar = ({
   onOpenPlugins: () => void
   /** Opens the Agents window — the roster, never a Settings page. */
   onOpenAgents: () => void
+  onOpenTeams: () => void
   /** Opens the dashboard, scoped to one agent when the caller names it. */
   onOpenUsage: (runtime?: RuntimeId) => void
   onBrowseFolders: () => void
   /** Opens the sign-in screen, on one runtime when the caller knows which. */
   onSignIn: (runtime?: RuntimeId) => void
   onSearch: () => void
-  activeDestination?: 'agents' | 'dashboard' | 'plugins' | null
+  activeDestination?: 'teams' | 'agents' | 'dashboard' | 'plugins' | null
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -159,6 +161,13 @@ export const Sidebar = ({
             <WorktreeMenu onChoose={(kind) => setStarting(kind)} />
           </div>
           <SidebarMenu role="group" aria-label="Main sections">
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                icon={<TeamIcon size={14} />} label={<Text role="navigation">Teams</Text>} aria-label="Teams" title="Teams"
+                isActive={activeDestination === 'teams'} aria-current={activeDestination === 'teams' ? 'page' : undefined}
+                onClick={onOpenTeams}
+              />
+            </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton
                 icon={<BriefIcon size={14} />} label={<Text role="navigation">Agents</Text>} aria-label="Agents" title="Agents"

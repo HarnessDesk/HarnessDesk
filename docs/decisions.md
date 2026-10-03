@@ -7,6 +7,28 @@ the rule is the last line of its section.
 
 ---
 
+## Content names share one medium weight
+
+The owner's 2A decision on 2026-10-03 changes content person and agent names
+from 14px/600 to 14px/500. Chat senders and inline `MemberName` status names
+already read the `member` role; its weight now reads `--hd-member-weight`
+in the foundation rather than a fixed semibold class. Tile headers retain
+their 13px/500 row role, and list navigation retains 13px/400.
+
+The accompanying 3A decision keeps two default running sizes: 13px for chrome
+and 14px for reading. 12px remains for meta facts and existing compact
+controls; headings, readouts and documents keep their named larger roles.
+The written line pairs now match the Desk foundation's 20px lines for both
+13px and 14px; no size or line token changes.
+
+Roll back: set `--hd-member-weight` back to `600` in
+`packages/ui/src/design/foundation/tokens.css`.
+
+**The rule:** content names read the member role; its weight is decided once
+in the foundation.
+
+---
+
 ## An outside client uses its own door and an explicit surface
 
 The command line and outside tooling read a desk through a local unix socket.
@@ -85,6 +107,14 @@ lookup with only a tool and a path; commands, queries and environment values
 stay in the transcript. Its caller owns the displayed line and its 2.5-second
 hold. This model adds no screen or read method; those follow in the
 [approved Teams/Runs plan](https://github.com/HarnessDesk/HarnessDesk/pull/1272).
+
+The Teams page uses the same Overview facts. A Run settling does not settle
+its Goal's dependencies or follow-up cards; only quiet work with nothing
+remaining folds into Ready to wrap. Hide and read marks bind to the observed
+Team change in machine preferences, so a later lifecycle or attention change
+returns hidden work without deleting it. Usage refreshes do not count as a
+new revision. Known waits order the page; an absent state timestamp remains
+unknown rather than borrowing the Run's age.
 
 **The rule:** one plain-data contract derives the rows; no overview fact is
 invented to fill a missing observation.
