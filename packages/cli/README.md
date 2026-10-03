@@ -57,7 +57,8 @@ an actual host shutdown ends with `reason: "desk-closed"`.
 waiting, then waits for the full baseline with `synced()`. It reads
 `insight/goal` once for each displayed Team. By default it shows Teams with
 running or stalled runs; `--team` includes that Team even without an active
-run. No polling is involved.
+run, and its run strip is the Team's newest run whether or not it has ended.
+No polling is involved.
 
 Human status keeps the desk home, version and runtime health header. Each Team
 uses the shared overview: its run, state, round, role, review rounds used of

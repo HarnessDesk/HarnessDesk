@@ -42,7 +42,9 @@ callers to the protocol's client allowlist.
 
 Subscription topics are `runs`, `cards`, `teams`, `seats`, `reviews`,
 `waiting` and `notices`. The same Team, run or project scope applies to
-`seats` and `reviews`; a run scope selects its Team's seats.
+`seats` and `reviews`; a run scope selects its Team's seats. The `runs`
+baseline holds the active runs in scope; a Team scope also holds that Team's
+newest run after it has ended, and a run scope holds the named run.
 
 `events()` is the stable version-1 vocabulary: `hello`, `run.changed`,
 `card.changed`, `team.changed`, `seat.changed`, `review.changed`, `waiting`,

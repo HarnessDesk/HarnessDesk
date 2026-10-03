@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import {
   CLIENT_METHODS, CLIENT_PROTOCOL, CLIENT_TIERS_GRANTED_BY_DEFAULT, parseClientEnvelope, parseClientMessage,
   wireCodeOf, wireDataOf, wireError,
-  type ClientMethodName, type ClientTier, type ClientTopic, type GoalView, type HostParams,
+  type ClientMethodName, type ClientTier, type ClientTopic, type FlowExecutionSummary, type GoalView, type HostParams,
   type HostToClient, type WireNotification,
 } from '@harnessdesk/protocol'
 import { WebSocketServer, type WebSocket } from 'ws'
@@ -97,6 +97,12 @@ const viewsInScope = async (host: Host, scope: Subscription['scope']): Promise<r
     (scope?.team === undefined || view.goal.id === scope.team) &&
     (runGoal === null || view.goal.id === runGoal) &&
     (scope?.project === undefined || sameCanonicalPath(view.goal.root, scope.project)))
+}
+
+/** Every active Run and the newest one, whatever its state: a Team's starting state, read before its broadcasts. */
+const activeAndNewest = (runs: readonly FlowExecutionSummary[]): FlowExecutionSummary[] => {
+  const newest = runs.reduce<FlowExecutionSummary | null>((found, run) => found === null || run.startedAt > found.startedAt ? run : found, null)
+  return runs.filter(run => run === newest || run.state === 'running' || run.state === 'stalled')
 }
 
 const approvalKey = (notification: WireNotification): string | null => {
@@ -271,7 +277,11 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
             const selectedTopics = topics(next)
             const viewsReadAt = collecting.snapshots.length
             const views = await viewsInScope(options.host, next.scope)
-            const runs = await options.host.call('flow/executions', { active: next.scope?.run ? false : true })
+            // A Team's newest Run stays part of that Team's state after it ends, as the window shows it,
+            // so a Team scope also starts from that Run; otherwise only active Runs (or the named one) are read.
+            const runs = next.scope?.run ? await options.host.call('flow/executions', { active: false })
+              : next.scope?.team ? activeAndNewest(await options.host.call('flow/executions', { team: next.scope.team, active: false }))
+              : await options.host.call('flow/executions', { active: true })
             const baseline = new Map<string, WireNotification>()
             const readAt = new Map<string, number>()
             const remember = (notification: WireNotification, sampledAt = viewsReadAt) => {

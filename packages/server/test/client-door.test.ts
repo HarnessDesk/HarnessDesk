@@ -188,6 +188,36 @@ test('topic baselines, replacement, scope, filtered broadcasts and request audit
   assert.ok(entries.some(e => e.kind === 'client/call' && e.outcome === 'ok'))
 })
 
+test("a Team scope's baseline carries the Team's newest Run after it ends; an unscoped baseline carries only active Runs", async t => {
+  const { home, h, door } = await rig(t)
+  await h.host.call('workspace/open', { path: home })
+  const preview = await h.host.call('flow/preview', { root: home, source })
+  const run = await h.host.call('flow/start-goal', { root: home, source, sentence: 'Demo', token: preview.token! })
+  const view = await h.host.call('goal/read', { goal: run.goal })
+  let detach = () => {}
+  const settled = new Promise<void>(resolve => {
+    detach = h.host.addBroadcaster(message => {
+      if (message.method === 'flow/execution-changed' && message.params.execution.id === run.id && message.params.execution.state === 'settled') resolve()
+    })
+  })
+  t.after(() => detach())
+  await h.host.call('team/intent', { room: view.board.id, id: view.board.intents[0]!.id, action: 'done', outcome: 'done' })
+  await settled
+  const peer = await Peer.open(door.socketPath)
+  t.after(() => peer.socket.close())
+  await peer.hello()
+  const unscoped = await peer.call('client/subscribe', { topics: ['runs'] })
+  assert.deepEqual(unscoped.result, { baseline: 0 })
+  const before = peer.messages.length
+  const scoped = await peer.call('client/subscribe', { topics: ['runs'], scope: { team: run.goal } })
+  assert.deepEqual(scoped.result, { baseline: 1 })
+  await peer.until(() => peer.messages.slice(before).some(m => m.method === 'flow/execution-changed'))
+  const baseline = peer.messages.slice(peer.messages.indexOf(scoped) + 1).filter(m => 'method' in m)
+  assert.equal(baseline.length, scoped.result.baseline)
+  assert.equal(baseline[0].params.execution.id, run.id)
+  assert.equal(baseline[0].params.execution.state, 'settled')
+})
+
 test('unscoped notices include a loose session', async t => {
   const { home, h, door } = await rig(t)
   const session = await h.host.call('session/create', { runtime: h.runtime.info.id, options: { cwd: home } })
