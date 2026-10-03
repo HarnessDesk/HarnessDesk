@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { CLIENT_METHODS, type FlowExecution, type FlowPreview, type GoalView } from '@harnessdesk/protocol'
+import { itemId, sessionId, CLIENT_METHODS, type FlowExecution, type FlowPreview, type GoalView } from '@harnessdesk/protocol'
 const { openClientDoor } = await import(new URL('../../../server/dist/src/client-door.js', import.meta.url).href) as typeof import('../../server/src/client-door.js')
 const { silent, start, stop } = await import(new URL('../../../server/dist/test/fixtures/harness.js', import.meta.url).href) as typeof import('../../server/test/fixtures/harness.js')
 const { makeRepo } = await import(new URL('../../../server/dist/test/fixtures/evidence-desk.js', import.meta.url).href) as typeof import('../../server/test/fixtures/evidence-desk.js')
@@ -372,4 +372,73 @@ test('built watch streams real synthetic Seat activity and review publication wi
     t.diagnostic(`CLI proof artifacts: ${proof}`)
   }
   t.diagnostic(`Real desk proof: ${JSON.stringify({ seat, review, calls: before, producedInvalidations, invalidations, reviewReads, quietMs: 2700 })}`)
+})
+
+test('status uses the shared overview on an isolated desk with a working tool and no polling', { timeout: 60_000 }, async t => {
+  const d = await flowRig.desk(t)
+  const turns = new Map<string, import('@harnessdesk/protocol').TurnId>()
+  for (const runtime of d.runtimes) t.after(runtime.subscribe(event => {
+    if (event.type === 'turn/started') turns.set(`${runtime.info.id}:${event.sessionId}`, event.turn.id)
+  }))
+  const run = await flowRig.start(d, await flowRig.shipped(d, 'independent-review'), flowRig.TASK)
+  const cards = await flowRig.claimed(d, run.goal, 'build', 1)
+  const view = await d.host.call('goal/read', { goal: run.goal }) as GoalView
+  const seat = view.members.find(one => one.session.runtime === cards[0]!.claim!.runtime && one.session.sessionId === cards[0]!.claim!.sessionId)!
+  assert.ok(seat)
+  const turnId = turns.get(`${seat.session.runtime}:${seat.session.sessionId}`)!
+  assert.ok(turnId)
+  d.runtimes.find(one => one.info.id === seat.session.runtime)!.emit({
+    type: 'item/started', sessionId: sessionId(seat.session.sessionId), turnId,
+    item: { id: itemId('status-read'), type: 'toolCall', tool: 'Read', args: { path: 'src/demo.ts' }, status: 'inProgress', source: { kind: 'builtin' } },
+  })
+  const idle = await d.host.call('goal/create', { root: d.root, sentence: 'An idle Team' }) as GoalView
+  const directory = await mkdtemp('/tmp/hd-door-')
+  const door = await openClientDoor({ host: d.host, logger: silent, home: d.stateDir, directory, hostVersion: '9.9.9' })
+  assert.ok(door)
+  t.after(async () => { await door.close(); await rm(directory, { recursive: true, force: true }) })
+  const json = launch(t, directory, d.stateDir, ['status', '--json', '--trace-wire'])
+  assert.equal(await json.exit, 0, json.output().stderr)
+  const value = json.lines()[0]
+  assert.equal(value.hello.hostVersion, '9.9.9')
+  assert.equal(value.runs[0].id, run.id)
+  assert.equal(value.runs[0].team, run.goal)
+  assert.equal(value.runs[0].flow, run.document.flow.name)
+  assert.equal(value.runs[0].document, undefined, 'runs keep their summary shape')
+  assert.equal(value.overviews.length, 1, 'only Teams with active runs are shown by default')
+  assert.equal(value.overviews[0].team, run.goal)
+  const overview = value.overviews[0].overview
+  assert.equal(overview.run.run, run.id)
+  assert.equal(overview.run.state, 'running')
+  assert.equal(overview.run.role, 'build')
+  assert.equal(overview.run.round, 1)
+  assert.ok(overview.run.reviewRounds)
+  assert.ok(overview.run.total)
+  const row = overview.seats.find((one: any) => one.seat === seat.id)
+  assert.equal(row.state, 'working')
+  assert.equal(row.role, 'build')
+  assert.equal(row.card.id, cards[0]!.id)
+  assert.match(row.doing, /src\/demo\.ts/)
+  assert.equal(typeof row.since, 'number')
+  const sent = json.output().stderr.trim().split('\n').map(line => JSON.parse(line)).filter(e => e.direction === 'send')
+  assert.deepEqual(sent.map(e => e.message.method), ['client/hello', 'client/subscribe', 'insight/goal'])
+  assert.deepEqual(sent[1].message.params.topics, ['runs', 'cards', 'teams', 'seats', 'waiting'])
+  const human = launch(t, directory, d.stateDir, ['status'])
+  assert.equal(await human.exit, 0, human.output().stderr)
+  assert.match(human.output().stdout, /9\.9\.9/)
+  assert.ok(human.output().stdout.includes(run.id))
+  assert.match(human.output().stdout, /round 1.*build/)
+  assert.match(human.output().stdout, /reviews \d+ of \d+.*cost/)
+  assert.match(human.output().stdout, /src\/demo\.ts.*since (now|\d+[smhd] ago)/)
+  const scoped = launch(t, directory, d.stateDir, ['status', '--team', idle.goal.id, '--json'])
+  assert.equal(await scoped.exit, 0, scoped.output().stderr)
+  assert.deepEqual(scoped.lines()[0].runs, [])
+  assert.deepEqual(scoped.lines()[0].overviews, [{ team: idle.goal.id, overview: { run: null, needsYou: [], seats: [] } }])
+  const proof = process.env['HD_STATUS_PROOF_DIR']
+  if (proof) {
+    await mkdir(proof, { recursive: true })
+    await writeFile(join(proof, 'status.txt'), human.output().stdout)
+    await writeFile(join(proof, 'status.json'), json.output().stdout)
+    await writeFile(join(proof, 'status-wire.jsonl'), json.output().stderr)
+  }
+  t.diagnostic(`status proof: run strip + working Read seat; wire hello → subscribe → insight/goal; idle --team included`)
 })
