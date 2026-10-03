@@ -794,3 +794,19 @@ test('stop wire validation bounds the reason and ended runs remain unchanged', a
   assert.deepEqual(stopped.result.end, { kind: 'stopped', by: 'person' })
   assert.deepEqual((await peer.call('flow/execution/stop', { run: run.id, reason: 'Again' })).result, stopped.result)
 })
+
+test('answer grants are off by default and read the desk preference and environment on every hello', async t => {
+  const { h, door } = await rig(t)
+  const env = process.env['HARNESSDESK_CLIENTS_MAY_ANSWER']
+  delete process.env['HARNESSDESK_CLIENTS_MAY_ANSWER']
+  t.after(() => { if (env === undefined) delete process.env['HARNESSDESK_CLIENTS_MAY_ANSWER']; else process.env['HARNESSDESK_CLIENTS_MAY_ANSWER'] = env })
+  const peer = await Peer.open(door.socketPath)
+  t.after(() => peer.socket.close())
+  assert.deepEqual((await peer.hello()).result.tiers, ['read', 'run'])
+  await h.host.call('app/state/set', { patch: { clientsMayAnswer: true } })
+  assert.deepEqual((await peer.hello()).result.tiers, ['read', 'run', 'answer'])
+  await h.host.call('app/state/set', { patch: { clientsMayAnswer: 'true' } })
+  assert.deepEqual((await peer.hello()).result.tiers, ['read', 'run'])
+  process.env['HARNESSDESK_CLIENTS_MAY_ANSWER'] = '1'
+  assert.deepEqual((await peer.hello()).result.tiers, ['read', 'run', 'answer'])
+})

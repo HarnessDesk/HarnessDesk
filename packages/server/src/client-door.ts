@@ -5,7 +5,7 @@ import { createServer } from 'node:http'
 import { connect as connectSocket } from 'node:net'
 import { join } from 'node:path'
 import {
-  CLIENT_METHODS, CLIENT_PROTOCOL, CLIENT_TIERS_GRANTED_BY_DEFAULT, parseClientEnvelope, parseClientMessage,
+  CLIENT_METHODS, CLIENT_PROTOCOL, parseClientEnvelope, parseClientMessage,
   wireCodeOf, wireDataOf, wireError,
   type ClientMethodName, type ClientTier, type ClientTopic, type FlowExecutionSummary, type GoalView, type HostParams,
   type HostToClient, type WireNotification,
@@ -238,7 +238,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
           refuse(id, undefined, 'badRequest', String(error)); return
         }
         const { id, method } = envelope
-        const refused = clientRefusal(method, hello, CLIENT_TIERS_GRANTED_BY_DEFAULT)
+        const refused = clientRefusal(method, hello, options.host.clientTiers())
         if (refused) { refuse(id, method, refused, `Client request refused: ${refused}.`); return }
         let parsed
         try { parsed = parseClientMessage(value) }
@@ -260,7 +260,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
             hello = true
             greeted.add(ws)
             send({ id, ok: true, result: { protocolVersion: CLIENT_PROTOCOL, hostVersion: options.hostVersion,
-              desk: { home, pid: process.pid, startedAt }, tiers: CLIENT_TIERS_GRANTED_BY_DEFAULT,
+              desk: { home, pid: process.pid, startedAt }, tiers: options.host.clientTiers(),
               methods: Object.keys(CLIENT_METHODS), runtimes } })
             audit({ kind: 'client/connected', client: identity, statedPid, method, tier: 'read', outcome: 'ok' })
           } catch (error) {

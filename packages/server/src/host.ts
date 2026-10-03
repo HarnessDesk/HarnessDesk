@@ -1,5 +1,5 @@
 import { SeatActivities, deriveSeatActivity } from './seat-activity.js'
-import type { SeatActivity } from '@harnessdesk/protocol'
+import { CLIENT_TIERS_GRANTED_BY_DEFAULT, type ClientTier, type SeatActivity } from '@harnessdesk/protocol'
 import { createHash, randomBytes } from 'node:crypto'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -2686,6 +2686,14 @@ export class Host {
        approval of a session was still appending to `audit.ndjson` after
        `dispose()` had resolved. */
     await this.#audit.flush()
+  }
+
+  /** Answers are a live per-desk choice, never a connection's cached grant.
+   * Only the boolean true, or the explicit scripted-desk switch, enables it.
+   * Like run, a tier constrains verbs; socket ownership authenticates the user. */
+  clientTiers(): readonly ClientTier[] {
+    return this.#state.state.preferences['clientsMayAnswer'] === true || process.env['HARNESSDESK_CLIENTS_MAY_ANSWER'] === '1'
+      ? [...CLIENT_TIERS_GRANTED_BY_DEFAULT, 'answer'] : CLIENT_TIERS_GRANTED_BY_DEFAULT
   }
 
   recordClientAudit(entry: Omit<ClientAuditEntry, 'at' | 'via'>): void {
