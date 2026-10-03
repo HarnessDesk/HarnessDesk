@@ -139,7 +139,7 @@ it('an unreadable history says so without pretending the ledger is complete', as
 const STAMP = 'c'.repeat(64)
 const runView = (over: Record<string, unknown> = {}) => ({
   run: 'run-1', goal: 'g1', round: 4, finished: 3, total: 5, embargoed: false, open: 1, blocking: 1,
-  reason: null, stamp: STAMP, publication: 'posted', reviewersFinished: null, reviewersTotal: null,
+  reason: null, stamp: STAMP, publication: 'posted', rounds: [], reviewersFinished: null, reviewersTotal: null,
   pendingExceptions: [], repair: null, boundPr: null, unbound: null, undecidable: null, ...over,
 }) as never
 

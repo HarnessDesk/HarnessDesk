@@ -1174,6 +1174,7 @@ export class FindingsPlane {
       reason: snapshot.findings?.stopped?.reason ?? publication.reason,
       ceilingStop: snapshot.findings?.stopped?.ceiling ?? false,
       publication: publication.publication,
+      rounds: this.#publisher ? await this.#publisher.rounds(run) : [],
       reviewersFinished, reviewersTotal,
       pendingExceptions: [...pendingOf(series)],
       repair: last ? (snapshot.leads[String(last.n)] ?? null) : null,

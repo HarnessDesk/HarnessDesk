@@ -1162,7 +1162,9 @@ export class Host {
       },
       append: async (goal, record) => {
         const state = this.#goalState(goal)
-        return this.#evidence.appendReview(await projectOf(state.cwd ?? state.root), record)
+        const outcome = await this.#evidence.appendReview(await projectOf(state.cwd ?? state.root), record)
+        if (outcome.outcome === 'added') this.#push({ method: 'finding/changed', params: { goal, revision: Date.now() } })
+        return outcome
       },
       now: () => Date.now(),
     })
@@ -1278,6 +1280,7 @@ export class Host {
         for (const execution of runs) this.#push({ method: 'flow/execution-changed', params: { execution } })
         void this.#goals.refresh(goal, { install: false }).catch(() => {})
       },
+      publicationChanged: (goal) => this.#push({ method: 'finding/changed', params: { goal, revision: Date.now() } }),
       log: (message, details) => this.#logger.warn(message, details ?? {}),
       headOf: async (cwd) => {
         const revision = await revisionOf(cwd)

@@ -303,6 +303,8 @@ export interface FlowExecutionPort {
   /** Puts a Seat back on the model and effort it was opened on and says what it is running. */
   reseat(seat: SeatRecord): Promise<string>
   changed(goal: string, runs: readonly FlowExecution[]): void
+  /** A publication journal changed durably; reads and unsuccessful writes never announce it. */
+  publicationChanged?(goal: string): void
   log(message: string, details?: Readonly<Record<string, unknown>>): void
   /**
    * A checkout's live branch head and whether it holds uncommitted changes,
@@ -2208,6 +2210,7 @@ export class FlowExecutions {
     }
     this.#runs.set(next.id, next)
     this.#port.changed(next.goal, this.runs(next.goal))
+    if (next.publication !== previous?.publication) this.#port.publicationChanged?.(next.goal)
     return next
   }
 

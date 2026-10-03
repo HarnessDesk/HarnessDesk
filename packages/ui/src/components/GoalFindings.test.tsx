@@ -223,7 +223,7 @@ it('shows the run’s status and a Decide control once a stopped run is cached, 
   const flowExecutions = new Map([['run-1', { id: 'run-1', goal: 'g1', findings: {} } as never]])
   const findingRuns = new Map([['run-1', {
     run: 'run-1', goal: 'g1', round: 2, finished: 2, total: 3, embargoed: false, open: 1, blocking: 1,
-    reason: 'Round 2 ended with 1 open finding.', stamp: 'stamp-1', publication: 'posted',
+    reason: 'Round 2 ended with 1 open finding.', stamp: 'stamp-1', publication: 'posted', rounds: [],
     reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null,
     boundPr: null, unbound: 'No open pull request is bound to this Goal, so this round stays on the desk.', undecidable: null,
   } as never]])
@@ -245,7 +245,7 @@ it('a wrapped Goal’s run greys Decide this run and says why', async () => {
   const flowExecutions = new Map([['run-1', { id: 'run-1', goal: 'g1', findings: {} } as never]])
   const findingRuns = new Map([['run-1', {
     run: 'run-1', goal: 'g1', round: 2, finished: 2, total: 3, embargoed: false, open: 1, blocking: 1,
-    reason: 'Round 2 ended with 1 open finding.', stamp: 'stamp-1', publication: 'posted',
+    reason: 'Round 2 ended with 1 open finding.', stamp: 'stamp-1', publication: 'posted', rounds: [],
     reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null,
     boundPr: null, unbound: null, undecidable,
   } as never]])
@@ -267,7 +267,7 @@ it('a dropped run\'s refreshed view greys Decide this run with the drop\'s own r
   const flowExecutions = new Map([['run-1', { id: 'run-1', goal: 'g1', findings: {} } as never]])
   const findingRuns = new Map([['run-1', {
     run: 'run-1', goal: 'g1', round: 2, finished: 2, total: 3, embargoed: false, open: 1, blocking: 1,
-    reason: null, stamp: 'stamp-2', publication: 'local',
+    reason: null, stamp: 'stamp-2', publication: 'local', rounds: [],
     reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null,
     boundPr: null, unbound: null, undecidable, override: null,
   } as never]])
@@ -281,7 +281,7 @@ it('a dropped run\'s refreshed view greys Decide this run with the drop\'s own r
 
 const runView = (run: string, reason: string, undecidable: string | null = null) => ({
   run, goal: 'g1', round: 1, finished: 1, total: 1, embargoed: false, open: 1, blocking: 1,
-  reason, stamp: `stamp-${run}`, publication: 'local',
+  reason, stamp: `stamp-${run}`, publication: 'local', rounds: [],
   reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null,
   boundPr: null, unbound: null, undecidable, override: null,
 }) as never

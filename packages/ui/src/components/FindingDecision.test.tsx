@@ -14,7 +14,7 @@ afterEach(() => { act(() => root.unmount()); container.remove() })
 
 const view = (over: Partial<FindingRunView> = {}): FindingRunView => ({
   run: 'run-1', goal: 'g1', round: 2, finished: 1, total: 3, embargoed: false, open: 1, blocking: 1,
-  reason: 'Round 2 ended with 1 open finding.', ceilingStop: true, stamp: 'stamp-1', publication: 'posted',
+  reason: 'Round 2 ended with 1 open finding.', ceilingStop: true, stamp: 'stamp-1', publication: 'posted', rounds: [],
   reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null,
   boundPr: { repo: 'acme/widgets', pr: 7 }, unbound: null, undecidable: null,
   ...over,
