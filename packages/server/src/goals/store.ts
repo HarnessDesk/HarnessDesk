@@ -139,6 +139,7 @@ export const receiptOf = (value: unknown, goal: string, id: unknown): value is G
   if (value.runs !== undefined && (!Array.isArray(value.runs) || !value.runs.every(run => {
     if (!object(run) || typeof run.run !== 'string' || !run.run || typeof run.attended !== 'boolean') return false
     if (run.overrides === undefined) return true
+    if (!object(run.overrides)) return false
     try { parseClientMessage({ id: 1, method: 'flow/preview', params: { root: '', source: '', seats: run.overrides } }); return true } catch { return false }
   }))) return false
   if (!value.citations.every(citationOf)) return false

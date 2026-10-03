@@ -529,6 +529,7 @@ Four rules hold every row:
 | 5 | Waiting for a person: `run wait` ended on a person card or a question |
 | 6 | Incompatible: the desk speaks a protocol version this command line does not |
 | 7 | `run wait`: the run ended stopped or stalled |
+| 8 | `run wait`: the timeout passed first |
 | 130 / 143 | Interrupted by SIGINT / SIGTERM |
 
 ## Host changes this needs
@@ -706,7 +707,7 @@ touches the door, tiers or attribution gets a critical review.
 
    `synced()` and `snapshot()` supply the whole starting state to
    `teamOverviewOf`; text and JSON status use its output.
-2. **Starting a flow.**
+2. **Starting a flow — done.**
    - Host: `flow/preview` seats and attended; unattended runs.
    - Commands: `flow preview`, `flow start` (title, brief, inputs, seats,
      unattended), `run show`, `run wait`.

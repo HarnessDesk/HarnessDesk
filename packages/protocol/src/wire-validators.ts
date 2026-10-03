@@ -272,6 +272,13 @@ const goalShape = <T extends Record<string, unknown>>(
   }
 }
 
+/** Preserve every role key, including prototype names: the Flow compiler
+ * must report an unknown role rather than silently dropping its override. */
+const flowSeatOverrides: Validator<Record<string, FlowSeat[]>> = (value, path = '') => {
+  const seats = arrayOf(goalShape({ runtime: isFilled, model: optional(isString), effort: optional(isString), thinking: optional(isBoolean) }))
+  return Object.fromEntries(Object.entries(isObject(value, path)).map(([role, listed]) => [role, seats(listed, `${path}.${role}`)]))
+}
+
 /**
  * A session's options with the fields only the host may set refused
  * outright, before any handler runs. `knownCwd` is the folder the host's own
@@ -282,6 +289,7 @@ const goalShape = <T extends Record<string, unknown>>(
  * claim about what a conversation loads, so it is refused rather than
  * ignored. The handlers strip it as well, for a caller that is not the wire.
  */
+
 const withoutHostOnly = <T>(read: Validator<T>): Validator<T> => (value: unknown, path = '') => {
   const object = isObject(value, path)
   for (const key of ['attachments', 'knownCwd']) {
@@ -1202,7 +1210,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'flow/catalog': goalShape({ root: isString }),
   'flow/source': goalShape({ root: isString, id: isFilled, origin: optional(literalUnion('project', 'user', 'builtin')) }),
   'flow/preview': goalShape({
-    seats: optional(recordOf(arrayOf(goalShape({ runtime: isFilled, model: optional(isString), effort: optional(isString), thinking: optional(isBoolean) })))),
+    seats: optional(flowSeatOverrides),
     attended: optional(isBoolean),
     root: isString,
     source: atMost(256 * 1024),
@@ -1210,7 +1218,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     retry: optional(shape({ run: isFilled, card: goalInteger(1) })),
   }),
   'flow/start-goal': goalShape({
-    seats: optional(recordOf(arrayOf(goalShape({ runtime: isFilled, model: optional(isString), effort: optional(isString), thinking: optional(isBoolean) })))),
+    seats: optional(flowSeatOverrides),
     attended: optional(isBoolean),
     root: isString,
     source: atMost(256 * 1024),

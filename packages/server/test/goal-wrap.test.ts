@@ -388,6 +388,7 @@ test('a receipt freezes each run attendance and overrides, and validates them on
   const { receiptOf } = await import('../src/goals/store.js')
   assert.equal(receiptOf(receipt, source.goal.id, receipt.id), true)
   assert.equal(receiptOf({ ...receipt, runs: [{ ...runs[0], attended: 'false' }] }, source.goal.id, receipt.id), false)
+  assert.equal(receiptOf({ ...receipt, runs: [{ ...runs[0], overrides: null }] }, source.goal.id, receipt.id), false)
   runs[0]!.overrides.writer[0]!.runtime = 'gamma'
   assert.equal((receipt as unknown as { runs: typeof runs }).runs[0]!.overrides.writer[0]!.runtime, 'beta')
 })

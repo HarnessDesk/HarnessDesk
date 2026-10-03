@@ -1,10 +1,6 @@
-import { readFile } from 'node:fs/promises'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
-import { createInterface } from 'node:readline/promises'
 import { connect, WireCallError, type Client, type ClientEvent, type ClientTransport } from '@harnessdesk/client'
 import { teamOverviewOf } from '@harnessdesk/client/views'
-import { canonicalProject, findDesks, localTransport, resolveDesk, type DeskPointer } from '@harnessdesk/client/node'
+import { readTextFile, repositoryRoot, readConfirmation, canonicalProject, findDesks, localTransport, resolveDesk, type DeskPointer } from '@harnessdesk/client/node'
 import { parseSeat, seatSpec, doingSentence, type FlowPreview, type FlowSeat, type ClientTier, type ClientMethodName, type ClientTopic, type GoalView, type HostParams, type HostResult } from '@harnessdesk/protocol'
 
 interface Arguments {
@@ -294,8 +290,7 @@ export async function main(argv: readonly string[]): Promise<number> {
 async function projectOf(args: Arguments): Promise<string> {
   if (args.project) return canonicalProject(args.project)
   try {
-    const { stdout } = await promisify(execFile)('git', ['rev-parse', '--show-toplevel'], { cwd: process.cwd() })
-    return canonicalProject(stdout.trim())
+    return await repositoryRoot()
   } catch { return usage('Outside a repository, give --project PATH') }
 }
 
@@ -319,6 +314,7 @@ async function flows(args: Arguments): Promise<number> {
 }
 
 async function stdinText(): Promise<string> {
+  process.stdin.setEncoding('utf8')
   let text = ''
   for await (const chunk of process.stdin) text += chunk.toString()
   return text
@@ -329,24 +325,24 @@ async function flowRequest(args: Arguments, client: Client) {
   // Paths belong to the caller. The desk only receives text, or a catalogue
   // id it resolves under its own catalogue rules; it never opens this path.
   const source = target.includes('/') || /\.ya?ml$/i.test(target)
-    ? await readFile(target, 'utf8') : await client.call('flow/source', { root, id: target })
-  const vars: Record<string, string> = {}
+    ? await readTextFile(target) : await client.call('flow/source', { root, id: target })
+  const vars: Record<string, string> = Object.create(null)
   for (const entry of args.input ?? []) {
     const split = entry.indexOf('=')
     if (split <= 0) usage('--input needs name=value or name=@path')
     const name = entry.slice(0, split), value = entry.slice(split + 1)
     if (Object.hasOwn(vars, name)) usage(`Repeated input ${name}`)
-    vars[name] = value.startsWith('@') ? await readFile(value.slice(1), 'utf8') : value
+    vars[name] = value.startsWith('@') ? await readTextFile(value.slice(1)) : value
   }
   if (args.briefFile !== undefined) {
     if (Object.hasOwn(vars, 'brief')) usage('Choose --brief-file or --input brief, once')
-    vars['brief'] = args.briefFile === '-' ? await stdinText() : await readFile(args.briefFile, 'utf8')
+    vars['brief'] = args.briefFile === '-' ? await stdinText() : await readTextFile(args.briefFile)
   }
   if (args.title !== undefined) {
     if (Object.hasOwn(vars, 'title')) usage('Choose --title or --input title, once')
     vars['title'] = args.title
   }
-  const seats: Record<string, readonly FlowSeat[]> = {}
+  const seats: Record<string, readonly FlowSeat[]> = Object.create(null)
   for (const entry of args.seat ?? []) {
     const split = entry.indexOf('=')
     if (split <= 0) usage('--seat needs role=runtime[=model][/effort][+thinking]')
@@ -402,10 +398,8 @@ async function startFlow(args: Arguments): Promise<number> {
     printPreview(preview, args.json ? process.stderr : process.stdout)
     if (preview.problems.length || !preview.token) return 4
     if (!args.yes) {
-      if (!process.stdin.isTTY) usage('Without a terminal, flow start requires --yes')
-      const prompt = createInterface({ input: process.stdin, output: process.stderr })
-      try { if (!/^y(?:es)?$/i.test((await prompt.question('Start this Flow? [y/N] ')).trim())) return 4 }
-      finally { prompt.close() }
+      if (!process.stdin.isTTY || process.stdin.readableEnded) usage('Without terminal input, flow start requires --yes')
+      if (!/^y(?:es)?$/i.test((await readConfirmation('Start this Flow? [y/N] ')).trim())) return 4
     }
     const run = await client.call('flow/start-goal', { ...request, token: preview.token, sentence: args.title ?? preview.compiled.document.flow.name })
     output(args, { run: run.id, team: run.goal }, () => line([run.id, run.goal]))

@@ -15,8 +15,8 @@ const { makeRepo } = await import(new URL('../../../server/dist/test/fixtures/ev
 const flowRig = await import(new URL('../../../server/dist/test/fixtures/flow-host-evidence.js', import.meta.url).href) as typeof import('../../server/test/fixtures/flow-host-evidence.js')
 
 const bin = fileURLToPath(new URL('../src/bin.js', import.meta.url))
-const launch = (t: TestContext, directory: string, home: string, args: readonly string[], cwd?: string, preload?: string, lifetimeMs = 15_000) => {
-  const child = spawn(process.execPath, [...(preload ? ['--import', preload] : []), bin, ...args], { cwd, env: { ...process.env, HARNESSDESK_CLIENT_DIR: directory, HARNESSDESK_HOME: home }, stdio: preload ? ['ignore', 'pipe', 'pipe', 'ipc'] : ['ignore', 'pipe', 'pipe'] })
+const launch = (t: TestContext, directory: string, home: string, args: readonly string[], cwd?: string, preload?: string, lifetimeMs = 15_000, pipeInput = false) => {
+  const child = spawn(process.execPath, [...(preload ? ['--import', preload] : []), bin, ...args], { cwd, env: { ...process.env, HARNESSDESK_CLIENT_DIR: directory, HARNESSDESK_HOME: home }, stdio: preload ? [pipeInput ? 'pipe' : 'ignore', 'pipe', 'pipe', 'ipc'] : [pipeInput ? 'pipe' : 'ignore', 'pipe', 'pipe'] })
   let stdout = '', stderr = ''
   const changed = new Set<() => void>()
   child.stdout!.on('data', chunk => { stdout += chunk.toString(); for (const wake of changed) wake() })
@@ -522,3 +522,132 @@ for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]] as const) {
     assert.equal(await child.exit, code, child.output().stderr)
   })
 }
+
+test('CLI preview → overridden cards → settled, and unattended question → stalled on an isolated fake desk', { timeout: 60_000 }, async t => {
+  const live = new Map<number, { fire: () => void; ms: number }>()
+  let next = 0
+  const d = await flowRig.desk(t, undefined, { questionTimers: {
+    setTimer: (fire, ms) => { live.set(++next, { fire, ms }); return next },
+    clearTimer: timer => { live.delete(timer as number) },
+  } })
+  const { HoldFake } = await import(new URL('../../../server/dist/test/fixtures/hold-runtime.js', import.meta.url).href) as typeof import('../../server/test/fixtures/hold-runtime.js')
+  const holding = new HoldFake('held'); d.host.register(holding); await holding.start()
+  const directory = await mkdtemp('/tmp/hd-door-')
+  const door = await openClientDoor({ host: d.host, logger: silent, home: d.stateDir, directory, hostVersion: '9.9.9' })
+  assert.ok(door)
+  t.after(async () => { await door.close(); await rm(directory, { recursive: true, force: true }) })
+  const path = join(directory, 'work.yaml'), brief = join(directory, 'brief.md')
+  const source = `version: 2
+name: CLI run proof
+inputs: { brief: { default: "" }, title: { default: "" } }
+roles:
+  writer: { kind: agent, uses: implementer }
+  gate: { kind: check, run: "true", exits: { "0": pass }, otherwise: fail }
+seed: { role: writer, title: "{{title}}" }
+rules:
+  - { id: check, on: writer, then: { role: gate, title: Check } }
+`
+  await writeFile(path, source); await writeFile(brief, 'Read the synthetic brief.\n')
+  const flags = ['--project', d.root, '--seat', 'writer=held', '--title', 'CLI proof', '--brief-file', brief]
+  const opened = launch(t, directory, d.stateDir, ['open', d.root]); assert.equal(await opened.exit, 0, opened.output().stderr)
+  const catalogue = launch(t, directory, d.stateDir, ['flows', '--project', d.root]); assert.equal(await catalogue.exit, 0, catalogue.output().stderr)
+  const count = holding.sessions.size
+  const preview = launch(t, directory, d.stateDir, ['flow', 'preview', path, ...flags])
+  assert.equal(await preview.exit, 0, preview.output().stderr)
+  assert.match(preview.output().stdout, /writer.*override.*held.*file:/)
+  assert.match(preview.output().stdout, /held/); assert.match(preview.output().stdout, /check.*gate.*true/)
+  assert.equal(holding.sessions.size, count, 'preview opens no session')
+  const unknownRole = launch(t, directory, d.stateDir, ['flow', 'preview', path, '--project', d.root, '--seat', '__proto__=held'])
+  assert.equal(await unknownRole.exit, 4, unknownRole.output().stderr)
+  assert.match(unknownRole.output().stdout, /There is no role/)
+  const start = launch(t, directory, d.stateDir, ['flow', 'start', path, ...flags, '--yes', '--json'])
+  assert.equal(await start.exit, 0, start.output().stderr)
+  assert.equal(start.lines().length, 1)
+  const run = start.lines()[0]; d.runs.push(run.run)
+  const [card] = await flowRig.claimed(d, run.team, 'writer', 1)
+  assert.equal(card!.claim!.runtime, 'held')
+  const shown = launch(t, directory, d.stateDir, ['run', 'show', run.run, '--json'])
+  assert.equal(await shown.exit, 0, shown.output().stderr)
+  assert.deepEqual(shown.lines()[0].overrides, { writer: [{ runtime: 'held' }] })
+  const waiting = launch(t, directory, d.stateDir, ['run', 'wait', run.run, '--json', '--trace-wire'])
+  // Let the handshake's baseline land before completing the real card.
+  const baselineDeadline = Date.now() + 8_000
+  while (!waiting.output().stderr.includes('flow/execution-changed')) {
+    assert.ok(Date.now() < baselineDeadline, waiting.output().stderr)
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  await flowRig.write(d, card!, 'CLI proof')
+  assert.equal(await waiting.exit, 0, waiting.output().stderr)
+  assert.equal(waiting.lines()[0].state, 'settled')
+  const calls = waiting.output().stderr.trim().split('\n').map(line => JSON.parse(line)).filter(one => one.direction === 'send')
+  assert.deepEqual(calls.map(one => one.message.method), ['client/hello', 'client/subscribe', 'flow/execution'])
+  const unattended = launch(t, directory, d.stateDir, ['flow', 'start', path, ...flags, '--unattended', '--yes', '--json'])
+  assert.equal(await unattended.exit, 0, unattended.output().stderr)
+  const second = unattended.lines()[0]; d.runs.push(second.run)
+  const [questionCard] = await flowRig.claimed(d, second.team, 'writer', 1)
+  const session = holding.sessions.get(questionCard!.claim!.sessionId)!
+  void session.askQuestion('cli-question' as never, 'Which base?', [{ id: 'main', label: 'main' }])
+  await flowRig.whenChanged(d, () => live.size === 1 ? true : null, 'the unattended deadline')
+  assert.equal([...live.values()][0]!.ms, 300_000)
+  const due = [...live.values()]; live.clear(); due.forEach(one => one.fire())
+  await flowRig.whenChanged(d, () => d.host.flowsPlane.executionOf(second.run)?.state === 'stalled' ? true : null, 'the question stall')
+  const stopped = launch(t, directory, d.stateDir, ['run', 'wait', second.run, '--json'])
+  assert.equal(await stopped.exit, 7, stopped.output().stderr)
+  assert.match(stopped.lines()[0].reason, /asked a question/)
+  const marker = join(directory, 'seat-marker.mjs')
+  await writeFile(marker, "process.env.HARNESSDESK_GOAL_ID = 'demo-team'\n")
+  const ownSeat = launch(t, directory, d.stateDir, ['flow', 'start', path, ...flags, '--yes', '--json'], undefined, marker)
+  assert.equal(await ownSeat.exit, 4, ownSeat.output().stderr)
+  assert.match(ownSeat.output().stderr, /refused:.*own Seats/)
+  const noConsent = launch(t, directory, d.stateDir, ['flow', 'start', path, ...flags])
+  assert.equal(await noConsent.exit, 2, noConsent.output().stderr)
+  const bound = await d.host.call('flow/preview', { root: d.root, source, seats: { writer: [{ runtime: 'held' }] } })
+  assert.ok(bound.token)
+  await assert.rejects(d.host.call('flow/start-goal', { root: d.root, source, seats: { writer: [{ runtime: 'fake' }] }, token: bound.token!, sentence: 'Mismatch' }), /changed/)
+  const proof = process.env['HD_FLOW_START_PROOF_DIR']
+  if (proof) {
+    await mkdir(proof, { recursive: true })
+    await writeFile(join(proof, 'preview.txt'), preview.output().stdout)
+    await writeFile(join(proof, 'show.json'), shown.output().stdout)
+    await writeFile(join(proof, 'wait-wire.jsonl'), waiting.output().stderr)
+    await writeFile(join(proof, 'outcomes.json'), JSON.stringify({ start: run, settled: waiting.lines()[0], unattended: stopped.lines()[0], noConsent: 2, mismatch: 'refused' }, null, 2) + '\n')
+  }
+  t.diagnostic('Built CLI: opened → catalogue → no-spend override preview → started → overridden card → settled (0); unattended question → stalled (7); no consent (2); mismatched token refused. Wait trace: hello, subscribe, execution only.')
+})
+
+
+test('stdin briefs preserve UTF-8 characters split across pipe reads', { timeout: 30_000 }, async t => {
+  const r = await rig(t)
+  const path = join(r.directory, 'stdin.yaml'), preload = join(r.directory, 'observe-stdin.mjs')
+  await writeFile(path, 'version: 2\nname: Stdin\ninputs: { brief: { default: "" } }\nroles:\n  ship: { kind: person, outcomes: [shipped] }\nseed: { role: ship, title: Ship }\n')
+  await writeFile(preload, `
+const original = process.stdin[Symbol.asyncIterator].bind(process.stdin)
+process.stdin[Symbol.asyncIterator] = async function* () {
+  process.send({ type: 'ready' })
+  for await (const chunk of original()) { yield chunk; process.send({ type: 'consumed' }) }
+}
+`)
+  const text = 'Brief:\n東京 — synthetic text.\n', bytes = Buffer.from(text)
+  const split = Buffer.byteLength('Brief:\n') + 1
+  const child = launch(t, r.directory, r.home, ['flow', 'start', path, '--brief-file', '-', '--yes', '--json'], r.repo.dir, preload, 15_000, true)
+  child.child.on('message', message => {
+    const type = (message as { type: string }).type
+    if (type === 'ready') child.child.stdin!.write(bytes.subarray(0, split))
+    if (type === 'consumed' && !child.child.stdin!.writableEnded) child.child.stdin!.end(bytes.subarray(split))
+  })
+  assert.equal(await child.exit, 0, child.output().stderr)
+  const run = await r.h.host.call('flow/execution', { run: child.lines()[0].run })
+  assert.equal(run.brief, text)
+})
+
+
+test('a terminal whose brief consumed stdin to EOF requires explicit consent', { timeout: 30_000 }, async t => {
+  const r = await rig(t)
+  const path = join(r.directory, 'eof.yaml'), preload = join(r.directory, 'terminal-stdin.mjs')
+  await writeFile(path, 'version: 2\nname: EOF\ninputs: { brief: { default: "" } }\nroles:\n  ship: { kind: person, outcomes: [shipped] }\nseed: { role: ship, title: Ship }\n')
+  await writeFile(preload, "Object.defineProperty(process.stdin, 'isTTY', { value: true })\n")
+  const child = launch(t, r.directory, r.home, ['flow', 'start', path, '--brief-file', '-', '--json'], r.repo.dir, preload, 15_000, true)
+  child.child.stdin!.end('Synthetic brief.\n')
+  assert.equal(await child.exit, 2, child.output().stderr)
+  assert.match(child.output().stderr, /requires --yes/)
+})

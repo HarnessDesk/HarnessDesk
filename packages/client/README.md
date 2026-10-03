@@ -1,6 +1,6 @@
 # @harnessdesk/client
 
-Read-only clients for a desk's outside-client door. The core imports only
+Outside clients for a desk's outside-client door. The core imports only
 `@harnessdesk/protocol`; filesystem discovery and `ws` live in the Node entry.
 
 ```ts
@@ -95,7 +95,7 @@ unbounded. During a subscription, drain both streams, discarding the vocabulary
 you do not use, and close the client when observation is finished.
 
 The Node entry exports `DeskPointer`, `findDesks({ env? })`,
-`resolveDesk({ home?, env? })`, `localTransport(desk)`, and
+`resolveDesk({ home?, env? })`, `localTransport(desk, { env? })`, and
 `canonicalProject(path)`. The project helper matches the host's identity:
 filesystem realpath when available, otherwise an absolute resolved path.
 Discovery only reads;
@@ -143,3 +143,21 @@ waiters; a fatal end rejects them with the same error the streams throw.
 and `reviews` (`{ run, rounds }[]`, with `FindingRoundPublication[]` per run).
 Mutating any returned value does not change the held state. A new baseline
 replaces it; board and activity changes update the held Team facts.
+
+
+The door grants `read` and `run` by default. `flow/catalog`, `flow/source`
+and `flow/preview` are reads; `workspace/open` and `flow/start-goal` need run.
+`answer` is not granted. A Flow start redeems a single-use preview token bound
+to source, inputs, per-role `seats` and `attended` (true by default). Execution
+records and receipts preserve attendance and overrides. An unattended start
+uses a trigger's unattended ceiling policy (asked ceilings are refused by
+default), question timeout and late-answer path.
+
+Socket ownership and modes authorize the local user; tiers restrict verbs,
+not other processes owned by that user. Node `localTransport` refuses spending
+when the environment carries `HARNESSDESK_GOAL_ID` or `HARNESSDESK_LANE_ID`, so
+one of the desk's own Seats uses its board tools. Removable environment markers
+are an accident guard, not authentication. Refusals preserve `WireCallError`
+codes through the core. Caller-side `readTextFile(path)`, `repositoryRoot(cwd?)`
+and `readConfirmation(question)` keep CLI filesystem and terminal dependencies
+in the Node entry; they never ask the desk to read caller file paths.

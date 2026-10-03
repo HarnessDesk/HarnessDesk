@@ -1475,8 +1475,7 @@ export class FlowExecutions {
   /**
    * Whether a conversation is a Seat of an unattended running run:
    * nobody is here for its questions, so they wait only as long as this
-   * machine says. A run a person started is theirs, and its Seat's question
-   * waits for their answer.
+   * machine says. An attended run's Seat waits for the person's answer.
    */
   unattended(runtime: string, sessionId: string): boolean {
     return [...this.#runs.values()].some((run) => run.state === 'running' && (run.attended === false || run.intake !== undefined) && run.operations.some((one) => {

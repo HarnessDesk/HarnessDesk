@@ -1,3 +1,6 @@
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { createInterface } from 'node:readline/promises'
 import { createHash } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import { connect as connectSocket } from 'node:net'
@@ -167,4 +170,16 @@ export async function localTransport(desk: DeskPointer, options: { env?: Environ
     },
     close: () => { ws.close() },
   }
+}
+
+/** Caller-side I/O; none of these paths are handed to the desk to open. */
+export const readTextFile = (path: string): Promise<string> => fs.readFile(path, 'utf8')
+export async function repositoryRoot(cwd = process.cwd()): Promise<string> {
+  const { stdout } = await promisify(execFile)('git', ['rev-parse', '--show-toplevel'], { cwd })
+  return canonicalProject(stdout.trim())
+}
+export async function readConfirmation(question: string): Promise<string> {
+  const prompt = createInterface({ input: process.stdin, output: process.stderr })
+  try { return await prompt.question(question) }
+  finally { prompt.close() }
 }

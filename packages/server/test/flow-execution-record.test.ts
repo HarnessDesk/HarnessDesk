@@ -247,7 +247,7 @@ test('attendance and overrides are frozen before dispatch and survive recovery',
   assert.equal(fields(await read(rig, run.id)).overrides.writer[0]!.runtime, 'beta')
   assert.equal(fields(await read(rig, run.id)).attended, false)
   const saved = rig.executions.stored(run.id)!
-  for (const extra of [{ attended: 'false' }, { overrides: { writer: [{ runtime: '' }] } }, { overrides: { person: [{ runtime: 'beta' }] } }, { overrides: { writer: [{ runtime: 'gamma' }] } }]) {
+  for (const extra of [{ attended: 'false' }, { overrides: null }, { overrides: { writer: [{ runtime: '' }] } }, { overrides: { person: [{ runtime: 'beta' }] } }, { overrides: { writer: [{ runtime: 'gamma' }] } }]) {
     assert.throws(() => executionOf({ ...saved, ...extra }), /flow run/)
   }
   const older = { ...saved } as unknown as Record<string, unknown>

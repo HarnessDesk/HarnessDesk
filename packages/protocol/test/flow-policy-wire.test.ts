@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { isPersonReviewStep, parseClientMessage, ValidationError, type FlowPolicy } from '../src/index.js'
+import { isPersonReviewStep, parseClientMessage, ValidationError, type FlowPolicy, type HostParams } from '../src/index.js'
 
 /*
  * The v2 flow wire refuses forged authority before any handler runs: a
@@ -120,4 +120,12 @@ test('preview and start accept seats and attendance, but validate each new field
       assert.throws(() => request(method, { ...params, ...extra }), ValidationError)
     }
   }
+})
+
+
+test('seat override validation preserves prototype-named roles for semantic refusal', () => {
+  const seats = JSON.parse('{"__proto__":[{"runtime":"fake"}]}')
+  const preview = parseClientMessage({ id: 1, method: 'flow/preview', params: { root: '/tmp/demo', source: 'synthetic', seats } })
+  assert.equal(preview.method, 'flow/preview')
+  assert.deepEqual(Object.keys((preview.params as HostParams<'flow/preview'>).seats!), ['__proto__'])
 })

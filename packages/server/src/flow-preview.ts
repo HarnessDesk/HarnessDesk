@@ -32,8 +32,8 @@ import { checkGuardNames, compileFlowPolicy, parseFlowPolicy, reviewsIn } from '
  * already makes, and the same absence of side effects is what lets a person
  * read this before pressing Start.
  *
- * The token authorizes exactly the frozen `(root, source, vars)` it was
- * minted for: `redeem` refuses a caller that supplies anything else, even a
+ * The token authorizes exactly the frozen root, source, inputs, seats and
+ * attendance it was minted for: `redeem` refuses a caller that supplies anything else, even a
  * token that is otherwise live. What only an open Goal or an open seat can
  * still prove — a brief's digest, a seat's actual runtime — remains
  * `FlowExecutions`'s own re-check at the moment it matters; this token

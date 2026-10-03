@@ -46,8 +46,8 @@ Twenty packages make up the repository:
 | --- | --- | --- |
 | `packages/protocol` | Domain vocabulary, wire methods, validators | Zero dependencies |
 | `packages/desktop` | Electron shell, Keychain broker, packaging | `server`, `claude-acp`, `cursor-acp` |
-| `packages/client` | Transport-independent read client; Node discovery in its `node` entry | `protocol`, and `ws`/Node in the Node entry |
-| `packages/cli` | Read-only command line over the client library | `client`, `protocol` |
+| `packages/client` | Transport-independent client calls and events; local I/O in its `node` entry | `protocol`, and `ws`/Node in the Node entry |
+| `packages/cli` | Command line reads and Flow starts over the client library | `client`, `protocol` |
 | `packages/ui` | Renderer: Zustand store, slot layout, panels | `protocol` (browser context only, no `node:*`) |
 | `packages/server` | Host process: sessions, git, approvals, wire | `protocol`, adapters, `cordis-host`, `plugins`, `extension-host`, `agent-inventory`, `responses-gateway`, `mcp-tools` |
 | `packages/adapter-codex` | Native Codex adapter for `codex app-server` | `protocol`, `codex` |

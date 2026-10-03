@@ -1,7 +1,7 @@
 # harnessdesk
 
-Read a running local desk through its outside-client door. These five commands
-use only the read tier:
+Read and start work on a running local desk through its outside-client door.
+These observation commands use the read tier:
 
 ```sh
 harnessdesk desks
@@ -46,7 +46,8 @@ either `--team` or `--project`. Watch accepts one of `--team`, `--run`, or
 or stalled. Scope flags are mutually exclusive.
 
 Exit codes are 0 for completion, 1 for an error, 2 for usage, 3 for no desk,
-4 for a refusal, and 6 for incompatible protocol or missing advertised methods.
+4 for a refusal, 5 for a person wait, 6 for incompatible protocol or missing
+advertised methods, 7 for a stopped or stalled run, and 8 for a run wait timeout.
 SIGINT exits 130 and SIGTERM exits 143, after the watch's final `end` line.
 If interrupted before hello succeeds, only that interrupted `end` appears;
 the CLI does not invent a handshake.
@@ -70,3 +71,82 @@ summaries), and adds `overviews: { team, overview }[]`. Each `overview` is the
 unchanged output of `teamOverviewOf` from `@harnessdesk/client/views`, with
 `run`, `needsYou` and `seats`. The Teams and runs follow the subscription scope;
 only displayed Teams receive an overview and usage read.
+
+## Starting a Flow
+
+```sh
+harnessdesk open . --json
+harnessdesk flows --project . --json
+harnessdesk flow preview write-review-fix --project . \
+  --title "Finish the change" --brief-file brief.md --seat writer=fake/high
+harnessdesk flow start ./flow.yaml --project . --brief-file - \
+  --seat writer=fake/high,fake-b/high --unattended --yes --json
+harnessdesk run show demo-run --json
+harnessdesk run wait demo-run --timeout 300 --json
+```
+
+`open <path>` uses the run tier to open the canonical project path. It prints
+that project; JSON is the unchanged `WorkspaceEntry` (`path`, `name`,
+`lastOpenedAt`, and optional repository facts). `flows [--project P]` reads
+the catalogue and prints each id, origin layer and problem; JSON is
+`{flows: FlowEntry[]}`. The project defaults to the repository containing the
+working directory. Outside a repository, give `--project`.
+
+`flow preview <flow>` and `flow start <flow>` share these flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--project P` | Canonical project; defaults to the repository containing cwd |
+| `--title TEXT` | Team sentence; also fills `title` if the Flow declares it |
+| `--brief-file PATH` or `--brief-file -` | Read `brief` locally from a file or stdin |
+| `--input name=value` or `--input name=@path` | Repeat for declared inputs; keep long text in files |
+| `--seat role=runtime[=model][/effort][+thinking]` | Repeat for different roles; comma-separated seats for a role with several cards |
+| `--unattended` | Apply the desk's unattended ceiling policy and question deadline |
+
+A Flow is a catalogue id or a `.yaml`/`.yml` file path. Paths containing `/`
+are also files. The CLI reads file paths itself and sends text; `flow/source`
+only resolves catalogue ids. Open the project before previewing. Undeclared
+inputs, including a `--brief-file` on a Flow without `brief`, exit 2 and list
+the declared inputs. Give each input and each overridden role once.
+
+Preview opens no session and spends nothing. Human output shows attendance,
+seats with overrides beside the file's seats, held or asked ceilings, check
+commands and every problem. JSON is the unchanged `FlowPreview`, including
+its single-use token and optional attendance/overrides. A preview with problems
+or no start token exits 4.
+
+Start previews first, then confirms on a terminal. A non-terminal needs
+`--yes`; without it, exit 2. If a stdin brief has consumed terminal input to
+EOF, start also needs `--yes`, since confirmation can no longer read an answer. `--yes` acknowledges the preview and authorizes
+spending. The unattended ceiling policy is the same as a trigger’s: by default,
+asked ceilings are refused; the existing Permissions setting still applies. Start JSON writes exactly `{run: string, team: string}` to stdout;
+the preview and any confirmation prompt go to stderr. Human output prints the
+preview and the new run and Team ids. The token freezes the source, inputs,
+seat overrides and attendance; changed or reused tokens are refused.
+
+The local door grants `read` and `run` by default. File permissions authorize
+this user's local processes; tiers restrict verbs, not processes owned by the
+same user. `answer` remains ungranted. The supported Node client refuses run
+calls when it carries `HARNESSDESK_GOAL_ID` or `HARNESSDESK_LANE_ID`: a desk
+Seat uses its board tools. Those removable markers prevent accidental spending
+and are not an authentication boundary.
+
+## Reading and waiting for a Run
+
+`run show <run>` reads one execution. Human output shows state, attendance,
+rounds with roles and card ids, stop reason and overrides; JSON is the unchanged
+`FlowExecution`.
+
+`run wait <run> [--timeout S]` makes one subscription scoped to that run,
+waits for its counted baseline, then uses events without polling. It drains
+both event queues. Already ended runs return immediately. The timeout counts
+from invocation, including discovery and handshake; finite non-negative
+seconds up to 2147483.647 are accepted. Omit it to wait without a deadline.
+
+Wait writes one result: human run id, state and reason, or JSON
+`{run: string, state: string | null, reason: string | null}`. A timeout or a
+signal before a baseline has state `null`. Outcomes are 0 for settled, 5 for
+an open person card or question, 7 for stopped/stalled, and 8 when the timeout
+passes first. SIGINT and SIGTERM return 130 and 143. An unattended question
+stall keeps the question available for a late answer through the window;
+a later `run wait` sees that stall and returns 7.

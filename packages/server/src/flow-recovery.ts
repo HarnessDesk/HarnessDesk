@@ -113,6 +113,7 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
   }
   if (raw['attended'] !== undefined && typeof raw['attended'] !== 'boolean') bad('has unreadable attendance')
   if (raw['overrides'] !== undefined) {
+    if (!object(raw['overrides'])) bad('has unreadable seat overrides')
     try { parseClientMessage({ id: 1, method: 'flow/preview', params: { root: '', source: '', seats: raw['overrides'] } }) } catch { bad('has unreadable seat overrides') }
   }
   if (!text(raw['source']) || !(raw['sourcePath'] === null || text(raw['sourcePath']))) bad('has no source')
