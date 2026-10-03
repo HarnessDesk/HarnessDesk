@@ -47,12 +47,13 @@ const COAUTHOR_TRAILER = 'Co-authored-by: HarnessDesk Agent <agent@harnessdesk.a
 const attributedMessage = async (cwd: string, message: string): Promise<string> => {
   const comments: string[] = []
   for (const key of ['core.commentChar', 'core.commentString']) {
-    const value = await git(cwd, ['config', '--get', key]).catch(() => '')
+    const value = await git(cwd, ['config', '--get', key], { env: readEnv() }).catch(() => '')
     if (value) comments.push('-c', `${key}=${value.replace(/\n$/, '')}`)
   }
   // Git owns placement and deduplication. Do not read repository trailer.*
   // configuration: it can run shell commands. Only the comment prefix is
-  // carried across, so Git recognizes this checkout's scissors cutoff.
+  // read with the person's configuration and carried across, so Git recognizes
+  // this checkout's scissors cutoff even with a global or system prefix.
   return gitWithInput(cwd, [
     '--git-dir=/dev/null', ...comments, 'interpret-trailers',
     '--where=end', '--if-exists=addIfDifferent', '--if-missing=add', '--trailer', COAUTHOR_TRAILER,
