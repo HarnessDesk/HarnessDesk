@@ -1476,6 +1476,14 @@ export class Team {
     const board = this.#mutableBoardById(room)
     const intent = board.intents.find((entry) => entry.id === id)
     if (!intent) throw new Error(`There is no intent #${id} on this board.`)
+    /* The same answer to a card already answered that way is a retry (a
+       person's pick answered once, a second press), not news: nothing is
+       signalled or handed to its flow twice. A new context package is not a
+       repeat, so that still goes through and replaces the handoff. */
+    if (
+      client === undefined && action === 'done' && intent.state === 'done' && intent.outcome === (outcome?.trim() || null) &&
+      (!context?.trim() || context.trim() === intent.handoff)
+    ) return
     const person = this.#flows?.personCard?.(board.id, intent) ?? null
     // Decide and mutate before the first await: every window and socket shares
     // this referee. A loser cannot replace the winner's context or signal.
@@ -1489,14 +1497,6 @@ export class Team {
     if (client !== undefined && action === 'done' && !person!.outcomes.includes(outcome?.trim() ?? '')) {
       throw Object.assign(new Error('This outcome is not an answer the person role declares.'), { wireCode: 'refused' })
     }
-    /* The same answer to a card already answered that way is a retry (a
-       person's pick answered once, a second press), not news: nothing is
-       signalled or handed to its flow twice. A new context package is not a
-       repeat, so that still goes through and replaces the handoff. */
-    if (
-      action === 'done' && intent.state === 'done' && intent.outcome === (outcome?.trim() || null) &&
-      (!context?.trim() || context.trim() === intent.handoff)
-    ) return
     const by: TeamActor = { kind: 'user' }
     if (action === 'block') {
       /* `blockedBy: 'hand'`, the same as an agent's `release(blocked)`: a

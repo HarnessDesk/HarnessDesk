@@ -5,7 +5,7 @@ import {
   type SeatActivity, type FindingRoundPublication, type Approval, type GoalView, type RuntimeId, type SessionId, type WireNotification, type WireRequest,
 } from '@harnessdesk/protocol'
 
-import type { ClientSnapshot } from './views/snapshot.js'
+import type { ClientSnapshot, ClientWaitingItem } from './views/snapshot.js'
 export type { ClientSnapshot } from './views/snapshot.js'
 
 /** Transport adapters exchange parsed wire envelopes; listeners return a detach function. */
@@ -20,7 +20,7 @@ export class WireCallError extends Error {
   constructor(readonly code: string, message: string, readonly details: string | null = null, readonly data?: unknown) { super(message) }
 }
 type EventBase = { readonly v: 1; readonly at: string }
-type WaitingItem = { readonly id: string; readonly team: string | null; readonly kind: 'card' | 'question' | 'approval'; readonly card?: number; readonly seat?: string; readonly summary: string }
+type WaitingItem = ClientWaitingItem
 /** Stable version-1 observation vocabulary. Unknown future event types may be ignored. */
 export type ClientEvent = EventBase & (
   | { readonly type: 'hello'; readonly desk: HostResult<'client/hello'>['desk']; readonly hostVersion: string; readonly protocolVersion: number; readonly tiers: readonly ClientTier[] }
@@ -111,7 +111,7 @@ class Observation {
     return structuredClone({
       teams: [...this.teams.values()].map(view => ({ ...view, board: this.boards.get(view.board.id) ?? view.board })),
       runs: [...this.runs.values()], boards: [...this.boards.values()], seats: [...this.seats.values()],
-      approvals: [...this.approvals.values()], reviews: [...this.reviews].map(([run, rounds]) => ({ run, rounds })),
+      waiting: [...this.waiting.values()], approvals: [...this.approvals.values()], reviews: [...this.reviews].map(([run, rounds]) => ({ run, rounds })),
     })
   }
   private changed(cache: Map<string, string>, id: string, value: unknown): boolean {
