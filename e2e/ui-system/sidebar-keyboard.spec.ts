@@ -27,16 +27,16 @@ test('the sidebar list is one keyboard stop with row navigation and row menus', 
   await page.keyboard.press('ArrowRight')
   await expect(child).toBeFocused()
 
-  const session = tree.locator('[data-region="session-row"] [data-slot="sidebar-menu-button"]').first()
-  const parent = await session.evaluate((item) => {
-    const rows = [...item.closest('[data-region="session-tree"]')!.querySelectorAll<HTMLElement>('[data-slot="sidebar-menu-button"]')]
-    const before = rows.slice(0, rows.indexOf(item as HTMLElement)).reverse()
-    return before.find((row) => row.getAttribute('aria-expanded') === 'true')?.textContent?.trim()
-  })
-  expect(parent).toBeTruthy()
+  // A loose conversation is a direct project child, outside any Team's list.
+  const session = tree.locator('[data-virtual-project] > [data-region="session-row"] [data-slot="sidebar-menu-button"]').first()
+  const project = session.locator('xpath=ancestor::*[@data-project-root]')
+  const parent = project.locator('[data-slot="sidebar-menu-button"][data-draggable][aria-expanded]')
+  await expect(parent).toHaveCount(1)
+  await expect(parent).toHaveAttribute('aria-expanded', 'true')
   await session.focus()
+  await expect(session).toBeFocused()
   await page.keyboard.press('ArrowLeft')
-  await expect(tree.locator('[data-slot="sidebar-menu-button"]').filter({ hasText: parent! }).first()).toBeFocused()
+  await expect(parent).toBeFocused()
 
   await session.focus()
   await page.keyboard.press('ContextMenu')
@@ -48,4 +48,28 @@ test('the sidebar list is one keyboard stop with row navigation and row menus', 
   await session.focus()
   await page.keyboard.press('Tab')
   await expect.poll(() => tree.evaluate((node) => node.contains(document.activeElement))).toBe(false)
+})
+
+test('ArrowLeft from a nested Seat focuses its owning Team', async ({ page }) => {
+  await page.goto('/preview.html')
+  const tree = page.locator('[data-region="session-tree"]')
+  const seat = tree.locator('[data-nested="true"] [data-region="session-row"] [data-slot="sidebar-menu-button"]').first()
+  await expect(seat).toBeVisible()
+
+  // The nested list belongs to the Team row; neither row order nor the
+  // project's expanded state identifies this Seat's parent.
+  const teamRow = seat.locator('xpath=ancestor::ul[@data-nested="true"]/..')
+  const opener = teamRow.locator(':scope > div > [data-slot="sidebar-menu-button"]')
+  await expect(opener).toHaveCount(1)
+  const name = await opener.getAttribute('aria-label')
+  expect(name).toMatch(/^Room /)
+  // ArrowLeft folds the Seat's list, so keep the parent's exact name rather
+  // than resolving it through a child that is about to be unmounted.
+  const parent = tree.getByRole('button', { name: name!, exact: true })
+  await expect(parent).toHaveCount(1)
+  await parent.focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(seat).toBeFocused()
+  await page.keyboard.press('ArrowLeft')
+  await expect(parent).toBeFocused()
 })
