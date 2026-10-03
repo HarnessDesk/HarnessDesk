@@ -32,6 +32,7 @@ export interface LoopDecision {
   readonly reason: string | null
   /** True only when `reason` is the round-ceiling stop — the only one a count past one round may answer at once. */
   readonly ceiling: boolean
+  readonly budget?: { readonly which: 'rounds' | 'without-progress'; readonly used: number }
 }
 
 /**
@@ -45,6 +46,7 @@ export function decideLoop(sample: LoopSample): LoopDecision {
   const idle = sample.newProgress ? 0 : sample.idle + 1
   let reason: string | null = null
   let ceiling = false
+  let budget: LoopDecision['budget']
   if (sample.unresolvedRepairs.some(count => count >= 2)) {
     reason = 'This is a design problem, not a patch problem.'
   } else if (sample.pendingException) {
@@ -57,10 +59,12 @@ export function decideLoop(sample: LoopSample): LoopDecision {
       ? `This run reached its limit of ${sample.limit} round${sample.limit === 1 ? '' : 's'}. ${forward}`
       : `Round ${sample.closed} ended with ${sample.unresolved} open findings. ${forward}`
     ceiling = true
+    budget = { which: 'rounds', used: sample.closed }
   } else if (idle >= sample.idleLimit) {
     reason = `${idle} rounds ended without new evidence.`
+    budget = { which: 'without-progress', used: idle }
   }
-  if (reason !== null) return { idle, next: 'person', reason, ceiling }
+  if (reason !== null) return { idle, next: 'person', reason, ceiling, ...(budget ? { budget } : {}) }
   if (sample.unresolved === 0 && sample.reviewComplete && sample.freshGuards) {
     return { idle, next: 'merge-card', reason: null, ceiling: false }
   }

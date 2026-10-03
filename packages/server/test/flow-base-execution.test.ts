@@ -7,7 +7,7 @@ import { dropFlowBase, fetchFlowBase } from '../src/flow-base.js'
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
 import type { TriggerStartRequest } from '../src/flow-execution.js'
-import { sourceDigest } from '../src/flow-execution.js'
+import { flowRevision, sourceDigest } from '../src/flow-execution.js'
 import { executionOf } from '../src/flow-recovery.js'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 
@@ -32,6 +32,7 @@ test('a saved remote-base run refuses a missing, malformed or mismatched pin', a
   const run = await rig.start(source, AGENTS)
   const compiled = rig.compile(FLOW, AGENTS)
   const stored = { ...rig.executions.stored(run.id)!, source: FLOW, compiled, document: compiled.document,
+    revision: flowRevision(compiled.document),
     authorization: { sourceDigest: sourceDigest(FLOW), commandDigest: sourceDigest(''), approvedAt: 1 } }
   for (const pin of [undefined, { remote: 'origin', at: 'HEAD' }, { remote: 'other', at: BASE }, { remote: 'origin', branch: 'main', at: BASE }]) {
     assert.throws(() => executionOf({ ...stored, base: pin }), /base/i)

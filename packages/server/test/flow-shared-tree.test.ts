@@ -254,6 +254,7 @@ test('with no findings plane attached, a plain round at the budget still says th
     round: 1,
     reason: 'This run reached its limit of 1 round. To let it continue, open Findings and choose Authorise another round.',
     ceiling: true,
+    budget: { which: 'rounds', used: 1 },
   })
   assert.equal(rig.board(run.goal).intents.filter((one) => one.role === 'analyst').length, 2, 'no debate round opened past the budget')
 })

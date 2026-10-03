@@ -1210,6 +1210,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     token: isFilled,
     sentence: isString,
     vars: optional(recordOf(isString)),
+    continues: optional((value: unknown, path = '') => value === null ? null : isFilled(value, path)),
     goal: optional(startGoal),
   }),
   'flow/execution': goalShape({ run: isFilled }),

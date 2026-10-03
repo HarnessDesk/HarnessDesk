@@ -1492,7 +1492,8 @@ export function closeRound(input: {
     progress: progress.progress,
     series,
     stopped: reason !== null && (unreadable !== null || decision.next === 'person')
-      ? { round: round.n, reason, ceiling: unreadable === null && decision.ceiling }
+      ? { round: round.n, reason, ceiling: unreadable === null && decision.ceiling,
+          ...(unreadable === null && decision.budget ? { budget: decision.budget } : {}) }
       : null,
   }
 }

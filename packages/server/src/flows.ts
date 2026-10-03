@@ -427,9 +427,9 @@ export class Flows implements TeamFlows {
    * back, never rolled back. The wrap barrier (`stopGoal`) is not a Stop: a
    * wrap waits for its findings' posting instead.
    */
-  async stopRun(id: string, why?: string): Promise<FlowExecution> {
+  async stopRun(id: string, why?: string, by: 'person' | 'desk' = 'person'): Promise<FlowExecution> {
     if (!this.#executions?.stored(id)) throw new Error(`There is no flow run ${id}.`)
-    const stopped = await this.#executions.stop(id, why)
+    const stopped = await this.#executions.stop(id, why, by)
     for (const listener of this.#runStopped) await listener(id)
     return stopped
   }

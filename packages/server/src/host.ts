@@ -1865,7 +1865,7 @@ export class Host {
         supersedeTriggered: (run, why, next) => this.#flows.supersedeTriggered(run, why, next),
         runs: (goal) => this.#flows.executionsFor(goal),
         execution: (run) => this.#flows.executionOf(run),
-        stopRun: async (run, why) => { await this.#flows.stopRun(run, why) },
+        stopRun: async (run, why) => { await this.#flows.stopRun(run, why, 'desk') },
         holdTriggered: (run, why) => this.#flows.holdTriggered(run, why),
         setAsideTriggered: (run, why) => this.#flows.setAsideTriggered(run, why),
         interruptChecks: (goal) => this.#flows.interruptChecks(goal),
