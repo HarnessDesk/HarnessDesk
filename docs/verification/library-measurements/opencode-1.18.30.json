@@ -2,9 +2,9 @@
   "agent": "OpenCode",
   "agentId": "opencode",
   "version": "1.18.30",
-  "measured": "2026-10-02",
-  "interface": "not selected",
-  "question": "no session while signed out",
+  "measured": "2026-10-03",
+  "interface": "ACP initialize and session request",
+  "question": "session created while signed out",
   "rawAnswer": "",
   "facts": {
     "rulesFiles": {
@@ -14,13 +14,13 @@
       "status": "could-not-ask"
     },
     "reportsCatalogue": false,
+    "reportsRejections": false,
     "precedence": {
       "status": "could-not-ask"
     },
     "rejections": {
       "status": "could-not-ask"
     },
-    "reportsRejections": false,
     "skillRoots": [],
     "refresh": {
       "status": "unknown",
@@ -33,9 +33,11 @@
     },
     "signedOutCatalogue": {
       "status": "unknown",
-      "observation": "unknown"
+      "observation": "session-created",
+      "initializeAnswered": true,
+      "sessionNewAnswered": true,
+      "signInMethodCount": 1
     }
   },
-  "status": "could-not-ask",
-  "reason": "ACP initialize unavailable"
+  "status": "asked"
 }

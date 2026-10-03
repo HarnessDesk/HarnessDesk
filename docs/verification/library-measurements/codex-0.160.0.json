@@ -1,8 +1,8 @@
 {
   "agent": "Codex",
   "agentId": "codex",
-  "version": "0.155.0",
-  "measured": "2026-10-02",
+  "version": "0.160.0",
+  "measured": "2026-10-03",
   "interface": "codex app-server skills/list",
   "question": "catalogue precedence rejections refresh mcp",
   "rawAnswer": "measure-sentinel",

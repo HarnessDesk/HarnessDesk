@@ -2,7 +2,7 @@
   "agent": "Claude",
   "agentId": "claude-code",
   "version": "2.1.285",
-  "measured": "2026-10-02",
+  "measured": "2026-10-03",
   "interface": "not launched",
   "question": "Is an installed build available?",
   "rawAnswer": "",
