@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 
 import {
-  DESK_POST_MARKER, type EvidenceRecord, type EvidenceView, type FindingAnchor, type FindingId, type FindingPost, type FindingView, type SeatRecord,
+  DESK_POST_MARKER, type EvidenceRecord, type EvidenceView, type FindingAnchor, type FindingId, type FindingPost, type FindingRoundPublication, type FindingView, type SeatRecord,
 } from '@harnessdesk/protocol'
 import { renderSignature } from '@harnessdesk/plugins'
 
@@ -1139,6 +1139,27 @@ export class Publications implements FindingPublisher {
     }
   }
 
+  /** Review rounds and their own release decisions; no aggregate state is assigned to a round. */
+  async rounds(run: string): Promise<readonly FindingRoundPublication[]> {
+    const snapshot = this.#port.run(run)
+    if (!snapshot) return []
+    const facts = await this.#port.facts(snapshot.goal)
+    const reviewed = new Set(facts.filter((one) => one.record.fact.kind === 'review' && one.record.card?.board === snapshot.goal)
+      .map((one) => one.record.card!.id))
+    // A snapshot read also works inside the run's own decision queue.
+    const stored = this.#port.snapshot(run)
+    const entries = Object.values(stored?.ops ?? {})
+    return snapshot.rounds.flatMap((one): FindingRoundPublication[] => {
+      const decision = stored?.rounds[String(one.n)]
+      if (!decision && !one.cards.some((card) => reviewed.has(card))) return []
+      const operations = entries.filter((entry) => entry.round === one.n)
+      const state = decision ? this.#publicationState(operations) : 'none'
+      return [{ round: one.n, state,
+        reason: operations.find((entry) => entry.state !== 'posted' && entry.reason !== null)?.reason ?? decision?.reason ?? null,
+        pr: decision?.pr ?? null, cards: one.cards }]
+    })
+  }
+
   /** Where a run's publications stand, for the person, and the first reason one needs them. */
   async status(run: string): Promise<{ readonly publication: 'local' | 'pending' | 'posted' | 'partial' | 'uncertain'; readonly reason: string | null }> {
     if (!this.#port.runs().some((one) => one.run === run)) return { publication: 'local', reason: this.#problems.get(run) ?? null }
@@ -1149,11 +1170,15 @@ export class Publications implements FindingPublisher {
     const entries = Object.values(stored?.ops ?? {})
     const problem = this.#problems.get(run) ?? entries.find((entry) => entry.reason !== null && entry.state !== 'posted')?.reason ??
       rounds.find((one) => one.mode === 'refused')?.reason ?? null
-    if (entries.length === 0) return { publication: 'local', reason: problem }
-    if (entries.some((entry) => entry.state === 'uncertain')) return { publication: 'uncertain', reason: problem }
-    if (entries.some((entry) => entry.state === 'started' || (entry.state === 'prepared' && entry.reason === null))) return { publication: 'pending', reason: problem }
-    if (entries.every((entry) => entry.state === 'posted')) return { publication: 'posted', reason: problem }
-    return { publication: 'partial', reason: problem }
+    return { publication: this.#publicationState(entries), reason: problem }
+  }
+
+  #publicationState(entries: readonly PublicationEntry[]): Exclude<FindingRoundPublication['state'], 'none'> {
+    if (entries.length === 0) return 'local'
+    if (entries.some((entry) => entry.state === 'uncertain')) return 'uncertain'
+    if (entries.some((entry) => entry.state === 'started' || (entry.state === 'prepared' && entry.reason === null))) return 'pending'
+    if (entries.every((entry) => entry.state === 'posted')) return 'posted'
+    return 'partial'
   }
 
   #failed(run: string, error: unknown): void {

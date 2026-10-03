@@ -770,3 +770,21 @@ test('a sighted round publishes nothing before it closes, then releases once', a
   assert.deepEqual(r.entries().map((entry) => entry.state), ['posted', 'posted', 'posted', 'posted'])
   assert.equal(forge.sends.length, 4, 'both findings and both reviews, once each')
 })
+
+
+test('the findings run view carries its review round before and after the publication decision', async (t) => {
+  const r = await publicationRig(t)
+  await review(r, { second: false })
+  const before = await r.f.plane.runView(r.f.run)
+  assert.deepEqual(before.rounds, [
+    { round: 1, state: 'local', reason: null, pr: 7, cards: [1] },
+    { round: r.round, state: 'none', reason: null, pr: null, cards: r.f.cards('reviewer').map((one) => one.id) },
+  ])
+  await r.f.finishReviews('request-changes')
+  await r.pub.idle()
+  const after = await r.f.plane.runView(r.f.run)
+  assert.deepEqual(after.rounds, [before.rounds[0],
+    { round: r.round, state: 'posted', reason: null, pr: 7, cards: before.rounds[1]!.cards },
+  ])
+  assert.equal(after.publication, 'posted')
+})

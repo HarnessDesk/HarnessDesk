@@ -39,6 +39,8 @@ export const topicsOf = (notification: WireNotification): readonly ClientTopic[]
     case 'team/changed': return ['cards']
     case 'goal/changed': case 'goal/activity': return ['teams']
     case 'person/notice': return ['notices']
+    case 'seat/activity': return ['seats']
+    case 'finding/changed': return ['reviews']
     case 'event': return notification.params.event.type === 'approval/requested' || notification.params.event.type === 'approval/resolved' ? ['waiting'] : []
     default: return []
   }
@@ -71,6 +73,7 @@ type Subscription = HostParams<'client/subscribe'>
 
 const snapshotKey = (notification: WireNotification): string | null => {
   switch (notification.method) {
+    case 'seat/activity': return `seat:${notification.params.goal}:${notification.params.seat}`
     case 'flow/execution-changed': return `run:${notification.params.execution.id}`
     case 'team/changed': return `board:${notification.params.state.id}`
     case 'goal/changed': return `goal:${notification.params.view.goal.id}`
@@ -110,7 +113,7 @@ const inScope = (notification: WireNotification, views: readonly GoalView[], sco
       (scope?.run === undefined || notification.params.execution.id === scope.run)
     case 'team/changed': return views.some(v => v.board.id === notification.params.state.id)
     case 'goal/changed': return views.some(v => v.goal.id === notification.params.view.goal.id)
-    case 'goal/activity': return views.some(v => v.goal.id === notification.params.goal)
+    case 'goal/activity': case 'seat/activity': case 'finding/changed': return views.some(v => v.goal.id === notification.params.goal)
     case 'event': {
       const event = notification.params.event
       const session = event.type === 'approval/requested' ? event.approval.sessionId : event.type === 'approval/resolved' ? event.sessionId : null
@@ -284,6 +287,13 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
             }
             if (selectedTopics.has('cards')) for (const view of views) remember({ method: 'team/changed', params: { state: view.board } })
             if (selectedTopics.has('teams')) for (const view of views) remember({ method: 'goal/changed', params: { view } })
+            if (selectedTopics.has('seats')) {
+              const sampledAt = collecting.snapshots.length
+              for (const activity of options.host.seatActivities()) {
+                const notification: WireNotification = { method: 'seat/activity', params: activity }
+                if (inScope(notification, views, next.scope)) remember(notification, sampledAt)
+              }
+            }
             // Queued state changes and changes during collection belong to this baseline.
             // Keep event notifications queued, and leave a refused proposal untouched.
             const consumed = new Set<WireNotification>()

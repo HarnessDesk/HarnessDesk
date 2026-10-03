@@ -1,6 +1,7 @@
+import { editedPathOf, toolCallVerb } from '@harnessdesk/protocol'
+
 import type { AgentItem } from '@harnessdesk/protocol'
 
-import { editOf } from './handoff'
 import { planOf } from './todos'
 
 /**
@@ -252,110 +253,7 @@ export const groupItems = (
   })
 }
 
-/**
- * A tool *named* like a shell.
- *
- * The weaker of the two tests and the fallback: ACP's tool name is a display
- * title the agent chose, so this matches almost nothing a real agent sends —
- * `shellCommandOf` reads the arguments and decides first. It lives here, next
- * to the classifier that needs it, because the alternative was `group-items`
- * and `turn-summary` importing each other.
- */
-export const SHELL_TOOLS = /^(bash|shell|run_terminal_cmd|execute_command|terminal|exec|command)\b/i
-
-/**
- * The shell command a tool call ran, or null when it did not run one.
- *
- * Read off the arguments rather than the tool's name: ACP's name is a display
- * title the agent chose, and Claude's bridge sets it to the command itself in
- * backticks, so matching a name against `bash|shell|…` recognises nothing an
- * agent actually sends.
- */
-export const shellCommandOf = (item: Extract<AgentItem, { type: 'toolCall' }>): string | null => {
-  const args =
-    typeof item.args === 'object' && item.args !== null && !Array.isArray(item.args)
-      ? (item.args as Record<string, unknown>)
-      : null
-  if (!args) return null
-  for (const key of ['command', 'cmd', 'script'] as const) {
-    const value = args[key]
-    if (typeof value === 'string' && value.trim() !== '') return value
-    // Codex-shaped shell tools send argv, not a line. Rejecting the array
-    // sent the call to the generic bucket while `summariseTurn`, which reads
-    // the same field, counted it as a command.
-    if (Array.isArray(value)) {
-      const line = value.filter((part): part is string => typeof part === 'string').join(' ').trim()
-      if (line !== '') return line
-    }
-  }
-  return null
-}
-
-/**
- * The file a tool call edited, or null when it edited none.
- *
- * `editOf` in `handoff.ts` has read this for every agent since long before
- * this function existed — six path spellings and eight edit keys — and
- * writing a second, narrower reader here made three of the four shipped
- * agents invisible to it: Cursor's `{path, streamContent}`, Claude's
- * MultiEdit `{file_path, edits}` and a notebook's `{notebook_path,
- * new_source}` all came back null and were counted as "called 1 tool" while
- * the summary row under them listed the file by name. One reader.
- */
-export const editedPathOf = (item: Extract<AgentItem, { type: 'toolCall' }>): string | null =>
-  editOf(item)?.path ?? null
-
-/** The argument names the adapters use for the one file a call touches. */
-export const PATH_KEYS = ['file_path', 'filePath', 'path', 'target_file', 'notebook_path', 'file']
-
-/**
- * What one of an agent's tool calls actually was. ACP flattens every step to
- * `toolCall` and Claude's bridge titles it with the raw call, so the type
- * alone reads as "55 tool calls" where Codex's own app says "Read files, ran
- * a command". The title and arguments still know: a `command` argument is a
- * shell step, an `old_string` or `content` beside a path is an edit, a
- * pattern or query is a search, a title opening with "Read" is a read.
- *
- * The single answer to that question. Three summaries of a turn used to ask it
- * separately — this one, the folded turn's receipt, and the receipt row under
- * it — and only this one knew about `rawInput`, so a Claude Code turn read
- * "called 47 tools" while its own body said "ran 44 commands, read 3 files".
- * `turn-view.ts` and `turn-summary.ts` come here now.
- */
-export type ToolCallVerb = 'command' | 'fileChange' | 'read' | 'search' | 'toolCall'
-
-export const toolCallVerb = (item: Extract<AgentItem, { type: 'toolCall' }>): ToolCallVerb => {
-  const args =
-    typeof item.args === 'object' && item.args !== null && !Array.isArray(item.args)
-      ? (item.args as Record<string, unknown>)
-      : null
-  const shell = shellCommandOf(item)
-  if (shell !== null) return 'command'
-  const title = item.tool.toLowerCase()
-  if (editedPathOf(item) !== null) return 'fileChange'
-  /* An agent that reports an edit by its kind rather than its contents sends
-     a title that says so and the file it touched — "Edit src/retry.ts" with
-     a `path` — and nothing to diff. That is still an edit, read the way a
-     title opening with "Read" is read. */
-  if (/^(edit|write|update|create)(?:[^a-z]|file|$)/.test(title) && args && PATH_KEYS.some((key) => typeof args[key] === 'string' && (args[key] as string).trim().length > 0)) {
-    return 'fileChange'
-  }
-  /* `\b` finds no boundary before `_`, so `read_file`, `grep_search` and
-     `glob_file_search` — the names MCP servers and Cursor actually use — all
-     fell through to the generic bucket. A verb ends at a separator or at the
-     end of the title, and `ReadFile` is the same verb as `Read`. */
-  if (/^(read|open)(?:[^a-z]|file|$)/.test(title)) return 'read'
-  if (
-    /^(grep|glob|search|find)(?:[^a-z]|$)/.test(title) ||
-    (args && (typeof args['pattern'] === 'string' || typeof args['query'] === 'string'))
-  ) {
-    return 'search'
-  }
-  // A tool named like a shell but carrying no readable command is still a
-  // command; `summariseTurn` has always counted it as one.
-  if (SHELL_TOOLS.test(item.tool)) return 'command'
-  return 'toolCall'
-}
+export { PATH_KEYS, SHELL_TOOLS, shellCommandOf, toolCallVerb, editedPathOf, type ToolCallVerb } from '@harnessdesk/protocol'
 
 /** A short summary of what a group did, for its collapsed header. */
 export const describeGroup = (items: readonly AgentItem[]): string => {

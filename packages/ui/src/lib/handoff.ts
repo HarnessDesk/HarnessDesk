@@ -1,3 +1,5 @@
+import { editOf } from '@harnessdesk/protocol'
+
 import type { AgentItem, FileChange, Session } from '@harnessdesk/protocol'
 
 import { HANDOFF_PREFIX, isHandoffSource, splitContext, wrapContext } from './context-envelope'
@@ -96,69 +98,7 @@ const textOf = (item: AgentItem): Exchange | null => {
 const clip = (text: string, limit: number): string =>
   text.length > limit ? `${text.slice(0, limit - 1).trimEnd()}…` : text
 
-const PATH_KEYS = ['file_path', 'filePath', 'path', 'target_file', 'notebook_path', 'file']
-const EDIT_KEYS = [
-  'content',
-  'new_string',
-  'new_str',
-  'edits',
-  'code_edit',
-  'diff',
-  'patch',
-  'new_source',
-  // Cursor's own name for the text it wrote, captured from the CLI's
-  // stream-json: without it every Cursor hand-off says nothing was touched.
-  'streamContent',
-]
-
-/**
- * An edit hiding in a tool call. Codex reports edits as fileChange items;
- * ACP agents report them as the tool they used — Write, Edit, MultiEdit —
- * with the path and the new text in the arguments. Both count.
- */
-export const editOf = (item: AgentItem): FileChange | null => {
-  if (item.type !== 'toolCall' || typeof item.args !== 'object' || item.args === null) return null
-  const args = item.args as Record<string, unknown>
-  const path = PATH_KEYS.map((key) => args[key]).find((value): value is string => typeof value === 'string')
-  if (!path || !EDIT_KEYS.some((key) => key in args)) return null
-  const fresh =
-    (typeof args['content'] === 'string' || typeof args['streamContent'] === 'string') &&
-    !('old_string' in args) &&
-    !('old_str' in args)
-  const body = [
-    args['content'],
-    args['new_string'],
-    args['new_str'],
-    args['code_edit'],
-    args['diff'],
-    args['patch'],
-    args['new_source'],
-    args['streamContent'],
-  ]
-    .find((value): value is string => typeof value === 'string') ?? ''
-  const removed = [args['old_string'], args['old_str']].find((value): value is string => typeof value === 'string') ?? ''
-  const replacement = (before: string, after: string): string =>
-    [...before.split('\n').filter(Boolean).map((line) => `-${line}`), ...after.split('\n').map((line) => `+${line}`)].join('\n')
-  const editPayloads = Array.isArray(args['edits'])
-    ? args['edits'].map((entry): string | null => {
-        if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) return null
-        const edit = entry as Record<string, unknown>
-        const before = [edit['old_string'], edit['old_str']].find((value): value is string => typeof value === 'string')
-        const after = [edit['new_string'], edit['new_str']].find((value): value is string => typeof value === 'string')
-        return before === undefined || after === undefined ? null : replacement(before, after)
-      })
-    : null
-  if (editPayloads && (editPayloads.length === 0 || editPayloads.some((entry) => entry === null))) return null
-  const edits = editPayloads?.filter((entry): entry is string => entry !== null) ?? []
-  const diff = fresh
-    ? body
-    : body.includes('\n@@') || body.startsWith('---')
-      ? body
-      : edits.length > 0
-        ? edits.join('\n')
-        : replacement(removed, body)
-  return { path, kind: { type: fresh ? 'add' : 'update' }, diff }
-}
+export { editOf } from '@harnessdesk/protocol'
 
 /** Files by path, the last change to each winning. */
 export const changedFiles = (items: readonly AgentItem[]): FileChange[] => {

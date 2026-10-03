@@ -22,7 +22,15 @@ Human output removes C0/C1 controls and terminal escape sequences from relayed
 text. `--json` emits one object for each command: `{desks}`, `{hello, teams,
 runs}`, `{teams}`, or `{runs}`. A watch emits the client's stable version-1
 events, one object per line, beginning with `hello` and ending with `end`.
-Observation uses subscription notifications, with no periodic reads. For a
+Watch subscribes to `runs`, `cards`, `teams`, `seats`, `reviews`, `waiting`
+and `notices`. Its events include `run.changed`, `card.changed`,
+`team.changed`, `seat.changed`, `review.changed`, `waiting`,
+`waiting.cleared`, `notice` and `gap`, within the `hello`/`end` boundaries.
+Both seat and review changes appear in human output and pass through unchanged
+in `--json`. Seat activity comes from the host; reviews read each round from
+`finding/run` after the baseline and on `finding/changed`, including new and
+finished runs in scope. Failed background reads emit `notice` with the
+desk's message. Observation has no periodic reads. For a
 run scope, the client also reads that execution when subscribing or reconnecting
 so already settled, stopped, or stalled runs are visible.
 

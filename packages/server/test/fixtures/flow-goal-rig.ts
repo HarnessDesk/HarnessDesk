@@ -196,7 +196,7 @@ export interface GoalRig {
 
 export const goalRig = async (
   t: { after(fn: () => Promise<void>): void },
-  options: { readonly releaseStallMs?: number; readonly fetchBase?: FlowExecutionPort['fetchBase']; readonly dropBase?: (root: string, run: string) => Promise<void> } = {},
+  options: { readonly releaseStallMs?: number; readonly publicationChanged?: (goal: string) => void; readonly fetchBase?: FlowExecutionPort['fetchBase']; readonly dropBase?: (root: string, run: string) => Promise<void> } = {},
 ): Promise<GoalRig> => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-flow-goal-'))
   const peers: TeamPeer[] = []
@@ -386,6 +386,7 @@ export const goalRig = async (
     laneOf: (seat) => rig.lanes.get(String(seat.id)) ?? null,
     reseat: async (seat) => { rig.onReseat?.(seat); return rig.comesBackAs ?? seat.seatLabel },
     changed: () => {},
+    publicationChanged: (goal: string) => options.publicationChanged?.(goal),
     log: (message) => rig.logs.push(message),
     headOf: async (cwd) => {
       if (rig.headOfFails.has(cwd)) throw new Error('simulated git failure')

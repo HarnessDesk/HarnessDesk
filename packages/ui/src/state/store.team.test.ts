@@ -314,3 +314,11 @@ it('stores side-by-side tiles on the room view and removes an empty grid', async
   const cleared = panes(store.getSnapshot().layout.root)[0]?.view
   expect(cleared?.kind === 'room' ? cleared.sideBySide : undefined).toBeUndefined()
 })
+
+it('ignores seat/activity without changing any window state', () => {
+  const before = store.getSnapshot()
+  ;(store.transport as unknown as { handlers: { onNotification(notification: unknown): void } }).handlers.onNotification({
+    method: 'seat/activity', params: { goal: 'room-1', seat: 'fake:s1', role: 'reviewer', card: 1, state: 'working', doing: { kind: 'thinking' }, since: 5 },
+  })
+  expect(store.getSnapshot()).toBe(before)
+})
