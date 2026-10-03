@@ -1,5 +1,12 @@
 import { expect, test } from '@playwright/test'
 
+// Chromium reports BlinkMacSystemFont as system-ui on macOS, but keeps the
+// declared alias on Linux. Normalise only that alias; face order stays exact.
+const fontFamilies = (family: string) => family.split(',').map((name) => {
+  const face = name.trim().replace(/["']/g, '')
+  return face === 'BlinkMacSystemFont' ? 'system-ui' : face
+})
+
 const stacks = {
   sc: ['PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC'],
   tc: ['PingFang TC', 'Microsoft JhengHei', 'Noto Sans CJK TC'],
@@ -35,13 +42,12 @@ for (const theme of ['light', 'dark'] as const) {
     for (const { lang, order } of languages) {
       await page.evaluate((lang) => document.documentElement.lang = lang, lang)
       const expected = [
-        // Chromium serializes the BlinkMacSystemFont alias as system-ui.
-        'Geist', '-apple-system', 'system-ui', 'Segoe UI',
+        'Geist', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI',
         ...order.flatMap((key) => stacks[key]),
         'Helvetica Neue', 'Helvetica', 'Arial', 'sans-serif',
       ]
       const family = await button.evaluate((el) => getComputedStyle(el).fontFamily)
-      expect(family.split(',').map((name) => name.trim().replace(/["']/g, '')), lang || 'unset').toEqual(expected)
+      expect(fontFamilies(family), lang || 'unset').toEqual(fontFamilies(expected.join(',')))
       expect(await button.evaluate((el) => {
         const cs = getComputedStyle(el)
         return [cs.fontSize, cs.fontWeight, cs.lineHeight]
@@ -53,7 +59,8 @@ for (const theme of ['light', 'dark'] as const) {
     await page.evaluate((value) => document.body.style.setProperty('--hd-font-family', value), oldFamily)
     for (const lang of ['zh-Hans', 'zh-Hant', 'ja', 'ko']) {
       await page.evaluate((lang) => document.documentElement.lang = lang, lang)
-      expect(await button.evaluate((el) => getComputedStyle(el).fontFamily)).toBe('Geist, -apple-system, "system-ui", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif')
+      const family = await button.evaluate((el) => getComputedStyle(el).fontFamily)
+      expect(fontFamilies(family), lang).toEqual(fontFamilies(oldFamily))
     }
   })
 }
