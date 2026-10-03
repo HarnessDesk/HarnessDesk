@@ -8,6 +8,7 @@
   "types": "./dist/src/index.d.ts",
   "exports": {
     ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" },
+    "./views": { "types": "./dist/src/views/index.d.ts", "default": "./dist/src/views/index.js" },
     "./node": { "types": "./dist/src/node.d.ts", "default": "./dist/src/node.js" }
   },
   "dependencies": { "@harnessdesk/protocol": "workspace:*", "ws": "^8.18.0" },

@@ -1,4 +1,5 @@
 import { connect, WireCallError, type Client, type ClientEvent, type ClientTransport } from '@harnessdesk/client'
+import { teamOverviewOf } from '@harnessdesk/client/views'
 import { canonicalProject, findDesks, localTransport, resolveDesk, type DeskPointer } from '@harnessdesk/client/node'
 import { doingSentence, type ClientMethodName, type ClientTopic, type GoalView, type HostParams, type HostResult } from '@harnessdesk/protocol'
 
@@ -23,7 +24,7 @@ interface Command {
 /** The executable dispatch table is also the client-surface coverage contract. */
 export const COMMANDS = [
   { name: 'desks', methods: ['client/hello'], flags: [], execute: desks },
-  { name: 'status', methods: ['client/hello', 'goal/list', 'flow/executions'], flags: [], execute: status },
+  { name: 'status', methods: ['client/hello', 'client/subscribe', 'insight/goal'], flags: ['team'], execute: status },
   { name: 'teams', methods: ['goal/list'], flags: ['project'], execute: teams },
   { name: 'runs', methods: ['flow/executions'], flags: ['team', 'project', 'all'], execute: runs },
   { name: 'watch', methods: ['client/subscribe', 'flow/execution', 'flow/executions', 'finding/run'], flags: ['team', 'run', 'project', 'until', 'raw'], execute: watch },
@@ -122,19 +123,48 @@ async function desks(args: Arguments): Promise<number> {
   return 0
 }
 
+function relativeSince(since: number | null): string {
+  if (since === null) return 'unknown'
+  const seconds = Math.max(0, Math.floor((Date.now() - since) / 1000))
+  if (seconds < 1) return 'now'
+  if (seconds < 60) return `${seconds}s ago`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
+  return `${Math.floor(seconds / 86400)}d ago`
+}
+
 async function status(args: Arguments): Promise<number> {
-  const client = await open(args)
+  const client = await open(args, undefined, { topics: ['runs', 'cards', 'teams', 'seats', 'waiting'], ...(args.team ? { scope: { team: args.team } } : {}) })
   try {
-    const teams = await client.call('goal/list', {})
-    const runs = await client.call('flow/executions', {})
-    output(args, { hello: client.hello, teams, runs }, () => {
+    await client.synced()
+    const snapshot = client.snapshot()
+    const teams = snapshot.teams
+    const runs = snapshot.runs.filter(run => run.state === 'running' || run.state === 'stalled').map(run => ({
+      id: run.id, team: run.goal, flow: run.document.flow.name, state: run.state,
+      round: run.rounds.at(-1)?.n ?? null, role: run.rounds.at(-1)?.role ?? null, reason: run.reason,
+      startedAt: run.startedAt ?? teams.find(team => team.goal.id === run.goal)?.goal.createdAt ?? 0,
+    })).sort((a, b) => b.startedAt - a.startedAt)
+    const shown = teams.filter(team => args.team ? team.goal.id === args.team : runs.some(run => run.team === team.goal.id))
+    const overviews = await Promise.all(shown.map(async team => ({
+      team: team.goal.id,
+      overview: teamOverviewOf(snapshot, team.goal.id, { report: await client.call('insight/goal', { goal: team.goal.id }), runtimes: client.hello.runtimes }),
+    })))
+    output(args, { hello: client.hello, teams, runs, overviews }, () => {
       line([client.hello.desk.home, client.hello.hostVersion])
       for (const runtime of client.hello.runtimes) {
         const health = runtime.health
         line([runtime.name, health.state, ...(health.state === 'unavailable' ? [health.reason, health.message, health.remediation] : [])])
       }
-      for (const team of teams) teamLine(team)
-      for (const run of runs) line([run.id, run.state, run.flow, run.reason])
+      for (const { team, overview } of overviews) {
+        teamLine(teams.find(one => one.goal.id === team)!)
+        const run = overview.run
+        if (run) line([run.run, run.state, `round ${run.round ?? 'unknown'}`, `role ${run.role ?? 'unknown'}`,
+          run.reviewRounds ? `reviews ${run.reviewRounds.used} of ${run.reviewRounds.of}` : 'reviews unknown',
+          `cost ${[run.total.money === null ? null : `$${run.total.money.toFixed(2)}`, run.total.turns === null ? null : `${run.total.turns} turns`].filter(value => value !== null).join(', ') || 'unknown'}`,
+        ])
+        for (const need of overview.needsYou) line(['needs-you', need.kind, need.seat, need.card === null ? null : `#${need.card}`, need.summary])
+        for (const seat of overview.seats) line([seat.name, seat.role, seat.card ? `#${seat.card.id} ${seat.card.title}` : null, seat.state, seat.doing, `since ${relativeSince(seat.since)}`])
+      }
     })
     return 0
   } finally { client.close() }

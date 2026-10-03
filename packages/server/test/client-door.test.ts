@@ -4,9 +4,10 @@ import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 import test from 'node:test'
 import WebSocket from 'ws'
-import { approvalId, type SeatActivity, type WireNotification } from '@harnessdesk/protocol'
+import { runtimeId, approvalId, type SeatActivity, type WireNotification } from '@harnessdesk/protocol'
 import * as doorModule from '../src/client-door.js'
 import { Client, silent, start, stop } from './fixtures/harness.js'
+import { FakeRuntime } from './fixtures/fake-runtime.js'
 
 const load = async () => doorModule
 
@@ -148,8 +149,10 @@ test('topic baselines, replacement, scope, filtered broadcasts and request audit
   const peer = await Peer.open(door.socketPath)
   t.after(() => peer.socket.close())
   await peer.hello()
-  await peer.call('client/subscribe', { topics: ['waiting', 'teams', 'notices'], scope: { team: run.goal } })
+  const acknowledged = await peer.call('client/subscribe', { topics: ['waiting', 'teams', 'notices'], scope: { team: run.goal } })
   await peer.until(() => peer.messages.some(m => m.method === 'goal/changed'))
+  assert.deepEqual(acknowledged.result, { baseline: 3 })
+  assert.equal(peer.messages.slice(peer.messages.indexOf(acknowledged) + 1).filter(m => 'method' in m).length, acknowledged.result.baseline)
   assert.ok(peer.messages.some(m => m.method === 'team/changed'))
   assert.ok(peer.messages.some(m => m.method === 'flow/execution-changed'))
   assert.ok(!peer.messages.some(m => m.method === 'sync'))
@@ -185,6 +188,36 @@ test('topic baselines, replacement, scope, filtered broadcasts and request audit
   assert.ok(entries.some(e => e.kind === 'client/call' && e.outcome === 'ok'))
 })
 
+test("a Team scope's baseline carries the Team's newest Run after it ends; an unscoped baseline carries only active Runs", async t => {
+  const { home, h, door } = await rig(t)
+  await h.host.call('workspace/open', { path: home })
+  const preview = await h.host.call('flow/preview', { root: home, source })
+  const run = await h.host.call('flow/start-goal', { root: home, source, sentence: 'Demo', token: preview.token! })
+  const view = await h.host.call('goal/read', { goal: run.goal })
+  let detach = () => {}
+  const settled = new Promise<void>(resolve => {
+    detach = h.host.addBroadcaster(message => {
+      if (message.method === 'flow/execution-changed' && message.params.execution.id === run.id && message.params.execution.state === 'settled') resolve()
+    })
+  })
+  t.after(() => detach())
+  await h.host.call('team/intent', { room: view.board.id, id: view.board.intents[0]!.id, action: 'done', outcome: 'done' })
+  await settled
+  const peer = await Peer.open(door.socketPath)
+  t.after(() => peer.socket.close())
+  await peer.hello()
+  const unscoped = await peer.call('client/subscribe', { topics: ['runs'] })
+  assert.deepEqual(unscoped.result, { baseline: 0 })
+  const before = peer.messages.length
+  const scoped = await peer.call('client/subscribe', { topics: ['runs'], scope: { team: run.goal } })
+  assert.deepEqual(scoped.result, { baseline: 1 })
+  await peer.until(() => peer.messages.slice(before).some(m => m.method === 'flow/execution-changed'))
+  const baseline = peer.messages.slice(peer.messages.indexOf(scoped) + 1).filter(m => 'method' in m)
+  assert.equal(baseline.length, scoped.result.baseline)
+  assert.equal(baseline[0].params.execution.id, run.id)
+  assert.equal(baseline[0].params.execution.state, 'settled')
+})
+
 test('unscoped notices include a loose session', async t => {
   const { home, h, door } = await rig(t)
   const session = await h.host.call('session/create', { runtime: h.runtime.info.id, options: { cwd: home } })
@@ -208,8 +241,10 @@ test('waiting replays and resolves member approvals, without loose-session appro
   await peer.hello()
   const live = h.runtime.sessions.get(session.sessionId)!
   const approval = live.askApproval(approvalId('member'))
-  await peer.call('client/subscribe', { topics: ['waiting'], scope: { team: goal.goal.id } })
+  const acknowledged = await peer.call('client/subscribe', { topics: ['waiting'], scope: { team: goal.goal.id } })
   await peer.until(() => peer.messages.some(m => m.method === 'event' && m.params.event.type === 'approval/requested'))
+  assert.deepEqual(acknowledged.result, { baseline: 2 })
+  assert.equal(peer.messages.slice(peer.messages.indexOf(acknowledged) + 1).filter(m => 'method' in m).length, acknowledged.result.baseline)
   const call = h.host.call.bind(h.host)
   Object.defineProperty(h.host, 'call', { value: async (method: string, params: unknown) => {
     const result = await call(method as never, params as never)
@@ -419,7 +454,9 @@ for (const phase of ['before run read', 'during run read'] as const) {
     broadcast({ method: 'goal/activity', params: { goal: run.goal, previous: 'working',
       activity: 'needs-you', sentence: 'Latest Team' } })
     release()
-    assert.equal((await subscribed).ok, true)
+    const acknowledged = await subscribed
+    assert.equal(acknowledged.ok, true)
+    assert.deepEqual(acknowledged.result, { baseline: 3 })
     await peer.call('goal/list', {})
     assert.deepEqual(peer.messages.filter(m => m.method === 'flow/execution-changed').map(m => m.params.execution.state), [current.state])
     assert.deepEqual(peer.messages.filter(m => m.method === 'team/changed').map(m => m.params.state.intents[0].title), ['Latest card'])
@@ -650,7 +687,9 @@ for (const phase of ['before seat read', 'during seat read'] as const) {
     await entered
     if (phase === 'before seat read') { r.change('waiting'); r.change('working') }
     release()
-    assert.equal((await subscribing).ok, true)
+    const acknowledged = await subscribing
+    assert.equal(acknowledged.ok, true)
+    assert.deepEqual(acknowledged.result, { baseline: 1 })
     await peer.call('goal/list', {})
     assert.deepEqual(peer.messages.filter(m => m.method === 'seat/activity').map(m => m.params.state), ['working'])
     r.change('idle')
@@ -688,3 +727,21 @@ for (const accepted of [true, false]) {
     assert.equal(peer.messages.filter(m => m.method === 'seat/activity').at(-1).params.state, 'idle')
   })
 }
+
+test('client hello reports metering and goal insight is admitted only to the read tier', async t => {
+  const { h, door, module } = await rig(t)
+  const metered = new FakeRuntime({ id: runtimeId('metered'), capabilities: { metered: true } })
+  h.host.register(metered)
+  const peer = await Peer.open(door.socketPath); t.after(() => peer.socket.close())
+  assert.equal((await peer.call('insight/goal', { goal: 'missing' })).error.code, 'helloFirst')
+  const hello = await peer.hello()
+  assert.equal(hello.result.runtimes.find((one: any) => one.id === h.runtime.info.id).metered, false)
+  assert.equal(hello.result.runtimes.find((one: any) => one.id === metered.info.id).metered, true)
+  assert.ok(hello.result.methods.includes('insight/goal'))
+  assert.equal(module.clientRefusal('insight/goal', true, []), 'tierNotGranted')
+  await h.host.call('workspace/open', { path: h.stateDir })
+  const goal = await h.host.call('goal/create', { root: h.stateDir, sentence: 'Measure the synthetic Team' }) as any
+  const insight = await peer.call('insight/goal', { goal: goal.goal.id })
+  assert.equal(insight.ok, true, JSON.stringify(insight))
+  assert.equal(insight.result.goal, goal.goal.id)
+})

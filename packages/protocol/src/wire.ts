@@ -694,12 +694,12 @@ export interface HostMethods {
       readonly desk: { readonly home: string; readonly pid: number; readonly startedAt: number }
       readonly tiers: readonly ClientTier[]
       readonly methods: readonly string[]
-      readonly runtimes: readonly { readonly id: RuntimeId; readonly name: string; readonly health: RuntimeHealth }[]
+      readonly runtimes: readonly { readonly id: RuntimeId; readonly name: string; readonly health: RuntimeHealth; readonly metered: boolean }[]
     }
   }
   'client/subscribe': {
     params: { readonly topics: readonly ClientTopic[]; readonly scope?: { readonly team?: GoalId; readonly run?: string; readonly project?: string } }
-    result: null
+    result: { readonly baseline: number }
   }
   'flow/executions': {
     params: { readonly team?: GoalId; readonly project?: string; readonly active?: boolean }

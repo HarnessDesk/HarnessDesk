@@ -21,6 +21,7 @@ test('human text removes C0/C1, CSI, OSC hyperlinks and clipboard, and DCS paylo
 
 test('arguments permit global flags around a command and validate scopes and command flags', () => {
   assert.deepEqual(parseArgs(['--home', '/tmp/demo', 'runs', '--json', '--all', '--project', '.']), { command: 'runs', home: '/tmp/demo', json: true, all: true, project: '.' })
+  assert.deepEqual(parseArgs(['status', '--team', 'demo-team', '--json']), { command: 'status', team: 'demo-team', json: true })
   assert.deepEqual(parseArgs(['watch', '--run', 'r-demo', '--until', 'settled', '--trace-wire']), { command: 'watch', run: 'r-demo', until: 'settled', traceWire: true })
   for (const args of [[], ['open'], ['runs', '--team', 'g', '--project', '.'], ['watch', '--until', 'settled'], ['watch', '--until', 'waiting'], ['teams', '--all'], ['status', '--raw'], ['watch', '--run'], ['status', 'extra'], ['runs', '--all', '--all'], ['status', '--credential', 'x']]) {
     assert.throws(() => parseArgs(args), /usage/i, args.join(' '))

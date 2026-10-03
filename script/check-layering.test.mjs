@@ -120,3 +120,19 @@ test('layering check catches node builtins in renderer with single quotes, doubl
     )
   }
 })
+
+test('the renderer imports only the public client views entry', () => {
+  const rule = boundaryRule('ui client')
+  for (const source of ["import '@harnessdesk/client/views'", "export * from '@harnessdesk/client/views'", "type Row = import('@harnessdesk/client/views').SeatRow", "import './helper'"])
+    assert.deepEqual(rule.offenders(source, 'packages/ui/src/lib/team-overview.ts'), [], source)
+  for (const source of ["import '@harnessdesk/client'", "export * from '@harnessdesk/client/node'", "await import('@harnessdesk/client/views/private')", "require('@harnessdesk/client/core')", "import '../../../client/src/index.js'", "export * from '../../../client/src/views/index.js'"])
+    assert.equal(rule.offenders(source, 'packages/ui/src/lib/team-overview.ts').length, 1, source)
+})
+
+test('client views import only protocol and their own files', () => {
+  const rule = boundaryRule('client')
+  for (const source of ["import '@harnessdesk/protocol'", "export * from './team-overview.js'", "import '../snapshot.js'"])
+    assert.deepEqual(rule.offenders(source, 'packages/client/src/views/nested/index.ts'), [], source)
+  for (const source of ["import '@harnessdesk/client'", "export * from '@harnessdesk/client/node'", "import '../index.js'", "export * from '../node.js'", "await import('ws')", "type Stats = import('node:fs').Stats", "import '@harnessdesk/server'", "require('../../test/fixture.js')", "import './helper.js?fresh'", "await import(dependency)"])
+    assert.equal(rule.offenders(source, 'packages/client/src/views/index.ts').length, 1, source)
+})

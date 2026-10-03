@@ -333,6 +333,9 @@ importers:
       '@codemirror/view':
         specifier: ^6.43.12
         version: 6.43.13
+      '@harnessdesk/client':
+        specifier: workspace:*
+        version: link:../client
       '@harnessdesk/protocol':
         specifier: workspace:*
         version: link:../protocol

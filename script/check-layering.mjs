@@ -46,6 +46,8 @@ const importSpecifiers = (source, fileName) => {
 const importBoundary = (pkg, source, fileName) => {
   const src = join(root, 'packages', pkg, 'src')
   const file = resolve(root, fileName)
+  const views = join(src, 'views')
+  const inViews = pkg === 'client' && !relative(views, file).startsWith(`..${sep}`) && relative(views, file) !== '..'
   const isNodeEntry = pkg === 'client' && file === join(src, 'node.ts')
   return importSpecifiers(source, fileName).filter((specifier) => {
     // A computed dependency cannot be held to a package boundary.
@@ -54,7 +56,7 @@ const importBoundary = (pkg, source, fileName) => {
       // Keep local module names literal rather than resolving ESM URL syntax.
       if (/[?#%]/.test(specifier)) return true
       const target = resolve(dirname(file), specifier)
-      const within = relative(src, target)
+      const within = relative(inViews ? views : src, target)
       if (within === '..' || within.startsWith(`..${sep}`)) return true
       // A core helper cannot re-export the Node transport into the core entry.
       return pkg === 'client' && !isNodeEntry && target.replace(/\.[cm]?[jt]sx?$/, '') === join(src, 'node')
@@ -73,10 +75,23 @@ const importBoundary = (pkg, source, fileName) => {
  */
 export const RULES = [
   {
+    label: 'ui client import boundary',
+    packages: ['ui'],
+    offenders: (source, fileName) => importSpecifiers(source, fileName).filter((specifier) => {
+      if (specifier === null) return true
+      if (/^@harnessdesk\/client(?:\/|$)/.test(specifier)) return specifier !== '@harnessdesk/client/views'
+      if (!specifier.startsWith('.')) return false
+      const target = resolve(dirname(resolve(root, fileName)), specifier)
+      const within = relative(join(root, 'packages', 'client'), target)
+      return within !== '..' && !within.startsWith(`..${sep}`)
+    }),
+    remedy: 'The window imports @harnessdesk/client/views only; transports remain outside the renderer.',
+  },
+  {
     label: 'client import boundary',
     packages: ['client'],
     offenders: (source, file) => importBoundary('client', source, file),
-    remedy: 'client imports @harnessdesk/protocol and its own core; only src/node.ts imports ws and node builtins.',
+    remedy: 'client imports protocol and its own core; views imports only protocol and its own files; only src/node.ts imports ws and node builtins.',
   },
   {
     label: 'cli import boundary',

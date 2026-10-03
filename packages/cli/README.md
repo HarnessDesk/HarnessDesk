@@ -5,7 +5,7 @@ use only the read tier:
 
 ```sh
 harnessdesk desks
-harnessdesk status --json
+harnessdesk status --team demo-team --json
 harnessdesk teams --project .
 harnessdesk runs --team demo-team --all --json
 harnessdesk watch --run demo-run --until settled --json
@@ -20,8 +20,8 @@ the host's canonical project identity.
 
 Human output removes C0/C1 controls and terminal escape sequences from relayed
 text. `--json` emits one object for each command: `{desks}`, `{hello, teams,
-runs}`, `{teams}`, or `{runs}`. A watch emits the client's stable version-1
-events, one object per line, beginning with `hello` and ending with `end`.
+runs, overviews}`, `{teams}`, or `{runs}`. A watch emits the client's stable
+version-1 events, one object per line, beginning with `hello` and ending with `end`.
 Watch subscribes to `runs`, `cards`, `teams`, `seats`, `reviews`, `waiting`
 and `notices`. Its events include `run.changed`, `card.changed`,
 `team.changed`, `seat.changed`, `review.changed`, `waiting`,
@@ -52,3 +52,21 @@ If interrupted before hello succeeds, only that interrupted `end` appears;
 the CLI does not invent a handshake.
 Fatal reconnect refusals preserve their code and end with `reason: "error"`;
 an actual host shutdown ends with `reason: "desk-closed"`.
+
+`status [--team ID] [--json]` subscribes once to runs, cards, Teams, seats and
+waiting, then waits for the full baseline with `synced()`. It reads
+`insight/goal` once for each displayed Team. By default it shows Teams with
+running or stalled runs; `--team` includes that Team even without an active
+run, and its run strip is the Team's newest run whether or not it has ended.
+No polling is involved.
+
+Human status keeps the desk home, version and runtime health header. Each Team
+uses the shared overview: its run, state, round, role, review rounds used of
+total and cost; needs-you items; and seats with name, role, card, state, doing
+and a relative since time. Missing times and costs are shown as unknown.
+
+Status JSON retains `hello`, `teams` (`GoalView[]`) and `runs` (active run
+summaries), and adds `overviews: { team, overview }[]`. Each `overview` is the
+unchanged output of `teamOverviewOf` from `@harnessdesk/client/views`, with
+`run`, `needsYou` and `seats`. The Teams and runs follow the subscription scope;
+only displayed Teams receive an overview and usage read.
