@@ -115,8 +115,10 @@ a 2,400-line file. Land them in that order, and each one starts from a fresh
 fetch of main. PRs 1, 2, 5, 6, 12 and 17 have merged and need no scheduling.
 
 **What waits on the other session.** Only PR 10 (the stop method). Its PR 1c has merged (#1295). The two events below have landed (#1285). Every
-other PR reads what the window's store already holds; PR 16 is the exception,
-and reads the client snapshot (`Client.snapshot()`).
+other PR reads what the window's store already holds; PR 16 is the exception: it
+adapts the window's store to the shared selectors' `ClientSnapshot` input (the
+window imports only `@harnessdesk/client/views`; `Client.snapshot()` is what the
+command line uses).
 
 ## Coordination with the "Wire client and CLI" session
 
@@ -610,7 +612,7 @@ the Overview draws, in the app's words, ordered by precedence.
 
 **Scope.**
 - [ ] Move the Run timeline selector (PR 3) into `packages/client/src/views/` the same way #1295 moved the overview model: the file, its tests in `packages/client/test/views`, and a re-export left in the UI. The command line gets a `run show` over it: the Wire client and CLI session owns the command line, so this PR adds `run show` there as a thin command over the moved selector, and says so in its PR body.
-- [ ] Feed the window's overview and timeline from the client core's snapshot instead of the store snapshot, adapting the store to the stream's state shape (`ClientSnapshot`); delete the window-only derivations once they are identical. `run.startedAt` stays caller-supplied and `SeatRow` stays open to new fields.
+- [ ] Feed the window's overview and timeline through the shared selectors by adapting the window's store to their `ClientSnapshot` input, and delete the window-only derivations once they are identical. The window imports only `@harnessdesk/client/views`, never the client transport or `Client.snapshot()`, which the command line uses. `run.startedAt` stays caller-supplied and `SeatRow` stays open to new fields.
 - [ ] Read `seat/activity` (`state`, and `doing` as `{ kind: 'tool', tool, target? }` or `{ kind: 'thinking' }`, null unless working) through `TeamOverviewSeat.activity` where the window has no session of its own, rendering it with `doingSentence` from `packages/protocol`; map its `seat` (`runtime:sessionId`) to the window's Seat ids through the Seat's session pointer. Map the desk's round states to the chips PR 7 defines.
 - [ ] Replay one scripted stream through the window and through the command line's `status` and `run show`, and assert they agree.
 
