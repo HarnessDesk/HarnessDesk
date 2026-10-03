@@ -28,13 +28,16 @@ const Words = ({ children }: { children: string }) => <Text as="div" role="prose
 const costWords = (cost: InspectorSeat['cost']): string => cost ? `${cost.estimated ? 'About ' : ''}${cost.unit === 'money' ? `$${cost.value.toFixed(2)}` : `${cost.value} turns`}` : 'Not recorded'
 
 /** flow-execution appends these tool instructions after the rendered sentence.
- * Remove only those complete trailing paragraphs, keeping authored text. */
+ * Remove only those complete trailing paragraphs, keeping authored text.
+ * The host joins paragraphs with a blank line, but a sentence written as a
+ * YAML `|` block ends in a newline of its own, so more than one blank line can
+ * come before them. The breaks are kept as they were written. */
 const detailWords = (detail: string | null | undefined): string | null => {
-  const paragraphs = detail?.trim().split('\n\n') ?? []
+  const parts = detail?.trim().split(/(\n{2,})/) ?? [] // paragraph, break, paragraph, ...
   const completion = /^Finish this with complete_claim and an outcome of exactly one of: [^\n]+\.$/
   const split = /^Finish this with complete_claim's split as well: the agreed split of files for the "[^"\n]+" round, one list of path patterns for each of its \d+ cards?, in card order, no two overlapping\. Each of those cards will own only its own list\.$/
-  while (paragraphs.length && (completion.test(paragraphs.at(-1)!) || split.test(paragraphs.at(-1)!))) paragraphs.pop()
-  return paragraphs.join('\n\n') || null
+  while (parts.length && (completion.test(parts.at(-1)!) || split.test(parts.at(-1)!))) parts.splice(-2) // the paragraph and the break before it
+  return parts.join('') || null
 }
 
 /** Recorded detail only. No transcript copies, dispatch controls or guessed results. */

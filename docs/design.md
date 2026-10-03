@@ -1525,7 +1525,9 @@ latest evidence output. A person’s step shows its sentence and declared
 outcomes as text. Run details keeps the full brief, frozen Flow revision and
 base, Seats, origin and recorded budgets. Missing facts say so.
 Input handoffs follow the card's recorded dependencies. Card and person detail
-keeps the authored sentence without the host's appended tool instructions.
+keeps the authored sentence without the host's appended tool instructions,
+however many blank lines a `|` block sentence leaves before them, and keeps the
+sentence's own line breaks as written.
 The round budget includes authorized extra rounds and their recorded reason.
 
 At pane widths below 48rem, a selection pushes detail over the timeline;

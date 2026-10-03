@@ -13,8 +13,10 @@ export const RunInspectorExample = ({ scene }: { scene: InspectorScene }) => {
     ...(scene === 'run' ? { findings: { version: 1 as const, budget: { rounds: 3, withoutProgress: 2 }, closedRounds: [1, 2, 3], idleRounds: 1,
       progress: [], series: [], stopped: null, extraRound: { after: 3, count: 2, reason: 'Finish the bounded retry repair.' }, overrides: [], lastDecision: null } } : {}),
   },
+    // A card's detail as the host stores it: a Flow's `detail: |` sentence keeps its last newline, and the
+    // host adds its instructions after a blank line, so three newlines come before them.
     cards: source.cards.map(card => ({ ...card, detail: [
-      'Keep the retry bounded and the last failure visible.',
+      'Keep the retry bounded and the last failure visible.\n',
       'Finish this with complete_claim and an outcome of exactly one of: approved, request-changes.',
       'Finish this with complete_claim\'s split as well: the agreed split of files for the "writer" round, one list of path patterns for each of its 2 cards, in card order, no two overlapping. Each of those cards will own only its own list.',
     ].join('\n\n'), handoff: card.id === 1 ? 'Added three attempts with a bounded backoff. The checkout test covers the last failure.' : card.id === 2 ? 'The check passed; this package was not handed to the reviewer.' : card.id === 3 ? 'The retry loop needs a ceiling. Keep the last failure visible to the person.' : null, dependsOn: card.id === 3 ? [1] : [] })) }

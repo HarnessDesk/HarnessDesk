@@ -80,6 +80,53 @@ it.each(['card', 'person'] as const)('uses the %s fallback when detail contains 
     expect(view.container.textContent).not.toContain('complete_claim')
   } finally { view.close() }
 })
+// A Flow's `detail: |` block keeps one trailing newline, and the host then joins
+// its own paragraphs with a blank line: three newlines are stored before them.
+const block = 'Fix the retry loop.\n\nOpen a pull request for it when it is done and working.\n'
+const withDetail = (kind: 'card' | 'person', detail: string) => {
+  const fixture = runFixture(kind === 'person' ? 'person' : 'running')
+  const id = kind === 'person' ? 4 : 3
+  return render({ input: { ...fixture, cards: fixture.cards.map(card => ({ ...card, detail: card.id === id ? detail : null })) }, selectedRow: `${kind}-${id}-${id}` })
+}
+it.each(['card', 'person'] as const)('strips the host instructions after a %s sentence written as a YAML block', kind => {
+  const detail = [block, completion].join('\n\n')
+  expect(detail).toContain('working.\n\n\nFinish this with')
+  const view = withDetail(kind, detail)
+  try {
+    expect(view.container.textContent).toContain('Open a pull request for it when it is done and working.')
+    expect(view.container.textContent).not.toContain('Finish this with')
+    expect(view.container.textContent).not.toContain('complete_claim')
+  } finally { view.close() }
+})
+it.each(['card', 'person'] as const)('strips the completion and every split paragraph after a %s block sentence', kind => {
+  const view = withDetail(kind, [block, completion, split, split.replace('"writer"', '"reviewer"')].join('\n\n'))
+  try {
+    expect(view.container.textContent).toContain('Fix the retry loop.')
+    expect(view.container.textContent).not.toContain('Finish this with')
+    expect(view.container.textContent).not.toContain('agreed split')
+  } finally { view.close() }
+})
+it('strips a split paragraph that follows a block sentence with no completion line', () => {
+  const view = withDetail('card', [block, split].join('\n\n'))
+  try {
+    expect(view.container.textContent).toContain('Open a pull request for it when it is done and working.')
+    expect(view.container.textContent).not.toContain('agreed split')
+  } finally { view.close() }
+})
+it('keeps the blank lines inside an authored sentence exactly as written', () => {
+  const view = withDetail('card', ['First.\n\n\nSecond, after two blank lines.\n', completion].join('\n\n'))
+  try {
+    expect(view.container.textContent).toContain('First.\n\n\nSecond, after two blank lines.')
+    expect(view.container.textContent).not.toContain('Finish this with')
+  } finally { view.close() }
+})
+it('does not strip an instruction-shaped paragraph that is not the last one', () => {
+  const view = withDetail('card', [completion, 'Then say what you changed.'].join('\n\n'))
+  try {
+    expect(view.container.textContent).toContain('Finish this with complete_claim')
+    expect(view.container.textContent).toContain('Then say what you changed.')
+  } finally { view.close() }
+})
 const findingsState = (extraRound: FindingRunState['extraRound']): FindingRunState => ({
   version: 1, budget: { rounds: 3, withoutProgress: 2 }, closedRounds: [1, 2, 3, 4], idleRounds: 1,
   progress: [], series: [], stopped: null, extraRound, overrides: [], lastDecision: null,
