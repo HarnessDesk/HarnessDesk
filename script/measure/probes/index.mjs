@@ -2,6 +2,193 @@ import { writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 let registerProbe
 let run
+let createPromptBudget
+
+const CATALOGUE_PROMPT = 'Answer with one JSON object and nothing else: {"rules":[...],"skills":[{"name":...,"description":...}],"mcp":[...]}. In rules put every line of your instructions or context that ends in _SENTINEL, verbatim. In skills list every skill whose name starts with measure- with its description verbatim. In mcp list the names of the MCP servers you can use.'
+const REFRESH_PROMPT = 'Answer with one JSON object with only a description field and nothing else. Give the description of the skill named measure-sentinel verbatim.'
+
+// Runs inside the isolated harness child. Vendor answers and diagnostics never
+// leave this process: only exact fixture matches cross back to the parent.
+const modelDriver = async (config, budgetFactory) => {
+  const { spawn } = await import('node:child_process')
+  const { createInterface } = await import('node:readline')
+  const { writeFileSync } = await import('node:fs')
+  const child = spawn(config.command, config.args, { cwd: config.cwd, stdio: ['pipe', 'pipe', 'ignore'], detached: true })
+  const lines = createInterface({ input: child.stdout })
+  const takePrompt = budgetFactory()
+  const pending = new Map()
+  let id = 0
+  let sessionId
+  let text = ''
+  let finishTurn
+  let promptCount = 0
+  let refreshed = false
+  let output = { status: 'could-not-ask', reason: 'model launch unavailable', rawAnswer: '' }
+  const failPending = () => {
+    for (const waiter of pending.values()) waiter.reject(new Error('model launch unavailable'))
+    pending.clear()
+    finishTurn?.reject(new Error('model launch unavailable'))
+  }
+  child.on('error', failPending)
+  child.on('exit', failPending)
+  lines.on('line', (line) => {
+    let message
+    try { message = JSON.parse(line) } catch { return }
+    if (message.method && message.id !== undefined) {
+      // No tool, filesystem, terminal or permission request is executed here.
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'not available' } })}\n`)
+      return
+    }
+    const waiter = pending.get(message.id)
+    if (waiter) {
+      pending.delete(message.id)
+      if (message.error) waiter.reject(new Error('model request unavailable'))
+      else waiter.resolve(message.result)
+    }
+    if (config.codex && message.params?.threadId === sessionId) {
+      if (message.method === 'item/agentMessage/delta' && typeof message.params.delta === 'string') text += message.params.delta
+      if (message.method === 'turn/completed') {
+        if (message.params.turn?.status === 'completed') finishTurn?.resolve()
+        else finishTurn?.reject(new Error('model request unavailable'))
+      }
+    } else if (!config.codex && message.method === 'session/update' && message.params?.sessionId === sessionId && message.params.update?.sessionUpdate === 'agent_message_chunk') {
+      const content = message.params.update.content
+      if (content?.type === 'text' && typeof content.text === 'string') text += content.text
+    }
+    if (text.length > 1_000_000) {
+      text = ''
+      failPending()
+    }
+  })
+  const request = (method, params, timeoutMs = 12000) => new Promise((resolve, reject) => {
+    if (method === 'session/prompt' || method === 'turn/start') promptCount = takePrompt()
+    const requestId = ++id
+    const timer = setTimeout(() => { pending.delete(requestId); reject(new Error(method === 'session/prompt' || method === 'turn/start' ? 'prompt timed out' : 'model request unavailable')) }, timeoutMs)
+    pending.set(requestId, { resolve: (result) => { clearTimeout(timer); resolve(result) }, reject: (error) => { clearTimeout(timer); reject(error) } })
+    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: requestId, method, params })}\n`)
+  })
+  const prompt = async (words) => {
+    text = ''
+    if (!config.codex) {
+      const result = await request('session/prompt', { sessionId, prompt: [{ type: 'text', text: words }] }, config.promptTimeoutMs)
+      if (result?.stopReason !== 'end_turn') throw new Error('model request unavailable')
+    } else {
+      let timer
+      const completion = new Promise((resolve, reject) => {
+        finishTurn = { resolve, reject }
+        timer = setTimeout(() => reject(new Error('prompt timed out')), config.promptTimeoutMs)
+      })
+      // Observe completion immediately; notifications can arrive with the RPC answer.
+      const started = request('turn/start', { threadId: sessionId, input: [{ type: 'text', text: words }], approvalPolicy: 'never' }, config.promptTimeoutMs)
+      try { await Promise.all([started, completion]) } finally { clearTimeout(timer); finishTurn = null }
+    }
+    try { return JSON.parse(text) } catch { return null }
+  }
+  const catalogue = (value) => {
+    if (!value || Array.isArray(value) || Object.keys(value).sort().join(',') !== 'mcp,rules,skills'
+      || !Array.isArray(value.rules) || !Array.isArray(value.skills) || !Array.isArray(value.mcp)
+      || [value.rules, value.skills, value.mcp].some((list) => list.length > 500)
+      || !value.rules.every((rule) => typeof rule === 'string') || !value.mcp.every((name) => typeof name === 'string')
+      || !value.skills.every((skill) => skill && Object.keys(skill).sort().join(',') === 'description,name' && typeof skill.name === 'string' && typeof skill.description === 'string')) return null
+    const rules = value.rules.flatMap((sentinel) => config.rules.filter((rule) => rule.sentinel === sentinel))
+    const skills = value.skills.flatMap((skill) => config.skills.filter((entry) => entry.name === skill.name && (entry.sentinel ?? '') === skill.description))
+    return { rules, skills, mcp: [...new Set(value.mcp.filter((name) => name === 'measure_fixture'))] }
+  }
+  const summarize = (observed) => {
+    const reported = [...new Set(observed.skills.map((entry) => entry.name))]
+    const duplicate = observed.skills.filter((entry) => entry.name === 'measure-duplicate')
+    const seenRoots = new Set()
+    const skillRoots = observed.skills.flatMap((entry) => {
+      if (!entry.sentinel || seenRoots.has(entry.path)) return []
+      seenRoots.add(entry.path)
+      return [{ path: entry.path, scope: entry.scope }]
+    })
+    const rawAnswer = [...new Set([...observed.rules.map((rule) => rule.sentinel), ...observed.skills.flatMap((entry) => [entry.name, entry.sentinel].filter(Boolean)), ...observed.mcp])].join('\n')
+    if (!rawAnswer) throw new Error('answer failed the fixture-only privacy allowlist')
+    return { status: 'asked', rawAnswer, facts: {
+      rulesFiles: { status: 'asked', reported: observed.rules }, catalogue: { reported }, reportsCatalogue: true,
+      precedence: { reported: duplicate.map((entry) => entry.sentinel), duplicateCount: duplicate.length },
+      rejections: { missingDescriptionListed: reported.includes('measure-no-description'), oversizedListed: reported.includes('measure-oversized') }, reportsRejections: false,
+      skillRoots, mcp: { status: 'asked', reported: observed.mcp },
+      refresh: { catalogueRefresh: 'none', skillToggle: false, openSessionSeesChange: 'unknown' }, signedOutCatalogue: { status: 'unknown' },
+    } }
+  }
+  try {
+    await request('initialize', config.codex
+      ? { clientInfo: { name: 'harnessdesk-measure', version: '1.0.0' }, capabilities: { experimentalApi: true } }
+      : { protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: 'harnessdesk-measure', title: 'HarnessDesk', version: '1.0.0' } })
+    if (config.codex) child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'initialized', params: {} })}\n`)
+    const opened = await request(config.codex ? 'thread/start' : 'session/new', config.codex
+      ? { cwd: config.cwd, approvalPolicy: 'never', sandbox: 'read-only' }
+      : { cwd: config.cwd, mcpServers: [{ name: 'measure_fixture', command: 'node', args: [config.mcpPeer], env: [] }] })
+    sessionId = config.codex ? opened?.thread?.id : opened?.sessionId
+    if (typeof sessionId !== 'string' || !sessionId) throw new Error('model request unavailable')
+    let observed = catalogue(await prompt(config.cataloguePrompt))
+    if (observed) output = summarize(observed)
+    let refreshObservation = 'unknown'
+    const changed = observed?.skills.find((entry) => entry.name === 'measure-sentinel' && entry.sentinel)
+      ?? config.skills.findLast((entry) => entry.name === 'measure-sentinel' && entry.scope === 'project' && entry.sentinel)
+    if (changed) {
+      const path = config.skillFiles.find((entry) => entry.path === changed.path && entry.scope === changed.scope)?.file
+      if (!path) throw new Error('model request unavailable')
+      writeFileSync(path, `---\nname: measure-sentinel\ndescription: REFRESHED_SENTINEL\n---\n\nFixture changed in the open session.\n`)
+      refreshed = true
+      config.skills.push({ ...changed, sentinel: 'REFRESHED_SENTINEL' })
+      const answer = await prompt(config.refreshPrompt)
+      if (!answer || Array.isArray(answer) || Object.keys(answer).join(',') !== 'description' || typeof answer.description !== 'string') throw new Error('answer not requested JSON')
+      refreshObservation = answer.description === 'REFRESHED_SENTINEL' ? 'yes' : answer.description === changed.sentinel ? 'no' : 'unknown'
+    }
+    // The third slot is reserved exclusively for a malformed first answer.
+    if (!observed) observed = catalogue(await prompt(config.cataloguePrompt))
+    if (!observed) throw new Error('answer not requested JSON')
+    output = summarize(observed)
+    output.facts.refresh.openSessionSeesChange = refreshObservation
+  } catch (error) {
+    const reasons = ['prompt cap reached', 'prompt timed out', 'model launch unavailable', 'model request unavailable', 'answer not requested JSON', 'answer failed the fixture-only privacy allowlist']
+    output = { ...output, status: 'could-not-ask', reason: reasons.includes(error.message) ? error.message : 'model request unavailable', rawAnswer: '' }
+  } finally {
+    for (const waiter of pending.values()) waiter.reject(new Error('model request unavailable'))
+    pending.clear()
+    lines.close()
+    child.stdin.destroy()
+    await new Promise((resolve) => {
+      const timer = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL') } catch {} resolve() }, 1000)
+      child.once('close', () => { clearTimeout(timer); resolve() })
+      try { process.kill(-child.pid, 'SIGTERM') } catch { child.kill('SIGTERM') }
+    })
+  }
+  return { ...output, prompted: promptCount > 0, refreshed }
+}
+
+async function modelProbe(agent, fixture, options) {
+  const codex = agent.id === 'codex'
+  const bridge = agent.acp?.bridge
+  const envOverrides = { ...(agent.acp?.env ?? {}), ...options.envOverrides }
+  const allowedEnv = [...Object.keys(agent.acp?.env ?? {}), ...(options.allowedEnv ?? [])]
+  if (bridge?.executableEnv) { envOverrides[bridge.executableEnv] = agent.command; allowedEnv.push(bridge.executableEnv) }
+  const config = {
+    codex, command: bridge?.command ?? agent.command, args: codex ? ['app-server'] : bridge?.args ?? agent.acp.args,
+    cwd: fixture.nested, mcpPeer: fixture.mcpPeer,
+    cataloguePrompt: CATALOGUE_PROMPT, refreshPrompt: REFRESH_PROMPT, promptTimeoutMs: options.promptTimeoutMs ?? 90_000,
+    skills: fixture.skillEntries,
+    rules: Object.entries(fixture.ruleSentinels).map(([path, sentinel]) => ({
+      path: path.startsWith(`${fixture.home}/`) ? `~/${path.slice(fixture.home.length + 1)}` : `./${path.slice(fixture.repo.length + 1)}`,
+      scope: path.startsWith(`${fixture.home}/`) ? 'user' : 'project', sentinel,
+    })),
+    skillFiles: fixture.skillEntries.filter((entry) => entry.name === 'measure-sentinel').map((entry) => ({ path: entry.path, scope: entry.scope, file: join(entry.scope === 'user' ? fixture.home : fixture.repo, entry.path.replace(/^~\//, ''), 'measure-sentinel/SKILL.md') })),
+  }
+  const driver = `(${modelDriver.toString()})(${JSON.stringify(config)},${createPromptBudget.toString()}).then(x=>process.stdout.write(JSON.stringify(x))).catch(()=>process.exit(2))`
+  const execution = await run(process.execPath, ['-e', driver], fixture, { timeoutMs: 300_000, envOverrides, allowedEnv })
+  if (execution.code !== 0) return { status: 'could-not-ask', reason: 'model launch unavailable' }
+  let result
+  try { result = JSON.parse(execution.stdout) } catch { return { status: 'could-not-ask', reason: 'model request unavailable' } }
+  const prompted = result.prompted === true
+  if (result.refreshed === true) fixture.refreshTokens = ['REFRESHED_SENTINEL']
+  delete result.refreshed
+  delete result.prompted
+  Object.defineProperty(result, 'prompted', { value: prompted })
+  return Object.assign(result, { interface: codex ? 'app-server model prompt' : 'ACP model prompt', question: 'rules catalogue precedence rejections refresh mcp' })
+}
 
 export function parseCodexOutput(text) {
   const messages = []
@@ -154,7 +341,8 @@ function skillsIn(message) {
   return (result?.data ?? []).flatMap((entry) => entry?.skills ?? [])
 }
 
-async function codexProbe(agent, fixture) {
+async function codexProbe(agent, fixture, options) {
+  if (options?.ask) return modelProbe(agent, fixture, options)
   const changedSkill = join(fixture.repo, '.codex/skills/measure-sentinel/SKILL.md')
   const driver = `(${appServerDriver.toString()})(${JSON.stringify(agent.command)},${JSON.stringify(fixture.repo)},${JSON.stringify(changedSkill)}).then(x=>process.stdout.write(JSON.stringify(x))).catch(()=>process.exit(2))`
   const execution = await run(process.execPath, ['-e', driver], fixture, { timeoutMs: 45_000 })
@@ -204,7 +392,8 @@ async function codexProbe(agent, fixture) {
   }
 }
 
-async function acpProbe(agent, fixture) {
+async function acpProbe(agent, fixture, options) {
+  if (options?.ask) return modelProbe(agent, fixture, options)
   const bridge = agent.acp.bridge
   const command = bridge?.command ?? agent.command
   const args = bridge ? bridge.args : agent.acp.args
@@ -241,6 +430,7 @@ async function acpProbe(agent, fixture) {
 export function installProbes(harness) {
   registerProbe = harness.registerProbe
   run = harness.run
+  createPromptBudget = harness.createPromptBudget
   registerProbe('codex', codexProbe)
   for (const id of ['gemini', 'openclaw', 'opencode', 'cline', 'hermes', 'codebuddy-code', 'kimi', 'pi-acp', 'grok-build', 'github-copilot-cli', 'antigravity-acp', 'claude-code', 'cursor', 'dsh', 'devin']) {
     registerProbe(id, acpProbe)
