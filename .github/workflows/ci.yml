@@ -61,10 +61,10 @@ jobs:
       # `{ timeout: 10000 }`, still failed as a whole file at the flag's
       # value); a per-test default on newer Node, where the same run passes.
       # A per-test option can only ever narrow the file-cumulative ceiling
-      # here, never widen it. The four flow-host-evidence end-to-end files
-      # and the server's intake test files legitimately need more than this, so
-      # they run in their own steps below instead of sharing this one;
-      # everything else fits inside it.
+      # here, never widen it. The four flow-host-evidence end-to-end files,
+      # the server's intake test files and the command line's end-to-end file
+      # legitimately need more than this, so they run in their own steps below
+      # instead of sharing this one; everything else fits inside it.
       #
       # The exclusion is a `find`, not a second glob, because node's own
       # glob matching has no negation syntax. It names each carved-out step
@@ -74,7 +74,7 @@ jobs:
       # Still the same glob as before, minus the files the next two steps
       # cover, so a package that gains tests is covered here the day it does.
       - name: Node tests
-        run: bash -c "node --test --test-timeout=120000 \$(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js')"
+        run: bash -c "node --test --test-timeout=120000 \$(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js' ! -path 'packages/cli/dist/test/e2e*.test.js')"
 
       # The worst of these four files, flow-host-evidence-review.test.ts,
       # has 7 end-to-end cases and took 33s measured with nothing else
@@ -103,6 +103,13 @@ jobs:
       # intake file in this run the day it is added.
       - name: Intake tests
         run: node --test --test-timeout=600000 "packages/server/dist/test/intake-*.test.js"
+
+      # The command line's end-to-end file starts a real host and the built
+      # CLI for each case, with ceilings of its own sized for a starved
+      # machine (#1289). Sized like the two steps above, so the file is never
+      # cut before those ceilings, or their messages, can fire.
+      - name: CLI end-to-end tests
+        run: node --test --test-timeout=600000 "packages/cli/dist/test/e2e*.test.js"
 
       - name: UI typecheck
         run: pnpm --filter @harnessdesk/ui run typecheck

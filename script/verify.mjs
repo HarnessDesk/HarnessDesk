@@ -76,10 +76,10 @@ step('node tests', () =>
     // round 2: three files each holding two 1.5s tests, each with its own
     // `{ timeout: 10000 }`, still failed as a whole file at the flag's
     // value). A per-test option can only ever narrow that file-cumulative
-    // ceiling, never widen it. The four flow-host-evidence end-to-end files
-    // and the server's intake test files legitimately need more than this, so
-    // they run in their own invocations below instead of sharing this one;
-    // everything else fits inside it.
+    // ceiling, never widen it. The four flow-host-evidence end-to-end files,
+    // the server's intake test files and the command line's end-to-end file
+    // legitimately need more than this, so they run in their own invocations
+    // below instead of sharing this one; everything else fits inside it.
     //
     // The exclusion is a `find`, not a second glob, because node's own glob
     // matching has no negation syntax. It names each carved-out run by the
@@ -91,7 +91,7 @@ step('node tests', () =>
     // packages once left one out. It matches what was built rather than what
     // exists, which is why `build:node` ends by pruning dist of every output
     // whose source is gone (script/prune-dist.mjs).
-    "node --test --test-timeout=120000 $(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js')",
+    "node --test --test-timeout=120000 $(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js' ! -path 'packages/cli/dist/test/e2e*.test.js')",
   ]),
   // What it reads is what the build writes: over the dist a failed build left, it ran and printed ok (#208).
   { needs: 'build' },
@@ -134,6 +134,21 @@ step('intake tests', () =>
     // intake file in this run the day it is added.
     '--test-timeout=600000',
     'packages/server/dist/test/intake-*.test.js',
+  ]),
+  { needs: 'build' },
+)
+step('cli e2e tests', () =>
+  run('node', [
+    '--test',
+    // The command line's end-to-end file starts a real host and the built CLI
+    // for each case. It took 33s measured at a load average of 25, and 41-75s
+    // with every core also kept busy; its cases carry their own 120s and 240s
+    // ceilings, sized for a starved machine (#1289). On Node 22 the flag
+    // above would cut the whole file at 120s before those ceilings, or their
+    // messages, could fire, so it runs here at the same wider cap as the two
+    // steps above.
+    '--test-timeout=600000',
+    'packages/cli/dist/test/e2e*.test.js',
   ]),
   { needs: 'build' },
 )
