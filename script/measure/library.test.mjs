@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import fs from 'node:fs'
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { promisify } from 'node:util'
 
 import {
   assertIsolatedEnv,
@@ -22,6 +24,7 @@ import {
   writeResult,
   registerProbe,
   run,
+  safeEnv,
   prepareSandbox,
   knownAgentHomeEntries,
   deniedHomePaths,
@@ -33,9 +36,87 @@ import {
   nodeInstallPrefix,
   nodeInstallPrefixFor,
 } from './library.mjs'
-import { parseAcpOutput, parseCodexOutput, parseRejectionWords, summarizeAcpMessages } from './probes/index.mjs'
+import { installProbes, parseAcpOutput, parseCodexOutput, parseRejectionWords, summarizeAcpMessages } from './probes/index.mjs'
 
 const under = (root, path) => path.startsWith(`${root}/`) || path === root
+
+async function fakeAcpProbe(t, overrides = {}, rejectInitialize = false) {
+  const root = await mkdtemp('/tmp/hd-measure-acp-')
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const fixture = await createFixture(root)
+  const requests = join(root, 'requests.jsonl')
+  const source = await readFile(new URL('../../packages/adapter-acp/test/fixtures/fake-acp-agent.mjs', import.meta.url), 'utf8')
+  // Use the real scripted peer, adding request capture and strict v1 validation.
+  const peer = join(root, 'fake-acp-agent.mjs')
+  await writeFile(peer, source
+    .replace('initialize: (id, params) => {', `initialize: (id, params) => {
+      if (${rejectInitialize} || params?.protocolVersion !== 1) return fail(id, 'invalid protocol version');`)
+    .replace('const handler = handlers[message.method]', `appendFileSync(${JSON.stringify(requests)}, JSON.stringify(message) + '\\n');
+  const handler = handlers[message.method]`))
+  const probes = new Map()
+  installProbes({
+    registerProbe: (id, probe) => probes.set(id, probe),
+    run: async (command, args, passedFixture) => {
+      assert.equal(passedFixture, fixture)
+      const { stdout, stderr } = await promisify(execFile)(command, args, {
+        cwd: fixture.repo, env: { ...safeEnv(fixture), ...overrides }, timeout: 25_000,
+      })
+      return { code: 0, stdout, stderr }
+    },
+  })
+  const result = await probes.get('gemini')({ command: process.execPath, acp: { args: [peer] } }, fixture)
+  const sent = (await readFile(requests, 'utf8')).trim().split('\n').map(JSON.parse)
+  return { result, sent, fixture }
+}
+
+test('ACP probe initializes and creates a session against the scripted peer without a prompt', async (t) => {
+  const { result, sent, fixture } = await fakeAcpProbe(t)
+  assert.equal(result.status, 'asked')
+  assert.deepEqual(sent.map((request) => request.method), ['initialize', 'session/new'])
+  assert.deepEqual(sent[0].params, { protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: 'harnessdesk-measure', title: 'HarnessDesk', version: '1.0.0' } })
+  assert.deepEqual(sent[1].params, { cwd: fixture.repo, mcpServers: [] })
+  assert.equal(result.facts.signedOutCatalogue.observation, 'session-created')
+  assert.equal(result.facts.signedOutCatalogue.initializeAnswered, true)
+  assert.equal(result.facts.signedOutCatalogue.sessionNewAnswered, true)
+  assert.equal(result.facts.signedOutCatalogue.signInMethodCount, 1)
+  assert.equal(result.facts.reportsCatalogue, false)
+  assert.doesNotMatch(JSON.stringify(result), /device|Sign in on the agent side|acp-session-/)
+  validateResult({ agent: 'Gemini CLI', agentId: 'gemini', version: '1.0.0', measured: '2026-10-02', ...result }, fixture)
+})
+
+test('ACP probe records an auth error as an answered session refusal', async (t) => {
+  const { result } = await fakeAcpProbe(t, { FAKE_ACP_AUTH_REQUIRED: '1' })
+  assert.equal(result.status, 'asked')
+  assert.equal(result.facts.signedOutCatalogue.observation, 'no-session')
+  assert.equal(result.facts.signedOutCatalogue.sessionNewAnswered, true)
+  assert.equal(result.facts.signedOutCatalogue.sessionNewErrorCode, -32000)
+  assert.doesNotMatch(JSON.stringify(result), /Authentication|authenticate|device/)
+})
+
+test('ACP probe records an initialize error without requesting a session', async (t) => {
+  const { result, sent } = await fakeAcpProbe(t, {}, true)
+  assert.equal(result.status, 'asked')
+  assert.equal(result.facts.signedOutCatalogue.observation, 'no-session')
+  assert.equal(result.facts.signedOutCatalogue.initializeAnswered, true)
+  assert.equal(result.facts.signedOutCatalogue.initializeErrorCode, -32600)
+  assert.equal(result.facts.signedOutCatalogue.sessionNewAnswered, false)
+  assert.deepEqual(sent.map((request) => request.method), ['initialize'])
+})
+
+test('ACP probe preserves the initialize answer when session/new times out', async (t) => {
+  const { result } = await fakeAcpProbe(t, { FAKE_ACP_SLOW_OPEN_MS: '13000' })
+  assert.equal(result.status, 'could-not-ask')
+  assert.equal(result.facts.signedOutCatalogue.initializeAnswered, true)
+  assert.equal(result.facts.signedOutCatalogue.sessionNewAnswered, false)
+  assert.equal(result.reason, 'ACP session request unavailable')
+})
+
+test('ACP probe distinguishes a failed launch from a protocol timeout', async () => {
+  const probes = new Map()
+  installProbes({ registerProbe: (id, probe) => probes.set(id, probe), run: async () => ({ code: 2, stdout: '' }) })
+  const result = await probes.get('gemini')({ command: 'not-installed', acp: { args: [] } }, { repo: '/tmp' })
+  assert.equal(result.reason, 'ACP launch unavailable')
+})
 
 test('fixture contains user/project skills, invalid and oversized skills, rule sentinels, and MCP configs', async (t) => {
   const root = await mkdtemp('/tmp/hd-measure-test-')
@@ -497,11 +578,11 @@ test('Codex protocol parser ignores diagnostics and keeps only JSON-RPC records'
 test('ACP parser records signed-out session outcome without treating commands as skills', () => {
   const messages = parseAcpOutput([
     'startup diagnostic',
-    JSON.stringify({ jsonrpc: '2.0', id: 1, result: { protocolVersion: '2025-06-18' } }),
+    JSON.stringify({ jsonrpc: '2.0', id: 1, result: { protocolVersion: 1 } }),
     JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: { update: { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'secret-command' }] } } }),
     JSON.stringify({ jsonrpc: '2.0', id: 2, result: { sessionId: 'private-id' } }),
   ].join('\n'))
-  assert.deepEqual(summarizeAcpMessages(messages), { initialized: true, sessionCreated: true, signedOutFailure: false, commandCount: 1, signedOutObservation: 'session-created' })
+  assert.deepEqual(summarizeAcpMessages(messages), { initialized: true, sessionCreated: true, signedOutFailure: false, commandCount: 1, signedOutObservation: 'session-created', initializeAnswered: true, sessionNewAnswered: true, signInMethodCount: 0 })
   const failed = summarizeAcpMessages([{ id: 1, result: {} }, { id: 2, error: { code: -32000 } }])
   assert.equal(failed.signedOutObservation, 'no-session')
   assert.deepEqual({ status: 'unknown', observation: failed.signedOutObservation }, { status: 'unknown', observation: 'no-session' })

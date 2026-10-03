@@ -1,10 +1,10 @@
 {
-  "agent": "GitHub Copilot",
-  "agentId": "github-copilot-cli",
-  "version": "1.0.83",
-  "measured": "2026-10-02",
-  "interface": "not selected",
-  "question": "no session while signed out",
+  "agent": "Cline",
+  "agentId": "cline",
+  "version": "unknown",
+  "measured": "2026-10-03",
+  "interface": "not launched",
+  "question": "Is an installed build available?",
   "rawAnswer": "",
   "facts": {
     "rulesFiles": {
@@ -23,19 +23,18 @@
     "reportsRejections": false,
     "skillRoots": [],
     "refresh": {
-      "status": "unknown",
+      "status": "could-not-ask",
       "catalogueRefresh": "none",
       "skillToggle": false,
       "openSessionSeesChange": "unknown"
     },
     "mcp": {
-      "status": "unknown"
+      "status": "could-not-ask"
     },
     "signedOutCatalogue": {
-      "status": "unknown",
-      "observation": "unknown"
+      "status": "unknown"
     }
   },
   "status": "could-not-ask",
-  "reason": "ACP initialize unavailable"
+  "reason": "binary not installed"
 }

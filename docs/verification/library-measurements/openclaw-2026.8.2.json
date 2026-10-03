@@ -2,8 +2,8 @@
   "agent": "OpenClaw",
   "agentId": "openclaw",
   "version": "2026.8.2",
-  "measured": "2026-10-02",
-  "interface": "not selected",
+  "measured": "2026-10-03",
+  "interface": "ACP initialize and session request",
   "question": "no session while signed out",
   "rawAnswer": "",
   "facts": {
@@ -33,9 +33,12 @@
     },
     "signedOutCatalogue": {
       "status": "unknown",
-      "observation": "unknown"
+      "observation": "unknown",
+      "initializeAnswered": false,
+      "sessionNewAnswered": false,
+      "signInMethodCount": 0
     }
   },
   "status": "could-not-ask",
-  "reason": "ACP initialize unavailable"
+  "reason": "ACP launch unavailable"
 }
