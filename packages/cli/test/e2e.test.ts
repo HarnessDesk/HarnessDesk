@@ -487,3 +487,38 @@ test('built flow CLI opens and previews caller files without spending, and start
   assert.equal(await badBrief.exit, 2, badBrief.output().stderr)
   assert.match(badBrief.output().stderr, /declares/)
 })
+
+
+test('run show preserves the execution and wait distinguishes person, settled, stopped and timeout without polling', { timeout: 30_000 }, async t => {
+  const r = await rig(t)
+  const show = launch(t, r.directory, r.home, ['run', 'show', r.run.id, '--json'])
+  assert.equal(await show.exit, 0, show.output().stderr)
+  assert.deepEqual(show.lines()[0], await r.h.host.call('flow/execution', { run: r.run.id }))
+  const person = launch(t, r.directory, r.home, ['run', 'wait', r.run.id, '--json', '--trace-wire'])
+  assert.equal(await person.exit, 5, person.output().stderr)
+  assert.equal(person.lines()[0].state, 'running')
+  await r.complete()
+  const settled = launch(t, r.directory, r.home, ['run', 'wait', r.run.id, '--json', '--trace-wire'])
+  assert.equal(await settled.exit, 0, settled.output().stderr)
+  assert.equal(settled.lines()[0].state, 'settled')
+  const calls = settled.output().stderr.trim().split('\n').map(line => JSON.parse(line)).filter(e => e.direction === 'send')
+  assert.deepEqual(calls.map(e => e.message.method), ['client/hello', 'client/subscribe', 'flow/execution'])
+  assert.deepEqual(calls[1].message.params.scope, { run: r.run.id })
+  const timeout = launch(t, r.directory, r.home, ['run', 'wait', r.run.id, '--timeout', '0', '--json'])
+  assert.equal(await timeout.exit, 8, timeout.output().stderr)
+  const r2 = await rig(t)
+  await r2.h.host.flowsPlane.stopRun(r2.run.id, 'Synthetic stop')
+  const stopped = launch(t, r2.directory, r2.home, ['run', 'wait', r2.run.id, '--json'])
+  assert.equal(await stopped.exit, 7, stopped.output().stderr)
+  assert.equal(stopped.lines()[0].reason, 'Synthetic stop')
+})
+
+for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]] as const) {
+  test(`run wait cancels a pending hello on ${signal}`, async t => {
+    const r = await stub(t, undefined, undefined, true)
+    const child = launch(t, r.directory, r.home, ['run', 'wait', 'demo', '--json'])
+    await Promise.race([r.helloSeen, child.exit.then(code => assert.fail(child.output().stderr + String(code)))])
+    child.child.kill(signal)
+    assert.equal(await child.exit, code, child.output().stderr)
+  })
+}

@@ -45,6 +45,8 @@ export const COMMANDS = [
   { name: 'flows', tier: 'read', methods: ['flow/catalog'], flags: ['project'], execute: flows },
   { name: 'flow preview', tier: 'read', methods: ['flow/source', 'flow/preview'], flags: ['target', 'project', 'title', 'briefFile', 'input', 'seat', 'unattended'], execute: previewFlow },
   { name: 'flow start', tier: 'run', methods: ['flow/source', 'flow/preview', 'flow/start-goal'], flags: ['target', 'project', 'title', 'briefFile', 'input', 'seat', 'unattended', 'yes'], execute: startFlow },
+  { name: 'run show', tier: 'read', methods: ['flow/execution'], flags: ['target'], execute: showRun },
+  { name: 'run wait', tier: 'read', methods: ['client/subscribe', 'flow/execution'], flags: ['target', 'timeout'], execute: waitRun },
 ] as const satisfies readonly Command[]
 
 class UsageError extends Error {}
@@ -76,13 +78,14 @@ export function parseArgs(argv: readonly string[]): Arguments {
     }
   }
   const command = COMMANDS.find(command => command.name === result['command'])
-  if (!command) usage('Choose one of desks, status, teams, runs, watch')
+  if (!command) usage('Choose a command: ' + COMMANDS.map(command => command.name).join(', '))
   for (const key of Object.keys(result)) {
     if (key !== 'command' && !globals.includes(key) && !(command.flags as readonly string[]).includes(key)) usage(`--${key} is not available on ${command.name}`)
   }
   if (['team', 'run', 'project'].filter(key => result[key] !== undefined).length > 1) usage('Choose only one of --team, --run, --project')
   if ((command.flags as readonly string[]).includes('target') && !result['target']) usage(`${command.name} requires a target`)
   if (result['until'] && (result['until'] !== 'settled' || !result['run'])) usage('--until settled requires --run')
+  if (result['timeout'] !== undefined && (typeof result['timeout'] !== 'string' || !result['timeout'].trim() || !Number.isFinite(Number(result['timeout'])) || Number(result['timeout']) < 0 || Number(result['timeout']) * 1000 > 2_147_483_647)) usage('--timeout needs finite non-negative seconds within the timer range')
   return result as unknown as Arguments
 }
 
@@ -408,4 +411,72 @@ async function startFlow(args: Arguments): Promise<number> {
     output(args, { run: run.id, team: run.goal }, () => line([run.id, run.goal]))
     return 0
   } finally { client.close() }
+}
+
+async function showRun(args: Arguments): Promise<number> {
+  const client = await open(args)
+  try {
+    const run = await client.call('flow/execution', { run: args.target! })
+    output(args, run, () => {
+      line([run.id, run.state, run.attended === false ? 'unattended' : 'attended', run.reason])
+      for (const round of run.rounds) line([`round ${round.n}`, round.role, round.state, `cards ${round.cards.join(', ')}`])
+      for (const [role, seats] of Object.entries(run.overrides ?? {})) line([role, 'override', seats.map(seatSpec).join(', ')])
+    })
+    return 0
+  } finally { client.close() }
+}
+
+async function waitRun(args: Arguments): Promise<number> {
+  let client: Client | undefined, pendingTransport: ClientTransport | undefined
+  let code: number | undefined, reason: string | null = null
+  let raw: Promise<void> | undefined, rawFailure: unknown
+  const cancel = () => { client?.close(); pendingTransport?.close() }
+  const interrupt = () => { code ??= 130; reason ??= 'interrupted'; cancel() }
+  const terminate = () => { code ??= 143; reason ??= 'interrupted'; cancel() }
+  const timeout = args.timeout === undefined ? undefined : setTimeout(() => { code ??= 8; reason ??= 'timeout'; cancel() }, Number(args.timeout) * 1000)
+  process.on('SIGINT', interrupt); process.on('SIGTERM', terminate)
+  const decide = () => {
+    if (code !== undefined || !client) return
+    const snapshot = client.snapshot(), run = snapshot.runs.find(run => run.id === args.target)
+    if (!run) return
+    if (run.state !== 'running') {
+      code = run.state === 'settled' ? 0 : 7
+      reason = run.reason
+      return
+    }
+    const person = snapshot.boards.some(board => board.id === run.goal && board.intents.some(card =>
+      card.state !== 'done' && card.state !== 'abandoned' &&
+      run.document.flow.roles.some(role => role.id === card.role && role.kind === 'person') &&
+      run.rounds.some(round => round.role === card.role && round.state !== 'closed' && round.cards.includes(card.id))))
+    const question = snapshot.approvals.some(one => one.approval.type === 'userInput' || one.approval.type === 'elicitation')
+    if (person || question) { code = 5; reason = person ? 'waiting for a person card' : 'waiting for an answer' }
+  }
+  try {
+    client = await open(args, undefined, { topics: ['runs', 'cards', 'waiting'], scope: { run: args.target! } }, transport => {
+      pendingTransport = transport
+      if (code !== undefined) transport.close()
+    })
+    // Both queues are independent; discarded raw messages must still drain.
+    raw = (async () => { for await (const _ of client!.notifications()) {} })().catch(error => { rawFailure = error })
+    if (code !== undefined) client.close()
+    await client.synced()
+    decide()
+    if (code === undefined) for await (const event of client.events()) {
+      if (event.type === 'gap') await client.synced()
+      if (event.type === 'end' && code === undefined) throw new WireCallError('disconnected', 'The desk closed before the run reached an outcome.')
+      decide()
+      if (code !== undefined) break
+    }
+    if (code === undefined) throw new WireCallError('disconnected', 'The run wait ended without an outcome.')
+  } catch (error) { if (code === undefined) throw error }
+  finally {
+    client?.close(); pendingTransport?.close()
+    if (timeout !== undefined) clearTimeout(timeout)
+    process.off('SIGINT', interrupt); process.off('SIGTERM', terminate)
+    await raw
+  }
+  if (rawFailure && code === undefined) throw rawFailure
+  const state = client?.snapshot().runs.find(run => run.id === args.target)?.state ?? null
+  output(args, { run: args.target, state, reason }, () => line([args.target, state, reason]))
+  return code!
 }
