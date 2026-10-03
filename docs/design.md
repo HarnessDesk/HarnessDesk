@@ -864,6 +864,21 @@ Enforced by `rules.spec.ts` ("rule: group labels"), which asserts the
 rendered result in both interfaces and both themes, with a mutation each for
 capitals and for a heavier weight.
 
+### Sidebar trailing rail
+
+The trailing rail is inset from the sidebar edge. `--hd-sidebar-end-rail`
+places a trailing target’s right edge; `--hd-sidebar-end-column` places its
+ink centre. The visible rail is the session dot's right edge, inside that
+target; a whole chip ends there, one target left of any adjacent marks.
+A chip uses its actual width at rest. Its title consumes the remaining
+space, without a faded chip or a reservation for hidden actions.
+
+On hover, focus or an open menu, the chip folds to a dot and the actions take
+the rail. Marks step left by the action count. The title never loses space
+in that exchange. Counts beside state chips yield when the row is 200px wide
+or narrower; the query measures the row, including a nested row, rather than
+the window. A room’s header and its members each own their hover surface.
+
 ### Destination rows
 
 A navigation row is at least `--hd-nav-h` tall wherever it appears, and

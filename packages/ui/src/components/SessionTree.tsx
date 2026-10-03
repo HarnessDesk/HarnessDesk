@@ -252,8 +252,8 @@ const SessionRow = memo(({
               ref={rowRef}
               trailingOverlay
               // The needs-you chip is inline content. The shared sidebar
-              // grammar reserves marked slots inside this label while keeping
-              // the label box fixed as hover actions appear.
+              // grammar gives the chip its actual width on the inset rail
+              // and folds it while this row’s own actions appear.
               labelTrailingContent={Boolean(need)}
               size={density === 'compact' ? 'sm' : 'default'}
               isActive={active}
@@ -734,7 +734,7 @@ const RoomRow = ({
               state={words.tone === 'warning' ? 'limit' : words.tone === 'info' ? 'signin' : words.tone === 'brand' ? 'ready' : 'available'} />}
           </span>}
         />
-        {held > 0 && <SidebarMenuBadge title={`${held} held ${held === 1 ? 'message' : 'messages'} waiting for you`}>
+        {held > 0 && <SidebarMenuBadge kind="count" title={`${held} held ${held === 1 ? 'message' : 'messages'} waiting for you`}>
           {held}
         </SidebarMenuBadge>}
         <SidebarMenuAction showOnHover

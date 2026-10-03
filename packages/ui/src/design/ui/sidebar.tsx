@@ -12,8 +12,8 @@ import './sidebar.css'
  * parts, and leaves the outer column and its state to the workbench.
  *
  * Menu rows keep one measure at every size and density. Hover actions take
- * the end rail while each declared mark steps left by the action count; the
- * title reserves both slots without changing its box. The app's document
+ * the end rail while marks step left. A full state chip uses its real width
+ * at rest and yields to those actions; narrow state rows hide counts first. The app's document
  * rule draws the one focus ring.
  */
 
@@ -130,19 +130,20 @@ const SidebarMenuAction = ({ className, showOnHover = false, type = 'button', ..
     className={cn(
       sidebarMenuTrailingSlotClass,
       'bg-sidebar hover:bg-sidebar-accent focus-visible:bg-sidebar-accent',
-      showOnHover && 'pointer-events-none opacity-0 group-hover/menu-item:pointer-events-auto group-hover/menu-item:opacity-100 group-focus-within/menu-item:pointer-events-auto group-focus-within/menu-item:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100 data-[popup-open]:pointer-events-auto data-[popup-open]:opacity-100',
+      showOnHover && 'pointer-events-none opacity-0 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100 data-[popup-open]:pointer-events-auto data-[popup-open]:opacity-100',
       className,
     )}
     {...props}
   />
 )
 
-const SidebarMenuBadge = ({ className, onClick, ...props }: React.ComponentProps<'span'>) => {
+const SidebarMenuBadge = ({ className, onClick, kind = 'mark', ...props }: React.ComponentProps<'span'> & { kind?: 'mark' | 'count' }) => {
   const mark = props.role === 'img'
   return (
     <span
       data-slot="sidebar-menu-badge"
       data-sidebar="menu-badge"
+      data-sidebar-count={kind === 'count' ? '' : undefined}
       className={cn(sidebarMenuTrailingSlotClass, 'pointer-events-none whitespace-nowrap px-(--hd-space-1) text-xs tabular-nums transition-transform', mark && 'pointer-events-auto', className)}
       onClick={mark ? (event) => {
         onClick?.(event)

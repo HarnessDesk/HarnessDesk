@@ -1915,7 +1915,7 @@ Compact facts whose dot separators belong to the role, not to each caller.
 
 `packages/ui/src/design/patterns/SidebarMenuState.tsx`
 
-A conversation or room's earned state chip yields to the row's action rail.
+A whole conversation or room state chip ends on the inset rail and folds to a dot for its own row's actions.
 
 ## Known drift
 
