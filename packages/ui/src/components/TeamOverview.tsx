@@ -37,11 +37,12 @@ const Cost = ({ row, metered }: { row: SeatRow; metered?: boolean }) => (
 )
 const runWords = { running: 'Running', settled: 'Settled', stopped: 'Stopped', stalled: 'Needs you' } as const
 
-export const TeamOverview = ({ model, faces, metered, onOpen, runName = 'Run', runReason, statusLine, defaultExpanded = false }: {
+export const TeamOverview = ({ model, faces, metered, onOpen, onRun, runName = 'Run', runReason, statusLine, defaultExpanded = false }: {
   model: ReturnType<typeof teamOverview>
   faces?: ReadonlyMap<string, ReactNode>
   metered?: ReadonlyMap<string, boolean>
   onOpen?: (seat: string) => void
+  onRun?: () => void
   runName?: string
   runReason?: string | null
   /** The Team's shared live line, using this view's ticking clock. */
@@ -83,7 +84,7 @@ export const TeamOverview = ({ model, faces, metered, onOpen, runName = 'Run', r
           <Card><CardContent>
             <section aria-label="Run" className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-2">
-                <Text role="subject">{words(runName)}</Text>
+                <span>{onRun ? <Button variant="link" size="inline-link" onClick={onRun}><Text role="subject">{words(runName)}</Text></Button> : <Text role="subject">{words(runName)}</Text>}</span>
                 <Chip tone={run.state === 'stalled' ? 'warning' : 'neutral'}>{runWords[run.state]}</Chip>
               </div>
               <div className="flex flex-wrap gap-3">

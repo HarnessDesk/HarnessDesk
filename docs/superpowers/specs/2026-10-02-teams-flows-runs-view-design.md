@@ -582,12 +582,15 @@ know").
 the timeline draw. They belong in `@harnessdesk/client/views`: pure, no
 transport, and the window imports only that entry (a layering rule holds it).
 The command line's `status` and `run show` are the same selectors with a
-terminal's words. The selector code and its tests are written first in
+terminal's words. The selector code and its tests were written first in
 `packages/ui/src/lib` over plain data (the plan's PR 1 and PR 3); the clients
 design moves the files into `client/views` when the command line needs them and
-leaves a re-export behind, so nothing in the window breaks. Until the stream
-exists, the window feeds them from its own snapshot, provided the output has the
-same shape; replacing the input is then mechanical.
+leaves a re-export behind, so nothing in the window breaks. The overview model
+has moved (#1295): it lives in `packages/client/src/views/`, the window's
+`packages/ui/src/lib/team-overview.ts` is a re-export, and the command line's
+`status` renders it. The timeline selector follows with plan PR 16. Until the
+stream feeds the window, the window feeds the selectors from its own snapshot,
+provided the output has the same shape; replacing the input is then mechanical.
 
 **What the stream must not carry.** Agent text is untrusted and stays so: a
 card's handoff and a finding's text reach a client as data to be sanitised

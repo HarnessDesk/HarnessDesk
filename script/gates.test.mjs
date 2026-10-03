@@ -2971,8 +2971,17 @@ test('reachability recognizes the typed client call first literal argument', () 
   assert.deepEqual([...reachedBy(methods, ["await request('flow/executions', {})"])], ['flow/executions'])
 })
 
-/** The server's test files that run in invocations of their own, at a wider cap (#1000, #1003). */
-const CARVED_OUT = ['flow-host-evidence-*.test.js', 'intake-*.test.js']
+/**
+ * The test files that run in invocations of their own, at a wider cap: the
+ * server's (#1000, #1003) and the command line's end-to-end file (#1289).
+ * Each names its package, its glob, and its step in the gate and in CI.
+ */
+const CARVED_OUT = [
+  { pkg: 'server', name: 'flow-host-evidence-*.test.js', step: 'flow-host-evidence tests', ciStep: 'Flow-host-evidence tests' },
+  { pkg: 'server', name: 'intake-*.test.js', step: 'intake tests', ciStep: 'Intake tests' },
+  { pkg: 'cli', name: 'e2e*.test.js', step: 'cli e2e tests', ciStep: 'CLI end-to-end tests' },
+]
+const carvedOutPaths = (top, dist, tests) => CARVED_OUT.map((one) => `${top}/${one.pkg}/${dist}/${tests}/${one.name}`)
 
 const stringValue = (node) => node && ts.isStringLiteral(node) ? node.text : null
 
@@ -3106,14 +3115,14 @@ test('the test glob is written one way everywhere it is run (#256)', () => {
   // naming the files carved out of it, so a change to either drifting from
   // the other still fails here rather than silently narrowing what runs.
   const shape = `${top}/*/${dist}/${tests}`
-  // The one package these files live under, literally — not `*`. The
-  // server's intake test files were split out the same way (#1003).
-  for (const name of CARVED_OUT) {
-    const carveOut = `${top}/server/${dist}/${tests}/${name}`
+  // The one package each set of files lives under, literally — not `*`. The
+  // server's intake test files were split out the same way (#1003), and the
+  // command line's end-to-end file (#1289).
+  for (const { pkg, name, step: stepName, ciStep: ciStepName } of CARVED_OUT) {
+    const carveOut = `${top}/${pkg}/${dist}/${tests}/${name}`
     for (const file of ['script/verify.mjs', '.github/workflows/ci.yml']) {
       const text = fs.readFileSync(path.join(repo, file), 'utf8')
-      const stepName = name.startsWith('intake-') ? 'intake tests' : 'flow-host-evidence tests'
-      const carveOuts = CARVED_OUT.map((carveName) => `${top}/server/${dist}/${tests}/${carveName}`)
+      const carveOuts = carvedOutPaths(top, dist, tests)
       const expectedMainScript = mainTestScript(shape, carveOuts)
       if (file.endsWith('.mjs')) {
         const dedicated = runsInStep(text, stepName)
@@ -3124,7 +3133,6 @@ test('the test glob is written one way everywhere it is run (#256)', () => {
         assert.ok(hasExactBashScript(main, expectedMainScript),
           `${file} passes the exact main test invocation as bash -c's script argument`)
       } else {
-        const ciStepName = name.startsWith('intake-') ? 'Intake tests' : 'Flow-host-evidence tests'
         const dedicatedCommand = `node --test --test-timeout=600000 "${carveOut}"`
         assert.ok(hasActiveCIStepRun(text, ciStepName, dedicatedCommand),
           `${file} runs the carved-out files with its test command and exact sub-glob (${carveOut})`)
@@ -3140,7 +3148,7 @@ test('the root test script bounds Node suites like verify does (#1175)', () => {
   const scripts = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).scripts
   const { top, dist, tests } = distSegments(TEST_GLOB)
   const shape = `${top}/*/${dist}/${tests}`
-  const carveOuts = CARVED_OUT.map((name) => `${top}/server/${dist}/${tests}/${name}`)
+  const carveOuts = carvedOutPaths(top, dist, tests)
   const main = mainTestScript(shape, carveOuts)
   const escapedMain = `bash -c "${main.replaceAll('$', '\\$')}"`
 
@@ -3161,7 +3169,7 @@ test('carved-out run detection ignores comments and unrelated strings (#1063)', 
   assert.deepEqual(runsInStep(`step('node tests', () => { if (false) run('bash', ['-c', 'node --test']); });`, 'node tests'), [])
 
   const shape = 'packages/*/dist/test'
-  const carveOuts = CARVED_OUT.map((name) => `packages/server/dist/test/${name}`)
+  const carveOuts = carvedOutPaths('packages', 'dist', 'test')
   const expected = mainTestScript(shape, carveOuts)
   assert.equal(hasExactBashScript([{ command: 'bash', args: ['-c', 'true', expected] }], expected), false)
   assert.equal(hasExactBashScript([{ command: 'bash', args: ['-c', `echo '${expected}'`] }], expected), false)
@@ -3190,13 +3198,13 @@ test('each carved-out run is given files, and only files (#1003)', (t) => {
   // What the carve-outs match on disk. Only once something is built: a
   // fresh checkout has no dist to read, and this gate runs after the build.
   const { top, dist, tests } = distSegments(TEST_GLOB)
-  const dir = path.join(repoRoot, top, 'server', dist, tests)
-  if (!fs.existsSync(dir)) {
-    t.skip('packages/server has not been built')
-    return
-  }
-  const entries = fs.readdirSync(dir, { withFileTypes: true })
-  for (const name of CARVED_OUT) {
+  for (const { pkg, name } of CARVED_OUT) {
+    const dir = path.join(repoRoot, top, pkg, dist, tests)
+    if (!fs.existsSync(dir)) {
+      t.skip(`packages/${pkg} has not been built`)
+      return
+    }
+    const entries = fs.readdirSync(dir, { withFileTypes: true })
     const [prefix, suffix] = name.split('*')
     const files = entries.filter((one) => one.isFile() && one.name.startsWith(prefix) && one.name.endsWith(suffix))
     assert.ok(files.length > 0, `${name} matches at least one built test file, so its run is not empty`)
@@ -3207,7 +3215,7 @@ test('each carved-out run is given files, and only files (#1003)', (t) => {
     assert.deepEqual(
       entries.filter((one) => one.isDirectory() && one.name.startsWith(prefix)).map((one) => one.name),
       [],
-      `no directory under ${top}/server/${dist}/${tests} starts with ${prefix}`,
+      `no directory under ${top}/${pkg}/${dist}/${tests} starts with ${prefix}`,
     )
   }
 })

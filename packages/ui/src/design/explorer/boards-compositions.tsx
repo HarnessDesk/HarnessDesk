@@ -1,3 +1,4 @@
+import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
 import { TeamOverviewBoard } from '../../preview/frames-team-overview'
 import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
@@ -2922,6 +2923,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'Board',
     about: 'Work in columns: what is waiting, what is being done, and who has it.',
     render: KanbanBoard,
+  },
+  {
+    id: 'run-view',
+    title: 'Run timeline',
+    about: 'The recorded rounds, cards, checks and findings, with a selectable row.',
+    render: RunViewBoard,
   },
   {
     id: 'teams-page',

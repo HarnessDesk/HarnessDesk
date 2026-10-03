@@ -195,6 +195,7 @@ const rig = (
     openSession: vi.fn().mockResolvedValue(undefined),
     /* A room with no flow, which is every room these tests are about. */
     loadFlowRuns: vi.fn().mockResolvedValue(undefined),
+    loadTeamRuns: vi.fn().mockResolvedValue(undefined),
     continueFlowAnswer: vi.fn().mockResolvedValue(undefined),
     loadBoardEvidence: vi.fn().mockResolvedValue(undefined),
     setRoomWatching: vi.fn((_id: string, watching: readonly SessionKey[]) => {
@@ -3375,4 +3376,75 @@ it('reads usage only while Overview is selected and stops polling when it is lef
   await act(async()=>{await vi.advanceTimersByTimeAsync(60_000)})
   expect(readGoalInsight).toHaveBeenCalledTimes(3)
  } finally {vi.useRealTimers()}
+})
+
+it('opens a read-only Run from the rail and Overview, and keeps selection in the pane', async () => {
+  const execution = { version: 2, id: 'timeline-run', goal: ROOM, state: 'running', brief: 'Retry the request', startedAt: 1, reason: null, legacyRun: null, operations: [], rounds: [{ n: 1, role: 'writer', cards: [1], seats: [], evidence: [], state: 'running', cause: 'seed' }], document: { format: 'agents', flow: { name: 'Build and review', roles: [], rules: [] } } } as unknown as FlowExecution
+  const { store } = rig([], undefined, { members: [] }, GOAL, new Map([[execution.id, execution]]))
+  Object.assign(store, { loadFindings: vi.fn().mockResolvedValue(undefined) })
+  await render(store)
+  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  expect(nav, 'Run has a rail destination').toBeTruthy()
+  expect(nav.textContent).toContain('1')
+  await act(async () => nav.click())
+  const card = container.querySelector('[data-row="card-1-1"]') as HTMLButtonElement
+  expect(card).not.toBeNull()
+  await act(async () => card.click())
+  expect(container.querySelector('[data-row="card-1-1"][aria-current="true"]')).not.toBeNull()
+  const overview = [...container.querySelectorAll('aside button')].find(one => one.textContent === 'Overview') as HTMLButtonElement
+  await act(async () => overview.click())
+  const strip = container.querySelector('[aria-label="Run"] button') as HTMLButtonElement
+  expect(strip, 'the Run strip opens the same timeline').not.toBeNull()
+  await act(async () => strip.click())
+  expect(container.querySelector('[data-row="card-1-1"][aria-current="true"]')).not.toBeNull()
+})
+
+it('warns when a Run reads only part of the findings ledger', async () => {
+  const execution = { version: 2, id: 'partial-run', goal: ROOM, state: 'running', reason: null, operations: [], rounds: [], document: { format: 'agents', flow: { name: 'Build', roles: [], rules: [] } } } as unknown as FlowExecution
+  const { store } = rig([], undefined, { members: [] }, GOAL, new Map([[execution.id, execution]]))
+  const snapshot = { ...store.getSnapshot(), findings: new Map([[ROOM, { rows: [], filter: 'all' as const, next: null, loading: false, error: null, problem: 'One finding could not be read.' }]]) }
+  Object.assign(store, { getSnapshot: () => snapshot, loadFindings: vi.fn().mockResolvedValue(undefined) })
+  await render(store)
+  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  await act(async () => nav.click())
+  expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('One finding could not be read.')
+})
+
+it('loads older Runs for the rail count and keeps each Run’s own selected row', async () => {
+  const execution = { version: 2, id: 'new-run', goal: ROOM, state: 'running', startedAt: 2, reason: null, operations: [], rounds: [{ n: 1, role: 'writer', cards: [1], seats: [], evidence: [], state: 'running', cause: 'seed' }], document: { format: 'agents', flow: { name: 'Build', roles: [], rules: [] } } } as unknown as FlowExecution
+  const runs = new Map([[execution.id, execution]])
+  const { store, pushes } = rig([], undefined, { members: [] }, GOAL, runs)
+  const loadTeamRuns = vi.fn(async () => { runs.set('old-run', { ...execution, id: 'old-run', state: 'settled', startedAt: 1 }) })
+  Object.assign(store, { loadTeamRuns, loadFindings: vi.fn().mockResolvedValue(undefined) })
+  await render(store)
+  expect(loadTeamRuns).toHaveBeenCalledWith(ROOM)
+  await pushes({ updatedAt: 3 })
+  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  expect(nav.textContent).toContain('2')
+  await act(async () => nav.click())
+  const choose = async (label: string) => { await act(async () => { ([...container.querySelectorAll('[aria-label="Choose a Run"] button')].find(one => one.textContent === label) as HTMLButtonElement).click() }) }
+  await choose('Run 1')
+  await act(async () => (container.querySelector('[data-row="card-1-1"]') as HTMLButtonElement).click())
+  await choose('Run 2')
+  expect(container.querySelector('[aria-current="true"][data-row]')).toBeNull()
+  await choose('Run 1')
+  expect(container.querySelector('[data-row="card-1-1"][aria-current="true"]')).not.toBeNull()
+})
+
+it.each(['running', 'settled'] as const)('discovers an uncached %s Run when opening a trigger Team', async state => {
+  const goal: GoalView = { ...GOAL, reservation: undefined,
+    goal: { ...GOAL.goal, origin: { kind: 'trigger', trigger: 'triage-issue', event: 'e1' } } }
+  const runs = new Map<string, FlowExecution>()
+  const { store, pushes } = rig([], undefined, { members: [] }, goal, runs)
+  const execution = { version: 2, id: 'trigger-run', goal: ROOM, state, startedAt: 1, reason: null,
+    operations: [], rounds: [], document: { format: 'agents', flow: { name: 'Triage', roles: [], rules: [] } } } as unknown as FlowExecution
+  const loadTeamRuns = vi.fn(async () => { runs.set(execution.id, execution) })
+  Object.assign(store, { loadTeamRuns, triggerGoal: vi.fn().mockResolvedValue(null), loadFindings: vi.fn().mockResolvedValue(undefined) })
+  await render(store)
+  expect(loadTeamRuns).toHaveBeenCalledWith(ROOM)
+  await pushes({ updatedAt: 3 })
+  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  expect(nav.textContent).toContain('1')
+  await act(async () => nav.click())
+  expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('Triage')
 })

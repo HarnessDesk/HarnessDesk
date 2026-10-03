@@ -1495,3 +1495,14 @@ Attention summaries use ListRow's wrapping sentence slot, so questions and
 approval reasons arrive whole even in a narrow pane. Recorded usage is read
 when Overview is selected, on card completion while it is shown, and each
 minute of a running Run while it stays selected.
+
+### The Run timeline
+
+The Run view composes `PaneColumn`, `ListRows`, `ListRow`, `Text` and `Chip`.
+Selection uses the same filled row as an inspector, with no navigation colour.
+Round headings group the oldest-first story; outcomes stay neutral unless the
+host names that outcome as the reason no step follows. Done and waiting are
+quiet text. Wrapped record titles keep their lead on the first line. Sentences wrap at
+narrow widths, while the brief previews two lines.
+The `run-view` catalogue board mounts the production component for every Run
+state, empty and failed reads, a long timeline, and the narrow pane.
