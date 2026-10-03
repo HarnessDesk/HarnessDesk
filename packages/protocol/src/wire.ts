@@ -1,3 +1,4 @@
+import type { SeatDoing, SeatActivityState } from './tool-activity.js'
 import type { ClientTier, ClientTopic, FlowExecutionSummary } from './client-surface.js'
 import type { AgentEntry, AgentOrigin, CeilingUpdate, MachineSeating, SeatPlan } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
@@ -2622,7 +2623,20 @@ export type WireResponse =
  * Host-pushed state. `event` carries the agent stream; `sync` is sent to a
  * freshly connected client so it can render without replaying from zero.
  */
+export interface SeatActivity {
+  readonly goal: GoalId
+  /** Same runtime:sessionId identity as card.changed.seat. */
+  readonly seat: string
+  readonly role: string | null
+  readonly card: number | null
+  readonly state: SeatActivityState
+  readonly doing: SeatDoing | null
+  /** A time held by a record, never the host's observation time. */
+  readonly since?: number
+}
+
 export type WireNotification =
+  | { readonly method: 'seat/activity'; readonly params: SeatActivity }
   | { method: 'goal/changed'; params: { view: GoalView } }
   | { method: 'goal/activity'; params: { goal: GoalId; previous: import('./goal.js').GoalActivity; activity: import('./goal.js').GoalActivity; sentence: string } }
   /** Invalidation only, never a claim's body: reload the affected Goal's findings. */

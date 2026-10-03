@@ -1,3 +1,5 @@
+import { SeatActivities, deriveSeatActivity } from './seat-activity.js'
+import type { SeatActivity } from '@harnessdesk/protocol'
 import { createHash, randomBytes } from 'node:crypto'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -613,6 +615,10 @@ export class Host {
   }
 
   readonly registry = new SessionRegistry()
+  readonly #seatActivities = new SeatActivities({
+    record: (runtime, session) => this.registry.get(runtimeId(runtime), makeSessionId(session)),
+    send: (activity) => this.#push({ method: 'seat/activity', params: activity }),
+  })
   readonly #runtimes = new Map<string, AgentRuntime>()
   readonly #startingRuntimes = new Map<string, Promise<void>>()
   readonly #stoppingRuntimes = new Map<string, Promise<boolean>>()
@@ -2241,6 +2247,7 @@ export class Host {
     await this.#recoverGoalMail()
     this.#goalsReady = true
     await this.#goals.recover()
+    for (const document of this.#goalStore.list()) this.#refreshSeatActivities(document.goal.id)
     /* Let through, unlike the runs below: rooms that cannot be read refuse
        the launch. Degraded, this desk would come up with no rooms, and the
        rest of it would believe that — `Flows.load` stops every running run
@@ -2579,6 +2586,7 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    this.#seatActivities.dispose()
     if (this.#idleReaper !== null) clearInterval(this.#idleReaper)
     this.#idleReaper = null
     // No Seat reaches a server past this point: every live grant is revoked,
@@ -2760,6 +2768,22 @@ export class Host {
    */
   get teamPlane(): Team {
     return this.#team
+  }
+
+  /** Every current Seat, read directly from held records without the notification throttle. */
+  seatActivities(): readonly SeatActivity[] {
+    const seats = this.#evidence.seats.all()
+    return this.#goalStore.list().flatMap((document) => {
+      const cards = this.#goalIntents(document.goal.id)
+      return goalMembers(document, seats).map((seat) => deriveSeatActivity(document.goal.id, seat, cards,
+        this.registry.get(runtimeId(seat.session.runtime), makeSessionId(seat.session.sessionId))))
+    })
+  }
+
+  #refreshSeatActivities(goal: string, cards?: readonly Intent[]): void {
+    const document = this.#goalStore.list().find((document) => document.goal.id === goal)
+    this.#seatActivities.team(goal, document ? goalMembers(document, this.#evidence.seats.all()) : [],
+      document ? cards ?? this.#goalIntents(goal) : [])
   }
 
   /** Approvals still waiting, replayed so a reloaded client does not lose them. */
@@ -7083,6 +7107,19 @@ export class Host {
   }
 
   #push(notification: WireNotification): void {
+    if (!this.#disposed) {
+      if (notification.method === 'team/changed') this.#refreshSeatActivities(notification.params.state.id, notification.params.state.intents)
+      else if (notification.method === 'goal/changed') this.#refreshSeatActivities(notification.params.view.goal.id)
+      else if (notification.method === 'team/removed') this.#seatActivities.team(notification.params.room, [], [])
+      else if (notification.method === 'runtime/healthChanged' || notification.method === 'runtime/removed') this.#seatActivities.runtime(String(notification.params.runtime))
+      else if (notification.method === 'session/removed') this.#seatActivities.session(String(notification.params.runtime), String(notification.params.sessionId))
+      else if (notification.method === 'event') {
+        const { runtime, event } = notification.params
+        const session = event.type === 'session/started' ? event.session.id :
+          event.type === 'approval/requested' ? event.approval.sessionId : 'sessionId' in event ? event.sessionId : null
+        if (session) this.#seatActivities.session(String(runtime), String(session))
+      }
+    }
     // What a trigger Goal's waits are made of: named again once the current pass ends.
     if (!this.#disposed) this.#intake?.noticed(notification)
     if (!this.#disposed && notification.method === 'evidence/changed' && this.#team.hasRoom(notification.params.room)) {
