@@ -25,4 +25,3 @@ export const seatSpec = (seat: FlowSeat): string =>
   `${seat.runtime}${seat.model ? `=${seat.model}` : ''}${seat.effort ? `/${seat.effort}` : ''}${
     seat.thinking ? '+thinking' : ''
   }`
-

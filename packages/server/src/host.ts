@@ -1502,7 +1502,8 @@ export class Host {
        with the reason, and its turn is interrupted once — what it already
        said is kept. It is never answered on anyone's behalf; a person who
        answers it later is heard (`#answerStoppedQuestion`). A run a person
-       started has no such wait: its Seat's question waits for them. */
+       started unattended waits the same way; an attended run has no such
+       wait: its Seat's question waits for them. */
     this.#questions = new QuestionDeadline({
       // This machine's wait (Settings › Permissions), read as each question is asked.
       waitMs: () => questionWaitMs(questionWaitOf(this.#state.state.preferences)),
