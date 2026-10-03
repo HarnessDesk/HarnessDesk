@@ -37,13 +37,15 @@ const Cost = ({ row, metered }: { row: SeatRow; metered?: boolean }) => (
 )
 const runWords = { running: 'Running', settled: 'Settled', stopped: 'Stopped', stalled: 'Needs you' } as const
 
-export const TeamOverview = ({ model, faces, metered, onOpen, runName = 'Run', runReason, defaultExpanded = false }: {
+export const TeamOverview = ({ model, faces, metered, onOpen, runName = 'Run', runReason, statusLine, defaultExpanded = false }: {
   model: ReturnType<typeof teamOverview>
   faces?: ReadonlyMap<string, ReactNode>
   metered?: ReadonlyMap<string, boolean>
   onOpen?: (seat: string) => void
   runName?: string
   runReason?: string | null
+  /** The Team's shared live line, using this view's ticking clock. */
+  statusLine?: (now: number) => ReactNode
   defaultExpanded?: boolean
 }) => {
   const box = useRef<HTMLDivElement>(null)
@@ -71,7 +73,7 @@ export const TeamOverview = ({ model, faces, metered, onOpen, runName = 'Run', r
     return line ? <div data-slot="seat-doing" title={line} className="truncate"><Text role="meta">{line}</Text></div> : null
   }
   const name = (row: SeatRow) => onOpen
-    ? <Button variant="link" size="inline" onClick={() => onOpen(row.seat)}>{words(row.name)}</Button>
+    ? <Button variant="link" size="inline-link" onClick={() => onOpen(row.seat)}><Text role="row">{words(row.name)}</Text></Button>
     : <Text role="row">{words(row.name)}</Text>
   const run = model.run
   return (
@@ -93,7 +95,7 @@ export const TeamOverview = ({ model, faces, metered, onOpen, runName = 'Run', r
                     run.total.turns !== null ? `${run.total.turns} turns` : null].filter(Boolean).join(' · ') || 'Usage unavailable'}
                 </Text>
               </div>
-              {runReason && <Text role="meta" as="div">{words(runReason)}</Text>}
+              {statusLine ? statusLine(now) : runReason && <Text role="meta" as="div">{words(runReason)}</Text>}
             </section>
           </CardContent></Card>
         )}
@@ -135,10 +137,8 @@ export const TeamOverview = ({ model, faces, metered, onOpen, runName = 'Run', r
                   const elapsed = elapsedSince(row.since, now)
                   return (
                     <TableRow key={row.seat} data-seat={row.seat}>
-                      <TableCell>
-                        <div className="flex items-start gap-2">
-                          {face(row)}<div className="min-w-0">{name(row)}{row.role && <Text role="meta" as="div">{words(row.role)}</Text>}</div>
-                        </div>
+                      <TableCell lead={face(row)}>
+                        <div className="min-w-0">{name(row)}{row.role && <Text role="meta" as="div">{words(row.role)}</Text>}</div>
                       </TableCell>
                       <TableCell>
                         <div data-slot="seat-card" className="truncate" title={row.card ? words(row.card.title) : undefined}>

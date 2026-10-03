@@ -10,8 +10,10 @@ import { overviewModel, overviewTeamStore, OVERVIEW_STATES, type OverviewScene }
 export const OverviewExample = ({scene}:{scene:OverviewScene}) => <TeamOverview model={overviewModel(scene)} runName="Build and review" runReason={scene==='stalled'?'Choose the target before this Run can continue':null} defaultExpanded={scene==='done-open'} />
 export const TeamOverviewBoard = () => <div className="flex flex-col gap-4">{OVERVIEW_STATES.map(scene=><section key={scene} data-catalog-state={scene} className={scene==='narrow'?'max-w-sm':''}><OverviewExample scene={scene} /></section>)}</div>
 export const TeamOverviewFrames = () => {
- const store=useMemo(overviewTeamStore,[])
+ const store=useMemo(() => overviewTeamStore(),[])
+ const liveStores=useMemo(() => (['running','needs-you','stalled'] as const).map(scene=>({scene,store:overviewTeamStore(scene)})),[])
  return <div className="flex flex-col gap-4 p-4">{OVERVIEW_STATES.map(scene=><section key={scene} id={`team-overview-${scene}`} className={scene==='narrow'?'max-w-sm':''}><h2>{scene}</h2><div className={scene==='narrow'?'max-w-sm':''}><OverviewExample scene={scene} /></div></section>)}
+ {liveStores.map(({scene,store})=><section key={scene} id={`team-overview-live-${scene}`} className="h-144"><StoreProvider store={store}><TeamRoomPane room="overview-team" /></StoreProvider></section>)}
  <section id="team-overview-team" className="h-96"><StoreProvider store={store}><TeamRoomPane room="overview-team" /></StoreProvider></section>
  <section id="team-overview-sidebar" className="w-72"><StoreProvider store={store}><RailSection stretch="list"><SessionTree now={Date.now()} /></RailSection></StoreProvider></section></div>
 }

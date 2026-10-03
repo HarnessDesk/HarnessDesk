@@ -1359,7 +1359,9 @@ export const TeamRoomPane = ({
                 const runtime = snapshot.runtimes.find(one => one.id === seat.record.session.runtime)
                 return runtime ? [[seat.record.id, runtime.capabilities.metered === true] as const] : []
               }))}
-              runName={flowExecution?.document.flow.name} runReason={flowExecution?.reason} onOpen={id => { const seat = seats.find(one => one.record.id === id); if (seat) show(seat.key) }} />
+              runName={flowExecution?.document.flow.name}
+              statusLine={now => <RoomLiveLine members={roster} snapshot={snapshot} now={now} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} />}
+              onOpen={id => { const seat = seats.find(one => one.record.id === id); if (seat) show(seat.key) }} />
           ) : open === 'board' ? (
             <TeamBoardPane room={room} />
           ) : open === 'findings' ? (
