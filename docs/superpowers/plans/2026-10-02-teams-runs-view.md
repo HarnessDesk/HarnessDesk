@@ -89,7 +89,7 @@ Sizes: S under a day of Team time, M about a day, L more.
 | 6 | The brief field in the start dialog | none | merged (#1274) | S |
 | 2 | The Overview in the Team pane, with every Seat a Run opened (closes #1278) | 1, 5 (both merged) | merged (#1284) | L |
 | 12 | The Teams page | 1; after 2 for `SessionTree.tsx` | merged (#1293) | M |
-| 3 | The Run model and timeline | none (PR 5 has merged; its fields are optional on older records) | **yes** (after 2 for the shared pane file) | L |
+| 3 | The Run model and timeline | none (PR 5 has merged; its fields are optional on older records) | **yes** (PR 2, which shares the pane file, has merged) | L |
 | 4 | The Run inspector | 3 | after 3 | M |
 | 7 | Publication state and its doors | 3, 4 | after 4 | M |
 | 8 | Answer and approve from the Overview, abandon from the inspector | 2, 4 | after 4 | M |
@@ -109,10 +109,10 @@ Sizes: S under a day of Team time, M about a day, L more.
 `flow/execution/stop` PR both change it. Whichever lands second starts from the
 first's landed revision.
 
-**One Team at a time in `TeamRoomPane.tsx`.** PRs 2, 3, 8 and 10 all touch the
-rail or header of `packages/ui/src/components/TeamRoomPane.tsx`, a 2,400-line
-file. Land them in that order, and each one starts from a fresh fetch of main.
-PRs 1, 5, 6 and 17 have merged and need no scheduling. Of the rest, PR 12 touches the pane's files only through PR 2's order above, and `SessionTree.tsx` after PR 2.
+**One Team at a time in `TeamRoomPane.tsx`.** PR 2 has merged. PRs 3, 8 and 10
+still touch the rail or header of `packages/ui/src/components/TeamRoomPane.tsx`,
+a 2,400-line file. Land them in that order, and each one starts from a fresh
+fetch of main. PRs 1, 2, 5, 6, 12 and 17 have merged and need no scheduling.
 
 **What waits on the other session.** Only PR 10 (the stop method). Its PR 1c has merged (#1295). The two events below have landed (#1285). Every
 other PR reads what the window's store already holds; PR 16 is the exception,
@@ -311,7 +311,7 @@ the Overview draws, in the app's words, ordered by precedence.
 - [ ] Selection is a fill (the inspector anatomy's selected row); the selected row id is state the inspector (PR 4) will read.
 - [ ] Catalogue boards and frames for: running, settled, stopped, stalled, a round with findings, many rounds (scrolling), narrow, dark.
 
-**Depends on.** None to start; PR 5 (#1281) has merged and its fields are optional on older records. It shares `TeamRoomPane.tsx` with PRs 2, 8 and 10, so it starts after PR 2 has landed.
+**Depends on.** None to start; PR 5 (#1281) has merged and its fields are optional on older records. It shares `TeamRoomPane.tsx` with PRs 8 and 10, and PR 2, which also edited it, has merged, so it starts from a fresh fetch of main.
 
 **Not in this PR.** The inspector (PR 4), the Flow tab (PR 13), any control.
 
