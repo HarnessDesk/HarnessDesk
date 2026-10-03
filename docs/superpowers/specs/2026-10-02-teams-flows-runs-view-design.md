@@ -328,22 +328,23 @@ Two reads carry them, and they differ in what they cover:
   posting the Run holds taken together, not of one round. It is shown once, at
   Run level: the Run strip and header, the end banner, and the Findings
   summary.
-- **A round's state.** The window reads it from `finding/publications`, which
-  names each posting that is prepared, started or uncertain by its round, and
-  the rounds a backfill would post now (kept on the desk with a pull request
-  bound). A round the host does not name shows no chip until the clients
-  design's round-keyed `review.changed` says; the window never guesses a round
-  from the Run's aggregate.
+- **A round's state.** The window reads it from `FindingRunView.rounds` on
+  `finding/run` (`{ round, state, reason, pr, cards }`, folded by the host from
+  the publication journal with the same rule as the aggregate; landed in #1285).
+  A round whose `state` is `none`, or that the list does not carry, shows no
+  chip; the window never guesses a round from the Run's aggregate.
+  `finding/publications` is still the read behind the doors (post again, skip,
+  backfill): it names only the postings a person must look at.
 
 | The desk says | The chip says | Tone |
 | --- | --- | --- |
-| Run: `posted` | Posted to #n | neutral |
-| Run: `pending`; a round's posting `prepared` or `started` | Waiting to post | neutral |
-| Run: `partial` | Partly posted | warning |
-| Run: `uncertain`; a round's posting `uncertain` | Not confirmed | warning |
-| Run: `local`; a round in the backfill list. With a pull request bound and posting on | Not posted | warning |
-| The same, otherwise | Kept on the desk | neutral |
-| a round with no findings | no chip | |
+| `posted` (the Run's, or a round's) | Posted to #n | neutral |
+| `pending` (the Run's, or a round's) | Waiting to post | neutral |
+| `partial` (the Run's, or a round's) | Partly posted | warning |
+| `uncertain` (the Run's, or a round's) | Not confirmed | warning |
+| `local` (the Run's, or a round's), with a pull request bound and posting on | Not posted | warning |
+| `local`, otherwise | Kept on the desk | neutral |
+| a round with no findings, or whose `state` is `none` | no chip | |
 
 The inspector says why in the host's words, and offers **Copy review**, which
 always works, and **Post to pull request**, which the host offers only when it
@@ -566,11 +567,11 @@ know").
 | The view needs | From | State |
 | --- | --- | --- |
 | A Team's sentence, activity | `team.changed` | Exists. |
-| A Run's state, round, reason | `run.changed` | Exists. **Adds** optional `attempt`, `continues` (the Run it continues) and `revision` (the Flow's digest). |
+| A Run's state, round, reason | `run.changed` | Exists. **Adds** optional `continues` (the Run it continues) and `revision` (the Flow's digest), which have landed; an optional `attempt` is added only once a record carries one. |
 | A card's state, outcome, title | `card.changed` | Exists. **Adds** optional `seat` (who holds it) and `since`. |
 | What waits for a person | `waiting`, `waiting.cleared` | Exists. |
-| A seat's state and what it is doing | none | **New: `seat.changed`**, `{ team, seat, role, card, state: 'working' \| 'waiting' \| 'idle', doing, since }`. The **host derives it** and sends one `seat/activity` notification per seat on a `seats` topic, at most once every 2.5 seconds; the client library maps it one to one. (Deriving it in each client would mean sending every seat's whole transcript stream to the command line and, later, a phone.) `doing` is structured (`{ kind: 'tool' \| 'thinking' \| 'waiting' \| 'idle', tool?, target? }`), and the derivation of the in-flight tool, with the one tool-name lookup, moves into `packages/protocol` so the host, the command line and the window share it. |
-| What became of a review | none | **New: `review.changed`**, `{ team, run, round, cards, state: 'local' \| 'pending' \| 'posted' \| 'partial' \| 'uncertain' \| 'none', reason, pr }`: the desk's own words, keyed by round with the round's cards. The host derives each round's state from the Run's publication journal, whose postings are keyed by round; `finding/run`'s `publication` is the Run's aggregate and is not per round. Read again on `finding/changed`. (`finding/publications` lists only the postings a person must look at, so a successful post is not in it.) The window maps those words to its own chips in the selector, never on the wire. |
+| A seat's state and what it is doing | none | **New: `seat.changed`**, `{ team, seat, role, card, state: 'working' \| 'waiting' \| 'idle', doing, since }`. The **host derives it** and sends one `seat/activity` notification per seat on a `seats` topic, at most once every 2.5 seconds; the client library maps it one to one. (Deriving it in each client would mean sending every seat's whole transcript stream to the command line and, later, a phone.) `doing` is structured and null unless the seat is working (`{ kind: 'tool', tool, target? }` or `{ kind: 'thinking' }`; waiting and idle are the `state`), and the derivation of the in-flight tool, with the one tool-name lookup (`seatDoing`, `doingSentence`), moved into `packages/protocol` so the host, the command line and the window share it. Landed in #1285. |
+| What became of a review | none | **New: `review.changed`**, `{ team, run, round, cards, state: 'local' \| 'pending' \| 'posted' \| 'partial' \| 'uncertain' \| 'none', reason, pr }`: the desk's own words, keyed by round with the round's cards. The host derives each round's state from the Run's publication journal, whose postings are keyed by round; `finding/run`'s `publication` is the Run's aggregate and is not per round. Read again on `finding/changed`. (`finding/publications` lists only the postings a person must look at, so a successful post is not in it.) The window maps those words to its own chips in the selector, never on the wire. Landed in #1285 as `FindingRunView.rounds` on `finding/run`, which `review.changed` reads. |
 | The list of Runs; one Run's rounds and journal | `flow/executions`, `flow/execution` | In the clients design's phase 1; the Run detail exists. |
 | Cost | A read of the Team's recorded usage (`insight/goal`), not an event | Exists; it joins the clients design's read tier. |
 | Whether *you* have read it | Nothing | The window's own state. It never goes on the wire. |
@@ -604,21 +605,25 @@ Each one is a wire or record change made the usual way, in its own small
 commit, and none of them ships a surface by itself:
 
 1. `flow/execution/stop { run, reason }` (#1247), and `flow/executions` (the
-   clients design's host changes 2 and 3).
+   clients design's host changes 2 and 3). `flow/executions` has landed
+   (#1279); `flow/execution/stop` has not.
 2. `FlowExecution.revision`: a digest of the canonical document, set when the
    Run starts and never changed. And `FlowExecution.continues`: the Run this
    one continues, set at the start. And `FlowExecution.startedAt`, which the
-   host already stores but does not project, and `endedAt`, set when the Run
-   leaves running.
+   host stored but did not project, and `endedAt`, set when the Run leaves
+   running. Landed in #1281, all optional so an older record reads as before.
 3. `flow/check/retry` works on a finished or interrupted check of a running or
-   stalled Run, and returns when the check has started (#1263, fixing #1245).
+   stalled Run, and returns when the check has started (landed in #1263, fixing
+   #1245).
    A settled or stopped Run refuses it; the way on is *Run again…*.
-4. A `brief` input on a Run, frozen with it, and the `{{brief}}` slot.
+4. A `brief` input on a Run, frozen with it, and the `{{brief}}` slot. Landed in
+   #1274 (the start field) and #1281 (frozen with the Run).
 5. `seat/activity` (host-derived and throttled, mapped to `seat.changed`),
    `review.changed`, and the optional fields above. A field is present only
    where the desk's own record carries it, never filled from when a client
    noticed something. Each is declared in the clients design's event table and
-   its gate test; that design added them in its second pull request.
+   its gate test; that design added them in its second pull request. `seat/activity`
+   and `FindingRunView.rounds` have landed (#1285).
 6. `{ available, why }` on each control: the stop, retry and run-again
    previews already return a refusal string; this makes it one shape.
 7. A Team's usage read grouped by seat, from the report's existing breakdowns.
@@ -635,7 +640,7 @@ commit, and none of them ships a surface by itself:
    and `live` is null, while `detached` stays false, because the handle was let
    go on purpose and not lost to a restart. The Seat stays a member, and the next
    thing addressed to it (a message, opening the conversation) reopens it. It
-   never closes the Seat and never changes a card.
+   never closes the Seat and never changes a card. Landed in #1283.
 9. The receipt remembers each Seat's conversation: `GoalReceiptMember.session`,
    written at wrap from the Seat's own record, so a wrapped Team's Seats can
    still be opened. A receipt wrapped earlier falls back to the session of a
