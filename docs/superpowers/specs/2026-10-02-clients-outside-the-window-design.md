@@ -489,7 +489,8 @@ Four rules hold every row:
 - **A waiting item has a stable `id`,** and `waiting.cleared` carries the
   same one, so two items that read alike are never confused.
   - An approval or a question uses
-    `approval:<runtime>:<session>:<approval id>`.
+    `approval:<runtime>:<session>:<approval id>`, each part
+    percent-encoded, so ids that hold a `:` stay distinct.
   - A person card uses `card:<team>:<card>`.
 - **A state is the desk's own word.**
   - `review.changed`'s `state` is the round's publication state as the desk

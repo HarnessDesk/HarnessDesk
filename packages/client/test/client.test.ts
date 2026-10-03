@@ -188,6 +188,30 @@ test('two approvals with identical summaries retain ids; question resolves indep
   client.close()
 })
 
+test('approvals whose session and approval ids hold colons stay distinct in the snapshot and in waiting', async () => {
+  const requested = (sessionId: string, id: string): WireNotification => ({ method: 'event', params: { runtime: 'demo', event: { type: 'approval/requested', approval: { id, sessionId, type: 'permission', summary: `${sessionId} ${id}`, requestedAt: 1, options: [] } } } } as unknown as WireNotification)
+  const resolvedIn = (sessionId: string, approvalId: string): WireNotification => ({ method: 'event', params: { runtime: 'demo', event: { type: 'approval/resolved', sessionId, approvalId, resolution: { type: 'cancelled' } } } } as unknown as WireNotification)
+  const transport = new ScriptedTransport()
+  const client = await connect({ transport: async () => transport, client: clientInfo, subscribe: { topics: ['waiting'] } })
+  const events = client.events()[Symbol.asyncIterator]()
+  await next(events)
+  // Joined with a bare ':' these two would both be approval:demo:session:approval:1.
+  transport.emit(requested('session', 'approval:1')); transport.emit(requested('session:approval', '1'))
+  const first = await next(events), second = await next(events)
+  assert.equal(first.type, 'waiting'); assert.equal(second.type, 'waiting')
+  assert.notEqual('id' in first && first.id, 'id' in second && second.id)
+  assert.deepEqual(client.snapshot().approvals.map(one => [one.sessionId, one.approval.id]), [['session', 'approval:1'], ['session:approval', '1']])
+  transport.emit(resolvedIn('session', 'approval:1'))
+  const cleared = await next(events)
+  assert.equal(cleared.type, 'waiting.cleared')
+  assert.equal('id' in cleared && cleared.id, 'id' in first && first.id)
+  assert.deepEqual(client.snapshot().approvals.map(one => [one.sessionId, one.approval.id]), [['session:approval', '1']])
+  transport.emit(resolvedIn('session:approval', '1'))
+  assert.equal((await next(events)).type, 'waiting.cleared')
+  assert.deepEqual(client.snapshot().approvals, [])
+  client.close()
+})
+
 test('reconnect yields gap then the whole unchanged baseline, and resumes diffing', async () => {
   const first = new ScriptedTransport(), second = new ScriptedTransport()
   first.baseline = second.baseline = [execution(), cards(), team(), approval('one')]

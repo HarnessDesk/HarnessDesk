@@ -83,6 +83,10 @@ class Queue<T> implements AsyncIterable<T> {
   }
 }
 
+/** `approval:<runtime>:<session>:<approval id>`, each part percent-encoded: ids are opaque and may hold `:`, and two approvals must never share one. */
+const approvalWaitingId = (runtime: string, session: string, approval: string): string =>
+  `approval:${[runtime, session, approval].map(encodeURIComponent).join(':')}`
+
 type EventBody = ClientEvent extends infer E ? E extends EventBase ? Omit<E, keyof EventBase> : never : never
 class Observation {
   private teams = new Map<string, GoalView>()
@@ -213,15 +217,16 @@ class Observation {
         const { runtime, event } = notification.params
         if (event.type === 'approval/requested') {
           const item = event.approval
-          this.approvals.set(`approval:${runtime}:${item.sessionId}:${item.id}`, { runtime, sessionId: item.sessionId, approval: item })
+          const id = approvalWaitingId(runtime, item.sessionId, item.id)
+          this.approvals.set(id, { runtime, sessionId: item.sessionId, approval: item })
           const summary = item.type === 'permission' ? item.summary : item.type === 'userInput' ? item.questions.map(q => q.question).join('\n') :
             item.type === 'elicitation' ? item.message : item.type === 'command' ? item.command : item.reason ?? 'File changes'
-          this.setWaiting({ id: `approval:${runtime}:${item.sessionId}:${item.id}`, team: this.teamOf(runtime, item.sessionId),
+          this.setWaiting({ id, team: this.teamOf(runtime, item.sessionId),
             kind: item.type === 'userInput' || item.type === 'elicitation' ? 'question' : 'approval', seat: `${runtime}:${item.sessionId}`, summary })
         } else if (event.type === 'approval/resolved') {
-          const key = `approval:${runtime}:${event.sessionId}:${event.approvalId}`
-          this.approvals.delete(key)
-          this.clearWaiting(key)
+          const id = approvalWaitingId(runtime, event.sessionId, event.approvalId)
+          this.approvals.delete(id)
+          this.clearWaiting(id)
         }
         break
       }
