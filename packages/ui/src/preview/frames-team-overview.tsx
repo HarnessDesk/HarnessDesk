@@ -11,7 +11,7 @@ export const OverviewExample = ({scene}:{scene:OverviewScene}) => <TeamOverview 
 export const TeamOverviewBoard = () => <div className="flex flex-col gap-4">{OVERVIEW_STATES.map(scene=><section key={scene} data-catalog-state={scene} className={scene==='narrow'?'max-w-sm':''}><OverviewExample scene={scene} /></section>)}</div>
 export const TeamOverviewFrames = () => {
  const store=useMemo(() => overviewTeamStore(),[])
- const liveStores=useMemo(() => (['running','needs-you','stalled'] as const).map(scene=>({scene,store:overviewTeamStore(scene)})),[])
+ const liveStores=useMemo(() => (['running','needs-you','stalled','waiting-evidence','unrouted'] as const).map(scene=>({scene,store:overviewTeamStore(scene)})),[])
  return <div className="flex flex-col gap-4 p-4">{OVERVIEW_STATES.map(scene=><section key={scene} id={`team-overview-${scene}`} className={scene==='narrow'?'max-w-sm':''}><h2>{scene}</h2><div className={scene==='narrow'?'max-w-sm':''}><OverviewExample scene={scene} /></div></section>)}
  {liveStores.map(({scene,store})=><section key={scene} id={`team-overview-live-${scene}`} className="h-144"><StoreProvider store={store}><TeamRoomPane room="overview-team" /></StoreProvider></section>)}
  <section id="team-overview-team" className="h-96"><StoreProvider store={store}><TeamRoomPane room="overview-team" /></StoreProvider></section>

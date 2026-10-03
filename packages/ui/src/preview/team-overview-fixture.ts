@@ -5,6 +5,10 @@ import { previewStore } from './harness'
 
 export const OVERVIEW_STATES = ['running','needs-you','unread','idle','stalled','no-run','no-seats','done','done-open','narrow'] as const
 export type OverviewScene = typeof OVERVIEW_STATES[number]
+export const OVERVIEW_RUN_REASONS = {
+ 'waiting-evidence': 'Rule after-review: Waiting for its evidence.',
+ unrouted: '"Review the change" (#2) answered revise; no rule continues from it, so this waits for you',
+} as const
 const at = Date.now() - 120_000
 const ids = ['Alpha','Beta','Gamma','Delta']
 const record = (n: number): SeatRecord => ({ id:`seat-${n}`,session:{runtime:'codex',sessionId:`overview-${n}`},role:n?'reviewer':'writer',openedAt:at,closed:null,agent:{name:ids[n]},seatLabel:ids[n] } as SeatRecord)
@@ -23,12 +27,15 @@ export const overviewInput = (scene:OverviewScene):TeamOverviewInput => {
 export const overviewModel = (scene:OverviewScene) => teamOverview(overviewInput(scene))
 
 /** Membership shape measured on the host rig, with the older list emptied to cover #1278. */
-export const overviewTeamStore = (scene: 'done' | 'running' | 'needs-you' | 'stalled' = 'done') => {
- const input=overviewInput(scene)
+export const overviewTeamStore = (scene: 'done' | 'running' | 'needs-you' | 'stalled' | keyof typeof OVERVIEW_RUN_REASONS = 'done') => {
+ const input=overviewInput(scene==='waiting-evidence'?'idle':scene==='unrouted'?'done':scene)
  const seats=input.seats.slice(0,2).map(one=>one.record as SeatRecord)
  const board={...PREVIEW_GOAL.board,id:'overview-team',name:'Retry the checkout call',root:'/work/storefront',members:[],intents:input.cards.slice(0,2),channel:input.signals!.slice(0,2),nicknames:{}}
  const goal:GoalView={...PREVIEW_GOAL,goal:{...PREVIEW_GOAL.goal,id:board.id,sentence:board.name,root:board.root,cwd:board.root,origin:{kind:'person'}},board,members:seats,activity:null}
- const run=overviewRun(scene==='done'?'settled':scene==='stalled'?'stalled':'running')
+ const baseRun=overviewRun(scene==='done'||scene==='unrouted'?'settled':scene==='stalled'?'stalled':'running')
+ const run:FlowExecution=scene==='waiting-evidence'
+  ? {...baseRun,reason:OVERVIEW_RUN_REASONS[scene],rounds:baseRun.rounds.map(round=>round.n===2?{...round,state:'waiting-evidence'}:round)}
+  : scene==='unrouted'?{...baseRun,reason:OVERVIEW_RUN_REASONS[scene],end:{kind:'unrouted',card:2,outcome:'revise'}}:baseRun
  const sessions=new Map(input.seats.slice(0,2).map(one=>[sessionKey(one.record.session.runtime,one.record.session.sessionId),one.session!]))
  const approvals=scene==='needs-you'?input.seats.flatMap(one=>one.approvals.map(approval=>({key:sessionKey(one.record.session.runtime,one.record.session.sessionId),approval}))):[]
  const base=previewStore({teams:new Map([[board.id,board]]),goals:new Map([[board.id,goal]]),flowExecutions:new Map([[run.id,run]]),sessions,history:[...sessions.values()],inbox:[],approvals,workspace:{path:board.root,name:'Storefront',lastOpenedAt:at},workspaces:[{path:board.root,name:'Storefront',lastOpenedAt:at}],listPrefs:{...previewStore().getSnapshot().listPrefs,collapsed:[],pinned:[]}})

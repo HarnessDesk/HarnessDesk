@@ -931,8 +931,10 @@ anything running unattended.
 
 Overview is the Team rail's first destination and opens by default when the
 Team has a Run. Its Run strip keeps the live line: who is working, what
-waits on you, why it stalled or stopped, and any release still pending. The
-header keeps the revision it reviews. It shows that Run's round and recorded
+waits on you, why it stalled or stopped, and any release still pending. It
+also keeps the Run's reason for waiting on evidence or ending without a rule
+to continue, showing each reason once. The header keeps the revision it
+reviews. It shows that Run's round and recorded
 usage, what needs you, and every Seat in attention order. Finished Seats stay in the Agents list;
 the Overview folds them into a disclosure such as **3 done**. A question,
 unread notice or new work brings a Seat out of that fold. The sidebar nests

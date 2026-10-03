@@ -1360,7 +1360,7 @@ export const TeamRoomPane = ({
                 return runtime ? [[seat.record.id, runtime.capabilities.metered === true] as const] : []
               }))}
               runName={flowExecution?.document.flow.name}
-              statusLine={now => <RoomLiveLine members={roster} snapshot={snapshot} now={now} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} />}
+              statusLine={now => <RoomLiveLine members={roster} snapshot={snapshot} now={now} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} includeRunReason />}
               onOpen={id => { const seat = seats.find(one => one.record.id === id); if (seat) show(seat.key) }} />
           ) : open === 'board' ? (
             <TeamBoardPane room={room} />
@@ -1895,6 +1895,7 @@ const RoomLiveLine = ({
   flowExecution,
   needsYou,
   room,
+  includeRunReason = false,
 }: {
   readonly members: readonly Member[]
   readonly snapshot: AppSnapshot
@@ -1906,8 +1907,12 @@ const RoomLiveLine = ({
   /** The header chip's own "Needs you" rule, beyond a member's pending approval — one rule, read by both surfaces. */
   readonly needsYou: boolean
   readonly room: string
+  /** Overview keeps the Run's reason even when another live fact takes precedence. */
+  readonly includeRunReason?: boolean
 }) => {
   const store = useStore()
+  const runReason = includeRunReason && flowExecution?.reason ? sentence(flowExecution.reason) : null
+  let reasonOnLiveLine = false
   /*
    * The primary line, exactly as before, wrapped so a pending release's own
    * sentence — computed below, independent of which branch here fired — can
@@ -1947,6 +1952,7 @@ const RoomLiveLine = ({
        — never a narrower or wider one — and the two surfaces cannot disagree
        about the same run. */
     if (!waiting && stopText && !needsYou) {
+      reasonOnLiveLine = stopText === runReason
       return (
         <TurnWorkLive settled data-slot="room-live-line" data-kind="stop">
           {stopText}
@@ -1955,6 +1961,7 @@ const RoomLiveLine = ({
     }
     if (!waiting && waits.length > 0) {
       const wait = waits[0]!
+      reasonOnLiveLine = sentence(wait.sentence) === runReason
       const open = wait.action === 'open-usage' || wait.action === 'open-trigger'
         ? () => store.askSettings('workspaces', wait.action === 'open-trigger' ? triggerRootOf(snapshot, room) : 'triggers')
         : wait.action === 'open-permissions'
@@ -1988,6 +1995,7 @@ const RoomLiveLine = ({
        Seat is gone, the card finished — the action stays, greyed, and the
        line says why: a control that vanished would say nothing at all. */
     if (!waiting && flowExecution?.state === 'stalled' && flowExecution.reason) {
+      reasonOnLiveLine = true
       const kept = flowExecution.keptAnswer
       const trail = kept ? (
         <Button
@@ -2066,13 +2074,17 @@ const RoomLiveLine = ({
    * finding 3, round 3).
    */
   const pendingNote = flowExecution?.pendingReleaseNote ?? null
-  if (!pendingNote) return primary
+  const extraReason = runReason && !reasonOnLiveLine && (!pendingNote || sentence(pendingNote) !== runReason)
+  if (!pendingNote && !extraReason) return primary
   return (
     <>
       {primary}
-      <TurnWorkLive settled data-slot="room-pending-release-line" data-kind="pending-release">
+      {extraReason && <TurnWorkLive settled data-slot="room-run-reason" data-kind="reason">
+        <span className="whitespace-pre-line">{runReason}</span>
+      </TurnWorkLive>}
+      {pendingNote && <TurnWorkLive settled data-slot="room-pending-release-line" data-kind="pending-release">
         <span className="whitespace-pre-line">{sentence(pendingNote)}</span>
-      </TurnWorkLive>
+      </TurnWorkLive>}
     </>
   )
 }

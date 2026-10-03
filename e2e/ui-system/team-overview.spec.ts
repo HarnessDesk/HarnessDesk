@@ -94,6 +94,7 @@ for (const theme of ['light', 'dark'] as const) {
   ]) {
    const overview = page.locator(`#team-overview-live-${scene} [data-slot="team-overview"]`)
    await expect(overview.locator('[aria-label="Run"] [data-slot="room-live-line"]')).toContainText(sentence!)
+   await expect(overview.locator('[data-slot="room-run-reason"]')).toHaveCount(0)
    for (const row of await overview.locator('[data-slot="table-row"][data-seat]').all()) {
     const delta = await row.evaluate(e => {
      const face = e.querySelector('[data-slot="icon-tile"]')!.getBoundingClientRect()
@@ -108,6 +109,23 @@ for (const theme of ['light', 'dark'] as const) {
     expect(delta.face).toBeLessThan(1.5)
     expect(delta.column).toBeLessThan(1.5)
    }
+  }
+ })
+}
+
+for (const theme of ['light', 'dark'] as const) {
+ test(`Team Overview: idle and unrouted Run reasons stay visible once in ${theme}`, async ({ page }) => {
+  await page.goto(`/preview.html?team-overview&theme=${theme}`)
+  for (const [scene, reason] of [
+   ['waiting-evidence', 'Rule after-review: Waiting for its evidence.'],
+   ['unrouted', '"Review the change" (#2) answered revise; no rule continues from it, so this waits for you'],
+  ]) {
+   const run = page.locator(`#team-overview-live-${scene} [aria-label="Run"]`)
+   await expect(run.locator('[data-slot="room-run-reason"]')).toHaveText(reason!)
+   expect((await run.textContent())?.split(reason!)).toHaveLength(2)
+   await expect(run.locator('[data-slot="room-live-line"]')).toHaveCount(0)
+   const sentence = run.locator('[data-slot="room-run-reason"] .whitespace-pre-line')
+   expect(await sentence.evaluate(e => e.scrollWidth <= e.clientWidth && e.scrollHeight <= e.clientHeight)).toBe(true)
   }
  })
 }

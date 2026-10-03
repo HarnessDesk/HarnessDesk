@@ -1736,6 +1736,33 @@ it("the room's own live line counts every waiting member, not only the first", a
   expect(line.getAttribute('title')).toBe('Codex\nOpus')
 })
 
+it('keeps a running idle Run’s waiting reason in the production Overview', async () => {
+  const reason = 'waiting for recorded evidence for round 2'
+  const execution: FlowExecution = {
+    version: 2, id: 'run-1', goal: ROOM, document: FLOW_DOCUMENT, state: 'running',
+    rounds: [], operations: [], legacyRun: null, reason,
+  }
+  const { store } = rig([CLAUDE], undefined, { intents: [] }, GOAL, new Map([[execution.id, execution]]))
+  await render(store)
+  const run = container.querySelector('[data-slot="team-overview"] [aria-label="Run"]')!
+  expect(run.textContent).toContain('Waiting for recorded evidence for round 2')
+  expect(run.textContent?.split('Waiting for recorded evidence for round 2')).toHaveLength(2)
+})
+
+it('keeps an unrouted settled Run’s reason in the production Overview', async () => {
+  const reason = 'Review the change (#2) answered revise; no rule continues from reviewer, so this waits for you'
+  const execution: FlowExecution = {
+    version: 2, id: 'run-1', goal: ROOM, document: FLOW_DOCUMENT, state: 'settled',
+    rounds: [], operations: [], legacyRun: null, reason,
+    end: { kind: 'unrouted', card: 2, outcome: 'revise' },
+  }
+  const { store } = rig([CLAUDE], undefined, { intents: [] }, GOAL, new Map([[execution.id, execution]]))
+  await render(store)
+  const run = container.querySelector('[data-slot="team-overview"] [aria-label="Run"]')!
+  expect(run.textContent).toContain(reason)
+  expect(run.textContent?.split(reason)).toHaveLength(2)
+})
+
 /**
  * A flow a person started carries no trigger status, so its own stop reason
  * is what the live line has left to read (#917). The host's own default —
@@ -1750,6 +1777,7 @@ it("names a person-started flow's own stop reason on the live line, as a proper 
   const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
   await render(store)
   expect(container.querySelector('[data-slot="team-overview"] [data-kind="stop"]')?.textContent).toBe('The person stopped this flow')
+  expect(container.querySelector('[data-slot="team-overview"] [aria-label="Run"]')?.textContent?.split('The person stopped this flow')).toHaveLength(2)
   act(() => row('Chat').click())
   await act(async () => {})
 
@@ -1779,6 +1807,7 @@ it("names a stalled run's own reason on the live line, lines kept, as a wait on 
   const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
   await render(store)
   expect(container.querySelector('[data-slot="team-overview"] [data-kind="stall"] .whitespace-pre-line')?.textContent).toBe(reason)
+  expect(container.querySelector('[data-slot="team-overview"] [aria-label="Run"]')?.textContent?.split(reason)).toHaveLength(2)
   act(() => row('Chat').click())
   await act(async () => {})
 
