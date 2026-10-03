@@ -871,8 +871,11 @@ test('a stop that lands while a round is still seating hands no card over and le
 
   // The stop lands after the first Seat opened, before the second is asked for.
   const early = await rig.startTriggered(TWO_REVIEWERS, TWO_AGENTS)
-  rig.beforeClaim = (n) => { if (n === 1) rig.triggerGate = () => STOP }
+  let firstOpened!: () => void
+  const first = new Promise<void>(resolve => { firstOpened = resolve })
+  rig.beforeClaim = (n) => { if (n === 1) { rig.triggerGate = () => STOP; firstOpened() } }
   const releasing = rig.flows.resumeTriggered(early.id)
+  await first
   const stopping = rig.flows.stopRun(early.id, STOP)
   await Promise.all([releasing, stopping])
   await rig.flows.flush()

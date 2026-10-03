@@ -2703,12 +2703,29 @@ export class Host {
     if (params.action === 'done' && !this.clientTiers().includes('answer')) throw Object.assign(new Error('This desk has not granted client answers.'), { wireCode: 'tierNotGranted' })
     const before = this.#flows.executionsFor(params.room).find(run => run.rounds.some(round => round.cards.includes(params.id)))
     const round = before?.rounds.find(round => round.cards.includes(params.id))
-    await this.#team.intentAction(params.room, params.id, params.action, params.reason, params.outcome, params.context, client)
-    await this.#team.flush()
-    if (params.action === 'done') return null
-    await this.#flows.flush()
-    const after = before ? this.#flows.executionOf(before.id) : null
-    return { role: round?.role ?? null, nextRole: after?.rounds.find(one => one.n > (round?.n ?? Infinity))?.role ?? null }
+    let routed!: () => void
+    const routing = new Promise<void>(resolve => { routed = resolve })
+    // Subscribe before mutating: a fast next round may open during the save.
+    // A successor check may keep that run's queue busy; its durable card is
+    // enough to name it without waiting for the command to finish.
+    const detach = before && params.action === 'abandon' ? this.addBroadcaster(message => {
+      if (message.method !== 'flow/execution-changed' || message.params.execution.id !== before.id) return
+      const run = message.params.execution
+      if (run.state !== 'running' || run.rounds.some(one => one.n > (round?.n ?? Infinity) && one.cards.length > 0)) routed()
+    }) : () => {}
+    try {
+      await this.#team.intentAction(params.room, params.id, params.action, params.reason, params.outcome, params.context, client)
+      await this.#team.flush()
+      if (params.action === 'done') return null
+      if (before) await Promise.race([this.#flows.cardContinuation(before.id), routing])
+      // Round metadata can be announced before its board save lands. Name
+      // only a successor whose cards survived that save.
+      await this.#team.flush()
+      const after = before ? this.#flows.executionOf(before.id) : null
+      const board = before ? this.#goalStore.read(params.room).board : this.#team.stateFor(params.room)
+      const next = after?.rounds.find(one => one.n > (round?.n ?? Infinity) && one.cards.some(id => board.intents.some(card => card.id === id)))
+      return { role: round?.role ?? null, nextRole: next?.role ?? null }
+    } finally { detach() }
   }
 
   recordClientAudit(entry: Omit<ClientAuditEntry, 'at' | 'via'>): void {

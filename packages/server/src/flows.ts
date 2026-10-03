@@ -371,6 +371,9 @@ export class Flows implements TeamFlows {
     return this.#executions?.runs(goal) ?? []
   }
 
+  /** Observe one card's routing without the disposer's timer cancellation. */
+  async cardContinuation(run: string): Promise<void> { await this.#executions?.cardContinuation(run) }
+
   executionSummaries(options: { team?: string; project?: string; active?: boolean } = {}): readonly FlowExecutionSummary[] {
     return (this.#executions?.runs(options.team) ?? [])
       .filter(run => options.active === false || run.state === 'running' || run.state === 'stalled')

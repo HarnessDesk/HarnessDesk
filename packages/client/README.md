@@ -140,6 +140,7 @@ waiters; a fatal end rejects them with the same error the streams throw.
 `snapshot(): ClientSnapshot` returns detached plain arrays: `teams`
 (`GoalView[]`), `runs` (`FlowExecution[]`), `boards` (`TeamState[]`), `seats`
 (`SeatActivity[]`), open `approvals` (`{ runtime, sessionId, approval }[]`),
+the current `waiting` items (with the stable ids used by `waiting.cleared`),
 and `reviews` (`{ run, rounds }[]`, with `FindingRoundPublication[]` per run).
 Mutating any returned value does not change the held state. A new baseline
 replaces it; board and activity changes update the held Team facts.
@@ -147,7 +148,24 @@ replaces it; board and activity changes update the held Team facts.
 
 The door grants `read` and `run` by default. `flow/catalog`, `flow/source`
 and `flow/preview` are reads; `workspace/open` and `flow/start-goal` need run.
-`answer` is not granted. A Flow start redeems a single-use preview token bound
+`answer` is off by default. Settings › Permissions › Local clients grants it
+through `clientsMayAnswer: true`; `HARNESSDESK_CLIENTS_MAY_ANSWER=1` grants
+it for scripted desks. The host checks that choice for every call, including
+connections whose hello was earlier.
+
+`flow/execution/stop` needs `run` and returns ended runs unchanged.
+`team/intent` is action-tiered: `abandon` needs `run`; `done` needs `answer`
+and a live card the frozen Flow addressed to a person, with one of that
+role's declared outcomes. Other actions remain off the client surface.
+The first answer owns the card and its handoff; another client receives
+`alreadyAnswered`. Both waiting subscribers converge on the same stable
+resolved id. Client answers carry the stated client's name on the Team's
+channel as answered from the command line. An abandon returns
+`{role, nextRole}` after the ordinary Flow continuation; either can be null
+when no role was bound or no next round opened. Abandoning keeps the rules
+in play; stopping the run ends them.
+
+A Flow start redeems a single-use preview token bound
 to source, inputs, per-role `seats` and `attended` (true by default). Execution
 records and receipts preserve attendance and overrides. An unattended start
 uses a trigger's unattended ceiling policy (asked ceilings are refused by

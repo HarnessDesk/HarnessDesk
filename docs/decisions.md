@@ -44,12 +44,20 @@ clients before returning.
 
 The door speaks the host's wire, but answers only the entries in
 `CLIENT_METHODS`, each naming its tier: `read`, `run` or `answer`. `read` and
-`run` are granted by default; `answer` remains ungranted. A connection says hello before calling or subscribing;
+`run` are granted by default; `answer` is off until the per-desk preference
+or scripted-desk environment switch grants it. A connection says hello before calling or subscribing;
 the door checks the surface and granted tier before validating the method's
 params. The command line lists desks, status, Teams and runs, and watches
 their changes. Catalogue/source/preview calls use `read`; opening a project
-and starting a Flow use `run`. Stopping work, answering cards and tool approvals,
-and changing settings remain outside the client surface.
+and starting or stopping a Flow use `run`. `team/intent` names its tier per
+action beside the method table: abandoning requires `run`, and answering
+a live person card requires `answer`. All other actions, tool approvals
+and settings remain outside the client surface. A client cannot supply
+answer attribution: the door adds its stated name at the host's board mutation,
+which validates the frozen role and declared outcome before the first await.
+The first answer preserves its context and every waiting subscriber sees
+resolution. An identical window decision retry remains a quiet no-op;
+clients and changed answers receive `alreadyAnswered`.
 
 A start redeems a single-use preview token that freezes source, inputs,
 seat overrides and attendance. Those choices survive in the execution and

@@ -1341,6 +1341,9 @@ class PreviewStore {
   ): Promise<import('@harnessdesk/protocol').TriggerPreferences> => triggerPreferencesFixture({ paused, dailyUsd })
   triggerGoal = async (goal: string): Promise<import('@harnessdesk/protocol').TriggerGoalStatus | null> =>
     goal === PREVIEW_TRIGGER_GOAL.goal.id ? triggerGoalStatus({ goal }) : null
+  private clientsMayAnswer = false
+  loadClientsMayAnswer = async (): Promise<boolean> => this.clientsMayAnswer
+  setClientsMayAnswer = async (value: boolean): Promise<boolean> => { this.clientsMayAnswer = value; return true }
   loadQuestionWait = async (): Promise<'5m'> => '5m'
   setQuestionWait = async (): Promise<boolean> => true
   loadUnattendedCeilings = async (): Promise<'seat' | 'refuse'> => 'refuse'

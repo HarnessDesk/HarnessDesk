@@ -8,6 +8,7 @@ import { runtimeId, approvalId, type SeatActivity, type WireNotification } from 
 import * as doorModule from '../src/client-door.js'
 import { Client, silent, start, stop } from './fixtures/harness.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
+import { GoalStore } from '../src/goals/store.js'
 
 const load = async () => doorModule
 // A ceiling sized for a starved machine, not a wait: every wait below ends on the
@@ -769,7 +770,7 @@ test('the run surface answers and audits its actual tier, without admitting othe
   assert.equal((await peer.call('flow/start-goal', { root: home, source, sentence: 'Demo', token: preview.result.token })).ok, true)
   assert.equal((await peer.call('flow/start-goal', { root: home, source, sentence: 'Demo', token: preview.result.token })).error.code, 'refused')
   assert.equal((await peer.call('workspace/open', null)).error.code, 'badRequest')
-  assert.equal((await peer.call('flow/execution/stop', { run: 'missing' })).error.code, 'notOnClientSurface')
+  assert.equal((await peer.call('flow/execution/stop', { run: 'missing' })).error.code, 'badRequest')
   assert.equal((await peer.call('approval/respond', null)).error.code, 'notOnClientSurface')
   await door.close()
   await peer.until(() => peer.socket.readyState === WebSocket.CLOSED)
@@ -854,3 +855,91 @@ test('concurrent person answers have one winner, preserve its handoff and conver
   assert.ok(audit.some(entry => entry.method === 'team/intent' && entry.tier === 'answer' && entry.outcome === 'ok'))
   assert.ok(audit.some(entry => entry.method === 'team/intent' && entry.tier === 'answer' && entry.code === 'alreadyAnswered'))
 })
+
+for (const action of ['done', 'abandon'] as const) {
+  test(`a client ${action} refuses a failed board save and leaves the card answerable`, async t => {
+    const { h, home, door } = await rig(t)
+    await h.host.call('workspace/open', { path: home })
+    await h.host.call('app/state/set', { patch: { clientsMayAnswer: true } })
+    const preview = await h.host.call('flow/preview', { root: home, source })
+    const run = await h.host.call('flow/start-goal', { root: home, source, sentence: 'Save proof', token: preview.token! })
+    const before = (await h.host.call('goal/read', { goal: run.goal })).board
+    const save = GoalStore.prototype.save
+    GoalStore.prototype.save = async function(document, revision) {
+      if (document.goal.id === run.goal && document.board.intents[0]?.state === (action === 'done' ? 'done' : 'abandoned')) throw new Error('Synthetic board save failure')
+      return save.call(this, document, revision)
+    }
+    t.after(() => { GoalStore.prototype.save = save })
+    const peer = await Peer.open(door.socketPath); t.after(() => peer.socket.close())
+    await peer.hello()
+    const answer = await peer.call('team/intent', { room: run.goal, id: 1, action, outcome: 'done', context: 'The refused handoff', reason: 'Replan' })
+    assert.equal(answer.ok, false, 'a rolled-back mutation cannot be reported as accepted')
+    assert.equal(answer.error.code, 'refused')
+    assert.deepEqual((await h.host.call('goal/read', { goal: run.goal })).board.intents, before.intents)
+    assert.equal((await h.host.call('goal/read', { goal: run.goal })).board.channel.filter(entry => entry.kind === 'signal' && ['completed', 'abandoned'].includes(entry.signal)).length, 0)
+    await h.host.call('audit/query', {})
+    const audit = (await readFile(join(home, 'audit.ndjson'), 'utf8')).trim().split('\n').map(line => JSON.parse(line))
+    assert.ok(audit.some(entry => entry.method === 'team/intent' && entry.code === 'refused' && entry.outcome !== 'ok'))
+    GoalStore.prototype.save = save
+    assert.equal((await peer.call('team/intent', { room: run.goal, id: 1, action, outcome: 'done', reason: 'Replan' })).ok, true, 'a retry can answer after persistence recovers')
+  })
+}
+
+test('client abandon observes routing without invoking the disposer flush', async t => {
+  const { h, home, door } = await rig(t)
+  await h.host.call('workspace/open', { path: home })
+  const preview = await h.host.call('flow/preview', { root: home, source })
+  const run = await h.host.call('flow/start-goal', { root: home, source, sentence: 'Routing proof', token: preview.token! })
+  const flush = h.host.flowsPlane.flush.bind(h.host.flowsPlane)
+  Object.defineProperty(h.host.flowsPlane, 'flush', { configurable: true, value: async () => { throw new Error('Disposer flush cancels unrelated attendance timers') } })
+  const peer = await Peer.open(door.socketPath); t.after(() => peer.socket.close())
+  await peer.hello()
+  try {
+    const answer = await peer.call('team/intent', { room: run.goal, id: 1, action: 'abandon', reason: 'Replan' })
+    assert.equal(answer.ok, true, JSON.stringify(answer))
+    assert.deepEqual(answer.result, { role: 'decide', nextRole: null })
+  } finally { Object.defineProperty(h.host.flowsPlane, 'flush', { configurable: true, value: flush }) }
+})
+
+for (const successor of [false, true]) {
+  test(`client abandon returns while a ${successor ? 'successor' : 'different run'} check is still held`, async t => {
+    const { h, home, door } = await rig(t)
+    await h.host.call('workspace/open', { path: home })
+    const check = '  gate: { kind: check, run: "sleep 30", timeout: 60, exits: { "0": pass }, otherwise: fail }\n'
+    const personSource = successor
+      ? source.replace('seed:', `${check}seed:`).replace('rules: []', 'rules:\n  - { id: gate, on: decide, then: { role: gate, title: Check } }')
+      : source
+    const preview = await h.host.call('flow/preview', { root: home, source: personSource })
+    const run = await h.host.call('flow/start-goal', { root: home, source: personSource, sentence: 'Routing proof', token: preview.token! })
+    let checkingRun: string | undefined
+    let starting: Promise<unknown> | undefined
+    try {
+      if (!successor) {
+        const checkSource = `version: 2\nname: Held check\nroles:\n${check}seed: { role: gate, title: Check }\nrules: []\n`
+        const preview = await h.host.call('flow/preview', { root: home, source: checkSource })
+        starting = h.host.call('flow/start-goal', { root: home, source: checkSource, sentence: 'Other check', token: preview.token! })
+      }
+      const peer = await Peer.open(door.socketPath); t.after(() => peer.socket.close())
+      await peer.hello()
+      if (!successor) await peer.until(() => {
+        const checking = h.host.flowsPlane.executionSummaries({ active: true }).find(one => one.id !== run.id && one.role === 'gate')
+        checkingRun = checking?.id
+        return checkingRun !== undefined
+      })
+      else checkingRun = run.id
+      let timer: ReturnType<typeof setTimeout> | undefined
+      t.after(() => { if (timer) clearTimeout(timer) })
+      const answer = await Promise.race([
+        peer.call('team/intent', { room: run.goal, id: 1, action: 'abandon', reason: 'Replan' }),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Abandon waited for the held check')), 10_000) }),
+      ])
+      clearTimeout(timer)
+      assert.equal(answer.ok, true, JSON.stringify(answer))
+      assert.deepEqual(answer.result, { role: 'decide', nextRole: successor ? 'gate' : null })
+      assert.equal((await h.host.call('flow/execution', { run: checkingRun! })).state, 'running', 'the check was not stopped to make abandon return')
+    } finally {
+      if (checkingRun) await h.host.call('flow/execution/stop', { run: checkingRun, reason: 'Test cleanup' })
+      await starting
+    }
+  })
+}

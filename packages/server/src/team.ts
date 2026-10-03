@@ -1478,8 +1478,9 @@ export class Team {
     if (!intent) throw new Error(`There is no intent #${id} on this board.`)
     /* The same answer to a card already answered that way is a retry (a
        person's pick answered once, a second press), not news: nothing is
-       signalled or handed to its flow twice. A new context package is not a
-       repeat, so that still goes through and replaces the handoff. */
+       signalled or handed to its flow twice. A changed person answer and
+       every client repeat go through the first-answer guard below; ordinary
+       manual agent-card handoff updates retain their existing behavior. */
     if (
       client === undefined && action === 'done' && intent.state === 'done' && intent.outcome === (outcome?.trim() || null) &&
       (!context?.trim() || context.trim() === intent.handoff)
@@ -1527,7 +1528,11 @@ export class Team {
       undo.mark()
       const saved = this.#commit(board, true, undo)
       // Never past a save that failed — `#afterSaved`'s own rule, kept here because what follows must also await the stop capture before it runs.
-      if (saved && (await saved)) return
+      const failure = saved ? await saved : null
+      if (failure) {
+        if (client !== undefined) throw Object.assign(new Error(`The card could not be saved: ${failure.message}`), { wireCode: 'refused' })
+        return
+      }
       // Where its checkout stood the moment it stopped is recorded by `#patchIntent`, above; its flow must not continue past that.
       await this.awaitStops(board.id)
       // Its flow hears of it once it is saved, and not at all when it is not.
@@ -1559,7 +1564,11 @@ export class Team {
       undo.mark()
       const saved = this.#commit(board, true, undo)
       // Never past a save that failed — `#afterSaved`'s own rule, kept here because what follows must also await the stop capture before it runs.
-      if (saved && (await saved)) return
+      const failure = saved ? await saved : null
+      if (failure) {
+        if (client !== undefined) throw Object.assign(new Error(`The card could not be saved: ${failure.message}`), { wireCode: 'refused' })
+        return
+      }
       // Where its checkout stood the moment it stopped is recorded by `#patchIntent`, above; its flow must not continue past that.
       await this.awaitStops(board.id)
       // Its flow hears of it once it is saved, and not at all when it is not.

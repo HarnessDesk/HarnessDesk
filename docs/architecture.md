@@ -287,10 +287,16 @@ every inbound frame before the host sees it, and one module under
 `team.ts` for `team/*`, and so on. The renderer reaches the host through this socket. Outside clients use a
 second listener, a local unix socket in a user-owned `0700` directory with a
 `0600` socket and discovery pointer. It answers only `CLIENT_METHODS`,
-checks each method's tier before its params, and sends only subscribed topics
+checks each method or action's tier before its params, and sends only subscribed topics
 in scope after hello. `read` and `run` are granted by default; `answer`
-remains ungranted. Catalogue/source/preview calls are reads; opening a project
-and starting a Flow require `run`. A start redeems a single-use preview token
+is granted only by the live per-desk preference or explicit scripted-desk
+environment switch. Catalogue/source/preview calls are reads; opening a project
+and starting or stopping a Flow require `run`. The person stop closes the
+round before interrupting its capable Seats; later turn completions fire no
+rule. `team/intent` admits only abandon at `run` and done at `answer`. A
+done requires the frozen Flow's live person role and a declared outcome.
+The shared board mutation preserves the first answer and its handoff, and
+client provenance is supplied by the door rather than wire params. A start redeems a single-use preview token
 bound to source, inputs, seat overrides and attendance. Unattended starts use
 the trigger's ceiling, question-deadline and late-answer path. The window's
 token-gated door keeps its existing contract. Client calls share the audit file, while
