@@ -91,6 +91,8 @@ const PROBE_HELPERS = `
  * heading level or component. A readout is declared, never guessed from its
  * text: `ChartTitle`'s `figure` marks itself `data-figure` and is left to its
  * own role, while a title that merely reads as a number is still a name. A
+ * `ListRow` title declares its role (`data-role`: navigation at `size="sm"`,
+ * subject otherwise) and is measured against that pair like a `Text`. A
  * heading whose whole name is drawn by a `Text` inside it is measured through
  * that `Text`. The preview frame caption is excluded by `data-preview-caption`
  * because it labels the harness, not the product. `Text` readout roles and
@@ -129,6 +131,10 @@ const namesViolations = (page: Page) =>
     const roleNodes = [
       ...document.querySelectorAll('[data-slot="text"][data-role]'),
       ...document.querySelectorAll('[data-slot="page-title"]'),
+      // A `ListRow` title declares the role it is drawn in (navigation at the
+      // small size, subject otherwise), so it is read against that pair
+      // exactly and not merely against "some name pair".
+      ...document.querySelectorAll('[data-slot="list-row-title"][data-role]'),
     ]
     const checked = new Set<Element>()
     const visible = (el: Element) => {
@@ -263,6 +269,41 @@ test.describe('rule: names', () => {
     const after = await namesViolations(page)
     expect(after.out.some((finding) => finding.text === '2048' && finding.size === 16 && finding.weight === 500)).toBe(true)
     expect(after.out.some((finding) => finding.text === '4096')).toBe(false)
+  })
+
+  test('rule: names — the checker reads a ListRow title against the role it declares', async ({ page }) => {
+    await gotoPreview(page)
+    const before = await namesViolations(page)
+    await page.addStyleTag({ content: '[data-slot="list-row-title"][data-role="navigation"] { font-weight: 600 !important; }' })
+    const after = await namesViolations(page)
+    expect(after.out.length).toBeGreaterThan(before.out.length)
+    expect(after.out.some((f) => f.reason.includes('role navigation wants 13/400') && f.weight === 600)).toBe(true)
+  })
+
+  test('rule: names — the Team rail draws a member’s name in the navigation pair (13/400)', async ({ page }) => {
+    await gotoPreview(page)
+    for (const theme of ['light', 'dark'] as const) {
+      for (const look of ['desk', 'studio'] as const) {
+        await setPreviewDials(page, theme, look)
+        const titles = await page.evaluate(() =>
+          [...document.querySelectorAll('[data-slot="list-row"].group\\/member [data-slot="list-row-title"]')]
+            .filter((el) => (el as HTMLElement).offsetParent !== null)
+            .map((el) => {
+              const cs = getComputedStyle(el)
+              return {
+                text: (el.textContent ?? '').trim(),
+                role: el.getAttribute('data-role'),
+                size: Math.round(parseFloat(cs.fontSize)),
+                weight: Number(cs.fontWeight),
+              }
+            }),
+        )
+        expect(titles.length, `${theme}/${look}: no rail member row was found`).toBeGreaterThan(0)
+        for (const title of titles) {
+          expect(title, `${theme}/${look}: ${title.text}`).toMatchObject({ role: 'navigation', size: 13, weight: 400 })
+        }
+      }
+    }
   })
 })
 
