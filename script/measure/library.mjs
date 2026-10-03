@@ -281,7 +281,7 @@ export function makeSandboxProfile(root, realHome = homedir(), options = {}) {
   return sandboxProfileText(canonicalRealHome, {
     fixtureRoot: canonicalFixtureRoot,
     fixtureRoots: [...new Set([resolve(root), canonicalFixtureRoot])],
-    readPaths: [nodeInstallPrefix(process.execPath, canonicalRealHome), ...(options.readPaths ?? [])], isolation: options.isolation ?? 'strict',
+    readPaths: [nodeInstallPrefixFor(options.nodeBinary ?? realpathSync(process.execPath), canonicalRealHome), ...(options.readPaths ?? [])], isolation: options.isolation ?? 'strict',
   })
 }
 
@@ -526,7 +526,7 @@ export function shouldAskAgent(agent) {
   return !KEYCHAIN_READ_ONLY_AGENTS.has(agent.id)
 }
 
-export async function prepareSandbox(fixture, { isolation = 'strict', readPaths = [] } = {}) {
+export async function prepareSandbox(fixture, { isolation = 'strict', readPaths = [], nodeBinary } = {}) {
   fixture.isolation.preflightPassed = false
   fixture.isolation.available = false
   VERIFIED_FIXTURES.delete(fixture)
@@ -536,20 +536,21 @@ export async function prepareSandbox(fixture, { isolation = 'strict', readPaths 
   }
   let profile
   try {
-    profile = makeSandboxProfile(fixture.root, homedir(), { isolation, readPaths })
-  } catch {
-    fixture.isolation.reason = 'cannot isolate: the Node install directory is not a safe read root'
+    profile = makeSandboxProfile(fixture.root, homedir(), { isolation, readPaths, nodeBinary })
+    if (!profile) {
+      fixture.isolation.reason = 'cannot isolate: sandbox profile unavailable'
+      return false
+    }
+    await writeFile(fixture.isolation.profilePath, profile, 'utf8')
+    fixture.isolation.profileText = profile
+    fixture.isolation.profile = isolation
+    fixture.isolation.readPaths = readPaths
+    fixture.isolation.preflightPassed = verifySandbox(fixture.isolation.profilePath, fixture.root, { isolation, readPaths })
+  } catch (error) {
+    const unsafePrefix = 'cannot isolate: the Node install directory is not a safe read root'
+    fixture.isolation.reason = error?.message === unsafePrefix ? unsafePrefix : 'cannot isolate: sandbox profile unavailable'
     return false
   }
-  if (!profile) {
-    fixture.isolation.reason = 'cannot isolate: sandbox profile unavailable'
-    return false
-  }
-  await writeFile(fixture.isolation.profilePath, profile, 'utf8')
-  fixture.isolation.profileText = profile
-  fixture.isolation.profile = isolation
-  fixture.isolation.readPaths = readPaths
-  fixture.isolation.preflightPassed = verifySandbox(fixture.isolation.profilePath, fixture.root, { isolation, readPaths })
   fixture.isolation.available = fixture.isolation.preflightPassed
   fixture.isolation.reason = fixture.isolation.preflightPassed ? '' : 'cannot isolate: sandbox profile preflight failed'
   if (fixture.isolation.preflightPassed) VERIFIED_FIXTURES.set(fixture, profile)

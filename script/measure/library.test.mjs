@@ -216,22 +216,50 @@ test('sandbox preparation refuses an unsafe Node prefix without writing a profil
   const root = await mkdtemp('/tmp/hd-measure-unsafe-node-')
   t.after(() => rm(root, { recursive: true, force: true }))
   const fixture = await createFixture(root)
-  const realpath = fs.realpathSync
-  const mock = t.mock.method(fs, 'realpathSync', (path, ...args) => path === process.execPath
-    ? '/Volumes/Fixture/node/bin/node'
-    : realpath(path, ...args))
-  syncBuiltinESMExports()
-  t.after(() => {
-    mock.mock.restore()
-    syncBuiltinESMExports()
-  })
-
-  assert.equal(await prepareSandbox(fixture), false)
+  const nodeBinary = '/Volumes/Fixture/node/bin/node' // synthetic install path
+  assert.equal(await prepareSandbox(fixture, { nodeBinary }), false)
   assert.equal(fixture.isolation.reason, 'cannot isolate: the Node install directory is not a safe read root')
   assert.doesNotMatch(fixture.isolation.reason, /[/\\]/)
   assert.equal(fixture.isolation.available, false)
   assert.equal(fixture.isolation.preflightPassed, false)
   assert.equal(existsSync(fixture.isolation.profilePath), false)
+})
+
+test('sandbox preparation sanitizes profile and verification exceptions', async (t) => {
+  if (process.platform !== 'darwin') return t.skip('macOS only')
+  for (const stage of ['profile', 'verification']) {
+    for (const known of [true, false]) {
+      await t.test(`${stage}: ${known ? 'unsafe prefix' : 'unknown error'}`, async (t) => {
+        const root = await mkdtemp('/tmp/hd-measure-profile-error-')
+        t.after(() => rm(root, { recursive: true, force: true }))
+        const fixture = await createFixture(root)
+        const realpath = fs.realpathSync
+        let checks = 0
+        const mock = t.mock.method(fs, 'realpathSync', (path, ...args) => {
+          if (path === process.execPath && ++checks === (stage === 'profile' ? 1 : 2)) {
+            if (known) return '/Volumes/Fixture/node/bin/node' // synthetic install path
+            throw new Error('unreadable /Volumes/Fixture/node/bin/node') // synthetic diagnostic
+          }
+          return realpath(path, ...args)
+        })
+        syncBuiltinESMExports()
+        t.after(() => {
+          mock.mock.restore()
+          syncBuiltinESMExports()
+        })
+
+        assert.equal(await prepareSandbox(fixture), false)
+        assert.equal(fixture.isolation.reason, known
+          ? 'cannot isolate: the Node install directory is not a safe read root'
+          : 'cannot isolate: sandbox profile unavailable')
+        assert.doesNotMatch(fixture.isolation.reason, /[/\\]/)
+        assert.equal(fixture.isolation.available, false)
+        assert.equal(fixture.isolation.preflightPassed, false)
+        if (stage === 'profile') assert.equal(existsSync(fixture.isolation.profilePath), false)
+        assert.throws(() => run(process.execPath, [], fixture), /preflight has not passed/)
+      })
+    }
+  }
 })
 
 test('a Node prefix in the real home cannot be checked against the synthetic canary home', () => {
