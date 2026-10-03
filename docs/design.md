@@ -1513,3 +1513,22 @@ quiet text. Wrapped record titles keep their lead on the first line. Sentences w
 narrow widths, while the brief previews two lines.
 The `run-view` catalogue board mounts the production component for every Run
 state, empty and failed reads, a long timeline, and the narrow pane.
+
+
+### The Run inspector
+
+A selected timeline row opens recorded detail in `PanelFrame`, `PanelTools`
+and `PanelBody`, with the same section labels as other inspectors. Cards show
+Input, Handoff, Findings, Review and recorded Seat cost; Open the conversation
+is last. A check shows its command, recorded folder, timeout, exit mapping and
+latest evidence output. A person’s step shows its sentence and declared
+outcomes as text. Run details keeps the full brief, frozen Flow revision and
+base, Seats, origin and recorded budgets. Missing facts say so.
+
+At pane widths below 48rem, a selection pushes detail over the timeline;
+Run timeline returns to the selected row, and Run details opens the summary.
+Cost is recorded for the Seats, which may have worked in more than one Run.
+Handoffs and finding text preserve literal markup and discard terminal escapes
+through the shared sanitiser. The `run-inspector` catalogue and preview use
+the production component for every kind, empty, pending and failed reads,
+narrow navigation and both themes.
