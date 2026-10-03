@@ -578,8 +578,10 @@ know").
 | Stop | `flow/execution/stop` | The clients design's phase 3 (#1247). |
 
 **One set of selectors.** Two pure functions, `teamOverview(state)` and
-`runTimeline(state, run)`, turn the event state into exactly what the table and
-the timeline draw. They belong in `@harnessdesk/client/views`: pure, no
+`runTimeline(input)` (the input is one Run's record, its cards and signals, and
+the check results and findings the timeline also needs, as below), turn the held
+state into exactly what the table and the timeline draw. They belong in
+`@harnessdesk/client/views`: pure, no
 transport, and the window imports only that entry (a layering rule holds it).
 The command line's `status` and `run show` are the same selectors with a
 terminal's words. The selector code and its tests were written first in
@@ -588,7 +590,16 @@ design moves the files into `client/views` when the command line needs them and
 leaves a re-export behind, so nothing in the window breaks. The overview model
 has moved (#1295): it lives in `packages/client/src/views/`, the window's
 `packages/ui/src/lib/team-overview.ts` is a re-export, and the command line's
-`status` renders it. The timeline selector follows with plan PR 16. Until the
+`status` renders it. The timeline selector is written (plan PR 3, #1292) as
+`runTimeline({ execution, cards, signals?, evidence?, findings?, origin? })` in
+`packages/ui/src/lib/run-timeline.ts`; check results (`evidence`) and a Team's
+findings are read on demand and are not part of the held event state, so they
+are explicit inputs, and it moves with plan PR 16. That move either brings along
+its two small word helpers (`wordOf`, `lifecycleWords`), which are UI-only today,
+or takes their words as an input, and
+settles with the clients design whether `evidence/board` and `finding/list` join
+the client door's read tier; if they do not, `run show` prints the rows it can
+and says that check results and findings are not shown. Until the
 stream feeds the window, the window feeds the selectors from its own snapshot,
 provided the output has the same shape; replacing the input is then mechanical.
 
