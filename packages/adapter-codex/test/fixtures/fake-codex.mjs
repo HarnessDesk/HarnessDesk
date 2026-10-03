@@ -1583,8 +1583,14 @@ rl.on('line', (line) => {
     }
 
     case 'command/exec/write': {
+      // The synthetic running command accepts the same empty startup check
+      // as a real child, while retaining its controlled exit and output.
+      if (armedExit?.processId === params.processId && params.deltaBase64 === '' && !params.closeStdin) {
+        send({ id, result: {} })
+        return
+      }
       const child = processes.get(params.processId)
-      if (!child) {
+      if (!child || !child.pid) {
         send({ id, error: { code: -32600, message: `unknown processId ${params.processId}` } })
         return
       }
