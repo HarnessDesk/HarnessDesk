@@ -61,7 +61,7 @@ export const GoalBar = () => {
       </Chip>
       <Button
         type="button"
-        variant="ghost" size="icon-sm" className={styles.goalClear}
+        variant="ghost" size="icon-xs" edge="end" edgeGlyph={11} className={styles.goalClear}
         aria-label="Clear goal"
         title="Clear this goal"
         onClick={() => void store.setGoal(null)}

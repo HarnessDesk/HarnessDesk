@@ -241,7 +241,8 @@ export const DockPanelBar = ({ className, ...props }: React.ComponentProps<'head
          tool's — see `--hd-topbar-h`. A strip 14px shorter than the header
          beside it put a step in the one horizontal line the eye follows
          across the window. */
-      'flex h-(--hd-bar-h) shrink-0 items-center gap-1 border-b border-(--hd-border) px-2',
+      // A plain view title shares the inspector search's leading glyph inset.
+      'flex h-(--hd-bar-h) shrink-0 items-center gap-1 border-b border-(--hd-border) px-2 [&>[data-slot=text]]:ml-2.5',
       /* And a top row is a handle for the window, like every other one: the
          conversation's header, a tool's, the sidebar's title bar. This strip
          was the only chrome in the app that was not, so a room or a board in
@@ -426,7 +427,8 @@ export const DockPanelTab = ({
          * variant — so a plain `h-…` here loses silently, which it did three
          * times before this was read rather than guessed at.
          */
-        'peer/tab group-data-[orientation=horizontal]/tabs:h-(--hd-control-h) flex-none gap-1.5 px-2 text-(--hd-text-sm)',
+        // The tab's mark precedes words on the inspector search's text column.
+        'peer/tab group-data-[orientation=horizontal]/tabs:h-(--hd-control-h) flex-none gap-3 px-2 text-(--hd-text-sm)',
         'text-(--hd-secondary-foreground) hover:bg-(--hd-hover)',
         /*
          * A document tab, not a section tab: the active one is a filled pill,

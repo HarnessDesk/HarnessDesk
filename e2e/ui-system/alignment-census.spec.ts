@@ -116,6 +116,28 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     // is painted by an overlay ancestor, so parts can mark that geometry.
     return element.hasAttribute('data-surface') || (rect.width >= 120 && (painted || bordered || shadowed))
   }
+  const firstBodyColumn = (element: Element, iconTab: boolean) => {
+    const candidates = [element, ...element.querySelectorAll('*')].filter(candidate =>
+      !candidate.closest('[data-slot="alert"]') && (
+        candidate.matches('[data-slot="search"] input, [data-slot="list-row-title"], [data-slot="approval-code"]') ||
+        (hasText(candidate) && !candidate.closest('button') && !candidate.querySelector('button, [data-slot="alert"], [data-slot="approval-code"], [data-slot="search"] input'))
+      ))
+    for (const candidate of candidates) {
+      if (hidden(candidate)) continue
+      if (candidate instanceof HTMLInputElement && (candidate.value || candidate.placeholder)) {
+        // A bare bar label uses the search's lead; an icon tab shares its words.
+        const lead = candidate.closest('[data-slot="search"]')?.querySelector('svg')
+        if (!iconTab && lead && lead.getBoundingClientRect().width > 0 && getComputedStyle(lead).visibility !== 'hidden') return lead.getBoundingClientRect().left
+        const style = getComputedStyle(candidate)
+        return candidate.getBoundingClientRect().left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft)
+      }
+      // Approval code owns a second inset; the card label shares its outer edge.
+      if (candidate.matches('[data-slot="approval-code"]')) return candidate.getBoundingClientRect().left
+      const line = firstTextLine(candidate)
+      if (line) return line.left
+    }
+    return null
+  }
   const descriptors = (element: Element) => {
     const parts: string[] = []
     for (let node: Element | null = element; node && node !== root.parentElement && parts.length < 5; node = node.parentElement) {
@@ -248,14 +270,29 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
         }
         if (bodyLeft !== null) break
       }
-      const candidates = [child, ...child.querySelectorAll('*')].filter(element =>
-        hasText(element) && !element.closest('button, [data-slot="alert"]') && !element.querySelector('button, [data-slot="alert"]'),
-      )
-      // Use body glyphs, skipping nested controls and alerts whose own insets do not define this surface's text column.
-      bodyLeft = candidates.map(firstTextLine).find(rect => rect !== null)?.left ?? null
+      // Input text and navigation labels can define the first body column;
+      // a later status chip must not displace them merely because they are controls.
+      bodyLeft = firstBodyColumn(child, !!header.querySelector('[data-slot="dock-panel-tab"] > svg'))
       if (bodyLeft !== null) break
     }
-    if (headerText && bodyLeft !== null && Math.abs(headerText.left - bodyLeft) >= 2) {
+    // Corner rows spend a layout inset for native window controls. Compare
+    // from their ordinary padding edge, retaining any additional glyph offset.
+    let cornerShift = 0
+    if (header.matches('[data-corner], [data-slot="dock-panel-bar"]') &&
+        parseFloat(getComputedStyle(header).getPropertyValue('--titlebar-inset')) > 0) {
+      const element = header as HTMLElement
+      const padding = parseFloat(getComputedStyle(element).paddingLeft)
+      const previous = element.style.getPropertyValue('--titlebar-inset')
+      const priority = element.style.getPropertyPriority('--titlebar-inset')
+      try {
+        element.style.setProperty('--titlebar-inset', '0px')
+        cornerShift = Math.max(0, padding - parseFloat(getComputedStyle(element).paddingLeft))
+      } finally {
+        if (previous) element.style.setProperty('--titlebar-inset', previous, priority)
+        else element.style.removeProperty('--titlebar-inset')
+      }
+    }
+    if (headerText && bodyLeft !== null && Math.abs(headerText.left - cornerShift - bodyLeft) >= 2) {
       record('header-off-body', header)
     }
   }
@@ -362,4 +399,71 @@ test('the rendered frames and boards hold the alignment census ceiling', async (
   for (const check of Object.keys(table)) if (!CHECKS.includes(check as Check)) differences.push(`${check}: recorded but no longer measured`)
   await testInfo.attach('alignment-census', { body: JSON.stringify(all, null, 2), contentType: 'application/json' })
   expect(differences.join('\n\n') || 'every recorded signature is still present and no new ones appeared').toBe('every recorded signature is still present and no new ones appeared')
+})
+
+test('a corner inset adjusts the header reference without hiding a real offset', async ({ page }) => {
+  await page.setContent(`<main id="root">
+    <section data-surface style="width:400px; --titlebar-inset:80px">
+      <header data-corner style="padding-left:max(16px, var(--titlebar-inset))"><h2>Corner header</h2></header>
+      <div style="padding-left:16px">Body column</div>
+    </section>
+  </main>`)
+  const read = () => measure(page, '#root', 'fixture', 'corner', 'Corner fixture')
+  expect((await read()).findings['header-off-body']).toEqual([])
+  await page.locator('h2').evaluate(element => { (element as HTMLElement).style.marginLeft = '8px' })
+  expect((await read()).findings['header-off-body']).toHaveLength(1)
+  await page.locator('h2').evaluate(element => { (element as HTMLElement).style.marginLeft = '0px' })
+  await page.locator('header').evaluate(element => element.removeAttribute('data-corner'))
+  expect((await read()).findings['header-off-body']).toHaveLength(1)
+})
+
+test('placement frames are measured without exemptions', async ({ page }) => {
+  await page.goto('/preview.html?notice-placement')
+  await settle(page)
+  const frames = page.locator('[data-frame-id^="coverage-notice-"]')
+  expect(await frames.count()).toBe(11)
+  for (const frame of await frames.all()) {
+    const id = (await frame.getAttribute('data-frame-id'))!
+    const notices = frame.locator('[data-slot="composer-notice"], [data-slot="notice-strip"]')
+    await expect(notices).toHaveCount(1)
+    const result = await measure(page, `[data-frame-id="${id}"] > div`, 'preview.html', id, id)
+    for (const check of CHECKS) expect.soft(result.findings[check], `${id}: ${check}`).toEqual([])
+  }
+})
+
+for (const [name, body] of [
+  ['input', '<span data-slot="search"><input placeholder="Filter sessions" style="margin-left:16px; border:0; padding-left:24px"></span><span style="margin-left:200px">this week</span>'],
+  ['navigation', '<button style="margin-left:40px; padding:0; border:0"><span data-slot="list-row-title">Overview</span></button><p style="margin-left:16px">Agents</p>'],
+  ['nested box', '<pre data-slot="approval-code" style="margin:0 0 0 40px; padding:12px; border:1px solid; width:200px"><code>pnpm test</code></pre>'],
+] as const) {
+  test(`a header compares with its ${name} body column`, async ({ page }) => {
+    await page.setContent(`<main id="root"><section data-surface style="width:400px">
+      <header style="padding-left:40px"><h2>Surface label</h2></header><div>${body}</div>
+    </section></main>`)
+    const read = () => measure(page, '#root', 'fixture', name, name)
+    expect((await read()).findings['header-off-body']).toEqual([])
+    await page.locator('h2').evaluate(element => { (element as HTMLElement).style.marginLeft = '8px' })
+    expect((await read()).findings['header-off-body']).toHaveLength(1)
+  })
+}
+
+test('a bare bar label shares a search lead while an icon tab shares its text', async ({ page }) => {
+  await page.setContent(`<main id="root"><section data-surface style="width:400px">
+    <header style="padding-left:40px"><h2>Activity</h2></header>
+    <div><span data-slot="search" style="display:block; position:relative; margin-left:40px">
+      <svg aria-hidden="true" style="position:absolute; left:0; width:14px; height:14px"></svg>
+      <input placeholder="Filter sessions" style="border:0; padding-left:20px">
+    </span></div>
+  </section></main>`)
+  const read = () => measure(page, '#root', 'fixture', 'search', 'Search columns')
+  expect((await read()).findings['header-off-body']).toEqual([])
+  await page.locator('header').evaluate(element => {
+    element.setAttribute('data-slot', 'dock-panel-bar')
+    element.querySelector('h2')!.setAttribute('data-slot', 'dock-panel-tab')
+    element.querySelector('h2')!.insertAdjacentHTML('afterbegin', '<svg style="position:absolute; width:14px; height:14px"></svg>')
+    ;(element as HTMLElement).style.paddingLeft = '60px'
+  })
+  expect((await read()).findings['header-off-body']).toEqual([])
+  await page.locator('h2').evaluate(element => { (element as HTMLElement).style.marginLeft = '8px' })
+  expect((await read()).findings['header-off-body']).toHaveLength(1)
 })
