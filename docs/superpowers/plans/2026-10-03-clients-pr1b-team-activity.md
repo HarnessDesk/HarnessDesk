@@ -41,7 +41,7 @@ PR 1c reads the shape this PR defines, which is why the two are split. Write thi
   - list those proofs separately (CI runs the socket tests on Linux).
 - **Rule 13:** identities in tests are `Jane Doe` and `dev@example.com`. No home paths and no real accounts, in code, tests, docs or commit messages.
 - **Public wording:** no wording about weaknesses of any existing surface. Name no runtime in UI text (rule 8).
-- **Commits:** end every commit message with `Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>`. Small commits, one per task below. Never merge.
+- **Commits:** on a board card, use `commit_work`; it adds the desk's co-author credit itself. Small commits, one per task below. Never merge.
 - **Branch:** work on a new branch `client-team-activity` from a fresh `origin/main`. Push it, then open the pull request with `pr_create`. If `pr_create` refuses or reads the wrong checkout, say so plainly in your hand-off and stop. Whoever runs the Team opens it.
 
 ## Task 1. What a seat is doing, as data, in `packages/protocol`

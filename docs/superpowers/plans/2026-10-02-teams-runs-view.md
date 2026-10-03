@@ -70,9 +70,8 @@ dependency, except possibly a graph-layout library in PR 14 (decided there).
   through `node script/land-safe.mjs <pr> --head <the sha the last round
   reviewed>`. No UI or behaviour change means nothing to launch; anything a
   person can see needs frames in the PR body.
-- **Commit trailer.** `Co-authored-by: HarnessDesk Agent
-  <agent@harnessdesk.app>` on a Team's commits; never a trailer copied from
-  `git log`.
+- **Commit attribution.** Use `commit_work` on a board card; it keeps the
+  person's configured identity and adds the desk's co-author credit itself.
 - **PR text is written for our own record.** Two or three plain sentences (the
   problem, the change, why it is safe), a short "What changed", "How to test",
   the linked issue. No competitor or reference-app names, and no thanks or

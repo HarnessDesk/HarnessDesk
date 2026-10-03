@@ -18,7 +18,7 @@
 - **A message is never evidence.** A commit author, trailer, subject, reflog message or an agent's claim does not establish a Seat. Reconciliation does not refresh checks, CI, reviews or findings at the rewritten SHA.
 - **Ambiguity orphans; it never guesses.** No best-score winner, probabilistic attribution, author-email matching, nearest-time fallback or splitting an unknown contribution evenly between Seats.
 - **The store is `evidence`, never `ledger`.** The existing `packages/server/src/ledger/` remains the usage ledger. Provenance is a sidecar under the evidence project's folder, not another copy of Seat records.
-- **A proof counts only if it was run.** Never move a test below the thing it tests. Name every edit to a test you did not write. Run tests in the foreground. A commit's trailer names who wrote it.
+- **A proof counts only if it was run.** Never move a test below the thing it tests. Name every edit to a test you did not write. Run tests in the foreground. On a board card, `commit_work` adds the desk's co-author credit itself.
 - **A wire method is three edits in a fixed order:** declare in `packages/protocol/src/wire.ts`, validate in `packages/protocol/src/wire-validators.ts`, answer in `packages/server/src/methods/provenance.ts`. A handler reaches the host only through `HostContext`.
 - **A verb with no caller is pinned in `UNREACHED`** in `script/check-reachable.mjs` with its reason, and its line is removed in the same task that adds its first `transport.request` caller.
 - **No reference-app or competitor names in anything public. No real accounts or home paths in anything public; frames come from the shots rig. No hard-coded use cases. The plain path stays plain.** Use Jane Doe, `dev@example.com`, and synthetic `/work/project` paths in examples. Read every frame before sharing it.
@@ -30,7 +30,7 @@
 - **The plain path stays plain.** No new sidebar destination, no startup roster read, no change to Command-N or a plain conversation header, no `.harnessdesk/` write in a repository. Capture on by default is the explicit Phase 9 exception to the earlier broad “nothing is read until asked” wording: opening a project registers passive local capture. Healthy capture adds no sidebar decoration; only a stopped capture is called out there.
 - **No turn waits for capture.** No observer await in send, queue drain, turn-start, approval, tool delivery or turn-completed. File events and evidence changes enqueue bounded work. Stop/pause of capture never interrupts an Agent.
 - **Testing:** server tests use `node:test` and `node:assert/strict`; build with `pnpm run build:node`, then run the named `packages/server/dist/test/*.test.js`. UI tests use `pnpm --filter @harnessdesk/ui exec vitest run <one file>`, in the foreground. Do not substitute a handler test for a `parseClientMessage` validation test.
-- **Implementation gate:** the controller runs `pnpm verify` unpiped before committing, plus the real observer and rendered UI acceptance described here. The plan-writing sandbox cannot finish that gate; do not try it there. Commit only named files, with the actual writer's trailer. Do not publish or merge as part of this plan.
+- **Implementation gate:** the controller runs `pnpm verify` unpiped before committing, plus the real observer and rendered UI acceptance described here. The plan-writing sandbox cannot finish that gate; do not try it there. Commit only named files, through `commit_work` on a board card. Do not publish or merge as part of this plan.
 
 ## What exists, and the seams this plan consumes
 
@@ -632,11 +632,11 @@ Expected: exit 0; **9 tests, 9 pass, 0 fail**. These tests prove association bou
 
 - [ ] **Step 8: Controller commit after the phase gate.**
 
-The plan writer does not commit. The controller runs the unpiped `pnpm verify` gate before committing; the execution override governs that timing. The trailer below names the Codex writer of this batch's code; if another writer implements it, the controller records that actual writer instead.
+The plan writer does not commit. The controller runs the unpiped `pnpm verify` gate before committing; the execution override governs that timing. On a board card, `commit_work` records the desk's co-author credit itself.
 
 ```bash
 git add packages/protocol/src/provenance.ts packages/protocol/src/index.ts packages/server/src/provenance/model.ts packages/server/src/provenance/reconcile.ts packages/server/test/provenance-model.test.ts
-git commit -m "feat: define commit provenance and Seat associations" --trailer "Co-Authored-By: Codex GPT-6 <agent@harnessdesk.app>"
+git commit -m "feat: define commit provenance and Seat associations"
 ```
 
 ### Task 2: A confined Git reader and immutable fingerprints
@@ -1736,11 +1736,11 @@ Expected: exit 0; **14 tests, 14 pass, 0 fail** on the planning machine. The mal
 
 - [ ] **Step 7: Controller commit after the phase gate.**
 
-The plan writer does not run this step. The controller uses the actual implementation writer's trailer and the header's unpiped verification gate.
+The plan writer does not run this step. The controller uses `commit_work` on a board card and the header's unpiped verification gate.
 
 ```bash
 git add packages/server/src/provenance/git.ts packages/server/test/fixtures/provenance-repo.ts packages/server/test/provenance-git.test.ts
-git commit -m "feat: read provenance from confined Git objects" --trailer "Co-Authored-By: Codex GPT-6 <agent@harnessdesk.app>"
+git commit -m "feat: read provenance from confined Git objects"
 ```
 
 ### Task 3: Reconcile amend, rebase and squash without guessing
@@ -2766,11 +2766,11 @@ Planning evidence for this batch: the exact file bodies above, with Phase 4's co
 
 - [ ] **Step 7: Controller commit after the phase gate.**
 
-The plan writer does not commit. The controller runs `pnpm verify` unpiped and records the actual implementation writer in the trailer.
+The plan writer does not commit. The controller runs `pnpm verify` unpiped and uses `commit_work` on a board card for automatic attribution.
 
 ```bash
 git add packages/server/src/provenance/reconcile.ts packages/server/test/provenance-reconcile.test.ts
-git commit -m "feat: reconcile Seat provenance across Git rewrites" --trailer "Co-Authored-By: Codex GPT-6 <agent@harnessdesk.app>"
+git commit -m "feat: reconcile Seat provenance across Git rewrites"
 ```
 
 ### Task 4: Durable observations, machine preference and capture health
@@ -3831,7 +3831,7 @@ The plan writer does not commit. After the complete phase passes `pnpm verify` u
 
 ```bash
 git add packages/protocol/src/provenance.ts packages/protocol/src/wire.ts packages/server/src/provenance/journal.ts packages/server/src/provenance/preferences.ts packages/server/src/provenance/health.ts packages/server/src/provenance/backup.ts packages/server/src/host.ts packages/server/test/provenance-journal.test.ts packages/server/test/provenance-backup.test.ts packages/server/test/backup.test.ts
-git commit -m "feat: persist provenance and project capture health" --trailer "Co-Authored-By: Codex GPT-6 <agent@harnessdesk.app>"
+git commit -m "feat: persist provenance and project capture health"
 ```
 
 ### Task 5: Observe refs independently, catch up on start, and bound the work
@@ -5373,7 +5373,7 @@ The plan writer does not commit. After the complete phase passes `pnpm verify` u
 
 ```bash
 git add packages/protocol/src/wire.ts packages/server/src/provenance/observer.ts packages/server/src/provenance/plane.ts packages/server/src/host.ts packages/server/test/provenance-observer.test.ts
-git commit -m "feat: capture project ref movements in the background" --trailer "Co-Authored-By: Codex GPT-6 <agent@harnessdesk.app>"
+git commit -m "feat: capture project ref movements in the background"
 ```
 
 ### Task 6: Bounded host reads and validated wire access
@@ -5892,7 +5892,7 @@ The plan writer does not commit. After the complete phase passes `pnpm verify` u
 
 ```bash
 git add packages/protocol/src/wire.ts packages/protocol/src/wire-validators.ts packages/protocol/test/provenance-wire.test.ts packages/server/src/methods/context.ts packages/server/src/methods/index.ts packages/server/src/methods/provenance.ts packages/server/src/host.ts packages/server/test/provenance-methods.test.ts script/check-reachable.mjs
-git commit -m "feat: expose bounded provenance reads and capture controls" --trailer "Co-Authored-By: Codex GPT-6 <agent@harnessdesk.app>"
+git commit -m "feat: expose bounded provenance reads and capture controls"
 ```
 
 ### Task 7: Commit Seats in history, and the exact historical record
@@ -7527,11 +7527,11 @@ Expected: on the implementation seat, exit 0; **6 browser cases pass** at this s
 
 - [ ] **Step 9: Controller commit after the complete phase gate.**
 
-The plan writer does not commit. The controller verifies the assembled phase unpiped and uses the actual implementation writer's trailer. With the same writer identity used by the earlier tasks:
+The plan writer does not commit. The controller verifies the assembled phase unpiped and uses `commit_work` on a board card for automatic attribution:
 
 ```bash
 git add packages/ui/src/lib/provenance.ts packages/ui/src/components/CommitProvenance.tsx packages/ui/src/components/ProvenanceDialog.tsx packages/ui/src/components/CommitProvenance.test.tsx packages/ui/src/state/store.provenance.test.ts packages/ui/src/state/store.ts packages/ui/src/state/snapshot.ts packages/ui/src/components/GitPane.tsx packages/ui/src/components/GitPane.test.tsx packages/ui/src/preview/provenance-fixture.ts packages/ui/src/preview/harness.tsx packages/ui/src/preview/main.tsx e2e/ui-system/provenance.spec.ts script/check-reachable.mjs
-git commit -m "feat: show commit provenance and historical Seats" --trailer "Co-Authored-By: Codex GPT-6 <agent@harnessdesk.app>"
+git commit -m "feat: show commit provenance and historical Seats"
 ```
 
 ### Task 8: Project capture controls, stopped sidebar and complete acceptance
@@ -8922,7 +8922,7 @@ The controller records the actual implementation writer. With the same writer id
 
 ```bash
 git add packages/ui/src/components/ProjectProvenance.tsx packages/ui/src/components/ProjectProvenance.test.tsx packages/ui/src/components/ProjectPage.tsx packages/ui/src/components/ProjectPage.test.tsx packages/ui/src/components/SessionTree.tsx packages/ui/src/components/SessionTree.projects.test.tsx packages/ui/src/state/store.ts packages/ui/src/state/store.provenance.test.ts packages/ui/src/preview/main.tsx e2e/ui-system/provenance.spec.ts script/check-reachable.mjs script/shots/seed.mjs script/shots/shoot.mjs script/shots-isolation.test.mjs docs/architecture.md docs/decisions.md docs/interface.md docs/data-boundaries.md
-git commit -m "feat: show and control project provenance capture" --trailer "Co-Authored-By: Codex GPT-6 <agent@harnessdesk.app>"
+git commit -m "feat: show and control project provenance capture"
 ```
 
 ## Interfaces for later phases

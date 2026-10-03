@@ -156,7 +156,7 @@ Every task's requirements include these.
 - **A wire method is three edits in a fixed order** (AGENTS.md rule 2): declare in `packages/protocol/src/wire.ts`, validate in `wire-validators.ts`, answer in `packages/server/src/methods/<domain>.ts`, reaching the host only through `HostContext`.
 - **A verb with no caller is pinned in `UNREACHED`** in `script/check-reachable.mjs` with its reason while Part A lands, and its line is removed in the task that gives it a caller in `packages/ui/src` (Task 11).
 - **Testing.** Host: `node:test` with `node:assert/strict`, built by `pnpm run build:node`, run from `dist/test`. Renderer: Vitest in jsdom. Every test must be able to fail: a task's tests are seen failing before its code, and its proof step's mutations are made, seen red, and restored.
-- **Commit after every task**, with `pnpm verify` green first, run **unpiped** with a short temp dir, reading its exit status: `mkdir -p /tmp/hdv && TMPDIR=/tmp/hdv pnpm verify; echo "verify exit: $?"`. Commit by path. The trailer names who wrote it: `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>` (or `Claude Sonnet 5 <noreply@anthropic.com>`) for a Claude implementer, `Co-Authored-By: Codex GPT-5.6 Sol <agent@harnessdesk.app>` for a Codex one.
+- **Commit after every task**, with `pnpm verify` green first, run **unpiped** with a short temp dir, reading its exit status: `mkdir -p /tmp/hdv && TMPDIR=/tmp/hdv pnpm verify; echo "verify exit: $?"`. Commit by path. On a board card, use `commit_work`; the tool adds the desk's co-author credit itself.
 - **A proof is only a proof if it was run.** If one could not be run, the report says so in those words.
 - **A test never moves below the thing it tests, and every edit to a test you were not asked to write is named** — in the task (each lists them) and in the commit message. Wire coverage without a listener is `parseClientMessage`; host behaviour without one is `host.call`.
 - **Never write a raw control or format character into a source file**; spell it as an escape.
@@ -2149,12 +2149,10 @@ agent-methods (read back as edit), shipped-agents (the table through
 ceilingOfPermission; a seat with no grant holds edit), agent-seat (agentFile,
 orderFor, the recorded standing and ceiling); in the renderer, every fixture's
 permission translated by one rule, and two 'Read · asked' expectations that are
-'Edit · asked' now.
-
-Co-Authored-By: Codex GPT-5.6 Sol <agent@harnessdesk.app>"
+'Edit · asked' now."
 ```
 
-Expected: `verify exit: 0` before the commit. (A Codex writer leaves the tree as it is and says so; the controller runs verify and commits, with the trailer naming who wrote it.)
+Expected: `verify exit: 0` before the commit. (A Codex writer leaves the tree as it is and says so; the controller runs verify and commits; on a board card, `commit_work` adds attribution.)
 
 ---
 
@@ -2970,9 +2968,7 @@ and says which tests nobody ran.
 
 Named edits to tests this change did not write: agent-files (every Save's
 permission: 'read' is ceiling: 'edit'), shipped-agents (the table in
-ceilings), SaveAsAgent (a level's word and meaning, not 'X · asked').
-
-Co-Authored-By: Codex GPT-5.6 Sol <agent@harnessdesk.app>"
+ceilings), SaveAsAgent (a level's word and meaning, not 'X · asked')."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -3663,9 +3659,7 @@ while the file still hashes to what was shown, never through a link, through a
 file of its own renamed over the old one. Line endings, a byte-order mark and a
 comment on the line survive; anything one line cannot be the whole change of
 is refused with why. What ships is never updated. Both verbs are pinned until
-the dialog calls them.
-
-Co-Authored-By: Codex GPT-5.6 Sol <agent@harnessdesk.app>"
+the dialog calls them."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -5030,9 +5024,7 @@ ceiling each would-be seat would run under.
 
 Named edits to tests this change did not write: agent-seat (the rig's
 preferences, holds and seats.hold; ceilingNote, holds and ceiling in its
-expectations).
-
-Co-Authored-By: Codex GPT-5.6 Sol <agent@harnessdesk.app>"
+expectations)."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -5949,9 +5941,7 @@ plugin gains pr_merge, which merges only the commit that was shown and records
 the pull request merged.
 
 Named edit to a test this change did not write: forge (the instruction names
-pr_merge).
-
-Co-Authored-By: Codex GPT-5.6 Sol <agent@harnessdesk.app>"
+pr_merge)."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -6528,9 +6518,7 @@ A sub-agent reaching the desk through its parent's bridge carries the parent's
 token and is scoped to it; one a runtime reports with a conversation of its
 own is mapped to the conversation that delegated it; a Codex sub-thread is
 mapped to its root thread by the adapter. The gate judges each call, and says
-each refusal, at the root.
-
-Co-Authored-By: Codex GPT-5.6 Sol <agent@harnessdesk.app>"
+each refusal, at the root."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -7977,9 +7965,7 @@ when nobody answers. A message's label names its sender's ceiling, and asks
 its receiver not to act for it outside the checkout.
 
 Named edit to a test this change did not write: team (the rig's port records
-each delivery's from).
-
-Co-Authored-By: Codex GPT-5.6 Sol <agent@harnessdesk.app>"
+each delivery's from)."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -8527,9 +8513,7 @@ reads 'Edit · asked', held is neutral and reads 'Read · held', and its hover
 says what the level allows and how it holds or why it is only asked.
 lib/ceilings.ts says the rest once for every surface: a flow seat's ceiling,
 the ceiling a conversation runs under or none, a runtime's holds, the flag for
-an Agent on the old key, and Update…'s two lines.
-
-Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
+an Agent on the old key, and Update…'s two lines."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -9367,9 +9351,7 @@ its coloured tag is gone, and the audit's appearance baseline is ten lower.
 The roster flags an Agent still on permission: or on no ceiling.
 
 Named edits to tests this change did not write: AgentCards (the band's chip),
-TeamRoomPane (the rig takes the member's settings, none by default).
-
-Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
+TeamRoomPane (the rig takes the member's settings, none by default)."
 ```
 
 Expected: `verify exit: 0` before the commit.

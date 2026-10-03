@@ -222,7 +222,7 @@ Every task's requirements include these.
 - **A wire method is three edits in a fixed order** (AGENTS.md rule 2): declare in `packages/protocol/src/wire.ts`, validate in `packages/protocol/src/wire-validators.ts`, answer in `packages/server/src/methods/<domain>.ts`. A handler reaches the host only through `HostContext`. The new domain module is `methods/evidence.ts`, `satisfies MethodsUnder<'evidence/'>`.
 - **A verb with no caller is pinned in `UNREACHED`** in `script/check-reachable.mjs` with its reason while Part A lands, and its line is removed **in the same task** that gives it a `transport.request('…')` caller in `packages/ui/src`.
 - **Testing.** Server: `node:test` with `node:assert/strict`; build with `pnpm run build:node` (it is the typecheck — **never** `pnpm run typecheck`, which fails with TS6310 whatever you change), then `node --test --test-reporter=spec packages/server/dist/test/<file>.test.js`. UI: `pnpm --filter @harnessdesk/ui exec vitest run <path under packages/ui>`. Every test must be able to fail; a regression test is shown red against the unfixed code before the fix.
-- **Commit after every task**, with `pnpm verify` green first, run **unpiped** with a short temp dir, reading its exit status: `mkdir -p /tmp/hdv && TMPDIR=/tmp/hdv pnpm verify; echo "verify exit: $?"`. Commit by path. The commit trailer names **who wrote it**: `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>` (or `Claude Sonnet 5`) for a Claude implementer, `Co-Authored-By: Codex GPT-5.6 Sol <agent@harnessdesk.app>` for a Codex one.
+- **Commit after every task**, with `pnpm verify` green first, run **unpiped** with a short temp dir, reading its exit status: `mkdir -p /tmp/hdv && TMPDIR=/tmp/hdv pnpm verify; echo "verify exit: $?"`. Commit by path. On a board card, use `commit_work`; the tool adds the desk's co-author credit itself.
 - **A proof is only a proof if it was run.** A red-first test is shown failing against the unfixed code, by actually disabling the change and watching a named test go red. Each task's proof step names the mutation to make. If a proof could not be run, the report says so in those words.
 - **A test never moves below the thing it tests, and every edit to a test you were not asked to write is named.** Wire coverage without a listener is `parseClientMessage`; host behaviour without one is `host.call`. When a shared test helper changes shape, the report and the commit say so. Each task below lists the existing tests it edits, and why.
 - **Never write a raw control or format character into a source file.** Spell a NUL, an escape or a direction override as `\x00`, `\x1b` or `\u{202e}` in source, and key a map by `JSON.stringify([...])`, never by a string joined on NUL: a raw NUL makes a file binary to `grep`, and a raw direction override makes a file read differently from how it runs.
@@ -715,9 +715,7 @@ the seam with phase 3 is fixed from the first record: the ceiling a seat
 actually ran under, null until phase 3 fills it, and the standing order as a
 tagged union of today's permission: and phase 3's ceiling:, so a ceiling-only
 Agent's record never has to invent the other. SeatedAs carries the ceiling
-slot, and agent/seat records it as null.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+slot, and agent/seat records it as null."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -1640,9 +1638,7 @@ refused to its caller and reported again by the next flush; and merge reads,
 judges and appends as one queued step. One contextual, bounded rule reads a
 line where it is — its file, its project, its limits — and a line it cannot
 read is skipped, counted and left as it was. A Seat line says its standing
-order in either generation, and always has the ceiling slot.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+order in either generation, and always has the ceiling slot."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -2052,9 +2048,7 @@ A fact is bound to a commit and read against its branch later: fresh at the
 tip, some commits behind, rewritten since, run on changes never committed, or
 unknown with why — and final, only for a merged pull request whose branch is
 gone. Read through execFile with optional locks off, and a branch name from a
-record is checked before git sees it.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+record is checked before git sees it."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -2748,9 +2742,7 @@ conversation it points at —
 before the seat is kept, and waits for it. A seat whose record cannot be
 written is closed, and the refusal says so. The host holds one evidence plane,
 methods reach it as ctx.evidence, and evidence/seat reads a conversation's
-record. The agent-seat test rig gains a stand-in plane (durable).
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+record. The agent-seat test rig gains a stand-in plane (durable)."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -2926,9 +2918,7 @@ git commit -m "feat(evidence): a flow's seats leave Seat records, and a deleted 
 Once a flow run exists each of its seats leaves a durable Seat record on the
 run's board and in its role, with no Agent — the run's own seat list is its
 working state and goes with it. Deleting a conversation closes its Seat with
-a second record; the first stays, since it outlives what it points at.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+a second record; the first stays, since it outlives what it points at."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -3136,9 +3126,7 @@ brought never does. A Seat whose order was phase 3's ceiling: is restored by
 phase 3, which adds that arm when it adds such Agents.
 The in-memory copy is rebuilt from the durable record instead of being lost
 with the process, and a closed conversation's record is there after a
-restart.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+restart."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -3688,9 +3676,7 @@ whose id is the file's generation. A file or folder committed as a link is
 refused; a file not yet committed offers nothing; a working copy that differs
 is said, never read, and never waited on. Anything that could make what a
 person is shown differ from what would run is refused where it is read, with
-where and why; a file that will not parse is listed, never read as no checks.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+where and why; a file that will not parse is listed, never read as no checks."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -4470,9 +4456,7 @@ credential cipher). Any change to the file drops every approval for the
 project, so an old answer never comes back; a copied or edited file approves
 nothing; a newer format is never written over. It lives in its own file, never
 in the preferences a backup restores, and fails closed. evidence/checks reads
-a project's checks as committed, with whether each is approved.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+a project's checks as committed, with whether each is approved."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -4871,9 +4855,7 @@ status, or that it ran past its time, or why it never started — with the last
 It runs with the person's authority, in an environment built from a short
 list of names, so none of the desk's variables or tokens reach it. A timeout
 or a quit stops its process group — the group and nothing wider, which a test
-pins — and a child left holding the output does not hold the check open.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+pins — and a child left holding the output does not hold the check open."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -5564,9 +5546,7 @@ desk observed always answers first. Every read is stamped, strictly later
 than the last, so a window keeps the newest. evidence/changed pushes it whole
 when it moves. One check runs on a card at a time, whatever its name. A
 message between agents puts nothing on a card: only what the desk observed
-is evidence.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+is evidence."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -6469,9 +6449,7 @@ still exactly what was shown. One check runs on a card at a time, whatever
 its name. A call is admitted from its first line, so a quit refuses new ones
 and stops one caught half-way before it starts anything, and waits for it.
 The check answers once started; its fact arrives as the room's evidence, and
-a quit stops it without one.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+a quit stops it without one."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -7152,9 +7130,7 @@ When a card is finished, and on a board read at most once every five
 minutes a card, the desk reads the branch's diff and — with the person's own
 gh, in the checkout — its pull request and the forge's checks on its head,
 and records only what changed. A checkout outside the room's project is not
-looked at, and what an agent says it opened is never taken for what is there.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+looked at, and what an agent says it opened is never taken for what is there."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -7413,9 +7389,7 @@ The flow runs its check exactly as before, through its own runner; when the
 step is for a card, what it answered is recorded as that card's check fact,
 named for its role, in its round, bound to the commit it started at. The
 flow is answered as its runner answered, whether or not the record could be
-written.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+written."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -8138,9 +8112,7 @@ one queued step, the restore is bounded in projects and lines, and it counts
 what it restored, found already here, refused and could not write — never
 stopping for one bad record. What a person approved stays on this machine: no
 backup carries it, and nothing in one can approve a command. backup.test.ts's
-pinned key list gains evidence.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+pinned key list gains evidence."
 ```
 
 Expected: `verify exit: 0` before the commit. Part A is complete: `pnpm verify` is green and every new verb is pinned in `UNREACHED`.
@@ -8995,9 +8967,7 @@ and put into words in one place: verify ✓ @a1b2c3d, CI ✓, PR #12 open,
 states; cancelled CI is its own verdict, never a pass. A stale fact says how
 far behind it is and is struck through; an unknown one is neutral, and the
 dialog says why. The preview gains a room whose cards stand in every column
-the facts make.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+the facts make."
 ```
 
 Expected: the audit's findings unchanged, and `verify exit: 0` before the commit.
@@ -9568,9 +9538,7 @@ fact it has no state for; stale and unknown are the Chip's own. A stale chip
 says how far behind it is. The board reads its evidence when shown, on focus and
 every thirty seconds; a card with none draws none. TeamBoardPane.test.tsx's
 rig takes the evidence to seed; TeamRoomPane.test.tsx's store gains
-loadBoardEvidence.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+loadBoardEvidence."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -10785,9 +10753,7 @@ terminal, and runs only when the verb is pressed, answering with exactly the
 text and the file generation shown. Nothing in the question is focused, and
 its verb is disarmed for a moment, so neither a held Return nor a click
 already on its way runs anything; a real-browser spec pins both.
-TeamBoardPane.test.tsx's rig gains runCheck.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+TeamBoardPane.test.tsx's rig gains runCheck."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -11152,9 +11118,7 @@ aside, never Ready; a fact from a backup is unknown and decides nothing. A
 card finished with nothing checked, or with a fact out of date or unknown,
 needs you and says which — verify, CI or the pull request. A flow addresses a
 card to you only when its own round opened it. Nothing anyone says moves a
-card: not a message, not a finish note, not an outcome.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+card: not a message, not a finish note, not an outcome."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -11832,9 +11796,7 @@ which fact put it there; a stranded claim now needs you too; a flow's role is
 the person's only for a card its own round opened. A message or a finish
 note saying the tests pass moves nothing. TeamBoardPane.test.tsx's tests
 that named the old columns or dragged are rewritten to what the board does
-now, and the quick add's three are deleted with it.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+now, and the quick add's three are deleted with it."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -12191,9 +12153,7 @@ At the head of the Agents inspector, read-only: the Agent and where it came
 from, what it runs on, what was passed over, what its standing order said it
 may do — in that order's own generation of words, permission: or ceiling: —
 the checkout it started in, its board, and when it opened and closed. A Seat
-a backup brought says so. A conversation never seated shows none of it.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+a backup brought says so. A conversation never seated shows none of it."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -12548,9 +12508,7 @@ Mac has approved it for this version of the file; the file they are read
 from and the commit they were read at; a note when the working copy is not
 what is committed, which is not what runs; and each check the file refuses
 with where and why. The section appears only once the project has a checks
-file. ProjectPage.test.tsx's store gains projectChecks.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+file. ProjectPage.test.tsx's store gains projectChecks."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -12713,9 +12671,7 @@ fact, work set aside apart — nothing dragged, and a card's evidence: what the
 desk records, how it goes stale, what a backup brings, and the first run of a
 check's command, which runs as committed with your full authority. interface.md: where each surface is. data-boundaries.md:
 what the desk now keeps on disk, and that it reads a pull request with your
-own gh.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+own gh."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -13055,9 +13011,7 @@ in Ready, stale in Needs you after a commit lands on main, and fresh again
 when it runs once more; show a Seat record in the Agents inspector, again
 after the app quit and opened; and a project's checks on its page. Every take
 starts with nothing approved and nothing observed, and the question's answer
-is pressed only once it is armed.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+is pressed only once it is armed."
 ```
 
 Expected: `verify exit: 0` before the commit.

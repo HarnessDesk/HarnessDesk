@@ -178,8 +178,8 @@ configuration names switched off by name, with `GIT_CONFIG_NOSYSTEM=1` and
 `GIT_CONFIG_GLOBAL=/dev/null`, and with none of the host's own `GIT_*`
 variables. The agent supplies no flag, no `-c` and no path: the paths are
 the ones git's own status names, passed as literal pathspecs through a file,
-and the message is written to a file and stored verbatim, at most 8000
-characters. Work a filter would touch — an LFS-tracked file, say — is refused
+and the supplied message is written to a file and preserved, at most 8000
+characters before the desk's attribution is added. Work a filter would touch — an LFS-tracked file, say — is refused
 in one sentence and nothing is committed, because with every filter off it
 would go into history raw. A submodule is never looked into: it is its own
 repository. And the tool refuses while another open card whose Seat may
@@ -203,6 +203,19 @@ configuration — and handed to the commit as `GIT_AUTHOR_*` and
 `GIT_COMMITTER_*`, because the commit itself runs with global configuration
 off. A checkout with no configured identity is refused in one sentence; the
 desk never makes one up.
+
+The person owns both the author and committer identity. Only `commit_work`
+adds `Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>` through
+Git's `interpret-trailers --if-exists=addIfDifferent`, which owns placement,
+trailer formatting and deduplication. A quoted line in the body or after
+Git's divider or scissors cutoff does not count. Trailer processing reads
+no repository configuration except the comment prefix: `trailer.*` settings
+can run commands, so the parser runs with `--git-dir=/dev/null` and system
+and global configuration off. Git 2.32 or newer is required; an older or
+unrecognized version is refused before staging. The text lives in one constant
+in `card-commit.ts`; a Seat never has to type it, and a person's hand commit
+is untouched. Settings for the trailer's wording are left for a later decision.
+(#1277)
 
 Rule: an agent's sandbox is never widened to a git directory; a commit it
 needs is the host's, run hardened.

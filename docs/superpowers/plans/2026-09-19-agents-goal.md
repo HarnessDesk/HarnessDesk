@@ -65,7 +65,7 @@ This checkout contains phase 2 Part A at the phase brief's base (`0a6cc108`). Th
 - **Never move a test below the thing it tests.** Wire validation is tested with `parseClientMessage`; host routing is tested with `Host.call`; a socket test remains a socket test.
 - **Name every edit to a test you did not write.** Shared helper changes are named in the task and the final implementation report.
 - **Run tests in the foreground.** Do not leave a child process or test loop running when handing work back.
-- **A commit's trailer names who wrote it.** The controller runs the full gate and commits when the implementer's sandbox cannot write `.git` or bind listeners. This planning task makes no commit.
+- **The commit tool owns attribution.** On a board card, use `commit_work`; it adds the desk's co-author credit itself. The controller runs the full gate and commits when the implementer's sandbox cannot write `.git` or bind listeners. This planning task makes no commit.
 - **No reference-app or competitor names in anything public.** Runtime names are permitted only at their existing integration boundaries; the renderer reads presentation names from runtime data.
 - **No real accounts or home paths in anything public; frames come from the shots rig.** Synthetic paths are `/work/repo`, identities are `Jane Doe`/`dev@example.com` or the project's public demo persona. Inspect every frame and added line before publication.
 - **No hard-coded use cases.** A Goal, lane, receipt and wait work for any Agent and card.
@@ -1047,7 +1047,7 @@ Expected: Exit 0. A sandbox refusal is not a passing gate; the controller runs t
 
 ```bash
 git add packages/protocol/src/goal.ts packages/protocol/src/board-facts.ts packages/protocol/src/evidence-status.ts packages/protocol/src/index.ts packages/protocol/test/goal.test.ts packages/server/test/goal-model.test.ts packages/server/test/fixtures/goals.ts packages/ui/src/lib/board-facts.ts packages/ui/src/lib/evidence.ts
-git commit -m "feat(goals): define Goals and share evidence placement rules" -m "Co-Authored-By: Codex <agent@harnessdesk.app>"
+git commit -m "feat(goals): define Goals and share evidence placement rules"
 ```
 
 ### Task 2: Persist Goals and migrate an entire desk without losing rooms
@@ -2285,7 +2285,7 @@ Expected: Exit 0. A sandbox refusal is not a passing gate; the controller runs t
 
 ```bash
 git add packages/server/src/goals/store.ts packages/server/src/goals/migration.ts packages/server/src/goals/writer-lease.ts packages/server/src/goals/operations.ts packages/server/src/evidence/seats.ts packages/server/src/evidence/records.ts packages/protocol/src/evidence.ts packages/ui/src/components/SeatRecordBlock.tsx packages/ui/src/components/SeatRecordBlock.test.tsx packages/server/src/host.ts packages/server/src/team.ts packages/server/test/goal-migration.test.ts packages/server/test/goal-store.test.ts packages/server/test/goal-writer-lease.test.ts packages/server/test/goal-seatbook.test.ts
-git commit -m "feat(goals): persist Goals and stage room migration" -m "Co-Authored-By: Codex <agent@harnessdesk.app>"
+git commit -m "feat(goals): persist Goals and stage room migration"
 ```
 
 ### Task 3: Derive membership from Seats and bridge existing flows
@@ -3760,7 +3760,7 @@ Expected: Exit 0. A sandbox refusal is not a passing gate; the controller runs t
 
 ```bash
 git add packages/server/src/goals/assignments.ts packages/server/src/goals/members.ts packages/server/src/goals/plane.ts packages/server/src/goals/operations.ts packages/server/src/evidence/seats.ts packages/server/src/team.ts packages/server/src/flows.ts packages/server/src/host.ts packages/server/src/methods/agents.ts packages/server/src/methods/team.ts packages/server/src/methods/goals.ts packages/server/src/methods/context.ts packages/server/src/methods/index.ts packages/protocol/src/wire.ts packages/protocol/src/wire-validators.ts packages/server/test/goal-assignment.test.ts packages/server/test/goal-membership.test.ts packages/server/test/goal-operations.test.ts packages/server/test/goal-plane.test.ts packages/server/test/goal-flow-compat.test.ts packages/protocol/test/goal-wire.test.ts
-git commit -m "feat(goals): derive membership from Seats and journal assignments" -m "Co-Authored-By: Codex <agent@harnessdesk.app>"
+git commit -m "feat(goals): derive membership from Seats and journal assignments"
 ```
 
 ### Task 4: Allocate complete lanes and expose machine preferences
@@ -5035,7 +5035,7 @@ Expected: Exit 0, unpiped, before the implementation commit. The plan writer doe
 
 ```bash
 git add packages/protocol/src/goal.ts packages/protocol/src/wire.ts packages/protocol/src/wire-validators.ts packages/server/src/goals/lanes.ts packages/server/src/goals/plane.ts packages/server/src/methods/lanes.ts packages/server/src/methods/context.ts packages/server/src/methods/index.ts packages/server/src/host.ts packages/server/src/state.ts packages/server/test/lane-allocation.test.ts packages/server/test/lane-store.test.ts packages/server/test/lane-recovery.test.ts packages/server/test/lane-preferences.test.ts packages/server/test/lane-listeners.test.ts script/check-reachable.mjs
-git commit -m "feat(goals): allocate durable lanes and machine port preferences" -m "Co-Authored-By: Codex <agent@harnessdesk.app>"
+git commit -m "feat(goals): allocate durable lanes and machine port preferences"
 ```
 
 ### Task 5: Deliver the lane environment to each session's actual child process
@@ -7285,7 +7285,7 @@ Expected: Exit 0, unpiped, before the implementation commit. The plan writer doe
 
 ```bash
 git add packages/adapter-codex/test/fixtures/fake-codex.mjs packages/protocol/src/lane-environment.ts packages/protocol/src/index.ts packages/protocol/src/session.ts packages/protocol/src/runtime.ts packages/transport-acp/src/index.ts packages/server/src/goals/lane-environment.ts packages/server/src/goals/plane.ts packages/server/src/host.ts packages/server/src/methods/context.ts packages/server/src/methods/sessions.ts packages/adapter-codex/src/runtime.ts packages/adapter-codex/src/session.ts packages/adapter-acp/src/runtime.ts packages/claude-acp/src/bridge.ts packages/cursor-acp/src/bridge.ts packages/claude-acp/package.json pnpm-lock.yaml packages/adapter-testkit/src/index.ts packages/server/test/fixtures/fake-runtime.ts packages/claude-acp/test/fixtures/fake-claude.mjs packages/cursor-acp/test/fixtures/fake-cursor-agent.mjs packages/adapter-codex/src/lane-environment.ts packages/adapter-acp/src/lane-environment.ts packages/claude-acp/src/lane-environment.ts packages/cursor-acp/src/lane-environment.ts packages/protocol/test/lane-environment.test.ts packages/server/test/lane-environment.test.ts packages/adapter-codex/test/lane-environment.test.ts packages/adapter-acp/test/lane-environment.test.ts packages/claude-acp/test/lane-environment.test.ts packages/cursor-acp/test/lane-environment.test.ts
-git commit -m "feat(goals): carry each lane environment through its runtime session" -m "Co-Authored-By: Codex <agent@harnessdesk.app>"
+git commit -m "feat(goals): carry each lane environment through its runtime session"
 ```
 
 ### Task 6: Give browser calls and the visible pane the lane's profile
@@ -10175,7 +10175,7 @@ Expected: Exit 0, unpiped, before the implementation commit. The plan writer doe
 
 ```bash
 git add packages/cordis-host/src/browser-scopes.ts packages/cordis-host/test/browser-scopes.test.ts packages/cordis-host/src/browser.ts packages/cordis-host/src/kernel.ts packages/cordis-host/src/context.ts packages/cordis-host/src/index.ts packages/extension-protocol/src/index.ts packages/extension-host/src/child.ts packages/extension-host/src/supervisor.ts packages/extension-host/test/isolation.test.ts packages/server/src/host.ts packages/desktop/electron/browser-scopes.mjs packages/desktop/electron/browser-scopes.test.mjs packages/desktop/electron/browser-engine.mjs packages/desktop/electron/main.mjs packages/desktop/electron/preload.cjs packages/desktop/electron/ipc-channels.test.mjs packages/ui/src/lib/desktop.ts packages/ui/src/components/BrowserPane.tsx packages/ui/src/components/BrowserPane.test.tsx packages/ui/src/components/BrowserPane.lanes.test.tsx packages/ui/src/state/store.ts packages/ui/src/state/layout.ts packages/ui/src/state/snapshot.ts packages/ui/src/app/App.tsx packages/ui/src/preview/browser-lanes.html
-git commit -m "feat(agents): isolate browser state by lane invocation" -m "Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>"
+git commit -m "feat(agents): isolate browser state by lane invocation"
 ```
 
 ### Task 7: Move the guarded channel and add event-driven member waiting
@@ -10346,7 +10346,7 @@ Expected: all pass. Run each named mutation separately, observe the named failur
 
 **Proof needs:** neither for registry/Team tests; a listener for the existing child/gateway integration suite. Route integration to an implementer with listener access; do not weaken that suite.
 
-**Commit:** `feat(goals): preserve guarded messaging and wait for a member turn` (implementation only, after required verification; include the writer trailer).
+**Commit:** `feat(goals): preserve guarded messaging and wait for a member turn` (implementation only, after required verification; use `commit_work` on a board card).
 
 ### Task 8: Preview and commit a durable wrap receipt
 
@@ -10533,7 +10533,7 @@ Expected: all green; each named guard mutation first fails its case, then passes
 
 **Proof needs:** neither for transaction/persistence/git tests; a listener only if the retained Host fixture uses its socket transport. Routing: host implementer; preserve that original boundary.
 
-**Commit:** `feat(goals): freeze reviewed receipts with recoverable wrapping` (implementation only, after required verification; include the writer trailer).
+**Commit:** `feat(goals): freeze reviewed receipts with recoverable wrapping` (implementation only, after required verification; use `commit_work` on a board card).
 
 ### Task 9: Show Goals, create them, and make staffing an assignment
 
@@ -10697,7 +10697,7 @@ Expected: all pass, strict design audit zero, no new unreachable pins without a 
 
 **Proof needs:** the rendered UI. Route to the implementer with rendered-app access. No routine UI implementation code is included or claimed proven by this planning batch.
 
-**Commit:** `feat(ui): show Goals and assign conversations through Seats` (implementation only, after required verification; include the writer trailer).
+**Commit:** `feat(ui): show Goals and assign conversations through Seats` (implementation only, after required verification; use `commit_work` on a board card).
 
 ### Task 10: Show the wrap receipt, notify transitions, back up history, and verify the whole phase
 
@@ -10847,7 +10847,7 @@ Acceptance sequence (extend existing shots seed/shoot entrypoints; use their exi
 
 **Proof needs:** the rendered UI and a listener. Route to the implementer with launched-app/listener access; restore transformations alone do not prove backup transactions or native click routing.
 
-**Commit:** `feat(goals): review receipts and preserve Goal history in backups` (implementation only, after required verification; include the writer trailer).
+**Commit:** `feat(goals): review receipts and preserve Goal history in backups` (implementation only, after required verification; use `commit_work` on a board card).
 
 ## Proof record for this plan
 
