@@ -39,18 +39,30 @@ and the ledger of what moved are docs/design.md.
 
 ## Foundation
 
-### The faces
+### Cjk faces
 
-Geist carries the interface, bundled at packages/ui/src/assets/fonts and never fetched: an offline app cannot wait on a CDN. Every size in this system is drawn against its metrics, so a row occupies the space the layout was drawn for. The stack keeps the platform's tail so CJK still resolves. The code face is ui-monospace and then the platform's own mono, never a downloaded face: code should look the same on every machine, and most machines do not have the fashionable one. Neither stack ends in a bare `monospace`, because Windows CJK falls back to SimSun from there.
+CJK faces are ordered by the document's interface language, not by a component or by which platform happens to supply a shared Han glyph. Keep this choice together: --hd-font-family below is still the single interface face token, and restoring its old literal rolls this back.
 
 | token | value |
 | --- | --- |
-| `--hd-font-family` | `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif` |
+| `--hd-font-cjk-sc` | `'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC'` |
+| `--hd-font-cjk-tc` | `'PingFang TC', 'Microsoft JhengHei', 'Noto Sans CJK TC'` |
+| `--hd-font-cjk-ja` | `'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP'` |
+| `--hd-font-cjk-ko` | `'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans CJK KR'` |
+| `--hd-font-cjk-fallback` | `'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans CJK TC', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans CJK KR'` |
+
+### The faces
+
+Geist carries the interface, bundled at packages/ui/src/assets/fonts and never fetched: an offline app cannot wait on a CDN. Every size in this system is drawn against its metrics, so a row occupies the space the layout was drawn for. Latin stays Geist first; the document language orders the explicit macOS, Windows and Noto CJK stacks above. The code face is ui-monospace and then the platform's own mono, never a downloaded face: code should look the same on every machine, and most machines do not have the fashionable one. Neither stack ends in a bare `monospace`, because Windows CJK falls back to SimSun from there.
+
+| token | value |
+| --- | --- |
+| `--hd-font-family` | `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans CJK TC', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans CJK KR', 'Helvetica Neue', Helvetica, Arial, sans-serif` |
 | `--hd-font-code` | `ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, 'Liberation Mono', 'PingFang SC', 'Microsoft YaHei'` |
-| `--hdp-font-family` | `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif` |
+| `--hdp-font-family` | `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans CJK TC', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans CJK KR', 'Helvetica Neue', Helvetica, Arial, sans-serif` |
 | `--hdp-font-family-code` | `ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, 'Liberation Mono', 'PingFang SC', 'Microsoft YaHei'` |
-| `--hd-font-display` | `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif` |
-| `--hd-font-heading` | `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif` |
+| `--hd-font-display` | `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans CJK TC', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans CJK KR', 'Helvetica Neue', Helvetica, Arial, sans-serif` |
+| `--hd-font-heading` | `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans CJK TC', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans CJK KR', 'Helvetica Neue', Helvetica, Arial, sans-serif` |
 | `--hd-tracking-heading` | `-0.01em` |
 | `--hd-title-rule` | `rgba(9, 12, 17, 0.05)` |
 | `--hd-title-rule-width` | `1px` |

@@ -73,6 +73,7 @@ import { LibraryOptionFrames } from './frames-library-options'
 import { TeamOverviewFrames } from './frames-team-overview'
 import { SideBySideFrames } from './frames-side-by-side'
 import { ComposerSlotsFrames } from './frames-composer-slots'
+import { CjkSpecimen } from './cjk-specimen'
 import { BRIEF_SCENES, FlowBriefDialog, type BriefScene } from './flow-brief-content'
 import '../styles/app.css'
 
@@ -1034,6 +1035,9 @@ const Preview = () => {
       </Frame>
 
       <SettingsFrames />
+      <Frame id="typography-cjk" title="CJK — reading text and controls">
+        <CjkSpecimen />
+      </Frame>
       <GoalFrames />
       <TranscriptFrames />
       <PanelFrames />
