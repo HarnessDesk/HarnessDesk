@@ -165,8 +165,10 @@ to their shape (agreed 2026-10-02, landed in its PR 1b, #1285):
    `seat` and `since` on `card.changed`. Each is present only when the desk's own
    record carries it, never filled from when a client noticed something.
    `card.changed.since` is the claim's `at` while claimed, and absent until a
-   record holds it. `attempt`, `continues` and `revision` pass through now that PR 5
-   has landed (#1281).
+   record holds it. `continues` and `revision` pass through now that PR 5 has landed
+   (#1281). `attempt` stays absent until a record carries one: no record has an
+   attempt field today, and a check's earlier attempts live in its evidence
+   (PR 9 adds the read).
 4. **Selectors.** Home: `@harnessdesk/client/views`, pure, no transport; the
    window imports only that entry and the other session adds the layering rule.
    **This plan owns the selector code and its tests**: PR 1 and PR 3, written in

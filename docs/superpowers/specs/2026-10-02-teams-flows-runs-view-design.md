@@ -567,7 +567,7 @@ know").
 | The view needs | From | State |
 | --- | --- | --- |
 | A Team's sentence, activity | `team.changed` | Exists. |
-| A Run's state, round, reason | `run.changed` | Exists. **Adds** optional `attempt`, `continues` (the Run it continues) and `revision` (the Flow's digest). |
+| A Run's state, round, reason | `run.changed` | Exists. **Adds** optional `continues` (the Run it continues) and `revision` (the Flow's digest), which have landed; an optional `attempt` is added only once a record carries one. |
 | A card's state, outcome, title | `card.changed` | Exists. **Adds** optional `seat` (who holds it) and `since`. |
 | What waits for a person | `waiting`, `waiting.cleared` | Exists. |
 | A seat's state and what it is doing | none | **New: `seat.changed`**, `{ team, seat, role, card, state: 'working' \| 'waiting' \| 'idle', doing, since }`. The **host derives it** and sends one `seat/activity` notification per seat on a `seats` topic, at most once every 2.5 seconds; the client library maps it one to one. (Deriving it in each client would mean sending every seat's whole transcript stream to the command line and, later, a phone.) `doing` is structured and null unless the seat is working (`{ kind: 'tool', tool, target? }` or `{ kind: 'thinking' }`; waiting and idle are the `state`), and the derivation of the in-flight tool, with the one tool-name lookup (`seatDoing`, `doingSentence`), moved into `packages/protocol` so the host, the command line and the window share it. Landed in #1285. |
