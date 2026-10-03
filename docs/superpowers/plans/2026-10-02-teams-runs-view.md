@@ -109,14 +109,14 @@ Sizes: S under a day of Team time, M about a day, L more.
 `flow/execution/stop` PR both change it. Whichever lands second starts from the
 first's landed revision.
 
-**One Team at a time in `TeamRoomPane.tsx`.** PRs 2 and 3 have merged. PRs 4
-(the inspector beside the timeline, which reads the pane's selected-row state),
-8, 10, 13 (the Flow half of the Run header) and 18 (the rail for a wrapped Team)
-can each touch the rail, the header or the Run branch of
-`packages/ui/src/components/TeamRoomPane.tsx`, a 2,500-line file. Land them one
-at a time, each starting from a fresh fetch of main: whichever is second rebases
-onto the first before its PR is opened, not after review. PRs 1, 2, 3, 5, 6, 12
-and 17 have merged and need no scheduling.
+**One Team at a time in `TeamRoomPane.tsx`.** PRs 2 and 3 have merged. Every PR
+still to come except PR 15 (the poster) wires something through
+`packages/ui/src/components/TeamRoomPane.tsx`, a 2,600-line file: the rail, the
+Overview's strip and input, the Run header, or the Run branch where the timeline
+and its selected-row state live (PRs 4, 7, 8, 9, 10, 11, 13, 14, 16 and 18).
+Land them one at a time, each starting from a fresh fetch of main: whichever is
+second rebases onto the first before its PR is opened, not after review. PRs 1,
+2, 3, 5, 6, 12 and 17 have merged and need no scheduling.
 
 **What waits on the other session.** Only PR 10 (the stop method). Its PR 1c has merged (#1295). The two events below have landed (#1285). Every
 other PR reads what the window's store already holds; PR 16 is the exception: it
@@ -314,7 +314,7 @@ the Overview draws, in the app's words, ordered by precedence.
 - `packages/ui/src/components/RunView.tsx` draws it and holds no selection: the caller passes `selectedRow` and `onSelect`. `TeamRoomPane.tsx` keeps the selected row id per Run in `selectedRunRows` (a map from Run id to row id; nothing is selected at first). PR 4 reads that state.
 - The **Run** rail item is shown when the Team has a Run (`goalRunOf`) and counts the Runs this window has heard of. `store.loadTeamRuns` restores ended Runs (`flow/executions { team, active: false }`, then `flow/execution` for each one not held), so a trigger Team's history shows before any push. With more than one Run, a "Run 1, Run 2…" chooser sits above the timeline. The Overview's Run card name opens the tab (`onRun`).
 - Opening the tab reads `evidence/board` (refreshed every 30 seconds) and every page of the Team's findings, so PR 4's inspector reads `snapshot.boardEvidence` and `snapshot.findings` before it adds a read. A failed read is a warning banner with *Try again*, never a blank.
-- *Open pull request #n* is the latest pull request observed in the Team's card evidence, not every Team with one. The header does not show `continues` yet (PR 11), and nothing in the view is a control.
+- *Open pull request #n* is the latest pull request observed in the Team's card evidence, not every Team with one. The header does not show `continues` yet (PR 11). The only interactions are selecting a row, the Run chooser, *Open pull request* and *Try again*; nothing in the view changes a Run.
 
 **Goal.** A **Run** item in the rail opens a read-only timeline of a Run's rounds, cards, checks and findings.
 
@@ -637,7 +637,7 @@ the Overview draws, in the app's words, ordered by precedence.
 
 **Verify.** The replay test; the existing component and browser specs unchanged; `pnpm verify`.
 
-**Done when.** The window's Overview and Run timeline derive from the shared selectors, the command line's `status` and `run show` and the window agree on the replay, and the window-only derivations are gone.
+**Done when.** The window's Overview and Run timeline derive from the shared selectors, the command line's `status` and `run show` and the window agree on the replay, and the window-only derivations are gone. The replay gives the window and `run show` the same `evidence` and `findings` inputs: the scripted check results and findings when the two reads are in `CLIENT_METHODS`, none when they are not (and the PR body says which).
 
 ---
 

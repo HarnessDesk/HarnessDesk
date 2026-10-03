@@ -592,7 +592,11 @@ has moved (#1295): it lives in `packages/client/src/views/`, the window's
 `runTimeline({ execution, cards, signals?, evidence?, findings?, origin? })` in
 `packages/ui/src/lib/run-timeline.ts`; check results (`evidence`) and a Team's
 findings are read on demand and are not part of the held event state, so they
-are explicit inputs, and it moves with plan PR 16. Until the
+are explicit inputs, and it moves with plan PR 16. That move brings along its
+two small word helpers (`wordOf`, `lifecycleWords`), which are UI-only today, and
+settles with the clients design whether `evidence/board` and `finding/list` join
+the client door's read tier; if they do not, `run show` prints the rows it can
+and says that check results and findings are not shown. Until the
 stream feeds the window, the window feeds the selectors from its own snapshot,
 provided the output has the same shape; replacing the input is then mechanical.
 
