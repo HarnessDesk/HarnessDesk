@@ -406,6 +406,7 @@ rules:
   const file = join(rig.dir, 'flows-v2', `${encodeURIComponent(started.id)}.json`)
   const saved = JSON.parse(await readFile(file, 'utf8'))
   // Rewritten to the shape an older build started and saved, consistently.
+  for (const field of ['revision', 'continues', 'brief', 'endedAt', 'end']) delete saved[field]
   const source = plain.replace('FILES', 'files: [src/**]')
   const document = parseFlowPolicy(source).document!
   assert.match(compileFlowPolicy(document, AGENTS).problems.map((one) => one.text).join(' '), /all 2 cards of "reviewer" would own the same paths/, 'a fresh start of it is refused')

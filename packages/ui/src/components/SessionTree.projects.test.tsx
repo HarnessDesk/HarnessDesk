@@ -155,6 +155,7 @@ it('only a stopped project adds capture text, including its folded canonical ali
     { captureHealth: new Map([[REPO, off]]) },
   )
   expect(container.textContent).toContain('Capture stopped')
+  expect(container.querySelector('[data-slot="chip"]')?.getAttribute('data-variant')).toBe('quiet')
   render([session('a', REPO, { root: REPO, worktree: false })], workspace(REPO, { root: REPO, worktree: false }), { captureHealth: new Map([[REPO, { ...off, enabled: true, state: 'healthy' }]]) })
   expect(container.textContent).not.toContain('Capture stopped')
 })

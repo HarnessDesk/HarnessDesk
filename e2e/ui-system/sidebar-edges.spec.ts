@@ -878,7 +878,7 @@ test('540px window floats the real sidebar with aligned headers and a whole Work
 
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`every full state chip ends on the session dot rail and stays inside its clip (${theme})`, async ({ page }, testInfo) => {
+  test(`every quiet state label ends on the session dot rail and stays inside its clip (${theme})`, async ({ page }, testInfo) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/design.html?view=sidebar')
     const sidebar = page.locator('[data-catalog-example="sidebar"] [data-region="sidebar-header"]')
@@ -896,6 +896,12 @@ for (const theme of ['light', 'dark'] as const) {
       for (const row of measured.rows) {
         if (row.targetRight !== null) expect.soft(Math.abs(row.targetRight - measured.targetRail), `${row.name}: trailing target at ${width}px`).toBeLessThanOrEqual(0.5)
         if (row.chipBox) {
+          expect.soft(row.chipStyle, `${row.name}: plain text without a pill at ${width}px`).toEqual({
+            background: 'rgba(0, 0, 0, 0)', border: '0px', shadow: 'none', paddingLeft: '0px', paddingRight: '0px',
+          })
+          expect.soft(Math.abs(row.textBox!.right - row.chipRail), `${row.name}: text ends on the rail at ${width}px`).toBeLessThanOrEqual(0.5)
+          expect.soft(row.textBox!.left, `${row.name}: full text starts inside chip`).toBeGreaterThanOrEqual(row.chipBox.left - 0.5)
+          expect.soft(row.textBox!.right, `${row.name}: full text ends inside chip`).toBeLessThanOrEqual(row.chipBox.right + 0.5)
           expect.soft(Math.abs(row.chipBox.right - row.chipRail), `${row.name}: ${row.chip} misses visible dot rail at ${width}px`).toBeLessThanOrEqual(0.5)
           expect.soft(row.chipBox.left, `${row.name}: chip starts inside clip`).toBeGreaterThanOrEqual(row.clip.left)
           expect.soft(row.chipBox.right, `${row.name}: chip ends inside clip`).toBeLessThanOrEqual(row.clip.right)

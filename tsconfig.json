@@ -8,6 +8,8 @@
   "files": [],
   "references": [
     { "path": "packages/protocol" },
+    { "path": "packages/client" },
+    { "path": "packages/cli" },
     { "path": "packages/agent-inventory" },
     { "path": "packages/codex" },
     { "path": "packages/adapter-testkit" },

@@ -309,7 +309,11 @@ export interface FindingRunState {
    * design problem, a pending exception, an unreadable ledger, rounds
    * without progress) may only ever be answered one round at a time.
    */
-  readonly stopped: { readonly round: number; readonly reason: string; readonly ceiling: boolean } | null
+  readonly stopped: {
+    readonly round: number; readonly reason: string; readonly ceiling: boolean
+    /** Structured budget cause, when that is what stopped the loop; absent on older records. */
+    readonly budget?: { readonly which: 'rounds' | 'without-progress'; readonly used: number }
+  } | null
   /** How many further rounds a person authorized after a stop; absent on a run authorized before this field existed, which means one. */
   readonly extraRound: { readonly after: number; readonly reason: string; readonly count: number } | null
   readonly overrides: readonly FindingOverride[]

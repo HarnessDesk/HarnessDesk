@@ -343,6 +343,9 @@ const goalCitation = goalShape({
 })
 
 const goalValidators = {
+  'client/hello': goalShape({ client: goalShape({ name: atMost(64, isFilled), version: atMost(64, isFilled) }), protocol: isNumber, pid: optional(isNumber) }),
+  'client/subscribe': goalShape({ topics: arrayOf(literalUnion('runs', 'cards', 'teams', 'waiting', 'notices')), scope: optional(goalShape({ team: optional(goalId), run: optional(isFilled), project: optional(atMost(4096, isFilled)) })) }),
+  'flow/executions': goalShape({ team: optional(goalId), project: optional(atMost(4096, isFilled)), active: optional(isBoolean) }),
   'goal/list': goalShape({ root: optional(atMost(4096, isFilled)) }),
   'goal/read': goalShape({ goal: goalId }),
   'goal/create': goalShape({
@@ -1210,6 +1213,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     token: isFilled,
     sentence: isString,
     vars: optional(recordOf(isString)),
+    continues: optional((value: unknown, path = '') => value === null ? null : isFilled(value, path)),
     goal: optional(startGoal),
   }),
   'flow/execution': goalShape({ run: isFilled }),
@@ -1457,11 +1461,16 @@ export const parseSessionRemovedParams = (
 export const isKnownMethod = (method: string): method is HostMethodName =>
   Object.prototype.hasOwnProperty.call(paramsValidators, method)
 
+/** Reads only routing fields; a client door checks its surface before params. */
+export const parseClientEnvelope = (raw: unknown): { id: number; method: string } => {
+  const source = isObject(raw, 'message')
+  return { id: isNumber(source['id'], 'message.id'), method: isString(source['method'], 'message.method') }
+}
+
 /** Parses and validates one inbound frame, or throws `ValidationError`. */
 export const parseClientMessage = (raw: unknown): ClientToHost => {
+  const { id, method } = parseClientEnvelope(raw)
   const source = isObject(raw, 'message')
-  const id = isNumber(source['id'], 'message.id')
-  const method = isString(source['method'], 'message.method')
   if (!isKnownMethod(method)) {
     throw new ValidationError('message.method', `unknown method ${JSON.stringify(method)}`)
   }

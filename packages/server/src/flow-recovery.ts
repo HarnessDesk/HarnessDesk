@@ -1,7 +1,7 @@
 import { isCeilingLevel, type FlowRun, type FlowSeatRecord, type Intent, type SeatRecord } from '@harnessdesk/protocol'
 
 import { parseFlowPolicy } from './flow-policy.js'
-import { sourceDigest, type StoredFlowExecution } from './flow-execution.js'
+import { flowRevision, sourceDigest, type StoredFlowExecution } from './flow-execution.js'
 import { findingJournalOf } from './findings/journal.js'
 import { publicationOf } from './findings/publication.js'
 
@@ -114,6 +114,28 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
   if (!text(raw['source']) || !(raw['sourcePath'] === null || text(raw['sourcePath']))) bad('has no source')
   if (!object(raw['vars']) || !Object.values(raw['vars']).every(text)) bad('has unreadable inputs')
   if (!finite(raw['startedAt']) || !finite(raw['updatedAt'])) bad('has unreadable times')
+  if (raw['revision'] !== undefined && raw['revision'] !== null && (!text(raw['revision']) || !/^[0-9a-f]{12}$/.test(raw['revision']))) bad('has an unreadable Flow revision')
+  if (raw['continues'] !== undefined && raw['continues'] !== null && (!text(raw['continues']) || !raw['continues'])) bad('has unreadable Run lineage')
+  if (raw['brief'] !== undefined && raw['brief'] !== null && !text(raw['brief'])) bad('has an unreadable brief')
+  if (raw['endedAt'] !== undefined && raw['endedAt'] !== null && !finite(raw['endedAt'])) bad('has an unreadable end time')
+  const end = raw['end']
+  if (end !== undefined && end !== null) {
+    if (!object(end)) bad('has an unreadable end')
+    const cause = end as Record<string, unknown>
+    switch (cause['kind']) {
+      case 'complete': case 'stalled': break
+      case 'unrouted':
+        if (!integer(cause['card']) || cause['card'] < 1 || !text(cause['outcome'])) bad('has an unreadable unrouted end')
+        break
+      case 'stopped':
+        if (cause['by'] !== 'person' && cause['by'] !== 'desk') bad('has an unreadable stop')
+        break
+      case 'budget':
+        if ((cause['which'] !== 'rounds' && cause['which'] !== 'without-progress') || !integer(cause['used']) || cause['used'] < 0) bad('has an unreadable budget end')
+        break
+      default: bad('has an unknown end')
+    }
+  }
   const authorization = raw['authorization']
   if (!object(authorization) || !text(authorization['sourceDigest']) || !text(authorization['commandDigest']) || !finite(authorization['approvedAt'])) {
     bad('has no authorization')
@@ -207,6 +229,12 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
         !(series['reviewedAt'] === null || text(series['reviewedAt'])) || !Array.isArray(series['reviewRounds']) ||
         !texts(series['initial']) || !texts(series['exceptions']) || !texts(series['pending'])) bad('has a review series it cannot describe')
     }
+    const stopped = findings['stopped']
+    if (object(stopped) && stopped['budget'] !== undefined) {
+      const budget = stopped['budget']
+      if (!object(budget) || (budget['which'] !== 'rounds' && budget['which'] !== 'without-progress') ||
+        !integer(budget['used']) || budget['used'] < 0) bad('has an unreadable loop budget stop')
+    }
   }
   if (raw['publication'] !== undefined) {
     try {
@@ -261,5 +289,11 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
     bad('document does not match the text it was started from')
   }
   if ((authorization as { sourceDigest: string }).sourceDigest !== sourceDigest(raw['source'] as string)) bad('source does not match its authorization')
+  if (raw['revision'] !== undefined && raw['revision'] !== null && raw['revision'] !== flowRevision(reparsed.document!)) bad('Flow revision does not match its document')
+  if (raw['brief'] !== undefined) {
+    const flow = reparsed.document!.flow
+    const brief = flow.inputs.some((input) => input.id === 'brief') ? (raw['vars'] as Record<string, string>)['brief'] ?? '' : null
+    if (raw['brief'] !== brief) bad('brief does not match its frozen input')
+  }
   return raw as unknown as StoredFlowExecution
 }

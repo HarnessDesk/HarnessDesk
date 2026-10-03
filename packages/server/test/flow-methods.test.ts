@@ -120,6 +120,14 @@ test('flow/start-goal never calls Flows.startGoal when the token does not redeem
   assert.equal(startCalls.length, 0, 'a refused redeem never reaches Flows.startGoal')
 })
 
+test('flow/start-goal passes lineage to the host after redeeming its preview', async () => {
+  const startCalls: unknown[] = []
+  const ctx = fakeCtx({ startCalls })
+  const params = { root: '/repo', source: 'version: 2', token: 'tok-1', sentence: 'Go', continues: 'flow-earlier' }
+  await flowMethods['flow/start-goal'](ctx, params)
+  assert.equal((startCalls[0] as { continues?: string }).continues, 'flow-earlier')
+})
+
 test('flow/execution reads Flows by run id alone', async () => {
   const ctx = fakeCtx()
   const execution = await flowMethods['flow/execution'](ctx, { run: 'flow-1' })

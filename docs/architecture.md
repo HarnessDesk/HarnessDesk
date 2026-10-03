@@ -38,12 +38,14 @@ them into one protocol would give up both properties.
 
 ## The packages
 
-Eighteen packages make up the repository:
+Twenty packages make up the repository:
 
 | Package | Role | Allowed imports |
 | --- | --- | --- |
 | `packages/protocol` | Domain vocabulary, wire methods, validators | Zero dependencies |
 | `packages/desktop` | Electron shell, Keychain broker, packaging | `server`, `claude-acp`, `cursor-acp` |
+| `packages/client` | Transport-independent read client; Node discovery in its `node` entry | `protocol`, and `ws`/Node in the Node entry |
+| `packages/cli` | Read-only command line over the client library | `client`, `protocol` |
 | `packages/ui` | Renderer: Zustand store, slot layout, panels | `protocol` (browser context only, no `node:*`) |
 | `packages/server` | Host process: sessions, git, approvals, wire | `protocol`, adapters, `cordis-host`, `plugins`, `extension-host`, `agent-inventory`, `responses-gateway`, `mcp-tools` |
 | `packages/adapter-codex` | Native Codex adapter for `codex app-server` | `protocol`, `codex` |
@@ -252,8 +254,13 @@ The wire is a token-gated loopback WebSocket. `packages/protocol/src/wire.ts`
 declares every method with its params and result, `wire-validators.ts` checks
 every inbound frame before the host sees it, and one module under
 `packages/server/src/methods/` answers each method — `git.ts` for `git/*`,
-`team.ts` for `team/*`, and so on. The renderer's only route to anything is
-this socket.
+`team.ts` for `team/*`, and so on. The renderer reaches the host through this socket. Outside clients use a
+second listener, a local unix socket in a user-owned `0700` directory with a
+`0600` socket and discovery pointer. It answers only `CLIENT_METHODS`,
+checks each method's tier before its params, and sends only subscribed topics
+in scope after hello. Only `read` is granted so far; the window's token-gated
+door keeps its existing contract. Client calls share the audit file, while
+the window's audit query continues to return session entries only.
 
 Adding a method is those three steps, and the compiler holds the third twice
 over. Each module `satisfies MethodsUnder<its prefixes>`, so a method declared

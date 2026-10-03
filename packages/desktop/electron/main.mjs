@@ -5,7 +5,7 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { createDefaultHost, loadBuiltinPlugins, recordCrash, serve } from '@harnessdesk/server'
+import { createDefaultHost, loadBuiltinPlugins, recordCrash, serve, openClientDoor } from '@harnessdesk/server'
 import electronUpdater from 'electron-updater'
 
 import { createInlineBrowserEngine } from './browser-engine.mjs'
@@ -97,6 +97,7 @@ let mainWindow = null
 let aboutWindow = null
 let tray = null
 let running = null
+let clientDoor = null
 let host = null
 let logger = null
 let extensions = null
@@ -691,6 +692,7 @@ const start = async () => {
   }
 
   running = await serve({ host, logger, uiRoot, port: 0 })
+  clientDoor = await openClientDoor({ host, logger, home: stateDir, hostVersion: app.getVersion() })
   logger.info('desktop shell ready', { url: running.url })
 
   // macOS notifications for the moments worth leaving another app for: a
@@ -930,6 +932,8 @@ app.on('window-all-closed', () => {
 app.on('before-quit', async (event) => {
   if (!running && !host) return
   event.preventDefault()
+  const closingDoor = clientDoor
+  clientDoor = null
   const closing = running
   const closingHost = host
   const closingExtensions = extensions
@@ -937,6 +941,7 @@ app.on('before-quit', async (event) => {
   host = null
   extensions = null
   try {
+    await closingDoor?.close()
     await closing?.close()
     await closingHost?.dispose()
     await closingExtensions?.dispose()

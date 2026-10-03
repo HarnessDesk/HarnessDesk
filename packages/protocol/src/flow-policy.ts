@@ -167,6 +167,14 @@ export interface FlowIntake {
   readonly rearm?: readonly string[]
 }
 
+/** Structured cause of a Run's departure from running. */
+export type FlowExecutionEnd =
+  | { readonly kind: 'complete' }
+  | { readonly kind: 'unrouted'; readonly card: number; readonly outcome: string }
+  | { readonly kind: 'stopped'; readonly by: 'person' | 'desk' }
+  | { readonly kind: 'budget'; readonly which: 'rounds' | 'without-progress'; readonly used: number }
+  | { readonly kind: 'stalled' }
+
 /**
  * A flow run as execution state attached to one Goal. Its membership is the
  * Goal's Seats; this holds no member list of its own.
@@ -177,6 +185,17 @@ export interface FlowExecution {
   readonly goal: string
   readonly base?: FlowBasePin
   readonly document: FlowDocument
+  /** Canonical parsed document's short digest, frozen at start; absent on older records. */
+  readonly revision?: string | null
+  /** Earlier Run this start continues; a link only, never permission to resume it. */
+  readonly continues?: string | null
+  /** The declared brief input, frozen at start; null when the Flow declares none. */
+  readonly brief?: string | null
+  readonly startedAt?: number
+  /** First departure from running, stamped once; null until then. Absent on older records. */
+  readonly endedAt?: number | null
+  /** Structured cause of the current departure; reason retains its existing sentence. */
+  readonly end?: FlowExecutionEnd | null
   readonly state: 'running' | 'settled' | 'stopped' | 'stalled'
   readonly rounds: readonly FlowRoundState[]
   readonly operations: readonly FlowOperation[]
@@ -369,6 +388,8 @@ export interface FlowStartRequest {
   readonly token: string
   readonly sentence: string
   readonly vars?: Readonly<Record<string, string>>
+  /** Earlier Run this start continues. This never resumes or changes the earlier Run. */
+  readonly continues?: string | null
   /** The empty Goal a front-door start reuses, at the revision its preview saw; it must match the preview's own. */
   readonly goal?: { readonly id: string; readonly revision: number }
 }

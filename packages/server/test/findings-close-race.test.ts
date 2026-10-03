@@ -148,7 +148,8 @@ test('a round-ceiling stall, clean of any finding, is answered through finding/d
   const stopped = f.rig.executions.stored(f.run)!.findings!.stopped
   assert.deepEqual(
     stopped,
-    { round: 2, reason: 'Round 2 ended with 0 open findings. To let it continue, open Findings and choose Authorise another round.', ceiling: true },
+    { round: 2, reason: 'Round 2 ended with 0 open findings. To let it continue, open Findings and choose Authorise another round.', ceiling: true,
+      budget: { which: 'rounds', used: 2 } },
     'the round budget stops the run, not a finding it raised, and names the exact way past it',
   )
   assert.equal(f.cards('fixer').filter((one) => one.state === 'claimed').length, 0, 'the repair round the reviewer asked for did not open past the budget')

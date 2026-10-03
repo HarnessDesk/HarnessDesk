@@ -44,6 +44,11 @@ for (const theme of ['light','dark'] as const) {
    })).toBe(true)
   }
   const tree=page.locator('#team-overview-sidebar')
+  expect(await tree.locator('[data-slot="sidebar-menu"]').evaluateAll(lists=>[...new Set(lists.map(list=>getComputedStyle(list).listStyleType))])).toEqual(['none'])
+  const state=tree.locator('[data-slot="sidebar-menu-state"]')
+  await expect(state).toHaveAttribute('aria-label','Working')
+  await expect(state.locator('[data-slot="chip"]')).toHaveAttribute('data-variant','quiet')
+  expect(await state.locator('[data-slot="chip"]').evaluate(e=>getComputedStyle(e).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
   await expect(tree.locator('[data-slot="sidebar-menu-button"]').filter({hasText:'Writer conversation'})).toHaveCount(1)
   await expect(tree.locator('[data-slot="sidebar-menu-button"]').filter({hasText:'Reviewer conversation'})).toHaveCount(1)
  })

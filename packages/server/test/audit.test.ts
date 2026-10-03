@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { approvalId, type Session } from '@harnessdesk/protocol'
 
-import { AuditLog, type AuditEntry } from '../src/audit.js'
+import { AuditLog, type AuditEntry, type ClientAuditEntry } from '../src/audit.js'
 import { Host, Logger, StateStore } from '../src/index.js'
 import { FAKE_RUNTIME_ID, FakeRuntime, type FakeSession } from './fixtures/fake-runtime.js'
 
@@ -125,4 +125,19 @@ test('a policy decision is in the audit as soon as the notice it pushed can be a
     audit.some((entry) => entry.kind === 'approval/autoDecided' && entry.rule === 'No rm -rf'),
     'the decision the notice announced is in the log that notice sends people to',
   )
+})
+
+
+test('client entries share the file and remain outside session audit queries', async (t) => {
+  const dir = await mkdtemp('/tmp/hd-audit-')
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const path = join(dir, 'audit.ndjson')
+  const log = new AuditLog(path)
+  const client: ClientAuditEntry = { at: Date.now(), via: 'client', kind: 'client/connected', client: 'test@1', statedPid: null }
+  log.append(client)
+  log.append(entry('/repo') as unknown as AuditEntry)
+  await log.flush()
+  assert.deepEqual(JSON.parse((await readFile(path, 'utf8')).split('\n')[0]!), client)
+  assert.equal((await log.query()).length, 1)
+  assert.equal((await log.query({ root: '/repo' })).length, 1)
 })

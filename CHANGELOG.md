@@ -9,6 +9,11 @@ move is real work and is not news to a person weighing an upgrade.
 
 HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
 
+- **Sidebar states read as quiet coloured text.** Working, Needs you and
+  Approval keep their trailing alignment without a pill around them, giving
+  conversation titles more room. Each label still folds to a dot for its row's
+  actions; counts yield first in the narrow sidebar.
+
 - **An isolated seat can open its own pull request.** Git tools now run in
   the calling conversation's checkout, so status, branch context and forge
   commands see the lane's branch rather than the project's branch. (Fixes #1235)
