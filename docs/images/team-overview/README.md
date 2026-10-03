@@ -1,13 +1,19 @@
-# Team Overview round 4 evidence
+# Team Overview round 5 evidence
 
-Repair source: `14fa41c68892b8ceb1608370f934a9e1b82561e8`. Review source: `6252f14f84da4505f3c1daf87b613d6a65caf322`, which merges main's `ccc4e99a5c0e403ce1b14fe87f727f9be5ee11d1`. The merge adds Seat-rest host behavior; the rendered Overview components are unchanged from the repair source.
+Repair source: `4b7fa281b8dc07acc9a9285889347138b9396a49`, the delta since `6252f14f84da4505f3c1daf87b613d6a65caf322`.
 
-All 34 frames use the preview harness and synthetic identities. Each image was opened individually and inspected in both themes. The six `live-*` frames mount the production TeamRoomPane and show its shared live status line in the Run strip. The other frames cover the standalone Overview model, folded and expanded completed Seats, nested sidebar conversations, and narrow geometry.
+The repair is `c7ae212ef28ed20df4f26042ddcb99be6af7729d`; the review source includes an ordinary merge of main at `9012ec5377c91fed28d72654497cdb458f6fac8e`. Its one selector conflict keeps both the shared in-flight-item helper and finished-Seat attribution.
 
-The repair restores stall reasons, stopped-on-question guidance, the kept-answer action and refusal, and pending-release text through the existing RoomLiveLine. The front-door revision pin already passed and remains visible. TableCell now owns the first-line lead alignment: faces align with names, and role text shares the name's left edge. The census retains every prior ceiling except the five improved trailing-glyph signatures, reducing that count from 15 to 10.
+The Overview keeps the Run's own reason whenever its shared live line has not already shown it. A running Run with idle Seats now says what evidence it waits for; an unrouted settled Run keeps the outcome and why no rule continues. Stop and stall reasons remain on the live line once.
+
+Ten production TeamRoomPane frames were recaptured from the preview harness and individually opened for this repair: running, approval, stalled, waiting on evidence and unrouted ending, in light and dark. Only synthetic identities appear. The new reasons are readable in the Run strip, the stalled reason appears once, and the working and approval guidance and aligned faces remain intact.
+
+The other 28 images retain the [round 4 baseline evidence](https://github.com/HarnessDesk/HarnessDesk/blob/774bf57e42117e2ffe42c4d500640cde92bb08e5/docs/images/team-overview/README.md). This branch now has 38 frames.
 
 | Scene inspected | Light | Dark | Observation in both frames |
 | --- | --- | --- | --- |
+| Production waiting on evidence | [light](live-waiting-evidence-light.png) | [dark](live-waiting-evidence-dark.png) | Running Run, both Seats idle; the Rule after-review evidence wait appears once. |
+| Production unrouted ending | [light](live-unrouted-light.png) | [dark](live-unrouted-dark.png) | Settled Run keeps the revise outcome and why no rule continues, once, above the folded finished Seats. |
 | Production running | [light](live-running-light.png) | [dark](live-running-dark.png) | Run says Alpha is working; face marks centre on the first name line. |
 | Production needs you | [light](live-needs-you-light.png) | [dark](live-needs-you-dark.png) | Run says Beta is waiting for your approval; the attention sentence arrives whole. |
 | Production stalled | [light](live-stalled-light.png) | [dark](live-stalled-dark.png) | Run says Choose the target before this Run can continue; rows retain aligned faces. |
@@ -28,20 +34,14 @@ The repair restores stall reasons, stopped-on-question guidance, the kept-answer
 
 Validation on the review source:
 
-- The whole unsharded `pnpm test:ui-system` run exited 0: 410 passed, one investigation-only vertical-centering audit skipped (the repository's default).
-- The added Overview assertions failed before the repair; the component suite then passed all 131 tests.
-- `pnpm design:alignment` passed and lowered only the five improved signatures.
-- `pnpm test:ui-system:native` exited 0: `native UI system smoke: 38 app frames plus About, relaunch persistence verified`.
+- Both new production Overview assertions failed before the repair: the running idle Run's evidence reason and the settled unrouted Run's reason were absent.
+- `pnpm --filter @harnessdesk/ui exec vitest run src/components/TeamRoomPane.test.tsx src/components/TeamOverview.test.tsx src/lib/team-overview.test.ts` exited 0: 195 tests passed across three files after merging main.
+- `pnpm --filter @harnessdesk/ui run typecheck` exited 0.
+- `node script/design-audit.mjs --strict` exited 0; every enforced category remains at zero.
+- `pnpm test:ui-system` exited 0: 412 passed, one investigation-only vertical-centering audit skipped under the repository's default configuration (whole unsharded run).
 - Unpiped `TMPDIR=/tmp/hdv pnpm verify` exited 0: `All checks passed.`
+- Documentation paths and recorded claims passed after the evidence update.
 
-The first full browser run reported 408 passed, one skipped and two failures: the trajectory assertion read the original fixture instead of the staged ledger, and an overlapping diagnostic removed an active trace file. Trajectory passed alone, the contrast case passed three isolated runs, and both passed in the clean full run above. No assertion, retry setting or check was weakened.
+The first full browser run reported 410 passed, one investigation-only audit skipped and two failures. Preview coverage lost its evaluation context during a Vite full reload; trajectory read the original fixture instead of the staged ledger. Both traces were retained locally. Preview coverage, trajectory and all eight Team Overview cases passed in the clean full rerun above.
 
-```sh
-pnpm --filter @harnessdesk/ui exec vitest run src/components/TeamRoomPane.test.tsx src/components/TeamOverview.test.tsx
-pnpm design:alignment
-pnpm test:ui-system
-pnpm test:ui-system:native
-TMPDIR=/tmp/hdv pnpm verify
-```
-
-Closes #1278
+The first verification run reported one failure in the unrelated GoalFindings round-budget refresh test. That file passed all three tests alone; the full UI suite also passed all 4856 tests on an isolated snapshot of main at `ccc4e99a`. The final merged-source verification above passed. No assertion, timeout, retry setting or check was changed for these reruns.
