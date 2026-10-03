@@ -402,12 +402,14 @@ export const sessionMethods = {
     return { files, skipped }
   },
 
-  'session/compact': async (ctx, params) => {
-    const live = await ctx.sessions.live(params)
+  /* Compaction and review put work into a conversation as surely as a send
+     does, so a wrapped Team's Seat refuses them the way it refuses a send:
+     before the conversation is reopened, and again once it is (#1317). */
+  'session/compact': (ctx, params) => ctx.sessions.dispatch(params, async live => {
     if (!live.compact) throw new Error('This runtime cannot compact a conversation on demand.')
     await live.compact()
     return null
-  },
+  }),
 
   'session/memory': async (ctx, params) => {
     const live = await ctx.sessions.live(params)
@@ -417,9 +419,10 @@ export const sessionMethods = {
   },
 
   'session/review': async (ctx, params) => {
-    const live = await ctx.sessions.live(params)
-    if (!live.review) throw new Error('This runtime cannot review changes.')
-    const side = await live.review(params.target)
+    const side = await ctx.sessions.dispatch(params, async live => {
+      if (!live.review) throw new Error('This runtime cannot review changes.')
+      return live.review(params.target)
+    })
     /* A review in a conversation of its own comes back as that conversation,
        attached here as a fork's is: the host holds its handle from the first
        word, so the window that opens it can send to it without reopening it. */

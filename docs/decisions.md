@@ -1456,8 +1456,11 @@ and sidebar all read that same list. Receipt opens in the pane's scrolling
 body, so the record never pushes its own navigation away.
 
 The renderer uses one wrapped-state rule for dispatching controls and
-conversation composers. The host refuses sends, steers and queued dispatch
-before reopening and again at delivery, including a queue draining after a
-wrap. Closed Seat history and receipt pointers preserve that refusal after
-restart. Run history remains a read; wrapping and deletion keep their existing
-lifecycles. This implements PR 18 of the approved Teams/Runs plan.
+conversation composers. The host refuses sends, steers, queued dispatch,
+reviews and compaction before reopening the conversation and again once it is
+open, and a queue draining after a wrap at delivery. A review or a compaction
+puts work into a conversation as surely as a send does, so they sit behind the
+same barrier, and the conversation menus that offered them show the same
+reason instead. Closed Seat history and receipt pointers preserve that refusal
+after restart. Run history remains a read; wrapping and deletion keep their
+existing lifecycles. This implements PR 18 of the approved Teams/Runs plan.

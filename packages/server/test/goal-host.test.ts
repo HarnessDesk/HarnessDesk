@@ -22,7 +22,7 @@ const settled = async (client: Client, runtime: string, sessionId: string): Prom
   }
 }
 
-test('wrapped Seats retain conversations and refuse send, steer and queued sends; open Seats still dispatch', async (t) => {
+test('wrapped Seats retain conversations and refuse send, steer, queued sends, review and compaction; open Seats still dispatch', async (t) => {
   const harness = await start()
   const client = await Client.connect(harness.server)
   let restored: Awaited<ReturnType<typeof start>> | undefined
@@ -44,6 +44,23 @@ test('wrapped Seats retain conversations and refuse send, steer and queued sends
   await client.call('turn/queue/cancel', { ...pointer, id: queued.queuedId })
   harness.runtime.sessions.get(conversation.id)!.finish()
   await settled(client, 'fake', conversation.id)
+  /* Review and compaction put work into a conversation as surely as a send
+     does, so they sit behind the same barrier. While the Team is open both
+     run — the control the refusals below are measured against. */
+  let compacted = 0
+  Object.assign(harness.runtime.sessions.get(conversation.id)!, { compact: async () => { compacted += 1 } })
+  const inPlace = { ...pointer, target: { type: 'uncommitted' } }
+  const onSideThread = { ...pointer, target: { type: 'uncommitted', delivery: 'detached' } }
+  const reviewing = [
+    ['compaction', 'session/compact', pointer],
+    ['review in place', 'session/review', inPlace],
+    ['review on a side thread', 'session/review', onSideThread],
+  ] as const
+  await client.call('session/compact', pointer)
+  assert.equal(compacted, 1, 'an open Seat compacts')
+  assert.equal(await client.call('session/review', inPlace), null, 'an open Seat reviews in place')
+  const side = await client.call('session/review', onSideThread) as Session
+  assert.notEqual(side.id, conversation.id, 'an open Seat reviews on a side thread')
   await client.call('team/intent', { room: created.goal.id, id: card.id, action: 'done' })
   const choices = { summary: 'Finished and reviewed.', cards: [{ id: card.id, resolution: 'finished', reason: null }] }
   // Acceptance can precede turn/started by an arbitrarily long round trip.
@@ -102,6 +119,12 @@ test('wrapped Seats retain conversations and refuse send, steer and queued sends
   for (const method of ['turn/send', 'turn/steer', 'turn/queue', 'turn/queue/flush'] as const) {
     await t.test(method, async () => assert.rejects(client.call(method, { ...pointer, input }), /This Team is wrapped/, method))
   }
+  const threads = harness.runtime.sessions.size
+  for (const [name, method, params] of reviewing) {
+    await t.test(name, async () => assert.rejects(client.call(method, params), /This Team is wrapped/, method))
+  }
+  assert.equal(compacted, 1, 'the wrapped conversation was not compacted again')
+  assert.equal(harness.runtime.sessions.size, threads, 'the wrapped conversation did not start a review thread')
   const another = await client.call('goal/create', { root: work, sentence: 'Start separate work' }) as GoalView
   const newCard = await client.call('team/add', { room: another.goal.id, title: 'Use a new conversation' }) as { id: number }
   await assert.rejects(client.call('goal/assign', { goal: another.goal.id, card: newCard.id, session: pointer }), /This Team is wrapped/)
@@ -114,6 +137,9 @@ test('wrapped Seats retain conversations and refuse send, steer and queued sends
   await restoredClient.call('workspace/open', { path: work })
   assert.equal((await restoredClient.call('session/read', pointer) as Session).id, pointer.sessionId)
   await assert.rejects(restoredClient.call('turn/send', { ...pointer, input }), /This Team is wrapped/)
+  for (const [name, method, params] of reviewing) {
+    await assert.rejects(restoredClient.call(method, params), /This Team is wrapped/, `${name} after a restart`)
+  }
 })
 
 test('Goal Agent seating preserves the held ceiling through the host adapter', async (t) => {

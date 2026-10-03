@@ -11,7 +11,8 @@ move is real work and is not news to a person weighing an upgrade.
   conversation, and its rail and the sidebar's Wrapped group still open those
   conversations and the Run. Older receipts keep Seats without a retained
   conversation visible. Composers and work-dispatching controls say “This Team
-  is wrapped”, and the host refuses new sends, steers and queued work too.
+  is wrapped”, and the host refuses new sends, steers, queued work, reviews and
+  compaction too; the conversation's menus say so rather than offer them.
 
 HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
 

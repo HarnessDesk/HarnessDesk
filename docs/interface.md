@@ -856,7 +856,8 @@ rail. The sidebar's Wrapped group keeps the same conversations. Older receipts
 use a Seat's kept answer to find its conversation; a Seat without one says
 **Conversation not kept**. These conversations remain readable, with their
 composer disabled: **This Team is wrapped**. Adding, assigning, answering,
-posting and running checks are disabled with that same reason.
+posting and running checks are disabled with that same reason, as are a
+conversation's **Compact now** and **Review uncommitted changes**.
 A receipt's Citations row opens each memory citation's own retained detail in
 a dialog, the same read-only view a project's Memory section opens.
 
