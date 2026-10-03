@@ -1,6 +1,6 @@
 import { connect, WireCallError, type Client, type ClientEvent, type ClientTransport } from '@harnessdesk/client'
 import { canonicalProject, findDesks, localTransport, resolveDesk, type DeskPointer } from '@harnessdesk/client/node'
-import type { ClientMethodName, ClientTopic, GoalView, HostParams, HostResult } from '@harnessdesk/protocol'
+import { doingSentence, type ClientMethodName, type ClientTopic, type GoalView, type HostParams, type HostResult } from '@harnessdesk/protocol'
 
 interface Arguments {
   command: string
@@ -26,7 +26,7 @@ export const COMMANDS = [
   { name: 'status', methods: ['client/hello', 'goal/list', 'flow/executions'], flags: [], execute: status },
   { name: 'teams', methods: ['goal/list'], flags: ['project'], execute: teams },
   { name: 'runs', methods: ['flow/executions'], flags: ['team', 'project', 'all'], execute: runs },
-  { name: 'watch', methods: ['client/subscribe', 'flow/execution', 'finding/run'], flags: ['team', 'run', 'project', 'until', 'raw'], execute: watch },
+  { name: 'watch', methods: ['client/subscribe', 'flow/execution', 'flow/executions', 'finding/run'], flags: ['team', 'run', 'project', 'until', 'raw'], execute: watch },
 ] as const satisfies readonly Command[]
 
 class UsageError extends Error {}
@@ -168,6 +168,8 @@ function eventLine(event: ClientEvent): void {
     case 'hello': line(['hello', event.desk.home, event.hostVersion]); break
     case 'run.changed': line([event.type, event.run, event.state, event.round, event.reason]); break
     case 'card.changed': line([event.type, event.team, event.card, event.state, event.title, event.outcome]); break
+    case 'seat.changed': line([event.type, event.team, event.seat, event.role, event.card, event.state, event.doing ? doingSentence(event.doing) : undefined]); break
+    case 'review.changed': line([event.type, event.team, event.run, event.round, event.cards, event.state, event.reason, event.pr]); break
     case 'team.changed': line([event.type, event.team, event.activity, event.sentence]); break
     case 'waiting': case 'waiting.cleared': line([event.type, event.id, event.summary]); break
     case 'notice': line([event.type, event.team, event.text]); break
@@ -176,7 +178,7 @@ function eventLine(event: ClientEvent): void {
 }
 
 async function watch(args: Arguments): Promise<number> {
-  const topics: ClientTopic[] = ['runs', 'cards', 'teams', 'waiting', 'notices']
+  const topics: ClientTopic[] = ['runs', 'cards', 'teams', 'waiting', 'notices', 'seats', 'reviews']
   let client: Client | undefined, signalCode = 0, reachedUntil = false
   let pendingTransport: ClientTransport | undefined
   const cancel = () => { if (client) client.close(); else pendingTransport?.close() }

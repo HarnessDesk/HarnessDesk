@@ -12,15 +12,17 @@ const { openClientDoor } = await import(new URL('../../../server/dist/src/client
 const { silent, start, stop } = await import(new URL('../../../server/dist/test/fixtures/harness.js', import.meta.url).href) as typeof import('../../server/test/fixtures/harness.js')
 const { makeRepo } = await import(new URL('../../../server/dist/test/fixtures/evidence-desk.js', import.meta.url).href) as typeof import('../../server/test/fixtures/evidence-desk.js')
 
+const flowRig = await import(new URL('../../../server/dist/test/fixtures/flow-host-evidence.js', import.meta.url).href) as typeof import('../../server/test/fixtures/flow-host-evidence.js')
+
 const bin = fileURLToPath(new URL('../src/bin.js', import.meta.url))
-const launch = (t: TestContext, directory: string, home: string, args: readonly string[], cwd?: string, preload?: string) => {
+const launch = (t: TestContext, directory: string, home: string, args: readonly string[], cwd?: string, preload?: string, lifetimeMs = 15_000) => {
   const child = spawn(process.execPath, [...(preload ? ['--import', preload] : []), bin, ...args], { cwd, env: { ...process.env, HARNESSDESK_CLIENT_DIR: directory, HARNESSDESK_HOME: home }, stdio: preload ? ['ignore', 'pipe', 'pipe', 'ipc'] : ['ignore', 'pipe', 'pipe'] })
   let stdout = '', stderr = ''
   const changed = new Set<() => void>()
   child.stdout!.on('data', chunk => { stdout += chunk.toString(); for (const wake of changed) wake() })
   child.stderr!.on('data', chunk => { stderr += chunk.toString() })
   const exit = new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('close', resolve) })
-  const timer = setTimeout(() => child.kill('SIGKILL'), 15_000)
+  const timer = setTimeout(() => child.kill('SIGKILL'), lifetimeMs)
   t.after(async () => { clearTimeout(timer); if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); await exit })
   const lines = () => stdout.split('\n').filter(Boolean).map(line => JSON.parse(line)) as any[]
   const until = async (predicate: (lines: any[]) => boolean) => {
@@ -102,7 +104,8 @@ test('real Flow running → settled is streamed without polling, SIGINT writes e
   assert.equal(child.lines().at(-1).reason, 'interrupted')
   assert.equal(child.lines().filter(e => e.type === 'end').length, 1)
   const calls = child.output().stderr.trim().split('\n').map(line => JSON.parse(line)).filter(e => e.direction === 'send').map(e => e.message.method)
-  assert.deepEqual(calls, ['client/hello', 'client/subscribe', 'flow/execution'], 'watch makes no periodic calls')
+  assert.deepEqual(calls.slice(0, 3), ['client/hello', 'client/subscribe', 'flow/execution'])
+  assert.ok(calls.slice(3).every(method => method === 'finding/run'), 'watch adds only event-driven review reads')
   t.diagnostic(`Flow proof: ${child.lines().filter(e => ['hello', 'run.changed', 'end'].includes(e.type)).map(e => e.type === 'run.changed' ? e.state : e.type).join(' → ')}; exit 130`)
 })
 
@@ -291,4 +294,82 @@ for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]] as const) test(
   assert.equal(child.lines().length, 1)
   assert.equal(child.lines()[0].type, 'end'); assert.equal(child.lines()[0].reason, 'interrupted')
   assert.equal(child.output().stderr, '')
+})
+
+
+test('built watch streams real synthetic Seat activity and review publication without polling', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp('/tmp/hd-door-'); await chmod(directory, 0o700)
+  const d = await flowRig.desk(t)
+  const door = await openClientDoor({ host: d.host, logger: silent, home: d.stateDir, directory, hostVersion: '9.9.9' })
+  assert.ok(door)
+  t.after(async () => { await door.close(); await rm(directory, { recursive: true, force: true }) })
+  const run = await flowRig.start(d, await flowRig.shipped(d, 'independent-review'), flowRig.TASK)
+  const build = (await flowRig.claimed(d, run.goal, 'build', 1))[0]!
+  let producedInvalidations = 0
+  const detach = d.host.addBroadcaster(notification => {
+    if (notification.method === 'finding/changed' && notification.params.goal === run.goal) producedInvalidations++
+  })
+  t.after(detach)
+  const child = launch(t, directory, d.stateDir, ['watch', '--json', '--run', run.id, '--trace-wire'], undefined, undefined, 45_000)
+  await child.until(lines => lines.some(e => e.type === 'seat.changed' && e.card === build.id && e.state === 'working'))
+  await flowRig.write(d, build, 'Synthetic CLI proof')
+  const reviewers = await flowRig.claimed(d, run.goal, 'specialists', 3)
+  for (const card of reviewers) await flowRig.review(d, card, 'approve')
+  await child.until(lines => lines.some(e => e.type === 'review.changed' && e.state === 'local' && e.cards.includes(reviewers[0]!.id)))
+  const calls = () => child.output().stderr.trim().split('\n').filter(Boolean).map(line => JSON.parse(line)).filter(e => e.direction === 'send').map(e => e.message.method)
+  await flowRig.person(d, run.goal, 'ship', 'shipped')
+  await flowRig.settled(d, run.id)
+  await child.until(lines => lines.some(e => e.type === 'run.changed' && e.state === 'settled'))
+  // Wait for durable round-close processing before measuring the quiet desk.
+  await d.host.flowsPlane.flush()
+  const trace = () => child.output().stderr.trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
+  const drainedDeadline = Date.now() + 15_000
+  for (;;) {
+    const frames = trace(), requests = frames.filter(f => f.direction === 'send')
+    const answered = new Set(frames.filter(f => f.direction === 'receive' && f.message.id !== undefined).map(f => f.message.id))
+    const delivered = frames.filter(f => f.direction === 'receive' && f.message.method === 'finding/changed').length
+    if (delivered === producedInvalidations && requests.every(f => answered.has(f.message.id))) break
+    assert.ok(Date.now() < drainedDeadline, 'event-triggered reads must finish before quiet measurement')
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  let invalidated = true, invalidations = 0, reviewReads = 0
+  for (const frame of trace()) {
+    if (frame.direction === 'receive' && frame.message.method === 'finding/changed') { invalidated = true; invalidations++ }
+    if (frame.direction === 'send' && frame.message.method === 'finding/run') {
+      assert.ok(invalidated, 'each review read needs the initial baseline or a discrete finding invalidation')
+      invalidated = false; reviewReads++
+    }
+  }
+  assert.ok(reviewReads <= invalidations + 1)
+  const before = calls()
+  await new Promise(resolve => setTimeout(resolve, 2_700))
+  assert.deepEqual(calls(), before, 'a quiet desk makes no periodic reads')
+  assert.deepEqual(before.slice(0, 3), ['client/hello', 'client/subscribe', 'flow/execution'])
+  assert.ok(before.includes('finding/run'))
+  assert.ok(before.every(method => ['client/hello', 'client/subscribe', 'flow/execution', 'finding/run'].includes(method)), JSON.stringify(before))
+  child.child.kill('SIGINT'); assert.equal(await child.exit, 130, child.output().stderr)
+  const events = child.lines()
+  assert.equal(events[0].type, 'hello'); assert.equal(events.at(-1).type, 'end')
+  const seat = events.find(e => e.type === 'seat.changed' && e.card === build.id)
+  const review = events.find(e => e.type === 'review.changed' && e.state === 'local' && e.cards.includes(reviewers[0]!.id))
+  assert.equal(seat.team, run.goal); assert.ok(seat.since !== undefined); assert.deepEqual(seat.doing, { kind: 'thinking' })
+  assert.equal(review.run, run.id); assert.deepEqual(review.cards, reviewers.map(c => c.id)); assert.equal(review.pr, null)
+  const human = launch(t, directory, d.stateDir, ['watch', '--run', run.id])
+  // Human output is intentionally text, so await bytes rather than the launcher's JSON parser.
+  const humanDeadline = Date.now() + 8_000
+  while (!human.output().stdout.includes('review.changed') || !human.output().stdout.includes('seat.changed')) {
+    assert.ok(Date.now() < humanDeadline, human.output().stdout + human.output().stderr)
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  human.child.kill('SIGINT'); assert.equal(await human.exit, 130)
+  if (process.env['HD_TASK5_PROOF_DIR']) {
+    const proof = process.env['HD_TASK5_PROOF_DIR']
+    await mkdir(proof, { recursive: true })
+    await writeFile(join(proof, 'watch-events.ndjson'), child.output().stdout)
+    await writeFile(join(proof, 'watch-wire.ndjson'), child.output().stderr)
+    await writeFile(join(proof, 'watch-human.txt'), human.output().stdout)
+    await writeFile(join(proof, 'examples.json'), JSON.stringify({ seat, review, calls: before, producedInvalidations, invalidations, reviewReads, quietMs: 2700 }, null, 2) + '\n')
+    t.diagnostic(`CLI proof artifacts: ${proof}`)
+  }
+  t.diagnostic(`Real desk proof: ${JSON.stringify({ seat, review, calls: before, producedInvalidations, invalidations, reviewReads, quietMs: 2700 })}`)
 })
