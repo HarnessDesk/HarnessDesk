@@ -31,7 +31,7 @@ export const overviewTeamStore = (scene: 'done' | 'running' | 'needs-you' | 'sta
  const input=overviewInput(scene==='waiting-evidence'?'idle':scene==='unrouted'?'done':scene)
  const seats=input.seats.slice(0,2).map(one=>one.record as SeatRecord)
  const board={...PREVIEW_GOAL.board,id:'overview-team',name:'Retry the checkout call',root:'/work/storefront',members:[],intents:input.cards.slice(0,2),channel:input.signals!.slice(0,2),nicknames:{}}
- const goal:GoalView={...PREVIEW_GOAL,goal:{...PREVIEW_GOAL.goal,id:board.id,sentence:board.name,root:board.root,cwd:board.root,origin:{kind:'person'}},board,members:seats,activity:null}
+ const goal:GoalView={...PREVIEW_GOAL,goal:{...PREVIEW_GOAL.goal,id:board.id,sentence:board.name,root:board.root,cwd:board.root,origin:{kind:'person'}},board,members:seats,activity:scene==='done'?'ready-to-wrap':null}
  const baseRun=overviewRun(scene==='done'||scene==='unrouted'?'settled':scene==='stalled'?'stalled':'running')
  const run:FlowExecution=scene==='waiting-evidence'
   ? {...baseRun,reason:OVERVIEW_RUN_REASONS[scene],rounds:baseRun.rounds.map(round=>round.n===2?{...round,state:'waiting-evidence'}:round)}

@@ -1,3 +1,4 @@
+import { TeamsPageBoard } from '../../preview/frames-teams-page'
 import { TeamOverviewBoard } from '../../preview/frames-team-overview'
 import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 
@@ -2921,6 +2922,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'Board',
     about: 'Work in columns: what is waiting, what is being done, and who has it.',
     render: KanbanBoard,
+  },
+  {
+    id: 'teams-page',
+    title: 'Teams on the desk',
+    about: 'Attention first, settled work folded, and recorded usage in its own unit.',
+    render: TeamsPageBoard,
   },
   {
     id: 'team-overview',

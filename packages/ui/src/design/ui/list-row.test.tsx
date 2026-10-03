@@ -29,6 +29,16 @@ it('sets the small title in the navigation pair and does not bold selection', ()
   }
 })
 
+it('declares the role its title is drawn in, so the names rule measures the exact pair', () => {
+  /* A small row is navigation (13/400) and a default row a subject (14/500). */
+  const small = renderToStaticMarkup(<ListRow size="sm" nav title="Alpha" />)
+  const regular = renderToStaticMarkup(<ListRow title="Alpha" />)
+
+  expect(small).toContain('data-slot="list-row-title" data-role="navigation"')
+  expect(regular).toContain('data-slot="list-row-title" data-role="subject"')
+  expect(small).not.toContain('font-semibold')
+})
+
 it('keeps the default title in the subject pair', () => {
   const unselected = renderToStaticMarkup(<ListRow title="A subject" />)
   const selected = renderToStaticMarkup(<ListRow selected title="A subject" />)

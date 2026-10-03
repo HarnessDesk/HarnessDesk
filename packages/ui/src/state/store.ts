@@ -1,3 +1,5 @@
+import { readTeamsPrefs, teamListRow } from '../lib/teams-list'
+import { teamsInput } from '../lib/teams-snapshot'
 import {
   DEFAULT_QUESTION_WAIT,
   QUESTION_WAIT_PREFERENCE,
@@ -1291,6 +1293,29 @@ export class AppStore {
       return
     }
     this.setListPrefs({ pinned: [...pinned.slice(0, toIndex), root, ...pinned.slice(toIndex)] })
+  }
+
+  /** Hide binds only settled work to the revision currently held here. */
+  setTeamHidden(id: string, hidden: boolean): void {
+    const input = teamsInput(this.#snapshot).find(one => one.team.id === id)
+    if (!input) return
+    const row = teamListRow(input, this.#snapshot.teamsPrefs)
+    if (hidden && !row.ready) return
+    const marks = { ...this.#snapshot.teamsPrefs.hidden }
+    if (hidden) marks[id] = row.change
+    else delete marks[id]
+    const teamsPrefs = { ...this.#snapshot.teamsPrefs, hidden: marks }
+    this.#patch({ teamsPrefs })
+    void this.#writePreference({ teamsPrefs }, 'Hidden Teams')
+  }
+
+  /** Mark what was actually shown, so a racing change remains unread. */
+  markTeamSeen(id: string, change: string): void {
+    const teamsPrefs = this.#snapshot.teamsPrefs
+    if (teamsPrefs.seen[id] === change) return
+    const next = { ...teamsPrefs, seen: { ...teamsPrefs.seen, [id]: change } }
+    this.#patch({ teamsPrefs: next })
+    void this.#writePreference({ teamsPrefs: next }, 'Team read marks')
   }
 
   /** Whether the "Other projects" fold is open. */
@@ -3081,9 +3106,11 @@ export class AppStore {
    * The team room, as a pane. Same keying and the same absence of a round
    * trip as `openTeamBoard` — the channel is already in the snapshot.
    */
-  openTeamRoom(room?: string): void {
+  openTeamRoom(room?: string, observedChange?: string): void {
     const base = this.#roomToShow(room)
     if (!base) return
+    const input = teamsInput(this.#snapshot).find(one => one.team.id === base)
+    if (input) this.markTeamSeen(base, observedChange ?? teamListRow(input).change)
     // Like a conversation: a room is a place to go, the one on screen included.
     this.closeFloatingSidebar()
     // Before the conversation, not after it: sessions on the left, the room in
@@ -4249,7 +4276,7 @@ export class AppStore {
   }
 
   openGoal(goal: string): void {
-    this.openDefaultView({ kind: 'room', room: goal })
+    this.openTeamRoom(goal)
   }
 
   // ---------------------------------------------------------------- findings
@@ -5955,6 +5982,7 @@ export class AppStore {
         customPresets: readCustomPresets(preferences['customPresets']),
         planEdits,
         listPrefs,
+        teamsPrefs: readTeamsPrefs(preferences['teamsPrefs']),
         editorPrefs,
         browserPrefs,
         spendChartMode,

@@ -188,7 +188,7 @@ Four radii carry the whole interface, and a fifth name says "pill". `sm` is a sm
 
 ### Type
 
-Four steps carry the interface and a fifth names the app; 14px is the default answer and the rest are exceptions that have to earn it. The full reasoning, and the rule for choosing between steps, is docs/design.md.
+Two default running sizes: 13px for chrome and 14px for reading. 12px carries meta facts and existing compact controls; headings, readouts and documents keep their named larger roles. The full reasoning, and the rule for choosing between steps, is docs/design.md.
 
 | token | value |
 | --- | --- |
@@ -209,6 +209,7 @@ Four steps carry the interface and a fifth names the app; 14px is the default an
 | `--hd-weight-normal` | `400` |
 | `--hd-weight-medium` | `500` |
 | `--hd-weight-semibold` | `600` |
+| `--hd-member-weight` | `500` |
 
 ### Measure
 

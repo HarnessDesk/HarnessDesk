@@ -335,6 +335,8 @@ export interface AppSnapshot {
    * never reaches the agent: a hidden model is still perfectly usable, and a
    * session already running on one keeps its row.
    */
+  /** Machine-local Team read and Hide marks, bound to the last observed change. */
+  readonly teamsPrefs: import('../lib/teams-list').TeamsPrefs
   readonly hiddenModels: Readonly<Record<string, readonly string[]>>
   /** Model routes usable (or greyed) for the selected runtime. */
   readonly routes: readonly RouteInfo[]
@@ -818,6 +820,7 @@ const EMPTY: AppSnapshot = {
   runtimeOptions: [],
   draftOptions: null,
   draftValues: {},
+  teamsPrefs: { hidden: {}, seen: {} },
   hiddenModels: {},
   routes: [],
   draftRouteId: null,

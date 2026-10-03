@@ -1895,6 +1895,10 @@ it.each([
   const board = room({ id: 'goal-signal', name: 'Check the rail' })
   const { container: tree } = treeWith([board], [], [], {}, undefined, null,
     new Map([[board.id, triggerGoalView(board, activity)]]))
+  if (activity === 'ready-to-wrap') {
+    expect(tree.querySelector(`[aria-label="Room ${board.name}"]`)).toBeNull()
+    return
+  }
   const mark = roomRow(tree, board.name).querySelector('[data-slot="sidebar-menu-state"]')!
   expect(mark.getAttribute('aria-label')).toBe(label)
   expect(mark.querySelector('[data-slot="chip"]')?.getAttribute('data-tone')).toBe(tone)
@@ -1917,4 +1921,15 @@ it('keeps a durable Seat in the Team tree when no live session or history is hel
  const view={...triggerGoalView(board),members:[{id:'rested-seat',session:{runtime:'codex',sessionId:'rested'},role:'reviewer',openedAt:1,closed:null,agent:{name:'Rested reviewer'}}]} as unknown as GoalView
  const {container:tree}=treeWith([board],[],[],{},undefined,null,new Map([[board.id,view]]))
  expect(tree.textContent).toContain('Rested reviewer')
+})
+
+it('keeps settled Teams and their Seats out of the sidebar, and brings attention back', () => {
+ const seat=summary({id:'finished-seat'})
+ const board=room({id:'settled-team',name:'Settled Team',members:[String(sessionKey(seat.runtime,seat.id))]})
+ const view={...triggerGoalView(board),activity:'ready-to-wrap'} as GoalView
+ const {container:tree,update}=treeWith([board],[seat],[],{},undefined,null,new Map([[board.id,view]]))
+ expect(tree.querySelector('[aria-label="Room Settled Team"]')).toBeNull()
+ expect(rowTitles(tree)).not.toContain('finished-seat')
+ update({goals:new Map([[board.id,{...view,activity:'needs-you'}]])})
+ expect(tree.querySelector('[aria-label="Room Settled Team"]')).not.toBeNull()
 })

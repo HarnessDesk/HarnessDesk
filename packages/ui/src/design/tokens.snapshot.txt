@@ -182,6 +182,7 @@
 --hd-line-sm = 20px
 --hd-line-title = 30px
 --hd-line-xs = 16px
+--hd-member-weight = 500
 --hd-motion-rise = 4px
 --hd-motion-scale = 0.97
 --hd-muted = rgb(245, 245, 245)
@@ -695,6 +696,7 @@
 --hd-line-sm = 20px
 --hd-line-title = 30px
 --hd-line-xs = 16px
+--hd-member-weight = 500
 --hd-motion-rise = 4px
 --hd-motion-scale = 0.97
 --hd-muted = rgb(49, 49, 49)
@@ -1215,6 +1217,7 @@
 --hd-line-sm = 20px
 --hd-line-title = 30px
 --hd-line-xs = 16px
+--hd-member-weight = 500
 --hd-motion-rise = 4px
 --hd-motion-scale = 0.97
 --hd-muted = rgb(245, 245, 245)
@@ -1740,6 +1743,7 @@
 --hd-line-sm = 20px
 --hd-line-title = 30px
 --hd-line-xs = 16px
+--hd-member-weight = 500
 --hd-motion-rise = 4px
 --hd-motion-scale = 0.97
 --hd-muted = rgb(49, 49, 49)
