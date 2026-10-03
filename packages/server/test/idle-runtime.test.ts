@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test, type TestContext } from 'node:test'
 
-import type { RuntimeHealth } from '@harnessdesk/protocol'
+import { membersOf, type GoalView, type RuntimeHealth, type SeatRecord } from '@harnessdesk/protocol'
 
 import { Host, Logger, StateStore } from '../src/index.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
@@ -62,13 +62,14 @@ class IdleRuntime extends FakeRuntime {
   }
 }
 
-const makeHost = async (runtime: IdleRuntime, idleStopMs = 25) => {
+const makeHost = async (runtime: FakeRuntime, idleStopMs = 25, seatRestMs = 25) => {
   const stateDir = await mkdtemp(join(tmpdir(), 'hd-idle-runtime-'))
   const host = new Host({
     logger: silent,
     state: new StateStore(join(stateDir, 'state.json')),
     catalogRefreshMs: 0,
     idleStopMs,
+    ...{ seatRestMs },
   })
   host.register(runtime)
   return { host, stateDir }
@@ -353,4 +354,380 @@ test('shutdown with an idle-stopped runtime completes cleanly', async () => {
   await host.dispose()
   assert.equal(runtime.starts, 1)
   await rm(stateDir, { recursive: true, force: true })
+})
+
+
+const pause = (ms = 100): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+const until = async (condition: () => boolean): Promise<void> => {
+  const deadline = Date.now() + 10_000
+  while (!condition()) {
+    assert.ok(Date.now() < deadline, 'the idle lifecycle reached its expected state')
+    await pause(5)
+  }
+}
+
+const seated = async (t: TestContext, runtime = new IdleRuntime(), seatRestMs = 25) => {
+  const { host, stateDir } = await makeHost(runtime, 25, seatRestMs)
+  const repo = await makeRepo('hd-rest-seat-')
+  const hostsToDispose = [host]
+  t.after(async () => {
+    for (const current of [...hostsToDispose].reverse()) await current.dispose()
+    await rm(stateDir, { recursive: true, force: true })
+    await rm(repo.dir, { recursive: true, force: true })
+  })
+  await host.start()
+  await host.call('workspace/open', { path: repo.dir })
+  const goal = await host.call('goal/create', { root: repo.dir, sentence: 'Finish the work' }) as GoalView
+  const card = await host.call('team/add', { room: goal.goal.id, title: 'Inspect' }) as { id: number }
+  const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: repo.dir } }) as { id: string }
+  const seat = await host.call('goal/assign', { goal: goal.goal.id, card: card.id,
+    session: { runtime: runtime.info.id, sessionId: session.id } }) as SeatRecord
+  const record = host.registry.get(runtime.info.id, session.id as never)!
+  const finish = () => host.call('team/intent', { room: goal.goal.id, id: card.id, action: 'done' })
+  return { host, stateDir, runtime, goal: goal.goal, card, seat, record, finish, repo, hostsToDispose }
+}
+
+test('a finished Seat releases its handle, idle-stops, and remains a Goal member', async (t) => {
+  const d = await seated(t)
+  await d.finish()
+  await until(() => d.record.live === null && d.runtime.health().state === 'idle')
+  assert.equal(d.record.detached, false)
+  const view = await d.host.call('goal/read', { goal: d.goal.id }) as GoalView
+  assert.equal(membersOf(view.goal, view.members).length, 1)
+  assert.equal(view.members[0]?.closed, null)
+})
+
+test('a settled Flow keeps its finished Seats while their runtime rests', async (t) => {
+  const runtime = new IdleRuntime()
+  const { host, stateDir } = await makeHost(runtime)
+  const repo = await makeRepo('hd-rest-flow-')
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }); await rm(repo.dir, { recursive: true, force: true }) })
+  await mkdir(join(stateDir, 'agents', 'scout'), { recursive: true })
+  await writeFile(join(stateDir, 'agents', 'scout', 'AGENT.md'), '---\nname: Scout\nceiling: read\nprefer: [fake]\n---\nInspect.\n')
+  runtime.onSend = (session) => queueMicrotask(() => session.finish())
+  await host.start()
+  await host.call('workspace/open', { path: repo.dir })
+  const source = 'version: 2\nname: Rest\nroles:\n  inspect:\n    kind: agent\n    uses: [scout]\n    grant: read\n    independentOf: []\nseed: { role: inspect, title: Inspect }\nrules: []\n'
+  const preview = await host.call('flow/preview', { root: repo.dir, source }) as { token: string }
+  assert.ok(preview.token)
+  const run = await host.call('flow/start-goal', { root: repo.dir, source, token: preview.token, sentence: 'Finish inspection' }) as { goal: string }
+  let view: GoalView
+  for (let n = 0; ; n++) {
+    view = await host.call('goal/read', { goal: run.goal }) as GoalView
+    if (view.board.intents[0]?.state === 'claimed') break
+    assert.ok(n < 200); await pause(5)
+  }
+  const card = view.board.intents[0]!
+  const record = host.registry.get(card.claim!.runtime, card.claim!.sessionId as never)!
+  await host.call('team/intent', { room: run.goal, id: card.id, action: 'done' })
+  await until(() => record.live === null && runtime.health().state === 'idle')
+  view = await host.call('goal/read', { goal: run.goal }) as GoalView
+  assert.equal(view.members.length, 1)
+  assert.equal(view.members[0]?.closed, null)
+})
+
+for (const blocker of ['turn', 'approval', 'queue', 'task', 'card'] as const) {
+  test(`a Seat with a ${blocker} never rests until that work ends`, async (t) => {
+    const d = await seated(t)
+    if (blocker === 'turn') d.record.running.add('running' as never)
+    if (blocker === 'approval') d.record.approvals.set('pending', {} as never)
+    if (blocker === 'queue') d.host.registry.enqueue(d.record, 'waiting', [{ type: 'text', text: 'Follow up' }])
+    if (blocker === 'task') d.record.tasks = [{ id: 'task', label: 'Background work', kind: 'other', state: 'running', stoppable: true }]
+    const handle = d.record.live
+    assert.ok(handle)
+    if (blocker !== 'card') await d.finish()
+    await pause()
+    assert.equal(d.record.live, handle)
+    assert.equal(d.runtime.health().state, 'ready')
+    d.record.running.clear(); d.record.approvals.clear(); d.host.registry.clearQueue(d.record); d.record.tasks = []
+    if (blocker === 'card') await d.finish()
+    await until(() => d.record.live === null && d.runtime.health().state === 'idle')
+  })
+}
+
+for (const door of ['message', 'open', 'card'] as const) {
+  test(`a ${door} reopens a resting Seat in its own conversation`, async (t) => {
+    const d = await seated(t)
+    await d.host.call('turn/send', { runtime: d.runtime.info.id, sessionId: d.record.session.id, input: [{ type: 'text', text: 'Prior context' }] })
+    d.runtime.sessions.get(d.record.session.id)!.finish()
+    await d.finish()
+    await until(() => d.record.live === null && d.runtime.health().state === 'idle')
+    const resumes = d.runtime.resumes
+    if (door === 'open') await d.host.call('session/resume', { runtime: d.runtime.info.id, sessionId: d.record.session.id })
+    else {
+      if (door === 'card') await d.host.call('team/intent', { room: d.goal.id, id: d.card.id, action: 'reopen' })
+      await d.host.call('team/post', { room: d.goal.id, text: door === 'card' ? 'Take your card again.' : 'Follow up.' })
+    }
+    assert.equal(d.runtime.resumes, resumes + 1)
+    assert.equal(d.record.live?.id, d.seat.session.sessionId)
+    assert.equal(d.record.session.cwd, d.repo.dir)
+    assert.ok(d.record.session.turns.some((turn) => turn.items.some((item) => item.type === 'userMessage')))
+    assert.equal((await d.host.call('goal/read', { goal: d.goal.id }) as GoalView).members.length, 1)
+  })
+}
+
+test('a reopen refusal is surfaced without closing the resting Seat', async (t) => {
+  const d = await seated(t)
+  await d.finish()
+  await until(() => d.record.live === null && d.runtime.health().state === 'idle')
+  d.runtime.resumeFailure = new Error('scripted resume refusal')
+  await assert.rejects(d.host.call('turn/send', { runtime: d.runtime.info.id, sessionId: d.record.session.id,
+    input: [{ type: 'text', text: 'Follow up' }] }), /scripted resume refusal/)
+  assert.equal((await d.host.call('goal/read', { goal: d.goal.id }) as GoalView).members[0]?.closed, null)
+})
+
+test('a working session keeps a runtime shared with a resting Seat running', async (t) => {
+  const d = await seated(t)
+  const working = await d.host.call('session/create', { runtime: d.runtime.info.id, options: { cwd: d.repo.dir } }) as { id: string }
+  await d.host.call('turn/send', { runtime: d.runtime.info.id, sessionId: working.id as never, input: [{ type: 'text', text: 'Work' }] })
+  await d.finish()
+  await until(() => d.record.live === null)
+  assert.equal(d.runtime.health().state, 'ready')
+})
+
+for (const capability of ['resume', 'stopForIdle'] as const) {
+  test(`a runtime without ${capability} keeps a finished Seat live`, async (t) => {
+    const runtime = new IdleRuntime({ capabilities: { resume: capability !== 'resume' } })
+    if (capability === 'stopForIdle') Object.defineProperty(runtime, 'stopForIdle', { value: undefined })
+    const d = await seated(t, runtime)
+    const handle = d.record.live
+    assert.ok(handle)
+    await d.finish()
+    await pause()
+    assert.equal(d.record.live, handle)
+    assert.equal(runtime.health().state, 'ready')
+  })
+}
+
+test('the Seat rest interval is independent of the runtime idle interval', { timeout: 10_000 }, async (t) => {
+  const d = await seated(t, new IdleRuntime(), 60_000)
+  await d.finish()
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
+  await pause(50) // Let the real reaper observe quietness while its clock stands still.
+  t.mock.timers.tick(100)
+  await pause(50)
+  assert.ok(d.record.live)
+  t.mock.timers.tick(60_000)
+  await until(() => d.record.live === null)
+})
+
+test('an open card a Seat previously held prevents rest', async (t) => {
+  const d = await seated(t)
+  const handle = d.record.live
+  assert.ok(handle)
+  await d.host.call('team/intent', { room: d.goal.id, id: d.card.id, action: 'release' })
+  await pause()
+  assert.equal(d.record.live, handle)
+  assert.equal(d.runtime.health().state, 'ready')
+  await d.finish()
+  await until(() => d.record.live === null)
+})
+
+test('a send arriving during release waits, then resumes instead of using the closing handle', async (t) => {
+  const d = await seated(t)
+  const live = d.record.live!
+  let release!: () => void
+  let closing = false
+  const barrier = new Promise<void>((resolve) => { release = resolve })
+  const close = live.close.bind(live)
+  live.close = async () => { closing = true; await barrier; await close() }
+  t.after(() => release())
+  await d.finish()
+  await until(() => closing)
+  const resumes = d.runtime.resumes
+  let sent = false
+  const sending = d.host.call('turn/send', { runtime: d.runtime.info.id, sessionId: d.record.session.id,
+    input: [{ type: 'text', text: 'Follow up while resting' }] }).then(() => { sent = true })
+  await pause(20)
+  assert.equal(sent, false)
+  release()
+  await sending
+  assert.equal(d.runtime.resumes, resumes + 1)
+  assert.ok(d.record.live)
+})
+
+test('a Team message waiting for acceptance keeps a finished Seat live', async (t) => {
+  const d = await seated(t)
+  const session = d.runtime.sessions.get(d.record.session.id)!
+  let release!: () => void
+  const barrier = new Promise<void>((resolve) => { release = resolve })
+  t.after(() => release())
+  let accepting = false
+  const send = session.send.bind(session)
+  session.send = async (...args) => { accepting = true; await barrier; return send(...args) }
+  await d.finish()
+  const post = d.host.call('team/post', { room: d.goal.id, text: 'Follow up' })
+  t.after(() => post.catch(() => {}))
+  await until(() => accepting)
+  const handle = d.record.live
+  await pause(100)
+  assert.ok(handle)
+  assert.equal(d.record.live, handle)
+  assert.equal(d.runtime.health().state, 'ready')
+  release()
+  await post
+})
+
+test('a task that starts and ends between reaper ticks restarts the quiet interval', { timeout: 10_000 }, async (t) => {
+  const d = await seated(t, new IdleRuntime(), 60_000)
+  await d.finish()
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
+  await pause(50)
+  t.mock.timers.tick(59_900)
+  const task = { id: 'brief-task', label: 'Brief work', kind: 'other' as const, state: 'running' as const, stoppable: true }
+  d.runtime.tasks.put(d.record.session.id, [task])
+  d.runtime.tasks.put(d.record.session.id, [])
+  t.mock.timers.tick(200)
+  await pause(50)
+  assert.ok(d.record.live)
+  t.mock.timers.tick(60_000)
+  await until(() => d.record.live === null)
+})
+
+
+test('history and cached reads do not restart a finished Seat quiet interval', async (t) => {
+  const d = await seated(t, new IdleRuntime(), 60_000)
+  await d.finish()
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
+  await pause(50)
+  t.mock.timers.tick(59_900)
+  await d.host.call('session/list', { runtime: d.runtime.info.id })
+  await d.host.call('runtime/models', { runtime: d.runtime.info.id })
+  await d.host.call('runtime/options', { runtime: d.runtime.info.id })
+  await d.host.call('runtime/skills', { runtime: d.runtime.info.id, cwd: d.repo.dir })
+  t.mock.timers.tick(200)
+  await pause(50)
+  assert.equal(d.record.live, null, 'reads leave the completed Seat quiet for the full interval')
+})
+
+for (const recoverRecord of [false, true]) {
+  test(`a manually assigned completed Seat rests after restart ${recoverRecord ? 'with' : 'without'} a registry record`, async (t) => {
+    const d = await seated(t, new IdleRuntime(), 60_000)
+    await d.finish()
+    await d.host.dispose()
+    const runtime = new IdleRuntime()
+    const host = new Host({ logger: silent, state: new StateStore(join(d.stateDir, 'state.json')),
+      catalogRefreshMs: 0, idleStopMs: 25, seatRestMs: 25 })
+    // Reuse the fake agent's store, as a real agent retains its own history.
+    runtime.sessions.set(d.record.session.id, d.runtime.sessions.get(d.record.session.id)!)
+    host.register(runtime)
+    d.hostsToDispose.push(host)
+    await host.start()
+    if (recoverRecord) {
+      await host.call('session/resume', { runtime: runtime.info.id, sessionId: d.record.session.id })
+    } else assert.equal(host.registry.get(runtime.info.id, d.record.session.id), undefined)
+    await pause(150)
+    assert.equal(runtime.health().state, 'idle', 'durable held-card history does not need a live registry record')
+    const view = await host.call('goal/read', { goal: d.goal.id }) as GoalView
+    assert.equal(view.members[0]?.closed, null)
+  })
+}
+
+test('a completed held card trimmed from the board does not prevent Seat rest', async (t) => {
+  const d = await seated(t, new IdleRuntime(), 60_000)
+  await d.finish()
+  // Seed the capacity boundary through the Team's existing writer, then let one real add trim it.
+  await d.host.teamPlane.goalPlaneWrite(d.goal.id, (cards) => [...cards,
+    ...Array.from({ length: 200 }, (_, n) => ({ ...cards[0]!, id: n + 2, title: `Later work ${n}`,
+      state: 'open' as const, claim: null })),
+  ], async () => {})
+  await d.host.call('team/add', { room: d.goal.id, title: 'Trim the settled row' })
+  const view = await d.host.call('goal/read', { goal: d.goal.id }) as GoalView
+  assert.ok(!view.board.intents.some((card) => card.id === d.card.id), 'the real board trimmed the settled card')
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
+  await pause(50)
+  t.mock.timers.tick(60_001)
+  await pause(50)
+  assert.equal(d.record.live, null, 'a known completed trimmed card remains completed')
+})
+
+test('ordinary completion and trimming retain held-card history through restart', async (t) => {
+  const d = await seated(t, new IdleRuntime(), 60_000)
+  // Fill the board through its ordinary save path before completing the held card.
+  for (let n = 0; n < 199; n++) {
+    await d.host.call('team/add', { room: d.goal.id, title: `Later work ${n}` })
+  }
+  await d.finish()
+  await d.host.call('team/add', { room: d.goal.id, title: 'Trim the completed card' })
+  const view = await d.host.call('goal/read', { goal: d.goal.id }) as GoalView
+  assert.ok(!view.board.intents.some((card) => card.id === d.card.id))
+  await d.host.dispose()
+  const history = JSON.parse(await readFile(join(d.stateDir, 'seat-held-cards.json'), 'utf8'))
+  assert.equal(history.seats.find((seat: { seat: string }) => seat.seat === d.seat.id).cards[0].state, 'done')
+  const runtime = new IdleRuntime()
+  const host = new Host({ logger: silent, state: new StateStore(join(d.stateDir, 'state.json')),
+    catalogRefreshMs: 0, idleStopMs: 25, seatRestMs: 25 })
+  host.register(runtime)
+  d.hostsToDispose.push(host)
+  await host.start()
+  await until(() => runtime.health().state === 'idle')
+  assert.equal((await host.call('goal/read', { goal: d.goal.id }) as GoalView).members[0]?.closed, null)
+})
+
+test('an ordinary later claim is retained when released before restart', async (t) => {
+  const d = await seated(t, new IdleRuntime(), 60_000)
+  await d.finish()
+  const later = await d.host.call('team/add', { room: d.goal.id, title: 'Follow-up work' }) as { id: number }
+  assert.match(await d.host.teamPlane.claim(later.id, { runtime: d.runtime.info.id, sessionId: d.record.session.id }), /^Claimed/)
+  await d.host.teamPlane.flush()
+  await d.host.call('team/intent', { room: d.goal.id, id: later.id, action: 'release' })
+  await d.host.dispose()
+  const history = JSON.parse(await readFile(join(d.stateDir, 'seat-held-cards.json'), 'utf8'))
+  const held = history.seats.find((seat: { seat: string }) => seat.seat === d.seat.id).cards
+  assert.equal(held.find((card: { id: number }) => card.id === later.id)?.state, 'open')
+  const runtime = new IdleRuntime()
+  const host = new Host({ logger: silent, state: new StateStore(join(d.stateDir, 'state.json')),
+    catalogRefreshMs: 0, idleStopMs: 25, seatRestMs: 25 })
+  host.register(runtime)
+  d.hostsToDispose.push(host)
+  await host.start()
+  await pause(150)
+  assert.equal(runtime.health().state, 'ready', 'unfinished prior ownership still prevents rest')
+})
+
+for (const corruption of ['json', 'null', 'root', 'seat', 'cards', 'card'] as const) {
+  test(`malformed ${corruption} held-card history does not prevent startup or prove completion`, async (t) => {
+    const d = await seated(t, new IdleRuntime(), 60_000)
+    await d.finish()
+    await d.host.dispose()
+    const valid = { seat: d.seat.id, cards: [{ id: d.card.id, state: 'done', updatedAt: Date.now() }] }
+    const invalid = corruption === 'seat' ? null : corruption === 'cards'
+      ? { seat: 'other-seat', cards: {} } : { seat: 'other-seat', cards: [null] }
+    const text = corruption === 'json' ? '{' : corruption === 'null' ? 'null' : corruption === 'root'
+      ? JSON.stringify({ version: 1, seats: {} }) : JSON.stringify({ version: 1, seats: [valid, invalid] })
+    const file = join(d.stateDir, 'seat-held-cards.json')
+    await writeFile(file, text)
+    const runtime = new IdleRuntime()
+    const host = new Host({ logger: silent, state: new StateStore(join(d.stateDir, 'state.json')),
+      catalogRefreshMs: 0, idleStopMs: 25, seatRestMs: 25 })
+    host.register(runtime)
+    d.hostsToDispose.push(host)
+    await host.start()
+    await pause(150)
+    assert.equal(runtime.health().state, 'ready', 'a partially valid file cannot prove the Seat finished')
+    assert.equal(await readFile(file, 'utf8'), text, 'startup leaves the malformed history intact')
+    assert.equal((await host.call('goal/read', { goal: d.goal.id }) as GoalView).members[0]?.closed, null)
+  })
+}
+
+
+test('a history read in flight does not interrupt a finished Seat quiet interval', async (t) => {
+  const d = await seated(t, new IdleRuntime(), 60_000)
+  await d.finish()
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
+  await pause(50)
+  let release!: () => void
+  const barrier = new Promise<void>((resolve) => { release = resolve })
+  t.after(() => release())
+  let reading = false
+  const list = d.runtime.listSessions.bind(d.runtime)
+  d.runtime.listSessions = async (...args) => { reading = true; await barrier; return list(...args) }
+  const history = d.host.call('session/list', { runtime: d.runtime.info.id })
+  await until(() => reading)
+  t.mock.timers.tick(60_001)
+  await pause(50)
+  assert.equal(d.record.live, null, 'an in-flight read does not count as work on every Seat')
+  assert.equal(d.runtime.health().state, 'ready', 'the read still protects the runtime from stopping')
+  release()
+  await history
 })

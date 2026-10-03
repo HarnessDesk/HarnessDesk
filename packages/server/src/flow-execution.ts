@@ -3755,11 +3755,14 @@ export class FlowExecutions {
     await this.#put({ ...run, state, reason, end })
     // Ended before its first round: the empty Goal it reserved is empty still, and free for another start.
     if (run.reserving && run.rounds.length === 0) await this.#letGo(id, run.reserving.goal)
-    // Kept Seats are released once. The Goal stays open for its person to wrap.
-    const open = [...new Set(run.rounds.flatMap((round) => round.seats))]
-      .filter((seat) => { const record = this.#port.seatOf(seat); return record !== null && record.closed === null })
-    // A trigger's run interrupts every Seat it lets go: no turn it started outlives its stop.
-    await this.#release(run.goal, open, run.intake !== undefined, id)
+    // Finished Seats remain members for follow-ups; the host releases only
+    // their quiet live handles. Stopping still releases work as before.
+    if (state === 'stopped') {
+      const open = [...new Set(run.rounds.flatMap((round) => round.seats))]
+        .filter((seat) => { const record = this.#port.seatOf(seat); return record !== null && record.closed === null })
+      // A trigger's run interrupts every Seat it lets go: no turn it started outlives its stop.
+      await this.#release(run.goal, open, run.intake !== undefined, id)
+    }
     this.#team.nudgeRoom(run.goal)
   }
 
