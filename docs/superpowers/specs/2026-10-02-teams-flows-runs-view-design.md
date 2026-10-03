@@ -578,8 +578,10 @@ know").
 | Stop | `flow/execution/stop` | The clients design's phase 3 (#1247). |
 
 **One set of selectors.** Two pure functions, `teamOverview(state)` and
-`runTimeline(state, run)`, turn the event state into exactly what the table and
-the timeline draw. They belong in `@harnessdesk/client/views`: pure, no
+`runTimeline(input)` (the input is one Run's record, its cards and signals, and
+the check results and findings the timeline also needs, as below), turn the held
+state into exactly what the table and the timeline draw. They belong in
+`@harnessdesk/client/views`: pure, no
 transport, and the window imports only that entry (a layering rule holds it).
 The command line's `status` and `run show` are the same selectors with a
 terminal's words. The selector code and its tests were written first in
