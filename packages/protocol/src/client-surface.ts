@@ -16,6 +16,7 @@ export const CLIENT_METHODS = {
   'flow/start-goal': 'run',
   'workspace/open': 'run',
   'flow/execution': 'read',
+  'flow/execution/stop': 'run',
   'flow/executions': 'read',
   'finding/run': 'read',
   'insight/goal': 'read',

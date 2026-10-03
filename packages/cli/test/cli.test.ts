@@ -5,7 +5,7 @@ import { WireCallError } from '@harnessdesk/client'
 import { COMMANDS, sanitizeHuman, parseArgs, errorExit } from '../src/cli.js'
 
 test('the executable command table covers exactly the declared client surface', () => {
-  assert.deepEqual(COMMANDS.map(command => command.name), ['desks', 'status', 'teams', 'runs', 'watch', 'open', 'flows', 'flow preview', 'flow start', 'run show', 'run wait'])
+  assert.deepEqual(COMMANDS.map(command => command.name), ['desks', 'status', 'teams', 'runs', 'watch', 'open', 'flows', 'flow preview', 'flow start', 'run show', 'run stop', 'run wait'])
   const methods = new Set(COMMANDS.flatMap(command => [...command.methods]))
   for (const command of COMMANDS) for (const method of command.methods) assert.ok(CLIENT_METHODS[method] === 'read' || CLIENT_METHODS[method] === command.tier, `${command.name}: ${method}`)
   for (const method of methods) assert.ok(Object.hasOwn(CLIENT_METHODS, method), method)
@@ -52,4 +52,10 @@ test('run wait timeout is a finite non-negative number of seconds within timer r
   assert.equal(parseArgs(['run', 'wait', 'demo', '--timeout', '0.1']).timeout, '0.1')
   for (const value of ['NaN', 'Infinity', '-1', '2147484', '']) assert.throws(() => parseArgs(['run', 'wait', 'demo', '--timeout', value]), /usage/i)
   assert.throws(() => parseArgs(['run', 'show', 'demo', '--timeout', '1']), /usage/i)
+})
+
+
+test('run stop takes its required reason only from the flag', () => {
+  assert.deepEqual(parseArgs(['run', 'stop', 'r-demo', '--reason', 'Changed', '--yes']), { command: 'run stop', target: 'r-demo', reason: 'Changed', yes: true })
+  for (const args of [['run', 'stop', 'r-demo'], ['run', 'stop', 'r-demo', 'Changed'], ['run', 'stop', 'r-demo', '--reason', '  ']]) assert.throws(() => parseArgs(args), /usage/i)
 })

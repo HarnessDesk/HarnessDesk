@@ -1887,6 +1887,8 @@ export interface HostMethods {
   'flow/start-goal': { params: FlowStartRequest; result: FlowExecution }
   /** One run's current execution state. */
   'flow/execution': { params: { readonly run: string }; result: FlowExecution }
+  /** Stops one run as the person. An already ended run is returned unchanged. */
+  'flow/execution/stop': { params: { readonly run: string; readonly reason: string }; result: FlowExecution }
   /**
    * The exact source and variables this run was started with — never sent
    * unprompted (a run's execution state omits them), only read back for

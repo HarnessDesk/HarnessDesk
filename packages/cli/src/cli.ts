@@ -22,6 +22,7 @@ interface Arguments {
   unattended?: boolean
   yes?: boolean
   timeout?: string
+  reason?: string
 }
 interface Command {
   readonly name: string
@@ -42,6 +43,7 @@ export const COMMANDS = [
   { name: 'flow preview', tier: 'read', methods: ['flow/source', 'flow/preview'], flags: ['target', 'project', 'title', 'briefFile', 'input', 'seat', 'unattended'], execute: previewFlow },
   { name: 'flow start', tier: 'run', methods: ['flow/source', 'flow/preview', 'flow/start-goal'], flags: ['target', 'project', 'title', 'briefFile', 'input', 'seat', 'unattended', 'yes'], execute: startFlow },
   { name: 'run show', tier: 'read', methods: ['flow/execution'], flags: ['target'], execute: showRun },
+  { name: 'run stop', tier: 'run', methods: ['flow/execution/stop'], flags: ['target', 'reason', 'yes'], execute: stopRun },
   { name: 'run wait', tier: 'read', methods: ['client/subscribe', 'flow/execution'], flags: ['target', 'timeout'], execute: waitRun },
 ] as const satisfies readonly Command[]
 
@@ -49,7 +51,7 @@ class UsageError extends Error {}
 function usage(reason: string): never { throw new UsageError(`Usage: ${reason}\nharnessdesk <desks|status|teams|runs|watch|open|flows|flow preview|flow start|run show|run wait> [--home DIR] [--json] [--trace-wire]`) }
 const globals = ['home', 'json', 'traceWire']
 const switches = new Set(['json', 'all', 'raw', 'traceWire', 'unattended', 'yes'])
-const names: Readonly<Record<string, keyof Arguments>> = { '--home': 'home', '--json': 'json', '--trace-wire': 'traceWire', '--project': 'project', '--team': 'team', '--run': 'run', '--all': 'all', '--raw': 'raw', '--until': 'until', '--title': 'title', '--brief-file': 'briefFile', '--input': 'input', '--seat': 'seat', '--unattended': 'unattended', '--yes': 'yes', '--timeout': 'timeout' }
+const names: Readonly<Record<string, keyof Arguments>> = { '--home': 'home', '--json': 'json', '--trace-wire': 'traceWire', '--project': 'project', '--team': 'team', '--run': 'run', '--all': 'all', '--raw': 'raw', '--until': 'until', '--title': 'title', '--brief-file': 'briefFile', '--input': 'input', '--seat': 'seat', '--unattended': 'unattended', '--yes': 'yes', '--timeout': 'timeout', '--reason': 'reason' }
 
 export function parseArgs(argv: readonly string[]): Arguments {
   const result: Record<string, string | boolean | string[]> = {}
@@ -58,7 +60,7 @@ export function parseArgs(argv: readonly string[]): Arguments {
     if (!arg.startsWith('-')) {
       if (!result['command']) result['command'] = arg
       else if (result['command'] === 'flow' || result['command'] === 'run') result['command'] += ` ${arg}`
-      else if (['open', 'flow preview', 'flow start', 'run show', 'run wait'].includes(String(result['command'])) && !result['target']) result['target'] = arg
+      else if (['open', 'flow preview', 'flow start', 'run show', 'run wait', 'run stop'].includes(String(result['command'])) && !result['target']) result['target'] = arg
       else usage(`Unexpected argument ${arg}`)
       continue
     }
@@ -80,6 +82,7 @@ export function parseArgs(argv: readonly string[]): Arguments {
   }
   if (['team', 'run', 'project'].filter(key => result[key] !== undefined).length > 1) usage('Choose only one of --team, --run, --project')
   if ((command.flags as readonly string[]).includes('target') && !result['target']) usage(`${command.name} requires a target`)
+  if (command.name === 'run stop' && (typeof result['reason'] !== 'string' || !result['reason'].trim())) usage('run stop requires --reason TEXT')
   if (result['until'] && (result['until'] !== 'settled' || !result['run'])) usage('--until settled requires --run')
   if (result['timeout'] !== undefined && (typeof result['timeout'] !== 'string' || !result['timeout'].trim() || !Number.isFinite(Number(result['timeout'])) || Number(result['timeout']) < 0 || Number(result['timeout']) * 1000 > 2_147_483_647)) usage('--timeout needs finite non-negative seconds within the timer range')
   return result as unknown as Arguments
@@ -479,4 +482,21 @@ async function waitRun(args: Arguments): Promise<number> {
   const state = client?.snapshot().runs.find(run => run.id === args.target)?.state ?? null
   output(args, { run: args.target, state, reason }, () => line([args.target, state, reason]))
   return code!
+}
+
+
+async function confirmAction(args: Arguments, prompt: string): Promise<boolean> {
+  if (args.yes) return true
+  if (!process.stdin.isTTY || process.stdin.readableEnded) usage(`Without terminal input, ${args.command} requires --yes`)
+  return /^y(?:es)?$/i.test((await readConfirmation(prompt)).trim())
+}
+
+async function stopRun(args: Arguments): Promise<number> {
+  if (!await confirmAction(args, 'Stop this run? [y/N] ')) return 4
+  const client = await open(args)
+  try {
+    const run = await client.call('flow/execution/stop', { run: args.target!, reason: args.reason! })
+    output(args, run, () => line([run.id, run.state, run.reason]))
+    return 0
+  } finally { client.close() }
 }

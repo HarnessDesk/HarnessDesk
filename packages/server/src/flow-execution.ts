@@ -3760,7 +3760,9 @@ export class FlowExecutions {
   async #finish(id: string, state: 'settled' | 'stopped', reason: string, end: FlowExecutionEnd = { kind: 'stopped', by: 'desk' }): Promise<void> {
     const run = this.#get(id)
     if (run.state === 'settled' || run.state === 'stopped') return
-    await this.#put({ ...run, state, reason, end })
+    await this.#put({ ...run, state, reason, end,
+      ...(state === 'stopped' ? { rounds: run.rounds.map(round => round.state === 'closed' ? round : { ...round, state: 'closed' as const }) } : {}),
+    })
     // Ended before its first round: the empty Goal it reserved is empty still, and free for another start.
     if (run.reserving && run.rounds.length === 0) await this.#letGo(id, run.reserving.goal)
     // Finished Seats remain members for follow-ups; the host releases only
@@ -3768,8 +3770,9 @@ export class FlowExecutions {
     if (state === 'stopped') {
       const open = [...new Set(run.rounds.flatMap((round) => round.seats))]
         .filter((seat) => { const record = this.#port.seatOf(seat); return record !== null && record.closed === null })
-      // A trigger's run interrupts every Seat it lets go: no turn it started outlives its stop.
-      await this.#release(run.goal, open, run.intake !== undefined, id)
+      // Stop is durable before interrupts: even a runtime that cannot interrupt
+      // may finish its turn later, but that completion can dispatch no rule.
+      await this.#release(run.goal, open, true, id)
     }
     this.#team.nudgeRoom(run.goal)
   }

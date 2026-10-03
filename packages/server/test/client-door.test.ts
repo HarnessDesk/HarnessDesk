@@ -779,3 +779,18 @@ test('the run surface answers and audits its actual tier, without admitting othe
   assert.ok(entries.some(one => one.method === 'flow/source' && one.tier === 'read' && one.outcome === 'failed'))
   assert.ok(entries.some(one => one.method === 'workspace/open' && one.tier === 'run' && one.outcome === 'refused'))
 })
+
+test('stop wire validation bounds the reason and ended runs remain unchanged', async t => {
+  const { h, home, door } = await rig(t)
+  await h.host.call('workspace/open', { path: home })
+  const preview = await h.host.call('flow/preview', { root: home, source })
+  const run = await h.host.call('flow/start-goal', { root: home, source, sentence: 'Demo', token: preview.token! })
+  const peer = await Peer.open(door.socketPath)
+  t.after(() => peer.socket.close())
+  await peer.hello()
+  for (const reason of ['', '  ', 'x'.repeat(4097)]) assert.equal((await peer.call('flow/execution/stop', { run: run.id, reason })).error.code, 'badRequest')
+  const stopped = await peer.call('flow/execution/stop', { run: run.id, reason: 'Changed' })
+  assert.equal(stopped.result.state, 'stopped')
+  assert.deepEqual(stopped.result.end, { kind: 'stopped', by: 'person' })
+  assert.deepEqual((await peer.call('flow/execution/stop', { run: run.id, reason: 'Again' })).result, stopped.result)
+})

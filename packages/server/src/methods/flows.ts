@@ -124,6 +124,8 @@ export const flowMethods = {
     })
   },
 
+  'flow/execution/stop': (ctx, params) => ctx.flows.stopRun(params.run, params.reason, 'person'),
+
   'flow/executions': (ctx, params) => ctx.flows.executionSummaries(params),
 
   'flow/execution': (ctx, params) => {

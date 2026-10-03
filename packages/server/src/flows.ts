@@ -447,6 +447,8 @@ export class Flows implements TeamFlows {
    */
   async stopRun(id: string, why?: string, by: 'person' | 'desk' = 'person'): Promise<FlowExecution> {
     if (!this.#executions?.stored(id)) throw new Error(`There is no flow run ${id}.`)
+    const current = this.executionOf(id)!
+    if (current.state === 'settled' || current.state === 'stopped') return current
     const stopped = await this.#executions.stop(id, why, by)
     for (const listener of this.#runStopped) await listener(id)
     return stopped

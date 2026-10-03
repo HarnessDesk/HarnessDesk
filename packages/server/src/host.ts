@@ -1265,7 +1265,8 @@ export class Host {
       // A trigger's run interrupts each Seat it lets go, closed or not: no turn it started outlives it.
       interrupt: async (seat) => {
         const record = this.registry.get(seat.session.runtime as RuntimeId, makeSessionId(seat.session.sessionId))
-        if (record?.live && record.running.size > 0) await record.live.interrupt()
+        if (record?.live && this.#queueBusy(record) &&
+            this.#runtime({ runtime: seat.session.runtime }).info.capabilities.interrupt) await record.live.interrupt()
       },
       laneOf: (seat) => this.#lanes.forSeat(seat.id),
       reseat: async (seat) => {
