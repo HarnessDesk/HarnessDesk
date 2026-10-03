@@ -1,4 +1,5 @@
 import { expect, test, type Locator } from '@playwright/test'
+import { measureSidebarRail } from './sidebar-rail.mjs'
 
 const intersection = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) =>
   a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
@@ -90,7 +91,8 @@ test('hover actions take the rail and every trailing mark moves by the declared 
         expect(declaredMarks, 'three badges plus the folded state reserve four marks').toBe(4)
         const reserve = await title.evaluate((node) => Number.parseFloat(getComputedStyle(node).paddingInlineEnd))
         const endRail = await action.evaluate((node) => Number.parseFloat(getComputedStyle(node).insetInlineEnd))
-        expect(reserve, 'the full state uses its real width; only the three badges reserve slots at rest').toBe(endRail + 3 * rail.target)
+        const dotWidth = (await box(row.locator('[data-slot="sidebar-menu-badge"] [data-slot="dot"]'))).width
+        expect(reserve, 'the full state clears the three badges and ends on their visible dot edge').toBe(endRail + 3 * rail.target + (rail.target - dotWidth) / 2)
       }
 
       for (const state of ['hover', 'focus', 'menu-open'] as const) {
@@ -743,7 +745,8 @@ test('real working room keeps its whole chip before the fade and count, then fol
     expect.soft(chipBox.x, `Working chip begins outside label at ${width}px`).toBeGreaterThanOrEqual(labelBox.x)
     expect.soft(chipBox.x + chipBox.width, `Working chip runs into fade at ${width}px`).toBeLessThanOrEqual(labelBox.x + labelBox.width - fade)
     if (countVisible) expect.soft(intersection(chipBox, await box(count)), `Working chip overlaps held count at ${width}px`).toBe(false)
-    expect.soft(Math.abs(chipBox.x + chipBox.width - (actionBox.x + actionBox.width - (countVisible ? 24 : 0))), `Working chip ends at the available rail at ${width}px`).toBeLessThanOrEqual(1)
+    const { rail } = await sidebar.evaluate(measureSidebarRail)
+    expect.soft(Math.abs(chipBox.x + chipBox.width - (rail - (countVisible ? 24 : 0))), `Working chip ends at the available visible rail at ${width}px`).toBeLessThanOrEqual(0.5)
     measurements.push({ width, chip: chipBox, contentRight: clipRight, title: await box(title) })
     await room.locator(':scope > div > [data-slot="sidebar-menu-button"]').hover()
     await expect(chip).toBeHidden()
@@ -830,7 +833,8 @@ test('real working worktree and expanded room members share distinct rail slots 
       if (await mark.isVisible()) expect(Math.abs(await centre(mark) - rail), `real ${row === room ? 'parent' : 'member'} mark misses rail at ${width}px`).toBeLessThanOrEqual(1)
       else {
         const chip = await box(row.locator('[data-sidebar-menu-state-full] [data-slot="chip"]'))
-        expect(Math.abs(chip.x + chip.width - (rail + 12)), `whole parent chip occupies the rail when the count yields at ${width}px`).toBeLessThanOrEqual(1)
+        const measured = await sidebar.evaluate(measureSidebarRail)
+        expect(Math.abs(chip.x + chip.width - measured.rail), `whole parent chip occupies the visible rail when the count yields at ${width}px`).toBeLessThanOrEqual(0.5)
       }
       const action = row.locator(':scope > [data-slot="sidebar-menu-action"], :scope > div > [data-slot="sidebar-menu-action"]').last()
       await row.locator(':scope > div > [data-slot="sidebar-menu-button"], :scope > [data-slot="sidebar-menu-button"]').first().hover()
@@ -874,6 +878,35 @@ test('540px window floats the real sidebar with aligned headers and a whole Work
 
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`every full state chip ends on the session dot rail and stays inside its clip (${theme})`, async ({ page }, testInfo) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto('/design.html?view=sidebar')
+    const sidebar = page.locator('[data-catalog-example="sidebar"] [data-region="sidebar-header"]')
+      .locator('xpath=ancestor::div[contains(@class,"sidebar_")][last()]').first()
+    const measurements = []
+    for (const width of [200, 260, 320, 540]) {
+      await sidebar.locator('xpath=parent::*').evaluate((node, width) => { (node as HTMLElement).style.width = `${width + 2}px` }, width)
+      await sidebar.evaluate(node => { (node as HTMLElement).style.width = '100%' })
+      await page.mouse.move(0, 0)
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+      const measured = await sidebar.evaluate(measureSidebarRail)
+      measurements.push({ theme, width, ...measured })
+      expect(measured.rail).toBeLessThanOrEqual(measured.sidebarRight - 20)
+      expect(measured.rows.filter(row => row.chipBox).length).toBeGreaterThanOrEqual(9)
+      for (const row of measured.rows) {
+        if (row.targetRight !== null) expect.soft(Math.abs(row.targetRight - measured.targetRail), `${row.name}: trailing target at ${width}px`).toBeLessThanOrEqual(0.5)
+        if (row.chipBox) {
+          expect.soft(Math.abs(row.chipBox.right - row.chipRail), `${row.name}: ${row.chip} misses visible dot rail at ${width}px`).toBeLessThanOrEqual(0.5)
+          expect.soft(row.chipBox.left, `${row.name}: chip starts inside clip`).toBeGreaterThanOrEqual(row.clip.left)
+          expect.soft(row.chipBox.right, `${row.name}: chip ends inside clip`).toBeLessThanOrEqual(row.clip.right)
+          expect.soft(row.chipBox.top).toBeGreaterThanOrEqual(row.clip.top)
+          expect.soft(row.chipBox.bottom).toBeLessThanOrEqual(row.clip.bottom)
+        }
+      }
+    }
+    await testInfo.attach('every-row-rail.json', { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' })
+  })
+
   test(`owner decision: narrow count yields and the whole state uses the inset rail (${theme})`, async ({ page }, testInfo) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/design.html?view=sidebar')
@@ -894,13 +927,13 @@ for (const theme of ['light', 'dark'] as const) {
       await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
       await page.mouse.move(0, 0)
       const side = await box(sidebar), chipBox = await box(chip), titleBox = await box(title)
-      const rail = (await box(action)).x + (await box(action)).width
+      const { rail, targetRail } = await sidebar.evaluate(measureSidebarRail)
       const countVisible = await count.isVisible()
       measurements.push({ width, sideRight: side.x + side.width, rail, chipRight: chipBox.x + chipBox.width, titleWidth: titleBox.width, countVisible })
       expect.soft(countVisible, `count yields at 200px, returns at 260px`).toBe(width > 200)
       expect.soft(titleBox.width, `title retains useful space at ${width}px`).toBeGreaterThanOrEqual(32)
-      expect.soft(Math.abs(side.x + side.width - rail - 20), 'rail is inset 20px from the sidebar edge').toBeLessThanOrEqual(1)
-      expect.soft(Math.abs(chipBox.x + chipBox.width - (rail - (countVisible ? 24 : 0))), `whole chip ends on the available rail at ${width}px`).toBeLessThanOrEqual(1)
+      expect.soft(rail, 'visible rail is inset from the sidebar edge').toBeLessThanOrEqual(side.x + side.width - 20)
+      expect.soft(Math.abs(chipBox.x + chipBox.width - (rail - (countVisible ? 24 : 0))), `whole chip ends on the available rail at ${width}px`).toBeLessThanOrEqual(0.5)
       const clip = await button.locator('[data-slot="sidebar-menu-label-content"]').evaluate(node => node.getBoundingClientRect().right - parseFloat(getComputedStyle(node).paddingRight))
       expect.soft(chipBox.x + chipBox.width, 'state is not clipped').toBeLessThanOrEqual(clip + 1)
       if (countVisible) expect.soft(intersection(chipBox, await box(count)), 'chip clears count').toBe(false)
@@ -913,7 +946,7 @@ for (const theme of ['light', 'dark'] as const) {
         expect.soft((await box(title)).width, `actions never squeeze title further (${mode})`).toBeGreaterThanOrEqual(before)
         const dot = button.locator('[data-sidebar-menu-state-compact]')
         expect.soft(intersection(await box(dot), await box(action)), 'state clears action').toBe(false)
-        expect.soft(Math.abs((await box(action)).x + (await box(action)).width - rail), 'actions end on the same rail').toBeLessThanOrEqual(1)
+        expect.soft(Math.abs((await box(action)).x + (await box(action)).width - targetRail), 'actions keep their shared target rail').toBeLessThanOrEqual(0.5)
       }
     }
     await testInfo.attach('owner-baseline-geometry.json', { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' })

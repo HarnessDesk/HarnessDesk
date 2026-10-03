@@ -868,8 +868,9 @@ capitals and for a heavier weight.
 
 The trailing rail is inset from the sidebar edge. `--hd-sidebar-end-rail`
 places a trailing target’s right edge; `--hd-sidebar-end-column` places its
-ink centre. A chip uses its actual width at rest and ends on the available
-rail, one target left of any adjacent marks. Its title consumes the remaining
+ink centre. The visible rail is the session dot's right edge, inside that
+target; a whole chip ends there, one target left of any adjacent marks.
+A chip uses its actual width at rest. Its title consumes the remaining
 space, without a faded chip or a reservation for hidden actions.
 
 On hover, focus or an open menu, the chip folds to a dot and the actions take

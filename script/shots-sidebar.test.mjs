@@ -1,10 +1,35 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { waitForSnapshot } from './lib/desk.mjs'
 
 // shoot.mjs launches the native rig at import. Exercise its actual renderer
 // assertion against representative rail boxes without launching an app here.
 const shoot = readFileSync(new URL('./shots/shoot.mjs', import.meta.url), 'utf8')
+
+test('native hover waits for opaque actions and settled mark geometry', async () => {
+  const from = shoot.indexOf('  const hover = async (selector) => {')
+  const to = shoot.indexOf('  const workspaceHoverAction =', from)
+  let reads = 0
+  const samples = [
+    { ready: false, geometry: 'old' },
+    { ready: false, geometry: 'old' },
+    { ready: false, geometry: 'moving' },
+    { ready: true, geometry: 'settled' },
+    { ready: true, geometry: 'settled' },
+  ]
+  const cdp = {
+    send: async () => {},
+    json: async expression => expression.includes('getAnimations')
+      ? samples[Math.min(reads++, samples.length - 1)] : { x: 100, y: 100 },
+  }
+  const hover = new Function('cdp', 'sleep', 'q', 'waitForSnapshot', `${shoot.slice(from, to)}; return hover`)(
+    cdp, async () => {}, JSON.stringify,
+    (read, matches) => waitForSnapshot(read, matches, { sleepImpl: async () => {} }),
+  )
+  await hover('[data-slot="sidebar-menu-action"]')
+  assert.equal(reads, samples.length, 'a fixed delay cannot vouch for opacity or mark placement')
+})
 const start = shoot.indexOf('        for (const row of document.querySelectorAll(\'[data-slot="sidebar-menu-item"]:hover\'))')
 const end = shoot.indexOf('        // A popup', start)
 assert.ok(start >= 0 && end > start, 'the native hover assertion is present')
