@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { approvalId, itemId, runtimeId, sessionId, turnId, currentTurn, inFlightItem, isBusy, seatDoing, type SeatActivity } from '@harnessdesk/protocol'
+import { approvalId, itemId, runtimeId, sessionId, turnId, currentTurn, inFlightItem, isBusy, seatDoing, sessionKey, type SeatActivity } from '@harnessdesk/protocol'
 
-import type { AgentItem, Approval, FlowExecution, InsightAmounts, InsightMetric, InsightReport, Intent, Session, TeamSignal } from '@harnessdesk/protocol'
+import type { AgentItem, Approval, FlowExecution, InsightAmounts, InsightMetric, InsightReport, Intent, Session, TeamSignal, SeatRecord, GoalView, TeamState } from '@harnessdesk/protocol'
 
 import { doingLine, teamOverview, type TeamOverviewInput, type TeamOverviewSeat } from '../../src/views/team-overview.js'
+import type { ClientSnapshot } from '../../src/views/snapshot.js'
+import { teamOverviewOf } from '../../src/views/index.js'
 
 const card = (id: number, patch: Partial<Intent> = {}): Intent => ({
   id, title: `Task ${id}`, state: 'open', files: [], dependsOn: [], createdAt: 100, updatedAt: 200, ...patch,
@@ -417,5 +419,47 @@ describe('host activity input', () => {
     const result = teamOverview(input({ seats: [outside] }))
     assert.deepEqual(result.needsYou, [])
     assert.equal(result.seats[0]?.state, 'idle')
+  })
+})
+
+describe('teamOverviewOf', () => {
+  it('builds the same rows from a scoped snapshot as the equivalent window facts', () => {
+    const a = seat('Alpha', { session: session('Alpha', [tool('Read', { path: 'src/a.ts' })]) })
+    const b = seat('Beta', { approvals: [approval('Beta')] })
+    const cards = [card(1, { state: 'claimed', claim: claim('Alpha') }), card(2, { state: 'blocked', blockedBy: 'hand', blockedReason: 'Choose a target' })]
+    const signals = [blockedSignal('Beta', { intent: 2 })]
+    const run = execution({ startedAt: 150 })
+    const usage = report([{ seat: 'Alpha', amounts: amounts() }])
+    const runtimes = [{ id: runtimeId('agent-a'), name: 'Runtime A', metered: true }]
+    const record = (one: TeamOverviewSeat, agent: string | null, label: string): SeatRecord => ({ ...one.record, agent: agent ? { id: agent, name: agent, origin: 'project' } : null, seatLabel: label } as SeatRecord)
+    const snapshot: ClientSnapshot = {
+      teams: [{ goal: { id: 'team', createdAt: 110 }, members: [record(a, 'Agent A', 'Seat A'), record(b, null, 'Seat B')], board: { id: 'team' } } as unknown as GoalView],
+      // The separately-held board has the latest nickname, claims and signals.
+      boards: [{ id: 'team', intents: cards, nicknames: { [sessionKey('agent-a', 'Alpha')]: 'Nickname' }, channel: signals } as unknown as TeamState],
+      runs: [execution({ id: 'older', startedAt: 120 }), execution({ goal: 'other', id: 'other', startedAt: 999 }), run],
+      seats: [
+        { goal: 'other', seat: 'agent-a:Alpha', role: 'builder', card: null, state: 'idle', doing: null },
+        { goal: 'team', seat: 'agent-a:Alpha', role: 'builder', card: 1, state: 'working', doing: seatDoing(inFlightItem(a.session!)!), since: 250 },
+      ],
+      approvals: [
+        { runtime: runtimeId('agent-b'), sessionId: sessionId('Alpha'), approval: approval('Alpha') },
+        { runtime: runtimeId('agent-a'), sessionId: sessionId('Beta'), approval: approval('Beta') },
+      ], reviews: [],
+    }
+    const equivalent = input({ seats: [{ ...a, name: 'Nickname', runtime: { capabilities: { metered: true } } }, { ...b, name: 'Seat B', runtime: { capabilities: { metered: true } } }], cards, signals, run: { execution: run, startedAt: 150 }, report: usage, runtimeCapabilities: new Map([['agent-a', { metered: true }]]) })
+    assert.deepEqual(teamOverviewOf(snapshot, 'team', { report: usage, runtimes }), teamOverview(equivalent))
+    const before = JSON.stringify(snapshot)
+    teamOverviewOf(snapshot, 'team', { report: usage, runtimes })
+    assert.equal(JSON.stringify(snapshot), before)
+    delete (snapshot.boards[0] as { nicknames?: unknown }).nicknames
+    assert.equal(teamOverviewOf(snapshot, 'team', { report: null, runtimes }).seats.find(row => row.seat === 'Alpha')?.name, 'Agent A')
+    const recordWithoutName = { ...snapshot.teams[0]!.members[0]!, agent: null, seatLabel: undefined } as unknown as SeatRecord
+    ;(snapshot.teams[0]!.members as SeatRecord[])[0] = recordWithoutName
+    assert.equal(teamOverviewOf(snapshot, 'team', { report: null, runtimes }).seats.find(row => row.seat === 'Alpha')?.name, 'Agent')
+  })
+  it('keeps a legacy run’s unknown start time null', () => {
+    const snapshot: ClientSnapshot = { teams: [{ goal: { id: 'team', createdAt: 110 }, members: [], board: { id: 'team', intents: [] } } as unknown as GoalView], runs: [execution()], boards: [], seats: [], approvals: [], reviews: [] }
+    assert.equal(teamOverviewOf(snapshot, 'team', { report: null, runtimes: [] }).run?.startedAt, null)
+    assert.deepEqual(teamOverviewOf(snapshot, 'missing', { report: null, runtimes: [] }), { run: null, needsYou: [], seats: [] })
   })
 })
