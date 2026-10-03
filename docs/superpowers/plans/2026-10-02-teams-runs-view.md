@@ -99,7 +99,7 @@ Sizes: S under a day of Team time, M about a day, L more.
 | 13 | `FlowGraph` and the Flow tab (read-only) | 3 | after 3 | L |
 | 14 | The Run's state on the Flow | 13, 3, 9 | after those | L |
 | 15 | The poster and the site demo | 14 | optional | S |
-| 16 | Read from the shared client selectors | 3 (the timeline selector it moves); the Wire client and CLI session's PR 1c has merged (#1295) | after 3 | M |
+| 16 | Read from the shared client selectors | 3 (the timeline selector it moves) and 7 (`review-publication.ts`, the chips); the Wire client and CLI session's PR 1c has merged (#1295) | after 3 and 7 | M |
 | 17 | Host: a finished Seat's process rests | none | merged (#1283) | L |
 | 18 | A wrapped Team reads as a record | 2, 12 (merged), 3 | after 3 | M |
 
@@ -115,7 +115,8 @@ file. Land them in that order, and each one starts from a fresh fetch of main.
 PRs 1, 5, 6 and 17 have merged and need no scheduling. Of the rest, PR 12 touches the pane's files only through PR 2's order above, and `SessionTree.tsx` after PR 2.
 
 **What waits on the other session.** Only PR 10 (the stop method). Its PR 1c has merged (#1295). The two events below have landed (#1285). Every
-other PR reads what the window's store already holds.
+other PR reads what the window's store already holds; PR 16 is the exception,
+and reads the client snapshot (`Client.snapshot()`).
 
 ## Coordination with the "Wire client and CLI" session
 
@@ -605,15 +606,15 @@ the Overview draws, in the app's words, ordered by precedence.
 
 **Read first.** Spec: "Sharing the clients design's event stream"; the other session's spec and its event table; this plan's section "Coordination with the Wire client and CLI session"; `packages/client/src/views/` (`team-overview.ts`, `team-overview-of.ts` with `teamOverviewOf(snapshot, team, { report, runtimes, sentences? })`, `snapshot.ts`), `packages/ui/src/lib/run-timeline.ts` and `review-publication.ts` (once PR 3 and PR 7 have landed), and the command line's `status` in `packages/cli/src/cli.ts`.
 
-**Depends on.** PR 3 (the timeline selector this PR moves). The Wire client and CLI session's PR 1c has merged (#1295): the overview model and `teamOverviewOf` are in `@harnessdesk/client/views`, the window's `team-overview.ts` is a re-export, `insight/goal` is in the read tier, `Client.snapshot()` and `Client.synced()` exist, `client/subscribe` returns `{ baseline }`, and `status` renders the overview. Its PR 1b (#1285) has merged too: `seat/activity`, `FindingRunView.rounds`, the tool lookup in `packages/protocol`.
+**Depends on.** PR 3 (the timeline selector this PR moves) and PR 7 (`review-publication.ts`, which defines the chips it maps round states to). The Wire client and CLI session's PR 1c has merged (#1295): the overview model and `teamOverviewOf` are in `@harnessdesk/client/views`, the window's `team-overview.ts` is a re-export, `insight/goal` is in the read tier, `Client.snapshot()` and `Client.synced()` exist, `client/subscribe` returns `{ baseline }`, and `status` renders the overview. Its PR 1b (#1285) has merged too: `seat/activity`, `FindingRunView.rounds`, the tool lookup in `packages/protocol`.
 
 **Scope.**
-- [ ] Move the Run timeline selector (PR 3) into `packages/client/src/views/` the same way #1295 moved the overview model: the file, its tests in `packages/client/test/views`, and a re-export left in the UI. The command line gets a `run show` over it.
+- [ ] Move the Run timeline selector (PR 3) into `packages/client/src/views/` the same way #1295 moved the overview model: the file, its tests in `packages/client/test/views`, and a re-export left in the UI. The command line gets a `run show` over it: the Wire client and CLI session owns the command line, so this PR adds `run show` there as a thin command over the moved selector, and says so in its PR body.
 - [ ] Feed the window's overview and timeline from the client core's snapshot instead of the store snapshot, adapting the store to the stream's state shape (`ClientSnapshot`); delete the window-only derivations once they are identical. `run.startedAt` stays caller-supplied and `SeatRow` stays open to new fields.
 - [ ] Read `seat/activity` (`state`, and `doing` as `{ kind: 'tool', tool, target? }` or `{ kind: 'thinking' }`, null unless working) through `TeamOverviewSeat.activity` where the window has no session of its own, rendering it with `doingSentence` from `packages/protocol`; map its `seat` (`runtime:sessionId`) to the window's Seat ids through the Seat's session pointer. Map the desk's round states to the chips PR 7 defines.
 - [ ] Replay one scripted stream through the window and through the command line's `status` and `run show`, and assert they agree.
 
-**Not in this PR.** New views or controls; any change to the stream's shapes (those belong to the other session's PRs); any command-line surface.
+**Not in this PR.** New views or controls; any change to the stream's shapes (those belong to the other session's PRs); any command-line surface other than `run show`.
 
 **Verify.** The replay test; the existing component and browser specs unchanged; `pnpm verify`.
 
