@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import fs from 'node:fs'
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
@@ -37,8 +38,270 @@ import {
   nodeInstallPrefixFor,
 } from './library.mjs'
 import { installProbes, parseAcpOutput, parseCodexOutput, parseRejectionWords, summarizeAcpMessages } from './probes/index.mjs'
+import * as harness from './library.mjs'
 
 const under = (root, path) => path.startsWith(`${root}/`) || path === root
+
+test('ask fixtures distinguish every scope and skill root by its description', async (t) => {
+  const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-roots-'))
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const entries = await populateSkillRoots(fixture, { user: ['~/.cursor/skills', '~/.cursor/skills-cursor'], project: ['.cursor/skills'] })
+  const sentinels = entries.filter((entry) => entry.sentinel).map((entry) => entry.sentinel)
+  assert.equal(new Set(sentinels).size, sentinels.length)
+  assert.ok(entries.some((entry) => entry.sentinel === 'PROJECT_dot-cursor-skills_measure-user_SENTINEL'))
+})
+
+test('ask CLI requires one agent and admits no prompt text or ambiguous options', () => {
+  assert.deepEqual(harness.parseArgs(['--all']), { all: true, ask: false })
+  assert.deepEqual(harness.parseArgs(['--agent', 'gemini']), { agentId: 'gemini', ask: false })
+  assert.deepEqual(harness.parseArgs(['--agent', 'gemini', '--ask', '--env', 'GEMINI_API_KEY']), { agentId: 'gemini', ask: true, envName: 'GEMINI_API_KEY' })
+  for (const args of [['--ask'], ['--all', '--ask'], ['--all', '--agent', 'gemini'], ['--agent'], ['--agent', 'gemini', '--env', 'GEMINI_API_KEY'], ['--agent', 'gemini', '--ask', 'user words'], ['--agent', 'gemini', '--ask', '--ask']]) {
+    assert.throws(() => harness.parseArgs(args), /usage/)
+  }
+})
+
+test('profile selection enumerates every agent and every isolation selection call site', () => {
+  const source = readFileSync(new URL('./library.mjs', import.meta.url), 'utf8')
+  const registry = readFileSync(new URL('../../packages/server/src/installs/known-agents.ts', import.meta.url), 'utf8')
+  const ids = ['codex', ...[...registry.matchAll(/^\s{4}id:\s*['"]([^'"]+)['"]/gm)].map((match) => match[1])]
+  for (const id of ids) {
+    assert.equal(discoveryIsolation({ id }), 'strict', id)
+    for (const options of [{ all: true, ask: false }, { agentId: id, ask: false }, { all: true, ask: true }, { agentId: 'another-agent', ask: true }]) {
+      assert.equal(harness.measurementIsolation({ id }, options), 'strict', JSON.stringify({ id, options }))
+    }
+    assert.equal(harness.measurementIsolation({ id }, { agentId: id, ask: true }), ['claude-code', 'cursor', 'grok-build'].includes(id) ? KEYCHAIN_READ_ONLY : 'strict', id)
+  }
+  // Pin all production selection sites; profile construction and canary checks
+  // consume this choice, but cannot choose an exception themselves.
+  assert.deepEqual(source.split('\n').filter((line) => /(?:const isolation =|prepareSandbox\(fixture, \{ isolation)/.test(line)).map((line) => line.trim()), [
+    "export async function prepareSandbox(fixture, { isolation = 'strict', readPaths = [] } = {}) {",
+    'const isolation = discoveryIsolation(agent)',
+    "if (!await prepareSandbox(fixture, { isolation, readPaths: copyRoots })) return { chosen: null, copies: [], state: 'unsafe' }",
+    'const isolation = measurementIsolation(agent, options)',
+    'if (!await prepareSandbox(fixture, { isolation, readPaths })) return { ...base, reason: \'cannot isolate\' }',
+  ])
+  assert.equal(source.split('\n').filter((line) => /return .*KEYCHAIN_READ_ONLY/.test(line)).length, 2)
+})
+
+test('the harness prompt budget refuses a fourth request even after failed requests', () => {
+  const take = harness.createPromptBudget()
+  assert.equal(take(), 1)
+  assert.equal(take(), 2)
+  assert.equal(take(), 3)
+  assert.throws(() => take(), /prompt cap/)
+  assert.throws(() => take(), /prompt cap/)
+})
+
+test('ask environment refuses any name not declared by the registry', async () => {
+  const { KNOWN_AGENTS } = await import('../../packages/server/dist/src/installs/known-agents.js')
+  const gemini = KNOWN_AGENTS.find((agent) => agent.id === 'gemini')
+  assert.equal(harness.askEnvironment(gemini, 'GEMINI_API_KEY', {}).reason, 'key not provided')
+  assert.throws(() => harness.askEnvironment(gemini, 'GOOGLE_API_KEY', { GOOGLE_API_KEY: 'synthetic-key' }), /not declared/)
+  assert.throws(() => harness.askEnvironment({ id: 'cursor' }, 'GEMINI_API_KEY', { GEMINI_API_KEY: 'synthetic-key' }), /not declared/)
+  assert.deepEqual(harness.askEnvironment(gemini, undefined), { envOverrides: {}, allowedEnv: [] })
+})
+
+test('ask refuses a forged preflight before launching a model probe', async (t) => {
+  const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-ask-gate-'))
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  fixture.isolation.preflightPassed = true
+  fixture.isolation.profile = 'strict'
+  const result = await askAgent({ id: 'gemini', name: 'Gemini CLI', home: { path: '~/.gemini' } }, fixture, { agentId: 'gemini', ask: true })
+  assert.equal(result.status, 'could-not-ask')
+  assert.equal(result.reason, 'cannot isolate')
+  assert.equal(result.auth, 'no sign-in used')
+})
+
+test('ask records a missing declared key without using a sign-in or launching a child', async (t) => {
+  const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-key-'))
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const result = await askAgent({ id: 'gemini', name: 'Gemini CLI', auth: { secrets: [{ env: 'MEASURE_MISSING_KEY' }] } }, fixture, { agentId: 'gemini', ask: true, envName: 'MEASURE_MISSING_KEY' })
+  assert.equal(result.reason, 'key not provided')
+  assert.equal(result.auth, 'no sign-in used')
+})
+
+test('CLI refuses an undeclared environment name without echoing caller values', async () => {
+  const execution = await promisify(execFile)(process.execPath, ['script/measure/library.mjs', '--agent', 'gemini', '--ask', '--env', 'MEASURE_UNDECLARED'], { env: { ...process.env, MEASURE_UNDECLARED: 'synthetic-env-value' } }).catch((error) => error)
+  assert.equal(execution.code, 1)
+  assert.equal(execution.stdout, '')
+  assert.doesNotMatch(execution.stderr, /synthetic-env-value|MEASURE_UNDECLARED/)
+})
+
+test('ask records an absent install before requiring or launching a sandbox', async (t) => {
+  const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-absent-'))
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const result = await harness.findAgentInstall({ id: 'gemini', home: { path: '~/.gemini' }, cli: { commands: ['harnessdesk-measure-not-installed'] } }, fixture, { ask: true })
+  assert.equal(result.state, 'absent')
+  assert.equal(existsSync(fixture.isolation.profilePath), false)
+})
+
+test('CLI missing-key result keeps the specified refusal reason without a model launch', async (t) => {
+  const root = await mkdtemp('/tmp/hd-measure-cli-')
+  t.after(() => rm(root, { recursive: true, force: true }))
+  for (const path of ['script/measure/probes', 'packages/server/src/installs', 'packages/server/dist/src/installs']) fs.mkdirSync(join(root, path), { recursive: true })
+  for (const path of ['script/measure/library.mjs', 'script/measure/probes/index.mjs', 'packages/server/src/installs/known-agents.ts']) {
+    await writeFile(join(root, path), await readFile(new URL(`../../${path}`, import.meta.url)))
+  }
+  await writeFile(join(root, 'packages/server/dist/src/installs/known-agents.js'), `export const KNOWN_AGENTS = [{ id: 'gemini', name: 'Gemini CLI', home: { path: '~/.gemini' }, cli: { commands: [] }, auth: { secrets: [{ env: 'GEMINI_API_KEY' }] } }]`)
+  await writeFile(join(root, 'packages/server/dist/src/installs/locate.js'), `export const candidatePaths = () => []; export const findInstalls = () => { throw new Error('must not launch') }; export const judgeInstalls = findInstalls;`)
+  const env = { ...process.env }
+  delete env.GEMINI_API_KEY
+  const execution = await promisify(execFile)(process.execPath, [fs.realpathSync(join(root, 'script/measure/library.mjs')), '--agent', 'gemini', '--ask', '--env', 'GEMINI_API_KEY'], { env })
+  const result = JSON.parse(await readFile(join(root, 'docs/verification/library-measurements/gemini-unknown.json'), 'utf8'))
+  assert.equal(result.reason, 'key not provided')
+  assert.equal(result.auth, 'no sign-in used')
+  assert.equal(execution.stderr, '')
+})
+
+test('ask adds no sandbox rule and retains the exact strict and exception profiles', () => {
+  assert.equal(createHash('sha256').update(sandboxProfileText.toString()).digest('hex'), '238f74c1b28b233d14a3e6449ecf35344e69027f5bfeb5f01868c89ff8a9c190')
+})
+
+test('discovery retains its numeric error codes while ask facts accept only bounded counts', () => {
+  const fixture = { ruleSentinels: {}, skills: { sentinel: '/tmp/measure-sentinel' } }
+  const discovery = { agent: 'Gemini CLI', agentId: 'gemini', version: '1.0.0', measured: '2026-10-02', interface: 'ACP initialize and session request', question: 'no session while signed out', rawAnswer: '', facts: { signedOutCatalogue: { status: 'unknown', observation: 'no-session', sessionNewErrorCode: 2_000_000 } }, status: 'asked' }
+  assert.deepEqual(validateResult(discovery, fixture), discovery)
+  const model = { ...discovery, interface: 'ACP model prompt', rawAnswer: 'measure-sentinel' }
+  for (const count of [0, 3, 500]) assert.equal(validateResult({ ...model, facts: { precedence: { duplicateCount: count } } }, fixture).status, 'asked')
+  for (const count of [-1, 0.5, 501, 1_000_001, null]) assert.throws(() => validateResult({ ...model, facts: { precedence: { duplicateCount: count } } }, fixture), /fixture-derived allowlist/)
+})
+
+async function fakeModelProbe(t, { invalid = 0, unknown = false, refresh = 'yes', codex = false, key = false, timeout = false, omitRefreshSkill = false, verified = false } = {}) {
+  const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-model-'))
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const entries = await populateSkillRoots(fixture, { user: ['~/.gemini/skills'], project: ['.gemini/skills'] })
+  if (verified) assert.equal(await prepareSandbox(fixture), true, fixture.isolation.reason)
+  const selected = entries.filter((entry) => entry.scope === 'project' && entry.sentinel)
+  const answer = { rules: [fixture.ruleSentinels[join(fixture.repo, 'GEMINI.md')]], skills: selected.map(({ name, sentinel }) => ({ name, description: sentinel })), mcp: ['measure_fixture'] }
+  if (omitRefreshSkill) answer.skills = answer.skills.filter((skill) => skill.name !== 'measure-sentinel')
+  if (unknown) answer.skills.push({ name: 'measure-user', description: 'NEVER_GIVEN_SENTINEL' }, { name: 'measure-sentinel', description: 'REFRESHED_SENTINEL' })
+  const requests = join(fixture.root, 'requests.jsonl')
+  const peer = join(fixture.root, 'peer.mjs')
+  const fixtureURL = codex ? '../../packages/adapter-codex/test/fixtures/fake-codex.mjs' : '../../packages/adapter-acp/test/fixtures/fake-acp-agent.mjs'
+  let source = await readFile(new URL(fixtureURL, import.meta.url), 'utf8')
+  const body = `
+    appendFileSync(${JSON.stringify(requests)}, JSON.stringify(params) + '\\n');
+    const isRefresh = ${codex ? "params.input[0].text" : "params.prompt[0].text"}.includes('one JSON object with only');
+    const ordinal = readFileSync(${JSON.stringify(requests)}, 'utf8').trim().split('\\n').map(JSON.parse).filter(request => !${codex ? 'request.input[0].text' : 'request.prompt[0].text'}.includes('one JSON object with only')).length;
+    if (${timeout}) return;
+    const refreshed = readFileSync(${JSON.stringify(join(fixture.repo, '.gemini/skills/measure-sentinel/SKILL.md'))}, 'utf8').match(/^description: (.*)$/m)[1];
+    const catalogueAnswer = ${JSON.stringify(answer)};
+    if (!isRefresh && ordinal > 1) { const skill = catalogueAnswer.skills.find(skill => skill.name === 'measure-sentinel'); if (skill) skill.description = refreshed; }
+    if (${key}) { catalogueAnswer.skills.push({ name: 'measure-user', description: process.env.GEMINI_API_KEY }); process.stderr.write(process.env.GEMINI_API_KEY); }
+    const output = !isRefresh && ordinal <= ${invalid} || isRefresh && ${refresh === 'invalid'} ? 'invalid JSON' : JSON.stringify(isRefresh ? { description: ${refresh === 'yes' ? 'refreshed' : refresh === 'no' ? JSON.stringify(selected.find((entry) => entry.name === 'measure-sentinel').sentinel) : "'NEVER_GIVEN_SENTINEL'"} } : catalogueAnswer);
+    ${codex ? "send({ id, result: { turn: { id: 'measure-turn' } } }); notify('item/agentMessage/delta', { threadId: params.threadId, turnId: 'measure-turn', delta: output }); notify('turn/completed', { threadId: params.threadId, turn: { id: 'measure-turn', status: 'completed' } }); return;" : "update(params.sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: output } }); return reply(id, { stopReason: 'end_turn' });"}
+  `
+  source = codex ? source.replace("case 'turn/start': {", `case 'turn/start': {${body}`) : source.replace("'session/prompt': (id, params) => void runPrompt(id, params),", `'session/prompt': (id, params) => {${body}},`)
+  if (codex) source = source.replace(/^#!.*\n/, `#!${process.execPath}\n`)
+  await writeFile(peer, source + '\nif (process.env.GEMINI_API_KEY) process.stdout.write(process.env.GEMINI_API_KEY + "\\n");\n')
+  if (codex) fs.chmodSync(peer, 0o755)
+  const probes = new Map()
+  const captures = []
+  installProbes({
+    registerProbe: (id, probe) => probes.set(id, probe), createPromptBudget: harness.createPromptBudget,
+    run: async (command, args, passedFixture, options) => {
+      assert.equal(passedFixture, fixture)
+      const result = verified ? await run(command, args, passedFixture, options)
+        : await promisify(execFile)(command, args, { cwd: fixture.repo, env: { ...safeEnv(fixture), ...options.envOverrides }, timeout: 15_000 })
+      captures.push(result.stdout + result.stderr)
+      return { code: 0, ...result }
+    },
+  })
+  const agent = { id: codex ? 'codex' : 'gemini', name: codex ? 'Codex' : 'Gemini CLI', version: '1.0.0', home: { path: '~/.gemini' }, auth: { secrets: [{ env: 'GEMINI_API_KEY' }] }, command: codex ? peer : process.execPath, acp: { args: [peer] } }
+  if (verified) registerProbe(agent.id, probes.get(agent.id))
+  const result = verified ? await askAgent(agent, fixture, { agentId: agent.id, ask: true, envName: key ? 'GEMINI_API_KEY' : undefined })
+    : await probes.get(agent.id)(agent, fixture, { ask: true, promptTimeoutMs: timeout ? 30 : undefined, envOverrides: key ? { GEMINI_API_KEY: 'synthetic-env-value' } : {}, allowedEnv: key ? ['GEMINI_API_KEY'] : [] })
+  const sent = existsSync(requests) ? (await readFile(requests, 'utf8')).trim().split('\n').map(JSON.parse) : []
+  return { result, sent, fixture, captures, agent }
+}
+
+test('fake ACP ask measures fixture facts and refresh in one session with fixed prompts', async (t) => {
+  const { result, sent, fixture } = await fakeModelProbe(t)
+  assert.equal(result.status, 'asked')
+  assert.equal(sent.length, 2)
+  assert.equal(new Set(sent.map((request) => request.sessionId)).size, 1)
+  assert.equal(result.facts.refresh.openSessionSeesChange, 'yes')
+  assert.deepEqual(result.facts.skillRoots, [{ path: '.gemini/skills', scope: 'project' }])
+  assert.equal(result.facts.rejections.oversizedListed, true)
+  assert.equal(result.facts.rejections.missingDescriptionListed, false)
+  assert.deepEqual(result.facts.mcp.reported, ['measure_fixture'])
+  for (const request of sent) for (const token of Object.values(fixture.ruleSentinels).concat(fixture.skillEntries.map((entry) => entry.sentinel).filter(Boolean))) assert.ok(!request.prompt[0].text.includes(token))
+  validateResult({ agent: 'Gemini CLI', agentId: 'gemini', version: '1.0.0', measured: '2026-10-02', isolation: 'strict', auth: 'no sign-in used', ...result }, fixture)
+})
+
+test('fake ACP ask retries malformed catalogue JSON once within three prompts', async (t) => {
+  const { result, sent, fixture } = await fakeModelProbe(t, { invalid: 1 })
+  assert.equal(result.status, 'asked')
+  assert.equal(sent.length, 3)
+  assert.deepEqual(sent[0].prompt, sent[2].prompt)
+  assert.match(sent[1].prompt[0].text, /one JSON object with only/)
+  assert.match(result.rawAnswer, /REFRESHED_SENTINEL/)
+  validateResult({ agent: 'Gemini CLI', agentId: 'gemini', version: '1.0.0', measured: '2026-10-02', ...result }, fixture)
+})
+
+test('fake ACP invalid JSON twice records could-not-ask without further prompts', async (t) => {
+  const { result, sent } = await fakeModelProbe(t, { invalid: 2 })
+  assert.equal(result.status, 'could-not-ask')
+  assert.equal(result.reason, 'answer not requested JSON')
+  assert.equal(sent.length, 3)
+})
+
+test('fake ACP discards never-given sentinels and an echoed environment value before capture or persistence', async (t) => {
+  const { result, fixture, captures, sent } = await fakeModelProbe(t, { unknown: true, key: true })
+  assert.equal(result.status, 'asked')
+  assert.doesNotMatch(JSON.stringify({ result, captures, sent }), /NEVER_GIVEN_SENTINEL|REFRESHED_SENTINEL|synthetic-env-value/)
+  const path = await writeResult({ agent: 'Gemini CLI', agentId: 'gemini', version: '1.0.0', measured: '2026-10-02', isolation: 'strict', auth: 'environment key', ...result }, join(fixture.root, 'results'), fixture)
+  for (const name of await readdir(fixture.root)) if (name.endsWith('.jsonl') || name.endsWith('.json')) assert.doesNotMatch(await readFile(join(fixture.root, name), 'utf8'), /synthetic-env-value/)
+  assert.doesNotMatch(await readFile(path, 'utf8'), /synthetic-env-value/)
+})
+
+test('fake ACP refresh distinguishes an old description from an unknown one', async (t) => {
+  assert.equal((await fakeModelProbe(t, { refresh: 'no' })).result.facts.refresh.openSessionSeesChange, 'no')
+  assert.equal((await fakeModelProbe(t, { refresh: 'unknown' })).result.facts.refresh.openSessionSeesChange, 'unknown')
+})
+
+test('fake ACP asks about refresh even when the initial catalogue omitted the skill', async (t) => {
+  const { result, sent } = await fakeModelProbe(t, { omitRefreshSkill: true })
+  assert.equal(sent.length, 2)
+  assert.equal(result.facts.refresh.openSessionSeesChange, 'yes')
+})
+
+test('fake ACP invalid refresh JSON records a refusal and keeps only sanitized initial facts', async (t) => {
+  const { result, sent } = await fakeModelProbe(t, { refresh: 'invalid' })
+  assert.equal(result.status, 'could-not-ask')
+  assert.equal(result.reason, 'answer not requested JSON')
+  assert.equal(result.rawAnswer, '')
+  assert.equal(sent.length, 2)
+})
+
+test('fake ACP unanswered model prompt times out without retry', async (t) => {
+  const { result, sent } = await fakeModelProbe(t, { timeout: true })
+  assert.equal(result.status, 'could-not-ask')
+  assert.equal(result.reason, 'prompt timed out')
+  assert.equal(sent.length, 1)
+})
+
+test('fake Codex ask sends turns in one thread under the same prompt budget', async (t) => {
+  const { result, sent } = await fakeModelProbe(t, { codex: true })
+  assert.equal(result.status, 'asked')
+  assert.equal(sent.length, 2)
+  assert.equal(new Set(sent.map((request) => request.threadId)).size, 1)
+  assert.equal(result.facts.refresh.openSessionSeesChange, 'yes')
+})
+
+test('verified sandbox ask admits the declared key and cannot reopen a fixture to reset the prompt cap', async (t) => {
+  const previous = process.env.GEMINI_API_KEY
+  process.env.GEMINI_API_KEY = 'synthetic-env-value'
+  t.after(() => { if (previous === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = previous })
+  const { result, fixture, captures, agent } = await fakeModelProbe(t, { verified: true, key: true })
+  assert.equal(result.status, 'asked')
+  assert.equal(result.isolation, 'strict')
+  assert.equal(result.auth, 'environment key')
+  assert.doesNotMatch(JSON.stringify({ result, captures }), /synthetic-env-value/)
+  const saved = await writeResult(result, join(fixture.root, 'results'), fixture)
+  assert.doesNotMatch(await readFile(saved, 'utf8'), /synthetic-env-value/)
+  assert.equal((await askAgent(agent, fixture, { agentId: agent.id, ask: true })).reason, 'model session already used')
+})
 
 async function fakeAcpProbe(t, overrides = {}, rejectInitialize = false) {
   const root = await mkdtemp('/tmp/hd-measure-acp-')
