@@ -489,6 +489,38 @@ test('built flow CLI opens and previews caller files without spending, and start
 })
 
 
+test('warning-only previews can be displayed and started while errors and missing tokens are refused', { timeout: 30_000 }, async t => {
+  const r = await rig(t)
+  await r.repo.git('remote', 'add', 'origin', r.repo.dir)
+  const path = join(r.directory, 'remote-base.yaml')
+  const source = 'version: 2\nname: Remote base\nbase: { remote: origin, branch: main }\nroles:\n  ship: { kind: person, outcomes: [shipped] }\nseed: { role: ship, title: Ship }\n'
+  await writeFile(path, source)
+  const frozen = await r.h.host.call('flow/preview', { root: r.repo.dir, source })
+  assert.ok(frozen.token)
+  assert.ok(frozen.problems.some(problem => problem.level === 'warning'))
+  assert.ok(frozen.problems.every(problem => problem.level === 'warning'))
+  await t.test('preview exits successfully and retains the warning', async () => {
+    const preview = launch(t, r.directory, r.home, ['flow', 'preview', path, '--json'], r.repo.dir)
+    assert.equal(await preview.exit, 0, preview.output().stderr)
+    assert.ok(preview.lines()[0].problems.some((problem: { level: string }) => problem.level === 'warning'))
+  })
+  await t.test('start redeems the token and keeps warnings on stderr in JSON mode', async () => {
+    const started = launch(t, r.directory, r.home, ['flow', 'start', path, '--yes', '--json'], r.repo.dir)
+    assert.equal(await started.exit, 0, started.output().stderr)
+    assert.equal(started.lines().length, 1)
+    assert.deepEqual(Object.keys(started.lines()[0]).sort(), ['run', 'team'])
+    assert.match(started.output().stderr, /At Start, fetch remote/)
+  })
+  for (const command of ['preview', 'start']) {
+    const invalid = launch(t, r.directory, r.home, ['flow', command, path, '--seat', 'missing=fake', ...(command === 'start' ? ['--yes'] : [])], r.repo.dir)
+    assert.equal(await invalid.exit, 4, invalid.output().stderr)
+    assert.match(invalid.output().stdout, /There is no role/)
+  }
+  await writeFile(path, 'name: Legacy\nroles:\n  ship: { seats: [fake], prompt: Ship }\nseed: { role: ship, title: Ship }\n')
+  const missing = launch(t, r.directory, r.home, ['flow', 'start', path, '--yes'], r.repo.dir)
+  assert.equal(await missing.exit, 4, missing.output().stderr)
+})
+
 test('run show preserves the execution and wait distinguishes person, settled, stopped and timeout without polling', { timeout: 30_000 }, async t => {
   const r = await rig(t)
   const show = launch(t, r.directory, r.home, ['run', 'show', r.run.id, '--json'])
@@ -569,10 +601,21 @@ rules:
   const shown = launch(t, directory, d.stateDir, ['run', 'show', run.run, '--json'])
   assert.equal(await shown.exit, 0, shown.output().stderr)
   assert.deepEqual(shown.lines()[0].overrides, { writer: [{ runtime: 'held' }] })
+  // The run scope includes every Seat on this Team. An extra Seat's question
+  // must not decide the target Run's outcome, even in the starting baseline.
+  const extra = await d.host.call('goal/seat', { goal: run.team, agent: 'implementer', seats: [{ runtime: 'held' }], grant: { kind: 'ceiling', level: 'edit' } })
+  assert.ok(!(await d.host.call('flow/execution', { run: run.run })).rounds.some(round => round.seats.includes(extra.id)))
+  void holding.sessions.get(extra.session.sessionId)!.askQuestion('extra-question' as never, 'A separate task?', [{ id: 'yes', label: 'Yes' }])
+  await flowRig.whenChanged(d, () => d.host.pendingApprovalEvents().some(one => one.method === 'event' && one.params.event.type === 'approval/requested' && one.params.event.approval.id === 'extra-question') ? true : null, 'the unrelated question')
   const waiting = launch(t, directory, d.stateDir, ['run', 'wait', run.run, '--json', '--trace-wire'])
   // Let the handshake's baseline land before completing the real card.
   const baselineDeadline = Date.now() + 8_000
   while (!waiting.output().stderr.includes('flow/execution-changed')) {
+    assert.ok(Date.now() < baselineDeadline, waiting.output().stderr)
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  void holding.sessions.get(extra.session.sessionId)!.askQuestion('extra-live-question' as never, 'Another separate task?', [{ id: 'yes', label: 'Yes' }])
+  while (!waiting.output().stderr.includes('extra-live-question')) {
     assert.ok(Date.now() < baselineDeadline, waiting.output().stderr)
     await new Promise(resolve => setTimeout(resolve, 10))
   }
@@ -589,6 +632,9 @@ rules:
   void session.askQuestion('cli-question' as never, 'Which base?', [{ id: 'main', label: 'main' }])
   await flowRig.whenChanged(d, () => live.size === 1 ? true : null, 'the unattended deadline')
   assert.equal([...live.values()][0]!.ms, 300_000)
+  const question = launch(t, directory, d.stateDir, ['run', 'wait', second.run, '--json'])
+  assert.equal(await question.exit, 5, question.output().stderr)
+  assert.equal(question.lines()[0].reason, 'waiting for an answer')
   const due = [...live.values()]; live.clear(); due.forEach(one => one.fire())
   await flowRig.whenChanged(d, () => d.host.flowsPlane.executionOf(second.run)?.state === 'stalled' ? true : null, 'the question stall')
   const stopped = launch(t, directory, d.stateDir, ['run', 'wait', second.run, '--json'])
@@ -612,7 +658,7 @@ rules:
     await writeFile(join(proof, 'wait-wire.jsonl'), waiting.output().stderr)
     await writeFile(join(proof, 'outcomes.json'), JSON.stringify({ start: run, settled: waiting.lines()[0], unattended: stopped.lines()[0], noConsent: 2, mismatch: 'refused' }, null, 2) + '\n')
   }
-  t.diagnostic('Built CLI: opened → catalogue → no-spend override preview → started → overridden card → settled (0); unattended question → stalled (7); no consent (2); mismatched token refused. Wait trace: hello, subscribe, execution only.')
+  t.diagnostic('Built CLI: opened → catalogue → no-spend override preview → started → overridden card → ignored unrelated baseline/live questions → settled (0); own question (5) → unattended stall (7); no consent (2); mismatched token refused. Wait trace: hello, subscribe, execution only.')
 })
 
 

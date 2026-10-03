@@ -112,8 +112,8 @@ the declared inputs. Give each input and each overridden role once.
 Preview opens no session and spends nothing. Human output shows attendance,
 seats with overrides beside the file's seats, held or asked ceilings, check
 commands and every problem. JSON is the unchanged `FlowPreview`, including
-its single-use token and optional attendance/overrides. A preview with problems
-or no start token exits 4.
+its single-use token and optional attendance/overrides. A preview with errors
+or no start token exits 4. Warnings remain visible and allow a start.
 
 Start previews first, then confirms on a terminal. A non-terminal needs
 `--yes`; without it, exit 2. If a stdin brief has consumed terminal input to
@@ -146,7 +146,7 @@ seconds up to 2147483.647 are accepted. Omit it to wait without a deadline.
 Wait writes one result: human run id, state and reason, or JSON
 `{run: string, state: string | null, reason: string | null}`. A timeout or a
 signal before a baseline has state `null`. Outcomes are 0 for settled, 5 for
-an open person card or question, 7 for stopped/stalled, and 8 when the timeout
+an open person card or question from a Seat recorded in that Run, 7 for stopped/stalled, and 8 when the timeout
 passes first. SIGINT and SIGTERM return 130 and 143. An unattended question
 stall keeps the question available for a late answer through the window;
 a later `run wait` sees that stall and returns 7.

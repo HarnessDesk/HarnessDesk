@@ -130,7 +130,7 @@ const inScope = (notification: WireNotification, views: readonly GoalView[], sco
   }
 }
 
-/** A separate listener over the same envelopes, granting reads only. */
+/** A separate listener over the same envelopes and an explicitly tiered client surface. */
 export const openClientDoor = async (options: ClientDoorOptions, filesystem: ClientDoorFilesystem = fs): Promise<ClientDoor | null> => {
   const logger = options.logger.child('client')
   if (process.platform === 'win32') {

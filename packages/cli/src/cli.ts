@@ -385,7 +385,7 @@ async function previewFlow(args: Arguments): Promise<number> {
   try {
     const { preview } = await flowRequest(args, client)
     output(args, preview, () => printPreview(preview))
-    return preview.problems.length || !preview.token ? 4 : 0
+    return preview.problems.some(problem => problem.level === 'error') || !preview.token ? 4 : 0
   } finally { client.close() }
 }
 
@@ -396,7 +396,7 @@ async function startFlow(args: Arguments): Promise<number> {
     // --yes acknowledges this preview; a pipe never implies approval to
     // spend. JSON keeps stdout to the start result, even during confirmation.
     printPreview(preview, args.json ? process.stderr : process.stdout)
-    if (preview.problems.length || !preview.token) return 4
+    if (preview.problems.some(problem => problem.level === 'error') || !preview.token) return 4
     if (!args.yes) {
       if (!process.stdin.isTTY || process.stdin.readableEnded) usage('Without terminal input, flow start requires --yes')
       if (!/^y(?:es)?$/i.test((await readConfirmation('Start this Flow? [y/N] ')).trim())) return 4
@@ -442,11 +442,17 @@ async function waitRun(args: Arguments): Promise<number> {
       card.state !== 'done' && card.state !== 'abandoned' &&
       run.document.flow.roles.some(role => role.id === card.role && role.kind === 'person') &&
       run.rounds.some(round => round.role === card.role && round.state !== 'closed' && round.cards.includes(card.id))))
-    const question = snapshot.approvals.some(one => one.approval.type === 'userInput' || one.approval.type === 'elicitation')
+    // A run subscription carries its whole Team's questions. Match the
+    // session to a Seat this Run recorded before treating it as a person wait.
+    const members = snapshot.teams.find(team => team.goal.id === run.goal)?.members ?? []
+    const question = snapshot.approvals.some(one =>
+      (one.approval.type === 'userInput' || one.approval.type === 'elicitation') &&
+      members.some(member => member.session.runtime === one.runtime && member.session.sessionId === one.sessionId &&
+        run.rounds.some(round => round.seats.includes(member.id))))
     if (person || question) { code = 5; reason = person ? 'waiting for a person card' : 'waiting for an answer' }
   }
   try {
-    client = await open(args, undefined, { topics: ['runs', 'cards', 'waiting'], scope: { run: args.target! } }, transport => {
+    client = await open(args, undefined, { topics: ['runs', 'cards', 'teams', 'waiting'], scope: { run: args.target! } }, transport => {
       pendingTransport = transport
       if (code !== undefined) transport.close()
     })

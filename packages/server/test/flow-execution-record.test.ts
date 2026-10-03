@@ -252,6 +252,7 @@ test('attendance and overrides are frozen before dispatch and survive recovery',
   }
   const older = { ...saved } as unknown as Record<string, unknown>
   delete older.attended; delete older.overrides
+  assert.throws(() => executionOf(older), /frozen bindings/, 'missing metadata must not hide seats different from the file')
   // A pre-override run's saved bindings agree with its file's seats.
   older.compiled = rig.compile(source, roster)
   await rig.files.save(older as unknown as StoredFlowExecution)

@@ -288,8 +288,12 @@ every inbound frame before the host sees it, and one module under
 second listener, a local unix socket in a user-owned `0700` directory with a
 `0600` socket and discovery pointer. It answers only `CLIENT_METHODS`,
 checks each method's tier before its params, and sends only subscribed topics
-in scope after hello. Only `read` is granted so far; the window's token-gated
-door keeps its existing contract. Client calls share the audit file, while
+in scope after hello. `read` and `run` are granted by default; `answer`
+remains ungranted. Catalogue/source/preview calls are reads; opening a project
+and starting a Flow require `run`. A start redeems a single-use preview token
+bound to source, inputs, seat overrides and attendance. Unattended starts use
+the trigger's ceiling, question-deadline and late-answer path. The window's
+token-gated door keeps its existing contract. Client calls share the audit file, while
 the window's audit query continues to return session entries only.
 The host derives each Seat's `seat/activity` once for every client, using
 the shared activity and tool-name vocabulary in `packages/protocol`.

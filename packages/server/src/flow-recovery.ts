@@ -274,8 +274,10 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
   }
   const reparsed = parseFlowPolicy(raw['source'] as string)
   if (!reparsed.document || reparsed.document.format !== 'agents') bad('source is no longer an Agent flow')
-  if (raw['overrides'] !== undefined) {
-    const overrides = raw['overrides'] as Record<string, readonly FlowSeat[]>
+  {
+    // Older runs omit override metadata; their bindings must still agree
+    // with the file's seats. Missing metadata cannot conceal an override.
+    const overrides = (raw['overrides'] ?? {}) as Record<string, readonly FlowSeat[]>
     const effective = overrideFlowSeats(reparsed.document!, overrides)
     if (effective.problems.some(one => one.level === 'error')) bad('has invalid seat overrides')
     const held = compiled as unknown as StoredFlowExecution['compiled']
