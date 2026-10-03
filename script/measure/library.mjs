@@ -1,7 +1,8 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { mkdir, mkdtemp, readdir, rm, unlink, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -31,7 +32,7 @@ const CREDENTIAL_ROOTS = [
 export const KEYCHAIN_READ_ONLY = 'keychain-read-only'
 // Discovery stays strict; only an explicitly selected ask run can use this profile.
 const KEYCHAIN_READ_ONLY_AGENTS = new Set(['claude-code', 'cursor', 'grok-build'])
-const FACT_KEYS = new Set(['rulesFiles', 'catalogue', 'reportsCatalogue', 'precedence', 'rejections', 'reportsRejections', 'skillRoots', 'refresh', 'mcp', 'signedOutCatalogue'])
+const FACT_KEYS = new Set(['rulesFiles', 'catalogue', 'reportsCatalogue', 'precedence', 'rejections', 'reportsRejections', 'skillRoots', 'refresh', 'mcp', 'signedOutCatalogue', 'requestFailure'])
 const unmeasuredFacts = () => ({
   rulesFiles: { status: 'could-not-ask' }, catalogue: { status: 'could-not-ask' }, reportsCatalogue: false,
   precedence: { status: 'could-not-ask' }, rejections: { status: 'could-not-ask' }, reportsRejections: false,
@@ -44,6 +45,8 @@ const SAFE_FACT_STRINGS = new Set([
   'connected', 'disconnected', 'accepted', 'rejected', 'enabled', 'disabled', 'loaded', 'not-loaded',
   'true', 'false', 'fixture', 'read', 'not-read', 'reported', 'not-reported', 'visible', 'not-visible',
   'no-session', 'session-created', 'yes', 'no', 'measure_fixture',
+  'initialize', 'session-new', 'prompt', 'parse-error', 'invalid-request', 'method-not-found',
+  'invalid-params', 'internal-error', 'authentication-required', 'resource-not-found', 'cancelled', 'server-error',
 ])
 const SAFE_TEXT_WORDS = new Set([
   'a', 'an', 'and', 'agent', 'available', 'app-server', 'are', 'as', 'build', 'catalogue', 'codex',
@@ -61,6 +64,7 @@ const SAFE_TEXT_WORDS = new Set([
   'openai', 'claude', 'opencode', 'cline', 'hermes', 'codebuddy', 'kimi', 'pi', 'grok', 'copilot', 'antigravity', 'devin',
   'model', 'required', 'unavailable', 'listing', 'session', 'acp', 'out', 'initialize', 'request', 'cannot', 'isolation',
   'key', 'provided', 'prompt', 'cap', 'reached', 'timed', 'requested', 'json', 'already', 'used',
+  'bridge', 'install', 'directory', 'unsafe', 'reachable', 'under', 'approved', 'profile', 'network', 'refused', 'quota',
 ])
 
 const write = async (path, body) => {
@@ -850,6 +854,75 @@ export async function findAgentInstall(agent, fixture, options = {}) {
   return { chosen, copies, state: installDiscoveryState({ candidateCount: candidates.length, copies, chosen, unsafeCount: unsafeCopies.length }) }
 }
 
+// AgentRegistry expands these templates to Node + a sibling package entry;
+// registering one installs nothing. Use those same bundles, never a PATH twin.
+export async function resolveModelBridge(agent, { packagesRoot = fileURLToPath(new URL('../../packages/', import.meta.url)), realHome = realpathSync(homedir()) } = {}) {
+  if (!agent.acp?.bridge) return { agent, readPaths: [] }
+  const bundled = { 'claude-code': 'claude-acp', cursor: 'cursor-acp' }[agent.id]
+  const readPaths = []
+  let candidates
+  if (bundled) candidates = [join(packagesRoot, bundled, 'dist/src/main.js')]
+  else {
+    const { candidatePaths } = await import('../../packages/server/dist/src/installs/locate.js')
+    candidates = candidatePaths({ commands: [agent.acp.bridge.command] }, { home: homedir(), env: { PATH: process.env.PATH ?? '' } })
+  }
+  let unsafe = false
+  for (const candidate of candidates) {
+    try {
+      const path = realpathSync(candidate)
+      const root = bundled ? realpathSync(join(packagesRoot, bundled)) : installReadRoot(path)
+      if (!statSync(path).isFile()) continue
+      if (!root || !installRootIsSafe(root, realHome) || !isWithin(root, path)) { unsafe = true; continue }
+      readPaths.push(root)
+      const bridge = { ...agent.acp.bridge, command: bundled ? process.execPath : path, args: bundled ? [path] : agent.acp.bridge.args }
+      const env = { ...(agent.acp.env ?? {}), ...(agent.id === 'claude-code' ? { CLAUDECODE: '' } : {}) }
+      return { agent: { ...agent, acp: { ...agent.acp, bridge, env } }, readPaths }
+    } catch { /* missing or unreadable bridges never launch */ }
+  }
+  return { reason: unsafe ? 'cannot isolate: bridge install directory unsafe' : 'bridge not installed' }
+}
+
+// Node realpaths each ancestor of an import, including the denied home. Copy
+// only the installed runtime package graph into the disposable fixture so the
+// normal loader works without admitting an ancestor or changing the profile.
+export async function stageModelBridge(agent, fixture) {
+  if (!['claude-code', 'cursor'].includes(agent.id)) return agent
+  const copied = new Map()
+  const realHome = realpathSync(homedir())
+  const copyPackage = async (source) => {
+    source = realpathSync(source)
+    if (!installRootIsSafe(source, realHome)) throw new Error('cannot isolate: bridge install directory unsafe')
+    if (copied.has(source)) return copied.get(source)
+    if (copied.size >= 500) throw new Error('bridge not installed')
+    const target = join(fixture.root, 'bridge-runtime', String(copied.size))
+    copied.set(source, target)
+    const manifest = JSON.parse(await readFile(join(source, 'package.json'), 'utf8'))
+    await cp(source, target, { recursive: true, filter: (path) => !relative(source, path).split('/').includes('node_modules') })
+    const require = createRequire(join(source, 'package.json'))
+    for (const name of Object.keys({ ...manifest.dependencies, ...manifest.optionalDependencies, ...manifest.peerDependencies })) {
+      if (!/^(?:@[a-z0-9_.-]+\/)?[a-z0-9_.-]+$/i.test(name)) throw new Error('bridge not installed')
+      const dependency = require.resolve.paths(name)?.map((root) => join(root, name)).find((path) => existsSync(join(path, 'package.json')))
+      if (!dependency) {
+        if (manifest.optionalDependencies?.[name] || manifest.peerDependenciesMeta?.[name]?.optional) continue
+        throw new Error('bridge not installed')
+      }
+      const staged = await copyPackage(dependency)
+      const link = join(target, 'node_modules', name)
+      await mkdir(dirname(link), { recursive: true })
+      await symlink(relative(dirname(link), staged), link)
+    }
+    return target
+  }
+  try {
+    const entry = agent.acp.bridge.args[0]
+    const root = dirname(dirname(dirname(entry)))
+    const staged = await copyPackage(root)
+    return { ...agent, acp: { ...agent.acp, bridge: { ...agent.acp.bridge, args: [join(staged, relative(root, entry))] } } }
+  } catch (error) {
+    throw new Error(error.message === 'cannot isolate: bridge install directory unsafe' ? error.message : 'bridge not installed')
+  }
+}
+
 async function measureModel(agent, fixture, options) {
   const base = {
     agent: agent.name, agentId: agent.id, version: agent.version, measured: new Date().toISOString().slice(0, 10),
@@ -858,21 +931,10 @@ async function measureModel(agent, fixture, options) {
   }
   const environment = askEnvironment(agent, options.envName)
   if (environment.reason) return { ...base, reason: environment.reason }
-  const readPaths = [...fixture.isolation.readPaths]
-  if (agent.acp?.bridge) {
-    const { candidatePaths } = await import('../../packages/server/dist/src/installs/locate.js')
-    const candidates = candidatePaths({ commands: [agent.acp.bridge.command] }, { home: homedir(), env: { PATH: process.env.PATH ?? '' } })
-    let bridgePath
-    for (const candidate of candidates) {
-      try {
-        const path = realpathSync(candidate)
-        const root = installReadRoot(path)
-        if (statSync(path).isFile() && root && installRootIsSafe(root, realpathSync(homedir()))) { bridgePath = path; readPaths.push(root); break }
-      } catch { /* absent or unsafe bridge candidates are not launched */ }
-    }
-    if (!bridgePath) return { ...base, reason: 'model launch unavailable' }
-    agent = { ...agent, acp: { ...agent.acp, bridge: { ...agent.acp.bridge, command: bridgePath } } }
-  }
+  const resolved = await resolveModelBridge(agent)
+  if (resolved.reason) return { ...base, reason: resolved.reason }
+  try { agent = await stageModelBridge(resolved.agent, fixture) } catch (error) { return { ...base, reason: error.message } }
+  const readPaths = [...fixture.isolation.readPaths, ...(['claude-code', 'cursor'].includes(agent.id) ? [] : resolved.readPaths)]
   const isolation = measurementIsolation(agent, options)
   if (!await prepareSandbox(fixture, { isolation, readPaths })) return { ...base, reason: 'cannot isolate' }
   await populateSkillRoots(fixture, agent.id === 'codex' ? { user: ['~/.codex/skills', '~/.agents/skills'], project: ['.codex/skills', '.agents/skills'] } : KNOWN_SKILL_ROOTS[agent.brand] ?? { user: [], project: [] })

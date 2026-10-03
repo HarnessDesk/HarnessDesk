@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import fs from 'node:fs'
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -42,6 +42,107 @@ import * as harness from './library.mjs'
 
 const under = (root, path) => path.startsWith(`${root}/`) || path === root
 
+test('bundled model bridges use the app package entries and a fake bridge receives the selected CLI', async (t) => {
+  for (const [id, name, variable] of [['claude-code', 'claude-acp', 'CLAUDE_CODE_EXECUTABLE'], ['cursor', 'cursor-acp', 'CURSOR_ACP_COMMAND']]) {
+    const fixture = await createFixture()
+    t.after(() => rm(fixture.root, { recursive: true, force: true }))
+    const packagesRoot = join(fixture.root, 'packages')
+    const entry = join(packagesRoot, name, 'dist/src/main.js')
+    const requests = join(fixture.root, 'bridge-requests.jsonl')
+    const source = await readFile(new URL('../../packages/adapter-acp/test/fixtures/fake-acp-agent.mjs', import.meta.url), 'utf8')
+    await mkdir(join(packagesRoot, name, 'dist/src'), { recursive: true })
+    await writeFile(join(packagesRoot, name, 'package.json'), '{"type":"module"}')
+    await writeFile(entry, source.replace('const handler = handlers[message.method]', `appendFileSync(${JSON.stringify(requests)}, JSON.stringify({ method: message.method, executable: process.env.${variable}, nested: process.env.CLAUDECODE }) + '\\n');\n  const handler = handlers[message.method]`))
+    const agent = { id, command: process.execPath, acp: { args: [], bridge: { command: name, args: [], executableEnv: variable } } }
+    const resolved = await harness.resolveModelBridge(agent, { packagesRoot, realHome: join(fixture.root, 'real-home') })
+    assert.equal(resolved.agent.acp.bridge.command, process.execPath)
+    assert.deepEqual(resolved.agent.acp.bridge.args, [fs.realpathSync(entry)])
+    assert.ok(resolved.readPaths.includes(fs.realpathSync(join(packagesRoot, name))))
+    assert.ok(!resolved.readPaths.includes(packagesRoot))
+    const staged = await harness.stageModelBridge(resolved.agent, fixture)
+    assert.equal(await prepareSandbox(fixture, { isolation: KEYCHAIN_READ_ONLY }), true, fixture.isolation.reason)
+    const probes = await import('./probes/index.mjs')
+    installProbes({ registerProbe: () => {}, createPromptBudget: harness.createPromptBudget, run: async (command, args, passedFixture, options) => {
+      assert.equal(passedFixture, fixture)
+      return run(command, args, passedFixture, options)
+    } })
+    const result = await probes.probeAcpHandshake(staged, fixture)
+    assert.equal(result.status, 'asked')
+    assert.equal(result.prompted, false)
+    const sent = (await readFile(requests, 'utf8')).trim().split('\n').map(JSON.parse)
+    assert.deepEqual(sent.map(request => request.method), ['initialize', 'session/new'])
+    assert.ok(sent.every(request => request.executable === process.execPath))
+    if (id === 'claude-code') assert.ok(sent.every(request => request.nested === ''))
+  }
+})
+
+test('bundled bridge absence and unsafe read roots have distinct path-free refusals', async (t) => {
+  const root = await mkdtemp('/tmp/hd-measure-bridge-')
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const agent = { id: 'cursor', acp: { bridge: { command: 'cursor-acp', args: [], executableEnv: 'CURSOR_ACP_COMMAND' } } }
+  assert.equal((await harness.resolveModelBridge(agent, { packagesRoot: root })).reason, 'bridge not installed')
+  const packageRoot = join(root, 'cursor-acp')
+  await mkdir(join(packageRoot, 'dist/src'), { recursive: true })
+  await writeFile(join(packageRoot, 'dist/src/main.js'), '')
+  assert.equal((await harness.resolveModelBridge(agent, { packagesRoot: root, realHome: fs.realpathSync(packageRoot) })).reason, 'cannot isolate: bridge install directory unsafe')
+})
+
+test('bundled bridge modules and their dependency trees load under the approved profile without a session', async (t) => {
+  const { KNOWN_AGENTS } = await import('../../packages/server/dist/src/installs/known-agents.js')
+  for (const id of ['claude-code', 'cursor']) {
+    const fixture = await createFixture()
+    t.after(() => rm(fixture.root, { recursive: true, force: true }))
+    const resolved = await harness.resolveModelBridge(KNOWN_AGENTS.find(agent => agent.id === id))
+    assert.equal(resolved.reason, undefined)
+    const staged = await harness.stageModelBridge(resolved.agent, fixture)
+    const args = staged.acp.bridge.args
+    assert.ok(under(fixture.root, args.at(-1)))
+    assert.equal(await prepareSandbox(fixture, { isolation: KEYCHAIN_READ_ONLY }), true, fixture.isolation.reason)
+    const module = join(args.at(-1), '..', 'bridge.js')
+    const result = await run(staged.acp.bridge.command, [...args.slice(0, -1), '--input-type=module', '-e', `import(${JSON.stringify(module)}).then(()=>process.stdout.write('loaded')).catch(()=>process.exit(2))`], fixture)
+    assert.equal(result.code, 0, `${id} bundle import refused`)
+    assert.equal(result.stdout, 'loaded')
+  }
+})
+
+test('RPC failures reduce to fixed reasons and error classes', async () => {
+  const { classifyRequestError } = await import('./probes/index.mjs')
+  for (const [error, reason, errorClass] of [
+    [{ code: -32000, message: 'synthetic-error-detail' }, 'sign-in not reachable under the approved profile', 'authentication-required'],
+    [{ code: -32603, message: 'Internal error', data: { details: 'fetch failed: ENOTFOUND synthetic-error-detail' } }, 'network refused', 'internal-error'],
+    [{ code: -32603, message: 'quota exceeded synthetic-error-detail' }, 'quota', 'internal-error'],
+    [{ code: -32602, message: 'synthetic-error-detail' }, 'unknown', 'invalid-params'],
+  ]) assert.deepEqual(classifyRequestError(error), { reason, errorClass })
+  assert.deepEqual(classifyRequestError({ code: -32000 }, true), { reason: 'unknown', errorClass: 'server-error' })
+})
+
+test('fake ACP request failures persist only their stage and fixed error class', async (t) => {
+  for (const method of ['initialize', 'session/new', 'session/prompt']) {
+    const fixture = await createFixture()
+    t.after(() => rm(fixture.root, { recursive: true, force: true }))
+    const peer = join(fixture.root, 'failure.mjs')
+    const requests = join(fixture.root, 'requests.jsonl')
+    const source = await readFile(new URL('../../packages/adapter-acp/test/fixtures/fake-acp-agent.mjs', import.meta.url), 'utf8')
+    await writeFile(peer, source.replace('const handler = handlers[message.method]', `appendFileSync(${JSON.stringify(requests)}, JSON.stringify({ method: message.method }) + '\\n');\n  if (message.method === ${JSON.stringify(method)}) { send({ jsonrpc: '2.0', id: message.id, error: { code: -32000, message: 'synthetic-error-detail', data: { detail: 'synthetic-env-value' } } }); return; }\n  const handler = handlers[message.method]`))
+    const probes = new Map()
+    const captures = []
+    installProbes({ registerProbe: (id, probe) => probes.set(id, probe), createPromptBudget: harness.createPromptBudget, run: async (command, args, passedFixture, options) => {
+      const { stdout, stderr } = await promisify(execFile)(command, args, { env: { ...safeEnv(passedFixture), ...options.envOverrides }, timeout: 15_000 })
+      captures.push(stdout, stderr)
+      return { code: 0, stdout, stderr }
+    } })
+    const result = await probes.get('grok-build')({ id: 'grok-build', command: process.execPath, acp: { args: [peer] } }, fixture, { ask: true })
+    assert.equal(result.status, 'could-not-ask')
+    assert.equal(result.reason, 'sign-in not reachable under the approved profile')
+    assert.equal(result.prompted, method === 'session/prompt')
+    assert.deepEqual(result.facts.requestFailure, { stage: method === 'initialize' ? 'initialize' : method === 'session/new' ? 'session-new' : 'prompt', errorClass: 'authentication-required' })
+    const saved = await writeResult({ agent: 'Grok Build', agentId: 'grok-build', version: '1.0.0', measured: '2026-10-03', isolation: KEYCHAIN_READ_ONLY, auth: 'no sign-in used', ...result }, join(fixture.root, 'results'), fixture)
+    assert.doesNotMatch(JSON.stringify({ result, captures }) + await readFile(saved, 'utf8'), /synthetic-error-detail|synthetic-env-value/)
+    const sent = (await readFile(requests, 'utf8')).trim().split('\n').map(JSON.parse)
+    assert.deepEqual(sent.map(request => request.method), method === 'initialize' ? ['initialize'] : method === 'session/new' ? ['initialize', 'session/new'] : ['initialize', 'session/new', 'session/prompt'])
+  }
+})
+
 test('ask fixtures distinguish every scope and skill root by its description', async (t) => {
   const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-roots-'))
   t.after(() => rm(fixture.root, { recursive: true, force: true }))
@@ -74,7 +175,7 @@ test('profile selection enumerates every agent and every isolation selection cal
   // Pin all production selection sites; profile construction and canary checks
   // consume this choice, but cannot choose an exception themselves.
   assert.deepEqual(source.split('\n').filter((line) => /(?:const isolation =|prepareSandbox\(fixture, \{ isolation)/.test(line)).map((line) => line.trim()), [
-    "export async function prepareSandbox(fixture, { isolation = 'strict', readPaths = [] } = {}) {",
+    "export async function prepareSandbox(fixture, { isolation = 'strict', readPaths = [], nodeBinary } = {}) {",
     'const isolation = discoveryIsolation(agent)',
     "if (!await prepareSandbox(fixture, { isolation, readPaths: copyRoots })) return { chosen: null, copies: [], state: 'unsafe' }",
     'const isolation = measurementIsolation(agent, options)',

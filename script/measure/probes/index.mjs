@@ -7,9 +7,25 @@ let createPromptBudget
 const CATALOGUE_PROMPT = 'Answer with one JSON object and nothing else: {"rules":[...],"skills":[{"name":...,"description":...}],"mcp":[...]}. In rules put every line of your instructions or context that ends in _SENTINEL, verbatim. In skills list every skill whose name starts with measure- with its description verbatim. In mcp list the names of the MCP servers you can use.'
 const REFRESH_PROMPT = 'Answer with one JSON object with only a description field and nothing else. Give the description of the skill named measure-sentinel verbatim.'
 
+// Serialized into the isolated driver. Only these fixed strings escape it;
+// an error's message and data are used in memory and never returned or logged.
+export function classifyRequestError(error, codex = false) {
+  const classes = { '-32700': 'parse-error', '-32600': 'invalid-request', '-32601': 'method-not-found', '-32602': 'invalid-params', '-32603': 'internal-error', '-32800': 'cancelled', '-32002': 'resource-not-found' }
+  const code = Number.isInteger(error?.code) ? error.code : null
+  const authentication = !codex && code === -32000
+  const errorClass = authentication ? 'authentication-required' : classes[code] ?? (code >= -32099 && code <= -32000 ? 'server-error' : 'unknown')
+  const text = JSON.stringify(error ?? {}).toLowerCase()
+  const reason = authentication || /authentication|unauthori[sz]ed|sign[ -]?in|log[ -]?in|credential|api[ _-]?key|keychain/.test(text)
+    ? 'sign-in not reachable under the approved profile'
+    : /quota|rate[ _-]?limit|insufficient.*credit|billing/.test(text) ? 'quota'
+    : /network|econn|enotfound|eai_again|fetch failed|connection|dns|socket|connect.*refused/.test(text) ? 'network refused'
+    : 'unknown'
+  return { reason, errorClass }
+}
+
 // Runs inside the isolated harness child. Vendor answers and diagnostics never
 // leave this process: only exact fixture matches cross back to the parent.
-const modelDriver = async (config, budgetFactory) => {
+const modelDriver = async (config, budgetFactory, classifyError) => {
   const { spawn } = await import('node:child_process')
   const { createInterface } = await import('node:readline')
   const { writeFileSync } = await import('node:fs')
@@ -42,7 +58,10 @@ const modelDriver = async (config, budgetFactory) => {
     const waiter = pending.get(message.id)
     if (waiter) {
       pending.delete(message.id)
-      if (message.error) waiter.reject(new Error('model request unavailable'))
+      if (message.error) {
+        const failure = classifyError(message.error, config.codex)
+        waiter.reject(Object.assign(new Error(failure.reason), { failure: { stage: waiter.stage, errorClass: failure.errorClass } }))
+      }
       else waiter.resolve(message.result)
     }
     if (config.codex && message.params?.threadId === sessionId) {
@@ -64,7 +83,8 @@ const modelDriver = async (config, budgetFactory) => {
     if (method === 'session/prompt' || method === 'turn/start') promptCount = takePrompt()
     const requestId = ++id
     const timer = setTimeout(() => { pending.delete(requestId); reject(new Error(method === 'session/prompt' || method === 'turn/start' ? 'prompt timed out' : 'model request unavailable')) }, timeoutMs)
-    pending.set(requestId, { resolve: (result) => { clearTimeout(timer); resolve(result) }, reject: (error) => { clearTimeout(timer); reject(error) } })
+    const stage = method === 'initialize' ? 'initialize' : ['session/new', 'thread/start'].includes(method) ? 'session-new' : 'prompt'
+    pending.set(requestId, { stage, resolve: (result) => { clearTimeout(timer); resolve(result) }, reject: (error) => { clearTimeout(timer); reject(error) } })
     child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: requestId, method, params })}\n`)
   })
   const prompt = async (words) => {
@@ -120,9 +140,13 @@ const modelDriver = async (config, budgetFactory) => {
     if (config.codex) child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'initialized', params: {} })}\n`)
     const opened = await request(config.codex ? 'thread/start' : 'session/new', config.codex
       ? { cwd: config.cwd, approvalPolicy: 'never', sandbox: 'read-only' }
-      : { cwd: config.cwd, mcpServers: [{ name: 'measure_fixture', command: 'node', args: [config.mcpPeer], env: [] }] })
+      : { cwd: config.cwd, mcpServers: config.handshakeOnly ? [] : [{ name: 'measure_fixture', command: 'node', args: [config.mcpPeer], env: [] }] })
     sessionId = config.codex ? opened?.thread?.id : opened?.sessionId
     if (typeof sessionId !== 'string' || !sessionId) throw new Error('model request unavailable')
+    if (config.handshakeOnly) {
+      output = { status: 'asked', rawAnswer: '', facts: { signedOutCatalogue: { status: 'unknown', observation: 'session-created' } } }
+      return { ...output, prompted: false, refreshed: false }
+    }
     let observed = catalogue(await prompt(config.cataloguePrompt))
     if (observed) output = summarize(observed)
     let refreshObservation = 'unknown'
@@ -144,8 +168,9 @@ const modelDriver = async (config, budgetFactory) => {
     output = summarize(observed)
     output.facts.refresh.openSessionSeesChange = refreshObservation
   } catch (error) {
-    const reasons = ['prompt cap reached', 'prompt timed out', 'model launch unavailable', 'model request unavailable', 'answer not requested JSON', 'answer failed the fixture-only privacy allowlist']
+    const reasons = ['prompt cap reached', 'prompt timed out', 'model launch unavailable', 'model request unavailable', 'answer not requested JSON', 'answer failed the fixture-only privacy allowlist', 'sign-in not reachable under the approved profile', 'network refused', 'quota', 'unknown']
     output = { ...output, status: 'could-not-ask', reason: reasons.includes(error.message) ? error.message : 'model request unavailable', rawAnswer: '' }
+    if (error.failure) output.facts = { ...output.facts, requestFailure: error.failure }
   } finally {
     for (const waiter of pending.values()) waiter.reject(new Error('model request unavailable'))
     pending.clear()
@@ -168,6 +193,7 @@ async function modelProbe(agent, fixture, options) {
   if (bridge?.executableEnv) { envOverrides[bridge.executableEnv] = agent.command; allowedEnv.push(bridge.executableEnv) }
   const config = {
     codex, command: bridge?.command ?? agent.command, args: codex ? ['app-server'] : bridge?.args ?? agent.acp.args,
+    handshakeOnly: options.handshakeOnly === true,
     cwd: fixture.nested, mcpPeer: fixture.mcpPeer,
     cataloguePrompt: CATALOGUE_PROMPT, refreshPrompt: REFRESH_PROMPT, promptTimeoutMs: options.promptTimeoutMs ?? 90_000,
     skills: fixture.skillEntries,
@@ -177,7 +203,7 @@ async function modelProbe(agent, fixture, options) {
     })),
     skillFiles: fixture.skillEntries.filter((entry) => entry.name === 'measure-sentinel').map((entry) => ({ path: entry.path, scope: entry.scope, file: join(entry.scope === 'user' ? fixture.home : fixture.repo, entry.path.replace(/^~\//, ''), 'measure-sentinel/SKILL.md') })),
   }
-  const driver = `(${modelDriver.toString()})(${JSON.stringify(config)},${createPromptBudget.toString()}).then(x=>process.stdout.write(JSON.stringify(x))).catch(()=>process.exit(2))`
+  const driver = `(${modelDriver.toString()})(${JSON.stringify(config)},${createPromptBudget.toString()},${classifyRequestError.toString()}).then(x=>process.stdout.write(JSON.stringify(x))).catch(()=>process.exit(2))`
   const execution = await run(process.execPath, ['-e', driver], fixture, { timeoutMs: 300_000, envOverrides, allowedEnv })
   if (execution.code !== 0) return { status: 'could-not-ask', reason: 'model launch unavailable' }
   let result
@@ -187,7 +213,13 @@ async function modelProbe(agent, fixture, options) {
   delete result.refreshed
   delete result.prompted
   Object.defineProperty(result, 'prompted', { value: prompted })
-  return Object.assign(result, { interface: codex ? 'app-server model prompt' : 'ACP model prompt', question: 'rules catalogue precedence rejections refresh mcp' })
+  return Object.assign(result, { interface: options.handshakeOnly ? 'ACP initialize and session request' : codex ? 'app-server model prompt' : 'ACP model prompt', question: options.handshakeOnly ? 'session created while signed out' : 'rules catalogue precedence rejections refresh mcp' })
+}
+
+// Diagnostic only: shares the ask startup and error reducer, then stops before
+// the first prompt. The caller must prepare the approved profile before run.
+export function probeAcpHandshake(agent, fixture) {
+  return modelProbe(agent, fixture, { handshakeOnly: true })
 }
 
 export function parseCodexOutput(text) {
