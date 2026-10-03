@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
-test.use({ deviceScaleFactor: 2, viewport: { width: 1440, height: 900 } })
+test.use({ colorScheme: process.env.NOTICE_FRAME_THEME === 'dark' ? 'dark' : 'light', deviceScaleFactor: 2, viewport: { width: 1440, height: 900 } })
 
 const layout = (page: Page, id: string): Locator => page.locator(`[data-frame-id="${id}"]`)
 
@@ -25,6 +25,7 @@ test('real Workbench and Panes put each notice in one mounted outlet', async ({ 
       'coverage-notice-folder-gone',
       'coverage-notice-zoomed-sidebar',
       'coverage-notice-zoomed-dock',
+      'coverage-notice-split-composers',
       'coverage-notice-split-unfocused-composer',
       'coverage-notice-composer-strip',
       'coverage-notice-pane-bar-strip',
@@ -90,3 +91,35 @@ test('a container-hidden room composer gives the notice to the fallback, then ta
   await expect(composerStrip).toBeVisible()
   await expect(frame.locator('[data-slot="workbench-notice-fallback"][data-area="main"] [data-slot="notice-strip"]')).toHaveCount(0)
 })
+
+
+test('the composer notice dismiss glyph shares the send control column', async ({ page }) => {
+  await page.goto('/preview.html?notice-placement')
+  const frame = layout(page, 'coverage-notice-split-composers')
+  const notice = frame.locator('[data-slot="composer-notice"]')
+  await expect(notice).toHaveCount(1)
+  const dock = notice.locator('xpath=ancestor::*[@data-slot="composer-dock"]')
+  const dismiss = await notice.getByRole('button', { name: 'Dismiss' }).locator('svg').boundingBox()
+  const send = await dock.getByRole('button', { name: 'Send', exact: true }).boundingBox()
+  expect(dismiss).not.toBeNull()
+  expect(send).not.toBeNull()
+  expect(Math.abs(dismiss!.x + dismiss!.width - (send!.x + send!.width))).toBeLessThanOrEqual(1)
+})
+
+
+for (const surface of ['preview', 'catalogue'] as const) {
+  test(`the ${surface} standing goal clear glyph lands on its alert text edge`, async ({ page }) => {
+    await page.goto(surface === 'preview' ? '/preview.html' : '/design.html?view=conversation')
+    const alert = page.locator(surface === 'preview'
+      ? '[data-frame-id="conversation-composer"] [data-slot="alert"]'
+      : '[data-alignment-board-id="conversation"] [data-slot="alert"]').filter({ has: page.getByRole('button', { name: 'Clear goal' }) }).first()
+    await expect(alert).toBeVisible()
+    const gap = await alert.evaluate(element => {
+      const style = getComputedStyle(element)
+      const edge = element.getBoundingClientRect().right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth)
+      const glyph = element.querySelector('button[aria-label="Clear goal"] svg')!
+      return Math.abs(edge - glyph.getBoundingClientRect().right)
+    })
+    expect(gap).toBeLessThanOrEqual(1)
+  })
+}

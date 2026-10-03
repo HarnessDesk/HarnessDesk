@@ -23,7 +23,6 @@
 
 .goalClear {
   flex: none;
-  width: var(--hd-target-min); /* desk: canonical One UI System scale */
 }
 
 /* --- jobs -------------------------------------------------------------- */
