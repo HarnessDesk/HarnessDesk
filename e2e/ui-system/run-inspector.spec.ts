@@ -11,6 +11,17 @@ for (const theme of ['light', 'dark'] as const) {
     const timeline = frame.locator('[data-slot="run-view"]')
     const inspector = frame.locator('[data-slot="run-inspector"]')
     await expect(inspector).toContainText('Brief')
+    await expect(inspector).toContainText('Rounds: 3 of 5')
+    await expect(inspector).toContainText('Authorized after round 3: 2 more rounds')
+    await expect(inspector).toContainText('Finish the bounded retry repair.')
+    const card = page.locator('#run-inspector-card [data-slot="run-inspector"]')
+    await expect(card).toContainText('From #1')
+    await expect(card).not.toContainText('From #2')
+    for (const kind of ['card', 'person']) {
+      const detail = page.locator(`#run-inspector-${kind} [data-slot="run-inspector"]`)
+      await expect(detail).toContainText('Keep the retry bounded and the last failure visible.')
+      await expect(detail).not.toContainText('complete_claim')
+    }
     const a = await timeline.boundingBox()
     const b = await inspector.boundingBox()
     expect(b!.x).toBeGreaterThanOrEqual(a!.x + a!.width)

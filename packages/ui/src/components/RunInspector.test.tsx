@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 import { runFixture } from '../preview/run-view-fixture'
 import { RunInspector, type RunInspectorProps } from './RunInspector'
+import type { FindingRunState } from '@harnessdesk/protocol'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const render = (props: Partial<RunInspectorProps> = {}) => {
@@ -32,6 +33,73 @@ it('shows card input and predecessor handoffs, findings and review before its co
     expect(buttons.at(-1)?.textContent).toBe('Open the conversation')
     act(() => buttons.at(-1)!.click())
     expect(onOpen).toHaveBeenCalledOnce()
+  } finally { view.close() }
+})
+it('shows only recorded dependency handoffs, including a nonadjacent source round', () => {
+  const fixture = runFixture()
+  const view = render({ input: { ...fixture, cards: fixture.cards.map(card => ({ ...card,
+    dependsOn: card.id === 3 ? [1] : [],
+    handoff: card.id === 1 ? 'Handed source package' : card.id === 2 ? 'Unrelated check package' : null,
+  })) }, selectedRow: 'card-3-3' })
+  try {
+    expect(view.container.textContent).toContain('Handed source package')
+    expect(view.container.textContent).not.toContain('Unrelated check package')
+  } finally { view.close() }
+})
+it('does not invent input for an independently opened round with no dependencies', () => {
+  const fixture = runFixture()
+  const view = render({ input: { ...fixture, cards: fixture.cards.map(card => ({ ...card,
+    dependsOn: [], handoff: card.id === 2 ? 'Earlier but not handed' : null,
+  })) }, selectedRow: 'card-3-3' })
+  try { expect(view.container.textContent).not.toContain('Earlier but not handed') } finally { view.close() }
+})
+const completion = 'Finish this with complete_claim and an outcome of exactly one of: approved, request-changes.'
+const split = 'Finish this with complete_claim\'s split as well: the agreed split of files for the "writer" round, one list of path patterns for each of its 2 cards, in card order, no two overlapping. Each of those cards will own only its own list.'
+it.each(['card', 'person'] as const)('shows the %s sentence without host-added completion and split instructions', kind => {
+  const fixture = runFixture(kind === 'person' ? 'person' : 'running')
+  const id = kind === 'person' ? 4 : 3
+  const sentence = 'Keep <strong>the last failure</strong> visible.\u001b[31m Read the complete_claim contract in the guide.\u001b[0m'
+  const view = render({ input: { ...fixture, cards: fixture.cards.map(card => ({ ...card,
+    detail: card.id === id ? [sentence, completion, split, split.replace('"writer"', '"reviewer"')].join('\n\n') : null,
+  })) }, selectedRow: `${kind}-${id}-${id}` })
+  try {
+    expect(view.container.textContent).toContain('Keep <strong>the last failure</strong> visible. Read the complete_claim contract in the guide.')
+    expect(view.container.textContent).not.toContain('Finish this with')
+    expect(view.container.textContent).not.toContain('\u001b')
+    expect(view.container.querySelector('strong')).toBeNull()
+  } finally { view.close() }
+})
+it.each(['card', 'person'] as const)('uses the %s fallback when detail contains only host-added instructions', kind => {
+  const fixture = runFixture(kind === 'person' ? 'person' : 'running')
+  const id = kind === 'person' ? 4 : 3
+  const view = render({ input: { ...fixture, cards: fixture.cards.map(card => ({ ...card,
+    detail: card.id === id ? `${completion}\n\n${split}` : null,
+  })) }, selectedRow: `${kind}-${id}-${id}` })
+  try {
+    expect(view.container.textContent).toContain(kind === 'person' ? 'Answer the review' : 'No input recorded')
+    expect(view.container.textContent).not.toContain('complete_claim')
+  } finally { view.close() }
+})
+const findingsState = (extraRound: FindingRunState['extraRound']): FindingRunState => ({
+  version: 1, budget: { rounds: 3, withoutProgress: 2 }, closedRounds: [1, 2, 3, 4], idleRounds: 1,
+  progress: [], series: [], stopped: null, extraRound, overrides: [], lastDecision: null,
+})
+it.each([
+  { extra: { after: 3, count: 2, reason: 'Finish the repair' }, limit: 5 },
+  // Older recorded authorizations have no count and authorize one round.
+  { extra: { after: 3, reason: 'Finish the repair' } as FindingRunState['extraRound'], limit: 4 },
+  { extra: { after: 1, count: 1, reason: 'Read the repaired ledger' }, limit: 3 },
+  { extra: null, limit: 3 },
+])('reads the effective round budget as $limit', ({ extra, limit }) => {
+  const fixture = runFixture()
+  const view = render({ input: { ...fixture, execution: { ...fixture.execution, findings: findingsState(extra) } } })
+  try {
+    expect(view.container.textContent).toContain(`Rounds: 4 of ${limit}`)
+    expect(view.container.textContent).toContain('Rounds without progress: 1 · Limit 2')
+    if (extra) {
+      expect(view.container.textContent).toContain(extra.reason)
+      expect(view.container.textContent).toContain('Authorized after round')
+    }
   } finally { view.close() }
 })
 it('keeps markup literal and removes terminal escape sequences from handoffs and findings', () => {

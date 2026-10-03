@@ -27,6 +27,16 @@ const Section = ({ title, children }: { title: string; children: ReactNode }) =>
 const Words = ({ children }: { children: string }) => <Text as="div" role="prose" className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{sanitizeText(children)}</Text>
 const costWords = (cost: InspectorSeat['cost']): string => cost ? `${cost.estimated ? 'About ' : ''}${cost.unit === 'money' ? `$${cost.value.toFixed(2)}` : `${cost.value} turns`}` : 'Not recorded'
 
+/** flow-execution appends these tool instructions after the rendered sentence.
+ * Remove only those complete trailing paragraphs, keeping authored text. */
+const detailWords = (detail: string | null | undefined): string | null => {
+  const paragraphs = detail?.trim().split('\n\n') ?? []
+  const completion = /^Finish this with complete_claim and an outcome of exactly one of: [^\n]+\.$/
+  const split = /^Finish this with complete_claim's split as well: the agreed split of files for the "[^"\n]+" round, one list of path patterns for each of its \d+ cards?, in card order, no two overlapping\. Each of those cards will own only its own list\.$/
+  while (paragraphs.length && (completion.test(paragraphs.at(-1)!) || split.test(paragraphs.at(-1)!))) paragraphs.pop()
+  return paragraphs.join('\n\n') || null
+}
+
 /** Recorded detail only. No transcript copies, dispatch controls or guessed results. */
 export const RunInspector = ({ input, selectedRow, seats, publication }: RunInspectorProps) => {
   const { execution, cards, evidence } = input
@@ -57,23 +67,21 @@ export const RunInspector = ({ input, selectedRow, seats, publication }: RunInsp
       <Section title="Output">{fact ? <CodeText block wrap>{sanitizeText(fact.tail || 'No output was printed')}</CodeText> : <Words>Output is not kept for this check</Words>}</Section>
     </>
   } else if (selected?.kind === 'person' && card) {
-    body = <><Section title="Step"><Words>{card.detail ?? card.title}</Words></Section>
+    body = <><Section title="Step"><Words>{detailWords(card.detail) ?? card.title}</Words></Section>
       <Section title="Outcomes"><Words>{role?.kind === 'person' ? role.outcomes.map(wordOf).join(' · ') : 'Not recorded'}</Words></Section>
       {card.outcome && <Section title="Answer"><Words>{wordOf(card.outcome)}</Words></Section>}
     </>
   } else if (selected?.kind === 'findings') {
     body = showFindings
   } else if (selected?.kind === 'card' && card) {
-    // The engine hands the preceding round's packages to this round, plus
-    // explicit card dependencies. No unrelated or future round is copied.
-    const previous = [...execution.rounds].filter(one => one.n < (round?.n ?? 0)).sort((a, b) => b.n - a.n)[0]
-    const predecessors = cards.filter(one => one.id !== card.id && (previous?.cards.includes(one.id) || card.dependsOn.includes(one.id)) && one.handoff)
+    // Round order is not a handoff edge: independently opened rounds have none.
+    const predecessors = cards.filter(one => one.id !== card.id && card.dependsOn.includes(one.id) && one.handoff)
     const review = publication?.round === round?.n ? publication : null
     const reviewWords = review?.state === 'posted' ? `Posted${review.pr ? ` to #${review.pr}` : ''}`
       : review?.state === 'partial' ? 'Some reviews posted' : review?.state === 'pending' ? 'Waiting to post'
       : review?.state === 'uncertain' ? 'Posting needs a look' : review?.state === 'local' ? 'Not posted' : 'No review recorded'
     body = <>
-      <Section title="Input"><Words>{card.detail ?? 'No input recorded'}</Words>{predecessors.map(one => <div key={one.id}><Text role="meta">From #{one.id}</Text><Words>{one.handoff!}</Words></div>)}</Section>
+      <Section title="Input"><Words>{detailWords(card.detail) ?? 'No input recorded'}</Words>{predecessors.map(one => <div key={one.id}><Text role="meta">From #{one.id}</Text><Words>{one.handoff!}</Words></div>)}</Section>
       <Section title="Handoff"><Words>{card.handoff ?? card.note ?? 'No handoff recorded'}</Words></Section>
       {showFindings}
       <Section title="Review"><Words>{reviewWords}</Words>{review?.reason && <Words>{review.reason}</Words>}</Section>
@@ -82,6 +90,8 @@ export const RunInspector = ({ input, selectedRow, seats, publication }: RunInsp
     </>
   } else {
     const budget = execution.findings?.budget ?? (execution.document.format === 'agents' ? execution.document.flow.budget ?? DEFAULT_FLOW_BUDGET : null)
+    const extra = execution.findings?.extraRound
+    const roundLimit = budget ? Math.max(budget.rounds, extra ? extra.after + (extra.count ?? 1) : 0) : null
     const ids = new Set(execution.rounds.flatMap(one => one.seats))
     body = <>
       <Section title="Brief"><Words>{execution.brief ?? 'No brief recorded'}</Words></Section>
@@ -89,7 +99,9 @@ export const RunInspector = ({ input, selectedRow, seats, publication }: RunInsp
       <Section title="Seats">{ids.size ? [...ids].map(id => { const one = seats.find(item => item.id === id); return <div key={id}><Words>{one?.name ?? 'Seat not recorded'}</Words>{one?.override && <Text role="meta">{sanitizeText(one.override)}</Text>}</div> }) : <Words>No Seats opened</Words>}</Section>
       <Section title="Base"><Words>{execution.base ? `${execution.base.remote} · ${execution.base.branch ?? 'Default branch'} · ${execution.base.at}` : 'Not recorded'}</Words></Section>
       <Section title="Started by"><Words>{input.origin ?? 'Not recorded'}</Words></Section>
-      <Section title="Budgets"><Words>{`Rounds: ${execution.findings?.closedRounds.length ?? execution.rounds.filter(one => one.state === 'closed').length}${budget ? ` of ${budget.rounds}` : ' · Limit not recorded'}\nRounds without progress: ${execution.findings?.idleRounds ?? 'Not recorded'}${budget ? ` · Limit ${budget.withoutProgress}` : ''}`}</Words></Section>
+      <Section title="Budgets"><Words>{`Rounds: ${execution.findings?.closedRounds.length ?? execution.rounds.filter(one => one.state === 'closed').length}${roundLimit !== null ? ` of ${roundLimit}` : ' · Limit not recorded'}\nRounds without progress: ${execution.findings?.idleRounds ?? 'Not recorded'}${budget ? ` · Limit ${budget.withoutProgress}` : ''}`}</Words>
+        {extra && <Words>{`Authorized after round ${extra.after}: ${extra.count ?? 1} more ${(extra.count ?? 1) === 1 ? 'round' : 'rounds'}\n${extra.reason}`}</Words>}
+      </Section>
       <Section title="Cost">{[...ids].map(id => { const one = seats.find(item => item.id === id); return <Words key={id}>{`${one?.name ?? 'Seat'} · ${costWords(one?.cost)}`}</Words> })}<Text role="meta">Recorded for these Seats</Text></Section>
     </>
   }
