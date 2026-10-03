@@ -468,10 +468,10 @@ always opens with `hello` and closes with `end`.
 | `type` | Fields | From |
 | --- | --- | --- |
 | `hello` | `desk`, `hostVersion`, `protocolVersion`, `tiers` | `client/hello` |
-| `run.changed` | `run`, `team`, `flow`, `state` (`running`/`settled`/`stopped`/`stalled`), `round`, `reason`; optional `attempt`, `continues`, `revision` | `flow/execution-changed`, when state, round or reason moved |
+| `run.changed` | `run`, `team`, `flow`, `state` (`running`/`settled`/`stopped`/`stalled`), `round`, `reason`; optional `attempt`, `continues`, `revision` | `flow/execution-changed`, when state, round, reason, revision or continues moved |
 | `card.changed` | `team`, `card`, `role`, `state`, `outcome`, `title`; optional `seat` (who holds it) and `since` | `team/changed`, diffed per card |
-| `seat.changed` | `team`, `seat`, `role`, `card`, `state` (`working`/`waiting`/`idle`), `doing` (`{ kind, tool?, target? }` or null), `since` | `seat/activity`, at most once per seat every 2.5 seconds |
-| `review.changed` | `team`, `run`, `round`, `cards`, `state`, `reason`, `pr` | `finding/run` and `finding/publications`, read again on `finding/changed` |
+| `seat.changed` | `team`, `seat` (`runtime:sessionId`, as in `card.changed`), `role`, `card`, `state` (`working`/`waiting`/`idle`), `doing` (`{ kind: 'tool', tool, target? }` or `{ kind: 'thinking' }`, or `null` unless working); optional `since` | `seat/activity`, at most once per seat every 2.5 seconds |
+| `review.changed` | `team`, `run`, `round`, `cards`, `state`, `reason`, `pr` | `finding/run`'s `rounds`, each round folded from the run's publication journal; read again on `finding/changed` |
 | `team.changed` | `team`, `activity`, `sentence` | `goal/changed`, `goal/activity` |
 | `waiting` / `waiting.cleared` | `id`, `team`, `kind` (`card`/`question`/`approval`), `card` or `seat`, `summary` | person cards, questions, `approval/requested` and resolution |
 | `notice` | `team`, `text` | `person/notice` |
@@ -492,7 +492,9 @@ Four rules hold every row:
 - **A state is the desk's own word.**
   - `review.changed`'s `state` is the round's publication state as the desk
     keeps it: `local`, `pending`, `posted`, `partial` or `uncertain`, or
-    `none` when the run has no review.
+    `none` when the round has a review but no publication decision yet.
+    Rounds are present only when they have review records or a publication
+    decision; the run's `publication` remains its aggregate.
   - Publication is kept per round, not per card, so the event names the
     round and lists its cards.
 - **`doing` is a tool and at most a path.** It never carries a command's
@@ -691,9 +693,13 @@ touches the door, tiers or attribution gets a critical review.
    - The `reviews` topic.
    - `seat.changed` and `review.changed`, and the optional fields where the
      records carry them.
-   - `@harnessdesk/client/views`, with the selectors.
+1c. **The same views in every client.**
+   - `@harnessdesk/client/views`, with the shared selectors.
+   - Move `teamOverview` into that entry; `status` reads it.
    - The Team usage read (`insight/goal`) joins the `read` tier, so
      `status` can show cost.
+
+   PR 1c reads the shape this PR defines, which is why the two are split.
 2. **Starting a flow.**
    - Host: `flow/preview` seats and attended; unattended runs.
    - Commands: `flow preview`, `flow start` (title, brief, inputs, seats,

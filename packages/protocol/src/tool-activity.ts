@@ -169,6 +169,11 @@ export const toolCallVerb = (item: Extract<AgentItem, { type: 'toolCall' }>): To
   return 'toolCall'
 }
 
+/**
+ * Generic tool names colliding with action names, or starting with
+ * `activity_tool_`, gain that prefix once; `doingSentence` removes it for lookup.
+ * This reversible escape keeps generic tools distinct from derived actions.
+ */
 export type SeatDoing =
   | { readonly kind: 'tool'; readonly tool: string; readonly target?: string }
   | { readonly kind: 'thinking' }
