@@ -605,21 +605,25 @@ Each one is a wire or record change made the usual way, in its own small
 commit, and none of them ships a surface by itself:
 
 1. `flow/execution/stop { run, reason }` (#1247), and `flow/executions` (the
-   clients design's host changes 2 and 3).
+   clients design's host changes 2 and 3). `flow/executions` has landed
+   (#1279); `flow/execution/stop` has not.
 2. `FlowExecution.revision`: a digest of the canonical document, set when the
    Run starts and never changed. And `FlowExecution.continues`: the Run this
    one continues, set at the start. And `FlowExecution.startedAt`, which the
-   host already stores but does not project, and `endedAt`, set when the Run
-   leaves running.
+   host stored but did not project, and `endedAt`, set when the Run leaves
+   running. Landed in #1281, all optional so an older record reads as before.
 3. `flow/check/retry` works on a finished or interrupted check of a running or
-   stalled Run, and returns when the check has started (#1263, fixing #1245).
+   stalled Run, and returns when the check has started (landed in #1263, fixing
+   #1245).
    A settled or stopped Run refuses it; the way on is *Run again…*.
-4. A `brief` input on a Run, frozen with it, and the `{{brief}}` slot.
+4. A `brief` input on a Run, frozen with it, and the `{{brief}}` slot. Landed in
+   #1274 (the start field) and #1281 (frozen with the Run).
 5. `seat/activity` (host-derived and throttled, mapped to `seat.changed`),
    `review.changed`, and the optional fields above. A field is present only
    where the desk's own record carries it, never filled from when a client
    noticed something. Each is declared in the clients design's event table and
-   its gate test; that design added them in its second pull request.
+   its gate test; that design added them in its second pull request. `seat/activity`
+   and `FindingRunView.rounds` have landed (#1285).
 6. `{ available, why }` on each control: the stop, retry and run-again
    previews already return a refusal string; this makes it one shape.
 7. A Team's usage read grouped by seat, from the report's existing breakdowns.
@@ -636,7 +640,7 @@ commit, and none of them ships a surface by itself:
    and `live` is null, while `detached` stays false, because the handle was let
    go on purpose and not lost to a restart. The Seat stays a member, and the next
    thing addressed to it (a message, opening the conversation) reopens it. It
-   never closes the Seat and never changes a card.
+   never closes the Seat and never changes a card. Landed in #1283.
 9. The receipt remembers each Seat's conversation: `GoalReceiptMember.session`,
    written at wrap from the Seat's own record, so a wrapped Team's Seats can
    still be opened. A receipt wrapped earlier falls back to the session of a

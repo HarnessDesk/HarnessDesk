@@ -88,7 +88,7 @@ Sizes: S under a day of Team time, M about a day, L more.
 | 6 | The brief field in the start dialog | none | merged (#1274) | S |
 | 2 | The Overview in the Team pane, with every Seat a Run opened (closes #1278) | 1, 5 (both merged) | **yes** | L |
 | 12 | The Teams page | 1; after 2 for `SessionTree.tsx` | after 2 | M |
-| 3 | The Run model and timeline | none; reads PR 5's fields when present | **yes** (after 2 for the shared pane file) | L |
+| 3 | The Run model and timeline | none (PR 5 has merged; its fields are optional on older records) | **yes** (after 2 for the shared pane file) | L |
 | 4 | The Run inspector | 3 | after 3 | M |
 | 7 | Publication state and its doors | 3, 4 | after 4 | M |
 | 8 | Answer and approve from the Overview, abandon from the inspector | 2, 4 | after 4 | M |
@@ -165,8 +165,8 @@ to their shape (agreed 2026-10-02, landed in its PR 1b, #1285):
    `seat` and `since` on `card.changed`. Each is present only when the desk's own
    record carries it, never filled from when a client noticed something.
    `card.changed.since` is the claim's `at` while claimed, and absent until a
-   record holds it. `attempt`, `continues` and `revision` pass through once PR 5
-   lands.
+   record holds it. `attempt`, `continues` and `revision` pass through now that PR 5
+   has landed (#1281).
 4. **Selectors.** Home: `@harnessdesk/client/views`, pure, no transport; the
    window imports only that entry and the other session adds the layering rule.
    **This plan owns the selector code and its tests**: PR 1 and PR 3, written in
@@ -174,7 +174,7 @@ to their shape (agreed 2026-10-02, landed in its PR 1b, #1285):
    state feed and the gate; when `status` and `run show` need the selectors it
    moves the files into `client/views` and leaves a re-export in the UI, so
    nothing here breaks. Cost needs `insight/goal`, which joins the read tier in
-   its PR 1b.
+   its PR 1c.
 
 Its order: PR 1 (the read-only door, the library, `desks`, `status`, `teams`,
 `runs`, `watch`; merged, #1279), PR 1b (`seat/activity`, `FindingRunView.rounds`,
@@ -296,12 +296,12 @@ the Overview draws, in the app's words, ordered by precedence.
 - `packages/ui/src/state/store.ts` (`flowExecutions`, `readFlowExecution`); `packages/ui/src/components/FlowRunStatus.tsx`.
 
 **Scope.**
-- [ ] `packages/ui/src/lib/run-timeline.ts` (pure): `runTimeline(input): { header; rows }`. Rows: start/brief, round heading, card, check (its latest result from the card's evidence, `evidence/board`, and its Flow operation's state; `FlowOperation` carries no attempt or output, so earlier attempts are drawn only when a read returns them, which PR 9 adds), person step, findings, end. Durations come from a card's claim time and `updatedAt`. Fields the host does not yet send (`revision`, `continues`, `brief`, `end`) are optional and their rows or buttons are simply absent until PR 5.
+- [ ] `packages/ui/src/lib/run-timeline.ts` (pure): `runTimeline(input): { header; rows }`. Rows: start/brief, round heading, card, check (its latest result from the card's evidence, `evidence/board`, and its Flow operation's state; `FlowOperation` carries no attempt or output, so earlier attempts are drawn only when a read returns them, which PR 9 adds), person step, findings, end. Durations come from a card's claim time and `updatedAt`. The Run's `revision`, `continues`, `brief`, `startedAt`, `endedAt` and `end` are projected since PR 5 (#1281) and are optional: a record saved before it has none, and the rows or buttons that need one are simply absent for that Run.
 - [ ] `packages/ui/src/components/RunView.tsx`: the **Run** rail item (shown when the Team has a run; the count is the number of runs), the header (Run n, state chip using the app's words, the Flow's name, *Open pull request* when the Team has one), the timeline with a selectable row, and the in-flight row with its doing line (from PR 1's `doingLine`).
 - [ ] Selection is a fill (the inspector anatomy's selected row); the selected row id is state the inspector (PR 4) will read.
 - [ ] Catalogue boards and frames for: running, settled, stopped, stalled, a round with findings, many rounds (scrolling), narrow, dark.
 
-**Depends on.** None to start; it reads PR 5's fields when they exist. It shares `TeamRoomPane.tsx` with PRs 2, 8 and 10, so it starts after PR 2 has landed.
+**Depends on.** None to start; PR 5 (#1281) has merged and its fields are optional on older records. It shares `TeamRoomPane.tsx` with PRs 2, 8 and 10, so it starts after PR 2 has landed.
 
 **Not in this PR.** The inspector (PR 4), the Flow tab (PR 13), any control.
 
@@ -408,7 +408,7 @@ the Overview draws, in the app's words, ordered by precedence.
 
 **Depends on.** PR 3 and PR 4 (the timeline rows and the inspector's Review section). It also adds the unposted-review rule to the Team's state (PRs 2 and 12 show it once this lands).
 
-**Not in this PR.** Posting a handoff's text when no review candidate exists (#1265, a host change), and the `review.changed` event (the other session's PR 1b).
+**Not in this PR.** Posting a handoff's text when no review candidate exists (#1265, a host change), and the `review.changed` event (the other session's, landed in #1285).
 
 **Verify.** A test per row of the mapping table; a test that a round the list does not carry, or whose `state` is `none`, gets no chip even when the Run says `posted`; component tests for posted, pending, partial, uncertain, local with and without a bound pull request, and no findings; the button is disabled with the reason when nothing can be posted; frames (light, dark).
 
