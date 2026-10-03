@@ -1990,8 +1990,10 @@ export const DialogBoard = () => {
             ))}
           </div>
         </Case>
-        <Case label="member name: a member inside a sentence wears its face and the strong ink">
+        <Case label="content names: medium at the reading size; tile and navigation names keep their roles">
           <div className={styles.stack} data-catalog-case="member-name">
+            <Text role="row">Alpha — tile header</Text>
+            <Text role="navigation">Alpha — navigation</Text>
             <span>
               <MemberName name="Alpha" tint="violet" mark={<PluginIcon size={10} />} /> is working
             </span>
