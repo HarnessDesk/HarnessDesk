@@ -463,7 +463,7 @@ test('built flow CLI opens and previews caller files without spending, and start
   await writeFile(brief, 'Read the synthetic brief.\n')
   const opened = launch(t, r.directory, r.home, ['open', '.', '--json'], r.repo.dir)
   assert.equal(await opened.exit, 0, opened.output().stderr)
-  assert.equal(opened.lines()[0].root, await realpath(r.repo.dir))
+  assert.equal(opened.lines()[0].path, await realpath(r.repo.dir))
   const flows = launch(t, r.directory, r.home, ['flows', '--project', r.repo.dir, '--json'])
   assert.equal(await flows.exit, 0, flows.output().stderr)
   assert.ok(Array.isArray(flows.lines()[0].flows))

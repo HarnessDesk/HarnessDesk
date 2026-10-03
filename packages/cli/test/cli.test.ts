@@ -7,6 +7,7 @@ import { COMMANDS, sanitizeHuman, parseArgs, errorExit } from '../src/cli.js'
 test('the executable command table covers exactly the declared client surface', () => {
   assert.deepEqual(COMMANDS.map(command => command.name), ['desks', 'status', 'teams', 'runs', 'watch', 'open', 'flows', 'flow preview', 'flow start'])
   const methods = new Set(COMMANDS.flatMap(command => [...command.methods]))
+  for (const command of COMMANDS) for (const method of command.methods) assert.ok(CLIENT_METHODS[method] === 'read' || CLIENT_METHODS[method] === command.tier, `${command.name}: ${method}`)
   for (const method of methods) assert.ok(Object.hasOwn(CLIENT_METHODS, method), method)
   assert.deepEqual([...methods].sort(), Object.keys(CLIENT_METHODS).sort())
 })
@@ -40,7 +41,7 @@ test('flow arguments accept one target and repeated inputs and seats, with stric
   assert.deepEqual(parseArgs(['flow', 'preview', './demo.yaml', '--seat', 'writer=fake/high', '--seat', 'reviewer=fake,fake', '--input', 'brief=@brief.md', '--input', 'title=Demo', '--unattended']), {
     command: 'flow preview', target: './demo.yaml', seat: ['writer=fake/high', 'reviewer=fake,fake'], input: ['brief=@brief.md', 'title=Demo'], unattended: true,
   })
-  assert.equal((parseArgs(['flow', 'start', 'demo', '--yes']) as unknown as {yes:boolean}).yes, true)
-  assert.equal((parseArgs(['open', '.']) as unknown as {target:string}).target, '.')
+  assert.equal(parseArgs(['flow', 'start', 'demo', '--yes']).yes, true)
+  assert.equal(parseArgs(['open', '.']).target, '.')
   for (const args of [['flow', 'preview'], ['flow', 'start', 'demo', '--raw'], ['flow', 'preview', 'demo', '--yes'], ['open', '.', 'extra'], ['flows', '--seat', 'writer=fake']]) assert.throws(() => parseArgs(args), /usage/i)
 })
