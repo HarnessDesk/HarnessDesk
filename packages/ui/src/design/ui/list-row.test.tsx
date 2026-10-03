@@ -136,3 +136,17 @@ it('hangs a detail under a row\'s own title, on the third inset step', () => {
   expect(title).toContain('pt-(--hd-space-0-5)')
   expect(title).toContain('pb-(--hd-space-1-5)')
 })
+
+it('keeps a selected record filled when hovered', () => {
+  const markup = renderToStaticMarkup(<ListRow as="button" interactive selected title="Review the change" />)
+  expect(markup).toContain('hover:bg-(--hd-selected)')
+  expect(markup).not.toContain('hover:bg-(--hd-hover)')
+})
+
+it('pins a wrapped record title and its lead to the first line', () => {
+  const markup = renderToStaticMarkup(<ListRow wrapTitle lead={<svg />} title="A record with a long title" />)
+  expect(markup).toContain('items-start')
+  expect(markup).toContain('h-(--hd-line)')
+  expect(markup).toContain('whitespace-normal')
+  expect(markup).not.toContain('truncate')
+})

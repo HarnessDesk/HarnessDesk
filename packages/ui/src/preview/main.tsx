@@ -70,6 +70,7 @@ import { SettingsFrames } from './frames-settings'
 import { TranscriptFrames } from './frames-transcript'
 import { LibraryDevFrames } from './frames-library-dev'
 import { LibraryOptionFrames } from './frames-library-options'
+import { RunViewFrames } from './frames-run-view'
 import { TeamOverviewFrames } from './frames-team-overview'
 import { SideBySideFrames } from './frames-side-by-side'
 import { ComposerSlotsFrames } from './frames-composer-slots'
@@ -1043,6 +1044,7 @@ const Preview = () => {
       <PanelFrames />
       <CoverageFrames />
       {SHOW_SIDE_BY_SIDE && <SideBySideFrames />}
+      {new URLSearchParams(window.location.search).has('run-view') && <RunViewFrames />}
       {new URLSearchParams(window.location.search).has('teams-page') && <TeamsPageFrames />}
       {new URLSearchParams(window.location.search).has('team-overview') && <TeamOverviewFrames />}
       {SHOW_COMPOSER_SLOTS && <ComposerSlotsFrames />}

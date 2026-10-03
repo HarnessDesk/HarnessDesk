@@ -26,6 +26,8 @@ import { goalRunOf, namedGoalRun } from '../lib/goal-run'
 import { teamSeats } from '../lib/team-seats'
 import { teamOverview } from '../lib/team-overview'
 import { TeamOverview } from './TeamOverview'
+import { RunView } from './RunView'
+import { runTimeline } from '../lib/run-timeline'
 import { shortSha } from '../lib/evidence'
 import { goalActions, goalName } from '../lib/goals'
 import { openExternal } from '../lib/desktop'
@@ -377,7 +379,7 @@ export const TeamRoomPane = ({
     mount?.view.kind === 'room' ? mount.view.sideBySide : undefined,
     mount?.view.kind === 'room' ? mount.view.watching : undefined,
   ))
-  const [open, setOpen] = useState<'overview' | 'board' | 'room' | 'findings' | 'side-by-side' | SessionKey>(
+  const [open, setOpen] = useState<'overview' | 'run' | 'board' | 'room' | 'findings' | 'side-by-side' | SessionKey>(
     () => (grid.tiles.length > 0 ? 'side-by-side' : flowExecution ? 'overview' : 'room'),
   )
   /* Which half a *narrow* room is showing. Two columns need width; when the
@@ -395,6 +397,48 @@ export const TeamRoomPane = ({
     setOpen(flowExecution ? 'overview' : 'room')
     setOnRail(!flowExecution)
   }, [room, flowExecution?.id])
+  const [chosenRun, setChosenRun] = useState<string | null>(null)
+  const [selectedRunRows, setSelectedRunRows] = useState<ReadonlyMap<string, string>>(new Map())
+  const runs = useMemo(() => [...snapshot.flowExecutions.values()].filter(one => one.goal === room)
+    .sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0)), [snapshot.flowExecutions, room])
+  const timelineRun = runs.find(one => one.id === chosenRun) ?? flowExecution
+  const timelineCards = timelineRun?.rounds.flatMap(one => one.cards).join(',') ?? ''
+  const [timelinePending, setTimelinePending] = useState(false)
+  const [timelineReadError, setTimelineReadError] = useState<string | null>(null)
+  const [timelineRead, setTimelineRead] = useState(0)
+  const [runHistoryProblem, setRunHistoryProblem] = useState<{ room: string; message: string } | null>(null)
+  useEffect(() => {
+    // A trigger Goal names no opener Run. Discover its history even when
+    // this window has not received any execution pushes yet.
+    if (!goalId && !run && !flowExecution) return
+    let live = true
+    setRunHistoryProblem(null)
+    void store.loadTeamRuns(room).catch((error: unknown) => {
+      if (live) setRunHistoryProblem({ room, message: `Run history is unavailable: ${error instanceof Error ? error.message : String(error)}` })
+    })
+    return () => { live = false }
+  }, [store, room, goalId, run, flowExecution?.id, timelineRead])
+  useEffect(() => {
+    if (open !== 'run' || !timelineRun) return
+    let live = true
+    setTimelinePending(true)
+    setTimelineReadError(null)
+    const read = async (): Promise<void> => {
+      await store.loadFindings(room, 'all')
+      let cursor = store.getSnapshot().findings.get(room)?.next
+      while (live && cursor) {
+        await store.loadFindings(room, 'all', cursor)
+        const next = store.getSnapshot().findings.get(room)?.next
+        if (next === cursor) break
+        cursor = next
+      }
+    }
+    void Promise.all([store.loadBoardEvidence(room), read()]).catch((error: unknown) => {
+      if (live) setTimelineReadError(error instanceof Error ? error.message : String(error))
+    }).finally(() => { if (live) setTimelinePending(false) })
+    const timer = window.setInterval(() => { void store.loadBoardEvidence(room) }, 30_000)
+    return () => { live = false; window.clearInterval(timer) }
+  }, [store, room, open, timelineRun?.id, timelineCards, timelineRead])
   /** What the roster is filtered to. Empty is the whole room. */
   const [filter, setFilter] = useState('')
   /** The "add an agent" dialog, opened from the roster's own heading. */
@@ -414,13 +458,14 @@ export const TeamRoomPane = ({
    */
   const [railTrouble, setRailTrouble] = useState<string | null>(null)
 
-  const show = (next: 'overview' | 'board' | 'room' | 'findings' | 'side-by-side' | SessionKey): void => {
+  const show = (next: 'overview' | 'run' | 'board' | 'room' | 'findings' | 'side-by-side' | SessionKey): void => {
     destination.current.chosen = true
     setOnRail(false)
     /* Written against the literals rather than narrowed: `SessionKey` is a
        branded string, so comparing it to `'board'` tells the compiler nothing
        and the union survives into the other branch. */
     if (next === 'overview') return setOpen('overview')
+    if (next === 'run') return setOpen('run')
     if (next === 'board') return setOpen('board')
     if (next === 'room') return setOpen('room')
     if (next === 'findings') return setOpen('findings')
@@ -608,7 +653,7 @@ export const TeamRoomPane = ({
 
   /* Narrowed once, here, so the provider below gets a `SessionKey` and not a
      union the compiler has to be argued with at the call site. */
-  const singleMember: SessionKey | null = open === 'overview' || open === 'board' || open === 'room' || open === 'findings' || open === 'side-by-side' ? null : open
+  const singleMember: SessionKey | null = open === 'overview' || open === 'run' || open === 'board' || open === 'room' || open === 'findings' || open === 'side-by-side' ? null : open
   /**
    * Open the conversation behind any column that has one.
    *
@@ -703,7 +748,7 @@ export const TeamRoomPane = ({
       unreadSince: snapshot.inbox.find(one => !one.read && one.from?.runtime === seat.record.session.runtime && one.from?.sessionId === seat.record.session.sessionId)?.at ?? null,
       approvals: snapshot.approvals.filter(one => one.key === seat.key).map(one => one.approval),
     })),
-    run: flowExecution ? {execution: flowExecution, startedAt: null} : null,
+    run: flowExecution ? {execution: flowExecution, startedAt: flowExecution.startedAt ?? null} : null,
     report: report?.goal === room ? report : null,
     runtimeCapabilities: new Map(snapshot.runtimes.map(one => [one.id, one.capabilities])),
   }), [room, intents, entries, seats, members, snapshot.runtimes, snapshot.sessions, snapshot.inbox, snapshot.approvals, flowExecution, report])
@@ -828,7 +873,7 @@ export const TeamRoomPane = ({
     setGrid((was) => forgetMissing(was, present))
     // A member opened on its own who has left takes the body back to the chat.
     setOpen((was) =>
-      was === 'overview' || was === 'board' || was === 'room' || was === 'findings' || was === 'side-by-side' || present.has(was as SessionKey) ? was : 'room',
+      was === 'overview' || was === 'run' || was === 'board' || was === 'room' || was === 'findings' || was === 'side-by-side' || present.has(was as SessionKey) ? was : 'room',
     )
   }, [peers, roster])
 
@@ -1143,6 +1188,8 @@ export const TeamRoomPane = ({
                 the row can be tabbed to, so the row itself has to be the stop.
                 The member rows below stay divs — see the note on MemberCard. */}
             <ListRow as="button" size="sm" nav interactive selected={open === 'overview'} onClick={() => show('overview')} lead={<IconTile size="sm"><TeamIcon /></IconTile>} title="Overview" />
+            {flowExecution && <ListRow as="button" size="sm" nav interactive selected={open === 'run'} onClick={() => show('run')}
+              lead={<IconTile size="sm"><PlanIcon /></IconTile>} title="Run" trail={<Text role="meta" numeric>{runs.length}</Text>} />}
             <ListRow
               as="button"
               size="sm"
@@ -1349,7 +1396,7 @@ export const TeamRoomPane = ({
             </Button>
           </span>
           {open === 'overview' ? (
-            <TeamOverview model={overview}
+            <TeamOverview model={overview} onRun={() => show('run')}
               faces={new Map(seats.map(seat => {
                 const runtime = snapshot.runtimes.find(one => one.id === seat.record.session.runtime)
                 const brand = runtime ? brandForRuntime(runtime) : null
@@ -1362,6 +1409,38 @@ export const TeamRoomPane = ({
               runName={flowExecution?.document.flow.name}
               statusLine={now => <RoomLiveLine members={roster} snapshot={snapshot} now={now} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} includeRunReason />}
               onOpen={id => { const seat = seats.find(one => one.record.id === id); if (seat) show(seat.key) }} />
+          ) : open === 'run' && timelineRun ? (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              {runs.length > 1 && <PaneColumn inset="reading" aria-label="Choose a Run" className="flex flex-wrap gap-2">
+                {runs.map((one, index) => <Button key={one.id} variant="choice" size="sm" data-active={timelineRun.id === one.id || undefined}
+                  onClick={() => setChosenRun(one.id)}>Run {index + 1}</Button>)}
+              </PaneColumn>}
+              <RunView key={timelineRun.id} number={runs.findIndex(one => one.id === timelineRun.id) + 1}
+                model={runTimeline({ execution: timelineRun, cards: intents,
+                  signals: entries.filter((one): one is Extract<TeamEntry, {kind: 'signal'}> => one.kind === 'signal'),
+                  evidence: snapshot.boardEvidence.get(room),
+                  findings: snapshot.findings.get(room)?.filter === 'all' ? snapshot.findings.get(room)?.rows : [],
+                  origin: timelineRun.intake ? `From trigger ${timelineRun.intake.trigger}` : goal?.goal.origin.kind === 'person' ? 'Started by you' : null,
+                })}
+                selectedRow={selectedRunRows.get(timelineRun.id) ?? null}
+                onSelect={id => setSelectedRunRows(was => new Map(was).set(timelineRun.id, id))}
+                doing={new Map(overview.seats.map(one => [one.seat, one.doing]))}
+                pending={timelinePending}
+                onRetry={() => setTimelineRead(was => was + 1)}
+                problem={snapshot.boardEvidenceFailed.has(room) ? 'Check evidence is unavailable.'
+                  : timelineReadError ?? (runHistoryProblem?.room === room ? runHistoryProblem.message : null) ?? snapshot.findings.get(room)?.error ?? snapshot.findings.get(room)?.problem ?? (snapshot.findings.get(room)?.next ? 'More findings remain to be read.' : null)}
+                faces={new Map(seats.map(seat => {
+                  const runtime = snapshot.runtimes.find(one => one.id === seat.record.session.runtime)
+                  const brand = runtime ? brandForRuntime(runtime) : null
+                  return [seat.record.id, brand ? <BrandMark brand={brand} size={13} /> : <AgentIcon />]
+                }))}
+                pullRequest={(() => {
+                  const fact = snapshot.boardEvidence.get(room)?.cards.flatMap(one => one.facts)
+                    .filter(one => !one.record.restored && one.record.fact.kind === 'pr')
+                    .sort((a, b) => b.record.observedAt - a.record.observedAt)[0]?.record.fact
+                  return fact?.kind === 'pr' && fact.url ? { number: fact.number, url: fact.url } : null
+                })()} />
+            </div>
           ) : open === 'board' ? (
             <TeamBoardPane room={room} />
           ) : open === 'findings' ? (
