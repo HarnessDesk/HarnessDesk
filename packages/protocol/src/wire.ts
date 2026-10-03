@@ -694,7 +694,7 @@ export interface HostMethods {
       readonly desk: { readonly home: string; readonly pid: number; readonly startedAt: number }
       readonly tiers: readonly ClientTier[]
       readonly methods: readonly string[]
-      readonly runtimes: readonly { readonly id: RuntimeId; readonly name: string; readonly health: RuntimeHealth }[]
+      readonly runtimes: readonly { readonly id: RuntimeId; readonly name: string; readonly health: RuntimeHealth; readonly metered: boolean }[]
     }
   }
   'client/subscribe': {

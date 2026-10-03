@@ -13,6 +13,7 @@ export const CLIENT_METHODS = {
   'flow/execution': 'read',
   'flow/executions': 'read',
   'finding/run': 'read',
+  'insight/goal': 'read',
 } as const satisfies Partial<Record<HostMethodName, ClientTier>>
 
 export type ClientMethodName = keyof typeof CLIENT_METHODS

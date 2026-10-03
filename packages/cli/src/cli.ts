@@ -23,7 +23,7 @@ interface Command {
 /** The executable dispatch table is also the client-surface coverage contract. */
 export const COMMANDS = [
   { name: 'desks', methods: ['client/hello'], flags: [], execute: desks },
-  { name: 'status', methods: ['client/hello', 'goal/list', 'flow/executions'], flags: [], execute: status },
+  { name: 'status', methods: ['client/hello', 'goal/list', 'flow/executions', 'insight/goal'], flags: [], execute: status },
   { name: 'teams', methods: ['goal/list'], flags: ['project'], execute: teams },
   { name: 'runs', methods: ['flow/executions'], flags: ['team', 'project', 'all'], execute: runs },
   { name: 'watch', methods: ['client/subscribe', 'flow/execution', 'flow/executions', 'finding/run'], flags: ['team', 'run', 'project', 'until', 'raw'], execute: watch },

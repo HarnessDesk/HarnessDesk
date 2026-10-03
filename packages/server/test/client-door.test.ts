@@ -4,9 +4,10 @@ import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 import test from 'node:test'
 import WebSocket from 'ws'
-import { approvalId, type SeatActivity, type WireNotification } from '@harnessdesk/protocol'
+import { runtimeId, approvalId, type SeatActivity, type WireNotification } from '@harnessdesk/protocol'
 import * as doorModule from '../src/client-door.js'
 import { Client, silent, start, stop } from './fixtures/harness.js'
+import { FakeRuntime } from './fixtures/fake-runtime.js'
 
 const load = async () => doorModule
 
@@ -696,3 +697,21 @@ for (const accepted of [true, false]) {
     assert.equal(peer.messages.filter(m => m.method === 'seat/activity').at(-1).params.state, 'idle')
   })
 }
+
+test('client hello reports metering and goal insight is admitted only to the read tier', async t => {
+  const { h, door, module } = await rig(t)
+  const metered = new FakeRuntime({ id: runtimeId('metered'), capabilities: { metered: true } })
+  h.host.register(metered)
+  const peer = await Peer.open(door.socketPath); t.after(() => peer.socket.close())
+  assert.equal((await peer.call('insight/goal', { goal: 'missing' })).error.code, 'helloFirst')
+  const hello = await peer.hello()
+  assert.equal(hello.result.runtimes.find((one: any) => one.id === h.runtime.info.id).metered, false)
+  assert.equal(hello.result.runtimes.find((one: any) => one.id === metered.info.id).metered, true)
+  assert.ok(hello.result.methods.includes('insight/goal'))
+  assert.equal(module.clientRefusal('insight/goal', true, []), 'tierNotGranted')
+  await h.host.call('workspace/open', { path: h.stateDir })
+  const goal = await h.host.call('goal/create', { root: h.stateDir, sentence: 'Measure the synthetic Team' }) as any
+  const insight = await peer.call('insight/goal', { goal: goal.goal.id })
+  assert.equal(insight.ok, true, JSON.stringify(insight))
+  assert.equal(insight.result.goal, goal.goal.id)
+})

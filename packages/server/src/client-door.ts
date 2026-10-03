@@ -246,7 +246,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
           try {
             const info = await options.host.call('host/hello', { clientVersion: params.client.version })
             const runtimes = await Promise.all(info.runtimes.map(async runtime => ({
-              id: runtime.id, name: runtime.presentation.name,
+              id: runtime.id, name: runtime.presentation.name, metered: runtime.capabilities.metered,
               health: await options.host.call('runtime/health', { runtime: runtime.id }),
             })))
             identity = `${params.client.name}@${params.client.version}`
