@@ -25,15 +25,25 @@ export const teamSeats = (
   const rounds = execution && execution.goal === team?.id ? execution.rounds : []
   if (goal?.goal.state === 'wrapped') {
     const receipt = goal.receipt
-    return [...new Set([...(receipt?.seats ?? []), ...(receipt?.members?.map(one => one.seat) ?? [])])].map(id => {
+    /* A receipt keeps every Seat that was retained, and one conversation can have been seated more than once. The
+       list is of conversations — rail rows, tree rows, counts and React keys are all by the session — so each is
+       named once, where its first Seat put it and by the last Seat that held it, exactly as an open Team's list is
+       (#1317). A Seat with no conversation is its own entry: there is no key to share. */
+    const seats: TeamSeat[] = []
+    const placed = new Map<SessionKey, number>()
+    for (const id of new Set([...(receipt?.seats ?? []), ...(receipt?.members?.map(one => one.seat) ?? [])])) {
       const member = receipt?.members?.find(one => one.seat === id)
       const session = member?.session ?? receipt?.answers.find(one => one.seat === id)?.session ?? null
       const role = [...rounds].reverse().find(round => round.seats.includes(id))?.role ?? null
       const name = member?.agent ?? member?.seatLabel ?? 'Agent'
       const record = { id, session, role, openedAt: goal.goal.createdAt }
-      return session ? { key: sessionKey(session.runtime, session.sessionId), record: { ...record, session }, role, name }
-        : { key: null, record: { ...record, session: null }, role, name }
-    })
+      if (!session) { seats.push({ key: null, record: { ...record, session: null }, role, name }); continue }
+      const key = sessionKey(session.runtime, session.sessionId)
+      const seat: LinkedTeamSeat = { key, record: { ...record, session }, role, name }
+      const at = placed.get(key)
+      if (at === undefined) { placed.set(key, seats.length); seats.push(seat) } else seats[at] = seat
+    }
+    return seats
   }
   for (const record of goal?.members ?? []) {
     if (!record.session.runtime || !record.session.sessionId) continue

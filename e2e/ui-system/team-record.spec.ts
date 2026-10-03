@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Locator } from '@playwright/test'
 
 for (const theme of ['light','dark'] as const) {
  test(`Wrapped Team: receipt, rail, conversations and Run stay readable in ${theme}`, async ({page}) => {
@@ -29,6 +29,44 @@ for (const theme of ['light','dark'] as const) {
   await expect(older.locator('[data-slot="team-overview"]')).toContainText('Gamma')
   await expect(older.locator('[data-slot="team-overview"]')).toContainText('Conversation not kept')
   await expect(older.locator('[data-slot="team-overview"]').getByRole('button',{name:'Gamma',exact:true})).toHaveCount(0)
+ })
+ test(`Wrapped Team: a conversation seated twice is one row, and Seats with no conversation are still listed in ${theme}`, async ({page}) => {
+  await page.goto(`/preview.html?team-record&theme=${theme}`)
+  const rows=(scene:string)=>page.locator(`#team-record-${scene} aside [data-slot="list-row"]`)
+  for (const name of ['Alpha','Beta']) await expect(rows('shared').filter({hasText:name})).toHaveCount(1)
+  for (const name of ['Alpha','Beta']) {
+   const row=rows('unlinked').filter({hasText:name})
+   await expect(row).toContainText('Conversation not kept')
+   await expect(row.getByRole('button')).toHaveCount(0)
+  }
+  await expect(page.locator('#team-record-unlinked aside')).not.toContainText('No Agents were kept')
+  await expect(page.locator('#team-record-empty aside')).toContainText('No Agents were kept')
+  const sidebar=page.locator('#team-record-sidebar-shared')
+  await sidebar.getByRole('button',{name:'Wrapped · 1',exact:true}).click()
+  await expect(sidebar.locator('button[data-slot="sidebar-menu-button"]').filter({hasText:'Writer conversation'})).toHaveCount(1)
+  await expect(sidebar.locator('button[data-slot="sidebar-menu-button"]').filter({hasText:'Reviewer conversation'})).toHaveCount(1)
+ })
+ test(`Wrapped Team: a question open when the Run ends keeps its place with its final action off in ${theme}`, async ({page}) => {
+  const reason='This Team is wrapped'
+  const dialog=page.locator('[data-slot="dialog-content"]')
+  const board=async(open:Locator)=>{ await open.locator('aside').getByRole('button',{name:/^Board/}).click() }
+  const cases:{name:string,action:string,ask:(open:Locator)=>Promise<void>}[]=[
+   {name:'seating an Agent',action:'Seat Agent',ask:async open=>{ await open.getByRole('button',{name:'Seat an Agent in this Goal',exact:true}).click() }},
+   {name:'adding work',action:'Add to board',ask:async open=>{ await board(open); await open.getByRole('button',{name:/^New job/}).click(); await dialog.getByLabel('What needs doing').fill('Check the retry budget') }},
+   {name:'stopping a card',action:'Stop it',ask:async open=>{ await board(open); await open.getByRole('button',{name:'What to do with #1',exact:true}).click(); await page.getByRole('menuitem',{name:/^Stop it/}).click() }},
+  ]
+  for (const one of cases) {
+   await page.goto(`/preview.html?team-record&theme=${theme}`)
+   await one.ask(page.locator('#team-record-open'))
+   const action=dialog.getByRole('button',{name:one.action,exact:true})
+   await expect(action,`${one.name} is offered while the Team is open`).toBeEnabled()
+   await page.evaluate(()=>(window as unknown as {__hdWrapOpenTeam:()=>void}).__hdWrapOpenTeam())
+   await expect(action,`${one.name} is refused once the Team has wrapped`).toBeDisabled()
+   await expect(action).toHaveAttribute('title',reason)
+   await expect(dialog).toContainText(reason)
+   await dialog.getByRole('button',{name:'Cancel',exact:true}).click()
+   await expect(dialog).toHaveCount(0)
+  }
  })
  test(`Wrapped Team: sidebar keeps the nested conversations and unlinked Seat in ${theme}`, async ({page}) => {
   await page.goto(`/preview.html?team-record&theme=${theme}`)

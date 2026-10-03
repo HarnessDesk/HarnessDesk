@@ -3468,3 +3468,57 @@ it('a wrapped Team keeps receipt Seats and its Run readable while dispatching ve
  act(()=>row('Writer').click());await act(async()=>{})
  expect(container.querySelector('[data-testid="conversation"]')?.textContent).toContain(String(sessionKey('codex','c1')))
 })
+
+/* A wrapped Team's receipt, as the host keeps it: every Seat that was ever retained, each with the conversation it
+   had (or, on an older receipt, none). */
+const receiptGoal = (seats: readonly string[], members: readonly unknown[]): GoalView => ({
+ ...GOAL, goal: { ...GOAL.goal, state: 'wrapped' }, members: [],
+ receipt: { version: 1, id: 'receipt', goal: ROOM, sentence: GOAL.goal.sentence, summary: 'Reviewed.', wrappedAt: 2, cards: [], seats, members, answers: [], evidence: [], lanes: [], revisions: [], citations: [], gaps: [] },
+} as unknown as GoalView)
+
+/** The rail's rows, as a person reads them. */
+const railRows = (): string[] => [...container.querySelectorAll('aside [data-slot="list-row"]')].map(one => one.textContent ?? '')
+
+/* A conversation can be seated more than once in a Team's life, and the receipt keeps every Seat. The rail lists
+   conversations, so it names each one once — and does not draw two rows under one React key (#1317, round 1). */
+it('a wrapped Team lists a conversation once however many Seats were retained for it', async () => {
+ const goal = receiptGoal(['first', 'again', 'other'], [
+  { seat: 'first', agent: 'Writer', seatLabel: 'Alpha', session: { runtime: 'codex', sessionId: 'c1' } },
+  { seat: 'again', agent: 'Reviewer', seatLabel: 'Alpha again', session: { runtime: 'codex', sessionId: 'c1' } },
+  { seat: 'other', agent: 'Judge', seatLabel: 'Beta', session: { runtime: 'codex', sessionId: 'c2' } },
+ ])
+ const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+ try {
+  const { store } = rig([], undefined, { members: [] }, goal)
+  await render(store)
+  // The latest Seat to hold the conversation names it: `Writer` held it first and is not a second row.
+  expect(railRows().filter(text => /Writer|Reviewer|Judge/.test(text))).toHaveLength(2)
+  expect(railRows().some(text => text.includes('Reviewer'))).toBe(true)
+  expect(railRows().some(text => text.includes('Judge'))).toBe(true)
+  expect(railRows().some(text => text.includes('Writer'))).toBe(false)
+  // And the roster counts conversations, as it lists them.
+  expect(container.querySelector('aside')?.textContent).toContain('Agents2')
+  expect(errors.mock.calls.map(call => String(call[0])).filter(text => text.includes('same key'))).toEqual([])
+ } finally { errors.mockRestore() }
+})
+
+/* An older receipt may keep Seats without a conversation: the rail lists each as a name and says the conversation
+   was not kept. It cannot also say there are no Agents — it is looking at them (#1317, round 1). */
+it('an older receipt whose Seats were all kept without a conversation lists them and does not say there are none', async () => {
+ const goal = receiptGoal(['lost', 'lost-too'], [
+  { seat: 'lost', agent: 'Writer', seatLabel: 'Alpha' },
+  { seat: 'lost-too', agent: null, seatLabel: 'Gamma' },
+ ])
+ const { store } = rig([], undefined, { members: [] }, goal)
+ await render(store)
+ const rail = container.querySelector('aside')!.textContent ?? ''
+ expect(railRows().filter(text => /Writer|Gamma/.test(text))).toHaveLength(2)
+ expect(rail.match(/Conversation not kept/g)).toHaveLength(2)
+ expect(rail).not.toContain('No Agents were kept')
+})
+
+it('a receipt that kept no Seat at all still says so', async () => {
+ const { store } = rig([], undefined, { members: [] }, receiptGoal([], []))
+ await render(store)
+ expect(container.querySelector('aside')?.textContent).toContain('No Agents were kept in this Team’s receipt.')
+})

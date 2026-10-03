@@ -1312,7 +1312,7 @@ export const TeamRoomPane = ({
 
           <RailSection stretch="list" className={styles.railList}>
           <ListRows size="sm">
-            {peers !== null && roster.length === 0 && (
+            {peers !== null && roster.length === 0 && unlinked.length === 0 && (
               /* A zero says what it looked for *and* what it found — and it is
                  only said once the host has actually answered. Drawn from a
                  `null` roster it was not a zero at all, it was silence wearing a
@@ -1328,7 +1328,11 @@ export const TeamRoomPane = ({
                  joins when it is attached to its agent", which was true while a
                  folder was a board. Nothing joins by itself now — the + above is
                  the way in — and telling somebody to wait for something that
-                 will never happen is worse than saying nothing. */
+                 will never happen is worse than saying nothing.
+
+                 Nor is it said above Seats the list itself draws: an older
+                 receipt may keep every Seat without its conversation, and
+                 those rows below are Agents that were kept (#1317). */
               <EmptyState
                 variant="inline"
                 className={styles.railEmpty}
