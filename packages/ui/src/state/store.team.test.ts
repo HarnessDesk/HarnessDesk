@@ -119,7 +119,7 @@ const knownRoom = async (members: readonly string[] = []): Promise<void> => {
     method: 'goal/changed',
     params: {
       view: {
-        goal: { id: ROOM, root: PROJECT, revision: 1 },
+        goal: { id: ROOM, root: PROJECT, revision: 1, sentence: 'Checkout rewrite', origin: { kind: 'person' }, state: 'open', updatedAt: 1 },
         board: roomState(members),
         members: [],
       },

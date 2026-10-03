@@ -63,7 +63,7 @@ const moveWindowRailFocus = (event: ReactKeyboardEvent<HTMLElement>) => {
   rows[next]?.focus()
 }
 
-export const AppWindow = ({ label, children }: { label: string; children: ReactNode }) => {
+export const AppWindow = ({ label, children, responsive = false }: { label: string; children: ReactNode; responsive?: boolean }) => {
   const embedded = useContext(AppWindowMode) === 'embedded'
   const [host, setHost] = useState<HTMLDivElement | null>(null)
   const surface = useRef<HTMLDivElement>(null)
@@ -87,7 +87,7 @@ export const AppWindow = ({ label, children }: { label: string; children: ReactN
           <DialogPortal container={host}>
             <AppWindowSurface
               ref={surface}
-              className={styles.win}
+              className={`${styles.win} ${responsive ? styles.responsive : ''}`}
               aria-label={label}
               modal={!embedded}
               aria-describedby={undefined}
@@ -168,7 +168,7 @@ export const WindowNavItem = ({
   <SidebarMenu>
     <SidebarMenuItem trailingMarks={Number(count !== undefined) + Number(Boolean(trail)) as 0 | 1 | 2}>
       <SidebarMenuButton
-        icon={<Text role="meta" ink="navigation">{icon}</Text>}
+        icon={icon === undefined ? undefined : <Text role="meta" ink="navigation">{icon}</Text>}
         label={<Text role="navigation">{label}</Text>}
         trailingOverlay={count !== undefined || Boolean(trail)}
         labelTrailingContent={count !== undefined || Boolean(trail)}

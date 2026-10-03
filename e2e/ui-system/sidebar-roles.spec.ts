@@ -54,12 +54,13 @@ test('sidebar navigation names stay regular and truncate at their trailing edge'
 test('sidebar destinations use the navigation text role and the brand uses the wordmark role', async ({ page }) => {
   await page.goto('/preview.html')
   const destinations = page.locator('[aria-label="Main sections"] [data-role="navigation"]')
-  await expect(destinations).toHaveCount(3)
+  await expect(destinations).toHaveCount(4)
+  await expect(destinations).toHaveText(['Teams', 'Agents', 'Dashboard', 'Plugins'])
   const destinationStyles = await destinations.evaluateAll((nodes) => nodes.map((node) => {
     const style = getComputedStyle(node)
     return { size: style.fontSize, weight: style.fontWeight }
   }))
-  expect(destinationStyles).toEqual(Array.from({ length: 3 }, () => ({ size: '13px', weight: '400' })))
+  expect(destinationStyles).toEqual(Array.from({ length: 4 }, () => ({ size: '13px', weight: '400' })))
 
   const brand = page.locator('[data-region="sidebar-header"] [data-role="wordmark"]')
   await expect(brand).toHaveText('HarnessDesk')

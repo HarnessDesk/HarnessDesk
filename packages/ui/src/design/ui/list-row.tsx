@@ -176,6 +176,12 @@ const ListRow = ({
     <div data-slot="list-row-content" className="min-w-0 flex-1">
       <div
         data-slot="list-row-title"
+        /* The title names the text role it is drawn in, so the names rule
+           (`e2e/ui-system/rules.spec.ts`) measures it against that role's pair
+           rather than against "any name pair". A small row is a roster down the
+           side of a screen and draws the navigation pair, a default row the
+           subject pair. Selection is shown by the row's fill, never by weight. */
+        data-role={size === 'sm' ? 'navigation' : 'subject'}
         className={cn(
           'truncate',
           size === 'sm'

@@ -49,7 +49,7 @@ const readyHealth: RuntimeHealth = {
   state: 'ready',
 }
 
-const mount = (overrides: Partial<AppSnapshot> = {}, activeDestination: 'agents' | 'dashboard' | 'plugins' | null = null) => {
+const mount = (overrides: Partial<AppSnapshot> = {}, activeDestination: 'teams' | 'agents' | 'dashboard' | 'plugins' | null = null) => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -85,7 +85,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}, activeDestination: 'agents'
         <Sidebar
           onOpenSettings={() => {}}
           onOpenPlugins={() => {}}
-          onOpenAgents={() => {}}
+          onOpenTeams={() => {}} onOpenAgents={() => {}}
           onOpenUsage={() => {}}
           onBrowseFolders={() => {}}
           onSignIn={() => {}}
@@ -173,7 +173,7 @@ it('keeps the workbench-owned header, one content scroller, and footer as plain 
  * remain present at the minimum sidebar width.
  */
 describe('sidebar destinations', () => {
-  it('renders three separate, labelled design-system rows with main counts at 200px', () => {
+  it('renders four separate, labelled design-system rows with main counts at 200px', () => {
     container.style.width = '200px'
     mount({
       agents: [{ id: 'a', origin: 'builtin', path: '/a/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'a', name: 'A', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], prefer: [], brief: '' } }],
@@ -185,16 +185,16 @@ describe('sidebar destinations', () => {
     } as unknown as Partial<AppSnapshot>)
     const group = container.querySelector('[aria-label="Main sections"]')!
     const rows = [...group.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')]
-    expect(rows).toHaveLength(3)
-    expect(rows.map((one) => one.getAttribute('aria-label'))).toEqual(['Agents', 'Dashboard', 'Plugins'])
-    expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-label-content"]')?.textContent)).toEqual(['Agents', 'Dashboard', 'Plugins'])
-    expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-icon"]'))).toHaveLength(3)
-    expect(rows.map((one) => one.parentElement?.querySelector('[data-slot="sidebar-menu-badge"]')?.textContent?.trim())).toEqual(['1', '1', '2'])
+    expect(rows).toHaveLength(4)
+    expect(rows.map((one) => one.getAttribute('aria-label'))).toEqual(['Teams', 'Agents', 'Dashboard', 'Plugins'])
+    expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-label-content"]')?.textContent)).toEqual(['Teams', 'Agents', 'Dashboard', 'Plugins'])
+    expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-icon"]'))).toHaveLength(4)
+    expect(rows.map((one) => one.parentElement?.querySelector('[data-slot="sidebar-menu-badge"]')?.textContent?.trim())).toEqual([undefined, '1', '1', '2'])
     const type = rows.map((one) => {
       const label = one.querySelector<HTMLElement>('[data-slot="sidebar-menu-label-content"] [data-slot="text"]')!
       return label.getAttribute('data-role')
     })
-    expect(type).toEqual(['navigation', 'navigation', 'navigation'])
+    expect(type).toEqual(['navigation', 'navigation', 'navigation', 'navigation'])
   })
 
   it('fills the active row when its destination window is open', () => {
@@ -242,4 +242,11 @@ describe('sidebar destinations', () => {
       expect(row.getAttribute('title')).toBe('Open a folder to start one.')
     }
   })
+})
+
+it('Teams is a top-level destination and marks its selected page', () => {
+  mount({}, 'teams')
+  const entry = container.querySelector<HTMLButtonElement>('button[aria-label="Teams"]')
+  expect(entry).not.toBeNull()
+  expect(entry?.getAttribute('aria-current')).toBe('page')
 })

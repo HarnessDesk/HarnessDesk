@@ -656,11 +656,9 @@ const TEXT_ROLE = {
   section: 'text-(length:--hd-text-lg) leading-(--hd-line-lg) font-semibold',
   subject: 'text-base leading-(--hd-line) font-medium',
   // The name of someone — an agent at work or a person — wherever a face is
-  // drawn: a chat's sender, a member named inside a sentence. Heavier than a
-  // subject because a face and its name are one thing, and the name is what
-  // the eye lands on first. The only name role in semibold besides the three
-  // that title a page.
-  member: 'text-base leading-(--hd-line) font-semibold',
+  // drawn: a chat's sender, a member named inside a sentence. The foundation
+  // owns its weight so every content name changes with one token.
+  member: 'text-base leading-(--hd-line) font-(--hd-member-weight)',
   row: 'text-sm leading-(--hd-line-sm) font-medium',
   navigation: 'text-sm leading-(--hd-line-sm) font-normal',
   muted: 'text-sm leading-(--hd-line-sm) font-normal',
@@ -766,7 +764,7 @@ export const Text = ({
       ...(truncateFrom ? { 'data-truncate-from': truncateFrom } : {}),
       ...(done ? { 'data-done': '' } : {}),
       className: cx(
-        weight ? TEXT_ROLE[role].replace(/\bfont-(?:normal|medium|semibold)\b/, TEXT_WEIGHT[weight]) : TEXT_ROLE[role],
+        weight ? TEXT_ROLE[role].replace(/font-(?:normal|medium|semibold|\(--hd-member-weight\))/, TEXT_WEIGHT[weight]) : TEXT_ROLE[role],
         tone
           ? inkTone({ tone })
           : tint

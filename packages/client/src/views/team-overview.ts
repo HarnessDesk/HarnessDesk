@@ -147,6 +147,26 @@ const approvalWords = (request: Approval): string => {
   }
 }
 
+/** The same Team-scoped usage applies whether or not it has a Run. */
+export function teamTotals(input: TeamOverviewInput): RunStrip['total'] {
+  const totals = input.report?.goal === input.team ? input.report.totals : null
+  let money: number | null = null
+  if (totals) {
+    // Only one partition contributes. Report totals can include list prices
+    // for subscription accounts, which are turns in the Overview.
+    for (const row of input.report?.breakdowns.find((one) => one.dimension === 'seat')?.rows ?? []) {
+      if (row.goal !== input.team || row.seat === null) continue
+      const seat = input.seats.find((one) => one.record.id === row.seat)
+      const runtime = row.session?.runtime ?? seat?.record.session.runtime ??
+        input.report?.seats.find((one) => one.id === row.seat)?.session.runtime
+      const capabilities = seat?.runtime?.capabilities ?? (runtime ? input.runtimeCapabilities?.get(runtime) : undefined)
+      const value = moneyOf(row.amounts.usd, capabilities?.metered)
+      if (value !== null) money = (money ?? 0) + value
+    }
+  }
+  return { money, turns: totals ? observed(totals.turns) : null }
+}
+
 export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; needsYou: NeedsYouItem[]; seats: SeatRow[] } {
   const execution = input.run?.execution.goal === input.team ? input.run.execution : null
   const rounds = execution?.rounds ?? []
@@ -235,21 +255,7 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
   seats.sort((a, b) => precedence[a.state] - precedence[b.state] || (a.card?.id ?? Infinity) - (b.card?.id ?? Infinity))
   needsYou.sort((a, b) => a.since - b.since || (a.card ?? Infinity) - (b.card ?? Infinity))
   const lastRound = rounds.at(-1)
-  const totals = input.report?.goal === input.team ? input.report.totals : null
-  let money: number | null = null
-  if (totals) {
-    // Only one partition contributes. Report totals can include list prices
-    // for subscription accounts, which are turns in the Overview.
-    for (const row of input.report?.breakdowns.find((one) => one.dimension === 'seat')?.rows ?? []) {
-      if (row.goal !== input.team || row.seat === null) continue
-      const seat = input.seats.find((one) => one.record.id === row.seat)
-      const runtime = row.session?.runtime ?? seat?.record.session.runtime ??
-        input.report?.seats.find((one) => one.id === row.seat)?.session.runtime
-      const capabilities = seat?.runtime?.capabilities ?? (runtime ? input.runtimeCapabilities?.get(runtime) : undefined)
-      const value = moneyOf(row.amounts.usd, capabilities?.metered)
-      if (value !== null) money = (money ?? 0) + value
-    }
-  }
+  const total = teamTotals(input)
   const run: RunStrip | null = execution && input.run ? {
     run: execution.id, state: execution.state, round: lastRound?.n ?? null, role: lastRound?.role ?? null,
     startedAt: input.run.startedAt,
@@ -258,7 +264,7 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
       of: Math.max(execution.findings.budget.rounds, execution.findings.extraRound
         ? execution.findings.extraRound.after + (execution.findings.extraRound.count ?? 1) : 0),
     } : null,
-    total: { money, turns: totals ? observed(totals.turns) : null },
+    total,
   } : null
   return { run, needsYou, seats }
 }

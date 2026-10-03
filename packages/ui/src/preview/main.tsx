@@ -1,3 +1,4 @@
+import { TeamsPageFrames } from './frames-teams-page'
 import { StrictMode, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 
@@ -49,6 +50,7 @@ import {
   previewStore,
   runtime,
   store,
+  TEAM,
 } from './harness'
 import { PublicationCard } from '../components/Publication'
 import { denseTurns, PREVIEW_ROOT } from './sidebar-fixture'
@@ -114,6 +116,13 @@ const sidebarNoFolderStore = previewStore({ workspace: null, workspaces: [], his
 
 const previewProvenance = commitProvenance({ seats: [{ ...provenanceSeat(7), runtime: 'codex', session: { runtime: 'codex', sessionId: 'conversation-7' } }] })
 const previewMutable = store as unknown as { patch(partial: Partial<AppSnapshot>): void }
+// The roster and chat share the real name role; populate this Goal's chat
+// with the existing rig messages so both treatments can be read together.
+previewMutable.patch({
+  teams: new Map(store.getSnapshot().teams).set(PREVIEW_GOAL.goal.id, {
+    ...PREVIEW_GOAL.board, channel: TEAM.channel,
+  }),
+})
 previewMutable.patch({ captureHealth: new Map([[PROVENANCE_ROOT, captureHealth()]]) })
 /* One Agent notice, addressed to the preview conversation, so `ComposerNotices` — mounted inside it — has something real to draw rather than its own "nothing asking" empty return. */
 previewMutable.patch({
@@ -948,7 +957,7 @@ const Preview = () => {
             <Sidebar
               onOpenSettings={() => {}}
               onOpenPlugins={() => {}}
-          onOpenAgents={() => {}}
+          onOpenTeams={() => {}} onOpenAgents={() => {}}
               onOpenUsage={() => {}}
               onBrowseFolders={() => {}}
               onSignIn={() => {}}
@@ -961,7 +970,7 @@ const Preview = () => {
             <Sidebar
               onOpenSettings={() => {}}
               onOpenPlugins={() => {}}
-              onOpenAgents={() => {}}
+              onOpenTeams={() => {}} onOpenAgents={() => {}}
               onOpenUsage={() => {}}
               onBrowseFolders={() => {}}
               onSignIn={() => {}}
@@ -975,7 +984,7 @@ const Preview = () => {
               <Sidebar
                 onOpenSettings={() => {}}
                 onOpenPlugins={() => {}}
-                onOpenAgents={() => {}}
+                onOpenTeams={() => {}} onOpenAgents={() => {}}
                 onOpenUsage={() => {}}
                 onBrowseFolders={() => {}}
                 onSignIn={() => {}}
@@ -1030,6 +1039,7 @@ const Preview = () => {
       <PanelFrames />
       <CoverageFrames />
       {SHOW_SIDE_BY_SIDE && <SideBySideFrames />}
+      {new URLSearchParams(window.location.search).has('teams-page') && <TeamsPageFrames />}
       {new URLSearchParams(window.location.search).has('team-overview') && <TeamOverviewFrames />}
       {SHOW_COMPOSER_SLOTS && <ComposerSlotsFrames />}
       {SHOW_NOTICE_PLACEMENT && <NoticePlacementFrames />}
