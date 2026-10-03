@@ -12,7 +12,9 @@ HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — 
 - **A Seat's commit stays yours.** The desk adds its co-author credit once
   when it commits a card's work, using your configured author and committer
   identity. An agent no longer has to remember the credit, and commits you
-  make by hand are unchanged. (Fixes #1277)
+  make by hand are unchanged. Git places the credit around message dividers
+  and scissors cutoffs; Git older than 2.32 is refused before staging.
+  (Fixes #1277)
 
 - **Teams have one page, with attention first.** Teams in the left menu lists
   work by project, its Seats and recorded usage. Active, Needs you and Settled

@@ -205,12 +205,14 @@ off. A checkout with no configured identity is refused in one sentence; the
 desk never makes one up.
 
 The person owns both the author and committer identity. Only `commit_work`
-adds `Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>`, separated
-from the supplied message by a blank line, unless that exact trailer line is
-already present in the trailer block Git recognizes. A quoted line in the
-body does not count. If the message has Git's `---` divider, the tool inserts
-the trailer before it, preserving the divider and everything after it; credit
-in that ignored suffix does not count either. The text lives in one constant
+adds `Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>` through
+Git's `interpret-trailers --if-exists=addIfDifferent`, which owns placement,
+trailer formatting and deduplication. A quoted line in the body or after
+Git's divider or scissors cutoff does not count. Trailer processing reads
+no repository configuration except the comment prefix: `trailer.*` settings
+can run commands, so the parser runs with `--git-dir=/dev/null` and system
+and global configuration off. Git 2.32 or newer is required; an older or
+unrecognized version is refused before staging. The text lives in one constant
 in `card-commit.ts`; a Seat never has to type it, and a person's hand commit
 is untouched. Settings for the trailer's wording are left for a later decision.
 (#1277)

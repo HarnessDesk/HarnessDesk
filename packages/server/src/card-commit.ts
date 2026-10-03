@@ -45,21 +45,18 @@ export const COMMIT_MESSAGE_LIMIT = 8_000
 const COAUTHOR_TRAILER = 'Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>'
 
 const attributedMessage = async (cwd: string, message: string): Promise<string> => {
-  if (message.split(/\r?\n/).includes(COAUTHOR_TRAILER)) {
-    // A quoted body line is not attribution. Parse only, so repository
-    // trailer commands cannot add credit or run a program.
-    const trailers = await gitWithInput(cwd, ['interpret-trailers', '--parse'], message, isolatedEnv())
-    if (trailers.split('\n').includes(COAUTHOR_TRAILER)) return message
+  const comments: string[] = []
+  for (const key of ['core.commentChar', 'core.commentString']) {
+    const value = await git(cwd, ['config', '--get', key]).catch(() => '')
+    if (value) comments.push('-c', `${key}=${value.replace(/\n$/, '')}`)
   }
-  // Git ignores a line beginning with --- followed by space, tab, CR or LF,
-  // and everything after it. A terminal --- becomes a divider when credit
-  // adds a newline, so insert before that too. Preserve the entire suffix.
-  const divider = /(?:^|\n)(?=---(?:[ \t\r\n]|$))/.exec(message)
-  const end = divider ? divider.index + divider[0].length : message.length
-  const body = message.slice(0, end)
-  const suffix = message.slice(end)
-  const separator = /\r?\n\r?\n$/.test(body) ? '' : body.endsWith('\n') ? '\n' : '\n\n'
-  return `${body}${separator}${COAUTHOR_TRAILER}\n${suffix ? `\n${suffix}` : ''}`
+  // Git owns placement and deduplication. Do not read repository trailer.*
+  // configuration: it can run shell commands. Only the comment prefix is
+  // carried across, so Git recognizes this checkout's scissors cutoff.
+  return gitWithInput(cwd, [
+    '--git-dir=/dev/null', ...comments, 'interpret-trailers',
+    '--where=end', '--if-exists=addIfDifferent', '--if-missing=add', '--trailer', COAUTHOR_TRAILER,
+  ], message, isolatedEnv())
 }
 
 export type CardCommit =
@@ -145,7 +142,7 @@ const identityOf = async (cwd: string): Promise<{ readonly name: string; readonl
   return name && email ? { name, email } : null
 }
 
-/** Runs a read-only git with `input` on its standard input. */
+/** Runs git with `input` on its standard input, never through a shell. */
 const gitWithInput = (cwd: string, args: readonly string[], input: string, env: NodeJS.ProcessEnv): Promise<string> =>
   new Promise((resolve, reject) => {
     const child = execFile('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, ...args], { timeout: 60_000, maxBuffer: 16 * 1024 * 1024, env }, (error, stdout) =>
@@ -251,6 +248,10 @@ export const commitCardWork = async (cwd: string, before: readonly string[], mes
   const identity = await identityOf(top)
   if (!identity) {
     return { refused: 'Refused: this checkout has no git author (user.name and user.email), so nothing was committed. Set one, then call commit_work again.' }
+  }
+  const version = (await git(top, ['--version']).catch(() => '')).match(/^git version (\d+)\.(\d+)/)
+  if (!version || Number(version[1]) < 2 || (Number(version[1]) === 2 && Number(version[2]) < 32)) {
+    return { refused: 'Refused: committing a card requires Git 2.32 or newer for co-author trailers, so nothing was committed.' }
   }
   const scratch = await mkdtemp(join(tmpdir(), 'harnessdesk-commit-'))
   try {

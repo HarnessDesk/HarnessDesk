@@ -79,6 +79,41 @@ test('commit_work commits only what changed since the claim, and leaves what was
 
 const coauthor = 'Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>'
 
+test('Git parses exactly one desk trailer for every accepted message shape', async (t) => {
+  for (const newline of ['\n', '\r\n']) {
+    for (const comment of ['#', ';']) {
+      const scissors = `${comment} ------------------------ >8 ------------------------`
+      for (const [shape, lines] of [
+        ['plain', ['Write the notes', '', 'Body']],
+        ['existing trailer', ['Write the notes', '', coauthor]],
+        ['body credit', ['Write the notes', '', coauthor, '', 'The explanation continues.']],
+        ['divider', ['Write the notes', '', 'Body', '---', 'Details']],
+        ['scissors', ['Write the notes', '', 'Body', scissors, 'Details']],
+        ['scissors before divider', ['Write the notes', '', 'Body', scissors, '---', 'Details']],
+        ['scissors before quoted credit', ['Write the notes', '', 'Body', scissors, coauthor, 'Details']],
+      ] as const) {
+        await t.test(`${shape}, ${JSON.stringify(newline)}, ${comment}`, async (t) => {
+          const root = await repo(t)
+          await git(root, 'config', 'core.commentChar', comment)
+          const before = await snapshot(root)
+          await writeFile(join(root, 'notes.md'), 'x\n')
+          const done = await commitCardWork(root, before, lines.join(newline))
+          assert.ok('commit' in done, JSON.stringify(done))
+          assert.equal(await parsedTrailers(root), `${coauthor}\n`)
+          assert.equal((await git(root, 'log', '-1', '--format=%an <%ae>%n%cn <%ce>')).trim(),
+            'Jane Doe <dev@example.com>\nJane Doe <dev@example.com>')
+          const stored = await git(root, 'log', '-1', '--format=%B')
+          if (shape.startsWith('scissors')) {
+            // Git recognizes the scissors cutoff with LF; CRLF is body text.
+            if (newline === '\n') assert.ok(stored.indexOf(coauthor) < stored.indexOf(scissors), 'credit precedes the cutoff')
+            assert.ok(stored.includes(lines.slice(3).join(newline)), 'the ignored suffix is preserved')
+          }
+        })
+      }
+    }
+  }
+})
+
 test('commit_work adds exactly one co-author trailer after a blank line', async (t) => {
   for (const ending of ['', '\n', '\n\n', '\r\n']) {
     const root = await repo(t)
@@ -89,7 +124,8 @@ test('commit_work adds exactly one co-author trailer after a blank line', async 
     assert.ok('commit' in done, JSON.stringify(done))
     const stored = await git(root, 'log', '-1', '--format=%B')
     assert.ok(stored.startsWith(message), 'the supplied message is preserved')
-    assert.match(stored, /\r?\n\r?\nCo-authored-by: HarnessDesk Agent <agent@harnessdesk\.app>\n\n$/)
+    assert.equal(stored,
+      `${message}${ending === '' ? '\n\n' : ending === '\n\n' ? '' : '\n'}${coauthor}\n\n${ending === '\n\n' ? '\n' : ''}`)
     assert.equal(stored.split(coauthor).length - 1, 1)
     assert.equal((await git(root, 'log', '-1', '--format=%an <%ae>%n%cn <%ce>')).trim(),
       'Jane Doe <dev@example.com>\nJane Doe <dev@example.com>')
@@ -98,7 +134,7 @@ test('commit_work adds exactly one co-author trailer after a blank line', async 
   }
 })
 
-test('commit_work preserves a message that already carries the exact co-author trailer', async (t) => {
+test('commit_work keeps existing co-author credit once using Git’s trailer formatting', async (t) => {
   for (const newline of ['\n', '\r\n']) {
     for (const ending of ['', newline, `${newline}${newline}`]) {
       const root = await repo(t)
@@ -108,7 +144,7 @@ test('commit_work preserves a message that already carries the exact co-author t
       const done = await commitCardWork(root, before, message)
       assert.ok('commit' in done, JSON.stringify(done))
       const stored = await git(root, 'log', '-1', '--format=%B')
-      assert.equal(stored, `${message}\n`)
+      assert.equal(stored, `Write the notes${newline}${newline}${coauthor}\n\n${newline === '\n' && ending === '\n\n' ? '\n' : ''}`)
       assert.equal(stored.split(coauthor).length - 1, 1)
       assert.equal((await git(root, 'log', '-1', '--format=%(trailers:key=Co-authored-by,valueonly)')).trim(),
         'HarnessDesk Agent <agent@harnessdesk.app>', 'git recognizes the existing trailer')
@@ -169,7 +205,7 @@ test('commit_work inserts parsed credit before Git’s message divider, preservi
       const done = await commitCardWork(root, before, body + suffix)
       assert.ok('commit' in done, JSON.stringify(done))
       assert.equal(await parsedTrailers(root), `${coauthor}\n`, 'git recognizes exactly one co-author trailer before the divider')
-      assert.equal(await git(root, 'log', '-1', '--format=%B'), `${body}\n${coauthor}\n\n${suffix}\n`,
+      assert.equal(await git(root, 'log', '-1', '--format=%B'), `${body}\n${coauthor}\n${suffix}\n\n`,
         'all supplied text stays in order around the inserted trailer')
     }
   }
@@ -188,7 +224,7 @@ test('only existing parsed credit before Git’s message divider suppresses attr
       assert.ok('commit' in done, JSON.stringify(done))
       assert.equal(await parsedTrailers(root), `${coauthor}\n`, 'credit in the ignored suffix does not count as attribution')
       assert.equal(await git(root, 'log', '-1', '--format=%B'),
-        creditedBefore ? `${message}\n` : `${body}${coauthor}\n\n${suffix}\n`)
+        `${body}${coauthor}\n${newline === '\n' ? '\n' : ''}${suffix}\n`)
     }
   }
 })
@@ -214,7 +250,7 @@ test('commit_work handles a message divider at the start or without a final newl
     const done = await commitCardWork(root, before, `${body}---`)
     assert.ok('commit' in done, JSON.stringify(done))
     assert.equal(await parsedTrailers(root), `${coauthor}\n`)
-    assert.equal(await git(root, 'log', '-1', '--format=%B'), `${body}${body ? '\n' : '\n\n'}${coauthor}\n\n---\n`)
+    assert.equal(await git(root, 'log', '-1', '--format=%B'), `${body}\n${coauthor}\n---\n\n`)
   }
 })
 
@@ -310,6 +346,49 @@ test('a poisoned repository configuration runs nothing during commit_work', asyn
   const done = await commitCardWork(root, before, 'Write the notes')
   assert.ok('commit' in done, JSON.stringify(done))
   assert.equal(await said(), '', 'no hook, filesystem monitor, filter or signing program ran')
+})
+
+test('repository trailer configuration cannot run commands or change the desk credit', async (t) => {
+  const root = await repo(t)
+  const marker = join(root, '..', 'trailer-ran')
+  const command = await marking(join(root, '..', 'trailer-command'), marker, 'trailer')
+  await git(root, 'config', 'trailer.co-authored-by.command', command)
+  await git(root, 'config', 'trailer.other.cmd', command)
+  await git(root, 'config', 'trailer.co-authored-by.key', 'Wrong-credit: ')
+  await git(root, 'config', 'trailer.ifExists', 'add')
+  await git(root, 'config', 'trailer.ifMissing', 'doNothing')
+  await git(root, 'config', 'trailer.separators', '=')
+  const before = await snapshot(root)
+  await writeFile(join(root, 'notes.md'), 'x\n')
+  const done = await commitCardWork(root, before, 'Write the notes')
+  assert.ok('commit' in done, JSON.stringify(done))
+  assert.equal(await exists(marker), false, 'no configured trailer command ran')
+  assert.equal(await git(root, 'log', '-1', '--format=%B'), `Write the notes\n\n${coauthor}\n\n`)
+  // Parse using the canonical separator, independently of the poisoned config.
+  await git(root, 'config', '--unset', 'trailer.separators')
+  await git(root, 'config', '--unset', 'trailer.co-authored-by.key')
+  assert.equal(await parsedTrailers(root), `${coauthor}\n`)
+})
+
+test('Git older than 2.32 is refused before staging rather than placing credit by hand', async (t) => {
+  const root = await repo(t)
+  const before = await snapshot(root)
+  const head = await git(root, 'rev-parse', 'HEAD')
+  await writeFile(join(root, 'notes.md'), 'x\n')
+  const bin = join(root, '..', 'bin')
+  await mkdir(bin)
+  const realGit = (await run('which', ['git'])).stdout.trim()
+  const wrapper = join(bin, 'git')
+  await writeFile(wrapper, `#!/bin/sh\nfor arg do\n  if [ "$arg" = --version ]; then\n    echo 'git version 2.31.1'\n    exit 0\n  fi\ndone\nexec '${realGit}' "$@"\n`)
+  await chmod(wrapper, 0o755)
+  const savedPath = process.env.PATH
+  process.env.PATH = `${bin}:${savedPath}`
+  t.after(() => { process.env.PATH = savedPath })
+  assert.deepEqual(await commitCardWork(root, before, 'Write the notes'), {
+    refused: 'Refused: committing a card requires Git 2.32 or newer for co-author trailers, so nothing was committed.',
+  })
+  assert.equal(await git(root, 'rev-parse', 'HEAD'), head)
+  assert.equal(await git(root, 'diff', '--cached', '--name-only'), '', 'the refusal happens before staging')
 })
 
 /*
