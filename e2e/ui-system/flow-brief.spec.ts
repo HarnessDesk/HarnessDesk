@@ -102,6 +102,21 @@ test('the catalogue mounts the real Brief in every file and text state', async (
   expect(await brief.evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true)
   await page.getByRole('button', { name: 'refused', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('64 KiB')
-  await page.getByRole('button', { name: 'pending', exact: true }).click()
+  // Hold the real file input's read until the reading-state assertion is done.
+  await page.evaluate(() => {
+    const file = new File(['A brief'], 'brief.txt', { type: 'text/plain' })
+    Object.defineProperty(file, 'text', { value: () => new Promise<string>(resolve => {
+      window.addEventListener('finish-brief-read', () => resolve('A brief'), { once: true })
+    }) })
+    const files = new DataTransfer()
+    files.items.add(file)
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')!
+    input.files = files.files
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
   await expect(page.getByRole('button', { name: 'Reading…', exact: true })).toBeDisabled()
+  await page.evaluate(() => window.dispatchEvent(new Event('finish-brief-read')))
+  await expect(brief).toHaveValue('A brief')
+  await expect(page.getByRole('button', { name: 'Attach a file…', exact: true })).toBeEnabled()
+  await expect(page.getByRole('alert')).toHaveCount(0)
 })
