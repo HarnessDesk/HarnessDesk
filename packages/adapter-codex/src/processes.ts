@@ -42,6 +42,9 @@ const DRAIN_SLOTS = 8
  *
  * The request's response is deferred until the process exits, so the RPC is
  * sent with no timeout and its settlement is the exit signal.
+ * Startup is acknowledged by an empty stdin write: the server serializes
+ * requests for this process id and answers the write only once the child
+ * can handle controls. No bytes are sent and stdin stays open.
  */
 export class CodexProcesses implements RuntimeProcesses {
   readonly #running = new Map<string, CodexProcess>()
@@ -84,20 +87,24 @@ export class CodexProcesses implements RuntimeProcesses {
       { timeoutMs: 0 },
     )
     process.watch(exit)
-    // A spawn that fails outright — bad cwd, refused command — rejects the
-    // deferred response immediately; surface that as a spawn error rather
-    // than a process that exited before it started.
-    const started = await Promise.race([
-      exit.then(() => 'exited' as const, (error: unknown) => ({ error })),
-      new Promise<'running'>((resolve) => setTimeout(() => resolve('running'), 150)),
-    ])
-    if (typeof started === 'object') {
+    const ready = this.server.request(
+      'command/exec/write',
+      { processId, deltaBase64: '' },
+      { timeoutMs: 0 },
+    ).catch(() => exit)
+    // A command can finish before the write reaches it. If the check finds
+    // no child, await the exec response: it distinguishes a normal fast
+    // exit from a startup refusal and carries the original error. Neither
+    // elapsed time nor output establishes startup.
+    try {
+      await Promise.race([exit, ready])
+    } catch (error) {
       // A rejected response has already run `watch`'s handler, which retired
       // this into the drain window; nothing will ever be sent to a process
       // that never started, so drop it from both maps rather than let it
       // hold a slot.
       this.#forget(processId)
-      throw started.error instanceof Error ? started.error : new Error(String(started.error))
+      throw error instanceof Error ? error : new Error(String(error))
     }
     return process
   }
@@ -147,9 +154,9 @@ class CodexProcess implements RuntimeProcess {
   readonly #outputListeners = new Set<(stream: 'stdout' | 'stderr', data: Uint8Array) => void>()
   readonly #exitListeners = new Set<(exitCode: number) => void>()
   /**
-   * Output that arrived before anyone listened. `spawn` deliberately holds
-   * its caller for up to 150ms to distinguish a refusal from a process, and
-   * a fast command says everything it will ever say inside that window —
+   * Output that arrived before anyone listened. `spawn` holds its caller
+   * until startup is acknowledged or the command exits, and a fast command
+   * can say everything it will ever say before that —
    * without this buffer, `echo` exits 0 with its words dropped on the floor.
    * Flushed to the first listener, in order, even after exit.
    */

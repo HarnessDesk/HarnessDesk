@@ -126,6 +126,16 @@ conversation are hosted by any ready runtime with sandboxed process support
 (`runtime.processes` in `adapter-codex`), or refused in the requested agent's
 name when none is available.
 
+Sandboxed process startup waits for an acknowledgement, rather than a grace
+timer. The adapter follows `command/exec` with one `command/exec/write` carrying
+an empty `deltaBase64`; the server serializes these requests by process id and
+acknowledges the write only when the child handles controls. It sends no stdin
+bytes and leaves stdin open. The deferred exec response still owns exit: if
+the child finishes before the write can be acknowledged, that response decides
+between a normal exit and a rejected spawn, preserving a delayed refusal's
+original error. This uses the control behavior present in the supported
+[0.145.0 server](https://github.com/openai/codex/blob/rust-v0.145.0/codex-rs/app-server/src/command_exec.rs).
+
 ## The host
 
 ### Insight reads
