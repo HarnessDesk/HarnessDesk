@@ -1982,6 +1982,11 @@ export class AcpRuntime implements AgentRuntime {
     return (loaded as AcpSession).snapshot()
   }
 
+  /** Release only this handle; the agent owns the stored conversation. */
+  releaseSession(session: AgentSession): void {
+    if (this.#sessions.get(session.id) === session) this.#sessions.delete(session.id)
+  }
+
   /**
    * Never reached: `capabilities.archiveHistory` is false, so the host keeps
    * the mark rather than asking. Left as a guard, not as a feature.
@@ -3802,7 +3807,8 @@ class AcpSession implements AgentSession {
   }
 
   async close(): Promise<void> {
-    // ACP has no explicit close; dropping our handle is the whole gesture.
+    // ACP has no explicit close. Forget the handle, never the agent's history.
+    this.#host.releaseSession(this)
   }
 
   // ------------------------------------------------------------------ internal

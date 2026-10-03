@@ -178,6 +178,16 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   desk's own lane record, is the confinement, and the browser profile is found
   by it — so a runtime that cannot take the variables is still seated in its
   lane, and its standing order tells it the values to pass explicitly.
+  A settled Run keeps its Seats open for follow-ups. A Seat that held work
+  releases its live session after all its cards are done and it has no turn,
+  approval, queued message or running task for `SEAT_REST_MS` (ten minutes;
+  `HostOptions.seatRestMs` overrides it). Release follows `session/close`:
+  `live` becomes null and `detached` stays false. Only a runtime reporting
+  `capabilities.resume` and implementing `stopForIdle` participates (currently
+  the ACP adapter); the existing idle reaper can then stop its process once
+  nothing else uses it. Other runtimes retain their live sessions. Opening
+  or addressing the conversation resumes its own history; wrap, release and
+  deletion still own closing the durable Seat record.
 - **Reviewed receipts** — wrapping snapshots cards, Seats, answers, evidence,
   revisions, lanes and citations before committing an immutable receipt. A
   small operation journal makes restart recovery idempotent; wrapped and

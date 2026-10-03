@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -64,4 +64,41 @@ test('an idle stop reaps the bridge and serves cached models, account, and histo
   await runtime.start()
   assert.equal(runtime.health().state, 'ready')
   assert.notEqual(Number(runtime.info.version), pid)
+})
+
+test('releasing a conversation allows idle stop and resumes the same agent history', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'hd-acp-release-'))
+  const store = join(directory, 'sessions.json')
+  const runtime = new AcpRuntime({
+    id: 'release-fake', name: 'Release Fake', command: process.execPath,
+    args: [FAKE], env: { FAKE_ACP_STORE: store },
+  })
+  t.after(async () => {
+    await runtime.dispose()
+    await rm(directory, { recursive: true, force: true })
+  })
+  await runtime.start()
+  const session = await runtime.createSession({ cwd: directory })
+  const completed = new Promise<void>((resolve) => {
+    const off = runtime.subscribe((event) => {
+      if (event.type === 'turn/completed' && event.sessionId === session.id) { off(); resolve() }
+    })
+  })
+  await session.send([{ type: 'text', text: 'Remember the review context.' }])
+  await completed
+  const history = await readFile(store, 'utf8')
+  assert.equal(await runtime.stopForIdle(), false, 'a live handle still holds the process')
+  await session.close()
+  assert.equal(await readFile(store, 'utf8'), history, 'release leaves the agent store untouched')
+  assert.equal(await runtime.stopForIdle(), true, 'close removes the adapter handle')
+  await runtime.start()
+  const resumed = await runtime.resumeSession(session.id)
+  assert.equal(resumed.id, session.id)
+  const transcript = await runtime.readSession(session.id)
+  assert.ok(transcript.turns.some((turn) => turn.items.some((item) =>
+    item.type === 'userMessage' && item.content.some((part) => part.type === 'text' && part.text.includes('review context')))))
+  await session.close()
+  assert.equal(await runtime.stopForIdle(), false, 'a stale close must not drop the new handle')
+  await resumed.close()
+  assert.equal(await runtime.stopForIdle(), true)
 })
