@@ -167,6 +167,8 @@ export interface FlowStartRequest {
   readonly sentence: string
   readonly source: string
   readonly sourcePath: string | null
+  readonly attended?: boolean
+  readonly overrides?: Readonly<Record<string, readonly FlowSeat[]>>
   readonly compiled: CompiledFlow
   readonly vars?: Readonly<Record<string, string>>
   readonly continues?: string | null
@@ -259,7 +261,7 @@ export interface FlowExecutionPort {
    */
   canReadProvider?(runtime: string): boolean
   /** GoalPlane.seat: resolves the Agent, opens and records the Seat, hands over its brief, claims `card`. */
-  openSeat(input: GoalSeatRequest & { readonly base?: string; readonly reading?: true }): Promise<SeatRecord>
+  openSeat(input: GoalSeatRequest & { readonly base?: string; readonly reading?: true; readonly unattended?: true }): Promise<SeatRecord>
   release(goal: string, seat: string): Promise<void>
   canDispatch(goal: string): { ok: true } | { ok: false; reason: string }
   /** `at`, host-only: the commit every Seat of the new Goal works at, each in a checkout of its own cut from it. */
@@ -462,6 +464,8 @@ export const projectExecution = (run: StoredFlowExecution): FlowExecution => ({
   version: 2,
   id: run.id,
   goal: run.goal,
+  attended: run.attended ?? (run.intake === undefined),
+  ...(run.overrides ? { overrides: run.overrides } : {}),
   document: run.document,
   startedAt: run.startedAt,
   ...(run.revision !== undefined ? { revision: run.revision } : {}),
@@ -1469,13 +1473,12 @@ export class FlowExecutions {
   }
 
   /**
-   * Whether a conversation is a Seat of a running run a trigger started:
+   * Whether a conversation is a Seat of an unattended running run:
    * nobody is here for its questions, so they wait only as long as this
-   * machine says. A run a person started is theirs, and its Seat's question
-   * waits for their answer.
+   * machine says. An attended run's Seat waits for the person's answer.
    */
   unattended(runtime: string, sessionId: string): boolean {
-    return [...this.#runs.values()].some((run) => run.state === 'running' && run.intake !== undefined && run.operations.some((one) => {
+    return [...this.#runs.values()].some((run) => run.state === 'running' && (run.attended === false || run.intake !== undefined) && run.operations.some((one) => {
       if (one.kind !== 'seat' || !one.seat) return false
       const record = this.#port.seatOf(one.seat)
       return record !== null && record.closed === null && record.session.runtime === runtime && record.session.sessionId === sessionId
@@ -2546,7 +2549,8 @@ export class FlowExecutions {
       vars, startedAt: at, updatedAt: at, authorization: request.authorization, operationTimes: {},
       revision: flowRevision(request.compiled.document), continues: request.continues ?? null,
       brief: policy.inputs.some((input) => input.id === 'brief') ? vars['brief']! : null,
-      endedAt: null, end: null,
+      endedAt: null, end: null, attended: request.attended !== false,
+      ...(request.overrides && Object.keys(request.overrides).length ? { overrides: structuredClone(request.overrides) } : {}),
       // Written before the first dispatch, and frozen for the life of the run.
       findings: startingFindings(policy),
       // Frozen with it: every Seat this run ever opens holds its ceiling, later and recovered rounds too.
@@ -2681,7 +2685,7 @@ export class FlowExecutions {
       for (const input of policy.inputs) vars[input.id] = input.default ?? ''
       const at = this.#now()
       let run: StoredFlowExecution = {
-        version: 2, id: request.id, goal: request.goal, document: compiled.document,
+        version: 2, id: request.id, goal: request.goal, document: compiled.document, attended: false,
         state: reason ? 'stopped' : 'running', rounds: [], operations: [], legacyRun: null, reason,
         compiled, source: closure.source, sourcePath: null, vars, startedAt: at, updatedAt: at,
         revision: flowRevision(compiled.document), continues: null,
@@ -3245,6 +3249,7 @@ export class FlowExecutions {
           ...(base !== null ? { base, ...(!isolate && binding.grant === 'read' ? { reading: true as const } : {}) } : {}),
           // The run's own frozen policy, read from its record every time — never the request that started it.
           ...(run.requireHeld === true ? { requireHeld: true as const } : {}),
+          ...(run.attended === false ? { unattended: true as const } : {}),
         })
       } catch (error) {
         // The opening failed and said so: nothing is left open for this slot.

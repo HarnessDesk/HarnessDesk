@@ -848,12 +848,12 @@ export class GoalPlane {
    * (#1053). A base always isolates: the project's own checkout is never
    * moved to it.
    */
-  seat(input: GoalSeatRequest & { readonly base?: string; readonly reading?: true }): Promise<SeatRecord> {
+  seat(input: GoalSeatRequest & { readonly base?: string; readonly reading?: true; readonly unattended?: true }): Promise<SeatRecord> {
     return this.serial.run(async () => {
       this.#dispatch(input.goal)
       const goal = this.store.read(input.goal).goal
-      // Unattended from the Goal's own origin; held-only from the run that asked, which read it from its own stored policy.
-      const policy = { unattended: goal.origin.kind === 'trigger', ...(input.requireHeld === true ? { requireHeld: true as const } : {}) }
+      // These host-only choices come from the trigger origin or the run’s frozen policy; wire seating cannot supply them.
+      const policy = { unattended: goal.origin.kind === 'trigger' || input.unattended === true, ...(input.requireHeld === true ? { requireHeld: true as const } : {}) }
       // A Goal pinned to a commit seats nobody in the project's own checkout: each Seat gets its own, cut from that commit.
       const isolate = input.base !== undefined || goal.at !== undefined || (input.isolate ?? goal.checkout === 'isolated')
       const record = await this.#withLane(goal, isolate, (where) => this.port.seatAgent(input, where, policy), {
@@ -1123,6 +1123,7 @@ export class GoalPlane {
       citations: [...document.citations].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
       gaps: [...new Set(gaps)].sort(),
       revisions,
+      ...(this.port.executions ? { runs: this.port.executions(id).map(run => ({ run: run.id, attended: run.attended ?? !run.intake, ...(run.overrides ? { overrides: run.overrides } : {}) })) } : {}),
       ...(findings ? { findings: findings.receipt } : {}),
       ...(findings?.publication && findings.publication.length > 0 ? { publication: [...findings.publication].sort() } : {}),
       ...(intake ? { intake } : {}),

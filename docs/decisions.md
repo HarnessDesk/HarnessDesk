@@ -31,7 +31,7 @@ in the foundation.
 
 ## An outside client uses its own door and an explicit surface
 
-The command line and outside tooling read a desk through a local unix socket.
+The command line and outside tooling read a desk and start Flows through a local unix socket.
 The socket's file permissions are the credential: its directory is owned by
 the user with mode `0700`, and the socket and discovery pointer have mode
 `0600`. The pointer describes the desk; it carries no token. Windows does not
@@ -43,12 +43,21 @@ rename. A failed startup closes and awaits the listener and its connected
 clients before returning.
 
 The door speaks the host's wire, but answers only the entries in
-`CLIENT_METHODS`, each naming its tier: `read`, `run` or `answer`. Only `read`
-is granted so far. A connection says hello before reading or subscribing;
+`CLIENT_METHODS`, each naming its tier: `read`, `run` or `answer`. `read` and
+`run` are granted by default; `answer` remains ungranted. A connection says hello before calling or subscribing;
 the door checks the surface and granted tier before validating the method's
 params. The command line lists desks, status, Teams and runs, and watches
-their changes. Starting or stopping work, answering cards and tool approvals,
-and changing settings are outside this read-only surface.
+their changes. Catalogue/source/preview calls use `read`; opening a project
+and starting a Flow use `run`. Stopping work, answering cards and tool approvals,
+and changing settings remain outside the client surface.
+
+A start redeems a single-use preview token that freezes source, inputs,
+seat overrides and attendance. Those choices survive in the execution and
+receipt; they do not rewrite the Flow's file. An unattended start reuses the
+trigger's ceiling policy, question deadline and late-answer path. Socket
+ownership authorizes the local user's processes; tiers restrict verbs.
+The Node client's Seat environment markers guard against accidental spending,
+but removable markers are not authentication.
 
 A subscription selects topics and an optional Team, run or project scope.
 The door sends that selection's current baseline followed by its changes;
@@ -178,8 +187,8 @@ configuration names switched off by name, with `GIT_CONFIG_NOSYSTEM=1` and
 `GIT_CONFIG_GLOBAL=/dev/null`, and with none of the host's own `GIT_*`
 variables. The agent supplies no flag, no `-c` and no path: the paths are
 the ones git's own status names, passed as literal pathspecs through a file,
-and the message is written to a file and stored verbatim, at most 8000
-characters. Work a filter would touch — an LFS-tracked file, say — is refused
+and the supplied message is written to a file and preserved, at most 8000
+characters before the desk's attribution is added. Work a filter would touch — an LFS-tracked file, say — is refused
 in one sentence and nothing is committed, because with every filter off it
 would go into history raw. A submodule is never looked into: it is its own
 repository. And the tool refuses while another open card whose Seat may
@@ -203,6 +212,19 @@ configuration — and handed to the commit as `GIT_AUTHOR_*` and
 `GIT_COMMITTER_*`, because the commit itself runs with global configuration
 off. A checkout with no configured identity is refused in one sentence; the
 desk never makes one up.
+
+The person owns both the author and committer identity. Only `commit_work`
+adds `Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>` through
+Git's `interpret-trailers --if-exists=addIfDifferent`, which owns placement,
+trailer formatting and deduplication. A quoted line in the body or after
+Git's divider or scissors cutoff does not count. Trailer processing reads
+no repository configuration except the comment prefix: `trailer.*` settings
+can run commands, so the parser runs with `--git-dir=/dev/null` and system
+and global configuration off. Git 2.32 or newer is required; an older or
+unrecognized version is refused before staging. The text lives in one constant
+in `card-commit.ts`; a Seat never has to type it, and a person's hand commit
+is untouched. Settings for the trailer's wording are left for a later decision.
+(#1277)
 
 Rule: an agent's sandbox is never widened to a git directory; a commit it
 needs is the host's, run hardened.

@@ -46,8 +46,8 @@ Twenty packages make up the repository:
 | --- | --- | --- |
 | `packages/protocol` | Domain vocabulary, wire methods, validators | Zero dependencies |
 | `packages/desktop` | Electron shell, Keychain broker, packaging | `server`, `claude-acp`, `cursor-acp` |
-| `packages/client` | Transport-independent read client; Node discovery in its `node` entry | `protocol`, and `ws`/Node in the Node entry |
-| `packages/cli` | Read-only command line over the client library | `client`, `protocol` |
+| `packages/client` | Transport-independent client calls and events; local I/O in its `node` entry | `protocol`, and `ws`/Node in the Node entry |
+| `packages/cli` | Command line reads and Flow starts over the client library | `client`, `protocol` |
 | `packages/ui` | Renderer: Zustand store, slot layout, panels | `protocol` (browser context only, no `node:*`) |
 | `packages/server` | Host process: sessions, git, approvals, wire | `protocol`, adapters, `cordis-host`, `plugins`, `extension-host`, `agent-inventory`, `responses-gateway`, `mcp-tools` |
 | `packages/adapter-codex` | Native Codex adapter for `codex app-server` | `protocol`, `codex` |
@@ -288,8 +288,12 @@ every inbound frame before the host sees it, and one module under
 second listener, a local unix socket in a user-owned `0700` directory with a
 `0600` socket and discovery pointer. It answers only `CLIENT_METHODS`,
 checks each method's tier before its params, and sends only subscribed topics
-in scope after hello. Only `read` is granted so far; the window's token-gated
-door keeps its existing contract. Client calls share the audit file, while
+in scope after hello. `read` and `run` are granted by default; `answer`
+remains ungranted. Catalogue/source/preview calls are reads; opening a project
+and starting a Flow require `run`. A start redeems a single-use preview token
+bound to source, inputs, seat overrides and attendance. Unattended starts use
+the trigger's ceiling, question-deadline and late-answer path. The window's
+token-gated door keeps its existing contract. Client calls share the audit file, while
 the window's audit query continues to return session entries only.
 The host derives each Seat's `seat/activity` once for every client, using
 the shared activity and tool-name vocabulary in `packages/protocol`.

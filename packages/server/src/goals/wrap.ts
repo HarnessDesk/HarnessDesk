@@ -35,6 +35,8 @@ export interface WrapInput {
    * them as gaps only when the person says so (`WrapChoices.publicationGaps`).
    */
   publication?: readonly string[]
+  /** Each run's frozen attendance and seat overrides. */
+  runs?: GoalReceipt['runs']
   /** This Goal's trigger-origin projection, read through Intake just before freezing. Absent: not a trigger Goal. */
   intake?: GoalReceipt['intake']
 }
@@ -96,6 +98,7 @@ export function previewWrap(input: WrapInput, choices: WrapChoices): WrapPreview
       revisions: input.revisions,
       gaps: input.gaps,
       ...(input.findings ? { findings: input.findings } : {}),
+      ...(input.runs ? { runs: input.runs } : {}),
       ...(input.intake ? { intake: input.intake } : {}),
     }),
   }

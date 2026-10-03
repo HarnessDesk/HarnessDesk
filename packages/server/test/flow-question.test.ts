@@ -559,3 +559,34 @@ test('the question answered in its own turn after all puts the run it stopped ba
   assert.equal(run!.state, 'running')
   assert.equal(run!.reason, null)
 })
+
+test('a manually started unattended run times out its question and delivers a late answer through the trigger path', E2E, async t => {
+  const timers = manualTimers()
+  const d = await desk(t, undefined, { questionTimers: timers })
+  const { HoldFake } = await import('./fixtures/hold-runtime.js')
+  const holding = new HoldFake('held')
+  d.host.register(holding)
+  await holding.start()
+  const seats = { fixer: [{ runtime: 'held' }] }
+  const preview = await d.host.call('flow/preview', { root: d.root, source: FLOW, vars: TASK, seats, attended: false })
+  assert.ok(preview.token, JSON.stringify(preview.problems))
+  const run = await d.host.call('flow/start-goal', { root: d.root, source: FLOW, vars: TASK, seats, attended: false, token: preview.token!, sentence: 'Unattended proof' })
+  d.runs.push(run.id)
+  const [card] = await claimed(d, run.goal, 'fixer', 1)
+  assert.equal(card!.claim!.runtime, 'held', 'the override seats the card')
+  const runtime = holding
+  const session = runtime.sessions.get(card!.claim!.sessionId)!
+  const sent: string[] = []
+  runtime.onSend = (_session, text) => { sent.push(text) }
+  void session.askQuestion('qu-manual' as never, 'Which base branch?', OPTIONS)
+  await whenChanged(d, () => d.host.registry.hasApproval(runtime.info.id, session.id, 'qu-manual' as never) ? true : null, 'the unattended question')
+  assert.equal(timers.live.size, 1, 'the same deadline as a trigger is installed')
+  assert.equal([...timers.live.values()][0]!.ms, 5 * 60_000)
+  timers.fireAll()
+  await whenChanged(d, () => d.host.flowsPlane.executionOf(run.id)?.state === 'stalled' && !session.busy ? true : null, 'the unattended run stopped and interrupted its turn')
+  assert.match(d.host.flowsPlane.executionOf(run.id)!.reason!, /asked a question nobody can answer/)
+  await d.host.call('approval/respond', { runtime: runtime.info.id, sessionId: session.id, approvalId: 'qu-manual' as never, decision: ANSWER })
+  assert.equal(d.host.flowsPlane.executionOf(run.id)!.state, 'running')
+  assert.equal(d.host.registry.hasApproval(runtime.info.id, session.id, 'qu-manual' as never), false)
+  assert.ok(sent.some(text => text.includes('main')), 'a fresh turn carries the late answer')
+})

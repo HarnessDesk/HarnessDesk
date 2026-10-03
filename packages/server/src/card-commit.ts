@@ -26,8 +26,9 @@ import { HARDENED_GIT_CONFIG } from './git-hardening.js'
  * elsewhere: the commit names its paths (`git commit <paths>`, which commits
  * only those). Paths come from git's own status, never from the agent, and
  * reach git as literal pathspecs through a file, so none can carry magic or
- * reach outside the checkout. The message is the agent's text, stored
- * verbatim from a file — never a command-line argument, never a shell.
+ * reach outside the checkout. The message preserves the agent's text and
+ * adds the desk's co-author trailer once, stored from a file — never a
+ * command-line argument, never a shell.
  *
  * The author is the checkout's configured identity as git itself resolves it
  * (`user.name`, `user.email`), passed in explicitly because the commit runs
@@ -39,6 +40,24 @@ const run = promisify(execFile)
 
 /** The longest message `commit_work` takes. */
 export const COMMIT_MESSAGE_LIMIT = 8_000
+
+/** The desk's attribution; the checkout's configured identity owns the commit. */
+const COAUTHOR_TRAILER = 'Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>'
+
+const attributedMessage = async (cwd: string, message: string): Promise<string> => {
+  const comments: string[] = []
+  for (const key of ['core.commentChar', 'core.commentString']) {
+    const value = await git(cwd, ['config', '--get', key]).catch(() => '')
+    if (value) comments.push('-c', `${key}=${value.replace(/\n$/, '')}`)
+  }
+  // Git owns placement and deduplication. Do not read repository trailer.*
+  // configuration: it can run shell commands. Only the comment prefix is
+  // carried across, so Git recognizes this checkout's scissors cutoff.
+  return gitWithInput(cwd, [
+    '--git-dir=/dev/null', ...comments, 'interpret-trailers',
+    '--where=end', '--if-exists=addIfDifferent', '--if-missing=add', '--trailer', COAUTHOR_TRAILER,
+  ], message, isolatedEnv())
+}
 
 export type CardCommit =
   | { readonly commit: string; readonly paths: readonly string[] }
@@ -123,7 +142,7 @@ const identityOf = async (cwd: string): Promise<{ readonly name: string; readonl
   return name && email ? { name, email } : null
 }
 
-/** Runs a read-only git with `input` on its standard input. */
+/** Runs git with `input` on its standard input, never through a shell. */
 const gitWithInput = (cwd: string, args: readonly string[], input: string, env: NodeJS.ProcessEnv): Promise<string> =>
   new Promise((resolve, reject) => {
     const child = execFile('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, ...args], { timeout: 60_000, maxBuffer: 16 * 1024 * 1024, env }, (error, stdout) =>
@@ -230,12 +249,16 @@ export const commitCardWork = async (cwd: string, before: readonly string[], mes
   if (!identity) {
     return { refused: 'Refused: this checkout has no git author (user.name and user.email), so nothing was committed. Set one, then call commit_work again.' }
   }
+  const version = (await git(top, ['--version']).catch(() => '')).match(/^git version (\d+)\.(\d+)/)
+  if (!version || Number(version[1]) < 2 || (Number(version[1]) === 2 && Number(version[2]) < 32)) {
+    return { refused: 'Refused: committing a card requires Git 2.32 or newer for co-author trailers, so nothing was committed.' }
+  }
   const scratch = await mkdtemp(join(tmpdir(), 'harnessdesk-commit-'))
   try {
     const pathspecs = join(scratch, 'paths')
     const text = join(scratch, 'message')
     await writeFile(pathspecs, paths.join('\0') + '\0')
-    await writeFile(text, message)
+    await writeFile(text, await attributedMessage(top, message))
     const env = isolatedEnv({
       GIT_AUTHOR_NAME: identity.name,
       GIT_AUTHOR_EMAIL: identity.email,

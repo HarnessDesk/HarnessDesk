@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Read-only command line for a local HarnessDesk.",
+  "description": "Command line reads and Flow starts for a local HarnessDesk.",
   "bin": { "harnessdesk": "./dist/src/bin.js" },
   "dependencies": { "@harnessdesk/client": "workspace:*", "@harnessdesk/protocol": "workspace:*" },
   "devDependencies": { "@harnessdesk/server": "workspace:*", "ws": "^8.18.0", "@types/ws": "^8.5.13" },

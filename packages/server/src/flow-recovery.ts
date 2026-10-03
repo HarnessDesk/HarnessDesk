@@ -1,6 +1,6 @@
-import { isCeilingLevel, type FlowRun, type FlowSeatRecord, type Intent, type SeatRecord } from '@harnessdesk/protocol'
+import { isCeilingLevel, parseClientMessage, type AgentEntry, type FlowSeat, type FlowRun, type FlowSeatRecord, type Intent, type SeatRecord } from '@harnessdesk/protocol'
 
-import { parseFlowPolicy } from './flow-policy.js'
+import { compileFlowPolicy, overrideFlowSeats, parseFlowPolicy } from './flow-policy.js'
 import { flowRevision, sourceDigest, type StoredFlowExecution } from './flow-execution.js'
 import { findingJournalOf } from './findings/journal.js'
 import { publicationOf } from './findings/publication.js'
@@ -110,6 +110,11 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
     if (!object(answer) || !integer(answer['card']) || answer['card'] < 1 || !text(answer['seat']) || !answer['seat'] ||
       !text(answer['question']) || !text(answer['answer']) || !finite(answer['at']) ||
       typeof answer['canContinue'] !== 'boolean' || !(answer['refusal'] === null || text(answer['refusal']))) bad('has a kept answer it cannot describe')
+  }
+  if (raw['attended'] !== undefined && typeof raw['attended'] !== 'boolean') bad('has unreadable attendance')
+  if (raw['overrides'] !== undefined) {
+    if (!object(raw['overrides'])) bad('has unreadable seat overrides')
+    try { parseClientMessage({ id: 1, method: 'flow/preview', params: { root: '', source: '', seats: raw['overrides'] } }) } catch { bad('has unreadable seat overrides') }
   }
   if (!text(raw['source']) || !(raw['sourcePath'] === null || text(raw['sourcePath']))) bad('has no source')
   if (!object(raw['vars']) || !Object.values(raw['vars']).every(text)) bad('has unreadable inputs')
@@ -269,6 +274,17 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
   }
   const reparsed = parseFlowPolicy(raw['source'] as string)
   if (!reparsed.document || reparsed.document.format !== 'agents') bad('source is no longer an Agent flow')
+  {
+    // Older runs omit override metadata; their bindings must still agree
+    // with the file's seats. Missing metadata cannot conceal an override.
+    const overrides = (raw['overrides'] ?? {}) as Record<string, readonly FlowSeat[]>
+    const effective = overrideFlowSeats(reparsed.document!, overrides)
+    if (effective.problems.some(one => one.level === 'error')) bad('has invalid seat overrides')
+    const held = compiled as unknown as StoredFlowExecution['compiled']
+    const agents: AgentEntry[] = held.bindings.map(binding => ({ id: binding.agent.id, definition: binding.agent, digest: binding.digest, origin: binding.origin, path: '', problems: [], shadows: [] }))
+    const expected = compileFlowPolicy(reparsed.document!, agents, [], overrides)
+    if (JSON.stringify(expected.bindings) !== JSON.stringify(held.bindings)) bad('seat overrides do not match its frozen bindings')
+  }
   const requestedBase = reparsed.document!.format === 'agents' ? reparsed.document!.flow.base : undefined
   const pin = raw['base']
   const baseRoot = raw['baseRoot']

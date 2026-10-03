@@ -41,7 +41,7 @@ The same as PR 1 and PR 1b:
 - **Short socket directories:** use `/tmp/hd-door-*`. If this sandbox cannot bind a socket, commit, say so, and list those proofs separately.
 - **Rule 13:** identities in tests are `Jane Doe` and `dev@example.com`, with no home paths and no real accounts anywhere.
 - **Wording:** no weakness wording about any existing surface. No runtime name in UI text.
-- **Commits:** every commit message ends with `Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>`. One commit per task. Never merge.
+- **Commits:** on a board card, use `commit_work`; it adds the desk's co-author credit itself. One commit per task. Never merge.
 - **Branch:** work on `client-views`, from a fresh `origin/main`. Push it, then open the pull request with `pr_create`. If it refuses or reads the wrong checkout, say so in the hand-off and stop; whoever runs the Team opens it.
 
 **Two promises to the view plan's session**, which also edits this model (its PR 2 adds a `done` field to `SeatRow`):

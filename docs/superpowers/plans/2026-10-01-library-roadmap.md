@@ -65,8 +65,8 @@ written, with `writing-plans`, when the phase before it exits.
 For every task in a phase plan:
 1. **Writer:** `hd-subagent run --mode write --seat "codex=gpt-6-luna/high"`,
    with that task's text as the brief.
-2. **Claude:** runs the task's proofs outside the sandbox and commits with the
-   trailer `Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>`.
+2. **Claude:** runs the task's proofs outside the sandbox and commits through
+   `commit_work` on a board card; the tool adds the desk's co-author credit.
 3. **Reviewer:** `hd-subagent run --mode read --seat "codex=gpt-6-luna/xhigh"`,
    given the task, its diff and the spec. A finding goes back to the writer
    (`--continue`, with `--seat` repeated), and the fix is reviewed again.

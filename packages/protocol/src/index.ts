@@ -54,3 +54,5 @@ export {
   shellCommandOf as shellCommandLineOf, type ToolSentenceDetail,
 } from './tool-names.js'
 export * from './tool-activity.js'
+
+export { parseSeat, seatSpec } from './flow-seat.js'

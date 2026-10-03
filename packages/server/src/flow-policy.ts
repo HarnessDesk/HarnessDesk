@@ -547,9 +547,29 @@ const checkGuardProblems = (policy: FlowPolicy, projectCheckRuns: readonly strin
  * this flow leaves an evidence guard's `check:` value unexplained by its own
  * roles — absent here, an unexplained value is simply refused.
  */
-export const compileFlowPolicy = (document: FlowDocument, agents: readonly AgentEntry[], projectCheckRuns: readonly string[] = []): CompiledFlow => {
-  if (document.format === 'legacy') return { document, bindings: [], problems: [] }
+/** Overrides change compilation, never the file or its revision. Use the flow's seat grammar. */
+export const overrideFlowSeats = (document: FlowDocument, overrides: Readonly<Record<string, readonly FlowSeat[]>> = {}): { document: FlowDocument; problems: FlowProblem[] } => {
   const problems: FlowProblem[] = []
+  const roles = document.format === 'agents' ? document.flow.roles : []
+  for (const [id, seats] of Object.entries(overrides)) {
+    const role = roles.find(one => one.id === id)
+    if (!role || role.kind !== 'agent') {
+      problems.push(problem('error', `seats.${id}`, role ? 'Only an agent role takes a seat override.' : `There is no role called "${id}".`))
+    }
+    for (const bad of parseSeatList(seats).broken) problems.push(problem('error', `seats.${id}[${bad.index}]`, bad.text))
+  }
+  if (document.format !== 'agents') return { document, problems }
+  return { document: { ...document, flow: { ...document.flow, roles: roles.map(role => role.kind === 'agent' && Object.hasOwn(overrides, role.id)
+    ? { ...role, seats: parseSeatList(overrides[role.id]!).seats } : role) } }, problems }
+}
+
+export const compileFlowPolicy = (document: FlowDocument, agents: readonly AgentEntry[], projectCheckRuns: readonly string[] = [], overrides: Readonly<Record<string, readonly FlowSeat[]>> = {}): CompiledFlow => {
+  if (document.format === 'legacy') return { document, bindings: [], problems: [] }
+  const original = document
+  const effective = overrideFlowSeats(document, overrides)
+  document = effective.document
+  if (document.format !== 'agents') return { document: original, bindings: [], problems: effective.problems }
+  const problems: FlowProblem[] = [...effective.problems]
   fileProblems(document.flow, problems)
   checkGuardProblems(document.flow, projectCheckRuns, problems)
   const bindings: CompiledFlow['bindings'][number][] = []
@@ -602,7 +622,7 @@ export const compileFlowPolicy = (document: FlowDocument, agents: readonly Agent
     }
   }
   if (bindings.length > COMPILED_SLOT_LIMIT) problems.push(problem('error', 'roles', 'A flow may compile at most 1,024 slots.'))
-  return { document, bindings, problems }
+  return { document: original, bindings, problems }
 }
 
 const scalar = (value: string): string => JSON.stringify(value)

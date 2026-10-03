@@ -1,3 +1,4 @@
+import { parseClientMessage } from '@harnessdesk/protocol'
 import { createHash, randomUUID } from 'node:crypto'
 import { open, readFile, readdir, rename, rm, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -135,6 +136,12 @@ export const receiptOf = (value: unknown, goal: string, id: unknown): value is G
     (lane.dirty === null || typeof lane.dirty === 'boolean') && lane.retained === true)) return false
   if (!value.revisions.every((revision) => object(revision) && typeof revision.cwd === 'string' &&
     (revision.head === null || sha(revision.head)) && (revision.dirty === null || typeof revision.dirty === 'boolean'))) return false
+  if (value.runs !== undefined && (!Array.isArray(value.runs) || !value.runs.every(run => {
+    if (!object(run) || typeof run.run !== 'string' || !run.run || typeof run.attended !== 'boolean') return false
+    if (run.overrides === undefined) return true
+    if (!object(run.overrides)) return false
+    try { parseClientMessage({ id: 1, method: 'flow/preview', params: { root: '', source: '', seats: run.overrides } }); return true } catch { return false }
+  }))) return false
   if (!value.citations.every(citationOf)) return false
   return value.findings === undefined || findingReceiptOf(value.findings)
 }

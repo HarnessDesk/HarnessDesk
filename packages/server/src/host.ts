@@ -1496,13 +1496,14 @@ export class Host {
     this.#flows.onRoundClosed((run, round) => this.#findings.roundClosed(run, round))
     this.#flows.attachFindingsGate((run) => this.#findings.gate(run))
     this.#flows.attachReviewPackets((run, round, role, subjects) => this.#findings.packetFor(run, round, role, subjects))
-    /* An unattended Seat's question — one on a run a trigger started — waits
+    /* An unattended Seat's question — by trigger origin or frozen run choice — waits
        as long as this machine says (five minutes unless a person chose
        otherwise, or until they are back). Then its run stops for a person
        with the reason, and its turn is interrupted once — what it already
        said is kept. It is never answered on anyone's behalf; a person who
        answers it later is heard (`#answerStoppedQuestion`). A run a person
-       started has no such wait: its Seat's question waits for them. */
+       started unattended waits the same way; an attended run has no such
+       wait: its Seat's question waits for them. */
     this.#questions = new QuestionDeadline({
       // This machine's wait (Settings › Permissions), read as each question is asked.
       waitMs: () => questionWaitMs(questionWaitOf(this.#state.state.preferences)),
