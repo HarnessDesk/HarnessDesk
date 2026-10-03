@@ -7,6 +7,8 @@ HarnessDesk is a macOS desktop app that drives coding agents it does not own.
 It has three primitives — **agents**, **extensions**, and **workspaces** — and
 two extension axes that are kept apart on purpose.
 
+The window and every client read a Team through the same selectors in `@harnessdesk/client/views`.
+
 ## The two planes
 
 |  | Question | Answer | Boundary enforced by |

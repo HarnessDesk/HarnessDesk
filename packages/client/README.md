@@ -14,7 +14,8 @@ const client = await connect({
   subscribe: { topics: ['runs', 'cards', 'teams', 'seats', 'reviews', 'waiting', 'notices'] },
 })
 try {
-  console.log(await client.call('goal/list', {}))
+  await client.synced()
+  console.log(client.snapshot())
   await Promise.all([
     (async () => { for await (const event of client.events()) console.log(event) })(),
     // Drain the independent raw buffer even when only stable events are needed.
@@ -103,3 +104,40 @@ raise `unsafeDirectory`, `unsafeSocket`, or `unsafePointer`. The Node entry
 checks directory ownership and mode `0700`, and socket/pointer ownership and
 mode `0600`, before using them. `HARNESSDESK_CLIENT_DIR` overrides the normal
 `/tmp/harnessdesk-<uid>` client directory for isolated rigs.
+
+The `views` entry imports only protocol and its own pure functions. The
+window and outside clients share `teamOverview(input)`;
+`teamOverviewOf(snapshot, team, { report, runtimes, sentences? })` adapts a
+client snapshot to that same model. `runtimes` carries each runtime's `id`,
+`name` and `metered` from `client.hello`; `report` is the `insight/goal` result
+or `null`. Unread marks belong to the window and are absent from client rows.
+`TeamOverviewInput.run.startedAt` stays caller-supplied as `number | null`.
+The snapshot selector uses the execution’s recorded start time and leaves an
+unknown start time null.
+
+```ts
+import { teamOverviewOf } from '@harnessdesk/client/views'
+
+await client.synced()
+const snapshot = client.snapshot()
+for (const team of snapshot.teams) {
+  const report = await client.call('insight/goal', { goal: team.goal.id })
+  console.log(teamOverviewOf(snapshot, team.goal.id, { report, runtimes: client.hello.runtimes }))
+}
+```
+
+`synced()` waits for the current subscription's counted baseline to arrive and
+apply, including its initial review-round reads. Call it again after each
+`gap`. The subscribe acknowledgement is `{ baseline: number }`; the door sends
+exactly that many contiguous baseline notifications before live changes. An
+older desk without that count is refused with `deskTooOld`. Later live review
+refreshes do not delay initial synchronization. Failed background reads emit
+`notice` and finish their bootstrap pass. A clean stream end resolves pending
+waiters; a fatal end rejects them with the same error the streams throw.
+
+`snapshot(): ClientSnapshot` returns detached plain arrays: `teams`
+(`GoalView[]`), `runs` (`FlowExecution[]`), `boards` (`TeamState[]`), `seats`
+(`SeatActivity[]`), open `approvals` (`{ runtime, sessionId, approval }[]`),
+and `reviews` (`{ run, rounds }[]`, with `FindingRoundPublication[]` per run).
+Mutating any returned value does not change the held state. A new baseline
+replaces it; board and activity changes update the held Team facts.

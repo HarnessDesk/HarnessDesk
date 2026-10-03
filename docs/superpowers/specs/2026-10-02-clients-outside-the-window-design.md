@@ -185,6 +185,8 @@ On the client door, the host sends nothing until the client calls
     hostVersion: string
     desk: { home: string; pid: number; startedAt: number }
     tiers: readonly ('read' | 'run' | 'answer')[] // what this desk grants an outside client
+    methods: readonly string[]
+    runtimes: readonly { id: RuntimeId; name: string; health: RuntimeHealth; metered: boolean }[]
   }
 }
 'client/subscribe': {
@@ -192,7 +194,7 @@ On the client door, the host sends nothing until the client calls
     topics: readonly ('runs' | 'cards' | 'teams' | 'seats' | 'reviews' | 'waiting' | 'notices' | 'sessions')[]
     scope?: { team?: GoalId; run?: string; project?: string }
   }
-  result: null    // the current state of each topic follows at once, as notifications
+  result: { readonly baseline: number } // that many contiguous starting-state notifications follow
 }
 ```
 
@@ -424,7 +426,7 @@ when Mobile comes (see *Local only, or through the relay*).
 | Command | What it does | Wire methods | Tier | Relay |
 | --- | --- | --- | --- | --- |
 | `harnessdesk desks` | Lists this user's running desks: home, version, since | (pointers) then `client/hello` each | — | local |
-| `harnessdesk status` | One desk: version, agents' health, Teams with runs in flight, what waits for a person | `client/hello`, `goal/list`, `flow/executions` | read | yes |
+| `harnessdesk status [--team T]` | One desk: version, agents' health, Teams with runs in flight, what waits for a person | `client/hello`, `client/subscribe`, `insight/goal` | read | yes |
 | `harnessdesk open <path>` | Opens a folder as a project | `workspace/open` | run | **local only** |
 | `harnessdesk flows [--project P]` | The flows a project offers, each with its layer and any problem | `flow/catalog` | read | yes |
 | `harnessdesk flow preview <flow> …` | What it would do, spending nothing: seats (overrides marked), checks verbatim, held or asked, problems | `flow/source`, `flow/preview` | read | catalogue flows only |
@@ -503,14 +505,16 @@ Four rules hold every row:
   without sending them all to every client. Each client words it with the
   one shared tool-name lookup, which therefore lives in
   `packages/protocol`, beside the derivation, rather than in the window.
-- **One set of view selectors.** `teamOverview(state)` and
-  `runTimeline(state, run)` turn this state into what a Team's overview and
-  a run's timeline show. They live in `@harnessdesk/client/views`: pure
-  functions over plain data, with no transport.
+- **One set of view selectors.** `teamOverview(input)` and
+  `teamOverviewOf(snapshot, team, extras)` live in `@harnessdesk/client/views`:
+  pure functions over plain data, with no transport. `snapshot()` supplies
+  the held facts; `synced()` waits until the subscription baseline and its
+  initial review reads have applied, again after every `gap`. The run timeline
+  selector joins `views` when the window's PR writes it.
   - The window imports that entry and nothing else from the library; the
     layering gate holds it to that.
-  - `harnessdesk status` and `run show` are the same selectors in a
-    terminal's words.
+  - `harnessdesk status` uses the overview selectors in a terminal's words.
+    `run show` will use the timeline selector when it lands.
 
 ### Exit codes
 
@@ -693,13 +697,14 @@ touches the door, tiers or attribution gets a critical review.
    - The `reviews` topic.
    - `seat.changed` and `review.changed`, and the optional fields where the
      records carry them.
-1c. **The same views in every client.**
+1c. **The same views in every client — done.**
    - `@harnessdesk/client/views`, with the shared selectors.
    - Move `teamOverview` into that entry; `status` reads it.
    - The Team usage read (`insight/goal`) joins the `read` tier, so
      `status` can show cost.
 
-   PR 1c reads the shape this PR defines, which is why the two are split.
+   `synced()` and `snapshot()` supply the whole starting state to
+   `teamOverviewOf`; text and JSON status use its output.
 2. **Starting a flow.**
    - Host: `flow/preview` seats and attended; unattended runs.
    - Commands: `flow preview`, `flow start` (title, brief, inputs, seats,
