@@ -56,8 +56,11 @@ and settings remain outside the client surface. A client cannot supply
 answer attribution: the door adds its stated name at the host's board mutation,
 which validates the frozen role and declared outcome before the first await.
 The first answer preserves its context and every waiting subscriber sees
-resolution. An identical window decision retry remains a quiet no-op;
-clients and changed answers receive `alreadyAnswered`.
+resolution. It is the first answer *saved*: the board reads an answer before
+it is durable, and a failed save gives the card back, so a later answer, a
+retry included, waits for how that save turns out before it is decided. An
+identical window decision retry then remains a quiet no-op; clients and
+changed answers receive `alreadyAnswered`, or take the card if the save failed.
 
 A start redeems a single-use preview token that freezes source, inputs,
 seat overrides and attendance. Those choices survive in the execution and

@@ -157,8 +157,10 @@ connections whose hello was earlier.
 `team/intent` is action-tiered: `abandon` needs `run`; `done` needs `answer`
 and a live card the frozen Flow addressed to a person, with one of that
 role's declared outcomes. Other actions remain off the client surface.
-The first answer owns the card and its handoff; another client receives
-`alreadyAnswered`. Both waiting subscribers converge on the same stable
+The first answer saved owns the card and its handoff; another client receives
+`alreadyAnswered` once that answer stands, and waits until it is saved. If
+that save fails the first answer is refused and the card is still there for
+the next. Both waiting subscribers converge on the same stable
 resolved id. Client answers carry the stated client's name on the Team's
 channel as answered from the command line. An abandon returns
 `{role, nextRole}` after the ordinary Flow continuation; either can be null

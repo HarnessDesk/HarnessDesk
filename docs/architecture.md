@@ -297,7 +297,8 @@ round still being prepared and any later turn completion fire no rule and open
 no card, and a stop that fails to save queues what it held back again.
 `team/intent` admits only abandon at `run` and done at `answer`. A
 done requires the frozen Flow's live person role and a declared outcome.
-The shared board mutation preserves the first answer and its handoff, and
+The shared board mutation preserves the first answer to be saved and its
+handoff — a later answer waits for that save to land or be put back — and
 client provenance is supplied by the door rather than wire params. A start redeems a single-use preview token
 bound to source, inputs, seat overrides and attendance. Unattended starts use
 the trigger's ceiling, question-deadline and late-answer path. The window's

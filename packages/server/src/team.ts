@@ -579,6 +579,9 @@ export const STOP_HEAD_TIMEOUT_MS = 10_000
 
 const keyOf = (runtime: string, sessionId: string): SessionKey => sessionKey(runtime, sessionId)
 
+/** A card across boards, as `#answerSaves` keys it. */
+const answerKey = (room: string, id: number): string => `${room}\u0000${id}`
+
 /**
  * The family a model belongs to, as a person would say it.
  *
@@ -906,6 +909,13 @@ export class Team {
    * a burst is one write, and nothing is ever saved older than it is shown.
    */
   readonly #queuedSave = new Map<string, QueuedSave>()
+  /*
+   * The save a card's first answer rides in, from the moment it is made until
+   * that save has landed or been put back, by board and card. An answer is on
+   * the board before it is durable, so what the board says is not yet the
+   * answer that won: anything that would be decided by it waits here.
+   */
+  readonly #answerSaves = new Map<string, Promise<Error | null>>()
   /** Boards held against every change, by board, with why: see `holdBoard`. */
   readonly #holds = new Map<string, string>()
   /** Latest content per file; a burst of mutations becomes one write. */
@@ -1473,6 +1483,14 @@ export class Team {
     /** Host-owned provenance from the client door; never accepted in wire params. */
     client?: string,
   ): Promise<void> {
+    /* An answer is first only once it is saved. While one is still being
+       saved the board already reads as answered — the next change is built on
+       it — but a failed save puts it back, so nothing that this answer would
+       be decided by, its retry shortcut and the first-answer guard alike,
+       reads the board until that save has landed or been put back. */
+    if (action === 'done' || action === 'abandon') {
+      for (let saving = this.#answerSaves.get(answerKey(room, id)); saving; saving = this.#answerSaves.get(answerKey(room, id))) await saving
+    }
     const board = this.#mutableBoardById(room)
     const intent = board.intents.find((entry) => entry.id === id)
     if (!intent) throw new Error(`There is no intent #${id} on this board.`)
@@ -1527,6 +1545,7 @@ export class Team {
       this.#signal(board, by, 'abandoned', intent, reason?.trim() || null)
       undo.mark()
       const saved = this.#commit(board, true, undo)
+      if (client !== undefined || person !== null) this.#trackAnswer(room, id, saved)
       // Never past a save that failed — `#afterSaved`'s own rule, kept here because what follows must also await the stop capture before it runs.
       const failure = saved ? await saved : null
       if (failure) {
@@ -1563,6 +1582,7 @@ export class Team {
       this.#unblock(board, by)
       undo.mark()
       const saved = this.#commit(board, true, undo)
+      if (client !== undefined || person !== null) this.#trackAnswer(room, id, saved)
       // Never past a save that failed — `#afterSaved`'s own rule, kept here because what follows must also await the stop capture before it runs.
       const failure = saved ? await saved : null
       if (failure) {
@@ -5071,6 +5091,22 @@ export class Team {
       return
     }
     void saved.then((error) => { if (!error) then() })
+  }
+
+  /**
+   * Notes that a card's answer rides in `saved`, until that save is settled,
+   * for `intentAction`'s answers to wait on. The note is gone before the
+   * promise it holds resolves, so whoever waited reads the board with no
+   * answer in flight. A board with no Goal behind it has no save to wait for.
+   */
+  #trackAnswer(room: string, id: number, saved: Promise<Error | null> | undefined): void {
+    if (!saved) return
+    const key = answerKey(room, id)
+    const tracked: Promise<Error | null> = saved.then((error) => {
+      if (this.#answerSaves.get(key) === tracked) this.#answerSaves.delete(key)
+      return error
+    })
+    this.#answerSaves.set(key, tracked)
   }
 
   /**

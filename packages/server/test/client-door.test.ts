@@ -885,6 +885,89 @@ for (const action of ['done', 'abandon'] as const) {
   })
 }
 
+for (const second of ['done', 'abandon'] as const) {
+  test(`a second client’s ${second} waits for the first answer to be saved, and takes the card when that save fails`, async t => {
+    const { h, home, door } = await rig(t)
+    await h.host.call('workspace/open', { path: home })
+    await h.host.call('app/state/set', { patch: { clientsMayAnswer: true } })
+    const preview = await h.host.call('flow/preview', { root: home, source })
+    const run = await h.host.call('flow/start-goal', { root: home, source, sentence: 'First answer proof', token: preview.token! })
+    const save = GoalStore.prototype.save
+    let reached!: () => void, release!: () => void
+    const atSave = new Promise<void>(resolve => { reached = resolve })
+    const gate = new Promise<void>(resolve => { release = resolve })
+    let failed = false
+    // The first answer's save is held, then fails: the card was only ever answered in memory.
+    GoalStore.prototype.save = async function(document, revision) {
+      if (!failed && document.goal.id === run.goal && document.board.intents[0]?.state === 'done') {
+        failed = true
+        reached()
+        await gate
+        throw new Error('Synthetic board save failure')
+      }
+      return save.call(this, document, revision)
+    }
+    t.after(() => { release(); GoalStore.prototype.save = save })
+    const peers = await Promise.all([Peer.open(door.socketPath), Peer.open(door.socketPath)])
+    t.after(() => peers.forEach(peer => peer.socket.close()))
+    for (const peer of peers) await peer.hello()
+    // The held save is also let go inside the test, so a failed assertion cannot leave the host stopping behind it.
+    try {
+      const first = peers[0]!.call('team/intent', { room: run.goal, id: 1, action: 'done', outcome: 'done', context: 'First context' })
+      await atSave
+      let told = false
+      const next = peers[1]!.call('team/intent', { room: run.goal, id: 1, action: second, outcome: 'done', context: 'Second context', reason: 'Replan' }).then(result => { told = true; return result })
+      // An absence proof, so a short window: the first answer has not landed, so it has not won yet.
+      await new Promise(resolve => setTimeout(resolve, 150))
+      assert.equal(told, false, 'the second client is not told the card was answered while that answer is only in memory')
+      release()
+      const [one, two] = await Promise.all([first, next])
+      assert.equal(one.ok, false, 'a rolled-back answer cannot be reported as accepted')
+      assert.equal(one.error.code, 'refused')
+      assert.equal(two.ok, true, JSON.stringify(two))
+      const view = (await h.host.call('goal/read', { goal: run.goal })).board
+      assert.equal(view.intents[0]!.state, second === 'done' ? 'done' : 'abandoned')
+      if (second === 'done') assert.equal(view.intents[0]!.handoff, 'Second context')
+      assert.equal(view.channel.filter(entry => entry.kind === 'signal' && ['completed', 'abandoned'].includes(entry.signal)).length, 1, 'only the answer that stood is signalled')
+    } finally { release(); GoalStore.prototype.save = save }
+  })
+}
+
+test('a second client answer is refused as late only once the first has landed', async t => {
+  const { h, home, door } = await rig(t)
+  await h.host.call('workspace/open', { path: home })
+  await h.host.call('app/state/set', { patch: { clientsMayAnswer: true } })
+  const preview = await h.host.call('flow/preview', { root: home, source })
+  const run = await h.host.call('flow/start-goal', { root: home, source, sentence: 'First answer proof', token: preview.token! })
+  const save = GoalStore.prototype.save
+  let reached!: () => void, release!: () => void
+  const atSave = new Promise<void>(resolve => { reached = resolve })
+  const gate = new Promise<void>(resolve => { release = resolve })
+  let held = false
+  GoalStore.prototype.save = async function(document, revision) {
+    if (!held && document.goal.id === run.goal && document.board.intents[0]?.state === 'done') { held = true; reached(); await gate }
+    return save.call(this, document, revision)
+  }
+  t.after(() => { release(); GoalStore.prototype.save = save })
+  const peers = await Promise.all([Peer.open(door.socketPath), Peer.open(door.socketPath)])
+  t.after(() => peers.forEach(peer => peer.socket.close()))
+  for (const peer of peers) await peer.hello()
+  try {
+    const first = peers[0]!.call('team/intent', { room: run.goal, id: 1, action: 'done', outcome: 'done', context: 'First context' })
+    await atSave
+    let told = false
+    const next = peers[1]!.call('team/intent', { room: run.goal, id: 1, action: 'done', outcome: 'done', context: 'Second context' }).then(result => { told = true; return result })
+    await new Promise(resolve => setTimeout(resolve, 150))
+    assert.equal(told, false, 'the second client is not refused as late while the first answer is only in memory')
+    release()
+    const [one, two] = await Promise.all([first, next])
+    assert.equal(one.ok, true, JSON.stringify(one))
+    assert.equal(two.ok, false)
+    assert.equal(two.error.code, 'alreadyAnswered')
+    assert.equal((await h.host.call('goal/read', { goal: run.goal })).board.intents[0]!.handoff, 'First context')
+  } finally { release(); GoalStore.prototype.save = save }
+})
+
 test('client abandon observes routing without invoking the disposer flush', async t => {
   const { h, home, door } = await rig(t)
   await h.host.call('workspace/open', { path: home })

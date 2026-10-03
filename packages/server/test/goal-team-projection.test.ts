@@ -547,3 +547,157 @@ test('a failed save is put back before the next task of the Goal’s queue can r
   assert.equal(await seen, 'claimed')
   assert.match(await said, /^Refused/)
 })
+
+/*
+ * #1315. The first answer to a card is the first that becomes durable. An
+ * answer is on the board before it is saved — the next change is built on it —
+ * so a second answer that read it there was refused as late by a first that a
+ * failed save would still take back: the card reopened, and nobody's answer
+ * stood, though both people were told theirs had been taken or beaten.
+ */
+const answerFlow = (signalled: number[], person: boolean = true) => ({
+  completed: (_room: string, intent: Intent) => { signalled.push(intent.id) },
+  refuseOutcome: () => null,
+  personCard: () => (person ? { live: true, outcomes: ['approved', 'changes'] } : null),
+}) as never
+
+/** How an answer ended: taken, or the wire code of the refusal it met. */
+const ended = (answer: Promise<void>): Promise<string> =>
+  answer.then(() => 'answered', (error: unknown) => (error as { wireCode?: string }).wireCode ?? 'failed')
+
+/** What the card holds once the second answer has been through. */
+const afterwards = (verb: 'done' | 'abandon', intents: readonly Intent[]) => {
+  const held = card(intents, 1)
+  return verb === 'done'
+    ? { state: held?.state, outcome: held?.outcome, handoff: held?.handoff }
+    : { state: held?.state, note: held?.note }
+}
+const takenBy = (verb: 'done' | 'abandon') => verb === 'done'
+  ? { state: 'done', outcome: 'changes', handoff: 'Second context' }
+  : { state: 'abandoned', note: 'Replan' }
+
+const an = { done: 'a done', abandon: 'an abandon' } as const
+
+for (const first of ['done', 'abandon'] as const) {
+  test(`a second answer waits for ${an[first]} to be saved, and is refused as late only once it has landed`, async (t) => {
+    const r = await rig(t)
+    const signalled: number[] = []
+    r.team.attachFlows(answerFlow(signalled))
+    const room = await setup(r)
+    const atGate = r.held()
+    const release = r.hold()
+    const winner = ended(r.team.intentAction(room, 1, first, 'Stop it', 'approved', 'First context', 'cli'))
+    await atGate
+    let loser: string | undefined
+    const late = ended(r.team.intentAction(room, 1, 'done', undefined, 'changes', 'Second context', 'cli')).then((how) => { loser = how })
+    await tick()
+    assert.equal(loser, undefined, 'it is not told the card was answered while that answer is only in memory')
+    release()
+    await late
+    assert.equal(await winner, 'answered')
+    assert.equal(loser, 'alreadyAnswered')
+    await r.team.flush()
+    await tick()
+    assert.equal(card(r.stored(), 1)?.state, first === 'done' ? 'done' : 'abandoned')
+    assert.equal(card(r.stored(), 1)?.handoff ?? null, first === 'done' ? 'First context' : null, 'the first answer keeps its handoff')
+    assert.deepEqual(signalled, [1], 'its flow hears of the one answer only')
+  })
+
+  for (const second of ['done', 'abandon'] as const) {
+    test(`${an[second]} after ${an[first]} whose save fails takes the card that failure left open`, async (t) => {
+      const r = await rig(t)
+      const signalled: number[] = []
+      r.team.attachFlows(answerFlow(signalled))
+      const room = await setup(r)
+      const atGate = r.held()
+      const release = r.hold()
+      r.failNextWrite(new Error('EIO'))
+      const lost = ended(r.team.intentAction(room, 1, first, 'Stop it', 'approved', 'First context', 'cli'))
+      await atGate
+      let how: string | undefined
+      const next = ended(r.team.intentAction(room, 1, second, 'Replan', 'changes', 'Second context', 'cli')).then((result) => { how = result })
+      await tick()
+      assert.equal(how, undefined, 'it waits for how the first save turns out')
+      release()
+      await next
+      assert.equal(await lost, 'refused', 'the answer that could not be saved is refused, as it always was')
+      assert.equal(how, 'answered', 'and the card it left open is still there to be answered')
+      await r.team.flush()
+      await tick()
+      assert.deepEqual(afterwards(second, r.stored()), takenBy(second))
+      assert.deepEqual(afterwards(second, r.team.stateFor(room).intents), takenBy(second), 'on the board as well as on disk')
+      assert.deepEqual(signalled, [1], 'its flow hears of the answer that stood, and not of the one that did not')
+    })
+  }
+}
+
+test('of several answers waiting on a save that fails, the first of them takes the card and the others are late', async (t) => {
+  const r = await rig(t)
+  const signalled: number[] = []
+  r.team.attachFlows(answerFlow(signalled))
+  const room = await setup(r)
+  const atGate = r.held()
+  const release = r.hold()
+  r.failNextWrite(new Error('EIO'))
+  // The first is the person's own window, which is not told of a failed save but sees the card reopen.
+  const lost = ended(r.team.intentAction(room, 1, 'done', undefined, 'approved', 'First context'))
+  await atGate
+  const winner = ended(r.team.intentAction(room, 1, 'done', undefined, 'changes', 'Second context', 'cli'))
+  const loser = ended(r.team.intentAction(room, 1, 'done', undefined, 'approved', 'Third context', 'cli'))
+  await tick()
+  release()
+  assert.deepEqual(await Promise.all([lost, winner, loser]), ['answered', 'answered', 'alreadyAnswered'])
+  await r.team.flush()
+  await tick()
+  assert.deepEqual(afterwards('done', r.stored()), takenBy('done'))
+  assert.deepEqual(signalled, [1])
+})
+
+test('a person’s repeat of an answer still being saved waits for it, and answers for real when that save fails', async (t) => {
+  const r = await rig(t)
+  const signalled: number[] = []
+  r.team.attachFlows(answerFlow(signalled))
+  const room = await setup(r)
+  const atGate = r.held()
+  const release = r.hold()
+  r.failNextWrite(new Error('EIO'))
+  const lost = ended(r.team.intentAction(room, 1, 'done', undefined, 'approved', undefined, 'cli'))
+  await atGate
+  // Same answer, from the window: a retry when the first has landed, and the answer itself when it has not.
+  let repeated: string | undefined
+  const again = ended(r.team.intentAction(room, 1, 'done', undefined, 'approved')).then((how) => { repeated = how })
+  await tick()
+  assert.equal(repeated, undefined, 'a repeat is not taken for a retry of an answer that has not landed')
+  release()
+  await again
+  assert.equal(await lost, 'refused')
+  await r.team.flush()
+  await tick()
+  assert.equal(card(r.stored(), 1)?.state, 'done', 'the person’s answer stands')
+  assert.equal(card(r.stored(), 1)?.outcome, 'approved')
+  assert.deepEqual(signalled, [1])
+})
+
+test('a client’s abandon of a card no person role owns is first only once it is saved either', async (t) => {
+  const r = await rig(t)
+  const signalled: number[] = []
+  r.team.attachFlows(answerFlow(signalled, false))
+  const room = await setup(r)
+  const atGate = r.held()
+  const release = r.hold()
+  r.failNextWrite(new Error('EIO'))
+  const lost = ended(r.team.intentAction(room, 1, 'abandon', 'Stop it', undefined, undefined, 'cli'))
+  await atGate
+  let how: string | undefined
+  const next = ended(r.team.intentAction(room, 1, 'abandon', 'Replan', undefined, undefined, 'cli')).then((result) => { how = result })
+  await tick()
+  assert.equal(how, undefined)
+  release()
+  await next
+  assert.equal(await lost, 'refused')
+  assert.equal(how, 'answered')
+  await r.team.flush()
+  await tick()
+  assert.deepEqual(afterwards('abandon', r.stored()), takenBy('abandon'))
+  assert.deepEqual(signalled, [1])
+})
