@@ -1,4 +1,4 @@
-import type { GoalActivity, GoalOrigin, GoalReceipt, GoalView, TeamState } from '@harnessdesk/protocol'
+import { runtimeId, sessionKey, type GoalActivity, type GoalOrigin, type GoalReceipt, type GoalView, type SessionId, type TeamState } from '@harnessdesk/protocol'
 
 import { PREVIEW_ROOT } from './sidebar-fixture'
 
@@ -9,7 +9,10 @@ const board = (id: string, name: string): TeamState => ({
   name,
   root: PREVIEW_ROOT,
   updatedAt: at,
-  members: [],
+  members: [
+    sessionKey(runtimeId('codex'), 'c1' as SessionId),
+    sessionKey(runtimeId('claude'), 'k1' as SessionId),
+  ],
   messaging: true,
   intents: [],
   channel: [],

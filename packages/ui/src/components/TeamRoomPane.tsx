@@ -7,6 +7,7 @@ import {
   splitSessionKey,
   type FlowExecution,
   type Intent,
+  type InsightReport,
   type TeamActor,
   type TeamEntry,
   type TeamInbound,
@@ -22,6 +23,9 @@ import { runtimeTint, type Tint } from '../lib/accounts'
 import { brandForRuntime } from '../lib/brands'
 import { elapsedSince } from '../lib/clock'
 import { goalRunOf, namedGoalRun } from '../lib/goal-run'
+import { teamSeats } from '../lib/team-seats'
+import { teamOverview } from '../lib/team-overview'
+import { TeamOverview } from './TeamOverview'
 import { shortSha } from '../lib/evidence'
 import { goalActions, goalName } from '../lib/goals'
 import { openExternal } from '../lib/desktop'
@@ -373,15 +377,24 @@ export const TeamRoomPane = ({
     mount?.view.kind === 'room' ? mount.view.sideBySide : undefined,
     mount?.view.kind === 'room' ? mount.view.watching : undefined,
   ))
-  const [open, setOpen] = useState<'board' | 'room' | 'findings' | 'side-by-side' | SessionKey>(
-    () => (grid.tiles.length > 0 ? 'side-by-side' : 'room'),
+  const [open, setOpen] = useState<'overview' | 'board' | 'room' | 'findings' | 'side-by-side' | SessionKey>(
+    () => (grid.tiles.length > 0 ? 'side-by-side' : flowExecution ? 'overview' : 'room'),
   )
   /* Which half a *narrow* room is showing. Two columns need width; when the
      pane has none — a three-way split, or the details panel open beside it —
      the room becomes one column at a time, the way every master/detail list
      does, rather than two unreadable ones. At full width this is inert: the
      container query below never fires and both halves stay up. */
-  const [onRail, setOnRail] = useState(true)
+  const [onRail, setOnRail] = useState(!flowExecution)
+  const destination = useRef({ room, chosen: false })
+  useEffect(() => {
+    if (destination.current.room !== room) destination.current = { room, chosen: false }
+    // Runs are loaded after the Team opens. Apply its default only until the
+    // person chooses a destination; a push must not take them away from Chat.
+    if (destination.current.chosen || grid.tiles.length > 0) return
+    setOpen(flowExecution ? 'overview' : 'room')
+    setOnRail(!flowExecution)
+  }, [room, flowExecution?.id])
   /** What the roster is filtered to. Empty is the whole room. */
   const [filter, setFilter] = useState('')
   /** The "add an agent" dialog, opened from the roster's own heading. */
@@ -401,11 +414,13 @@ export const TeamRoomPane = ({
    */
   const [railTrouble, setRailTrouble] = useState<string | null>(null)
 
-  const show = (next: 'board' | 'room' | 'findings' | 'side-by-side' | SessionKey): void => {
+  const show = (next: 'overview' | 'board' | 'room' | 'findings' | 'side-by-side' | SessionKey): void => {
+    destination.current.chosen = true
     setOnRail(false)
     /* Written against the literals rather than narrowed: `SessionKey` is a
        branded string, so comparing it to `'board'` tells the compiler nothing
        and the union survives into the other branch. */
+    if (next === 'overview') return setOpen('overview')
     if (next === 'board') return setOpen('board')
     if (next === 'room') return setOpen('room')
     if (next === 'findings') return setOpen('findings')
@@ -422,6 +437,7 @@ export const TeamRoomPane = ({
       return
     }
     setGrid((was) => placeTile(was, key))
+    destination.current.chosen = true
     setOpen('side-by-side')
     setOnRail(false)
   }
@@ -592,7 +608,7 @@ export const TeamRoomPane = ({
 
   /* Narrowed once, here, so the provider below gets a `SessionKey` and not a
      union the compiler has to be argued with at the call site. */
-  const singleMember: SessionKey | null = open === 'board' || open === 'room' || open === 'findings' || open === 'side-by-side' ? null : open
+  const singleMember: SessionKey | null = open === 'overview' || open === 'board' || open === 'room' || open === 'findings' || open === 'side-by-side' ? null : open
   /**
    * Open the conversation behind any column that has one.
    *
@@ -651,7 +667,46 @@ export const TeamRoomPane = ({
   /* The roster as a list. `here` is already taken, by the count of
      conversations *in the folder* — which is the other half of the zero-state
      below and deliberately a different number. */
-  const members = peers ?? []
+  const seats = useMemo(() => teamSeats(goal, team, flowExecution), [goal, team, flowExecution])
+  const members = useMemo(() => {
+    return seats.map(seat => {
+      const peer = peers?.find(one => sessionKey(one.runtime, one.sessionId) === seat.key)
+      if (peer) return peer
+      const runtime = snapshot.runtimes.find(one => one.id === seat.record.session.runtime)
+      const live = snapshot.sessions.get(seat.key)
+      return {
+        runtime: seat.record.session.runtime as RuntimeId, sessionId: seat.record.session.sessionId,
+        title: live?.title ?? null, agent: runtime?.presentation.name ?? seat.name,
+        nickname: team?.nicknames?.[seat.key] ?? seat.name,
+        busy: live ? isBusy(live) : false, here: Boolean(live),
+        inbound: team?.inbound?.[seat.key] ?? 'accept',
+      }
+    })
+  }, [peers, seats, snapshot.runtimes, snapshot.sessions, team])
+  const [report, setReport] = useState<InsightReport | null>(null)
+  const closedCards = intents.filter(one => one.state === 'done').map(one => one.id).join(',')
+  useEffect(() => {
+    let active = true
+    setReport(null)
+    if (open !== 'overview' || !goal || typeof store.readGoalInsight !== 'function') return
+    const read = () => { void store.readGoalInsight(room).then(answer => { if (active) setReport(answer) }, () => { if (active) setReport(null) }) }
+    read()
+    const timer = flowExecution?.state === 'running' ? window.setInterval(read, 60_000) : null
+    return () => { active = false; if (timer !== null) window.clearInterval(timer) }
+  }, [store, room, open, Boolean(goal), closedCards, flowExecution?.state])
+  const overview = useMemo(() => teamOverview({
+    team: room, cards: intents, signals: entries.filter((one): one is Extract<TeamEntry, {kind: 'signal'}> => one.kind === 'signal'),
+    seats: seats.map(seat => ({
+      record: seat.record, name: members.find(one => sessionKey(one.runtime, one.sessionId) === seat.key)?.nickname ?? seat.name,
+      runtime: snapshot.runtimes.find(one => one.id === seat.record.session.runtime) ?? null,
+      session: snapshot.sessions.get(seat.key) ?? null,
+      unreadSince: snapshot.inbox.find(one => !one.read && one.from?.runtime === seat.record.session.runtime && one.from?.sessionId === seat.record.session.sessionId)?.at ?? null,
+      approvals: snapshot.approvals.filter(one => one.key === seat.key).map(one => one.approval),
+    })),
+    run: flowExecution ? {execution: flowExecution, startedAt: null} : null,
+    report: report?.goal === room ? report : null,
+    runtimeCapabilities: new Map(snapshot.runtimes.map(one => [one.id, one.capabilities])),
+  }), [room, intents, entries, seats, members, snapshot.runtimes, snapshot.sessions, snapshot.inbox, snapshot.approvals, flowExecution, report])
   const memberOf = (key: SessionKey): TeamPeerInfo | null =>
     members.find((peer) => sessionKey(peer.runtime, peer.sessionId as SessionId) === key) ?? null
 
@@ -664,7 +719,7 @@ export const TeamRoomPane = ({
    */
   const roster = useMemo(
     () =>
-      (peers ?? []).map((peer) => {
+      members.map((peer) => {
         const key = sessionKey(peer.runtime, peer.sessionId as SessionId)
         const runtime = snapshot.runtimes.find((one) => one.id === peer.runtime) ?? null
         /* Live where we have it. A turn starting or ending changes this and
@@ -700,6 +755,7 @@ export const TeamRoomPane = ({
              say which account this is — see lib/accounts.ts. */
           tint: runtimeTint(peer.runtime, snapshot.accountsByRuntime, snapshot.accountPrefs),
           busy: peer.here && (live ? isBusy(live) : peer.busy),
+          done: overview.seats.find(one => seats.find(seat => seat.record.id === one.seat)?.key === key)?.done ?? false,
           /* Whether this member can use the board at all. HarnessDesk's tools
              reach an agent through a server the agent has to accept; one that
              refused it can see nothing here and can claim nothing. That used to
@@ -741,7 +797,9 @@ export const TeamRoomPane = ({
         }
       }),
     [
-      peers,
+      members,
+      seats,
+      overview,
       snapshot.runtimes,
       snapshot.sessions,
       snapshot.accountsByRuntime,
@@ -770,7 +828,7 @@ export const TeamRoomPane = ({
     setGrid((was) => forgetMissing(was, present))
     // A member opened on its own who has left takes the body back to the chat.
     setOpen((was) =>
-      was === 'board' || was === 'room' || was === 'findings' || was === 'side-by-side' || present.has(was as SessionKey) ? was : 'room',
+      was === 'overview' || was === 'board' || was === 'room' || was === 'findings' || was === 'side-by-side' || present.has(was as SessionKey) ? was : 'room',
     )
   }, [peers, roster])
 
@@ -1084,6 +1142,7 @@ export const TeamRoomPane = ({
             {/* `as="button"`: these two switch the pane, and nothing else in
                 the row can be tabbed to, so the row itself has to be the stop.
                 The member rows below stay divs — see the note on MemberCard. */}
+            <ListRow as="button" size="sm" nav interactive selected={open === 'overview'} onClick={() => show('overview')} lead={<IconTile size="sm"><TeamIcon /></IconTile>} title="Overview" />
             <ListRow
               as="button"
               size="sm"
@@ -1233,10 +1292,10 @@ export const TeamRoomPane = ({
                      members across a quit — and this line is only ever the
                      second one. */
                   here === 0
-                    ? 'No agents in this room yet, and no conversations in this project either. + starts one and puts it in.'
+                    ? 'No agents in this Team yet, and no conversations in this project either. + starts one and puts it in.'
                     : here === 1
-                      ? 'No agents in this room yet. One conversation is open in this project — + adds an agent.'
-                      : `No agents in this room yet. ${here} conversations are open in this project — + adds an agent.`
+                      ? 'No agents in this Team yet. One conversation is open in this project — + adds an agent.'
+                      : `No agents in this Team yet. ${here} conversations are open in this project — + adds an agent.`
                 }
               />
             )}
@@ -1289,7 +1348,21 @@ export const TeamRoomPane = ({
               Agents
             </Button>
           </span>
-          {open === 'board' ? (
+          {open === 'overview' ? (
+            <TeamOverview model={overview}
+              faces={new Map(seats.map(seat => {
+                const runtime = snapshot.runtimes.find(one => one.id === seat.record.session.runtime)
+                const brand = runtime ? brandForRuntime(runtime) : null
+                return [seat.record.id, brand ? <BrandMark brand={brand} size={13} /> : <AgentIcon />]
+              }))}
+              metered={new Map(seats.flatMap(seat => {
+                const runtime = snapshot.runtimes.find(one => one.id === seat.record.session.runtime)
+                return runtime ? [[seat.record.id, runtime.capabilities.metered === true] as const] : []
+              }))}
+              runName={flowExecution?.document.flow.name}
+              statusLine={now => <RoomLiveLine members={roster} snapshot={snapshot} now={now} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} includeRunReason />}
+              onOpen={id => { const seat = seats.find(one => one.record.id === id); if (seat) show(seat.key) }} />
+          ) : open === 'board' ? (
             <TeamBoardPane room={room} />
           ) : open === 'findings' ? (
             goal ? <GoalFindings goal={room} /> : null
@@ -1378,6 +1451,7 @@ type Member = {
   /** The account's ring, shared with the column head and the name card. */
   tint: Tint
   busy: boolean
+  done: boolean
   /**
    * Whether the desk has this member's conversation open right now.
    *
@@ -1717,6 +1791,8 @@ const MemberRow = ({
            discover a control that had not existed a moment earlier. It is one
            verb — "put this one up too" — and a verb that appears and
            disappears is a verb nobody learns. */
+        <span className="inline-flex items-center gap-2">
+        {member.done && <span data-slot="member-done"><Text role="meta">Done</Text></span>}
         <Button variant="reveal" size="icon-xs"
           type="button"
           /* Resting here asks about the column a pick will take — the title
@@ -1754,6 +1830,7 @@ const MemberRow = ({
         >
           <PlusIcon size={13} />
         </Button>
+        </span>
       }
     />
   )
@@ -1818,6 +1895,7 @@ const RoomLiveLine = ({
   flowExecution,
   needsYou,
   room,
+  includeRunReason = false,
 }: {
   readonly members: readonly Member[]
   readonly snapshot: AppSnapshot
@@ -1829,8 +1907,12 @@ const RoomLiveLine = ({
   /** The header chip's own "Needs you" rule, beyond a member's pending approval — one rule, read by both surfaces. */
   readonly needsYou: boolean
   readonly room: string
+  /** Overview keeps the Run's reason even when another live fact takes precedence. */
+  readonly includeRunReason?: boolean
 }) => {
   const store = useStore()
+  const runReason = includeRunReason && flowExecution?.reason ? sentence(flowExecution.reason) : null
+  let reasonOnLiveLine = false
   /*
    * The primary line, exactly as before, wrapped so a pending release's own
    * sentence — computed below, independent of which branch here fired — can
@@ -1870,6 +1952,7 @@ const RoomLiveLine = ({
        — never a narrower or wider one — and the two surfaces cannot disagree
        about the same run. */
     if (!waiting && stopText && !needsYou) {
+      reasonOnLiveLine = stopText === runReason
       return (
         <TurnWorkLive settled data-slot="room-live-line" data-kind="stop">
           {stopText}
@@ -1878,6 +1961,7 @@ const RoomLiveLine = ({
     }
     if (!waiting && waits.length > 0) {
       const wait = waits[0]!
+      reasonOnLiveLine = sentence(wait.sentence) === runReason
       const open = wait.action === 'open-usage' || wait.action === 'open-trigger'
         ? () => store.askSettings('workspaces', wait.action === 'open-trigger' ? triggerRootOf(snapshot, room) : 'triggers')
         : wait.action === 'open-permissions'
@@ -1911,6 +1995,7 @@ const RoomLiveLine = ({
        Seat is gone, the card finished — the action stays, greyed, and the
        line says why: a control that vanished would say nothing at all. */
     if (!waiting && flowExecution?.state === 'stalled' && flowExecution.reason) {
+      reasonOnLiveLine = true
       const kept = flowExecution.keptAnswer
       const trail = kept ? (
         <Button
@@ -1989,13 +2074,17 @@ const RoomLiveLine = ({
    * finding 3, round 3).
    */
   const pendingNote = flowExecution?.pendingReleaseNote ?? null
-  if (!pendingNote) return primary
+  const extraReason = runReason && !reasonOnLiveLine && (!pendingNote || sentence(pendingNote) !== runReason)
+  if (!pendingNote && !extraReason) return primary
   return (
     <>
       {primary}
-      <TurnWorkLive settled data-slot="room-pending-release-line" data-kind="pending-release">
+      {extraReason && <TurnWorkLive settled data-slot="room-run-reason" data-kind="reason">
+        <span className="whitespace-pre-line">{runReason}</span>
+      </TurnWorkLive>}
+      {pendingNote && <TurnWorkLive settled data-slot="room-pending-release-line" data-kind="pending-release">
         <span className="whitespace-pre-line">{sentence(pendingNote)}</span>
-      </TurnWorkLive>
+      </TurnWorkLive>}
     </>
   )
 }

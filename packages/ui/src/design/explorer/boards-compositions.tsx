@@ -1,3 +1,4 @@
+import { TeamOverviewBoard } from '../../preview/frames-team-overview'
 import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 
 import {
@@ -2920,6 +2921,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'Board',
     about: 'Work in columns: what is waiting, what is being done, and who has it.',
     render: KanbanBoard,
+  },
+  {
+    id: 'team-overview',
+    title: 'The Team overview',
+    about: 'Every Seat, its state and recorded cost, with finished Seats folded.',
+    render: TeamOverviewBoard,
   },
   {
     id: 'room-side-by-side',

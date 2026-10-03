@@ -36,6 +36,8 @@ import { agentGroups, agentKey, agentKeyOf } from '../lib/accounts'
 import { folderName, groupByProject, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, roomGroupRootOf, type ProjectGroup } from '../lib/projects'
 import { captureForRoot } from '../lib/provenance'
 import { sessionLabel } from '../lib/sessions'
+import { teamSeats } from '../lib/team-seats'
+import { goalRunOf } from '../lib/goal-run'
 import { goalName, goalWords } from '../lib/goals'
 import { ACTIVE_STATES, TRACE_LABEL, traceOf } from '../lib/trace'
 import { panes, sessionOf } from '../state/layout'
@@ -644,8 +646,14 @@ const roomMembers = (
     sessions.map((summary) => [String(sessionKey(summary.runtime, summary.id)), summary]),
   )
   const filtered = snapshot.listPrefs.agent !== null
-  return room.members
-    .map((key) => shown.get(String(key)) ?? snapshot.sessions.get(key))
+  return teamSeats(snapshot.goals.get(room.id), room, goalRunOf(room.id, snapshot.goals.get(room.id), snapshot.flowExecutions))
+    .map(({key, record, name}) => shown.get(String(key)) ?? snapshot.sessions.get(key) ?? (
+      record.openedAt > 0 ? {
+        id: record.session.sessionId as SessionSummary['id'], runtime: record.session.runtime as SessionSummary['runtime'],
+        title: name, cwd: room.cwd ?? room.root, status: { type: 'idle' as const },
+        createdAt: record.openedAt, updatedAt: room.updatedAt,
+      } : undefined
+    ))
     .filter((one): one is SessionSummary => one !== undefined)
     .filter((one) => !hiddenKeys.has(String(sessionKey(one.runtime, one.id))))
     .filter(
@@ -681,7 +689,7 @@ const RoomRow = ({
   const snapshot = useSnapshot()
   const goal = snapshot.goals.get(room.id)
   const name = goal ? goalName(goal.goal) : room.name
-  const waiting = room.members.some((member) => snapshot.approvals.some((entry) => String(entry.key) === String(member)))
+  const waiting = teamSeats(snapshot.goals.get(room.id), room, goalRunOf(room.id, snapshot.goals.get(room.id), snapshot.flowExecutions)).some(({key: member}) => snapshot.approvals.some((entry) => String(entry.key) === String(member)))
   const words = goal ? (waiting
     ? { label: 'Needs you', tone: 'warning' as const }
     : goalWords({ goal: goal.goal, activity: goal.activity })) : null
@@ -1024,7 +1032,7 @@ interface NeedsYou {
 const needsYouOf = (summary: SessionSummary, snapshot: AppSnapshot): NeedsYou => {
   const key = sessionKey(summary.runtime, summary.id)
   const room = [...snapshot.teams.values()].find((team) =>
-    team.members.some((member) => String(member) === String(key)),
+    teamSeats(snapshot.goals.get(team.id), team, goalRunOf(team.id, snapshot.goals.get(team.id), snapshot.flowExecutions)).some(member => member.key === key),
   )
   const goal = room ? snapshot.goals.get(room.id) : undefined
   const reason = snapshot.approvals.some((entry) => entry.key === key)
@@ -1451,7 +1459,7 @@ export const SessionTree = ({ now }: { now: number }) => {
     const roomKeys = new Set(
       projectRoots(activeGroup)
         .flatMap((root) => roomsByProject.get(root) ?? [])
-        .flatMap((room) => room.members.map(String)),
+        .flatMap((room) => teamSeats(snapshot.goals.get(room.id), room, goalRunOf(room.id, snapshot.goals.get(room.id), snapshot.flowExecutions)).map(one => String(one.key))),
     )
     const loose = activeGroup.sessions.filter(
       (summary) => !roomKeys.has(String(sessionKey(summary.runtime, summary.id))),
@@ -1551,7 +1559,7 @@ export const SessionTree = ({ now }: { now: number }) => {
        and a loose copy — would make the tree's own count disagree with
        itself, and there would be no way to tell which of them was the one
        that could be dragged, pinned or deleted. */
-    const inRooms = new Set(allRooms.flatMap((room) => room.members.map(String)))
+    const inRooms = new Set(allRooms.flatMap((room) => teamSeats(snapshot.goals.get(room.id), room, goalRunOf(room.id, snapshot.goals.get(room.id), snapshot.flowExecutions)).map(one => String(one.key))))
     const loose = group.sessions.filter(
       (summary) => {
         const key = String(sessionKey(summary.runtime, summary.id))

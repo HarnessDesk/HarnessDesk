@@ -1,11 +1,11 @@
 /**
  * Portable Overview contract (also the contract for the later client selector):
  * SeatState = 'needs-you' | 'unread' | 'working' | 'idle'.
- * SeatRow = { seat, name, role, card: { id, title } | null, round, state,
+ * SeatRow = { seat, name, role, card: { id, title } | null, round, state, done,
  *             reason, doing, since, cost: { unit: 'money' | 'turns', value, estimated } | null }.
  * NeedsYouItem = { kind: 'card' | 'question' | 'approval', seat, card, summary, since }.
  * RunStrip = { run, state: 'running' | 'settled' | 'stopped' | 'stalled', round,
- *              role, startedAt, reviewRounds: { used, of } | null, total: { money, turns } }.
+ *              role, startedAt: number | null, reviewRounds: { used, of } | null, total: { money, turns } }.
  * teamOverview(TeamOverviewInput) -> { run: RunStrip | null, needsYou: NeedsYouItem[], seats: SeatRow[] }.
  * doingLine(DoingLine | null, string | null, epochMilliseconds) -> DoingLine { line, at }.
  * Nullable facts stay null. All timestamps are epoch milliseconds. No store,
@@ -13,7 +13,7 @@
  * the seat's nickname or RuntimeInfo.presentation. Unread marks belong to the
  * window. The caller supplies the run's start time: FlowExecution has none.
  * InsightMetric.basis carries rate provenance; quality/coverage qualify it.
- * Channel signals retain hand-block ownership when a release clears a claim.
+ * Channel signals retain hand-block and completion ownership after claims clear.
  * Historical seat money uses supplied runtime capabilities; unknown metering
  * stays unknown. Run turns use the Team total, money only eligible seat rows.
  * Text remains plain data; consumers render agent text through sanitize.ts.
@@ -45,6 +45,7 @@ export interface SeatRow {
   card: { id: number; title: string } | null
   round: number | null
   state: SeatState
+  done: boolean
   reason: string | null
   doing: string | null
   since: number | null
@@ -64,7 +65,7 @@ export interface RunStrip {
   state: 'running' | 'settled' | 'stopped' | 'stalled'
   round: number | null
   role: string | null
-  startedAt: number
+  startedAt: number | null
   reviewRounds: { used: number; of: number } | null
   total: { money: number | null; turns: number | null }
 }
@@ -83,7 +84,7 @@ export interface TeamOverviewInput {
   readonly team: string
   readonly seats: readonly TeamOverviewSeat[]
   readonly cards: readonly Intent[]
-  readonly run: { readonly execution: FlowExecution; readonly startedAt: number } | null
+  readonly run: { readonly execution: FlowExecution; readonly startedAt: number | null } | null
   readonly report: InsightReport | null
   /** Held channel signals in append order, including card lifecycle transitions. */
   readonly signals?: readonly TeamSignal[]
@@ -151,6 +152,17 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
   const ownerOf = (card: Intent): TeamOverviewSeat | undefined => {
     if (card.claim) return input.seats.find((seat) =>
       seat.record.session.runtime === card.claim?.runtime && seat.record.session.sessionId === card.claim?.sessionId)
+    if (card.state === 'done') {
+      // Completion clears the claim, including on manual cards and earlier
+      // Runs whose seat/card journal is not the current Run's. Metadata writes
+      // and refused claims do not supersede the completing actor.
+      const signal = [...(input.signals ?? [])].reverse().find((one) =>
+        one.intent === card.id && one.signal !== 'conflict')
+      if (signal && signal.signal !== 'completed') return undefined
+      const actor = signal?.by
+      if (actor?.kind === 'agent') return input.seats.find((seat) =>
+        seat.record.session.runtime === actor.runtime && seat.record.session.sessionId === actor.sessionId)
+    }
     if (card.state === 'blocked' && card.blockedBy === 'hand') {
       // Stop capture and other metadata writes advance updatedAt without
       // changing the block. Only a later lifecycle transition supersedes it;
@@ -201,7 +213,10 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
       return dependency !== undefined && dependency.state !== 'done'
     }) : []
     const latest = session ? inFlightItem(session) : undefined
+    const held = input.cards.filter(one => ownerOf(one)?.record.id === seat.record.id)
+    const done = state === 'idle' && held.length > 0 && held.every(one => one.state === 'done')
     return {
+      done,
       seat: seat.record.id, name: seat.name, role: card?.role ?? round?.role ?? seat.record.role,
       card: card ? { id: card.id, title: card.title + (dependencies.length ? ` · after ${dependencies.map((id) => `#${id}`).join(', ')}` : '') } : null,
       round: round?.n ?? null, state, reason: blocked?.blockedReason ?? waiting?.summary ?? null,
