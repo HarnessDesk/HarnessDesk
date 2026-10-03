@@ -81,7 +81,7 @@ export const flowMethods = {
    * makes, and the token this mints authorizes only the exact text and
    * inputs it was taken of.
    */
-  'flow/preview': (ctx, params) => ctx.flowPreviews.preview(params.root, params.source, params.vars, params.retry),
+  'flow/preview': (ctx, params) => ctx.flowPreviews.preview(params.root, params.source, params.vars, params.retry, undefined, { seats: params.seats, attended: params.attended }),
 
   /**
    * The only v2 call that spends anything. Redeems the token first — a
@@ -92,7 +92,7 @@ export const flowMethods = {
    */
   'flow/start-goal': async (ctx, params) => {
     if (ctx.flowPreviews.retryTarget(params.token)) throw new Error(CHANGED_PREVIEW)
-    const redeemed = await ctx.flowPreviews.redeem(params.token, params.root, params.source, params.vars ?? {})
+    const redeemed = await ctx.flowPreviews.redeem(params.token, params.root, params.source, params.vars ?? {}, { seats: params.seats, attended: params.attended })
     if (!redeemed) throw new Error(CHANGED_PREVIEW)
     /* The held-seat policy and the reused Goal are the token's, never the
        request's: a front-door token started without its Goal, or with another,

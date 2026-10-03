@@ -528,3 +528,60 @@ test('retrying one finished check uses its frozen policy even if its earlier Age
   assert.deepEqual(preview.seats, [])
   assert.ok(await previews.redeem(preview.token!, '/repo', FLOW, {}))
 })
+
+test('seat overrides compile per card without rewriting the file, and bind the token with attendance', async () => {
+  const state = rig()
+  const seen: { seats: readonly FlowSeat[]; unattended: boolean }[] = []
+  state.port.previewAgent = async (_root, agent, seats, _grant, options) => {
+    seen.push({ seats, unattended: options?.unattended === true })
+    return { id: agent, from: 'prefer', winner: 0, blocked: null, ceiling: { level: 'read', hold: 'held' }, candidates: [{ seat: seats[0] ?? { runtime: 'alpha' }, label: 'Demo', runtimeName: 'Demo', state: 'taken', reason: null, fix: null }] }
+  }
+  const previews = new FlowPreviews(state.port)
+  const source = FLOW.replace('uses: writer', 'uses: writer, count: 2, grant: read, seats: [alpha]')
+  const options = { seats: { author: [{ runtime: 'beta', effort: 'high' }, { runtime: 'gamma' }] }, attended: false }
+  const preview = await previews.preview('/repo', source, {}, undefined, undefined, options)
+  assert.ok(preview.token, JSON.stringify(preview.problems))
+  assert.deepEqual(seen.map(one => one.seats), options.seats.author.map(seat => [seat]))
+  assert.ok(seen.every(one => one.unattended))
+  assert.deepEqual(preview.overrides?.author, { file: [{ runtime: 'alpha' }], run: options.seats.author })
+  assert.equal(preview.attended, false)
+  const role = preview.compiled.document.flow.roles[0]
+  assert.ok(role?.kind === 'agent')
+  assert.deepEqual(role.seats, [{ runtime: 'alpha' }])
+  assert.equal(await previews.redeem(preview.token, '/repo', source, {}, { ...options, attended: true }), null)
+  const second = await previews.preview('/repo', source, {}, undefined, undefined, options)
+  assert.equal(await previews.redeem(second.token!, '/repo', source, {}, { ...options, seats: { author: [{ runtime: 'alpha' }] } }), null)
+  const third = await previews.preview('/repo', source, {}, undefined, undefined, options)
+  const accepted = await previews.redeem(third.token!, '/repo', source, {}, options)
+  assert.ok(accepted)
+  assert.deepEqual(accepted.overrides, options.seats)
+  assert.equal(accepted.attended, false)
+  assert.equal(await previews.redeem(third.token!, '/repo', source, {}, options), null)
+})
+
+test('overrides refuse unknown and non-agent roles and malformed seats as preview problems', async () => {
+  const previews = new FlowPreviews(rig().port)
+  const source = FLOW + '\n' // gate is a check; approval is a person
+  const withPerson = source.replace('  gate:', '  approval: { kind: person, outcomes: [yes] }\n  gate:')
+  const choices: Record<string, readonly FlowSeat[]>[] = [{ missing: [{ runtime: 'alpha' }] }, { gate: [{ runtime: 'alpha' }] }, { approval: [{ runtime: 'alpha' }] }, { author: [{ runtime: '' }] }]
+  for (const seats of choices) {
+    const result = await previews.preview('/repo', withPerson, {}, undefined, undefined, { seats })
+    assert.equal(result.token, null)
+    assert.ok(result.problems.some((one: { level: string }) => one.level === 'error'))
+  }
+})
+
+test('unattended preview uses the same seating policy as a trigger freeze, and snapshots caller options', async () => {
+  const state = rig()
+  state.port.previewAgent = async (_root, agent, _seats, _grant, options) => ({ id: agent, from: 'prefer', winner: null, blocked: options?.unattended ? 'This ceiling can only be asked.' : null, ceiling: null, candidates: [] })
+  const previews = new FlowPreviews(state.port)
+  const unattended = await previews.preview('/repo', FLOW, {}, undefined, undefined, { attended: false })
+  const trigger = await previews.freeze('/repo', FLOW, { unattended: true })
+  assert.equal(unattended.token, null)
+  assert.deepEqual(unattended.problems, trigger.problems)
+  const other = new FlowPreviews(rig().port)
+  const options = { seats: { author: [{ runtime: 'alpha' }] }, attended: false }
+  const preview = await other.preview('/repo', FLOW, {}, undefined, undefined, options)
+  options.seats.author[0]!.runtime = 'beta'
+  assert.equal(await other.redeem(preview.token!, '/repo', FLOW, {}, options), null, 'mutating the request cannot mutate the authority')
+})

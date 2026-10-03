@@ -1202,12 +1202,16 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'flow/catalog': goalShape({ root: isString }),
   'flow/source': goalShape({ root: isString, id: isFilled, origin: optional(literalUnion('project', 'user', 'builtin')) }),
   'flow/preview': goalShape({
+    seats: optional(recordOf(arrayOf(goalShape({ runtime: isFilled, model: optional(isString), effort: optional(isString), thinking: optional(isBoolean) })))),
+    attended: optional(isBoolean),
     root: isString,
     source: atMost(256 * 1024),
     vars: optional(recordOf(isString)),
     retry: optional(shape({ run: isFilled, card: goalInteger(1) })),
   }),
   'flow/start-goal': goalShape({
+    seats: optional(recordOf(arrayOf(goalShape({ runtime: isFilled, model: optional(isString), effort: optional(isString), thinking: optional(isBoolean) })))),
+    attended: optional(isBoolean),
     root: isString,
     source: atMost(256 * 1024),
     token: isFilled,
