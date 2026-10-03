@@ -613,6 +613,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
       {stopping && (
         <StopWork
           intent={stopping}
+          record={record}
           onClose={() => setStopping(null)}
           onStop={(reason) => {
             act(stopping.id, 'block', reason)
@@ -625,6 +626,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
           unseen={asking.unseen}
           card={asking.card}
           busy={starting}
+          record={record}
           onRun={() =>
             runCheck(asking.card, asking.unseen.check.name, {
               seen: asking.unseen.check.run,
@@ -687,10 +689,13 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
  */
 const StopWork = ({
   intent,
+  record,
   onClose,
   onStop,
 }: {
   intent: Intent
+  /** The Team wrapped while this was open — a Run that ends wraps its Team, under whoever is stopping a card (#1317). */
+  record: boolean
   onClose: () => void
   onStop: (reason: string) => void
 }) => {
@@ -701,7 +706,7 @@ const StopWork = ({
       onClose={onClose}
       footer={
         <>
-          <Button variant="default" onClick={() => onStop(reason)}>
+          <Button variant="default" disabled={record} title={record ? RECORD_REASON : undefined} onClick={() => onStop(reason)}>
             Stop it
           </Button>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
@@ -731,11 +736,12 @@ const StopWork = ({
             placeholder="Waiting on the rename"
             onChange={(event) => setReason(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') onStop(reason)
+              if (event.key === 'Enter' && !record) onStop(reason)
             }}
           />
         )}
       </Field>
+      {record && <Note>{RECORD_REASON}</Note>}
     </Dialog>
   )
 }
@@ -833,7 +839,7 @@ const IntentCard = ({
   }
 
   const confirmReview = async (): Promise<void> => {
-    if (!reviewDialog?.selected || !reviewDialog.answer) return
+    if (!reviewDialog?.selected || !reviewDialog.answer || isRecord(store.getSnapshot().goals.get(room))) return
     setReviewDialog({ ...reviewDialog, pending: true, error: null })
     try {
       await store.decideFlowReview(reviewDialog.run, intent.id, reviewDialog.selected, reviewDialog.answer)
@@ -1203,12 +1209,15 @@ const IntentCard = ({
         footer={(
           <>
             <Button variant="quiet" onClick={() => setReviewDialog(null)}>Cancel</Button>
-            <Button variant="default" disabled={!reviewDialog.selected || !reviewDialog.answer || reviewDialog.pending} onClick={() => void confirmReview()}>
+            <Button variant="default" disabled={!reviewDialog.selected || !reviewDialog.answer || reviewDialog.pending || record} title={record ? RECORD_REASON : undefined} onClick={() => void confirmReview()}>
               {reviewDialog.pending ? 'Saving…' : 'Record answer'}
             </Button>
           </>
         )}
       >
+        {/* A Run that ends wraps its Team, even under a person who has an attempt chosen: the answer would be added
+            to a record (#1317). */}
+        {record && <Note>{RECORD_REASON}</Note>}
         {reviewDialog.error && <Note tone="bad">{reviewDialog.error}</Note>}
         {reviewDialog.pending && reviewDialog.candidates.length === 0
           ? <Note>Loading attempts…</Note>

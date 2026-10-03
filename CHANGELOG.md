@@ -12,7 +12,12 @@ move is real work and is not news to a person weighing an upgrade.
   conversations and the Run. Older receipts keep Seats without a retained
   conversation visible. Composers and work-dispatching controls say “This Team
   is wrapped”, and the host refuses new sends, steers, queued work, reviews and
-  compaction too; the conversation's menus say so rather than offer them.
+  compaction too; the conversation's menus say so rather than offer them. A
+  question already open when a Run ends and wraps its Team — deciding a run or
+  a finding, posting to the pull request, running a check, stopping, adding,
+  handing out, assigning or answering a card, seating an Agent, wrapping —
+  stays where it is with its final action off and the same reason, rather than
+  offer what the host would refuse.
 
 HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
 

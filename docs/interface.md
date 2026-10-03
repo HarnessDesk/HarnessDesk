@@ -857,7 +857,9 @@ use a Seat's kept answer to find its conversation; a Seat without one says
 **Conversation not kept**. These conversations remain readable, with their
 composer disabled: **This Team is wrapped**. Adding, assigning, answering,
 posting and running checks are disabled with that same reason, as are a
-conversation's **Compact now** and **Review uncommitted changes**.
+conversation's **Compact now** and **Review uncommitted changes**. A question
+already open when a Run ends and wraps its Team stays on screen with what was
+typed in it, its final action disabled and the same reason beside it.
 A receipt's Citations row opens each memory citation's own retained detail in
 a dialog, the same read-only view a project's Memory section opens.
 

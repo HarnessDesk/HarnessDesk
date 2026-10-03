@@ -556,6 +556,7 @@ const Preview = () => {
           unseen={PREVIEW_UNSEEN}
           card={2}
           busy={false}
+          record={false}
           onRun={() => setDialog('off')}
           onCancel={() => setDialog('off')}
         />

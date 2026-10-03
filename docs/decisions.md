@@ -1461,6 +1461,11 @@ reviews and compaction before reopening the conversation and again once it is
 open, and a queue draining after a wrap at delivery. A review or a compaction
 puts work into a conversation as surely as a send does, so they sit behind the
 same barrier, and the conversation menus that offered them show the same
-reason instead. Closed Seat history and receipt pointers preserve that refusal
-after restart. Run history remains a read; wrapping and deletion keep their
+reason instead. A Run that ends wraps its Team, so a Team can wrap under a
+person who already has a question open. That question reads the Team's state
+live rather than the data it opened with — a run's own view still says it is
+decidable — and stays on screen with its final action disabled and the reason
+beside it: closing it would throw away what was typed, and leaving it armed
+would offer what the host then refuses. Closed Seat history and receipt
+pointers preserve that refusal after restart. Run history remains a read; wrapping and deletion keep their
 existing lifecycles. This implements PR 18 of the approved Teams/Runs plan.

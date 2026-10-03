@@ -37,3 +37,33 @@ it('offers unfiltered loose same-project history and keeps refusal visible', asy
   expect(assignGoal).toHaveBeenCalledWith('g1', 4, { runtime: 'codex', sessionId: 'loose' })
   expect(document.body.textContent).toContain('became busy')
 })
+
+/* A Run that ends wraps its Team, even under a person who is choosing a
+   conversation for a card. The card is the Team's record by then, so what is
+   left of the choice is not an assignment (#1317, round 1). */
+it('stops assigning when the Team wraps while a conversation is chosen', async () => {
+  let snapshot = { ...emptySnapshot(), history: [summary('loose')], workspaces: [{ path: '/repo', name: 'repo', lastOpenedAt: 1 }], workspace: { path: '/repo', name: 'repo', lastOpenedAt: 1 } } as unknown as AppSnapshot
+  const listeners = new Set<() => void>()
+  const assignGoal = vi.fn(async () => {})
+  const store = {
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
+    getSnapshot: () => snapshot,
+    assignGoal,
+  } as unknown as AppStore
+  const onClose = vi.fn()
+  act(() => root.render(<StoreProvider store={store}><GoalAssign view={goal} card={4} onClose={onClose} /></StoreProvider>))
+  act(() => document.querySelector<HTMLButtonElement>('[role="radio"]')!.click())
+  const assign = (): HTMLButtonElement => [...document.querySelectorAll('button')].find(one => one.textContent === 'Assign')! as HTMLButtonElement
+  expect(assign().disabled).toBe(false)
+  expect(document.body.textContent).not.toContain('This Team is wrapped')
+
+  snapshot = { ...snapshot, goals: new Map([['g1', { goal: { state: 'wrapped' } } as unknown as GoalView]]) }
+  act(() => listeners.forEach((listener) => listener()))
+
+  expect(assign().disabled).toBe(true)
+  expect(assign().title).toBe('This Team is wrapped')
+  expect(document.body.textContent).toContain('This Team is wrapped')
+  await act(async () => { assign().click() })
+  expect(assignGoal).not.toHaveBeenCalled()
+  expect(onClose).not.toHaveBeenCalled()
+})

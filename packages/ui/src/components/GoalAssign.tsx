@@ -5,6 +5,7 @@ import { sessionKey, splitSessionKey, type GoalView, type SessionKey } from '@ha
 import { Button, Dialog, Note, RowChoice, Rows } from '../design'
 import { groupByProject } from '../lib/projects'
 import { sessionLabel } from '../lib/sessions'
+import { isRecord, RECORD_REASON } from '../lib/team-record'
 import { useSnapshot, useStore } from '../state/context'
 
 export const GoalAssign = ({
@@ -18,6 +19,9 @@ export const GoalAssign = ({
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  /* A Run that ends wraps its Team, even under a person who is choosing a conversation for a card: the card is its
+     record by then, so what is left of the choice is not an assignment (#1317). */
+  const record = isRecord(snapshot.goals.get(view.goal.id) ?? view)
   const [choice, setChoice] = useState<SessionKey | null>(null)
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
@@ -31,7 +35,7 @@ export const GoalAssign = ({
   }, [snapshot.history, snapshot.workspace, snapshot.workspaces, view.goal.root, view.members])
 
   const assign = async (): Promise<void> => {
-    if (choice === null || busy) return
+    if (choice === null || busy || record) return
     setBusy(true)
     setProblem(null)
     try {
@@ -52,7 +56,7 @@ export const GoalAssign = ({
       onClose={onClose}
       footer={
         <>
-          <Button disabled={choice === null || busy} onClick={() => void assign()}>Assign</Button>
+          <Button disabled={choice === null || busy || record} title={record ? RECORD_REASON : undefined} onClick={() => void assign()}>Assign</Button>
           <Button variant="secondary" disabled={busy} onClick={onClose}>Cancel</Button>
         </>
       }
@@ -76,6 +80,7 @@ export const GoalAssign = ({
             })}
         </Rows>
       ) : <Note>Every available conversation in this project is already seated or working.</Note>}
+      {record ? <Note>{RECORD_REASON}</Note> : null}
       {problem ? <Note tone="bad">{problem}</Note> : null}
     </Dialog>
   )

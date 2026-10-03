@@ -111,6 +111,7 @@ export const FindingPublications = ({ goal, run, stamp }: { readonly goal: strin
               <Button
                 variant="default"
                 disabled={record || pending !== null || why.trim() === ''}
+                title={record ? RECORD_REASON : undefined}
                 onClick={() => void act(skipping.key, { kind: 'skip', key: skipping.key, reason: why.trim() }).then((done) => { if (done) setSkipping(null) })}
               >
                 {pending === skipping.key ? 'Working…' : 'Skip it'}
@@ -124,6 +125,7 @@ export const FindingPublications = ({ goal, run, stamp }: { readonly goal: strin
               It is not posted, and the Goal’s receipt says so with your reason. If it reached the pull request after all, where it landed is recorded instead.
             </Text>
             <Textarea aria-label="Reason" value={why} onChange={(event) => setWhy(event.target.value)} placeholder="Say why it is not posted." />
+            {record && <Note>{RECORD_REASON}</Note>}
           </div>
         </Dialog>
       )}
@@ -133,6 +135,7 @@ export const FindingPublications = ({ goal, run, stamp }: { readonly goal: strin
           tone="default"
           confirmLabel={`Post to #${view.backfill.pr}`}
           busy={pending === 'backfill'}
+          pending={record}
           onCancel={() => setPreviewing(false)}
           onConfirm={() => {
             const stampNow = view.backfill!.stamp
@@ -140,6 +143,7 @@ export const FindingPublications = ({ goal, run, stamp }: { readonly goal: strin
           }}
         >
           <div className="flex flex-col gap-1">
+            {record && <Note>{RECORD_REASON}</Note>}
             {view.backfill.rounds.map((one) => (
               <Text key={one.round} as="p" role="prose">
                 {`Round ${one.round}: ${plural(one.findings, 'finding', 'findings')} and ${plural(one.reviews, 'review', 'reviews')}`}

@@ -3,6 +3,7 @@ import { useMemo, useRef, useState } from 'react'
 import type { GoalReceipt, GoalView, WrapChoices, WrapPreview } from '@harnessdesk/protocol'
 
 import { Button, Dialog, Field, FormStack, Input, NativeSelect, Note, Row, Rows, Textarea } from '../design'
+import { isRecord, RECORD_REASON } from '../lib/team-record'
 import { useStore } from '../state/context'
 import { GoalReceipt as GoalReceiptView } from './GoalReceipt'
 
@@ -31,6 +32,9 @@ const firstChoice = (intent: Card): { readonly resolution: 'finished' | 'dropped
 
 export const GoalWrap = ({ view, onClose }: { readonly view: GoalView; readonly onClose: () => void }) => {
   const store = useStore()
+  /* A Run that ends wraps its Team too, even under a person who has the receipt open for review: wrapping a Team that
+     is wrapped is not a decision left to make, so the question stays and says so (#1317). `view` is the live Goal. */
+  const record = isRecord(view)
   const [edited, setDraft] = useState<WrapDraft>(() => ({ summary: '', cards: new Map(view.board.intents.map((intent) => [intent.id, firstChoice(intent)])) }))
   /* The cards are the Goal's as they are now: one added while this is open —
      the wrap is refused as unreviewed then — is one more to choose for, and
@@ -53,7 +57,7 @@ export const GoalWrap = ({ view, onClose }: { readonly view: GoalView; readonly 
     setPreview(null)
   }
   const review = async (): Promise<void> => {
-    if (!choices || pending.current) return
+    if (!choices || pending.current || record) return
     pending.current = true
     setBusy(true); setProblem(null)
     try { setPreview(await store.previewGoalWrap(view.goal.id, choices)) }
@@ -61,7 +65,7 @@ export const GoalWrap = ({ view, onClose }: { readonly view: GoalView; readonly 
     finally { pending.current = false; setBusy(false) }
   }
   const commit = async (): Promise<void> => {
-    if (!preview || !choices || pending.current) return
+    if (!preview || !choices || pending.current || record) return
     pending.current = true
     setBusy(true); setProblem(null)
     try {
@@ -81,12 +85,12 @@ export const GoalWrap = ({ view, onClose }: { readonly view: GoalView; readonly 
       onClose={onClose}
       footer={preview ? (
         <>
-          <Button disabled={busy} onClick={() => void commit()}>Wrap Goal</Button>
+          <Button disabled={busy || record} title={record ? RECORD_REASON : undefined} onClick={() => void commit()}>Wrap Goal</Button>
           <Button variant="secondary" disabled={busy} onClick={() => setPreview(null)}>Edit</Button>
         </>
       ) : (
         <>
-          <Button disabled={!choices || busy} onClick={() => void review()}>Review receipt</Button>
+          <Button disabled={!choices || busy || record} title={record ? RECORD_REASON : undefined} onClick={() => void review()}>Review receipt</Button>
           <Button variant="secondary" disabled={busy} onClick={onClose}>Cancel</Button>
         </>
       )}
@@ -119,6 +123,9 @@ export const GoalWrap = ({ view, onClose }: { readonly view: GoalView; readonly 
           </Rows>
         </FormStack>
       )}
+      {/* Not while this dialog's own wrap is in flight: the host says the Team is wrapped a moment before it answers,
+          and that is this question being answered, not a different one. */}
+      {record && !busy ? <Note>{RECORD_REASON}</Note> : null}
       {problem ? <Note tone="bad">{problem}</Note> : null}
     </Dialog>
   )

@@ -4,6 +4,7 @@ import type { AgentEntry, SeatPlan } from '@harnessdesk/protocol'
 
 import { ActionError, Button, ChoiceList, Dialog, FormStack, Note, Text } from '../design'
 import { agentName, firstReason, inForce, markFor, seatTaken } from '../lib/agents'
+import { isRecord, RECORD_REASON } from '../lib/team-record'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { BriefIcon } from './Icons'
@@ -22,6 +23,9 @@ export const AddMember = ({
   const store = useStore()
   const snapshot = useSnapshot()
   const goal = snapshot.goals.get(room)
+  /* A Run that ends wraps its Team, even under a person who is choosing an Agent to seat: a wrapped Team keeps the
+     Seats it had and takes no new one, and this was opened while it still did (#1317). */
+  const record = isRecord(goal)
   const [roster, setRoster] = useState<readonly AgentEntry[] | null>(null)
   const [plans, setPlans] = useState<ReadonlyMap<string, SeatPlan>>(new Map())
   const [agentId, setAgentId] = useState<string | null>(null)
@@ -53,7 +57,7 @@ export const AddMember = ({
     null
 
   const seat = async (): Promise<void> => {
-    if (!goal || !choice || busy) return
+    if (!goal || !choice || busy || record) return
     setBusy(true)
     setProblem(null)
     try {
@@ -73,7 +77,7 @@ export const AddMember = ({
       onClose={onClose}
       footer={(
         <>
-          <Button variant="default" disabled={busy || !goal || !choice} onClick={() => void seat()}>
+          <Button variant="default" disabled={busy || !goal || record || !choice} title={record ? RECORD_REASON : undefined} onClick={() => void seat()}>
             {busy ? 'Seating…' : 'Seat Agent'}
           </Button>
           <Button variant="secondary" disabled={busy} onClick={onClose}>Cancel</Button>
@@ -82,6 +86,7 @@ export const AddMember = ({
     >
       <FormStack>
         {!goal ? <ActionError>This Goal is no longer available. Read the project again.</ActionError> : null}
+        {record ? <Note>{RECORD_REASON}</Note> : null}
         <div className={styles.field}>
           <Text role="row">Its Agents, and the seat each would take here</Text>
           {roster === null ? <Text role="muted">Reading this project’s Agents…</Text> : (

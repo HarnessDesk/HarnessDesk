@@ -1523,7 +1523,9 @@ conversations, then an older receipt's answers; an unlinked Seat remains a
 face and name with **Conversation not kept**, without an opening action.
 Dispatching controls and both composers are disabled with **This Team is
 wrapped**, the conversation menu's **Compact now** and the branch chip's
-**Review uncommitted changes** among them. The sidebar keeps those conversations under its collapsed Wrapped
+**Review uncommitted changes** among them. A dialog open when the Team wraps
+stays open, with its final action disabled and a note carrying the same reason;
+Cancel still closes it. The sidebar keeps those conversations under its collapsed Wrapped
 group. The `team-record` catalogue board mounts the production pane with
 retained conversations, an older receipt, no Seats and a narrow rail; its
 preview also mounts the production sidebar.
