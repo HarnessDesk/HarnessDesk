@@ -633,11 +633,11 @@ the Overview draws, in the app's words, ordered by precedence.
 - [ ] Read `seat/activity` (`state`, and `doing` as `{ kind: 'tool', tool, target? }` or `{ kind: 'thinking' }`, null unless working) through `TeamOverviewSeat.activity` where the window has no session of its own, rendering it with `doingSentence` from `packages/protocol`; map its `seat` (`runtime:sessionId`) to the window's Seat ids through the Seat's session pointer. Map the desk's round states to the chips PR 7 defines.
 - [ ] Replay one scripted stream through the window and through the command line's `status` and `run show`, and assert they agree.
 
-**Not in this PR.** New views or controls; any change to the stream's shapes (those belong to the other session's PRs); any command-line surface other than `run show`.
+**Not in this PR.** New views or controls; any change to the stream's shapes (those belong to the other session's PRs); any command-line surface other than `run show`. The two reads in `CLIENT_METHODS` are the one change to the client door this PR may make, and only with the other session's agreement; without it the fallback above stands.
 
 **Verify.** The replay test; the existing component and browser specs unchanged; `pnpm verify`.
 
-**Done when.** The window's Overview and Run timeline derive from the shared selectors, the command line's `status` and `run show` and the window agree on the replay, and the window-only derivations are gone. The replay gives the window and `run show` the same `evidence` and `findings` inputs: the scripted check results and findings when the two reads are in `CLIENT_METHODS`, none when they are not (and the PR body says which).
+**Done when.** The window's Overview and Run timeline derive from the shared selectors, the command line's `status` and `run show` and the window agree on the replay, and the window-only derivations are gone. Parity is defined on what both print. When the two reads are in `CLIENT_METHODS`, the replay gives the window and `run show` the same scripted `evidence` and `findings` and they agree on every row. When they are not, `run show` has neither, the window keeps passing the `evidence` and `findings` its store already holds, and the replay compares the two on every row that needs neither (the start, the brief, rounds, cards, persons and the end; not the checks or the findings) and asserts that `run show` says what it leaves out. The PR body says which case it is.
 
 ---
 
