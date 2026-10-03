@@ -485,7 +485,7 @@ export const RailSurface = () => (
         <Sidebar
           onOpenSettings={() => {}}
           onOpenPlugins={() => {}}
-          onOpenAgents={() => {}}
+          onOpenTeams={() => {}} onOpenAgents={() => {}}
           onOpenUsage={() => {}}
           onBrowseFolders={() => {}}
           onSignIn={() => {}}
@@ -533,7 +533,7 @@ export const SeatRowsSurface = () => (
         <Sidebar
           onOpenSettings={() => {}}
           onOpenPlugins={() => {}}
-          onOpenAgents={() => {}}
+          onOpenTeams={() => {}} onOpenAgents={() => {}}
           onOpenUsage={() => {}}
           onBrowseFolders={() => {}}
           onSignIn={() => {}}
@@ -907,7 +907,7 @@ export const PanelsSurface = () => (
           <Sidebar
             onOpenSettings={() => {}}
             onOpenPlugins={() => {}}
-          onOpenAgents={() => {}}
+          onOpenTeams={() => {}} onOpenAgents={() => {}}
             onOpenUsage={() => {}}
             onBrowseFolders={() => {}}
             onSignIn={() => {}}

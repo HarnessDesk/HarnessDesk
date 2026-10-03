@@ -45,7 +45,7 @@ const mount = (): HTMLInputElement => {
         <Sidebar
           onOpenSettings={() => {}}
           onOpenPlugins={() => {}}
-          onOpenAgents={() => {}}
+          onOpenTeams={() => {}} onOpenAgents={() => {}}
           onOpenUsage={() => {}}
           onBrowseFolders={() => {}}
           onSignIn={() => {}}

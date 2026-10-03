@@ -9,6 +9,11 @@ move is real work and is not news to a person weighing an upgrade.
 
 HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
 
+- **Teams have one page, with attention first.** Teams in the left menu lists
+  work by project, its Seats and recorded usage. Active, Needs you and Settled
+  have counts; quiet settled work folds into Ready to wrap and leaves the
+  sidebar. Hide keeps it out of Active until it changes, without deleting it.
+
 - **Sidebar states read as quiet coloured text.** Working, Needs you and
   Approval keep their trailing alignment without a pill around them, giving
   conversation titles more room. Each label still folds to a dot for its row's

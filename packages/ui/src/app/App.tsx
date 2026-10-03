@@ -1,3 +1,4 @@
+import { TeamsWindow } from '../components/TeamsWindow'
 import { useCallback, useEffect, useState } from 'react'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
@@ -61,6 +62,7 @@ export const App = () => {
   // rail inside the window, through `onSection`. Held in both places, a
   // request naming the page this one already held could not move the window,
   // because nothing here changed and so neither did the prop.
+  const [teamsOpen, setTeamsOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState<false | Section>(false)
   // The thing the page was opened on. Keep it with the route until a person
   // chooses another Settings page or closes the window: clearing it in an
@@ -68,6 +70,7 @@ export const App = () => {
   // and Strict Mode could mount Workspaces only after the project was gone.
   const [settingsFocus, setSettingsFocus] = useState<string | null>(null)
   const openSettingsAt = useCallback((section: Section, focus: string | null) => {
+    setTeamsOpen(false)
     setSettingsOpen(section)
     setSettingsFocus(focus)
   }, [])
@@ -83,6 +86,7 @@ export const App = () => {
     // Top-level destinations replace one another. In particular, a project
     // Agent row lives inside Settings but opens the app's one Agents window;
     // leaving Settings underneath made Back return to the page it had left.
+    setTeamsOpen(false)
     setSettingsOpen(false)
     setSettingsFocus(null)
     setAgentsOpen({ focus: focus ?? null })
@@ -116,7 +120,7 @@ export const App = () => {
    * way clicking that account in the old rail used to.
    */
   const [usageOpen, setUsageOpen] = useState<false | { view: DashboardView; scope: RuntimeId | null }>(false)
-  const openUsage = useCallback((runtime?: RuntimeId) => setUsageOpen(dashboardRouteFor(runtime)), [])
+  const openUsage = useCallback((runtime?: RuntimeId) => { setTeamsOpen(false); setUsageOpen(dashboardRouteFor(runtime)) }, [])
   // The review workspace opens from anywhere — the Changes panel, ⌘K —
   // through one event, the way the composer takes text.
   const [reviewOpen, setReviewOpen] = useState(false)
@@ -374,11 +378,14 @@ export const App = () => {
                 onOpenSettings={(section) => openSettingsAt(section ?? 'runtimes', null)}
                 onOpenPlugins={() => openSettingsAt('plugins', null)}
                 onOpenAgents={() => openAgents()}
+                onOpenTeams={() => {
+                  setSettingsOpen(false); setSettingsFocus(null); setAgentsOpen(false); setUsageOpen(false); setTeamsOpen(true)
+                }}
                 onOpenUsage={openUsage}
                 onBrowseFolders={chooseFolder}
                 onSignIn={(runtime) => setSignInOpen(runtime ?? true)}
                 onSearch={() => setPaletteOpen(true)}
-                activeDestination={agentsOpen ? 'agents' : usageOpen ? 'dashboard' : settingsOpen === 'plugins' ? 'plugins' : null}
+                activeDestination={teamsOpen ? 'teams' : agentsOpen ? 'agents' : usageOpen ? 'dashboard' : settingsOpen === 'plugins' ? 'plugins' : null}
               />
             }
           />
@@ -420,6 +427,7 @@ export const App = () => {
           onOpenPlanSettings={(runtime) => openSettingsAt('runtimes', runtime)}
         />
       )}
+      {teamsOpen && <TeamsWindow onClose={() => setTeamsOpen(false)} />}
       {agentsOpen && (
         <AgentsWindow
           focus={agentsOpen.focus}

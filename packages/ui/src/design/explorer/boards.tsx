@@ -276,7 +276,7 @@ const SidebarBoard = () => (
       <Mount with={fullSidebarStore}><ProductSidebar
         onOpenSettings={() => {}}
         onOpenPlugins={() => {}}
-        onOpenAgents={() => {}}
+        onOpenTeams={() => {}} onOpenAgents={() => {}}
         onOpenUsage={() => {}}
         onBrowseFolders={() => {}}
         onSignIn={() => {}}
@@ -308,7 +308,7 @@ const SidebarBoard = () => (
           <ProductSidebar
             onOpenSettings={() => {}}
             onOpenPlugins={() => {}}
-            onOpenAgents={() => {}}
+            onOpenTeams={() => {}} onOpenAgents={() => {}}
             onOpenUsage={() => {}}
             onBrowseFolders={() => {}}
             onSignIn={() => {}}
