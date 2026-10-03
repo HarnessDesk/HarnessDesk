@@ -10,6 +10,10 @@ import { Client, silent, start, stop } from './fixtures/harness.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 
 const load = async () => doorModule
+// A ceiling sized for a starved machine, not a wait: every wait below ends on the
+// state it waits for, so a passing run never reaches it (#1289). Windows that prove
+// nothing arrives stay short.
+const LOADED_MACHINE_MS = 30_000
 
 class Peer {
   readonly messages: any[] = []
@@ -34,8 +38,11 @@ class Peer {
   }
   hello(protocol = 1) { return this.call('client/hello', { client: { name: 'test', version: '1' }, protocol, pid: 42 }) }
   async until(predicate: () => boolean) {
-    for (let n = 0; n < 500; n++) { if (predicate()) return; await new Promise(r => setTimeout(r, 10)) }
-    assert.fail('notification did not arrive')
+    // Measured in time, not turns: on a loaded machine each 10ms timer fires late.
+    const started = Date.now()
+    while (Date.now() - started < LOADED_MACHINE_MS) { if (predicate()) return; await new Promise(r => setTimeout(r, 10)) }
+    if (predicate()) return
+    assert.fail(`notification did not arrive within ${Date.now() - started}ms`)
   }
 }
 
@@ -45,7 +52,8 @@ const rig = async (t: any) => {
   await mkdir(home)
   const h = await start({ catalogRefreshMs: 0 }, home)
   let door: doorModule.ClientDoor | null = null
-  t.after(async () => { await door?.close(); await stop(h); await rm(directory, { recursive: true, force: true }) })
+  // A stopped host can still be finishing a write under load, so removal retries rather than failing the test (#1289).
+  t.after(async () => { await door?.close(); await stop(h); await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) })
   const module = await load()
   door = await module.openClientDoor({ host: h.host, logger: silent, home, directory, hostVersion: '9.9.9' })
   assert.ok(door)
@@ -272,7 +280,9 @@ test('a failed hello stays unanswered as hello and records its failed result', a
   } })
   const peer = await Peer.open(door.socketPath)
   t.after(() => peer.socket.close())
-  const result = await Promise.race([peer.hello(), new Promise<null>(resolve => setTimeout(() => resolve(null), 300))])
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const result = await Promise.race([peer.hello(), new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), LOADED_MACHINE_MS) })])
+  clearTimeout(timer)
   assert.equal(result?.error.code, 'methodFailed')
   assert.equal((await peer.call('goal/list', {})).error.code, 'helloFirst')
 })
@@ -298,8 +308,7 @@ test('a notice raised while subscribe reads its baseline is delivered', async t 
   await h.host.teamPlane.notify({ where: 'inbox', title: 'During baseline' }, { runtime: h.runtime.info.id, sessionId: session.id })
   release()
   await subscribed
-  await new Promise(r => setTimeout(r, 40))
-  assert.ok(peer.messages.some(m => m.method === 'person/notice' && m.params.notice.title === 'During baseline'))
+  await peer.until(() => peer.messages.some(m => m.method === 'person/notice' && m.params.notice.title === 'During baseline'))
 })
 
 const holdNextRead = (host: Awaited<ReturnType<typeof start>>['host'], methodToHold = 'goal/list') => {
