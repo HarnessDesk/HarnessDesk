@@ -292,8 +292,10 @@ in scope after hello. `read` and `run` are granted by default; `answer`
 is granted only by the live per-desk preference or explicit scripted-desk
 environment switch. Catalogue/source/preview calls are reads; opening a project
 and starting or stopping a Flow require `run`. The person stop closes the
-round before interrupting its capable Seats; later turn completions fire no
-rule. `team/intent` admits only abandon at `run` and done at `answer`. A
+round before interrupting its capable Seats; a completion already queued, a
+round still being prepared and any later turn completion fire no rule and open
+no card, and a stop that fails to save queues what it held back again.
+`team/intent` admits only abandon at `run` and done at `answer`. A
 done requires the frozen Flow's live person role and a declared outcome.
 The shared board mutation preserves the first answer and its handoff, and
 client provenance is supplied by the door rather than wire params. A start redeems a single-use preview token

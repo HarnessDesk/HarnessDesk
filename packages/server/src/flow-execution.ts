@@ -700,6 +700,19 @@ class JournalWriteError extends Error {
   }
 }
 
+/**
+ * A person's Stop was accepted and has not yet been applied, so no card may
+ * open under it. Neither a failure of the run nor a reason to stall it: the
+ * Stop is about to end it, and should that Stop fail, `stop` queues the
+ * advance again.
+ */
+class StopPending extends Error {
+  constructor() {
+    super('This flow run is being stopped.')
+    this.name = 'StopPending'
+  }
+}
+
 /** A folder's real path, as the host compares folders; one that does not exist yet by its nearest real ancestor. */
 const realPathOf = async (path: string): Promise<string> => {
   try {
@@ -2620,6 +2633,8 @@ export class FlowExecutions {
     try {
       await this.#openRound(id, then, cause, dependsOn)
     } catch (error) {
+      // The Stop ahead of this step ends the run, saying why; this is not a round that could not open.
+      if (error instanceof StopPending) return
       const reason = error instanceof Error ? error.message : String(error)
       this.#port.log('a flow run could not open a round', { run: id, round: then.role, error: reason })
       // The run's own journal would not take a write: nothing outside the
@@ -2898,6 +2913,12 @@ export class FlowExecutions {
     const existing = run.rounds.find((one) => one.cause === cause.key)
     if (existing && existing.state !== 'opening') return existing
     if (run.state !== 'running') throw new Error(run.reason ?? 'This flow run is not running.')
+    /* Every rule a run fires, its seed, a trigger's later firing and a
+       half-opened round resumed arrive here, so this is where a Stop accepted
+       ahead of them is honoured: a successor card is the one thing a Stop must
+       never be followed by. It is checked again below, past everything this
+       step waits on, because a Stop can be accepted while it does. */
+    if (this.#stopRequests.has(id)) throw new StopPending()
     const ready = this.#port.canDispatch(run.goal)
     if (!ready.ok) throw new Error(ready.reason)
     const blocked = this.refusal(run.goal)
@@ -2974,6 +2995,11 @@ export class FlowExecutions {
         return error instanceof Error ? error : new Error(String(error))
       }
     }
+    /* Everything this step waits on before its cards — the round's journal
+       write, the check plan, the facts its cards name — is behind us, and
+       the cards are added without waiting again. A Stop accepted during any
+       of those waits is honoured here, before the first card exists. */
+    if (this.#stopRequests.has(id)) throw new StopPending()
     for (let index = 0; index < width; index += 1) {
       const vars = cardVars({
         flow: policy.name, run: id, room: board.name, repo: board.root, role: role.id, round: round.n, n: index + 1, count: width,
@@ -3823,6 +3849,7 @@ export class FlowExecutions {
   async stop(id: string, why = 'the person stopped this flow', by: 'person' | 'desk' = 'person'): Promise<FlowExecution> {
     const goal = this.#get(id).goal
     this.#stopRequests.set(id, (this.#stopRequests.get(id) ?? 0) + 1)
+    let ended = false
     try {
       this.interruptChecks(goal)
       const tasks = await this.#queue.within(id, async () => {
@@ -3834,11 +3861,22 @@ export class FlowExecutions {
       })
       // Completion uses this same queue: drain outside it, before Stop or wrap returns.
       await Promise.all(tasks)
-      return this.#projectExecution(this.#get(id))
+      const execution = this.#projectExecution(this.#get(id))
+      ended = true
+      return execution
     } finally {
       const pending = this.#stopRequests.get(id)! - 1
       if (pending === 0) this.#stopRequests.delete(id)
       else this.#stopRequests.set(id, pending)
+      /* A Stop that did not take leaves the run going, and what it held back —
+         a completion's rule, a round half opened — was only deferred: it is
+         owed its turn, and nothing else will bring it. Harmless when another
+         Stop is pending: that one ends the run, or fails and comes here. */
+      if (!ended) {
+        void this.#queue.within(id, () => this.#advance(id)).catch((error: unknown) => {
+          this.#port.log('a flow could not go on after its stop failed', { run: id, error: error instanceof Error ? error.message : String(error) })
+        })
+      }
     }
   }
 
