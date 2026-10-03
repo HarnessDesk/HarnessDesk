@@ -73,7 +73,7 @@ export const teamListRow = ({team,goal,execution,overview,total}: TeamListInput,
      : wrapped ? goal?.goal.updatedAt ?? null : null
  const round = overview.run
  const after = goal?.waitingOn?.length ? `After ${goal.waitingOn.map(one => one.sentence).join(' · ')}` : null
- const detail = wrapped ? null : waiting?.summary ?? blocked?.reason ?? execution?.pendingReleaseNote ?? after ?? execution?.reason ?? (round?.round !== null && round?.round !== undefined
+ const detail = wrapped ? null : waiting?.summary ?? blocked?.reason ?? execution?.pendingReleaseNote ?? after ?? execution?.reason ?? (!settled && round?.round !== null && round?.round !== undefined
   ? `Round ${round.round}${round.role ? ` · ${round.role}` : ''} · ${workingSeats.length} of ${seats.length} seats working` : null)
  // Usage refreshes and clock ticks do not unhide work. Identity, lifecycle and
  // observed attention do; these marks contain no transcript or command text.

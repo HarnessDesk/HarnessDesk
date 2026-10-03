@@ -18,6 +18,16 @@ for(const theme of ['light','dark'] as const) {
   const fold=frame.getByRole('button',{name:'Ready to wrap · 2'})
   await expect(fold).toHaveAttribute('aria-expanded','false');await fold.click()
   await expect(frame.locator('[data-team-row]')).toHaveCount(5)
+  for(const chip of await frame.locator('[data-team-row] [data-slot="chip"]').all()) {
+   await expect(chip).toHaveAttribute('data-variant','quiet')
+   const paint=await chip.evaluate(e=>{const css=getComputedStyle(e);return {background:css.backgroundColor,border:css.borderTopWidth,padding:css.paddingLeft}})
+   expect(paint).toEqual({background:'rgba(0, 0, 0, 0)',border:'0px',padding:'0px'})
+  }
+  for(const [id,turns] of [[0,21],[1,8],[2,137],[3,46],[4,92]]) {
+   await expect(frame.locator(`[data-team-row="team-${id}"]`)).toContainText(`${turns} turns`)
+  }
+  await expect(frame.locator('[data-team-row="team-3"] [data-slot="list-row-subtitle"]')).toHaveText('Review accepted the invoice rounding change.')
+  await expect(frame.locator('[data-team-row="team-4"] [data-slot="list-row-subtitle"]')).toHaveCount(0)
   const ready=frame.locator('[data-team-row="team-3"]')
   await ready.getByRole('button',{name:'Hide',exact:true}).click()
   await expect(frame.locator('[data-team-row]')).toHaveCount(4)
@@ -42,6 +52,11 @@ for(const theme of ['light','dark'] as const) {
     expect(await item.evaluate(e=>e.scrollWidth<=e.clientWidth+1)).toBe(true)
    }
    await expect(frame.getByRole('button',{name:'Needs you',exact:true})).toBeVisible()
+   const filters=await Promise.all(['Active','Needs you','Settled'].map(name=>frame.getByRole('button',{name,exact:true}).boundingBox()))
+   expect(filters.every(box=>box!==null)).toBe(true)
+   const inOneRow=filters.every(box=>Math.abs(box!.y-filters[0]!.y)<1)
+   const inOneColumn=filters.every(box=>Math.abs(box!.x-filters[0]!.x)<1)
+   expect(inOneRow||inOneColumn,`filters at ${width}px: ${JSON.stringify(filters)}`).toBe(true)
    for(const label of await frame.locator('[data-slot="sidebar-menu-label-content"]').all()) {
     const geometry=await label.evaluate(e=>({label:e.textContent,scroll:e.scrollWidth,width:e.clientWidth}))
     expect(geometry.scroll,JSON.stringify(geometry)).toBeLessThanOrEqual(geometry.width+1)

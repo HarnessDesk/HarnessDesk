@@ -67,3 +67,28 @@ it('shows the empty desk without inventing a Team',async()=>{
  expect(container.textContent).toContain('No active Teams')
  expect(container.querySelector('[data-team-row]')).toBeNull()
 })
+
+it('uses the sidebar quiet Chip treatment and state tones for both active and settled rows',async()=>{
+ const {teamsPageStore}=await import('../preview/teams-page-fixture')
+ await act(async()=>root.render(<StoreProvider store={teamsPageStore()}><AppWindowMode.Provider value="embedded"><TeamsWindow onClose={()=>{}}/></AppWindowMode.Provider></StoreProvider>))
+ await act(async()=>button('Ready to wrap').click())
+ const chips=[...container.querySelectorAll('[data-team-row] [data-slot="chip"]')]
+ expect(chips).toHaveLength(5)
+ expect(chips.map(chip=>[chip.textContent,chip.getAttribute('data-variant'),chip.getAttribute('data-tone')])).toEqual([
+  ['Needs you','quiet','warning'],['Needs you','quiet','warning'],['Working','quiet','info'],
+  ['Settled','quiet','neutral'],['Settled','quiet','neutral'],
+ ])
+})
+
+it('the rig has differing recorded turn totals consistent with its Seat partitions',async()=>{
+ const {teamsPageStore}=await import('../preview/teams-page-fixture')
+ const store=teamsPageStore()
+ const reports=await Promise.all([...store.getSnapshot().goals.keys()].map(id=>store.readGoalInsight(id)))
+ const turns=reports.map(report=>report.totals.turns.value)
+ expect(new Set(turns).size).toBe(5)
+ expect(turns.every(value=>value!==null&&value>0)).toBe(true)
+ for(const report of reports) {
+  const seats=report.breakdowns.find(group=>group.dimension==='seat')!
+  expect(seats.rows.reduce((sum,row)=>sum+(row.amounts.turns.value??0),seats.unattributed.turns.value??0)).toBe(report.totals.turns.value)
+ }
+})

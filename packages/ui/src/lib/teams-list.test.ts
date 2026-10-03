@@ -103,3 +103,10 @@ it('the window adapter preserves known Team totals when no Flow has run',async()
  const reports=new Map([['overview-team',overviewReport()]])
  expect(teamListRow(teamsInput(snapshot,reports)[0]!).total.turns).toBe(58)
 })
+
+it('settled rows show the recorded Run end reason or no second line, never live round counts',()=>{
+ const one=input('done','done')
+ expect(teamListRow(one)).toMatchObject({state:'settled',detail:null})
+ one.execution={...one.execution!,reason:'Review accepted the change.'}
+ expect(teamListRow(one).detail).toBe('Review accepted the change.')
+})

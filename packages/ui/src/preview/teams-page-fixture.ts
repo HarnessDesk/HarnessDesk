@@ -9,6 +9,7 @@ export const TEAMS_PAGE_STATES=['active','needs-you','settled','empty','pending'
 export type TeamsScene=typeof TEAMS_PAGE_STATES[number]
 const now=Date.now()
 const sentences=['Review the checkout retry','Choose the deployment target','Retry the checkout call on a 502','Keep the invoice rounding change','Finish the usage cache change']
+const turnTotals=[21,8,137,46,92]
 export const teamsPageStore=(scene:TeamsScene='active')=>{
  const teams=new Map<string,TeamState>()
  const goals=new Map<string,GoalView>();const sessions=new Map<SessionKey,Session>()
@@ -27,7 +28,7 @@ export const teamsPageStore=(scene:TeamsScene='active')=>{
   const goal={...old,goal:{...old.goal,id,root:project,cwd:project,sentence:board.name,createdAt:at,updatedAt:at,origin:{kind:'flow' as const,run:`${id}-run`}},board,members,activity:n===0||n===1?'needs-you' as const:n===2?'working' as const:'ready-to-wrap' as const}
   goals.set(id,goal);teams.set(id,board)
   const run=base.flowExecutions.get('overview-run')!
-  executions.set(`${id}-run`,{...run,id:`${id}-run`,goal:id,startedAt:at,endedAt:n>2||n===1?at:null,
+  executions.set(`${id}-run`,{...run,id:`${id}-run`,goal:id,startedAt:at,endedAt:n>2||n===1?at:null,reason:n===3?'Review accepted the invoice rounding change.':run.reason,
    rounds:run.rounds.map(round=>({...round,seats:round.seats.map(seat=>seat.replace('seat-',`${id}-seat-`))}))})
   for(const [index,record] of members.entries()) {
    const key=keys[index]!
@@ -36,7 +37,11 @@ export const teamsPageStore=(scene:TeamsScene='active')=>{
   }
   approvals.push(...base.approvals.map(entry=>({...entry,key:keys[1]!,approval:{...entry.approval,sessionId:members[1]!.session.sessionId as Session['id'],requestedAt:at}})))
   const report=overviewReport()
-  reports.set(id,{...report,goal:id,breakdowns:report.breakdowns.map(group=>({...group,rows:group.rows.slice(0,2).map((row,index)=>({...row,goal:id,seat:members[index]!.id,session:members[index]!.session}))}))})
+  const turns=turnTotals[n]!;const writerTurns=Math.ceil(turns*0.6)
+  reports.set(id,{...report,goal:id,totals:{...report.totals,turns:{...report.totals.turns,value:turns}},breakdowns:report.breakdowns.map(group=>({...group,
+   unattributed:{...group.unattributed,turns:{...group.unattributed.turns,value:0}},
+   rows:group.rows.slice(0,2).map((row,index)=>({...row,goal:id,seat:members[index]!.id,session:members[index]!.session,
+    amounts:{...row.amounts,turns:{...row.amounts.turns,value:index===0?writerTurns:turns-writerTurns}}}))}))})
  }
  const base=previewStore({teams:scene==='empty'?new Map():teams,goals:scene==='empty'?new Map():goals,flowExecutions:executions,sessions,history:[...sessions.values()],approvals,inbox:[],goalProblem:scene==='failed'?'The Team usage record could not be read':null,workspace:{path:'/work/storefront',name:'Storefront',lastOpenedAt:now},workspaces:[{path:'/work/storefront',name:'Storefront',lastOpenedAt:now},{path:'/work/billing',name:'Billing',lastOpenedAt:now}]})
  let state=base.getSnapshot()

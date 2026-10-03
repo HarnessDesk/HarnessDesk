@@ -67,7 +67,7 @@ export const TeamsWindow = ({onClose, initialFilter='active'}: {onClose:()=>void
      <Button variant="link" size="inline-link" className="min-w-0 flex-1 justify-start" onClick={()=>open(row)} title={words(row.sentence)}>
       {row.unread && <Dot aria-label="Unread changes" tone="info"/>}<Text role="row" truncate>{words(row.sentence)}</Text>
      </Button>
-     {['idle','settled','wrapped'].includes(row.state)?<Text role="meta" data-resting>{stateLabels[row.state]}</Text>:<Chip tone={row.state==='needs-you'?'warning':'neutral'}>{stateLabels[row.state]}</Chip>}
+     <Chip variant="quiet" tone={row.state==='needs-you'?'warning':['working','unread','wrapping'].includes(row.state)?'info':'neutral'}>{stateLabels[row.state]}</Chip>
     </div>}
     subtitle={row.detail?words(row.detail):undefined} wrapSubtitle
     trail={<div className="flex flex-wrap items-center gap-2">
