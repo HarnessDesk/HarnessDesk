@@ -13,6 +13,11 @@ export interface RunInspectorProps {
   selectedRow: string | null
   seats: readonly InspectorSeat[]
   publication?: FindingRoundPublication | null
+  /**
+   * Why a finding that is not here may still exist: the read of them is still `reading`, or it `failed`.
+   * Unset once every finding has been read. With no `input.findings` at all nothing has landed, so `reading`.
+   */
+  findingsRead?: 'reading' | 'failed'
 }
 
 import { Button, CodeText, GroupLabel, PaneColumn, PanelBody, PanelFrame, PanelTools, Text } from '../design'
@@ -41,7 +46,7 @@ const detailWords = (detail: string | null | undefined): string | null => {
 }
 
 /** Recorded detail only. No transcript copies, dispatch controls or guessed results. */
-export const RunInspector = ({ input, selectedRow, seats, publication }: RunInspectorProps) => {
+export const RunInspector = ({ input, selectedRow, seats, publication, findingsRead }: RunInspectorProps) => {
   const { execution, cards, evidence } = input
   const selected = runTimeline(input).rows.find(row => row.id === selectedRow)
   const round = execution.rounds.find(one => one.n === selected?.round)
@@ -50,9 +55,12 @@ export const RunInspector = ({ input, selectedRow, seats, publication }: RunInsp
   const seat = seats.find(one => one.id === selected?.seat)
   const findings = (input.findings ?? []).filter(one => one.origin.run === execution.id && one.origin.round === selected?.round
     && (selected?.kind === 'findings' || one.origin.card === selected?.card))
+  // None is only said of a read that is whole: until then, say what is happening to it instead.
+  const unread = findingsRead ?? (input.findings ? undefined : 'reading')
   const showFindings = <Section title="Findings">{findings.length ? findings.map(finding => <div key={finding.id} className="flex min-w-0 flex-col gap-1">
     <Words>{finding.title}</Words><Text role="meta">{lifecycleWords(finding)}</Text><Words>{finding.body}</Words>{finding.problem && <Words>{finding.problem}</Words>}
-  </div>) : <Words>No findings recorded</Words>}</Section>
+  </div>) : unread === 'reading' ? <Text role="meta" as="div">Reading findings…</Text>
+    : <Words>{unread === 'failed' ? 'Findings could not be read' : 'No findings recorded'}</Words>}</Section>
   const title = card ? `#${card.id} · ${card.title}` : selected?.kind === 'findings' ? 'Findings' : 'Run details'
   let body: ReactNode
   if (selected?.kind === 'check' && card && role?.kind === 'check' && role.check) {

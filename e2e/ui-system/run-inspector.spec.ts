@@ -22,6 +22,13 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(detail).toContainText('Keep the retry bounded and the last failure visible.')
       await expect(detail).not.toContainText('complete_claim')
     }
+    // A finding that is not read yet is not none: the card says it is reading, or that it could not read.
+    for (const [kind, words] of [['findings-reading', 'Reading findings…'], ['findings-failed', 'Findings could not be read']] as const) {
+      const unread = page.locator(`#run-inspector-${kind} [data-slot="run-inspector"]`)
+      await expect(unread).toContainText(words)
+      await expect(unread).not.toContainText('No findings recorded')
+    }
+    await expect(page.locator('#run-inspector-card [data-slot="run-inspector"]')).toContainText('Cap the attempts.')
     // A Run that recorded no budget says so; it never borrows a limit it was not given.
     for (const kind of ['empty', 'pending', 'failed', 'team']) {
       const summary = page.locator(`#run-inspector-${kind} [data-slot="run-inspector"]`)
@@ -31,7 +38,7 @@ for (const theme of ['light', 'dark'] as const) {
     const a = await timeline.boundingBox()
     const b = await inspector.boundingBox()
     expect(b!.x).toBeGreaterThanOrEqual(a!.x + a!.width)
-    for (const kind of ['run', 'card', 'check', 'person', 'findings', 'empty', 'pending', 'failed', 'team']) {
+    for (const kind of ['run', 'card', 'check', 'person', 'findings', 'findings-reading', 'findings-failed', 'empty', 'pending', 'failed', 'team']) {
       const detail = page.locator(`#run-inspector-${kind} [data-slot="run-inspector"]`)
       await expect(detail).toBeVisible()
       expect(await detail.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)

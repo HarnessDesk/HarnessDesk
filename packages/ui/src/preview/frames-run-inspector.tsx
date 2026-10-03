@@ -5,11 +5,13 @@ import { RunWorkspace } from '../components/RunWorkspace'
 import { runTimeline } from '../lib/run-timeline'
 import { runFixture, runTeamStore } from './run-view-fixture'
 
-export const RUN_INSPECTOR_STATES = ['run', 'card', 'check', 'person', 'findings', 'empty', 'pending', 'failed', 'narrow'] as const
+export const RUN_INSPECTOR_STATES = ['run', 'card', 'check', 'person', 'findings', 'findings-reading', 'findings-failed', 'empty', 'pending', 'failed', 'narrow'] as const
 export type InspectorScene = typeof RUN_INSPECTOR_STATES[number]
 export const RunInspectorExample = ({ scene }: { scene: InspectorScene }) => {
   const source = runFixture(scene === 'person' ? 'person' : scene === 'empty' ? 'empty' : 'running')
-  const input = { ...source, execution: { ...source.execution, base: { remote: 'origin', branch: 'main', at: 'abc123' },
+  // A card opened before its Goal's findings have been read, or when reading them failed: none is not said of either.
+  const unread = scene === 'findings-reading' ? 'reading' : scene === 'findings-failed' ? 'failed' : undefined
+  const input = { ...source, ...(unread ? { findings: undefined } : {}), execution: { ...source.execution, base: { remote: 'origin', branch: 'main', at: 'abc123' },
     ...(scene === 'run' ? { findings: { version: 1 as const, budget: { rounds: 3, withoutProgress: 2 }, closedRounds: [1, 2, 3], idleRounds: 1,
       progress: [], series: [], stopped: null, extraRound: { after: 3, count: 2, reason: 'Finish the bounded retry repair.' }, overrides: [], lastDecision: null } } : {}),
   },
@@ -20,11 +22,12 @@ export const RunInspectorExample = ({ scene }: { scene: InspectorScene }) => {
       'Finish this with complete_claim and an outcome of exactly one of: approved, request-changes.',
       'Finish this with complete_claim\'s split as well: the agreed split of files for the "writer" round, one list of path patterns for each of its 2 cards, in card order, no two overlapping. Each of those cards will own only its own list.',
     ].join('\n\n'), handoff: card.id === 1 ? 'Added three attempts with a bounded backoff. The checkout test covers the last failure.' : card.id === 2 ? 'The check passed; this package was not handed to the reviewer.' : card.id === 3 ? 'The retry loop needs a ceiling. Keep the last failure visible to the person.' : null, dependsOn: card.id === 3 ? [1] : [] })) }
-  const initial = scene === 'card' ? 'card-3-3' : scene === 'check' ? 'check-2-2' : scene === 'person' ? 'person-4-4' : scene === 'findings' ? 'findings-3' : null
+  const initial = scene === 'card' || unread ? 'card-3-3' : scene === 'check' ? 'check-2-2' : scene === 'person' ? 'person-4-4' : scene === 'findings' ? 'findings-3' : null
   const [selected, setSelected] = useState<string | null>(initial)
   return <RunWorkspace model={runTimeline(input)} number={1} selectedRow={selected} onSelect={setSelected}
-    pending={scene === 'pending'} problem={scene === 'failed' ? 'Review details could not be read.' : null}
-    inspector={{ input, publication: { round: 3, state: 'local', reason: 'Posting is off for this Team.', pr: null, cards: [3] },
+    pending={scene === 'pending' || scene === 'findings-reading'}
+    problem={scene === 'failed' ? 'Review details could not be read.' : scene === 'findings-failed' ? 'The desk did not answer. Check the connection and try again.' : null}
+    inspector={{ input, findingsRead: unread, publication: { round: 3, state: 'local', reason: 'Posting is off for this Team.', pr: null, cards: [3] },
       seats: [{ id: 'seat-0', name: 'Alpha', override: 'Balanced · Medium', cost: { unit: 'turns', value: 4, estimated: false }, onOpen: () => {} }, { id: 'seat-1', name: 'Beta', override: 'Careful · High', cost: { unit: 'money', value: 0.42, estimated: true }, onOpen: () => {} }],
     }} />
 }

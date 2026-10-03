@@ -181,6 +181,49 @@ it('still reads the limits a Run recorded', () => {
     expect(budgets).not.toContain('not recorded')
   } finally { view.close() }
 })
+const READING = 'Reading findings…'
+const UNREAD = 'Findings could not be read'
+const NONE = 'No findings recorded'
+it.each([
+  { name: 'have not landed', findings: undefined, findingsRead: undefined, shown: READING },
+  { name: 'have not landed and are being read', findings: undefined, findingsRead: 'reading' as const, shown: READING },
+  { name: 'have not landed and could not be read', findings: undefined, findingsRead: 'failed' as const, shown: UNREAD },
+  { name: 'were all read and there are none', findings: [], findingsRead: undefined, shown: NONE },
+  // None here yet is not none: the rest of them may be on a page still to come, or the read may have failed.
+  { name: 'are only partly read and none is here yet', findings: [], findingsRead: 'reading' as const, shown: READING },
+  { name: 'could not be read and none is here', findings: [], findingsRead: 'failed' as const, shown: UNREAD },
+])('says "$shown" for a card whose findings $name', ({ findings, findingsRead, shown }) => {
+  const view = render({ input: { ...runFixture(), findings }, findingsRead, selectedRow: 'card-3-3' })
+  try {
+    expect(sectionText(view.container, 'Findings')).toContain(shown)
+    for (const other of [READING, UNREAD, NONE]) if (other !== shown) expect(view.container.textContent).not.toContain(other)
+  } finally { view.close() }
+})
+// The findings row exists only because there are findings, and a card shows the ones that are its own.
+it.each([
+  ...[undefined, 'reading' as const, 'failed' as const].map(findingsRead => ({ selectedRow: 'card-3-3', findingsRead })),
+  ...[undefined, 'reading' as const, 'failed' as const].map(findingsRead => ({ selectedRow: 'findings-3', findingsRead })),
+])('shows the finding it has on $selectedRow when the read is $findingsRead', ({ selectedRow, findingsRead }) => {
+  const view = render({ input: runFixture(), findingsRead, selectedRow })
+  try {
+    expect(sectionText(view.container, 'Findings')).toContain('Cap the attempts.')
+    for (const placeholder of [READING, UNREAD, NONE]) expect(view.container.textContent).not.toContain(placeholder)
+  } finally { view.close() }
+})
+it('does not call a card’s findings none while the ones read so far are another card’s', () => {
+  const fixture = runFixture()
+  const view = render({ input: fixture, findingsRead: 'reading', selectedRow: 'card-1-1' })
+  try {
+    expect(sectionText(view.container, 'Findings')).toContain(READING)
+    expect(view.container.textContent).not.toContain('Cap the attempts.')
+    expect(view.container.textContent).not.toContain(NONE)
+  } finally { view.close() }
+  const read = render({ input: fixture, selectedRow: 'card-1-1' })
+  try {
+    expect(sectionText(read.container, 'Findings')).toContain(NONE)
+    expect(read.container.textContent).not.toContain(READING)
+  } finally { read.close() }
+})
 it('keeps markup literal and removes terminal escape sequences from handoffs and findings', () => {
   const fixture = runFixture()
   const unsafe = '<img src=x onerror="alert(1)">\u001b[31mred\u001b[0m\u001b]8;;https://example.com\u0007link\u001b]8;;\u0007'
