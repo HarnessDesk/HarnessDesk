@@ -148,8 +148,10 @@ test('topic baselines, replacement, scope, filtered broadcasts and request audit
   const peer = await Peer.open(door.socketPath)
   t.after(() => peer.socket.close())
   await peer.hello()
-  await peer.call('client/subscribe', { topics: ['waiting', 'teams', 'notices'], scope: { team: run.goal } })
+  const acknowledged = await peer.call('client/subscribe', { topics: ['waiting', 'teams', 'notices'], scope: { team: run.goal } })
   await peer.until(() => peer.messages.some(m => m.method === 'goal/changed'))
+  assert.deepEqual(acknowledged.result, { baseline: 3 })
+  assert.equal(peer.messages.slice(peer.messages.indexOf(acknowledged) + 1).filter(m => 'method' in m).length, acknowledged.result.baseline)
   assert.ok(peer.messages.some(m => m.method === 'team/changed'))
   assert.ok(peer.messages.some(m => m.method === 'flow/execution-changed'))
   assert.ok(!peer.messages.some(m => m.method === 'sync'))
@@ -208,8 +210,10 @@ test('waiting replays and resolves member approvals, without loose-session appro
   await peer.hello()
   const live = h.runtime.sessions.get(session.sessionId)!
   const approval = live.askApproval(approvalId('member'))
-  await peer.call('client/subscribe', { topics: ['waiting'], scope: { team: goal.goal.id } })
+  const acknowledged = await peer.call('client/subscribe', { topics: ['waiting'], scope: { team: goal.goal.id } })
   await peer.until(() => peer.messages.some(m => m.method === 'event' && m.params.event.type === 'approval/requested'))
+  assert.deepEqual(acknowledged.result, { baseline: 2 })
+  assert.equal(peer.messages.slice(peer.messages.indexOf(acknowledged) + 1).filter(m => 'method' in m).length, acknowledged.result.baseline)
   const call = h.host.call.bind(h.host)
   Object.defineProperty(h.host, 'call', { value: async (method: string, params: unknown) => {
     const result = await call(method as never, params as never)
@@ -419,7 +423,9 @@ for (const phase of ['before run read', 'during run read'] as const) {
     broadcast({ method: 'goal/activity', params: { goal: run.goal, previous: 'working',
       activity: 'needs-you', sentence: 'Latest Team' } })
     release()
-    assert.equal((await subscribed).ok, true)
+    const acknowledged = await subscribed
+    assert.equal(acknowledged.ok, true)
+    assert.deepEqual(acknowledged.result, { baseline: 3 })
     await peer.call('goal/list', {})
     assert.deepEqual(peer.messages.filter(m => m.method === 'flow/execution-changed').map(m => m.params.execution.state), [current.state])
     assert.deepEqual(peer.messages.filter(m => m.method === 'team/changed').map(m => m.params.state.intents[0].title), ['Latest card'])
@@ -650,7 +656,9 @@ for (const phase of ['before seat read', 'during seat read'] as const) {
     await entered
     if (phase === 'before seat read') { r.change('waiting'); r.change('working') }
     release()
-    assert.equal((await subscribing).ok, true)
+    const acknowledged = await subscribing
+    assert.equal(acknowledged.ok, true)
+    assert.deepEqual(acknowledged.result, { baseline: 1 })
     await peer.call('goal/list', {})
     assert.deepEqual(peer.messages.filter(m => m.method === 'seat/activity').map(m => m.params.state), ['working'])
     r.change('idle')

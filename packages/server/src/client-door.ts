@@ -317,7 +317,9 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
             for (const notification of consumed) consumedSnapshots.add(notification)
             subscription = next
             shownApprovals.clear()
-            send({ id, ok: true, result: null })
+            // ACK and the counted baseline remain contiguous in this queue step.
+            // Live notifications run afterward; they cannot interleave these frames.
+            send({ id, ok: true, result: { baseline: baseline.size + approvals.length } })
             for (const notification of baseline.values()) send(notification)
             for (const notification of approvals) send(notification)
           } else {

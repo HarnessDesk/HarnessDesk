@@ -192,7 +192,7 @@ const stub = async (t: TestContext, reconnectCode?: string, terminalState?: 'sta
       const request = JSON.parse(raw.toString())
       if (request.method === 'client/hello') { sawHello(); if (delayHello) return }
       const code = terminalState || reconnectCode && n === 1 ? null : reconnectCode ?? 'incompatible'
-      const result = request.method === 'client/hello' ? { protocolVersion: 1, hostVersion: 'demo', desk: { home, pid: process.pid, startedAt: 1 }, tiers: ['read'], methods: Object.keys(CLIENT_METHODS), runtimes: [] } : request.method === 'flow/execution' ? { id: request.params.run, goal: 'demo-team', document: { flow: { name: 'Demo', roles: [] } }, state: terminalState, rounds: [], reason: 'Synthetic stall' } : null
+      const result = request.method === 'client/hello' ? { protocolVersion: 1, hostVersion: 'demo', desk: { home, pid: process.pid, startedAt: 1 }, tiers: ['read'], methods: Object.keys(CLIENT_METHODS), runtimes: [] } : request.method === 'client/subscribe' ? { baseline: 0 } : request.method === 'flow/execution' ? { id: request.params.run, goal: 'demo-team', document: { flow: { name: 'Demo', roles: [] } }, state: terminalState, rounds: [], reason: 'Synthetic stall' } : null
       ws.send(JSON.stringify(code ? { id: request.id, ok: false, error: { code, message: 'Demo refusal' } } : { id: request.id, ok: true, result }))
     })
   }))

@@ -24,7 +24,7 @@ class Desk implements ClientTransport {
     this.requests.push(request)
     switch (request.method) {
       case 'client/hello': this.answer(request, { protocolVersion: 1, hostVersion: 'demo', desk: { home: '/tmp/demo', pid: 1, startedAt: 1 }, tiers: ['read'], methods: this.methods, runtimes: [] }); break
-      case 'client/subscribe': this.answer(request, null); for (const item of this.baseline) this.message(item); break
+      case 'client/subscribe': this.answer(request, { baseline: this.baseline.length }); for (const item of this.baseline) this.message(item); break
       case 'flow/execution': this.answer(request, this.runs.find(r => r.id === (request.params as { run: string }).run)); break
       case 'flow/executions': {
         const params = request.params as { team?: string }
@@ -287,4 +287,86 @@ test('an accepted reviews-only run scope recovers discovery on a later invalidat
   assert.deepEqual(observed.events.map(e => e.type), ['hello', 'gap', 'review.changed'])
   assert.equal(desk.sent('flow/execution').length, 2, 'a fresh notification permits one exact-run discovery read')
   assert.equal(desk.sent('flow/executions').length, 0, 'run scope never widens to other runs')
+})
+
+test('synced includes the initial review reads and copies their rounds', async t => {
+  const desk = new Desk(); desk.hold = true
+  const client = await open(desk); t.after(() => client.close())
+  let whole = false
+  const synced = client.synced().then(() => { whole = true })
+  await wait(() => desk.sent('finding/run').length === 1)
+  await flush(); assert.equal(whole, false)
+  desk.review(desk.sent('finding/run')[0]!, [round('posted')])
+  await synced
+  const before = client.snapshot()
+  assert.deepEqual(before.reviews, [{ run: 'run-1', rounds: [round('posted')] }])
+  const copy = client.snapshot()
+  ;(copy.reviews[0]!.rounds[0]!.cards as number[]).push(99)
+  copy.reviews.push({ run: 'other', rounds: [] })
+  assert.deepEqual(client.snapshot(), before)
+  desk.hold = false
+  desk.rounds = []
+  desk.finding(); await flush(); await flush()
+  assert.deepEqual(client.snapshot().reviews, [{ run: 'run-1', rounds: [] }])
+})
+
+test('a failed bootstrap review read emits notice and allows synced to finish', async t => {
+  const desk = new Desk(); desk.hold = true
+  const client = await open(desk); t.after(() => client.close())
+  const synced = client.synced()
+  await wait(() => desk.sent('finding/run').length === 1)
+  const request = desk.sent('finding/run')[0]!
+  desk.message({ id: request.id, ok: false, error: { code: 'methodFailed', message: 'Unavailable review' } })
+  await synced
+  assert.deepEqual(client.snapshot().reviews, [])
+  const observed = observe(client); client.close(); await observed.done
+  assert.ok(observed.events.some(event => event.type === 'notice' && event.text === 'Unavailable review'))
+})
+
+test('synced on a new gap waits for only the new subscription review reads', async t => {
+  const desk = new Desk(); desk.hold = true
+  const client = await open(desk); t.after(() => client.close())
+  await wait(() => desk.sent('finding/run').length === 1)
+  const stale = desk.sent('finding/run')[0]!
+  await client.call('client/subscribe', { topics: ['reviews'] })
+  let whole = false
+  const synced = client.synced().then(() => { whole = true })
+  await wait(() => desk.sent('finding/run').length === 2)
+  desk.review(stale, [round('uncertain')])
+  await flush(); assert.equal(whole, false)
+  desk.review(desk.sent('finding/run')[1]!, [round('local')])
+  await synced
+  assert.deepEqual(client.snapshot().reviews, [{ run: 'run-1', rounds: [round('local')] }])
+})
+
+test('a synchronous notification during review startup cannot complete synced early', async t => {
+  const desk = new Desk(); desk.hold = true
+  desk.baseline = [{ method: 'flow/execution-changed', params: { execution: run() } }]
+  const original = desk.send.bind(desk)
+  desk.send = request => {
+    if (request.method === 'finding/run') desk.message({ method: 'seat/activity', params: { goal: 'team-1', seat: 'demo:session-1', role: 'review', card: 1, state: 'working', doing: { kind: 'thinking' } } })
+    original(request)
+  }
+  const client = await open(desk, ['runs', 'reviews', 'seats']); t.after(() => client.close())
+  let whole = false
+  const synced = client.synced().then(() => { whole = true })
+  await wait(() => desk.sent('finding/run').length > 0)
+  await flush(); assert.equal(whole, false)
+  desk.review(desk.sent('finding/run')[0]!, [round()])
+  await synced
+})
+
+test('synced ignores a later live refresh after its initial review pass has arrived', async t => {
+  const desk = new Desk(); desk.hold = true
+  const client = await open(desk); t.after(() => client.close())
+  let whole = false
+  const synced = client.synced().then(() => { whole = true })
+  await wait(() => desk.sent('finding/run').length === 1)
+  desk.finding()
+  desk.review(desk.sent('finding/run')[0]!, [round('local')])
+  await wait(() => desk.sent('finding/run').length === 2)
+  await flush()
+  assert.equal(whole, true, 'later live reads do not hold the initial baseline')
+  await synced
+  assert.deepEqual(client.snapshot().reviews, [{ run: 'run-1', rounds: [round('local')] }])
 })

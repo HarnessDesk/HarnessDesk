@@ -10,6 +10,7 @@ class ScriptedTransport implements ClientTransport {
   closed: () => void = () => {}
   reply = true
   baseline: WireNotification[] = []
+  deferBaseline = false
   execution = run()
   methods = hello.methods
   onMessage(listener: (message: HostToClient) => void) { this.message = listener; return () => { this.message = () => {} } }
@@ -18,8 +19,8 @@ class ScriptedTransport implements ClientTransport {
     this.requests.push(request)
     if (request.method === 'client/hello') this.message({ id: request.id, ok: true, result: { ...hello, methods: this.methods } })
     else if (request.method === 'client/subscribe') {
-      this.message({ id: request.id, ok: true, result: null })
-      for (const notification of this.baseline) this.message(notification)
+      this.message({ id: request.id, ok: true, result: { baseline: this.baseline.length } })
+      if (!this.deferBaseline) for (const notification of this.baseline) this.message(notification)
     } else if (this.reply) this.message({ id: request.id, ok: true, result: request.method === 'flow/execution' ? this.execution : [] })
   }
   close() { this.closed() }
@@ -423,4 +424,113 @@ test('unacknowledged replacement timeout discards late scope data and reconnects
   for await (const event of client.events()) all.push(event)
   assert.deepEqual(all.map(e => e.type), ['hello', 'waiting', 'gap', 'waiting', 'end'])
   assert.ok(all.every(e => e.type !== 'waiting' || e.id === 'card:team-a:1'))
+})
+
+test('synced waits for every acknowledged baseline frame to be applied', async t => {
+  const transport = new ScriptedTransport()
+  transport.deferBaseline = true
+  transport.baseline = [execution(), cards(), team(), approval('one')]
+  const client = await connect({ transport: async () => transport, client: clientInfo, subscribe: { topics: ['runs', 'cards', 'teams', 'waiting'] } })
+  t.after(() => client.close())
+  let whole = false
+  const synced = client.synced().then(() => { whole = true })
+  await Promise.resolve(); assert.equal(whole, false)
+  for (const notification of transport.baseline.slice(0, -1)) transport.emit(notification)
+  await Promise.resolve(); assert.equal(whole, false)
+  transport.emit(transport.baseline.at(-1)!)
+  await synced
+  assert.equal(client.snapshot().approvals[0]?.approval.id, 'one')
+})
+
+test('snapshot copies all held plain data and follows updates and approval resolution', async t => {
+  const transport = new ScriptedTransport()
+  const activity: WireNotification = { method: 'seat/activity', params: { goal: 'team-1', seat: 'demo:session-1', role: 'person', card: 1, state: 'working', doing: { kind: 'tool', tool: 'Read', target: 'src/a.ts' }, since: 2 } }
+  transport.baseline = [execution(), cards(), team(), activity, approval('one')]
+  const client = await connect({ transport: async () => transport, client: clientInfo, subscribe: { topics: ['runs', 'cards', 'teams', 'seats', 'waiting'] } })
+  t.after(() => client.close())
+  await client.synced()
+  const before = client.snapshot(), snapshot = client.snapshot()
+  ;(snapshot.runs[0]!.document.flow as { name: string }).name = 'Changed'
+  ;(snapshot.boards[0]!.intents[0] as { title: string }).title = 'Changed'
+  ;(snapshot.teams[0]!.goal as { sentence: string }).sentence = 'Changed'
+  ;(snapshot.seats[0]!.doing as { target: string }).target = 'Changed'
+  ;(snapshot.approvals[0]!.approval as { summary: string }).summary = 'Changed'
+  snapshot.runs.length = 0
+  assert.deepEqual(client.snapshot(), before)
+  transport.emit({ method: 'goal/activity', params: { goal: 'team-1', activity: 'needs-you', previous: 'working', sentence: 'Updated' } })
+  transport.emit(cards({ ...board(), intents: [{ ...board().intents[0]!, title: 'Latest card' }] }))
+  transport.emit(resolved('one'))
+  const updated = client.snapshot()
+  assert.equal(updated.teams[0]?.goal.sentence, 'Updated')
+  assert.equal(updated.teams[0]?.activity, 'needs-you')
+  assert.equal(updated.teams[0]?.board.intents[0]?.title, 'Latest card')
+  assert.deepEqual(updated.approvals, [])
+  transport.baseline = []
+  await client.call('client/subscribe', { topics: [] })
+  await client.synced()
+  assert.deepEqual(client.snapshot(), { teams: [], runs: [], boards: [], seats: [], approvals: [], reviews: [] })
+})
+
+test('synced starts again after replacement and reconnect gaps', async t => {
+  const first = new ScriptedTransport(), second = new ScriptedTransport()
+  first.baseline = [team()]
+  second.baseline = [execution(run({ id: 'reconnected' }))]; second.deferBaseline = true
+  let opens = 0
+  const client = await connect({ transport: async () => ++opens === 1 ? first : second, client: clientInfo, subscribe: { topics: ['teams'] } })
+  t.after(() => client.close())
+  await client.synced()
+  first.deferBaseline = true
+  first.baseline = [execution()]
+  await client.call('client/subscribe', { topics: ['runs'] })
+  let whole = false
+  const replacement = client.synced().then(() => { whole = true })
+  await Promise.resolve(); assert.equal(whole, false)
+  first.emit(first.baseline[0]!)
+  await replacement
+  first.close()
+  const reconnected = client.synced().then(() => { whole = true })
+  whole = false
+  await waitFor(() => second.requests.some(r => r.method === 'client/subscribe'))
+  await Promise.resolve(); assert.equal(whole, false)
+  second.emit(second.baseline[0]!)
+  await reconnected
+  assert.deepEqual(client.snapshot().runs.map(run => run.id), ['reconnected'])
+})
+
+for (const shutdown of [true, false]) test(`synced resolves on clean end (${shutdown ? 'desk shutdown' : 'close'}) before the baseline ends`, async t => {
+  const transport = new ScriptedTransport()
+  transport.deferBaseline = true; transport.baseline = [team()]
+  const client = await connect({ transport: async () => transport, client: clientInfo, subscribe: { topics: ['teams'] } })
+  t.after(() => client.close())
+  const synced = client.synced()
+  if (shutdown) transport.emit({ method: 'host/shutdown', params: { reason: 'desk-closed' } })
+  else client.close()
+  await synced
+  await client.synced()
+})
+
+test('synced rejects with the same stream error when reconnect ends before synchronization', async t => {
+  const first = new ScriptedTransport(), second = new ScriptedTransport()
+  first.deferBaseline = true; first.baseline = [team()]
+  second.send = request => second.message({ id: request.id, ok: false, error: { code: 'incompatible', message: 'Cannot reconnect' } })
+  let opens = 0
+  const client = await connect({ transport: async () => ++opens === 1 ? first : second, client: clientInfo, subscribe: { topics: ['teams'] } })
+  t.after(() => client.close())
+  let failure: unknown
+  const synced = client.synced().catch(error => { failure = error })
+  first.close()
+  await synced
+  assert.ok(failure instanceof WireCallError && failure.code === 'incompatible')
+  await assert.rejects(client.synced(), error => error === failure)
+  await assert.rejects((async () => { for await (const _ of client.events()) {} })(), error => error === failure)
+})
+
+test('an older desk without baseline counts is refused instead of leaving synced pending', async () => {
+  const transport = new ScriptedTransport()
+  const original = transport.send.bind(transport)
+  transport.send = request => {
+    if (request.method === 'client/subscribe') transport.message({ id: request.id, ok: true, result: null })
+    else original(request)
+  }
+  await assert.rejects(connect({ transport: async () => transport, client: clientInfo, subscribe: { topics: ['teams'] } }), error => error instanceof WireCallError && error.code === 'deskTooOld')
 })

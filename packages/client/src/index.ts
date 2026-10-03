@@ -2,8 +2,11 @@ import {
   CLIENT_METHODS, CLIENT_PROTOCOL, sessionKey,
   type ClientMethodName, type ClientTier, type FindingRunView, type FlowExecution, type GoalActivity,
   type HostParams, type HostResult, type HostToClient, type Intent, type TeamState,
-  type SeatActivity, type FindingRoundPublication, type WireNotification, type WireRequest,
+  type SeatActivity, type FindingRoundPublication, type Approval, type GoalView, type RuntimeId, type SessionId, type WireNotification, type WireRequest,
 } from '@harnessdesk/protocol'
+
+import type { ClientSnapshot } from './views/snapshot.js'
+export type { ClientSnapshot } from './views/snapshot.js'
 
 /** Transport adapters exchange parsed wire envelopes; listeners return a detach function. */
 export interface ClientTransport {
@@ -39,6 +42,10 @@ export interface Client {
   notifications(): AsyncIterable<WireNotification>
   /** Buffered observation stream; consume once. It never delays calls or raw notifications. */
   events(): AsyncIterable<ClientEvent>
+  /** Wait for the current baseline and its review reads; repeat after a gap. */
+  synced(): Promise<void>
+  /** Detached plain-data copy of the held subscription state. */
+  snapshot(): ClientSnapshot
   close(): void
 }
 export interface ConnectOptions {
@@ -78,6 +85,10 @@ class Queue<T> implements AsyncIterable<T> {
 
 type EventBody = ClientEvent extends infer E ? E extends EventBase ? Omit<E, keyof EventBase> : never : never
 class Observation {
+  private teams = new Map<string, GoalView>()
+  private seats = new Map<string, SeatActivity>()
+  private approvals = new Map<string, { runtime: RuntimeId; sessionId: SessionId; approval: Approval }>()
+  private reviews = new Map<string, FindingRoundPublication[]>()
   private runs = new Map<string, FlowExecution>()
   private boards = new Map<string, TeamState>()
   private runValues = new Map<string, string>()
@@ -89,7 +100,15 @@ class Observation {
   constructor(private topics: ReadonlySet<string>, private readonly emit: (event: EventBody) => void) {}
   subscribe(subscription: HostParams<'client/subscribe'> | undefined) { this.topics = new Set(subscription?.topics ?? []) }
   reset() {
+    this.teams.clear(); this.seats.clear(); this.approvals.clear(); this.reviews.clear()
     this.runs.clear(); this.boards.clear(); this.runValues.clear(); this.cardValues.clear(); this.teamValues.clear(); this.seatValues.clear(); this.reviewValues.clear(); this.waiting.clear()
+  }
+  snapshot(): ClientSnapshot {
+    return structuredClone({
+      teams: [...this.teams.values()].map(view => ({ ...view, board: this.boards.get(view.board.id) ?? view.board })),
+      runs: [...this.runs.values()], boards: [...this.boards.values()], seats: [...this.seats.values()],
+      approvals: [...this.approvals.values()], reviews: [...this.reviews].map(([run, rounds]) => ({ run, rounds })),
+    })
   }
   private changed(cache: Map<string, string>, id: string, value: unknown): boolean {
     const key = JSON.stringify(value)
@@ -130,6 +149,7 @@ class Observation {
   }
   review(view: FindingRunView) {
     if (!this.topics.has('reviews')) return
+    this.reviews.set(view.run, [...view.rounds])
     for (const round of view.rounds) {
       if (this.changed(this.reviewValues, JSON.stringify([view.run, round.round]), [round.state, round.reason, round.pr, round.cards])) {
         this.emit({ type: 'review.changed', team: view.goal, run: view.run, ...round })
@@ -165,6 +185,7 @@ class Observation {
         break
       }
       case 'seat/activity': {
+        this.seats.set(JSON.stringify([notification.params.goal, notification.params.seat]), notification.params)
         const { goal, seat, role, card, state, doing, since } = notification.params
         if (this.topics.has('seats') && this.changed(this.seatValues, JSON.stringify([goal, seat]), [state, doing, card, role])) {
           this.emit({ type: 'seat.changed', team: goal, seat, role, card, state, doing, ...(since !== undefined ? { since } : {}) })
@@ -172,6 +193,7 @@ class Observation {
         break
       }
       case 'goal/changed': {
+        this.teams.set(notification.params.view.goal.id, notification.params.view)
         const { goal, activity, board } = notification.params.view
         this.boards.set(board.id, board)
         if (this.topics.has('teams') && this.changed(this.teamValues, goal.id, [activity, goal.sentence])) {
@@ -182,6 +204,8 @@ class Observation {
       }
       case 'goal/activity': {
         const { goal, activity, sentence } = notification.params
+        const view = this.teams.get(goal)
+        if (view) this.teams.set(goal, { ...view, activity, goal: { ...view.goal, sentence } })
         if (this.topics.has('teams') && this.changed(this.teamValues, goal, [activity, sentence])) this.emit({ type: 'team.changed', team: goal, activity, sentence })
         break
       }
@@ -189,11 +213,16 @@ class Observation {
         const { runtime, event } = notification.params
         if (event.type === 'approval/requested') {
           const item = event.approval
+          this.approvals.set(`approval:${runtime}:${item.sessionId}:${item.id}`, { runtime, sessionId: item.sessionId, approval: item })
           const summary = item.type === 'permission' ? item.summary : item.type === 'userInput' ? item.questions.map(q => q.question).join('\n') :
             item.type === 'elicitation' ? item.message : item.type === 'command' ? item.command : item.reason ?? 'File changes'
           this.setWaiting({ id: `approval:${runtime}:${item.sessionId}:${item.id}`, team: this.teamOf(runtime, item.sessionId),
             kind: item.type === 'userInput' || item.type === 'elicitation' ? 'question' : 'approval', seat: `${runtime}:${item.sessionId}`, summary })
-        } else if (event.type === 'approval/resolved') this.clearWaiting(`approval:${runtime}:${event.sessionId}:${event.approvalId}`)
+        } else if (event.type === 'approval/resolved') {
+          const key = `approval:${runtime}:${event.sessionId}:${event.approvalId}`
+          this.approvals.delete(key)
+          this.clearWaiting(key)
+        }
         break
       }
       case 'person/notice': {
@@ -215,6 +244,43 @@ export async function connect(options: ConnectOptions): Promise<Client> {
   let transport: ClientTransport | null = null
   let hello: HostResult<'client/hello'>
   let nextId = 1, generation = 0
+  let baselineRemaining: number | null = null, subscriptionSetup = true, synchronized = false
+  let reviewPending = 0
+  let streamError: WireCallError | undefined
+  const syncWaiters = new Set<{ resolve(): void; reject(error: WireCallError): void }>()
+  const settleSync = (error?: WireCallError) => {
+    for (const waiter of syncWaiters) { if (error) waiter.reject(error); else waiter.resolve() }
+    syncWaiters.clear()
+  }
+  const synced = (): Promise<void> => {
+    if (ended) return streamError ? Promise.reject(streamError) : Promise.resolve()
+    if (synchronized) return Promise.resolve()
+    return new Promise((resolve, reject) => syncWaiters.add({ resolve, reject }))
+  }
+  const checkSync = () => {
+    if (ended || !ready || subscriptionSetup || baselineRemaining !== 0) return
+    if (!reviewReady) startReviews()
+    if (reviewPending !== 0) return
+    synchronized = true
+    settleSync()
+  }
+  // Only bootstrap passes delay synchronization; later live refreshes keep streaming.
+  // A superseded pass cannot delay or complete the current subscription.
+  const beginSyncReview = () => {
+    const epoch = reviewEpoch
+    let completed = false
+    reviewPending++
+    return () => {
+      if (completed || epoch !== reviewEpoch) return
+      completed = true
+      reviewPending--
+      checkSync()
+    }
+  }
+  const trackReview = (work: () => Promise<void>) => {
+    const complete = beginSyncReview()
+    void work().finally(complete)
+  }
   let ended = false, ready = false, reconnecting = false, readyToReconnect = false
   let detach: (() => void)[] = []
   let retryTimer: ReturnType<typeof setTimeout> | undefined
@@ -223,13 +289,14 @@ export async function connect(options: ConnectOptions): Promise<Client> {
     resolve(value: unknown): void
     reject(error: WireCallError): void
     timer: ReturnType<typeof setTimeout>
-    acknowledged?: () => void
+    acknowledged?: (value: unknown) => void
   }>()
   const failCalls = () => {
     for (const call of pending.values()) { clearTimeout(call.timer); call.reject(new WireCallError('disconnected', 'The desk connection was lost.')) }
     pending.clear()
   }
   const drop = () => {
+    synchronized = false; baselineRemaining = null; subscriptionSetup = true
     invalidateReviews()
     ready = false
     transport = null
@@ -239,6 +306,8 @@ export async function connect(options: ConnectOptions): Promise<Client> {
   const finish = (reason: 'interrupted' | 'desk-closed' | 'error', error?: WireCallError) => {
     if (ended) return
     ended = true
+    streamError = error
+    settleSync(error)
     const current = transport
     drop()
     clearTimeout(retryTimer); wakeRetry?.()
@@ -253,7 +322,7 @@ export async function connect(options: ConnectOptions): Promise<Client> {
   }
   const deadlineError = (method: ClientMethodName) => new WireCallError('deadline', `The desk did not answer ${method} before its deadline.`)
   const request = <M extends ClientMethodName>(method: M, params: HostParams<M>, deadlineAt = Date.now() + 30_000,
-    hooks: { acknowledged?: () => void; uncertain?: () => void } = {}): Promise<HostResult<M>> => {
+    hooks: { acknowledged?: (value: unknown) => void; uncertain?: () => void } = {}): Promise<HostResult<M>> => {
     const current = transport
     if (!current || ended) return Promise.reject(new WireCallError('disconnected', 'The desk is disconnected.'))
     const remaining = deadlineAt - Date.now()
@@ -284,10 +353,10 @@ export async function connect(options: ConnectOptions): Promise<Client> {
   // Review reads share the acknowledged projection, never a proposed selection.
   let reviewEpoch = 0, reviewReady = false
   const knownRuns = new Map<string, string>()
-  const reviewTeams = new Map<string, { running: boolean; queued: boolean; discover: boolean }>()
+  const reviewTeams = new Map<string, { running: boolean; queued: boolean; discover: boolean; sync: (() => void)[] }>()
   const invalidatedTeams = new Set<string>()
   const invalidateReviews = () => {
-    reviewEpoch++; reviewReady = false
+    reviewEpoch++; reviewReady = false; reviewPending = 0
     knownRuns.clear(); reviewTeams.clear(); invalidatedTeams.clear()
   }
   const reviewsSelected = () => acknowledgedSubscription?.topics.includes('reviews') === true
@@ -300,7 +369,7 @@ export async function connect(options: ConnectOptions): Promise<Client> {
     const refused = refusal(method)
     return refused ? Promise.reject(refused) : request(method, params)
   }
-  const refreshTeam = (team: string, discover: boolean) => {
+  const refreshTeam = (team: string, discover: boolean, synchronize = false) => {
     if (!reviewsSelected()) return
     if (!reviewReady) { invalidatedTeams.add(team); return }
     const scope = acknowledgedSubscription?.scope
@@ -308,7 +377,8 @@ export async function connect(options: ConnectOptions): Promise<Client> {
     const runTeam = scope?.run !== undefined ? knownRuns.get(scope.run) : undefined
     if (runTeam !== undefined && runTeam !== team) return
     let work = reviewTeams.get(team)
-    if (!work) { work = { running: false, queued: false, discover: false }; reviewTeams.set(team, work) }
+    if (!work) { work = { running: false, queued: false, discover: false, sync: [] }; reviewTeams.set(team, work) }
+    if (synchronize) work.sync.push(beginSyncReview())
     work.queued = true; work.discover ||= discover
     if (work.running) return
     work.running = true
@@ -316,36 +386,42 @@ export async function connect(options: ConnectOptions): Promise<Client> {
     void (async () => {
       try {
         while (active() && batch.queued) {
-          const discover = batch.discover
-          batch.queued = false; batch.discover = false
-          if (discover && scope?.run && !knownRuns.has(scope.run)) {
-            try {
-              const execution = await reviewCall('flow/execution', { run: scope.run })
+          const synchronizing = batch.sync.splice(0)
+          try {
+            const discover = batch.discover
+            batch.queued = false; batch.discover = false
+            if (discover && scope?.run && !knownRuns.has(scope.run)) {
+              try {
+                const execution = await reviewCall('flow/execution', { run: scope.run })
+                if (!active()) return
+                if (execution.id === scope.run && execution.goal === team) {
+                  knownRuns.set(execution.id, team)
+                  observation.accept({ method: 'flow/execution-changed', params: { execution } })
+                }
+              } catch (error) { if (active()) reviewNotice(team, error) }
+            }
+            if (discover && !scope?.run) {
+              try {
+                const runs = await reviewCall('flow/executions', { team, ...(scope?.project ? { project: scope.project } : {}), active: false })
+                if (!active()) return
+                for (const run of runs) if (run.team === team) knownRuns.set(run.id, team)
+              } catch (error) { if (active()) reviewNotice(team, error) }
+            }
+            for (const [run, goal] of knownRuns) {
               if (!active()) return
-              if (execution.id === scope.run && execution.goal === team) {
-                knownRuns.set(execution.id, team)
-                observation.accept({ method: 'flow/execution-changed', params: { execution } })
-              }
-            } catch (error) { if (active()) reviewNotice(team, error) }
-          }
-          if (discover && !scope?.run) {
-            try {
-              const runs = await reviewCall('flow/executions', { team, ...(scope?.project ? { project: scope.project } : {}), active: false })
-              if (!active()) return
-              for (const run of runs) if (run.team === team) knownRuns.set(run.id, team)
-            } catch (error) { if (active()) reviewNotice(team, error) }
-          }
-          for (const [run, goal] of knownRuns) {
-            if (!active()) return
-            if (goal !== team || scope?.run !== undefined && scope.run !== run) continue
-            try {
-              const view = await reviewCall('finding/run', { goal, run })
-              if (!active()) return
-              observation.review(view)
-            } catch (error) { if (active()) reviewNotice(team, error) }
-          }
+              if (goal !== team || scope?.run !== undefined && scope.run !== run) continue
+              try {
+                const view = await reviewCall('finding/run', { goal, run })
+                if (!active()) return
+                observation.review(view)
+              } catch (error) { if (active()) reviewNotice(team, error) }
+            }
+          } finally { for (const complete of synchronizing) complete() }
         }
-      } finally { batch.running = false }
+      } finally {
+        batch.running = false
+        for (const complete of batch.sync.splice(0)) complete()
+      }
     })()
   }
   const accept = (notification: WireNotification) => {
@@ -357,16 +433,16 @@ export async function connect(options: ConnectOptions): Promise<Client> {
     } else if (notification.method === 'finding/changed') refreshTeam(notification.params.goal, true)
   }
   const startReviews = () => {
-    if (!reviewsSelected()) return
     reviewReady = true
+    if (!reviewsSelected()) return
     const teams = new Set(knownRuns.values())
     for (const team of invalidatedTeams) teams.add(team)
-    for (const team of teams) refreshTeam(team, invalidatedTeams.has(team))
+    for (const team of teams) refreshTeam(team, invalidatedTeams.has(team), true)
     invalidatedTeams.clear()
     const scope = acknowledgedSubscription?.scope
     if (scope?.run) return // Its exact execution was read with the caller's deadline.
     const active = reviewGuard()
-    void (async () => {
+    trackReview(async () => {
       try {
         const runs = await reviewCall('flow/executions', { ...(scope?.team ? { team: scope.team } : {}), ...(scope?.project ? { project: scope.project } : {}), active: false })
         if (!active()) return
@@ -375,9 +451,9 @@ export async function connect(options: ConnectOptions): Promise<Client> {
           if (knownRuns.has(run.id)) continue
           knownRuns.set(run.id, run.team); added.add(run.team)
         }
-        for (const team of added) refreshTeam(team, false)
+        for (const team of added) refreshTeam(team, false, true)
       } catch (error) { if (active()) reviewNotice(scope?.team ?? null, error) }
-    })()
+    })
   }
   const subscribe = async (params: HostParams<'client/subscribe'>, deadlineAt: number, boundary: string | null) => {
     const refused = refusal('client/subscribe')
@@ -385,7 +461,12 @@ export async function connect(options: ConnectOptions): Promise<Client> {
     const next = { topics: [...params.topics], ...(params.scope ? { scope: { ...params.scope } } : {}) }
     const current = transport!, mine = generation
     const result = await request('client/subscribe', next, deadlineAt, {
-      acknowledged: () => {
+      acknowledged: value => {
+        const count = (value as { baseline?: unknown } | null)?.baseline
+        if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) {
+          throw new WireCallError('deskTooOld', 'This desk does not report subscription baseline counts; update the desk.')
+        }
+        synchronized = false; baselineRemaining = count; subscriptionSetup = true
         acknowledgedSubscription = next
         invalidateReviews()
         observation.reset()
@@ -406,7 +487,7 @@ export async function connect(options: ConnectOptions): Promise<Client> {
         }
       }
     } finally {
-      if (acknowledgedSubscription === next && transport === current && generation === mine && !ended) startReviews()
+      if (acknowledgedSubscription === next && transport === current && generation === mine && !ended) { subscriptionSetup = false; checkSync() }
     }
     return result
   }
@@ -428,13 +509,19 @@ export async function connect(options: ConnectOptions): Promise<Client> {
         notifications.push(message)
         if (message.method === 'host/shutdown') { finish('desk-closed'); return }
         accept(message)
+        if (baselineRemaining !== null && baselineRemaining > 0) baselineRemaining--
+        checkSync()
       } else {
         const call = pending.get(message.id)
         if (!call) return
         clearTimeout(call.timer); pending.delete(message.id)
         if (message.ok) {
           // The door sends its baseline immediately after its response, not after our await.
-          call.acknowledged?.()
+          try { call.acknowledged?.(message.result) }
+          catch (error) {
+            const failure = error instanceof WireCallError ? error : new WireCallError('badRequest', String(error))
+            call.reject(failure); finish('error', failure); return
+          }
           call.resolve(message.result)
         } else call.reject(new WireCallError(message.error.code, message.error.message, message.error.details ?? null, message.error.data))
       }
@@ -451,7 +538,10 @@ export async function connect(options: ConnectOptions): Promise<Client> {
       if (!reconnected) emit({ type: 'hello', desk: hello.desk, hostVersion: hello.hostVersion, protocolVersion: hello.protocolVersion, tiers: hello.tiers })
       const selection = reconnected ? acknowledgedSubscription : options.subscribe
       if (selection) await subscribe(selection, Date.now() + 30_000, reconnected ? 'disconnected' : null)
-      else if (reconnected) { observation.reset(); emit({ type: 'gap', reason: 'disconnected' }) }
+      else {
+        if (reconnected) { observation.reset(); emit({ type: 'gap', reason: 'disconnected' }) }
+        baselineRemaining = 0; subscriptionSetup = false; checkSync()
+      }
     } catch (error) {
       if (transport === current) { drop(); current.close() }
       throw error
@@ -475,5 +565,5 @@ export async function connect(options: ConnectOptions): Promise<Client> {
   }
   try { await open(false) }
   catch (error) { finish('interrupted'); throw error }
-  return { get hello() { return hello }, call, events: () => events, notifications: () => notifications, close: () => finish('interrupted') }
+  return { get hello() { return hello }, call, events: () => events, notifications: () => notifications, synced, snapshot: () => observation.snapshot(), close: () => finish('interrupted') }
 }

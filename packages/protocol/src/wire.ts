@@ -699,7 +699,7 @@ export interface HostMethods {
   }
   'client/subscribe': {
     params: { readonly topics: readonly ClientTopic[]; readonly scope?: { readonly team?: GoalId; readonly run?: string; readonly project?: string } }
-    result: null
+    result: { readonly baseline: number }
   }
   'flow/executions': {
     params: { readonly team?: GoalId; readonly project?: string; readonly active?: boolean }
