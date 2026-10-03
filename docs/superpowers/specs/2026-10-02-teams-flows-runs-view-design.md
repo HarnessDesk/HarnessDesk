@@ -590,7 +590,9 @@ design moves the files into `client/views` when the command line needs them and
 leaves a re-export behind, so nothing in the window breaks. The overview model
 has moved (#1295): it lives in `packages/client/src/views/`, the window's
 `packages/ui/src/lib/team-overview.ts` is a re-export, and the command line's
-`status` renders it. The timeline selector is written (plan PR 3, #1292) as
+`status` renders it. `run show` exists (the clients design's PR 2, #1305) but
+reads one `flow/execution` and does not use the timeline selector yet. The
+timeline selector is written (plan PR 3, #1292) as
 `runTimeline({ execution, cards, signals?, evidence?, findings?, origin? })` in
 `packages/ui/src/lib/run-timeline.ts`; check results (`evidence`) and a Team's
 findings are read on demand and are not part of the held event state, so they
