@@ -153,6 +153,7 @@ import { projectOf, revisionOf, upstreamTipOf } from './evidence/revision.js'
 import type { SeatOpening } from './evidence/records.js'
 import { SEEN_FILE } from './evidence/seen.js'
 import { Terminals } from './terminals.js'
+import { SeatHeldCards } from './seat-held-cards.js'
 import { SessionArchive } from './archive.js'
 import { ForgePlane, type ForgePlaneOptions } from './forge.js'
 import { publicationsIn, withPublications } from './publications.js'
@@ -616,11 +617,11 @@ export class Host {
   readonly #startingRuntimes = new Map<string, Promise<void>>()
   readonly #stoppingRuntimes = new Map<string, Promise<boolean>>()
   readonly #runtimeActivity = new Map<string, number>()
+  readonly #sessionActivity = new Map<string, number>()
   readonly #idleSince = new Map<string, number>()
   readonly #seatQuietSince = new Map<string, { since: number; changedAt: number }>()
   readonly #restingSessions = new Map<string, Promise<void>>()
-  /** Host assignment has no channel signal; remember only cards this Seat actually held. */
-  readonly #seatHeldCards = new Map<string, Set<number>>()
+  readonly #seatHeldCards: SeatHeldCards
   #idleReaper: ReturnType<typeof setInterval> | null = null
   readonly #subscriptions: Unsubscribe[] = []
   /** Kept apart from `#subscriptions` so one runtime can be dropped alone. */
@@ -894,6 +895,7 @@ export class Host {
       this.#logger.warn(message, details),
     )
     this.#archive = new SessionArchive(join(this.#state.directory, 'archive.json'))
+    this.#seatHeldCards = new SeatHeldCards(join(this.#state.directory, 'seat-held-cards.json'))
     this.#names = new SessionNames(join(this.#state.directory, 'names.json'))
     // Beside `agents.json` and everything else the desk keeps, so a test rig or
     // a HARNESSDESK_HOME that moves the state directory moves these with it.
@@ -1026,7 +1028,7 @@ export class Host {
             if (from) await this.#startTurn(runtime, id, from, () => live.send([{ type: 'text', text }]))
             else await live.send([{ type: 'text', text }])
           },
-        ))
+        ), id)
       },
       steer: async (runtime, id, text, allowed, from) => {
         await dispatchAfter(
@@ -2005,7 +2007,7 @@ export class Host {
             if (typeof args[0] === 'string') await this.#restingSessions.get(sessionKey(id, args[0]))
             await this.#ensureStarted(target)
             return Reflect.apply(member, target, args)
-          })
+          }, typeof args[0] === 'string' && key !== 'readSession' && key !== 'searchSessions' ? args[0] : undefined)
         }
         return member.bind(target)
       },
@@ -2189,6 +2191,7 @@ export class Host {
   async start(): Promise<void> {
     this.#goalWriter = await acquireDeskWriter(this.#state.directory)
     await this.#state.load()
+    await this.#seatHeldCards.load()
     const shellFolder = this.#state.state.workspaces[0]?.realPath ?? this.#state.state.workspaces[0]?.path
     // Restore the captured grant, never derive one from Git during startup.
     const shellIdentity = this.#state.state.workspaces[0]?.shellIdentity
@@ -2406,16 +2409,23 @@ export class Host {
     if (stopping) await stopping
   }
 
-  async #withRuntimeActivity<T>(runtime: AgentRuntime, operation: () => Promise<T>): Promise<T> {
+  async #withRuntimeActivity<T>(runtime: AgentRuntime, operation: () => Promise<T>, session?: string): Promise<T> {
     const id = String(runtime.info.id)
     this.#runtimeActivity.set(id, (this.#runtimeActivity.get(id) ?? 0) + 1)
     this.#idleSince.delete(id)
-    for (const record of this.registry.all()) {
-      if (record.runtime === runtime.info.id) this.#seatQuietSince.delete(recordKey(record))
+    const key = session === undefined ? null : sessionKey(id, session)
+    if (key !== null) {
+      this.#seatQuietSince.delete(key)
+      this.#sessionActivity.set(key, (this.#sessionActivity.get(key) ?? 0) + 1)
     }
     try {
       return await operation()
     } finally {
+      if (key !== null) {
+        const active = (this.#sessionActivity.get(key) ?? 1) - 1
+        if (active === 0) this.#sessionActivity.delete(key)
+        else this.#sessionActivity.set(key, active)
+      }
       const active = (this.#runtimeActivity.get(id) ?? 1) - 1
       if (active === 0) {
         this.#runtimeActivity.delete(id)
@@ -2452,27 +2462,16 @@ export class Host {
     const delay = this.options.seatRestMs ?? SEAT_REST_MS
     let changedAt = seat.openedAt
     let quiet = delay > 0 && !seat.closed && !seat.restored && seat.board !== null &&
-      runtime?.info.capabilities.resume === true && Boolean(runtime.stopForIdle) && Boolean(record) &&
-      (this.#runtimeActivity.get(seat.session.runtime) ?? 0) === 0
-    if (quiet && record && seat.board) {
-      quiet = record.running.size === 0 && record.approvals.size === 0 && record.queue.messages.length === 0 &&
-        !record.tasks.some((task) => task.state === 'running') && !this.#queueBusy(record) &&
+      runtime?.info.capabilities.resume === true && Boolean(runtime.stopForIdle) &&
+      (this.#sessionActivity.get(key) ?? 0) === 0
+    if (quiet && seat.board) {
+      quiet = (!record || (record.running.size === 0 && record.approvals.size === 0 && record.queue.messages.length === 0 &&
+        !record.tasks.some((task) => task.state === 'running') && !this.#queueBusy(record))) &&
         !this.#draining.has(key) && !this.#reattaching.has(key)
       try {
         const board = this.#team.stateFor(seat.board)
-        const mine = (pointer: { runtime: string; sessionId: string } | null | undefined) =>
-          pointer?.runtime === seat.session.runtime && pointer.sessionId === seat.session.sessionId
-        const held = this.#seatHeldCards.get(seat.id) ?? new Set<number>()
-        for (const entry of board.channel) {
-          if (entry.kind === 'signal' && entry.signal === 'claimed' && entry.by.kind === 'agent' && mine(entry.by)) held.add(entry.intent)
-        }
-        for (const card of board.intents) {
-          if (mine(card.claim) || mine(this.#flows.bindingOf(seat.board, card.id)?.session)) held.add(card.id)
-        }
-        this.#seatHeldCards.set(seat.id, held)
-        const cards = board.intents.filter((card) => mine(card.claim) || held.has(card.id) ||
-          mine(this.#flows.bindingOf(seat.board!, card.id)?.session))
-        quiet = quiet && held.size > 0 && cards.length === held.size && cards.every((card) => card.state === 'done' && !card.claim)
+        const cards = this.#seatHeldCards.cardsFor(seat, board, (card) => this.#flows.bindingOf(seat.board!, card)?.session)
+        quiet = quiet && cards.length > 0 && cards.every((card) => card.state === 'done')
         changedAt = Math.max(changedAt, ...cards.map((card) => card.updatedAt))
       } catch {
         quiet = false // An unreadable board is never permission to drop a handle.
@@ -3154,6 +3153,7 @@ export class Host {
     if (document.restored || document.goal.state === 'wrapped') {
       throw new Error('This Goal is read-only. Start another Goal for new work.')
     }
+    await this.#seatHeldCards.observe(this.#evidence.seats.all(), state, (card) => this.#flows.bindingOf(goal, card)?.session)
     const at = Date.now()
     const legacy = options.whole && document.legacy ? this.#team.legacyFor(goal) : null
     await this.#goalStore.save({
@@ -3214,9 +3214,6 @@ export class Host {
         blockedReason: null,
       } : intent)
     })
-    const held = this.#seatHeldCards.get(opening.id) ?? new Set<number>()
-    held.add(card)
-    this.#seatHeldCards.set(opening.id, held)
   }
 
   /**

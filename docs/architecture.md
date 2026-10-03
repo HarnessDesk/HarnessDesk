@@ -181,7 +181,12 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   A settled Run keeps its Seats open for follow-ups. A Seat that held work
   releases its live session after all its cards are done and it has no turn,
   approval, queued message or running task for `SEAT_REST_MS` (ten minutes;
-  `HostOptions.seatRestMs` overrides it). Release follows `session/close`:
+  `HostOptions.seatRestMs` overrides it). Host-held card history in
+  `seat-held-cards.json` survives restart and board trimming; a missing card
+  counts as done only when its completion was recorded. Routine history and
+  catalogue reads do not restart a Seat's quiet interval, and ACP releases
+  temporary read handles while retaining the accepted no-list session folder.
+  Release follows `session/close`:
   `live` becomes null and `detached` stays false. Only a runtime reporting
   `capabilities.resume` and implementing `stopForIdle` participates (currently
   the ACP adapter); the existing idle reaper can then stop its process once

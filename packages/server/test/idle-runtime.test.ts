@@ -383,7 +383,7 @@ const seated = async (t: TestContext, runtime = new IdleRuntime(), seatRestMs = 
     session: { runtime: runtime.info.id, sessionId: session.id } }) as SeatRecord
   const record = host.registry.get(runtime.info.id, session.id as never)!
   const finish = () => host.call('team/intent', { room: goal.goal.id, id: card.id, action: 'done' })
-  return { host, runtime, goal: goal.goal, card, seat, record, finish, repo }
+  return { host, stateDir, runtime, goal: goal.goal, card, seat, record, finish, repo }
 }
 
 test('a finished Seat releases its handle, idle-stops, and remains a Goal member', async (t) => {
@@ -548,10 +548,12 @@ test('a send arriving during release waits, then resumes instead of using the cl
 test('a Team message waiting for acceptance keeps a finished Seat live', async (t) => {
   const d = await seated(t)
   const session = d.runtime.sessions.get(d.record.session.id)!
-  session.sendDelayMs = 200
+  let release!: () => void
+  const barrier = new Promise<void>((resolve) => { release = resolve })
+  t.after(() => release())
   let accepting = false
   const send = session.send.bind(session)
-  session.send = async (...args) => { accepting = true; return send(...args) }
+  session.send = async (...args) => { accepting = true; await barrier; return send(...args) }
   await d.finish()
   const post = d.host.call('team/post', { room: d.goal.id, text: 'Follow up' })
   t.after(() => post.catch(() => {}))
@@ -561,6 +563,7 @@ test('a Team message waiting for acceptance keeps a finished Seat live', async (
   assert.ok(handle)
   assert.equal(d.record.live, handle)
   assert.equal(d.runtime.health().state, 'ready')
+  release()
   await post
 })
 
@@ -578,4 +581,83 @@ test('a task that starts and ends between reaper ticks restarts the quiet interv
   assert.ok(d.record.live)
   t.mock.timers.tick(60_000)
   await until(() => d.record.live === null)
+})
+
+
+test('history and cached reads do not restart a finished Seat quiet interval', async (t) => {
+  const d = await seated(t, new IdleRuntime(), 60_000)
+  await d.finish()
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
+  await pause(50)
+  t.mock.timers.tick(59_900)
+  await d.host.call('session/list', { runtime: d.runtime.info.id })
+  await d.host.call('runtime/models', { runtime: d.runtime.info.id })
+  await d.host.call('runtime/options', { runtime: d.runtime.info.id })
+  await d.host.call('runtime/skills', { runtime: d.runtime.info.id, cwd: d.repo.dir })
+  t.mock.timers.tick(200)
+  await pause(50)
+  assert.equal(d.record.live, null, 'reads leave the completed Seat quiet for the full interval')
+})
+
+for (const recoverRecord of [false, true]) {
+  test(`a manually assigned completed Seat rests after restart ${recoverRecord ? 'with' : 'without'} a registry record`, async (t) => {
+    const d = await seated(t, new IdleRuntime(), 60_000)
+    await d.finish()
+    await d.host.dispose()
+    const runtime = new IdleRuntime()
+    const host = new Host({ logger: silent, state: new StateStore(join(d.stateDir, 'state.json')),
+      catalogRefreshMs: 0, idleStopMs: 25, seatRestMs: 25 })
+    // Reuse the fake agent's store, as a real agent retains its own history.
+    runtime.sessions.set(d.record.session.id, d.runtime.sessions.get(d.record.session.id)!)
+    host.register(runtime)
+    t.after(() => host.dispose())
+    await host.start()
+    if (recoverRecord) {
+      await host.call('session/resume', { runtime: runtime.info.id, sessionId: d.record.session.id })
+    } else assert.equal(host.registry.get(runtime.info.id, d.record.session.id), undefined)
+    await pause(150)
+    assert.equal(runtime.health().state, 'idle', 'durable held-card history does not need a live registry record')
+    const view = await host.call('goal/read', { goal: d.goal.id }) as GoalView
+    assert.equal(view.members[0]?.closed, null)
+  })
+}
+
+test('a completed held card trimmed from the board does not prevent Seat rest', async (t) => {
+  const d = await seated(t, new IdleRuntime(), 60_000)
+  await d.finish()
+  // Seed the capacity boundary through the Team's existing writer, then let one real add trim it.
+  await d.host.teamPlane.goalPlaneWrite(d.goal.id, (cards) => [...cards,
+    ...Array.from({ length: 200 }, (_, n) => ({ ...cards[0]!, id: n + 2, title: `Later work ${n}`,
+      state: 'open' as const, claim: null })),
+  ], async () => {})
+  await d.host.call('team/add', { room: d.goal.id, title: 'Trim the settled row' })
+  const view = await d.host.call('goal/read', { goal: d.goal.id }) as GoalView
+  assert.ok(!view.board.intents.some((card) => card.id === d.card.id), 'the real board trimmed the settled card')
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
+  await pause(50)
+  t.mock.timers.tick(60_001)
+  await pause(50)
+  assert.equal(d.record.live, null, 'a known completed trimmed card remains completed')
+})
+
+
+test('a history read in flight does not interrupt a finished Seat quiet interval', async (t) => {
+  const d = await seated(t, new IdleRuntime(), 60_000)
+  await d.finish()
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
+  await pause(50)
+  let release!: () => void
+  const barrier = new Promise<void>((resolve) => { release = resolve })
+  t.after(() => release())
+  let reading = false
+  const list = d.runtime.listSessions.bind(d.runtime)
+  d.runtime.listSessions = async (...args) => { reading = true; await barrier; return list(...args) }
+  const history = d.host.call('session/list', { runtime: d.runtime.info.id })
+  await until(() => reading)
+  t.mock.timers.tick(60_001)
+  await pause(50)
+  assert.equal(d.record.live, null, 'an in-flight read does not count as work on every Seat')
+  assert.equal(d.runtime.health().state, 'ready', 'the read still protects the runtime from stopping')
+  release()
+  await history
 })
