@@ -1,0 +1,109 @@
+{
+  "base": "ccc4e99a5c0e403ce1b14fe87f727f9be5ee11d1",
+  "checks": [
+    {
+      "command": "pnpm verify",
+      "exitCode": 0,
+      "output": "All checks passed.",
+      "note": "Run unpiped; completed before the final audit-instrument/report additions. No product source changed. Publication text gates run separately on all staged additions."
+    },
+    {
+      "command": "TYPE_AUDIT=1 pnpm exec playwright test -c playwright.ui-system.config.ts typography-audit.spec.ts",
+      "exitCode": 0,
+      "output": "4 passed (1.6m)",
+      "nativeOutput": "real Electron renderer evidence saved; native test 11.4s"
+    },
+    {
+      "command": "TYPE_AUDIT=1 TYPE_AUDIT_FRAMES=sidebar-column,goal-roster pnpm exec playwright test -c playwright.ui-system.config.ts typography-audit.spec.ts",
+      "exitCode": 0,
+      "output": "2 passed, 2 intentionally skipped (comparison/native outside two-frame mode)"
+    },
+    {
+      "command": "node script/check-secrets.mjs",
+      "exitCode": 0,
+      "output": "No tracked secrets (3061 files scanned)."
+    },
+    {
+      "command": "node script/check-doc-paths.mjs",
+      "exitCode": 0,
+      "output": "every documented path resolves (202 paths in 33 documents)"
+    },
+    {
+      "command": "git diff --cached --check",
+      "exitCode": 0,
+      "output": "No whitespace errors."
+    }
+  ],
+  "independentSpotCheck": {
+    "frames": [
+      "sidebar-column",
+      "goal-roster"
+    ],
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "fields": [
+      "frame",
+      "theme",
+      "path",
+      "textKind",
+      "role",
+      "roleSource",
+      "size",
+      "weight",
+      "lineHeight",
+      "letterSpacing",
+      "fontFamily",
+      "color",
+      "ink",
+      "xHeight",
+      "capHeight"
+    ],
+    "fullOwners": 140,
+    "spotOwners": 140,
+    "missingOwners": 0,
+    "addedOwners": 0,
+    "matched": true,
+    "ignored": "text/positions/clock labels can vary; typography, role, stable path and multiplicity must match"
+  },
+  "coverage": {
+    "literalPreviewIds": 82,
+    "missingLiteralIds": [],
+    "previewIds": 99,
+    "boardIds": 55,
+    "themeObservations": 308,
+    "textOwners": 15276,
+    "everyFlagCitesMeasuredFrame": true
+  },
+  "artifactCheck": {
+    "offlineHTML": "theme dark and zoom 75%; all three PNGs decoded at 1400x820; 1050px CSS image width",
+    "images": "12 PNGs opened and visually inspected; hashes in image-inspection.json"
+  },
+  "failedAttempts": [
+    {
+      "phase": "Playwright Electron launch",
+      "result": "stalled; 180s timeout"
+    },
+    {
+      "phase": "unbounded main-inspector helper",
+      "result": "stalled handshake; replaced with bounded native WebSocket"
+    },
+    {
+      "phase": "repeated native navigation",
+      "result": "3 browser tests passed, native timed out at 180s; full run failed; no saved numbers from this attempt",
+      "repair": "20s navigation timeout, DOM-content/fonts/specimen readiness, owned-child interrupt before disconnect",
+      "laterResult": "focused native 1 passed (8.6s); final full run 4 passed (1.6m)"
+    }
+  ],
+  "limitations": [
+    "Font-switch perception is an owner judgement, not proven by canvas metrics.",
+    "Native font evidence is macOS Electron; Windows not measured.",
+    "Cap-gap values are geometric proxies, not raster glyph segmentation."
+  ],
+  "publicationAdjustments": {
+    "pathText": "Source fixture home segments are redacted to the repository-approved /Users/dev placeholder. Only sampled display text changed; typography/geometry metrics untouched.",
+    "initialChecks": "Secrets gate rejected the undeclared fixture placeholder; switched to approved dev. Diff whitespace gate flagged a trailing blank line; removed.",
+    "rerun": "After selecting the approved home placeholder, the final instrument rerun printed 2 passed (9.1s), 2 intentionally skipped; 140/140 owners matched all 15 recorded fields."
+  }
+}

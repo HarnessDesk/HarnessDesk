@@ -1,0 +1,53 @@
+{
+  "method": "Each PNG opened with view_image and visually inspected; fixture data only. Hashes pin inspected frames.",
+  "files": [
+    {
+      "file": "alternative-dark.png",
+      "sha256": "d46f8a49d27e040877c6b4677b9e7f8eff79f3b8f0e128276f47e6aa47de30a7"
+    },
+    {
+      "file": "alternative-light.png",
+      "sha256": "035c88b0d4ddbb3c4751590f2c1f4b846d380630de7b64d929f1c9edb8113bea"
+    },
+    {
+      "file": "current-dark.png",
+      "sha256": "221efc7eb3b3f1c54d6b7b14a323b6188f1c34ec6a1dc018c3f04f84399b7c42"
+    },
+    {
+      "file": "current-light.png",
+      "sha256": "b27d85b7594850ea38eb2935ec032df1687277da19d7d04b2982b6bacd200ad0"
+    },
+    {
+      "file": "recommendation-dark.png",
+      "sha256": "c986ee9ffb5d0bd98e40877cf9decdce2532ad94f569af3531ba9ec224845d2a"
+    },
+    {
+      "file": "recommendation-light.png",
+      "sha256": "fcdcac3ae7be1b37952e4948e5b6fe72f80b90d130e5e9878ccabfd7b81dacf5"
+    },
+    {
+      "file": "ruled-dark.png",
+      "sha256": "c7c5cab011c55c8b0208fe1aae396eb564eef074690be2829615239bcaf9b7ff"
+    },
+    {
+      "file": "ruled-light.png",
+      "sha256": "0f4410474e5ab4d8b4a5e875f22c37accc5817243790f91b969e3cc8eb73982c"
+    },
+    {
+      "file": "trim-after.png",
+      "sha256": "d63aeea9503db19008aee8da1a938b3229b7885ad739941f124ec58a4a08e08a"
+    },
+    {
+      "file": "trim-before.png",
+      "sha256": "bd2be97613ea8065050a45d08c5cb0f088d4413745bc8ee61c38119094c219cb"
+    },
+    {
+      "file": "trim-controls-after.png",
+      "sha256": "450eb55a20ac0639d94d8f9e0dc962b7925fbec48e48c1821ef83f07ca84d177"
+    },
+    {
+      "file": "trim-controls-before.png",
+      "sha256": "1bbf00ac4364c9f5558d24dc46add7aa45424168afd4585a75d9f7426ae2519c"
+    }
+  ]
+}

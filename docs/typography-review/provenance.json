@@ -1,0 +1,87 @@
+{
+  "revision": "ccc4e99a5c0e403ce1b14fe87f727f9be5ee11d1",
+  "viewport": [
+    1440,
+    900
+  ],
+  "interface": "desk",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.8010.12 Safari/537.36",
+  "roleMap": {
+    "wordmark": [
+      "font-(family-name:--hd-font-heading)",
+      "text-(length:--hd-heading)",
+      "leading-(--hd-line-heading)",
+      "font-semibold",
+      "tracking-(--hd-tracking-heading)"
+    ],
+    "page": [
+      "font-(family-name:--hd-font-heading)",
+      "text-(length:--hd-heading)",
+      "leading-(--hd-line-heading)",
+      "font-semibold",
+      "tracking-(--hd-tracking-heading)"
+    ],
+    "section": [
+      "text-(length:--hd-text-lg)",
+      "leading-(--hd-line-lg)",
+      "font-semibold"
+    ],
+    "subject": [
+      "text-base",
+      "leading-(--hd-line)",
+      "font-medium"
+    ],
+    "member": [
+      "text-base",
+      "leading-(--hd-line)",
+      "font-semibold"
+    ],
+    "row": [
+      "text-sm",
+      "leading-(--hd-line-sm)",
+      "font-medium"
+    ],
+    "navigation": [
+      "text-sm",
+      "leading-(--hd-line-sm)",
+      "font-normal"
+    ],
+    "muted": [
+      "text-sm",
+      "leading-(--hd-line-sm)",
+      "font-normal"
+    ],
+    "meta": [
+      "text-xs",
+      "leading-(--hd-line-xs)",
+      "font-normal",
+      "font-(family-name:--hd-font-family)"
+    ],
+    "figure": [
+      "text-(length:--hd-display)",
+      "leading-(--hd-line-display)",
+      "font-semibold",
+      "tracking-[-0.025em]",
+      "tabular-nums"
+    ],
+    "metric": [
+      "text-lg",
+      "leading-none",
+      "font-semibold",
+      "tracking-[-0.015em]",
+      "tabular-nums"
+    ],
+    "value": [
+      "text-base",
+      "leading-(--hd-line)",
+      "font-normal",
+      "tabular-nums"
+    ],
+    "prose": [
+      "text-base",
+      "leading-(--hd-line)",
+      "font-normal"
+    ]
+  },
+  "command": "TYPE_AUDIT=1 pnpm exec playwright test -c playwright.ui-system.config.ts typography-audit.spec.ts"
+}

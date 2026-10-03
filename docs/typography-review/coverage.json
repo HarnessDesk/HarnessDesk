@@ -1,0 +1,1850 @@
+[
+  {
+    "frame": "provenance-seats",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 7
+  },
+  {
+    "frame": "project-capture",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 6
+  },
+  {
+    "frame": "board-populated",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 30
+  },
+  {
+    "frame": "board-person-review",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 29
+  },
+  {
+    "frame": "board-observed",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 51
+  },
+  {
+    "frame": "board-empty",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 6
+  },
+  {
+    "frame": "board-edges",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 39
+  },
+  {
+    "frame": "settings-sheet",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 43
+  },
+  {
+    "frame": "runtimes-status",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 39
+  },
+  {
+    "frame": "agents-roster",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 41
+  },
+  {
+    "frame": "workspace-project",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 63
+  },
+  {
+    "frame": "workspace-triggers",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 32
+  },
+  {
+    "frame": "dashboard-overview",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 140
+  },
+  {
+    "frame": "conversation-composer",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 34
+  },
+  {
+    "frame": "publication-card",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 9
+  },
+  {
+    "frame": "panel-changes",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 6
+  },
+  {
+    "frame": "panel-trajectory",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 29
+  },
+  {
+    "frame": "panel-agents",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 23
+  },
+  {
+    "frame": "panel-activity",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 22
+  },
+  {
+    "frame": "project-flows",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 18
+  },
+  {
+    "frame": "flow-status",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 1
+  },
+  {
+    "frame": "project-checks",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 14
+  },
+  {
+    "frame": "project-triggers",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 14
+  },
+  {
+    "frame": "sidebar-column",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 40
+  },
+  {
+    "frame": "goal-roster",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 30
+  },
+  {
+    "frame": "goal-triggered",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 19
+  },
+  {
+    "frame": "goal-front-door",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 31
+  },
+  {
+    "frame": "settings-library",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 51
+  },
+  {
+    "frame": "settings-appearance",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 133
+  },
+  {
+    "frame": "settings-archive",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 5
+  },
+  {
+    "frame": "settings-extensions",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 2
+  },
+  {
+    "frame": "settings-ceilings",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 29
+  },
+  {
+    "frame": "setup-survey",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 10
+  },
+  {
+    "frame": "schema-form",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 11
+  },
+  {
+    "frame": "finding-status",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 12
+  },
+  {
+    "frame": "goal-receipt",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 8
+  },
+  {
+    "frame": "goal-accounting",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 11
+  },
+  {
+    "frame": "insight-loaded",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 11
+  },
+  {
+    "frame": "insight-partial",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 7
+  },
+  {
+    "frame": "insight-loading",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 1
+  },
+  {
+    "frame": "shape-step-form",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 23
+  },
+  {
+    "frame": "shape-rule-form",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 20
+  },
+  {
+    "frame": "shape-graph",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 11
+  },
+  {
+    "frame": "command-menu",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 7
+  },
+  {
+    "frame": "transcript-folded-steps",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 1
+  },
+  {
+    "frame": "transcript-memory-citation",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 2
+  },
+  {
+    "frame": "transcript-preview-pane",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 5
+  },
+  {
+    "frame": "transcript-missing-folder",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 3
+  },
+  {
+    "frame": "transcript-background-tasks",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 10
+  },
+  {
+    "frame": "tools-file",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 53
+  },
+  {
+    "frame": "tools-browser",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 3
+  },
+  {
+    "frame": "tools-terminal",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 1
+  },
+  {
+    "frame": "goal-header-row",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 2
+  },
+  {
+    "frame": "room-channel-grouping",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 29
+  },
+  {
+    "frame": "tasks-session-plan",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 4
+  },
+  {
+    "frame": "coverage-agent-fields",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 2
+  },
+  {
+    "frame": "coverage-composer-controls",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 0
+  },
+  {
+    "frame": "coverage-goal-flow",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 2
+  },
+  {
+    "frame": "coverage-flow-review-reasons",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 28
+  },
+  {
+    "frame": "coverage-flow-gemini-trust",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 27
+  },
+  {
+    "frame": "coverage-session-background",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 8
+  },
+  {
+    "frame": "coverage-row-alerts",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 139
+  },
+  {
+    "frame": "coverage-publication",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 4
+  },
+  {
+    "frame": "coverage-notices",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 5
+  },
+  {
+    "frame": "coverage-library",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 5
+  },
+  {
+    "frame": "coverage-panel-actions",
+    "theme": "light",
+    "route": "/preview.html",
+    "owners": 1
+  },
+  {
+    "frame": "board-tool-approval-always",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 10
+  },
+  {
+    "frame": "board-tool-approval-permanent",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 12
+  },
+  {
+    "frame": "board-tool-approval-setting",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 6
+  },
+  {
+    "frame": "conversation-empty",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 10
+  },
+  {
+    "frame": "composer-pickers",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 40
+  },
+  {
+    "frame": "composer-paused",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 10
+  },
+  {
+    "frame": "sidebar-compact",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 40
+  },
+  {
+    "frame": "library-option-e",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 67
+  },
+  {
+    "frame": "library-option-e-applied",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 65
+  },
+  {
+    "frame": "library-option-a",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 84
+  },
+  {
+    "frame": "library-option-b",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 70
+  },
+  {
+    "frame": "library-option-c",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 63
+  },
+  {
+    "frame": "library-option-d",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 58
+  },
+  {
+    "frame": "side-by-side-two",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 34
+  },
+  {
+    "frame": "side-by-side-four",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 48
+  },
+  {
+    "frame": "side-by-side-expanded",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 33
+  },
+  {
+    "frame": "composer-slots",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 140
+  },
+  {
+    "frame": "coverage-notice-narrow-overlay",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 25
+  },
+  {
+    "frame": "coverage-notice-room-board",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 81
+  },
+  {
+    "frame": "coverage-notice-room-pending-approval",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 85
+  },
+  {
+    "frame": "coverage-notice-room-container-query",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 44
+  },
+  {
+    "frame": "coverage-notice-folder-gone",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 57
+  },
+  {
+    "frame": "coverage-notice-zoomed-sidebar",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 3
+  },
+  {
+    "frame": "coverage-notice-zoomed-dock",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 25
+  },
+  {
+    "frame": "coverage-notice-split-composers",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 76
+  },
+  {
+    "frame": "coverage-notice-split-unfocused-composer",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 74
+  },
+  {
+    "frame": "coverage-notice-composer-strip",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 58
+  },
+  {
+    "frame": "coverage-notice-pane-bar-strip",
+    "theme": "light",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 49
+  },
+  {
+    "frame": "sidebar-no-folder",
+    "theme": "light",
+    "route": "/preview.html?sidebar=no-folder",
+    "owners": 14
+  },
+  {
+    "frame": "panes-split-tree",
+    "theme": "light",
+    "route": "/preview.html (panel sheet=split tree)",
+    "owners": 87
+  },
+  {
+    "frame": "tools-git",
+    "theme": "light",
+    "route": "/preview.html (panel sheet=git tools)",
+    "owners": 81
+  },
+  {
+    "frame": "goal-findings-rail",
+    "theme": "light",
+    "route": "/preview.html (goals sheet=findings rail)",
+    "owners": 34
+  },
+  {
+    "frame": "settings-plugins",
+    "theme": "light",
+    "route": "/preview.html (settings sheet=plugins)",
+    "owners": 30
+  },
+  {
+    "frame": "board:foundation",
+    "theme": "light",
+    "route": "/design.html?view=foundation",
+    "owners": 380
+  },
+  {
+    "frame": "board:sidebar",
+    "theme": "light",
+    "route": "/design.html?view=sidebar",
+    "owners": 106
+  },
+  {
+    "frame": "board:queue",
+    "theme": "light",
+    "route": "/design.html?view=queue",
+    "owners": 31
+  },
+  {
+    "frame": "board:button",
+    "theme": "light",
+    "route": "/design.html?view=button",
+    "owners": 97
+  },
+  {
+    "frame": "board:state",
+    "theme": "light",
+    "route": "/design.html?view=state",
+    "owners": 75
+  },
+  {
+    "frame": "board:control",
+    "theme": "light",
+    "route": "/design.html?view=control",
+    "owners": 33
+  },
+  {
+    "frame": "board:row",
+    "theme": "light",
+    "route": "/design.html?view=row",
+    "owners": 45
+  },
+  {
+    "frame": "board:head",
+    "theme": "light",
+    "route": "/design.html?view=head",
+    "owners": 12
+  },
+  {
+    "frame": "board:app-window",
+    "theme": "light",
+    "route": "/design.html?view=app-window",
+    "owners": 13
+  },
+  {
+    "frame": "board:face",
+    "theme": "light",
+    "route": "/design.html?view=face",
+    "owners": 6
+  },
+  {
+    "frame": "board:checklist",
+    "theme": "light",
+    "route": "/design.html?view=checklist",
+    "owners": 11
+  },
+  {
+    "frame": "board:notices",
+    "theme": "light",
+    "route": "/design.html?view=notices",
+    "owners": 110
+  },
+  {
+    "frame": "board:banner",
+    "theme": "light",
+    "route": "/design.html?view=banner",
+    "owners": 50
+  },
+  {
+    "frame": "board:code",
+    "theme": "light",
+    "route": "/design.html?view=code",
+    "owners": 147
+  },
+  {
+    "frame": "board:message",
+    "theme": "light",
+    "route": "/design.html?view=message",
+    "owners": 50
+  },
+  {
+    "frame": "board:channel",
+    "theme": "light",
+    "route": "/design.html?view=channel",
+    "owners": 60
+  },
+  {
+    "frame": "board:panel-controls",
+    "theme": "light",
+    "route": "/design.html?view=panel-controls",
+    "owners": 15
+  },
+  {
+    "frame": "board:stat",
+    "theme": "light",
+    "route": "/design.html?view=stat",
+    "owners": 66
+  },
+  {
+    "frame": "board:delta",
+    "theme": "light",
+    "route": "/design.html?view=delta",
+    "owners": 16
+  },
+  {
+    "frame": "board:plan-card",
+    "theme": "light",
+    "route": "/design.html?view=plan-card",
+    "owners": 39
+  },
+  {
+    "frame": "board:section",
+    "theme": "light",
+    "route": "/design.html?view=section",
+    "owners": 87
+  },
+  {
+    "frame": "board:badge",
+    "theme": "light",
+    "route": "/design.html?view=badge",
+    "owners": 12
+  },
+  {
+    "frame": "board:icons",
+    "theme": "light",
+    "route": "/design.html?view=icons",
+    "owners": 208
+  },
+  {
+    "frame": "board:tile",
+    "theme": "light",
+    "route": "/design.html?view=tile",
+    "owners": 7
+  },
+  {
+    "frame": "board:list",
+    "theme": "light",
+    "route": "/design.html?view=list",
+    "owners": 19
+  },
+  {
+    "frame": "board:readings",
+    "theme": "light",
+    "route": "/design.html?view=readings",
+    "owners": 54
+  },
+  {
+    "frame": "board:tool-pane",
+    "theme": "light",
+    "route": "/design.html?view=tool-pane",
+    "owners": 44
+  },
+  {
+    "frame": "board:field",
+    "theme": "light",
+    "route": "/design.html?view=field",
+    "owners": 32
+  },
+  {
+    "frame": "board:stepper",
+    "theme": "light",
+    "route": "/design.html?view=stepper",
+    "owners": 22
+  },
+  {
+    "frame": "board:empty",
+    "theme": "light",
+    "route": "/design.html?view=empty",
+    "owners": 27
+  },
+  {
+    "frame": "board:kanban",
+    "theme": "light",
+    "route": "/design.html?view=kanban",
+    "owners": 56
+  },
+  {
+    "frame": "board:room-side-by-side",
+    "theme": "light",
+    "route": "/design.html?view=room-side-by-side",
+    "owners": 95
+  },
+  {
+    "frame": "board:adopted",
+    "theme": "light",
+    "route": "/design.html?view=adopted",
+    "owners": 116
+  },
+  {
+    "frame": "board:spark",
+    "theme": "light",
+    "route": "/design.html?view=spark",
+    "owners": 9
+  },
+  {
+    "frame": "board:chart",
+    "theme": "light",
+    "route": "/design.html?view=chart",
+    "owners": 63
+  },
+  {
+    "frame": "board:overview-strip",
+    "theme": "light",
+    "route": "/design.html?view=overview-strip",
+    "owners": 133
+  },
+  {
+    "frame": "board:dialog",
+    "theme": "light",
+    "route": "/design.html?view=dialog",
+    "owners": 52
+  },
+  {
+    "frame": "board:plans-table",
+    "theme": "light",
+    "route": "/design.html?view=plans-table",
+    "owners": 410
+  },
+  {
+    "frame": "board:finding-decision",
+    "theme": "light",
+    "route": "/design.html?view=finding-decision",
+    "owners": 6
+  },
+  {
+    "frame": "board:flow-brief",
+    "theme": "light",
+    "route": "/design.html?view=flow-brief",
+    "owners": 14
+  },
+  {
+    "frame": "board:dashboard",
+    "theme": "light",
+    "route": "/design.html?view=dashboard",
+    "owners": 142
+  },
+  {
+    "frame": "board:group",
+    "theme": "light",
+    "route": "/design.html?view=group",
+    "owners": 244
+  },
+  {
+    "frame": "board:conversation",
+    "theme": "light",
+    "route": "/design.html?view=conversation",
+    "owners": 190
+  },
+  {
+    "frame": "board:conversation-map-dense",
+    "theme": "light",
+    "route": "/design.html?view=conversation-map-dense",
+    "owners": 72
+  },
+  {
+    "frame": "board:conversation-map-preview-open",
+    "theme": "light",
+    "route": "/design.html?view=conversation-map-preview-open",
+    "owners": 72
+  },
+  {
+    "frame": "board:composer",
+    "theme": "light",
+    "route": "/design.html?view=composer",
+    "owners": 8
+  },
+  {
+    "frame": "board:composer-fixed-slots",
+    "theme": "light",
+    "route": "/design.html?view=composer-fixed-slots",
+    "owners": 142
+  },
+  {
+    "frame": "board:rail",
+    "theme": "light",
+    "route": "/design.html?view=rail",
+    "owners": 42
+  },
+  {
+    "frame": "board:seat-rows",
+    "theme": "light",
+    "route": "/design.html?view=seat-rows",
+    "owners": 44
+  },
+  {
+    "frame": "board:git",
+    "theme": "light",
+    "route": "/design.html?view=git",
+    "owners": 83
+  },
+  {
+    "frame": "board:panels",
+    "theme": "light",
+    "route": "/design.html?view=panels",
+    "owners": 79
+  },
+  {
+    "frame": "board:tools",
+    "theme": "light",
+    "route": "/design.html?view=tools",
+    "owners": 11
+  },
+  {
+    "frame": "board:signin",
+    "theme": "light",
+    "route": "/design.html?view=signin",
+    "owners": 30
+  },
+  {
+    "frame": "board:propagation",
+    "theme": "light",
+    "route": "/design.html?view=propagation",
+    "owners": 39
+  },
+  {
+    "frame": "board:coverage",
+    "theme": "light",
+    "route": "/design.html?view=coverage",
+    "owners": 497
+  },
+  {
+    "frame": "provenance-seats",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 7
+  },
+  {
+    "frame": "project-capture",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 6
+  },
+  {
+    "frame": "board-populated",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 30
+  },
+  {
+    "frame": "board-person-review",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 29
+  },
+  {
+    "frame": "board-observed",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 51
+  },
+  {
+    "frame": "board-empty",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 6
+  },
+  {
+    "frame": "board-edges",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 39
+  },
+  {
+    "frame": "settings-sheet",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 43
+  },
+  {
+    "frame": "runtimes-status",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 39
+  },
+  {
+    "frame": "agents-roster",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 41
+  },
+  {
+    "frame": "workspace-project",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 63
+  },
+  {
+    "frame": "workspace-triggers",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 32
+  },
+  {
+    "frame": "dashboard-overview",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 140
+  },
+  {
+    "frame": "conversation-composer",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 34
+  },
+  {
+    "frame": "publication-card",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 9
+  },
+  {
+    "frame": "panel-changes",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 6
+  },
+  {
+    "frame": "panel-trajectory",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 29
+  },
+  {
+    "frame": "panel-agents",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 23
+  },
+  {
+    "frame": "panel-activity",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 22
+  },
+  {
+    "frame": "project-flows",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 18
+  },
+  {
+    "frame": "flow-status",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 1
+  },
+  {
+    "frame": "project-checks",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 14
+  },
+  {
+    "frame": "project-triggers",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 14
+  },
+  {
+    "frame": "sidebar-column",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 40
+  },
+  {
+    "frame": "goal-roster",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 30
+  },
+  {
+    "frame": "goal-triggered",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 19
+  },
+  {
+    "frame": "goal-front-door",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 31
+  },
+  {
+    "frame": "settings-library",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 51
+  },
+  {
+    "frame": "settings-appearance",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 133
+  },
+  {
+    "frame": "settings-archive",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 5
+  },
+  {
+    "frame": "settings-extensions",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 2
+  },
+  {
+    "frame": "settings-ceilings",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 29
+  },
+  {
+    "frame": "setup-survey",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 10
+  },
+  {
+    "frame": "schema-form",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 11
+  },
+  {
+    "frame": "finding-status",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 12
+  },
+  {
+    "frame": "goal-receipt",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 8
+  },
+  {
+    "frame": "goal-accounting",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 11
+  },
+  {
+    "frame": "insight-loaded",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 11
+  },
+  {
+    "frame": "insight-partial",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 7
+  },
+  {
+    "frame": "insight-loading",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 1
+  },
+  {
+    "frame": "shape-step-form",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 23
+  },
+  {
+    "frame": "shape-rule-form",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 20
+  },
+  {
+    "frame": "shape-graph",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 11
+  },
+  {
+    "frame": "command-menu",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 7
+  },
+  {
+    "frame": "transcript-folded-steps",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 1
+  },
+  {
+    "frame": "transcript-memory-citation",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 2
+  },
+  {
+    "frame": "transcript-preview-pane",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 5
+  },
+  {
+    "frame": "transcript-missing-folder",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 3
+  },
+  {
+    "frame": "transcript-background-tasks",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 10
+  },
+  {
+    "frame": "tools-file",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 53
+  },
+  {
+    "frame": "tools-browser",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 3
+  },
+  {
+    "frame": "tools-terminal",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 1
+  },
+  {
+    "frame": "goal-header-row",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 2
+  },
+  {
+    "frame": "room-channel-grouping",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 29
+  },
+  {
+    "frame": "tasks-session-plan",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 4
+  },
+  {
+    "frame": "coverage-agent-fields",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 2
+  },
+  {
+    "frame": "coverage-composer-controls",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 0
+  },
+  {
+    "frame": "coverage-goal-flow",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 2
+  },
+  {
+    "frame": "coverage-flow-review-reasons",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 28
+  },
+  {
+    "frame": "coverage-flow-gemini-trust",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 27
+  },
+  {
+    "frame": "coverage-session-background",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 8
+  },
+  {
+    "frame": "coverage-row-alerts",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 139
+  },
+  {
+    "frame": "coverage-publication",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 4
+  },
+  {
+    "frame": "coverage-notices",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 5
+  },
+  {
+    "frame": "coverage-library",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 5
+  },
+  {
+    "frame": "coverage-panel-actions",
+    "theme": "dark",
+    "route": "/preview.html",
+    "owners": 1
+  },
+  {
+    "frame": "board-tool-approval-always",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 10
+  },
+  {
+    "frame": "board-tool-approval-permanent",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 12
+  },
+  {
+    "frame": "board-tool-approval-setting",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 6
+  },
+  {
+    "frame": "conversation-empty",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 10
+  },
+  {
+    "frame": "composer-pickers",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 40
+  },
+  {
+    "frame": "composer-paused",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 10
+  },
+  {
+    "frame": "sidebar-compact",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 40
+  },
+  {
+    "frame": "library-option-e",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 67
+  },
+  {
+    "frame": "library-option-e-applied",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 65
+  },
+  {
+    "frame": "library-option-a",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 84
+  },
+  {
+    "frame": "library-option-b",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 70
+  },
+  {
+    "frame": "library-option-c",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 63
+  },
+  {
+    "frame": "library-option-d",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 58
+  },
+  {
+    "frame": "side-by-side-two",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 34
+  },
+  {
+    "frame": "side-by-side-four",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 48
+  },
+  {
+    "frame": "side-by-side-expanded",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 33
+  },
+  {
+    "frame": "composer-slots",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 140
+  },
+  {
+    "frame": "coverage-notice-narrow-overlay",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 25
+  },
+  {
+    "frame": "coverage-notice-room-board",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 81
+  },
+  {
+    "frame": "coverage-notice-room-pending-approval",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 85
+  },
+  {
+    "frame": "coverage-notice-room-container-query",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 44
+  },
+  {
+    "frame": "coverage-notice-folder-gone",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 57
+  },
+  {
+    "frame": "coverage-notice-zoomed-sidebar",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 3
+  },
+  {
+    "frame": "coverage-notice-zoomed-dock",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 25
+  },
+  {
+    "frame": "coverage-notice-split-composers",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 76
+  },
+  {
+    "frame": "coverage-notice-split-unfocused-composer",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 74
+  },
+  {
+    "frame": "coverage-notice-composer-strip",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 58
+  },
+  {
+    "frame": "coverage-notice-pane-bar-strip",
+    "theme": "dark",
+    "route": "/preview.html?composer&empty&dense&side-by-side&library-options&composer-slots&notice-placement&board-tool-approvals&sidebar=compact",
+    "owners": 49
+  },
+  {
+    "frame": "sidebar-no-folder",
+    "theme": "dark",
+    "route": "/preview.html?sidebar=no-folder",
+    "owners": 14
+  },
+  {
+    "frame": "panes-split-tree",
+    "theme": "dark",
+    "route": "/preview.html (panel sheet=split tree)",
+    "owners": 87
+  },
+  {
+    "frame": "tools-git",
+    "theme": "dark",
+    "route": "/preview.html (panel sheet=git tools)",
+    "owners": 81
+  },
+  {
+    "frame": "goal-findings-rail",
+    "theme": "dark",
+    "route": "/preview.html (goals sheet=findings rail)",
+    "owners": 34
+  },
+  {
+    "frame": "settings-plugins",
+    "theme": "dark",
+    "route": "/preview.html (settings sheet=plugins)",
+    "owners": 30
+  },
+  {
+    "frame": "board:foundation",
+    "theme": "dark",
+    "route": "/design.html?view=foundation",
+    "owners": 380
+  },
+  {
+    "frame": "board:sidebar",
+    "theme": "dark",
+    "route": "/design.html?view=sidebar",
+    "owners": 106
+  },
+  {
+    "frame": "board:queue",
+    "theme": "dark",
+    "route": "/design.html?view=queue",
+    "owners": 31
+  },
+  {
+    "frame": "board:button",
+    "theme": "dark",
+    "route": "/design.html?view=button",
+    "owners": 97
+  },
+  {
+    "frame": "board:state",
+    "theme": "dark",
+    "route": "/design.html?view=state",
+    "owners": 75
+  },
+  {
+    "frame": "board:control",
+    "theme": "dark",
+    "route": "/design.html?view=control",
+    "owners": 33
+  },
+  {
+    "frame": "board:row",
+    "theme": "dark",
+    "route": "/design.html?view=row",
+    "owners": 45
+  },
+  {
+    "frame": "board:head",
+    "theme": "dark",
+    "route": "/design.html?view=head",
+    "owners": 12
+  },
+  {
+    "frame": "board:app-window",
+    "theme": "dark",
+    "route": "/design.html?view=app-window",
+    "owners": 13
+  },
+  {
+    "frame": "board:face",
+    "theme": "dark",
+    "route": "/design.html?view=face",
+    "owners": 6
+  },
+  {
+    "frame": "board:checklist",
+    "theme": "dark",
+    "route": "/design.html?view=checklist",
+    "owners": 11
+  },
+  {
+    "frame": "board:notices",
+    "theme": "dark",
+    "route": "/design.html?view=notices",
+    "owners": 110
+  },
+  {
+    "frame": "board:banner",
+    "theme": "dark",
+    "route": "/design.html?view=banner",
+    "owners": 50
+  },
+  {
+    "frame": "board:code",
+    "theme": "dark",
+    "route": "/design.html?view=code",
+    "owners": 147
+  },
+  {
+    "frame": "board:message",
+    "theme": "dark",
+    "route": "/design.html?view=message",
+    "owners": 50
+  },
+  {
+    "frame": "board:channel",
+    "theme": "dark",
+    "route": "/design.html?view=channel",
+    "owners": 60
+  },
+  {
+    "frame": "board:panel-controls",
+    "theme": "dark",
+    "route": "/design.html?view=panel-controls",
+    "owners": 15
+  },
+  {
+    "frame": "board:stat",
+    "theme": "dark",
+    "route": "/design.html?view=stat",
+    "owners": 66
+  },
+  {
+    "frame": "board:delta",
+    "theme": "dark",
+    "route": "/design.html?view=delta",
+    "owners": 16
+  },
+  {
+    "frame": "board:plan-card",
+    "theme": "dark",
+    "route": "/design.html?view=plan-card",
+    "owners": 39
+  },
+  {
+    "frame": "board:section",
+    "theme": "dark",
+    "route": "/design.html?view=section",
+    "owners": 87
+  },
+  {
+    "frame": "board:badge",
+    "theme": "dark",
+    "route": "/design.html?view=badge",
+    "owners": 12
+  },
+  {
+    "frame": "board:icons",
+    "theme": "dark",
+    "route": "/design.html?view=icons",
+    "owners": 208
+  },
+  {
+    "frame": "board:tile",
+    "theme": "dark",
+    "route": "/design.html?view=tile",
+    "owners": 7
+  },
+  {
+    "frame": "board:list",
+    "theme": "dark",
+    "route": "/design.html?view=list",
+    "owners": 19
+  },
+  {
+    "frame": "board:readings",
+    "theme": "dark",
+    "route": "/design.html?view=readings",
+    "owners": 54
+  },
+  {
+    "frame": "board:tool-pane",
+    "theme": "dark",
+    "route": "/design.html?view=tool-pane",
+    "owners": 44
+  },
+  {
+    "frame": "board:field",
+    "theme": "dark",
+    "route": "/design.html?view=field",
+    "owners": 32
+  },
+  {
+    "frame": "board:stepper",
+    "theme": "dark",
+    "route": "/design.html?view=stepper",
+    "owners": 22
+  },
+  {
+    "frame": "board:empty",
+    "theme": "dark",
+    "route": "/design.html?view=empty",
+    "owners": 27
+  },
+  {
+    "frame": "board:kanban",
+    "theme": "dark",
+    "route": "/design.html?view=kanban",
+    "owners": 56
+  },
+  {
+    "frame": "board:room-side-by-side",
+    "theme": "dark",
+    "route": "/design.html?view=room-side-by-side",
+    "owners": 95
+  },
+  {
+    "frame": "board:adopted",
+    "theme": "dark",
+    "route": "/design.html?view=adopted",
+    "owners": 116
+  },
+  {
+    "frame": "board:spark",
+    "theme": "dark",
+    "route": "/design.html?view=spark",
+    "owners": 9
+  },
+  {
+    "frame": "board:chart",
+    "theme": "dark",
+    "route": "/design.html?view=chart",
+    "owners": 63
+  },
+  {
+    "frame": "board:overview-strip",
+    "theme": "dark",
+    "route": "/design.html?view=overview-strip",
+    "owners": 133
+  },
+  {
+    "frame": "board:dialog",
+    "theme": "dark",
+    "route": "/design.html?view=dialog",
+    "owners": 52
+  },
+  {
+    "frame": "board:plans-table",
+    "theme": "dark",
+    "route": "/design.html?view=plans-table",
+    "owners": 410
+  },
+  {
+    "frame": "board:finding-decision",
+    "theme": "dark",
+    "route": "/design.html?view=finding-decision",
+    "owners": 6
+  },
+  {
+    "frame": "board:flow-brief",
+    "theme": "dark",
+    "route": "/design.html?view=flow-brief",
+    "owners": 14
+  },
+  {
+    "frame": "board:dashboard",
+    "theme": "dark",
+    "route": "/design.html?view=dashboard",
+    "owners": 142
+  },
+  {
+    "frame": "board:group",
+    "theme": "dark",
+    "route": "/design.html?view=group",
+    "owners": 244
+  },
+  {
+    "frame": "board:conversation",
+    "theme": "dark",
+    "route": "/design.html?view=conversation",
+    "owners": 190
+  },
+  {
+    "frame": "board:conversation-map-dense",
+    "theme": "dark",
+    "route": "/design.html?view=conversation-map-dense",
+    "owners": 72
+  },
+  {
+    "frame": "board:conversation-map-preview-open",
+    "theme": "dark",
+    "route": "/design.html?view=conversation-map-preview-open",
+    "owners": 72
+  },
+  {
+    "frame": "board:composer",
+    "theme": "dark",
+    "route": "/design.html?view=composer",
+    "owners": 8
+  },
+  {
+    "frame": "board:composer-fixed-slots",
+    "theme": "dark",
+    "route": "/design.html?view=composer-fixed-slots",
+    "owners": 142
+  },
+  {
+    "frame": "board:rail",
+    "theme": "dark",
+    "route": "/design.html?view=rail",
+    "owners": 42
+  },
+  {
+    "frame": "board:seat-rows",
+    "theme": "dark",
+    "route": "/design.html?view=seat-rows",
+    "owners": 44
+  },
+  {
+    "frame": "board:git",
+    "theme": "dark",
+    "route": "/design.html?view=git",
+    "owners": 83
+  },
+  {
+    "frame": "board:panels",
+    "theme": "dark",
+    "route": "/design.html?view=panels",
+    "owners": 79
+  },
+  {
+    "frame": "board:tools",
+    "theme": "dark",
+    "route": "/design.html?view=tools",
+    "owners": 11
+  },
+  {
+    "frame": "board:signin",
+    "theme": "dark",
+    "route": "/design.html?view=signin",
+    "owners": 30
+  },
+  {
+    "frame": "board:propagation",
+    "theme": "dark",
+    "route": "/design.html?view=propagation",
+    "owners": 39
+  },
+  {
+    "frame": "board:coverage",
+    "theme": "dark",
+    "route": "/design.html?view=coverage",
+    "owners": 497
+  }
+]

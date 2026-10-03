@@ -1,0 +1,37 @@
+# Handoff files
+
+Start with [comparison.html](comparison.html), then [REPORT.md](REPORT.md). This is a measurement/recommendation branch for review, not product code to merge.
+
+The opt-in instrument is `e2e/ui-system/typography-audit.spec.ts`. Every file under `docs/typography-review/` is listed below. Failed traces/logs and synthetic native profiles remain local.
+
+- [MANIFEST.md](MANIFEST.md)
+- [REPORT.md](REPORT.md)
+- [alternative-dark.png](alternative-dark.png)
+- [alternative-light.png](alternative-light.png)
+- [area-tables.md](area-tables.md)
+- [comparison.html](comparison.html)
+- [coverage.json](coverage.json)
+- [current-dark.png](current-dark.png)
+- [current-light.png](current-light.png)
+- [flags.json](flags.json)
+- [flags.md](flags.md)
+- [font-switch.json](font-switch.json)
+- [font-switch.md](font-switch.md)
+- [image-inspection.json](image-inspection.json)
+- [name-weights.md](name-weights.md)
+- [provenance.json](provenance.json)
+- [recommendation-dark.png](recommendation-dark.png)
+- [recommendation-light.png](recommendation-light.png)
+- [ruled-dark.png](ruled-dark.png)
+- [ruled-light.png](ruled-light.png)
+- [samples.json](samples.json)
+- [source-type.txt](source-type.txt)
+- [spot-comparison.json](spot-comparison.json)
+- [strict-audit.txt](strict-audit.txt)
+- [text-box-trim.json](text-box-trim.json)
+- [text-box-trim.md](text-box-trim.md)
+- [trim-after.png](trim-after.png)
+- [trim-before.png](trim-before.png)
+- [trim-controls-after.png](trim-controls-after.png)
+- [trim-controls-before.png](trim-controls-before.png)
+- [validation.json](validation.json)

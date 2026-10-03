@@ -1,0 +1,33 @@
+{
+  "frames": [
+    "sidebar-column",
+    "goal-roster"
+  ],
+  "themes": [
+    "light",
+    "dark"
+  ],
+  "fields": [
+    "frame",
+    "theme",
+    "path",
+    "textKind",
+    "role",
+    "roleSource",
+    "size",
+    "weight",
+    "lineHeight",
+    "letterSpacing",
+    "fontFamily",
+    "color",
+    "ink",
+    "xHeight",
+    "capHeight"
+  ],
+  "fullOwners": 140,
+  "spotOwners": 140,
+  "missingOwners": 0,
+  "addedOwners": 0,
+  "matched": true,
+  "ignored": "text/positions/clock labels can vary; typography, role, stable path and multiplicity must match"
+}

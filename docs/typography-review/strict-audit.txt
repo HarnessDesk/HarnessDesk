@@ -1,0 +1,73 @@
+Design system audit
+
+   0  Type sizes written out rather than named
+      The one axis of the scale with no gate: a token edit moves the controls and leaves these behind.
+
+   0  Type weights written out rather than named
+      The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it.
+
+   0  Patterns re-declared in a screen stylesheet
+      Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line.
+
+   0  Appearance a screen draws instead of composing it
+      A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. A hard zero since #838: the Git pane's three own declarations are named, reasoned exemptions (`SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS`), matched by sheet, selector, property and value.
+
+  21  Single-area design/ui/ primitives
+      A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. Named data-geometry and native-boundary exemptions in `SINGLE_AREA_PRIMITIVE_EXEMPTIONS` remain exempt only while each export stays single to its recorded area.
+        design/ui/card.tsx: CardFooter [usage screen area]
+        design/ui/card.tsx: CardHeader [usage screen area]
+        design/ui/section.tsx: SectionBody [settings screen area]
+        … 18 more (--verbose)
+
+   0  Labels set in capitals
+      A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out.
+
+   0  Properties outside the screen boundary
+      An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total.
+
+   0  Visual catalogues hidden behind a kind prop
+      One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role.
+
+   0  Controls in a slot the design system has a rule for
+      The same slot ends up drawn four different ways, one screen at a time.
+
+   0  Styles referenced that do not exist
+      Renders with no styling at all, and nothing fails.
+
+   0  System tokens defined outside the system
+      Forks the source of truth: the generated doc and the token snapshot both miss it.
+
+   0  Overlays built beside the system
+      Five decisions — buttons, Escape, focus, click-outside, surface — made again, usually one by omission.
+
+   0  Glyph controls under the target floor
+      A 20px close button is a miss on a trackpad, and WCAG 2.2 asks for 24 unless it has clearance.
+
+   0  Icons drawn in place
+      Makes "change the icon set" a search across the app instead of one edit.
+
+   0  Tokens that resolve to nothing
+      A silent no-op: the declaration does nothing.
+
+   0  Screens used as component libraries
+      Rebuilding one screen changes another.
+
+   0  Radii the system has no name for
+      Will not follow a shape change.
+
+   0  Spacing off the scale
+      Will not follow a density change.
+
+   0  Stacking written as a number
+      Two layers claim the same plane, and the one that wins is the one written later.
+
+   0  Motion written as a number
+      Will not follow a change to how fast the app moves — every other surface speeds up and this one keeps its own clock.
+
+   0  Colours written out rather than named
+      Will not follow a palette or theme change.
+
+   0  Arbitrary values in the design system
+      Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them.
+
+21 findings.
