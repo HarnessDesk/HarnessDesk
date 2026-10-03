@@ -41,6 +41,9 @@ try {
           if (item.targetRight !== null) assert.ok(Math.abs(item.targetRight - measured.targetRail) <= 0.5, `${item.name}: target rail`)
           if (!item.chipBox) continue
           assert.ok(Math.abs(item.chipBox.right - item.chipRail) <= 0.5, `${item.name}: chip misses visible rail`)
+          assert.ok(Math.abs(item.textBox.right - item.chipRail) <= 0.5, `${item.name}: text misses visible rail`)
+          assert.deepEqual(item.chipStyle, { background: 'rgba(0, 0, 0, 0)', border: '0px', shadow: 'none', paddingLeft: '0px', paddingRight: '0px' }, `${item.name}: quiet text`)
+          assert.ok(item.textBox.left >= item.chipBox.left - 0.5 && item.textBox.right <= item.chipBox.right + 0.5, `${item.name}: clipped text`)
           assert.ok(item.chipBox.left >= item.clip.left && item.chipBox.right <= item.clip.right && item.chipBox.top >= item.clip.top && item.chipBox.bottom <= item.clip.bottom, `${item.name}: clipped chip`)
         }
         measurements.push({ theme, width, state, ...measured })
@@ -49,6 +52,11 @@ try {
       await page.mouse.move(1439, 0)
       await page.evaluate(() => document.activeElement?.blur())
       await capture('rest')
+      if (width === 200) {
+        const session = sidebar.locator('[data-region="session-row"] [data-slot="sidebar-menu-item"]')
+          .filter({ hasText: 'Pin the flaky inventory test after reconciling every retry branch' })
+        await session.screenshot({ path: `${output}/${theme}-200-approval-title.png` })
+      }
       const hover = async button => {
         await button.hover()
         const owner = button.locator('xpath=ancestor::li[@data-slot="sidebar-menu-item"][1]')
@@ -69,7 +77,7 @@ try {
     await page.close()
   }
   await writeFile(`${output}/measurements.json`, `${JSON.stringify(measurements, null, 2)}\n`)
-  console.log(`32 audited sidebar frames; every row measured against the visible session dot rail`)
+  console.log(`34 audited sidebar frames; every row measured against the visible session dot rail`)
 } finally {
   await browser.close()
 }

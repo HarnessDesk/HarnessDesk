@@ -396,6 +396,14 @@ const StateBoard = () => (
         <Chip tone="danger">Danger</Chip>
         <Chip tone="info">Info</Chip>
       </Case>
+      <Case label="quiet chip tones">
+        <Chip tone="neutral" variant="quiet">Neutral</Chip>
+        <Chip tone="brand" variant="quiet">Brand</Chip>
+        <Chip tone="success" variant="quiet">Success</Chip>
+        <Chip tone="warning" variant="quiet">Warning</Chip>
+        <Chip tone="danger" variant="quiet">Danger</Chip>
+        <Chip tone="info" variant="quiet">Info</Chip>
+      </Case>
       <Case label="chip with its own dot tone">
         {/* The conversation header's status pill: neutral while running, and
             the one moving mark — the dot alone — brand and pulsing, so the

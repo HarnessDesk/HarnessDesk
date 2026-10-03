@@ -34,5 +34,6 @@ it.each(['Working', 'Needs you', 'Approval', 'Queued message', 'Question', 'Wrap
   expect(full?.getAttribute('aria-hidden')).toBe('true')
   expect(compact?.getAttribute('aria-hidden')).toBe('true')
   expect(full?.querySelector('[data-slot="chip"]')?.textContent).toBe(label)
+  expect(full?.querySelector('[data-slot="chip"]')?.getAttribute('data-variant')).toBe('quiet')
   expect(compact?.querySelector('[data-slot="dot"]')?.getAttribute('data-variant')).toBe('navigation')
 })

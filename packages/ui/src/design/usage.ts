@@ -231,6 +231,13 @@ export const ELEMENTS: readonly UsageRule[] = [
   },
   {
     family: 'chip',
+    variant: 'quiet',
+    when: 'A sidebar row state ends on the trailing rail as coloured text. Pass variant="quiet": the chip keeps its tone and type without a background, border or horizontal padding.',
+    never: 'Changing every chip to plain text. Other screens keep the pill unless they opt in.',
+    because: 'A wide gap before a coloured block reads as a hole; the same gap before quiet text reads as normal while the states keep their alignment.',
+  },
+  {
+    family: 'chip',
     variant: 'one line',
     when: 'Always. A chip never wraps: it stops at its box (at most 240px), ellipsises, and names itself whole in `title` while it is cut. The Chip enforces this.',
     never: 'Forced into two lines by a caller. A fact that needs a second line is a row\'s description or a dialog\'s, not a chip.',
