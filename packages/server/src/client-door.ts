@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { Stats } from 'node:fs'
 import * as fs from 'node:fs/promises'
 import { createServer } from 'node:http'
@@ -63,11 +63,29 @@ const alive = (path: string): Promise<boolean> => new Promise((resolve, reject) 
   socket.setTimeout(500, () => finish(true))
 })
 
-export type ClientDoorFilesystem = Pick<typeof fs, 'realpath' | 'mkdir' | 'chmod' | 'unlink' | 'writeFile' | 'readFile' | 'rm'> & {
+export type ClientDoorFilesystem = Pick<typeof fs, 'realpath' | 'mkdir' | 'chmod' | 'unlink' | 'writeFile' | 'readFile' | 'rm' | 'rename'> & {
   lstat(path: string): Promise<Pick<Stats, 'uid' | 'mode' | 'isDirectory' | 'isSymbolicLink' | 'isSocket'>>
 }
 
 type Subscription = HostParams<'client/subscribe'>
+
+const snapshotKey = (notification: WireNotification): string | null => {
+  switch (notification.method) {
+    case 'flow/execution-changed': return `run:${notification.params.execution.id}`
+    case 'team/changed': return `board:${notification.params.state.id}`
+    case 'goal/changed': return `goal:${notification.params.view.goal.id}`
+    case 'goal/activity': return `goal:${notification.params.goal}`
+    default: return null
+  }
+}
+
+const overlaySnapshot = (previous: WireNotification | undefined, next: WireNotification): WireNotification => {
+  if (previous?.method === 'goal/changed' && next.method === 'goal/activity') {
+    return { method: 'goal/changed', params: { view: { ...previous.params.view,
+      activity: next.params.activity, goal: { ...previous.params.view.goal, sentence: next.params.sentence } } } }
+  }
+  return next
+}
 
 const viewsInScope = async (host: Host, scope: Subscription['scope']): Promise<readonly GoalView[]> => {
   const views = await host.call('goal/list', {})
@@ -140,6 +158,19 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
   const startedAt = Date.now()
   const greeted = new Set<WebSocket>()
   let closed: Promise<void> | null = null
+  const closeListener = () => closed ??= (async () => {
+    for (const ws of greeted) {
+      if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ method: 'host/shutdown', params: { reason: 'desk-closed' } }))
+    }
+    for (const ws of sockets.clients) {
+      ws.close(1001, 'desk-closed')
+      const timer = setTimeout(() => ws.terminate(), 1000)
+      timer.unref()
+      ws.once('close', () => clearTimeout(timer))
+    }
+    await new Promise<void>(resolve => sockets.close(() => resolve()))
+    await new Promise<void>(resolve => http.close(() => resolve()))
+  })()
   http.on('upgrade', (request, socket, head) => {
     if (request.url !== '/client' || closed !== null) { socket.destroy(); return }
     sockets.handleUpgrade(request, socket, head, ws => {
@@ -148,7 +179,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
       let identity = 'unknown'
       let statedPid: number | null = null
       let subscription: Subscription = { topics: [] }
-      let proposal: Subscription | null = null
+      let proposal: { selection: Subscription; snapshots: WireNotification[]; consumed: Set<WireNotification> } | null = null
       let queue = Promise.resolve()
       const shownApprovals = new Set<string>()
       const send = (message: HostToClient) => {
@@ -167,8 +198,11 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
       }
       const detach = options.host.addBroadcaster(notification => {
         // Keep both selections' events until the baseline decides which one commits.
-        if (!hello || !topicsOf(notification).some(t => topics().has(t) || (proposal !== null && topics(proposal).has(t)))) return
+        if (!hello || !topicsOf(notification).some(t => topics().has(t) || (proposal !== null && topics(proposal.selection).has(t)))) return
+        const collecting = proposal
+        if (collecting && snapshotKey(notification) !== null) collecting.snapshots.push(notification)
         enqueue(async () => {
+          if (collecting?.consumed.has(notification)) return
           if (!hello || !topicsOf(notification).some(t => topics().has(t))) return
           const resolved = notification.method === 'event' && notification.params.event.type === 'approval/resolved'
           const key = approvalKey(notification)
@@ -225,25 +259,52 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
         try {
           if (parsed.method === 'client/subscribe') {
             const next = parsed.params as Subscription
-            proposal = next
+            const collecting = proposal = { selection: next, snapshots: [] as WireNotification[], consumed: new Set<WireNotification>() }
             const selectedTopics = topics(next)
+            const viewsReadAt = collecting.snapshots.length
             const views = await viewsInScope(options.host, next.scope)
             const runs = await options.host.call('flow/executions', { active: next.scope?.run ? false : true })
-            const baseline: WireNotification[] = []
+            const baseline = new Map<string, WireNotification>()
+            const readAt = new Map<string, number>()
+            const remember = (notification: WireNotification, sampledAt = viewsReadAt) => {
+              const key = snapshotKey(notification)!
+              baseline.set(key, notification)
+              readAt.set(key, sampledAt)
+            }
             if (selectedTopics.has('runs')) for (const run of runs) {
+              const sampledAt = collecting.snapshots.length
               const execution = await options.host.call('flow/execution', { run: run.id })
               const notification: WireNotification = { method: 'flow/execution-changed', params: { execution } }
-              if (inScope(notification, views, next.scope)) baseline.push(notification)
+              if (inScope(notification, views, next.scope)) remember(notification, sampledAt)
             }
-            if (selectedTopics.has('cards')) for (const view of views) baseline.push({ method: 'team/changed', params: { state: view.board } })
-            if (selectedTopics.has('teams')) for (const view of views) baseline.push({ method: 'goal/changed', params: { view } })
+            if (selectedTopics.has('cards')) for (const view of views) remember({ method: 'team/changed', params: { state: view.board } })
+            if (selectedTopics.has('teams')) for (const view of views) remember({ method: 'goal/changed', params: { view } })
+            // State changes received during collection belong to this baseline.
+            // Keep event notifications queued, and leave a refused proposal untouched.
+            const consumed = new Set<WireNotification>()
+            for (const [index, notification] of collecting.snapshots.entries()) {
+              if (!topicsOf(notification).some(t => selectedTopics.has(t)) || !inScope(notification, views, next.scope)) continue
+              const key = snapshotKey(notification)!
+              if (index >= (readAt.get(key) ?? 0)) baseline.set(key, overlaySnapshot(baseline.get(key), notification))
+              consumed.add(notification)
+            }
+            // Goal views carry the board too; keep both baseline forms consistent.
+            for (const [key, notification] of baseline) {
+              if (notification.method !== 'goal/changed') continue
+              const board = baseline.get(`board:${notification.params.view.board.id}`)
+              if (board?.method === 'team/changed') baseline.set(key, { method: 'goal/changed',
+                params: { view: { ...notification.params.view, board: board.params.state } } })
+            }
+            const approvals: WireNotification[] = []
             if (selectedTopics.has('waiting')) for (const notification of options.host.pendingApprovalEvents()) {
-              if (inScope(notification, views, next.scope)) baseline.push(notification)
+              if (inScope(notification, views, next.scope)) approvals.push(notification)
             }
+            collecting.consumed = consumed
             subscription = next
             shownApprovals.clear()
             send({ id, ok: true, result: null })
-            for (const notification of baseline) send(notification)
+            for (const notification of baseline.values()) send(notification)
+            for (const notification of approvals) send(notification)
           } else {
             const result = await options.host.call(parsed.method, parsed.params as never)
             send({ id, ok: true, result })
@@ -265,30 +326,26 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
       ws.on('error', error => logger.warn('client socket error', { error: String(error) }))
     })
   })
+  const temporaryPointer = `${paths.pointerPath}.${randomUUID()}.tmp`
+  let writingPointer = false
   try {
     await new Promise<void>((resolve, reject) => { http.once('error', reject); http.listen(paths.socketPath, resolve) })
     await filesystem.chmod(paths.socketPath, 0o600)
-    await filesystem.writeFile(paths.pointerPath, JSON.stringify({ home, pid: process.pid, hostVersion: options.hostVersion, protocolVersion: CLIENT_PROTOCOL, startedAt }), { mode: 0o600, flag: 'w' })
-    await filesystem.chmod(paths.pointerPath, 0o600)
+    writingPointer = true
+    await filesystem.writeFile(temporaryPointer, JSON.stringify({ home, pid: process.pid, hostVersion: options.hostVersion, protocolVersion: CLIENT_PROTOCOL, startedAt }), { mode: 0o600, flag: 'wx' })
+    await filesystem.rename(temporaryPointer, paths.pointerPath)
   } catch (error) {
-    http.close()
+    await closeListener()
+    try { if (writingPointer && (error as NodeJS.ErrnoException).code !== 'EEXIST') await filesystem.rm(temporaryPointer, { force: true }) }
+    catch (cleanupError) { logger.warn('client temporary pointer could not be removed', { reason: String(cleanupError) }) }
     logger.warn('client door was not opened', { reason: String(error) })
     return null
   }
+  let cleanup: Promise<void> | null = null
   return {
     socketPath: paths.socketPath,
-    close: () => closed ??= (async () => {
-      for (const ws of greeted) {
-        if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ method: 'host/shutdown', params: { reason: 'desk-closed' } }))
-      }
-      for (const ws of sockets.clients) {
-        ws.close(1001, 'desk-closed')
-        const timer = setTimeout(() => ws.terminate(), 1000)
-        timer.unref()
-        ws.once('close', () => clearTimeout(timer))
-      }
-      await new Promise<void>(resolve => sockets.close(() => resolve()))
-      await new Promise<void>(resolve => http.close(() => resolve()))
+    close: () => cleanup ??= (async () => {
+      await closeListener()
       try {
         const pointer = JSON.parse(await filesystem.readFile(paths.pointerPath, 'utf8')) as { pid: number }
         if (pointer.pid === process.pid) {

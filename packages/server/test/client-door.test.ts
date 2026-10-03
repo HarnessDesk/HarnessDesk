@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink } from 'node:fs/promises'
+import { chmod, link, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 import test from 'node:test'
@@ -267,7 +267,7 @@ test('a notice raised while subscribe reads its baseline is delivered', async t 
   assert.ok(peer.messages.some(m => m.method === 'person/notice' && m.params.notice.title === 'During baseline'))
 })
 
-const holdNextGoalList = (host: Awaited<ReturnType<typeof start>>['host']) => {
+const holdNextRead = (host: Awaited<ReturnType<typeof start>>['host'], methodToHold = 'goal/list') => {
   const call = host.call.bind(host)
   let release!: () => void
   let reading!: () => void
@@ -275,7 +275,7 @@ const holdNextGoalList = (host: Awaited<ReturnType<typeof start>>['host']) => {
   const held = new Promise<void>(resolve => { release = resolve })
   let first = true
   Object.defineProperty(host, 'call', { value: async (method: string, params: unknown) => {
-    if (method === 'goal/list' && first) { first = false; reading(); await held }
+    if (method === methodToHold && first) { first = false; reading(); await held }
     return call(method as never, params as never)
   } })
   return { entered, release }
@@ -293,8 +293,9 @@ test('an accepted replacement filters queued broadcasts by its final topics and 
   await peer.hello()
   assert.equal((await peer.call('client/subscribe', { topics: ['teams'] })).ok, true)
   await peer.call('goal/list', {})
-  const before = peer.messages.length
-  const { entered, release } = holdNextGoalList(h.host)
+  // Only subscription collection reads this method; an older broadcast can
+  // still read goal/list while the previous selection is active.
+  const { entered, release } = holdNextRead(h.host, 'flow/executions')
   t.after(release)
   const replacement = peer.call('client/subscribe', { topics: ['notices'], scope: { team: goal.goal.id } })
   await entered
@@ -302,9 +303,11 @@ test('an accepted replacement filters queued broadcasts by its final topics and 
   await h.host.teamPlane.notify({ where: 'inbox', title: 'Candidate in scope' }, { runtime: h.runtime.info.id, sessionId: member.sessionId as never })
   await h.host.teamPlane.notify({ where: 'inbox', title: 'Candidate outside scope' }, { runtime: h.runtime.info.id, sessionId: loose.id })
   release()
-  assert.equal((await replacement).ok, true)
+  const accepted = await replacement
+  assert.equal(accepted.ok, true)
   await peer.call('goal/list', {})
-  const notifications = peer.messages.slice(before).filter(m => 'method' in m)
+  const boundary = peer.messages.findIndex(m => m.id === accepted.id)
+  const notifications = peer.messages.slice(boundary + 1).filter(m => 'method' in m)
   assert.deepEqual(notifications.map(m => [m.method, m.params.notice?.title]), [['person/notice', 'Candidate in scope']])
 })
 
@@ -315,7 +318,7 @@ test('a refused replacement retains notices raised during and after its baseline
   t.after(() => peer.socket.close())
   await peer.hello()
   assert.equal((await peer.call('client/subscribe', { topics: ['notices'] })).ok, true)
-  const { entered, release } = holdNextGoalList(h.host)
+  const { entered, release } = holdNextRead(h.host)
   t.after(release)
   const replacement = peer.call('client/subscribe', { topics: ['teams'], scope: { run: 'missing' } })
   await entered
@@ -347,7 +350,7 @@ test('a refused replacement retains a shown approval resolution and the waiting 
   assert.equal((await peer.call('client/subscribe', { topics: ['waiting'], scope: { team: goal.goal.id } })).ok, true)
   await peer.call('goal/list', {})
   assert.ok(peer.messages.some(m => m.method === 'event' && m.params.event.type === 'approval/requested' && m.params.event.approval.id === 'during-refusal'))
-  const { entered, release } = holdNextGoalList(h.host)
+  const { entered, release } = holdNextRead(h.host)
   t.after(release)
   const replacement = peer.call('client/subscribe', { topics: ['teams'], scope: { run: 'missing' } })
   await entered
@@ -367,4 +370,155 @@ test('a refused replacement retains a shown approval resolution and the waiting 
   assert.deepEqual(peer.messages.filter(m => m.method === 'event' && m.params.event.type === 'approval/resolved').map(m => m.params.event.approvalId), [
     'during-refusal', 'after-refusal',
   ])
+})
+
+for (const phase of ['before run read', 'during run read'] as const) {
+  test(`subscribe reconciles run snapshots received ${phase}`, async t => {
+    const { home, directory, h, door, module } = await rig(t)
+    await door.close()
+    await h.host.call('workspace/open', { path: home })
+    const preview = await h.host.call('flow/preview', { root: home, source })
+    const run = await h.host.call('flow/start-goal', { root: home, source, sentence: 'Synthetic run', token: preview.token! })
+    let current = await h.host.call('flow/execution', { run: run.id })
+    const view = await h.host.call('goal/read', { goal: run.goal })
+    let broadcast!: (notification: WireNotification) => void
+    const add = h.host.addBroadcaster.bind(h.host)
+    Object.defineProperty(h.host, 'addBroadcaster', { value: (callback: typeof broadcast) => { broadcast = callback; return add(callback) } })
+    const reopened = await module.openClientDoor({ host: h.host, logger: silent, home, directory, hostVersion: 'test' })
+    assert.ok(reopened)
+    t.after(() => reopened.close())
+    const peer = await Peer.open(reopened.socketPath)
+    t.after(() => peer.socket.close())
+    await peer.hello()
+    const call = h.host.call.bind(h.host)
+    let reading!: () => void
+    let release!: () => void
+    const entered = new Promise<void>(resolve => { reading = resolve })
+    const held = new Promise<void>(resolve => { release = resolve })
+    t.after(release)
+    let first = true
+    Object.defineProperty(h.host, 'call', { value: async (method: string, params: unknown) => {
+      const result = method === 'flow/execution' ? current : await call(method as never, params as never)
+      if (first && method === (phase === 'before run read' ? 'goal/list' : 'flow/execution')) {
+        first = false; reading(); await held
+      }
+      return result
+    } })
+    const subscribed = peer.call('client/subscribe', { topics: ['runs', 'cards', 'teams'], scope: { team: run.goal } })
+    await entered
+    for (const state of ['stalled', phase === 'before run read' ? 'running' : 'settled'] as const) {
+      current = { ...current, state }
+      broadcast({ method: 'flow/execution-changed', params: { execution: current } })
+    }
+    for (const title of ['Earlier card', 'Latest card']) {
+      broadcast({ method: 'team/changed', params: { state: { ...view.board,
+        intents: view.board.intents.map(card => ({ ...card, title })) } } })
+    }
+    broadcast({ method: 'goal/activity', params: { goal: run.goal, previous: 'needs-you',
+      activity: 'working', sentence: 'Earlier Team' } })
+    broadcast({ method: 'goal/activity', params: { goal: run.goal, previous: 'working',
+      activity: 'needs-you', sentence: 'Latest Team' } })
+    release()
+    assert.equal((await subscribed).ok, true)
+    await peer.call('goal/list', {})
+    assert.deepEqual(peer.messages.filter(m => m.method === 'flow/execution-changed').map(m => m.params.execution.state), [current.state])
+    assert.deepEqual(peer.messages.filter(m => m.method === 'team/changed').map(m => m.params.state.intents[0].title), ['Latest card'])
+    assert.deepEqual(peer.messages.filter(m => m.method === 'goal/changed').map(m => m.params.view.goal.sentence), ['Latest Team'])
+    assert.deepEqual(peer.messages.filter(m => m.method === 'goal/changed').map(m => m.params.view.board.intents[0].title), ['Latest card'])
+    assert.equal(peer.messages.some(m => m.method === 'goal/activity'), false)
+  })
+}
+
+for (const kind of ['symlink', 'hardlink'] as const) {
+  test(`publishing a pointer replaces a ${kind} without changing its target`, async t => {
+    const { home, directory, h, door, module } = await rig(t)
+    await door.close()
+    const { pointerPath } = module.clientDoorPaths(await realpath(home), directory)
+    const target = join(directory, 'target')
+    await writeFile(target, 'Synthetic target', { mode: 0o640 })
+    await (kind === 'symlink' ? symlink : link)(target, pointerPath)
+    const reopened = await module.openClientDoor({ host: h.host, logger: silent, home, directory, hostVersion: 'test' })
+    t.after(() => reopened?.close())
+    assert.ok(reopened)
+    assert.equal(await readFile(target, 'utf8'), 'Synthetic target')
+    assert.equal((await lstat(target)).mode & 0o777, 0o640)
+    assert.equal((await lstat(pointerPath)).isSymbolicLink(), false)
+    assert.equal((await lstat(pointerPath)).mode & 0o777, 0o600)
+    assert.equal(JSON.parse(await readFile(pointerPath, 'utf8')).pid, process.pid)
+  })
+}
+
+test('pointer publication failure closes upgraded peers and detaches their broadcaster before returning', async t => {
+  const { home, directory, h, door, module } = await rig(t)
+  await door.close()
+  const fs = await import('node:fs/promises')
+  let peer: Peer | undefined
+  let detached = false
+  const add = h.host.addBroadcaster.bind(h.host)
+  Object.defineProperty(h.host, 'addBroadcaster', { value: (callback: Parameters<typeof add>[0]) => {
+    const detach = add(callback)
+    return () => { detached = true; detach() }
+  } })
+  const failed = await module.openClientDoor({ host: h.host, logger: silent, home, directory, hostVersion: 'test' }, {
+    ...fs,
+    writeFile: async () => {
+      peer = await Peer.open(door.socketPath)
+      await peer.hello()
+      throw Object.assign(new Error('Synthetic publication failure'), { code: 'EACCES' })
+    },
+  })
+  t.after(() => peer?.socket.terminate())
+  assert.equal(failed, null)
+  assert.ok(peer)
+  assert.equal(detached, true)
+  await peer.until(() => peer!.socket.readyState === WebSocket.CLOSED)
+  await assert.rejects(lstat(door.socketPath), { code: 'ENOENT' })
+})
+
+test('a failed pointer rename preserves the previous pointer and removes the temporary file', async t => {
+  const { home, directory, h, door, module } = await rig(t)
+  await door.close()
+  const { pointerPath } = module.clientDoorPaths(await realpath(home), directory)
+  await writeFile(pointerPath, 'Previous synthetic pointer', { mode: 0o640 })
+  const fs = await import('node:fs/promises')
+  const failed = await module.openClientDoor({ host: h.host, logger: silent, home, directory, hostVersion: 'test' }, {
+    ...fs, rename: async () => { throw Object.assign(new Error('Synthetic rename failure'), { code: 'EACCES' }) },
+  })
+  assert.equal(failed, null)
+  assert.equal(await readFile(pointerPath, 'utf8'), 'Previous synthetic pointer')
+  assert.equal((await lstat(pointerPath)).mode & 0o777, 0o640)
+  assert.equal((await readdir(directory)).some(name => name.endsWith('.tmp')), false)
+  await assert.rejects(lstat(door.socketPath), { code: 'ENOENT' })
+})
+
+test('a replacement failing after snapshot collection retains the old selection and queued run state', async t => {
+  const { home, h, door } = await rig(t)
+  await h.host.call('workspace/open', { path: home })
+  const preview = await h.host.call('flow/preview', { root: home, source })
+  const run = await h.host.call('flow/start-goal', { root: home, source, sentence: 'Synthetic run', token: preview.token! })
+  const peer = await Peer.open(door.socketPath)
+  t.after(() => peer.socket.close())
+  await peer.hello()
+  assert.equal((await peer.call('client/subscribe', { topics: ['waiting'], scope: { team: run.goal } })).ok, true)
+  const { entered, release } = holdNextRead(h.host, 'flow/executions')
+  t.after(release)
+  Object.defineProperty(h.host, 'pendingApprovalEvents', { value: () => { throw new Error('Synthetic approval baseline failure') } })
+  const replacement = peer.call('client/subscribe', { topics: ['waiting'], scope: { team: run.goal } })
+  await entered
+  const before = peer.messages.length
+  const settled = new Promise<void>(resolve => {
+    const detach = h.host.addBroadcaster(notification => {
+      if (notification.method === 'flow/execution-changed' && notification.params.execution.id === run.id && notification.params.execution.state === 'settled') {
+        detach(); resolve()
+      }
+    })
+    t.after(detach)
+  })
+  const view = await h.host.call('goal/read', { goal: run.goal })
+  await h.host.call('team/intent', { room: view.board.id, id: view.board.intents[0]!.id, action: 'done', outcome: 'done' })
+  await settled
+  release()
+  assert.equal((await replacement).ok, false)
+  await peer.call('goal/list', {})
+  assert.ok(peer.messages.slice(before).some(m => m.method === 'flow/execution-changed' && m.params.execution.state === 'settled'))
 })

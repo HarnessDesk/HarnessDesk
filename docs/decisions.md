@@ -16,6 +16,10 @@ the user with mode `0700`, and the socket and discovery pointer have mode
 open this door yet. The window continues to use its token-gated loopback
 WebSocket.
 
+The pointer is published by an exclusive temporary-file write and an atomic
+rename. A failed startup closes and awaits the listener and its connected
+clients before returning.
+
 The door speaks the host's wire, but answers only the entries in
 `CLIENT_METHODS`, each naming its tier: `read`, `run` or `answer`. Only `read`
 is granted so far. A connection says hello before reading or subscribing;
@@ -30,6 +34,12 @@ waiting also includes the run and board context it needs. A new subscription
 replaces the previous one. The client marks a fresh baseline after reconnect
 or an acknowledged subscription change with `gap`, so consumers can replace
 their observation rather than combine separate selections.
+
+State snapshots received during baseline collection are reconciled into that
+baseline: a read supersedes earlier snapshots of its item, and the latest
+snapshot received during or after that read supersedes it. Notices and approval
+events retain their order. A refused replacement preserves the old selection
+and its queued changes.
 
 Connections, calls, refusals and closes are attributed as client entries in
 the desk's audit file. The window's audit query keeps its session-only
