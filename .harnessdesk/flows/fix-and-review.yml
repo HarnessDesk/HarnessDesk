@@ -73,8 +73,6 @@ seed:
     {{work}}
 
     Open a pull request for it when it is done and working.
-    Commit the card's work with commit_work. The tool adds the desk's
-    co-author credit; supply only your message.
 
 rules:
   # Every rule is tried in file order and the first match fires, so the

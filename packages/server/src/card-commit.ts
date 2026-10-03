@@ -44,8 +44,13 @@ export const COMMIT_MESSAGE_LIMIT = 8_000
 /** The desk's attribution; the checkout's configured identity owns the commit. */
 const COAUTHOR_TRAILER = 'Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>'
 
-const attributedMessage = (message: string): string => {
-  if (message.split(/\r?\n/).includes(COAUTHOR_TRAILER)) return message
+const attributedMessage = async (cwd: string, message: string): Promise<string> => {
+  if (message.split(/\r?\n/).includes(COAUTHOR_TRAILER)) {
+    // A quoted body line is not attribution. Parse only, so repository
+    // trailer commands cannot add credit or run a program.
+    const trailers = await gitWithInput(cwd, ['interpret-trailers', '--parse'], message, isolatedEnv())
+    if (trailers.split('\n').includes(COAUTHOR_TRAILER)) return message
+  }
   const separator = /\r?\n\r?\n$/.test(message) ? '' : message.endsWith('\n') ? '\n' : '\n\n'
   return `${message}${separator}${COAUTHOR_TRAILER}\n`
 }
@@ -245,7 +250,7 @@ export const commitCardWork = async (cwd: string, before: readonly string[], mes
     const pathspecs = join(scratch, 'paths')
     const text = join(scratch, 'message')
     await writeFile(pathspecs, paths.join('\0') + '\0')
-    await writeFile(text, attributedMessage(message))
+    await writeFile(text, await attributedMessage(top, message))
     const env = isolatedEnv({
       GIT_AUTHOR_NAME: identity.name,
       GIT_AUTHOR_EMAIL: identity.email,

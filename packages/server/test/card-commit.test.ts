@@ -90,7 +90,7 @@ test('commit_work adds exactly one co-author trailer after a blank line', async 
 
 test('commit_work preserves a message that already carries the exact co-author trailer', async (t) => {
   for (const newline of ['\n', '\r\n']) {
-    for (const ending of ['', newline]) {
+    for (const ending of ['', newline, `${newline}${newline}`]) {
       const root = await repo(t)
       const before = await snapshot(root)
       await writeFile(join(root, 'notes.md'), 'x\n')
@@ -100,6 +100,8 @@ test('commit_work preserves a message that already carries the exact co-author t
       const stored = await git(root, 'log', '-1', '--format=%B')
       assert.equal(stored, `${message}\n`)
       assert.equal(stored.split(coauthor).length - 1, 1)
+      assert.equal((await git(root, 'log', '-1', '--format=%(trailers:key=Co-authored-by,valueonly)')).trim(),
+        'HarnessDesk Agent <agent@harnessdesk.app>', 'git recognizes the existing trailer')
     }
   }
 })
@@ -112,6 +114,38 @@ test('mentioning the co-author text inside the body does not replace the trailer
   const done = await commitCardWork(root, before, message)
   assert.ok('commit' in done, JSON.stringify(done))
   assert.equal(await git(root, 'log', '-1', '--format=%B'), `${message}\n\n${coauthor}\n\n`)
+})
+
+test('an exact co-author line outside the final trailer block does not suppress attribution', async (t) => {
+  for (const newline of ['\n', '\r\n']) {
+    for (const message of [
+      `Write the notes${newline}${newline}${coauthor}${newline}${newline}This is quoted credit, followed by more body text.`,
+      `Write the notes${newline}${coauthor}`,
+      `Write the notes${newline}${newline}This paragraph quotes the credit:${newline}${coauthor}${newline}The explanation continues here.`,
+    ]) {
+      const root = await repo(t)
+      const before = await snapshot(root)
+      await writeFile(join(root, 'notes.md'), 'x\n')
+      const done = await commitCardWork(root, before, message)
+      assert.ok('commit' in done, JSON.stringify(done))
+      assert.equal((await git(root, 'log', '-1', '--format=%(trailers:key=Co-authored-by,valueonly)')).trim(),
+        'HarnessDesk Agent <agent@harnessdesk.app>', 'git recognizes exactly one actual co-author trailer')
+      assert.equal(await git(root, 'log', '-1', '--format=%B'), `${message}\n\n${coauthor}\n\n`,
+        'the body is preserved and receives a final attribution block')
+    }
+  }
+})
+
+test('an exact co-author trailer alongside other final trailers remains unchanged', async (t) => {
+  const root = await repo(t)
+  const before = await snapshot(root)
+  await writeFile(join(root, 'notes.md'), 'x\n')
+  const message = `Write the notes\n\nReviewed-by: Jane Doe <dev@example.com>\n${coauthor}\nSigned-off-by: Jane Doe <dev@example.com>\n`
+  const done = await commitCardWork(root, before, message)
+  assert.ok('commit' in done, JSON.stringify(done))
+  assert.equal(await git(root, 'log', '-1', '--format=%B'), `${message}\n`)
+  assert.equal((await git(root, 'log', '-1', '--format=%(trailers:key=Co-authored-by,valueonly)')).trim(),
+    'HarnessDesk Agent <agent@harnessdesk.app>')
 })
 
 test('a hand commit keeps the person’s message and identity without a co-author trailer', async (t) => {

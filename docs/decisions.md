@@ -207,7 +207,8 @@ desk never makes one up.
 The person owns both the author and committer identity. Only `commit_work`
 adds `Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>`, separated
 from the supplied message by a blank line, unless that exact trailer line is
-already present. The text lives in one constant in `card-commit.ts`; a Seat
+already present in the trailer block Git recognizes. A quoted line in the
+body does not count. The text lives in one constant in `card-commit.ts`; a Seat
 never has to type it, and a person's hand commit is untouched. Settings for
 the trailer's wording are left for a later decision. (#1277)
 
