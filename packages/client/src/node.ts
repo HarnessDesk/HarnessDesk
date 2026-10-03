@@ -1,10 +1,13 @@
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { createInterface } from 'node:readline/promises'
 import { createHash } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import { connect as connectSocket } from 'node:net'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { WebSocket } from 'ws'
-import type { HostToClient } from '@harnessdesk/protocol'
+import { CLIENT_METHODS, type ClientMethodName, type HostToClient } from '@harnessdesk/protocol'
 import { WireCallError, type ClientTransport } from './index.js'
 
 export interface DeskPointer {
@@ -117,7 +120,7 @@ export async function resolveDesk(options: { home?: string; env?: Environment } 
 }
 
 /** WebSocket over the private unix socket. Rechecks the boundary on every connection. */
-export async function localTransport(desk: DeskPointer): Promise<ClientTransport> {
+export async function localTransport(desk: DeskPointer, options: { env?: Environment } = {}): Promise<ClientTransport> {
   try {
     await directorySafe(dirname(desk.socketPath))
     await fileSafe(desk.socketPath, 'socket')
@@ -148,6 +151,14 @@ export async function localTransport(desk: DeskPointer): Promise<ClientTransport
   ws.on('error', () => { ws.terminate() })
   return {
     send: message => {
+      // The supported Node client must not let a desk Seat spend around its
+      // board ceiling. These environment markers are a local accident guard,
+      // not authentication: another process owned by the user can remove them.
+      const env = options.env ?? process.env
+      const tier = CLIENT_METHODS[message.method as ClientMethodName]
+      if (tier && tier !== 'read' && (env['HARNESSDESK_GOAL_ID'] !== undefined || env['HARNESSDESK_LANE_ID'] !== undefined)) {
+        throw new WireCallError('refused', 'This is one of the desk’s own Seats; use its board tools to run work.')
+      }
       if (ws.readyState !== WebSocket.OPEN) throw new WireCallError('disconnected', 'The desk connection is closed.')
       ws.send(JSON.stringify(message))
     },
@@ -159,4 +170,16 @@ export async function localTransport(desk: DeskPointer): Promise<ClientTransport
     },
     close: () => { ws.close() },
   }
+}
+
+/** Caller-side I/O; none of these paths are handed to the desk to open. */
+export const readTextFile = (path: string): Promise<string> => fs.readFile(path, 'utf8')
+export async function repositoryRoot(cwd = process.cwd()): Promise<string> {
+  const { stdout } = await promisify(execFile)('git', ['rev-parse', '--show-toplevel'], { cwd })
+  return canonicalProject(stdout.trim())
+}
+export async function readConfirmation(question: string): Promise<string> {
+  const prompt = createInterface({ input: process.stdin, output: process.stderr })
+  try { return await prompt.question(question) }
+  finally { prompt.close() }
 }

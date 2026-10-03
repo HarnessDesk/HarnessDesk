@@ -11,6 +11,7 @@ import {
   type FlowPreviewSeat,
   type FlowProblem,
   type FlowSeat,
+  type FlowRunOptions,
   type FlowStartTarget,
   type SeatPlan,
   type SeatReason,
@@ -31,8 +32,8 @@ import { checkGuardNames, compileFlowPolicy, parseFlowPolicy, reviewsIn } from '
  * already makes, and the same absence of side effects is what lets a person
  * read this before pressing Start.
  *
- * The token authorizes exactly the frozen `(root, source, vars)` it was
- * minted for: `redeem` refuses a caller that supplies anything else, even a
+ * The token authorizes exactly the frozen root, source, inputs, seats and
+ * attendance it was minted for: `redeem` refuses a caller that supplies anything else, even a
  * token that is otherwise live. What only an open Goal or an open seat can
  * still prove — a brief's digest, a seat's actual runtime — remains
  * `FlowExecutions`'s own re-check at the moment it matters; this token
@@ -81,6 +82,8 @@ interface HeldPreview {
   readonly root: string
   readonly source: string
   readonly vars: Readonly<Record<string, string>>
+  readonly attended: boolean
+  readonly overrides: NonNullable<FlowRunOptions['seats']>
   readonly compiled: CompiledFlow
   readonly seats: readonly FlowPreviewSeat[]
   readonly commands: FlowPreview['commands']
@@ -169,8 +172,10 @@ export class FlowPreviews {
     vars: Readonly<Record<string, string>> = {},
     retry?: { readonly run: string; readonly card: number },
     frontDoor?: FrontDoorBinding,
+    options: FlowRunOptions = {},
   ): Promise<FlowPreview> {
     this.#sweep()
+    options = structuredClone(options)
     await this.#port.confine(root)
     let actualSource = source
     let actualVars = vars
@@ -185,7 +190,7 @@ export class FlowPreviews {
       actualVars = saved.vars
       retryCompiled = saved.compiled
     }
-    if (retry && frontDoor) return emptyPreview([{ level: 'error', at: 'run', text: CHANGED_PREVIEW }])
+    if (retry && (frontDoor || options.attended !== undefined || Object.keys(options.seats ?? {}).length > 0)) return emptyPreview([{ level: 'error', at: 'run', text: CHANGED_PREVIEW }])
     let retryCheck: CheckRetry | undefined
     if (retry && this.#port.previewCheck) {
       try {
@@ -196,7 +201,7 @@ export class FlowPreviews {
     }
     const built = retryCheck && retryCompiled?.document.format === 'agents'
       ? { compiled: retryCompiled, seats: [], commands: [retryCheck.command], guards: [], messaging: retryCompiled.document.flow.messaging, problems: [] }
-      : await this.#build(root, actualSource, false, frontDoor !== undefined)
+      : await this.#build(root, actualSource, options.attended === false, frontDoor !== undefined, null, options.seats)
     if (built.compiled.document.format === 'agents' && built.compiled.document.flow.base &&
       frontDoor && (frontDoor.goal || frontDoor.target.resolved)) {
       return { ...built, token: null, problems: [...built.problems, { level: 'error', at: 'base', text: 'A Flow with a remote base starts a new Goal from the project. Remove base to review a target or reuse a Goal.' }] }
@@ -207,7 +212,7 @@ export class FlowPreviews {
     if (errors.length === 0 && built.compiled.document.format === 'agents') {
       token = randomUUID()
       this.#tokens.set(token, {
-        root, source: actualSource, vars: actualVars, compiled: built.compiled, seats: built.seats, commands: built.commands,
+        root, source: actualSource, vars: structuredClone(actualVars), attended: options.attended !== false, overrides: options.seats ?? {}, compiled: built.compiled, seats: built.seats, commands: built.commands,
         expires: this.#port.now() + TOKEN_TTL_MS, ...(retry ? { retryOf: retry } : {}), ...(retryCheck ? { retryCheck } : {}), ...(frontDoor ? { frontDoor } : {}), consumed: false,
       })
     }
@@ -226,7 +231,7 @@ export class FlowPreviews {
         })
       }
     }
-    return { ...built, commands: retryCheck ? [retryCheck.command] : built.commands, problems: [...built.problems, ...warnings], token }
+    return { ...built, ...(options.attended !== undefined ? { attended: options.attended } : {}), commands: retryCheck ? [retryCheck.command] : built.commands, problems: [...built.problems, ...warnings], token }
   }
 
   /**
@@ -263,7 +268,7 @@ export class FlowPreviews {
    * each role as a trigger's Goal would be seated — under this machine's
    * unattended ceiling policy — so what an arm shows is what will run.
    */
-  async #build(root: string, source: string, unattended = false, requireHeld = false, againRole: string | null = null): Promise<Omit<FlowPreview, 'token'>> {
+  async #build(root: string, source: string, unattended = false, requireHeld = false, againRole: string | null = null, overrides: NonNullable<FlowRunOptions['seats']> = {}): Promise<Omit<FlowPreview, 'token'>> {
     const problems: FlowProblem[] = []
     const parsed = parseFlowPolicy(source)
     problems.push(...parsed.problems)
@@ -273,7 +278,7 @@ export class FlowPreviews {
     }
     const agents = await this.#port.agents(root)
     const projectCheckRuns = await this.#unresolvedCheckRuns(root, parsed.document)
-    const compiled = compileFlowPolicy(parsed.document, agents, projectCheckRuns)
+    const compiled = compileFlowPolicy(parsed.document, agents, projectCheckRuns, overrides)
     problems.push(...compiled.problems)
     // Only the Agent format starts a new Goal (`startGoal` refuses the old
     // one), so the old one is never handed a token that could only fail.
@@ -443,7 +448,9 @@ export class FlowPreviews {
     const commands = commandsOf(root, compiled)
     const guards = guardsOf(compiled)
     const messaging = compiled.document.format === 'agents' ? compiled.document.flow.messaging : 'board-only'
-    return { compiled, seats, commands, guards, messaging, problems }
+    const shown = compiled.document.format === 'agents' ? Object.fromEntries(compiled.document.flow.roles.flatMap(role => role.kind === 'agent' && Object.hasOwn(overrides, role.id)
+      ? [[role.id, { file: role.seats, run: overrides[role.id]! }]] : [])) : {}
+    return { compiled, seats, commands, guards, messaging, problems, ...(Object.keys(shown).length ? { overrides: shown } : {}) }
   }
 
   /**
@@ -457,14 +464,17 @@ export class FlowPreviews {
    * world having moved since the preview was taken.
    */
   async redeem(
-    token: string, root: string, source: string, vars: Readonly<Record<string, string>>,
-  ): Promise<{ readonly compiled: CompiledFlow; readonly commands: FlowPreview['commands']; readonly frontDoor: FrontDoorBinding | null } | null> {
+    token: string, root: string, source: string, vars: Readonly<Record<string, string>>, options: FlowRunOptions = {},
+  ): Promise<{ readonly compiled: CompiledFlow; readonly commands: FlowPreview['commands']; readonly frontDoor: FrontDoorBinding | null; readonly attended: boolean; readonly overrides: NonNullable<FlowRunOptions['seats']> } | null> {
     this.#sweep()
     const held = this.#tokens.get(token)
     if (!held || held.consumed) return null
     held.consumed = true
     if (held.expires < this.#port.now()) return null
     if (held.root !== root || held.source !== source || JSON.stringify(held.vars) !== JSON.stringify(vars)) return null
+    // A token authorizes the exact seats and attendance. Neither a client nor a changed request can widen it.
+    const canonical = (value: NonNullable<FlowRunOptions['seats']>) => JSON.stringify(Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))))
+    if (held.attended !== (options.attended !== false) || canonical(held.overrides) !== canonical(options.seats ?? {})) return null
     // Re-read under the same policy it was minted under: a strict token is only ever compared with a strict dry run.
     await this.#port.confine(root)
     if (held.retryOf && held.retryCheck) {
@@ -474,9 +484,9 @@ export class FlowPreviews {
         const fresh = await this.#port.previewCheck(held.retryOf.run, held.retryOf.card)
         if (JSON.stringify(fresh) !== JSON.stringify(held.retryCheck)) return null
       } catch { return null }
-      return { compiled: held.compiled, commands: held.commands, frontDoor: null }
+      return { compiled: held.compiled, commands: held.commands, frontDoor: null, attended: held.attended, overrides: held.overrides }
     }
-    const fresh = await this.#build(root, source, false, held.frontDoor !== undefined)
+    const fresh = await this.#build(root, source, !held.attended, held.frontDoor !== undefined, null, held.overrides)
     if (fresh.problems.some((one) => one.level === 'error')) return null
     if (fingerprint({ compiled: fresh.compiled, seats: fresh.seats, commands: fresh.commands }) !== fingerprint(held)) return null
     if (held.frontDoor) {
@@ -490,7 +500,7 @@ export class FlowPreviews {
       }
       if (facts !== held.frontDoor.target.facts) return null
     }
-    return { compiled: held.compiled, commands: held.commands, frontDoor: held.frontDoor ?? null }
+    return { compiled: held.compiled, commands: held.commands, frontDoor: held.frontDoor ?? null, attended: held.attended, overrides: held.overrides }
   }
 
   /** The uncertain run/card a check-retry token is bound to, without consuming it — `flow/check/retry`'s own validation. */

@@ -31,7 +31,7 @@ in the foundation.
 
 ## An outside client uses its own door and an explicit surface
 
-The command line and outside tooling read a desk through a local unix socket.
+The command line and outside tooling read a desk and start Flows through a local unix socket.
 The socket's file permissions are the credential: its directory is owned by
 the user with mode `0700`, and the socket and discovery pointer have mode
 `0600`. The pointer describes the desk; it carries no token. Windows does not
@@ -43,12 +43,21 @@ rename. A failed startup closes and awaits the listener and its connected
 clients before returning.
 
 The door speaks the host's wire, but answers only the entries in
-`CLIENT_METHODS`, each naming its tier: `read`, `run` or `answer`. Only `read`
-is granted so far. A connection says hello before reading or subscribing;
+`CLIENT_METHODS`, each naming its tier: `read`, `run` or `answer`. `read` and
+`run` are granted by default; `answer` remains ungranted. A connection says hello before calling or subscribing;
 the door checks the surface and granted tier before validating the method's
 params. The command line lists desks, status, Teams and runs, and watches
-their changes. Starting or stopping work, answering cards and tool approvals,
-and changing settings are outside this read-only surface.
+their changes. Catalogue/source/preview calls use `read`; opening a project
+and starting a Flow use `run`. Stopping work, answering cards and tool approvals,
+and changing settings remain outside the client surface.
+
+A start redeems a single-use preview token that freezes source, inputs,
+seat overrides and attendance. Those choices survive in the execution and
+receipt; they do not rewrite the Flow's file. An unattended start reuses the
+trigger's ceiling policy, question deadline and late-answer path. Socket
+ownership authorizes the local user's processes; tiers restrict verbs.
+The Node client's Seat environment markers guard against accidental spending,
+but removable markers are not authentication.
 
 A subscription selects topics and an optional Team, run or project scope.
 The door sends that selection's current baseline followed by its changes;

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { isPersonReviewStep, parseClientMessage, ValidationError, type FlowPolicy } from '../src/index.js'
+import { isPersonReviewStep, parseClientMessage, ValidationError, type FlowPolicy, type HostParams } from '../src/index.js'
 
 /*
  * The v2 flow wire refuses forged authority before any handler runs: a
@@ -24,7 +24,7 @@ test('flow/start-goal accepts optional lineage, and keeps output metadata host-o
 })
 
 test('flow/preview and flow/start-goal reject a caller-supplied authority field outright', () => {
-  const forgedFields = ['compiled', 'ceiling', 'evidence', 'seats', 'commands', 'origin', 'authorization']
+  const forgedFields = ['compiled', 'ceiling', 'evidence', 'commands', 'origin', 'authorization']
   for (const field of forgedFields) {
     assert.throws(
       () => request('flow/preview', { root: '/work/repo', source: 'version: 2', [field]: {} }),
@@ -110,4 +110,22 @@ test('flow/catalog, flow/source and the update/customize routes hold their own i
   assert.doesNotThrow(() => request('flow/source', { root: '/r', id: 'x', origin: 'project' }))
   assert.throws(() => request('flow/update/preview', { root: '/r', id: '', extra: 1 }), ValidationError)
   assert.throws(() => request('flow/customize/apply', { root: '/r', id: 'x', token: 't1', forced: true }), ValidationError)
+})
+
+test('preview and start accept seats and attendance, but validate each new field', () => {
+  for (const method of ['flow/preview', 'flow/start-goal']) {
+    const params = { root: '/repo', source: 'version: 2', ...(method === 'flow/start-goal' ? { token: 't1', sentence: 'Go' } : {}) }
+    assert.doesNotThrow(() => request(method, { ...params, seats: { writer: [{ runtime: 'alpha', effort: 'high', thinking: true }] }, attended: false }))
+    for (const extra of [{ attended: 'false' }, { seats: [] }, { seats: { writer: 'alpha' } }, { seats: { writer: [{ runtime: '' }] } }, { seats: { writer: [{ runtime: 'alpha', grant: 'merge' }] } }]) {
+      assert.throws(() => request(method, { ...params, ...extra }), ValidationError)
+    }
+  }
+})
+
+
+test('seat override validation preserves prototype-named roles for semantic refusal', () => {
+  const seats = JSON.parse('{"__proto__":[{"runtime":"fake"}]}')
+  const preview = parseClientMessage({ id: 1, method: 'flow/preview', params: { root: '/tmp/demo', source: 'synthetic', seats } })
+  assert.equal(preview.method, 'flow/preview')
+  assert.deepEqual(Object.keys((preview.params as HostParams<'flow/preview'>).seats!), ['__proto__'])
 })

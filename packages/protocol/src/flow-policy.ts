@@ -183,6 +183,9 @@ export interface FlowExecution {
   readonly version: 2
   readonly id: string
   readonly goal: string
+  /** Absent on older runs: attended, except trigger-origin work. */
+  readonly attended?: boolean
+  readonly overrides?: Readonly<Record<string, readonly FlowSeat[]>>
   readonly base?: FlowBasePin
   readonly document: FlowDocument
   /** Canonical parsed document's short digest, frozen at start; absent on older records. */
@@ -364,6 +367,8 @@ export interface FlowPreviewSeat {
 export interface FlowPreview {
   /** Null when the flow has an error a start could not get past. */
   readonly token: string | null
+  readonly attended?: boolean
+  readonly overrides?: Readonly<Record<string, { readonly file: readonly FlowSeat[]; readonly run: readonly FlowSeat[] }>>
   readonly compiled: CompiledFlow
   readonly seats: readonly FlowPreviewSeat[]
   readonly commands: readonly {
@@ -381,8 +386,14 @@ export interface FlowPreview {
   readonly problems: readonly FlowProblem[]
 }
 
+/** Per-run choices; the flow's own document remains the file's. */
+export interface FlowRunOptions {
+  readonly seats?: Readonly<Record<string, readonly FlowSeat[]>>
+  readonly attended?: boolean
+}
+
 /** What `flow/start-goal` takes: a frozen preview token, redeemed once. */
-export interface FlowStartRequest {
+export interface FlowStartRequest extends FlowRunOptions {
   readonly root: string
   readonly source: string
   readonly token: string

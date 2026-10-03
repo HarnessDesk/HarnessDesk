@@ -8,10 +8,9 @@ import type { HostContext, MethodsUnder } from './context.js'
 /**
  * Flows: reading one, checking one, and running one.
  *
- * Only `flow/start` spends anything, and it is the only verb here a person can
- * reach by pressing something — which is what makes the trigger manual in v1
- * and `dry run` honest about costing nothing. Everything else reads a file or
- * asks the pure engine a question.
+ * `flow/start` and `flow/start-goal` can spend. Preview only reads policy:
+ * the client door grants start at run, and each start still redeems the
+ * exact choices the person reviewed before it seats any work.
  */
 export const flowMethods = {
   /* Both read files under their root, so both are held to what is open before
@@ -81,7 +80,7 @@ export const flowMethods = {
    * makes, and the token this mints authorizes only the exact text and
    * inputs it was taken of.
    */
-  'flow/preview': (ctx, params) => ctx.flowPreviews.preview(params.root, params.source, params.vars, params.retry),
+  'flow/preview': (ctx, params) => ctx.flowPreviews.preview(params.root, params.source, params.vars, params.retry, undefined, { seats: params.seats, attended: params.attended }),
 
   /**
    * The only v2 call that spends anything. Redeems the token first — a
@@ -91,20 +90,22 @@ export const flowMethods = {
    * Goal together.
    */
   'flow/start-goal': async (ctx, params) => {
-    if (ctx.flowPreviews.retryTarget(params.token)) throw new Error(CHANGED_PREVIEW)
-    const redeemed = await ctx.flowPreviews.redeem(params.token, params.root, params.source, params.vars ?? {})
-    if (!redeemed) throw new Error(CHANGED_PREVIEW)
+    if (ctx.flowPreviews.retryTarget(params.token)) throw Object.assign(new Error(CHANGED_PREVIEW), { wireCode: 'refused' })
+    const redeemed = await ctx.flowPreviews.redeem(params.token, params.root, params.source, params.vars ?? {}, { seats: params.seats, attended: params.attended })
+    if (!redeemed) throw Object.assign(new Error(CHANGED_PREVIEW), { wireCode: 'refused' })
     /* The held-seat policy and the reused Goal are the token's, never the
        request's: a front-door token started without its Goal, or with another,
        is refused, and nothing here can turn it into an ordinary start. */
     const bound = redeemed.frontDoor
-    if (JSON.stringify(bound?.goal ?? null) !== JSON.stringify(params.goal ?? null)) throw new Error(CHANGED_PREVIEW)
+    if (JSON.stringify(bound?.goal ?? null) !== JSON.stringify(params.goal ?? null)) throw Object.assign(new Error(CHANGED_PREVIEW), { wireCode: 'refused' })
     return ctx.flows.startGoal({
       root: params.root,
       sentence: params.sentence,
       source: params.source,
       sourcePath: null,
       compiled: redeemed.compiled,
+      attended: redeemed.attended,
+      overrides: redeemed.overrides,
       ...(params.vars ? { vars: params.vars } : {}),
       ...(params.continues !== undefined ? { continues: params.continues } : {}),
       ...(bound ? { requireHeld: true as const } : {}),

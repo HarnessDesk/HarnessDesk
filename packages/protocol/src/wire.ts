@@ -1874,6 +1874,8 @@ export interface HostMethods {
    */
   'flow/preview': {
     params: {
+      readonly seats?: Readonly<Record<string, readonly FlowSeat[]>>
+      readonly attended?: boolean
       readonly root: string
       readonly source: string
       readonly vars?: Readonly<Record<string, string>>
