@@ -1,3 +1,5 @@
+import { teamsInput } from '../lib/teams-snapshot'
+import { teamListRow } from '../lib/teams-list'
 import {
   Button,
   Chip,
@@ -1546,12 +1548,13 @@ export const SessionTree = ({ now }: { now: number }) => {
     },
   }
 
+  const activeTeams = new Set(teamsInput(snapshot).filter(input => teamListRow(input).active).map(input => input.team.id))
   const renderGroup = (group: ProjectGroup) => {
     const open = !collapsed.has(group.root)
     const allRooms = projectRoots(group)
       .flatMap((root) => roomsByProject.get(root) ?? [])
       .sort((a, b) => b.updatedAt - a.updatedAt)
-    const rooms = allRooms.filter((room) => snapshot.goals.get(room.id)?.goal.state !== 'wrapped')
+    const rooms = allRooms.filter((room) => activeTeams.has(room.id))
     const wrapped = allRooms.filter((room) => snapshot.goals.get(room.id)?.goal.state === 'wrapped')
     const wrappedKey = `${group.root}\u0000wrapped`
     /* A conversation is listed once: under its room if it is in one, under

@@ -1,3 +1,4 @@
+import { TeamsPageFrames } from './frames-teams-page'
 import { StrictMode, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 
@@ -948,7 +949,7 @@ const Preview = () => {
             <Sidebar
               onOpenSettings={() => {}}
               onOpenPlugins={() => {}}
-          onOpenAgents={() => {}}
+          onOpenTeams={() => {}} onOpenAgents={() => {}}
               onOpenUsage={() => {}}
               onBrowseFolders={() => {}}
               onSignIn={() => {}}
@@ -961,7 +962,7 @@ const Preview = () => {
             <Sidebar
               onOpenSettings={() => {}}
               onOpenPlugins={() => {}}
-              onOpenAgents={() => {}}
+              onOpenTeams={() => {}} onOpenAgents={() => {}}
               onOpenUsage={() => {}}
               onBrowseFolders={() => {}}
               onSignIn={() => {}}
@@ -975,7 +976,7 @@ const Preview = () => {
               <Sidebar
                 onOpenSettings={() => {}}
                 onOpenPlugins={() => {}}
-                onOpenAgents={() => {}}
+                onOpenTeams={() => {}} onOpenAgents={() => {}}
                 onOpenUsage={() => {}}
                 onBrowseFolders={() => {}}
                 onSignIn={() => {}}
@@ -1030,6 +1031,7 @@ const Preview = () => {
       <PanelFrames />
       <CoverageFrames />
       {SHOW_SIDE_BY_SIDE && <SideBySideFrames />}
+      {new URLSearchParams(window.location.search).has('teams-page') && <TeamsPageFrames />}
       {new URLSearchParams(window.location.search).has('team-overview') && <TeamOverviewFrames />}
       {SHOW_COMPOSER_SLOTS && <ComposerSlotsFrames />}
       {SHOW_NOTICE_PLACEMENT && <NoticePlacementFrames />}

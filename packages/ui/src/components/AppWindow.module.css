@@ -145,3 +145,14 @@
 .pageInner[data-wide] {
   max-width: 1320px; /* desk: 1120 → 1320, room for twelve agent marks beside a caption */
 }
+
+/* A short destination rail can become a top row in its own narrow window.
+   Opt-in: long settings trees retain their existing navigation policy. */
+.responsive { container: app-window / inline-size; }
+@container app-window (max-width: 720px) {
+  .responsive .winBody { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .responsive .winNavScroll { flex: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@container app-window (max-width: 420px) {
+  .responsive .winNavScroll { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

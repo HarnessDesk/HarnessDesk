@@ -46,6 +46,7 @@ export const AppWindowPage = ({ className, ...props }: ComponentProps<'div'>) =>
     data-slot="app-window-page"
     className={cn(
       'px-(--hd-space-8) pt-[max(var(--hd-space-6),var(--hd-titlebar-height))] pb-(--hd-space-10)',
+      '@max-[720px]/app-window:px-(--hd-space-4) @max-[720px]/app-window:pt-(--hd-space-4)',
       className,
     )}
     {...props}

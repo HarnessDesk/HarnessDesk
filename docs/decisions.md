@@ -86,6 +86,14 @@ stay in the transcript. Its caller owns the displayed line and its 2.5-second
 hold. This model adds no screen or read method; those follow in the
 [approved Teams/Runs plan](https://github.com/HarnessDesk/HarnessDesk/pull/1272).
 
+The Teams page uses the same Overview facts. A Run settling does not settle
+its Goal's dependencies or follow-up cards; only quiet work with nothing
+remaining folds into Ready to wrap. Hide and read marks bind to the observed
+Team change in machine preferences, so a later lifecycle or attention change
+returns hidden work without deleting it. Usage refreshes do not count as a
+new revision. Known waits order the page; an absent state timestamp remains
+unknown rather than borrowing the Run's age.
+
 **The rule:** one plain-data contract derives the rows; no overview fact is
 invented to fill a missing observation.
 
