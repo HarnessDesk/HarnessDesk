@@ -940,3 +940,12 @@ the Overview folds them into a disclosure such as **3 done**. A question,
 unread notice or new work brings a Seat out of that fold. The sidebar nests
 its conversation under the same Team, even after its process has rested.
 A Team without a Run opens on Chat and still offers Overview for its Seats.
+
+### A Team's Run
+
+Run opens from the Team rail or its Overview strip. It reads oldest first:
+the recorded start and brief, each round and its cards, the latest check
+result, findings, and why the Run ended. A repeated role gets its own round.
+Work in flight keeps its doing line; unknown durations and results stay unknown.
+A selected row takes the inspector's fill. Historical Runs are restored from the host
+and can be selected beside the header, and an observed pull request opens from it.

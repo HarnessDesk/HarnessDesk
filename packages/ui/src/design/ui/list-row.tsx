@@ -33,6 +33,8 @@ type ListRowProps = Omit<React.ComponentProps<'div'>, 'title'> & {
   /** An avatar, an `IconTile`, a logo. */
   lead?: React.ReactNode
   title: React.ReactNode
+  /** A record title may wrap; keep its lead on the first line. */
+  wrapTitle?: boolean
   subtitle?: React.ReactNode
   /** An earned sentence wraps whole; names, paths and compact facts truncate. */
   wrapSubtitle?: boolean
@@ -88,6 +90,7 @@ const ListRow = ({
   className,
   lead,
   title,
+  wrapTitle,
   subtitle,
   wrapSubtitle,
   trail,
@@ -118,12 +121,12 @@ const ListRow = ({
          still centres the lead on it; a subtitle or `meta` adds height below
          that line, and centring the row then centred the lead 5–8px low. */
       'flex',
-      subtitle != null || meta != null ? 'items-start' : 'items-center',
+      wrapTitle || subtitle != null || meta != null ? 'items-start' : 'items-center',
       as === 'button' && 'w-full text-left',
       size === 'sm' ? 'gap-2 rounded-(--hd-radius-sm) px-2 py-1.5' : 'gap-3 px-4 py-2.5',
       interactive && 'cursor-pointer hover:bg-(--hd-hover)',
       interactive && nav && 'hover:bg-(--hd-sidebar-hover)',
-      selected && 'bg-(--hd-selected)',
+      selected && 'bg-(--hd-selected) hover:bg-(--hd-selected)',
       /* The same fade a refused control wears everywhere else in the app —
          `buttonVariants`'s `ghost`/`floating`/`choice` — so a row a caller
          marks `data-refused` reads as refused at a glance instead of only
@@ -167,7 +170,7 @@ const ListRow = ({
           /* The lead slot is exactly the title's first line. A larger mark
              overflows it evenly above and below instead of inheriting the
              height of a wrapped description. */
-          (subtitle != null || meta != null) && (size === 'sm' ? 'h-(--hd-line-sm)' : 'h-(--hd-line)'),
+          (wrapTitle || subtitle != null || meta != null) && (size === 'sm' ? 'h-(--hd-line-sm)' : 'h-(--hd-line)'),
         )}
       >
         {lead}
@@ -177,7 +180,7 @@ const ListRow = ({
       <div
         data-slot="list-row-title"
         className={cn(
-          'truncate',
+          wrapTitle ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate',
           size === 'sm'
             ? 'text-sm leading-(--hd-line-sm) font-normal'
             : 'text-base leading-(--hd-line) font-medium',

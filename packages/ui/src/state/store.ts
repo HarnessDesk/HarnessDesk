@@ -4508,6 +4508,13 @@ export class AppStore {
       : this.transport.request('flow/customize/apply', { root, id, token })
   }
 
+  /** Restore this Team’s history, including ended Runs, after a reconnect. */
+  async loadTeamRuns(team: string): Promise<void> {
+    const summaries = await this.transport.request('flow/executions', { team, active: false })
+    await Promise.all(summaries.filter(one => !this.#snapshot.flowExecutions.has(one.id))
+      .map(one => this.readFlowExecution(one.id)))
+  }
+
   /** One run's execution state, read fresh — the pull half of `flow/execution-changed`'s push. */
   async readFlowExecution(run: string): Promise<FlowExecution> {
     const execution = await this.transport.request('flow/execution', { run })

@@ -177,3 +177,18 @@ it('raceAgents opens dialog state only — no session, worktree or draft is crea
   store.closeRaceStart()
   expect(store.getSnapshot().raceStart).toBeNull()
 })
+
+it('loads every historical Run for a Team, including settled Runs after reconnect', async () => {
+  push({ method: 'flow/execution-changed', params: { execution: EXECUTION } })
+  const older = { ...EXECUTION, id: 'old-run', state: 'settled' as const, startedAt: 1 }
+  const spy = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+    if (method === 'flow/executions') return [{ id: older.id }, { id: EXECUTION.id }]
+    if (method === 'flow/execution') return older
+    return null
+  }) as never)
+  await store.loadTeamRuns('goal-1')
+  expect(spy).toHaveBeenCalledWith('flow/executions', { team: 'goal-1', active: false })
+  expect(spy).toHaveBeenCalledWith('flow/execution', { run: 'old-run' })
+  expect(spy).not.toHaveBeenCalledWith('flow/execution', { run: 'run-1' })
+  expect(store.getSnapshot().flowExecutions.get('old-run')).toEqual(older)
+})
