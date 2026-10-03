@@ -16,6 +16,8 @@ import type {
   FlowCheck,
   FlowCheckContext,
   FlowExecution,
+  FlowExecutionEnd,
+  FlowDocument,
   FlowOperation,
   FlowPolicy,
   FlowPolicyRule,
@@ -167,6 +169,7 @@ export interface FlowStartRequest {
   readonly sourcePath: string | null
   readonly compiled: CompiledFlow
   readonly vars?: Readonly<Record<string, string>>
+  readonly continues?: string | null
   readonly authorization: StoredFlowExecution['authorization']
   /** From a strict preview token only: every Seat this run opens must hold its ceiling. */
   readonly requireHeld?: true
@@ -446,11 +449,24 @@ export class ExecutionFiles {
 
 export const sourceDigest = (source: string): string => createHash('sha256').update(source).digest('hex')
 
+/** Same parsed value, same identity: object key order and YAML formatting are not revisions. Rule order is. */
+export const flowRevision = (document: FlowDocument): string => sourceDigest(JSON.stringify(document, (_key, raw: unknown) => {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return raw
+  const value = raw as Record<string, unknown>
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, value[key]]))
+})).slice(0, 12)
+
 export const projectExecution = (run: StoredFlowExecution): FlowExecution => ({
   version: 2,
   id: run.id,
   goal: run.goal,
   document: run.document,
+  startedAt: run.startedAt,
+  ...(run.revision !== undefined ? { revision: run.revision } : {}),
+  ...(run.continues !== undefined ? { continues: run.continues } : {}),
+  ...(run.brief !== undefined ? { brief: run.brief } : {}),
+  ...(run.endedAt !== undefined ? { endedAt: run.endedAt } : {}),
+  ...(run.end !== undefined ? { end: run.end } : {}),
   state: run.state,
   rounds: run.rounds,
   operations: run.operations,
@@ -1111,7 +1127,7 @@ export class FlowExecutions {
   async #stopForDecision(id: string, why: string): Promise<void> {
     const run = this.#get(id)
     if (run.findings?.stopped) await this.#put({ ...run, findings: { ...run.findings, stopped: null } })
-    await this.#finish(id, 'stopped', why)
+    await this.#finish(id, 'stopped', why, { kind: 'stopped', by: 'person' })
   }
 
   /**
@@ -1131,7 +1147,8 @@ export class FlowExecutions {
     })
     await this.#put(this.#operation({
       ...run,
-      findings: { ...state, closedRounds: [...state.closedRounds, round], idleRounds: decision.idle, stopped: decision.next === 'person' ? { round, reason: decision.reason!, ceiling: decision.ceiling } : null },
+      findings: { ...state, closedRounds: [...state.closedRounds, round], idleRounds: decision.idle, stopped: decision.next === 'person'
+        ? { round, reason: decision.reason!, ceiling: decision.ceiling, ...(decision.budget ? { budget: decision.budget } : {}) } : null },
     }, `close:${round}`, { kind: 'round', state: 'finished', card: null, seat: null }))
   }
 
@@ -2173,7 +2190,17 @@ export class FlowExecutions {
        for another moment. `continueAnswer` puts it back itself when its
        hand-back fails. */
     const { keptAnswer, ...unkept } = run
-    const next = { ...(run.state === 'stalled' && keptAnswer ? run : unkept), updatedAt: this.#now() }
+    const previous = this.#runs.get(run.id)
+    const at = this.#now()
+    const departing = run.state !== 'running' && previous?.state !== run.state
+    // Stamp the first departure once. Repeated journal writes and restart reads
+    // cannot move it; a resumed run clears its current cause, not that history.
+    const ending = departing ? {
+      endedAt: run.endedAt ?? at,
+      end: run.end && run.end !== previous?.end ? run.end :
+        run.state === 'stopped' ? { kind: 'stopped' as const, by: 'desk' as const } : { kind: 'stalled' as const },
+    } : run.state === 'running' && previous && previous.state !== 'running' ? { end: null } : {}
+    const next = { ...(run.state === 'stalled' && keptAnswer ? run : unkept), ...ending, updatedAt: at }
     try {
       await this.#files.save(next)
     } catch (error) {
@@ -2213,10 +2240,10 @@ export class FlowExecutions {
   }
 
   /** Stops the run for a person, reason persisted before anyone is told. */
-  async #stall(id: string, reason: string): Promise<void> {
+  async #stall(id: string, reason: string, end: FlowExecutionEnd = { kind: 'stalled' }): Promise<void> {
     const run = this.#get(id)
     if (run.state !== 'running') return
-    await this.#put({ ...run, state: 'stalled', reason })
+    await this.#put({ ...run, state: 'stalled', reason, end })
     this.#port.log('a flow run stalled', { run: id, reason })
     this.#team.nudgeRoom(run.goal)
   }
@@ -2514,6 +2541,9 @@ export class FlowExecutions {
       version: 2, id, goal: '', document: request.compiled.document, state: 'running', rounds: [], operations: [],
       legacyRun: null, reason: null, compiled: request.compiled, source: request.source, sourcePath: request.sourcePath,
       vars, startedAt: at, updatedAt: at, authorization: request.authorization, operationTimes: {},
+      revision: flowRevision(request.compiled.document), continues: request.continues ?? null,
+      brief: policy.inputs.some((input) => input.id === 'brief') ? vars['brief']! : null,
+      endedAt: null, end: null,
       // Written before the first dispatch, and frozen for the life of the run.
       findings: startingFindings(policy),
       // Frozen with it: every Seat this run ever opens holds its ceiling, later and recovered rounds too.
@@ -2651,6 +2681,9 @@ export class FlowExecutions {
         version: 2, id: request.id, goal: request.goal, document: compiled.document,
         state: reason ? 'stopped' : 'running', rounds: [], operations: [], legacyRun: null, reason,
         compiled, source: closure.source, sourcePath: null, vars, startedAt: at, updatedAt: at,
+        revision: flowRevision(compiled.document), continues: null,
+        brief: policy.inputs.some((input) => input.id === 'brief') ? vars['brief']! : null,
+        endedAt: null, end: null,
         authorization: {
           sourceDigest: sourceDigest(closure.source),
           commandDigest: sourceDigest(JSON.stringify(closure.preview.commands)),
@@ -3692,7 +3725,8 @@ export class FlowExecutions {
       // A person's "Another round" authorizes exactly this one transition past the stop; consumed here, not re-granted.
       const authorized = run.findings?.extraRound?.after === last.n
       if (stopped && stopped.round === last.n && found.decision.kind === 'fire' && !authorized) {
-        await this.#stall(id, stopped.reason)
+        const budget = stopped.budget ?? (stopped.ceiling ? { which: 'rounds' as const, used: run.findings!.closedRounds.length } : null)
+        await this.#stall(id, stopped.reason, budget ? { kind: 'budget', ...budget } : { kind: 'stalled' })
         return
       }
     }
@@ -3705,16 +3739,20 @@ export class FlowExecutions {
       const answered = cards.map((card) => `"${card.title}" (#${card.id}) answered ${card.outcome ?? 'nothing'}`).join(', ')
       const from = cards.length > 1 ? 'them' : 'it'
       const why = (found.decision.passed ?? []).map((one) => `${one.rule} did not apply: ${one.reason}`).join('; ')
-      await this.#finish(id, 'settled', `${answered}; no rule continues from ${from}, so this waits for you${why ? ` — ${why}` : ''}`)
+      const rules = policyOf(run).rules.filter((rule) => rule.on === last.role)
+      const card = cards.find((card) => !rules.some((rule) => guardHolds(rule.when ?? {}, [card.outcome ?? null]))) ?? cards[0]!
+      const complete = rules.length === 0 && cards.every((card) => card.state === 'done' && card.outcome != null)
+      await this.#finish(id, 'settled', `${answered}; no rule continues from ${from}, so this waits for you${why ? ` — ${why}` : ''}`,
+        complete ? { kind: 'complete' } : { kind: 'unrouted', card: card.id, outcome: card.outcome ?? 'nothing' })
       return
     }
     await this.#open(id, found.decision.rule.then, { key: `after:${last.n}:${found.decision.rule.id}`, evidence: found.decision.evidence }, found.completed)
   }
 
-  async #finish(id: string, state: 'settled' | 'stopped', reason: string): Promise<void> {
+  async #finish(id: string, state: 'settled' | 'stopped', reason: string, end: FlowExecutionEnd = { kind: 'stopped', by: 'desk' }): Promise<void> {
     const run = this.#get(id)
     if (run.state === 'settled' || run.state === 'stopped') return
-    await this.#put({ ...run, state, reason })
+    await this.#put({ ...run, state, reason, end })
     // Ended before its first round: the empty Goal it reserved is empty still, and free for another start.
     if (run.reserving && run.rounds.length === 0) await this.#letGo(id, run.reserving.goal)
     // Kept Seats are released once. The Goal stays open for its person to wrap.
@@ -3736,13 +3774,13 @@ export class FlowExecutions {
 
   // ----------------------------------------------------------------- stop
 
-  async stop(id: string, why = 'the person stopped this flow'): Promise<FlowExecution> {
+  async stop(id: string, why = 'the person stopped this flow', by: 'person' | 'desk' = 'person'): Promise<FlowExecution> {
     this.interruptChecks(this.#get(id).goal)
     const tasks = await this.#queue.within(id, async () => {
       // A retry ahead of Stop may only now have created its controller.
       this.interruptChecks(this.#get(id).goal)
       const tasks = [...this.#checking].filter(([, run]) => run === id).map(([task]) => task)
-      await this.#finish(id, 'stopped', why)
+      await this.#finish(id, 'stopped', why, { kind: 'stopped', by })
       return tasks
     })
     // Completion uses this same queue: drain outside it, before Stop or wrap returns.
@@ -3753,7 +3791,7 @@ export class FlowExecutions {
   /** Stops every live run on a Goal, inside each run's own queue: the wrap barrier. */
   async stopGoal(goal: string, why: string): Promise<void> {
     for (const run of [...this.#runs.values()]) {
-      if (run.goal === goal && (run.state === 'running' || run.state === 'stalled' || [...this.#checking.values()].includes(run.id))) await this.stop(run.id, why)
+      if (run.goal === goal && (run.state === 'running' || run.state === 'stalled' || [...this.#checking.values()].includes(run.id))) await this.stop(run.id, why, 'desk')
     }
   }
 

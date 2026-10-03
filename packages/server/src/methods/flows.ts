@@ -106,6 +106,7 @@ export const flowMethods = {
       sourcePath: null,
       compiled: redeemed.compiled,
       ...(params.vars ? { vars: params.vars } : {}),
+      ...(params.continues !== undefined ? { continues: params.continues } : {}),
       ...(bound ? { requireHeld: true as const } : {}),
       ...(bound?.goal ? { goal: bound.goal } : {}),
       /* Where the run works and what it works on, as the host resolved them
