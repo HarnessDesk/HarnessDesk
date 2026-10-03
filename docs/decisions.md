@@ -209,12 +209,15 @@ adds `Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>` through
 Git's `interpret-trailers --if-exists=addIfDifferent`, which owns placement,
 trailer formatting and deduplication. A quoted line in the body or after
 Git's divider or scissors cutoff does not count. Trailer processing reads
-no repository configuration except the comment prefix: `trailer.*` settings
-can run commands, so the parser runs with `--git-dir=/dev/null` and system
-and global configuration off. Git 2.32 or newer is required; an older or
-unrecognized version is refused before staging. The text lives in one constant
-in `card-commit.ts`; a Seat never has to type it, and a person's hand commit
-is untouched. Settings for the trailer's wording are left for a later decision.
+no repository configuration except the comment prefix: `core.commentChar`
+and `core.commentString` are read with the person's system, global and
+repository configuration, then passed explicitly to the isolated parser.
+`trailer.*` settings can run commands, so the parser runs with
+`--git-dir=/dev/null` and system and global configuration off. Git 2.32 or newer
+is required; an older or unrecognized version is refused before staging.
+The text lives in one constant in `card-commit.ts`; a Seat never has to type it,
+and a person's hand commit is untouched. Settings for the trailer's wording
+are left for a later decision.
 (#1277)
 
 Rule: an agent's sandbox is never widened to a git directory; a commit it
