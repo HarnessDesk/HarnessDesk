@@ -583,8 +583,9 @@ the check results and findings the timeline also needs, as below), turn the held
 state into exactly what the table and the timeline draw. They belong in
 `@harnessdesk/client/views`: pure, no
 transport, and the window imports only that entry (a layering rule holds it).
-The command line's `status` and `run show` are the same selectors with a
-terminal's words. The selector code and its tests were written first in
+The command line's `status` and `run show` are meant to be the same selectors
+with a terminal's words (`status` is; `run show` follows with plan PR 16, as
+below). The selector code and its tests were written first in
 `packages/ui/src/lib` over plain data (the plan's PR 1 and PR 3); the clients
 design moves the files into `client/views` when the command line needs them and
 leaves a re-export behind, so nothing in the window breaks. The overview model
