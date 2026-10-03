@@ -7,6 +7,54 @@ the rule is the last line of its section.
 
 ---
 
+## An outside client uses its own door and an explicit surface
+
+The command line and outside tooling read a desk through a local unix socket.
+The socket's file permissions are the credential: its directory is owned by
+the user with mode `0700`, and the socket and discovery pointer have mode
+`0600`. The pointer describes the desk; it carries no token. Windows does not
+open this door yet. The window continues to use its token-gated loopback
+WebSocket.
+
+The pointer is published by an exclusive temporary-file write and an atomic
+rename. A failed startup closes and awaits the listener and its connected
+clients before returning.
+
+The door speaks the host's wire, but answers only the entries in
+`CLIENT_METHODS`, each naming its tier: `read`, `run` or `answer`. Only `read`
+is granted so far. A connection says hello before reading or subscribing;
+the door checks the surface and granted tier before validating the method's
+params. The command line lists desks, status, Teams and runs, and watches
+their changes. Starting or stopping work, answering cards and tool approvals,
+and changing settings are outside this read-only surface.
+
+A subscription selects topics and an optional Team, run or project scope.
+The door sends that selection's current baseline followed by its changes;
+waiting also includes the run and board context it needs. A new subscription
+replaces the previous one. The client marks a fresh baseline after reconnect
+or an acknowledged subscription change with `gap`, so consumers can replace
+their observation rather than combine separate selections.
+
+State snapshots queued behind a subscription or received during its baseline
+collection are reconciled into that baseline: a read supersedes earlier
+snapshots of its item, and the latest snapshot received during or after that
+read supersedes it. Notices and approval
+events retain their order. A refused replacement preserves the old selection
+and its queued changes.
+
+Connections, calls, refusals and closes are attributed as client entries in
+the desk's audit file. The window's audit query keeps its session-only
+contract. The library's core depends on the protocol alone; its Node entry
+owns discovery and the socket transport, and the command line uses that
+library. The layering and reachability gates hold those boundaries and count
+the command line's actual calls as a person's surface.
+
+**The rule:** a method reaches an outside client only through a client-surface
+entry that names its required tier; the outside door never exposes the
+window's whole wire.
+
+---
+
 ## The Team overview is derived from held facts, with no reader of its own
 
 The overview model turns plain Seat, card, Run, approval and Insight data into
@@ -22,7 +70,10 @@ agent's latest card lifecycle signal when release clears the claim, or through
 the Run's explicit seat/card journal. A later lifecycle transition supersedes
 the block; stop capture and other metadata updates do not. A refused claim's
 conflict signal leaves ownership unchanged. Neither a shared role name nor
-matching session ids across runtimes establish ownership.
+matching session ids across runtimes establish ownership. Completed cards
+retain the completing agent through the latest card lifecycle signal, including
+manual cards and cards from earlier Runs after the host clears their claims;
+refused claims and metadata capture leave that attribution intact.
 
 Cost comes from the Seat's own Team-scoped Insight partition, in money only
 for a metered runtime with known rate provenance, otherwise in recorded turns.

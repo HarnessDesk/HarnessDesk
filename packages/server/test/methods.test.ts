@@ -92,6 +92,12 @@ const fakeRuntime = (id: string, options: { processes?: boolean; ready?: boolean
 
 const contextWith = (overrides: object): HostContext => overrides as unknown as HostContext
 
+test('client methods belong only to the client door', async () => {
+  for (const method of ['client/hello', 'client/subscribe']) {
+    await assert.rejects(dispatch(contextWith({}), method as never, {} as never), { wireCode: 'clientDoorOnly' })
+  }
+})
+
 test('a terminal for a runtime that runs no processes is hosted by one that does, and says so', async () => {
   const root = tempDir('hd-methods-')
   const acp = fakeRuntime('acp')

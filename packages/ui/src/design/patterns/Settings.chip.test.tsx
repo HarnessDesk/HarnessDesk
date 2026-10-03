@@ -200,6 +200,17 @@ it('offers the established outline tag without changing the chip default', () =>
   expect(css).toMatch(/\.chip\[data-variant='outline'\]\[data-emphasis\][^}]*color:\s*var\(--hd-secondary-foreground\)/s)
 })
 
+it.each(['neutral', 'brand', 'success', 'warning', 'danger', 'info'] as const)('offers quiet %s ink while keeping the pill default', (tone) => {
+  const pill = draw(<Chip tone={tone}>State</Chip>)
+  expect(pill.dataset['variant']).toBe('default')
+  const classes = pill.className
+  const quiet = draw(<Chip tone={tone} variant="quiet">State</Chip>)
+  expect(quiet.dataset['variant']).toBe('quiet')
+  expect(quiet.dataset['tone']).toBe(tone)
+  expect(quiet.className).toBe(classes)
+  expect(quiet.querySelector('[data-slot="chip-words"]')?.textContent).toBe('State')
+})
+
 it('keeps a supporting note quiet while preserving its icon', () => {
   const note = draw(<Note icon={<svg data-testid="folder" />} ink="muted">Manifest required</Note>)
   expect(note.dataset['icon']).toBe('')

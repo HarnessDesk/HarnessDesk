@@ -12,6 +12,7 @@ import type {
   Flow,
   FlowCheck,
   FlowExecution,
+  FlowExecutionSummary,
   FlowRoundState,
   FlowThen,
   FlowEvent,
@@ -153,7 +154,7 @@ export interface FlowPort {
    * Goal store and the Seat book are restored, before any run is resumed.
    */
   recovery: {
-    goal(room: string): { readonly exists: boolean; readonly writable: boolean }
+    goal(room: string): { readonly exists: boolean; readonly writable: boolean; readonly root?: string }
     seats(room: string): readonly SeatRecord[]
   }
 }
@@ -370,6 +371,23 @@ export class Flows implements TeamFlows {
     return this.#executions?.runs(goal) ?? []
   }
 
+  executionSummaries(options: { team?: string; project?: string; active?: boolean } = {}): readonly FlowExecutionSummary[] {
+    return (this.#executions?.runs(options.team) ?? [])
+      .filter(run => options.active === false || run.state === 'running' || run.state === 'stalled')
+      .filter(run => {
+        if (options.project === undefined) return true
+        const root = this.#port.recovery.goal(run.goal).root
+        return root !== undefined && sameCanonicalPath(root, options.project)
+      })
+      .map(run => {
+        const round = run.rounds.at(-1)
+        const stored = this.#executions!.stored(run.id)!
+        return { id: run.id, team: run.goal, flow: run.document.flow.name, state: run.state,
+          round: round?.n ?? null, role: round?.role ?? null, reason: run.reason, startedAt: stored.startedAt }
+      })
+      .sort((a, b) => b.startedAt - a.startedAt)
+  }
+
   /** A stored v2 run's own frozen source and inputs — never re-read from a path — for a check retry's exact-equality check. */
   previewCheck(run: string, card: number): Promise<CheckRetry> {
     if (!this.#executions) throw new Error('There is no flow execution.')
@@ -427,9 +445,9 @@ export class Flows implements TeamFlows {
    * back, never rolled back. The wrap barrier (`stopGoal`) is not a Stop: a
    * wrap waits for its findings' posting instead.
    */
-  async stopRun(id: string, why?: string): Promise<FlowExecution> {
+  async stopRun(id: string, why?: string, by: 'person' | 'desk' = 'person'): Promise<FlowExecution> {
     if (!this.#executions?.stored(id)) throw new Error(`There is no flow run ${id}.`)
-    const stopped = await this.#executions.stop(id, why)
+    const stopped = await this.#executions.stop(id, why, by)
     for (const listener of this.#runStopped) await listener(id)
     return stopped
   }

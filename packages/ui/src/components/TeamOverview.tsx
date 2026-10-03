@@ -102,8 +102,9 @@ export const TeamOverview = ({ model, faces, metered, onOpen, runName = 'Run', r
             <GroupLabel>Needs you</GroupLabel>
             <ListRows>
               {model.needsYou.map((item, index) => (
-                <ListRow key={`${item.kind}-${item.seat}-${index}`} title={words(item.summary)}
-                  trail={<Chip tone="warning">{item.kind === 'card' ? `#${item.card}` : item.kind === 'question' ? 'Question' : 'Approval'}</Chip>} />
+                <ListRow key={`${item.kind}-${item.seat}-${index}`}
+                  title={<Chip tone="warning">{item.kind === 'card' ? `#${item.card}` : item.kind === 'question' ? 'Question' : 'Approval'}</Chip>}
+                  subtitle={words(item.summary)} wrapSubtitle />
               ))}
             </ListRows>
           </section>

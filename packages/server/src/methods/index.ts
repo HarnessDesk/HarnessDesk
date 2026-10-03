@@ -1,5 +1,6 @@
 import type { HostMethodName, HostParams, HostResult } from '@harnessdesk/protocol'
 
+import { clientMethods } from './client.js'
 import { accountMethods } from './accounts.js'
 import { agentMethods } from './agents.js'
 import { appMethods } from './app.js'
@@ -53,6 +54,7 @@ export { TERMINAL_CHIP } from './plugins.js'
  * module owns, and both share its install scan with `acp/update`.
  */
 export const hostMethods: HostMethodTable = {
+  ...clientMethods,
   ...appMethods,
   ...runtimeMethods,
   ...runtimeExtensionMethods,
@@ -88,6 +90,7 @@ export const hostMethods: HostMethodTable = {
  * that, so it is checked at run time, once.
  */
 export const methodDomains: readonly Readonly<Partial<HostMethodTable>>[] = [
+  clientMethods,
   appMethods,
   runtimeMethods,
   runtimeExtensionMethods,

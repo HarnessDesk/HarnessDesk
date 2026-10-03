@@ -688,12 +688,12 @@ export const TeamRoomPane = ({
   useEffect(() => {
     let active = true
     setReport(null)
-    if (!goal || typeof store.readGoalInsight !== 'function') return
+    if (open !== 'overview' || !goal || typeof store.readGoalInsight !== 'function') return
     const read = () => { void store.readGoalInsight(room).then(answer => { if (active) setReport(answer) }, () => { if (active) setReport(null) }) }
     read()
     const timer = flowExecution?.state === 'running' ? window.setInterval(read, 60_000) : null
     return () => { active = false; if (timer !== null) window.clearInterval(timer) }
-  }, [store, room, Boolean(goal), closedCards, flowExecution?.state])
+  }, [store, room, open, Boolean(goal), closedCards, flowExecution?.state])
   const overview = useMemo(() => teamOverview({
     team: room, cards: intents, signals: entries.filter((one): one is Extract<TeamEntry, {kind: 'signal'}> => one.kind === 'signal'),
     seats: seats.map(seat => ({

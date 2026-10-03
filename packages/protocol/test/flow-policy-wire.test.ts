@@ -13,6 +13,16 @@ import { isPersonReviewStep, parseClientMessage, ValidationError, type FlowPolic
 
 const request = (method: string, params: unknown) => parseClientMessage({ id: 1, method, params })
 
+test('flow/start-goal accepts optional lineage, and keeps output metadata host-owned', () => {
+  const params = { root: '/repo', source: 'version: 2', token: 't1', sentence: 'Go' }
+  assert.doesNotThrow(() => request('flow/start-goal', { ...params, continues: 'flow-earlier' }))
+  assert.doesNotThrow(() => request('flow/start-goal', { ...params, continues: null }))
+  for (const continues of ['', 1, {}, []]) assert.throws(() => request('flow/start-goal', { ...params, continues }), ValidationError)
+  for (const field of ['revision', 'brief', 'startedAt', 'endedAt', 'end']) {
+    assert.throws(() => request('flow/start-goal', { ...params, [field]: null }), ValidationError)
+  }
+})
+
 test('flow/preview and flow/start-goal reject a caller-supplied authority field outright', () => {
   const forgedFields = ['compiled', 'ceiling', 'evidence', 'seats', 'commands', 'origin', 'authorization']
   for (const field of forgedFields) {

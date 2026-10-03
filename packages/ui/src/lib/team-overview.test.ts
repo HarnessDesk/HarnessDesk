@@ -360,3 +360,23 @@ it('retains completion attribution after claims clear through the Run seat/card 
 it('leaves unknown Run start time null', () => {
  expect(teamOverview(input({run:{execution:execution(),startedAt:null}})).run?.startedAt).toBeNull()
 })
+
+it.each([false, true])('keeps a completed manual or earlier-Run card attributed with current Run present: %s', withRun => {
+ const result = teamOverview(input({
+  seats: [seat('Alpha'), seat('Idle')], cards: [card(1, {state:'done',claim:null,updatedAt:201})],
+  signals: [blockedSignal('Alpha', {signal:'completed'}), blockedSignal('Idle', {signal:'conflict'})],
+  run: withRun ? {execution:execution({rounds:[],operations:[]}),startedAt:null} : null,
+ }))
+ expect(result.seats.map(row => [row.seat,row.done])).toEqual([['Alpha',true],['Idle',false]])
+})
+it.each(['question','unread','working'] as const)('a signal-attributed done Seat leaves the fold for %s', kind => {
+ const one = seat('Alpha',kind==='question'?{approvals:[approval('Alpha')]}:kind==='unread'?{unreadSince:280}:{session:session('Alpha')})
+ expect(teamOverview(input({seats:[one],cards:[card(1,{state:'done',claim:null})],signals:[blockedSignal('Alpha',{signal:'completed'})]})).seats[0]).toMatchObject({done:false,state:kind==='question'?'needs-you':kind})
+})
+it('does not invent completion ownership across runtimes, people or superseded signals', () => {
+ for (const signals of [
+  [blockedSignal('Alpha',{signal:'completed',by:{kind:'agent',runtime:runtimeId('agent-b'),sessionId:'Alpha',title:'Alpha'}})],
+  [blockedSignal('Alpha',{signal:'completed',by:{kind:'user'}})],
+  [blockedSignal('Alpha',{signal:'completed'}),blockedSignal('Alpha',{id:'reopened',signal:'reopened'})],
+ ]) expect(teamOverview(input({seats:[seat('Alpha')],cards:[card(1,{state:'done',claim:null})],signals})).seats[0]?.done).toBe(false)
+})

@@ -869,13 +869,15 @@ capitals and for a heavier weight.
 The trailing rail is inset from the sidebar edge. `--hd-sidebar-end-rail`
 places a trailing target’s right edge; `--hd-sidebar-end-column` places its
 ink centre. The visible rail is the session dot's right edge, inside that
-target; a whole chip ends there, one target left of any adjacent marks.
-A chip uses its actual width at rest. Its title consumes the remaining
-space, without a faded chip or a reservation for hidden actions.
+target; a whole state label ends there, one target left of any adjacent marks.
+Sidebar states opt into `Chip variant="quiet"`: the same tone and type, with
+no background, border or horizontal padding. The text itself ends on the rail.
+A label uses its actual width at rest. Its title consumes the remaining
+space, without a faded label or a reservation for hidden actions.
 
-On hover, focus or an open menu, the chip folds to a dot and the actions take
+On hover, focus or an open menu, the label folds to a dot and the actions take
 the rail. Marks step left by the action count. The title never loses space
-in that exchange. Counts beside state chips yield when the row is 200px wide
+in that exchange. Counts beside state labels yield when the row is 200px wide
 or narrower; the query measures the row, including a nested row, rather than
 the window. A room’s header and its members each own their hover surface.
 
@@ -1477,3 +1479,8 @@ need attention. At a narrow pane width each Seat becomes one ListRow, with its
 state beside its name and cost at the end. The rail, Overview and sidebar use
 one conversation-keyed membership list, including Seats a Flow opened and
 conversations whose process is no longer held.
+
+Attention summaries use ListRow's wrapping sentence slot, so questions and
+approval reasons arrive whole even in a narrow pane. Recorded usage is read
+when Overview is selected, on card completion while it is shown, and each
+minute of a running Run while it stays selected.

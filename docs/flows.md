@@ -360,6 +360,20 @@ changed halfway has cards open under a policy that no longer exists. To change
 a running flow: stop it, edit, start again. Stopping keeps the cards as the
 record and tells every seat to stand down.
 
+### What a Run records
+
+A new Run keeps a short revision of its parsed Flow: whitespace, comments and
+quoting do not change it; a changed rule does. It freezes the Flow's declared
+brief input (or no brief) and can name an earlier Run it continues, without
+changing or resuming that earlier Run. Its start time is the stored start,
+and its first departure from running is timed once, even if the same Run is
+later continued. The current ending records completion of an answered final
+role, a card and outcome that no outgoing rule follows, a person or desk stop,
+the loop budget used, or a stall, alongside the existing reason sentence.
+Continuing clears the current ending while preserving that first departure
+time. Older Runs keep the fields they actually recorded; missing history is
+never filled in from when it was read.
+
 A room runs one flow at a time. Two would open cards into one board and neither
 could tell which were its own. For the same reason, a desk that cannot read the
 runs it keeps starts none until it can: it could not tell whether a room is

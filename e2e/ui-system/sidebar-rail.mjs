@@ -23,6 +23,13 @@ export function measureSidebarRail(sidebar) {
     const state = button.querySelector('[data-sidebar-menu-state-compact] [data-slot="dot"]')
     const targets = [...badges, ...actions].map(rect)
     const chipBox = chip && visible(chip) ? rect(chip) : null
+    const words = chip?.querySelector('[data-slot="chip-words"]')
+    const textRange = document.createRange()
+    if (words) textRange.selectNodeContents(words)
+    const textBox = chipBox && words ? rect(textRange) : null
+    const chipStyle = chipBox ? getComputedStyle(chip) : null
+    const title = button.querySelector('[data-slot="sidebar-menu-label-content"] > span > span:first-child')
+    const titleBox = title ? rect(title) : null
     const dotBox = state && visible(state) ? rect(state) : null
     if (!targets.length && !chipBox && !dotBox) return []
     let clip = rect(button)
@@ -36,7 +43,10 @@ export function measureSidebarRail(sidebar) {
       }
     }
     return [{ name: button.getAttribute('aria-label') ?? button.textContent.trim(), chip: chip?.textContent ?? null,
-      chipBox, chipRail: rail - badges.length * step, dotBox, clip,
+      chipBox, textBox, chipRail: rail - badges.length * step, dotBox, clip,
+      titleBox,
+      chipStyle: chipStyle && { background: chipStyle.backgroundColor, border: chipStyle.borderWidth,
+        shadow: chipStyle.boxShadow, paddingLeft: chipStyle.paddingLeft, paddingRight: chipStyle.paddingRight },
       targetRight: targets.length ? Math.max(...targets.map(box => box.right)) : null,
       nested: Boolean(row.closest('[data-nested="true"]')) }]
   })
