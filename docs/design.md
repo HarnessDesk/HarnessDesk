@@ -1089,6 +1089,13 @@ When adding a control, row or surface to HarnessDesk:
   cap-height glyph box. The font's own ascent/descent asymmetry (about 1px at
   13px) is a separate, pending correction. Trailing notice buttons use
   `edge="end"` so the glyph, not the hit target, lands on the surface edge.
+  Above a composer that edge is the toolbar's trailing inset, shared with Send.
+  A window-corner header is measured from its ordinary inset edge after
+  subtracting only the extra padding spent on native window controls; an
+  additional offset still counts as an alignment finding. The body reference
+  follows input and navigation labels before status chips, and compares a
+  nested approval code box at its own outer edge. A plain dock label shares Search's leading
+  glyph column; a tab with a mark shares the input's text column.
 - Write the label so the second line is not needed. A verb and its object beat a
   verb and a paragraph.
 - Default to no second line. Add one only when you can name which of the three

@@ -192,7 +192,8 @@
   align-items: center; /* desk: flex-start → center so a one-line notice shares the controls' midpoint */
   gap: var(--hd-space-2-5);
   min-height: var(--hd-space-10);
-  padding: var(--hd-space-1-5) var(--hd-space-1-5) var(--hd-space-1-5) var(--hd-space-2);
+  /* The dismiss glyph shares the composer toolbar's trailing inset. */
+  padding: var(--hd-space-1-5) var(--hd-space-2) var(--hd-space-1-5) var(--hd-space-2); /* desk: trailing inset 6px → 8px to share Send’s column */
   border-radius: var(--hd-radius-xl);
   background: var(--hd-muted);
   font-size: var(--hd-text-sm);
