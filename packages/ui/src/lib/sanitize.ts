@@ -120,3 +120,15 @@ export const sanitizeHtml = (html: string): string => {
   walk(template.content, 0)
   return template.innerHTML
 }
+
+/** Plain agent text: retain literal markup, discard terminal control sequences. */
+export const sanitizeText = (value: string): string => {
+  const plain = value
+    .replace(/\x1b\][\s\S]*?(?:\x07|\x1b\\)/g, '')
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')
+  const escaped = plain.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const template = document.createElement('template')
+  template.innerHTML = sanitizeHtml(escaped)
+  return template.content.textContent ?? ''
+}

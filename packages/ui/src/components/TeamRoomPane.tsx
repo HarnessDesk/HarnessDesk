@@ -26,7 +26,7 @@ import { goalRunOf, namedGoalRun } from '../lib/goal-run'
 import { teamSeats } from '../lib/team-seats'
 import { teamOverview } from '../lib/team-overview'
 import { TeamOverview } from './TeamOverview'
-import { RunView } from './RunView'
+import { TeamRunView } from './TeamRunView'
 import { runTimeline } from '../lib/run-timeline'
 import { shortSha } from '../lib/evidence'
 import { goalActions, goalName } from '../lib/goals'
@@ -1415,7 +1415,9 @@ export const TeamRoomPane = ({
                 {runs.map((one, index) => <Button key={one.id} variant="choice" size="sm" data-active={timelineRun.id === one.id || undefined}
                   onClick={() => setChosenRun(one.id)}>Run {index + 1}</Button>)}
               </PaneColumn>}
-              <RunView key={timelineRun.id} number={runs.findIndex(one => one.id === timelineRun.id) + 1}
+              <TeamRunView key={timelineRun.id} execution={timelineRun}
+                origin={timelineRun.intake ? `From trigger ${timelineRun.intake.trigger}` : goal?.goal.origin.kind === 'person' ? 'Started by you' : null}
+                onOpenSeat={show} number={runs.findIndex(one => one.id === timelineRun.id) + 1}
                 model={runTimeline({ execution: timelineRun, cards: intents,
                   signals: entries.filter((one): one is Extract<TeamEntry, {kind: 'signal'}> => one.kind === 'signal'),
                   evidence: snapshot.boardEvidence.get(room),
