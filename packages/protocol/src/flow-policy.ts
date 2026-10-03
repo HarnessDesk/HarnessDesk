@@ -183,6 +183,9 @@ export interface FlowExecution {
   readonly version: 2
   readonly id: string
   readonly goal: string
+  /** Absent on older runs: attended, except trigger-origin work. */
+  readonly attended?: boolean
+  readonly overrides?: Readonly<Record<string, readonly FlowSeat[]>>
   readonly base?: FlowBasePin
   readonly document: FlowDocument
   /** Canonical parsed document's short digest, frozen at start; absent on older records. */

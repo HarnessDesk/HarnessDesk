@@ -105,6 +105,8 @@ export const flowMethods = {
       source: params.source,
       sourcePath: null,
       compiled: redeemed.compiled,
+      attended: redeemed.attended,
+      overrides: redeemed.overrides,
       ...(params.vars ? { vars: params.vars } : {}),
       ...(params.continues !== undefined ? { continues: params.continues } : {}),
       ...(bound ? { requireHeld: true as const } : {}),

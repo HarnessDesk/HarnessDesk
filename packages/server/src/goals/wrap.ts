@@ -36,6 +36,7 @@ export interface WrapInput {
    */
   publication?: readonly string[]
   /** This Goal's trigger-origin projection, read through Intake just before freezing. Absent: not a trigger Goal. */
+  runs?: GoalReceipt['runs']
   intake?: GoalReceipt['intake']
 }
 
@@ -96,6 +97,7 @@ export function previewWrap(input: WrapInput, choices: WrapChoices): WrapPreview
       revisions: input.revisions,
       gaps: input.gaps,
       ...(input.findings ? { findings: input.findings } : {}),
+      ...(input.runs ? { runs: input.runs } : {}),
       ...(input.intake ? { intake: input.intake } : {}),
     }),
   }

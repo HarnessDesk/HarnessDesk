@@ -1496,7 +1496,7 @@ export class Host {
     this.#flows.onRoundClosed((run, round) => this.#findings.roundClosed(run, round))
     this.#flows.attachFindingsGate((run) => this.#findings.gate(run))
     this.#flows.attachReviewPackets((run, round, role, subjects) => this.#findings.packetFor(run, round, role, subjects))
-    /* An unattended Seat's question — one on a run a trigger started — waits
+    /* An unattended Seat's question — by trigger origin or frozen run choice — waits
        as long as this machine says (five minutes unless a person chose
        otherwise, or until they are back). Then its run stops for a person
        with the reason, and its turn is interrupted once — what it already

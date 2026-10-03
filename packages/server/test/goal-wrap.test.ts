@@ -378,3 +378,16 @@ test('a wrap preview and a run step seating a card never wait on each other', as
   assert.deepEqual(results, ['previewed', 'stepped'])
   assert.equal(seated, 1, 'the run step reached the seating once the preview let the Goal queue go')
 })
+
+test('a receipt freezes each run attendance and overrides, and validates them on read', async () => {
+  const runs = [{ run: 'run-demo', attended: false, overrides: { writer: [{ runtime: 'beta' }] } }]
+  const source = { ...input(), runs }
+  const preview = previewWrap(source, choices())
+  const receipt = { ...preview.receipt, id: 'receipt-demo', wrappedAt: 1 }
+  assert.deepEqual((receipt as unknown as { runs: typeof runs }).runs, runs)
+  const { receiptOf } = await import('../src/goals/store.js')
+  assert.equal(receiptOf(receipt, source.goal.id, receipt.id), true)
+  assert.equal(receiptOf({ ...receipt, runs: [{ ...runs[0], attended: 'false' }] }, source.goal.id, receipt.id), false)
+  runs[0]!.overrides.writer[0]!.runtime = 'gamma'
+  assert.equal((receipt as unknown as { runs: typeof runs }).runs[0]!.overrides.writer[0]!.runtime, 'beta')
+})

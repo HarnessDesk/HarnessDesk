@@ -75,6 +75,8 @@ export interface GoalCitation {
 }
 
 export interface GoalReceipt {
+  /** Run choices frozen at wrap; absent on receipts made before these were recorded. */
+  readonly runs?: readonly { readonly run: string; readonly attended: boolean; readonly overrides?: Readonly<Record<string, readonly FlowSeat[]>> }[]
   readonly version: 1
   readonly id: string
   readonly goal: GoalId

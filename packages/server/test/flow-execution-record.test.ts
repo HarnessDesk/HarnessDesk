@@ -227,3 +227,35 @@ test('a check whose result could not be recorded stalls with an end time stamped
   assert.deepEqual(stopped['end'], { kind: 'stopped', by: 'person' })
   assert.equal(stopped['endedAt'], stalled['endedAt'])
 })
+
+test('attendance and overrides are frozen before dispatch and survive recovery', async t => {
+  const rig = await goalRig(t)
+  const overrides = { writer: [{ runtime: 'beta', effort: 'high' }] }
+  const roster = [(await import('./fixtures/flow-goal-rig.js')).agent('writer', ['done'])]
+  rig.digests.set('writer', 'writer-digest')
+  const source = 'version: 2\nname: Writer\nroles:\n  writer: { uses: writer, grant: read, seats: [alpha] }\nseed: { role: writer, title: Write }\nrules: []\n'
+  const { compileFlowPolicy, parseFlowPolicy } = await import('../src/flow-policy.js')
+  const compiled = compileFlowPolicy(parseFlowPolicy(source).document!, roster, [], overrides)
+  const run = await start(rig, source, { compiled, overrides, attended: false })
+  const fields = (value: FlowExecution) => value as unknown as { attended: boolean; overrides: typeof overrides }
+  assert.equal(fields(run).attended, false)
+  assert.deepEqual(fields(run).overrides, overrides)
+  assert.equal([...rig.seats.values()][0]!.session.runtime, 'beta')
+  overrides.writer[0]!.runtime = 'gamma'
+  await rig.executions.stop(run.id)
+  await rig.restart()
+  assert.equal(fields(await read(rig, run.id)).overrides.writer[0]!.runtime, 'beta')
+  assert.equal(fields(await read(rig, run.id)).attended, false)
+  const saved = rig.executions.stored(run.id)!
+  for (const extra of [{ attended: 'false' }, { overrides: { writer: [{ runtime: '' }] } }, { overrides: { person: [{ runtime: 'beta' }] } }, { overrides: { writer: [{ runtime: 'gamma' }] } }]) {
+    assert.throws(() => executionOf({ ...saved, ...extra }), /flow run/)
+  }
+  const older = { ...saved } as unknown as Record<string, unknown>
+  delete older.attended; delete older.overrides
+  // A pre-override run's saved bindings agree with its file's seats.
+  older.compiled = rig.compile(source, roster)
+  await rig.files.save(older as unknown as StoredFlowExecution)
+  await rig.restart()
+  assert.equal(fields(await read(rig, run.id)).attended, true)
+  assert.equal(fields(await read(rig, run.id)).overrides, undefined)
+})

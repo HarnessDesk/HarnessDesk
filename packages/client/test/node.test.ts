@@ -112,3 +112,18 @@ test('localTransport uses the client WebSocket path on the unix socket', async t
   transport.close()
   await closed
 })
+
+
+for (const marker of ['HARNESSDESK_GOAL_ID', 'HARNESSDESK_LANE_ID']) {
+  test(`the Node transport refuses spending from its own Seat (${marker}) before sending`, async t => {
+    const r = await rig(); t.after(r.cleanup)
+    // Extra arguments are ignored by the old transport: this regression fails
+    // there without requiring a new type to exist before the implementation.
+    const transport = await (localTransport as Function)(r.desk, { env: { [marker]: 'demo' } })
+    const response = new Promise(resolve => transport.onMessage(resolve))
+    transport.send({ id: 1, method: 'flow/catalog', params: { root: '/tmp/demo' } })
+    await response
+    assert.throws(() => transport.send({ id: 2, method: 'workspace/open', params: { path: '/tmp/demo' } }), e => e instanceof WireCallError && e.code === 'refused')
+    transport.close()
+  })
+}
