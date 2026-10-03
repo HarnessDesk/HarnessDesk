@@ -429,6 +429,59 @@ for (const phase of ['before run read', 'during run read'] as const) {
   })
 }
 
+for (const accepted of [true, false]) {
+  test(`a ${accepted ? 'successful' : 'refused'} replacement queued behind a read preserves snapshot and notice ordering`, async t => {
+    const { home, directory, h, door, module } = await rig(t)
+    await door.close()
+    await h.host.call('workspace/open', { path: home })
+    const preview = await h.host.call('flow/preview', { root: home, source })
+    const run = await h.host.call('flow/start-goal', { root: home, source, sentence: 'Synthetic run', token: preview.token! })
+    let current = await h.host.call('flow/execution', { run: run.id })
+    const session = await h.host.call('session/create', { runtime: h.runtime.info.id, options: { cwd: home } })
+    let broadcast!: (notification: WireNotification) => void
+    const add = h.host.addBroadcaster.bind(h.host)
+    Object.defineProperty(h.host, 'addBroadcaster', { value: (callback: typeof broadcast) => { broadcast = callback; return add(callback) } })
+    const reopened = await module.openClientDoor({ host: h.host, logger: silent, home, directory, hostVersion: 'test' })
+    assert.ok(reopened)
+    t.after(() => reopened.close())
+    const peer = await Peer.open(reopened.socketPath)
+    t.after(() => peer.socket.close())
+    const call = h.host.call.bind(h.host)
+    Object.defineProperty(h.host, 'call', { configurable: true, value: async (method: string, params: unknown) =>
+      method === 'flow/execution' ? current : call(method as never, params as never) })
+    await peer.hello()
+    assert.equal((await peer.call('client/subscribe', { topics: ['runs', 'notices'] })).ok, true)
+    await peer.call('goal/list', {})
+    const before = peer.messages.length
+    const { entered, release } = holdNextRead(h.host)
+    t.after(release)
+    const preceding = peer.call('goal/list', {})
+    await entered
+    if (!accepted) Object.defineProperty(h.host, 'pendingApprovalEvents', { value: () => { throw new Error('Synthetic approval baseline failure') } })
+    const replacement = peer.call('client/subscribe', { topics: ['waiting', 'notices'] })
+    // A pong follows receipt of the subscription frame, even while the read is held.
+    await new Promise<void>(resolve => { peer.socket.once('pong', () => resolve()); peer.socket.ping() })
+    for (const state of ['stalled', 'running'] as const) {
+      current = { ...current, state }
+      broadcast({ method: 'flow/execution-changed', params: { execution: current } })
+      await h.host.teamPlane.notify({ where: 'inbox', title: `During ${state}` }, { runtime: h.runtime.info.id, sessionId: session.id })
+    }
+    release()
+    assert.equal((await preceding).ok, true)
+    const result = await replacement
+    assert.equal(result.ok, accepted)
+    await peer.call('goal/list', {})
+    const notifications = peer.messages.slice(before).filter(m => 'method' in m)
+    assert.deepEqual(notifications.filter(m => m.method === 'flow/execution-changed').map(m => m.params.execution.state),
+      accepted ? ['running'] : ['stalled', 'running'])
+    assert.deepEqual(notifications.filter(m => m.method === 'person/notice').map(m => m.params.notice.title), ['During stalled', 'During running'])
+    current = { ...current, state: 'settled' }
+    broadcast({ method: 'flow/execution-changed', params: { execution: current } })
+    await peer.call('goal/list', {})
+    assert.equal(peer.messages.filter(m => m.method === 'flow/execution-changed').at(-1).params.execution.state, 'settled')
+  })
+}
+
 for (const kind of ['symlink', 'hardlink'] as const) {
   test(`publishing a pointer replaces a ${kind} without changing its target`, async t => {
     const { home, directory, h, door, module } = await rig(t)

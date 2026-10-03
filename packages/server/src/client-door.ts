@@ -179,7 +179,9 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
       let identity = 'unknown'
       let statedPid: number | null = null
       let subscription: Subscription = { topics: [] }
-      let proposal: { selection: Subscription; snapshots: WireNotification[]; consumed: Set<WireNotification> } | null = null
+      let proposal: { snapshots: WireNotification[] } | null = null
+      const pendingSnapshots = new Set<WireNotification>()
+      const consumedSnapshots = new Set<WireNotification>()
       let queue = Promise.resolve()
       const shownApprovals = new Set<string>()
       const send = (message: HostToClient) => {
@@ -197,12 +199,15 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
         queue = queue.then(work).catch(error => logger.warn('client notification failed', { error: String(error) }))
       }
       const detach = options.host.addBroadcaster(notification => {
-        // Keep both selections' events until the baseline decides which one commits.
-        if (!hello || !topicsOf(notification).some(t => topics().has(t) || (proposal !== null && topics(proposal.selection).has(t)))) return
-        const collecting = proposal
-        if (collecting && snapshotKey(notification) !== null) collecting.snapshots.push(notification)
+        // Decide selection in queue order, after any preceding subscription.
+        if (!hello || topicsOf(notification).length === 0) return
+        if (snapshotKey(notification) !== null) {
+          pendingSnapshots.add(notification)
+          proposal?.snapshots.push(notification)
+        }
         enqueue(async () => {
-          if (collecting?.consumed.has(notification)) return
+          pendingSnapshots.delete(notification)
+          if (consumedSnapshots.delete(notification)) return
           if (!hello || !topicsOf(notification).some(t => topics().has(t))) return
           const resolved = notification.method === 'event' && notification.params.event.type === 'approval/resolved'
           const key = approvalKey(notification)
@@ -259,7 +264,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
         try {
           if (parsed.method === 'client/subscribe') {
             const next = parsed.params as Subscription
-            const collecting = proposal = { selection: next, snapshots: [] as WireNotification[], consumed: new Set<WireNotification>() }
+            const collecting = proposal = { snapshots: [...pendingSnapshots] }
             const selectedTopics = topics(next)
             const viewsReadAt = collecting.snapshots.length
             const views = await viewsInScope(options.host, next.scope)
@@ -279,7 +284,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
             }
             if (selectedTopics.has('cards')) for (const view of views) remember({ method: 'team/changed', params: { state: view.board } })
             if (selectedTopics.has('teams')) for (const view of views) remember({ method: 'goal/changed', params: { view } })
-            // State changes received during collection belong to this baseline.
+            // Queued state changes and changes during collection belong to this baseline.
             // Keep event notifications queued, and leave a refused proposal untouched.
             const consumed = new Set<WireNotification>()
             for (const [index, notification] of collecting.snapshots.entries()) {
@@ -299,7 +304,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
             if (selectedTopics.has('waiting')) for (const notification of options.host.pendingApprovalEvents()) {
               if (inScope(notification, views, next.scope)) approvals.push(notification)
             }
-            collecting.consumed = consumed
+            for (const notification of consumed) consumedSnapshots.add(notification)
             subscription = next
             shownApprovals.clear()
             send({ id, ok: true, result: null })

@@ -35,9 +35,10 @@ replaces the previous one. The client marks a fresh baseline after reconnect
 or an acknowledged subscription change with `gap`, so consumers can replace
 their observation rather than combine separate selections.
 
-State snapshots received during baseline collection are reconciled into that
-baseline: a read supersedes earlier snapshots of its item, and the latest
-snapshot received during or after that read supersedes it. Notices and approval
+State snapshots queued behind a subscription or received during its baseline
+collection are reconciled into that baseline: a read supersedes earlier
+snapshots of its item, and the latest snapshot received during or after that
+read supersedes it. Notices and approval
 events retain their order. A refused replacement preserves the old selection
 and its queued changes.
 
