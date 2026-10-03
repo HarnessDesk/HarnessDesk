@@ -149,6 +149,38 @@ it.each([
     }
   } finally { view.close() }
 })
+const sectionText = (container: HTMLElement, title: string): string =>
+  [...container.querySelectorAll('section')].find(one => one.textContent?.startsWith(title))?.textContent ?? ''
+it.each([
+  { name: 'declares no budget', budget: undefined },
+  // A Flow's declared budget is what a new Run would freeze, not what this one recorded.
+  { name: 'declares a budget', budget: { rounds: 7, withoutProgress: 4 } },
+])('says the limit was not recorded for an agents-format Run with no findings record, whose Flow $name', ({ budget }) => {
+  const fixture = runFixture()
+  const { document } = fixture.execution
+  if (document.format !== 'agents') throw new Error('Expected an agents-format fixture')
+  const execution = { ...fixture.execution, document: { ...document, flow: { ...document.flow, ...(budget ? { budget } : {}) } } }
+  expect(execution.findings).toBeUndefined()
+  const view = render({ input: { ...fixture, execution } })
+  try {
+    const budgets = sectionText(view.container, 'Budgets')
+    expect(budgets).toContain('Rounds: 3 · Limit not recorded')
+    expect(budgets).toContain('Rounds without progress: Not recorded')
+    expect(budgets).not.toContain(' of ')
+    expect(budgets).not.toContain('Limit 2')
+    expect(budgets).not.toMatch(/Limit \d/)
+  } finally { view.close() }
+})
+it('still reads the limits a Run recorded', () => {
+  const fixture = runFixture()
+  const view = render({ input: { ...fixture, execution: { ...fixture.execution, findings: findingsState(null) } } })
+  try {
+    const budgets = sectionText(view.container, 'Budgets')
+    expect(budgets).toContain('Rounds: 4 of 3')
+    expect(budgets).toContain('Rounds without progress: 1 · Limit 2')
+    expect(budgets).not.toContain('not recorded')
+  } finally { view.close() }
+})
 it('keeps markup literal and removes terminal escape sequences from handoffs and findings', () => {
   const fixture = runFixture()
   const unsafe = '<img src=x onerror="alert(1)">\u001b[31mred\u001b[0m\u001b]8;;https://example.com\u0007link\u001b]8;;\u0007'

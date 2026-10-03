@@ -22,6 +22,12 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(detail).toContainText('Keep the retry bounded and the last failure visible.')
       await expect(detail).not.toContainText('complete_claim')
     }
+    // A Run that recorded no budget says so; it never borrows a limit it was not given.
+    for (const kind of ['empty', 'pending', 'failed', 'team']) {
+      const summary = page.locator(`#run-inspector-${kind} [data-slot="run-inspector"]`)
+      await expect(summary).toContainText('Limit not recorded')
+      await expect(summary).not.toContainText(/Rounds: \d+ of \d+/)
+    }
     const a = await timeline.boundingBox()
     const b = await inspector.boundingBox()
     expect(b!.x).toBeGreaterThanOrEqual(a!.x + a!.width)

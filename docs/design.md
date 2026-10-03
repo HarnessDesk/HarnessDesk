@@ -1529,6 +1529,9 @@ keeps the authored sentence without the host's appended tool instructions,
 however many blank lines a `|` block sentence leaves before them, and keeps the
 sentence's own line breaks as written.
 The round budget includes authorized extra rounds and their recorded reason.
+A Run that recorded no budget says its limit was not recorded: the Flow's own
+or the default budget is what a new Run would freeze, never what an older one
+had, so it is not read back in its place.
 
 At pane widths below 48rem, a selection pushes detail over the timeline;
 Run timeline returns to the selected row, and Run details opens the summary.

@@ -1,4 +1,4 @@
-import { DEFAULT_FLOW_BUDGET, type FindingRoundPublication } from '@harnessdesk/protocol'
+import type { FindingRoundPublication } from '@harnessdesk/protocol'
 import { runTimeline, type RunTimelineInput } from '../lib/run-timeline'
 import type { SeatRow } from '../lib/team-overview'
 export interface InspectorSeat {
@@ -92,7 +92,9 @@ export const RunInspector = ({ input, selectedRow, seats, publication }: RunInsp
       {seat?.onOpen ? <Button variant="link" size="inline-link" onClick={seat.onOpen}>Open the conversation</Button> : <Text role="meta">Conversation not kept</Text>}
     </>
   } else {
-    const budget = execution.findings?.budget ?? (execution.document.format === 'agents' ? execution.document.flow.budget ?? DEFAULT_FLOW_BUDGET : null)
+    // Only what the Run recorded: one saved before budgets has none, and a Flow's own or the default
+    // budget is what a new Run would freeze, so reading it back would invent a limit (docs/flows.md).
+    const budget = execution.findings?.budget ?? null
     const extra = execution.findings?.extraRound
     const roundLimit = budget ? Math.max(budget.rounds, extra ? extra.after + (extra.count ?? 1) : 0) : null
     const ids = new Set(execution.rounds.flatMap(one => one.seats))
