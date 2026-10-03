@@ -1,8 +1,10 @@
 # Team Overview preview evidence
 
-All 26 frames below were rendered from the production components in the preview harness with synthetic identities, then inspected by eye. The catalogue mounts the same ten Overview cases at `design.html?view=team-overview`; the preview is `preview.html?team-overview`.
+All 26 preview frames and both catalogue frames below were rendered from the production components in the preview harness with synthetic identities, then inspected by eye. The catalogue mounts the same ten Overview cases at `design.html?view=team-overview`; the preview is `preview.html?team-overview`.
 
 PR title: **Team Overview: keep every Flow Seat visible**
+
+Review round 1 repair source: `4f5d856a939be2fdad3a920b87dae78a3e628fc3` on `team-overview-pr2`. Every frame was refreshed and inspected for this source. Attention sentences wrap in the existing ListRow sentence slot, completed fixture cards have cleared claims with completion signals, and usage reads run only while Overview is selected. The focused UI run passed 263 tests, the five named browser suites passed all 50 checks, and the unpiped full gate printed `All checks passed.` (exit 0).
 
 What changed: Overview shows Run status, attention and recorded usage, shares conversation-keyed Seats with the rail and sidebar, and folds finished Seats while retaining their rows. The synthetic Host rig returned one board member and open Goal Seat during writing, then two of each during review and after settling, with both `closed` fields null; regressions also cover an empty older roster, and Run start time remains absent until its projection lands. How to test: run the focused UI tests, UI typecheck, named browser specs, strict design audit and the unpiped full verification gate; actions, wrapped receipts and host process lifecycle remain in their planned PRs.
 
@@ -32,3 +34,4 @@ mkdir -p /tmp/hdv && TMPDIR=/tmp/hdv pnpm verify
 | Team with two done, folded | [team-light.png](team-light.png) | [team-dark.png](team-dark.png) |
 | Team with two done, open | [team-open-light.png](team-open-light.png) | [team-open-dark.png](team-open-dark.png) |
 | Nested conversations | [sidebar-light.png](sidebar-light.png) | [sidebar-dark.png](sidebar-dark.png) |
+| Catalogue narrow | [catalog-narrow-light.png](catalog-narrow-light.png) | [catalog-narrow-dark.png](catalog-narrow-dark.png) |
