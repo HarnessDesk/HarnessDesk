@@ -26,14 +26,21 @@ export function parseAcpOutput(text) {
 }
 
 export function summarizeAcpMessages(messages) {
+  const initialize = messages.find((message) => message.id === 1)
   const newSession = messages.find((message) => message.id === 2)
   const commandUpdate = messages.find((message) => message.method === 'session/update' && message.params?.update?.sessionUpdate === 'available_commands_update')
   const commands = commandUpdate?.params?.update?.availableCommands ?? []
-  const initialized = messages.some((message) => message.id === 1 && !message.error)
+  const initialized = Boolean(initialize?.result)
   const sessionCreated = Boolean(newSession?.result)
-  const signedOutFailure = Boolean(newSession?.error)
+  const signedOutFailure = Boolean(initialize?.error || newSession?.error)
   const signedOutObservation = sessionCreated ? 'session-created' : signedOutFailure ? 'no-session' : 'unknown'
-  return { initialized, sessionCreated, signedOutFailure, commandCount: Array.isArray(commands) ? commands.length : 0, signedOutObservation }
+  return {
+    initialized, sessionCreated, signedOutFailure, commandCount: Array.isArray(commands) ? commands.length : 0, signedOutObservation,
+    initializeAnswered: Boolean(initialize), sessionNewAnswered: Boolean(newSession),
+    signInMethodCount: Array.isArray(initialize?.result?.authMethods) ? initialize.result.authMethods.length : 0,
+    ...(Number.isInteger(initialize?.error?.code) ? { initializeErrorCode: initialize.error.code } : {}),
+    ...(Number.isInteger(newSession?.error?.code) ? { sessionNewErrorCode: newSession.error.code } : {}),
+  }
 }
 
 export function parseRejectionWords(errors) {
@@ -48,6 +55,8 @@ export function parseRejectionWords(errors) {
 const acpDriver = async (command, args, cwd) => {
   const { spawn } = await import('node:child_process')
   const { createInterface } = await import('node:readline')
+  const { resolve } = await import('node:path')
+  cwd = resolve(cwd)
   const child = spawn(command, args, { cwd, stdio: ['pipe', 'pipe', 'ignore'], detached: true })
   const lines = createInterface({ input: child.stdout })
   const messages = []
@@ -69,11 +78,15 @@ const acpDriver = async (command, args, cwd) => {
     child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
   })
   try {
-    await request('initialize', { protocolVersion: '2025-06-18', clientCapabilities: {}, clientInfo: { name: 'harnessdesk-measure', title: 'HarnessDesk', version: '1.0.0' } })
-    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'initialized', params: {} })}\n`)
+    const initialized = await request('initialize', { protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: 'harnessdesk-measure', title: 'HarnessDesk', version: '1.0.0' } })
+    if (initialized.error) return messages
     await request('session/new', { cwd, mcpServers: [] })
     await new Promise((resolve) => setTimeout(resolve, 300))
     return messages
+  } catch (error) {
+    // A timeout must not erase an earlier answer, including a refusal.
+    if (error.message === 'timeout') return messages
+    throw error
   } finally {
     const closed = new Promise((resolve) => child.once('close', resolve))
     child.stdin.end()
@@ -201,22 +214,28 @@ async function acpProbe(agent, fixture) {
     envOverrides[bridge.executableEnv] = agent.command
     allowedEnv.push(bridge.executableEnv)
   }
-  const driver = `(${acpDriver.toString()})(${JSON.stringify(command)},${JSON.stringify(args)},${JSON.stringify(fixture.repo)}).then(x=>process.stdout.write(JSON.stringify(x))).catch(()=>process.exit(2))`
-  const execution = await run(process.execPath, ['-e', driver], fixture, { timeoutMs: 25_000, envOverrides, allowedEnv })
+  const driver = `(${acpDriver.toString()})(${JSON.stringify(command)},${JSON.stringify(args)},${JSON.stringify(fixture.repo)}).then(x=>process.stdout.write(x.map(message=>JSON.stringify(message)).join('\\n'))).catch(()=>process.exit(2))`
+  const execution = await run(process.execPath, ['-e', driver], fixture, { timeoutMs: 30_000, envOverrides, allowedEnv })
   const summary = summarizeAcpMessages(parseAcpOutput(execution.stdout))
   const modelReasons = {
     rulesFiles: { status: 'could-not-ask' }, catalogue: { status: 'could-not-ask' },
     reportsCatalogue: false, reportsRejections: false,
     precedence: { status: 'could-not-ask' }, rejections: { status: 'could-not-ask' },
     skillRoots: [], refresh: { status: 'unknown', catalogueRefresh: 'none', skillToggle: false, openSessionSeesChange: 'unknown' }, mcp: { status: 'unknown' },
-    signedOutCatalogue: { status: 'unknown', observation: summary.signedOutObservation },
+    signedOutCatalogue: {
+      status: 'unknown', observation: summary.signedOutObservation,
+      initializeAnswered: summary.initializeAnswered, sessionNewAnswered: summary.sessionNewAnswered,
+      signInMethodCount: summary.signInMethodCount,
+      ...(summary.initializeErrorCode !== undefined ? { initializeErrorCode: summary.initializeErrorCode } : {}),
+      ...(summary.sessionNewErrorCode !== undefined ? { sessionNewErrorCode: summary.sessionNewErrorCode } : {}),
+    },
   }
-  if (summary.initialized && ['session-created', 'no-session'].includes(summary.signedOutObservation)) return {
-    interface: 'ACP session/new', question: summary.signedOutObservation === 'no-session' ? 'no session while signed out' : 'session created while signed out', facts: modelReasons,
+  if (['session-created', 'no-session'].includes(summary.signedOutObservation)) return {
+    interface: 'ACP initialize and session request', question: summary.signedOutObservation === 'no-session' ? 'no session while signed out' : 'session created while signed out', facts: modelReasons,
     rawAnswer: '', status: 'asked',
   }
-  const reason = 'ACP initialize unavailable'
-  return { interface: 'ACP session/new', question: 'no session while signed out', facts: modelReasons, status: 'could-not-ask', reason }
+  const reason = execution.code !== 0 ? 'ACP launch unavailable' : summary.initializeAnswered ? 'ACP session request unavailable' : 'ACP initialize unavailable'
+  return { interface: 'ACP initialize and session request', question: 'no session while signed out', facts: modelReasons, status: 'could-not-ask', reason }
 }
 
 export function installProbes(harness) {

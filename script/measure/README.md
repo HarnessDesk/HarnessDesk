@@ -24,4 +24,16 @@ Interface selection and scope:
 
 Raw answers are reduced to fixture-derived sentinel tokens. Structured facts accept only fixed enums, booleans, bounded counts, fixture tokens, and concrete relative skill-root paths. Vendor output, account identifiers, emails, tokens, secrets and absolute machine paths are never persisted or printed. A failed privacy validation becomes `could-not-ask`.
 
+The generic ACP driver sends integer `protocolVersion: 1`, empty client capabilities and client information, then `session/new` with an absolute fixture cwd and no MCP servers. ACP has no `initialized` notification. Requests and captured responses stay newline-delimited JSON. An initialize error stops the handshake and records `no-session`; a session error also records `no-session`. Only a request timeout records no answer; a failed launch has its own reason. A session timeout retains an earlier initialize answer.
+
+`facts.signedOutCatalogue` records `initializeAnswered`, `sessionNewAnswered`, `signInMethodCount` (only the length of `authMethods`), and numeric `initializeErrorCode` / `sessionNewErrorCode` when present. It never stores sign-in method names, descriptions, session identifiers or error messages. Catalogue status stays `unknown`, including when a session succeeds.
+
+Run the regression suite explicitly (it is a manual harness, outside the gate-test glob):
+
+```sh
+node --test script/measure/library.test.mjs
+```
+
+The subprocess tests use the scripted ACP fixture with strict v1 validation and request capture added to a disposable copy. They cover success, sign-in refusal, initialize refusal, timeout preservation and launch failure without running a vendor agent. The mutation proof restored a byte-exact backup of the original probe: the session-success test failed with `could-not-ask` instead of `asked` (exit 1). Restoring the fixed backup was checked byte-for-byte and the focused suite passed.
+
 `docs/verification/library-measurements/README.md` maps each result JSON cell to its fact: `facts.rulesFiles` → rules read/load order; `facts.catalogue` plus `facts.reportsCatalogue` → fixture reach/catalogue reporting; `facts.precedence` → duplicate-name precedence; `facts.rejections` plus `facts.reportsRejections` → acceptance/reason and rejection reporting; `facts.skillRoots` → concrete tier C root paths; `facts.refresh.catalogueRefresh`, `facts.refresh.skillToggle`, and `facts.refresh.openSessionSeesChange` → refresh behavior; `facts.mcp` → config recognition and connection status; `facts.signedOutCatalogue` → available/empty/unknown while signed out. Each cell links its exact `<agent>-<version>.json` result or gives its `could-not-ask` reason.
