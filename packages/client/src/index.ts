@@ -343,7 +343,7 @@ export async function connect(options: ConnectOptions): Promise<Client> {
       try { current.send({ id, method, params }) }
       catch (error) {
         clearTimeout(timer); pending.delete(id)
-        reject(new WireCallError('disconnected', error instanceof Error ? error.message : String(error)))
+        reject(error instanceof WireCallError ? error : new WireCallError('disconnected', error instanceof Error ? error.message : String(error)))
         hooks.uncertain?.()
       }
     })

@@ -10,6 +10,11 @@ export const CLIENT_METHODS = {
   'client/hello': 'read',
   'client/subscribe': 'read',
   'goal/list': 'read',
+  'flow/catalog': 'read',
+  'flow/source': 'read',
+  'flow/preview': 'read',
+  'flow/start-goal': 'run',
+  'workspace/open': 'run',
   'flow/execution': 'read',
   'flow/executions': 'read',
   'finding/run': 'read',
@@ -17,7 +22,10 @@ export const CLIENT_METHODS = {
 } as const satisfies Partial<Record<HostMethodName, ClientTier>>
 
 export type ClientMethodName = keyof typeof CLIENT_METHODS
-export const CLIENT_TIERS_GRANTED_BY_DEFAULT: readonly ClientTier[] = ['read']
+/** The local user's private socket is the authority to spend. Tiers restrict
+ * verbs, not that user's processes; no caller-supplied pid proves a Seat.
+ * Answering remains a separate, ungranted capability. */
+export const CLIENT_TIERS_GRANTED_BY_DEFAULT: readonly ClientTier[] = ['read', 'run']
 export const CLIENT_PROTOCOL = 1
 
 export interface FlowExecutionSummary {

@@ -266,7 +266,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
           } catch (error) {
             const code = wireCodeOf(error) ?? 'methodFailed'
             send({ id, ok: false, error: wireError(code, String(error), null, wireDataOf(error)) })
-            audit({ kind: 'client/call', client: identity, statedPid, method, tier: 'read', outcome: 'failed', code })
+            audit({ kind: 'client/call', client: identity, statedPid, method, tier: CLIENT_METHODS[method as ClientMethodName], outcome: 'failed', code })
           }
           return
         }
@@ -336,12 +336,12 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
             const result = await options.host.call(parsed.method, parsed.params as never)
             send({ id, ok: true, result })
           }
-          audit({ kind: 'client/call', client: identity, statedPid, method, tier: 'read', outcome: 'ok' })
+          audit({ kind: 'client/call', client: identity, statedPid, method, tier: CLIENT_METHODS[method as ClientMethodName], outcome: 'ok' })
         } catch (error) {
           const code = wireCodeOf(error) ?? 'methodFailed'
           send({ id, ok: false, error: wireError(code, error instanceof Error ? error.message : String(error),
             typeof (error as { details?: unknown })?.details === 'string' ? (error as { details: string }).details : null, wireDataOf(error)) })
-          audit({ kind: 'client/call', client: identity, statedPid, method, tier: 'read', outcome: 'failed', code })
+          audit({ kind: 'client/call', client: identity, statedPid, method, tier: CLIENT_METHODS[method as ClientMethodName], outcome: 'failed', code })
         } finally {
           proposal = null
         }

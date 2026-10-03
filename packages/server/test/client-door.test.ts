@@ -758,7 +758,7 @@ test('the run surface answers and audits its actual tier, without admitting othe
   const preview = await peer.call('flow/preview', { root: home, source })
   assert.ok(preview.result.token)
   assert.equal((await peer.call('flow/start-goal', { root: home, source, sentence: 'Demo', token: preview.result.token })).ok, true)
-  assert.equal((await peer.call('workspace/open', { path: '' })).error.code, 'badRequest')
+  assert.equal((await peer.call('workspace/open', null)).error.code, 'badRequest')
   assert.equal((await peer.call('flow/execution/stop', { run: 'missing' })).error.code, 'notOnClientSurface')
   assert.equal((await peer.call('approval/respond', null)).error.code, 'notOnClientSurface')
   await door.close()
