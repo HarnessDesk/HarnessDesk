@@ -947,5 +947,8 @@ Run opens from the Team rail or its Overview strip. It reads oldest first:
 the recorded start and brief, each round and its cards, the latest check
 result, findings, and why the Run ended. A repeated role gets its own round.
 Work in flight keeps its doing line; unknown durations and results stay unknown.
-A selected row takes the inspector's fill. Historical Runs are restored from the host
-and can be selected beside the header, and an observed pull request opens from it.
+A finding's repair remains a claim until review accepts it; a damaged history
+reads Unreadable with its reason, whatever state its records carry.
+A selected row takes the inspector's fill. Historical Runs, including those
+started by triggers, are restored from the host and can be selected beside
+the header, and an observed pull request opens from it.

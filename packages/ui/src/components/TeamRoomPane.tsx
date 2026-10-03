@@ -408,14 +408,16 @@ export const TeamRoomPane = ({
   const [timelineRead, setTimelineRead] = useState(0)
   const [runHistoryProblem, setRunHistoryProblem] = useState<{ room: string; message: string } | null>(null)
   useEffect(() => {
-    if (!run && !flowExecution) return
+    // A trigger Goal names no opener Run. Discover its history even when
+    // this window has not received any execution pushes yet.
+    if (!goalId && !run && !flowExecution) return
     let live = true
     setRunHistoryProblem(null)
     void store.loadTeamRuns(room).catch((error: unknown) => {
       if (live) setRunHistoryProblem({ room, message: `Run history is unavailable: ${error instanceof Error ? error.message : String(error)}` })
     })
     return () => { live = false }
-  }, [store, room, run, flowExecution?.id, timelineRead])
+  }, [store, room, goalId, run, flowExecution?.id, timelineRead])
   useEffect(() => {
     if (open !== 'run' || !timelineRun) return
     let live = true

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { runtimeId, type BoardEvidence, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
+import { runtimeId, type BoardEvidence, type FindingView, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
 import { runTimeline } from './run-timeline'
 
 const run = (patch: Partial<FlowExecution> = {}): FlowExecution => ({
@@ -56,10 +56,26 @@ describe('runTimeline', () => {
 })
 
 it('groups findings only by their recorded Run and round, with repair claims distinguished', () => {
-  const finding = { id: 'finding', title: 'Cap the retries', origin: { run: 'run', round: 1 }, lifecycle: { state: 'repaired', confirmed: false } } as import('@harnessdesk/protocol').FindingView
+  const finding: FindingView = { id: 'finding', title: 'Cap the retries', body: 'Bound the attempts.',
+    origin: { goal: 'team', run: 'run', round: 1, card: 1, seat: 'reviewer', at: 'abc' }, ownerGoal: 'team',
+    category: 'ordinary', blocking: true, related: null, anchor: null, lifecycle: { state: 'repaired', confirmed: false, repairs: ['def'] },
+    sequence: 2, evidence: [], posted: [], restored: false, problem: null }
   const model = runTimeline({ execution: run(), cards: [card()], findings: [finding, { ...finding, id: 'old-finding', origin: { ...finding.origin, run: 'old-run' } }] })
   expect(model.rows.filter(row => row.kind === 'findings')).toHaveLength(1)
-  expect(model.rows.find(row => row.kind === 'findings')).toMatchObject({ title: '1 finding', detail: 'Cap the retries · repaired (claimed)' })
+  expect(model.rows.find(row => row.kind === 'findings')).toMatchObject({ title: '1 finding', detail: 'Cap the retries · Repair claimed · awaiting review' })
+})
+
+it.each([
+  { state: 'repaired', confirmed: false },
+  { state: 'repaired', confirmed: true },
+  { state: 'withdrawn', confirmed: true },
+] as const)('keeps a damaged $state finding unreadable even when confirmed=$confirmed', lifecycle => {
+  const finding: FindingView = { id: 'damaged-finding', title: 'Cap the retries', body: 'Bound the attempts.',
+    origin: { goal: 'team', run: 'run', round: 1, card: 1, seat: 'reviewer', at: 'abc' }, ownerGoal: 'team',
+    category: 'ordinary', blocking: true, related: null, anchor: null, lifecycle: { ...lifecycle, repairs: ['def'] },
+    sequence: 4, evidence: [], posted: [], restored: false, problem: 'The finding history has a missing sequence.' }
+  const detail = runTimeline({ execution: run(), cards: [card()], findings: [finding] }).rows.find(row => row.kind === 'findings')?.detail
+  expect(detail).toBe('Cap the retries · Unreadable · The finding history has a missing sequence.')
 })
 
 it('does not replace a Flow check with a later project check of the same command', () => {

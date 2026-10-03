@@ -1,4 +1,5 @@
 import type { BoardEvidence, FindingView, FlowExecution, Intent, TeamSignal } from '@harnessdesk/protocol'
+import { lifecycleWords } from './findings'
 
 /**
  * Plain-data contract for the later client/views move: runTimeline(input)
@@ -100,7 +101,7 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
     })
     const findings = (input.findings ?? []).filter(one => one.origin.run === execution.id && one.origin.round === round.n)
     if (findings.length) rows.push(row(`findings-${round.n}`, 'findings', `${findings.length} ${findings.length === 1 ? 'finding' : 'findings'}`, {
-      round: round.n, detail: findings.map(one => `${one.title} · ${one.lifecycle.state}${one.lifecycle.state === 'repaired' && !one.lifecycle.confirmed ? ' (claimed)' : ''}`).join('\n'),
+      round: round.n, detail: findings.map(one => `${one.title} · ${lifecycleWords(one)}${one.problem ? ` · ${one.problem}` : ''}`).join('\n'),
     }))
   }
   if (execution.state !== 'running') rows.push(row('end', 'end', endTitle(execution), { detail: execution.reason, attention: needsYou, since: execution.endedAt ?? null }))

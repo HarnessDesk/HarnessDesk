@@ -51,4 +51,17 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(rig.locator('[data-slot="run-view"]')).toBeVisible()
     await expect(rig.locator('[data-kind="end"]')).toContainText('Settled')
   })
+
+  test(`Run findings keep damaged history visible at narrow width in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.setViewportSize({ width: 390, height: 900 })
+    await page.goto(`/preview.html?run-view&theme=${theme}`)
+    const findings = page.locator('#run-view-findings [data-kind="findings"]')
+    await expect(findings).toContainText('Unreadable · The finding history has a missing sequence.')
+    await expect(findings).toContainText('Repair claimed · awaiting review')
+    await expect(findings).toContainText('Repair accepted by reviewer')
+    const detail = findings.locator('[data-slot="run-detail"]')
+    expect(await detail.evaluate(el => ({ clipped: el.scrollHeight > el.clientHeight + 1,
+      overflow: el.scrollWidth > el.clientWidth + 1 }))).toEqual({ clipped: false, overflow: false })
+  })
 }

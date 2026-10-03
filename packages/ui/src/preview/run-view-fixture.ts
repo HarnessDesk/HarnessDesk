@@ -31,6 +31,15 @@ export const runFixture = (scene: RunScene = 'running') => {
   const evidence: BoardEvidence = { room: execution.goal, stamp: start, checks: [], refused: [], unreadable: null, cards: [{ card: 2, running: [], facts: [{ by: null, freshness: { state: 'fresh' }, record: { id: 'verify', observedAt: start + 400_000, round: 2, fact: { kind: 'check', name: 'verify', run: 'pnpm verify', exit: 0, timedOut: false, dirty: false, at: 'abc123', tail: 'Passed' } } }] }] }
   const findings: FindingView[] = scene === 'empty' || scene === 'complete' ? [] : [{ id: 'finding-retry', origin: { goal: execution.goal, run: execution.id, round: 3, card: 3, seat: 'seat-1', at: 'abc123' }, ownerGoal: execution.goal,
     title: 'The retry loop needs a ceiling', body: 'Cap the attempts.', category: 'ordinary', blocking: true, related: null, anchor: null, lifecycle: { state: 'open', confirmed: false, repairs: [] }, sequence: 1, evidence: [], posted: [], restored: false, problem: null }]
+  if (scene === 'findings') {
+    const original = findings[0]!
+    findings.push(
+      { ...original, id: 'finding-claimed', title: 'The backoff needs a cap', lifecycle: { state: 'repaired', confirmed: false, repairs: ['def456'] } },
+      { ...original, id: 'finding-accepted', title: 'Keep the last failure visible', lifecycle: { state: 'repaired', confirmed: true, repairs: ['def456'] } },
+      { ...original, id: 'finding-damaged', title: 'Preserve the retry limit', lifecycle: { state: 'repaired', confirmed: true, repairs: ['def456'] },
+        problem: 'The finding history has a missing sequence.' },
+    )
+  }
   return { execution, cards, signals, evidence, findings, origin: 'Started by you' }
 }
 export const runModel = (scene: RunScene) => runTimeline(runFixture(scene))

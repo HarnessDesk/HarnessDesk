@@ -3414,3 +3414,21 @@ it('loads older Runs for the rail count and keeps each Run’s own selected row'
   await choose('Run 1')
   expect(container.querySelector('[data-row="card-1-1"][aria-current="true"]')).not.toBeNull()
 })
+
+it.each(['running', 'settled'] as const)('discovers an uncached %s Run when opening a trigger Team', async state => {
+  const goal: GoalView = { ...GOAL, reservation: undefined,
+    goal: { ...GOAL.goal, origin: { kind: 'trigger', trigger: 'triage-issue', event: 'e1' } } }
+  const runs = new Map<string, FlowExecution>()
+  const { store, pushes } = rig([], undefined, { members: [] }, goal, runs)
+  const execution = { version: 2, id: 'trigger-run', goal: ROOM, state, startedAt: 1, reason: null,
+    operations: [], rounds: [], document: { format: 'agents', flow: { name: 'Triage', roles: [], rules: [] } } } as unknown as FlowExecution
+  const loadTeamRuns = vi.fn(async () => { runs.set(execution.id, execution) })
+  Object.assign(store, { loadTeamRuns, triggerGoal: vi.fn().mockResolvedValue(null), loadFindings: vi.fn().mockResolvedValue(undefined) })
+  await render(store)
+  expect(loadTeamRuns).toHaveBeenCalledWith(ROOM)
+  await pushes({ updatedAt: 3 })
+  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  expect(nav.textContent).toContain('1')
+  await act(async () => nav.click())
+  expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('Triage')
+})
