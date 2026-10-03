@@ -41,7 +41,6 @@
 .paneTitle {
   flex: 1;
   min-width: 0;
-  margin-left: var(--hd-space-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -102,7 +102,7 @@ const messageFooterVariants = cva(
 type MessageFooterProps = React.ComponentProps<'div'> & VariantProps<typeof messageFooterVariants>
 
 const MessageFooter = ({ className, align, ...props }: MessageFooterProps) => (
-  <div data-slot="message-footer" className={cn(messageFooterVariants({ align }), className)} {...props} />
+  <div data-slot="message-footer" data-surface="" className={cn(messageFooterVariants({ align }), className)} {...props} />
 )
 
 export { Message, MessageContent, MessageFooter, messageVariants, messageFooterVariants }

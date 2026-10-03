@@ -6,31 +6,18 @@
     }
   },
   "trailing-glyph-off-column": {
-    "count": 10,
+    "count": 3,
     "signatures": {
       "design.html / code / trailing-glyph-off-column / [data-testid=diff-sample]": 1,
       "design.html / code / trailing-glyph-off-column / [data-testid=markdown-code-sample]": 1,
-      "design.html / conversation / trailing-glyph-off-column / div > [composer-dock] > [pane-column] > [alert] > [button]": 1,
-      "design.html / conversation-map-dense / trailing-glyph-off-column / [data-testid=conversation-map-dense]": 1,
-      "design.html / conversation-map-preview-open / trailing-glyph-off-column / [data-testid=conversation-map-preview-open]": 1,
-      "design.html / message / trailing-glyph-off-column / [data-testid=message-user-image]": 1,
-      "design.html / message / trailing-glyph-off-column / [data-testid=message-user-long]": 1,
-      "design.html / message / trailing-glyph-off-column / [data-testid=message-user-short]": 1,
-      "design.html / tools / trailing-glyph-off-column / [tool-pane-header] > div > [tool-pane-tab-viewport] > [tool-pane-document-tab] > [button]": 1,
-      "preview.html / conversation-composer / trailing-glyph-off-column / div > [composer-dock] > [pane-column] > [alert] > [button]": 1
+      "design.html / tools / trailing-glyph-off-column / [tool-pane-header] > div > [tool-pane-tab-viewport] > [tool-pane-document-tab] > [button]": 1
     }
   },
   "header-off-body": {
-    "count": 13,
+    "count": 7,
     "signatures": {
       "design.html / chart / header-off-body / div > [chart-frame] > [chart-card]": 1,
-      "design.html / group / header-off-body / [data-testid=group-run-kept-answer-seat-gone]": 1,
-      "design.html / group / header-off-body / [data-testid=group-run-kept-answer]": 1,
-      "design.html / group / header-off-body / [data-testid=group-run-stalled-on-a-seat]": 1,
       "design.html / group / header-off-body / [data-testid=group-run-stopped-on-a-question]": 1,
-      "design.html / group / header-off-body / [data-testid=group-run-stopped-with-a-release-pending]": 1,
-      "design.html / group / header-off-body / div > [pane-surface] > [bar]": 1,
-      "design.html / panels / header-off-body / div > [workbench-canvas] > div > [dock-panel] > [dock-panel-bar]": 1,
       "design.html / tool-pane / header-off-body / div > [tool-pane] > [tool-pane-header]": 1,
       "design.html / tools / header-off-body / div > [tool-pane] > [tool-pane-header]": 2,
       "preview.html / board-empty / header-off-body / div > [tool-pane] > [tool-pane-header]": 1,

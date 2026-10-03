@@ -373,7 +373,7 @@ const UserMessageFooter = ({ text, at }: { text: string; at: number | undefined 
       {when && <Text as="span" role="meta" numeric className="mr-(--hd-space-1-5)">{when}</Text>}
       <CopyButton text={text} label="Copy this message" onError={copyFailed} />
       <Button
-        variant="quiet" size="icon-xs"
+        variant="quiet" size="icon-xs" edge="end" edgeGlyph={13}
         title="Edit — puts this message in the composer"
         aria-label="Edit this message"
         onClick={() =>
