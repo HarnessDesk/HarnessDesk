@@ -109,7 +109,7 @@ import { DEFAULT_REVIEW_SIGNATURE } from '@harnessdesk/plugins'
 import { CeilingGate, type Conversation, type HeldQuestion } from './ceilings/gate.js'
 import { holdCeiling, type SeatHold } from './ceilings/hold.js'
 import type { InstallService } from './installs/service.js'
-import { AuditLog } from './audit.js'
+import { AuditLog, type ClientAuditEntry } from './audit.js'
 import { CatalogRefresher } from './catalog-refresher.js'
 import {
   Ledger,
@@ -1192,7 +1192,7 @@ export class Host {
       recovery: {
         goal: (room) => {
           const exists = this.#goalStore.list().some((document) => document.goal.id === room)
-          return { exists, writable: exists && this.#goals.canDispatch(room).ok }
+          return { exists, writable: exists && this.#goals.canDispatch(room).ok, ...(exists ? { root: this.#goalStore.read(room).goal.root } : {}) }
         },
         seats: (room) => this.#evidence.seats.all().filter((seat) => seat.board === room),
       },
@@ -2581,6 +2581,10 @@ export class Host {
        approval of a session was still appending to `audit.ndjson` after
        `dispose()` had resolved. */
     await this.#audit.flush()
+  }
+
+  recordClientAudit(entry: Omit<ClientAuditEntry, 'at' | 'via'>): void {
+    this.#audit.append({ at: Date.now(), via: 'client', ...entry })
   }
 
   addBroadcaster(broadcast: Broadcast): Unsubscribe {

@@ -2,7 +2,7 @@ import { appendFile, mkdir, readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
 import { pathWithin } from '@harnessdesk/cordis-host'
-import type { AgentEvent, RuntimeId } from '@harnessdesk/protocol'
+import type { AgentEvent, ClientTier, RuntimeId } from '@harnessdesk/protocol'
 
 /**
  * The audit log: one append-only record of what every agent did,
@@ -15,7 +15,8 @@ import type { AgentEvent, RuntimeId } from '@harnessdesk/protocol'
  * inside a diagnostics bundle the user saves themselves.
  */
 
-export interface AuditEntry {
+export interface SessionAuditEntry {
+  readonly via?: never
   readonly at: number
   readonly runtime: RuntimeId
   readonly sessionId: string
@@ -54,6 +55,20 @@ export interface AuditEntry {
   /** Why a library write failed, when it did. */
   readonly detail?: string
 }
+
+export interface ClientAuditEntry {
+  readonly at: number
+  readonly via: 'client'
+  readonly kind: 'client/connected' | 'client/call' | 'client/refused' | 'client/closed'
+  readonly client: string
+  readonly statedPid: number | null
+  readonly method?: string
+  readonly tier?: ClientTier
+  readonly outcome?: 'ok' | 'refused' | 'failed'
+  readonly code?: string
+}
+
+export type AuditEntry = SessionAuditEntry | ClientAuditEntry
 
 const STEP_TYPES = new Set(['command', 'fileChange', 'toolCall', 'webSearch'])
 
@@ -129,7 +144,7 @@ export class AuditLog {
   }
 
   /** Entries under `root` (all, when omitted) within the window, newest first. */
-  async query(options: { root?: string; sinceDays?: number } = {}): Promise<AuditEntry[]> {
+  async query(options: { root?: string; sinceDays?: number } = {}): Promise<SessionAuditEntry[]> {
     /* Everything appended before the question is part of its answer. The
        writes are queued so that `append` never makes the fan-out wait on a
        disk, and reading the file without waiting for them answered one write
@@ -144,7 +159,7 @@ export class AuditLog {
       return []
     }
     const cutoff = Date.now() - (options.sinceDays ?? 7) * 24 * 60 * 60 * 1000
-    const out: AuditEntry[] = []
+    const out: SessionAuditEntry[] = []
     /* `pathWithin` follows symlinks now (#110), so it asks the filesystem, and
        this is the one caller that asks it in a loop — once per line of a log
        that nothing trims. Measured over 10,000 entries written from three
@@ -166,6 +181,7 @@ export class AuditLog {
       } catch {
         continue
       }
+      if (entry.via === 'client') continue
       if (entry.at < cutoff) continue
       /* One containment test, shared with the plugin gate. Spelled out here as
          string arithmetic it was wrong twice over: `${root}/` doubles the

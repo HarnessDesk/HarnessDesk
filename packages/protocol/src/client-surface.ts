@@ -1,0 +1,30 @@
+import type { FlowExecution } from './flow-policy.js'
+import type { GoalId } from './goal.js'
+import type { HostMethodName } from './wire.js'
+
+export type ClientTier = 'read' | 'run' | 'answer'
+export type ClientTopic = 'runs' | 'cards' | 'teams' | 'waiting' | 'notices'
+
+/** The methods the client door answers, each with the tier it needs. */
+export const CLIENT_METHODS = {
+  'client/hello': 'read',
+  'client/subscribe': 'read',
+  'goal/list': 'read',
+  'flow/execution': 'read',
+  'flow/executions': 'read',
+} as const satisfies Partial<Record<HostMethodName, ClientTier>>
+
+export type ClientMethodName = keyof typeof CLIENT_METHODS
+export const CLIENT_TIERS_GRANTED_BY_DEFAULT: readonly ClientTier[] = ['read']
+export const CLIENT_PROTOCOL = 1
+
+export interface FlowExecutionSummary {
+  readonly id: string
+  readonly team: GoalId
+  readonly flow: string
+  readonly state: FlowExecution['state']
+  readonly round: number | null
+  readonly role: string | null
+  readonly reason: string | null
+  readonly startedAt: number
+}
