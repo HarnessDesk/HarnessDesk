@@ -86,7 +86,7 @@ step('node tests', () =>
     // very path glob that run is given (`-path`, not `-name`): a bare name
     // also dropped `packages/protocol`'s `intake-wire.test.js`, which the
     // server-only run below never picks up, so it ran nowhere. Still the same
-    // glob CI runs, minus the files the next two steps cover, so a package
+    // glob CI runs, minus the files the next three steps cover, so a package
     // that gains tests is covered here the day it does — a hand-kept list of
     // packages once left one out. It matches what was built rather than what
     // exists, which is why `build:node` ends by pruning dist of every output
