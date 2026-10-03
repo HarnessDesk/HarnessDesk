@@ -84,22 +84,22 @@ Sizes: S under a day of Team time, M about a day, L more.
 | PR | What | Depends on | Starts now? | Size |
 | --- | --- | --- | --- | --- |
 | 1 | The overview model (pure selectors) | none | merged (#1276) | M |
-| 5 | Host: the Run record learns what the views need | none (coordinate on `flow-execution.ts`) | **yes** | M |
+| 5 | Host: the Run record learns what the views need | none (coordinate on `flow-execution.ts`) | merged (#1281) | M |
 | 6 | The brief field in the start dialog | none | merged (#1274) | S |
-| 2 | The Overview in the Team pane, with every Seat a Run opened (closes #1278) | 1 | after 1 | L |
+| 2 | The Overview in the Team pane, with every Seat a Run opened (closes #1278) | 1, 5 (both merged) | **yes** | L |
 | 12 | The Teams page | 1; after 2 for `SessionTree.tsx` | after 2 | M |
 | 3 | The Run model and timeline | none; reads PR 5's fields when present | **yes** (after 2 for the shared pane file) | L |
 | 4 | The Run inspector | 3 | after 3 | M |
 | 7 | Publication state and its doors | 3, 4 | after 4 | M |
 | 8 | Answer and approve from the Overview, abandon from the inspector | 2, 4 | after 4 | M |
-| 9 | Run a check again from the timeline | 3, 4; #1263 merged | after those | S |
+| 9 | Run a check again from the timeline | 3, 4 (#1263 is merged) | after those | S |
 | 10 | Stop a run | 2, 3, 8; the stop method from the clients design | when its method exists | S |
 | 11 | The end of a Run, and Run again | 3, 4, 5, 6 | after those | M |
 | 13 | `FlowGraph` and the Flow tab (read-only) | 3 | after 3 | L |
 | 14 | The Run's state on the Flow | 13, 3, 9 | after those | L |
 | 15 | The poster and the site demo | 14 | optional | S |
-| 16 | Read from the shared client selectors | the Wire client and CLI session's stream and core | **waits** | M |
-| 17 | Host: a finished Seat's process rests | #1263 merged (it also changes `host.ts`) | after #1263 | L |
+| 16 | Read from the shared client selectors | the Wire client and CLI session's PR 1c (the `views` entry, `teamOverview` moved, `insight/goal`) | **waits** | M |
+| 17 | Host: a finished Seat's process rests | none | merged (#1283) | L |
 | 18 | A wrapped Team reads as a record | 2, 3; after 12 for `SessionTree.tsx` | after 3 and 12 | M |
 
 **One Team at a time in `SessionTree.tsx`.** PR 2 (nesting a Team's Seats), PR 12 (listing only active Teams) and PR 18 (the wrapped group) all change the sidebar tree. Land them in that order, each from a fresh fetch of main.
@@ -111,9 +111,9 @@ first's landed revision.
 **One Team at a time in `TeamRoomPane.tsx`.** PRs 2, 3, 8 and 10 all touch the
 rail or header of `packages/ui/src/components/TeamRoomPane.tsx`, a 2,400-line
 file. Land them in that order, and each one starts from a fresh fetch of main.
-PRs 1, 5 and 6 touch other files and can run beside them; PR 12 touches the pane's files only through PR 2's order above, and `SessionTree.tsx` after PR 2. PR 17 (host) touches `host.ts`, which #1263 also changes, so it starts after #1263 merges, from a fresh fetch of main. Its PR body says `Refs #1278`, not `Closes`: PR 2 closes #1278.
+PRs 1, 5 and 6 touch other files and can run beside them; PR 12 touches the pane's files only through PR 2's order above, and `SessionTree.tsx` after PR 2.
 
-**What waits on the event stream.** Only PR 16, and the two events below. Every
+**What waits on the other session.** Only PR 16 (its PR 1c) and PR 10 (the stop method). The two events below have landed (#1285). Every
 other PR reads what the window's store already holds.
 
 ## Coordination with the "Wire client and CLI" session
@@ -123,7 +123,7 @@ door, `client/hello`, `client/subscribe`, `flow/executions`,
 `flow/execution/stop`, `@harnessdesk/client`, and the stable event vocabulary
 (`run.changed`, `card.changed`, `team.changed`, `waiting`, `waiting.cleared`,
 `notice`, `gap`, `end`). It accepted this plan's four requests, with two changes
-to their shape (agreed 2026-10-02, now in its spec's event table and its PR 1b):
+to their shape (agreed 2026-10-02, landed in its PR 1b, #1285):
 
 1. **`seat.changed`.** The **host derives it** and sends one `seat/activity`
    notification per seat on a `seats` topic, at most once every 2.5 seconds; the
@@ -132,9 +132,16 @@ to their shape (agreed 2026-10-02, now in its spec's event table and its PR 1b):
    - The derivation of the in-flight tool, with the one tool-name lookup (today
      `packages/ui/src/lib/tool-names.ts`), **moves into `packages/protocol`**,
      with a re-export left in the UI so this plan's imports do not change.
-   - `doing` is structured: `{ kind: 'tool' | 'thinking' | 'waiting' | 'idle',
-     tool?: string, target?: string }`, a tool and at most a path, never a
-     command's text, a URL or an environment value.
+   - Landed as `SeatActivity` (`packages/protocol/src/wire.ts`): `{ goal, seat,
+     role, card, state: 'working' | 'waiting' | 'idle', doing: SeatDoing |
+     null, since? }`. `seat` is `runtime:sessionId`, the same identity as
+     `card.changed.seat`, so the window maps it to its Seat ids through the Seat's
+     session pointer. `since` comes only from a record.
+   - `doing` is structured and null unless the seat is working: `SeatDoing` is
+     `{ kind: 'tool', tool, target? }` or `{ kind: 'thinking' }`, a tool and at
+     most a path, never a command's text, a URL or an environment value. Waiting
+     and idle are the `state`. The shared lookup is `seatDoing` and
+     `doingSentence` in `packages/protocol/src/tool-activity.ts`.
    - PR 1's `doingLine` 2.5-second hold stays a pure function. In PR 16 the
      window may read `seat/activity` instead of its own snapshot, or keep both.
 2. **`review.changed`**, keyed by round, in the desk's own words:
@@ -145,10 +152,13 @@ to their shape (agreed 2026-10-02, now in its spec's event table and its PR 1b):
      reason: string | null, pr: number | null }
    ```
 
-   The host derives each round's state from the Run's publication journal,
-   whose postings are keyed by round; `finding/run`'s `publication` is the
-   Run's aggregate and is not per round. It is read again on
-   `finding/changed`. (`finding/publications` lists only the postings a person
+   Landed as `FindingRunView.rounds` on `finding/run`:
+   `{ round, state, reason, pr, cards }` per round, folded by the host from the
+   Run's publication journal with the same rule as the aggregate (`state` is
+   `none` before a round has a decision); `finding/run`'s `publication` stays the
+   Run's aggregate. The host also sends the existing `finding/changed` after new
+   reviews and after the posting state is saved, so a client watching only
+   reviews refreshes. (`finding/publications` lists only the postings a person
    must look at, so a post that succeeded is not in it.) The window maps these
    words to its own chips in its selector, not on the wire (PR 7 has the table).
 3. **Optional fields:** `attempt`, `continues` and `revision` on `run.changed`;
@@ -167,10 +177,11 @@ to their shape (agreed 2026-10-02, now in its spec's event table and its PR 1b):
    its PR 1b.
 
 Its order: PR 1 (the read-only door, the library, `desks`, `status`, `teams`,
-`runs`, `watch`), PR 1b (the `seats` and review topics, both events, the `views`
-entry), PR 2 (starting a flow), PR 3 (`flow/execution/stop`, #1247). It will say
-when its PR 3 lands (this plan's PR 10) and when 1b and the moved selectors land
-(this plan's PR 16). If PR 10 cannot wait for its PR 3, it can pull
+`runs`, `watch`; merged, #1279), PR 1b (`seat/activity`, `FindingRunView.rounds`,
+the tool lookup in protocol; merged, #1285), PR 1c (the `views` entry with
+`teamOverview` moved, `status` using it, and `insight/goal`), PR 2 (starting a
+flow), PR 3 (`flow/execution/stop`, #1247). It will say when its PR 3 lands (this
+plan's PR 10) and when 1c lands (this plan's PR 16). If PR 10 cannot wait for its PR 3, it can pull
 `flow/execution/stop` forward into a small host PR of its own; PR 10 follows the
 Overview and the Run view in this plan anyway, so it can wait.
 
@@ -245,7 +256,7 @@ the Overview draws, in the app's words, ordered by precedence.
 - #1278, and how the two readers get members today: the rail's Agents list and its empty state in `TeamRoomPane.tsx` (the roster from `store.teamPeers`, which answers the board's `members`; the empty-state sentence near `No agents in this room yet`); the sidebar's `roomMembers` and the `inRooms` set in `SessionTree.tsx`. A Flow's membership is the Goal's Seats (`GoalView.members` in `snapshot.goals`; `FlowExecution.rounds[].seats` names the ones a Run opened by role); `lib/goal-run.ts` shows how the window already reads a Goal's Run.
 
 **Scope.**
-- [ ] `packages/ui/src/components/TeamOverview.tsx`: the Run strip (name, round and role, started, review budget, total as "$1.43 · 96 turns", no actions yet), the **Needs you** list (rows render; their buttons arrive with PR 8), and the seats table (seat face and name, role, card, round, state chip, doing line, time in state, cost). Idle and Done are plain muted text (resting states: no chip, no colour). PR 1 (merged as #1276) takes the Run's start time from its caller (`TeamOverviewInput.run.startedAt`, and `RunStrip.startedAt: number`), but the window cannot read a Run's start today: `FlowExecution` does not carry it until PR 5 projects it. This PR relaxes both to `number | null`, passes null, and the strip leaves *started* out; once PR 5 has landed it passes `execution.startedAt`. The cost cell shows the unit it has, and its title says why ("This account is not metered, so turns are counted").
+- [ ] `packages/ui/src/components/TeamOverview.tsx`: the Run strip (name, round and role, started, review budget, total as "$1.43 · 96 turns", no actions yet), the **Needs you** list (rows render; their buttons arrive with PR 8), and the seats table (seat face and name, role, card, round, state chip, doing line, time in state, cost). Idle and Done are plain muted text (resting states: no chip, no colour). PR 1 (merged as #1276) takes the Run's start time from its caller (`TeamOverviewInput.run.startedAt`, and `RunStrip.startedAt: number`). `FlowExecution.startedAt` has been projected since #1281, but it is optional on a record saved before that: pass it when present, and for an older record relax both fields to `number | null` and leave *started* out. The cost cell shows the unit it has, and its title says why ("This account is not metered, so turns are counted").
 - [ ] Narrow width (the pane's own narrow rule): a seat is one `ListRow`: face, name and state chip on the title's line, the doing line beneath, the cost at the end.
 - [ ] `TeamRoomPane.tsx`: **Overview** as the rail's first item, the default when a Flow run exists on the Team (a Team without one still opens on Chat). The header chip's existing rule is unchanged.
 - [ ] A Team with no run: the strip is absent; the table still lists the seats (state, card, time).
@@ -253,15 +264,15 @@ the Overview draws, in the app's words, ordered by precedence.
 - [ ] `packages/ui/src/lib/team-seats.ts` (pure, tested first): `teamSeats(goalView, teamState, execution)` returns the Team's seats as one list, keyed by the conversation's session key and listed once: the Goal's Seats, the seats the Run's rounds name (with the round's role), and any member of the older list not already there. Each entry says where it came from only in the tests, never on screen. A seat the window cannot resolve to a conversation is left out, not drawn blank.
 - [ ] `TeamRoomPane.tsx`: the rail's **Agents** list and its count read `teamSeats` (the chat roster's own verbs, such as add an agent, keep working on the same entries), and keep every row, done ones included. The Overview's table reads the same list, so the two counts agree.
 - [ ] **Done, and the fold.** A seat whose every card is done, with no turn running, no question, no approval and no unread mark, is **Done**: plain muted text, the same resting state as Idle, no colour. In the Overview, Done seats collapse into one line ("3 done", a disclosure that opens to the rows) after the working and waiting ones; a seat leaves the fold the moment it is Needs you, Unread or Working. Add `done: boolean` to `SeatRow` in `team-overview.ts` and the rule, with its tests, to PR 1's precedence tests. A seat that never held a card is Idle and is not folded.
-- [ ] **A seat without a process is not missing.** A seat the desk holds no live conversation for (its process rested, PR 17, or the desk restarted) is listed from the Goal's Seats and the Run's rounds, with its state from its cards; opening its conversation works as it does for any conversation the desk is not holding.
+- [ ] **A seat without a process is not missing.** A seat the desk holds no live conversation for (its process rested, #1283, or the desk restarted) is listed from the Goal's Seats and the Run's rounds, with its state from its cards; opening its conversation works as it does for any conversation the desk is not holding.
 - [ ] The empty state appears only when `teamSeats` is empty, and says Team: "No agents in this Team yet. …" (all three variants of the sentence, which today say "room"). Other uses of the word in comments are the Team rename's, not this PR's.
 - [ ] `SessionTree.tsx`: `roomMembers` and the `inRooms` set read `teamSeats`, so a Seat's conversation is nested under its Team and is no longer listed loose under the project. A conversation is still listed once (the existing rule); the agent filter, hidden keys and the wrapped-Team folding still apply to the nested rows.
 - [ ] Catalogue boards and preview frames for: running, needs-you, unread, idle, a stalled run, no run, no seats, three done folded and opened, narrow, dark. (The spec's frames predate the fold decision.)
 - [ ] `docs/design.md`: one short section, "The Team overview".
 
-**Depends on.** PR 1 (merged as #1276). It does not need PR 5.
+**Depends on.** PR 1 (merged as #1276) and PR 5 (merged as #1281, for `startedAt`).
 
-**Not in this PR.** Buttons on the Needs-you rows (PR 8), *Open run* (PR 3), *Stop run…* (PR 10), any wire call. Changing what the host writes into a Team's older member list: if the measurement shows it should, file it as its own issue; the window's one list works either way. A Seat's process resting (PR 17). A wrapped Team's seats and its read-only behaviour (PR 18): wrapping closes the Seats and empties `GoalView.members`, so until PR 18 a wrapped Team lists what the older member list holds, as it does today.
+**Not in this PR.** Buttons on the Needs-you rows (PR 8), *Open run* (PR 3), *Stop run…* (PR 10), any wire call. Changing what the host writes into a Team's older member list: if the measurement shows it should, file it as its own issue; the window's one list works either way. A Seat's process resting (PR 17, merged as #1283). A wrapped Team's seats and its read-only behaviour (PR 18): wrapping closes the Seats and empties `GoalView.members`, so until PR 18 a wrapped Team lists what the older member list holds, as it does today.
 
 **Verify.**
 - [ ] Component tests: precedence order on screen, the cost title, a seat whose row has no card.
@@ -328,6 +339,8 @@ the Overview draws, in the app's words, ordered by precedence.
 
 ## PR 5 — Host: the Run record learns what the views need
 
+**Status.** Merged as #1281 (`revision`, `continues`, `brief`, `startedAt`, `endedAt`, `end`, all optional so older records read as before); this section is kept as the record of what it was asked to do.
+
 **Goal.** A Run records what the views need and the host never had to say: the Flow's identity, the Run it continues, its brief, how and when it ended, and when it started (stored today, but not projected).
 
 **Read first.** Spec: "The model, in words", "Why a Run ended, and the doors", "Host changes this needs" items 2 and 4; `packages/protocol/src/flow-policy.ts` (`FlowExecution`); `packages/server/src/flow-execution.ts`, `flow-preview.ts`, `methods/flows.ts`; `docs/flows.md` ("A run holds the flow it started with, frozen").
@@ -382,12 +395,12 @@ the Overview draws, in the app's words, ordered by precedence.
 
 **Goal.** A review that was not posted is visible on the Run, with the reason and a way to post it.
 
-**Read first.** Spec: "A review that was never posted", its table of the desk's words, and the `review-not-posted` frame. `packages/protocol/src/findings.ts`: `FindingRunView` (`round`, `publication`, `reason`, `boundPr`, `unbound`), `FindingPublicationsView` and `FindingPublicationItem` (only postings a person must look at, plus the backfill), `FindingPublishAction`. `packages/ui/src/components/FindingPublications.tsx` (the existing post-again, skip and backfill controls) and `GoalFindings.tsx`; `store.readFindingPublications`. `docs/flows.md` § "Findings, budgets and blind rounds": confirm what `local`, `pending`, `partial` and `uncertain` mean before wording anything.
+**Read first.** Spec: "A review that was never posted", its table of the desk's words, and the `review-not-posted` frame. `packages/protocol/src/findings.ts`: `FindingRunView` (`round`, `publication`, `rounds`, `reason`, `boundPr`, `unbound`) and `FindingRoundPublication`, `FindingPublicationsView` and `FindingPublicationItem` (only postings a person must look at, plus the backfill), `FindingPublishAction`. `packages/ui/src/components/FindingPublications.tsx` (the existing post-again, skip and backfill controls) and `GoalFindings.tsx`; `store.readFindingPublications`. `docs/flows.md` § "Findings, budgets and blind rounds": confirm what `local`, `pending`, `partial` and `uncertain` mean before wording anything.
 
 **Scope.**
-- [ ] The Team and the Run are **Needs you** when the Run's publication state says a person must act (`local` with a pull request bound and posting on, `partial` or `uncertain`). Read `finding/run` for each Team's current Run into the shared selector's input (the Teams page and the Overview both read the same field, so their counts agree), refreshed on `finding/changed`; a test starts from a fresh cache and shows a Team with an unposted review as Needs you only once that read has answered, never before, and never as a guess.
+- [ ] The Team and the Run are **Needs you** when the Run's publication state says a person must act (`local` with a pull request bound and posting on, `partial` or `uncertain`). Read `finding/run` (its aggregate and its `rounds`) for each Team's current Run into the shared selector's input (the Teams page and the Overview both read the same field, so their counts agree), refreshed on `finding/changed`; a test starts from a fresh cache and shows a Team with an unposted review as Needs you only once that read has answered, never before, and never as a guess.
 - [ ] A pure `lib/review-publication.ts` mapping the desk's words to the chip and tone, exactly as the spec's table: `posted` is **Posted to #n** (neutral), `pending` or a posting `prepared`/`started` is **Waiting to post** (neutral), `partial` is **Partly posted** (warning), `uncertain` is **Not confirmed** (warning), `local` or a round in the backfill list is **Not posted** (warning) when a pull request is bound and posting is on, otherwise **Kept on the desk** (neutral); no findings, no chip. Tested on every row of the table.
-- [ ] Two sources, kept apart. The Run's state is `finding/run`'s `publication` (an aggregate of every posting the Run holds, not one round's): show it once, on the Run strip and header, the end banner and the Findings summary. A round's state is read from `finding/publications` by `round` (each item, and each round of the backfill list): show it on that round's review row. A round the host does not name shows no chip; never read a round from the Run's aggregate, and never guess. (The round-keyed `review.changed` fills the rest in PR 16.)
+- [ ] Two sources, kept apart. The Run's state is `finding/run`'s `publication` (an aggregate of every posting the Run holds, not one round's): show it once, on the Run strip and header, the end banner and the Findings summary. A round's state is `FindingRunView.rounds` on the same call (`{ round, state, reason, pr, cards }`, landed in #1285): show it on that round's review row. A round whose `state` is `none`, or that the list does not carry, shows no chip; never read a round from the Run's aggregate, and never guess. `finding/publications` stays the read behind the doors (post again, skip, backfill). Refresh on `finding/changed`, which the host now also sends after new reviews and after the posting state is saved.
 - [ ] On a review's timeline row: the chip. In the inspector's Review section: the reason (`FindingRunView.reason`, an item's `reason`, or the publications view's `backfillRefusal`), **Copy review** (always works), and **Post to pull request**, enabled only when `finding/publications` offers an item to post again or a backfill, calling `finding/publish` with that action, with a title that says what it does ("Posts this review to pull request #n as you. Nothing else changes.").
 - [ ] Reuse what `FindingPublications.tsx` already does for the call and its refusals; extract the shared piece rather than writing a second.
 - [ ] Refresh on the `finding/changed` notification.
@@ -397,7 +410,7 @@ the Overview draws, in the app's words, ordered by precedence.
 
 **Not in this PR.** Posting a handoff's text when no review candidate exists (#1265, a host change), and the `review.changed` event (the other session's PR 1b).
 
-**Verify.** A test per row of the mapping table; a test that a round the publications view does not name gets no chip even when the Run says `posted`; component tests for posted, pending, partial, uncertain, local with and without a bound pull request, and no findings; the button is disabled with the reason when nothing can be posted; frames (light, dark).
+**Verify.** A test per row of the mapping table; a test that a round the list does not carry, or whose `state` is `none`, gets no chip even when the Run says `posted`; component tests for posted, pending, partial, uncertain, local with and without a bound pull request, and no findings; the button is disabled with the reason when nothing can be posted; frames (light, dark).
 
 **Done when.** The #1248 case reads as "Not posted, here is why, here is the button", on the Run.
 
@@ -437,7 +450,7 @@ the Overview draws, in the app's words, ordered by precedence.
 - [ ] A check row and its inspector offer **Run again…** while the Run is running or stalled; the dialog shows the command verbatim; a new attempt appears under the card; the earlier attempt and its output are unchanged. Add the frame "a check with two attempts".
 - [ ] The control is disabled with the host's reason when the host refuses. On a stopped or settled Run the host refuses and says to start a new Run; show that reason and the **Run again…** of PR 11 beside it, not a second path.
 
-**Depends on.** PR 3 (the timeline) and PR 4 (the inspector), and #1263 merged, so that a finished or interrupted check can run again with fresh consent and the call returns when the check has started.
+**Depends on.** PR 3 (the timeline) and PR 4 (the inspector). #1263, which makes it so that a finished or interrupted check can run again with fresh consent and the call returns when the check has started, has merged.
 
 **Not in this PR.** Stopping a Run (PR 10); starting a new Run (PR 11); any change to how the host runs a check.
 
@@ -581,11 +594,11 @@ the Overview draws, in the app's words, ordered by precedence.
 
 **Read first.** Spec: "Sharing the clients design's event stream"; the other session's spec and its event table; this plan's section "Coordination with the Wire client and CLI session"; `packages/ui/src/lib/team-overview.ts`, `run-timeline.ts` and `review-publication.ts`.
 
-**Depends on.** The Wire client and CLI session's PR 1b (the `seat/activity` and review topics, `seat.changed`, `review.changed`, the `views` entry) and the selectors moved into `@harnessdesk/client/views`, merged. This PR waits for them.
+**Depends on.** The Wire client and CLI session's PR 1c: the `@harnessdesk/client/views` entry with `teamOverview` moved into it, `status` using it, and `insight/goal` (its PR 1b, #1285, has merged: `seat/activity`, `FindingRunView.rounds`, the tool lookup in `packages/protocol`). This PR waits for 1c.
 
 **Scope.**
 - [ ] Feed the window's views from the client core's selectors, adapting the store snapshot to the stream's state shape; delete the window-only derivations PR 1 and PR 3 wrote once they are identical.
-- [ ] Read `seat/activity` (structured `doing`) instead of the window's own snapshot, rendering it with the one shared lookup in `packages/protocol`; keep both until the two agree. Map the desk's `review.changed` words to the chips PR 7 defines.
+- [ ] Read `seat/activity` (`state`, and `doing` as `{ kind: 'tool', tool, target? }` or `{ kind: 'thinking' }`, null unless working) instead of the window's own snapshot, rendering it with `doingSentence` from `packages/protocol`; map its `seat` (`runtime:sessionId`) to the window's Seat ids through the Seat's session pointer; keep both until the two agree. Map the desk's round states to the chips PR 7 defines.
 - [ ] Replay one scripted stream through the window and through the command line's `status` and `run show`, and assert they agree.
 
 **Not in this PR.** New views or controls; any change to the stream's shapes (those belong to the other session's PRs); any command-line surface.
@@ -597,6 +610,8 @@ the Overview draws, in the app's words, ordered by precedence.
 ---
 
 ## PR 17 — A finished Seat's process rests
+
+**Status.** Merged as #1283 (`Refs #1278`; the host constant is `SEAT_REST_MS`, ten minutes, overridable by the `seatRestMs` option); this section is kept as the record of what it was asked to do.
 
 **Goal.** A Team that has written and reviewed stops holding its agents' processes open. The Seat stays listed and reachable; only its process goes (the owner's decision on #1278).
 
@@ -615,7 +630,7 @@ the Overview draws, in the app's words, ordered by precedence.
 - [ ] Reconnect on demand: a message to the Seat, opening its conversation, or the engine handing it a card goes through the existing reopen path (`#ensureStarted`, then `resumeSession`), with the conversation's own context (the agent owns its history; rule 3). A reopen that fails says so in the agent's words, as a detached member's does today.
 - [ ] No wire or protocol change, no UI. What the window shows (Done, folded) comes from the Seat's cards and is the same with or without a process.
 
-**Depends on.** #1263 merged (it also changes `host.ts`); no other PR.
+**Depends on.** None (#1263, which also changed `host.ts`, has merged).
 
 **Not in this PR.** Closing a Seat (wrap and a person still own that); deleting anything; any change to a card, a round or a rule; a state for "stopped" shown to the person; the Overview (PR 2).
 
