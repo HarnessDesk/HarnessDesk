@@ -6,6 +6,8 @@ import {
   sessionId,
   sessionKey,
   type FlowExecution,
+  type Intent,
+  type InsightReport,
   type RuntimeInfo,
   type GoalView,
   type Session,
@@ -165,7 +167,7 @@ const rig = (
     turns: [],
   } as unknown as Session
   let peers = roster
-  let team = { ...state, ...board }
+  let team = { ...state, members: roster.map(one => sessionKey(one.runtime, one.sessionId)), ...board }
   let savedView: { readonly watching?: readonly SessionKey[]; readonly sideBySide?: StoredSideBySide } = {}
   const snapshotOf = (): AppSnapshot =>
     ({
@@ -176,7 +178,7 @@ const rig = (
       sessions: new Map([[sessionKey('codex', 'c1'), session]]),
       teams: new Map([[ROOM, team]]),
       goals: new Map(goal ? [[ROOM, goal]] : []),
-      flowExecutions,
+      flowExecutions: new Map(flowExecutions),
     }) as AppSnapshot
   let snapshot = snapshotOf()
   const store = {
@@ -299,6 +301,7 @@ const rig = (
     peers = peers.filter((one) => one.sessionId !== gone.sessionId)
     team = {
       ...team,
+      members: peers.map(one => sessionKey(one.runtime, one.sessionId)),
       channel: [
         ...team.channel,
         {
@@ -710,7 +713,7 @@ it('re-reads the roster when the room’s membership moves', async () => {
   const { store } = rig([], undefined, { members: [] })
   const snapshot = store.getSnapshot()
   await render(store)
-  expect(container.textContent).toContain('No agents in this room yet')
+  expect(container.textContent).toContain('No agents in this Team yet')
   expect(container.textContent).not.toContain('takes a turn')
 
   // The host says somebody joined; the pane must ask again.
@@ -1724,6 +1727,8 @@ it("the room's own live line counts every waiting member, not only the first", a
   }
   Object.assign(store, { getSnapshot: () => withApprovals })
   await render(store)
+  act(() => row('Chat').click())
+  await act(async () => {})
 
   const line = container.querySelector('[data-slot="room-live-line"]')!
   expect(line.textContent).toBe('Codex is waiting for your approval · 1 more')
@@ -1743,6 +1748,8 @@ it("names a person-started flow's own stop reason on the live line, as a proper 
   }
   const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
   await render(store)
+  act(() => row('Chat').click())
+  await act(async () => {})
 
   const line = container.querySelector('[data-slot="room-live-line"]')!
   expect(line.textContent).toBe('The person stopped this flow')
@@ -1769,6 +1776,8 @@ it("names a stalled run's own reason on the live line, lines kept, as a wait on 
   }
   const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
   await render(store)
+  act(() => row('Chat').click())
+  await act(async () => {})
 
   expect(container.querySelector('header')!.textContent).toContain('Needs you')
   const line = container.querySelector('[data-slot="room-live-line"]')!
@@ -1789,6 +1798,8 @@ it('offers to continue a kept answer and disables the action with the visible re
   }
   const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
   await render(store)
+  act(() => row('Chat').click())
+  await act(async () => {})
   const button = document.querySelector<HTMLButtonElement>('[data-kind="stall"] button')!
   expect(button.textContent).toBe('Continue with this answer')
   expect(button.disabled).toBe(true)
@@ -1804,6 +1815,8 @@ it('sends an enabled kept answer through the store verb with its run id', async 
   }
   const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
   await render(store)
+  act(() => row('Chat').click())
+  await act(async () => {})
   const button = document.querySelector<HTMLButtonElement>('[data-kind="stall"] button')!
   act(() => button.click())
   expect(store.continueFlowAnswer).toHaveBeenCalledWith('run-1')
@@ -1826,6 +1839,8 @@ it('shows a pending release’s own sentence on its own line for a settled run, 
   }
   const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
   await render(store)
+  act(() => row('Chat').click())
+  await act(async () => {})
 
   // The primary line still says whatever it would without the pending release at all — here, the roster's own default, a member at work — and never the settled run's own reason.
   expect(container.querySelector('[data-slot="room-live-line"]')?.textContent).not.toContain('no rule continues')
@@ -1850,6 +1865,8 @@ it('shows a pending release’s own sentence for a trigger-stopped run too, alon
   }
   const { store } = triggerRig([], { stop: { reason: 'timed out', detail, at: Date.now() } }, [], new Map([['run-1', execution]]))
   await render(store)
+  act(() => row('Chat').click())
+  await act(async () => {})
 
   const stop = container.querySelector('[data-slot="room-live-line"]')!
   expect(stop.getAttribute('data-kind')).toBe('stop')
@@ -1868,6 +1885,8 @@ it('agrees with the header rather than naming a stop reason when a stopped run s
     wait({ id: 'w1', kind: 'question', waitingOn: { kind: 'person', label: 'you' }, sentence: 'A Seat asked a question and nobody answered in time.' }),
   ])
   await render(store)
+  act(() => row('Chat').click())
+  await act(async () => {})
   await act(async () => {})
 
   expect(container.querySelector('header')!.textContent).toContain('Needs you')
@@ -2641,7 +2660,7 @@ it('draws the members of a room the desk has not opened, and says they are not o
   expect(row('Codex').querySelector('[data-away]')).not.toBeNull()
   // And the head counts both facts rather than collapsing them into one.
   expect(container.textContent).toContain('0 of 2 here')
-  expect(container.textContent).not.toContain('No agents in this room yet')
+  expect(container.textContent).not.toContain('No agents in this Team yet')
 })
 
 /**
@@ -3197,4 +3216,72 @@ it('a wrapped Goal’s receipt offers to carry its unresolved findings and opens
   const opener = [...document.body.querySelectorAll('button')].find((one) => one.textContent?.includes('finding-open'))!
   await act(async () => { opener.click() })
   expect(store.readFinding).toHaveBeenCalledWith(ROOM, 'finding-open')
+})
+
+it('lists Flow Seats from the Goal when the older roster is empty, and defaults to Overview', async () => {
+ const view = { ...GOAL, members: [
+  { id:'writer-seat', session:{runtime:'codex',sessionId:'c1'}, role:'writer', openedAt:1, closed:null, agent:{name:'Writer'} },
+  { id:'reviewer-seat', session:{runtime:'claude',sessionId:'k1'}, role:'reviewer', openedAt:1, closed:null, agent:{name:'Reviewer'} },
+ ] } as unknown as GoalView
+ const execution = {version:2,id:'overview-run',goal:ROOM,state:'settled',reason:null,legacyRun:null,operations:[],rounds:[],document:{format:'agents',flow:{name:'Build and review',roles:[],rules:[]}}} as unknown as FlowExecution
+ const {store}=rig([],undefined,{members:[],intents:[]},view,new Map([[execution.id,execution]]))
+ await render(store)
+ expect(container.querySelector('[data-slot="team-overview"]')).not.toBeNull()
+ expect(container.querySelectorAll('aside [data-slot="hover-card-trigger"]')).toHaveLength(2)
+ expect(container.textContent).not.toContain('No agents in this Team yet')
+ expect(container.textContent).toContain('Agents · 2')
+})
+
+it('opens Overview when the cached Run arrives, and preserves a later choice of Chat', async () => {
+  const runs = new Map<string, FlowExecution>()
+  const { store, pushes } = rig([], undefined, { members: [] }, GOAL, runs)
+  await render(store)
+  expect(container.querySelector('[data-slot="team-overview"]')).toBeNull()
+  const execution = {
+    version: 2, id: 'later-run', goal: ROOM, state: 'settled', reason: null,
+    legacyRun: null, operations: [], rounds: [],
+    document: { format: 'agents', flow: { name: 'Build and review', roles: [], rules: [] } },
+  } as unknown as FlowExecution
+  runs.set(execution.id, execution)
+  await pushes({ updatedAt: 2 })
+  expect(container.querySelector('[data-slot="team-overview"]')).not.toBeNull()
+  const chat = [...container.querySelectorAll('aside [data-slot="list-row"]')].find(one => one.textContent?.includes('Chat')) as HTMLElement
+  await act(async () => { chat.click() })
+  await pushes({ updatedAt: 3 })
+  expect(container.querySelector('[data-slot="team-overview"]')).toBeNull()
+})
+
+it('keeps a finished Seat on the rail with a quiet Done state after its process rests', async () => {
+  const view = { ...GOAL, members: [{
+    id: 'reviewer-seat', session: { runtime: 'claude', sessionId: 'k1' },
+    role: 'reviewer', openedAt: 1, closed: null, agent: { name: 'Reviewer' },
+  }] } as unknown as GoalView
+  const finished = { ...state.intents[0]!, state: 'done', claim: { runtime: 'claude', sessionId: 'k1', at: 1 } } as Intent
+  const { store } = rig([], undefined, { members: [], intents: [finished] }, view)
+  await render(store)
+  const rail = container.querySelector('aside')!
+  expect(rail.textContent).toContain('Reviewer')
+  expect(rail.textContent).toContain('Done')
+  expect([...rail.querySelectorAll('[data-slot="chip"]')].some(one => one.textContent === 'Done')).toBe(false)
+})
+
+it('includes recorded spend from earlier Seats using the runtime capabilities already in the window', async () => {
+  const execution = {
+    version: 2, id: 'spend-run', goal: ROOM, state: 'settled', reason: null,
+    legacyRun: null, operations: [], rounds: [],
+    document: { format: 'agents', flow: { name: 'Build and review', roles: [], rules: [] } },
+  } as unknown as FlowExecution
+  const metric = (value: number) => ({ value, quality: 'exact', coverage: 'complete', basis: 'vendorMetered' })
+  const usage = {
+    goal: ROOM, provenance: { state: 'available' }, totals: { turns: metric(3) }, seats: [],
+    breakdowns: [{ dimension: 'seat', rows: [{
+      goal: ROOM, seat: 'earlier-writer', session: { runtime: 'codex', sessionId: 'earlier-session' },
+      amounts: { usd: metric(0.8) },
+    }] }],
+  } as unknown as InsightReport
+  const { store } = rig([], [{ id: 'codex', presentation: { name: 'Assistant' }, capabilities: { metered: true } }],
+    { members: [] }, GOAL, new Map([[execution.id, execution]]))
+  Object.assign(store, { readGoalInsight: vi.fn(async () => usage) })
+  await render(store)
+  expect(container.querySelector('[aria-label="Run"]')?.textContent).toContain('$0.80')
 })

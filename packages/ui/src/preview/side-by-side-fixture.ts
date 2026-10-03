@@ -1,7 +1,7 @@
 import { approvalId, runtimeId, sessionKey, type Session, type SessionId, type SessionKey, type TeamPeerInfo } from '@harnessdesk/protocol'
 
 import type { AppSnapshot, AppStore } from '../state/store'
-import { previewStore } from './harness'
+import { PREVIEW_ROOM, previewStore } from './harness'
 
 export const SIDE_BY_SIDE_MEMBERS = [
   { runtime: runtimeId('codex'), id: 'c1', nickname: 'Alpha', agent: 'Assistant A', model: 'Model A' },
@@ -109,7 +109,10 @@ export const sideBySideStore = (options: SideBySideFixtureOptions = {}): AppStor
       ],
     },
   }] : []
-  const own = previewStore({ ...snapshot, sessions, runtimes, models, approvals } as Partial<AppSnapshot>)
+  const teams = new Map(snapshot.teams)
+  const team = teams.get(PREVIEW_ROOM)!
+  teams.set(PREVIEW_ROOM, { ...team, members: SIDE_BY_SIDE_KEYS })
+  const own = previewStore({ ...snapshot, sessions, runtimes, models, approvals, teams } as Partial<AppSnapshot>)
   const peers: readonly TeamPeerInfo[] = SIDE_BY_SIDE_MEMBERS.map((member) => ({
     runtime: member.runtime,
     sessionId: member.id,

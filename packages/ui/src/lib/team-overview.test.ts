@@ -343,3 +343,20 @@ describe('doingLine', () => {
     expect(doingLine(first, null, 2600)).toEqual({ line: null, at: 2600 })
   })
 })
+
+it('marks three completed Seats done, but never a Seat that held no card', () => {
+ const seats = ['Alpha','Beta','Gamma','Idle'].map(id=>seat(id))
+ const cards = ['Alpha','Beta','Gamma'].map((id,index)=>card(index+1,{state:'done',claim:claim(id)}))
+ expect(teamOverview(input({ seats,cards })).seats.map(row=>[row.name,row.done])).toEqual([['Alpha',true],['Beta',true],['Gamma',true],['Idle',false]])
+})
+it.each(['question','unread','working'] as const)('a done Seat leaves the fold when %s arrives', kind => {
+ const one = seat('Alpha',kind==='question'?{approvals:[approval('Alpha')]}:kind==='unread'?{unreadSince:280}:{session:session('Alpha')})
+ expect(teamOverview(input({seats:[one],cards:[card(1,{state:'done',claim:claim('Alpha')})]})).seats[0]).toMatchObject({done:false,state:kind==='question'?'needs-you':kind})
+})
+it('retains completion attribution after claims clear through the Run seat/card journal', () => {
+ const run = execution({ operations:[{key:'seat:1:0',kind:'seat',state:'finished',card:1,seat:'Alpha'}] })
+ expect(teamOverview(input({seats:[seat('Alpha')],cards:[card(1,{state:'done'})],run:{execution:run,startedAt:null}})).seats[0]).toMatchObject({done:true})
+})
+it('leaves unknown Run start time null', () => {
+ expect(teamOverview(input({run:{execution:execution(),startedAt:null}})).run?.startedAt).toBeNull()
+})

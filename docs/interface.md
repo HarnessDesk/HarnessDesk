@@ -919,3 +919,13 @@ working tree and disarmed. *Saved. Commit this file before arming* is the
 whole of what a save does — the existing Triggers section's own preview and
 explicit **Arm**, bound to the committed bytes, are still what consents to
 anything running unattended.
+
+### A Team's Overview
+
+Overview is the Team rail's first destination and opens by default when the
+Team has a Run. It shows that Run's round and recorded usage, what needs you,
+and every Seat in attention order. Finished Seats stay in the Agents list;
+the Overview folds them into a disclosure such as **3 done**. A question,
+unread notice or new work brings a Seat out of that fold. The sidebar nests
+its conversation under the same Team, even after its process has rested.
+A Team without a Run opens on Chat and still offers Overview for its Seats.

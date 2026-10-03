@@ -1900,3 +1900,21 @@ it.each([
   expect(mark.querySelector('[data-slot="chip"]')?.getAttribute('data-tone')).toBe(tone)
   expect(mark.querySelector('[data-sidebar-menu-state-compact] [data-slot="dot"]')?.getAttribute('data-state')).toBe(state)
 })
+
+it('nests both Goal Seats under their Team once when its older roster is empty', () => {
+ const first=summary({id:'session-flow-writer'}),second=summary({id:'session-flow-reviewer'})
+ const board=room({id:'flow-team',name:'Flow team',members:[]})
+ const view={goal:{id:board.id,state:'open',sentence:'Flow team',origin:{kind:'person'}},board,members:[first,second].map((one,index)=>({id:`seat-${index}`,session:{runtime:one.runtime,sessionId:one.id},role:index?'reviewer':'writer',openedAt:1,closed:null,agent:{name:'Agent'}}))} as unknown as GoalView
+ const {container:tree}=treeWith([board],[first,second],[],{},undefined,null,new Map([[board.id,view]]))
+ expect(rowTitles(tree).filter(title=>title==='session-flow-writer')).toHaveLength(1)
+ const opener=roomRow(tree,'Flow team')!
+ expect(opener.closest('[data-slot="sidebar-menu-item"]')?.textContent).toContain('session-flow-writer')
+ expect(opener.closest('[data-slot="sidebar-menu-item"]')?.textContent).toContain('session-flow-reviewer')
+})
+
+it('keeps a durable Seat in the Team tree when no live session or history is held', () => {
+ const board=room({id:'rested-team',name:'Rested Team',members:[]})
+ const view={...triggerGoalView(board),members:[{id:'rested-seat',session:{runtime:'codex',sessionId:'rested'},role:'reviewer',openedAt:1,closed:null,agent:{name:'Rested reviewer'}}]} as unknown as GoalView
+ const {container:tree}=treeWith([board],[],[],{},undefined,null,new Map([[board.id,view]]))
+ expect(tree.textContent).toContain('Rested reviewer')
+})

@@ -1463,3 +1463,17 @@ the case I am thinking of" but "what spelling of this would it miss".
 A new category is only worth having if it can fail. Add it, then put the defect
 back and watch it go red; a check that has never been seen red is a check that
 has never been tested.
+
+## The Team overview
+
+Overview is the first destination on a Team's rail. A Team with a Run opens
+there; one without a Run opens on Chat. The Run's current round and recorded
+usage lead, followed by what needs the person and the Seats in attention order:
+Needs you, Unread, Working, then Idle. Each Seat carries its face, role, card,
+round, doing line, time in state and cost in the unit its account meters.
+Unavailable usage stays a dash. Idle and Done use quiet text with no chip or
+health colour; done Seats fold beneath the active rows and return when they
+need attention. At a narrow pane width each Seat becomes one ListRow, with its
+state beside its name and cost at the end. The rail, Overview and sidebar use
+one conversation-keyed membership list, including Seats a Flow opened and
+conversations whose process is no longer held.

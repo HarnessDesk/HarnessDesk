@@ -68,6 +68,7 @@ import { SettingsFrames } from './frames-settings'
 import { TranscriptFrames } from './frames-transcript'
 import { LibraryDevFrames } from './frames-library-dev'
 import { LibraryOptionFrames } from './frames-library-options'
+import { TeamOverviewFrames } from './frames-team-overview'
 import { SideBySideFrames } from './frames-side-by-side'
 import { ComposerSlotsFrames } from './frames-composer-slots'
 import { BRIEF_SCENES, FlowBriefDialog, type BriefScene } from './flow-brief-content'
@@ -1029,6 +1030,7 @@ const Preview = () => {
       <PanelFrames />
       <CoverageFrames />
       {SHOW_SIDE_BY_SIDE && <SideBySideFrames />}
+      {new URLSearchParams(window.location.search).has('team-overview') && <TeamOverviewFrames />}
       {SHOW_COMPOSER_SLOTS && <ComposerSlotsFrames />}
       {SHOW_NOTICE_PLACEMENT && <NoticePlacementFrames />}
     </div>
