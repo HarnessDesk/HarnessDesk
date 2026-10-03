@@ -111,7 +111,7 @@ first's landed revision.
 **One Team at a time in `TeamRoomPane.tsx`.** PRs 2, 3, 8 and 10 all touch the
 rail or header of `packages/ui/src/components/TeamRoomPane.tsx`, a 2,400-line
 file. Land them in that order, and each one starts from a fresh fetch of main.
-PRs 1, 5 and 6 touch other files and can run beside them; PR 12 touches the pane's files only through PR 2's order above, and `SessionTree.tsx` after PR 2.
+PRs 1, 5, 6 and 17 have merged and need no scheduling. Of the rest, PR 12 touches the pane's files only through PR 2's order above, and `SessionTree.tsx` after PR 2.
 
 **What waits on the other session.** Only PR 16 (its PR 1c) and PR 10 (the stop method). The two events below have landed (#1285). Every
 other PR reads what the window's store already holds.
