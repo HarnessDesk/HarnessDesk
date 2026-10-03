@@ -20,8 +20,10 @@ export class SeatHeldCards {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
       throw error
     }
-    const data = JSON.parse(text) as { version?: unknown; seats?: unknown }
-    if (data.version !== 1 || !Array.isArray(data.seats)) throw new Error('The Seat held-card history cannot be read.')
+    const data = JSON.parse(text) as { version?: unknown; seats?: unknown } | null
+    if (data?.version !== 1 || !Array.isArray(data.seats)) throw new Error('The Seat held-card history cannot be read.')
+    // Validate the whole file before trusting any completion from it.
+    const loaded = new Map<string, Map<number, HeldCard>>()
     for (const row of data.seats) {
       if (typeof row?.seat !== 'string' || !Array.isArray(row.cards)) throw new Error('The Seat held-card history cannot be read.')
       const cards = new Map<number, HeldCard>()
@@ -30,8 +32,10 @@ export class SeatHeldCards {
           !Number.isFinite(card.updatedAt) || card.updatedAt < 0) throw new Error('The Seat held-card history cannot be read.')
         cards.set(card.id, { id: card.id, state: card.state, updatedAt: card.updatedAt })
       }
-      this.#held.set(row.seat, cards)
+      loaded.set(row.seat, cards)
     }
+    this.#held.clear()
+    for (const [seat, cards] of loaded) this.#held.set(seat, cards)
     this.#snapshot = this.#text()
   }
 

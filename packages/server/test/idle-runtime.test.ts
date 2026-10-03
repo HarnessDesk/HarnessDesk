@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
@@ -369,8 +369,9 @@ const until = async (condition: () => boolean): Promise<void> => {
 const seated = async (t: TestContext, runtime = new IdleRuntime(), seatRestMs = 25) => {
   const { host, stateDir } = await makeHost(runtime, 25, seatRestMs)
   const repo = await makeRepo('hd-rest-seat-')
+  const hostsToDispose = [host]
   t.after(async () => {
-    await host.dispose()
+    for (const current of [...hostsToDispose].reverse()) await current.dispose()
     await rm(stateDir, { recursive: true, force: true })
     await rm(repo.dir, { recursive: true, force: true })
   })
@@ -383,7 +384,7 @@ const seated = async (t: TestContext, runtime = new IdleRuntime(), seatRestMs = 
     session: { runtime: runtime.info.id, sessionId: session.id } }) as SeatRecord
   const record = host.registry.get(runtime.info.id, session.id as never)!
   const finish = () => host.call('team/intent', { room: goal.goal.id, id: card.id, action: 'done' })
-  return { host, stateDir, runtime, goal: goal.goal, card, seat, record, finish, repo }
+  return { host, stateDir, runtime, goal: goal.goal, card, seat, record, finish, repo, hostsToDispose }
 }
 
 test('a finished Seat releases its handle, idle-stops, and remains a Goal member', async (t) => {
@@ -610,7 +611,7 @@ for (const recoverRecord of [false, true]) {
     // Reuse the fake agent's store, as a real agent retains its own history.
     runtime.sessions.set(d.record.session.id, d.runtime.sessions.get(d.record.session.id)!)
     host.register(runtime)
-    t.after(() => host.dispose())
+    d.hostsToDispose.push(host)
     await host.start()
     if (recoverRecord) {
       await host.call('session/resume', { runtime: runtime.info.id, sessionId: d.record.session.id })
@@ -639,6 +640,75 @@ test('a completed held card trimmed from the board does not prevent Seat rest', 
   await pause(50)
   assert.equal(d.record.live, null, 'a known completed trimmed card remains completed')
 })
+
+test('ordinary completion and trimming retain held-card history through restart', async (t) => {
+  const d = await seated(t, new IdleRuntime(), 60_000)
+  // Fill the board through its ordinary save path before completing the held card.
+  for (let n = 0; n < 199; n++) {
+    await d.host.call('team/add', { room: d.goal.id, title: `Later work ${n}` })
+  }
+  await d.finish()
+  await d.host.call('team/add', { room: d.goal.id, title: 'Trim the completed card' })
+  const view = await d.host.call('goal/read', { goal: d.goal.id }) as GoalView
+  assert.ok(!view.board.intents.some((card) => card.id === d.card.id))
+  await d.host.dispose()
+  const history = JSON.parse(await readFile(join(d.stateDir, 'seat-held-cards.json'), 'utf8'))
+  assert.equal(history.seats.find((seat: { seat: string }) => seat.seat === d.seat.id).cards[0].state, 'done')
+  const runtime = new IdleRuntime()
+  const host = new Host({ logger: silent, state: new StateStore(join(d.stateDir, 'state.json')),
+    catalogRefreshMs: 0, idleStopMs: 25, seatRestMs: 25 })
+  host.register(runtime)
+  d.hostsToDispose.push(host)
+  await host.start()
+  await until(() => runtime.health().state === 'idle')
+  assert.equal((await host.call('goal/read', { goal: d.goal.id }) as GoalView).members[0]?.closed, null)
+})
+
+test('an ordinary later claim is retained when released before restart', async (t) => {
+  const d = await seated(t, new IdleRuntime(), 60_000)
+  await d.finish()
+  const later = await d.host.call('team/add', { room: d.goal.id, title: 'Follow-up work' }) as { id: number }
+  assert.match(await d.host.teamPlane.claim(later.id, { runtime: d.runtime.info.id, sessionId: d.record.session.id }), /^Claimed/)
+  await d.host.teamPlane.flush()
+  await d.host.call('team/intent', { room: d.goal.id, id: later.id, action: 'release' })
+  await d.host.dispose()
+  const history = JSON.parse(await readFile(join(d.stateDir, 'seat-held-cards.json'), 'utf8'))
+  const held = history.seats.find((seat: { seat: string }) => seat.seat === d.seat.id).cards
+  assert.equal(held.find((card: { id: number }) => card.id === later.id)?.state, 'open')
+  const runtime = new IdleRuntime()
+  const host = new Host({ logger: silent, state: new StateStore(join(d.stateDir, 'state.json')),
+    catalogRefreshMs: 0, idleStopMs: 25, seatRestMs: 25 })
+  host.register(runtime)
+  d.hostsToDispose.push(host)
+  await host.start()
+  await pause(150)
+  assert.equal(runtime.health().state, 'ready', 'unfinished prior ownership still prevents rest')
+})
+
+for (const corruption of ['json', 'null', 'root', 'seat', 'cards', 'card'] as const) {
+  test(`malformed ${corruption} held-card history does not prevent startup or prove completion`, async (t) => {
+    const d = await seated(t, new IdleRuntime(), 60_000)
+    await d.finish()
+    await d.host.dispose()
+    const valid = { seat: d.seat.id, cards: [{ id: d.card.id, state: 'done', updatedAt: Date.now() }] }
+    const invalid = corruption === 'seat' ? null : corruption === 'cards'
+      ? { seat: 'other-seat', cards: {} } : { seat: 'other-seat', cards: [null] }
+    const text = corruption === 'json' ? '{' : corruption === 'null' ? 'null' : corruption === 'root'
+      ? JSON.stringify({ version: 1, seats: {} }) : JSON.stringify({ version: 1, seats: [valid, invalid] })
+    const file = join(d.stateDir, 'seat-held-cards.json')
+    await writeFile(file, text)
+    const runtime = new IdleRuntime()
+    const host = new Host({ logger: silent, state: new StateStore(join(d.stateDir, 'state.json')),
+      catalogRefreshMs: 0, idleStopMs: 25, seatRestMs: 25 })
+    host.register(runtime)
+    d.hostsToDispose.push(host)
+    await host.start()
+    await pause(150)
+    assert.equal(runtime.health().state, 'ready', 'a partially valid file cannot prove the Seat finished')
+    assert.equal(await readFile(file, 'utf8'), text, 'startup leaves the malformed history intact')
+    assert.equal((await host.call('goal/read', { goal: d.goal.id }) as GoalView).members[0]?.closed, null)
+  })
+}
 
 
 test('a history read in flight does not interrupt a finished Seat quiet interval', async (t) => {

@@ -2191,7 +2191,11 @@ export class Host {
   async start(): Promise<void> {
     this.#goalWriter = await acquireDeskWriter(this.#state.directory)
     await this.#state.load()
-    await this.#seatHeldCards.load()
+    await this.#seatHeldCards.load().catch((error: unknown) => {
+      this.#logger.warn('the Seat held-card history could not be read; unknown work will not rest', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
     const shellFolder = this.#state.state.workspaces[0]?.realPath ?? this.#state.state.workspaces[0]?.path
     // Restore the captured grant, never derive one from Git during startup.
     const shellIdentity = this.#state.state.workspaces[0]?.shellIdentity
@@ -2890,6 +2894,7 @@ export class Host {
       document = this.#goalStore.read(state.id)
     } catch {
       const at = state.updatedAt || Date.now()
+      await this.#seatHeldCards.observe(this.#evidence.seats.all(), state, (card) => this.#flows.bindingOf(state.id, card)?.session)
       await this.#goalStore.save({
         version: 1,
         goal: {
@@ -2932,6 +2937,7 @@ export class Host {
     }
     const at = state.updatedAt || Date.now()
     const intents = state.intents
+    await this.#seatHeldCards.observe(this.#evidence.seats.all(), state, (card) => this.#flows.bindingOf(state.id, card)?.session)
     await this.#goalStore.save({
       ...document,
       goal: {
