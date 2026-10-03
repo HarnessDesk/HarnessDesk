@@ -31,9 +31,9 @@
 | dark | 12.25 | 400 | 19.9062px | foreground | 28 | prose | composer-pickers, coverage-notice-folder-gone, coverage-notice-split-composers, coverage-notice-split-unfocused-composer, coverage-notice-composer-strip |
 | dark | 12.88 | 400 | 20px | foreground | 1 | unnamed | board:tool-pane |
 | dark | 13 | 400 | 20.15px | other | 100 | unnamed | tools-file, panes-split-tree |
-| dark | 13 | 400 | 20px | foreground | 432 | meta, navigation, muted, unnamed | coverage-session-background, composer-pickers, composer-paused, coverage-notice-narrow-overlay, coverage-notice-room-board |
+| dark | 13 | 400 | 20px | foreground | 433 | meta, navigation, muted, unnamed | coverage-session-background, composer-pickers, composer-paused, coverage-notice-narrow-overlay, coverage-notice-room-board |
 | dark | 13 | 400 | 20px | muted-foreground | 201 | unnamed, muted | board-populated, board-person-review, board-edges, project-flows, project-checks |
-| dark | 13 | 400 | 20px | other | 109 | unnamed, muted | goal-receipt, coverage-flow-review-reasons, coverage-flow-gemini-trust, board:control, board:plan-card |
+| dark | 13 | 400 | 20px | other | 108 | unnamed, muted | goal-receipt, coverage-flow-review-reasons, coverage-flow-gemini-trust, board:plan-card, board:plans-table |
 | dark | 13 | 400 | 20px | secondary-foreground | 314 | unnamed, muted | provenance-seats, project-capture, project-flows, project-checks, project-triggers |
 | dark | 13 | 400 | 28px | muted-foreground | 1 | unnamed | board:head |
 | dark | 13 | 500 | 13px | foreground | 53 | unnamed | provenance-seats, project-triggers, shape-graph, board:button, board:notices |
@@ -46,9 +46,9 @@
 | dark | 13 | 500 | 20px | other | 5 | row, unnamed | coverage-row-alerts, board:notices |
 | dark | 13 | 500 | 20px | secondary-foreground | 41 | unnamed, row | schema-form, shape-step-form, shape-rule-form, coverage-goal-flow, coverage-flow-review-reasons |
 | dark | 13 | 700 | 20px | secondary-foreground | 3 | unnamed | board:button, board:banner |
-| dark | 14 | 400 | 20px | foreground | 148 | unnamed, prose, value | provenance-seats, finding-status, goal-receipt, room-channel-grouping, composer-pickers |
+| dark | 14 | 400 | 20px | foreground | 191 | unnamed, prose, value | provenance-seats, schema-form, finding-status, goal-receipt, shape-step-form |
 | dark | 14 | 400 | 20px | muted-foreground | 20 | unnamed, prose | board-empty, finding-status, board:section, board:readings, board:tool-pane |
-| dark | 14 | 400 | 20px | other | 55 | unnamed, value | schema-form, shape-step-form, shape-rule-form, tools-browser, coverage-notice-narrow-overlay |
+| dark | 14 | 400 | 20px | other | 12 | unnamed, value | board:tool-pane, board:plans-table |
 | dark | 14 | 400 | 20px | secondary-foreground | 58 | unnamed | board:foundation, board:queue, board:button, board:state, board:control |
 | dark | 14 | 400 | 22.75px | foreground | 38 | prose | composer-pickers, side-by-side-two, side-by-side-four, side-by-side-expanded, coverage-notice-folder-gone |
 | dark | 14 | 400 | 22.75px | other | 7 | prose | composer-pickers, coverage-notice-folder-gone, coverage-notice-split-composers, coverage-notice-split-unfocused-composer, coverage-notice-composer-strip |
@@ -95,10 +95,10 @@
 | light | 12 | 600 | 20px | foreground | 1 | unnamed | board:state |
 | light | 12.25 | 400 | 19.9062px | foreground | 28 | prose | composer-pickers, coverage-notice-folder-gone, coverage-notice-split-composers, coverage-notice-split-unfocused-composer, coverage-notice-composer-strip |
 | light | 12.88 | 400 | 20px | foreground | 1 | unnamed | board:tool-pane |
-| light | 13 | 400 | 20.15px | other | 100 | unnamed | tools-file, panes-split-tree |
-| light | 13 | 400 | 20px | foreground | 432 | meta, navigation, muted, unnamed | coverage-session-background, composer-pickers, composer-paused, coverage-notice-narrow-overlay, coverage-notice-room-board |
+| light | 13 | 400 | 20.15px | other | 150 | unnamed | tools-file, panes-split-tree, board:tools |
+| light | 13 | 400 | 20px | foreground | 433 | meta, navigation, muted, unnamed | coverage-session-background, composer-pickers, composer-paused, coverage-notice-narrow-overlay, coverage-notice-room-board |
 | light | 13 | 400 | 20px | muted-foreground | 201 | unnamed, muted | board-populated, board-person-review, board-edges, project-flows, project-checks |
-| light | 13 | 400 | 20px | other | 109 | unnamed, muted | goal-receipt, coverage-flow-review-reasons, coverage-flow-gemini-trust, board:control, board:plan-card |
+| light | 13 | 400 | 20px | other | 108 | unnamed, muted | goal-receipt, coverage-flow-review-reasons, coverage-flow-gemini-trust, board:plan-card, board:plans-table |
 | light | 13 | 400 | 20px | secondary-foreground | 314 | unnamed, muted | provenance-seats, project-capture, project-flows, project-checks, project-triggers |
 | light | 13 | 400 | 28px | muted-foreground | 1 | unnamed | board:head |
 | light | 13 | 500 | 13px | foreground | 53 | unnamed | provenance-seats, project-triggers, shape-graph, board:button, board:notices |
@@ -111,9 +111,9 @@
 | light | 13 | 500 | 20px | other | 5 | row, unnamed | coverage-row-alerts, board:notices |
 | light | 13 | 500 | 20px | secondary-foreground | 41 | unnamed, row | schema-form, shape-step-form, shape-rule-form, coverage-goal-flow, coverage-flow-review-reasons |
 | light | 13 | 700 | 20px | secondary-foreground | 3 | unnamed | board:button, board:banner |
-| light | 14 | 400 | 20px | foreground | 148 | unnamed, prose, value | provenance-seats, finding-status, goal-receipt, room-channel-grouping, composer-pickers |
+| light | 14 | 400 | 20px | foreground | 191 | unnamed, prose, value | provenance-seats, schema-form, finding-status, goal-receipt, shape-step-form |
 | light | 14 | 400 | 20px | muted-foreground | 20 | unnamed, prose | board-empty, finding-status, board:section, board:readings, board:tool-pane |
-| light | 14 | 400 | 20px | other | 55 | unnamed, value | schema-form, shape-step-form, shape-rule-form, tools-browser, coverage-notice-narrow-overlay |
+| light | 14 | 400 | 20px | other | 12 | unnamed, value | board:tool-pane, board:plans-table |
 | light | 14 | 400 | 20px | secondary-foreground | 58 | unnamed | board:foundation, board:queue, board:button, board:state, board:control |
 | light | 14 | 400 | 22.75px | foreground | 38 | prose | composer-pickers, side-by-side-two, side-by-side-four, side-by-side-expanded, coverage-notice-folder-gone |
 | light | 14 | 400 | 22.75px | other | 7 | prose | composer-pickers, coverage-notice-folder-gone, coverage-notice-split-composers, coverage-notice-split-unfocused-composer, coverage-notice-composer-strip |
@@ -163,7 +163,7 @@
 | dark | 13 | 500 | 20px | foreground | 131 | unnamed, row | settings-sheet, workspace-project, workspace-triggers, settings-library, settings-appearance |
 | dark | 13 | 500 | 20px | muted-foreground | 11 | unnamed | library-option-e, library-option-e-applied, settings-plugins |
 | dark | 13 | 500 | 20px | secondary-foreground | 26 | unnamed | settings-library, settings-appearance, library-option-e, library-option-e-applied, library-option-a |
-| dark | 14 | 400 | 20px | other | 9 | unnamed | settings-sheet, runtimes-status, workspace-triggers, settings-library, library-option-e |
+| dark | 14 | 400 | 20px | foreground | 9 | unnamed | settings-sheet, runtimes-status, workspace-triggers, settings-library, library-option-e |
 | dark | 14 | 400 | 22.75px | foreground | 10 | unnamed | library-option-e, library-option-e-applied |
 | dark | 14 | 500 | 20px | foreground | 25 | subject | runtimes-status, library-option-e, library-option-e-applied |
 | dark | 16 | 600 | 24px | foreground | 19 | section | library-option-e, library-option-e-applied, library-option-a, library-option-b, library-option-c |
@@ -195,7 +195,7 @@
 | light | 13 | 500 | 20px | foreground | 131 | unnamed, row | settings-sheet, workspace-project, workspace-triggers, settings-library, settings-appearance |
 | light | 13 | 500 | 20px | muted-foreground | 11 | unnamed | library-option-e, library-option-e-applied, settings-plugins |
 | light | 13 | 500 | 20px | secondary-foreground | 26 | unnamed | settings-library, settings-appearance, library-option-e, library-option-e-applied, library-option-a |
-| light | 14 | 400 | 20px | other | 9 | unnamed | settings-sheet, runtimes-status, workspace-triggers, settings-library, library-option-e |
+| light | 14 | 400 | 20px | foreground | 9 | unnamed | settings-sheet, runtimes-status, workspace-triggers, settings-library, library-option-e |
 | light | 14 | 400 | 22.75px | foreground | 10 | unnamed | library-option-e, library-option-e-applied |
 | light | 14 | 500 | 20px | foreground | 25 | subject | runtimes-status, library-option-e, library-option-e-applied |
 | light | 16 | 600 | 24px | foreground | 19 | section | library-option-e, library-option-e-applied, library-option-a, library-option-b, library-option-c |
@@ -215,7 +215,7 @@
 | dark | 13 | 400 | 20px | secondary-foreground | 28 | unnamed | settings-sheet, agents-roster, dashboard-overview, sidebar-column, sidebar-compact |
 | dark | 13 | 500 | 20px | foreground | 3 | row, unnamed | settings-sheet, coverage-notice-zoomed-sidebar, board:app-window |
 | dark | 14 | 400 | 20px | foreground | 188 | unnamed | sidebar-column, sidebar-compact, coverage-notice-zoomed-sidebar, sidebar-no-folder, board:sidebar |
-| dark | 14 | 400 | 20px | other | 8 | unnamed | sidebar-column, sidebar-compact, sidebar-no-folder, board:sidebar, board:rail |
+| dark | 14 | 400 | 20px | muted-foreground | 8 | unnamed | sidebar-column, sidebar-compact, sidebar-no-folder, board:sidebar, board:rail |
 | dark | 14 | 400 | 20px | secondary-foreground | 1 | unnamed | board:sidebar |
 | dark | 14 | 500 | 20px | foreground | 9 | subject | sidebar-column, sidebar-compact, sidebar-no-folder, board:sidebar, board:rail |
 | dark | 20 | 600 | 20px | foreground | 1 | unnamed | board:sidebar |
@@ -229,7 +229,7 @@
 | light | 13 | 400 | 20px | secondary-foreground | 28 | unnamed | settings-sheet, agents-roster, dashboard-overview, sidebar-column, sidebar-compact |
 | light | 13 | 500 | 20px | foreground | 3 | row, unnamed | settings-sheet, coverage-notice-zoomed-sidebar, board:app-window |
 | light | 14 | 400 | 20px | foreground | 188 | unnamed | sidebar-column, sidebar-compact, coverage-notice-zoomed-sidebar, sidebar-no-folder, board:sidebar |
-| light | 14 | 400 | 20px | other | 8 | unnamed | sidebar-column, sidebar-compact, sidebar-no-folder, board:sidebar, board:rail |
+| light | 14 | 400 | 20px | muted-foreground | 8 | unnamed | sidebar-column, sidebar-compact, sidebar-no-folder, board:sidebar, board:rail |
 | light | 14 | 400 | 20px | secondary-foreground | 1 | unnamed | board:sidebar |
 | light | 14 | 500 | 20px | foreground | 9 | subject | sidebar-column, sidebar-compact, sidebar-no-folder, board:sidebar, board:rail |
 | light | 20 | 600 | 20px | foreground | 1 | unnamed | board:sidebar |
@@ -263,8 +263,7 @@
 | dark | 13 | 500 | 20px | foreground | 19 | unnamed, row | agents-roster, board:dialog, board:signin |
 | dark | 13 | 500 | 20px | secondary-foreground | 1 | unnamed | board:signin |
 | dark | 14 | 400 | 20px | foreground | 2 | unnamed | board:dialog |
-| dark | 14 | 400 | 20px | other | 1 | unnamed | board:signin |
-| dark | 14 | 400 | 20px | secondary-foreground | 1 | unnamed | board:dialog |
+| dark | 14 | 400 | 20px | secondary-foreground | 2 | unnamed | board:dialog, board:signin |
 | dark | 14 | 500 | 14px | foreground | 2 | unnamed | board:room-side-by-side |
 | dark | 14 | 500 | 20px | foreground | 3 | unnamed, subject | board:signin |
 | dark | 14 | 600 | 20px | foreground | 3 | member | board:dialog |
@@ -294,8 +293,7 @@
 | light | 13 | 500 | 20px | foreground | 19 | unnamed, row | agents-roster, board:dialog, board:signin |
 | light | 13 | 500 | 20px | secondary-foreground | 1 | unnamed | board:signin |
 | light | 14 | 400 | 20px | foreground | 2 | unnamed | board:dialog |
-| light | 14 | 400 | 20px | other | 1 | unnamed | board:signin |
-| light | 14 | 400 | 20px | secondary-foreground | 1 | unnamed | board:dialog |
+| light | 14 | 400 | 20px | secondary-foreground | 2 | unnamed | board:dialog, board:signin |
 | light | 14 | 500 | 14px | foreground | 2 | unnamed | board:room-side-by-side |
 | light | 14 | 500 | 20px | foreground | 3 | unnamed, subject | board:signin |
 | light | 14 | 600 | 20px | foreground | 3 | member | board:dialog |
@@ -419,8 +417,9 @@
 | Theme | px | Weight | Line | Ink | Text owners | Roles | Frame examples |
 |---|---:|---:|---|---|---:|---|---|
 | dark | 12 | 400 | 12px | other | 12 | unnamed | conversation-composer, composer-pickers, side-by-side-four, coverage-notice-folder-gone, coverage-notice-split-composers |
+| dark | 12 | 400 | 16px | foreground | 1 | unnamed | board:adopted |
 | dark | 12 | 400 | 16px | muted-foreground | 14 | meta | conversation-composer, composer-pickers, side-by-side-four, coverage-notice-folder-gone, coverage-notice-split-composers |
-| dark | 12 | 400 | 16px | other | 3 | meta, unnamed | composer-pickers, board:queue, board:adopted |
+| dark | 12 | 400 | 16px | other | 2 | meta, unnamed | composer-pickers, board:queue |
 | dark | 12 | 400 | 16px | secondary-foreground | 2 | meta, unnamed | composer-pickers, coverage-notice-folder-gone |
 | dark | 12 | 400 | 20px | muted-foreground | 1 | unnamed | coverage-notice-room-pending-approval |
 | dark | 12 | 500 | 12px | other | 1 | unnamed | coverage-notice-room-pending-approval |
@@ -429,20 +428,21 @@
 | dark | 12 | 500 | 20px | muted-foreground | 1 | unnamed | coverage-notice-room-pending-approval |
 | dark | 12 | 500 | 20px | other | 1 | unnamed | board:propagation |
 | dark | 12 | 500 | 20px | secondary-foreground | 1 | unnamed | composer-pickers |
-| dark | 13 | 400 | 20px | foreground | 4 | navigation, unnamed | composer-pickers, coverage-notice-room-pending-approval |
+| dark | 13 | 400 | 20px | foreground | 13 | unnamed, navigation | shape-rule-form, composer-pickers, coverage-notice-room-pending-approval, board:adopted |
 | dark | 13 | 400 | 20px | muted-foreground | 44 | muted, unnamed | conversation-composer, goal-roster, goal-front-door, composer-pickers, composer-slots |
-| dark | 13 | 400 | 20px | other | 9 | unnamed | shape-rule-form, board:adopted |
 | dark | 13 | 400 | 20px | secondary-foreground | 18 | unnamed | goal-roster, goal-front-door, coverage-notice-room-board, board:notices, board:group |
 | dark | 13 | 500 | 13px | other | 2 | unnamed | coverage-notice-room-pending-approval, coverage-notice-folder-gone |
 | dark | 13 | 500 | 13px | secondary-foreground | 1 | unnamed | coverage-notice-room-pending-approval |
 | dark | 13 | 500 | 20px | foreground | 136 | row, unnamed | conversation-composer, goal-roster, goal-front-door, conversation-empty, composer-pickers |
+| dark | 14 | 400 | 20px | foreground | 26 | unnamed | conversation-composer, goal-roster, goal-front-door, conversation-empty, composer-pickers |
 | dark | 14 | 400 | 20px | muted-foreground | 7 | unnamed | goal-roster, goal-front-door, coverage-notice-room-board, coverage-notice-room-pending-approval |
-| dark | 14 | 400 | 20px | other | 28 | unnamed, prose | conversation-composer, goal-roster, goal-front-door, conversation-empty, composer-pickers |
+| dark | 14 | 400 | 20px | other | 2 | prose | board:group |
 | dark | 14 | 500 | 20px | foreground | 2 | unnamed | coverage-notice-room-pending-approval, coverage-notice-folder-gone |
 | dark | 14 | 600 | 20px | foreground | 11 | member | goal-roster, goal-front-door, coverage-notice-room-board, coverage-notice-room-pending-approval, board:group |
 | light | 12 | 400 | 12px | other | 12 | unnamed | conversation-composer, composer-pickers, side-by-side-four, coverage-notice-folder-gone, coverage-notice-split-composers |
+| light | 12 | 400 | 16px | foreground | 1 | unnamed | board:adopted |
 | light | 12 | 400 | 16px | muted-foreground | 14 | meta | conversation-composer, composer-pickers, side-by-side-four, coverage-notice-folder-gone, coverage-notice-split-composers |
-| light | 12 | 400 | 16px | other | 3 | meta, unnamed | composer-pickers, board:queue, board:adopted |
+| light | 12 | 400 | 16px | other | 2 | meta, unnamed | composer-pickers, board:queue |
 | light | 12 | 400 | 16px | secondary-foreground | 2 | meta, unnamed | composer-pickers, coverage-notice-folder-gone |
 | light | 12 | 400 | 20px | muted-foreground | 1 | unnamed | coverage-notice-room-pending-approval |
 | light | 12 | 500 | 12px | other | 1 | unnamed | coverage-notice-room-pending-approval |
@@ -451,15 +451,15 @@
 | light | 12 | 500 | 20px | muted-foreground | 1 | unnamed | coverage-notice-room-pending-approval |
 | light | 12 | 500 | 20px | other | 1 | unnamed | board:propagation |
 | light | 12 | 500 | 20px | secondary-foreground | 1 | unnamed | composer-pickers |
-| light | 13 | 400 | 20px | foreground | 4 | navigation, unnamed | composer-pickers, coverage-notice-room-pending-approval |
+| light | 13 | 400 | 20px | foreground | 13 | unnamed, navigation | shape-rule-form, composer-pickers, coverage-notice-room-pending-approval, board:adopted |
 | light | 13 | 400 | 20px | muted-foreground | 44 | muted, unnamed | conversation-composer, goal-roster, goal-front-door, composer-pickers, composer-slots |
-| light | 13 | 400 | 20px | other | 9 | unnamed | shape-rule-form, board:adopted |
 | light | 13 | 400 | 20px | secondary-foreground | 18 | unnamed | goal-roster, goal-front-door, coverage-notice-room-board, board:notices, board:group |
 | light | 13 | 500 | 13px | other | 2 | unnamed | coverage-notice-room-pending-approval, coverage-notice-folder-gone |
 | light | 13 | 500 | 13px | secondary-foreground | 1 | unnamed | coverage-notice-room-pending-approval |
 | light | 13 | 500 | 20px | foreground | 136 | row, unnamed | conversation-composer, goal-roster, goal-front-door, conversation-empty, composer-pickers |
+| light | 14 | 400 | 20px | foreground | 26 | unnamed | conversation-composer, goal-roster, goal-front-door, conversation-empty, composer-pickers |
 | light | 14 | 400 | 20px | muted-foreground | 7 | unnamed | goal-roster, goal-front-door, coverage-notice-room-board, coverage-notice-room-pending-approval |
-| light | 14 | 400 | 20px | other | 28 | unnamed, prose | conversation-composer, goal-roster, goal-front-door, conversation-empty, composer-pickers |
+| light | 14 | 400 | 20px | other | 2 | prose | board:group |
 | light | 14 | 500 | 20px | foreground | 2 | unnamed | coverage-notice-room-pending-approval, coverage-notice-folder-gone |
 | light | 14 | 600 | 20px | foreground | 11 | member | goal-roster, goal-front-door, coverage-notice-room-board, coverage-notice-room-pending-approval, board:group |
 
@@ -479,9 +479,8 @@
 | dark | 13 | 400 | 20px | secondary-foreground | 12 | muted, unnamed | panel-changes, panel-trajectory, panel-agents, panel-activity, board:panel-controls |
 | dark | 13 | 500 | 20px | foreground | 1 | unnamed | board:panels |
 | dark | 13 | 500 | 20px | secondary-foreground | 1 | unnamed | board:panels |
-| dark | 14 | 400 | 20px | foreground | 10 | unnamed, prose | panel-agents, coverage-panel-actions, board:panels |
+| dark | 14 | 400 | 20px | foreground | 15 | unnamed, prose | panel-changes, panel-trajectory, panel-agents, panel-activity, coverage-panel-actions |
 | dark | 14 | 400 | 20px | muted-foreground | 9 | unnamed | panel-agents |
-| dark | 14 | 400 | 20px | other | 5 | unnamed | panel-changes, panel-trajectory, panel-agents, panel-activity, board:panels |
 | dark | 14 | 400 | 20px | secondary-foreground | 2 | unnamed | board:panel-controls, board:panels |
 | dark | 14 | 500 | 20px | foreground | 1 | subject | board:panels |
 | dark | 20 | 500 | 28px | muted-foreground | 1 | page | board:panels |
@@ -498,9 +497,8 @@
 | light | 13 | 400 | 20px | secondary-foreground | 12 | muted, unnamed | panel-changes, panel-trajectory, panel-agents, panel-activity, board:panel-controls |
 | light | 13 | 500 | 20px | foreground | 1 | unnamed | board:panels |
 | light | 13 | 500 | 20px | secondary-foreground | 1 | unnamed | board:panels |
-| light | 14 | 400 | 20px | foreground | 10 | unnamed, prose | panel-agents, coverage-panel-actions, board:panels |
+| light | 14 | 400 | 20px | foreground | 15 | unnamed, prose | panel-changes, panel-trajectory, panel-agents, panel-activity, coverage-panel-actions |
 | light | 14 | 400 | 20px | muted-foreground | 9 | unnamed | panel-agents |
-| light | 14 | 400 | 20px | other | 5 | unnamed | panel-changes, panel-trajectory, panel-agents, panel-activity, board:panels |
 | light | 14 | 400 | 20px | secondary-foreground | 2 | unnamed | board:panel-controls, board:panels |
 | light | 14 | 500 | 20px | foreground | 1 | subject | board:panels |
 | light | 20 | 500 | 28px | muted-foreground | 1 | page | board:panels |
@@ -518,7 +516,7 @@
 | dark | 13 | 400 | 20px | other | 7 | muted | side-by-side-two, side-by-side-four, side-by-side-expanded, coverage-notice-room-board, coverage-notice-room-pending-approval |
 | dark | 13 | 400 | 20px | secondary-foreground | 23 | unnamed | goal-roster, goal-triggered, goal-front-door, side-by-side-two, side-by-side-four |
 | dark | 13 | 500 | 13px | secondary-foreground | 6 | unnamed | tools-git, board:git |
-| dark | 14 | 400 | 20px | other | 2 | unnamed | tools-git, board:git |
+| dark | 14 | 400 | 20px | foreground | 2 | unnamed | tools-git, board:git |
 | light | 12 | 400 | 12px | other | 2 | unnamed | tools-git, board:git |
 | light | 12 | 400 | 12px | secondary-foreground | 3 | unnamed | side-by-side-two, side-by-side-four, side-by-side-expanded |
 | light | 12 | 400 | 16px | muted-foreground | 140 | unnamed, meta | goal-roster, goal-triggered, goal-front-door, side-by-side-two, side-by-side-four |
@@ -527,7 +525,7 @@
 | light | 13 | 400 | 20px | other | 7 | muted | side-by-side-two, side-by-side-four, side-by-side-expanded, coverage-notice-room-board, coverage-notice-room-pending-approval |
 | light | 13 | 400 | 20px | secondary-foreground | 23 | unnamed | goal-roster, goal-triggered, goal-front-door, side-by-side-two, side-by-side-four |
 | light | 13 | 500 | 13px | secondary-foreground | 6 | unnamed | tools-git, board:git |
-| light | 14 | 400 | 20px | other | 2 | unnamed | tools-git, board:git |
+| light | 14 | 400 | 20px | foreground | 2 | unnamed | tools-git, board:git |
 
 ## menus
 

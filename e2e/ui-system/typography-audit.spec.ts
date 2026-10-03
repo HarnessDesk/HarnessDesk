@@ -40,7 +40,8 @@ const collect = (page: Page, selector: string, frame: string, theme: string) => 
     for (let node: Element | null = el; node && root.contains(node); node = node.parentElement) {
       const slot = node.getAttribute('data-slot')
       const region = node.getAttribute('data-region')
-      const label = slot ? `[data-slot="${slot}"]` : region ? `[data-region="${region}"]` : node.tagName.toLowerCase()
+      const area = node.getAttribute('data-type-area')
+      const label = node.tagName.toLowerCase() + (slot ? `[data-slot="${slot}"]` : region ? `[data-region="${region}"]` : area ? `[data-type-area="${area}"]` : '')
       const peers = node.parentElement ? [...node.parentElement.children].filter(peer => peer.tagName === node!.tagName && peer.getAttribute('data-slot') === slot && peer.getAttribute('data-region') === region) : [node]
       parts.unshift(label + (peers.length > 1 ? `:nth-match(${peers.indexOf(node) + 1})` : ''))
     }
@@ -48,7 +49,14 @@ const collect = (page: Page, selector: string, frame: string, theme: string) => 
   }
   const resolveInk = (el: Element) => {
     const probe = document.createElement('span')
-    el.appendChild(probe)
+    // Inputs/textarea do not render children. Resolve in a rendered sibling
+    // context, copying the owner's tokens so local overrides still apply.
+    const css = getComputedStyle(el)
+    probe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none'
+    for (const token of ['foreground', 'secondary-foreground', 'muted-foreground']) {
+      probe.style.setProperty(`--hd-${token}`, css.getPropertyValue(`--hd-${token}`))
+    }
+    document.body.appendChild(probe)
     const entries = ['foreground', 'secondary-foreground', 'muted-foreground'].map(token => {
       probe.style.color = `var(--hd-${token})`
       return [token, getComputedStyle(probe).color]
@@ -155,6 +163,27 @@ const flags = (samples: Sample[]) => {
 test.describe('opt-in typography review', () => {
   test.skip(process.env.TYPE_AUDIT !== '1', 'TYPE_AUDIT=1 writes review evidence; never a product gate')
 
+  test('owner paths distinguish mixed tags and repeated same-slot siblings', async ({ page }) => {
+    await page.setContent('<div id="owners"><div data-slot="text">First</div><span data-slot="text">Second</span><div data-slot="text">Third</div><span data-slot="text">Fourth</span></div>')
+    const rows = await collect(page, '#owners', 'path-regression', 'light')
+    expect(rows).toHaveLength(4)
+    expect(new Set(rows.map(row => row.path)).size).toBe(4)
+    expect(rows[0].path).toContain('div[data-slot="text"]:nth-match(1)')
+    expect(rows[1].path).toContain('span[data-slot="text"]:nth-match(1)')
+  })
+
+  test('form-control ink tokens resolve with local overrides without changing geometry', async ({ page }) => {
+    await page.setContent('<div id="owners" style="--hd-foreground:rgb(10, 20, 30);--hd-secondary-foreground:rgb(40, 50, 60);--hd-muted-foreground:rgb(70, 80, 90)"><input value="Input" style="color:var(--hd-foreground);--hd-foreground:rgb(11, 22, 33)"><textarea style="color:var(--hd-secondary-foreground)">Textarea</textarea></div>')
+    const before = await page.locator('input, textarea').evaluateAll(nodes => nodes.map(node => ({ html: node.outerHTML, box: node.getBoundingClientRect().toJSON() })))
+    const rows = await collect(page, '#owners', 'ink-regression', 'light')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].resolvedInks.foreground).toBe('rgb(11, 22, 33)')
+    expect(rows[0].ink).toBe('foreground')
+    expect(rows[1].resolvedInks['secondary-foreground']).toBe('rgb(40, 50, 60)')
+    expect(rows[1].ink).toBe('secondary-foreground')
+    expect(await page.locator('input, textarea').evaluateAll(nodes => nodes.map(node => ({ html: node.outerHTML, box: node.getBoundingClientRect().toJSON() })))).toEqual(before)
+  })
+
   test('instrument observes a deliberate size and weight mutation', async ({ page }) => {
     await page.goto('/preview.html')
     await ready(page)
@@ -223,6 +252,8 @@ test.describe('opt-in typography review', () => {
       }
     }
     expect(all.length).toBeGreaterThan(20)
+    expect(new Set(all.map(row => [row.frame, row.theme, row.path].join('\n'))).size).toBe(all.length)
+    expect(all.every(row => Object.values(row.resolvedInks).every(Boolean))).toBe(true)
     const prefix = FILTER ? 'spot-' : ''
     write(prefix + 'samples.json', all)
     write(prefix + 'coverage.json', coverage)
@@ -284,8 +315,13 @@ test.describe('opt-in typography review', () => {
         rail: rows.find(row => row.area === 'team rail' && row.slot === 'list-row-title' && row.text === 'Alpha'),
         sender: rows.find(row => row.path.includes('room-stream') && row.role === 'member'),
         body: rows.find(row => row.path.includes('room-stream') && / > p(?::|$)/.test(row.path) && row.size === 14 && row.weight === 400),
-        composer: rows.find(row => row.textKind === 'form-value-or-placeholder' && row.size === 14),
+        composer: rows.find(row => row.path.includes('[data-type-area="conversation-composer"]') && row.slot === 'composer-text' && row.textKind === 'form-value-or-placeholder'),
       }
+      const composer = page.locator('#type-comparison [data-type-area="conversation-composer"] textarea[data-slot="composer-text"]')
+      await expect(composer).toHaveCount(1)
+      expect(core.composer?.slot).toBe('composer-text')
+      expect(core.composer?.area).toBe('composer')
+      expect(core.composer?.text).toBe(await composer.getAttribute('placeholder'))
       for (const [name, sample] of Object.entries(core)) expect(sample, `composed screen includes ${name}`).toBeDefined()
       const pairs: unknown[] = []
       for (let a = 0; a < rows.length; a++) for (let b = a + 1; b < rows.length; b++) {

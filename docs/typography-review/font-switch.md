@@ -14,22 +14,34 @@ Baseline from a 1400px review grid in the 1440×900 browser viewport. Sidebar an
 
 Font-family is identical across these five Latin samples. These are computed stack strings, not proof that all scripts use Geist. Native platform-font evidence is in text-box-trim.md.
 
+The composer reference is the `textarea[data-slot="composer-text"]` in the `conversation-composer` cell, displaying “Describe a task — / for commands, @ for files” in both themes. It is distinct from the sidebar filter and the room composer. Full source paths and boxes are retained in font-switch.json.
+
 ## Reference comparisons
 
 Pairs are in reading order; deltas are second minus first. An x-height ratio is second divided by first. Same cluster means overlapping row or column boxes with no more than 24px between them; a false value is retained, not inferred as an adjacent pair.
 
-| Pair | Size delta | Weight delta | x ratio | Same cluster | Gaps x/y |
-|---|---:|---:|---:|---|---|
-| sidebar → rail | 0 | 0 | 1 | False | 206.109/141.5px |
-| sidebar → sender | 1 | 200 | 1.085 | False | 467.109/0px |
-| sidebar → body | 1 | 0 | 1.077 | False | 467.109/0px |
-| sidebar → composer | 1 | 0 | 1.077 | False | 66.109/80.5px |
-| rail → sender | 1 | 200 | 1.085 | False | 125/148px |
-| rail → body | 1 | 0 | 1.077 | False | 125/106px |
-| rail → composer | 1 | 0 | 1.077 | False | 108/37px |
-| sender → body | 0 | -200 | 0.993 | True | 0/2px |
-| sender → composer | 0 | -200 | 0.993 | False | 369/87px |
-| body → composer | 0 | 0 | 1 | False | 369/45px |
+| Theme | Pair | Size delta | Weight delta | x ratio | Same cluster | Gaps x/y |
+|---|---|---:|---:|---:|---|---|
+| light | sidebar → rail | 0 | 0 | 1 | False | 206.109/141.5px |
+| light | sidebar → sender | 1 | 200 | 1.085 | False | 467.109/0px |
+| light | sidebar → body | 1 | 0 | 1.077 | False | 467.109/0px |
+| light | sidebar → composer | 1 | 0 | 1.077 | False | 840.109/566.5px |
+| light | rail → sender | 1 | 200 | 1.085 | False | 125/148px |
+| light | rail → body | 1 | 0 | 1.077 | False | 125/106px |
+| light | rail → composer | 1 | 0 | 1.077 | False | 498/405px |
+| light | sender → body | 0 | -200 | 0.993 | True | 0/2px |
+| light | sender → composer | 0 | -200 | 0.993 | False | 232.938/573px |
+| light | body → composer | 0 | 0 | 1 | False | 67/531px |
+| dark | sidebar → rail | 0 | 0 | 1 | False | 206.109/141.5px |
+| dark | sidebar → sender | 1 | 200 | 1.085 | False | 467.109/0px |
+| dark | sidebar → body | 1 | 0 | 1.077 | False | 467.109/0px |
+| dark | sidebar → composer | 1 | 0 | 1.077 | False | 840.109/566.5px |
+| dark | rail → sender | 1 | 200 | 1.085 | False | 125/148px |
+| dark | rail → body | 1 | 0 | 1.077 | False | 125/106px |
+| dark | rail → composer | 1 | 0 | 1.077 | False | 498/405px |
+| dark | sender → body | 0 | -200 | 0.993 | True | 0/2px |
+| dark | sender → composer | 0 | -200 | 0.993 | False | 232.938/573px |
+| dark | body → composer | 0 | 0 | 1 | False | 67/531px |
 
 ## Every adjacent role pair
 

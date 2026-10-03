@@ -2,26 +2,51 @@
   "base": "ccc4e99a5c0e403ce1b14fe87f727f9be5ee11d1",
   "checks": [
     {
-      "command": "pnpm verify",
-      "exitCode": 0,
-      "output": "All checks passed.",
-      "note": "Run unpiped; completed before the final audit-instrument/report additions. No product source changed. Publication text gates run separately on all staged additions."
+      "command": "TYPE_AUDIT=1 pnpm exec playwright test -c playwright.ui-system.config.ts typography-audit.spec.ts -g 'owner paths|form-control ink|real-screen comparisons'",
+      "before": "3 failed: duplicate owner keys, empty input ink, composer slot input instead of composer-text",
+      "after": "3 passed (8.5s)"
     },
     {
       "command": "TYPE_AUDIT=1 pnpm exec playwright test -c playwright.ui-system.config.ts typography-audit.spec.ts",
       "exitCode": 0,
-      "output": "4 passed (1.6m)",
-      "nativeOutput": "real Electron renderer evidence saved; native test 11.4s"
+      "output": "6 passed (1.7m)",
+      "nativeOutput": "real Electron renderer evidence saved; native test 15.9s"
     },
     {
       "command": "TYPE_AUDIT=1 TYPE_AUDIT_FRAMES=sidebar-column,goal-roster pnpm exec playwright test -c playwright.ui-system.config.ts typography-audit.spec.ts",
       "exitCode": 0,
-      "output": "2 passed, 2 intentionally skipped (comparison/native outside two-frame mode)"
+      "output": "4 passed, 2 intentionally skipped (11.7s)"
+    },
+    {
+      "command": "pnpm verify",
+      "exitCode": 1,
+      "output": "Node tests: 4696 tests; 4681 passed, 13 failed, 2 cancelled. Every other gate step passed.",
+      "failedFiles": [
+        "packages/plugins/test/forge-tools.test.ts",
+        "packages/server/test/evidence-check-runs.test.ts",
+        "packages/server/test/findings-publication.test.ts",
+        "packages/server/test/startup.test.ts",
+        "packages/server/test/updates.test.ts"
+      ],
+      "details": [
+        "Forge allowlisted-rules parent exceeded its 120000ms test timeout at 129020ms, cancelling/not starting its remaining subtests.",
+        "Following forge fallback case received an authentication refusal rather than its fixture result.",
+        "Evidence check fact did not arrive within 5000ms; findings publication seating did not arrive within 3000ms.",
+        "Startup took 3481ms against a 2000ms assertion; update notice measurement wait expired."
+      ],
+      "context": "Several other verification runs were active on the machine. No product source differs from the reviewed revision. Timed failures did not reproduce in the focused rerun; the original full gate is still recorded as failed."
+    },
+    {
+      "command": "node --test --test-concurrency=1 --test-timeout=120000 --test-name-pattern='pr_merge ignores allowlisted rules|pr_merge falls back to every check when the classic branch summary cannot be read|a HEAD move away and back during a check|a wrap preview holding the Goal queue|one runtime that never starts|a runtime still moving after three measurements' packages/plugins/dist/test/forge-tools.test.js packages/server/dist/test/evidence-check-runs.test.js packages/server/dist/test/findings-publication.test.js packages/server/dist/test/startup.test.js packages/server/dist/test/updates.test.js",
+      "exitCode": 0,
+      "output": "22 passed; 0 failed, cancelled or skipped; duration 91865.791208ms.",
+      "note": "Focused rerun of every affected parent/case, including all 16 rule subtests. Original deadlines unchanged; files run serially to reduce contention. This is not a replacement green result for pnpm verify."
     },
     {
       "command": "node script/check-secrets.mjs",
       "exitCode": 0,
-      "output": "No tracked secrets (3061 files scanned)."
+      "output": "No tracked secrets (3061 files scanned).",
+      "note": "Run after report and validation updates."
     },
     {
       "command": "node script/check-doc-paths.mjs",
@@ -29,7 +54,7 @@
       "output": "every documented path resolves (202 paths in 33 documents)"
     },
     {
-      "command": "git diff --cached --check",
+      "command": "git diff --check",
       "exitCode": 0,
       "output": "No whitespace errors."
     }
@@ -58,7 +83,8 @@
       "color",
       "ink",
       "xHeight",
-      "capHeight"
+      "capHeight",
+      "resolvedInks"
     ],
     "fullOwners": 140,
     "spotOwners": 140,
@@ -73,37 +99,195 @@
     "previewIds": 99,
     "boardIds": 55,
     "themeObservations": 308,
-    "textOwners": 15276,
+    "textOwners": 15326,
     "everyFlagCitesMeasuredFrame": true
   },
   "artifactCheck": {
-    "offlineHTML": "theme dark and zoom 75%; all three PNGs decoded at 1400x820; 1050px CSS image width",
-    "images": "12 PNGs opened and visually inspected; hashes in image-inspection.json"
+    "images": "All 12 regenerated PNGs opened with view_image; hashes in image-inspection.json. Native metrics unchanged."
   },
-  "failedAttempts": [
-    {
-      "phase": "Playwright Electron launch",
-      "result": "stalled; 180s timeout"
+  "repairRound1": {
+    "reviewedRevision": "8ab36962484a56cc58f9c96d23f1ae672325082a",
+    "instrumentSha256": "66692bd5333751e6ef8eae7b15269197c548aad550db3e8bceca3875d3e165f0",
+    "coverage": {
+      "literalPreviewIds": 82,
+      "missingLiteralIds": [],
+      "previewIds": 99,
+      "boardIds": 55,
+      "themeObservations": 308,
+      "textOwners": 15326,
+      "everyFlagCitesMeasuredFrame": true
     },
-    {
-      "phase": "unbounded main-inspector helper",
-      "result": "stalled handshake; replaced with bounded native WebSocket"
+    "ownerKeys": {
+      "originalDuplicateKeys": 24,
+      "duplicateKeys": 0
     },
-    {
-      "phase": "repeated native navigation",
-      "result": "3 browser tests passed, native timed out at 180s; full run failed; no saved numbers from this attempt",
-      "repair": "20s navigation timeout, DOM-content/fonts/specimen readiness, owned-child interrupt before disconnect",
-      "laterResult": "focused native 1 passed (8.6s); final full run 4 passed (1.6m)"
+    "inkResolution": {
+      "censusFormOwners": 184,
+      "composedFormObservations": 6,
+      "emptyTokens": 0,
+      "originalEmptyCensusProbes": 210,
+      "censusDirectTextTextareaOwners": 26
+    },
+    "independentSpotCheck": {
+      "frames": [
+        "sidebar-column",
+        "goal-roster"
+      ],
+      "themes": [
+        "light",
+        "dark"
+      ],
+      "fields": [
+        "frame",
+        "theme",
+        "path",
+        "textKind",
+        "role",
+        "roleSource",
+        "size",
+        "weight",
+        "lineHeight",
+        "letterSpacing",
+        "fontFamily",
+        "color",
+        "ink",
+        "xHeight",
+        "capHeight",
+        "resolvedInks"
+      ],
+      "fullOwners": 140,
+      "spotOwners": 140,
+      "missingOwners": 0,
+      "addedOwners": 0,
+      "matched": true,
+      "ignored": "text/positions/clock labels can vary; typography, role, stable path and multiplicity must match"
+    },
+    "mountTiming": "board:tools light editor code mounted before collection in this run (61 owners rather than 11); all other frame/theme counts unchanged. Full census owner totals can vary with async editor mounting.",
+    "images": "All 12 regenerated PNGs opened with view_image; hashes in image-inspection.json. Native metrics unchanged.",
+    "artifactValidation": {
+      "result": "passed",
+      "uniqueOwners": 15326,
+      "everyFlagPathResolves": true,
+      "referencePairArithmeticMatches": true,
+      "imageHashesMatch": 12,
+      "manifestComplete": true,
+      "newIdentitySpellings": []
     }
-  ],
+  },
   "limitations": [
     "Font-switch perception is an owner judgement, not proven by canvas metrics.",
     "Native font evidence is macOS Electron; Windows not measured.",
-    "Cap-gap values are geometric proxies, not raster glyph segmentation."
+    "Cap-gap values are geometric proxies, not raster glyph segmentation.",
+    "The full census editor can mount asynchronously; board:tools owner counts can vary.",
+    "Full pnpm verify exited 1 in Node tests under concurrent machine load; all affected tests passed in a focused serial rerun. The full gate was not rerun."
   ],
-  "publicationAdjustments": {
-    "pathText": "Source fixture home segments are redacted to the repository-approved /Users/dev placeholder. Only sampled display text changed; typography/geometry metrics untouched.",
-    "initialChecks": "Secrets gate rejected the undeclared fixture placeholder; switched to approved dev. Diff whitespace gate flagged a trailing blank line; removed.",
-    "rerun": "After selecting the approved home placeholder, the final instrument rerun printed 2 passed (9.1s), 2 intentionally skipped; 140/140 owners matched all 15 recorded fields."
+  "originalRun": {
+    "base": "ccc4e99a5c0e403ce1b14fe87f727f9be5ee11d1",
+    "checks": [
+      {
+        "command": "pnpm verify",
+        "exitCode": 0,
+        "output": "All checks passed.",
+        "note": "Run unpiped; completed before the final audit-instrument/report additions. No product source changed. Publication text gates run separately on all staged additions."
+      },
+      {
+        "command": "TYPE_AUDIT=1 pnpm exec playwright test -c playwright.ui-system.config.ts typography-audit.spec.ts",
+        "exitCode": 0,
+        "output": "4 passed (1.6m)",
+        "nativeOutput": "real Electron renderer evidence saved; native test 11.4s"
+      },
+      {
+        "command": "TYPE_AUDIT=1 TYPE_AUDIT_FRAMES=sidebar-column,goal-roster pnpm exec playwright test -c playwright.ui-system.config.ts typography-audit.spec.ts",
+        "exitCode": 0,
+        "output": "2 passed, 2 intentionally skipped (comparison/native outside two-frame mode)"
+      },
+      {
+        "command": "node script/check-secrets.mjs",
+        "exitCode": 0,
+        "output": "No tracked secrets (3061 files scanned)."
+      },
+      {
+        "command": "node script/check-doc-paths.mjs",
+        "exitCode": 0,
+        "output": "every documented path resolves (202 paths in 33 documents)"
+      },
+      {
+        "command": "git diff --cached --check",
+        "exitCode": 0,
+        "output": "No whitespace errors."
+      }
+    ],
+    "independentSpotCheck": {
+      "frames": [
+        "sidebar-column",
+        "goal-roster"
+      ],
+      "themes": [
+        "light",
+        "dark"
+      ],
+      "fields": [
+        "frame",
+        "theme",
+        "path",
+        "textKind",
+        "role",
+        "roleSource",
+        "size",
+        "weight",
+        "lineHeight",
+        "letterSpacing",
+        "fontFamily",
+        "color",
+        "ink",
+        "xHeight",
+        "capHeight"
+      ],
+      "fullOwners": 140,
+      "spotOwners": 140,
+      "missingOwners": 0,
+      "addedOwners": 0,
+      "matched": true,
+      "ignored": "text/positions/clock labels can vary; typography, role, stable path and multiplicity must match"
+    },
+    "coverage": {
+      "literalPreviewIds": 82,
+      "missingLiteralIds": [],
+      "previewIds": 99,
+      "boardIds": 55,
+      "themeObservations": 308,
+      "textOwners": 15276,
+      "everyFlagCitesMeasuredFrame": true
+    },
+    "artifactCheck": {
+      "offlineHTML": "theme dark and zoom 75%; all three PNGs decoded at 1400x820; 1050px CSS image width",
+      "images": "12 PNGs opened and visually inspected; hashes in image-inspection.json"
+    },
+    "failedAttempts": [
+      {
+        "phase": "Playwright Electron launch",
+        "result": "stalled; 180s timeout"
+      },
+      {
+        "phase": "unbounded main-inspector helper",
+        "result": "stalled handshake; replaced with bounded native WebSocket"
+      },
+      {
+        "phase": "repeated native navigation",
+        "result": "3 browser tests passed, native timed out at 180s; full run failed; no saved numbers from this attempt",
+        "repair": "20s navigation timeout, DOM-content/fonts/specimen readiness, owned-child interrupt before disconnect",
+        "laterResult": "focused native 1 passed (8.6s); final full run 4 passed (1.6m)"
+      }
+    ],
+    "limitations": [
+      "Font-switch perception is an owner judgement, not proven by canvas metrics.",
+      "Native font evidence is macOS Electron; Windows not measured.",
+      "Cap-gap values are geometric proxies, not raster glyph segmentation."
+    ],
+    "publicationAdjustments": {
+      "pathText": "Source fixture home segments are redacted to the repository-approved /Users/dev placeholder. Only sampled display text changed; typography/geometry metrics untouched.",
+      "initialChecks": "Secrets gate rejected the undeclared fixture placeholder; switched to approved dev. Diff whitespace gate flagged a trailing blank line; removed.",
+      "rerun": "After selecting the approved home placeholder, the final instrument rerun printed 2 passed (9.1s), 2 intentionally skipped; 140/140 owners matched all 15 recorded fields."
+    }
   }
 }

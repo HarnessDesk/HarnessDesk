@@ -3,27 +3,27 @@
   "files": [
     {
       "file": "alternative-dark.png",
-      "sha256": "d46f8a49d27e040877c6b4677b9e7f8eff79f3b8f0e128276f47e6aa47de30a7"
+      "sha256": "b737696563f4b7391bc0a7023a99be9e0c5429d944e1ced740da8c9697c10aed"
     },
     {
       "file": "alternative-light.png",
-      "sha256": "035c88b0d4ddbb3c4751590f2c1f4b846d380630de7b64d929f1c9edb8113bea"
+      "sha256": "567a26364a6d5839ae7bba6166047badb66156e86c5c32c64d58af750917b790"
     },
     {
       "file": "current-dark.png",
-      "sha256": "221efc7eb3b3f1c54d6b7b14a323b6188f1c34ec6a1dc018c3f04f84399b7c42"
+      "sha256": "dfeb6bec2bbab67a9d42593444379cd407ec1642b9ffda12f6f6e2cfcff29bc1"
     },
     {
       "file": "current-light.png",
-      "sha256": "b27d85b7594850ea38eb2935ec032df1687277da19d7d04b2982b6bacd200ad0"
+      "sha256": "b6cae323a48f70281799bd6e53036a93ace003f15b9e89608e3a69495308849e"
     },
     {
       "file": "recommendation-dark.png",
-      "sha256": "c986ee9ffb5d0bd98e40877cf9decdce2532ad94f569af3531ba9ec224845d2a"
+      "sha256": "2ace01309e5334a80cd31df40d617ec456f4a9775e6f255fb59d2024af7b1a63"
     },
     {
       "file": "recommendation-light.png",
-      "sha256": "fcdcac3ae7be1b37952e4948e5b6fe72f80b90d130e5e9878ccabfd7b81dacf5"
+      "sha256": "082cf5796e0b4d064ee16859cfbece449448aee91578abb428c6dc5b76e16bdc"
     },
     {
       "file": "ruled-dark.png",

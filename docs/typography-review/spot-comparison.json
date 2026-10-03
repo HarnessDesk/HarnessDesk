@@ -22,7 +22,8 @@
     "color",
     "ink",
     "xHeight",
-    "capHeight"
+    "capHeight",
+    "resolvedInks"
   ],
   "fullOwners": 140,
   "spotOwners": 140,
