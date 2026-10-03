@@ -26,7 +26,10 @@ roles:
   referee:
     kind: person
     outcomes: [merged, dropped]
-seed: { role: fixer, title: "{{task}}" }
+seed:
+  role: fixer
+  title: "{{task}}"
+  detail: "Commit the card's work with commit_work. The tool adds the desk's co-author credit; supply only your message."
 rules:
   - id: to-review
     on: fixer

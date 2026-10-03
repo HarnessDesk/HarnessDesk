@@ -9,6 +9,11 @@ move is real work and is not news to a person weighing an upgrade.
 
 HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
 
+- **A Seat's commit stays yours.** The desk adds its co-author credit once
+  when it commits a card's work, using your configured author and committer
+  identity. An agent no longer has to remember the credit, and commits you
+  make by hand are unchanged. (Fixes #1277)
+
 - **Teams have one page, with attention first.** Teams in the left menu lists
   work by project, its Seats and recorded usage. Active, Needs you and Settled
   have counts; quiet settled work folds into Ready to wrap and leaves the

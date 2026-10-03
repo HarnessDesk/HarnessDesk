@@ -26,8 +26,9 @@ import { HARDENED_GIT_CONFIG } from './git-hardening.js'
  * elsewhere: the commit names its paths (`git commit <paths>`, which commits
  * only those). Paths come from git's own status, never from the agent, and
  * reach git as literal pathspecs through a file, so none can carry magic or
- * reach outside the checkout. The message is the agent's text, stored
- * verbatim from a file — never a command-line argument, never a shell.
+ * reach outside the checkout. The message preserves the agent's text and
+ * adds the desk's co-author trailer once, stored from a file — never a
+ * command-line argument, never a shell.
  *
  * The author is the checkout's configured identity as git itself resolves it
  * (`user.name`, `user.email`), passed in explicitly because the commit runs
@@ -39,6 +40,15 @@ const run = promisify(execFile)
 
 /** The longest message `commit_work` takes. */
 export const COMMIT_MESSAGE_LIMIT = 8_000
+
+/** The desk's attribution; the checkout's configured identity owns the commit. */
+const COAUTHOR_TRAILER = 'Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>'
+
+const attributedMessage = (message: string): string => {
+  if (message.split(/\r?\n/).includes(COAUTHOR_TRAILER)) return message
+  const separator = /\r?\n\r?\n$/.test(message) ? '' : message.endsWith('\n') ? '\n' : '\n\n'
+  return `${message}${separator}${COAUTHOR_TRAILER}\n`
+}
 
 export type CardCommit =
   | { readonly commit: string; readonly paths: readonly string[] }
@@ -235,7 +245,7 @@ export const commitCardWork = async (cwd: string, before: readonly string[], mes
     const pathspecs = join(scratch, 'paths')
     const text = join(scratch, 'message')
     await writeFile(pathspecs, paths.join('\0') + '\0')
-    await writeFile(text, message)
+    await writeFile(text, attributedMessage(message))
     const env = isolatedEnv({
       GIT_AUTHOR_NAME: identity.name,
       GIT_AUTHOR_EMAIL: identity.email,

@@ -81,6 +81,10 @@ test('each Seat of an isolated pair commits its own work in its own lane through
     assert.notEqual(await git('rev-parse', 'HEAD'), main, `${lane} moved`)
     assert.equal(await git('show', '--name-only', '--format=', 'HEAD'), 'answer.md')
     assert.equal(await git('status', '--porcelain=v1'), '', 'and is clean')
+    assert.equal(await git('log', '-1', '--format=%an <%ae>%n%cn <%ce>'),
+      'Jane Doe <dev@example.com>\nJane Doe <dev@example.com>', 'the person owns both identities')
+    assert.equal(await git('log', '-1', '--format=%(trailers:key=Co-authored-by,valueonly)'),
+      'HarnessDesk Agent <agent@harnessdesk.app>', 'the tool credits the desk once')
   }
   assert.equal((await repo.git('rev-parse', 'main')).trim(), main, 'the main checkout did not move')
 })

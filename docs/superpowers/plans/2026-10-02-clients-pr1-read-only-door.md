@@ -61,8 +61,8 @@ These bind every task:
   commit builds on its own. Tasks 1 to 3 are therefore **one** commit: a
   method declared in `wire.ts` fails to build until its handler exists
   (`MethodsUnder` and the assembled `HostMethodTable`), so each declaration
-  lands with its validator and its handler. End every commit message with
-  `Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>`.
+  lands with its validator and its handler. On a board card, use
+  `commit_work`; it adds the desk's co-author credit itself.
 - **`pnpm verify`,** unpiped, before you hand off. A piped run reports the
   pipe's exit status, not the gate's.
 

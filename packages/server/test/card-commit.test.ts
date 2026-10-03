@@ -60,20 +60,110 @@ test('commit_work commits only what changed since the claim, and leaves what was
   const left = (await git(root, 'status', '--porcelain=v1')).split('\n').filter(Boolean).sort()
   assert.deepEqual(left, [' M shared.txt', '?? .env'], 'what was dirty at the claim is still dirty, and not committed')
   assert.equal((await git(root, 'log', '-1', '--format=%an <%ae>')).trim(), 'Jane Doe <dev@example.com>', 'the checkout’s configured author')
+  assert.equal((await git(root, 'log', '-1', '--format=%cn <%ce>')).trim(), 'Jane Doe <dev@example.com>', 'the checkout’s configured committer')
 
   assert.deepEqual(await commitCardWork(root, before, 'Again'), {
     refused: 'Nothing to commit: no file changed since this card was claimed is uncommitted.',
   })
 })
 
-test('a message with shell metacharacters and newlines is stored exactly as written', async (t) => {
+const coauthor = 'Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>'
+
+test('commit_work adds exactly one co-author trailer after a blank line', async (t) => {
+  for (const ending of ['', '\n', '\n\n', '\r\n']) {
+    const root = await repo(t)
+    const before = await snapshot(root)
+    await writeFile(join(root, 'notes.md'), 'x\n')
+    const message = `Write the notes${ending}`
+    const done = await commitCardWork(root, before, message)
+    assert.ok('commit' in done, JSON.stringify(done))
+    const stored = await git(root, 'log', '-1', '--format=%B')
+    assert.ok(stored.startsWith(message), 'the supplied message is preserved')
+    assert.match(stored, /\r?\n\r?\nCo-authored-by: HarnessDesk Agent <agent@harnessdesk\.app>\n\n$/)
+    assert.equal(stored.split(coauthor).length - 1, 1)
+    assert.equal((await git(root, 'log', '-1', '--format=%an <%ae>%n%cn <%ce>')).trim(),
+      'Jane Doe <dev@example.com>\nJane Doe <dev@example.com>')
+    assert.equal((await git(root, 'log', '-1', '--format=%(trailers:key=Co-authored-by,valueonly)')).trim(),
+      'HarnessDesk Agent <agent@harnessdesk.app>', 'git recognizes the trailer')
+  }
+})
+
+test('commit_work preserves a message that already carries the exact co-author trailer', async (t) => {
+  for (const newline of ['\n', '\r\n']) {
+    for (const ending of ['', newline]) {
+      const root = await repo(t)
+      const before = await snapshot(root)
+      await writeFile(join(root, 'notes.md'), 'x\n')
+      const message = `Write the notes${newline}${newline}${coauthor}${ending}`
+      const done = await commitCardWork(root, before, message)
+      assert.ok('commit' in done, JSON.stringify(done))
+      const stored = await git(root, 'log', '-1', '--format=%B')
+      assert.equal(stored, `${message}\n`)
+      assert.equal(stored.split(coauthor).length - 1, 1)
+    }
+  }
+})
+
+test('mentioning the co-author text inside the body does not replace the trailer', async (t) => {
+  const root = await repo(t)
+  const before = await snapshot(root)
+  await writeFile(join(root, 'notes.md'), 'x\n')
+  const message = `Write the notes\n\nThe tool adds "${coauthor}" itself.`
+  const done = await commitCardWork(root, before, message)
+  assert.ok('commit' in done, JSON.stringify(done))
+  assert.equal(await git(root, 'log', '-1', '--format=%B'), `${message}\n\n${coauthor}\n\n`)
+})
+
+test('a hand commit keeps the person’s message and identity without a co-author trailer', async (t) => {
+  const root = await repo(t)
+  await writeFile(join(root, 'notes.md'), 'x\n')
+  await git(root, 'add', 'notes.md')
+  await git(root, 'commit', '-q', '-m', 'Write the notes by hand')
+  assert.equal(await git(root, 'log', '-1', '--format=%B'), 'Write the notes by hand\n\n')
+  assert.equal((await git(root, 'log', '-1', '--format=%an <%ae>%n%cn <%ce>')).trim(),
+    'Jane Doe <dev@example.com>\nJane Doe <dev@example.com>')
+})
+
+test('commit_work uses the global identity when the checkout has none, ignoring host git author overrides', async (t) => {
+  const root = await repo(t)
+  await git(root, 'config', '--unset', 'user.name')
+  await git(root, 'config', '--unset', 'user.email')
+  const global = join(root, '..', 'global.gitconfig')
+  await writeFile(global, '[user]\n\tname = Jane Doe\n\temail = dev@example.com\n')
+  const overrides = {
+    GIT_CONFIG_GLOBAL: global,
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_AUTHOR_NAME: 'Agent Override',
+    GIT_AUTHOR_EMAIL: 'agent@example.com',
+    GIT_COMMITTER_NAME: 'Agent Override',
+    GIT_COMMITTER_EMAIL: 'agent@example.com',
+  }
+  const saved = Object.fromEntries(Object.keys(overrides).map((key) => [key, process.env[key]]))
+  Object.assign(process.env, overrides)
+  t.after(() => {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  })
+  const before = await snapshot(root)
+  await writeFile(join(root, 'notes.md'), 'x\n')
+  const done = await commitCardWork(root, before, 'Use the person’s global identity')
+  assert.ok('commit' in done, JSON.stringify(done))
+  assert.equal((await git(root, 'log', '-1', '--format=%an <%ae>%n%cn <%ce>')).trim(),
+    'Jane Doe <dev@example.com>\nJane Doe <dev@example.com>')
+  assert.equal((await git(root, 'log', '-1', '--format=%(trailers:key=Co-authored-by,valueonly)')).trim(),
+    'HarnessDesk Agent <agent@harnessdesk.app>')
+})
+
+test('a message with shell metacharacters and newlines is preserved before the automatic trailer', async (t) => {
   const root = await repo(t)
   const before = await snapshot(root)
   await writeFile(join(root, 'notes.md'), 'x\n')
   const message = 'Subject; $(touch pwned) `id` && rm -rf / | cat\n\n# not a comment\n  indented "quoted" \'single\' \\ back\n-F --amend\n'
   const done = await commitCardWork(root, before, message)
   assert.ok('commit' in done, JSON.stringify(done))
-  assert.equal(await git(root, 'log', '-1', '--format=%B'), `${message}\n`)
+  assert.equal(await git(root, 'log', '-1', '--format=%B'), `${message}\n${coauthor}\n\n`)
   assert.equal(await exists(join(root, 'pwned')), false)
 })
 

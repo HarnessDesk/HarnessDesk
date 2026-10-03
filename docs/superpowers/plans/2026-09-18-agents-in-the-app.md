@@ -42,7 +42,7 @@ These govern Part B wherever a task below says otherwise. The roadmap carries th
 - **A wire method is three edits in a fixed order** (AGENTS.md rule 2): declare in `packages/protocol/src/wire.ts`, validate in `packages/protocol/src/wire-validators.ts`, answer in `packages/server/src/methods/<domain>.ts`. A handler reaches the host only through `HostContext`.
 - **A verb with no caller is pinned in `UNREACHED`** in `script/check-reachable.mjs` with its reason while Part A lands, and its line is removed **in the same task** that gives it a `transport.request('…')` caller in `packages/ui/src` — the gate fails either way round.
 - **Testing.** Server: `node:test` with `node:assert/strict`; build with `pnpm run build:node` (it is the typecheck — **never** `pnpm run typecheck`, which fails with TS6310 whatever you change), then `node --test --test-reporter=spec packages/server/dist/test/<file>.test.js`. UI: `pnpm --filter @harnessdesk/ui exec vitest run <path under packages/ui>`. Every test must be able to fail; a regression test is shown red against the unfixed code before the fix.
-- **Commit after every task**, with `pnpm verify` green first, run **unpiped** with a short temp dir, reading its exit status: `mkdir -p /tmp/hdv && TMPDIR=/tmp/hdv pnpm verify; echo "verify exit: $?"`. Commit messages end with `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
+- **Commit after every task**, with `pnpm verify` green first, run **unpiped** with a short temp dir, reading its exit status: `mkdir -p /tmp/hdv && TMPDIR=/tmp/hdv pnpm verify; echo "verify exit: $?"`. On a board card, use `commit_work`; the tool adds the desk's co-author credit itself.
 - **Part A ships on its own.** After Task 10, `pnpm verify` is green and every new verb is either called or pinned. Part B is stacked on Part A's branch, and from Task 19 on `UNREACHED` holds only what it held before phase 1 (`team/state`, `team/rooms`).
 
 ---
@@ -522,9 +522,7 @@ surface can neither show nor act on without reading English. Each candidate
 now also carries what the reason is and what removes it, from the one function
 that words the sentence, so the two cannot disagree. A runtime nobody added and
 one whose program is missing still read 'not installed'; they are fixed in
-different places, so the reason says which.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+different places, so the reason says which."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -967,9 +965,7 @@ Seating asked each runtime for its account and its models, and the desk for
 everyone's usage, and waited for all of it. One silent bridge held the seating
 open for good. Each read now has ten seconds: an account that does not answer
 passes the candidate over with that reason, a model list that does not arrive
-is unread, and usage that does not arrive is replaced by the last reading.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+is unread, and usage that does not arrive is replaced by the last reading."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -1417,9 +1413,7 @@ where the runtime can delete — Codex erases it, the Claude Code and Cursor
 bridges trash whatever exists — and forgotten by the desk, and every window is
 told to drop it. A runtime that cannot delete has it archived, and the refusal
 says the agent may still keep it. A seat whose brief may have arrived is still
-only closed.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+only closed."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -2006,9 +2000,7 @@ agent/seat/dry answers, for each Agent, every candidate in order: the one that
 would be taken here, why each above it would not be and what would fix it, and
 the seat in words — the runtime by the name the desk calls it and the model and
 effort by the labels the runtime gave them. One read of the desk, under the
-seating's own deadline, serves every Agent asked about.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+seating's own deadline, serves every Agent asked about."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -2397,9 +2389,7 @@ A refusal was one sentence, and a sheet that lists every candidate with its fix
 cannot be drawn from English. It is now a SeatRefusedError whose candidates
 travel as the error's data, the way a failure with a way out already travels by
 code. The seat kept records what it runs, as read back, and the candidates it
-passed on the way — host-held beside its Agent, refused from anyone else.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+passed on the way — host-held beside its Agent, refused from anyone else."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -3045,9 +3035,7 @@ says what this machine seats it on, and replaces prefer here rather than
 merging with it. A seating's own seats still come first. An entry that does
 not read refuses the seating and says where, instead of quietly seating the
 Agent on the list the person replaced, and a file that is not JSON is never
-written over. One verb sets or clears one Agent's entry and tells every window.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+written over. One verb sets or clears one Agent's entry and tells every window."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -3693,9 +3681,7 @@ analyst: enough for every shape the design names to start without writing an
 Agent. Each names runtimes and not models, in one order, so a machine's
 seating.json is where a model is chosen; each brief says how it reports and
 what it must never do, because its ceiling is asked and not yet held. The
-server package now carries the folder, and the packaged smoke checks it.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+server package now carries the folder, and the packaged smoke checks it."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -4116,9 +4102,7 @@ and every listing drawn from the roster was stale with nothing to say so. The
 host now watches this machine's roster, the built-in one and each open
 project's, and pushes agent/changed once per burst. A root not made yet is
 watched for; a project is watched only while it is open, and never through a
-link that leads out of it.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+link that leads out of it."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -4777,9 +4761,7 @@ four writes that are not edits belong to the host: a new Agent saved from a
 conversation, a copy made where it shadows its original, a folder moved to the
 Trash, and the file shown in Finder. A committed Agent names its runtime and
 this machine keeps the model; nothing overwrites an Agent that is there, and
-nothing is written through a link out of a project.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+nothing is written through a link out of a project."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -5056,9 +5038,7 @@ A user Agent is in no repository, so a backup was its only possible copy and
 did not take it; seating.json is the one file that says which model each Agent
 runs on here. Both now travel, as new optional fields beside the runtimes', and
 a restore adds them the way it adds everything else: what is here stays, and a
-path that would climb out of its folder is not written.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+path that would climb out of its folder is not written."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -5346,9 +5326,7 @@ the CLIs moved by hand — the app menu and ⌘,, the seat menu, Add another
 runtime, the palette, a room's failure sentence — and a test reads the source
 to prove nothing still opens the roster to ask for a sign-in. The preset
 dialog stops suggesting an Agent's name, and a backup counts runtimes and
-Agents apart.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+Agents apart."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -6029,9 +6007,7 @@ reads both again when the host says the roster changed, when a sign-in moves
 what can be seated, and when the folder moves. lib/agents says a ceiling
 (asked, never held), an origin, a reason and its fix in one place, with no wire
 id and no seat spec. The host reads a folder as the checkout it is in, so an
-open subfolder lists its repository's Agents and a worktree its branch's.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+open subfolder lists its repository's Agents and a worktree its branch's."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -6584,9 +6560,7 @@ folder it reads. A row is the Agent and what it is for, its ceiling as asked,
 and the seat it would take here — or Can't seat here and the first reason,
 never withdrawn. A shadowed copy is listed where it lives and says what
 shadows it; a file that will not parse is a row that says why, and the only
-thing that puts a dot on the nav row.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+thing that puts a dot on the nav row."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -7588,9 +7562,7 @@ greyed with its reason, and pressing it raises the refusal sheet. The sheet
 opens nothing: every candidate, why it was passed over and the one fix that
 removes it, and Edit seats for this Mac beneath — including a refusal only an
 open seat could find. ⌘K gains Start as and Open in Settings, and Settings can
-open on a thing inside a page.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+open on a thing inside a page."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -8686,9 +8658,7 @@ for, each with its state on this Mac and the fix for one that fails; what it
 answers and produces, and its skills, which open the Library; and the opening
 of its brief. Start a conversation as it, Customize… to copy it somewhere it
 comes first, or Remove… it to the Trash. Where this Mac's seats replace its
-own, the dry run weighs its own list too, and the page lists it muted.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+own, the dry run weighs its own list too, and the page lists it muted."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -9265,9 +9235,7 @@ dry run of that very list. A seat is chosen by runtime, model, effort and
 thinking, never typed as a spec; it moves up or down or goes, and Clear gives
 the Agent its own list back. An entry that does not read is shown with where
 and why, and a file that is not JSON is never written over from here. A seat
-its runtime cannot give is fixed on the same page, by a seat for this Mac.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+its runtime cannot give is fixed on the same page, by a seat for this Mac."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -9740,9 +9708,7 @@ Project settings in the sidebar's project menu. The page lists the project's
 own Agents — the ones committed with its code, which come first there — with
 the folder they are read from; the open project's are ways into their pages,
 and another project's page says to open it. Open and Forget move onto the
-page, because a row that opens something cannot hold buttons.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+page, because a row that opens something cannot hold buttons."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -10369,9 +10335,7 @@ title is still that name — and the composer shows the Agent and the seat it
 took, as read back, even on a desk with one runtime. Its name card gains an
 Agent band: the Agent, its ceiling (asked), what it is for, where it came
 from, the seat and every seat passed over with why, and a warning once the
-brief has changed since the conversation started.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+brief has changed since the conversation started."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -10854,9 +10818,7 @@ A conversation's menu offers Save as an Agent…: a name, what it is for and a
 ceiling, with the seat the conversation is on — read the way seating reads a
 seat back, and said in words — as its first. It is written to you or to the
 open project, where the file names the runtime alone and this Mac keeps the
-exact seat, and the new brief opens in the editor to be written.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+exact seat, and the new brief opens in the editor to be written."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -11231,9 +11193,7 @@ runtime and a conversation already running. The Agent is seated in the room's
 folder and joins it; refused, the refusal sheet says why and nothing joins. A
 member seated as an Agent is named for it, numbered like any other name, so
 the name it is addressed by in the channel is the name on the rail and on its
-card.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+card."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -11571,9 +11531,7 @@ refusing rather than substituting, starting as one, and saving your own.
 interface.md gains Settings › Agents, Runtimes and a project's page, the
 Agent-led conversation and Save as an Agent…; runtimes.md, multi-agent.md,
 getting-started.md and design.md stop sending readers to Settings › Agents
-for what is now Settings › Runtimes.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+for what is now Settings › Runtimes."
 ```
 
 Expected: `verify exit: 0` before the commit.
@@ -11932,9 +11890,7 @@ for the reviewer and a runtime that is signed out where the host asks. Ten
 scenes photograph the roster, an Agent's page, Runtimes, a project's page, the
 new-session dialog, ⌘K, a conversation seated as an Agent with its card, the
 refusal sheet, Save as an Agent and a room's +, and the takes that the
-roadmap's Done when rests on fail when it does not hold.
-
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+roadmap's Done when rests on fail when it does not hold."
 ```
 
 Expected: `verify exit: 0`; `git status --short docs/images` prints nothing — the frames are in `$SHOTS`, outside the repository.
