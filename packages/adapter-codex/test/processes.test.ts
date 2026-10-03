@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import type { CodexAppServer, CodexProtocol } from '@harnessdesk/codex'
+
 import { CodexRuntime } from '../src/index.js'
+import { CodexProcesses } from '../src/processes.js'
 
 /**
  * Sandboxed processes over `command/exec`: output streams, stdin reaches
@@ -36,6 +39,87 @@ const waitFor = async (
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
 }
+
+const deferred = <T>() => {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no })
+  return { promise, resolve, reject }
+}
+
+/** The fake controls startup and exit independently, as the server does. */
+const controlled = () => {
+  const exit = deferred<CodexProtocol.v2.CommandExecResponse>()
+  const ready = deferred<CodexProtocol.v2.CommandExecWriteResponse>()
+  void ready.promise.catch(() => {}) // The old implementation never asks for this check.
+  const calls: { method: string; params: Record<string, unknown>; options: unknown }[] = []
+  const server = {
+    request: (method: string, params: Record<string, unknown>, options: unknown) => {
+      calls.push({ method, params, options })
+      if (method === 'command/exec') return exit.promise
+      assert.equal(method, 'command/exec/write')
+      return ready.promise
+    },
+  } as unknown as CodexAppServer
+  const processes = new CodexProcesses(server, () => undefined)
+  return { processes, exit, ready, calls }
+}
+
+test('a refusal beyond the old grace window still rejects spawn', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const fake = controlled()
+  const spawn = fake.processes.spawn({ cwd: '/w', command: ['missing'], tty: false })
+  const refusal = new Error('failed to spawn: missing executable')
+  const rejected = assert.rejects(spawn, (error) => error === refusal)
+  void rejected.catch(() => {}) // Keep a failing assertion handled until the fake releases exit.
+
+  // Advance past 150ms without any wall-clock race; the fake has not yet
+  // decided whether the command can start.
+  t.mock.timers.tick(250)
+  await new Promise((resolve) => setImmediate(resolve))
+  fake.ready.reject(new Error('no active command/exec'))
+  await new Promise((resolve) => setImmediate(resolve))
+  fake.exit.reject(refusal)
+  await rejected
+  assert.equal(fake.calls.length, 2, 'one startup check, no retry')
+})
+
+test('a silent command waits for startup acknowledgement, not output or exit', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const fake = controlled()
+  let returned = false
+  const spawn = fake.processes.spawn({ cwd: '/w', command: ['cat'], tty: false })
+  void spawn.then(() => { returned = true })
+  t.mock.timers.tick(250)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(returned, false, 'elapsed time does not establish startup')
+  assert.deepEqual(fake.calls.map((call) => call.method), ['command/exec', 'command/exec/write'])
+  assert.deepEqual(fake.calls[1]?.params, {
+    processId: fake.calls[0]?.params['processId'], deltaBase64: '',
+  }, 'startup check sends no bytes and leaves stdin open')
+  assert.deepEqual(fake.calls[1]?.options, { timeoutMs: 0 })
+
+  fake.ready.resolve({})
+  const process = await spawn
+  const exits: number[] = []
+  process.onExit((code) => exits.push(code))
+  assert.deepEqual(exits, [], 'startup resolves while a silent child is still running')
+  fake.exit.resolve({ exitCode: 0, stdout: '', stderr: '' })
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(exits, [0])
+})
+
+test('a fast exit wins even when the startup check finds no running command', async () => {
+  const fake = controlled()
+  const spawn = fake.processes.spawn({ cwd: '/w', command: ['true'], tty: false })
+  fake.ready.reject(new Error('no active command/exec'))
+  await new Promise((resolve) => setImmediate(resolve))
+  fake.exit.resolve({ exitCode: 0, stdout: '', stderr: '' })
+  const process = await spawn
+  const exits: number[] = []
+  process.onExit((code) => exits.push(code))
+  assert.deepEqual(exits, [0])
+})
 
 test('stdin reaches the process and its output streams back until it exits', async (t) => {
   const runtime = await started(t)
@@ -112,9 +196,8 @@ test('a finished process reports its exit to a listener that subscribes late', a
 })
 
 test('output printed before anyone listens is delivered, not dropped', async (t) => {
-  // `spawn` holds its caller ~150ms to tell a refusal from a process, and the
-  // host registers its output listener only after spawn resolves. A fast
-  // command says everything inside that window; every byte must still arrive.
+  // The host registers its output listener only after startup is acknowledged.
+  // A fast command can print before that; every byte must still arrive.
   const runtime = await started(t)
   const process = await runtime.processes.spawn({
     cwd: '/w',
