@@ -1428,7 +1428,7 @@ it('repair context leads a review card: its ids and from/to come before other de
   const { store, snapshot } = rig([reviewCard])
   const runView: FindingRunView = {
     run: 'run-9', goal: ROOM, round: 2, finished: 1, total: 3, embargoed: false, open: 1, blocking: 1,
-    reason: null, ceilingStop: false, stamp: 'stamp-1', publication: 'posted', reviewersFinished: null, reviewersTotal: null,
+    reason: null, ceilingStop: false, stamp: 'stamp-1', publication: 'posted', rounds: [], reviewersFinished: null, reviewersTotal: null,
     pendingExceptions: [],
     repair: [{ series: `reviewer@/repo`, from, to, claimed: ['finding-0001'], unresolved: ['finding-0003'] }],
     boundPr: null, unbound: null, undecidable: null,
@@ -1450,7 +1450,7 @@ it('a card with no repair lead pinned for its round shows its own detail as befo
   const { store, snapshot } = rig([plainCard])
   const runView: FindingRunView = {
     run: 'run-9', goal: ROOM, round: 1, finished: 0, total: 3, embargoed: false, open: 1, blocking: 1,
-    reason: null, ceilingStop: false, stamp: 'stamp-1', publication: 'posted', reviewersFinished: null, reviewersTotal: null,
+    reason: null, ceilingStop: false, stamp: 'stamp-1', publication: 'posted', rounds: [], reviewersFinished: null, reviewersTotal: null,
     pendingExceptions: [], repair: null, boundPr: null, unbound: null, undecidable: null,
   }
   Object.assign(snapshot, { findingRuns: new Map([['run-9', runView]]) })

@@ -381,6 +381,15 @@ export type FindingDecisionAction =
       readonly state: 'open' | 'repaired' | 'withdrawn'
     }
 
+/** One review round's publication, folded only from its own journal entries. */
+export interface FindingRoundPublication {
+  readonly round: number
+  readonly state: 'none' | 'local' | 'pending' | 'posted' | 'partial' | 'uncertain'
+  readonly reason: string | null
+  readonly pr: number | null
+  readonly cards: readonly number[]
+}
+
 /** A run's findings as a person reads them. */
 export interface FindingRunView {
   readonly run: string
@@ -396,6 +405,7 @@ export interface FindingRunView {
   readonly ceilingStop: boolean
   readonly stamp: string
   readonly publication: 'local' | 'pending' | 'posted' | 'partial' | 'uncertain'
+  readonly rounds: readonly FindingRoundPublication[]
   /**
    * How many of the current round's review cards hold a durable completed
    * card — never a token stream ending — and how many the round opened.

@@ -11,7 +11,7 @@ const desk = await resolveDesk()
 const client = await connect({
   transport: () => localTransport(desk),
   client: { name: 'demo-client', version: '0.1.0' },
-  subscribe: { topics: ['runs', 'cards', 'teams', 'waiting', 'notices'] },
+  subscribe: { topics: ['runs', 'cards', 'teams', 'seats', 'reviews', 'waiting', 'notices'] },
 })
 try {
   console.log(await client.call('goal/list', {}))
@@ -39,7 +39,13 @@ missing from the handshake's advertised methods rejects locally with
 `notOnClientSurface` is a refusal. `ClientMethodName` restricts TypeScript
 callers to the protocol's client allowlist.
 
-`events()` is the stable version-1 vocabulary. It begins with `hello`.
+Subscription topics are `runs`, `cards`, `teams`, `seats`, `reviews`,
+`waiting` and `notices`. The same Team, run or project scope applies to
+`seats` and `reviews`; a run scope selects its Team's seats.
+
+`events()` is the stable version-1 vocabulary: `hello`, `run.changed`,
+`card.changed`, `team.changed`, `seat.changed`, `review.changed`, `waiting`,
+`waiting.cleared`, `notice`, `gap` and `end`. It begins with `hello`.
 After a loss, the client reconnects with backoff, repeats hello and the latest
 subscription, and emits `gap` before the new whole-state baseline. Consumers
 should discard their previous projection on `gap` and rebuild from the events
@@ -54,6 +60,24 @@ remains selected even if its extra execution read exceeds the call's deadline.
 An unacknowledged subscription timeout discards that uncertain connection and
 reconnects the last acknowledged selection, so a late baseline cannot be mixed
 into the previous scope.
+
+`seat.changed` maps the host's `seat/activity` snapshots, deduplicated by
+Team and seat over state, doing, card and role. Its `seat` is
+`runtime:sessionId`. `doing` is `{ kind: 'tool', tool, target? }` or
+`{ kind: 'thinking' }` while working, otherwise `null`; it carries a tool
+and at most a safe path. Optional `since` comes only from the host's record.
+
+`review.changed` reads `finding/run`'s `rounds` and emits a changed state,
+reason, pull request or card list per run and round. With `reviews` selected,
+the client discovers all scoped runs, including finished ones, after the
+initial subscription and each new baseline. A run scope uses the exact
+`flow/execution` read. Each `finding/changed` discovers that Team's new runs
+and refreshes its review rounds. Reads are sequential per Team; a burst
+leaves at most one running batch and one queued batch. A failed background
+read emits a `notice` with the desk's message; another invalidation can
+refresh it, with no automatic retry or periodic reads. The host sends no
+review baseline itself. A reviewed round without a publication decision
+has state `none`; the run's `publication` remains the aggregate.
 
 `host/shutdown` emits `end` with `desk-closed` and stops reconnection. `close()`
 emits `end` with `interrupted`. A fatal protocol or permission refusal during

@@ -140,3 +140,25 @@ test('the review-pr flow reaches its person referee through two repairs', E2E, a
   const done = await settled(d, run.id)
   assert.equal(done.findings?.stopped ?? null, null)
 })
+
+
+test('a new review record wakes reviews-only readers before the round has a publication decision', E2E, async (t) => {
+  const d = await desk(t)
+  const run = await start(d, await shipped(d, 'independent-review'), TASK)
+  await write(d, (await claimed(d, run.goal, 'build', 1))[0]!, 'built')
+  const card = (await claimed(d, run.goal, 'specialists', 3))[0]!
+  const goals: string[] = []
+  d.host.addBroadcaster((notification) => {
+    if (notification.method === 'finding/changed') goals.push(notification.params.goal)
+  })
+  const scope = scopeOf(card)
+  const candidates = await d.host.teamPlane.reviewCandidates(card.id, scope)
+  const input = { intent: card.id, candidate: candidates[0]!.id, verdict: 'approve' }
+  await d.host.teamPlane.recordReview(input, scope)
+  assert.deepEqual(goals, [run.goal])
+  const view = await d.host.call('finding/run', { goal: run.goal, run: run.id })
+  assert.equal(view.rounds.find((one) => one.cards.includes(card.id))?.state, 'none')
+  await d.host.teamPlane.recordReview(input, scope)
+  await d.host.call('finding/run', { goal: run.goal, run: run.id })
+  assert.equal(goals.length, 1, 'duplicate review records and reads do not trigger another refresh')
+})

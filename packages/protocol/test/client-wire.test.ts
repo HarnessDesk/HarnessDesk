@@ -19,3 +19,9 @@ test('execution listing validates its optional filters', () => {
   assert.doesNotThrow(() => request('flow/executions', { team: 'g1', project: '/repo', active: false }))
   assert.throws(() => request('flow/executions', { active: 'yes' }), ValidationError)
 })
+
+test('seat and review subscriptions and read-only review rounds validate', () => {
+  assert.doesNotThrow(() => request('client/subscribe', { topics: ['seats', 'reviews'] }))
+  assert.doesNotThrow(() => request('finding/run', { goal: 'demo-team', run: 'demo-run' }))
+  assert.throws(() => request('finding/run', { goal: 'demo-team', run: '' }), ValidationError)
+})

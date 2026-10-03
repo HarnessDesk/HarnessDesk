@@ -279,6 +279,8 @@ checks each method's tier before its params, and sends only subscribed topics
 in scope after hello. Only `read` is granted so far; the window's token-gated
 door keeps its existing contract. Client calls share the audit file, while
 the window's audit query continues to return session entries only.
+The host derives each Seat's `seat/activity` once for every client, using
+the shared activity and tool-name vocabulary in `packages/protocol`.
 
 Adding a method is those three steps, and the compiler holds the third twice
 over. Each module `satisfies MethodsUnder<its prefixes>`, so a method declared

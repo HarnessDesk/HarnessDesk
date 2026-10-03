@@ -20,6 +20,9 @@
  */
 import {
   currentTurn,
+  doingSentence,
+  inFlightItem,
+  seatDoing,
   isBusy,
   type AgentItem,
   type Approval,
@@ -32,9 +35,6 @@ import {
   type Session,
   type TeamSignal,
 } from '@harnessdesk/protocol'
-
-import { PATH_KEYS, shellCommandOf, toolCallVerb } from './group-items'
-import { bareToolName, toolSentence } from './tool-names'
 
 export type SeatState = 'needs-you' | 'unread' | 'working' | 'idle'
 
@@ -131,49 +131,9 @@ const costOf = (input: TeamOverviewInput, seat: TeamOverviewSeat): SeatRow['cost
   return turns === null ? null : { unit: 'turns', value: turns, estimated: estimated(amounts.turns) }
 }
 
-/** A path is the only argument the overview may repeat. Reject prose and shell syntax. */
-const safePath = (value: unknown): string | null => {
-  if (typeof value !== 'string' || !value || !/^[\w./\\-]+$/.test(value) || value.startsWith('//') || value.startsWith('\\\\')) return null
-  return value
-}
-
-/** Summarise the action, never the transcript's command/query/description/result. */
-const toolLine = (item: AgentItem, sentences: ReadonlyMap<string, string>): string | null => {
-  // These sentences go through the same lookup as the transcript, without its command detail.
-  const generic = (tool: string, sentence: string): string => toolSentence(tool, new Map([[tool, sentence]]))
-  if (item.type === 'command') return generic('command', 'Running a command')
-  if (item.type === 'webSearch') return generic('web_search', 'Searching the web')
-  if (item.type === 'fileChange') {
-    const path = safePath(item.changes[0]?.path)
-    return path ? toolSentence('edit', sentences, { kind: 'fileChange', target: path }) : generic('edit', 'Editing files')
-  }
-  if (item.type !== 'toolCall') return null
-  const bare = bareToolName(item.tool)
-  const call = { ...item, tool: bare }
-  const verb = toolCallVerb(call)
-  if (verb === 'command' || shellCommandOf(item) !== null ||
-      /^(?:exec_command|write_stdin|execute_command|run_terminal_cmd|bash|shell|terminal|exec|command)$/.test(bare)) {
-    return generic('command', 'Running a command')
-  }
-  const args = typeof item.args === 'object' && item.args !== null && !Array.isArray(item.args)
-    ? item.args as Record<string, unknown> : null
-  // An ACP title may be "Read src/file.ts". Only recognised file verbs may
-  // contribute a target; arbitrary titles (including shell commands) never do.
-  const phrase = /^(Read|Edit|Write|Create)\s+(.+)$/i.exec(item.tool)
-  const target = safePath(args && PATH_KEYS.map((key) => args[key]).find((value) => typeof value === 'string')) ?? safePath(phrase?.[2])
-  if (verb === 'read' || /^read$/i.test(bare) || phrase?.[1]?.toLowerCase() === 'read') {
-    return target ? toolSentence('read', sentences, { kind: 'read', target }) : generic('read', 'Reading a file')
-  }
-  if (verb === 'fileChange' || (phrase && phrase[1]?.toLowerCase() !== 'read')) {
-    return target ? toolSentence(phrase?.[1] ?? bare, sentences, { kind: 'fileChange', target }) : generic('edit', 'Editing a file')
-  }
-  if (verb === 'search') return generic('search', 'Searching files')
-  // toolSentence deliberately preserves phrases. Never give it an untrusted
-  // title as a fallback here; only a wire identifier can become words.
-  if (!/^[a-z][a-z0-9_-]*$/i.test(bare)) return generic('tool', 'Using a tool')
-  const sentence = toolSentence(bare, sentences)
-  return /[\n\r\x00-\x1f<>`$=]|:\/\//.test(sentence) ? generic('tool', 'Using a tool') : sentence
-}
+/** Summarise the action with the shared structured derivation and wording. */
+const toolLine = (item: AgentItem, sentences: ReadonlyMap<string, string>): string =>
+  doingSentence(seatDoing(item), sentences)
 
 const approvalWords = (request: Approval): string => {
   switch (request.type) {
@@ -252,8 +212,7 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
       // does not finish it (Team#unblock uses exactly this rule).
       return dependency !== undefined && dependency.state !== 'done'
     }) : []
-    const latest = turn?.status === 'inProgress' ? [...turn.items].reverse().find((item) =>
-      'status' in item && item.status === 'inProgress' && ['command', 'toolCall', 'fileChange', 'webSearch'].includes(item.type)) : undefined
+    const latest = session ? inFlightItem(session) : undefined
     const held = input.cards.filter(one => ownerOf(one)?.record.id === seat.record.id)
     const done = state === 'idle' && held.length > 0 && held.every(one => one.state === 'done')
     return {

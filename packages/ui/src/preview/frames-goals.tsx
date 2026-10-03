@@ -57,7 +57,7 @@ const RUN_VIEW: FindingRunView = {
   reason: 'Two findings are still open, one of them blocking.',
   ceilingStop: false,
   stamp: 'preview-stamp',
-  publication: 'pending',
+  publication: 'pending', rounds: [],
   reviewersFinished: 1,
   reviewersTotal: 3,
   pendingExceptions: [],

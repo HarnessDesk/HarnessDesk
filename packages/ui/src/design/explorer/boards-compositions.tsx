@@ -2684,7 +2684,7 @@ const findingDecisionStore = { subscribe: () => () => {}, getSnapshot: () => fin
 const FINDING_DECISION_CEILING_VIEW: FindingRunView = {
   run: 'run-catalogue', goal: 'goal-catalogue', round: 4, finished: 3, total: 4, embargoed: false, open: 0, blocking: 0,
   reason: 'Round 4 ended with 0 open findings. To let it continue, open Findings and choose Authorise another round.',
-  ceilingStop: true, stamp: 'catalogue-stamp-ceiling', publication: 'posted',
+  ceilingStop: true, stamp: 'catalogue-stamp-ceiling', publication: 'posted', rounds: [],
   reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null,
   boundPr: { repo: 'acme/widgets', pr: 42 }, unbound: null, undecidable: null,
 }
