@@ -678,6 +678,14 @@ having written the judgement down.
 
 **Why** — Most of what a desk reports is fine. Neutral is what lets the exceptions be seen.
 
+### `quiet`
+
+**Use** — A sidebar row state ends on the trailing rail as coloured text. Pass variant="quiet": the chip keeps its tone and type without a background, border or horizontal padding.
+
+**Not** — Changing every chip to plain text. Other screens keep the pill unless they opt in.
+
+**Why** — A wide gap before a coloured block reads as a hole; the same gap before quiet text reads as normal while the states keep their alignment.
+
 ### `one line`
 
 **Use** — Always. A chip never wraps: it stops at its box (at most 240px), ellipsises, and names itself whole in `title` while it is cut. The Chip enforces this.
@@ -1915,7 +1923,7 @@ Compact facts whose dot separators belong to the role, not to each caller.
 
 `packages/ui/src/design/patterns/SidebarMenuState.tsx`
 
-A whole conversation or room state chip ends on the inset rail and folds to a dot for its own row's actions.
+A quiet conversation or room state ends on the inset rail and folds to a dot for its own row's actions.
 
 ## Known drift
 

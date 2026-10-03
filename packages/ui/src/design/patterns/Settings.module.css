@@ -251,7 +251,7 @@
 
 /* The emphatic brand chip marks the one current item in a set. Its meaning
    still comes from the words; the stronger fill makes that item scannable. */
-.chip[data-tone='brand'][data-emphasis] {
+.chip[data-tone='brand'][data-emphasis]:not([data-variant='quiet']) {
   background: var(--hd-accent);
   color: var(--hd-accent-foreground);
 }
@@ -276,6 +276,16 @@
 
 .chip[data-stale] .chipWords {
   text-decoration: none; /* desk: line-through → none, stale reads as a glyph, never struck */
+}
+
+/* Ink alone, ending where the pill used to end. The slot gives this rule
+   the same specificity as readiness, so all forms keep their
+   own ink while giving up their fill and edge. */
+.chip[data-slot='chip'][data-variant='quiet'] {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding-inline: 0;
 }
 
 /* --- controls ------------------------------------------------------------ */

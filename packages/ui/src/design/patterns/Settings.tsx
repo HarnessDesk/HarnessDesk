@@ -123,7 +123,8 @@ type ChipBaseProps = {
   /** Always shown. Without one, the chip names itself in full on hover only while it is cut. */
   title?: string
   size?: 'default' | 'sm'
-  variant?: 'default' | 'outline'
+  /** Quiet keeps the tone and type, without a pill or horizontal padding. */
+  variant?: 'default' | 'outline' | 'quiet'
   /**
    * A count the chip leads with — `count={3}` and `copies differ` read as
    * "3 copies differ". Zero draws nothing: a chip that counts none is a

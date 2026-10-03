@@ -1,5 +1,31 @@
 import { expect, test } from '@playwright/test'
 
+for (const theme of ['light', 'dark'] as const) {
+  test(`quiet chips keep each tone and type while removing the pill (${theme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto('/design.html?view=state')
+    for (const tone of ['neutral', 'brand', 'success', 'warning', 'danger', 'info']) {
+      const quiet = page.locator(`main [data-slot="chip"][data-variant="quiet"][data-tone="${tone}"]`)
+      await expect(quiet).toHaveCount(1)
+      const pill = page.locator(`main [data-slot="chip"][data-variant="default"][data-tone="${tone}"]`).first()
+      const read = (node: Element) => {
+        const css = getComputedStyle(node)
+        return { color: css.color, size: css.fontSize, background: css.backgroundColor,
+          border: css.borderWidth, shadow: css.boxShadow, padding: css.paddingInline }
+      }
+      const before = await pill.evaluate(read)
+      expect(await quiet.evaluate(read)).toEqual({ ...before,
+        background: 'rgba(0, 0, 0, 0)', border: '0px', shadow: 'none', padding: '0px' })
+      expect(before.background).not.toBe('rgba(0, 0, 0, 0)')
+      if (tone === 'brand') {
+        // Emphasis cannot leave white pill ink on a transparent ground.
+        await quiet.evaluate(node => node.setAttribute('data-emphasis', ''))
+        expect((await quiet.evaluate(read)).color).toBe(before.color)
+      }
+    }
+  })
+}
+
 test('sidebar navigation names stay regular and truncate at their trailing edge', async ({ page }) => {
   await page.goto('/preview.html')
 
