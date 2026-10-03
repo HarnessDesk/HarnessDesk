@@ -20,6 +20,7 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, ...view }: Componen
   const cards = goal?.board.intents ?? team?.intents ?? []
   const seats = useMemo(() => teamSeats(goal, team, execution), [goal, team, execution])
   const [report, setReport] = useState<InsightReport | null>(null)
+  const [readAgain, setReadAgain] = useState(0)
   const [readProblem, setReadProblem] = useState<string | null>(null)
   const finished = cards.filter(card => card.state === 'done').map(card => card.id).join(',')
   useEffect(() => {
@@ -28,18 +29,18 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, ...view }: Componen
     setReadProblem(null)
     const read = () => {
       if (typeof store.readGoalInsight === 'function') void store.readGoalInsight(execution.goal).then(value => { if (active) setReport(value) }, () => { if (active) setReport(null) })
-      if (execution.findings && typeof store.loadFindingRun === 'function') void store.loadFindingRun(execution.goal, execution.id).catch(() => { if (active) setReadProblem('Review details could not be read.') })
+      if (execution.findings && typeof store.loadFindingRun === 'function') void store.loadFindingRun(execution.goal, execution.id).then(() => { if (active) setReadProblem(null) }, () => { if (active) setReadProblem('Review details could not be read.') })
     }
     read()
     const timer = execution.state === 'running' ? window.setInterval(read, 60_000) : null
     return () => { active = false; if (timer !== null) window.clearInterval(timer) }
-  }, [store, execution.goal, execution.id, execution.state, Boolean(execution.findings), finished])
+  }, [store, execution.goal, execution.id, execution.state, Boolean(execution.findings), finished, readAgain])
   const costs = teamOverview({ team: execution.goal, cards, report: report?.goal === execution.goal ? report : null,
     seats: seats.map(seat => ({ record: seat.record, name: seat.name, runtime: snapshot.runtimes.find(runtime => runtime.id === seat.record.session.runtime) ?? null, session: null, unreadSince: null, approvals: [] })),
     run: { execution, startedAt: execution.startedAt ?? null },
   })
   const selected = view.model.rows.find(row => row.id === view.selectedRow)
-  return <RunWorkspace {...view} problem={view.problem ?? readProblem} inspector={{
+  return <RunWorkspace {...view} onRetry={() => { setReadAgain(was => was + 1); view.onRetry?.() }} problem={view.problem ?? readProblem} inspector={{
     input: { execution, cards, origin,
       signals: (goal?.board.channel ?? team?.channel ?? []).filter((entry): entry is TeamSignal => entry.kind === 'signal'),
       evidence: snapshot.boardEvidence.get(execution.goal),
