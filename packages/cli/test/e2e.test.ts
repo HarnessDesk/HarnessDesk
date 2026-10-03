@@ -15,7 +15,13 @@ const { makeRepo } = await import(new URL('../../../server/dist/test/fixtures/ev
 const flowRig = await import(new URL('../../../server/dist/test/fixtures/flow-host-evidence.js', import.meta.url).href) as typeof import('../../server/test/fixtures/flow-host-evidence.js')
 
 const bin = fileURLToPath(new URL('../src/bin.js', import.meta.url))
-const launch = (t: TestContext, directory: string, home: string, args: readonly string[], cwd?: string, preload?: string, lifetimeMs = 15_000) => {
+// A ceiling sized for a starved machine, not a wait: every wait below ends on the
+// event it waits for, so a passing run never reaches it (#1289). Windows that prove
+// nothing happens stay short; only a wait for something that must happen uses this.
+const LOADED_MACHINE_MS = 30_000
+// A test that starts a real host gets room for several such waits plus the host itself.
+const REAL_HOST_TEST_MS = 4 * LOADED_MACHINE_MS
+const launch = (t: TestContext, directory: string, home: string, args: readonly string[], cwd?: string, preload?: string, lifetimeMs = REAL_HOST_TEST_MS) => {
   const child = spawn(process.execPath, [...(preload ? ['--import', preload] : []), bin, ...args], { cwd, env: { ...process.env, HARNESSDESK_CLIENT_DIR: directory, HARNESSDESK_HOME: home }, stdio: preload ? ['ignore', 'pipe', 'pipe', 'ipc'] : ['ignore', 'pipe', 'pipe'] })
   let stdout = '', stderr = ''
   const changed = new Set<() => void>()
@@ -26,8 +32,9 @@ const launch = (t: TestContext, directory: string, home: string, args: readonly 
   t.after(async () => { clearTimeout(timer); if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); await exit })
   const lines = () => stdout.split('\n').filter(Boolean).map(line => JSON.parse(line)) as any[]
   const until = async (predicate: (lines: any[]) => boolean) => {
+    const started = Date.now()
     await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => { changed.delete(wake); reject(new Error(`no streamed change: ${stdout} ${stderr}`)) }, 8_000)
+      const timeout = setTimeout(() => { changed.delete(wake); reject(new Error(`no streamed change after ${Date.now() - started}ms: ${stdout} ${stderr}`)) }, LOADED_MACHINE_MS)
       const wake = () => { if (predicate(lines())) { clearTimeout(timeout); changed.delete(wake); resolve() } }
       changed.add(wake); wake()
     })
@@ -42,7 +49,8 @@ const rig = async (t: TestContext) => {
   const h = await start({ catalogRefreshMs: 0 }, home)
   const door = await openClientDoor({ host: h.host, logger: silent, home, directory, hostVersion: '9.9.9' })
   assert.ok(door)
-  t.after(async () => { await door.close(); await stop(h); await rm(directory, { recursive: true, force: true }) })
+  // A stopped host can still be finishing a write under load, so removal retries rather than failing the test (#1289).
+  t.after(async () => { await door.close(); await stop(h); await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) })
   const repo = await makeRepo('hd-cli-project-')
   await h.host.call('workspace/open', { path: repo.dir })
   const source = 'version: 2\nname: CLI proof\nroles:\n  ship: { kind: person, outcomes: [shipped] }\nseed: { role: ship, title: Ship it }\n'
@@ -51,8 +59,9 @@ const rig = async (t: TestContext) => {
   const run = await h.host.call('flow/start-goal', { root: repo.dir, source, token: preview.token!, sentence: 'Finish the demo' }) as FlowExecution
   const complete = async () => {
     let detach = () => {}, timer: ReturnType<typeof setTimeout>
+    const started = Date.now()
     const settled = new Promise<void>((resolve, reject) => {
-      timer = setTimeout(() => { detach(); reject(new Error('Flow did not settle')) }, 8_000)
+      timer = setTimeout(() => { detach(); reject(new Error(`Flow did not settle after ${Date.now() - started}ms`)) }, LOADED_MACHINE_MS)
       detach = h.host.addBroadcaster(message => {
         if (message.method === 'flow/execution-changed' && message.params.execution.id === run.id && message.params.execution.state === 'settled') {
           clearTimeout(timer); detach(); resolve()
@@ -66,7 +75,7 @@ const rig = async (t: TestContext) => {
   return { directory, home, h, door, repo, run, complete }
 }
 
-test('built CLI reads the real host and canonical relative/symlink project filters', { timeout: 30_000 }, async t => {
+test('built CLI reads the real host and canonical relative/symlink project filters', { timeout: REAL_HOST_TEST_MS }, async t => {
   const r = await rig(t)
   const desks = launch(t, r.directory, r.home, ['desks'])
   assert.equal(await desks.exit, 0, desks.output().stderr)
@@ -99,7 +108,7 @@ test('built CLI reads the real host and canonical relative/symlink project filte
   assert.match(finishedText.output().stdout, new RegExp(`${r.run.id}\\s+settled`))
 })
 
-test('real Flow running → settled is streamed without polling, SIGINT writes end last and exits 130', { timeout: 30_000 }, async t => {
+test('real Flow running → settled is streamed without polling, SIGINT writes end last and exits 130', { timeout: REAL_HOST_TEST_MS }, async t => {
   const r = await rig(t)
   const child = launch(t, r.directory, r.home, ['watch', '--json', '--run', r.run.id, '--trace-wire'])
   await child.until(lines => lines.some(e => e.type === 'run.changed' && e.state === 'running'))
@@ -117,7 +126,7 @@ test('real Flow running → settled is streamed without polling, SIGINT writes e
   t.diagnostic(`Flow proof: ${child.lines().filter(e => ['hello', 'run.changed', 'end'].includes(e.type)).map(e => e.type === 'run.changed' ? e.state : e.type).join(' → ')}; exit 130`)
 })
 
-test('human output sanitizes actual agent text while JSON retains escaped data and raw relays notifications', { timeout: 30_000 }, async t => {
+test('human output sanitizes actual agent text while JSON retains escaped data and raw relays notifications', { timeout: REAL_HOST_TEST_MS }, async t => {
   const r = await rig(t)
   await r.h.host.call('goal/create', { root: r.repo.dir, sentence: 'a\x1b]52;c;secret\x07b\n\x1b[31mc\x1b[0m\x9d52;c;c1secret\x9c' })
   const human = launch(t, r.directory, r.home, ['teams'])
@@ -136,7 +145,7 @@ test('human output sanitizes actual agent text while JSON retains escaped data a
   assert.ok(raw.lines().some(e => e.method === 'flow/execution-changed' && e.params.execution.document.flow.name === 'CLI proof'))
 })
 
-test('human status strips escape payloads from runtime health messages as well as titles', { timeout: 30_000 }, async t => {
+test('human status strips escape payloads from runtime health messages as well as titles', { timeout: REAL_HOST_TEST_MS }, async t => {
   const r = await rig(t)
   r.h.runtime.setHealth({ state: 'unavailable', reason: 'unknown', message: 'a\x1b]52;c;secret\x07b\x1b[31mc\x1b[0m' })
   const child = launch(t, r.directory, r.home, ['status'])
@@ -145,7 +154,7 @@ test('human status strips escape payloads from runtime health messages as well a
   assert.ok(child.output().stdout.includes('abc'))
 })
 
-test('until settled handles already terminal runs, live completion, and SIGTERM 143', { timeout: 30_000 }, async t => {
+test('until settled handles already terminal runs, live completion, and SIGTERM 143', { timeout: REAL_HOST_TEST_MS }, async t => {
   const r = await rig(t)
   const alias = join(r.directory, 'project-alias'); await symlink(r.repo.dir, alias)
   const project = launch(t, r.directory, r.home, ['watch', '--json', '--project', 'project-alias'], r.directory)
@@ -163,7 +172,7 @@ test('until settled handles already terminal runs, live completion, and SIGTERM 
   assert.equal(terminal.lines().at(-1).reason, 'until')
 })
 
-test('until settled ends a real stopped Flow, and host shutdown ends observation cleanly', { timeout: 30_000 }, async t => {
+test('until settled ends a real stopped Flow, and host shutdown ends observation cleanly', { timeout: REAL_HOST_TEST_MS }, async t => {
   const r = await rig(t)
   const child = launch(t, r.directory, r.home, ['watch', '--json', '--run', r.run.id, '--until', 'settled'])
   await child.until(lines => lines.some(e => e.type === 'run.changed' && e.state === 'running'))
@@ -259,7 +268,7 @@ registerHooks({ resolve(specifier, context, next) {
   } } })
   await child.until(lines => lines.some(event => event.type === 'card.changed' && event.state === 'done'))
   let timer: ReturnType<typeof setTimeout>
-  const deadline = new Promise<boolean>(resolve => { timer = setTimeout(() => resolve(false), 2_000) })
+  const deadline = new Promise<boolean>(resolve => { timer = setTimeout(() => resolve(false), LOADED_MACHINE_MS) })
   t.after(() => clearTimeout(timer!))
   assert.equal(await Promise.race([drained, deadline]), true, 'stable watch must consume all three delivered raw snapshots')
   assert.equal(consumed, 3)
@@ -300,7 +309,7 @@ for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]] as const) test(
   await r.helloSeen
   child.child.kill(signal)
   let timer: ReturnType<typeof setTimeout>
-  const exit = await Promise.race([child.exit, new Promise<string>(resolve => { timer = setTimeout(() => resolve('still waiting on hello'), 1_000) })])
+  const exit = await Promise.race([child.exit, new Promise<string>(resolve => { timer = setTimeout(() => resolve('still waiting on hello'), LOADED_MACHINE_MS) })])
   clearTimeout(timer!)
   assert.equal(exit, code)
   assert.equal(child.lines().length, 1)
@@ -309,7 +318,7 @@ for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]] as const) test(
 })
 
 
-test('built watch streams real synthetic Seat activity and review publication without polling', { timeout: 60_000 }, async t => {
+test('built watch streams real synthetic Seat activity and review publication without polling', { timeout: 2 * REAL_HOST_TEST_MS }, async t => {
   const directory = await mkdtemp('/tmp/hd-door-'); await chmod(directory, 0o700)
   const d = await flowRig.desk(t)
   const door = await openClientDoor({ host: d.host, logger: silent, home: d.stateDir, directory, hostVersion: '9.9.9' })
@@ -322,7 +331,7 @@ test('built watch streams real synthetic Seat activity and review publication wi
     if (notification.method === 'finding/changed' && notification.params.goal === run.goal) producedInvalidations++
   })
   t.after(detach)
-  const child = launch(t, directory, d.stateDir, ['watch', '--json', '--run', run.id, '--trace-wire'], undefined, undefined, 45_000)
+  const child = launch(t, directory, d.stateDir, ['watch', '--json', '--run', run.id, '--trace-wire'], undefined, undefined, 2 * REAL_HOST_TEST_MS)
   await child.until(lines => lines.some(e => e.type === 'seat.changed' && e.card === build.id && e.state === 'working'))
   await flowRig.write(d, build, 'Synthetic CLI proof')
   const reviewers = await flowRig.claimed(d, run.goal, 'specialists', 3)
@@ -335,7 +344,7 @@ test('built watch streams real synthetic Seat activity and review publication wi
   // Wait for durable round-close processing before measuring the quiet desk.
   await d.host.flowsPlane.flush()
   const trace = () => child.output().stderr.trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
-  const drainedDeadline = Date.now() + 15_000
+  const drainedDeadline = Date.now() + LOADED_MACHINE_MS
   for (;;) {
     const frames = trace(), requests = frames.filter(f => f.direction === 'send')
     const answered = new Set(frames.filter(f => f.direction === 'receive' && f.message.id !== undefined).map(f => f.message.id))
@@ -368,7 +377,7 @@ test('built watch streams real synthetic Seat activity and review publication wi
   assert.equal(review.run, run.id); assert.deepEqual(review.cards, reviewers.map(c => c.id)); assert.equal(review.pr, null)
   const human = launch(t, directory, d.stateDir, ['watch', '--run', run.id])
   // Human output is intentionally text, so await bytes rather than the launcher's JSON parser.
-  const humanDeadline = Date.now() + 8_000
+  const humanDeadline = Date.now() + LOADED_MACHINE_MS
   while (!human.output().stdout.includes('review.changed') || !human.output().stdout.includes('seat.changed')) {
     assert.ok(Date.now() < humanDeadline, human.output().stdout + human.output().stderr)
     await new Promise(resolve => setTimeout(resolve, 10))
@@ -386,7 +395,7 @@ test('built watch streams real synthetic Seat activity and review publication wi
   t.diagnostic(`Real desk proof: ${JSON.stringify({ seat, review, calls: before, producedInvalidations, invalidations, reviewReads, quietMs: 2700 })}`)
 })
 
-test('status uses the shared overview on an isolated desk with a working tool and no polling', { timeout: 60_000 }, async t => {
+test('status uses the shared overview on an isolated desk with a working tool and no polling', { timeout: 2 * REAL_HOST_TEST_MS }, async t => {
   const d = await flowRig.desk(t)
   const turns = new Map<string, import('@harnessdesk/protocol').TurnId>()
   for (const runtime of d.runtimes) t.after(runtime.subscribe(event => {
