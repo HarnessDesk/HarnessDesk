@@ -833,6 +833,12 @@ wrap, Wrapping or Wrapped; those words describe activity, not an evidence
 verdict. Opening a Goal keeps the existing Board, Chat and Members destinations.
 Membership comes from its open Seats. Releasing a Seat closes that membership
 record without deleting the conversation or checkout.
+Finishing a Run keeps its Seats listed and their conversations available for
+follow-ups. When an agent can reopen its conversations and stop its process
+on idle, a finished Seat lets go of its live conversation after ten quiet
+minutes without outstanding work; the process stops once the agent is unused.
+Opening or messaging it reconnects to the same conversation. Agents without
+both capabilities keep their processes as before.
 
 **New session → A Goal** asks what finishes the work, then optionally seats
 Agents. The ordinary conversation path is unchanged: Enter and Command-N still

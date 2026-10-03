@@ -1249,9 +1249,11 @@ const handlers = {
     // No replay: resume restores the context and says nothing about it.
     reply(id, { configOptions: configOptionsOf(state) })
   },
-  'session/load': (id, params) => {
+  'session/load': async (id, params) => {
     if (RESUME_ONLY) return send({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found', data: { method: 'session/load' } } })
     recordOpen('session/load', params.sessionId, params.cwd, params?._meta)
+    // Hold replay so tests can overlap a read or resume with a load already in flight.
+    if (process.env.FAKE_ACP_LOAD_DELAY_MS) await new Promise((resolve) => setTimeout(resolve, Number(process.env.FAKE_ACP_LOAD_DELAY_MS)))
     const store = readStore()
     const entry = store[params.sessionId]
     if (!entry) return fail(id, `no stored session ${params.sessionId}`, { details: 'the store has no such id' })

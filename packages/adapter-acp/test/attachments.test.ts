@@ -234,7 +234,7 @@ test('a session already open on a filter, or with a turn running, is handed back
 
   // An unfiltered session with a turn in flight is not dropped either.
   const { runtime: other, loads: otherLoads } = await storedPeer(t)
-  await other.readSession('kept' as never)
+  // Explicit resume retains an unfiltered handle; a bookkeeping read releases its own.
   const live = await other.resumeSession('kept' as never)
   const turn = live.send([{ type: 'text', text: 'slow' }])
   const during = await other.resumeSession('kept' as never, { attachments: attachments({ key: 'key-c' }) })
