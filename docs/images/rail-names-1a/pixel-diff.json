@@ -1,0 +1,32 @@
+[
+  {
+    "before": "list-before-dark.png",
+    "after": "list-after-dark.png",
+    "differingPixels": 0
+  },
+  {
+    "before": "list-before-light.png",
+    "after": "list-after-light.png",
+    "differingPixels": 0
+  },
+  {
+    "before": "rail-before-dark-desk.png",
+    "after": "rail-after-dark-desk.png",
+    "differingPixels": 0
+  },
+  {
+    "before": "rail-before-dark-studio.png",
+    "after": "rail-after-dark-studio.png",
+    "differingPixels": 0
+  },
+  {
+    "before": "rail-before-light-desk.png",
+    "after": "rail-after-light-desk.png",
+    "differingPixels": 0
+  },
+  {
+    "before": "rail-before-light-studio.png",
+    "after": "rail-after-light-studio.png",
+    "differingPixels": 0
+  }
+]

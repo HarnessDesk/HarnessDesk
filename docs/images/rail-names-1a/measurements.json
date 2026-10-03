@@ -1,0 +1,74 @@
+[
+  {
+    "theme": "light",
+    "look": "desk",
+    "titles": [
+      {
+        "text": "Alpha API migration — working",
+        "role": "navigation",
+        "size": "13px",
+        "weight": "400"
+      },
+      {
+        "text": "Beta Auth refactor — not open",
+        "role": "navigation",
+        "size": "13px",
+        "weight": "400"
+      }
+    ]
+  },
+  {
+    "theme": "light",
+    "look": "studio",
+    "titles": [
+      {
+        "text": "Alpha API migration — working",
+        "role": "navigation",
+        "size": "13px",
+        "weight": "400"
+      },
+      {
+        "text": "Beta Auth refactor — not open",
+        "role": "navigation",
+        "size": "13px",
+        "weight": "400"
+      }
+    ]
+  },
+  {
+    "theme": "dark",
+    "look": "desk",
+    "titles": [
+      {
+        "text": "Alpha API migration — working",
+        "role": "navigation",
+        "size": "13px",
+        "weight": "400"
+      },
+      {
+        "text": "Beta Auth refactor — not open",
+        "role": "navigation",
+        "size": "13px",
+        "weight": "400"
+      }
+    ]
+  },
+  {
+    "theme": "dark",
+    "look": "studio",
+    "titles": [
+      {
+        "text": "Alpha API migration — working",
+        "role": "navigation",
+        "size": "13px",
+        "weight": "400"
+      },
+      {
+        "text": "Beta Auth refactor — not open",
+        "role": "navigation",
+        "size": "13px",
+        "weight": "400"
+      }
+    ]
+  }
+]
