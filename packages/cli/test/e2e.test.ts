@@ -344,27 +344,34 @@ test('built watch streams real synthetic Seat activity and review publication wi
   // Wait for durable round-close processing before measuring the quiet desk.
   await d.host.flowsPlane.flush()
   const trace = () => child.output().stderr.trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
+  const reviews = (frames: ReturnType<typeof trace>) => {
+    let invalidated = true, invalidations = 0, reviewReads = 0
+    for (const frame of frames) {
+      if (frame.direction === 'receive' && frame.message.method === 'finding/changed') { invalidated = true; invalidations++ }
+      if (frame.direction === 'send' && frame.message.method === 'finding/run') {
+        assert.ok(invalidated, `each review read needs the initial baseline or a discrete finding invalidation; frame: ${JSON.stringify(frame)}`)
+        invalidated = false; reviewReads++
+      }
+    }
+    return { invalidated, invalidations, reviewReads }
+  }
   const drainedDeadline = Date.now() + LOADED_MACHINE_MS
   for (;;) {
     const frames = trace(), requests = frames.filter(f => f.direction === 'send')
     const answered = new Set(frames.filter(f => f.direction === 'receive' && f.message.id !== undefined).map(f => f.message.id))
     const delivered = frames.filter(f => f.direction === 'receive' && f.message.method === 'finding/changed').length
-    if (delivered === producedInvalidations && requests.every(f => answered.has(f.message.id))) break
+    // An invalidation received during a read queues another batch. The in-flight answer
+    // can reach the trace before the client sends that queued read (#1343).
+    if (delivered === producedInvalidations && !reviews(frames).invalidated && requests.every(f => answered.has(f.message.id))) break
     assert.ok(Date.now() < drainedDeadline, 'event-triggered reads must finish before quiet measurement')
     await new Promise(resolve => setTimeout(resolve, 10))
   }
-  let invalidated = true, invalidations = 0, reviewReads = 0
-  for (const frame of trace()) {
-    if (frame.direction === 'receive' && frame.message.method === 'finding/changed') { invalidated = true; invalidations++ }
-    if (frame.direction === 'send' && frame.message.method === 'finding/run') {
-      assert.ok(invalidated, 'each review read needs the initial baseline or a discrete finding invalidation')
-      invalidated = false; reviewReads++
-    }
-  }
+  const { invalidations, reviewReads } = reviews(trace())
   assert.ok(reviewReads <= invalidations + 1)
   const before = calls()
+  const quietStart = trace().length
   await new Promise(resolve => setTimeout(resolve, 2_700))
-  assert.deepEqual(calls(), before, 'a quiet desk makes no periodic reads')
+  assert.deepEqual(calls(), before, `a quiet desk makes no periodic reads; quiet-window frames: ${JSON.stringify(trace().slice(quietStart))}`)
   assert.deepEqual(before.slice(0, 3), ['client/hello', 'client/subscribe', 'flow/execution'])
   assert.ok(before.includes('finding/run'))
   assert.ok(before.every(method => ['client/hello', 'client/subscribe', 'flow/execution', 'finding/run'].includes(method)), JSON.stringify(before))
