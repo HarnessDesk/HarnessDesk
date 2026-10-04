@@ -1,13 +1,31 @@
 import { expect, test } from '@playwright/test'
 
+type Harness = typeof import('../../packages/ui/src/preview/harness')
+
+/**
+ * What `packages/ui/src/preview/main.tsx` hands a spec: the store the page
+ * mounted, and the session its frames read.
+ *
+ * A spec reaches the store through this and never by importing the harness
+ * itself. Once Vite has hot-reloaded `harness.tsx` (or a module it imports) the
+ * page runs `harness.tsx?t=…`, and the bare URL is a second module instance
+ * with a second store: the spec would stage state in a store no frame
+ * mounted, and read the page's own, unchanged (#1313).
+ */
+type PreviewBridge = {
+  store: Harness['store'] & { patch(partial: object): void }
+  sessionKey: Harness['PREVIEW_SESSION_KEY']
+}
+
 /** The real TrajectoryView on the preview desk, with a staged two-turn ledger. */
 test('trajectory rows wrap, fold reasoning, avoid text collisions, and reconcile time', async ({ page }) => {
   const longThinking = 'The reasoning thought is a full sentence that should wrap across the trajectory row while keeping its complete wording available on hover at narrow widths.'
   await page.setViewportSize({ width: 1440, height: 1100 })
   await page.goto('/preview.html')
   await page.evaluate(async () => { await document.fonts.ready })
-  await page.evaluate(async (longThinking) => {
-    const { store, PREVIEW_SESSION_KEY } = await import('/src/preview/harness.tsx') as typeof import('../../packages/ui/src/preview/harness')
+  await page.waitForFunction(() => '__hdPreview' in window)
+  await page.evaluate((longThinking) => {
+    const { store, sessionKey: PREVIEW_SESSION_KEY } = (window as unknown as { __hdPreview: PreviewBridge }).__hdPreview
     const snapshot = store.getSnapshot()
     const session = snapshot.sessions.get(PREVIEW_SESSION_KEY)!
     const longSentence = 'The worktree list has several branches that were deleted upstream, and this full explanation should wrap across the trajectory row so a person can read what happened without opening another surface. '.repeat(2)
