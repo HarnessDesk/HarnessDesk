@@ -1198,10 +1198,10 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
       snapshot.historyIdentity.map((summary) => String(sessionKey(summary.runtime, summary.id))),
     )
     const identityHistory = [...snapshot.historyIdentity]
-    // A live conversation can precede its first history page. Outside search,
-    // the loaded history also supplies folder facts for hidden gone rows;
-    // search results stay out so they cannot choose a different clone home.
-    for (const summary of searching ? liveRef.current : [...liveRef.current, ...snapshot.history]) {
+    // Visible history can still be search results for a beat after its field
+    // is cleared. Only the store's separately maintained full-history identity
+    // is authoritative for project homes; live rows can add their own facts.
+    for (const summary of liveRef.current) {
       const key = String(sessionKey(summary.runtime, summary.id))
       if (historyIdentityKeys.has(key)) continue
       historyIdentityKeys.add(key)

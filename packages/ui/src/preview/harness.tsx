@@ -1145,6 +1145,10 @@ class PreviewStore {
       home: '/home/u',
       stateDir: '/home/u/.harnessdesk',
       ...seed,
+      // Preview seeds model a full history unless they name the separate
+      // identity history explicitly (as the unloaded-search fixture does).
+      // Keep that store invariant when a screen supplies its own history.
+      historyIdentity: seed.historyIdentity ?? seed.history ?? previewHistory,
     } as AppSnapshot
     this.#watchWindowWidth()
     this.#applyPlans()

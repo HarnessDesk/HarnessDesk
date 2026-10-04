@@ -104,6 +104,9 @@ const projects = (): string[] =>
 const currentProject = (): string | null =>
   container.querySelector<HTMLElement>('[data-current] [data-draggable] [data-role="prose"]')?.textContent ?? null
 
+const currentProjectRoot = (): string | null =>
+  container.querySelector<HTMLElement>('[data-current]')?.closest<HTMLElement>('[data-project-root]')?.dataset.projectRoot ?? null
+
 it('gives an open subfolder one row, not a second empty one for its repository', () => {
   // The subfolder is the project's home — grouping lets the folder you have
   // open claim it — so the list must look for it under that name too. Asking
@@ -125,6 +128,11 @@ it('keeps the cached home when an older unloaded match is returned while both cl
   // The first history page has only the home checkout. Search can return an
   // older matching conversation from another clone before pagination reaches it.
   const history = [{ ...home, createdAt: 10 }]
+  let listCalls = 0
+  let resetHistory!: (value: { data: readonly SessionSummary[]; nextCursor: null }) => void
+  const delayedReset = new Promise<{ data: readonly SessionSummary[]; nextCursor: null }>((resolve) => {
+    resetHistory = resolve
+  })
   const opened = [
     workspace('/widgets', { root: '/widgets', worktree: false, origin: 'github.com/acme/widgets' }),
     workspace('/widgets-clone', { root: '/widgets-clone', worktree: false, origin: 'github.com/acme/widgets' }),
@@ -140,7 +148,10 @@ it('keeps the cached home when an older unloaded match is returned while both cl
     method: HostMethodName,
     params: { query?: string },
   ) => {
-    if (method === 'session/list') return { data: history, nextCursor: null }
+    if (method === 'session/list') {
+      listCalls += 1
+      return listCalls === 1 ? { data: history, nextCursor: null } : delayedReset
+    }
     if (method === 'session/search') return { data: [{ ...clone, createdAt: 1 }], nextCursor: null }
     if (method === 'workspace/recent') return opened
     if (method === 'routes/list') return []
@@ -203,12 +214,22 @@ it('keeps the cached home when an older unloaded match is returned while both cl
   expect(homeRows).toHaveLength(1)
 
   searching = false
-  await act(async () => {
+  act(() => {
     renderTree()
-    await store.searchHistory('')
-    await afterStoreWake()
+  })
+  // Clearing the field precedes Sidebar's debounced full-history request.
+  // Keep the search response visible both before that request starts and
+  // while its replacement response is pending.
+  expect(currentProjectRoot()).toBe('/widgets')
+  let clear!: Promise<void>
+  act(() => { clear = store.searchHistory('') })
+  expect(currentProjectRoot()).toBe('/widgets')
+  await act(async () => {
+    resetHistory({ data: history, nextCursor: null })
+    await clear
   })
   expect(store.getSnapshot().history.map((row) => row.id)).toEqual(['home-session'])
+  expect(currentProjectRoot()).toBe('/widgets')
   expect(projects()).toEqual(['widgets'])
 })
 
