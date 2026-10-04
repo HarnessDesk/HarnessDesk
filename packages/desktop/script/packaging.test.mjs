@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { matchesGlob } from 'node:path'
 import { test } from 'node:test'
+
+import ts from '@typescript/typescript6'
 
 import { TEMPLATE_BRIDGES } from '@harnessdesk/server'
 
@@ -124,4 +126,120 @@ test('no negated build.files glob excludes an Agent brief, or a folder it ships 
       'electron-builder never descends into a folder its filter rejects) drops every shipped Agent brief ' +
       'from the packaged app, whatever asarUnpack says about the folder around them.',
   )
+})
+
+/**
+ * The command line the app carries.
+ *
+ * "Install command-line tool…" puts a launcher on the PATH that runs
+ * `node_modules/@harnessdesk/cli/dist/src/bin.js` on the app's own runtime. For
+ * that to work in a built app the command line has to be in the dependency
+ * graph (electron-builder packs only the graph), unpacked beside the archive
+ * (a program is not run from inside it), and complete: everything its source
+ * imports at run time must be a production dependency, all the way down, or
+ * the packaged command line dies on its first `import` while every dev run,
+ * which has the whole workspace's devDependencies on disk, stays green.
+ */
+const BUNDLED_CLI = 'node_modules/@harnessdesk/cli/dist/src/bin.js'
+
+const readManifest = (name) =>
+  JSON.parse(readFileSync(new URL(`../../${name}/package.json`, import.meta.url), 'utf8'))
+
+/**
+ * The packages a package's sources import at run time, read as TypeScript reads
+ * them: node builtins, its own files and type-only imports (which compile to
+ * nothing) are left out.
+ */
+const importedPackages = (name) => {
+  const found = new Set()
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = new URL(entry.name + (entry.isDirectory() ? '/' : ''), dir)
+      if (entry.isDirectory()) walk(path)
+      else if (/\.tsx?$/.test(entry.name)) {
+        const file = ts.createSourceFile(entry.name, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true)
+        for (const statement of file.statements) {
+          const isImport = ts.isImportDeclaration(statement)
+          const isExport = ts.isExportDeclaration(statement) && statement.moduleSpecifier
+          if (!isImport && !isExport) continue
+          if (isImport) {
+            const clause = statement.importClause
+            const named = clause?.namedBindings
+            const typeOnly =
+              clause?.isTypeOnly === true ||
+              (clause !== undefined &&
+                clause.name === undefined &&
+                named !== undefined &&
+                ts.isNamedImports(named) &&
+                named.elements.length > 0 &&
+                named.elements.every((element) => element.isTypeOnly))
+            if (typeOnly) continue
+          } else if (statement.isTypeOnly) continue
+          const specifier = statement.moduleSpecifier.text
+          if (specifier.startsWith('.') || specifier.startsWith('node:')) continue
+          const parts = specifier.split('/')
+          found.add(specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0])
+        }
+      }
+    }
+  }
+  walk(new URL(`../../${name}/src/`, import.meta.url))
+  return [...found].sort()
+}
+
+test('the command line is a dependency of the app', () => {
+  assert.ok(
+    Object.keys(manifest.dependencies ?? {}).includes('@harnessdesk/cli'),
+    '@harnessdesk/cli must be a dependency of @harnessdesk/desktop: electron-builder packs only ' +
+      'the dependency graph, and the launcher that "Install command-line tool…" writes runs ' +
+      `${BUNDLED_CLI} on the app's own runtime.`,
+  )
+  assert.equal(readManifest('cli').bin?.harnessdesk, './dist/src/bin.js', 'the bin the launcher runs is dist/src/bin.js')
+})
+
+test('everything the bundled command line imports at run time is a production dependency, all the way down', () => {
+  for (const name of ['cli', 'client', 'protocol']) {
+    const dependencies = Object.keys(readManifest(name).dependencies ?? {})
+    for (const imported of importedPackages(name)) {
+      assert.ok(
+        dependencies.includes(imported),
+        `packages/${name}/src imports ${imported}, which is not in its "dependencies": the packaged ` +
+          'command line would fail on its first import, because the app packs production dependencies only.',
+      )
+    }
+  }
+  // The chain the app's own dependency reaches the command line's imports through.
+  assert.ok(Object.keys(readManifest('cli').dependencies).includes('@harnessdesk/client'))
+  assert.ok(Object.keys(readManifest('client').dependencies).includes('@harnessdesk/protocol'))
+  assert.ok(Object.keys(readManifest('client').dependencies).includes('ws'))
+})
+
+test('the bundled command line is unpacked beside the archive and no negated build.files glob drops it', () => {
+  assert.ok(
+    (manifest.build.asarUnpack ?? []).some((glob) => matchesGlob(BUNDLED_CLI, glob)),
+    `asarUnpack must cover ${BUNDLED_CLI}: the launcher runs it as a program, and a program cannot be run from inside app.asar.`,
+  )
+  const negated = (manifest.build.files ?? []).filter((glob) => glob.startsWith('!'))
+  const folders = [
+    'node_modules/@harnessdesk/cli',
+    'node_modules/@harnessdesk/cli/dist',
+    'node_modules/@harnessdesk/cli/dist/src',
+    BUNDLED_CLI,
+    'node_modules/@harnessdesk/client/dist/src/index.js',
+    'node_modules/@harnessdesk/client/dist/src/node.js',
+    'node_modules/@harnessdesk/client/dist/src/views/index.js',
+    'node_modules/@harnessdesk/protocol/dist/src/index.js',
+  ]
+  assert.deepEqual(
+    negated.filter((glob) => folders.some((path) => matchesGlob(path, glob.slice(1)))),
+    [],
+    "build.files must not exclude the command line or the library it runs on from the packaged app: a negated glob that names a folder drops everything beneath it.",
+  )
+})
+
+test('the packaged smoke runs the bundled command line on the app’s own runtime, against its own throwaway desk', () => {
+  assert.match(smoke, /ELECTRON_RUN_AS_NODE/, 'the way the launcher runs it')
+  assert.match(smoke, /@harnessdesk\/cli\/dist\/src\/bin\.js/, 'the file the launcher runs')
+  assert.match(smoke, /HARNESSDESK_CLIENT_DIR/, 'a door directory of its own, never the shared one')
+  assert.match(smoke, /'status',\s*'--json'/, 'a read that needs a live desk')
 })

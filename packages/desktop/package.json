@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@harnessdesk/claude-acp": "workspace:*",
+    "@harnessdesk/cli": "workspace:*",
     "@harnessdesk/cursor-acp": "workspace:*",
     "@harnessdesk/mcp-tools": "workspace:*",
     "@harnessdesk/server": "workspace:*",
