@@ -188,3 +188,31 @@ it('disables seating when the Goal disappeared', async () => {
   const button = [...document.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.textContent?.includes('Seat Agent'))
   expect(button?.disabled).toBe(true)
 })
+
+/* A Run that ends wraps its Team, even under a person who is choosing an Agent
+   to seat. A wrapped Team keeps the Seats it had and takes no new one, and the
+   dialog was opened while it still did (#1317, round 1). */
+it('stops seating when the Team wraps while an Agent is chosen', async () => {
+  const store = rig()
+  let snapshot = store.getSnapshot()
+  const listeners = new Set<() => void>()
+  Object.assign(store, {
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
+    getSnapshot: () => snapshot,
+  })
+  const onClose = await render(store)
+  const seat = (): HTMLButtonElement =>
+    [...document.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.textContent?.includes('Seat Agent'))!
+  expect(seat().disabled).toBe(false)
+  expect(document.body.textContent).not.toContain('This Team is wrapped')
+
+  snapshot = { ...snapshot, goals: new Map([['goal-1', { ...goal, goal: { ...goal.goal, state: 'wrapped' } } as GoalView]]) }
+  act(() => listeners.forEach((listener) => listener()))
+
+  expect(seat().disabled).toBe(true)
+  expect(seat().title).toBe('This Team is wrapped')
+  expect(document.body.textContent).toContain('This Team is wrapped')
+  await act(async () => seat().click())
+  expect(store.seatGoal).not.toHaveBeenCalled()
+  expect(onClose).not.toHaveBeenCalled()
+})

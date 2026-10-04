@@ -126,13 +126,13 @@ const estimated = (metric: InsightMetric): boolean =>
 const moneyOf = (metric: InsightMetric, metered: boolean | undefined): number | null =>
   metered === true && hasRate(metric) ? observed(metric) : null
 
-const costOf = (input: TeamOverviewInput, seat: TeamOverviewSeat): SeatRow['cost'] => {
+/** Recorded usage belongs to a Seat even when its receipt kept no conversation to open. */
+export const teamSeatCost = (input: Pick<TeamOverviewInput, 'team' | 'report'>, seat: string, metered: boolean | undefined): SeatRow['cost'] => {
   const amounts = input.report?.breakdowns.find((one) => one.dimension === 'seat')?.rows.find(
-    (row) => row.seat === seat.record.id && row.goal === input.team,
+    (row) => row.seat === seat && row.goal === input.team,
   )?.amounts
   if (!amounts) return null
-  const capabilities = seat.runtime?.capabilities ?? input.runtimeCapabilities?.get(seat.record.session.runtime)
-  const money = moneyOf(amounts.usd, capabilities?.metered)
+  const money = moneyOf(amounts.usd, metered)
   if (money !== null) {
     return { unit: 'money', value: money, estimated: estimated(amounts.usd) }
   }
@@ -255,7 +255,7 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
         : state === 'unread' ? seat.unreadSince
           : state === 'working' ? busy ? turn?.startedAt ?? activity?.since ?? card?.claim?.at ?? null : card?.claim?.at ?? null
             : card?.state === 'blocked' ? card.updatedAt : turn?.completedAt ?? seat.record.openedAt,
-      cost: costOf(input, seat),
+      cost: teamSeatCost(input, seat.record.id, (seat.runtime?.capabilities ?? input.runtimeCapabilities?.get(seat.record.session.runtime))?.metered),
     }
   })
   const precedence: Readonly<Record<SeatState, number>> = { 'needs-you': 0, unread: 1, working: 2, idle: 3 }

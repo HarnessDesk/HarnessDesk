@@ -860,6 +860,24 @@ port start, block width and browser-profile isolation. Retained descriptors show
 their Goal, Seat and checkout. Releasing ports never claims to remove files.
 Wrapped Goals open an immutable receipt headed **As recorded when wrapped**;
 partial answers, gaps, unknown spend and dirty retained lanes remain visible.
+A wrapped Team opens on **Receipt** and keeps Overview, Run and its Agents
+rail. It opens there with or without a Run, and in a narrow pane too, where the
+Agents list is one tap behind it. The sidebar's Wrapped group keeps the same
+conversations, the Seats without one together in a single list. Older receipts
+use a Seat's kept answer to find its conversation; a Seat without one says
+**Conversation not kept**, and a receipt whose every Seat lacks one lists them
+all rather than saying no Agents were kept. A conversation seated more than
+once is one row, named by the last Seat that held it. Run details keep each
+Seat separately, including its recorded cost when its conversation was not kept. These conversations remain readable, with their
+composer disabled: **This Team is wrapped**. Adding, assigning, answering,
+posting and running checks are disabled with that same reason, as are a
+conversation's **Compact now** and **Review uncommitted changes**. **Stop**
+stays on while a turn is still running in one, because stopping is not new
+work, and it is the only coin in the corner then; the command palette offers
+no agent skill there, and **Give this to…**
+lists no conversation a wrapped Team keeps. A question
+already open when a Run ends and wraps its Team stays on screen with what was
+typed in it, its final action disabled and the same reason beside it.
 A receipt's Citations row opens each memory citation's own retained detail in
 a dialog, the same read-only view a project's Memory section opens.
 

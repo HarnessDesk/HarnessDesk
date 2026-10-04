@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FindingPublishAction, FindingPublicationsView } from '@harnessdesk/protocol'
 import { useSnapshot, useStore } from '../state/context'
+import { isRecord } from './team-record'
 
 /** Both publication doors use the same call, refusal, and read-back. No action is automatic. */
 export function useFindingPublicationActions(goal: string, run: string, stamp: string) {
   const store = useStore()
   const snapshot = useSnapshot()
+  const record = isRecord(snapshot.goals.get(goal))
   const scope = JSON.stringify([goal, run])
   const [state, setState] = useState<{ scope: string; view: FindingPublicationsView | null; error: string | null; pending: string | null; acted: boolean }>(
     { scope, view: null, error: null, pending: null, acted: false },
@@ -34,7 +36,7 @@ export function useFindingPublicationActions(goal: string, run: string, stamp: s
   }, [store, goal, run, stamp, snapshot.findingRuns.get(run)])
 
   const act = async (what: string, action: FindingPublishAction): Promise<boolean> => {
-    if (busy.current !== null || active.current !== scope) return false
+    if (busy.current !== null || active.current !== scope || isRecord(store.getSnapshot().goals.get(goal))) return false
     const submitted = epoch.current
     const current = () => active.current === scope && epoch.current === submitted
     busy.current = what
@@ -58,5 +60,5 @@ export function useFindingPublicationActions(goal: string, run: string, stamp: s
       if (current()) { busy.current = null; patch({ pending: null }) }
     }
   }
-  return { ...(state.scope === scope ? state : { view: null, error: null, pending: null, acted: false }), act }
+  return { ...(state.scope === scope ? state : { view: null, error: null, pending: null, acted: false }), act, record }
 }

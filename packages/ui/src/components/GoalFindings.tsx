@@ -1,3 +1,4 @@
+import { isRecord, RECORD_REASON } from '../lib/team-record'
 import { useEffect, useState } from 'react'
 
 import type { FindingView } from '@harnessdesk/protocol'
@@ -59,6 +60,7 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
   const [publicationError, setPublicationError] = useState<string | null>(null)
 
   const goalView = snapshot.goals.get(goal)
+  const record = isRecord(goalView)
   /* The same run the room's header reads, among those keeping findings (#890),
      unless the person chose an earlier one to read as history. */
   const live = goalRunOf(goal, goalView, snapshot.flowExecutions, (one) => Boolean(one.findings))
@@ -152,8 +154,8 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={runView.undecidable !== null}
-                title={runView.undecidable ?? undefined}
+                disabled={record || runView.undecidable !== null}
+                title={record ? RECORD_REASON : runView.undecidable ?? undefined}
                 onClick={() => setDeciding(true)}
               >
                 Decide this run
@@ -169,7 +171,8 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
               <span>Post closed rounds to the pull request</span>
               <Switch
                 checked={publicationOn}
-                disabled={publicationPending !== null || !goalView}
+                disabled={record || publicationPending !== null || !goalView}
+                title={record ? RECORD_REASON : undefined}
                 aria-label="Post closed rounds to the pull request"
                 onCheckedChange={(checked: boolean) => void setPublication(checked)}
               />

@@ -468,6 +468,7 @@ export const Note = ({
   tone,
   ink = 'secondary',
   icon,
+  inset,
   className,
   ...props
 }: Omit<ComponentProps<'p'>, 'children'> & {
@@ -475,6 +476,8 @@ export const Note = ({
   tone?: 'warn' | 'bad'
   ink?: 'secondary' | 'muted'
   icon?: ReactNode
+  /** Follow a pane title's small icon tile and bar ink column. */
+  inset?: 'pane-title'
   className?: string
 }) => {
   /* In a dialog the form stack spaces the note; a page's note carries its
@@ -486,6 +489,7 @@ export const Note = ({
   <p
     className={cx(styles.note, className)}
     data-slot="note"
+    {...(inset ? { 'data-inset': inset } : {})}
     {...(inDialog ? { 'data-context': 'dialog' } : {})}
     data-ink={ink}
     {...(icon ? { 'data-icon': '' } : {})}

@@ -80,6 +80,8 @@ test('commit_work commits only what changed since the claim, and leaves what was
 const coauthor = 'Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>'
 
 test('Git parses exactly one desk trailer for every accepted message shape', async (t) => {
+  const root = await repo(t)
+  let revision = 0
   for (const newline of ['\n', '\r\n']) {
     for (const comment of ['#', ';']) {
       const scissors = `${comment} ------------------------ >8 ------------------------`
@@ -92,11 +94,10 @@ test('Git parses exactly one desk trailer for every accepted message shape', asy
         ['scissors before divider', ['Write the notes', '', 'Body', scissors, '---', 'Details']],
         ['scissors before quoted credit', ['Write the notes', '', 'Body', scissors, coauthor, 'Details']],
       ] as const) {
-        await t.test(`${shape}, ${JSON.stringify(newline)}, ${comment}`, async (t) => {
-          const root = await repo(t)
+        await t.test(`${shape}, ${JSON.stringify(newline)}, ${comment}`, async () => {
           await git(root, 'config', 'core.commentChar', comment)
           const before = await snapshot(root)
-          await writeFile(join(root, 'notes.md'), 'x\n')
+          await writeFile(join(root, 'notes.md'), `revision ${++revision}\n`)
           const done = await commitCardWork(root, before, lines.join(newline))
           assert.ok('commit' in done, JSON.stringify(done))
           assert.equal(await parsedTrailers(root), `${coauthor}\n`)

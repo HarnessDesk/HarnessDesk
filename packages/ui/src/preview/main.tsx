@@ -1,3 +1,4 @@
+import { TeamRecordFrames } from './frames-team-record'
 import { TeamsPageFrames } from './frames-teams-page'
 import { StrictMode, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -570,6 +571,7 @@ const Preview = () => {
           unseen={PREVIEW_UNSEEN}
           card={2}
           busy={false}
+          record={false}
           onRun={() => setDialog('off')}
           onCancel={() => setDialog('off')}
         />
@@ -1063,6 +1065,7 @@ const Preview = () => {
       {new URLSearchParams(window.location.search).has('run-inspector') && <RunInspectorFrames />}
       {new URLSearchParams(window.location.search).has('flow-graph') && <FlowGraphFrames />}
       {new URLSearchParams(window.location.search).has('teams-page') && <TeamsPageFrames />}
+      {new URLSearchParams(window.location.search).has('team-record') && <TeamRecordFrames />}
       {new URLSearchParams(window.location.search).has('team-overview') && <TeamOverviewFrames />}
       {SHOW_COMPOSER_SLOTS && <ComposerSlotsFrames />}
       {SHOW_NOTICE_PLACEMENT && <NoticePlacementFrames />}

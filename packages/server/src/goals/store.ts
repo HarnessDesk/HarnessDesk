@@ -1,4 +1,4 @@
-import { parseClientMessage } from '@harnessdesk/protocol'
+import { parseClientMessage, sessionKey } from '@harnessdesk/protocol'
 import { createHash, randomUUID } from 'node:crypto'
 import { open, readFile, readdir, rename, rm, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -128,7 +128,9 @@ export const receiptOf = (value: unknown, goal: string, id: unknown): value is G
   // Both optional: a receipt wrapped before either field existed has neither.
   if (value.members !== undefined && (!Array.isArray(value.members) || !value.members.every((member) =>
     object(member) && typeof member.seat === 'string' &&
-    (member.agent === null || typeof member.agent === 'string') && typeof member.seatLabel === 'string'))) return false
+    (member.agent === null || typeof member.agent === 'string') && typeof member.seatLabel === 'string' &&
+    (member.session === undefined || (object(member.session) && typeof member.session.runtime === 'string' && member.session.runtime.length > 0 &&
+      typeof member.session.sessionId === 'string' && member.session.sessionId.length > 0))))) return false
   if (value.evidenceSeats !== undefined && (!Array.isArray(value.evidenceSeats) || !value.evidenceSeats.every((ref) =>
     object(ref) && typeof ref.id === 'string' && (ref.seat === null || typeof ref.seat === 'string') &&
     (ref.seatLabel === undefined || ref.seatLabel === null || typeof ref.seatLabel === 'string')))) return false
@@ -236,11 +238,23 @@ export function indexOf(value: unknown): GoalIndex {
   return value as unknown as GoalIndex
 }
 
+/** The conversations a receipt keeps: where each Seat sat, and where each answer came from. */
+const conversationsOf = (receipt: GoalReceipt): string[] => [
+  ...(receipt.members ?? []).flatMap((one) => one.session ? [String(sessionKey(one.session.runtime, one.session.sessionId))] : []),
+  ...receipt.answers.map((one) => String(sessionKey(one.session.runtime, one.session.sessionId))),
+]
+
 /** One queue for file writes. The Goal transaction queue never calls itself recursively. */
 export class GoalStore {
   readonly #directory: string
   readonly #write: typeof atomicJson
   #documents = new Map<string, GoalDocument>()
+  /**
+   * Which conversations a wrapped Goal's receipt keeps, and so which Goals keep each one. A receipt is written once and
+   * read-only after, so this is complete the moment a document is put in `#documents` — through `#hold` — and is never
+   * walked: the question it answers is asked before every send.
+   */
+  #kept = new Map<string, Set<GoalId>>()
   #index: GoalIndex = { version: 1, noticeSeen: true, ids: [] }
   #tail: Promise<void> = Promise.resolve()
   #problem: Error | null = null
@@ -284,7 +298,9 @@ export class GoalStore {
     if (JSON.stringify(recovered.ids) !== JSON.stringify([...index.ids].sort())) {
       await this.#persist(join(this.#directory, 'index.json'), recovered)
     }
-    this.#documents = documents
+    this.#documents = new Map()
+    this.#kept = new Map()
+    for (const document of documents.values()) this.#hold(document)
     this.#index = recovered
     this.#problem = null
   }
@@ -295,6 +311,20 @@ export class GoalStore {
     const document = this.#documents.get(id)
     if (!document) throw new Error('That Goal is not on this desk.')
     return structuredClone(document)
+  }
+
+  /** How a Goal stands, read in place: the two facts a question asked on every send needs, without a copy of the document. */
+  standing(id: GoalId): { readonly state: Goal['state']; readonly restored: boolean } | undefined {
+    const document = this.#documents.get(id)
+    return document && { state: document.goal.state, restored: document.restored !== undefined }
+  }
+
+  /**
+   * The Goals whose receipt keeps this conversation — every Seat it sat as and every answer it gave. A lookup: asked
+   * before every send, steer and queued delivery, so it cannot cost what the desk has wrapped.
+   */
+  keptBy(runtime: string, sessionId: string): readonly GoalId[] {
+    return [...(this.#kept.get(String(sessionKey(runtime, sessionId))) ?? [])]
   }
 
   save(document: GoalDocument, expectedRevision: number | null): Promise<void> {
@@ -318,7 +348,7 @@ export class GoalStore {
         await this.#persist(join(this.#directory, 'index.json'), index)
         this.#index = index
       }
-      this.#documents.set(copy.goal.id, copy)
+      this.#hold(copy)
     })
   }
 
@@ -340,10 +370,25 @@ export class GoalStore {
       await this.#persist(join(this.#directory, goalFile(imported.goal.id)), imported)
       const index: GoalIndex = { ...this.#index, ids: [...this.#index.ids, imported.goal.id].sort() }
       await this.#persist(join(this.#directory, 'index.json'), index)
-      this.#documents.set(imported.goal.id, imported)
+      this.#hold(imported)
       this.#index = index
       return 'restored'
     })
+  }
+
+  /**
+   * The one place a document enters `#documents`: load, save and restore all come through it, so what `keptBy` says
+   * cannot drift from what is held. A wrapped Goal is read-only and a restore never replaces one, so a receipt is
+   * never swapped for another and there is nothing to take back out of the index.
+   */
+  #hold(document: GoalDocument): void {
+    this.#documents.set(document.goal.id, document)
+    if (!document.receipt) return
+    for (const key of conversationsOf(document.receipt)) {
+      const keeping = this.#kept.get(key) ?? new Set<GoalId>()
+      keeping.add(document.goal.id)
+      this.#kept.set(key, keeping)
+    }
   }
 
   #enqueue<T>(write: () => Promise<T>): Promise<T> {

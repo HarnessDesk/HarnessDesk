@@ -70,6 +70,64 @@ it('sends one final commit and preserves the draft on a stale stamp refusal', as
 })
 
 /*
+ * A Run that ends wraps its Team too, even under a person who has the receipt
+ * open for review. Wrapping a Team that is wrapped is not a decision left to
+ * make, so the question stays on screen and says so (#1317, round 1).
+ */
+it('stops offering to wrap a Goal that is wrapped while its receipt is under review', async () => {
+  const preview = { stamp: 's1', receipt: { version: 1, goal: 'g1', sentence: 'Ship', summary: 'Finished', cards: [{ id: 1, resolution: 'finished', reason: null }, { id: 2, resolution: 'finished', reason: null }], seats: [], evidence: [], answers: [], lanes: [], revisions: [], citations: [], gaps: [] } } as WrapPreview
+  const store = { subscribe: () => () => {}, getSnapshot: () => emptySnapshot(), previewGoalWrap: vi.fn(async () => preview), wrapGoal: vi.fn(async () => ({ ...preview.receipt, id: 'r1', wrappedAt: 3 })) } as unknown as AppStore
+  const close = vi.fn()
+  act(() => root.render(<StoreProvider store={store}><GoalWrap view={view} onClose={close} /></StoreProvider>))
+  act(() => type(document.querySelector<HTMLTextAreaElement>('[aria-label="What finished"]')!, 'Finished'))
+  const second = [...document.querySelectorAll<HTMLSelectElement>('select')][1]!
+  act(() => { second.value = 'finished'; second.dispatchEvent(new Event('change', { bubbles: true })) })
+  act(() => [...document.querySelectorAll('button')].find((one) => one.textContent === 'Review receipt')!.click())
+  await act(async () => {})
+  const wrap = (): HTMLButtonElement => [...document.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.textContent === 'Wrap Goal')!
+  expect(wrap().disabled).toBe(false)
+  expect(document.body.textContent).not.toContain('This Team is wrapped')
+
+  const wrapped = { ...view, goal: { ...view.goal, state: 'wrapped' } } as unknown as GoalView
+  act(() => root.render(<StoreProvider store={store}><GoalWrap view={wrapped} onClose={close} /></StoreProvider>))
+
+  expect(wrap().disabled).toBe(true)
+  expect(wrap().title).toBe('This Team is wrapped')
+  expect(document.body.textContent).toContain('This Team is wrapped')
+  await act(async () => { wrap().click() })
+  expect(store.wrapGoal).not.toHaveBeenCalled()
+  expect(close).not.toHaveBeenCalled()
+})
+
+/*
+ * The host says a Team is wrapped a moment before it answers the request that
+ * wrapped it. That is this dialog's own question being answered, so it must
+ * not tell the person who just pressed Wrap Goal that the Team is wrapped.
+ */
+it('does not announce the wrap it is itself in the middle of making', async () => {
+  const preview = { stamp: 's1', receipt: { version: 1, goal: 'g1', sentence: 'Ship', summary: 'Finished', cards: [{ id: 1, resolution: 'finished', reason: null }, { id: 2, resolution: 'finished', reason: null }], seats: [], evidence: [], answers: [], lanes: [], revisions: [], citations: [], gaps: [] } } as WrapPreview
+  let answer: () => void = () => {}
+  const wrapGoal = vi.fn(() => new Promise<never>((resolve) => { answer = () => resolve(undefined as never) }))
+  const store = { subscribe: () => () => {}, getSnapshot: () => emptySnapshot(), previewGoalWrap: vi.fn(async () => preview), wrapGoal } as unknown as AppStore
+  const close = vi.fn()
+  act(() => root.render(<StoreProvider store={store}><GoalWrap view={view} onClose={close} /></StoreProvider>))
+  act(() => type(document.querySelector<HTMLTextAreaElement>('[aria-label="What finished"]')!, 'Finished'))
+  const second = [...document.querySelectorAll<HTMLSelectElement>('select')][1]!
+  act(() => { second.value = 'finished'; second.dispatchEvent(new Event('change', { bubbles: true })) })
+  act(() => [...document.querySelectorAll('button')].find((one) => one.textContent === 'Review receipt')!.click())
+  await act(async () => {})
+  await act(async () => { [...document.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.textContent === 'Wrap Goal')!.click() })
+  expect(wrapGoal).toHaveBeenCalledTimes(1)
+
+  const wrapped = { ...view, goal: { ...view.goal, state: 'wrapped' } } as unknown as GoalView
+  act(() => root.render(<StoreProvider store={store}><GoalWrap view={wrapped} onClose={close} /></StoreProvider>))
+  expect(document.body.textContent).not.toContain('This Team is wrapped')
+
+  await act(async () => { answer() })
+  expect(close).toHaveBeenCalledTimes(1)
+})
+
+/*
  * A card added to the Goal while its wrap dialog is open — the wrap is then
  * refused as unreviewed — joins the dialog as one more card to choose for,
  * rather than breaking it, and no receipt can be reviewed until it is chosen.

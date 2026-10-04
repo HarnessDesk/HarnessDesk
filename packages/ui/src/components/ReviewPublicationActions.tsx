@@ -4,12 +4,13 @@ import { Banner, Button, Text } from '../design'
 import { useFindingPublicationActions } from '../lib/use-finding-publication-actions'
 import { sanitizeText } from '../lib/sanitize'
 import { FindingBackfillDialog } from './FindingBackfillDialog'
+import { RECORD_REASON } from '../lib/team-record'
 
 export interface ReviewActionsTarget { readonly goal: string; readonly run: string; readonly stamp: string }
 
 /** Mounted only on a Run with a store-backed door; standalone inspector examples remain plain data. */
 export const ReviewPublicationActions = ({ goal, run, stamp, round, review, alreadyShownReason }: ReviewActionsTarget & { round: number; review: string; alreadyShownReason?: string | null }) => {
-  const { view, error, pending, act } = useFindingPublicationActions(goal, run, stamp)
+  const { view, error, pending, act, record } = useFindingPublicationActions(goal, run, stamp)
   const [preview, setPreview] = useState<FindingPublicationsView['backfill']>(null)
   const [copyError, setCopyError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -30,14 +31,14 @@ export const ReviewPublicationActions = ({ goal, run, stamp, round, review, alre
     {copyError && <Text as="div" role="meta">{copyError}</Text>}
     <div className="flex flex-wrap gap-2">
       <Button variant="outline" size="sm" onClick={() => void copy()}>Copy review</Button>
-      <Button variant="outline" size="sm" disabled={pending !== null || (!item && !backfill)}
-        title={pr ? `Posts this ${item?.finding ? 'finding' : 'review'} to pull request #${pr} as you. Nothing else changes.` : sanitizeText(refusal)}
+      <Button variant="outline" size="sm" disabled={record || pending !== null || (!item && !backfill)}
+        title={record ? RECORD_REASON : pr ? `Posts this ${item?.finding ? 'finding' : 'review'} to pull request #${pr} as you. Nothing else changes.` : sanitizeText(refusal)}
         onClick={() => { if (item) void act(item.key, { kind: 'post-again', key: item.key }); else if (backfill) setPreview(backfill) }}>
         {pending !== null ? 'Working…' : 'Post to pull request'}
       </Button>
       {copied && <Text role="meta">Copied</Text>}
     </div>
-    {preview && <FindingBackfillDialog backfill={preview} busy={pending === 'backfill'} onCancel={() => setPreview(null)}
+    {preview && <FindingBackfillDialog backfill={preview} busy={pending === 'backfill'} record={record} onCancel={() => setPreview(null)}
       onConfirm={() => { void act('backfill', { kind: 'backfill', stamp: preview.stamp }).then(() => setPreview(null)) }} />}
   </div>
 }

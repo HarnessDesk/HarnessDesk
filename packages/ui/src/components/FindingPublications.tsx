@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { RECORD_REASON } from '../lib/team-record'
 
 import type { FindingPublicationItem } from '@harnessdesk/protocol'
 
@@ -25,7 +26,7 @@ const STATE_WORDS: Readonly<Record<FindingPublicationItem['state'], string>> = {
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
 
 export const FindingPublications = ({ goal, run, stamp }: { readonly goal: string; readonly run: string; readonly stamp: string }) => {
-  const { view, error, pending, acted, act } = useFindingPublicationActions(goal, run, stamp)
+  const { view, error, pending, acted, act, record } = useFindingPublicationActions(goal, run, stamp)
   const [skipping, setSkipping] = useState<FindingPublicationItem | null>(null)
   const [why, setWhy] = useState('')
   const [previewing, setPreviewing] = useState(false)
@@ -49,10 +50,10 @@ export const FindingPublications = ({ goal, run, stamp }: { readonly goal: strin
               control={
                 <span className="flex items-center gap-2">
                   <Chip tone={item.state === 'prepared' ? 'warning' : 'danger'}>{STATE_WORDS[item.state]}</Chip>
-                  <Button size="sm" variant="outline" disabled={pending !== null} onClick={() => void act(item.key, { kind: 'post-again', key: item.key })}>
+                  <Button size="sm" variant="outline" disabled={record || pending !== null} title={record ? RECORD_REASON : undefined} onClick={() => void act(item.key, { kind: 'post-again', key: item.key })}>
                     {pending === item.key ? 'Working…' : 'Post again'}
                   </Button>
-                  <Button size="sm" variant="ghost" disabled={pending !== null} onClick={() => { setWhy(''); setSkipping(item) }}>
+                  <Button size="sm" variant="ghost" disabled={record || pending !== null} title={record ? RECORD_REASON : undefined} onClick={() => { setWhy(''); setSkipping(item) }}>
                     Skip…
                   </Button>
                 </span>
@@ -65,7 +66,7 @@ export const FindingPublications = ({ goal, run, stamp }: { readonly goal: strin
         <Note>
           <span className="flex items-center justify-between gap-3">
             <span>{`${plural(view.backfill.rounds.length, 'closed round was', 'closed rounds were')} kept on the desk before pull request #${view.backfill.pr} was bound.`}</span>
-            <Button size="sm" variant="outline" disabled={pending !== null} onClick={() => setPreviewing(true)}>Post earlier rounds…</Button>
+            <Button size="sm" variant="outline" disabled={record || pending !== null} title={record ? RECORD_REASON : undefined} onClick={() => setPreviewing(true)}>Post earlier rounds…</Button>
           </span>
         </Note>
       )}
@@ -77,7 +78,8 @@ export const FindingPublications = ({ goal, run, stamp }: { readonly goal: strin
             <>
               <Button
                 variant="default"
-                disabled={pending !== null || why.trim() === ''}
+                disabled={record || pending !== null || why.trim() === ''}
+                title={record ? RECORD_REASON : undefined}
                 onClick={() => void act(skipping.key, { kind: 'skip', key: skipping.key, reason: why.trim() }).then((done) => { if (done) setSkipping(null) })}
               >
                 {pending === skipping.key ? 'Working…' : 'Skip it'}
@@ -91,11 +93,12 @@ export const FindingPublications = ({ goal, run, stamp }: { readonly goal: strin
               It is not posted, and the Goal’s receipt says so with your reason. If it reached the pull request after all, where it landed is recorded instead.
             </Text>
             <Textarea aria-label="Reason" value={why} onChange={(event) => setWhy(event.target.value)} placeholder="Say why it is not posted." />
+            {record && <Note>{RECORD_REASON}</Note>}
           </div>
         </Dialog>
       )}
       {previewing && view.backfill && (
-        <FindingBackfillDialog backfill={view.backfill} busy={pending === 'backfill'} onCancel={() => setPreviewing(false)}
+        <FindingBackfillDialog backfill={view.backfill} busy={pending === 'backfill'} record={record} onCancel={() => setPreviewing(false)}
           onConfirm={() => { void act('backfill', { kind: 'backfill', stamp: view.backfill!.stamp }).then(() => setPreviewing(false)) }} />
       )}
     </section>
