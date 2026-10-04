@@ -15,7 +15,7 @@ export const runFixture = (scene: RunScene = 'running') => {
   const terminal = ['settled', 'complete', 'stopped', 'stalled'].includes(scene)
   const initial: FlowExecution = { ...overviewRun(scene === 'settled' || scene === 'complete' ? 'settled' : scene === 'stopped' ? 'stopped' : scene === 'stalled' ? 'stalled' : 'running'),
     operations: scene === 'stalled' ? [{ key: 'interrupted-check', kind: 'check', card: count, seat: null, state: 'uncertain' }] : [],
-    startedAt: start, endedAt: terminal ? start + 900_000 : null, revision: '3f9a1c',
+    startedAt: start, endedAt: terminal ? start + 900_000 : null, currentEndedAt: terminal ? start + 900_000 : null, revision: '3f9a1c',
     brief: 'Retry the checkout call when the payment service answers a 502, with a bounded backoff, and say on the order page when it gives up.',
     end: scene === 'settled' ? { kind: 'unrouted', card: 4, outcome: 'no-pr' } : scene === 'complete' ? { kind: 'complete' } : scene === 'stopped' ? { kind: 'stopped', by: 'person' } : scene === 'stalled' ? { kind: 'stalled' } : null,
     reason: scene === 'settled' ? 'The landing check answered no-pr; no rule continues from it.' : scene === 'stopped' ? 'You stopped this Run. Its cards and findings are kept.' : scene === 'stalled' ? 'The desk stopped while the check ran. Review it before running it again.' : scene === 'complete' ? 'Every step finished. Nothing waits.' : null,

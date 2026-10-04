@@ -14,7 +14,8 @@ HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — 
   Seats stop now and which finish their current turn, accepts an optional
   note, and keeps cards, findings and recorded cost. Claimed cards read
   Stopping until their turn ends, then Stopped, with time fixed at the
-  Run’s end in the timeline and Overview. A cleanup failure keeps
+  Run’s current end in the timeline and Overview, including after a resume
+  and a later stop. A cleanup failure keeps
   a retry in the Team pane after its question closes. The abandon question
   offers Stop the run instead and stays with the card it was opened for;
   finishing that card or selecting another cannot carry over a late refusal.

@@ -8,11 +8,30 @@ import { RunView } from './RunView'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
+it('keeps a resumed Run Working with a ticking duration and doing line', () => {
+  vi.useFakeTimers()
+  const fixture = runFixture('running')
+  const since = fixture.cards[3]!.claim!.at
+  vi.setSystemTime(since + 60_000)
+  const model = runTimeline({ ...fixture, execution: { ...fixture.execution, endedAt: since - 60_000, currentEndedAt: null } })
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  try {
+    act(() => root.render(<RunView model={model} number={1} selectedRow="card-4-4" onSelect={() => {}} doing={new Map([['seat-0', 'Editing the retry']])} />))
+    const card = container.querySelector('[data-row="card-4-4"]')!
+    expect(card.textContent).toContain('Working')
+    expect(card.textContent).toContain('1m so far')
+    expect(card.textContent).toContain('Editing the retry')
+    act(() => vi.advanceTimersByTime(60_000))
+    expect(card.textContent).toContain('2m so far')
+  } finally { act(() => root.unmount()); vi.useRealTimers() }
+})
+
 it('shows a stopped claimed card as quiet Stopped with a frozen clock and no doing line', () => {
   vi.useFakeTimers()
   const fixture = runFixture('running')
   const since = fixture.cards[3]!.claim!.at
-  const model = runTimeline({ ...fixture, execution: { ...fixture.execution, state: 'stopped', endedAt: since + 60_000, end: { kind: 'stopped', by: 'person' } } })
+  const model = runTimeline({ ...fixture, execution: { ...fixture.execution, state: 'stopped', endedAt: since + 60_000, currentEndedAt: since + 60_000, end: { kind: 'stopped', by: 'person' } } })
   const container = document.createElement('div')
   const root = createRoot(container)
   try {

@@ -39,6 +39,7 @@ test('the Run read projects the stored start time and freezes a canonical Flow r
   assert.notEqual(record(changed)['revision'], revision)
   assert.equal(record(first)['startedAt'], rig.executions.stored(first.id)!.startedAt)
   assert.equal(record(first)['endedAt'], null)
+  assert.equal(record(first).currentEndedAt, null)
   assert.equal(record(first)['end'], null)
   await rig.executions.stop(first.id)
   await rig.restart()
@@ -82,12 +83,12 @@ test('an old Run with none of the new fields loads without invented identity or 
   const rig = await goalRig(t)
   const run = await start(rig)
   const stored = { ...rig.executions.stored(run.id)! } as unknown as Record<string, unknown>
-  for (const field of ['revision', 'continues', 'brief', 'endedAt', 'end']) delete stored[field]
+  for (const field of ['revision', 'continues', 'brief', 'endedAt', 'currentEndedAt', 'end']) delete stored[field]
   await rig.files.save(stored as unknown as StoredFlowExecution)
   await rig.restart()
   const restored = record(await read(rig, run.id))
   assert.equal(restored['startedAt'], stored['startedAt'])
-  for (const field of ['revision', 'continues', 'brief', 'endedAt', 'end']) assert.equal(field in restored, false, field)
+  for (const field of ['revision', 'continues', 'brief', 'endedAt', 'currentEndedAt', 'end']) assert.equal(field in restored, false, field)
 })
 
 test('recovery validates optional Run metadata rather than projecting unreadable fields', async (t) => {
@@ -95,7 +96,7 @@ test('recovery validates optional Run metadata rather than projecting unreadable
   const run = await start(rig)
   const stored = rig.executions.stored(run.id)!
   for (const extra of [
-    { revision: 12 }, { revision: 'not-a-digest' }, { continues: '' }, { brief: {} }, { endedAt: 'today' },
+    { revision: 12 }, { revision: 'not-a-digest' }, { continues: '' }, { brief: {} }, { endedAt: 'today' }, { currentEndedAt: 'today' },
     { end: { kind: 'unrouted', card: 0, outcome: 'fail' } }, { end: { kind: 'stopped', by: 'agent' } },
     { end: { kind: 'budget', which: 'money', used: 3 } }, { end: { kind: 'budget', which: 'rounds', used: -1 } },
     { end: { kind: 'budget', which: ['rounds'], used: 2 } },
@@ -122,6 +123,7 @@ test('a stalled check resumes without a current end and keeps its first departur
   const run = await start(rig, source)
   await rig.flows.flush()
   const endedAt = record(await read(rig, run.id))['endedAt']
+  assert.equal(record(await read(rig, run.id)).currentEndedAt, endedAt)
   let release!: () => void
   const gate = new Promise<void>((resolve) => { release = resolve })
   t.after(() => { release() })
@@ -132,11 +134,16 @@ test('a stalled check resumes without a current end and keeps its first departur
   assert.equal(resumed.state, 'running')
   assert.equal(resumed.end, null)
   assert.equal(resumed.endedAt, endedAt)
+  assert.equal(record(resumed).currentEndedAt, null)
   release()
   await rig.flows.flush()
   const completed = await read(rig, run.id)
   assert.deepEqual(completed.end, { kind: 'complete' })
   assert.equal(completed.endedAt, endedAt)
+  assert.ok(record(completed).currentEndedAt! >= endedAt!)
+  const currentEndedAt = record(completed).currentEndedAt
+  await rig.restart()
+  assert.equal(record(await read(rig, run.id)).currentEndedAt, currentEndedAt)
 })
 
 test('an answered terminal role completes and its end time survives later writes and restart', async (t) => {
@@ -151,7 +158,34 @@ test('an answered terminal role completes and its end time survives later writes
   await rig.executions.stop(run.id)
   await rig.restart()
   assert.equal(record(await read(rig, run.id))['endedAt'], ended['endedAt'])
+  assert.equal(record(await read(rig, run.id)).currentEndedAt, ended.currentEndedAt)
   assert.deepEqual(record(await read(rig, run.id))['end'], ended['end'])
+})
+
+test('a stall, resume and second stop stamp the current end once and retain the first departure', async t => {
+  let clock = 1_000
+  t.mock.method(Date, 'now', () => clock)
+  const rig = await goalRig(t)
+  rig.checkEvidenceFails = true
+  const source = `version: 2\nname: Check\nroles:\n  check: { kind: check, run: echo checked, exits: { '0': pass }, otherwise: fail }\nseed: { role: check, title: Check it }\nrules: []\n`
+  const run = await start(rig, source)
+  await rig.flows.flush()
+  assert.equal((await read(rig, run.id)).currentEndedAt, 1_000)
+  rig.checkEvidenceFails = false
+  rig.checksRunUntilStopped = () => {}
+  clock = 2_000
+  await rig.executions.retryCheck(run.id, 1)
+  assert.equal((await read(rig, run.id)).currentEndedAt, null)
+  clock = 3_000
+  await rig.executions.stop(run.id)
+  assert.equal((await read(rig, run.id)).endedAt, 1_000)
+  assert.equal((await read(rig, run.id)).currentEndedAt, 3_000)
+  clock = 4_000
+  await rig.flows.flush()
+  await rig.executions.stop(run.id)
+  await rig.restart()
+  assert.equal((await read(rig, run.id)).endedAt, 1_000)
+  assert.equal((await read(rig, run.id)).currentEndedAt, 3_000)
 })
 
 test('an outcome rejected by its outgoing rules names the unrouted card and answer', async (t) => {

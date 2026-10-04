@@ -8,7 +8,7 @@ import { Button } from '../design'
 import { runFixture } from './run-view-fixture'
 import { overviewInput, overviewModel } from './team-overview-fixture'
 
-export const STOP_RUN_STATES = ['running', 'empty', 'pending', 'failed', 'cleanup', 'stopping', 'stopped', 'narrow'] as const
+export const STOP_RUN_STATES = ['running', 'empty', 'pending', 'failed', 'cleanup', 'stopping', 'stopped', 'resumed', 'restopped', 'narrow'] as const
 export type StopRunScene = typeof STOP_RUN_STATES[number]
 const SEATS: readonly StopRunSeat[] = [
   { id: 'alpha', name: 'Alpha', interrupt: true },
@@ -21,8 +21,15 @@ export const StopRunExample = ({ scene = 'running' }: { scene?: StopRunScene }) 
   // Stop retains the claim while the Seat finishes; it does not complete the card.
   const source = runFixture('running')
   if (scene === 'stopped' || scene === 'stopping' || scene === 'cleanup') source.execution = { ...source.execution, state: 'stopped',
-    endedAt: source.execution.startedAt! + 900_000, end: { kind: 'stopped', by: 'person' }, reason: 'You stopped this Run. Its cards and findings are kept.',
+    endedAt: source.execution.startedAt! + 900_000, currentEndedAt: source.execution.startedAt! + 900_000, end: { kind: 'stopped', by: 'person' }, reason: 'You stopped this Run. Its cards and findings are kept.',
     rounds: source.execution.rounds.map(round => ({ ...round, state: 'closed' })) }
+  if (scene === 'resumed' || scene === 'restopped') source.execution = { ...source.execution,
+    endedAt: source.execution.startedAt! + 300_000,
+    currentEndedAt: scene === 'restopped' ? source.execution.startedAt! + 900_000 : null,
+    state: scene === 'restopped' ? 'stopped' : 'running',
+    end: scene === 'restopped' ? { kind: 'stopped', by: 'person' } : null,
+    reason: scene === 'restopped' ? 'You stopped this Run. Its cards and findings are kept.' : null,
+    rounds: source.execution.rounds.map(round => scene === 'restopped' ? { ...round, state: 'closed' } : round) }
   const [execution, setExecution] = useState(source.execution)
   const [failure, setFailure] = useState<typeof CLEANUP_FAILURE | undefined>(scene === 'cleanup' ? CLEANUP_FAILURE : undefined)
   const failedOnce = useRef(false)
@@ -32,7 +39,7 @@ export const StopRunExample = ({ scene = 'running' }: { scene?: StopRunScene }) 
   const ask = () => setAsking(true)
   const stop = async (reason: string): Promise<void> => {
     if (scene === 'pending') await new Promise<void>(() => {})
-    const stopped: FlowExecution = { ...execution, state: 'stopped', reason, endedAt: execution.endedAt ?? Date.now(),
+    const stopped: FlowExecution = { ...execution, state: 'stopped', reason, endedAt: execution.endedAt ?? Date.now(), currentEndedAt: Date.now(),
       end: { kind: 'stopped', by: 'person' }, rounds: execution.rounds.map(round => ({ ...round, state: 'closed' })) }
     setExecution(stopped)
     if (scene === 'failed' && !failedOnce.current) {

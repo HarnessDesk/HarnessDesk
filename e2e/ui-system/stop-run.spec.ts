@@ -14,6 +14,27 @@ const capture = async (frame: Locator, name: string) => {
   if (process.env.STOP_RUN_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.STOP_RUN_FRAMES_DIR, name) })
 }
 for (const theme of ['light', 'dark'] as const) {
+  test(`a resumed Run clocks live work and a second stop freezes at its own end in ${theme}`, async ({ page }) => {
+    await page.clock.install()
+    let frame = await open(page, theme, 'resumed')
+    let card = frame.locator('[data-row="card-4-4"]')
+    await expect(card).toContainText('Working')
+    await expect(card).toContainText('so far')
+    const live = await card.textContent()
+    await page.clock.fastForward(60_000)
+    await expect(card).not.toHaveText(live!)
+    frame = await open(page, theme, 'restopped')
+    card = frame.locator('[data-row="card-4-4"]')
+    await expect(card).toContainText('Stopped')
+    await expect(card).toContainText('7m')
+    await expect(card).not.toContainText(/Working|so far/)
+    await expect(frame.locator('[data-slot="run-current-step"]')).toContainText('Stopped')
+    const frozen = await card.textContent()
+    await page.clock.fastForward(60_000)
+    await expect(card).toHaveText(frozen!)
+    await frame.getByText('Stopped by you', { exact: true }).scrollIntoViewIfNeeded()
+    await capture(frame, `restopped-${theme}.png`)
+  })
   test(`the header and Overview stop one Run, with whole Seat lines and the stopped record in ${theme}`, async ({ page }) => {
     const frame = await open(page, theme)
     await capture(frame, `running-after-${theme}.png`)

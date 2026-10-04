@@ -123,6 +123,7 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
   if (raw['continues'] !== undefined && raw['continues'] !== null && (!text(raw['continues']) || !raw['continues'])) bad('has unreadable Run lineage')
   if (raw['brief'] !== undefined && raw['brief'] !== null && !text(raw['brief'])) bad('has an unreadable brief')
   if (raw['endedAt'] !== undefined && raw['endedAt'] !== null && !finite(raw['endedAt'])) bad('has an unreadable end time')
+  if (raw['currentEndedAt'] !== undefined && raw['currentEndedAt'] !== null && !finite(raw['currentEndedAt'])) bad('has an unreadable current end time')
   const end = raw['end']
   if (end !== undefined && end !== null) {
     if (!object(end)) bad('has an unreadable end')

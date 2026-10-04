@@ -1872,7 +1872,7 @@ it('keeps an unrouted settled Run’s reason in the production Overview', async 
 
 it('reads a retained claim as Stopping in Overview, the timeline and inspector after Stop', async () => {
   const execution: FlowExecution = {
-    version: 2, id: 'run-1', goal: ROOM, document: FLOW_DOCUMENT, state: 'stopped', endedAt: 60_001,
+    version: 2, id: 'run-1', goal: ROOM, document: FLOW_DOCUMENT, state: 'stopped', endedAt: 60_001, currentEndedAt: 60_001,
     rounds: [{ n: 1, role: 'writer', cards: [1], seats: [], state: 'closed', cause: 'seed', evidence: [] }],
     operations: [], legacyRun: null, reason: null,
   }

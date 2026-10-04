@@ -58,7 +58,7 @@ const endTitle = (execution: FlowExecution): string => {
 }
 export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows: RunTimelineRow[] } {
   const execution = input.execution
-  const endedAt = execution.state !== 'running' ? execution.endedAt ?? null : null
+  const endedAt = execution.state !== 'running' ? execution.currentEndedAt ?? null : null
   const needsYou = execution.state === 'stalled' || execution.end?.kind === 'unrouted' || execution.end?.kind === 'budget'
   const header: RunHeader = { run: execution.id, flow: execution.document.flow.name, state: execution.state, needsYou,
     revision: execution.revision ?? null, continues: execution.continues ?? null }
@@ -106,7 +106,7 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
         const session = card.claim ? input.sessions?.get(sessionKey(card.claim.runtime, card.claim.sessionId)) : undefined
         const turn = session ? currentTurn(session) : undefined
         // A later follow-up in the same conversation is not this Run's turn.
-        const live = session && isBusy(session) && (endedAt === null || turn?.startedAt == null || turn.startedAt <= endedAt)
+        const live = session && isBusy(session) && endedAt !== null && (turn?.startedAt == null || turn.startedAt <= endedAt)
         status = live ? 'Stopping' : 'Stopped'
       }
       const attention = (!stoppedWork && (uncertain || personWaiting)) || (execution.end?.kind === 'unrouted' && execution.end.card === id)
@@ -119,6 +119,6 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
       round: round.n, detail: findings.map(one => `${one.title} · ${lifecycleWords(one)}${one.problem ? ` · ${one.problem}` : ''}`).join('\n'),
     }))
   }
-  if (execution.state !== 'running') rows.push(row('end', 'end', endTitle(execution), { detail: execution.reason, attention: needsYou, since: execution.endedAt ?? null }))
+  if (execution.state !== 'running') rows.push(row('end', 'end', endTitle(execution), { detail: execution.reason, attention: needsYou, since: endedAt }))
   return { header, rows }
 }

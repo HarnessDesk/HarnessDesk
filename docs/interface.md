@@ -1042,6 +1042,8 @@ and the timeline reads **Stopped by you**. A claimed card in an ended Run
 reads **Stopping** while its Seat finishes the current turn, then quiet
 **Stopped**. Its time stops at the Run’s end, with no running clock; the
 Overview’s current step and the card’s inspector read the same state.
+If the Run resumes, its live cards show Working and their clocks run again;
+a later stop fixes their time at that stop.
 **Abandon card…** still releases that card on the board without starting
 another step. A cleanup failure stays with that
 Run in the Team pane, with **Retry stop…**, even after you close the question

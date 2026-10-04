@@ -13,7 +13,7 @@ const row=(name:string,patch:Partial<SeatRow>={}):SeatRow=>({seat:name,name,role
 const render=(seats:SeatRow[])=>act(()=>root.render(<TeamOverview model={{run:null,needsYou:[],seats}} metered={new Map(seats.map(one => [one.seat, false]))} />))
 it('uses the ended Run card state and fixed time for the current step and its Seat',()=>{
  const fixture=runFixture('running')
- const timeline=runTimeline({...fixture,execution:{...fixture.execution,state:'stopped',endedAt:fixture.cards[3]!.claim!.at+60_000}})
+ const timeline=runTimeline({...fixture,execution:{...fixture.execution,state:'stopped',endedAt:fixture.cards[3]!.claim!.at+60_000,currentEndedAt:fixture.cards[3]!.claim!.at+60_000}})
  const summary=overviewModel('running')
  const seat=row('Alpha',{seat:'seat-0',card:{id:4,title:'Answer the review'},state:'working',since:fixture.cards[3]!.claim!.at,doing:'Editing the retry'})
  act(()=>root.render(<TeamOverview model={{...summary,needsYou:[],seats:[seat],run:{...summary.run!,state:'stopped',round:4}}} timeline={timeline} />))

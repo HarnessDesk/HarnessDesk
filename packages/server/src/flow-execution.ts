@@ -474,6 +474,7 @@ export const projectExecution = (run: StoredFlowExecution): FlowExecution => ({
   ...(run.continues !== undefined ? { continues: run.continues } : {}),
   ...(run.brief !== undefined ? { brief: run.brief } : {}),
   ...(run.endedAt !== undefined ? { endedAt: run.endedAt } : {}),
+  ...(run.currentEndedAt !== undefined ? { currentEndedAt: run.currentEndedAt } : {}),
   ...(run.end !== undefined ? { end: run.end } : {}),
   state: run.state,
   rounds: run.rounds,
@@ -2219,9 +2220,10 @@ export class FlowExecutions {
     // cannot move it; a resumed run clears its current cause, not that history.
     const ending = departing ? {
       endedAt: run.endedAt ?? at,
+      currentEndedAt: at,
       end: run.end && run.end !== previous?.end ? run.end :
         run.state === 'stopped' ? { kind: 'stopped' as const, by: 'desk' as const } : { kind: 'stalled' as const },
-    } : run.state === 'running' && previous && previous.state !== 'running' ? { end: null } : {}
+    } : run.state === 'running' && previous && previous.state !== 'running' ? { end: null, currentEndedAt: null } : {}
     const next = { ...(run.state === 'stalled' && keptAnswer ? run : unkept), ...ending, updatedAt: at }
     try {
       await this.#files.save(next)
@@ -2566,7 +2568,7 @@ export class FlowExecutions {
       vars, startedAt: at, updatedAt: at, authorization: request.authorization, operationTimes: {},
       revision: flowRevision(request.compiled.document), continues: request.continues ?? null,
       brief: policy.inputs.some((input) => input.id === 'brief') ? vars['brief']! : null,
-      endedAt: null, end: null, attended: request.attended !== false,
+      endedAt: null, currentEndedAt: null, end: null, attended: request.attended !== false,
       ...(request.overrides && Object.keys(request.overrides).length ? { overrides: structuredClone(request.overrides) } : {}),
       // Written before the first dispatch, and frozen for the life of the run.
       findings: startingFindings(policy),
@@ -2709,7 +2711,7 @@ export class FlowExecutions {
         compiled, source: closure.source, sourcePath: null, vars, startedAt: at, updatedAt: at,
         revision: flowRevision(compiled.document), continues: null,
         brief: policy.inputs.some((input) => input.id === 'brief') ? vars['brief']! : null,
-        endedAt: null, end: null,
+        endedAt: null, currentEndedAt: null, end: null,
         authorization: {
           sourceDigest: sourceDigest(closure.source),
           commandDigest: sourceDigest(JSON.stringify(closure.preview.commands)),
