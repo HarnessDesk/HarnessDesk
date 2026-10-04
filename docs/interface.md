@@ -622,6 +622,12 @@ capability rather than tried and apologised for. Stop and the queue button sit
 side by side while a turn runs, so the primary position never changes meaning
 under a pointer already moving toward it.
 
+If adding a message to the running turn fails — the turn ended, the connection
+was lost, or the agent timed out — its words and chips stay in that
+conversation's Restore list. The failure reason stays beside them, including
+after reopening the view. Restore brings the message back to the composer and
+keeps any newer draft available in the same list.
+
 What is waiting shows in a strip above the composer, with the goal and the
 running jobs: the host's order, with reorder, remove, and edit in place. If an
 edit cannot be saved because the original was already sent, the changed words
