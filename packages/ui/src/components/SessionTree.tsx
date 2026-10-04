@@ -1189,14 +1189,15 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
     const historyIdentityKeys = new Set(
       snapshot.historyIdentity.map((summary) => String(sessionKey(summary.runtime, summary.id))),
     )
-    const identityHistory = snapshot.historyIdentity.length > 0
-      ? [
-          ...snapshot.historyIdentity,
-          ...liveRef.current.filter((summary) =>
-            !historyIdentityKeys.has(String(sessionKey(summary.runtime, summary.id))),
-          ),
-        ]
-      : listed
+    const identityHistory = [...snapshot.historyIdentity]
+    // Search can find older rows beyond the loaded pages. Add those after the
+    // cached facts so they join their project without choosing its home.
+    for (const summary of [...liveRef.current, ...snapshot.history]) {
+      const key = String(sessionKey(summary.runtime, summary.id))
+      if (historyIdentityKeys.has(key)) continue
+      historyIdentityKeys.add(key)
+      identityHistory.push(summary)
+    }
     const filtered = snapshot.listPrefs.agent
       ? listed.filter(
           (summary) => agentKeyOf(summary.runtime, snapshot.runtimes) === snapshot.listPrefs.agent,

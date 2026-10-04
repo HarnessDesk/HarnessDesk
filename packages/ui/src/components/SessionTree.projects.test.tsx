@@ -115,17 +115,16 @@ it('gives an open subfolder one row, not a second empty one for its repository',
   expect(currentProject()).toBe('ui')
 })
 
-it('keeps a project home stable while the real store searches only one clone', async () => {
+it('shows an uncached search match without moving its project home', async () => {
   const home = session('home-session', '/widgets', {
     root: '/widgets', worktree: false, origin: 'github.com/acme/widgets',
   })
   const clone = session('clone-session', '/widgets-clone', {
     root: '/widgets-clone', worktree: false, origin: 'github.com/acme/widgets',
   })
-  const history = [
-    { ...home, createdAt: 1 },
-    { ...clone, createdAt: 2 },
-  ]
+  // The first history page has only the home checkout. Search can return a
+  // matching conversation from another clone before pagination reaches it.
+  const history = [{ ...home, createdAt: 1 }]
   const runtimeInfo = {
     id: runtime.id,
     name: runtime.presentation.name,
@@ -138,7 +137,7 @@ it('keeps a project home stable while the real store searches only one clone', a
     params: { query?: string },
   ) => {
     if (method === 'session/list') return { data: history, nextCursor: null }
-    if (method === 'session/search') return { data: [clone], nextCursor: null }
+    if (method === 'session/search') return { data: [{ ...clone, createdAt: 2 }], nextCursor: null }
     if (method === 'routes/list') return []
     if (params.query) throw new Error(`unexpected query: ${params.query}`)
     return null
@@ -190,6 +189,9 @@ it('keeps a project home stable while the real store searches only one clone', a
   })
   expect(store.getSnapshot().history.map((row) => row.id)).toEqual(['clone-session'])
   expect(projects()).toEqual(['widgets'])
+  const cloneRows = [...container.querySelectorAll<HTMLElement>('[data-region="session-row"] [data-slot="sidebar-menu-button"]')]
+    .filter((row) => row.textContent?.includes('clone-session'))
+  expect(cloneRows).toHaveLength(1)
   const homeRows = [...container.querySelectorAll<HTMLElement>('[data-region="session-row"] [data-slot="sidebar-menu-button"]')]
     .filter((row) => row.textContent?.includes('home-session'))
   expect(homeRows).toHaveLength(1)
@@ -200,7 +202,7 @@ it('keeps a project home stable while the real store searches only one clone', a
     await store.searchHistory('')
     await afterStoreWake()
   })
-  expect(store.getSnapshot().history.map((row) => row.id)).toEqual(['home-session', 'clone-session'])
+  expect(store.getSnapshot().history.map((row) => row.id)).toEqual(['home-session'])
   expect(projects()).toEqual(['widgets'])
 })
 

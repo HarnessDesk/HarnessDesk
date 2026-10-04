@@ -58,7 +58,7 @@ import {
 } from './harness'
 import { PublicationCard } from '../components/Publication'
 import { denseTurns, PREVIEW_ROOT } from './sidebar-fixture'
-import { sidebarProjectsFixture } from './sidebar-projects-fixture'
+import { sidebarProjectsFixture, sidebarProjectsUnloadedSearchFixture } from './sidebar-projects-fixture'
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_UNSEEN } from './evidence-fixture'
 import { captureHealth, commitProvenance, provenanceSeat, PROVENANCE_ROOT, PROVENANCE_SHA } from './provenance-fixture'
 import { PREVIEW_FLOW_GOAL, PREVIEW_GOAL, PREVIEW_TRIGGER_GOAL } from './goal-fixture'
@@ -125,6 +125,7 @@ const composerWaiting = SHOW_COMPOSER ? composerStore(store.getSnapshot()) : sto
 const composerPaused = SHOW_COMPOSER ? composerStore(store.getSnapshot(), true) : store
 const sidebarNoFolderStore = previewStore({ workspace: null, workspaces: [], history: [], activeSessionKey: null })
 const sidebarProjectsStore = previewStore(sidebarProjectsFixture(store.getSnapshot()))
+const sidebarProjectsSearchStore = previewStore(sidebarProjectsUnloadedSearchFixture(store.getSnapshot()))
 
 const previewProvenance = commitProvenance({ seats: [{ ...provenanceSeat(7), runtime: 'codex', session: { runtime: 'codex', sessionId: 'conversation-7' } }] })
 const previewMutable = store as unknown as { patch(partial: Partial<AppSnapshot>): void }
@@ -981,7 +982,9 @@ const Preview = () => {
             className="h-[720px]"
             style={{ width: 240, background: 'var(--hd-sidebar-plate, transparent)' }}
           >
-            <Mount with={SIDEBAR_VARIANT_PARAM === 'projects' ? sidebarProjectsStore : store}>
+            <Mount with={SIDEBAR_VARIANT_PARAM === 'projects-search'
+              ? sidebarProjectsSearchStore
+              : SIDEBAR_VARIANT_PARAM === 'projects' ? sidebarProjectsStore : store}>
               <Sidebar
                 onOpenSettings={() => {}}
                 onOpenPlugins={() => {}}

@@ -226,3 +226,20 @@ export const sidebarProjectsFixture = (base: AppSnapshot): AppSnapshot => {
     listPrefs: { ...base.listPrefs, othersOpen: true, pinned: [], pinnedSessions: [], collapsed: [], forgottenFolders: [] },
   }
 }
+
+/** The search result is older than the first loaded page but belongs here. */
+export const sidebarProjectsUnloadedSearchFixture = (base: AppSnapshot): AppSnapshot => {
+  const fixture = sidebarProjectsFixture(base)
+  const home = projectsHistory.find((summary) => summary.id === 'w1')
+  const match = projectsHistory.find((summary) => summary.id === 'c1')
+  if (!home || !match) throw new Error('the sidebar search fixture is incomplete')
+  return {
+    ...fixture,
+    history: [match],
+    historyIdentity: [home],
+    teams: new Map(),
+    goals: new Map(),
+    flowExecutions: new Map(),
+    captureHealth: new Map(),
+  }
+}
