@@ -29,7 +29,6 @@ import { teamOverview } from '../lib/team-overview'
 import { TeamOverview } from './TeamOverview'
 import { TeamRunView } from './TeamRunView'
 import { StopRunDialog, StopRunFailure } from './StopRunDialog'
-import { RunFlow } from './RunFlow'
 import { useCheckAttempts } from '../state/check-attempts'
 import { runTimeline } from '../lib/run-timeline'
 import { shortSha } from '../lib/evidence'
@@ -1515,7 +1514,7 @@ export const TeamRoomPane = ({
                 doing={new Map(overview.seats.map(one => [one.seat, one.doing]))}
                 pending={timelinePending}
                 onRetry={() => setTimelineRead(was => was + 1)}
-                flow={<RunFlow execution={timelineRun} root={goal?.goal.root ?? null} seats={goal?.members ?? []} />}
+                drawFlow
                 problem={snapshot.boardEvidenceFailed.has(room) ? 'Check evidence is unavailable.'
                   : timelineReadError ?? (runHistoryProblem?.room === room ? runHistoryProblem.message : null) ?? snapshot.findings.get(room)?.error ?? snapshot.findings.get(room)?.problem ?? (snapshot.findings.get(room)?.next ? 'More findings remain to be read.' : null)
                   ?? (checkAttempts.read === 'failed' ? 'Earlier attempts of a check could not be read.' : null)}

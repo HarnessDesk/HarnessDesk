@@ -1309,6 +1309,12 @@ a caller that does not re-render mid-drag has been passing this component
 the *committed* size all along, and committing that put the panel straight
 back where it started.
 
+### `FlowGraph`
+
+`packages/ui/src/design/patterns/FlowGraph.tsx`
+
+The frozen Flow's measured drawing and accessible list. A Run overlays recorded state, seated faces, motion and shared Timeline selection; a blueprint stays still.
+
 ### `Lightbox`
 
 `packages/ui/src/design/patterns/Lightbox.tsx`

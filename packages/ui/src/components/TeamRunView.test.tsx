@@ -401,3 +401,30 @@ it('gives the note written in the inspector as the context the next round reads'
     expect(teamIntent).toHaveBeenCalledWith('overview-team', 4, 'done', undefined, 'approved', 'Looks right.')
   } finally { view.close() }
 })
+
+it('uses the separately read check history for the Flow count and keeps incomplete history unknown', async () => {
+  const attempts = new Map([[2, [1000, 2000].map((at, i) => ({ id: `result-${i + 1}`, at, n: i + 1, commit: '3f9a1c', exit: 0, timedOut: false, outcome: 'passes', tail: 'Passed' }))]])
+  const view = await mount(storeWith(), { drawFlow: true, view: 'flow', attempts })
+  try {
+    const check = () => view.container.querySelector('[data-step="verify"]')!
+    expect(check().textContent).toContain('×2')
+    await view.show({ incompleteAttempts: new Set([2]) })
+    expect(check().textContent).not.toContain('×2')
+    expect(view.container.querySelector('[data-step-row="verify"]')!.textContent).toContain('Run count unavailable')
+  } finally { view.close() }
+})
+
+
+it('keeps a check count unknown when a failed refresh retains older results, and restores it after recovery', async () => {
+  const attempts = new Map([[2, [1000, 2000].map((at, i) => ({ id: `result-${i + 1}`, at, n: i + 1, commit: '3f9a1c', exit: 0, timedOut: false, outcome: 'passes', tail: 'Passed' }))]])
+  const view = await mount(storeWith(), { drawFlow: true, view: 'flow', attempts })
+  try {
+    const check = () => view.container.querySelector('[data-step="verify"]')!
+    expect(check().textContent).toContain('×2')
+    await view.show({ attemptsRead: 'failed' })
+    expect(check().textContent).not.toContain('×2')
+    expect(view.container.querySelector('[data-step-row="verify"]')!.textContent).toContain('Run count unavailable')
+    await view.show({ attemptsRead: undefined })
+    expect(check().textContent).toContain('×2')
+  } finally { view.close() }
+})

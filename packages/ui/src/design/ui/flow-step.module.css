@@ -1,0 +1,40 @@
+/* Motion follows the graph's data curve; colour and cadence follow the foundation. */
+.ring {
+  animation: breathe calc(var(--hd-duration-pulse) * 2) ease-in-out infinite;
+  pointer-events: none;
+}
+.ring {
+  box-shadow: 0 0 var(--hd-space-8) color-mix(in srgb, var(--hd-accent) 18%, transparent);
+}
+.ring[data-state="waiting"] {
+  box-shadow: 0 0 var(--hd-space-8) color-mix(in srgb, var(--hd-warning) 18%, transparent);
+}
+.route [data-slot="chip"][data-variant="outline"][data-emphasis] {
+  background: var(--hd-card);
+  color: var(--hd-accent);
+}
+.baton {
+  position: absolute;
+  width: var(--hd-space-4);
+  height: var(--hd-space-2);
+  border-radius: var(--hd-radius-full);
+  background: linear-gradient(to right, transparent, var(--hd-accent));
+  offset-anchor: right center;
+  offset-rotate: auto;
+  animation: relay calc(var(--hd-duration-pulse) * 2) linear infinite;
+  pointer-events: none;
+}
+@keyframes breathe {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.02); }
+}
+@keyframes relay {
+  0% { offset-distance: 0%; opacity: 0; }
+  12% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { offset-distance: 100%; opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ring, .baton { animation: none; }
+  .baton { offset-distance: 88%; }
+}

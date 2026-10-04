@@ -1735,6 +1735,36 @@ on screen with its final action disabled and the reason beside it: closing it
 would throw away what was typed, and leaving it armed would offer what the host
 then refuses. This implements PR 18 of the approved Teams/Runs plan.
 
+
+## The Flow's travelled route reads the Run's recorded causes
+
+The Run's rounds record the full cause key `after:<round>:<rule>`. The overlay
+compares that key with the frozen Flow's rule and both its source and destination,
+so a later answer or check retry cannot redraw history as a route the Run never
+took. A seed, trigger continuation or externally opened round has no recorded
+rule and invents no edge. Loops count those recorded traversals; checks count
+recorded results from the separate attempt read. An unfinished operation has
+no per-attempt identity or start time, and its result may already be readable,
+so adding one would sometimes count the same result twice. Working says that
+the check is unfinished; the count changes when a result is recorded.
+Incomplete or unavailable history remains unknown.
+
+The overlay leaves the blueprint's geometry intact. Its state marks are a
+specialized data view in `design/ui/flow-step`: node rings, completion and duration
+badges, seated faces and a baton on a measured curve. The strict audit records
+that boundary by module, exports and consuming area. Every surface still composes
+Card, Chip, IconTile and Text, and every colour and cadence comes from the
+foundation. A new route waits for the baton to finish its previous curve at the
+faded end; unchanged snapshots keep both its element and animation phase. Reduced
+motion removes the animations and follows new routes immediately.
+
+Step and row selection share the Run's round numbers, so a repeated step selects
+all of its history while the inspector keeps one selected row. The Flow retains
+the whole pane, and its accessible step list carries the same state and selection.
+
+**The rule:** a Flow overlay says what the Run recorded, including what it does
+not know; it predicts no future route and offers no execution control.
+
 ## A Run's publication and a review round are separate facts
 
 The Run's `finding/run.publication` folds every posting it holds. It belongs

@@ -1107,3 +1107,26 @@ Run in the Team pane, with **Retry stop…**, even after you close the question
 or leave and reopen the pane. The retry keeps your note and clears the failure
 only when cleanup succeeds; a Run that already ended offers **Close**, rather
 than **Keep running**.
+
+The Run is laid over that frozen Flow as it moves: completed steps have a filled
+check and their recorded time; the route already taken is bold in the accent;
+current work has a breathing ring, Working and its doing line below. A working
+card names the file in that activity, or its kind when there is no file; the
+blueprint keeps the permission line. Command steps carry a terminal mark, so a
+check badge always means completion. Seated
+Agent steps carry their Seats' faces, overlapping when several work at once.
+Unreached steps are dashed; a person waiting for an answer says Needs you in
+the warning ring. Repeated steps and loops show their counts. Check counts read
+the separate history of recorded results; Working says that a check is still
+in flight. Unavailable or incomplete history leaves the count unknown. A baton follows the curve that
+brought work to the current step, keeping its phase across live updates. Reduced
+motion stops the baton and ring. The blueprint has no motion.
+
+Selecting a step selects its rounds and rows in the Timeline. Selecting a
+Timeline row selects its step on the Flow. The same live state and selection
+are available through the accessible step list in a narrow pane, including the
+live doing sentence. An answered person step clears Needs you; a wait for
+evidence reads Waiting. Stopping closes rounds without finishing their cards:
+those steps read Stopping while their retained turn is live, then Stopped,
+freeze their time at the current Run ending, and carry
+no completion badge, activity, glow or motion.

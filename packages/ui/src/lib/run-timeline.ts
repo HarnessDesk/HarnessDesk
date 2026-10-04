@@ -72,6 +72,24 @@ export const attemptWords = (attempt: Pick<FlowCheckAttempt, 'exit' | 'timedOut'
   !STANDARD_OUTCOMES.includes(attempt.outcome) ? wordOf(attempt.outcome)
     : attempt.timedOut ? 'Timed out' : attempt.exit === 0 ? 'Passed' : attempt.exit === null ? 'Did not finish' : 'Failed'
 const terminal = (card: Intent): boolean => card.state === 'done' || card.state === 'abandoned'
+/** The current ending qualifies retained work; the first departure never does. */
+export const currentRunEnd = (execution: Pick<FlowExecution, 'state' | 'currentEndedAt'>): number | null =>
+  execution.state !== 'running' ? execution.currentEndedAt ?? null : null
+
+/** Shared by the Timeline and Flow: an ended claim may still have its original turn live. */
+export const runCardTiming = (execution: Pick<FlowExecution, 'state' | 'currentEndedAt'>, card: Intent,
+  inFlight: boolean, since: number | null, sessions?: ReadonlyMap<SessionKey, Session>) => {
+  const endedAt = currentRunEnd(execution)
+  const working = execution.state === 'running' && inFlight
+  const stoppedWork = execution.state !== 'running' && !terminal(card) && (card.state === 'claimed' || inFlight)
+  const until = terminal(card) ? Math.min(card.updatedAt, endedAt ?? Infinity) : stoppedWork ? endedAt : null
+  const session = stoppedWork && card.claim ? sessions?.get(sessionKey(card.claim.runtime, card.claim.sessionId)) : undefined
+  const turn = session ? currentTurn(session) : undefined
+  // A later follow-up in the same conversation is not this Run's turn.
+  const live = session && isBusy(session) && endedAt !== null && (turn?.startedAt == null || turn.startedAt <= endedAt)
+  return { working, stoppedWork, status: stoppedWork ? live ? 'Stopping' as const : 'Stopped' as const : null,
+    since, until, durationMs: since !== null && until !== null ? Math.max(0, until - since) : null }
+}
 const claimAt = (card: Intent, signals: readonly TeamSignal[]): number | null => card.claim?.at
   ?? [...signals].filter(one => one.intent === card.id && one.signal === 'claimed' && one.at <= card.updatedAt).sort((a, b) => b.at - a.at)[0]?.at ?? null
 const endTitle = (execution: FlowExecution): string => {
@@ -85,7 +103,7 @@ const endTitle = (execution: FlowExecution): string => {
 }
 export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows: RunTimelineRow[] } {
   const execution = input.execution
-  const endedAt = execution.state !== 'running' ? execution.currentEndedAt ?? null : null
+  const endedAt = currentRunEnd(execution)
   const findingRun = input.findingRun?.run === execution.id && input.findingRun.goal === execution.goal ? input.findingRun : null
   const publication = runPublication(findingRun, input.publicationOn !== false)
   const needsYou = publication?.needsYou === true || execution.state === 'stalled' || execution.end?.kind === 'unrouted' || execution.end?.kind === 'budget'
@@ -117,10 +135,8 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
       const operation = [...execution.operations].reverse().find(one => one.kind === 'check' && one.card === id)
       const uncertain = role?.kind === 'check' && operation?.state === 'uncertain'
       const inFlight = role?.kind === 'check' ? operation?.state === 'started' : card.state === 'claimed'
-      const working = execution.state === 'running' && inFlight
-      const stoppedWork = execution.state !== 'running' && !terminal(card) && (card.state === 'claimed' || inFlight)
-      const until = terminal(card) ? Math.min(card.updatedAt, endedAt ?? Infinity) : stoppedWork ? endedAt : null
-      const durationMs = since !== null && until !== null ? Math.max(0, until - since) : null
+      const timing = runCardTiming(execution, card, inFlight, since, input.sessions)
+      const { working, stoppedWork, durationMs } = timing
       const outcome = card.outcome == null ? null : wordOf(card.outcome)
       let status: string = outcome ?? (working ? 'Working' : card.state === 'done' ? 'Done' : card.state === 'abandoned' ? 'Abandoned' : card.state === 'blocked' ? 'Blocked' : 'Waiting')
       let title = `#${id} · ${card.title}`
@@ -139,13 +155,7 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
         status = uncertain ? 'Needs you' : working ? 'Working' : result?.kind === 'check'
           ? attemptWords({ exit: result.exit, timedOut: result.timedOut, outcome: card.outcome ?? 'pass' }) : outcome ?? 'Result unavailable'
       }
-      if (stoppedWork) {
-        const session = card.claim ? input.sessions?.get(sessionKey(card.claim.runtime, card.claim.sessionId)) : undefined
-        const turn = session ? currentTurn(session) : undefined
-        // A later follow-up in the same conversation is not this Run's turn.
-        const live = session && isBusy(session) && endedAt !== null && (turn?.startedAt == null || turn.startedAt <= endedAt)
-        status = live ? 'Stopping' : 'Stopped'
-      }
+      if (timing.status) status = timing.status
       const attention = (!stoppedWork && (uncertain || personWaiting)) || (execution.end?.kind === 'unrouted' && execution.end.card === id)
       rows.push(row(`${kind}-${round.n}-${id}`, kind, title, { round: round.n, card: id,
         seat: [...execution.operations].reverse().find(one => one.kind === 'seat' && one.card === id && one.seat !== null)?.seat ?? null,

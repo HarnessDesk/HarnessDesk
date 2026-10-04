@@ -1666,6 +1666,19 @@ what the layout says, so a screenshot, the list and a test read one answer.
 On the Flow tab the drawing has the whole pane: the inspector explains a row of
 the timeline and steps aside, and returns with the timeline.
 
+A Run lays its recorded state over this same drawing. `FlowStepSurface` keeps
+done badges at the upper right and durations and repeat counts at the lower
+left. Current work has a breathing ring and a Working chip; its doing line
+sits beneath the card, with room reserved inside the canvas. A waiting person
+has the warning ring and Needs you. `FlowFaces` uses the marks of the actual
+Seats, overlapping when several occupy a round. Unreached steps and routes
+are dashed and quiet; travelled routes have the accent and a soft glow, and
+a loop records how often its rule fired. `FlowBaton` glides along the incoming
+curve, keeping its phase on snapshot updates and waiting for the faded end
+before changing curves. Reduced motion stops the baton and ring. A blueprint
+has neither. The step list carries the same state and shares selection with
+all the timeline rows of a step, including earlier rounds.
+
 The drawing is for the eye. It is `aria-hidden`, and the list of steps and
 rules under it, built from `Rows`, carries the same facts. The drawing hides
 below `38rem` of its own container's width — the pane's, not the window's — and

@@ -55,6 +55,7 @@ const EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
 }
 
 const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
+  'flow-step': 'packages/ui/src/components/RunFlow.tsx',
   'heat-grid': 'packages/ui/src/components/UsageActivity.tsx',
   alert: 'packages/ui/src/components/WorktreeAlerts.tsx',
   badge: 'packages/ui/src/components/GitPane.tsx',
@@ -95,6 +96,7 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
 }
 
 const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  'flow-step': 'packages/ui/src/preview/frames-flow-overlay.tsx',
   sidebar: 'packages/ui/src/design/explorer/boards.tsx',
   'heat-grid': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   /* Shown on the compositions board, beside the panes it resizes. Its example
@@ -145,6 +147,7 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
     : undefined
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
+  'flow-step': ['default'],
   alert: ['default', 'soft'],
   'alert-dialog': ['default'],
   attachment: ['default'],
@@ -234,6 +237,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
+  'flow-step': ['default', 'working', 'needs-you', 'loading', 'error', 'empty'],
   alert: ['default', 'success', 'warning', 'error'],
   'alert-dialog': ['closed', 'open'],
   avatar: ['default', 'loading', 'error'],
@@ -314,7 +318,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   TurnWork: ['default', 'expanded'],
   Notices: ['default', 'populated', 'empty', 'warning', 'recoverable', 'memory-only', 'image-warning', 'error', 'open', 'closed'],
   Checklist: ['default', 'active', 'inactive', 'success', 'empty'],
-  FlowGraph: ['default', 'empty'],
+  FlowGraph: ['default', 'empty', 'working', 'needs-you', 'loading', 'error'],
   'heat-grid': ['default', 'empty', 'populated'],
   sidebar: [
     'default', 'hover', 'active', 'populated', 'working', 'needs-you', 'pinned',
@@ -456,6 +460,7 @@ const pattern = ([name, exampleId, purpose]: ModuleSeed): CatalogEntry => ({
 })
 
 export const CANONICAL_UI_MODULES = [
+  ['flow-step', 'flow-overlay', 'Run-state marks on Flow node boxes and curves'],
   ['alert', 'banner', 'Status and notification anatomy'],
   ['alert-dialog', 'dialog', 'Consequential question semantics'],
   ['avatar', 'list', 'Identity image primitive'],

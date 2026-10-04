@@ -1,0 +1,187 @@
+import { expect, it } from 'vitest'
+import { runtimeId, sessionId, sessionKey, turnId, type Session, type FlowExecution, type Intent } from '@harnessdesk/protocol'
+import { flowGraphDocument } from '../preview/flow-graph-fixture'
+import { flowModel } from './flow-model'
+import { flowOverlay, flowOverlayLabels, stepForRow, rowsForStep } from './flow-overlay'
+import { flowLayout, FLOW_LABEL_H } from './flow-layout'
+import { runTimeline } from './run-timeline'
+
+const round = (n: number, role: string, cause: string, closed = true, seats: string[] = []): FlowExecution['rounds'][number] =>
+  ({ n, role, cause, state: closed ? 'closed' : 'running', cards: [n], seats, evidence: [] })
+const run = (rounds: FlowExecution['rounds'], over: Partial<FlowExecution> = {}): FlowExecution => ({
+  version: 2, id: 'run', goal: 'goal', document: flowGraphDocument('blueprint'), rounds,
+  operations: [], state: 'running', legacyRun: null, reason: null, ...over,
+})
+const card = (id: number, outcome: string | null = 'published'): Intent => ({
+  id, title: 'Build the change', detail: '', state: outcome ? 'done' : 'claimed', createdAt: id * 1000,
+  updatedAt: id * 1000 + 600, outcome, files: [], dependsOn: [], claim: null,
+}) as Intent
+const draw = (execution: FlowExecution, cards: Intent[] = [], extra: Partial<Parameters<typeof flowOverlay>[0]> = {}) =>
+  flowOverlay({ execution, cards, model: flowModel(execution.document.flow), ...extra })
+
+it('reads the travelled rules from the host causes, including a loop and its incoming baton', () => {
+  const execution = run([round(1, 'write', 'seed', true, ['writer']), round(2, 'check', 'after:1:written'),
+    round(3, 'review', 'after:2:checked', true, ['beta', 'gamma']), round(4, 'fix', 'after:3:changes', false, ['fixer'])])
+  const overlay = draw(execution, [card(1), card(2, 'passes'), card(3, 'request-changes'), card(4, null)])
+  expect(overlay.steps.get('write')).toMatchObject({ state: 'done', runs: 1, durationMs: 600, line: 'published', seats: ['writer'] })
+  expect(overlay.steps.get('review')?.seats).toEqual(['beta', 'gamma'])
+  expect(overlay.steps.get('fix')).toMatchObject({ state: 'working', since: 4000 })
+  expect(overlay.steps.get('land')).toMatchObject({ state: 'future', runs: 0 })
+  expect(overlay.rules.get('changes')).toEqual({ count: 1, current: true })
+  expect(overlay.rules.get('approved')).toEqual({ count: 0, current: false })
+})
+
+it('counts recorded check results without guessing whether an unfinished operation already kept its result', () => {
+  const execution = run([round(1, 'check', 'seed', false)], { operations: [{ key: 'check:1:0', kind: 'check', state: 'started', card: 1, seat: null }] })
+  const first = { id: 'first', at: 2000 }
+  expect(draw(execution, [card(1, null)], { attempts: new Map([[1, { attempts: [first], complete: true }]]) }).steps.get('check')?.runs).toBe(1)
+  // A result can reach the separate read before the host finishes its operation.
+  const results = new Map([[1, { attempts: [first, { id: 'second', at: 3000 }], complete: true }]])
+  expect(draw(execution, [card(1, null)], { attempts: results }).steps.get('check')?.runs).toBe(2)
+  expect(draw({ ...execution, operations: execution.operations.map(one => ({ ...one, state: 'finished' as const })) }, [card(1)], { attempts: results }).steps.get('check')?.runs).toBe(2)
+  expect(draw(execution, [card(1, null)]).steps.get('check')?.runs).toBeNull()
+  expect(draw(execution, [card(1, null)], { attempts: new Map([[1, { attempts: [{ id: 'first', at: 2000 }], complete: false }]]) }).steps.get('check')?.runs).toBeNull()
+})
+
+it('a live retry of an earlier closed check draws as working alongside the current round', () => {
+  const execution = run([round(1, 'check', 'seed'), round(2, 'review', 'after:1:checked', false)], {
+    operations: [{ key: 'check:1:0', kind: 'check', state: 'started', card: 1, seat: null }],
+  })
+  expect(draw(execution, [card(1, null), card(2, null)]).steps.get('check')?.state).toBe('working')
+  expect(draw(execution, [card(1, null), card(2, null)]).steps.get('check')).toMatchObject({ durationMs: null, since: null })
+  expect(draw(execution).steps.get('review')?.state).toBe('working')
+})
+
+it('a waiting person needs you; a stopped Run has no working step; missing timing stays unknown', () => {
+  const execution = run([round(1, 'you', 'seed', false)])
+  expect(draw(execution, [card(1, null)]).steps.get('you')).toMatchObject({ state: 'waiting', line: 'merged · dropped' })
+  expect(draw({ ...execution, state: 'stopped' }).steps.get('you')?.state).toBe('stopped')
+  expect(draw(run([round(1, 'write', 'seed')])).steps.get('write')?.durationMs).toBeNull()
+})
+
+it('counts repeated rounds and does not guess a travelled edge for an externally opened round', () => {
+  const execution = run([round(1, 'write', 'seed'), round(2, 'check', 'after:1:written'),
+    round(3, 'write', 'cause:manual', false)])
+  const overlay = draw(execution)
+  expect(overlay.steps.get('write')?.runs).toBe(2)
+  expect([...overlay.rules.values()].filter(rule => rule.current)).toHaveLength(0)
+})
+
+it('keeps arbitrary rule ids intact and refuses a cause for a different source or destination', () => {
+  const base = flowGraphDocument('blueprint')
+  const document = { ...base, flow: { ...base.flow, rules: base.flow.rules.map(rule => ({ ...rule, id: `${rule.id}:with:colon` })) } } as typeof base
+  const execution = run([round(1, 'write', 'seed'), round(2, 'check', 'after:1:written:with:colon'), round(3, 'land', 'after:2:checked:with:colon', false)], { document })
+  expect(draw(execution).rules.get('written:with:colon')?.count).toBe(1)
+  expect(draw(execution).rules.get('checked:with:colon')?.count).toBe(0)
+})
+
+it('links every row of repeated step rounds in both directions without selecting global Run rows', () => {
+  const execution = run([round(1, 'write', 'seed'), round(2, 'review', 'cause:manual'), round(3, 'write', 'cause:manual', false)])
+  const rows = runTimeline({ execution, cards: [card(1), card(2), card(3, null)] }).rows
+  expect(stepForRow(execution, rows, 'card-3-3')).toBe('write')
+  expect(rowsForStep(execution, rows, 'write')).toEqual(['round-1', 'card-1-1', 'round-3', 'card-3-3'])
+  expect(stepForRow(execution, rows, 'start')).toBeNull()
+})
+
+it('keeps labels clear of the current agent’s doing band without moving any card or route', () => {
+  const execution = run([round(1, 'review', 'seed', false, ['beta'])])
+  const layout = flowLayout(flowModel(execution.document.flow))
+  const before = structuredClone(layout)
+  const labels = flowOverlayLabels(layout, draw(execution, [card(1, null)]))
+  const node = layout.nodes.find(node => node.id === 'review')!.box
+  const centre = node.x + node.w / 2
+  const width = Math.min(320, 2 * centre, 2 * (layout.width - centre))
+  const band = { x: centre - width / 2, y: node.y + node.h + FLOW_LABEL_H, w: width, h: FLOW_LABEL_H }
+  expect([...labels.values()].filter(label => label.x - label.w / 2 < band.x + band.w && band.x < label.x + label.w / 2 && label.y - label.h / 2 < band.y + band.h && band.y < label.y + label.h / 2)).toEqual([])
+  expect(layout).toEqual(before)
+  expect(flowOverlayLabels(layout, draw(run([])))).toEqual(new Map(layout.edges.flatMap(edge => edge.label ? [[edge.id, edge.label]] : [])))
+})
+
+
+it('keeps a host-closed unfinished round stopped and freezes its time at the Run end', () => {
+  const execution = run([round(1, 'write', 'seed'), round(2, 'fix', 'cause:manual')], {
+    state: 'stopped', endedAt: 5000, currentEndedAt: 5000, end: { kind: 'stopped', by: 'person' },
+  })
+  // Stop closes the rounds; the cards remain as the work record, even if a
+  // later Seat release touches their timestamps.
+  const unfinished = { ...card(2, null), updatedAt: 9000 }
+  expect(draw(execution, [card(1), unfinished]).steps.get('fix')).toMatchObject({
+    state: 'stopped', durationMs: 3000, since: null, line: null,
+  })
+  expect(draw(execution, [card(1), unfinished]).steps.get('write')?.state).toBe('done')
+  expect(draw({ ...execution, currentEndedAt: undefined }, [card(1), unfinished]).steps.get('fix')?.durationMs).toBeNull()
+  expect(draw({ ...execution, currentEndedAt: null }, [card(1), unfinished]).steps.get('fix')?.durationMs).toBeNull()
+})
+
+it('clears Needs you for an answered person and distinguishes an evidence wait', () => {
+  const execution = run([round(1, 'you', 'seed', false)])
+  expect(draw(execution, [card(1, 'merged')]).steps.get('you')).toMatchObject({ state: 'done', line: 'merged', since: null })
+  const waiting = { ...execution, rounds: execution.rounds.map(one => ({ ...one, state: 'waiting-evidence' as const })) }
+  expect(draw(waiting, [card(1, 'merged')]).steps.get('you')).toMatchObject({ state: 'blocked', line: 'merged' })
+  expect(draw(execution, [{ ...card(1, null), state: 'blocked', blockedBy: 'graph' }]).steps.get('you')?.state).toBe('blocked')
+})
+
+
+it('keeps a stopped retry of a closed check’s unrecorded duration unknown', () => {
+  const execution = run([round(1, 'check', 'seed')], {
+    state: 'stopped', endedAt: 5000, currentEndedAt: 5000,
+    operations: [{ key: 'check:1:0', kind: 'check', state: 'started', card: 1, seat: null }],
+  })
+  expect(draw(execution, [card(1, 'passes')]).steps.get('check')).toMatchObject({ state: 'stopped', durationMs: null, since: null })
+})
+
+it('keeps an earlier closed check’s reopened retry duration unknown after Stop makes it uncertain', () => {
+  const execution = run([round(1, 'check', 'seed'), round(2, 'review', 'after:1:checked', false)], {
+    operations: [{ key: 'check:1:0', kind: 'check', state: 'started', card: 1, seat: null }],
+  })
+  const cards = [card(1, null), card(2, null)]
+  const attempts = new Map([[1, { attempts: [{ id: 'first-result', at: 1600 }], complete: true }]])
+  expect(draw(execution, cards, { attempts }).steps.get('check')).toMatchObject({
+    state: 'working', runs: 1, durationMs: null, since: null,
+  })
+  const stopped: FlowExecution = { ...execution, state: 'stopped', endedAt: 10000,
+    rounds: execution.rounds.map(one => ({ ...one, state: 'closed' })),
+    operations: execution.operations.map(one => ({ ...one, state: 'uncertain' })),
+  }
+  expect(draw(stopped, cards, { attempts }).steps.get('check')).toMatchObject({
+    state: 'stopped', runs: 1, durationMs: null, since: null,
+  })
+})
+
+
+it.each(['stopped', 'settled', 'stalled'] as const)('shares the timeline’s retained-claim rule in a %s Run after resume', state => {
+  const execution = run([round(1, 'fix', 'seed', state !== 'stalled')], { state, endedAt: 1500, currentEndedAt: 5000 })
+  const held = { ...card(1, null), claim: { runtime: runtimeId('agent'), sessionId: 'alpha', at: 1000 }, updatedAt: 9000 }
+  for (const busy of [true, false]) {
+    const session: Session = { runtime: runtimeId('agent'), id: sessionId('alpha'), cwd: '/work/project',
+      createdAt: 1000, updatedAt: 2000, itemsLoaded: true, status: { type: busy ? 'active' : 'idle' },
+      turns: [{ id: turnId('turn'), startedAt: 2000, status: busy ? 'inProgress' : 'completed', items: [] }] }
+    const sessions = new Map([[sessionKey('agent', 'alpha'), session]])
+    const timeline = runTimeline({ execution, cards: [held], sessions }).rows.find(row => row.card === 1)!
+    expect(draw(execution, [held], { sessions }).steps.get('fix')).toMatchObject({
+      state: timeline.status!.toLowerCase(), durationMs: timeline.durationMs, since: null,
+    })
+    expect(timeline.durationMs).toBe(4000)
+  }
+  expect(draw({ ...execution, state: 'running', currentEndedAt: null }, [held]).steps.get('fix'))
+    .toMatchObject({ state: 'working', since: 1000 })
+  expect(draw({ ...execution, currentEndedAt: undefined }, [held]).steps.get('fix'))
+    .toMatchObject({ state: 'stopped', durationMs: null, since: null })
+})
+
+it('bounds completed card lifetimes by the current ending instead of the first departure', () => {
+  const execution = run([round(1, 'write', 'seed')], { state: 'settled', endedAt: 1500, currentEndedAt: 5000 })
+  expect(draw(execution, [{ ...card(1), updatedAt: 9000 }]).steps.get('write'))
+    .toMatchObject({ state: 'done', durationMs: 4000 })
+})
+
+
+it('uses a resumed retained claim’s current start when freezing its duration', () => {
+  const execution = run([round(1, 'fix', 'seed')], { state: 'stopped', endedAt: 1500, currentEndedAt: 5000 })
+  const held = { ...card(1, null), claim: { runtime: runtimeId('agent'), sessionId: 'alpha', at: 4000 } }
+  const timeline = runTimeline({ execution, cards: [held] }).rows.find(row => row.card === 1)!
+  expect(draw(execution, [held]).steps.get('fix')).toMatchObject({ state: 'stopped', durationMs: timeline.durationMs })
+  expect(timeline.durationMs).toBe(1000)
+  expect(draw({ ...execution, state: 'running', currentEndedAt: null, rounds: [round(1, 'fix', 'seed', false)] }, [held]).steps.get('fix'))
+    .toMatchObject({ state: 'working', durationMs: 0, since: held.claim.at })
+})
