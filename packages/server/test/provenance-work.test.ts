@@ -349,4 +349,5 @@ test('waking capture over an unchanged journal starts no Git process and checks 
   const scans = new Set(notices.slice(since).filter((at) => at > baseline)).size
   assert.ok(scans >= 3)
   assert.equal(checks - verified, scans, 'and each checked the metadata once')
+  // Each scan still moved `checkedAt` (the loop above waited for that), though none wrote a checkpoint.
 })

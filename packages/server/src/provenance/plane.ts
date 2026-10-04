@@ -225,7 +225,7 @@ export class ProvenancePlane {
   #publish(state: Project): void {
     if (this.#closed || this.#projects.get(state.project) !== state) return
     const preference = this.#preferences.get(state.project)
-    const checkpoint = readCheckpoint(state.entries) as WorkerCheckpoint | null
+    const checkpoint = (state.observer?.checkpoint ?? readCheckpoint(state.entries)) as WorkerCheckpoint | null
     const pending = state.pending.size + (checkpoint?.frontier.length ?? 0) + (checkpoint?.rangePending.length ?? 0)
     state.health = captureHealth({
       project: state.project, enabled: preference.enabled, fatal: state.fatal,

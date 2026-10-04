@@ -687,9 +687,11 @@ Capture runs for as long as the desk does. A history of N commits offers about 6
 
 What the reader keeps is what Git can never contradict. An object id names its content, so what Git said about one stays true; but an object that is missing now can be fetched later, so a miss is never remembered. Speed does not buy back a check: the metadata, pointer and object-format checks run before any kept answer is served, once for a batch of reads rather than once per read, and a check that fails empties everything kept.
 
+Capture's record of where it is, the checkpoint, says what is new or says nothing. Every scan used to append a whole checkpoint, however little it had found, and every health update read every checkpoint ever written, so a desk that stayed up grew larger and slower with each scan, idle or not (a checkpoint over a history of a few hundred commits runs to hundreds of kilobytes). A scan that finds nothing new now writes nothing, though it still moves its own clock, and the checkpoint in force is read without reading those it superseded.
+
 The private view capture reads through is a folder in the state directory. Whoever makes one removes it on every path they control (the reader closing, an admission abandoned half way, the process exiting), and at startup the views no live handle owns are swept, which is all that can be done about a process that was killed. A view's name carries its process id, so one desk never sweeps a view another running process is using.
 
-**The rule:** capture's work is bounded and skipped when nothing it reads has changed; what it keeps is only what Git cannot contradict; and a view it makes is removed by whoever made it, or by the next start.
+**The rule:** capture does bounded work, and none when nothing it reads has changed; it keeps only what Git cannot contradict and writes only what is new; and a view it makes is removed by whoever made it, or by the next start.
 
 ## A Goal is finite; Seats and receipts are the authority
 

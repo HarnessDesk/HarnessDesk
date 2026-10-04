@@ -76,6 +76,15 @@ export class Coalesced {
 }
 
 let watchers = 0
+/**
+ * What a checkpoint durably says. Every scan moves its generation and its time
+ * forward; a scan that found nothing else to record says what the last one
+ * said, and that is not written again.
+ */
+const lasting = (checkpoint: WorkerCheckpoint): string => digest([
+  checkpoint.refs, checkpoint.heads, checkpoint.logs, checkpoint.frontier,
+  checkpoint.capturedThrough, checkpoint.baseline, checkpoint.rangeKeys, checkpoint.rangePending,
+])
 const empty = (): WorkerCheckpoint => ({
   generation: 0, refs: [], heads: [], logs: [], frontier: [],
   capturedThrough: 0, scanStartedAt: 0, rangeKeys: [], rangePending: [], baseline: [],
@@ -89,6 +98,8 @@ export class RefObserver {
   readonly #options: RefObserverOptions
   readonly #queue: Coalesced
   #checkpoint = empty()
+  /** What the last checkpoint written, or loaded, durably said. */
+  #written: string | null = null
   #handle: RepoHandle | null = null
   #closed = false
   #watchers = new Map<string, FSWatcher>()
@@ -109,10 +120,16 @@ export class RefObserver {
     if (this.#closed) return
     this.#handle = handle
     this.#checkpoint = checkpoint ? { ...empty(), ...checkpoint } : empty()
+    this.#written = checkpoint ? lasting(this.#checkpoint) : null
     await this.#attach()
     if (this.#closed) return
     this.#schedulePoll(true)
     this.wake()
+  }
+
+  /** Where the last scan left capture, in time and in work; `null` before there has been a scan. */
+  get checkpoint(): WorkerCheckpoint | null {
+    return this.#checkpoint.generation ? this.#checkpoint : null
   }
 
   wake(): void {
@@ -322,7 +339,11 @@ export class RefObserver {
       next = { ...next, ...ranges }
     }
     signal.throwIfAborted()
-    await writeCheckpoint(journal, next)
+    const durable = lasting(next)
+    if (durable !== this.#written) {
+      await writeCheckpoint(journal, next)
+      this.#written = durable
+    }
     this.#checkpoint = next
     for (const sha of requested) this.#requested.delete(sha)
     await this.#attach()
