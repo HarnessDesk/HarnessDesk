@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { agentMessageCeilingNotice, agentMessageSource, isAgentMessageSource, openingOf, opensEnvelope, splitContext, wrapContext } from '../src/context-envelope.js'
+import { agentMessageCeilingNotice, agentMessageSource, isAgentMessageSource, isCompactionSummary, openingOf, opensEnvelope, splitContext, withoutCompaction, wrapContext } from '../src/context-envelope.js'
 
 /**
  * A label survives the envelope exactly, whatever is in it.
@@ -178,4 +178,64 @@ test("what a message asks of its receiver about acting for its sender outside th
   assert.match(agentMessageCeilingNotice('edit') ?? '', /Its sender may edit and no more, .* pushing, opening a pull request or merging — waits/)
   assert.match(agentMessageCeilingNotice('publish') ?? '', /Its sender may publish and no more, .* merging — waits for the person\./)
   assert.equal(agentMessageCeilingNotice('merge'), null)
+})
+
+/**
+ * What an agent's own compaction wrote is not what the person said.
+ *
+ * An agent that runs out of room replaces the head of its transcript with a
+ * summary of it, and the replacement is a message in the user's seat. A reader
+ * that takes "the first message" as the conversation's name then names it
+ * after the summary: `<summary> ## 1. Primary Request and Intent …` down the
+ * whole sidebar. Three agents were seen to do it, each in its own words — a
+ * `<summary>` block, a `[Previous conversation summary]:` line, and "This
+ * session is being continued…" — so the shape is the protocol's to say, once,
+ * and every producer of a name asks it here.
+ */
+const SUMMARY_BLOCK = '<summary>\n## 1. Primary Request and Intent\nThe user asked for a retry on a 502.\n## 2. Key Technical Concepts\n- backoff\n</summary>'
+
+test('a summary an agent wrote of its own history is nobody’s opening', () => {
+  assert.equal(openingOf(SUMMARY_BLOCK), '')
+  // One that was cut off before it closed is all block, not the start of a sentence.
+  assert.equal(openingOf('<summary> 1. Primary Request and Intent: Worker 4 was asked to'), '')
+  assert.equal(openingOf('[Previous conversation summary]: Summary: 1. Primary Request and Intent: the retry path'), '')
+  assert.equal(
+    openingOf('This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nSummary:\n## 1. Primary Request and Intent'),
+    '',
+  )
+})
+
+test('the person’s words after a summary block are still the person’s words', () => {
+  assert.equal(openingOf(`${SUMMARY_BLOCK}\n\nNow review the retry path\nand the tests`), 'Now review the retry path')
+  // A model writes its analysis ahead of the summary; both go.
+  assert.equal(openingOf(`<analysis>\nThe user wants a retry.\n</analysis>\n${SUMMARY_BLOCK}\nNow review the retry path`), 'Now review the retry path')
+  // And it still sits after whatever context blocks the desk put in front.
+  assert.equal(openingOf(`${wrapContext('Git', 'On branch main.')}\n${SUMMARY_BLOCK}\nNow review the retry path`), 'Now review the retry path')
+})
+
+test('words that are only about summaries are words', () => {
+  assert.equal(openingOf('Write a summary of the report'), 'Write a summary of the report')
+  assert.equal(openingOf('<summary-card> needs a border'), '<summary-card> needs a border')
+  assert.equal(openingOf('Summary: of the week'), 'Summary: of the week')
+  assert.equal(openingOf('this session is long'), 'this session is long')
+})
+
+test('isCompactionSummary names a message that is only the summary, never one that has words after it', () => {
+  assert.equal(isCompactionSummary(SUMMARY_BLOCK), true)
+  assert.equal(isCompactionSummary('<summary> 1. Primary Request and Intent: cut off'), true)
+  assert.equal(isCompactionSummary('[Previous conversation summary]: Summary: 1. Primary Request and Intent'), true)
+  assert.equal(isCompactionSummary(`${SUMMARY_BLOCK}\nNow review the retry path`), false)
+  assert.equal(isCompactionSummary('Write a summary of the report'), false)
+  assert.equal(isCompactionSummary(''), false)
+  assert.equal(isCompactionSummary('   '), false)
+})
+
+test('withoutCompaction hands back what the person said, and anything else exactly as it came', () => {
+  assert.equal(withoutCompaction(`${SUMMARY_BLOCK}\nNow review the retry path`), 'Now review the retry path')
+  assert.equal(withoutCompaction(SUMMARY_BLOCK), '')
+  const plain = '  Write a summary of the report\n'
+  assert.equal(withoutCompaction(plain), plain)
+  // An analysis with no summary after it is the person's, not a compaction.
+  const analysis = '<analysis>foo</analysis> then fix bar'
+  assert.equal(withoutCompaction(analysis), analysis)
 })
