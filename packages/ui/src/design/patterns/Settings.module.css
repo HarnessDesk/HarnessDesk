@@ -363,7 +363,7 @@
   transform: var(--hd-press);
 }
 
-.btn:focus-visible {
+:where(:root:not([data-focus-input='pointer'])) .btn:focus-visible {
   outline: none;
   border-color: var(--hd-ring);
   box-shadow: var(--hd-focus-ring);
