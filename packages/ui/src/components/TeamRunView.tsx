@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type ComponentProps } from 'react'
-import type { InsightReport, SessionKey, TeamSignal } from '@harnessdesk/protocol'
+import type { FlowCheckAttempt, InsightReport, SessionKey, TeamSignal } from '@harnessdesk/protocol'
 import { useSnapshot, useStore } from '../state/context'
 import { hasConversation, teamSeats } from '../lib/team-seats'
 import { teamSeatCost } from '../lib/team-overview'
+import { answerStep } from '../state/needs-you'
 import type { FindingsListState } from '../lib/findings'
 import { RunWorkspace } from './RunWorkspace'
 import { RunView } from './RunView'
@@ -21,10 +22,18 @@ const findingsRead = (list: FindingsListState | undefined): 'reading' | 'failed'
 }
 
 /** Reads only while the Run is mounted; the pane's rail owns conversation navigation. */
-export const TeamRunView = ({ execution, origin, onOpenSeat, ...view }: ComponentProps<typeof RunView> & {
+export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, attempts, incompleteAttempts, attemptsRead, ...view }: ComponentProps<typeof RunView> & {
   execution: RunTimelineInput['execution']
   origin: string | null
   onOpenSeat: (key: SessionKey) => void
+  /** What the desk recorded each time a check card ran, by card, as the pane read it for the timeline beside this. */
+  attempts?: ReadonlyMap<number, readonly FlowCheckAttempt[]>
+  /** Cards whose readable evidence may omit earlier check results. */
+  incompleteAttempts?: ReadonlySet<number>
+  /** Why a check's attempts are not in `attempts`: still being read, or the read failed. */
+  attemptsRead?: 'reading' | 'failed'
+  /** Where a review step's attempt is chosen; without it a person's step reads as text. */
+  onOpenBoard?: () => void
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -47,7 +56,7 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, ...view }: Componen
       // The last report stays on screen while the next is read, and when that read fails: a cost is "Not recorded"
       // only when none was ever read. A report of another Goal is never shown (below), so none is cleared here.
       if (typeof store.readGoalInsight === 'function') void store.readGoalInsight(execution.goal).then(value => { if (active) setReport(value) }, () => {})
-      if (execution.findings && typeof store.loadFindingRun === 'function') void store.loadFindingRun(execution.goal, execution.id).then(() => { if (active) setReadProblem(null) }, () => { if (active) setReadProblem('Review details could not be read.') })
+      if (typeof store.loadFindingRun === 'function') void store.loadFindingRun(execution.goal, execution.id).then(() => { if (active) setReadProblem(null) }, () => { if (active) setReadProblem('Review details could not be read.') })
     }
     read()
     const timer = execution.state === 'running' ? window.setInterval(read, 60_000) : null
@@ -62,15 +71,23 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, ...view }: Componen
     const metered = snapshot.runtimes.find(runtime => runtime.id === runtimeId)?.capabilities.metered
     return [seat.record.id, teamSeatCost({ team: execution.goal, report: usage }, seat.record.id, metered)]
   }))
-  const selected = view.model.rows.find(row => row.id === view.selectedRow)
   return <RunWorkspace {...view} onRetry={() => { setReadAgain(was => was + 1); view.onRetry?.() }} problem={view.problem ?? readProblem} inspector={{
     input: { execution, cards, origin,
       signals: (team?.channel ?? goal?.board.channel ?? []).filter((entry): entry is TeamSignal => entry.kind === 'signal'),
       evidence: snapshot.boardEvidence.get(execution.goal),
       findings: findingsList?.rows,
+      findingRun: snapshot.findingRuns.get(execution.id),
+      publicationOn: goal?.goal.findingPublication !== false,
+      ...(attempts ? { attempts } : {}),
+      ...(incompleteAttempts ? { incompleteAttempts } : {}),
     },
     findingsRead: findingsRead(findingsList),
-    publication: snapshot.findingRuns.get(execution.id)?.rounds.find(round => round.round === selected?.round),
+    ...(attemptsRead ? { attemptsRead } : {}),
+    // The same requests the board makes, so a card answered or abandoned here is one thing to the host.
+    onAbandon: card => store.teamIntent(execution.goal, card, 'abandon'),
+    onAnswer: (card, outcome, note) => answerStep(store, execution.goal, card, outcome, note),
+    ...(onOpenBoard ? { onOpenBoard } : {}),
+    reviewActions: {goal:execution.goal,run:execution.id,stamp:snapshot.findingRuns.get(execution.id)?.stamp ?? "reading"},
     seats: seats.map(seat => ({ id: seat.record.id, name: seat.name,
       override: goal?.receipt?.members?.find(member => member.seat === seat.record.id)?.seatLabel ?? goal?.members.find(record => record.id === seat.record.id)?.seatLabel,
       cost: costs.get(seat.record.id),

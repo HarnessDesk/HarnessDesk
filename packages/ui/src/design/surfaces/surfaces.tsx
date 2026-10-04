@@ -24,6 +24,7 @@ import { cardEvidence, checkView, EVIDENCE_ROOM } from '../../preview/evidence-f
 import { PREVIEW_FLOW_CARD, sceneFlowExecution } from '../../preview/flow-fixture'
 import { PREVIEW_FLOW_GOAL } from '../../preview/goal-fixture'
 import { sidebarGeometryFixture } from '../../preview/sidebar-geometry-fixture'
+import { sidebarProjectsFixture } from '../../preview/sidebar-projects-fixture'
 import { denseTurns, PREVIEW_ROOT, previewHistory, previewSession } from '../../preview/sidebar-fixture'
 import { ComposerSlotsContent } from '../../preview/composer-slots-content'
 import { SIGN_IN_SELECTED, signInSeed } from '../../preview/signin-fixture'
@@ -499,15 +500,14 @@ export const RailSurface = () => (
 
 /**
  * A flow's Seats in the left bar: three of one role, one per agent, all
- * titled by the role — and one of them in a folder that has since gone.
+ * titled by the role.
  *
  * The role is the title every Seat of it carries, so at the default compact
  * density nothing but the agent tells the three rows apart. That name is a
  * word, so it is a chip on the title's own line, drawn only where rows from
  * more than one agent share a title — the untouched rows below show none.
- * The third Seat's worktree was deleted, so its row also wears the gone-folder
- * mark on the right rail. Seeded on a store of its own so the shared fixture
- * the other surfaces and `/preview.html` read is left as it is.
+ * Seeded on a store of its own so the shared fixture the other surfaces and
+ * `/preview.html` read is left as it is.
  */
 const seatOf = (from: number, id: string, runtime: string) => ({
   ...previewHistory[from]!,
@@ -523,11 +523,44 @@ const seatsHistory = [
 ]
 const seatRowsStore = previewStore({
   history: seatsHistory,
-  foldersGone: new Map([[previewHistory[2]!.cwd, 'This folder no longer exists.']]),
+  foldersGone: new Map(),
 })
 
 export const SeatRowsSurface = () => (
   <Mount with={seatRowsStore}>
+    <Frame height="page">
+      <div className={`${styles.beside} h-full`}>
+        <Sidebar
+          onOpenSettings={() => {}}
+          onOpenPlugins={() => {}}
+          onOpenTeams={() => {}} onOpenAgents={() => {}}
+          onOpenUsage={() => {}}
+          onBrowseFolders={() => {}}
+          onSignIn={() => {}}
+          onSearch={() => {}}
+        />
+        <div className={styles.work} />
+      </div>
+    </Frame>
+  </Mount>
+)
+
+/**
+ * The left bar on a busy desk: one repository cloned once per Team, folders
+ * that have since been deleted, and conversations an agent named after its
+ * own summary.
+ *
+ * What the list contains is what is judged here — four clones of one
+ * repository are one project, the deleted folders are not projects and are
+ * counted in one quiet line at the end, a conversation is named by what a
+ * person asked, and a Team's seats by their jobs. Seeded on a store of its
+ * own (`sidebarProjectsFixture`), which replaces the shared fixture outright
+ * so none of its conversations draws itself in as a project.
+ */
+const projectsStore = previewStore(sidebarProjectsFixture(previewStore().getSnapshot()))
+
+export const ProjectsSurface = () => (
+  <Mount with={projectsStore}>
     <Frame height="page">
       <div className={`${styles.beside} h-full`}>
         <Sidebar

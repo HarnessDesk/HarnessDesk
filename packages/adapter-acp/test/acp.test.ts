@@ -2953,6 +2953,45 @@ test('a conversation opened with only context blocks is called by the first one,
   }
 })
 
+/**
+ * An agent that compacts replaces the head of its transcript with a summary of
+ * it, in the user's seat, and a client that names a conversation after its
+ * first message — or takes whatever name the agent hands it — names it
+ * `<summary> ## 1. Primary Request and Intent …`. Whichever agent wrote one,
+ * it is the agent's own words: the row says what the person asked, or nothing.
+ */
+test('a summary the agent wrote of its own history is neither a conversation’s name nor its ask', async (t) => {
+  const summary = '<summary> ## 1. Primary Request and Intent The user asked for a retry on a 502. ## 2. Key Technical Concepts'
+  const { runtime } = await storedAgent(t, (dir) => ({
+    'summary-title': { cwd: dir, title: summary, preview: 'Retry the checkout call on a 502' },
+    'summary-preview': { cwd: dir, title: '', preview: '<summary> 1. Primary Request and Intent: Worker 4 was asked to' },
+    'continued': { cwd: dir, title: 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.' },
+    'named': { cwd: dir, title: 'Retry the checkout call', preview: 'Retry the checkout call on a 502' },
+  }))
+  const rows = new Map((await runtime.listSessions()).data.map((row) => [String(row.id), row]))
+  assert.equal(rows.get('summary-title')?.title, null, 'the summary is not a name')
+  assert.equal(rows.get('summary-title')?.preview, 'Retry the checkout call on a 502', 'and the ask is still there to name it')
+  assert.equal(rows.get('summary-preview')?.preview, null, 'a summary is not an ask either')
+  assert.equal(rows.get('continued')?.title, null, 'the agent’s continuation message is not a name')
+  assert.equal(rows.get('named')?.title, 'Retry the checkout call', 'a real name is kept')
+})
+
+test('a conversation replayed from the agent is called by the first thing a person said, past its own summary', async (t) => {
+  const { runtime } = await storedAgent(t, (dir) => ({
+    compacted: {
+      cwd: dir,
+      title: '',
+      turns: [
+        ['<summary> 1. Primary Request and Intent: Worker 4 was asked to retry the checkout call.\n2. Key Technical Concepts: backoff\n</summary>'],
+        ['Now add the jitter'],
+      ],
+    },
+  }))
+  const read = await runtime.readSession(sessionId('compacted'))
+  assert.equal(read.preview, 'Now add the jitter')
+  assert.equal(read.turns.length, 2, 'the summary is still in the transcript, as what the agent said it was')
+})
+
 test('an unclosed context lookalike remains the person\'s words (review of #231)', async (t) => {
   const { mkdtemp, rm } = await import('node:fs/promises')
   const { tmpdir } = await import('node:os')

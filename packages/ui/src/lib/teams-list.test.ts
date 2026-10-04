@@ -110,3 +110,26 @@ it('settled rows show the recorded Run end reason or no second line, never live 
  one.execution={...one.execution!,reason:'Review accepted the change.'}
  expect(teamListRow(one).detail).toBe('Review accepted the change.')
 })
+
+it.each(['local','partial','uncertain'] as const)('publication %s only needs the person once the shared read is present', publication => {
+ const one = input('publication', 'done')
+ const view = { run: one.execution!.id, goal: one.execution!.goal, publication, open: 1, blocking: 1,
+  rounds: [{ round: 1, state: publication, reason: null, pr: 7, cards: [1] }], boundPr: {repo:'acme/widgets',pr:7}, reason:'The review needs a posting decision.' } as unknown as import('@harnessdesk/protocol').FindingRunView
+ const facts = { ...overviewInput('done'), team: one.team.id, run: {execution:one.execution!,startedAt:100} }
+ expect(teamListRow(one).state).toBe('settled')
+ one.overview = teamOverview({...facts,findingRun:view,publicationOn:true})
+ expect(teamListRow(one).state).toBe('needs-you')
+ expect(teamListRow(one).detail).toBe(view.reason)
+ if(publication==='local') {
+  one.overview = teamOverview({...facts,findingRun:view,publicationOn:false})
+  expect(teamListRow(one).state).toBe('settled')
+ }
+})
+it('does not make a new Run Needs you because an earlier Run left Goal findings open', () => {
+ const one = input('new-run', 'done')
+ const findingRun = { run: one.execution!.id, goal: one.team.id, publication: 'local', open: 1, blocking: 1, total: 3,
+  rounds: [{round:1,state:'none',reason:null,pr:null,cards:[1]}],boundPr:{repo:'acme/widgets',pr:7} } as unknown as import('@harnessdesk/protocol').FindingRunView
+ one.overview=teamOverview({...overviewInput('done'),team:one.team.id,run:{execution:one.execution!,startedAt:100},findingRun})
+ expect(one.overview.run?.needsYou).toBe(false)
+ expect(teamListRow(one).state).toBe('settled')
+})

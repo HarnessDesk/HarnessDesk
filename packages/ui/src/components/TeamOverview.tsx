@@ -7,8 +7,11 @@ import {
 } from '../design'
 import { elapsedSince } from '../lib/clock'
 import { sanitizeHtml } from '../lib/sanitize'
+import type { NeedsYouAnswers } from '../lib/needs-you'
 import { doingLine, type DoingLine, type SeatRow, type teamOverview } from '../lib/team-overview'
+import { runPublication } from '../lib/review-publication'
 import { AgentIcon } from './Icons'
+import { NeedsYouRow } from './NeedsYouRow'
 import { formatDuration } from './TurnTail'
 
 /** Agent words stay plain text, with the transcript's sanitation boundary. */
@@ -37,12 +40,14 @@ const Cost = ({ row, metered }: { row: SeatRow; metered?: boolean }) => (
 )
 const runWords = { running: 'Running', settled: 'Settled', stopped: 'Stopped', stalled: 'Needs you' } as const
 
-export const TeamOverview = ({ model, faces, metered, unavailable, onOpen, onRun, runName = 'Run', runReason, statusLine, defaultExpanded = false }: {
+export const TeamOverview = ({ model, faces, metered, unavailable, onOpen, answers, onRun, runName = 'Run', runReason, statusLine, defaultExpanded = false }: {
   model: ReturnType<typeof teamOverview>
   faces?: ReadonlyMap<string, ReactNode>
   metered?: ReadonlyMap<string, boolean>
   unavailable?: ReadonlySet<string>
   onOpen?: (seat: string) => void
+  /** How what needs the person is answered from here; without it the rows only say what waits. */
+  answers?: NeedsYouAnswers | undefined
   onRun?: () => void
   runName?: string
   runReason?: string | null
@@ -78,6 +83,7 @@ export const TeamOverview = ({ model, faces, metered, unavailable, onOpen, onRun
     ? <Button variant="link" size="inline-link" onClick={() => onOpen(row.seat)}><Text role="row">{words(row.name)}</Text></Button>
     : <Text role="row">{words(row.name)}</Text>
   const run = model.run
+  const publication = runPublication(run?.findingRun, run?.publicationOn !== false)
   return (
     <div ref={box} data-slot="team-overview" data-layout={narrow ? 'narrow' : 'table'} className="min-w-0 overflow-y-auto">
       <PaneColumn inset="reading" className="flex flex-col gap-4">
@@ -86,7 +92,8 @@ export const TeamOverview = ({ model, faces, metered, unavailable, onOpen, onRun
             <section aria-label="Run" className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-2">
                 <span>{onRun ? <Button variant="link" size="inline-link" onClick={onRun}><Text role="subject">{words(runName)}</Text></Button> : <Text role="subject">{words(runName)}</Text>}</span>
-                <Chip tone={run.state === 'stalled' ? 'warning' : 'neutral'}>{runWords[run.state]}</Chip>
+                <Chip tone={run.needsYou || run.state === 'stalled' ? 'warning' : 'neutral'}>{run.needsYou ? 'Needs you' : runWords[run.state]}</Chip>
+                {publication && <Chip tone={publication.tone}>{publication.label}</Chip>}
               </div>
               <div className="flex flex-wrap gap-3">
                 {run.round !== null && <Text role="meta">Round {run.round}{run.role ? ` · ${words(run.role)}` : ''}</Text>}
@@ -97,6 +104,7 @@ export const TeamOverview = ({ model, faces, metered, unavailable, onOpen, onRun
                     run.total.turns !== null ? `${run.total.turns} turns` : null].filter(Boolean).join(' · ') || 'Usage unavailable'}
                 </Text>
               </div>
+              {publication?.needsYou && run.findingRun?.reason && (statusLine || run.findingRun.reason !== runReason) && <Text role="meta" as="div">{words(run.findingRun.reason)}</Text>}
               {statusLine ? statusLine(now) : runReason && <Text role="meta" as="div">{words(runReason)}</Text>}
             </section>
           </CardContent></Card>
@@ -106,9 +114,10 @@ export const TeamOverview = ({ model, faces, metered, unavailable, onOpen, onRun
             <GroupLabel>Needs you</GroupLabel>
             <ListRows>
               {model.needsYou.map((item, index) => (
-                <ListRow key={`${item.kind}-${item.seat}-${index}`}
-                  title={<Chip tone="warning">{item.kind === 'card' ? `#${item.card}` : item.kind === 'question' ? 'Question' : 'Approval'}</Chip>}
-                  subtitle={words(item.summary)} wrapSubtitle />
+                <NeedsYouRow key={item.approval !== undefined
+                  ? JSON.stringify([item.sessionKey ?? item.seat, item.approval])
+                  : item.card !== null ? `card-${item.card}` : `${item.kind}-${item.seat}-${index}`} item={item}
+                  name={model.seats.find(one => one.seat === item.seat)?.name ?? null} answers={answers} onOpenSeat={onOpen} />
               ))}
             </ListRows>
           </section>

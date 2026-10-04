@@ -1,9 +1,10 @@
 import { useState } from 'react'
 
-import type { AuthoringSaveInput, FindingRunView, Intent } from '@harnessdesk/protocol'
+import type { AuthoringSaveInput, FindingPublicationsView, FindingRunView, Intent } from '@harnessdesk/protocol'
 
 import { AddMember } from '../components/AddMember'
 import { AddWork } from '../components/AddWork'
+import { FindingBackfillDialog } from '../components/FindingBackfillDialog'
 import { FindingCarry } from '../components/FindingCarry'
 import { FindingDecision } from '../components/FindingDecision'
 import { FindingDetail } from '../components/FindingDetail'
@@ -69,6 +70,12 @@ const RUN_VIEW: FindingRunView = {
 
 const PREVIEW_INTENTS: readonly Intent[] = PREVIEW_GOAL.board.intents
 
+const BACKFILL_PREVIEW: NonNullable<FindingPublicationsView['backfill']> = {
+  pr: 42,
+  stamp: 'b'.repeat(64),
+  rounds: [{ round: 1, findings: 2, reviews: 3 }, { round: 2, findings: 1, reviews: 1 }],
+}
+
 const SHAPE_SAVE_INPUT: AuthoringSaveInput = {
   target: { kind: 'flow', origin: 'project', id: 'new-flow', root: PREVIEW_ROOT },
   expected: null,
@@ -109,7 +116,8 @@ const INSIGHT_REPORT = insightReportFor(PREVIEW_GOAL.goal.id)
 
 const DIALOG_OPTIONS = [
   'off', 'goal create', 'goal assign', 'goal wrap', 'finding carry', 'finding decision',
-  'finding detail', 'finding publications', 'add member', 'add work', 'hand out', 'shape save',
+  'finding detail', 'finding publications', 'finding backfill', 'finding backfill wrapped',
+  'add member', 'add work', 'hand out', 'shape save',
   'shape editor', 'trigger create', 'front door', 'findings rail',
 ] as const
 type DialogOption = (typeof DIALOG_OPTIONS)[number]
@@ -149,6 +157,10 @@ export const GoalFrames = () => {
           <FindingDetail goal={PREVIEW_GOAL.goal.id} finding={findingDetail('finding-open-1').finding.id} decide={RUN_VIEW} onClose={() => setDialog('off')} />
         )}
         {dialog === 'finding publications' && <FindingPublications goal={PREVIEW_GOAL.goal.id} run="run-preview" stamp="preview-stamp" />}
+        {(dialog === 'finding backfill' || dialog === 'finding backfill wrapped') && (
+          <FindingBackfillDialog backfill={BACKFILL_PREVIEW} busy={false} record={dialog === 'finding backfill wrapped'}
+            onCancel={() => setDialog('off')} onConfirm={() => setDialog('off')} />
+        )}
         {dialog === 'add member' && <AddMember room={PREVIEW_GOAL.goal.id} root={PREVIEW_ROOT} onClose={() => setDialog('off')} />}
         {dialog === 'add work' && <AddWork room={PREVIEW_GOAL.goal.id} intents={PREVIEW_INTENTS} onClose={() => setDialog('off')} />}
         {dialog === 'hand out' && (

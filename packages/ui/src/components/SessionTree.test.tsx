@@ -569,6 +569,29 @@ const treeWith = (
   }
 }
 
+it('returns focus to the session row after closing its pointer-opened actions', async () => {
+  const { container: tree } = treeWith([], [summary({ id: 'focus-return' })])
+  const row = tree.querySelector<HTMLButtonElement>('[data-region="session-row"] [data-slot="sidebar-menu-button"]')!
+  const actions = tree.querySelector<HTMLButtonElement>('button[aria-label="Actions for focus-return"]')!
+  act(() => {
+    // A pointer press focuses the action before its click opens the menu.
+    actions.focus()
+    actions.click()
+  })
+  await act(async () => {
+    await vi.waitFor(() => expect(document.activeElement?.getAttribute('role')).toBe('menuitem'))
+  })
+  act(() => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', {
+    key: 'Escape', bubbles: true, cancelable: true,
+  })))
+  await act(async () => {
+    await vi.waitFor(() => {
+      expect(document.querySelector('[role="menu"]')).toBeNull()
+      expect(document.activeElement).toBe(row)
+    })
+  })
+})
+
 it('draws a Working conversation once inside its project and includes it in the count', () => {
   const active = summary({
     id: 'session-active',
@@ -1702,6 +1725,10 @@ it('reads the ask past the context blocks the composer puts before it', () => {
  * facts about *where* a row ran.
  */
 it('marks a row whose folder is gone, and leaves the others unmarked', () => {
+  // A conversation in a folder that is gone is not listed under a project;
+  // the rows that still show it — a search is asking for it, a person pinned
+  // it — are the ones that wear the mark, which is what this holds.
+
   const runtime = {
     id: 'agent',
     name: 'Agent',
@@ -1740,7 +1767,7 @@ it('marks a row whose folder is gone, and leaves the others unmarked', () => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <SessionTree now={3} />
+        <SessionTree now={3} searching />
       </StoreProvider>,
     )
   })
@@ -1794,7 +1821,7 @@ it('shows the folder-gone mark before any click with the listing-sourced sentenc
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <SessionTree now={3} />
+        <SessionTree now={3} searching />
       </StoreProvider>,
     )
   })
@@ -1926,9 +1953,9 @@ it('renames an inactive session without opening it or changing active session (#
   expect(renameSession).toHaveBeenCalledWith('Renamed Conversation', keyB)
 })
 
-it('keeps the folder and worktree marks beside Needs you without a duplicate activity mark', () => {
+it('keeps a pinned gone-folder row’s worktree and Needs you marks without duplicate activity', () => {
   const one = summary({ id: 'four-marks', cwd: '/repo/gone', repo: { root: '/repo', worktree: true }, git: { branch: 'fix/rail' }, status: { type: 'active' } })
-  const { update } = treeWith([], [one], [one])
+  const { update } = treeWith([], [one], [one], { pinnedSessions: [String(sessionKey(one.runtime, one.id))] })
   update({
     foldersGone: new Map([[one.cwd, 'The folder no longer exists.']]),
     approvals: [{ key: sessionKey(one.runtime, one.id), approval: {
@@ -1981,7 +2008,7 @@ it('keeps a durable Seat in the Team tree when no live session or history is hel
  const board=room({id:'rested-team',name:'Rested Team',members:[]})
  const view={...triggerGoalView(board),members:[{id:'rested-seat',session:{runtime:'codex',sessionId:'rested'},role:'reviewer',openedAt:1,closed:null,agent:{name:'Rested reviewer'}}]} as unknown as GoalView
  const {container:tree}=treeWith([board],[],[],{},undefined,null,new Map([[board.id,view]]))
- expect(tree.textContent).toContain('Rested reviewer')
+ expect(tree.textContent).toContain('Reviewer · Rested Team')
 })
 
 it('keeps settled Teams and their Seats out of the sidebar, and brings attention back', () => {
@@ -2090,7 +2117,7 @@ it('reveals an activated durable Seat with no live session or history', () => {
     role: 'reviewer', openedAt: 1, closed: null, agent: { name: 'Rested reviewer' } }] } as unknown as GoalView
   const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, goal]]), {}, false)
   view.update({ activeSessionKey: sessionKey('codex', sessionId('rested')) })
-  expect(view.container.querySelector('[aria-current="page"]')?.textContent).toBe('Rested reviewer')
+  expect(view.container.querySelector('[aria-current="page"]')?.textContent).toBe('Reviewer · Rested Team')
 })
 
 it('mounts the owning Team for an activated Seat beyond the virtual project window', () => {

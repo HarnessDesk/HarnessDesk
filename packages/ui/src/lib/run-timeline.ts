@@ -1,24 +1,27 @@
-import type { BoardEvidence, FindingView, FlowExecution, Intent, TeamSignal } from '@harnessdesk/protocol'
+import { checkRetryRefusal, type BoardEvidence, type FindingRunView, type FindingView, type FlowCheckAttempt, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
 import { lifecycleWords } from './findings'
+import { reviewPublication, runPublication, type ReviewPublication } from './review-publication'
 import { wordOf } from './agents'
 
 /**
  * Plain-data contract for the later client/views move: runTimeline(input)
  * returns { header: RunHeader, rows: RunTimelineRow[] }. Stable row ids are
  * scoped to this Run; the inspector owns the selected id, never a DOM node.
- * Unknown times/results stay null. Check history requires a separate read.
+ * Unknown times/results stay null. A check's earlier attempts come from a
+ * separate read (`flow/check/attempts`), passed in as `attempts`.
  */
 export interface RunHeader {
   run: string
   flow: string
   state: FlowExecution['state']
   needsYou: boolean
+  publication: ReviewPublication | null
   revision: string | null
   continues: string | null
 }
 export interface RunTimelineRow {
   id: string
-  kind: 'start' | 'brief' | 'round' | 'card' | 'check' | 'person' | 'findings' | 'end'
+  kind: 'start' | 'brief' | 'round' | 'card' | 'check' | 'attempt' | 'person' | 'findings' | 'end'
   title: string
   detail: string | null
   round: number | null
@@ -29,6 +32,14 @@ export interface RunTimelineRow {
   durationMs: number | null
   since: number | null
   working: boolean
+  publication: ReviewPublication | null
+  /**
+   * A check row only: why the check cannot be run again from what its Run and
+   * its operation say (`checkRetryRefusal`, the host's sentence), or null when
+   * it may be asked. The host can still refuse for what only it sees, in the
+   * consent dialog. Null on every other row, where it means nothing.
+   */
+  retryRefusal: string | null
 }
 export interface RunTimelineInput {
   execution: FlowExecution
@@ -37,11 +48,25 @@ export interface RunTimelineInput {
   evidence?: BoardEvidence | null
   findings?: readonly FindingView[]
   origin?: string | null
+  findingRun?: FindingRunView | null
+  publicationOn?: boolean
+  /** What the desk recorded each time a check card ran, by card: a check with more than one result draws each under it. */
+  attempts?: ReadonlyMap<number, readonly FlowCheckAttempt[]>
+  /** Cards whose readable evidence may omit earlier check results. */
+  incompleteAttempts?: ReadonlySet<number>
 }
 const row = (id: string, kind: RunTimelineRow['kind'], title: string, rest: Partial<RunTimelineRow> = {}): RunTimelineRow => ({
   id, kind, title, detail: null, round: null, card: null, seat: null, status: null,
-  attention: false, durationMs: null, since: null, working: false, ...rest,
+  attention: false, publication: null, durationMs: null, since: null, working: false, retryRefusal: null, ...rest,
 })
+const STANDARD_OUTCOMES = ['pass', 'fail', 'passed', 'failed']
+/**
+ * One result of a check in the words its row uses: the Flow's own word when the
+ * Flow named one of its own (`no-pr`), and otherwise how the command ended.
+ */
+export const attemptWords = (attempt: Pick<FlowCheckAttempt, 'exit' | 'timedOut' | 'outcome'>): string =>
+  !STANDARD_OUTCOMES.includes(attempt.outcome) ? wordOf(attempt.outcome)
+    : attempt.timedOut ? 'Timed out' : attempt.exit === 0 ? 'Passed' : attempt.exit === null ? 'Did not finish' : 'Failed'
 const terminal = (card: Intent): boolean => card.state === 'done' || card.state === 'abandoned'
 const claimAt = (card: Intent, signals: readonly TeamSignal[]): number | null => card.claim?.at
   ?? [...signals].filter(one => one.intent === card.id && one.signal === 'claimed' && one.at <= card.updatedAt).sort((a, b) => b.at - a.at)[0]?.at ?? null
@@ -56,8 +81,10 @@ const endTitle = (execution: FlowExecution): string => {
 }
 export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows: RunTimelineRow[] } {
   const execution = input.execution
-  const needsYou = execution.state === 'stalled' || execution.end?.kind === 'unrouted' || execution.end?.kind === 'budget'
-  const header: RunHeader = { run: execution.id, flow: execution.document.flow.name, state: execution.state, needsYou,
+  const findingRun = input.findingRun?.run === execution.id && input.findingRun.goal === execution.goal ? input.findingRun : null
+  const publication = runPublication(findingRun, input.publicationOn !== false)
+  const needsYou = publication?.needsYou === true || execution.state === 'stalled' || execution.end?.kind === 'unrouted' || execution.end?.kind === 'budget'
+  const header: RunHeader = { run: execution.id, flow: execution.document.flow.name, state: execution.state, needsYou, publication,
     revision: execution.revision ?? null, continues: execution.continues ?? null }
   const rows: RunTimelineRow[] = [row('start', 'start', 'Start', { detail: input.origin ?? null, since: execution.startedAt ?? null })]
   if (execution.brief) rows.push(row('brief', 'brief', 'Brief', { detail: execution.brief }))
@@ -71,6 +98,11 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
     rows.push(row(`round-${round.n}`, 'round', `Round ${round.n} · ${round.role}`, {
       round: round.n, detail: `${finished} of ${round.cards.length} answered`, durationMs,
     }))
+    const roundFindings = (input.findings ?? []).filter(one => one.origin.run === execution.id && one.origin.round === round.n)
+    const recorded = findingRun?.rounds.find(one => one.round === round.n)
+    const roundPublication = recorded ? reviewPublication({ state: recorded.state,
+      pr: recorded.state === 'local' ? findingRun?.boundPr?.pr ?? null : recorded.pr,
+      postingOn: input.publicationOn !== false, hasFindings: recorded.state !== 'none' }) : null
     const role = execution.document.flow.roles.find(one => one.id === round.role)
     round.cards.forEach((id, index) => {
       const card = cards[index]
@@ -87,25 +119,32 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
       const personWaiting = role?.kind === 'person' && (execution.state === 'running' || execution.state === 'stalled') && round.state !== 'closed'
         && (card.state === 'open' || card.state === 'claimed' || (card.blockedBy === 'hand' && Boolean(card.blockedReason?.trim())))
       if (role?.kind === 'person') { kind = 'person'; if (personWaiting) status = 'Needs you' }
+      let retryRefusal: string | null = null
       if (role?.kind === 'check') {
         kind = 'check'
         title = role.check?.run ?? card.title
+        retryRefusal = checkRetryRefusal(execution.state, operation?.state ?? null)
         const result = input.evidence?.cards.find(one => one.card === id)?.facts
           .map(one => one.record).filter(one => one.round === round.n && one.fact.kind === 'check' && one.fact.name === round.role && one.fact.run === title)
           .sort((a, b) => b.observedAt - a.observedAt)[0]?.fact
-        status = uncertain ? 'Needs you' : working ? 'Working' : card.outcome && !['pass', 'fail', 'passed', 'failed'].includes(card.outcome)
-          ? outcome! : result?.kind === 'check' ? result.timedOut ? 'Timed out' : result.exit === 0 ? 'Passed' : 'Failed' : outcome ?? 'Result unavailable'
+        status = uncertain ? 'Needs you' : working ? 'Working' : result?.kind === 'check'
+          ? attemptWords({ exit: result.exit, timedOut: result.timedOut, outcome: card.outcome ?? 'pass' }) : outcome ?? 'Result unavailable'
       }
       const attention = uncertain || personWaiting || (execution.end?.kind === 'unrouted' && execution.end.card === id)
       rows.push(row(`${kind}-${round.n}-${id}`, kind, title, { round: round.n, card: id,
         seat: [...execution.operations].reverse().find(one => one.kind === 'seat' && one.card === id && one.seat !== null)?.seat ?? null,
-        status, attention, durationMs, since, working }))
+        status, attention, durationMs, since, working, publication: recorded?.cards.includes(id) ? roundPublication : null, retryRefusal }))
+      // The check row says the latest result; once it has run more than once, each result is drawn under it.
+      const results = kind === 'check' ? input.attempts?.get(id) ?? [] : []
+      // A skipped evidence line may hide an earlier result. Show those results
+      // in the inspector without claiming the readable subset's ordinals.
+      if (results.length > 1 && !input.incompleteAttempts?.has(id) && results.every(one => one.n !== null)) for (const one of results) rows.push(row(`attempt-${round.n}-${id}-${one.n}`, 'attempt', `Attempt ${one.n}`, { round: round.n, card: id, status: attemptWords(one), since: one.at }))
     })
-    const findings = (input.findings ?? []).filter(one => one.origin.run === execution.id && one.origin.round === round.n)
+    const findings = roundFindings
     if (findings.length) rows.push(row(`findings-${round.n}`, 'findings', `${findings.length} ${findings.length === 1 ? 'finding' : 'findings'}`, {
-      round: round.n, detail: findings.map(one => `${one.title} · ${lifecycleWords(one)}${one.problem ? ` · ${one.problem}` : ''}`).join('\n'),
+      round: round.n, publication: roundPublication, detail: findings.map(one => `${one.title} · ${lifecycleWords(one)}${one.problem ? ` · ${one.problem}` : ''}`).join('\n'),
     }))
   }
-  if (execution.state !== 'running') rows.push(row('end', 'end', endTitle(execution), { detail: execution.reason, attention: needsYou, since: execution.endedAt ?? null }))
+  if (execution.state !== 'running') rows.push(row('end', 'end', endTitle(execution), { detail: execution.reason ?? (publication?.needsYou ? findingRun?.reason ?? null : null), publication, attention: needsYou, since: execution.endedAt ?? null }))
   return { header, rows }
 }

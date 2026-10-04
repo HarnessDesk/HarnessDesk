@@ -3,7 +3,8 @@
  * SeatState = 'needs-you' | 'unread' | 'working' | 'idle'.
  * SeatRow = { seat, name, role, card: { id, title } | null, round, state, done,
  *             reason, doing, since, cost: { unit: 'money' | 'turns', value, estimated } | null }.
- * NeedsYouItem = { kind: 'card' | 'question' | 'approval', seat, card, summary, since }.
+ * NeedsYouItem = { kind: 'card' | 'question' | 'approval', seat, card, summary, since,
+ *                  approval?: the open request's id, on a question or an approval }.
  * RunStrip = { run, state: 'running' | 'settled' | 'stopped' | 'stalled', round,
  *              role, startedAt: number | null, reviewRounds: { used, of } | null, total: { money, turns } }.
  * teamOverview(TeamOverviewInput) -> { run: RunStrip | null, needsYou: NeedsYouItem[], seats: SeatRow[] }.
@@ -26,7 +27,9 @@ import {
   isBusy,
   type AgentItem,
   type Approval,
+  type ApprovalId,
   type FlowExecution,
+  type FindingRunView,
   type InsightMetric,
   type InsightReport,
   type Intent,
@@ -34,7 +37,9 @@ import {
   type SeatRecord,
   type SeatActivity,
   type Session,
+  type SessionKey,
   type TeamSignal,
+  sessionKey,
 } from '@harnessdesk/protocol'
 
 export type SeatState = 'needs-you' | 'unread' | 'working' | 'idle'
@@ -59,9 +64,17 @@ export interface NeedsYouItem {
   card: number | null
   summary: string
   since: number
+  /** The open request a question or an approval is, so an answer reaches that one and not another asked in the same instant. Absent on a card. */
+  approval?: ApprovalId
+  /** The conversation that owns the request; approval ids are only unique within that conversation. */
+  sessionKey?: SessionKey
 }
 
 export interface RunStrip {
+  /** Publication is shown only after this Run has been read, never inferred from execution. */
+  findingRun?: FindingRunView | null
+  publicationOn?: boolean
+  needsYou?: boolean
   run: string
   state: 'running' | 'settled' | 'stopped' | 'stalled'
   round: number | null
@@ -87,6 +100,8 @@ export interface TeamOverviewInput {
   readonly seats: readonly TeamOverviewSeat[]
   readonly cards: readonly Intent[]
   readonly run: { readonly execution: FlowExecution; readonly startedAt: number | null } | null
+  readonly findingRun?: FindingRunView | null
+  readonly publicationOn?: boolean
   readonly report: InsightReport | null
   /** Held channel signals in append order, including card lifecycle transitions. */
   readonly signals?: readonly TeamSignal[]
@@ -218,6 +233,7 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
     const waits: NeedsYouItem[] = seat.approvals.filter((request) => request.sessionId === seat.record.session.sessionId).map((request) => ({
       kind: request.type === 'userInput' || request.type === 'elicitation' ? 'question' : 'approval',
       seat: seat.record.id, card: card?.id ?? null, summary: approvalWords(request), since: request.requestedAt,
+      approval: request.id, sessionKey: sessionKey(seat.record.session.runtime, seat.record.session.sessionId),
     }))
     needsYou.push(...waits)
     waits.push(...needsYou.filter((one) => one.kind === 'card' && one.seat === seat.record.id))
@@ -256,9 +272,15 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
   needsYou.sort((a, b) => a.since - b.since || (a.card ?? Infinity) - (b.card ?? Infinity))
   const lastRound = rounds.at(-1)
   const total = teamTotals(input)
+  const findingRun = input.findingRun?.run === execution?.id && input.findingRun?.goal === input.team ? input.findingRun : null
+  const reviewNeedsYou = findingRun && (findingRun.publication === 'partial' || findingRun.publication === 'uncertain'
+    || (findingRun.publication === 'local' && findingRun.boundPr !== null && input.publicationOn !== false
+      && findingRun.rounds.some(round => round.state !== 'none')))
   const run: RunStrip | null = execution && input.run ? {
     run: execution.id, state: execution.state, round: lastRound?.n ?? null, role: lastRound?.role ?? null,
     startedAt: input.run.startedAt,
+    needsYou: Boolean(reviewNeedsYou) || execution.state === 'stalled' || execution.end?.kind === 'unrouted' || execution.end?.kind === 'budget',
+    ...(findingRun ? { findingRun, publicationOn: input.publicationOn !== false } : {}),
     reviewRounds: execution.findings ? {
       used: execution.findings.closedRounds.length,
       of: Math.max(execution.findings.budget.rounds, execution.findings.extraRound

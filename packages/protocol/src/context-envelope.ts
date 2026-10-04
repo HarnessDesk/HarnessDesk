@@ -137,6 +137,52 @@ export const isHandoffSource = (label: string): boolean => label.startsWith(HAND
 export const opensEnvelope = (text: string): boolean => peelDeskContextPrefix(text, true) !== null
 
 /**
+ * Messages an agent's own compaction wrote, each in the words its agent uses.
+ *
+ * An agent that runs out of room replaces the head of its transcript with a
+ * summary of it, and the replacement sits in the user's seat. Three shapes
+ * were measured: Cursor's `[Previous conversation summary]:` line, Claude
+ * Code's "This session is being continued…" message, and a bare `<summary>`
+ * block, which is what a model writes when it is asked to summarise. Whatever
+ * follows the opening is the summary itself, so the whole message goes.
+ */
+const COMPACTION_OPENINGS: readonly RegExp[] = [
+  /^\[Previous conversation summary\]/,
+  /^This session is being continued from a previous conversation/,
+  /^##\s+1\.\s+Primary Request(?:\s+and Intent)?(?=\s|:|$)/,
+]
+
+/** `<summary>`, and the `<analysis>` a model writes ahead of it; `<summary-card>` is a word. */
+const SUMMARY_OPEN = /^<summary(?=[\s>])[^>]*>/
+const ANALYSIS_BLOCK = /^<analysis(?=[\s>])[^>]*>[\s\S]*?<\/analysis>\s*/
+
+/**
+ * What the person said, with an agent's compaction taken off the front of it.
+ *
+ * A closed `<summary>` block is a block like any other the desk skips: the
+ * words after it are the person's. One that was cut off before it closed — a
+ * preview is clipped at a row's width — is all block, and so is a message in
+ * either agent's own continuation wording. Anything else is returned as it
+ * came, so a sentence that merely talks about summaries is still a sentence.
+ */
+export const withoutCompaction = (text: string): string => {
+  const head = text.trimStart()
+  if (COMPACTION_OPENINGS.some((opening) => opening.test(head))) return ''
+  const afterAnalysis = head.replace(ANALYSIS_BLOCK, '')
+  const open = SUMMARY_OPEN.exec(afterAnalysis)
+  if (!open) return text
+  const close = afterAnalysis.indexOf('</summary>', open[0].length)
+  return close === -1 ? '' : afterAnalysis.slice(close + '</summary>'.length).trim()
+}
+
+/**
+ * Whether a message is nothing but an agent's compaction of its own history,
+ * and so says nothing a person wrote. A title or a first line that is one is
+ * not a name, whichever agent produced it.
+ */
+export const isCompactionSummary = (text: string): boolean => text.trim() !== '' && withoutCompaction(text).trim() === ''
+
+/**
  * What a conversation's first message is called, before it's cut to a row's
  * width. That is the first line of the person's own words, after any context
  * blocks. For a message that's only blocks, it is the block that says what
@@ -153,11 +199,15 @@ export const opensEnvelope = (text: string): boolean => peelDeskContextPrefix(te
  * words (review of #231). Read where the preview is made, from the whole
  * message: a preview cut at 120 characters holds no whole block to read a
  * label from, and one stripped of its blocks holds nothing at all (#186).
+ *
+ * An agent's own summary of its compacted history is skipped the same way:
+ * it names nothing, and a caller that walks on to the next message finds the
+ * person's first real one.
  */
 export const openingOf = (raw: string, options: { readonly skip?: (label: string) => boolean } = {}): string => {
   const { text, injections } = splitContext(raw)
   const lineOf = (value: string): string => value.split('\n').find((line) => line.trim() !== '')?.trim() ?? ''
-  const said = lineOf(text)
+  const said = lineOf(withoutCompaction(text))
   if (said) return opensEnvelope(said) ? '' : said
   const labels = injections.map((block) => block.label).filter((label) => !options.skip?.(label))
   return lineOf(labels.find((label) => isHandoffSource(label) || isAgentMessageSource(label)) ?? labels[0] ?? '')

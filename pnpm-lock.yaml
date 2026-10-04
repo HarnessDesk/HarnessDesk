@@ -167,6 +167,9 @@ importers:
       '@harnessdesk/claude-acp':
         specifier: workspace:*
         version: link:../claude-acp
+      '@harnessdesk/cli':
+        specifier: workspace:*
+        version: link:../cli
       '@harnessdesk/cursor-acp':
         specifier: workspace:*
         version: link:../cursor-acp

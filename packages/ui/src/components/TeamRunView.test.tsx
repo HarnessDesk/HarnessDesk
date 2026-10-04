@@ -314,3 +314,78 @@ it('answers to a caller that chooses the tab, and keeps the pane its own while i
     expect(view.container.querySelector('[data-slot="run-inspector"]')).not.toBeNull()
   } finally { view.close() }
 })
+
+it('hands the attempts it was given, and why they are missing, to the check’s inspector', async () => {
+  const attempt = (n: number) => ({ id: `attempt-${n}`, n, at: Date.now() - (3 - n) * 600_000, commit: `c0ffee${n}`, exit: n === 1 ? 1 : 0, timedOut: false, outcome: n === 1 ? 'fail' : 'pass', tail: `output ${n}` })
+  const view = await mount(storeWith(), { selectedRow: 'check-2-2', attempts: new Map([[2, [attempt(1), attempt(2)]]]) })
+  try {
+    expect(sectionText(view.container, 'Attempts')).toContain('Attempt 2')
+    expect(sectionText(view.container, 'Attempts')).toContain('Attempt 1')
+    await view.show({ attempts: new Map([[2, [attempt(1), attempt(2)]]]), incompleteAttempts: new Set([2]) })
+    expect(sectionText(view.container, 'Attempts')).toContain('Attempt history could not be read completely.')
+    expect(sectionText(view.container, 'Attempts')).toContain('Recorded result')
+    expect(sectionText(view.container, 'Attempts')).not.toContain('Attempt 1')
+    await view.show({ attempts: undefined, attemptsRead: 'reading' })
+    expect(sectionText(view.container, 'Attempts')).toContain('Reading attempts…')
+    await view.show({ attempts: undefined, attemptsRead: 'failed' })
+    expect(sectionText(view.container, 'Attempts')).toContain('Earlier attempts could not be read')
+    await view.show({ attempts: undefined, attemptsRead: undefined })
+    expect(view.container.textContent).not.toContain('Attempts')
+  } finally { view.close() }
+})
+
+/** The store with another scene of the Run fixture on the Team's board, as the running Team holds it. */
+const sceneStore = (scene: 'running' | 'person', verbs: Record<string, unknown> = {}): AppStore => storeWith(snapshot => {
+  const fixture = runFixture(scene)
+  const team = { ...snapshot.teams.get('overview-team')!, intents: fixture.cards, channel: fixture.signals }
+  return { teams: new Map([[team.id, team]]), flowExecutions: new Map([[fixture.execution.id, fixture.execution]]) }
+}, verbs)
+const mountScene = async (scene: 'running' | 'person', store: AppStore, props: Partial<ComponentProps<typeof TeamRunView>>) => {
+  const fixture = runFixture(scene)
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  await act(async () => root.render(<StoreProvider store={store}><TeamRunView execution={fixture.execution} origin={null} onOpenSeat={() => {}}
+    model={runTimeline(fixture)} number={1} selectedRow={scene === 'person' ? 'person-4-4' : 'card-4-4'} onSelect={() => {}} {...props} /></StoreProvider>))
+  return { container, close: () => { act(() => root.unmount()); container.remove() } }
+}
+const press = (label: string, within: ParentNode = document.body) =>
+  act(async () => ([...within.querySelectorAll('button')].find(one => one.textContent === label) as HTMLButtonElement).click())
+
+it('abandons a card from its inspector with the request the board makes', async () => {
+  const teamIntent = vi.fn().mockResolvedValue(undefined)
+  const view = await mountScene('running', sceneStore('running', { teamIntent }), {})
+  try {
+    await press('Abandon card…', view.container)
+    expect(document.body.querySelector('[role="alertdialog"]')?.textContent).toContain('Abandon card #4?')
+    expect(teamIntent).not.toHaveBeenCalled()
+    await press('Abandon card')
+    // The board's own menu calls `teamIntent(room, id, 'abandon')` and nothing else.
+    expect(teamIntent).toHaveBeenCalledTimes(1)
+    expect(teamIntent).toHaveBeenCalledWith('overview-team', 4, 'abandon')
+  } finally { view.close() }
+})
+it('answers a person\'s step from its inspector with the request the board makes', async () => {
+  const teamIntent = vi.fn().mockResolvedValue(undefined)
+  const onOpenBoard = vi.fn()
+  const view = await mountScene('person', sceneStore('person', { teamIntent }), { onOpenBoard })
+  try {
+    await press('Approved', view.container)
+    expect(teamIntent).toHaveBeenCalledWith('overview-team', 4, 'done', undefined, 'approved')
+  } finally { view.close() }
+})
+it('keeps a person\'s step as text when the pane gives it no way to the board', async () => {
+  const view = await mountScene('person', sceneStore('person'), {})
+  try { expect([...view.container.querySelectorAll('button')].map(one => one.textContent)).not.toContain('Approved') } finally { view.close() }
+})
+it('gives the note written in the inspector as the context the next round reads', async () => {
+  const teamIntent = vi.fn().mockResolvedValue(undefined)
+  const view = await mountScene('person', sceneStore('person', { teamIntent }), { onOpenBoard: () => {} })
+  try {
+    const note = view.container.querySelector<HTMLInputElement>('input[aria-label="Note"]')!
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    act(() => { setter.call(note, 'Looks right.'); note.dispatchEvent(new Event('input', { bubbles: true })) })
+    await press('Approved', view.container)
+    expect(teamIntent).toHaveBeenCalledWith('overview-team', 4, 'done', undefined, 'approved', 'Looks right.')
+  } finally { view.close() }
+})

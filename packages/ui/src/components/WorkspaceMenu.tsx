@@ -1,7 +1,8 @@
 import { useState } from 'react'
 
-import { projectGroupRootOf, type ProjectGroup } from '../lib/projects'
-import { shortPath } from '../lib/paths'
+import { migratedRoots, projectGroupRootOf, type ProjectGroup } from '../lib/projects'
+import { isPathInside, shortPath } from '../lib/paths'
+import { captureForRoot, captureWords } from '../lib/provenance'
 import { isDesktop } from '../lib/desktop'
 import { useSnapshot, useStore } from '../state/context'
 import {
@@ -15,6 +16,7 @@ import {
   MoveUpIcon,
   PinIcon,
   PlusIcon,
+  RetryIcon,
   SettingsIcon,
   TerminalIcon,
   TrashIcon,
@@ -79,6 +81,7 @@ export const WorkspaceMenu = ({
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const order = migratedRoots(snapshot.listPrefs.pinned, null, [group])
   /* The arranged run is a sortable order, and this menu's Move rows are its
      keyboard route: a move is the sortable part's request, answered by the
      store and then said out loud in the part's own words, the way a drag or
@@ -86,8 +89,14 @@ export const WorkspaceMenu = ({
      than in it: a menu holds menu items, and the sentence has to outlive the
      menu closing. */
   const sortable = useSortable({
-    ids: snapshot.listPrefs.pinned,
-    onMove: (root, to) => store.moveProject(root, to),
+    ids: order,
+    onMove: (root, to) => {
+      const stored = store.getSnapshot().listPrefs.pinned
+      if (stored.some(one => one !== root && group.folders.includes(one))) {
+        const rest = migratedRoots(stored, null, [group]).filter(one => one !== root)
+        store.setListPrefs({ pinned: to < 0 || to > rest.length ? [...rest] : [...rest.slice(0, to), root, ...rest.slice(to)] })
+      } else store.moveProject(root, to)
+    },
     name: (root) => (root === group.root ? group.name : root),
     left: (root) => `${root === group.root ? group.name : root} is back in automatic order`,
   })
@@ -136,7 +145,7 @@ const WorkspaceRows = ({
   const opened = openEntry !== undefined
   // The arranged run, and where this project sits in it. -1 means it is not
   // in the run at all: the sort is still deciding where it goes.
-  const order = snapshot.listPrefs.pinned
+  const order = migratedRoots(snapshot.listPrefs.pinned, null, [group])
   const place = order.indexOf(group.root)
   const pinned = place !== -1
   const ready = snapshot.health?.state === 'ready' || snapshot.health?.state === 'idle'
@@ -147,6 +156,14 @@ const WorkspaceRows = ({
     : group.sessions.some((summary) => Boolean(summary.git?.branch))
   const count = group.sessions.length
   const sessionsWord = count === 1 ? '1 session' : `${count} sessions`
+  /* How capture is going, for the repository this project is homed in. It is
+     said here, in one item, and not on the project's row: the row says which
+     project it is. A clone's capture is a different repository's, so only the
+     folders that contain the home are asked; a healthy capture says nothing. */
+  const capture = group.folders
+    .filter((folder) => isPathInside(group.root, folder))
+    .map((folder) => captureForRoot(folder, snapshot.captureHealth, snapshot.workspaces))
+    .find((health) => health !== undefined && health.state !== 'healthy')
 
   /* Past the end of the arranged run is back into the sort (the store
      unpins it); anywhere in it is a place in the run. */
@@ -261,6 +278,23 @@ const WorkspaceRows = ({
         title="Its own Agents, on a page of its own."
         onSelect={() => store.askSettings('workspaces', group.root)}
       />
+      {/* The control is the one the project's page offers beside this state:
+          retry while capture is on, turn it on while it is off. The host's own
+          reason and next step are on hover — a fact that varies, in the host's
+          words, which the row has not earned a line for. */}
+      {capture && (
+        <MenuItem
+          icon={<RetryIcon size={14} />}
+          label={`Capture ${captureWords(capture).label.toLowerCase()}`}
+          value={capture.enabled ? 'Retry' : 'Turn on'}
+          title={`${capture.reason} ${capture.nextStep}`}
+          onSelect={() => {
+            void (capture.enabled ? store.retryCapture(capture.project) : store.setCapture(capture.project, true)).catch(() =>
+              store.notice('warning', capture.enabled ? 'Capture could not be retried.' : 'The capture preference could not be saved.'),
+            )
+          }}
+        />
+      )}
 
       <MenuSeparator />
 
@@ -271,7 +305,12 @@ const WorkspaceRows = ({
       <MenuItem
         icon={pinned ? <UnpinIcon size={14} /> : <PinIcon size={14} />}
         label={pinned ? 'Unpin' : 'Pin'}
-        onSelect={() => store.togglePinned(group.root)}
+        onSelect={() => {
+          const stored = store.getSnapshot().listPrefs.pinned
+          if (stored.some(root => root !== group.root && group.folders.includes(root))) {
+            store.setListPrefs({ pinned: stored.filter(root => !group.folders.includes(root)) })
+          } else store.togglePinned(group.root)
+        }}
       />
       <Submenu icon={<ChevronIcon size={14} />} label="Move">
         <MenuItem

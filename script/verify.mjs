@@ -182,6 +182,10 @@ step('interface drift', () => run('node', ['script/check-interface-drift.mjs']))
 // this holds the table to the one the branch started from.
 step('alignment census', () => run('node', ['script/check-alignment-census.mjs']))
 step('design doc', () => run('node', ['script/design-doc.mjs', '--check']))
+// `docs/cli.md` is written out of the command table in `packages/cli/src/cli.ts`,
+// which it reads from the built command line: over the dist a failed build left
+// it would compare the file with the table as it was, and print ok (#208).
+step('cli doc', () => run('node', ['script/cli-doc.mjs', '--check']), { needs: 'build' })
 
 step('recorded claims', () => run('node', ['script/check-claims.mjs']))
 /* The prose is the one part of this repository the gate never read, which is

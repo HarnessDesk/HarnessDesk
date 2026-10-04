@@ -129,3 +129,21 @@ it('finding/changed coalesces into one reload of the affected Goal only, and nev
   await new Promise((resolve) => setTimeout(resolve, 60))
   expect(calls, 'the burst reloaded g1 once, not three times, and never fetched the Goal nobody is caching').toBe(2)
 })
+it('refreshes a first finding/run read invalidated before it answered, and rejects an older answer', async () => {
+ const answers: ((value: unknown) => void)[]=[]
+ vi.spyOn(store.transport,'request').mockImplementation((async(method:HostMethodName)=>{
+  if(method==='finding/run')return new Promise(resolve=>answers.push(resolve))
+  throw new Error(`unexpected ${method}`)
+ }) as never)
+ const first=store.loadFindingRun('g1','run-1')
+ notify(store,{method:'finding/changed',params:{goal:'g1',revision:1}})
+ await new Promise(resolve=>setTimeout(resolve,60))
+ expect(answers).toHaveLength(2)
+ const view={goal:'g1',run:'run-1',publication:'posted',rounds:[],stamp:'fresh'}
+ answers[1]!(view)
+ await new Promise(resolve=>setTimeout(resolve,0))
+ expect(store.getSnapshot().findingRuns.get('run-1')?.publication).toBe('posted')
+ answers[0]!({...view,publication:'local',stamp:'old'})
+ await first
+ expect(store.getSnapshot().findingRuns.get('run-1')?.publication).toBe('posted')
+})

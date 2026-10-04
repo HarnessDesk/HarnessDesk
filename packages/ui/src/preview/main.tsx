@@ -1,6 +1,7 @@
 import { SidebarStructureExample } from './sidebar-structure-fixture'
 import { TeamRecordFrames } from './frames-team-record'
 import { TeamsPageFrames } from './frames-teams-page'
+import { CliInstallFrame } from './frames-cli-install'
 import { StrictMode, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 
@@ -19,7 +20,8 @@ import { ProjectTriggers } from '../components/ProjectTriggers'
 import { TriggerArm } from '../components/TriggerArm'
 import { FlowUpdate } from '../components/FlowUpdate'
 import { RaceStart } from '../components/RaceStart'
-import { FlowRunStatus, RetryCheck } from '../components/FlowRunStatus'
+import { FlowRunStatus } from '../components/FlowRunStatus'
+import { RetryCheck } from '../components/RetryCheck'
 import { AppearanceSection } from '../components/SettingsYou'
 import { LibrarySection } from '../components/Library'
 import { AgentsWindow } from '../components/AgentsWindow'
@@ -56,6 +58,7 @@ import {
 } from './harness'
 import { PublicationCard } from '../components/Publication'
 import { denseTurns, PREVIEW_ROOT } from './sidebar-fixture'
+import { sidebarProjectsFixture } from './sidebar-projects-fixture'
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_UNSEEN } from './evidence-fixture'
 import { captureHealth, commitProvenance, provenanceSeat, PROVENANCE_ROOT, PROVENANCE_SHA } from './provenance-fixture'
 import { PREVIEW_FLOW_GOAL, PREVIEW_GOAL, PREVIEW_TRIGGER_GOAL } from './goal-fixture'
@@ -75,6 +78,8 @@ import { LibraryOptionFrames } from './frames-library-options'
 import { FlowGraphFrames } from './frames-flow-graph'
 import { RunViewFrames } from './frames-run-view'
 import { RunInspectorFrames } from './frames-run-inspector'
+import { ReviewPublicationFrames } from './frames-review-publication'
+import { ABANDON_VARIANTS, RunControlsFrames, type AbandonVariant } from './frames-run-controls'
 import { TeamOverviewFrames } from './frames-team-overview'
 import { SideBySideFrames } from './frames-side-by-side'
 import { ComposerSlotsFrames } from './frames-composer-slots'
@@ -119,6 +124,7 @@ const SIDEBAR_VARIANT_PARAM = new URLSearchParams(window.location.search).get('s
 const composerWaiting = SHOW_COMPOSER ? composerStore(store.getSnapshot()) : store
 const composerPaused = SHOW_COMPOSER ? composerStore(store.getSnapshot(), true) : store
 const sidebarNoFolderStore = previewStore({ workspace: null, workspaces: [], history: [], activeSessionKey: null })
+const sidebarProjectsStore = previewStore(sidebarProjectsFixture(store.getSnapshot()))
 
 const previewProvenance = commitProvenance({ seats: [{ ...provenanceSeat(7), runtime: 'codex', session: { runtime: 'codex', sessionId: 'conversation-7' } }] })
 const previewMutable = store as unknown as { patch(partial: Partial<AppSnapshot>): void }
@@ -473,6 +479,7 @@ const Preview = () => {
     | 'what was observed'
     | 'run a check'
     | 'retry check'
+    | 'retry check refused'
     | 'flow update'
     | 'flow customize'
     | 'race'
@@ -535,7 +542,7 @@ const Preview = () => {
         <Dial
           label="dialog"
           value={dialog}
-          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed', 'run a check', 'retry check', 'flow update', 'flow customize', 'race', 'trigger arm'] as const}
+          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed', 'run a check', 'retry check', 'retry check refused', 'flow update', 'flow customize', 'race', 'trigger arm'] as const}
           onChange={setDialog}
         />
         <Dial label="trigger arm scene" value={armScene} options={TRIGGER_ARM_SCENES} onChange={setArmScene} />
@@ -578,6 +585,7 @@ const Preview = () => {
       )}
       {dialog === 'new session' && <NewSessionChoice onClose={() => setDialog('off')} />}
       {dialog === 'retry check' && <RetryCheck run="run-preview" card={7} onClose={() => setDialog('off')} />}
+      {dialog === 'retry check refused' && <RetryCheck run="run-preview-ended" card={7} onClose={() => setDialog('off')} />}
       {dialog === 'flow update' && (
         <FlowUpdate root={PREVIEW_ROOT} id="old-fix" mode="update" onClose={() => setDialog('off')} onApplied={() => setDialog('off')} />
       )}
@@ -973,15 +981,17 @@ const Preview = () => {
             className="h-[720px]"
             style={{ width: 240, background: 'var(--hd-sidebar-plate, transparent)' }}
           >
-            <Sidebar
-              onOpenSettings={() => {}}
-              onOpenPlugins={() => {}}
-          onOpenTeams={() => {}} onOpenAgents={() => {}}
-              onOpenUsage={() => {}}
-              onBrowseFolders={() => {}}
-              onSignIn={() => {}}
-              onSearch={() => {}}
-            />
+            <Mount with={SIDEBAR_VARIANT_PARAM === 'projects' ? sidebarProjectsStore : store}>
+              <Sidebar
+                onOpenSettings={() => {}}
+                onOpenPlugins={() => {}}
+                onOpenTeams={() => {}} onOpenAgents={() => {}}
+                onOpenUsage={() => {}}
+                onBrowseFolders={() => {}}
+                onSignIn={() => {}}
+                onSearch={() => {}}
+              />
+            </Mount>
           </div>
         </Frame>
         {SIDEBAR_VARIANT_PARAM === 'compact' && <Frame id="sidebar-compact" title="Sidebar — 200px column">
@@ -1064,6 +1074,7 @@ const Preview = () => {
       {new URLSearchParams(window.location.search).has('run-view') && <RunViewFrames />}
       {new URLSearchParams(window.location.search).has('run-inspector') && <RunInspectorFrames />}
       {new URLSearchParams(window.location.search).has('flow-graph') && <FlowGraphFrames />}
+      {new URLSearchParams(window.location.search).has('run-controls') && <RunControlsFrames variant={ABANDON_VARIANTS.find((one: AbandonVariant) => one === new URLSearchParams(window.location.search).get('abandon')) ?? null} />}
       {new URLSearchParams(window.location.search).has('teams-page') && <TeamsPageFrames />}
       {new URLSearchParams(window.location.search).has('sidebar-structure') && <SidebarStructureExample />}
       {new URLSearchParams(window.location.search).has('team-record') && <TeamRecordFrames />}
@@ -1077,11 +1088,20 @@ const Preview = () => {
 const container = document.getElementById('root')
 if (!container) throw new Error('#root is missing from preview.html')
 
+const PublicationPreview = () => {
+  useTheme()
+  return <ReviewPublicationFrames />
+}
+
 createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('flow-brief')
+        {new URLSearchParams(window.location.search).has('cli-install')
+          ? <CliInstallFrame />
+          : new URLSearchParams(window.location.search).has('review-publication')
+          ? <PublicationPreview />
+          : new URLSearchParams(window.location.search).has('flow-brief')
           ? <FlowBriefDialog scene={(BRIEF_SCENES.find((one) => one === new URLSearchParams(window.location.search).get('flow-brief')) ?? 'empty') as BriefScene} />
           : <Preview />}
       </AppWindowMode.Provider>
