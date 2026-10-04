@@ -2847,6 +2847,121 @@ test('a git root that is not there yet is judged by the folder it would be in, l
   })
 })
 
+test('a folder inside an open one cannot reach a repository it only points at, yet real alternate layouts still answer', async (t) => {
+  // `realpath` sees a symlink but not the contents of a `.git` *file*. A folder
+  // `A/x` inside open `A` holding `gitdir: <B>/.git` passes the folder rule the
+  // git surface confines by, and then `git -C A/x` runs against B — a
+  // repository nobody opened. The repository git actually resolves is judged
+  // too, by where its database lives; but that judgement must not turn away the
+  // real layouts that legitimately keep their `.git` outside their own folder:
+  // a linked worktree, a submodule, and a `--separate-git-dir` tree.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  // Real paths throughout, so nothing but the pointer under test stands between
+  // a folder and the repository it reaches.
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'hd-git-database-')))
+  t.after(() => rm(scratch, { recursive: true, force: true }))
+  const repository = async (path: string): Promise<void> => {
+    await mkdir(path, { recursive: true })
+    await gitIn(path, 'init', '-q', '-b', 'main')
+    await gitIn(path, 'commit', '-q', '--allow-empty', '-m', 'root commit')
+  }
+  // The branches a repository holds, for reading before an answer that might
+  // have written one.
+  const branches = async (repo: string): Promise<string[]> =>
+    (await gitIn(repo, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/'))
+      .split('\n')
+      .filter((line) => line.length > 0)
+  // A git verb answers when it names the repository's own root commit.
+  const answers = async (root: string): Promise<boolean> => {
+    const page = (await client.call('git/log', { root })) as { commits: readonly { subject: string }[] }
+    return page.commits.some((commit) => commit.subject === 'root commit')
+  }
+
+  await t.test('the gitfile case is refused, and the pointed-at repository gains no branch', async () => {
+    const opened = join(scratch, 'opened')
+    const other = join(scratch, 'other')
+    await repository(opened)
+    await repository(other)
+    const inside = join(opened, 'x')
+    await mkdir(inside)
+    // A regular file, not a symlink, so `realpath(inside)` is `inside` and only
+    // git, reading the file, follows it out to `other`.
+    await writeFile(join(inside, '.git'), `gitdir: ${join(other, '.git')}\n`)
+    await client.call('workspace/open', { path: opened })
+
+    // The controls: `inside` is a real directory (no link to collapse), git run
+    // there resolves to `other`, and `other` spelled directly is refused for
+    // being unopened — so a refusal below is about the pointer being followed,
+    // not about a path that leads nowhere.
+    assert.equal(await realpath(inside), inside)
+    assert.equal((await gitIn(inside, 'rev-parse', '--path-format=absolute', '--git-common-dir')).trim(), join(other, '.git'))
+    await assert.rejects(() => client.call('git/log', { root: other }), /outside every open workspace/)
+
+    const otherHead = (await gitIn(other, 'rev-parse', 'HEAD')).trim()
+    assert.deepEqual(await branches(other), ['main'])
+    const answer = await client
+      .call('git/createBranch', { root: inside, name: 'via-gitfile', at: otherHead })
+      .then(() => ({ created: true }), (error: Error) => ({ refused: error.message }))
+    // Read before the answer, so a call that was let in fails on the branch it
+    // made in `other` rather than only on having been answered.
+    assert.deepEqual(await branches(other), ['main'])
+    assert.deepEqual(answer, {
+      refused:
+        `${inside} is inside an open folder, but git there resolves to a repository (${join(other, '.git')}) ` +
+        'that is not open. Open that repository to work in it.',
+    })
+  })
+
+  await t.test('a linked worktree opened on its own still answers', async () => {
+    // Its database is the repository's, kept in the main checkout's `.git`,
+    // which is not open — but the worktree itself is a checkout of it.
+    const main = join(scratch, 'wt-main')
+    const linked = join(scratch, 'wt-linked')
+    await repository(main)
+    await gitIn(main, 'worktree', 'add', '-q', '-b', 'side', linked)
+    await client.call('workspace/open', { path: linked })
+    assert.equal(await answers(linked), true)
+  })
+
+  await t.test('a submodule opened on its own still answers', async () => {
+    // Its database lives in the superproject's `.git/modules`, and only the
+    // submodule is open.
+    const library = join(scratch, 'sub-library')
+    const superproject = join(scratch, 'sub-super')
+    await repository(library)
+    await repository(superproject)
+    await gitIn(superproject, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', library, 'vendored')
+    const vendored = join(superproject, 'vendored')
+    await client.call('workspace/open', { path: vendored })
+    assert.equal(await answers(vendored), true)
+  })
+
+  await t.test('a --separate-git-dir tree opened on its own still answers', async () => {
+    // Its database is a sibling directory git was told to keep it in, inside no
+    // open folder.
+    const work = join(scratch, 'sep-work')
+    const gitDir = join(scratch, 'sep-gitdir')
+    await gitIn(scratch, 'init', '-q', '-b', 'main', '--separate-git-dir', gitDir, work)
+    await gitIn(work, 'commit', '-q', '--allow-empty', '-m', 'root commit')
+    await client.call('workspace/open', { path: work })
+    assert.equal(await answers(work), true)
+  })
+
+  await t.test('a subfolder of an open repository reaches its top level', async () => {
+    // The database is under the repository, which the top level names; the one
+    // layout the escape check never turns away.
+    const repo = join(scratch, 'sub-repo')
+    await repository(repo)
+    await mkdir(join(repo, 'pkg'))
+    await client.call('workspace/open', { path: join(repo, 'pkg') })
+    assert.equal(await answers(repo), true)
+  })
+})
+
 test('the repository top level above an open subfolder is reachable', async (t) => {
   // The history pane keys itself by git/status's answer, and a workspace is
   // often a folder inside its repository — that one derived root is allowed,

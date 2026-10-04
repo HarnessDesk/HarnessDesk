@@ -3992,15 +3992,56 @@ export class Host {
     // macOS a workspace is routinely reached through /tmp or /var.
     const real = await this.#realPath(root)
     const opened = await Promise.all(roots.map((entry) => this.#realPath(entry)))
+    // The folder rule: `real` is inside an open root, or it is the top level of
+    // the repository an open root sits in. Either admits it as a folder.
+    let admitted = true
     try {
-      return confine(real, opened)
+      confine(real, opened)
     } catch (refusal) {
+      admitted = false
       for (const open of roots) {
         const top = await gitOps.topLevel(open)
-        if (top !== null && (await this.#realPath(top)) === real) return real
+        if (top !== null && (await this.#realPath(top)) === real) {
+          admitted = true
+          break
+        }
       }
-      throw refusal
+      if (!admitted) throw refusal
     }
+    // A folder is not a repository. `git -C` follows a `.git` *file* the way it
+    // follows a symlink, and `realpath` cannot see file contents: a folder
+    // `A/x` inside open `A` holding `gitdir: <B>/.git` passes the rule above,
+    // and then every git verb runs against B — its refs, config and hooks — a
+    // repository nobody opened. So the repository git actually resolves for
+    // `real` is judged too, by where its database lives.
+    await this.#assertGitDatabaseOpen(real, opened)
+    return real
+  }
+
+  /**
+   * Refuses when git, run in an admitted folder, reaches a repository whose
+   * database is neither inside what the user opened nor shared with an open
+   * checkout — the gitfile (or symlink) escape.
+   *
+   * The database is the git common directory, the folder git reads and writes
+   * whatever a pointer says. It counts as open when it sits inside `real` or an
+   * open root — the ordinary layout, where `.git` is under the working tree —
+   * or when it is the very database of an open checkout, which is how a linked
+   * worktree, a submodule and a `--separate-git-dir` tree each keep their `.git`
+   * outside their own folder yet remain legitimate. Git finding no repository
+   * leaves nothing to escape into, so the folder admission stands.
+   */
+  async #assertGitDatabaseOpen(real: string, opened: readonly string[]): Promise<void> {
+    const database = await gitOps.commonDir(real)
+    if (database === null) return
+    if (isInside(database, real) || opened.some((open) => isInside(database, open))) return
+    for (const open of opened) {
+      if ((await gitOps.commonDir(open)) === database) return
+    }
+    throw new Error(
+      `${real} is inside an open folder, but git there resolves to a repository (${database}) that is not open. ` +
+        'Open that repository to work in it.',
+    )
   }
 
   /**
@@ -7275,6 +7316,9 @@ const ACCOUNT_NAME_DEADLINE_MS = 2_000
  * the registry and the renderer use for the same pair, so the host has one
  * spelling of "this conversation" and the separator question is answered once.
  */
+/** Whether one real, absolute path is the same as another or nested inside it. */
+const isInside = (path: string, base: string): boolean => path === base || path.startsWith(base.endsWith(sep) ? base : base + sep)
+
 const recordKey = (record: SessionRecord): string => sessionKey(record.runtime, record.session.id)
 
 const describeError = (error: unknown): string =>

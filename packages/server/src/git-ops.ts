@@ -416,3 +416,29 @@ export const topLevel = async (root: string, signal?: AbortSignal): Promise<stri
     return null
   }
 }
+
+/**
+ * The git database a folder resolves to — the common directory shared by every
+ * checkout of one repository — with its links resolved, or null when git finds
+ * no repository there. Absolute (git may answer relative from inside a linked
+ * worktree) and real, so it can be compared against real paths.
+ *
+ * This is the folder git would actually read and write, wherever a `.git` file
+ * or a symlink points: two linked worktrees of one repository share it, and a
+ * gitfile inside a folder makes it that of the repository the gitfile names,
+ * not of the folder. The confinement uses it to tell "inside what the user
+ * opened" from "git led out to a repository nobody opened."
+ */
+export const commonDir = async (root: string): Promise<string | null> => {
+  try {
+    const out = (await git(root, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim()
+    if (out.length === 0) return null
+    try {
+      return await realpath(out)
+    } catch {
+      return out
+    }
+  } catch {
+    return null
+  }
+}
