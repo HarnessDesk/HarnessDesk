@@ -3538,7 +3538,7 @@ it("answers an approval from the Overview with the call the docked card makes", 
     },
   }]
   const snapshot = { ...store.getSnapshot(), approvals: approvals as never }
-  const respondToApproval = vi.fn().mockResolvedValue(undefined)
+  const respondToApproval = vi.fn().mockResolvedValue({ ok: true })
   Object.assign(store, { getSnapshot: () => snapshot, respondToApproval })
   await render(store)
   expect(needsYouRow().textContent).toContain('pnpm verify')

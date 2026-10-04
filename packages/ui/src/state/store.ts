@@ -131,6 +131,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import type { AccountPrefs, AccountPrefsMap } from '../lib/accounts'
+import type { ApprovalResponseResult } from '../lib/needs-you'
 import { isAvatarId } from '../lib/avatars'
 import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
 import { coalesce } from '../lib/coalesce'
@@ -5872,11 +5873,11 @@ export class AppStore {
     }
   }
 
-  async respondToApproval(key: SessionKey, id: ApprovalId, decision: ApprovalDecision): Promise<void> {
+  async respondToApproval(key: SessionKey, id: ApprovalId, decision: ApprovalDecision): Promise<ApprovalResponseResult> {
     const pending = this.#snapshot.approvals.find(
       (entry) => entry.key === key && entry.approval.id === id,
     )
-    if (!pending) return
+    if (!pending) return { ok: true }
     // Drop it from the queue optimistically; the host confirms with
     // `approval/resolved`, and leaving a dead dialog up is worse than a flicker.
     this.#patch({ approvals: this.#snapshot.approvals.filter((entry) => entry !== pending) })
@@ -5886,9 +5887,12 @@ export class AppStore {
         approvalId: id,
         decision,
       })
+      return { ok: true }
     } catch (error) {
-      this.notice('error', describe(error))
+      const message = describe(error)
+      this.notice('error', message)
       this.#patch({ approvals: [...this.#snapshot.approvals, pending] })
+      return { ok: false, message }
     }
   }
 

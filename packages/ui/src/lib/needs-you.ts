@@ -123,11 +123,13 @@ export const abandonEffect = (execution: FlowExecution, cards: readonly Intent[]
 export interface NeedsYouAnswers {
   /** The way to answer a person's card, or null when it has none now. */
   readonly stepDoor: (card: number) => StepDoor | null
-  /** The way to answer an open approval or question, with the conversation it belongs to. */
-  readonly approvalDoor: (approval: ApprovalId) => (ApprovalDoor & { readonly key: SessionKey }) | null
+  /** The way to answer this open approval or question, addressed within its conversation. */
+  readonly approvalDoor: (approval: ApprovalId, key: SessionKey) => (ApprovalDoor & { readonly key: SessionKey }) | null
   /** Answers a person's card, and rejects with the host's refusal. */
   readonly answerStep: (card: number, outcome: string | null, note: string) => Promise<void>
-  readonly respond: (key: SessionKey, approval: ApprovalId, decision: ApprovalDecision) => void
+  /** Refused choices persist above the row while the store restores its optimistic request removal. */
+  readonly approvalRefusals: (key: SessionKey, approval: ApprovalId) => readonly ApprovalRefusal[]
+  readonly respond: (key: SessionKey, approval: ApprovalId, decision: ApprovalDecision, choiceId: string) => Promise<void>
   /** Opens the board, where a review step's attempt is picked. */
   readonly openBoard: () => void
 }
@@ -146,6 +148,8 @@ export interface ApprovalChoice {
 export interface ApprovalDetail {
   readonly code?: string
   readonly reason?: string
+  /** For stdin requests, what receives the input and where that command runs. */
+  readonly inputTo?: { readonly command: string; readonly folder: string }
   readonly lists?: readonly { readonly label: string; readonly items: readonly string[] }[]
 }
 
@@ -154,6 +158,15 @@ export interface ApprovalDoor {
   readonly choices: readonly ApprovalChoice[]
   /** The request needs more than a button, so its conversation holds the form to answer it. */
   readonly elsewhere: boolean
+}
+
+export type ApprovalResponseResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly message: string }
+
+export interface ApprovalRefusal {
+  readonly choiceId: string
+  readonly message: string
 }
 
 /** How a runtime words the board-tool grants, when it has its own words for them. */
@@ -169,6 +182,7 @@ const detailOf = (approval: Exclude<Approval, { type: 'userInput' | 'elicitation
   return {
     // What a running command is asked to take is the input, and what is approved is that.
     ...(approval.type === 'command' ? { code: approval.kind === 'stdin' ? approval.input ?? approval.command : approval.command } : {}),
+    ...(approval.type === 'command' && approval.kind === 'stdin' ? { inputTo: { command: approval.command, folder: approval.cwd } } : {}),
     ...(approval.reason ? { reason: approval.reason } : {}),
     ...(lists.some((one) => one.items.length > 0) ? { lists: lists.filter((one) => one.items.length > 0) } : {}),
   }

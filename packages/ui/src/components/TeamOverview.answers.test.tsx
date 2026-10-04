@@ -22,15 +22,16 @@ const options = [
 ]
 const command = (id: string, text = 'pnpm verify', patch: Partial<Approval> = {}): Approval =>
   ({ id: approvalId(id), sessionId: sessionId('beta'), requestedAt: 10, type: 'command', command: text, cwd: '/work', actions: [], options, ...patch }) as Approval
-const item = (patch: Partial<NeedsYouItem> = {}): NeedsYouItem => ({ kind: 'approval', seat: 'seat-beta', card: null, summary: 'Approve a command', since: 10, approval: approvalId('a1'), ...patch })
+const item = (patch: Partial<NeedsYouItem> = {}): NeedsYouItem => ({ kind: 'approval', seat: 'seat-beta', card: null, summary: 'Approve a command', since: 10, approval: approvalId('a1'), sessionKey: KEY, ...patch })
 const fake = (approvals: readonly Approval[] = [], over: Partial<NeedsYouAnswers> = {}): NeedsYouAnswers => ({
   stepDoor: () => null,
-  approvalDoor: (id) => {
+  approvalDoor: (id, key) => {
     const found = approvals.find((one) => one.id === id)
-    return found ? { key: KEY, ...approvalDoor(found) } : null
+    return found ? { key, ...approvalDoor(found) } : null
   },
   answerStep: vi.fn().mockResolvedValue(undefined),
-  respond: vi.fn(),
+  approvalRefusals: () => [],
+  respond: vi.fn().mockResolvedValue(undefined),
   openBoard: vi.fn(),
   ...over,
 })
@@ -50,9 +51,9 @@ it('lets an approval be answered from the Overview with the agent\'s own choices
   expect(buttonsIn(row!).map((one) => one.textContent)).toEqual(['Deny', 'Allow for this session', 'Allow once'])
   expect(buttonsIn(row!).map((one) => one.hasAttribute('data-filled'))).toEqual([false, false, true])
   act(() => buttonsIn(row!)[2]!.click())
-  expect(answers.respond).toHaveBeenCalledWith(KEY, 'a1', { type: 'option', optionId: 'yes' })
+  expect(answers.respond).toHaveBeenCalledWith(KEY, 'a1', { type: 'option', optionId: 'yes' }, 'yes')
   act(() => buttonsIn(row!)[0]!.click())
-  expect(answers.respond).toHaveBeenLastCalledWith(KEY, 'a1', { type: 'option', optionId: 'no' })
+  expect(answers.respond).toHaveBeenLastCalledWith(KEY, 'a1', { type: 'option', optionId: 'no' }, 'no')
 })
 
 it('shows what is being approved whole, so a yes is not given blind', () => {
@@ -62,6 +63,29 @@ it('shows what is being approved whole, so a yes is not given blind', () => {
   expect(code?.textContent).toBe(long)
   expect(code?.className).not.toContain('truncate')
   expect(box.textContent).toContain('The check needs a clean checkout.')
+})
+
+it('shows a refused approval beside its row and disables only that choice', () => {
+  const answers = Object.assign(fake([command('a1')]), {
+    approvalRefusals: (key: string, id: string) => key === KEY && id === 'a1'
+      ? [{ choiceId: 'yes', message: 'This approval was already answered.' }]
+      : [],
+  })
+  draw([item()], answers)
+  const row = rows()[0]!
+  expect(row.querySelector('[role="alert"]')?.textContent).toBe('This approval was already answered.')
+  expect(buttonsIn(row).map(button => button.disabled)).toEqual([false, false, true])
+})
+
+it('names the running command and folder that will receive stdin', () => {
+  const stdin = command('a1', 'npm login', { kind: 'stdin', input: 'y\n', cwd: '/work/storefront' })
+  draw([item()], fake([stdin]))
+  const row = rows()[0]!
+  expect(row.textContent).toContain('stdin')
+  expect(row.textContent).toContain('y\n')
+  expect(row.textContent).toContain('To')
+  expect(row.textContent).toContain('npm login')
+  expect(row.textContent).toContain('/work/storefront')
 })
 
 it('names the files a change touches and the folders and hosts an access would open', () => {
@@ -80,9 +104,22 @@ it('answers each of two approvals asked in the same instant with its own id', ()
   draw([item({ approval: approvalId('a1') }), item({ approval: approvalId('a2'), summary: 'Approve a command' })], answers)
   const [first, second] = rows()
   act(() => buttonsIn(second!).at(-1)!.click())
-  expect(answers.respond).toHaveBeenLastCalledWith(KEY, 'a2', { type: 'option', optionId: 'yes' })
+  expect(answers.respond).toHaveBeenLastCalledWith(KEY, 'a2', { type: 'option', optionId: 'yes' }, 'yes')
   act(() => buttonsIn(first!).at(-1)!.click())
-  expect(answers.respond).toHaveBeenLastCalledWith(KEY, 'a1', { type: 'option', optionId: 'yes' })
+  expect(answers.respond).toHaveBeenLastCalledWith(KEY, 'a1', { type: 'option', optionId: 'yes' }, 'yes')
+})
+
+it('keys approval rows by their conversation when requests reuse an id', () => {
+  const report = vi.spyOn(console, 'error').mockImplementation(() => {})
+  try {
+    draw([
+      item({ seat: 'seat-alpha', approval: approvalId('shared') }),
+      item({ seat: 'seat-beta', approval: approvalId('shared'), sessionKey: sessionKey('other', 'beta') }),
+    ], fake([command('shared'), command('shared')]))
+    expect(report.mock.calls.flat().join(' ')).not.toContain('same key')
+  } finally {
+    report.mockRestore()
+  }
 })
 
 it('answers a single question with the option picked, and can cancel it', () => {
@@ -92,9 +129,9 @@ it('answers a single question with the option picked, and can cancel it', () => 
   const [row] = rows()
   expect(buttonsIn(row!).map((one) => one.textContent)).toEqual(['Web', 'API', 'Cancel'])
   act(() => buttonsIn(row!)[1]!.click())
-  expect(answers.respond).toHaveBeenCalledWith(KEY, 'q1', { type: 'answers', answers: { target: ['api'] } })
+  expect(answers.respond).toHaveBeenCalledWith(KEY, 'q1', { type: 'answers', answers: { target: ['api'] } }, 'answer-api')
   act(() => buttonsIn(row!)[2]!.click())
-  expect(answers.respond).toHaveBeenLastCalledWith(KEY, 'q1', { type: 'cancel' })
+  expect(answers.respond).toHaveBeenLastCalledWith(KEY, 'q1', { type: 'cancel' }, 'cancel')
 })
 
 it('leaves a question that needs a form to its conversation', () => {

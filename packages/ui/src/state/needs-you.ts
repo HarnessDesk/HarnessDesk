@@ -1,6 +1,6 @@
-import { useMemo } from 'react'
-import { splitSessionKey, type FlowExecution, type Intent } from '@harnessdesk/protocol'
-import { approvalDoor, stepDoor, type NeedsYouAnswers } from '../lib/needs-you'
+import { useMemo, useState } from 'react'
+import { splitSessionKey, type ApprovalDecision, type ApprovalId, type FlowExecution, type Intent, type SessionKey } from '@harnessdesk/protocol'
+import { approvalDoor, stepDoor, type ApprovalRefusal, type NeedsYouAnswers } from '../lib/needs-you'
 import { useSnapshot, useStore } from './context'
 import type { AppStore } from './store'
 
@@ -38,13 +38,14 @@ export const useNeedsYouAnswers = ({ room, execution, cards, openBoard }: {
 }): NeedsYouAnswers => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const [refusals, setRefusals] = useState<readonly (ApprovalRefusal & { key: SessionKey; approval: ApprovalId })[]>([])
   return useMemo((): NeedsYouAnswers => ({
     stepDoor: (card) => {
       const found = cards.find((one) => one.id === card)
       return found ? stepDoor(found, execution) : null
     },
-    approvalDoor: (id) => {
-      const entry = snapshot.approvals.find((one) => one.approval.id === id)
+    approvalDoor: (id, key) => {
+      const entry = snapshot.approvals.find((one) => one.key === key && one.approval.id === id)
       if (!entry) return null
       const runtime = snapshot.runtimes.find((one) => one.id === splitSessionKey(entry.key).runtime)
       // The docked card's own condition for wording a board tool's grants.
@@ -52,7 +53,15 @@ export const useNeedsYouAnswers = ({ room, execution, cards, openBoard }: {
       return { key: entry.key, ...approvalDoor(entry.approval, words) }
     },
     answerStep: (card, outcome, note) => answerStep(store, room, card, outcome, note),
-    respond: (key, id, decision) => { void store.respondToApproval(key, id, decision) },
+    approvalRefusals: (key, id) => refusals.filter((one) => one.key === key && one.approval === id)
+      .map(({ choiceId, message }) => ({ choiceId, message })),
+    respond: async (key, id, decision: ApprovalDecision, choiceId) => {
+      const result = await store.respondToApproval(key, id, decision)
+      setRefusals((previous) => {
+        const other = previous.filter((one) => one.key !== key || one.approval !== id || one.choiceId !== choiceId)
+        return result.ok ? other : [...other, { key, approval: id, choiceId, message: result.message }]
+      })
+    },
     openBoard,
-  }), [store, snapshot.approvals, snapshot.runtimes, room, execution, cards, openBoard])
+  }), [store, snapshot.approvals, snapshot.runtimes, room, execution, cards, openBoard, refusals])
 }

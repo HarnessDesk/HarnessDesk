@@ -10,7 +10,7 @@ import { runFixture } from './run-view-fixture'
  * question: a card that has not finished offers Abandon card…, and a person's
  * step offers its words. Placeholder names and data only.
  */
-export const RUN_CONTROL_STATES = ['abandon', 'person-answer', 'person-review', 'narrow'] as const
+export const RUN_CONTROL_STATES = ['abandon', 'person-answer', 'person-review', 'check-abandon', 'narrow'] as const
 export type RunControlScene = typeof RUN_CONTROL_STATES[number]
 
 /** What the question says first, by what the Flow does after the card. */
@@ -52,18 +52,23 @@ const OPEN_QUESTION: readonly Press[] = [labelled('Abandon card…')]
 const REFUSED_QUESTION: readonly Press[] = [labelled('Abandon card…'), asked('Abandon card')]
 
 export const RunControlExample = ({ scene }: { scene: RunControlScene }) => {
-  const person = scene !== 'abandon'
+  const person = ['person-answer', 'person-review', 'narrow'].includes(scene)
+  const check = scene === 'check-abandon'
   const source = runFixture(person ? 'person' : 'running')
   const flow = source.execution.document.flow as unknown as Record<string, unknown>
   const rules = scene === 'person-review'
     ? [{ id: 'land', on: 'person', when: { every: ['approved'], evidence: [{ review: 'approved' }] }, then: { role: 'writer', title: 'Merge' } }]
     : scene === 'abandon' ? [reviewer] : [{ id: 'ship', on: 'person', when: { every: ['approved'] }, then: { role: 'writer', title: 'Land the change' } }]
-  const execution = { ...source.execution, base: { remote: 'origin', branch: 'main', at: 'abc123' },
+  const execution = { ...source.execution,
+    base: { remote: 'origin', branch: 'main', at: 'abc123' },
+    rounds: check ? source.execution.rounds.map(round => round.n === 2 ? { ...round, state: 'running' as const } : round) : source.execution.rounds,
     document: { ...source.execution.document, flow: { ...flow, rules } } } as unknown as FlowExecution
-  const input = { ...source, execution, cards: source.cards.map(card => card.id === 4
-    ? { ...card, detail: person ? 'Decide whether the retry change ships, once the review is in.' : 'Add the retry ceiling to the checkout call.' } : card) }
+  const input = { ...source, execution, cards: source.cards.map(card => card.id === (check ? 2 : 4)
+    ? { ...card, ...(check ? { state: 'open' as const, claim: null, outcome: null } : {}),
+      detail: person ? 'Decide whether the retry change ships, once the review is in.' : 'Add the retry ceiling to the checkout call.' } : card) }
+  const selectedRow = check ? 'check-2-2' : person ? 'person-4-4' : 'card-4-4'
   const workspace = (
-    <RunWorkspace model={runTimeline(input)} number={1} selectedRow={person ? 'person-4-4' : 'card-4-4'} onSelect={() => {}}
+    <RunWorkspace model={runTimeline(input)} number={1} selectedRow={selectedRow} onSelect={() => {}}
       inspector={{ input, findingsRead: undefined,
         seats: [{ id: 'seat-0', name: 'Alpha', cost: { unit: 'turns', value: 4, estimated: false }, onOpen: () => {} }],
         onAbandon: async () => {}, onAnswer: async () => {}, onOpenBoard: () => {} }} />

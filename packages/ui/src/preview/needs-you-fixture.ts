@@ -7,14 +7,14 @@ import { overviewInput, overviewRun } from './team-overview-fixture'
  * What waits on a person, in each way the Overview can be asked to answer it:
  * placeholder names and commands only, drawn by the production row.
  */
-export const NEEDS_YOU_STATES = ['approval', 'access', 'step', 'question', 'form', 'review', 'refused', 'narrow'] as const
+export const NEEDS_YOU_STATES = ['approval', 'stdin', 'approval-refused', 'access', 'step', 'question', 'form', 'review', 'refused', 'narrow'] as const
 export type NeedsYouScene = typeof NEEDS_YOU_STATES[number]
 
 const at = Date.now() - 90_000
 const KEY = sessionKey('codex', 'overview-1')
 const base = { sessionId: sessionId('overview-1'), requestedAt: at }
 
-const approvals: Record<'approval' | 'access' | 'question' | 'form', Approval> = {
+const approvals: Record<'approval' | 'stdin' | 'access' | 'question' | 'form', Approval> = {
   approval: {
     ...base, id: approvalId('answer-command'), type: 'command', command: 'pnpm verify', cwd: '/work/storefront', actions: [],
     reason: 'The check needs a clean checkout of the branch.',
@@ -23,6 +23,10 @@ const approvals: Record<'approval' | 'access' | 'question' | 'form', Approval> =
       { id: 'session', label: 'Allow for this session', intent: 'approveAlways', grant: 'session-tool' },
       { id: 'once', label: 'Allow once', intent: 'approve' },
     ],
+  },
+  stdin: {
+    ...base, id: approvalId('answer-stdin'), type: 'command', kind: 'stdin', command: 'npm login', input: 'y\n', cwd: '/work/storefront', actions: [],
+    options: [{ id: 'no', label: 'Deny', intent: 'deny' }, { id: 'once', label: 'Send input', intent: 'approve' }],
   },
   access: {
     ...base, id: approvalId('answer-access'), type: 'permission', summary: 'Reach the package registry',
@@ -73,8 +77,8 @@ const decide: Intent = {
 
 const inputOf = (scene: NeedsYouScene): { input: TeamOverviewInput; execution: FlowExecution } => {
   const found = overviewInput('running')
-  const asked = scene === 'approval' || scene === 'narrow' ? approvals.approval
-    : scene === 'access' ? approvals.access : scene === 'question' ? approvals.question : scene === 'form' ? approvals.form : null
+  const asked = scene === 'approval' || scene === 'approval-refused' || scene === 'narrow' ? approvals.approval
+    : scene === 'stdin' ? approvals.stdin : scene === 'access' ? approvals.access : scene === 'question' ? approvals.question : scene === 'form' ? approvals.form : null
   const person = scene === 'step' || scene === 'review' || scene === 'refused' || scene === 'narrow'
   const execution = person ? decideRun(scene === 'review') : overviewRun('running')
   const seats = found.seats.slice(0, 3).map((seat, index) => ({
@@ -90,12 +94,16 @@ export const needsYouAnswers = (scene: NeedsYouScene, refusal: string | null = n
   const { input, execution } = inputOf(scene)
   return {
     stepDoor: (card) => { const found = input.cards.find((one) => one.id === card); return found ? stepDoor(found, execution) : null },
-    approvalDoor: (id) => {
-      const found = input.seats.flatMap((seat) => seat.approvals).find((one) => one.id === id)
-      return found ? { key: KEY, ...approvalDoor(found) } : null
+    approvalDoor: (id, key) => {
+      const owner = input.seats.find((seat) => sessionKey(seat.record.session.runtime, seat.record.session.sessionId) === key)
+      const found = owner?.approvals.find((one) => one.id === id)
+      return found ? { key, ...approvalDoor(found) } : null
     },
     answerStep: async () => { if (refusal !== null) throw new Error(refusal) },
-    respond: () => {},
+    approvalRefusals: (key, id) => scene === 'approval-refused' && key === KEY && id === approvals.approval.id
+      ? [{ choiceId: 'once', message: 'The approval was already answered.' }]
+      : [],
+    respond: async () => {},
     openBoard: () => {},
   }
 }

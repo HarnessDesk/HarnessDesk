@@ -11,7 +11,7 @@ const render = (props: Partial<RunInspectorProps> = {}) => {
   const root = createRoot(container)
   const fixture = runFixture('person')
   act(() => root.render(<RunInspector input={fixture} selectedRow={null} seats={[]} {...props} />))
-  return { container, close: () => act(() => root.unmount()) }
+  return { container, root, close: () => act(() => root.unmount()) }
 }
 it('reads the Run, its frozen base, budget and Seats without inventing absent facts', () => {
   const fixture = runFixture()
@@ -288,6 +288,29 @@ it('offers no abandoning for a card that has finished, or when nothing can aband
   const none = render({ input: fixture, selectedRow: 'card-4-4', seats: [{ id: 'seat-0', name: 'Alpha', onOpen: () => {} }] })
   try { expect(buttonsOf(none.container)).toEqual(['Open the conversation']) } finally { none.close() }
 })
+it.each(['person', 'check'] as const)('offers to abandon an unfinished %s card from its inspector', async kind => {
+  const fixture = kind === 'person' ? runFixture('person') : runFixture()
+  const cardId = kind === 'person' ? 4 : 2
+  const input = kind === 'person' ? fixture : {
+    ...fixture,
+    execution: { ...fixture.execution, rounds: fixture.execution.rounds.map(round => round.n === 2 ? { ...round, state: 'running' as const } : round) },
+    cards: fixture.cards.map(card => card.id === cardId ? { ...card, state: 'open' as const, outcome: null } : card),
+  }
+  const onAbandon = vi.fn().mockResolvedValue(undefined)
+  const view = render({ input, selectedRow: kind === 'person' ? 'person-4-4' : 'check-2-2', onAbandon })
+  try {
+    const abandon = [...view.container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Abandon card…')
+    expect(abandon).toBeDefined()
+    act(() => abandon!.click())
+    const dialog = document.body.querySelector('[role="alertdialog"]')!
+    expect(dialog.textContent).toContain(`Abandon card #${cardId}?`)
+    await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Abandon card')!.click())
+    expect(onAbandon).toHaveBeenCalledWith(cardId)
+  } finally {
+    act(() => [...document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(button => button.textContent === 'Keep it')?.click())
+    view.close()
+  }
+})
 it('answers a person’s step from its inspector with the words its role declares', async () => {
   const fixture = runFixture('person')
   const onAnswer = vi.fn().mockResolvedValue(undefined)
@@ -321,5 +344,36 @@ it('sends a person’s review step to the board', async () => {
     expect(buttonsOf(view.container)).toEqual(['Pick an attempt on the board'])
     await act(async () => view.container.querySelector('button')!.click())
     expect(onOpenBoard).toHaveBeenCalledOnce()
+  } finally { view.close() }
+})
+
+it('isolates answer state when selection changes while the previous card is waiting on a refusal', async () => {
+  const fixture = runFixture('person')
+  const input = {
+    ...fixture,
+    execution: { ...fixture.execution, rounds: fixture.execution.rounds.map(round => round.n === 4 ? { ...round, cards: [4, 5] } : round) },
+    cards: [...fixture.cards, { ...fixture.cards[3]!, id: 5, title: 'Second person step', createdAt: fixture.cards[3]!.createdAt + 1, updatedAt: fixture.cards[3]!.updatedAt + 1 }],
+  }
+  let refuse!: (error: Error) => void
+  const onAnswer = vi.fn((card: number) => card === 4 ? new Promise<void>((_resolve, reject) => { refuse = reject }) : Promise.resolve())
+  const view = render({ input, selectedRow: 'person-4-4', onAnswer, onOpenBoard: () => {} })
+  try {
+    const note = () => view.container.querySelector<HTMLInputElement>('input[aria-label="Note"]')!
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+    if (!setter) throw new Error('no value setter — typing would be a no-op')
+    act(() => { setter.call(note(), 'first card note'); note().dispatchEvent(new Event('input', { bubbles: true })) })
+    const firstAnswer = [...view.container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Approved')!
+    act(() => firstAnswer.click())
+    expect(onAnswer).toHaveBeenCalledWith(4, 'approved', 'first card note')
+
+    act(() => view.root.render(<RunInspector input={input} selectedRow="person-4-5" seats={[]} onAnswer={onAnswer} onOpenBoard={() => {}} />))
+    const secondAnswer = [...view.container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Approved')!
+    expect(note().value).toBe('')
+    expect(secondAnswer.disabled).toBe(false)
+
+    await act(async () => { refuse(new Error('This card was already answered.')); await Promise.resolve() })
+    expect(view.container.querySelector('[role="alert"]')).toBeNull()
+    expect(secondAnswer.disabled).toBe(false)
+    expect(note().value).toBe('')
   } finally { view.close() }
 })

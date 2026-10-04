@@ -228,7 +228,7 @@ describe('an approval, as a second door to the same answer', () => {
 
   it('shows the input a running command is asked to take, which is what is being approved', () => {
     const stdin: Approval = { ...base, type: 'command', kind: 'stdin', command: 'npm login', input: 'y\n', cwd: '/work', actions: [], options }
-    expect(approvalDoor(stdin).detail).toEqual({ code: 'y\n' })
+    expect(approvalDoor(stdin).detail).toEqual({ code: 'y\n', inputTo: { command: 'npm login', folder: '/work' } })
   })
 
   it('names the files a change would touch, and why it asks', () => {

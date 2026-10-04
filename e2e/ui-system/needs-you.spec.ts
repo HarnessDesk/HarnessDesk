@@ -1,4 +1,5 @@
-import { expect, test, type Locator } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
+import path from 'node:path'
 
 /**
  * What waits on a person, answered from the Overview. The unit tests hold what
@@ -8,6 +9,15 @@ import { expect, test, type Locator } from '@playwright/test'
  * reaches past its row, and a refused answer keeps its reason beside it.
  */
 const frame = (id: string) => `#team-overview-answer-${id}`
+const open = async (page: Page, theme: 'light' | 'dark') => {
+  await page.emulateMedia({ colorScheme: theme })
+  await page.goto(`/preview.html?team-overview&theme=${theme}`)
+  await page.evaluate(() => document.fonts.ready)
+}
+const capture = async (locator: Locator, filename: string) => {
+  const directory = process.env.TEAMS_ANSWERS_FRAMES_DIR
+  if (directory) await locator.screenshot({ path: path.join(directory, filename) })
+}
 
 /** Every control and line of a row sits inside the row, and the row inside its pane. */
 const within = (row: Locator) => row.evaluate((element) => {
@@ -27,8 +37,7 @@ const arrivesWhole = (line: Locator) => line.evaluate((element) => {
 
 for (const theme of ['light', 'dark'] as const) {
   test(`an approval is answered from its Needs-you row with the choices in the docked card's order in ${theme}`, async ({ page }) => {
-    await page.goto(`/preview.html?team-overview&theme=${theme}`)
-    await page.evaluate(() => document.fonts.ready)
+    await open(page, theme)
     const row = page.locator(`${frame('approval')} [aria-label="Needs you"] [data-slot="list-row"]`)
     await expect(row).toHaveCount(1)
     const buttons = row.locator('button')
@@ -46,8 +55,29 @@ for (const theme of ['light', 'dark'] as const) {
     for (const button of await buttons.all()) expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(24)
   })
 
+  test(`stdin approval says what receives the input and where it runs in ${theme}`, async ({ page }) => {
+    await open(page, theme)
+    const row = page.locator(`${frame('stdin')} [aria-label="Needs you"] [data-slot="list-row"]`)
+    await expect(row).toContainText('stdin')
+    await expect(row.locator('[data-slot="approval-code"]').first()).toHaveText('y\n')
+    await expect(row.locator('[data-slot="approval-code"]').nth(1)).toHaveText('npm login')
+    await expect(row).toContainText('/work/storefront')
+    expect(await within(row)).toEqual({ stray: 0, scrolls: false })
+    await capture(row, `overview-stdin-${theme}.png`)
+  })
+
+  test(`a refused approval keeps its reason beside the disabled choice in ${theme}`, async ({ page }) => {
+    await open(page, theme)
+    const row = page.locator(`${frame('approval-refused')} [aria-label="Needs you"] [data-slot="list-row"]`)
+    await expect(row.locator('[role="alert"]')).toHaveText('The approval was already answered.')
+    await expect(row.getByRole('button', { name: 'Allow once', exact: true })).toBeDisabled()
+    await expect(row.getByRole('button', { name: 'Deny', exact: true })).toBeEnabled()
+    expect(await within(row)).toEqual({ stray: 0, scrolls: false })
+    await capture(row, `overview-approval-refused-${theme}.png`)
+  })
+
   test(`an access request says what it would open before it can be allowed in ${theme}`, async ({ page }) => {
-    await page.goto(`/preview.html?team-overview&theme=${theme}`)
+    await open(page, theme)
     const row = page.locator(`${frame('access')} [aria-label="Needs you"] [data-slot="list-row"]`)
     await expect(row).toContainText('Installing the checkout dependencies needs the network.')
     await expect(row).toContainText('Folders')
@@ -58,8 +88,7 @@ for (const theme of ['light', 'dark'] as const) {
   })
 
   test(`a person's step reads what each answer does, whole, and takes a note in ${theme}`, async ({ page }) => {
-    await page.goto(`/preview.html?team-overview&theme=${theme}`)
-    await page.evaluate(() => document.fonts.ready)
+    await open(page, theme)
     const row = page.locator(`${frame('step')} [aria-label="Needs you"] [data-slot="list-row"]`)
     const effect = row.locator('[data-slot="step-effect"] [data-slot="text"]')
     await expect(effect).toHaveText('Approved opens the verify check. Request changes opens a fixer round.')
@@ -73,7 +102,7 @@ for (const theme of ['light', 'dark'] as const) {
   })
 
   test(`a question is answered with its options, and one that needs a form leaves for its conversation in ${theme}`, async ({ page }) => {
-    await page.goto(`/preview.html?team-overview&theme=${theme}`)
+    await open(page, theme)
     const question = page.locator(`${frame('question')} [aria-label="Needs you"] [data-slot="list-row"]`)
     expect(await question.locator('button').evaluateAll((all) => all.map((one) => one.textContent))).toEqual(['Payments', 'Inventory', 'Cancel'])
     expect(await question.locator('button').evaluateAll((all) => all.some((one) => one.hasAttribute('data-filled')))).toBe(false)
@@ -86,8 +115,7 @@ for (const theme of ['light', 'dark'] as const) {
   })
 
   test(`a refused answer keeps the host's reason on screen beside the answer it refused in ${theme}`, async ({ page }) => {
-    await page.goto(`/preview.html?team-overview&theme=${theme}`)
-    await page.evaluate(() => document.fonts.ready)
+    await open(page, theme)
     const row = page.locator(`${frame('refused')} [aria-label="Needs you"] [data-slot="list-row"]`)
     const alert = row.locator('[role="alert"]')
     await expect(alert).toHaveText('This card was already answered.')
@@ -100,8 +128,7 @@ for (const theme of ['light', 'dark'] as const) {
   })
 
   test(`a long Seat name gives way before the kind chip on its row in ${theme}`, async ({ page }) => {
-    await page.goto(`/preview.html?team-overview&theme=${theme}`)
-    await page.evaluate(() => document.fonts.ready)
+    await open(page, theme)
     const row = page.locator(`${frame('narrow')} [aria-label="Needs you"] [data-slot="list-row"]`).first()
     const name = row.locator('[data-slot="list-row-title"] [data-slot="text"]')
     await name.evaluate((one) => { one.textContent = 'A seat whose name was written by somebody who never expected it to fit anywhere at all' })
@@ -115,8 +142,7 @@ for (const theme of ['light', 'dark'] as const) {
   })
 
   test(`at a narrow pane the controls wrap under their sentence and nothing scrolls sideways in ${theme}`, async ({ page }) => {
-    await page.goto(`/preview.html?team-overview&theme=${theme}`)
-    await page.evaluate(() => document.fonts.ready)
+    await open(page, theme)
     const pane = page.locator(`${frame('narrow')} [data-slot="team-overview"]`)
     await expect(pane).toHaveAttribute('data-layout', 'narrow')
     expect(await pane.evaluate((one) => one.scrollWidth <= one.clientWidth)).toBe(true)

@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
+import path from 'node:path'
 
 /**
  * A Run's controls. Abandoning a card is a question that says first what the
@@ -12,6 +13,10 @@ const open = async (page: Page, theme: 'light' | 'dark', query = '') => {
   await page.emulateMedia({ colorScheme: theme })
   await page.goto(`/preview.html?run-controls${query}&theme=${theme}`)
   await page.evaluate(() => document.fonts.ready)
+}
+const capture = async (locator: Locator, filename: string) => {
+  const directory = process.env.TEAMS_ANSWERS_FRAMES_DIR
+  if (directory) await locator.screenshot({ path: path.join(directory, filename) })
 }
 
 for (const theme of ['light', 'dark'] as const) {
@@ -29,13 +34,24 @@ for (const theme of ['light', 'dark'] as const) {
   test(`a person's step is answered from its inspector with its words, a note and what each does in ${theme}`, async ({ page }) => {
     await open(page, theme)
     const inspector = page.locator('#run-controls-person-answer [data-slot="run-inspector"]')
+    await expect(inspector.getByRole('button', { name: 'Abandon card…' })).toBeVisible()
     await expect(inspector).toContainText('Your answer')
     await expect(inspector).toContainText('Approved opens a writer round.')
     expect(await inspector.locator('[role="group"] button').evaluateAll((all) => all.map((one) => one.textContent))).toEqual(['Approved'])
     await expect(inspector.locator('input[aria-label="Note"]')).toBeVisible()
     expect(await inspector.evaluate((one) => one.scrollWidth <= one.clientWidth + 1)).toBe(true)
+    await capture(inspector, `inspector-person-answer-${theme}.png`)
     const review = page.locator('#run-controls-person-review [data-slot="run-inspector"]')
-    expect(await review.locator('button').evaluateAll((all) => all.map((one) => one.textContent))).toEqual(['Pick an attempt on the board'])
+    expect(await review.locator('button').evaluateAll((all) => all.map((one) => one.textContent))).toEqual(['Pick an attempt on the board', 'Abandon card…'])
+  })
+
+  test(`an unfinished check can be abandoned from its inspector in ${theme}`, async ({ page }) => {
+    await open(page, theme)
+    const inspector = page.locator('#run-controls-check-abandon [data-slot="run-inspector"]')
+    await expect(inspector).toContainText('Latest result')
+    await expect(inspector.getByRole('button', { name: 'Abandon card…' })).toBeVisible()
+    expect(await inspector.evaluate((one) => one.scrollWidth <= one.clientWidth + 1)).toBe(true)
+    await capture(inspector, `inspector-check-abandon-${theme}.png`)
   })
 
   for (const [variant, first] of [

@@ -77,20 +77,48 @@ it('finds a person\'s card among the Team\'s cards, and none for a card that is 
 
 it('finds an open request by its id with the conversation it belongs to, words its board-tool grants as the runtime does', () => {
   const answers = mount({ approvals: [{ key: KEY, approval: tool }], runtimes: [runtime('acp', true)] })
-  const door = answers.current.approvalDoor(approvalId('a1'))
+  const door = answers.current.approvalDoor(approvalId('a1'), KEY)
   expect(door?.key).toBe(KEY)
   expect(door?.choices.map((one) => one.label)).toEqual(['Reject', 'Allow for this session', 'Allow once'])
-  expect(answers.current.approvalDoor(approvalId('gone'))).toBeNull()
+  expect(answers.current.approvalDoor(approvalId('gone'), KEY)).toBeNull()
   // Words alone are not enough: the docked card words them only for a runtime that approves tool by tool.
   for (const [words, capable] of [[false, false], [true, false]] as const) {
     const plain = mount({ approvals: [{ key: KEY, approval: tool }], runtimes: [runtime('acp', words, capable)] })
-    expect(plain.current.approvalDoor(approvalId('a1'))?.choices.map((one) => one.label)).toEqual(['Reject', 'Allow tool', 'Allow'])
+    expect(plain.current.approvalDoor(approvalId('a1'), KEY)?.choices.map((one) => one.label)).toEqual(['Reject', 'Allow tool', 'Allow'])
   }
 })
 
-it('sends the decision through the store the docked approval answers through', () => {
-  const respondToApproval = vi.fn().mockResolvedValue(undefined)
+it('uses the full session identity when an approval id is reused by another conversation', () => {
+  const otherKey = sessionKey('other', 'beta')
+  const otherApproval = { ...tool, options: [{ id: 'other', label: 'Other choice', intent: 'approve' as const }] }
+  const answers = mount({
+    approvals: [{ key: KEY, approval: tool }, { key: otherKey, approval: otherApproval }],
+    runtimes: [runtime('acp', false), runtime('other', false)],
+  })
+  const door = answers.current.approvalDoor(approvalId('a1'), otherKey)
+  expect(door?.key).toBe(otherKey)
+  expect(door?.choices.map((one) => one.label)).toEqual(['Other choice'])
+})
+
+it('keeps a refused choice with its approval after the request is restored', async () => {
+  const message = 'The approval was already answered.'
+  const answers = mount({ approvals: [{ key: KEY, approval: tool }] }, {
+    respondToApproval: vi.fn().mockResolvedValue({ ok: false, message }),
+  })
+  await act(async () => {
+    await Reflect.apply(answers.current.respond, undefined, [KEY, approvalId('a1'), { type: 'option', optionId: 'once' }, 'answer-once'])
+  })
+  const withRefusals = answers.current as NeedsYouAnswers & {
+    approvalRefusals?: (key: typeof KEY, id: typeof tool.id) => readonly { choiceId: string; message: string }[]
+  }
+  expect(withRefusals.approvalRefusals?.(KEY, approvalId('a1'))).toEqual([
+    { choiceId: 'answer-once', message },
+  ])
+})
+
+it('sends the decision through the store the docked approval answers through', async () => {
+  const respondToApproval = vi.fn().mockResolvedValue({ ok: true })
   const answers = mount({}, { respondToApproval })
-  answers.current.respond(KEY, approvalId('a1'), { type: 'option', optionId: 'once' })
+  await act(async () => answers.current.respond(KEY, approvalId('a1'), { type: 'option', optionId: 'once' }, 'once'))
   expect(respondToApproval).toHaveBeenCalledWith(KEY, 'a1', { type: 'option', optionId: 'once' })
 })

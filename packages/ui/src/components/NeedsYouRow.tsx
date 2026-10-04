@@ -1,4 +1,4 @@
-import { ApprovalCode, Button, Chip, ListRow, Text } from '../design'
+import { ActionError, ApprovalCode, Button, Chip, ListRow, Text } from '../design'
 import type { ApprovalDetail, NeedsYouAnswers } from '../lib/needs-you'
 import { sanitizeHtml, sanitizeText } from '../lib/sanitize'
 import type { NeedsYouItem } from '../lib/team-overview'
@@ -17,7 +17,16 @@ const LISTED = 6
 const Detail = ({ detail }: { detail: ApprovalDetail }) => (
   <>
     {detail.reason && <Text role="meta" as="div" className="[overflow-wrap:anywhere]">{sanitizeText(detail.reason)}</Text>}
-    {detail.code && <ApprovalCode>{sanitizeText(detail.code)}</ApprovalCode>}
+    {detail.code !== undefined && <ApprovalCode>{sanitizeText(detail.code)}</ApprovalCode>}
+    {detail.inputTo && (
+      <div className="flex min-w-0 flex-col gap-1">
+        <Text role="meta" as="div"><Text role="meta" ink="secondary">To</Text></Text>
+        <ApprovalCode>{sanitizeText(detail.inputTo.command)}</ApprovalCode>
+        {detail.inputTo.folder && <Text role="meta" as="div" title={sanitizeText(detail.inputTo.folder)} className="[overflow-wrap:anywhere]">
+          <Text role="meta" ink="secondary">In</Text>{' '}{sanitizeText(detail.inputTo.folder)}
+        </Text>}
+      </div>
+    )}
     {detail.lists?.map((list) => (
       <Text key={list.label} role="meta" as="div" className="[overflow-wrap:anywhere]" title={sanitizeText(list.items.join('\n'))}>
         <Text role="meta" ink="secondary">{list.label}</Text>{' '}
@@ -44,7 +53,12 @@ export const NeedsYouRow = ({ item, name, answers, onOpenSeat }: {
   onOpenSeat?: ((seat: string) => void) | undefined
 }) => {
   const step = answers && item.kind === 'card' && item.card !== null ? answers.stepDoor(item.card) : null
-  const request = answers && item.approval !== undefined ? answers.approvalDoor(item.approval) : null
+  const request = answers && item.approval !== undefined && item.sessionKey !== undefined
+    ? answers.approvalDoor(item.approval, item.sessionKey)
+    : null
+  const refusals = request && answers && item.approval !== undefined
+    ? answers.approvalRefusals(request.key, item.approval)
+    : []
   const seat = item.seat
   const controls = step && answers
     ? <StepAnswer door={step} onAnswer={answers.answerStep} onOpenBoard={answers.openBoard} />
@@ -56,8 +70,9 @@ export const NeedsYouRow = ({ item, name, answers, onOpenSeat }: {
             {request.choices.map((choice) => (
               <Button
                 key={choice.id} variant={choice.primary ? 'default' : 'outline'}
+                disabled={refusals.some((refusal) => refusal.choiceId === choice.id)}
                 {...(choice.title ? { title: sanitizeText(choice.title) } : {})}
-                onClick={() => answers.respond(request.key, item.approval!, choice.decision)}
+                onClick={() => { void answers.respond(request.key, item.approval!, choice.decision, choice.id) }}
               >
                 {sanitizeText(choice.label)}
               </Button>
@@ -66,6 +81,7 @@ export const NeedsYouRow = ({ item, name, answers, onOpenSeat }: {
               <Button variant="default" onClick={() => onOpenSeat(seat)}>Answer in the conversation</Button>
             )}
           </div>
+          {refusals.map((refusal) => <ActionError key={refusal.choiceId}>{sanitizeText(refusal.message)}</ActionError>)}
         </div>
       )
       : undefined
@@ -76,6 +92,7 @@ export const NeedsYouRow = ({ item, name, answers, onOpenSeat }: {
         <span className="flex min-w-0 items-center gap-2">
           {name && <Text role="member" truncate>{words(name)}</Text>}
           <Chip tone="warning">{item.kind === 'card' ? `#${item.card}` : item.kind === 'question' ? 'Question' : 'Approval'}</Chip>
+          {request?.detail.inputTo && <Chip tone="neutral">stdin</Chip>}
         </span>
       )}
       subtitle={words(item.summary)} wrapSubtitle meta={controls}

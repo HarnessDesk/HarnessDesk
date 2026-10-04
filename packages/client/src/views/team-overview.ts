@@ -36,7 +36,9 @@ import {
   type SeatRecord,
   type SeatActivity,
   type Session,
+  type SessionKey,
   type TeamSignal,
+  sessionKey,
 } from '@harnessdesk/protocol'
 
 export type SeatState = 'needs-you' | 'unread' | 'working' | 'idle'
@@ -63,6 +65,8 @@ export interface NeedsYouItem {
   since: number
   /** The open request a question or an approval is, so an answer reaches that one and not another asked in the same instant. Absent on a card. */
   approval?: ApprovalId
+  /** The conversation that owns the request; approval ids are only unique within that conversation. */
+  sessionKey?: SessionKey
 }
 
 export interface RunStrip {
@@ -222,7 +226,7 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
     const waits: NeedsYouItem[] = seat.approvals.filter((request) => request.sessionId === seat.record.session.sessionId).map((request) => ({
       kind: request.type === 'userInput' || request.type === 'elicitation' ? 'question' : 'approval',
       seat: seat.record.id, card: card?.id ?? null, summary: approvalWords(request), since: request.requestedAt,
-      approval: request.id,
+      approval: request.id, sessionKey: sessionKey(seat.record.session.runtime, seat.record.session.sessionId),
     }))
     needsYou.push(...waits)
     waits.push(...needsYou.filter((one) => one.kind === 'card' && one.seat === seat.record.id))
