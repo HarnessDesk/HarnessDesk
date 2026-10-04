@@ -4524,7 +4524,7 @@ export class AppStore {
    * guards and its commands verbatim. `flow/start-goal` redeems the token
    * this mints, for exactly the inputs and seating it was taken of.
    */
-  async previewFlow(root: string, source: string, vars: Readonly<Record<string, string>> = {}, options?: FlowRunOptions): Promise<FlowPreview> {
+  async previewFlow(root: string, source: string, vars: Readonly<Record<string, string>> = {}, options?: FlowRunOptions & { readonly continues?: string }): Promise<FlowPreview> {
     return this.transport.request('flow/preview', { root, source, vars, ...options })
   }
 

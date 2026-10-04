@@ -429,6 +429,64 @@ const engineStopped = async (t: Parameters<typeof goalRig>[0]) => {
   return { rig, run, seat, runtime, sessionId, settled, settle, words }
 }
 
+const continueRun = (e: Awaited<ReturnType<typeof engineStopped>>) => e.rig.flows.startGoal({
+  root: '/repo', sentence: 'Fresh work', source: ONE_STAGE, sourcePath: null,
+  compiled: e.rig.compile(ONE_STAGE, [agent('fixer', ['done'])]),
+  authorization: { sourceDigest: 'source', commandDigest: 'commands', approvedAt: 1 }, continues: e.run.id,
+})
+
+test('a continued predecessor refuses late question delivery and ignores an in-turn answer', async t => {
+  const e = await engineStopped(t)
+  const next = await continueRun(e)
+  const before = e.rig.events.length
+  await assert.rejects(e.rig.flows.answerQuestion(e.runtime, e.sessionId, e.words, e.settle), /newer Run/)
+  await e.rig.flows.answeredInTurn(e.runtime, e.sessionId)
+  assert.equal(e.rig.flows.executionOf(e.run.id)!.state, 'stalled')
+  assert.equal(e.rig.flows.executionOf(next.id)!.state, 'running')
+  assert.deepEqual(e.settled, [])
+  assert.equal(e.rig.events.length, before, 'no old Seat is reopened or handed work')
+  await e.rig.restart()
+  await e.rig.flows.resume()
+  assert.equal(e.rig.flows.executionOf(e.run.id)!.state, 'stalled')
+})
+
+test('a continued predecessor retains its kept answer but cannot continue it', async t => {
+  const e = await engineStopped(t)
+  e.rig.failOrderTimes = 2
+  await assert.rejects(e.rig.flows.answerQuestion(e.runtime, e.sessionId, e.words, e.settle), /kept on the run/)
+  await continueRun(e)
+  const before = e.rig.events.length
+  const projected = e.rig.flows.executionOf(e.run.id)!
+  assert.equal(projected.keptAnswer?.answer, e.words.answer)
+  assert.equal(projected.keptAnswer?.canContinue, false)
+  assert.match(projected.keptAnswer?.refusal ?? '', /newer Run/)
+  await assert.rejects(e.rig.flows.continueAnswer(e.run.id), /newer Run/)
+  assert.equal(e.rig.events.length, before)
+  assert.equal(e.rig.flows.executionOf(e.run.id)!.keptAnswer?.answer, e.words.answer)
+})
+
+test('an answer queued behind a continuation checks lineage after the start is journaled', async t => {
+  const e = await engineStopped(t)
+  let entered!: () => void, release!: () => void
+  const writing = new Promise<void>(resolve => { entered = resolve })
+  const held = new Promise<void>(resolve => { release = resolve })
+  const save = e.rig.files.save.bind(e.rig.files)
+  e.rig.files.save = async run => {
+    if (run.continues === e.run.id && run.goal === '') { entered(); await held }
+    await save(run)
+  }
+  try {
+    const starting = continueRun(e)
+    await writing
+    const answering = assert.rejects(e.rig.flows.answerQuestion(e.runtime, e.sessionId, e.words, e.settle), /newer Run/)
+    const inTurn = e.rig.flows.answeredInTurn(e.runtime, e.sessionId)
+    release()
+    await Promise.all([starting, answering, inTurn])
+    assert.equal(e.rig.flows.executionOf(e.run.id)!.state, 'stalled')
+    assert.deepEqual(e.settled, [])
+  } finally { release(); e.rig.files.save = save }
+})
+
 test('the old question is settled before the turn that carries its answer is sent, never after', async (t) => {
   const e = await engineStopped(t)
   assert.equal(await e.rig.flows.answerQuestion(e.runtime, e.sessionId, e.words, e.settle), true)

@@ -27,7 +27,7 @@ it('reads the saved inputs, obtains fresh consent and starts a new Run with line
   try {
     await act(async () => root.render(<StoreProvider store={store}><RunAgain execution={execution} root="/repo" sentence="Retry checkout" onStarted={onStarted} onClose={onClose} /></StoreProvider>))
     expect(store.flowExecutionSource).toHaveBeenCalledWith(execution.id)
-    expect(store.previewFlow).toHaveBeenCalledWith('/repo', 'saved-source', vars, { seats: undefined, attended: true })
+    expect(store.previewFlow).toHaveBeenCalledWith('/repo', 'saved-source', vars, { seats: undefined, attended: true, continues: execution.id })
     expect(store.startFlowGoal).not.toHaveBeenCalled()
     expect(document.querySelector('textarea')!.value).toBe(vars.brief)
     const start = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(one => one.textContent === 'Start')!

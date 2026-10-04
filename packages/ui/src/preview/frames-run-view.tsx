@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import type { FlowPreview, FlowRunOptions } from '@harnessdesk/protocol'
 import type { RunTimelineInput } from '../lib/run-timeline'
 import { Button } from '../design'
 import { runTimeline } from '../lib/run-timeline'
@@ -57,7 +58,7 @@ export const RunEndingRigFrames = () => {
   return input ? <section id="run-ending-rig" className="flex h-144 flex-col"><RunExample scene="settled" input={input} /></section> : null
 }
 
-export const RUN_AGAIN_STATES = ['default', 'empty', 'pending', 'failed'] as const
+export const RUN_AGAIN_STATES = ['default', 'empty', 'pending', 'failed', 'multiple-seats'] as const
 export type RunAgainScene = typeof RUN_AGAIN_STATES[number]
 export const RunAgainExample = ({ scene = 'default', opened = false }: { scene?: RunAgainScene; opened?: boolean }) => {
   const [open, setOpen] = useState(opened)
@@ -68,6 +69,7 @@ export const RunAgainExample = ({ scene = 'default', opened = false }: { scene?:
       if (key === 'flowExecutionSource' && scene === 'empty') return async () => ({ ...await target.flowExecutionSource(execution.id), vars: { brief: '', task: '' } })
       if (key === 'flowExecutionSource' && scene === 'pending') return () => new Promise(() => {})
       if (key === 'flowExecutionSource' && scene === 'failed') return async () => { throw new Error('The earlier Run’s source could not be read.') }
+      if (key === 'previewFlow' && scene === 'multiple-seats') return async (...args: Parameters<typeof target.previewFlow>) => multipleSeatPreview(await target.previewFlow(...args), args[3])
       return Reflect.get(target, key)
     } })
   }, [scene])
@@ -82,9 +84,26 @@ export const RunAgainCases = () => {
     if (key === 'flowExecutionSource' && scene === 'empty') return async () => ({ ...await target.flowExecutionSource(execution.id), vars: { brief: '', task: '' } })
     if (key === 'flowExecutionSource' && scene === 'pending') return () => new Promise(() => {})
     if (key === 'flowExecutionSource' && scene === 'failed') return async () => { throw new Error('The earlier Run’s source could not be read.') }
+    if (key === 'previewFlow' && scene === 'multiple-seats') return async (...args: Parameters<typeof target.previewFlow>) => multipleSeatPreview(await target.previewFlow(...args), args[3])
     return Reflect.get(target, key)
   } }), [scene])
   return <StoreProvider store={store}><div className="flex flex-wrap gap-3">{RUN_AGAIN_STATES.map(state => <section key={state} data-catalog-state={state}><Button onClick={() => setScene(state)}>Run again… · {state}</Button></section>)}</div>
     {scene && <RunAgain key={scene} execution={execution} root="/repo" sentence="Retry the checkout call" onClose={() => setScene(null)} onStarted={() => setScene(null)} />}
   </StoreProvider>
+}
+
+const multipleSeatPreview = (preview: FlowPreview, options?: FlowRunOptions): FlowPreview => {
+  if (preview.compiled.document.format !== 'agents') return preview
+  return {
+    ...preview,
+    compiled: { ...preview.compiled, document: { ...preview.compiled.document, flow: { ...preview.compiled.document.flow,
+      roles: preview.compiled.document.flow.roles.map(role => role.id === 'writer' && role.kind === 'agent'
+        ? { ...role, seats: [{ runtime: 'codex' }, { runtime: 'codex', effort: 'high' }] } : role),
+    } } },
+    seats: [0, 1].map(index => {
+      const seat = preview.seats[0]!
+      const chosen = options?.seats?.writer?.[index]?.effort === 'high' ? 1 : options?.seats?.writer ? 0 : index
+      return { ...seat, index, plan: { ...seat.plan, winner: chosen, candidates: seat.plan.candidates.map((candidate, n) => ({ ...candidate, state: n === chosen ? 'taken' : 'untried' })) } }
+    }),
+  }
 }

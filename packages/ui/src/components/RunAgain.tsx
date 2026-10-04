@@ -45,7 +45,7 @@ export const RunAgain = ({ execution, root, sentence, onClose, onStarted }: {
   </>}>
     <FormStack>
       <Note>This starts a new Run on this Team. The earlier Run’s cards, findings and output are kept.</Note>
-      {initial ? <FlowStart root={root} initial={initial} disabled={busy} onChange={setChoice} /> : !problem && <Note>Reading the earlier Run’s inputs…</Note>}
+      {initial ? <FlowStart root={root} continues={execution.id} initial={initial} disabled={busy} onChange={setChoice} /> : !problem && <Note>Reading the earlier Run’s inputs…</Note>}
       {problem && <ActionError>{problem}</ActionError>}
     </FormStack>
   </Dialog>

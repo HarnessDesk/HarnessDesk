@@ -115,4 +115,23 @@ for (const theme of ['light', 'dark'] as const) {
       if (process.env.RUN_ENDING_FRAMES_DIR) await dialog.screenshot({ path: path.join(process.env.RUN_ENDING_FRAMES_DIR, `run-again-${scene}-${theme}.png`) })
     }
   })
+
+  test(`Run again preserves two Seat preferences in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto(`/preview.html?run-again=multiple-seats&theme=${theme}`)
+    const dialog = page.getByRole('dialog', { name: 'Run again', exact: true })
+    await expect(dialog.getByRole('button', { name: 'Start', exact: true })).toBeEnabled()
+    if (process.env.RUN_ENDING_FRAMES_DIR) await dialog.screenshot({ path: path.join(process.env.RUN_ENDING_FRAMES_DIR, `run-again-two-seats-${theme}.png`) })
+    await expect(dialog.getByRole('combobox')).toHaveCount(2)
+    await dialog.getByLabel('writer · Seat 1 · Seat preference').selectOption({ label: 'Alpha · High' })
+    await expect(dialog.getByLabel('writer · Seat 2 · Seat preference')).toHaveValue(JSON.stringify({ runtime: 'codex', effort: 'high' }))
+    await expect(dialog).toContainText('It opens 2 seats')
+    await expect(dialog.getByRole('button', { name: 'Start', exact: true })).toBeEnabled()
+    expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
+    if (process.env.RUN_ENDING_FRAMES_DIR) await dialog.screenshot({ path: path.join(process.env.RUN_ENDING_FRAMES_DIR, `run-again-two-seats-edited-${theme}.png`) })
+    await page.setViewportSize({ width: 390, height: 900 })
+    await expect(dialog.getByRole('button', { name: 'Start', exact: true })).toBeInViewport()
+    expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+    if (process.env.RUN_ENDING_FRAMES_DIR) await dialog.screenshot({ path: path.join(process.env.RUN_ENDING_FRAMES_DIR, `run-again-two-seats-narrow-${theme}.png`) })
+  })
 }

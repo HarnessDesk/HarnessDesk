@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { DEFAULT_FLOW_BUDGET, type AgentEntry, type FlowEntry, type FlowPolicy, type FlowPreview, type FlowPreviewSeat, type FlowProblem, type FlowRunOptions } from '@harnessdesk/protocol'
+import { DEFAULT_FLOW_BUDGET, type AgentEntry, type FlowEntry, type FlowPolicy, type FlowPreview, type FlowPreviewSeat, type FlowProblem, type FlowRunOptions, type FlowSeat, type SeatCandidate } from '@harnessdesk/protocol'
 
 import { ActionError, Banner, Button, Chip, CodeText, Field, Input, NativeSelect, Note, NoteList, Rows, Row, SectionHead, Text, Textarea } from '../design'
 import { agentName, firstReason, fixWords, markFor, reasonWords, seatTaken } from '../lib/agents'
@@ -43,13 +43,14 @@ export interface FlowChoice extends FlowRunOptions {
 
 export interface FlowStartProps {
   readonly root: string
+  readonly continues?: string
   readonly disabled?: boolean
   readonly onChange: (choice: FlowChoice | null) => void
   /** A Run's exact saved text and inputs, rather than the current catalogue file. */
   readonly initial?: { readonly source: string; readonly vars: Readonly<Record<string, string>> } & FlowRunOptions
 }
 
-export const FlowStart = ({ root, disabled, onChange, initial }: FlowStartProps) => {
+export const FlowStart = ({ root, disabled, onChange, initial, continues }: FlowStartProps) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [entries, setEntries] = useState<readonly FlowEntry[] | null>(null)
@@ -62,6 +63,8 @@ export const FlowStart = ({ root, disabled, onChange, initial }: FlowStartProps)
   const [source, setSource] = useState<string>('')
   const [vars, setVars] = useState<Readonly<Record<string, string>>>({})
   const [seats, setSeats] = useState(initial?.seats)
+  const defaultSeats = useRef(new Map<string, readonly (FlowSeat | undefined)[]>())
+  const seatCandidates = useRef(new Map<string, readonly SeatCandidate[]>())
   const [preview, setPreview] = useState<FlowPreview | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   /* Bumped on every choice or edit, so a preview that lands after a newer one
@@ -113,9 +116,26 @@ export const FlowStart = ({ root, disabled, onChange, initial }: FlowStartProps)
       reportChoice(null)
       setProblem(null)
       try {
-        const options = initial ? { seats: nextSeats, attended: initial.attended } : undefined
+        const options = initial ? { seats: nextSeats, attended: initial.attended, ...(continues ? { continues } : {}) } : undefined
         const dry = options ? await store.previewFlow(root, text, nextVars, options) : await store.previewFlow(root, text, nextVars)
         if (mine !== sequence.current || generation !== store.flowGeneration()) return
+        if (initial) {
+          for (const seat of dry.seats) {
+            const key = JSON.stringify([seat.role, seat.index])
+            const candidates = seatCandidates.current.get(key) ?? []
+            // An explicit preference narrows the next plan to that candidate.
+            // Keep the choices this form offered so the person can edit again.
+            seatCandidates.current.set(key, [...candidates, ...seat.plan.candidates.filter(one => !candidates.some(previous => JSON.stringify(previous.seat) === JSON.stringify(one.seat)))])
+            if (!defaultSeats.current.has(seat.role)) {
+              const role = dry.compiled.document.format === 'agents' ? dry.compiled.document.flow.roles.find(one => one.id === seat.role) : undefined
+              const slots = dry.seats.filter(one => one.role === seat.role).sort((a, b) => a.index - b.index)
+              defaultSeats.current.set(seat.role, slots.map(one => {
+                const declared = role?.kind === 'agent' ? role.seats[one.index] ?? role.seats[0] : undefined
+                return declared ?? (one.plan.winner === null ? undefined : one.plan.candidates[one.plan.winner]?.seat)
+              }))
+            }
+          }
+        }
         setPreview(dry)
         if (startable(dry)) reportChoice({ source: text, token: dry.token!, vars: nextVars, ...options })
       } catch (error) {
@@ -123,18 +143,22 @@ export const FlowStart = ({ root, disabled, onChange, initial }: FlowStartProps)
         setProblem(error instanceof Error ? error.message : 'That flow could not be checked.')
       }
     },
-    [reportChoice, root, store, seats, initial],
+    [reportChoice, root, store, seats, initial, continues],
   )
 
   useEffect(() => {
     if (!initial) return
+    defaultSeats.current.clear()
+    seatCandidates.current.clear()
+    setSeats(initial.seats)
+    setPreview(null)
     setSource(initial.source)
     setVars(initial.vars)
     void runPreview(initial.source, initial.vars, initial.seats)
     return () => { sequence.current += 1; reportChoice(null) }
     // Only the saved Run's identity seeds the form; edits preview themselves.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initial, root, store])
+  }, [initial, root, store, continues])
 
   const choose = useCallback(
     async (next: string): Promise<void> => {
@@ -268,19 +292,28 @@ export const FlowStart = ({ root, disabled, onChange, initial }: FlowStartProps)
         </Field>
       ))}
 
-      {initial && preview?.seats.filter((seat, index, all) => all.findIndex(one => one.role === seat.role) === index).map(seat => <Field key={`${seat.role}-${seat.index}`} label={`${seat.role} · Seat preference`}>
-        {control => <NativeSelect {...control} disabled={disabled} value={seats?.[seat.role]?.[0] ? JSON.stringify(seats[seat.role]![0]) : ''}
+      {initial && preview?.seats.map(seat => {
+        const slots = preview.seats.filter(one => one.role === seat.role).sort((a, b) => a.index - b.index)
+        const defaults = defaultSeats.current.get(seat.role) ?? []
+        const candidates = seatCandidates.current.get(JSON.stringify([seat.role, seat.index])) ?? seat.plan.candidates
+        const selected = seats?.[seat.role]?.[seat.index] ?? seats?.[seat.role]?.[0]
+        return <Field key={`${seat.role}-${seat.index}`} label={`${seat.role}${slots.length > 1 ? ` · Seat ${seat.index + 1}` : ''} · Seat preference`}>
+        {control => <NativeSelect {...control} disabled={disabled} value={selected ? JSON.stringify(selected) : ''}
           onChange={event => {
-            const candidate = seat.plan.candidates.find(one => JSON.stringify(one.seat) === event.target.value)
+            const candidate = candidates.find(one => JSON.stringify(one.seat) === event.target.value)
             const next = { ...seats }
-            if (!candidate) { delete next[seat.role] } else { next[seat.role] = [candidate.seat] }
+            const choices = slots.map(one => seats?.[seat.role]?.[one.index] ?? seats?.[seat.role]?.[0] ?? defaults[one.index])
+            choices[seat.index] = candidate?.seat ?? defaults[seat.index]
+            if (!choices.every((one): one is FlowSeat => one !== undefined)) return
+            if (JSON.stringify(choices) === JSON.stringify(defaults)) delete next[seat.role]
+            else next[seat.role] = choices
             setSeats(next)
             void runPreview(source, vars, next)
           }}>
           <option value="">Flow’s seat choices</option>
-          {seat.plan.candidates.map((candidate, index) => <option key={index} value={JSON.stringify(candidate.seat)}>{candidate.label}</option>)}
+          {candidates.map((candidate, index) => <option key={index} value={JSON.stringify(candidate.seat)}>{candidate.label}</option>)}
         </NativeSelect>}
-      </Field>)}
+      </Field>})}
 
       {preview && !legacy && <FlowPreviewReport preview={preview} flow={flow} warnings={warnings} roster={roster} />}
     </div>

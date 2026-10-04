@@ -102,6 +102,7 @@ import { FlowCatalog } from './flow-catalog.js'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
 import { FlowReview } from './flow-evidence.js'
 import { FlowPreviews } from './flow-preview.js'
+import { sameCanonicalPath } from './path-identity.js'
 import { FlowUpdates, TreeQueue } from './flow-update.js'
 import { AuthoringPlane } from './authoring/plane.js'
 import { factsKey, hostContextPort, previewStart, resolveContext, type ContextPort } from './authoring/start.js'
@@ -1547,6 +1548,15 @@ export class Host {
       perToolMcpApproval: (runtimeName) => this.#runtimes.get(runtimeId(runtimeName))?.info.capabilities.perToolMcpApproval === true,
       previewCheck: (run, card) => this.#flows.previewCheck(run, card),
       storedRun: async (run) => this.#flows.storedRun(run),
+      continuation: async (run, root) => {
+        const earlier = this.#flows.executionOf(run)
+        if (!earlier?.goal) throw new Error('The earlier Run is no longer recorded. Start a new Team.')
+        const board = this.#team.stateFor(earlier.goal)
+        if (!sameCanonicalPath(board.root, root)) throw new Error('This Team belongs to another project.')
+        const dispatch = this.#goals.canDispatch(earlier.goal)
+        if (!dispatch.ok) throw new Error(dispatch.reason)
+        return { team: earlier.goal, cwd: board.cwd ?? board.root }
+      },
       // A front-door token's target, read again from git and the forge at Start: never the facts the preview saw.
       resolveTarget: async (context) => {
         await this.#confineRoom(context.root)
