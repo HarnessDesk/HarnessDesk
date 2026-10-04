@@ -472,6 +472,7 @@ const Preview = () => {
     | 'what was observed'
     | 'run a check'
     | 'retry check'
+    | 'retry check refused'
     | 'flow update'
     | 'flow customize'
     | 'race'
@@ -534,7 +535,7 @@ const Preview = () => {
         <Dial
           label="dialog"
           value={dialog}
-          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed', 'run a check', 'retry check', 'flow update', 'flow customize', 'race', 'trigger arm'] as const}
+          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed', 'run a check', 'retry check', 'retry check refused', 'flow update', 'flow customize', 'race', 'trigger arm'] as const}
           onChange={setDialog}
         />
         <Dial label="trigger arm scene" value={armScene} options={TRIGGER_ARM_SCENES} onChange={setArmScene} />
@@ -576,6 +577,7 @@ const Preview = () => {
       )}
       {dialog === 'new session' && <NewSessionChoice onClose={() => setDialog('off')} />}
       {dialog === 'retry check' && <RetryCheck run="run-preview" card={7} onClose={() => setDialog('off')} />}
+      {dialog === 'retry check refused' && <RetryCheck run="run-preview-ended" card={7} onClose={() => setDialog('off')} />}
       {dialog === 'flow update' && (
         <FlowUpdate root={PREVIEW_ROOT} id="old-fix" mode="update" onClose={() => setDialog('off')} onApplied={() => setDialog('off')} />
       )}
