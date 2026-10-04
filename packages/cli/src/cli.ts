@@ -326,6 +326,11 @@ export function sanitizeHuman(value: string): string {
     .replace(/[\x00-\x1f\x7f-\x9f]/g, '')
 }
 
+/** `sanitizeHuman` for text of several lines: each line is cleaned and the breaks between them stay, since a break is what separates two lines of a usage message. */
+export function sanitizeLines(value: string): string {
+  return value.split('\n').map(sanitizeHuman).join('\n')
+}
+
 export function errorExit(error: unknown): number {
   if (error instanceof UsageError) return 2
   if (!(error instanceof WireCallError)) return 1
@@ -513,7 +518,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     return await COMMANDS.find(command => command.name === args.command)!.execute(args)
   } catch (error) {
     const code = error instanceof WireCallError ? `${error.code}: ` : ''
-    process.stderr.write(sanitizeHuman(code + (error instanceof Error ? error.message : String(error))) + '\n')
+    process.stderr.write(sanitizeLines(code + (error instanceof Error ? error.message : String(error))) + '\n')
     return errorExit(error)
   }
 }

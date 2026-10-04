@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { CLIENT_METHODS, clientTierFor } from '@harnessdesk/protocol'
 import { WireCallError } from '@harnessdesk/client'
-import { COMMANDS, FLAG_KEYS, GLOBAL_FLAG_KEYS, sanitizeHuman, parseArgs, errorExit } from '../src/cli.js'
+import { COMMANDS, FLAG_KEYS, GLOBAL_FLAG_KEYS, main, sanitizeHuman, sanitizeLines, parseArgs, errorExit } from '../src/cli.js'
 import { EXIT_CODES, GLOBAL_OPTIONS, type OptionDoc } from '../src/reference.js'
 
 test('the executable command table covers exactly the declared client surface', () => {
@@ -163,4 +163,17 @@ test('the exit codes are the ones the command line returns', () => {
     assert.equal(errorExit(new WireCallError(code, 'demo')), expected, code)
   }
   assert.throws(() => parseArgs([]), error => errorExit(error) === 2)
+})
+
+
+test('a usage error keeps its two lines, and what an agent could send in an error is still removed from each', async t => {
+  assert.equal(sanitizeLines('a\x1b[31mred\x1b[0m\nb\x1b]52;c;secret\x07c\r\n\x9d52;c;x\x9cd'), 'ared\nbc\nd')
+  assert.equal(sanitizeLines('one line'), 'one line')
+
+  const written: string[] = []
+  t.mock.method(process.stderr, 'write', (chunk: string | Uint8Array) => { written.push(String(chunk)); return true })
+  assert.equal(await main([]), 2)
+  const lines = written.join('').split('\n')
+  assert.match(lines[0]!, /^Usage: Choose a command: desks, status, /)
+  assert.match(lines[1]!, /^harnessdesk <desks\|status\|.*> \[--home DIR\] \[--json\] \[--trace-wire\]$/, 'the second line starts a line of its own')
 })
