@@ -8,6 +8,7 @@
  */
 
 .pane {
+  --room-rail-width: 232px;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -36,6 +37,30 @@
      board's own tab strip, measured colliding with an unclipped header at a
      narrow room width. */
   overflow: hidden;
+}
+
+/* Other destinations keep the bar's original single line. A receipt's title
+   stands over its reading column; the rail's mark and window controls keep
+   their own column, sharing the rail width and its separating hairline. */
+.bar[data-receipt-column] {
+  display: grid;
+  grid-template-columns: calc(var(--room-rail-width) + var(--hd-border-width) - max(var(--hd-bar-ink), var(--titlebar-inset, 0px)) - var(--hd-bar-gap)) minmax(0, 1fr);
+}
+
+.bar[data-receipt-column] .barLeading {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--hd-bar-gap);
+}
+
+.bar[data-receipt-column] .barContent {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: var(--hd-bar-gap);
+  margin-left: calc(var(--hd-space-6) + var(--hd-inset-card) + var(--hd-border-width));
 }
 
 .barName {
@@ -123,7 +148,7 @@
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  width: 232px;
+  width: var(--room-rail-width, 232px);
   min-height: 0;
   /* Its own container, nested inside the room's: a split view can hand the
      rail a width far narrower than 232px regardless of the room pane's own
@@ -357,6 +382,33 @@
  * open beside a room.
  */
 @container hd-room (max-width: 38rem) {
+  .bar[data-receipt-column] {
+    grid-template-columns: 0 minmax(0, 1fr);
+  }
+
+  .bar[data-receipt-column] .barLeading {
+    display: none;
+  }
+
+  .bar[data-receipt-column] .barContent {
+    margin-left: calc(var(--hd-space-6) + var(--hd-inset-card) + var(--hd-border-width) - max(var(--hd-bar-ink), var(--titlebar-inset, 0px)) - var(--hd-bar-gap));
+  }
+
+  /* At the native corner the window controls still need the original line
+     and traffic-light clearance when the narrow pane has no sidebar. */
+  .bar[data-receipt-column][data-window-controls] {
+    display: flex;
+  }
+
+  .bar[data-receipt-column][data-window-controls] .barLeading {
+    display: flex;
+  }
+
+  .bar[data-receipt-column][data-window-controls] .barContent {
+    flex: 1;
+    margin-left: 0;
+  }
+
   .rail {
     width: 100%;
   }

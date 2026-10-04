@@ -1,6 +1,20 @@
 import { expect, test, type Locator } from '@playwright/test'
 
 for (const theme of ['light','dark'] as const) {
+ test(`Wrapped Team: the pane title shares the receipt's reading edge in ${theme}`, async ({page}) => {
+  await page.emulateMedia({colorScheme:theme})
+  await page.goto(`/preview.html?team-record&theme=${theme}`)
+  for (const scene of ['wrapped','older','shared','unlinked','empty','narrow','person','running']) {
+   const frame=page.locator(`#team-record-${scene}`)
+   const title=frame.locator('header[data-slot="bar"]').first().getByText('Retry the checkout call',{exact:true})
+   const heading=frame.locator('[data-slot="goal-receipt"] [data-slot="section-name"]').first()
+   await expect(heading).toBeVisible()
+   const titleBox=await title.boundingBox()
+   const headingBox=await heading.boundingBox()
+   expect(titleBox,`${scene}: the pane title is visible`).not.toBeNull()
+   expect(Math.abs(titleBox!.x-headingBox!.x),`${scene}: title and receipt share their leading edge`).toBeLessThan(2)
+  }
+ })
  test(`Wrapped Team: Tab and Enter or Space open retained conversations in ${theme}`, async ({page}) => {
   await page.emulateMedia({colorScheme:theme})
   await page.goto(`/preview.html?team-record&theme=${theme}`)

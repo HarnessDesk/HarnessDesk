@@ -229,6 +229,10 @@ const OriginChip = ({ status, name }: { readonly status: TriggerGoalStatus; read
   )
 }
 
+/** Only Receipt needs header columns; other destinations keep their original header DOM. */
+const ReceiptHeaderColumn = ({ enabled, className, children }: { enabled: boolean; className?: string; children: ReactNode }) =>
+  enabled ? <div className={className}>{children}</div> : <>{children}</>
+
 export const TeamRoomPane = ({
   room,
   onChooseProject = () => undefined,
@@ -1024,9 +1028,13 @@ export const TeamRoomPane = ({
         * what every other top row in this app does: leaves room for the macOS
         * buttons (`Bar corner`, `--titlebar-inset`) and moves the window when
         * dragged. Its words start on the rows' ink line (`inset="ink"`), as
-        * the conversation's header's do.
+        * the conversation's header's do. Receipt aligns the name over its
+        * reading column, keeping the rail's mark in the column beside it.
         */}
-      <Bar as="header" corner inset="ink" rule="bottom" className={`${styles.bar} hd-drag`}>
+      <Bar as="header" corner inset="ink" rule="bottom" className={`${styles.bar} hd-drag`}
+        data-receipt-column={open === 'receipt' && !onRail ? '' : undefined}
+        data-window-controls={sidebarPlacement(snapshot) !== 'column' ? '' : undefined}>
+        <ReceiptHeaderColumn enabled={open === 'receipt' && !onRail} className={styles.barLeading}>
         {/* The window's own controls, as a conversation's header carries them
             whenever the sidebar is not standing beside it. A room is the other
             thing the middle can show, and a narrow window's sidebar is only
@@ -1039,6 +1047,8 @@ export const TeamRoomPane = ({
         <IconTile tint="violet" size="sm">
           <TeamIcon />
         </IconTile>
+        </ReceiptHeaderColumn>
+        <ReceiptHeaderColumn enabled={open === 'receipt' && !onRail} className={styles.barContent}>
         {/* Truncated with a floor (`.barName`), never a second line — the full
             name is one hover away. The Goal's own sentence first: `team.name`
             is the room's, and a room the board has not answered about yet
@@ -1208,6 +1218,7 @@ export const TeamRoomPane = ({
             </Popover>
           </span>
         </div>
+        </ReceiptHeaderColumn>
       </Bar>
       {goal ? <GoalHeader view={goal} /> : null}
       {flowExecution ? <FlowRunStatus execution={flowExecution} /> : null}
