@@ -46,9 +46,9 @@ it('keeps preview and final wrap as separate decisions and invalidates an edited
   await act(async () => {})
   expect(store.previewGoalWrap).toHaveBeenCalledTimes(1)
   expect(store.wrapGoal).not.toHaveBeenCalled()
-  expect(document.body.textContent).toContain('As recorded when wrapped')
+  expect(document.querySelector('[data-slot="goal-receipt"]')).not.toBeNull()
   act(() => [...document.querySelectorAll('button')].find((one) => one.textContent === 'Edit')!.click())
-  expect(document.body.textContent).not.toContain('As recorded when wrapped')
+  expect(document.querySelector('[data-slot="goal-receipt"]')).toBeNull()
 })
 
 it('sends one final commit and preserves the draft on a stale stamp refusal', async () => {

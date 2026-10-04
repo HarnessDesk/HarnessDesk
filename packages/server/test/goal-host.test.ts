@@ -676,7 +676,7 @@ test('a Goal left wrapping with a card its receipt lacks finishes on the next la
     // The receipt lists it too, with the same reason, beside the card the person reviewed.
     const stored = await second.call('goal/receipt', { goal }) as GoalReceipt
     assert.deepEqual(stored.cards, [
-      { id: card.id, resolution: 'finished', reason: null },
+      { id: card.id, title: 'Reviewed', resolution: 'finished', reason: null },
       { id: 2, resolution: 'dropped', reason: 'Added while the Goal was wrapping, so it was never reviewed.' },
     ])
     assert.equal(stored.id, 'receipt-1')

@@ -30,7 +30,8 @@ for (const theme of ['light', 'dark'] as const) {
       const round = frame.locator('[data-row="findings-3"]')
       await expect(round).toContainText(words)
       const ending = frame.locator('[data-slot="run-ending"]')
-      await expect(ending.locator('[data-slot="chip-words"]').filter({ hasText: words })).toHaveCount(1)
+      await expect(ending.locator('[data-slot="chip-words"]')).toHaveCount(0)
+      await expect(header.locator('[data-slot="chip-words"]').filter({ hasText: words })).toHaveCount(1)
       const waitingReason = {
         partial: 'One review still waits for you.',
         uncertain: 'The desk did not receive confirmation.',
@@ -38,11 +39,13 @@ for (const theme of ['light', 'dark'] as const) {
         refused: 'The pull request moved past this review.',
       }[state]
       if (waitingReason) {
-        await expect(ending).toContainText('Needs you')
+        await expect(ending).not.toContainText('Needs you')
+        await expect(ending.locator('[data-tone="warning"]')).toHaveCount(1)
         await expect(ending).toContainText(waitingReason)
         await expect(ending).not.toContainText('Nothing waits.')
       } else {
-        await expect(ending).toContainText('Settled')
+        await expect(ending).not.toContainText('Settled')
+        await expect(ending.locator('[data-tone="warning"]')).toHaveCount(0)
         await expect(ending).toContainText('Nothing waits.')
       }
       const inspector = frame.locator('[data-slot="run-inspector"]')

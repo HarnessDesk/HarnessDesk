@@ -112,27 +112,28 @@ it.each(['running', 'stopped', 'settled', 'stalled'] as const)('offers Stop run�
 })
 it('does not invent a new ending door for a legacy Run without an end kind', () => {
   const { container, done } = withFlow({ model: runTimeline({ execution: { ...runFixture('stopped').execution, end: undefined }, cards: [] }), onRunAgain: () => {} })
-  try { expect(container.querySelector('[data-slot="run-ending"] button')).toBeNull() } finally { done() }
+  try { expect(container.querySelectorAll('[data-slot="run-ending"] button')).toHaveLength(1); expect(container.querySelector('[data-slot="run-ending"] button')?.textContent).toBe('End') } finally { done() }
 })
 const choice = (container: HTMLElement, name: string): HTMLButtonElement =>
   [...container.querySelectorAll<HTMLButtonElement>('[role="radiogroup"][aria-label="Show the Run as"] [role="radio"]')].find(one => one.textContent === name)!
 
 it.each([
   ['complete', 'Wrap'], ['settled', 'Run again…'], ['stopped', 'Run again…'], ['stalled', 'Review and run again…'],
-] as const)('gives %s a banner and an independent door', (scene, label) => {
-  const onRunAgain = vi.fn(), onWrap = vi.fn(), onBoard = vi.fn(), onReviewCheck = vi.fn()
-  const { container, done } = withFlow({ model: runTimeline(runFixture(scene)), onRunAgain, onWrap, onBoard, onReviewCheck })
+] as const)('gives %s an ending summary and an independent door', (scene, label) => {
+  const onRunAgain = vi.fn(), onWrap = vi.fn(), onBoard = vi.fn(), onReviewCheck = vi.fn(), onSelect = vi.fn()
+  const { container, done } = withFlow({ model: runTimeline(runFixture(scene)), onRunAgain, onWrap, onBoard, onReviewCheck, onSelect })
   try {
     const banner = container.querySelector('[data-slot="run-ending"]')!
     expect(banner).not.toBeNull()
     const button = [...banner.querySelectorAll('button')].find(one => one.textContent === label)!
-    expect(button.closest('[data-row]')).toBeNull()
+    expect(button.parentElement?.closest('button')).toBeNull()
     act(() => button.click())
     expect(scene === 'complete' ? onWrap : scene === 'stalled' ? onReviewCheck : onRunAgain).toHaveBeenCalledOnce()
     if (scene === 'settled') {
       act(() => [...banner.querySelectorAll('button')].find(one => one.textContent === 'Board')!.click())
       expect(onBoard).toHaveBeenCalledOnce()
     }
+    expect(onSelect).not.toHaveBeenCalled()
   } finally { done() }
 })
 
@@ -281,6 +282,23 @@ it('highlights the passive attempt rows with their selected Flow step without ma
     act(() => attempt.click())
     expect(onSelect).not.toHaveBeenCalled()
   } finally { done() }
+})
+
+it.each(['complete','stopped','stalled'] as const)('keeps %s status in the header and one selectable ending summary',scene=>{
+ const model=runTimeline(runFixture(scene))
+ const onSelect=vi.fn()
+ const {container,done}=withFlow({model,onSelect})
+ try {
+  const ending=container.querySelector('[data-slot="run-ending"]')!
+  expect(ending.querySelectorAll('[data-slot="chip"]')).toHaveLength(0)
+  expect(ending.textContent).not.toContain(scene==='complete'?'Settled':scene==='stopped'?'Stopped':'Needs you')
+  expect(container.querySelectorAll('[data-row="end"]')).toHaveLength(1)
+  expect(ending.querySelector('[data-row="end"] [data-slot="list-row-title"]')).not.toBeNull()
+  expect(ending.querySelectorAll('[data-tone="warning"]')).toHaveLength(scene==='stalled'?1:0)
+  act(()=> (ending.querySelector('[data-row="end"] button') as HTMLButtonElement).click())
+  expect(onSelect).toHaveBeenCalledWith('end')
+  if(scene==='complete')expect(ending.textContent).toContain('Nothing waits.')
+ } finally {done()}
 })
 
 it('shortens the Timeline check command while keeping its full hover title', () => {

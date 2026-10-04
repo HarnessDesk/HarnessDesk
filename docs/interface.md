@@ -889,18 +889,27 @@ refused without moving it.
 Workspaces › Lanes controls the machine-wide defaults for new isolated Seats:
 port start, block width and browser-profile isolation. Retained descriptors show
 their Goal, Seat and checkout. Releasing ports never claims to remove files.
-Wrapped Goals open an immutable receipt headed **As recorded when wrapped**;
-partial answers, gaps, unknown spend and dirty retained lanes remain visible.
+Wrapped Goals open an immutable receipt in the pane’s reading column. Its labelled
+card groups show What finished, titled Work, speaker-led prose Answers, and a final
+Record with findings status, recorded cost and wrap date. The total keeps its
+source, observation age and qualifications. Cost is read separately from the
+frozen wrap; Record and its breakdowns show the same read, and Refresh reads
+the sources again. Facts shared by every part are said once, while differing
+row facts remain beside that amount. Older cards show their
+number when no title was kept. Partial answers, gaps, unknown spend and dirty
+retained lanes remain visible; cost detail and Refresh use the same column.
 A wrapped Team opens on **Receipt** and keeps Overview, Run and its Agents
-rail. It opens there with or without a Run, and in a narrow pane too, where the
+rail. The header says **Wrapped** once, beside the project and wrap date,
+and draws no Wrap control or reason line. The wrapped rail hides Side by side
+and adding an Agent; Board omits its unclaimed count, and Agents show name and
+role on one line without repeating Done. It opens there with or without a Run, and in a narrow pane too, where the
 Agents list is one tap behind it. The Team’s Agents list keeps the same
 conversations, the Seats without one together in a single list. Older receipts
-use a Seat's kept answer to find its conversation; a Seat without one says
-**Conversation not kept**, and a receipt whose every Seat lacks one lists them
+use a Seat's kept answer to find its conversation; a Seat without one keeps **Conversation not kept** in its hover title, and a receipt whose every Seat lacks one lists them
 all rather than saying no Agents were kept. A conversation seated more than
 once is one row, named by the last Seat that held it. Run details keep each
 Seat separately, including its recorded cost when its conversation was not kept. These conversations remain readable, with their
-composer disabled: **This Team is wrapped**. Adding, assigning, answering,
+composer disabled: **This Team is wrapped**. Assigning, answering,
 posting and running checks are disabled with that same reason, as are a
 conversation's **Compact now** and **Review uncommitted changes**. **Stop**
 stays on while a turn is still running in one, because stopping is not new
@@ -1022,6 +1031,9 @@ the Overview folds them into a disclosure such as **3 done**. A question,
 unread notice or new work brings a Seat out of that fold. The sidebar nests
 its conversation under the same Team, even after its process has rested.
 A Team without a Run opens on Chat and still offers Overview for its Seats.
+Empty Board and Chat content keeps one quiet sentence in the reading column.
+The Board toolbar keeps **New job**; an empty Goal also offers **Start with a team** there.
+Board-only Chat keeps the consequence of its messaging mode on screen.
 
 What needs you can be answered from its row. A tool's request for approval
 offers the agent's own choices. The command and its working folder, files a
@@ -1045,7 +1057,7 @@ A selected row takes the inspector's fill. Historical Runs, including those
 started by triggers, are restored from the host and can be selected beside
 the header, and an observed pull request opens from it.
 
-The Run header, Overview strip, end banner and Findings summary show the Run's
+The Run header, Overview strip and Findings summary show the Run's
 publication once at each surface. A review row shows only its recorded round:
 **Posted to #n**, **Waiting to post**, **Partly posted**, **Not confirmed**,
 **Not posted** when posting is on for a bound pull request, or **Kept on the desk**.
@@ -1055,7 +1067,9 @@ Posting is enabled only for the host's waiting item or stamped earlier-round
 preview; earlier rounds require confirmation. A refusal stays visible, and
 changed findings refresh the reads. Nothing posts without a press.
 
-An ended Run has a banner above its end row. Finished work offers **Wrap**;
+An ended Run keeps its reason, time and next actions together in one End summary.
+Status and aggregate publication stay in the Run header; the ending uses a warning
+only when a consequence needs attention. Finished work offers **Wrap**;
 an answer no rule follows offers **Run again…** and **Board**; a person or desk
 stop offers **Run again…**. An interrupted check keeps **Review and run again…**
 and its recorded reason. A spent budget names the limit and how many rounds
