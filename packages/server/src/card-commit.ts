@@ -24,7 +24,9 @@ import { HARDENED_GIT_CONFIG } from './git-hardening.js'
  * `git status --porcelain=v1` spelling). A file somebody else left dirty
  * before the claim is never committed, and neither is anything already staged
  * elsewhere: the commit names its paths (`git commit <paths>`, which commits
- * only those). Paths come from git's own status, never from the agent, and
+ * only those). A merge instead commits the resolved index without staging
+ * more work, and refuses conflicts or staged paths already dirty at claim.
+ * Paths come from git's own status, never from the agent, and
  * reach git as literal pathspecs through a file, so none can carry magic or
  * reach outside the checkout. The message preserves the agent's text and
  * adds the desk's co-author trailer once, stored from a file — never a
@@ -191,15 +193,15 @@ const displayPath = (line: string): string => {
 }
 
 /** `git status --porcelain=v1 -z` as entries: the path, and a rename's or copy's source. */
-const zEntries = (out: string): { readonly path: string; readonly from: string | null }[] => {
+const zEntries = (out: string): { readonly status: string; readonly path: string; readonly from: string | null }[] => {
   const fields = out.split('\0')
-  const entries: { path: string; from: string | null }[] = []
+  const entries: { status: string; path: string; from: string | null }[] = []
   for (let index = 0; index < fields.length; index++) {
     const field = fields[index]!
     if (field.length < 4) continue
     const status = field.slice(0, 2)
     const renamed = status.includes('R') || status.includes('C')
-    entries.push({ path: field.slice(3), from: renamed ? (fields[++index] ?? null) : null })
+    entries.push({ status, path: field.slice(3), from: renamed ? (fields[++index] ?? null) : null })
   }
   return entries
 }
@@ -222,14 +224,18 @@ export const commitCardWork = async (cwd: string, before: readonly string[], mes
     return { refused: 'Refused: this Seat’s checkout is not a git repository, so there is nothing to commit.' }
   }
   const filters = await filtersOff(top)
+  const merging = await git(top, ['rev-parse', '--verify', '--quiet', 'MERGE_HEAD']).then(() => true, () => false)
   // A submodule is its own repository: its changes are never this card's to commit from here.
-  const status = ['status', '--porcelain=v1', '--untracked-files=normal', '--ignore-submodules=all']
+  // During a merge include staged gitlinks and their conflicts, without reading inside submodules.
+  const status = ['status', '--porcelain=v1', '--untracked-files=normal', merging ? '--ignore-submodules=dirty' : '--ignore-submodules=all']
   let shown: string[]
-  let entries: { readonly path: string; readonly from: string | null }[]
+  let lines: string[]
+  let entries: ReturnType<typeof zEntries>
   try {
     const read = { config: filters, env: readEnv() }
     const [plain, nul] = await Promise.all([git(top, status, read), git(top, [...status, '-z'], read)])
-    shown = plain.split('\n').filter((line) => line.trim() !== '').map(displayPath)
+    lines = plain.split('\n').filter((line) => line.trim() !== '')
+    shown = lines.map(displayPath)
     entries = zEntries(nul)
   } catch (error) {
     return { refused: `Refused: the checkout could not be read (${firstLine(error)}), so nothing was committed.` }
@@ -238,8 +244,26 @@ export const commitCardWork = async (cwd: string, before: readonly string[], mes
     return { refused: 'Refused: the checkout changed while it was being read, so nothing was committed. Call commit_work again.' }
   }
   const seen = new Set(before)
-  const own = entries.filter((_entry, index) => !seen.has(shown[index]!))
-  if (own.length === 0) return { refused: 'Nothing to commit: no file changed since this card was claimed is uncommitted.' }
+  if (merging) {
+    const conflicts = shown.filter((_path, index) => /U|AA|DD/.test(entries[index]!.status))
+    if (conflicts.length) {
+      return { refused: `Refused: these files still have conflicts: ${conflicts.join(', ')}, so nothing was committed.` }
+    }
+    const stagedBefore = shown.filter((path, index) => {
+      const entry = entries[index]!
+      const staged = entry.status[0] !== ' ' && entry.status[0] !== '?'
+      // A staged rename must not hide a pre-card edit under a new name.
+      const source = entry.from ? lines[index]!.slice(3).split(' -> ')[0]! : null
+      return staged && (seen.has(path) || (source !== null && seen.has(source)))
+    })
+    if (stagedBefore.length) {
+      return { refused: `Refused: these files were already dirty when this card was claimed and are staged: ${stagedBefore.join(', ')}, so the merge would commit the person’s own edits.` }
+    }
+  }
+  const own = entries.filter((entry, index) => merging
+    ? entry.status[0] !== ' ' && entry.status[0] !== '?'
+    : !seen.has(shown[index]!))
+  if (!merging && own.length === 0) return { refused: 'Nothing to commit: no file changed since this card was claimed is uncommitted.' }
   const paths = [...new Set(own.flatMap((entry) => (entry.from ? [entry.path, entry.from] : [entry.path])))]
   const filtered = await filteredAmong(top, paths).catch(() => null)
   if (filtered === null) return { refused: 'Refused: the checkout’s git attributes could not be read, so nothing was committed.' }
@@ -268,10 +292,11 @@ export const commitCardWork = async (cwd: string, before: readonly string[], mes
     })
     const config = [...filters, '-c', 'gc.auto=0', '-c', 'maintenance.auto=false']
     try {
-      await git(top, ['add', '--all', `--pathspec-from-file=${pathspecs}`, '--pathspec-file-nul'], { config, env })
+      if (!merging) await git(top, ['add', '--all', `--pathspec-from-file=${pathspecs}`, '--pathspec-file-nul'], { config, env })
       await git(
         top,
-        ['commit', '--no-verify', '--no-gpg-sign', '--cleanup=verbatim', '--no-edit', `--file=${text}`, `--pathspec-from-file=${pathspecs}`, '--pathspec-file-nul'],
+        ['commit', '--no-verify', '--no-gpg-sign', '--cleanup=verbatim', '--no-edit', `--file=${text}`,
+          ...(merging ? [] : [`--pathspec-from-file=${pathspecs}`, '--pathspec-file-nul'])],
         { config, env },
       )
       const commit = (await git(top, ['rev-parse', '--verify', 'HEAD^{commit}'], { config, env })).trim()

@@ -79,6 +79,118 @@ test('commit_work commits only what changed since the claim, and leaves what was
 
 const coauthor = 'Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>'
 
+/** Two divergent parents whose shared file will conflict when merged. */
+const conflictingMerge = async (root: string): Promise<readonly string[]> => {
+  await git(root, 'checkout', '-q', '-b', 'incoming')
+  await writeFile(join(root, 'shared.txt'), 'incoming\n')
+  await writeFile(join(root, 'incoming.txt'), 'from the other branch\n')
+  await git(root, 'add', '-A')
+  await git(root, 'commit', '-q', '-m', 'incoming changes')
+  const incoming = (await git(root, 'rev-parse', 'HEAD')).trim()
+  await git(root, 'checkout', '-q', 'main')
+  await writeFile(join(root, 'shared.txt'), 'local\n')
+  await git(root, 'commit', '-q', '-am', 'local changes')
+  const local = (await git(root, 'rev-parse', 'HEAD')).trim()
+  return [local, incoming]
+}
+
+test('commit_work concludes a resolved merge with both parents and the desk credit', async (t) => {
+  const root = await repo(t)
+  const parents = await conflictingMerge(root)
+  await writeFile(join(root, 'a.txt'), 'person’s unstaged edit\n')
+  const before = await snapshot(root)
+  await assert.rejects(git(root, 'merge', '--no-edit', 'incoming'))
+  await writeFile(join(root, 'shared.txt'), 'resolved\n')
+  await git(root, 'add', 'shared.txt')
+  // Later unstaged work must not replace the staged resolution or enter the merge.
+  await writeFile(join(root, 'shared.txt'), 'later edit\n')
+  await writeFile(join(root, 'notes.md'), 'unstaged card work\n')
+
+  const done = await commitCardWork(root, before, 'Conclude the resolved merge')
+  assert.ok('commit' in done, JSON.stringify(done))
+  assert.deepEqual((await git(root, 'log', '-1', '--format=%P')).trim().split(' '), parents)
+  assert.deepEqual([...done.paths].sort(), ['incoming.txt', 'shared.txt'])
+  assert.equal(await git(root, 'show', 'HEAD:shared.txt'), 'resolved\n')
+  assert.equal(await parsedTrailers(root), `${coauthor}\n`)
+  assert.equal(await git(root, 'log', '-1', '--format=%B'), `Conclude the resolved merge\n\n${coauthor}\n\n`)
+  assert.equal((await git(root, 'log', '-1', '--format=%an <%ae>%n%cn <%ce>')).trim(),
+    'Jane Doe <dev@example.com>\nJane Doe <dev@example.com>')
+  assert.equal(await git(root, 'status', '--porcelain=v1'), ' M a.txt\n M shared.txt\n?? notes.md\n')
+  assert.equal(await exists(join(root, '.git', 'MERGE_HEAD')), false)
+})
+
+test('commit_work refuses an unresolved merge and names its conflicting files', async (t) => {
+  const root = await repo(t)
+  await conflictingMerge(root)
+  const before = await snapshot(root)
+  await assert.rejects(git(root, 'merge', '--no-edit', 'incoming'))
+  const head = await git(root, 'rev-parse', 'HEAD')
+  const index = await git(root, 'ls-files', '--stage')
+
+  assert.deepEqual(await commitCardWork(root, before, 'Conclude the merge'), {
+    refused: 'Refused: these files still have conflicts: shared.txt, so nothing was committed.',
+  })
+  assert.equal(await git(root, 'rev-parse', 'HEAD'), head)
+  assert.equal(await git(root, 'ls-files', '--stage'), index, 'the conflict is not staged away')
+  assert.equal(await exists(join(root, '.git', 'MERGE_HEAD')), true)
+})
+
+test('commit_work refuses a merge with pre-card edits staged in its index', async (t) => {
+  const root = await repo(t)
+  await conflictingMerge(root)
+  await writeFile(join(root, 'a.txt'), 'person’s edit\n')
+  const before = await snapshot(root)
+  await assert.rejects(git(root, 'merge', '--no-edit', 'incoming'))
+  await writeFile(join(root, 'shared.txt'), 'resolved\n')
+  await git(root, 'add', 'shared.txt', 'a.txt')
+  const head = await git(root, 'rev-parse', 'HEAD')
+  const index = await git(root, 'ls-files', '--stage')
+
+  assert.deepEqual(await commitCardWork(root, before, 'Conclude the merge'), {
+    refused: 'Refused: these files were already dirty when this card was claimed and are staged: a.txt, so the merge would commit the person’s own edits.',
+  })
+  assert.equal(await git(root, 'rev-parse', 'HEAD'), head)
+  assert.equal(await git(root, 'ls-files', '--stage'), index)
+  assert.equal(await exists(join(root, '.git', 'MERGE_HEAD')), true)
+})
+
+test('commit_work refuses a merge when a pre-card edit was staged under a renamed path', async (t) => {
+  const root = await repo(t)
+  await conflictingMerge(root)
+  // Enough unchanged lines for Git to recognize the edited file as a rename.
+  await writeFile(join(root, 'a.txt'), 'one\ntwo\nthree\nfour\nfive\n')
+  await git(root, 'commit', '-q', '-am', 'expand the file')
+  await writeFile(join(root, 'a.txt'), 'one\ntwo\nthree\nfour\nedited\n')
+  const before = await snapshot(root)
+  await assert.rejects(git(root, 'merge', '--no-edit', 'incoming'))
+  await writeFile(join(root, 'shared.txt'), 'resolved\n')
+  await git(root, 'add', 'shared.txt')
+  await git(root, 'mv', 'a.txt', 'renamed.txt')
+  const index = await git(root, 'ls-files', '--stage')
+
+  assert.deepEqual(await commitCardWork(root, before, 'Conclude the merge'), {
+    refused: 'Refused: these files were already dirty when this card was claimed and are staged: renamed.txt, so the merge would commit the person’s own edits.',
+  })
+  assert.equal(await git(root, 'ls-files', '--stage'), index)
+})
+
+test('commit_work concludes a resolved merge even when its index matches HEAD', async (t) => {
+  const root = await repo(t)
+  const parents = await conflictingMerge(root)
+  const before = await snapshot(root)
+  await assert.rejects(git(root, 'merge', '--no-edit', 'incoming'))
+  await writeFile(join(root, 'shared.txt'), 'local\n')
+  await rm(join(root, 'incoming.txt'))
+  await git(root, 'add', '-A')
+  assert.equal(await git(root, 'diff', '--cached', '--name-only'), '')
+
+  const done = await commitCardWork(root, before, 'Keep the local tree in the merge')
+  assert.ok('commit' in done, JSON.stringify(done))
+  assert.deepEqual(done.paths, [])
+  assert.deepEqual((await git(root, 'log', '-1', '--format=%P')).trim().split(' '), parents)
+  assert.equal(await parsedTrailers(root), `${coauthor}\n`)
+})
+
 test('Git parses exactly one desk trailer for every accepted message shape', async (t) => {
   const root = await repo(t)
   let revision = 0
