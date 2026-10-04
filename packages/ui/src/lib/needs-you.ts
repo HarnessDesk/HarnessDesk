@@ -1,5 +1,5 @@
 import {
-  followOf, type Approval, type ApprovalDecision, type FlowExecution, type FlowPolicy, type Intent,
+  followOf, type Approval, type ApprovalDecision, type ApprovalId, type FlowExecution, type FlowPolicy, type Intent, type SessionKey,
 } from '@harnessdesk/protocol'
 import { wordOf } from './agents'
 import { approvalChoiceOrder } from './approval-order'
@@ -111,6 +111,24 @@ export const abandonEffect = (execution: FlowExecution, cards: readonly Intent[]
 
 // ----------------------------------------------------- an approval or question
 
+/**
+ * Everything a Needs-you row and the Run inspector can do about what needs a
+ * person, so the screens that draw them hold no store: the doors, and the
+ * calls that answer through them. `respond` and `answerStep` are the same
+ * requests the docked approval and the board make.
+ */
+export interface NeedsYouAnswers {
+  /** The way to answer a person's card, or null when it has none now. */
+  readonly stepDoor: (card: number) => StepDoor | null
+  /** The way to answer an open approval or question, with the conversation it belongs to. */
+  readonly approvalDoor: (approval: ApprovalId) => (ApprovalDoor & { readonly key: SessionKey }) | null
+  /** Answers a person's card, and rejects with the host's refusal. */
+  readonly answerStep: (card: number, outcome: string | null, note: string) => Promise<void>
+  readonly respond: (key: SessionKey, approval: ApprovalId, decision: ApprovalDecision) => void
+  /** Opens the board, where a review step's attempt is picked. */
+  readonly openBoard: () => void
+}
+
 export interface ApprovalChoice {
   readonly id: string
   readonly label: string
@@ -121,9 +139,15 @@ export interface ApprovalChoice {
   readonly title?: string
 }
 
+/** What is being approved, so a yes is never given blind: the command whole, the files a change touches, what an access would open, and why the runtime asks. */
+export interface ApprovalDetail {
+  readonly code?: string
+  readonly reason?: string
+  readonly lists?: readonly { readonly label: string; readonly items: readonly string[] }[]
+}
+
 export interface ApprovalDoor {
-  /** What is being approved, so a yes is never given blind: a command, or the files a change touches. */
-  readonly detail: { readonly code?: string; readonly paths?: readonly string[] }
+  readonly detail: ApprovalDetail
   readonly choices: readonly ApprovalChoice[]
   /** The request needs more than a button, so its conversation holds the form to answer it. */
   readonly elsewhere: boolean
@@ -133,6 +157,18 @@ export interface ApprovalDoor {
 export interface BoardToolWords {
   readonly sessionOptionLabel?: string | undefined
   readonly onceOptionLabel?: string | undefined
+}
+
+const detailOf = (approval: Exclude<Approval, { type: 'userInput' | 'elicitation' }>): ApprovalDetail => {
+  const lists = approval.type === 'fileChange' ? [{ label: 'Files', items: approval.changes.map((change) => change.path) }]
+    : approval.type === 'permission' ? [{ label: 'Folders', items: approval.filesystem ?? [] }, { label: 'Network', items: approval.network ?? [] }]
+      : []
+  return {
+    // What a running command is asked to take is the input, and what is approved is that.
+    ...(approval.type === 'command' ? { code: approval.kind === 'stdin' ? approval.input ?? approval.command : approval.command } : {}),
+    ...(approval.reason ? { reason: approval.reason } : {}),
+    ...(lists.some((one) => one.items.length > 0) ? { lists: lists.filter((one) => one.items.length > 0) } : {}),
+  }
 }
 
 const CANCEL: ApprovalChoice = { id: 'cancel', label: 'Cancel', primary: false, decision: { type: 'cancel' } }
@@ -168,8 +204,7 @@ export const approvalDoor = (approval: Approval, boardTool?: BoardToolWords | nu
   const ordered = approvalChoiceOrder(options)
   const primary = ordered.filter((option) => placement(option) === 'proceed').at(-1)?.id
   return {
-    detail: approval.type === 'command' ? { code: approval.kind === 'stdin' ? approval.input ?? approval.command : approval.command }
-      : approval.type === 'fileChange' ? { paths: approval.changes.map((change) => change.path) } : {},
+    detail: detailOf(approval),
     elsewhere: false,
     choices: ordered.map((option): ApprovalChoice => ({
       id: option.id,

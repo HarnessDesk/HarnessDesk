@@ -211,15 +211,25 @@ describe('an approval, as a second door to the same answer', () => {
     expect(approvalDoor(stdin).detail).toEqual({ code: 'y\n' })
   })
 
-  it('names the files a change would touch', () => {
+  it('names the files a change would touch, and why it asks', () => {
     const change = (path: string) => ({ path, kind: { type: 'update' as const, movePath: null }, diff: '' })
-    const files: Approval = { ...base, type: 'fileChange', changes: [change('src/a.ts'), change('src/b.ts')], options }
-    expect(approvalDoor(files).detail).toEqual({ paths: ['src/a.ts', 'src/b.ts'] })
+    const files: Approval = { ...base, type: 'fileChange', changes: [change('src/a.ts'), change('src/b.ts')], reason: 'Retry the call', options }
+    expect(approvalDoor(files).detail).toEqual({ reason: 'Retry the call', lists: [{ label: 'Files', items: ['src/a.ts', 'src/b.ts'] }] })
   })
 
-  it('keeps the summary for an access request and shows nothing beside it', () => {
-    const permission: Approval = { ...base, type: 'permission', summary: 'Edit outside the folder', options }
-    expect(approvalDoor(permission).detail).toEqual({})
+  it('says what an access request would open, and why it asks, so a yes is not given blind', () => {
+    const permission: Approval = { ...base, type: 'permission', summary: 'Edit outside the folder', reason: 'The file is outside the workspace.', filesystem: ['/etc'], network: ['example.com'], options }
+    expect(approvalDoor(permission).detail).toEqual({
+      reason: 'The file is outside the workspace.',
+      lists: [{ label: 'Folders', items: ['/etc'] }, { label: 'Network', items: ['example.com'] }],
+    })
+    // A request that names nothing beyond its summary shows nothing beside it, and an empty list is not a line.
+    expect(approvalDoor({ ...base, type: 'permission', summary: 'Use a tool', filesystem: [], options }).detail).toEqual({})
+  })
+
+  it('shows a command whole, with the reason the runtime gave', () => {
+    const command: Approval = { ...base, type: 'command', command: 'pnpm verify && echo done', cwd: '/work', actions: [], reason: 'Run the checks', options }
+    expect(approvalDoor(command).detail).toEqual({ code: 'pnpm verify && echo done', reason: 'Run the checks' })
   })
 
   it('words a board tool\'s grants as the card does, and fills only the plain yes', () => {
