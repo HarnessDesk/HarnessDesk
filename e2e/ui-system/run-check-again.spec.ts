@@ -88,7 +88,11 @@ for (const theme of ['light', 'dark'] as const) {
   test(`a Run that cannot run a check again offers nothing on the row, and the inspector says why, in ${theme}`, async ({ page }) => {
     await open(page, theme)
     for (const id of ['run-view-settled', 'run-view-stopped', 'run-view-complete']) {
-      await expect(page.locator(`#${id}`).getByRole('button', { name: 'Run again…' })).toHaveCount(0)
+      const view = page.locator(`#${id}`)
+      // An ended Run may offer a fresh Run; only that ending door remains, never a check retry.
+      const fresh = id === 'run-view-complete' ? 0 : 1
+      await expect(view.getByRole('button', { name: 'Run again…', exact: true })).toHaveCount(fresh)
+      await expect(view.locator('[data-slot="run-ending"]').getByRole('button', { name: 'Run again…', exact: true })).toHaveCount(fresh)
     }
     const refused = page.locator('#run-inspector-check-refused [data-slot="run-inspector"]')
     await expect(refused).toContainText('This run is settled. Start a new run to run this check again.')

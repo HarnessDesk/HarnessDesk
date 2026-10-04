@@ -1033,6 +1033,27 @@ Posting is enabled only for the host's waiting item or stamped earlier-round
 preview; earlier rounds require confirmation. A refusal stays visible, and
 changed findings refresh the reads. Nothing posts without a press.
 
+An ended Run has a banner above its end row. Finished work offers **Wrap**;
+an answer no rule follows offers **Run again…** and **Board**; a person or desk
+stop offers **Run again…**. An interrupted check keeps **Review and run again…**
+and its recorded reason. A spent budget names the limit and how many rounds
+were used. An unrouted answer, stall or spent budget keeps the Run and Team
+**Needs you**.
+
+**Run again…** reads the earlier Run’s saved Flow, inputs and brief into the
+same start preview, with the seat preferences open to change. **Start**
+creates a fresh Run on the same Team and records which Run it continues; both
+stay in the chooser beside the Run’s name. This starts from the seed step.
+The Flow name and digest in the header open the frozen Flow tab.
+
+Each Seat has its own preference; changing one keeps the others and the
+number of Seats. The preview shows checks in this Team’s retained checkout
+and rechecks that checkout before Start. An earlier Run that a newer one
+continues keeps its questions and any saved answer as history; answering
+there cannot restart the earlier work. Preview and Start refuse another
+successor from that earlier Run, even when its successor has ended. Continue
+from the newer Run instead.
+
 The header's switch shows the Run as a **Timeline** or as its **Flow**. The
 Flow tab draws the Flow the Run started with, named with the revision it was
 frozen at: a card for each step, joined by arrows that carry the outcome

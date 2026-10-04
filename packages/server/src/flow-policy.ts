@@ -578,7 +578,13 @@ export const compileFlowPolicy = (document: FlowDocument, agents: readonly Agent
   for (const role of document.flow.roles) {
     if (role.kind !== 'agent') continue
     let slots: Slot[] = []
-    try { slots = expandSlots({ uses: role.uses, seats: role.seats.map(seatSpec), ...(role.count === undefined ? {} : { count: role.count }) }) } catch (error) {
+    try {
+      // The file chooses a list of Agents or Seats. A Run's per-slot preferences
+      // may also select a runtime for each Agent in that already declared list.
+      const perAgent = Object.hasOwn(overrides, role.id) && role.uses.length > 1 && role.seats.length > 1
+      if (perAgent && role.seats.length !== role.uses.length) throw new Error('Seat preferences must match the list of Agents.')
+      slots = expandSlots({ uses: role.uses, seats: perAgent ? [] : role.seats.map(seatSpec), ...(role.count === undefined ? {} : { count: role.count }) })
+    } catch (error) {
       problems.push(problem('error', `roles.${role.id}.count`, error instanceof Error ? error.message : String(error)))
       continue
     }
@@ -589,7 +595,7 @@ export const compileFlowPolicy = (document: FlowDocument, agents: readonly Agent
         problems.push(problem('error', `roles.${role.id}.uses`, detail ? `Agent "${slot.agent}" is unavailable: ${detail}` : `There is no usable Agent called "${slot.agent}".`))
         continue
       }
-      bindings.push({ role: role.id, index: slot.index, agent: entry.definition, origin: entry.origin, digest: entry.digest, seats: slot.seat === null ? [] : [role.seats[slot.index] ?? role.seats[0]!], grant: role.grant })
+      bindings.push({ role: role.id, index: slot.index, agent: entry.definition, origin: entry.origin, digest: entry.digest, seats: role.seats.length === 0 ? [] : [role.seats[slot.index] ?? role.seats[0]!], grant: role.grant })
     }
     /* Every Seat of a round is seated and handed its card at once, and a
        round that is not isolated seats them all in the one working tree: two

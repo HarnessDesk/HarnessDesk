@@ -6,6 +6,7 @@ import { overviewRun } from '../preview/team-overview-fixture'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
 import { RunView } from './RunView'
+import { runFixture } from '../preview/run-view-fixture'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -60,8 +61,51 @@ const withFlow = (props: Partial<Parameters<typeof RunView>[0]> = {}) => {
   act(() => root.render(<RunView model={model} number={1} selectedRow={null} onSelect={() => {}} flow={<p data-testid="the-flow">The drawing</p>} {...props} />))
   return { container, done: () => { act(() => root.unmount()); container.remove() } }
 }
+
+it('does not invent a new ending door for a legacy Run without an end kind', () => {
+  const { container, done } = withFlow({ model: runTimeline({ execution: { ...runFixture('stopped').execution, end: undefined }, cards: [] }), onRunAgain: () => {} })
+  try { expect(container.querySelector('[data-slot="run-ending"] button')).toBeNull() } finally { done() }
+})
 const choice = (container: HTMLElement, name: string): HTMLButtonElement =>
   [...container.querySelectorAll<HTMLButtonElement>('[role="radiogroup"][aria-label="Show the Run as"] [role="radio"]')].find(one => one.textContent === name)!
+
+it.each([
+  ['complete', 'Wrap'], ['settled', 'Run again…'], ['stopped', 'Run again…'], ['stalled', 'Review and run again…'],
+] as const)('gives %s a banner and an independent door', (scene, label) => {
+  const onRunAgain = vi.fn(), onWrap = vi.fn(), onBoard = vi.fn(), onReviewCheck = vi.fn()
+  const { container, done } = withFlow({ model: runTimeline(runFixture(scene)), onRunAgain, onWrap, onBoard, onReviewCheck })
+  try {
+    const banner = container.querySelector('[data-slot="run-ending"]')!
+    expect(banner).not.toBeNull()
+    const button = [...banner.querySelectorAll('button')].find(one => one.textContent === label)!
+    expect(button.closest('[data-row]')).toBeNull()
+    act(() => button.click())
+    expect(scene === 'complete' ? onWrap : scene === 'stalled' ? onReviewCheck : onRunAgain).toHaveBeenCalledOnce()
+    if (scene === 'settled') {
+      act(() => [...banner.querySelectorAll('button')].find(one => one.textContent === 'Board')!.click())
+      expect(onBoard).toHaveBeenCalledOnce()
+    }
+  } finally { done() }
+})
+
+it.each(['rounds', 'without-progress'] as const)('names the %s budget and its recorded count even without a reason', which => {
+  const execution = { ...runFixture('stalled').execution, operations: [], end: { kind: 'budget' as const, which, used: 7 }, reason: null }
+  const { container, done } = withFlow({ model: runTimeline({ execution, cards: [] }), onRunAgain: () => {} })
+  try {
+    expect(container.querySelector('[data-slot="run-ending"]')!.textContent).toContain('7')
+    expect(container.querySelector('[data-slot="run-ending"]')!.textContent).toContain('Run again…')
+  } finally { done() }
+})
+
+it('opens the frozen Flow from the revision button', () => {
+  const { container, done } = withFlow()
+  try {
+    const revision = container.querySelector<HTMLButtonElement>('[data-slot="run-revision"]')!
+    expect(revision).not.toBeNull()
+    act(() => revision.click())
+    expect(container.querySelector('[data-testid="the-flow"]')).not.toBeNull()
+  } finally { done() }
+})
 
 it('has no switch when there is no Flow to show', () => {
   const { container, done } = withFlow({ flow: undefined })

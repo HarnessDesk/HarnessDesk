@@ -1876,6 +1876,8 @@ export interface HostMethods {
    */
   'flow/preview': {
     params: {
+      /** Run again binds consent to this Run's Team and retained checkout. */
+      readonly continues?: string
       readonly seats?: Readonly<Record<string, readonly FlowSeat[]>>
       readonly attended?: boolean
       readonly root: string

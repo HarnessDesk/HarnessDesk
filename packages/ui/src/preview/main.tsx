@@ -75,7 +75,7 @@ import { TranscriptFrames } from './frames-transcript'
 import { LibraryDevFrames } from './frames-library-dev'
 import { LibraryOptionFrames } from './frames-library-options'
 import { FlowGraphFrames } from './frames-flow-graph'
-import { RunViewFrames } from './frames-run-view'
+import { RunViewFrames, RunEndingRigFrames, RunAgainExample, RunAgainFrames, RUN_AGAIN_STATES } from './frames-run-view'
 import { RunInspectorFrames } from './frames-run-inspector'
 import { ReviewPublicationFrames } from './frames-review-publication'
 import { ABANDON_VARIANTS, RunControlsFrames, type AbandonVariant } from './frames-run-controls'
@@ -1066,11 +1066,11 @@ const Preview = () => {
         <CjkSpecimen />
       </Frame>
       <GoalFrames />
+      <RunAgainFrames />
       <TranscriptFrames />
       <PanelFrames />
       <CoverageFrames />
       {SHOW_SIDE_BY_SIDE && <SideBySideFrames />}
-      {new URLSearchParams(window.location.search).has('run-view') && <RunViewFrames />}
       {new URLSearchParams(window.location.search).has('run-inspector') && <RunInspectorFrames />}
       {new URLSearchParams(window.location.search).has('flow-graph') && <FlowGraphFrames />}
       {new URLSearchParams(window.location.search).has('run-controls') && <RunControlsFrames variant={ABANDON_VARIANTS.find((one: AbandonVariant) => one === new URLSearchParams(window.location.search).get('abandon')) ?? null} />}
@@ -1081,6 +1081,15 @@ const Preview = () => {
       {SHOW_NOTICE_PLACEMENT && <NoticePlacementFrames />}
     </div>
   )
+}
+
+/** An audited Run frame mounts only its own synthetic data, like the Brief dialog. */
+const RunPreview = () => {
+  useTheme()
+  const params = new URLSearchParams(window.location.search)
+  if (params.has('run-again')) return <RunAgainExample opened scene={RUN_AGAIN_STATES.find(one => one === params.get('run-again')) ?? 'default'} />
+  if (params.has('run-ending-rig')) return <RunEndingRigFrames />
+  return <><RunViewFrames />{params.has('run-inspector') && <RunInspectorFrames />}</>
 }
 
 const container = document.getElementById('root')
@@ -1101,7 +1110,7 @@ createRoot(container).render(
           ? <PublicationPreview />
           : new URLSearchParams(window.location.search).has('flow-brief')
           ? <FlowBriefDialog scene={(BRIEF_SCENES.find((one) => one === new URLSearchParams(window.location.search).get('flow-brief')) ?? 'empty') as BriefScene} />
-          : <Preview />}
+          : ['run-view', 'run-again', 'run-ending-rig'].some(one => new URLSearchParams(window.location.search).has(one)) ? <RunPreview /> : <Preview />}
       </AppWindowMode.Provider>
     </StoreProvider>
   </StrictMode>,
