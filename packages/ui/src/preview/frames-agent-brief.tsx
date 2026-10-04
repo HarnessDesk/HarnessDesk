@@ -66,13 +66,20 @@ const BriefFrames = () => {
 /** Real conversation and tile surfaces, with a newly seated brief and placeholder identities. */
 export const AgentBriefFrames = () => {
   const store = useMemo(() => {
-    const snapshot = sideBySideStore({ noGoal: true }).getSnapshot()
+    const base = sideBySideStore({ noGoal: true })
+    const snapshot = base.getSnapshot()
     const sessions = new Map([...snapshot.sessions].map(([key, session]) => [key, {
       ...session, status: { type: 'active' as const },
       turns: [{ id: `${session.id}-brief` as never, status: 'inProgress' as const, items: [BRIEF, { id: `${session.id}-work` as never, type: 'assistantMessage' as const, phase: 'commentary' as const, text: 'I’ll read the task and surrounding code, then add a regression test.' }] }],
     }]))
     const theme = new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'
-    return previewStore({ ...snapshot, sessions, theme })
+    const own = previewStore({ ...snapshot, sessions, theme })
+    return new Proxy(own, {
+      get(target, property, receiver) {
+        if (property === 'teamPeers') return base.teamPeers
+        return Reflect.get(target, property, receiver)
+      },
+    })
   }, [])
   return <StoreProvider store={store}><BriefFrames /></StoreProvider>
 }
