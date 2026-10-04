@@ -333,6 +333,32 @@ describe('groupByProject — clones of one repository', () => {
     expect(groups[0]?.folders).toEqual(expect.arrayContaining([widgets, planClone, lunaClone]))
   })
 
+  it('uses origin signals from visible uncached matches without letting their dates choose the home', () => {
+    const goneClone = '/gone/widgets-clone'
+    const home = row('home', widgets, repoAt(widgets), 10)
+    const fromRemote = {
+      ...row('remote-match', goneClone, repoAt(goneClone, false, null), 1),
+      git: { originUrl: 'https://github.com/acme/acme-widgets-origin.git' },
+    } as SessionSummary
+    const sameFolderWithoutMetadata = row('no-git-match', goneClone, null, 2)
+    const sameRootWithoutRemote = row(
+      'root-match', `${goneClone}/packages/ui`, { root: goneClone, worktree: false }, 3,
+    )
+
+    const groups = groupByProject(
+      [home, fromRemote, sameFolderWithoutMetadata, sameRootWithoutRemote],
+      [widgets],
+      null,
+      { identityHistory: [home] },
+    )
+
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.root).toBe(widgets)
+    expect(groups[0]?.sessions.map((summary) => summary.id).sort()).toEqual([
+      'home', 'no-git-match', 'remote-match', 'root-match',
+    ])
+  })
+
   it('keeps a clone with no remote apart, and so a repository somebody else owns', () => {
     const scratch = '/Users/a/code/scratch'
     const groups = groupByProject(
