@@ -41,3 +41,19 @@ export const readRuntimeNotices = (raw: unknown): RetainedRuntimeNotice[] => {
     } }]
   }).slice(0, 100)
 }
+
+
+/** One content-keyed runtime message offered to the host's Inbox memory. */
+export interface RuntimeInboxEntry {
+  readonly id: string
+  readonly contentKey: string
+  readonly kind: string
+  readonly title: string
+  readonly tone: 'neutral' | 'info' | 'warning' | 'danger'
+  readonly at: number
+  readonly count: number
+  readonly lastEvent?: string
+  readonly body?: string
+  readonly file?: string
+  readonly settings?: readonly string[]
+}

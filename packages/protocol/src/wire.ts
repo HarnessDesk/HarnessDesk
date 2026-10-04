@@ -1,3 +1,4 @@
+import type { RuntimeInboxEntry } from './notices.js'
 import type { SeatDoing, SeatActivityState } from './tool-activity.js'
 import type { ClientTier, ClientTopic, FlowExecutionSummary } from './client-surface.js'
 import type { AgentEntry, AgentOrigin, CeilingUpdate, MachineSeating, SeatPlan } from './agent.js'
@@ -2590,6 +2591,8 @@ export interface HostMethods {
   }
 
   'app/state/get': { params: Record<string, never>; result: Readonly<Record<string, unknown>> }
+  /** Merge one quiet message with the host's current read, clear and mute memory. */
+  'app/inbox/keepInfo': { params: { readonly entry: RuntimeInboxEntry }; result: null }
   'app/state/set': {
     params: { readonly patch: Readonly<Record<string, unknown>> }
     result: null

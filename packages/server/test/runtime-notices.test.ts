@@ -7,7 +7,7 @@ import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
 import { runtimeId, runtimeNoticeKey, type AgentEvent } from '@harnessdesk/protocol'
-import { retainRuntimeNotice, readRuntimeNotices } from '../src/runtime-notices.js'
+import { retainRuntimeNotice, readRuntimeNotices, keepRuntimeInboxEntry } from '../src/runtime-notices.js'
 
 const event = (): Extract<AgentEvent, { type: 'notice' }> => ({ type: 'notice', kind: 'runtime:config', class: 'info', level: 'warning', message: 'Ignored settings', detail: { summary: 'Ignored settings', settings: ['features.bogus'], file: '/Users/user/.config/agent.toml' }, id: 'event-1', at: 1 })
 test('runtime information is retained before a client joins, counted and read after a restart', () => {
@@ -120,4 +120,41 @@ test('an information replay matches its content as well as its event id', async 
   const last = events.at(-1)
   assert.equal(last?.type === 'notice' && last.message, event().message)
   assert.deepEqual(readRuntimeNotices(state.state.preferences['runtimeNotices']).map(entry => entry.event.count), [1, 1])
+})
+
+
+test('runtime Inbox writes merge with current host read, clear and mute memory', async t => {
+  const base = tempDir('hd-inbox-merge-')
+  const state = new StateStore(join(base, 'state.json'))
+  const host = new Host({ logger: silent, state, builtinAgents: join(base, 'agents'), libraryHome: join(base, 'library') })
+  t.after(() => host.dispose())
+  await host.start()
+  const entry = { id: 'content:config', contentKey: 'content:config', kind: 'runtime:config', title: 'Ignored setting', tone: 'warning' as const, at: 1, count: 1, lastEvent: 'first' }
+  const call = (value: typeof entry) => host.call('app/inbox/keepInfo', { entry: value })
+  await call(entry)
+  await call(entry)
+  let preferences = await host.call('app/state/get', {})
+  assert.equal((preferences['inbox'] as { count: number }[])[0]?.count, 1, 'two windows keep one occurrence')
+  const policy = { ...(preferences['noticePolicy'] as object), muted: [], seen: ['standing'], records: { standing: { count: 2, at: 1 } }, surfaces: {} }
+  await state.setPreferences({ inbox: [{ ...entry, read: true }], noticePolicy: policy })
+  await call({ ...entry, count: 2, at: 2, lastEvent: 'second' })
+  preferences = await host.call('app/state/get', {})
+  assert.equal((preferences['inbox'] as { read: boolean; count: number }[])[0]?.read, true)
+  assert.deepEqual(preferences['noticePolicy'], policy)
+  await state.setPreferences({ inbox: [] })
+  await call({ ...entry, count: 3, at: 3, lastEvent: 'third' })
+  assert.deepEqual((await host.call('app/state/get', {}))['inbox'], [], 'cleared unchanged content stays cleared')
+  const muted = { ...policy, muted: ['runtime:config'] }
+  await state.setPreferences({ noticePolicy: muted })
+  await call({ ...entry, id: 'content:new', contentKey: 'content:new', count: 1 })
+  preferences = await host.call('app/state/get', {})
+  assert.deepEqual(preferences['inbox'], [])
+  assert.deepEqual(preferences['noticePolicy'], muted)
+})
+
+
+test('a malformed stored Inbox count does not poison a new occurrence', () => {
+  const entry = { id: 'content:warning', contentKey: 'content:warning', kind: 'runtime:warning', title: 'Warning', tone: 'warning' as const, at: 2, count: 2 }
+  const patch = keepRuntimeInboxEntry({ inbox: [{ ...entry, at: 1, count: 'invalid', read: true }] }, entry)
+  assert.equal((patch?.['inbox'] as { count: number }[])[0]?.count, 2)
 })

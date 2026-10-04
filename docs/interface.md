@@ -796,7 +796,7 @@ Conversation warnings, context compaction and model changes stay as quiet
 transcript lines outside the work fold. Errors keep one inline explanation and
 the sidebar's failure state; an automatic retry keeps the conversation working.
 A failed send still reports the result of that action. Inbox rows expand to show
-details and destination-labelled actions, grouped by day beneath
+the complete message text and destination-labelled actions, grouped by day beneath
 Inbox · N new · Mark all read.
 
 ## Type and rhythm

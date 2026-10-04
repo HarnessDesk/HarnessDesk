@@ -3,6 +3,8 @@ import { homedir } from 'node:os'
 import { installedBrowsers } from '@harnessdesk/cordis-host'
 import { PROTOCOL_VERSION } from '@harnessdesk/protocol'
 
+import { keepRuntimeInboxEntry } from '../runtime-notices.js'
+
 import type { MethodsUnder } from './context.js'
 
 /**
@@ -33,6 +35,12 @@ export const appMethods = {
   'app/state/get': (ctx) => ctx.state.state.preferences,
 
   'app/browsers': () => installedBrowsers(),
+
+  'app/inbox/keepInfo': async (ctx, params) => {
+    const patch = keepRuntimeInboxEntry(ctx.state.state.preferences, params.entry)
+    if (patch) await ctx.state.setPreferences(patch)
+    return null
+  },
 
   'app/state/set': async (ctx, params) => {
     await ctx.state.setPreferences(params.patch)

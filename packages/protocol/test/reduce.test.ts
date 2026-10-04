@@ -508,3 +508,18 @@ test('a final turn or read arriving after the error event still has one explanat
     assert.equal(result.turns[0]?.items.filter(item => item.type === 'error').length, 0)
   }
 })
+
+
+test('the same conversation update is counted within each turn, beside its own work', () => {
+  const first = { type: 'notice', sessionId: SESSION, level: 'info', kind: 'conversation:compacted', message: 'Compacted', id: 'first', at: 10 } as Extract<AgentEvent, { type: 'notice' }>
+  let held = reduceSession(baseSession(), { type: 'turn/started', sessionId: SESSION, turn: { id: TURN, status: 'inProgress', items: [] } })
+  held = reduceSession(held, first)
+  held = reduceSession(held, { type: 'turn/completed', sessionId: SESSION, turn: { id: TURN, status: 'completed', items: [] } })
+  const next = turnId('next')
+  held = reduceSession(held, { type: 'turn/started', sessionId: SESSION, turn: { id: next, status: 'inProgress', items: [] } })
+  held = reduceSession(held, { ...first, id: 'second', at: 20 })
+  held = reduceSession(held, { ...first, id: 'third', at: 30 })
+  const notices = held.turns.map(turn => turn.items.filter(item => item.type === 'notice'))
+  assert.deepEqual(notices.map(items => items.map(item => item.count)), [[1], [2]])
+  assert.deepEqual(reduceSession(held, { ...first, id: 'third', at: 30 }), held)
+})

@@ -30,6 +30,8 @@ for (const scene of ['startup', 'inbox', 'conversation', 'settings']) {
       await expect(inbox.getByText('×3')).toBeVisible()
       const title = inbox.getByRole('button', { name: /ignored 2 settings/ })
       expect(await title.evaluate(element => element.getBoundingClientRect().height <= parseFloat(getComputedStyle(element).lineHeight) + 1)).toBe(true)
+      await expect(inbox.locator('[data-part="inbox-full-title"]')).toHaveText(/ignored 2 settings/)
+      await expect(inbox.getByText('Ignored configuration settings', { exact: false })).toBeVisible()
       await expect(inbox.getByText('~/.codex/config.toml', { exact: false })).toBeVisible()
       await inbox.getByRole('button', { name: 'Open the file' }).click()
       expect(await page.evaluate(() => (window as unknown as { noticeReveals: unknown[] }).noticeReveals)).toEqual([{ path: '/Users/user/.codex/config.toml' }])
@@ -45,3 +47,21 @@ for (const scene of ['startup', 'inbox', 'conversation', 'settings']) {
     }
   })
 }
+
+
+test('expanded title-only Inbox guidance wraps completely inside the panel', async ({ page }) => {
+  await page.goto('/preview.html?notices=inbox&longNotice=1')
+  await page.locator('[data-slot="inbox-button"]').locator('..').click()
+  const inbox = page.locator('[data-slot="inbox-list"]')
+  const title = inbox.getByRole('button', { name: /background configuration warning/ })
+  expect(await title.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true)
+  await title.click()
+  const full = inbox.locator('[data-part="inbox-full-title"]')
+  await expect(full).toHaveText(/including the final instruction: check the configuration file before the next run\.$/)
+  expect(await full.evaluate(element => {
+    const panel = element.closest('[data-slot="inbox-list"]')!.getBoundingClientRect()
+    const rect = element.getBoundingClientRect()
+    return rect.height > parseFloat(getComputedStyle(element).lineHeight) && element.scrollWidth <= element.clientWidth && rect.right <= panel.right && rect.left >= panel.left
+  })).toBe(true)
+  if (process.env.NOTICE_FRAME_DIR) await page.screenshot({ path: `${process.env.NOTICE_FRAME_DIR}/after-inbox-long-${process.env.NOTICE_FRAME_THEME ?? 'light'}.png` })
+})

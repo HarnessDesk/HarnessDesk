@@ -6912,15 +6912,16 @@ export class AppStore {
       ...(event.count ? { count: event.count } : {}),
       tone: event.level === 'error' ? 'danger' : event.level === 'warning' ? 'warning' : 'info',
       ...(detail?.details ? { body: detail.details } : {}),
-      ...(kind === 'runtime:config' && settings.length > 0 ? { body: `${name} runs without these settings.${detail?.details ? ` ${detail.details}` : ''}` } : {}),
+      ...(kind === 'runtime:config' && settings.length > 0 ? { body: [detail?.summary ?? event.message, `${name} runs without these settings.`, detail?.details].filter(Boolean).join(' ') } : {}),
       ...(detail?.file ? { file: detail.file } : {}),
       ...(settings.length ? { settings } : {}),
       at: event.at ?? Date.now(),
     })
     const noticePolicy = withKept(policy, key)
     this.#patch({ inbox, noticePolicy })
-    // One host write: a restart cannot observe a content key without its row.
-    void this.#writePreference({ inbox, noticePolicy }, 'The inbox', false)
+    // Send only this occurrence. Another window may already have read, cleared or muted it.
+    const { read: _read, ...entry } = inbox[0]!
+    void this.transport.request('app/inbox/keepInfo', { entry: { ...entry, contentKey: key, kind, count: entry.count ?? 1 } }).catch(() => {})
   }
 
   dismissNotice(id: string): void {

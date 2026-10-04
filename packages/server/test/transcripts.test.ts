@@ -875,3 +875,30 @@ test('a fuller cold read keeps the runtime notices recorded in its own turn', as
     assert.equal(enriched.turns[0]?.items.length, 4)
   })
 })
+
+
+test('a cold read preserves unmatched synthetic notice turns but drops omitted work turns', async () => {
+  await withStore(async (store, dir) => {
+    const notice: AgentItem = { ...item('warning', 'notice'), type: 'notice', text: 'Session warning', kind: 'conversation:warning' }
+    const synthetic = turn('notice:warning', [notice])
+    store.record(session([synthetic, turn('t1', [item('u', 'userMessage')]), turn('removed', [item('gone', 'userMessage')])]), { now: true })
+    await store.flush()
+    const restarted = new TranscriptStore(dir)
+    const enriched = await restarted.enrich(session([turn('t1', [item('u', 'userMessage')])]))
+    assert.deepEqual(enriched.turns.map(turn => turn.id), ['notice:warning', 't1'])
+    assert.deepEqual(enriched.turns[0], synthetic)
+    const again = await restarted.enrich(enriched)
+    assert.deepEqual(again.turns, enriched.turns)
+  })
+})
+
+
+test('cold notice preservation does not copy a row already read into a vendor turn', async () => {
+  await withStore(async (store) => {
+    const notice: AgentItem = { ...item('warning', 'notice'), type: 'notice', text: 'Session warning', kind: 'conversation:warning' }
+    store.record(session([turn('notice:warning', [notice])]), { now: true })
+    await store.flush()
+    const read = session([turn('vendor', [notice])])
+    assert.deepEqual((await store.enrich(read)).turns, read.turns)
+  })
+})

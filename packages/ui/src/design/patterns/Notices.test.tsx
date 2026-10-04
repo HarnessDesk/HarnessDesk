@@ -205,3 +205,11 @@ it('expands a kept message in place, with its count, detail and actions', async 
   await act(() => button("Don't show this again").click())
   expect(muted).toHaveBeenCalledOnce()
 })
+
+
+it('reveals a complete title when a title-only Inbox message expands', async () => {
+  const title = 'A long runtime warning with guidance at its end that must remain readable after expansion'
+  await act(() => root.render(<InboxList messages={[{ id: 'long', title, read: false }]} />))
+  await act(() => button(title).click())
+  expect(host.querySelector('[data-part="inbox-full-title"]')?.textContent).toBe(title)
+})

@@ -1456,6 +1456,14 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'runtime/imports/apply': shape({ runtime: isString, items: arrayOf(isUnknown) }),
 
   'app/state/get': isObject,
+  'app/inbox/keepInfo': shape({
+    entry: shape({
+      id: isString, contentKey: isString, kind: isString, title: isString,
+      tone: literalUnion('neutral', 'info', 'warning', 'danger'),
+      at: isNumber, count: goalInteger(1), lastEvent: optional(isString),
+      body: optional(isString), file: optional(isString), settings: optional(arrayOf(isString)),
+    }),
+  }),
   'app/state/set': shape({ patch: windowPreferences }),
   'app/browsers': isObject,
 }

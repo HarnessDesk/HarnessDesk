@@ -1810,8 +1810,13 @@ content memory, so another runtime start cannot raise it as new. Kind-level
 mutes remain available in Notifications and the expanded Inbox row. Counts
 outlive the bounded retained history, so muted traffic cannot reset a visible
 row’s count. Older queued events do not recount retained startup information.
+Windows offer individual runtime occurrences to the host, which merges them
+with its current read, clear and mute memory; a cached window cannot replace
+that memory while receiving background messages.
 
-Host-created transcript notices survive richer reads of their own turn, but
-never get copied into unrelated fork turns or preserve turns removed by rollback.
+Host-created transcript notices survive richer reads of their own turn and
+unmatched synthetic notice turns survive cold reads. They never get copied
+into unrelated fork turns or preserve work turns removed by rollback. Repeated
+conversation updates are counted within the turn they accompany.
 Retrying errors preserve live state; an error already carried by a failed turn
 uses that turn's existing explanation.

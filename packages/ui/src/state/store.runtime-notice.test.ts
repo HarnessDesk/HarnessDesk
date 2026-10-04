@@ -13,6 +13,16 @@ beforeEach(async () => {
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: unknown) => {
     if (method === 'app/state/get') return saved
     if (method === 'app/state/set') Object.assign(saved, (params as { patch: object }).patch)
+    if (method === 'app/inbox/keepInfo') {
+      const entry = (params as { entry: { id: string; contentKey: string; kind: string } }).entry
+      const policy = saved.noticePolicy as { kept?: string[]; muted?: string[] } | undefined
+      const inbox = (saved.inbox ?? []) as { id: string; read: boolean }[]
+      const old = inbox.find(row => row.id === entry.id)
+      if (!policy?.muted?.includes(entry.kind) && (old || !policy?.kept?.includes(entry.contentKey))) {
+        saved.inbox = [{ ...entry, read: old?.read ?? false }, ...inbox.filter(row => row.id !== entry.id)]
+        saved.noticePolicy = { ...policy, kept: [...new Set([...(policy?.kept ?? []), entry.contentKey])] }
+      }
+    }
     return null
   }) as never)
   await store.loadPreferences()
@@ -121,4 +131,44 @@ it('keeps a startup failure quietly after preferences become available', async (
   expect(early.getSnapshot().notices).toEqual([])
   await early.loadPreferences()
   expect(early.getSnapshot().inbox.map(entry => entry.title)).toEqual(['Connection failed'])
+})
+
+
+it('retains the native summary alongside configuration guidance in expanded detail', () => {
+  pushTo(store, { ...warning(), detail: { summary: 'Native guidance that explains why the settings were ignored', settings: ['features.bogus'], details: 'Additional guidance.' } } as AgentEvent)
+  expect(store.getSnapshot().inbox[0]?.body).toContain('Native guidance that explains why the settings were ignored')
+})
+
+it('a stale window receiving runtime information cannot reverse another window read, clear or mute', async () => {
+  const second = new AppStore('ws://localhost:0/')
+  vi.spyOn(second.transport, 'request').mockImplementation((async (method: HostMethodName, params: unknown) => {
+    if (method === 'app/state/get') return saved
+    if (method === 'app/state/set') Object.assign(saved, (params as { patch: object }).patch)
+    if (method === 'app/inbox/keepInfo') {
+      const entry = (params as { entry: { id: string; contentKey: string; kind: string } }).entry
+      const policy = saved.noticePolicy as { kept?: string[]; muted?: string[] } | undefined
+      const inbox = (saved.inbox ?? []) as { id: string; read: boolean }[]
+      const old = inbox.find(row => row.id === entry.id)
+      if (!policy?.muted?.includes(entry.kind) && (old || !policy?.kept?.includes(entry.contentKey))) {
+        saved.inbox = [{ ...entry, read: old?.read ?? false }, ...inbox.filter(row => row.id !== entry.id)]
+        saved.noticePolicy = { ...policy, kept: [...new Set([...(policy?.kept ?? []), entry.contentKey])] }
+      }
+    }
+    return null
+  }) as never)
+  await second.loadPreferences()
+  pushTo(store, { ...warning(), id: 'first', at: 1, count: 1 } as AgentEvent)
+  pushTo(second, { ...warning(), id: 'first', at: 1, count: 1 } as AgentEvent)
+  const id = store.getSnapshot().inbox[0]!.id
+  store.markInboxRead(id)
+  const readState = structuredClone(saved)
+  pushTo(second, { ...warning(), id: 'second', at: 2, count: 2 } as AgentEvent)
+  expect((saved.inbox as { read: boolean }[])[0]?.read).toBe(true)
+  store.clearInbox()
+  store.setNoticeMuted('runtime:config', true)
+  const clearedState = structuredClone(saved)
+  pushTo(second, { ...warning(), id: 'third', at: 3, count: 3 } as AgentEvent)
+  expect(saved.noticePolicy).toEqual(clearedState.noticePolicy)
+  expect(saved.inbox).toEqual([])
+  expect(readState).not.toEqual(clearedState)
 })
