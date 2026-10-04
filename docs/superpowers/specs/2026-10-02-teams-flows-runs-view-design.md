@@ -584,25 +584,18 @@ state into exactly what the table and the timeline draw. They belong in
 `@harnessdesk/client/views`: pure, no
 transport, and the window imports only that entry (a layering rule holds it).
 The command line's `status` and `run show` are meant to be the same selectors
-with a terminal's words (`status` is; `run show` follows with plan PR 16, as
-below). The selector code and its tests were written first in
+with a terminal's words (both are, since #1360). The selector code and its tests were written first in
 `packages/ui/src/lib` over plain data (the plan's PR 1 and PR 3); the clients
 design moves the files into `client/views` when the command line needs them and
 leaves a re-export behind, so nothing in the window breaks. The overview model
 has moved (#1295): it lives in `packages/client/src/views/`, the window's
 `packages/ui/src/lib/team-overview.ts` is a re-export, and the command line's
-`status` renders it. `run show` exists (the clients design's PR 2, #1305) but
-reads one `flow/execution` and does not use the timeline selector yet. The
-timeline selector is written (plan PR 3, #1292) as
-`runTimeline({ execution, cards, signals?, evidence?, findings?, origin? })` in
-`packages/ui/src/lib/run-timeline.ts`; check results (`evidence`) and a Team's
-findings are read on demand and are not part of the held event state, so they
-are explicit inputs, and it moves with plan PR 16. That move either brings along
-its two small word helpers (`wordOf`, `lifecycleWords`), which are UI-only today,
-or takes their words as an input, and
-settles with the clients design whether `evidence/board` and `finding/list` join
-the client door's read tier; if they do not, `run show` prints the rows it can
-and says that check results and findings are not shown. Until the
+`status` renders it. The timeline selector has moved too (plan PR 16, #1360):
+`runTimeline` and its input (one Run's record, its cards and signals, and the
+`evidence` and `findings` it also needs, which are read on demand) live in
+`packages/client/src/views/`, the two word helpers came with it,
+`evidence/board` and `finding/list` joined the client door's read tier, and
+`run show` renders the timeline. Until the
 stream feeds the window, the window feeds the selectors from its own snapshot,
 provided the output has the same shape; replacing the input is then mechanical.
 

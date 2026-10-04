@@ -478,3 +478,8 @@ button.inboxTitle:focus-visible::after {
 .inboxSettings code {
   overflow-wrap: normal;
 }
+
+/* A rail-sized trigger leaves the next glyph one action step away. */
+.bell[data-size='icon-xs'] .bellCount {
+  right: calc(-1 * var(--hd-space-2));
+}

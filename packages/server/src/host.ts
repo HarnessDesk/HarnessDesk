@@ -20,6 +20,7 @@ import {
   questionWaitMs,
   questionWaitOf,
   itemId,
+  classifyNotice,
   runtimeNoticeKey,
   isFolderGone,
   type CeilingLevel,
@@ -6212,7 +6213,8 @@ export class Host {
       const counts = rawCounts && typeof rawCounts === 'object' && !Array.isArray(rawCounts) ? rawCounts as Record<string, unknown> : {}
       const runtimeNotices = retainRuntimeNotice(this.#state.state.preferences['runtimeNotices'], runtime, event, counts)
       const noticeId = event.id
-      const retained = runtimeNotices.find(entry => entry.event.id === noticeId)
+      const key = runtimeNoticeKey(runtime, event)
+      const retained = classifyNotice(event) === 'inbox' ? runtimeNotices.find(entry => entry.runtime === runtime && entry.event.id === noticeId && runtimeNoticeKey(runtime, entry.event) === key) : undefined
       if (retained) {
         event = retained.event
         const write = this.#state.setPreferences({ runtimeNotices, runtimeNoticeCounts: { ...counts, [runtimeNoticeKey(runtime, retained.event)]: retained.event.count } }).catch(error => this.#logger.warn('Runtime information could not be kept', { error }))

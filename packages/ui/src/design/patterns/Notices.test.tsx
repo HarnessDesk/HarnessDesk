@@ -137,6 +137,15 @@ it('the inbox bell says how many are unread and tints itself only then', async (
   expect(host.querySelector('[data-slot="inbox-button"]')?.hasAttribute('data-unread')).toBe(false)
 })
 
+it('lets the header use the rail target while the default Inbox keeps its target', async () => {
+  await act(() => root.render(<InboxPanel messages={[]} size="icon-xs" side="bottom" />))
+  expect(host.querySelector('button')?.className).toContain('size-(--hd-icon-target)')
+  expect(host.querySelector('button')?.querySelector('.sr-only')?.textContent).toBe('Inbox')
+  expect(host.querySelector('button')?.title).toBe('Inbox')
+  await act(() => root.render(<InboxPanel messages={[]} />))
+  expect(host.querySelector('button')?.className).toContain('size-(--hd-btn-h-sm)')
+})
+
 it('the inbox marks a message read when it is opened, and says so when empty', async () => {
   const onOpen = vi.fn()
   await act(() => root.render(<InboxList messages={[{ ...offer, at: 0 }, { ...update, read: true, at: 0 }]} onOpen={onOpen} now={5 * 60_000} />))

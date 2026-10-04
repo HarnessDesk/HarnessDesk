@@ -85,3 +85,39 @@ for (const rejects of [false, true]) test(`shutdown waits for a ${rejects ? 'ref
   }
   assert.equal(closed, true, 'a refused write cannot strand shutdown')
 })
+
+test('a conversation notice keeps its scope when its event id matches retained information', async t => {
+  const base = tempDir('hd-runtime-notice-scope-')
+  const state = new StateStore(join(base, 'state.json'))
+  const host = new Host({ logger: silent, state, builtinAgents: join(base, 'agents'), libraryHome: join(base, 'library') })
+  t.after(() => host.dispose())
+  const runtime = new FakeRuntime()
+  const events: AgentEvent[] = []
+  host.addBroadcaster(notification => { if (notification.method === 'event') events.push(notification.params.event) })
+  host.register(runtime)
+  await host.start()
+  runtime.emit(event())
+  runtime.emit({ ...event(), class: 'conversation', kind: 'conversation:warning', sessionId: 's1' as never, message: 'Scoped update' })
+  const last = events.at(-1)
+  assert.equal(last?.type === 'notice' && last.sessionId, 's1')
+  assert.equal(last?.type === 'notice' && last.message, 'Scoped update')
+  assert.equal(last?.type === 'notice' && last.class, 'conversation')
+})
+
+test('an information replay matches its content as well as its event id', async t => {
+  const base = tempDir('hd-runtime-notice-replay-')
+  const state = new StateStore(join(base, 'state.json'))
+  const host = new Host({ logger: silent, state, builtinAgents: join(base, 'agents'), libraryHome: join(base, 'library') })
+  t.after(() => host.dispose())
+  const runtime = new FakeRuntime()
+  const events: AgentEvent[] = []
+  host.addBroadcaster(notification => { if (notification.method === 'event') events.push(notification.params.event) })
+  host.register(runtime)
+  await host.start()
+  runtime.emit(event())
+  runtime.emit({ ...event(), message: 'Another warning' })
+  runtime.emit(event())
+  const last = events.at(-1)
+  assert.equal(last?.type === 'notice' && last.message, event().message)
+  assert.deepEqual(readRuntimeNotices(state.state.preferences['runtimeNotices']).map(entry => entry.event.count), [1, 1])
+})
