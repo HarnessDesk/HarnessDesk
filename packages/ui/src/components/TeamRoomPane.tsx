@@ -1421,7 +1421,7 @@ export const TeamRoomPane = ({
               </PaneColumn>}
               <TeamRunView key={timelineRun.id} execution={timelineRun}
                 origin={timelineRun.intake ? `From trigger ${timelineRun.intake.trigger}` : goal?.goal.origin.kind === 'person' ? 'Started by you' : null}
-                onOpenSeat={show} number={runs.findIndex(one => one.id === timelineRun.id) + 1}
+                onOpenSeat={show} onOpenBoard={() => show('board')} number={runs.findIndex(one => one.id === timelineRun.id) + 1}
                 model={runTimeline({ execution: timelineRun, cards: intents,
                   signals: entries.filter((one): one is Extract<TeamEntry, {kind: 'signal'}> => one.kind === 'signal'),
                   evidence: snapshot.boardEvidence.get(room),

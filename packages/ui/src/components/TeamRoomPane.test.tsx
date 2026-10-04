@@ -3555,3 +3555,33 @@ it("answers an approval from the Overview with the call the docked card makes", 
   expect(respondToApproval).toHaveBeenCalledTimes(2)
   expect(respondToApproval.mock.lastCall).toEqual(fromOverview)
 })
+
+it('answers a person\'s step and sends a review to the board from the Run inspector too', async () => {
+  const execution = personRun()
+  const { store } = rig(undefined, undefined, { intents: [personCard] }, GOAL, new Map([[execution.id, execution]]))
+  Object.assign(store, { loadFindings: vi.fn().mockResolvedValue(undefined) })
+  await render(store)
+  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  await act(async () => nav.click())
+  await act(async () => (container.querySelector('[data-row="person-1-5"]') as HTMLButtonElement).click())
+  const inspector = container.querySelector('[data-slot="run-inspector"]')!
+  await act(async () => ([...inspector.querySelectorAll('button')].find(one => one.textContent === 'Request changes') as HTMLButtonElement).click())
+  expect(store.teamIntent).toHaveBeenCalledWith(ROOM, 5, 'done', undefined, 'request-changes')
+})
+
+it('sends a review step to the board from the Run inspector', async () => {
+  const execution = personRun(
+    [{ id: 'land', on: 'decide', when: { every: ['approved'], evidence: [{ review: 'approved' }] }, then: { role: 'merge', title: 'Merge' } }],
+    [{ id: 'merge', kind: 'person', outcomes: ['merged'] }],
+  )
+  const { store } = rig(undefined, undefined, { intents: [personCard] }, GOAL, new Map([[execution.id, execution]]))
+  Object.assign(store, { loadFindings: vi.fn().mockResolvedValue(undefined) })
+  await render(store)
+  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  await act(async () => nav.click())
+  await act(async () => (container.querySelector('[data-row="person-1-5"]') as HTMLButtonElement).click())
+  const pick = [...container.querySelector('[data-slot="run-inspector"]')!.querySelectorAll('button')].find(one => one.textContent === 'Pick an attempt on the board') as HTMLButtonElement
+  await act(async () => pick.click())
+  expect(container.querySelector('[data-slot="board-column"]')).not.toBeNull()
+  expect(container.querySelector('[data-slot="run-inspector"]')).toBeNull()
+})
