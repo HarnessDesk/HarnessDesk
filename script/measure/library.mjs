@@ -7,6 +7,8 @@ import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { PROMPT_ACTIVITY_KEYS } from './probes/index.mjs'
+
 const RESULT_DIR = new URL('../../docs/verification/library-measurements/', import.meta.url)
 const RESULT_DIR_PATH = fileURLToPath(RESULT_DIR)
 const VENDOR_HOMES = [
@@ -32,7 +34,7 @@ const CREDENTIAL_ROOTS = [
 export const KEYCHAIN_READ_ONLY = 'keychain-read-only'
 // Discovery stays strict; only an explicitly selected ask run can use this profile.
 const KEYCHAIN_READ_ONLY_AGENTS = new Set(['claude-code', 'cursor', 'grok-build'])
-const FACT_KEYS = new Set(['rulesFiles', 'catalogue', 'reportsCatalogue', 'precedence', 'rejections', 'reportsRejections', 'skillRoots', 'refresh', 'mcp', 'signedOutCatalogue', 'requestFailure'])
+const FACT_KEYS = new Set(['rulesFiles', 'catalogue', 'reportsCatalogue', 'precedence', 'rejections', 'reportsRejections', 'skillRoots', 'refresh', 'mcp', 'signedOutCatalogue', 'requestFailure', 'promptActivity'])
 const unmeasuredFacts = () => ({
   rulesFiles: { status: 'could-not-ask' }, catalogue: { status: 'could-not-ask' }, reportsCatalogue: false,
   precedence: { status: 'could-not-ask' }, rejections: { status: 'could-not-ask' }, reportsRejections: false,
@@ -144,6 +146,14 @@ function safeFact(value, fixture, depth = 0, boundedCounts = false) {
   }
   return false
 }
+
+// The one fact whose keys come from the agent's traffic rather than from the
+// fixture, so it is held to a vocabulary on top of the generic rules: only the
+// fixed names the probe counts under, each an integer from 0 to 500.
+const promptActivityAllowed = (facts) => facts.promptActivity === undefined || (
+  Boolean(facts.promptActivity) && Object.getPrototypeOf(facts.promptActivity) === Object.prototype
+  && Object.entries(facts.promptActivity).every(([kind, count]) => PROMPT_ACTIVITY_KEYS.includes(kind) && Number.isInteger(count) && count >= 0 && count <= 500)
+)
 
 export async function createFixture(root) {
   root ??= await mkdtemp('/tmp/hd-measure-')
@@ -501,7 +511,11 @@ export function sandboxProfileText(realHome, { fixtureRoot = '/tmp/fixture', fix
 }
 
 export function normalizeVersion(value) {
-  return typeof value === 'string' && value.length <= 40 && /^\d+(?:\.\d+){0,3}(?:-(?:alpha|beta|rc|pre|preview|dev|canary|nightly|next)(?:\.\d{1,4})?)?$/.test(value)
+  return typeof value === 'string' && value.length <= 40 && (
+    /^\d+(?:\.\d+){0,3}(?:-(?:alpha|beta|rc|pre|preview|dev|canary|nightly|next)(?:\.\d{1,4})?)?$/.test(value)
+    // Cursor's own scheme: the build's calendar date and the seven-character commit that made it.
+    || /^\d{4}\.\d{2}\.\d{2}-[0-9a-f]{7}$/.test(value)
+  )
     ? value
     : 'unknown'
 }
@@ -691,7 +705,7 @@ export function validateResult(result, fixture) {
   for (const key of ['interface', 'question']) if (!safeText(result[key], fixture)) throw new Error(`${key} is outside the fixture-derived allowlist`)
   if (!result.facts || typeof result.facts !== 'object' || Array.isArray(result.facts)) throw new Error('facts must be an object')
   const modelFacts = ['ACP model prompt', 'app-server model prompt'].includes(result.interface)
-  if (Object.keys(result.facts).some((key) => !FACT_KEYS.has(key)) || !safeFact(result.facts, fixture, 0, modelFacts)) throw new Error('facts are outside the fixture-derived allowlist')
+  if (Object.keys(result.facts).some((key) => !FACT_KEYS.has(key)) || !safeFact(result.facts, fixture, 0, modelFacts) || !promptActivityAllowed(result.facts)) throw new Error('facts are outside the fixture-derived allowlist')
   if (result.status !== 'asked' && result.status !== 'could-not-ask') throw new Error('status must be asked or could-not-ask')
   if (result.isolation !== undefined && !['strict', KEYCHAIN_READ_ONLY].includes(result.isolation)) throw new Error('isolation is not allowlisted')
   if (result.auth !== undefined && !['no sign-in used', 'owner subscription sign-in', 'environment key'].includes(result.auth)) throw new Error('auth is not allowlisted')
@@ -736,7 +750,7 @@ export async function askAgent(agent, fixture, options = {}) {
     if (options.ask && fixture.isolation.profile === KEYCHAIN_READ_ONLY && answer.prompted === true && base.auth !== 'environment key') base.auth = 'owner subscription sign-in'
     if (answer.status === 'could-not-ask') {
       const reason = typeof answer.reason === 'string' && safeText(answer.reason, fixture) ? answer.reason : 'probe failed safely'
-      const facts = answer.facts && Object.keys(answer.facts).every((key) => FACT_KEYS.has(key)) && safeFact(answer.facts, fixture, 0, options.ask === true) ? { ...unmeasuredFacts(), ...answer.facts } : base.facts
+      const facts = answer.facts && Object.keys(answer.facts).every((key) => FACT_KEYS.has(key)) && safeFact(answer.facts, fixture, 0, options.ask === true) && promptActivityAllowed(answer.facts) ? { ...unmeasuredFacts(), ...answer.facts } : base.facts
       return { ...base, interface: safeText(answer.interface, fixture) ? answer.interface : base.interface, question: safeText(answer.question, fixture) ? answer.question : base.question, facts, status: 'could-not-ask', reason }
     }
     const normalizedRaw = redact(answer.rawAnswer ?? '', fixtureTokens(fixture), fixture.root)
@@ -744,7 +758,7 @@ export async function askAgent(agent, fixture, options = {}) {
     const observedSignedOutOutcome = ['available', 'empty'].includes(signedOutStatus) || ['no-session', 'session-created'].includes(answer.facts?.signedOutCatalogue?.observation)
     if (!normalizedRaw && !observedSignedOutOutcome) return { ...base, status: 'could-not-ask', reason: 'answer failed the fixture-only privacy allowlist' }
     const facts = answer.facts ?? {}
-    if (!safeFact(facts, fixture, 0, options.ask === true) || Object.keys(facts).some((key) => !FACT_KEYS.has(key))) return { ...base, status: 'could-not-ask', reason: 'parsed facts failed the privacy allowlist' }
+    if (!safeFact(facts, fixture, 0, options.ask === true) || Object.keys(facts).some((key) => !FACT_KEYS.has(key)) || !promptActivityAllowed(facts)) return { ...base, status: 'could-not-ask', reason: 'parsed facts failed the privacy allowlist' }
     if (!safeText(answer.interface ?? base.interface, fixture)) return { ...base, status: 'could-not-ask', reason: 'probe interface failed the privacy allowlist' }
     if (!safeText(answer.question ?? base.question, fixture)) return { ...base, status: 'could-not-ask', reason: 'probe question failed the privacy allowlist' }
     const result = {
@@ -941,6 +955,22 @@ async function measureModel(agent, fixture, options) {
   return askAgent(agent, fixture, options)
 }
 
+// A fixture folder that will not go away is a finding about the machine, not a
+// reason to disown a result that is already written and printed. The removal
+// is retried for the transient causes Node recognises (a helper still flushing
+// a cache into the folder is the one seen), and a failure that survives is
+// reduced to the folder's own name and the error's errno name: never a message
+// and never a path.
+export const CLEANUP_INCOMPLETE_EXIT = 3
+export async function removeFixtureRoot(root, remove = rm) {
+  try {
+    await remove(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+    return null
+  } catch (error) {
+    return { folder: basename(root), code: typeof error?.code === 'string' && /^E[A-Z0-9]{2,15}$/.test(error.code) ? error.code : 'unknown' }
+  }
+}
+
 export async function main(args = process.argv.slice(2)) {
   const options = parseArgs(args)
   const probes = await import('./probes/index.mjs')
@@ -950,6 +980,7 @@ export async function main(args = process.argv.slice(2)) {
   const agents = options.all ? registry : registry.filter((agent) => agent.id === options.agentId)
   if (!agents.length) throw new Error('agent is not registered')
   const environment = options.envName ? askEnvironment(agents[0], options.envName) : {}
+  let cleanupIncomplete = false
   for (const agent of agents) {
     const root = await mkdtemp('/tmp/hd-measure-')
     try {
@@ -984,10 +1015,15 @@ export async function main(args = process.argv.slice(2)) {
       await writeResult(result, RESULT_DIR_PATH, fixture)
       process.stdout.write(`${result.status}: ${agent.id} ${result.version}\n`)
     } finally {
-      await rm(root, { recursive: true, force: true })
+      // The result above is already written and printed; a folder that cannot be removed says so on its own line and exit code.
+      const left = await removeFixtureRoot(root)
+      if (left) {
+        cleanupIncomplete = true
+        process.stderr.write(`cleanup incomplete: ${left.folder} was kept (${left.code})\n`)
+      }
     }
   }
-  return 0
+  return cleanupIncomplete ? CLEANUP_INCOMPLETE_EXIT : 0
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {

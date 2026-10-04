@@ -7,6 +7,77 @@ let createPromptBudget
 const CATALOGUE_PROMPT = 'Answer with one JSON object and nothing else: {"rules":[...],"skills":[{"name":...,"description":...}],"mcp":[...]}. In rules put every line of your instructions or context that ends in _SENTINEL, verbatim. In skills list every skill whose name starts with measure- with its description verbatim. In mcp list the names of the MCP servers you can use.'
 const REFRESH_PROMPT = 'Answer with one JSON object with only a description field and nothing else. Give the description of the skill named measure-sentinel verbatim.'
 
+// What a failed prompt may report about the agent's traffic: counts, under the
+// names fixed here. They are ACP's `session/update` kinds and the requests an
+// agent may make of its client; anything else is counted as `other`. Result
+// validation reads the same lists, so what is persisted cannot drift from what
+// is counted.
+export const ACP_ACTIVITY = Object.freeze({
+  updates: Object.freeze([
+    'user_message_chunk', 'agent_message_chunk', 'agent_thought_chunk', 'tool_call', 'tool_call_update', 'plan',
+    'available_commands_update', 'current_mode_update', 'config_option_update', 'session_info_update', 'usage_update',
+  ]),
+  requests: Object.freeze({
+    'session/request_permission': 'session_request_permission',
+    'fs/read_text_file': 'fs_read_text_file', 'fs/write_text_file': 'fs_write_text_file',
+    'terminal/create': 'terminal_create', 'terminal/output': 'terminal_output', 'terminal/release': 'terminal_release',
+    'terminal/wait_for_exit': 'terminal_wait_for_exit', 'terminal/kill': 'terminal_kill',
+  }),
+})
+export const PROMPT_ACTIVITY_KEYS = Object.freeze([...ACP_ACTIVITY.updates, ...Object.values(ACP_ACTIVITY.requests), 'other'])
+
+// This and the two helpers after it are serialized into the isolated driver.
+// The harness never allows or runs anything for the agent. A permission request
+// is refused the way ACP specifies, with an outcome and not an error, which some
+// agents (Gemini 0.62.0) wait on forever: the request's own `reject_once` option
+// when it offers one, otherwise `cancelled`. `reject_always` is never chosen; it
+// would write a standing decision into the agent's own permission memory.
+// fs/* and terminal/* keep method-not-found, because the client advertises
+// neither capability, so an agent that sends them is off-protocol and has no
+// outcome to wait for.
+export function answerClientRequest(message, acp = true) {
+  const reply = { jsonrpc: '2.0', id: message.id }
+  if (acp && message.method === 'session/request_permission') {
+    const options = Array.isArray(message.params?.options) ? message.params.options : []
+    const refusal = options.find((option) => option?.kind === 'reject_once' && typeof option.optionId === 'string' && option.optionId !== '')
+    return { ...reply, result: { outcome: refusal ? { outcome: 'selected', optionId: refusal.optionId } : { outcome: 'cancelled' } } }
+  }
+  return { ...reply, error: { code: -32601, message: 'not available' } }
+}
+
+// Which of a fixed set of names an agent-initiated message falls under, and
+// never anything it said. Answers to the client's own requests are not
+// agent-initiated and fall under none.
+export function classifyAgentMessage(message, vocabulary) {
+  if (!message || typeof message !== 'object' || typeof message.method !== 'string') return null
+  if (message.method === 'session/update') {
+    const kind = message.params?.update?.sessionUpdate
+    return typeof kind === 'string' && vocabulary.updates.includes(kind) ? kind : 'other'
+  }
+  if (message.id !== undefined && Object.hasOwn(vocabulary.requests, message.method)) return vocabulary.requests[message.method]
+  return 'other'
+}
+
+// An agent is not stopped until nothing it started is still running. Its
+// helpers (bridges, language servers, a cache being flushed) share its process
+// group and can outlive the process that was spawned; one still writing when the
+// fixture is removed makes the removal fail, and one never told to stop outlives
+// the probe. SIGTERM first, SIGKILL once the grace has passed, then wait for the
+// group to empty.
+export async function stopProcessGroup(child, graceMs = 1000, killMs = 2000) {
+  if (!child?.pid) return
+  const alive = () => { try { process.kill(-child.pid, 0); return true } catch (error) { return error?.code !== 'ESRCH' } }
+  const gone = async (ms) => {
+    const end = Date.now() + ms
+    while (alive() && Date.now() < end) await new Promise((resolve) => setTimeout(resolve, 20))
+    return !alive()
+  }
+  try { process.kill(-child.pid, 'SIGTERM') } catch { child.kill('SIGTERM') }
+  if (await gone(graceMs)) return
+  try { process.kill(-child.pid, 'SIGKILL') } catch { child.kill('SIGKILL') }
+  await gone(killMs)
+}
+
 // Serialized into the isolated driver. Only these fixed strings escape it;
 // an error's message and data are used in memory and never returned or logged.
 export function classifyRequestError(error, codex = false) {
@@ -25,7 +96,7 @@ export function classifyRequestError(error, codex = false) {
 
 // Runs inside the isolated harness child. Vendor answers and diagnostics never
 // leave this process: only exact fixture matches cross back to the parent.
-const modelDriver = async (config, budgetFactory, classifyError) => {
+const modelDriver = async (config, budgetFactory, classifyError, { answerClientRequest, classifyAgentMessage, stopProcessGroup }) => {
   const { spawn } = await import('node:child_process')
   const { createInterface } = await import('node:readline')
   const { writeFileSync } = await import('node:fs')
@@ -40,6 +111,9 @@ const modelDriver = async (config, budgetFactory, classifyError) => {
   let promptCount = 0
   let refreshed = false
   let output = { status: 'could-not-ask', reason: 'model launch unavailable', rawAnswer: '' }
+  // What the agent sent during the latest prompt, as counts under fixed names (ACP only).
+  const activity = Object.create(null)
+  let counting = false
   const failPending = () => {
     for (const waiter of pending.values()) waiter.reject(new Error('model launch unavailable'))
     pending.clear()
@@ -50,9 +124,14 @@ const modelDriver = async (config, budgetFactory, classifyError) => {
   lines.on('line', (line) => {
     let message
     try { message = JSON.parse(line) } catch { return }
+    if (counting) {
+      const kind = classifyAgentMessage(message, config.activity)
+      if (kind) activity[kind] = (activity[kind] ?? 0) + 1
+    }
     if (message.method && message.id !== undefined) {
-      // No tool, filesystem, terminal or permission request is executed here.
-      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'not available' } })}\n`)
+      // Nothing is allowed or executed for the agent: a permission request is
+      // refused, fs/* and terminal/* are not available (see answerClientRequest).
+      child.stdin.write(`${JSON.stringify(answerClientRequest(message, !config.codex))}\n`)
       return
     }
     const waiter = pending.get(message.id)
@@ -81,6 +160,10 @@ const modelDriver = async (config, budgetFactory, classifyError) => {
   })
   const request = (method, params, timeoutMs = 12000) => new Promise((resolve, reject) => {
     if (method === 'session/prompt' || method === 'turn/start') promptCount = takePrompt()
+    if (method === 'session/prompt') {
+      for (const kind of Object.keys(activity)) delete activity[kind]
+      counting = true
+    }
     const requestId = ++id
     const timer = setTimeout(() => { pending.delete(requestId); reject(new Error(method === 'session/prompt' || method === 'turn/start' ? 'prompt timed out' : 'model request unavailable')) }, timeoutMs)
     const stage = method === 'initialize' ? 'initialize' : ['session/new', 'thread/start'].includes(method) ? 'session-new' : 'prompt'
@@ -171,16 +254,15 @@ const modelDriver = async (config, budgetFactory, classifyError) => {
     const reasons = ['prompt cap reached', 'prompt timed out', 'model launch unavailable', 'model request unavailable', 'answer not requested JSON', 'answer failed the fixture-only privacy allowlist', 'sign-in not reachable under the approved profile', 'network refused', 'quota', 'unknown']
     output = { ...output, status: 'could-not-ask', reason: reasons.includes(error.message) ? error.message : 'model request unavailable', rawAnswer: '' }
     if (error.failure) output.facts = { ...output.facts, requestFailure: error.failure }
+    // A prompt that failed or timed out says what kinds of message the agent sent first: counts under fixed names, nothing it said.
+    if (!config.codex && promptCount > 0) output.facts = { ...output.facts, promptActivity: Object.fromEntries(Object.entries(activity).map(([kind, count]) => [kind, Math.min(count, 500)])) }
   } finally {
+    counting = false
     for (const waiter of pending.values()) waiter.reject(new Error('model request unavailable'))
     pending.clear()
     lines.close()
     child.stdin.destroy()
-    await new Promise((resolve) => {
-      const timer = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL') } catch {} resolve() }, 1000)
-      child.once('close', () => { clearTimeout(timer); resolve() })
-      try { process.kill(-child.pid, 'SIGTERM') } catch { child.kill('SIGTERM') }
-    })
+    await stopProcessGroup(child)
   }
   return { ...output, prompted: promptCount > 0, refreshed }
 }
@@ -193,7 +275,7 @@ async function modelProbe(agent, fixture, options) {
   if (bridge?.executableEnv) { envOverrides[bridge.executableEnv] = agent.command; allowedEnv.push(bridge.executableEnv) }
   const config = {
     codex, command: bridge?.command ?? agent.command, args: codex ? ['app-server'] : bridge?.args ?? agent.acp.args,
-    handshakeOnly: options.handshakeOnly === true,
+    handshakeOnly: options.handshakeOnly === true, activity: ACP_ACTIVITY,
     cwd: fixture.nested, mcpPeer: fixture.mcpPeer,
     cataloguePrompt: CATALOGUE_PROMPT, refreshPrompt: REFRESH_PROMPT, promptTimeoutMs: options.promptTimeoutMs ?? 90_000,
     skills: fixture.skillEntries,
@@ -203,7 +285,8 @@ async function modelProbe(agent, fixture, options) {
     })),
     skillFiles: fixture.skillEntries.filter((entry) => entry.name === 'measure-sentinel').map((entry) => ({ path: entry.path, scope: entry.scope, file: join(entry.scope === 'user' ? fixture.home : fixture.repo, entry.path.replace(/^~\//, ''), 'measure-sentinel/SKILL.md') })),
   }
-  const driver = `(${modelDriver.toString()})(${JSON.stringify(config)},${createPromptBudget.toString()},${classifyRequestError.toString()}).then(x=>process.stdout.write(JSON.stringify(x))).catch(()=>process.exit(2))`
+  const helpers = `{answerClientRequest:${answerClientRequest.toString()},classifyAgentMessage:${classifyAgentMessage.toString()},stopProcessGroup:${stopProcessGroup.toString()}}`
+  const driver = `(${modelDriver.toString()})(${JSON.stringify(config)},${createPromptBudget.toString()},${classifyRequestError.toString()},${helpers}).then(x=>process.stdout.write(JSON.stringify(x))).catch(()=>process.exit(2))`
   const execution = await run(process.execPath, ['-e', driver], fixture, { timeoutMs: 300_000, envOverrides, allowedEnv })
   if (execution.code !== 0) return { status: 'could-not-ask', reason: 'model launch unavailable' }
   let result
@@ -271,7 +354,7 @@ export function parseRejectionWords(errors) {
   }
 }
 
-const acpDriver = async (command, args, cwd) => {
+const acpDriver = async (command, args, cwd, stopProcessGroup) => {
   const { spawn } = await import('node:child_process')
   const { createInterface } = await import('node:readline')
   const { resolve } = await import('node:path')
@@ -307,15 +390,13 @@ const acpDriver = async (command, args, cwd) => {
     if (error.message === 'timeout') return messages
     throw error
   } finally {
-    const closed = new Promise((resolve) => child.once('close', resolve))
     child.stdin.end()
-    try { process.kill(-child.pid, 'SIGTERM') } catch { child.kill('SIGTERM') }
-    await Promise.race([closed, new Promise((resolve) => setTimeout(resolve, 5000))])
+    await stopProcessGroup(child, 5000)
     lines.close()
   }
 }
 
-const appServerDriver = async (binary, cwd, changedSkill) => {
+const appServerDriver = async (binary, cwd, changedSkill, stopProcessGroup) => {
   const { spawn } = await import('node:child_process')
   const { createInterface } = await import('node:readline')
   const { writeFileSync } = await import('node:fs')
@@ -359,10 +440,8 @@ const appServerDriver = async (binary, cwd, changedSkill) => {
   } catch {
     return { failureStage: stage }
   } finally {
-    const closed = new Promise((resolve) => child.once('close', resolve))
     child.stdin.end()
-    try { process.kill(-child.pid, 'SIGTERM') } catch { child.kill('SIGTERM') }
-    await Promise.race([closed, new Promise((resolve) => setTimeout(resolve, 5000))])
+    await stopProcessGroup(child, 5000)
     lines.close()
   }
 }
@@ -376,7 +455,7 @@ function skillsIn(message) {
 async function codexProbe(agent, fixture, options) {
   if (options?.ask) return modelProbe(agent, fixture, options)
   const changedSkill = join(fixture.repo, '.codex/skills/measure-sentinel/SKILL.md')
-  const driver = `(${appServerDriver.toString()})(${JSON.stringify(agent.command)},${JSON.stringify(fixture.repo)},${JSON.stringify(changedSkill)}).then(x=>process.stdout.write(JSON.stringify(x))).catch(()=>process.exit(2))`
+  const driver = `(${appServerDriver.toString()})(${JSON.stringify(agent.command)},${JSON.stringify(fixture.repo)},${JSON.stringify(changedSkill)},${stopProcessGroup.toString()}).then(x=>process.stdout.write(JSON.stringify(x))).catch(()=>process.exit(2))`
   const execution = await run(process.execPath, ['-e', driver], fixture, { timeoutMs: 45_000 })
   if (execution.code !== 0) return { status: 'could-not-ask', reason: 'app-server could not answer safely' }
   let parsed
@@ -435,7 +514,7 @@ async function acpProbe(agent, fixture, options) {
     envOverrides[bridge.executableEnv] = agent.command
     allowedEnv.push(bridge.executableEnv)
   }
-  const driver = `(${acpDriver.toString()})(${JSON.stringify(command)},${JSON.stringify(args)},${JSON.stringify(fixture.repo)}).then(x=>process.stdout.write(x.map(message=>JSON.stringify(message)).join('\\n'))).catch(()=>process.exit(2))`
+  const driver = `(${acpDriver.toString()})(${JSON.stringify(command)},${JSON.stringify(args)},${JSON.stringify(fixture.repo)},${stopProcessGroup.toString()}).then(x=>process.stdout.write(x.map(message=>JSON.stringify(message)).join('\\n'))).catch(()=>process.exit(2))`
   const execution = await run(process.execPath, ['-e', driver], fixture, { timeoutMs: 30_000, envOverrides, allowedEnv })
   const summary = summarizeAcpMessages(parseAcpOutput(execution.stdout))
   const modelReasons = {
