@@ -620,6 +620,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
         <div className={styles.inputRow}>
           <Search
             inputRef={input}
+            focusIndicator="caret"
             className={styles.input}
             autoFocus
             placeholder="Search sessions, files, agents, commands, actions…"

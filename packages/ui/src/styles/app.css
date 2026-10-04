@@ -125,9 +125,16 @@ a:hover {
    whole control happens to be. The exclusion sits in `:where()` so the rule
    keeps the plain `:focus-visible` specificity every surface's own
    `outline: none` was written against. */
-:focus-visible:where(:not([data-focus-ring='inline'])) {
+/* Escape alone preserves pointer modality when a surface gives focus back.
+   Tab, list navigation and keyboard activation enable the mark again. */
+:where(:root:not([data-focus-input='pointer'])) :focus-visible:where(:not([data-focus-ring='inline'])) {
   outline: var(--hd-ring-width) solid var(--hd-ring-muted);
   outline-offset: var(--hd-ring-offset);
+}
+
+/* A restored pointer target can match :focus-visible in Chromium. */
+:where(:root[data-focus-input='pointer']) :focus-visible {
+  outline: none;
 }
 
 /* Opting out of the rule above still leaves the browser's own default focus
