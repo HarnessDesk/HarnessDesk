@@ -36,7 +36,8 @@ test('over Codex: a branch whose history could not be read says so, and choosing
   t.after(() => client.close())
 
   const fork = (await client.call('session/fork', { runtime: 'codex', sessionId: 'thread-paged' })) as Session
-  assert.deepEqual(fork.turns, [])
+  assert.deepEqual(fork.turns.flatMap(turn => turn.items).map(item => item.type), ['notice'])
+  assert.equal(fork.turns[0]?.items[0]?.type === 'notice' && fork.turns[0].items[0].kind, 'conversation:fork')
   assert.equal(fork.itemsLoaded, false, 'the branch is opened unloaded, not as an empty conversation')
 
   const told = client.events.filter((event) => event.type === 'notice' && event.sessionId === fork.id)
@@ -49,7 +50,8 @@ test('over Codex: a branch whose history could not be read says so, and choosing
   const read = (await client.call('session/read', { runtime: 'codex', sessionId: fork.id })) as Session
   assert.equal(read.itemsLoaded, true)
   assert.deepEqual(
-    read.turns.map((turn) => String(turn.id)),
+    read.turns.filter(turn => !String(turn.id).startsWith('notice:')).map((turn) => String(turn.id)),
     ['turn-p1', 'turn-p2', 'turn-p3'],
   )
+  assert.equal(read.turns.flatMap(turn => turn.items).filter(item => item.type === 'notice' && item.kind === 'conversation:fork').length, 1, 'choosing the fork keeps its quiet warning once')
 })

@@ -112,6 +112,7 @@ import {
   TerminalIcon,
   ToolIcon,
 } from './Icons'
+import { surfaceFor } from '../lib/notice-policy'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { isAgentMessageSource, splitContext, wrapContext } from '../lib/context-envelope'
 import { drawsAsImage, isRenderableImageUrl, unshownImage } from '../lib/images'
@@ -1381,11 +1382,14 @@ const Compaction = (_: { item: CompactionItem }) => (
  * background task reporting back, a turn that was stopped. Quiet on purpose:
  * it is the setting for what follows, not something to read.
  */
-const Notice = ({ item }: { item: NoticeItem }) => (
-  <Note ink="muted" icon={<InfoIcon size={12} className={styles.noticeIcon} />}>
-    {item.text}
+const Notice = ({ item }: { item: NoticeItem }) => {
+  const snapshot = useSnapshot()
+  if (item.kind && surfaceFor(snapshot.noticePolicy, item.kind) === null) return null
+  const text = snapshot.home ? item.text.split(`${snapshot.home}/`).join('~/') : item.text
+  return <Note ink="muted" icon={<InfoIcon size={12} className={styles.noticeIcon} />}>
+    {text}{item.count && item.count > 1 ? ` ×${item.count}` : ''}
   </Note>
-)
+}
 
 const Review = ({ item }: { item: ReviewItem }) => (
   <Marker>{item.phase === 'entered' ? `Started review: ${item.review}` : 'Finished review'}</Marker>

@@ -94,6 +94,7 @@ const replaceItem = (items: readonly AgentItem[], next: AgentItem): AgentItem[] 
 export const preserveNoticeItems = (
   items: readonly AgentItem[],
   held: readonly AgentItem[],
+  keepRuntimeRows = false,
 ): readonly AgentItem[] => {
   const notices = new Map(held.flatMap((item) => (item.type === 'notice' ? [[item.id, item] as const] : [])))
   if (notices.size === 0) return items
@@ -105,8 +106,15 @@ export const preserveNoticeItems = (
     changed = true
     return notice
   })
-  return changed ? reconciled : items
+  // Runtime notice rows are host-owned; a fuller vendor read cannot erase them.
+  const ids = new Set(reconciled.map(item => item.id))
+  const missing = keepRuntimeRows ? held.filter(item => item.type === 'notice' && item.kind && !ids.has(item.id)) : []
+  return missing.length ? [...reconciled, ...missing] : changed ? reconciled : items
 }
+
+/** The footer owns a final turn error even if its event arrived first. */
+const withoutRepeatedError = (items: readonly AgentItem[], turn: Turn): readonly AgentItem[] =>
+  turn.error ? items.filter(item => item.type !== 'error' || item.message !== turn.error?.message) : items
 
 const mapTurn = (
   session: Session,
@@ -160,7 +168,7 @@ export const reduceSession = (session: Session, event: AgentEvent): Session => {
       const exists = session.turns.some((turn) => turn.id === event.turn.id)
       return exists
         ? mapTurn(session, event.turn.id, (turn) => ({ ...turn, ...event.turn, items: turn.items }))
-        : { ...session, turns: [...session.turns, event.turn] }
+        : { ...session, turns: [...session.turns.filter(turn => !String(turn.id).startsWith('notice:')), { ...event.turn, items: [...session.turns.filter(turn => String(turn.id).startsWith('notice:')).flatMap(turn => turn.items), ...event.turn.items] }] }
     }
 
     case 'turn/completed': {
@@ -168,9 +176,9 @@ export const reduceSession = (session: Session, event: AgentEvent): Session => {
       // The completed turn carries authoritative status and timing, but the
       // streamed items are richer than the summary the runtime sends back.
       return mapTurn(session, event.turn.id, (turn) => {
-        const items = event.turn.items.length > turn.items.length
-          ? preserveNoticeItems(event.turn.items, turn.items)
-          : turn.items
+        const items = withoutRepeatedError(event.turn.items.length > turn.items.length
+          ? preserveNoticeItems(event.turn.items, turn.items, true)
+          : turn.items, event.turn)
         return { ...turn, ...event.turn, items }
       })
     }
@@ -228,9 +236,26 @@ export const reduceSession = (session: Session, event: AgentEvent): Session => {
     case 'account/loginCompleted':
     case 'account/loginAwaitsCode':
     case 'account/changed':
-    case 'notice':
-    case 'error':
       return session
+    case 'notice': {
+      if (event.sessionId !== session.id || event.class === 'info' || event.class === 'result' || event.kind === 'runtime:config' || event.kind === 'runtime:deprecation') return session
+      const key = event.contentKey ?? JSON.stringify([event.kind ?? 'conversation:warning', event.message])
+      const id = (event.id ?? `notice:${key}`) as ItemId
+      if (session.turns.some(turn => turn.items.some(item => item.id === id || (item.type === 'notice' && item.lastEventId === id)))) return session
+      const repeated = session.turns.find(turn => turn.items.some(item => item.type === 'notice' && item.contentKey === key))
+      if (repeated) return mapTurn(session, repeated.id, turn => ({ ...turn, items: turn.items.map(item => item.type === 'notice' && item.contentKey === key ? { ...item, count: (item.count ?? 1) + 1, lastEventId: id, completedAt: event.at } : item) }))
+      const item: AgentItem = { id, type: 'notice', kind: event.kind ?? 'conversation:warning', contentKey: key, text: event.message, count: 1, ...(event.at === undefined ? {} : { startedAt: event.at }) }
+      const last = session.turns.at(-1)
+      return last ? mapTurn(session, last.id, turn => ({ ...turn, items: [...turn.items, item] })) : { ...session, turns: [{ id: `notice:${id}` as TurnId, status: 'completed', items: [item] }] }
+    }
+    case 'error': {
+      if (event.sessionId !== session.id) return session
+      const failed = event.error.retrying ? session : { ...session, status: { type: 'error' as const, message: event.error.message } }
+      const last = session.turns.at(-1)
+      if (last?.error?.message === event.error.message || last?.items.some(item => item.type === 'error' && item.message === event.error.message)) return failed
+      const item: AgentItem = { id: `error:${event.error.message}` as ItemId, type: 'error', message: event.error.message }
+      return last ? mapTurn(failed, last.id, turn => ({ ...turn, items: [...turn.items, item] })) : { ...failed, turns: [{ id: `error:${item.id}` as TurnId, status: 'failed', items: [item] }] }
+    }
   }
 }
 
@@ -286,9 +311,9 @@ export const mergeRead = (
     // the moment a conversation was reopened.
     const diff = turn.diff ?? mine.diff
     const plan = turn.plan ?? mine.plan
-    const items = mine.items.length > turn.items.length
+    const items = withoutRepeatedError(mine.items.length > turn.items.length
       ? mine.items
-      : preserveNoticeItems(turn.items, mine.items)
+      : preserveNoticeItems(turn.items, mine.items, true), turn)
     if (items === turn.items && diff === turn.diff && plan === turn.plan) return turn
     return {
       ...turn,
@@ -308,7 +333,7 @@ export const mergeRead = (
   const earlierIds = new Set(earlier.map((turn) => turn.id))
   // Ours that the read has not caught up with, in the order we hold them —
   // the turn in flight is the last of them, which is where it belongs.
-  const missing = held.turns.filter((turn) => !readIds.has(turn.id) && !earlierIds.has(turn.id) && keep(turn))
+  const missing = held.turns.filter((turn) => !readIds.has(turn.id) && !earlierIds.has(turn.id) && (keep(turn) || String(turn.id).startsWith('notice:')))
   return keepUsage({ ...read, turns: [...earlier, ...turns, ...missing] })
 }
 

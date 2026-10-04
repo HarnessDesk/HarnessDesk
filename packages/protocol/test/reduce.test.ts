@@ -8,6 +8,7 @@ import {
   isBusy,
   itemId,
   mergeRead,
+  preserveNoticeItems,
   reduceAll,
   reduceSession,
   runtimeId,
@@ -434,4 +435,76 @@ test('sessionModel resolves model from options and settings, ignoring automatic 
     }),
     null,
   )
+})
+
+test('session notices stay in the transcript through a richer turn completion and a fresh read', () => {
+  const notice = { type: 'notice', sessionId: SESSION, level: 'info', kind: 'conversation:compacted', message: 'Context was compacted', id: 'notice-1', at: 10 } as AgentEvent
+  const empty = reduceSession(baseSession(), notice)
+  assert.equal(empty.turns[0]?.items[0]?.type, 'notice')
+  const started = reduceSession(baseSession(), { type: 'turn/started', sessionId: SESSION, turn: { id: TURN, status: 'inProgress', items: [] } })
+  const held = reduceSession(started, notice)
+  const completed = reduceSession(held, { type: 'turn/completed', sessionId: SESSION, turn: { id: TURN, status: 'completed', items: [{ id: itemId('a'), type: 'assistantMessage', text: 'Done' }, { id: itemId('b'), type: 'assistantMessage', text: 'More' }] } })
+  assert.equal(completed.turns[0]?.items.filter(item => item.type === 'notice').length, 1)
+  const read = mergeRead(completed, { ...baseSession(), turns: [{ id: TURN, status: 'completed', items: [] }] }, () => true)
+  assert.equal(read.turns[0]?.items.filter(item => item.type === 'notice').length, 1)
+  assert.deepEqual(reduceSession(held, notice), held, 'a replayed event is idempotent')
+})
+
+test('session errors change the row state and appear inline without changing unrelated sessions', () => {
+  const event: AgentEvent = { type: 'error', sessionId: SESSION, error: { code: 'unknown', message: 'Turn failed' } }
+  const failed = reduceSession(baseSession(), event)
+  assert.equal(failed.status.type, 'error')
+  assert.equal(failed.turns[0]?.items[0]?.type, 'error')
+  const other = { ...baseSession(), id: sessionId('other') }
+  assert.equal(reduceSession(other, event), other)
+})
+
+test('notice classification alone never copies missing notices into a fork turn', () => {
+  const notice: AgentItem = { id: itemId('host-notice'), type: 'notice', kind: 'conversation:compacted', text: 'Compacted' }
+  const copied: AgentItem[] = [{ id: itemId('user'), type: 'userMessage', content: [{ type: 'text', text: 'Hello' }] }]
+  assert.deepEqual(preserveNoticeItems(copied, [notice]), copied)
+})
+test('a rollback that omits a completed turn drops its user and tool items even when it has a notice', () => {
+  const t1 = { id: TURN, status: 'completed' as const, items: [] }
+  const t2 = { id: turnId('t2'), status: 'completed' as const, items: [{ id: itemId('user'), type: 'userMessage' as const, content: [{ type: 'text' as const, text: 'Removed' }] }, { id: itemId('notice'), type: 'notice' as const, kind: 'conversation:compacted', text: 'Compacted' }] }
+  const held = { ...baseSession(), turns: [t1, t2] }
+  assert.deepEqual(mergeRead(held, { ...baseSession(), turns: [t1] }).turns, [t1])
+})
+
+
+test('a failed turn and its error event have one inline explanation', () => {
+  const error = { code: 'unknown' as const, message: 'Runtime could not finish' }
+  const started = reduceSession(baseSession(), { type: 'turn/started', sessionId: SESSION, turn: { id: TURN, status: 'inProgress', items: [] } })
+  const completed = reduceSession(started, { type: 'turn/completed', sessionId: SESSION, turn: { id: TURN, status: 'failed', items: [], error } })
+  const failed = reduceSession(completed, { type: 'error', sessionId: SESSION, error })
+  assert.equal(failed.status.type, 'error')
+  assert.equal(failed.turns.flatMap(turn => turn.items).filter(item => item.type === 'error').length, 0)
+  const early = reduceSession(baseSession(), { type: 'error', sessionId: SESSION, error })
+  assert.equal(early.turns[0]?.error, undefined, 'the synthetic row already carries the explanation')
+})
+test('an automatically retrying error leaves the active conversation working', () => {
+  const active = { ...baseSession(), status: { type: 'active' as const }, turns: [{ id: TURN, status: 'inProgress' as const, items: [] }] }
+  const retry = reduceSession(active, { type: 'error', sessionId: SESSION, error: { code: 'unknown', message: 'Retrying', retrying: true } })
+  assert.equal(retry.status.type, 'active')
+})
+
+
+test('replaying the most recent repeated notice does not increment it again', () => {
+  const first = { type: 'notice', sessionId: SESSION, level: 'info', kind: 'conversation:compacted', message: 'Compacted', id: 'first' } as AgentEvent
+  const second = { ...first, id: 'second' } as AgentEvent
+  const held = reduceSession(reduceSession(baseSession(), first), second)
+  assert.equal(held.turns[0]?.items[0]?.type === 'notice' && held.turns[0]?.items[0]?.count, 2)
+  assert.deepEqual(reduceSession(held, second), held)
+})
+
+test('a final turn or read arriving after the error event still has one explanation', () => {
+  const error = { code: 'unknown' as const, message: 'Turn failed' }
+  const turn = { id: TURN, status: 'inProgress' as const, items: [] }
+  const started = reduceSession(baseSession(), { type: 'turn/started', sessionId: SESSION, turn })
+  const held = reduceSession(started, { type: 'error', sessionId: SESSION, error })
+  const final = { ...turn, status: 'failed' as const, error }
+  for (const result of [reduceSession(held, { type: 'turn/completed', sessionId: SESSION, turn: final }), mergeRead(held, { ...baseSession(), turns: [final] })]) {
+    assert.equal(result.turns[0]?.error?.message, error.message)
+    assert.equal(result.turns[0]?.items.filter(item => item.type === 'error').length, 0)
+  }
 })

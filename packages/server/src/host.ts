@@ -1,3 +1,4 @@
+import { retainRuntimeNotice } from './runtime-notices.js'
 import { SeatActivities, deriveSeatActivity } from './seat-activity.js'
 import { CLIENT_TIERS_GRANTED_BY_DEFAULT, type ClientTier, type SeatActivity } from '@harnessdesk/protocol'
 import { createHash, randomBytes } from 'node:crypto'
@@ -19,6 +20,7 @@ import {
   questionWaitMs,
   questionWaitOf,
   itemId,
+  runtimeNoticeKey,
   isFolderGone,
   type CeilingLevel,
   type ApprovalDecision,
@@ -636,6 +638,7 @@ export class Host {
   /** Accounts a fold is in flight for; see `#foldDuplicateAccount`. */
   readonly #folding = new Set<string>()
   readonly #broadcasters = new Set<Broadcast>()
+  readonly #runtimeNoticeWrites = new Set<Promise<void>>()
   readonly #state: StateStore
   readonly #logger: Logger
 
@@ -2679,6 +2682,7 @@ export class Host {
     this.#usage?.dispose()
     this.#ledger?.close()
     await runtimesGone
+    await Promise.all(this.#runtimeNoticeWrites)
     this.#runtimes.clear()
     /* Every seat parked inside `await_work` is a tool call held open, and a
        held tool call across a quit is a turn that never ends. */
@@ -6202,6 +6206,20 @@ export class Host {
   }
 
   #onEvent(runtime: RuntimeId, event: AgentEvent): void {
+    if (event.type === 'notice') {
+      event = { ...event, id: event.id ?? `notice-${randomBytes(8).toString('hex')}`, at: event.at ?? Date.now() }
+      const rawCounts = this.#state.state.preferences['runtimeNoticeCounts']
+      const counts = rawCounts && typeof rawCounts === 'object' && !Array.isArray(rawCounts) ? rawCounts as Record<string, unknown> : {}
+      const runtimeNotices = retainRuntimeNotice(this.#state.state.preferences['runtimeNotices'], runtime, event, counts)
+      const noticeId = event.id
+      const retained = runtimeNotices.find(entry => entry.event.id === noticeId)
+      if (retained) {
+        event = retained.event
+        const write = this.#state.setPreferences({ runtimeNotices, runtimeNoticeCounts: { ...counts, [runtimeNoticeKey(runtime, retained.event)]: retained.event.count } }).catch(error => this.#logger.warn('Runtime information could not be kept', { error }))
+        this.#runtimeNoticeWrites.add(write)
+        void write.then(() => this.#runtimeNoticeWrites.delete(write))
+      }
+    }
     /* A stopped question closed with its agent so its answer can be heard in
        a turn of its own: whatever the agent reports, it was answered, not
        refused — so no window shows it cancelled, and no denial holds the

@@ -862,3 +862,16 @@ test('a stray file beside the agents’ folders, and a store never written, are 
   assert.deepEqual(await never.search('websocket'), [])
   assert.deepEqual(await never.exportAll(), [])
 })
+
+test('a fuller cold read keeps the runtime notices recorded in its own turn', async () => {
+  await withStore(async (store, dir) => {
+    const notice: AgentItem = { ...item('compacted', 'notice'), type: 'notice', text: 'Context was compacted', kind: 'conversation:compacted', contentKey: 'compacted', count: 2 }
+    store.record(session([turn('t1', [item('u', 'userMessage'), notice])]), { now: true })
+    await store.flush()
+    const restarted = new TranscriptStore(dir)
+    const richer = session([turn('t1', [item('u', 'userMessage'), item('a', 'assistantMessage'), item('a2', 'assistantMessage')])])
+    const enriched = await restarted.enrich(richer)
+    assert.deepEqual(enriched.turns[0]?.items.filter(item => item.type === 'notice'), [notice])
+    assert.equal(enriched.turns[0]?.items.length, 4)
+  })
+})

@@ -5,6 +5,14 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
+## Unreleased
+
+- **Runtime information waits quietly in the Inbox.** Configuration warnings
+  and retiring settings show their details, a file action and a mute option.
+  Repeats update one row's count and time; unchanged content stays read across
+  launches. Conversation notices stay inline, and only action results open
+  toasts. Notifications settings includes every new kind.
+
 ## 0.3.1 — 2026-09-27
 
 - **Read the same Run in a terminal and the window.** `run show` uses the

@@ -151,7 +151,7 @@ const makeStore = (over: Partial<AppSnapshot>) => {
     dismissNotice: (id: string) => patch({ notices: snapshot.notices.filter((entry) => entry.id !== id) }),
     /** What `store.notice()` would append — a fresh random id each time, exactly like the real one. */
     pushNotice: (notice: Omit<StoreNotice, 'id'>) =>
-      patch({ notices: [...snapshot.notices, { ...notice, id: Math.random().toString(36) }] }),
+      patch({ notices: [...snapshot.notices, { class: 'result', ...notice, id: Math.random().toString(36) }] }),
     setAccount: (account: AppSnapshot['account']) => patch({ account }),
     /** What the host would have been asked to write down. */
     policy: () => snapshot.noticePolicy,
@@ -1004,4 +1004,10 @@ it('a kept offer sends a person to the Library, and a kept sign-in notice to tha
   act(() => container.querySelector('button')?.click())
   act(() => [...container.querySelectorAll('button')][1]?.click())
   expect(calls).toEqual(['library', 'signin:codex'])
+})
+
+it('the toaster consumes results only, never quiet runtime information', () => {
+  const store = makeStore({ notices: [{ id: 'quiet', class: 'info', kind: 'runtime:warning', level: 'warning', message: 'A runtime warning', at: 1 }] })
+  act(() => root.render(<StoreProvider store={store}><Notices /></StoreProvider>))
+  expect(showToast).not.toHaveBeenCalled()
 })

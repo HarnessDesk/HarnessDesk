@@ -1793,3 +1793,25 @@ left that Run and returned before it answered.
 
 **The rule:** chips follow the host's recorded state, actions follow its
 offered door, and a person presses before a posting is sent.
+
+
+## Messages follow what caused them — 2026-10-04
+
+Runtime information arriving at launch is neither a failed action nor a reason
+to interrupt a conversation. Its structured facts belong in the Inbox, while a
+notice scoped to one session belongs in that transcript. Only user-action
+results open toasts. Standing conditions retain the existing policy and outlets.
+
+Runtime information is retained in host preferences before clients connect.
+Content keys are exact serialized class, kind and content, independent of event
+identity and time. Occurrence IDs make replay idempotent; repeats update count
+and last time without resetting read state. Cleared information keeps its
+content memory, so another runtime start cannot raise it as new. Kind-level
+mutes remain available in Notifications and the expanded Inbox row. Counts
+outlive the bounded retained history, so muted traffic cannot reset a visible
+row’s count. Older queued events do not recount retained startup information.
+
+Host-created transcript notices survive richer reads of their own turn, but
+never get copied into unrelated fork turns or preserve turns removed by rollback.
+Retrying errors preserve live state; an error already carried by a failed turn
+uses that turn's existing explanation.

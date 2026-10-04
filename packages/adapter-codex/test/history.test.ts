@@ -354,6 +354,7 @@ test('a fork whose history cannot be read opens without it, says so, and reads w
     told.map((event) => event.type === 'notice' && `${event.level}: ${event.message}`),
     ['warning: The branch was made, but its history could not be read. Choose it in the sidebar to load it.'],
   )
+  assert.ok(events.indexOf(started!) < events.indexOf(told[0]!), 'the fork exists before its inline warning')
   assert.deepEqual(shape(await runtime.readSession(fork.id)), PAGED)
 })
 

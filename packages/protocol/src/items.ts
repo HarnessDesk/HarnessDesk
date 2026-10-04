@@ -245,6 +245,11 @@ export interface CompactionItem extends ItemBase {
  */
 export interface NoticeItem extends ItemBase {
   readonly type: 'notice'
+  /** Present for runtime information, so the person's kind setting applies. */
+  readonly kind?: string
+  readonly count?: number
+  readonly lastEventId?: string
+  readonly contentKey?: string
   readonly text: string
 }
 

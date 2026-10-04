@@ -542,6 +542,8 @@ test('a user verification (0.155.0) is answered cancel over the wire, and the pe
     [
       {
         type: 'notice',
+        class: 'conversation',
+        kind: 'conversation:verification',
         sessionId: session.id,
         level: 'warning',
         message:

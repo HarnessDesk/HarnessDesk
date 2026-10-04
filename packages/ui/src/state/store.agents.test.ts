@@ -626,6 +626,8 @@ it('never lets a seating read delayed across a write move the state backward', a
 })
 
 it('keeps a successful seating write authoritative while its notification reload is pending or fails', async () => {
+  vi.spyOn(store.transport, 'request').mockResolvedValueOnce({} as never)
+  await store.loadPreferences()
   const before = {
     revision: 1,
     path: '/u/.harnessdesk/seating.json',
@@ -658,7 +660,7 @@ it('keeps a successful seating write authoritative while its notification reload
   expect(store.getSnapshot().seating).toEqual(after)
 
   notificationRead.reject(new Error('notification reload failed'))
-  await vi.waitFor(() => expect(store.getSnapshot().notices.at(-1)?.message).toContain('notification reload failed'))
+  await vi.waitFor(() => expect(store.getSnapshot().inbox.at(-1)?.title).toContain('notification reload failed'))
   expect(store.getSnapshot().seating).toEqual(after)
 })
 

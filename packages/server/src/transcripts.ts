@@ -412,7 +412,7 @@ export class TranscriptStore {
       // host recorded. Put back at its place, whichever list stands.
       const published = publicationsIn(kept.items)
       const carry = (items: readonly AgentItem[]): readonly AgentItem[] => {
-        const classified = preserveNoticeItems(items, kept.items)
+        const classified = preserveNoticeItems(items, kept.items, true)
         return published.every(({ item }) => classified.some((entry) => entry.id === item.id))
           ? classified
           : withPublications(classified, published)

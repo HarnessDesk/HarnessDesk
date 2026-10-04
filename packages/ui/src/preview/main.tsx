@@ -1,3 +1,4 @@
+import { NoticesFrame } from './frames-notices'
 import { SidebarStructureExample } from './sidebar-structure-fixture'
 import { TeamRecordFrames } from './frames-team-record'
 import { TeamsPageFrames } from './frames-teams-page'
@@ -1116,7 +1117,7 @@ createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('cli-install')
+        {new URLSearchParams(window.location.search).has('notices') ? <NoticesFrame /> : new URLSearchParams(window.location.search).has('cli-install')
           ? <CliInstallFrame />
           : new URLSearchParams(window.location.search).has('review-publication')
           ? <PublicationPreview />
