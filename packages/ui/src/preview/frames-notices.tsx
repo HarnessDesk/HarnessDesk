@@ -41,6 +41,7 @@ export const NoticesFrame = () => {
   }, [])
   const started = useRef(false)
   useEffect(() => {
+    ;(window as unknown as { noticeStore: AppStore }).noticeStore = store
     if (started.current) return
     started.current = true
     const handlers = (store.transport as unknown as { handlers: { onEvent(runtime: string, event: AgentEvent): void; onNotification(value: unknown): void } }).handlers

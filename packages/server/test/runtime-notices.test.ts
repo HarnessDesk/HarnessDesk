@@ -7,7 +7,7 @@ import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
 import { runtimeId, runtimeNoticeKey, type AgentEvent } from '@harnessdesk/protocol'
-import { retainRuntimeNotice, readRuntimeNotices, keepRuntimeInboxEntry } from '../src/runtime-notices.js'
+import { retainRuntimeNotice, readRuntimeNotices, keepRuntimeInboxEntry, mergeNoticePreferences } from '../src/runtime-notices.js'
 
 const event = (): Extract<AgentEvent, { type: 'notice' }> => ({ type: 'notice', kind: 'runtime:config', class: 'info', level: 'warning', message: 'Ignored settings', detail: { summary: 'Ignored settings', settings: ['features.bogus'], file: '/Users/user/.config/agent.toml' }, id: 'event-1', at: 1 })
 test('runtime information is retained before a client joins, counted and read after a restart', () => {
@@ -157,4 +157,65 @@ test('a malformed stored Inbox count does not poison a new occurrence', () => {
   const entry = { id: 'content:warning', contentKey: 'content:warning', kind: 'runtime:warning', title: 'Warning', tone: 'warning' as const, at: 2, count: 2 }
   const patch = keepRuntimeInboxEntry({ inbox: [{ ...entry, at: 1, count: 'invalid', read: true }] }, entry)
   assert.equal((patch?.['inbox'] as { count: number }[])[0]?.count, 2)
+})
+
+
+test('a runtime Inbox merge returns current memory even for a replay, cleared content or a mute', async t => {
+  const base = tempDir('hd-inbox-answer-')
+  const state = new StateStore(join(base, 'state.json'))
+  const host = new Host({ logger: silent, state, builtinAgents: join(base, 'agents'), libraryHome: join(base, 'library') })
+  t.after(() => host.dispose())
+  await host.start()
+  const entry = { id: 'content:config', contentKey: 'content:config', kind: 'runtime:config', title: 'Ignored setting', tone: 'warning' as const, at: 1, count: 1, lastEvent: 'first' }
+  const call = () => host.call('app/inbox/keepInfo', { entry })
+  assert.deepEqual(await call(), await host.call('app/state/get', {}))
+  assert.deepEqual(await call(), await host.call('app/state/get', {}))
+  await state.setPreferences({ inbox: [], noticePolicy: { kept: [entry.contentKey], muted: ['runtime:config'] } })
+  assert.deepEqual(await call(), await host.call('app/state/get', {}))
+})
+
+test('opening a stale Inbox row cannot restore cleared content or erase newer rows', async t => {
+  const base = tempDir('hd-inbox-stale-write-')
+  const state = new StateStore(join(base, 'state.json'))
+  const host = new Host({ logger: silent, state, builtinAgents: join(base, 'agents'), libraryHome: join(base, 'library') })
+  t.after(() => host.dispose())
+  await host.start()
+  const old = { id: 'content:old', contentKey: 'content:old', kind: 'runtime:warning', title: 'Old warning', at: 1, read: false }
+  const newer = { id: 'new', title: 'New message', at: 2, read: false }
+  await state.setPreferences({ inbox: [newer], noticePolicy: { kept: [old.contentKey] } })
+  await host.call('app/state/set', { patch: { inbox: [{ ...old, read: true }] }, noticeBase: { inbox: [old] } })
+  assert.deepEqual(state.state.preferences['inbox'], [newer])
+  const latest = { ...old, at: 3, count: 3 }
+  await state.setPreferences({ inbox: [latest, newer] })
+  await host.call('app/state/set', { patch: { inbox: [{ ...old, read: true }] }, noticeBase: { inbox: [old] } })
+  assert.deepEqual(state.state.preferences['inbox'], [{ ...latest, read: true }, newer], 'a read preserves newer occurrence details')
+  await host.call('app/state/set', { patch: { inbox: [] }, noticeBase: { inbox: [old] } })
+  assert.deepEqual(state.state.preferences['inbox'], [newer], 'a clear affects only rows the window had seen')
+})
+
+
+test('a cached policy changes only the chosen kind and preserves another window mute and content memory', async t => {
+  const base = tempDir('hd-policy-stale-write-')
+  const state = new StateStore(join(base, 'state.json'))
+  const host = new Host({ logger: silent, state, builtinAgents: join(base, 'agents'), libraryHome: join(base, 'library') })
+  t.after(() => host.dispose())
+  await host.start()
+  const old = { muted: [], kept: [], seen: [], records: {}, surfaces: {} }
+  const current = { ...old, muted: ['runtime:config'], kept: ['content:config'] }
+  await state.setPreferences({ noticePolicy: current })
+  await host.call('app/state/set', { patch: { noticePolicy: { ...old, muted: ['runtime:warning'] } }, noticeBase: { noticePolicy: old } })
+  assert.deepEqual(state.state.preferences['noticePolicy'], { ...current, muted: ['runtime:config', 'runtime:warning'] })
+})
+
+
+test('cached standing-message writes preserve newer-first order and a read on the same occurrence', () => {
+  const old = { id: 'goal', title: 'Goal update', at: 1, read: false }
+  const other = { id: 'other', title: 'Other message', at: 2, read: false }
+  const refreshed = { ...old, title: 'Goal finished', at: 3 }
+  assert.deepEqual(mergeNoticePreferences({ inbox: [other, old] }, { inbox: [refreshed, other] }, { inbox: [other, old] })['inbox'], [refreshed, other])
+})
+
+test('a delayed standing-message copy preserves a read on the same occurrence', () => {
+  const refreshed = { id: 'goal', title: 'Goal finished', at: 3, read: false }
+  assert.deepEqual(mergeNoticePreferences({ inbox: [{ ...refreshed, read: true }] }, { inbox: [refreshed] }, { inbox: [] })['inbox'], [{ ...refreshed, read: true }], 'another window cannot make the identical occurrence unread')
 })

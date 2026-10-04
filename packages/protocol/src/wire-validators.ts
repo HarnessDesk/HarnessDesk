@@ -1464,7 +1464,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
       body: optional(isString), file: optional(isString), settings: optional(arrayOf(isString)),
     }),
   }),
-  'app/state/set': shape({ patch: windowPreferences }),
+  'app/state/set': shape({ patch: windowPreferences, noticeBase: optional(shape({ inbox: optional(arrayOf(isObject)), noticePolicy: optional(isObject) })) }),
   'app/browsers': isObject,
 }
 

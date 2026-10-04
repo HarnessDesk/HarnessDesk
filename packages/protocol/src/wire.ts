@@ -2592,10 +2592,10 @@ export interface HostMethods {
 
   'app/state/get': { params: Record<string, never>; result: Readonly<Record<string, unknown>> }
   /** Merge one quiet message with the host's current read, clear and mute memory. */
-  'app/inbox/keepInfo': { params: { readonly entry: RuntimeInboxEntry }; result: null }
+  'app/inbox/keepInfo': { params: { readonly entry: RuntimeInboxEntry }; result: Readonly<Record<string, unknown>> }
   'app/state/set': {
-    params: { readonly patch: Readonly<Record<string, unknown>> }
-    result: null
+    params: { readonly patch: Readonly<Record<string, unknown>>; readonly noticeBase?: Readonly<Record<string, unknown>> }
+    result: Readonly<Record<string, unknown>>
   }
 
   /**
