@@ -11,7 +11,7 @@ import { runInNewContext } from 'node:vm'
 const source = readFileSync(new URL('./cli-install.mjs', import.meta.url), 'utf8')
   .replace(/^import[\s\S]*?from '[^']+'\n/gm, '')
   .replace(/^export /gm, '')
-const FIXTURE_HOME = '/home/jane'
+const FIXTURE_HOME = '/home/user'
 const LAUNCHER_PATH = `${FIXTURE_HOME}/.local/bin/harnessdesk`
 const fail = (code) => Object.assign(new Error(`injected ${code}`), { code })
 
@@ -184,6 +184,37 @@ test('the menu reports the retained launcher after a post-claim error', async ()
   assert.ok(requests.at(-1).detail.includes(result.held.replace(FIXTURE_HOME, '~')))
   assert.match(requests.at(-1).message, /could not be removed/)
 })
+
+for (const reason of ['recovery', 'changed']) {
+  test(`a first install reports ${reason} details when a concurrent install becomes a replacement`, async () => {
+    const r = rig()
+    const requests = []
+    const app = { runtime: '/Applications/HarnessDesk.app/runtime', entry: '/Applications/HarnessDesk.app/bin.js' }
+    const older = r.launcherText({ ...app, runtime: '/Applications/Older/HarnessDesk.app/runtime' })
+    r.files.delete(LAUNCHER_PATH)
+    r.put(app.runtime, '')
+    r.put(app.entry, '')
+    r.faults((step, path) => {
+      if (reason === 'recovery' && step === 'open' && path.endsWith('.held')) throw fail('EIO')
+      if (reason === 'changed' && step === 'rename' && path.endsWith('.held')) r.put(LAUNCHER_PATH, 'another command')
+      if (step === 'link') throw fail('ENOTSUP')
+    })
+    const tool = r.createCommandLineTool({
+      platform: 'darwin', home: FIXTURE_HOME, target: () => app,
+      loginPath: async () => { r.put(LAUNCHER_PATH, older); return `${FIXTURE_HOME}/.local/bin` },
+      showDialog: async (request) => { requests.push(request); return 0 },
+    })
+    const result = await tool.run()
+    assert.equal(result.path, LAUNCHER_PATH)
+    assert.equal(result.outcome, reason === 'recovery' ? 'failed' : 'changed')
+    if (reason === 'recovery') assert.equal(result.restored, false)
+    assert.equal(r.files.get(result.held)?.text, reason === 'recovery' ? older : 'another command')
+    assert.equal(r.files.has(LAUNCHER_PATH), false)
+    assert.equal(requests.length, 1)
+    assert.ok(requests[0].detail.includes(result.held.replace(FIXTURE_HOME, '~')))
+    assert.match(requests[0].message, reason === 'recovery' ? /could not be installed/ : /was not installed/)
+  })
+}
 
 for (const step of ['lstat', 'link', 'unlink']) {
   test(`recovery reports retained files when its ${step} fails`, () => {

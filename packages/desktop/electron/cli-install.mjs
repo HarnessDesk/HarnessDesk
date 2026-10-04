@@ -786,6 +786,12 @@ export const createCommandLineTool = ({
     try {
       result = installLauncher({ home, target: app, loginPath: login, searchFolders })
     } catch (error) {
+      if (error.code === 'recovery') return reportRecovery('installed', error)
+      if (error.code === 'changed') {
+        log('command-line tool launcher changed while it was installed', { path: error.path })
+        await ask(changedDialog('installed', error, home))
+        return { outcome: 'changed', path: error.path, ...(error.held ? { held: error.held } : {}) }
+      }
       if (error.code === 'foreign') {
         log('command-line tool left a harnessdesk that is not ours', { path: error.path })
         await ask(foreignDialog(error.path, home))
