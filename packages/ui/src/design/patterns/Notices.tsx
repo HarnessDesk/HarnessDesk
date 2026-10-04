@@ -494,17 +494,18 @@ export const InboxList = ({
  */
 export const InboxPanel = ({
   side = 'right',
+  size = 'icon-sm',
   ...list
-}: Parameters<typeof InboxList>[0] & { side?: 'top' | 'right' | 'bottom' | 'left' }) => {
+}: Parameters<typeof InboxList>[0] & { side?: 'top' | 'right' | 'bottom' | 'left'; size?: 'icon-sm' | 'icon-xs' }) => {
   const unread = list.messages.filter((message) => !message.read).length
   return (
     <Popover
       title={unread > 0 ? `Inbox, ${unread} unread` : 'Inbox'}
       side={side}
       sideAlign="end"
-      triggerVariant={{ variant: 'ghost', size: 'icon-sm' }}
+      triggerVariant={{ variant: 'ghost', size }}
       label={
-        <span className={styles.bell} data-slot="inbox-button" {...(unread > 0 ? { 'data-unread': '' } : {})}>
+        <span className={styles.bell} data-slot="inbox-button" data-size={size} {...(unread > 0 ? { 'data-unread': '' } : {})}>
           <BellIcon size={14} />
           {unread > 0 ? <span className={styles.bellCount}>{unread > 99 ? '99+' : unread}</span> : null}
         </span>
