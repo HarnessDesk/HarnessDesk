@@ -92,13 +92,13 @@ export const runCardTiming = (execution: Pick<FlowExecution, 'state' | 'currentE
 }
 const claimAt = (card: Intent, signals: readonly TeamSignal[]): number | null => card.claim?.at
   ?? [...signals].filter(one => one.intent === card.id && one.signal === 'claimed' && one.at <= card.updatedAt).sort((a, b) => b.at - a.at)[0]?.at ?? null
-const endTitle = (execution: FlowExecution): string => {
+const endTitle = (execution: FlowExecution, publicationNeedsYou: boolean): string => {
   switch (execution.end?.kind) {
     case 'unrouted': return 'Ended without a next step'
     case 'budget': return execution.end.which === 'rounds' ? 'Round budget reached' : 'Rounds without progress reached'
-    case 'complete': return 'Settled'
+    case 'complete': return publicationNeedsYou ? 'Needs you' : 'Settled'
     case 'stopped': return execution.end.by === 'person' ? 'Stopped by you' : 'Stopped by the desk'
-    default: return execution.state === 'stalled' ? 'Needs you' : execution.state === 'stopped' ? 'Stopped' : 'Settled'
+    default: return execution.state === 'stalled' || publicationNeedsYou ? 'Needs you' : execution.state === 'stopped' ? 'Stopped' : 'Settled'
   }
 }
 export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows: RunTimelineRow[] } {
@@ -173,10 +173,11 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
   }
   if (execution.state !== 'running') {
     const end = execution.end
-    const detail = end?.kind === 'complete' ? 'Nothing waits.'
+    const publicationReason = findingRun?.reason?.trim() || (publication ? `${publication.label} still needs your attention.` : null)
+    const detail = end?.kind === 'complete' ? publication?.needsYou ? publicationReason : 'Nothing waits.'
       : end?.kind === 'budget' ? `${execution.reason ?? ''}${execution.reason ? '\n' : ''}${end.used} round${end.used === 1 ? '' : 's'} ${end.which === 'rounds' ? 'used' : 'without progress'}.`
         : execution.reason ?? (end?.kind === 'unrouted' ? `Card #${end.card} answered ${wordOf(end.outcome)}; no rule follows it.` : publication?.needsYou ? findingRun?.reason ?? null : null)
-    rows.push(row('end', 'end', endTitle(execution), { detail, publication, attention: needsYou, since: endedAt }))
+    rows.push(row('end', 'end', endTitle(execution, publication?.needsYou === true), { detail, publication, attention: needsYou, since: endedAt }))
   }
   return { header, rows }
 }
