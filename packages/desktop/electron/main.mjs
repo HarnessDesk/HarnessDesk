@@ -1,11 +1,12 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, safeStorage, screen, session, shell, Tray, webContents } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, safeStorage, screen, session, shell, Tray, webContents } from 'electron'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { createDefaultHost, loadBuiltinPlugins, recordCrash, serve, openClientDoor } from '@harnessdesk/server'
+import { createDefaultHost, loadBuiltinPlugins, loginShellPath, packagedPath, recordCrash, serve, openClientDoor } from '@harnessdesk/server'
 import electronUpdater from 'electron-updater'
 
 import { createInlineBrowserEngine } from './browser-engine.mjs'
@@ -13,6 +14,7 @@ import { downloadOutcome, remember, uniqueName } from './downloads.mjs'
 import { respondToCrash } from './crash-policy.mjs'
 import { MARK, drawTrayMeter } from './meter.mjs'
 import { attachAppUpdates } from './app-updates.mjs'
+import { MENU_LABEL, createCommandLineTool, targetOf } from './cli-install.mjs'
 import { decide, relevant } from './notifications.mjs'
 import { createIntakeNotifier } from './intake-notifications.mjs'
 import { createDockIconSetter, defaultIconPath } from './dock-icon.mjs'
@@ -485,6 +487,40 @@ const createTray = () => {
   tray.setContextMenu(buildTrayMenu())
 }
 
+/**
+ * A message box answered with the index of the button pressed: how a menu
+ * item says what it did. It is sheeted over the window when there is one and
+ * stands alone when there is not, because the app outlives its window on a Mac.
+ */
+const showMessage = async (request) => {
+  const shown = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined
+  const result = shown
+    ? await dialog.showMessageBox(shown, { type: 'info', ...request })
+    : await dialog.showMessageBox({ type: 'info', ...request })
+  return result.response
+}
+
+/**
+ * The command line this app carries. It is found the way any dependency is,
+ * so a checkout and the packaged app reach it by the same line, and then named
+ * where it landed: a program cannot be run from inside the archive, so the
+ * path is the unpacked twin beside it (see `packagedPath`).
+ */
+const bundledCommandLine = () => {
+  const manifest = createRequire(import.meta.url).resolve('@harnessdesk/cli/package.json')
+  const entry = packagedPath(join(dirname(manifest), 'dist', 'src', 'bin.js'))
+  return targetOf({ execPath: process.execPath, entry, packaged: app.isPackaged })
+}
+
+/** "Install command-line tool…": every decision is in `cli-install.mjs`. */
+const commandLineTool = createCommandLineTool({
+  target: bundledCommandLine,
+  loginPath: () => loginShellPath(),
+  showDialog: showMessage,
+  copyText: (text) => clipboard.writeText(text),
+  log: (message, data) => logger?.info(message, data),
+})
+
 const buildMenu = () => {
   const template = [
     {
@@ -508,6 +544,11 @@ const buildMenu = () => {
           accelerator: 'Cmd+,',
           click: () => sendShortcut('settings'),
         },
+        // Absent where the launcher cannot work, rather than disabled: a
+        // greyed item would read as broken, not as a choice.
+        ...(commandLineTool.available
+          ? [{ label: MENU_LABEL, click: () => void commandLineTool.run() }]
+          : []),
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -795,13 +836,7 @@ const start = async () => {
       updateMenuItem = item
       buildMenu()
     },
-    showDialog: async (request) => {
-      const shown = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined
-      const result = shown
-        ? await dialog.showMessageBox(shown, { type: 'info', ...request })
-        : await dialog.showMessageBox({ type: 'info', ...request })
-      return result.response
-    },
+    showDialog: showMessage,
     log: (message, data) => logger?.info(message, data),
   })
 

@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 import { runFixture } from '../preview/run-view-fixture'
 import { RunInspector, type RunInspectorProps } from './RunInspector'
-import type { FindingRunState } from '@harnessdesk/protocol'
+import type { FindingRunState, FlowCheckAttempt } from '@harnessdesk/protocol'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const render = (props: Partial<RunInspectorProps> = {}) => {
@@ -11,7 +11,7 @@ const render = (props: Partial<RunInspectorProps> = {}) => {
   const root = createRoot(container)
   const fixture = runFixture('person')
   act(() => root.render(<RunInspector input={fixture} selectedRow={null} seats={[]} {...props} />))
-  return { container, close: () => act(() => root.unmount()) }
+  return { container, root, close: () => act(() => root.unmount()) }
 }
 it('reads the Run, its frozen base, budget and Seats without inventing absent facts', () => {
   const fixture = runFixture()
@@ -267,4 +267,248 @@ it('does not assign a round publication to a card the round record does not name
   expect(sectionText(view.container,'Review')).toContain('No review recorded')
   expect(sectionText(view.container,'Review')).not.toContain('Posted to #7')
  } finally {view.close()}
+})
+
+/*
+ * A check run again: the inspector lists what the desk recorded each time it
+ * ran, with each attempt's output kept as it was, and offers *Run again…* last.
+ */
+const gate = (patch: { state?: 'running' | 'stalled' | 'settled' | 'stopped'; operation?: 'started' | 'finished' | 'uncertain' | null } = {}) => {
+  const fixture = runFixture()
+  const operations = patch.operation === null ? [] : [{ key: 'check:2:0', kind: 'check' as const, state: patch.operation ?? 'finished', card: 2, seat: null }]
+  return { ...fixture, execution: { ...fixture.execution, state: patch.state ?? 'running', operations: [...fixture.execution.operations, ...operations] } }
+}
+const attempt = (n: number, patch: Partial<FlowCheckAttempt> = {}): FlowCheckAttempt =>
+  ({ id: `attempt-${n}`, n, at: Date.now() - (3 - n) * 600_000, commit: `c0ffee${n}`, exit: n === 1 ? 1 : 0, timedOut: false, outcome: n === 1 ? 'fail' : 'pass', tail: `output of attempt ${n}`, ...patch })
+const button = (container: HTMLElement, label: string) => [...container.querySelectorAll('button')].find(one => one.textContent === label)
+
+it('lists each recorded attempt newest first, with its output behind a link and the earlier output exactly as recorded', () => {
+  const input = { ...gate(), attempts: new Map([[2, [attempt(1), attempt(2)]]]) }
+  const view = render({ input, selectedRow: 'check-2-2' })
+  try {
+    const attempts = sectionText(view.container, 'Attempts')
+    expect(attempts.indexOf('Attempt 2')).toBeGreaterThan(-1)
+    expect(attempts.indexOf('Attempt 2')).toBeLessThan(attempts.indexOf('Attempt 1'))
+    for (const text of ['Failed', 'Passed', 'Exit 1', 'Exit 0', 'c0ffee1', 'c0ffee2']) expect(attempts).toContain(text)
+    expect(attempts).not.toContain('output of attempt')
+    const first = view.container.querySelector('[data-attempt="1"]') as HTMLElement
+    const show = button(first, 'Show output')!
+    expect(show.getAttribute('aria-expanded')).toBe('false')
+    act(() => show.click())
+    expect(first.textContent).toContain('output of attempt 1')
+    expect(view.container.querySelector('[data-attempt="2"]')!.textContent).not.toContain('output of attempt 2')
+    act(() => button(first, 'Hide output')!.click())
+    expect(first.textContent).not.toContain('output of attempt 1')
+  } finally { view.close() }
+})
+
+it('names the commit an attempt ran at by its first twelve characters, and the whole of it on hover', () => {
+  const sha = 'a1b2c3d4e5f6'.repeat(3) + 'a1b2'
+  const view = render({ input: { ...gate(), attempts: new Map([[2, [attempt(1, { commit: sha }), attempt(2)]]]) }, selectedRow: 'check-2-2' })
+  try {
+    const one = view.container.querySelector('[data-attempt="1"]') as HTMLElement
+    expect(one.textContent).toContain('a1b2c3d4e5f6')
+    expect(one.textContent).not.toContain('a1b2c3d4e5f6a')
+    expect(one.querySelector(`[title="${sha}"]`)).not.toBeNull()
+  } finally { view.close() }
+})
+
+it('has no Attempts section for a check with one result or none, which the Latest result already reads', () => {
+  for (const attempts of [new Map([[2, [attempt(1)]]]), new Map([[2, []]]), undefined]) {
+    const view = render({ input: { ...gate(), ...(attempts ? { attempts } : {}) }, selectedRow: 'check-2-2' })
+    try { expect(view.container.textContent).not.toContain('Attempts') } finally { view.close() }
+  }
+})
+
+it.each([
+  { read: 'reading' as const, shown: 'Reading attempts…' },
+  { read: 'failed' as const, shown: 'Earlier attempts could not be read' },
+])('says "$shown" while a check’s attempts are not here, and never calls them none', ({ read, shown }) => {
+  const view = render({ input: gate(), attemptsRead: read, selectedRow: 'check-2-2' })
+  try {
+    expect(sectionText(view.container, 'Attempts')).toContain(shown)
+    expect(view.container.textContent).not.toContain('Attempt 1')
+  } finally { view.close() }
+  // The read of another check's attempts is not this one's: a card with none of its own still says it is reading.
+  const other = render({ input: { ...gate(), attempts: new Map([[9, [attempt(1), attempt(2)]]]) }, attemptsRead: read, selectedRow: 'check-2-2' })
+  try { expect(sectionText(other.container, 'Attempts')).toContain(shown) } finally { other.close() }
+})
+
+it('shows readable attempts and says when the history is incomplete', () => {
+  const view = render({ input: { ...gate(), attempts: new Map([[2, [attempt(1, { n: null })] ]]), incompleteAttempts: new Set([2]) }, selectedRow: 'check-2-2' })
+  try {
+    const attempts = sectionText(view.container, 'Attempts')
+    expect(attempts).toContain('Recorded result')
+    expect(attempts).not.toContain('Attempt 1')
+    expect(attempts).toContain('Attempt history could not be read completely.')
+  } finally { view.close() }
+})
+
+it.each(['reading', 'failed'] as const)('shows the attempts it has whatever the read of them says, and says nothing of a check it already knows ran once (%s)', read => {
+  const some = render({ input: { ...gate(), attempts: new Map([[2, [attempt(1), attempt(2)]]]) }, attemptsRead: read, selectedRow: 'check-2-2' })
+  try {
+    expect(sectionText(some.container, 'Attempts')).toContain('Attempt 2')
+    expect(some.container.textContent).not.toContain('Reading attempts…')
+    expect(some.container.textContent).not.toContain('could not be read')
+  } finally { some.close() }
+  const once = render({ input: { ...gate(), attempts: new Map([[2, [attempt(1)]]]) }, attemptsRead: read, selectedRow: 'check-2-2' })
+  try {
+    expect(once.container.textContent).not.toContain('Attempts')
+    expect(once.container.textContent).not.toContain('could not be read')
+  } finally { once.close() }
+})
+
+it('keeps markup literal and removes terminal escape sequences from an attempt’s output, as it does for the latest', () => {
+  const unsafe = '<img src=x onerror="alert(1)">\u001b[31mred\u001b[0m\u001b]8;;https://example.com\u0007link\u001b]8;;\u0007<script>1</script> & more'
+  const input = { ...gate(), attempts: new Map([[2, [attempt(1, { tail: unsafe }), attempt(2, { tail: unsafe })]]]) }
+  const view = render({ input, selectedRow: 'check-2-2' })
+  try {
+    for (const one of [1, 2]) act(() => button(view.container.querySelector(`[data-attempt="${one}"]`) as HTMLElement, 'Show output')!.click())
+    const shown = [...view.container.querySelectorAll('[data-attempt] [data-slot="code-text"]')].map(one => one.textContent)
+    expect(shown).toHaveLength(2)
+    for (const one of shown) expect(one).toBe('<img src=x onerror="alert(1)">redlink<script>1</script> & more')
+    expect(view.container.textContent).not.toContain('\u001b')
+    expect(view.container.querySelector('img,script,a')).toBeNull()
+  } finally { view.close() }
+})
+
+it('puts Run again… last in a check’s inspector, enabled while the Run and the check allow it', () => {
+  const input = { ...gate(), attempts: new Map([[2, [attempt(1), attempt(2)]]]) }
+  const view = render({ input, selectedRow: 'check-2-2' })
+  try {
+    const buttons = [...view.container.querySelectorAll('button')]
+    expect(buttons.at(-1)!.textContent).toBe('Run again…')
+    expect(buttons.at(-1)!.disabled).toBe(false)
+    expect(view.container.textContent).not.toContain('Start a new run')
+  } finally { view.close() }
+})
+
+it.each([
+  { name: 'settled Run', patch: { state: 'settled' as const }, reason: 'This run is settled. Start a new run to run this check again.' },
+  { name: 'stopped Run', patch: { state: 'stopped' as const, operation: 'uncertain' as const }, reason: 'This run is stopped. Start a new run to run this check again.' },
+  { name: 'check still running', patch: { operation: 'started' as const }, reason: 'This check is not waiting to be run again.' },
+])('keeps Run again… disabled with the host’s reason on screen for a $name', ({ patch, reason }) => {
+  const view = render({ input: gate(patch), selectedRow: 'check-2-2' })
+  try {
+    const again = button(view.container, 'Run again…')!
+    expect(again.hasAttribute('disabled') || again.getAttribute('aria-disabled') === 'true').toBe(true)
+    const shown = [...view.container.querySelectorAll('*')].filter(one => one.children.length === 0 && one.textContent === reason)
+    expect(shown.some(one => !one.closest('.sr-only'))).toBe(true)
+  } finally { view.close() }
+})
+
+/** The controls the connected view hands the inspector; none are present unless a caller gives them. */
+const buttonsOf = (container: HTMLElement) => [...container.querySelectorAll('button')].map(one => one.textContent)
+it('offers abandoning a card that has not finished, before its conversation link', () => {
+  const fixture = runFixture()
+  const onAbandon = vi.fn().mockResolvedValue(undefined)
+  const view = render({ input: fixture, selectedRow: 'card-4-4', seats: [{ id: 'seat-0', name: 'Alpha', onOpen: () => {} }], onAbandon })
+  try {
+    expect(buttonsOf(view.container)).toEqual(['Abandon card…', 'Open the conversation'])
+    act(() => [...view.container.querySelectorAll('button')][0]!.click())
+    const dialog = document.body.querySelector('[role="alertdialog"]')
+    expect(dialog?.textContent).toContain('Abandon card #4?')
+    // The fixture Run's frozen Flow carries the rule `written`, which hands a writer's round to the verify check.
+    expect(dialog?.querySelector('[data-slot="confirm-body"] p')?.textContent).toBe('The rule that follows the writer role still fires, so abandoning this card opens the verify check.')
+    expect(dialog?.textContent).toContain('Alpha holds this card now.')
+  } finally {
+    act(() => [...document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(one => one.textContent === 'Keep it')?.click())
+    view.close()
+  }
+})
+it('offers no abandoning for a card that has finished, or when nothing can abandon', () => {
+  const fixture = runFixture()
+  const done = render({ input: fixture, selectedRow: 'card-3-3', seats: [{ id: 'seat-1', name: 'Beta', onOpen: () => {} }], onAbandon: vi.fn() })
+  try { expect(buttonsOf(done.container)).toEqual(['Open the conversation']) } finally { done.close() }
+  const none = render({ input: fixture, selectedRow: 'card-4-4', seats: [{ id: 'seat-0', name: 'Alpha', onOpen: () => {} }] })
+  try { expect(buttonsOf(none.container)).toEqual(['Open the conversation']) } finally { none.close() }
+})
+it.each(['person', 'check'] as const)('offers to abandon an unfinished %s card from its inspector', async kind => {
+  const fixture = kind === 'person' ? runFixture('person') : runFixture()
+  const cardId = kind === 'person' ? 4 : 2
+  const input = kind === 'person' ? fixture : {
+    ...fixture,
+    execution: { ...fixture.execution, rounds: fixture.execution.rounds.map(round => round.n === 2 ? { ...round, state: 'running' as const } : round) },
+    cards: fixture.cards.map(card => card.id === cardId ? { ...card, state: 'open' as const, outcome: null } : card),
+  }
+  const onAbandon = vi.fn().mockResolvedValue(undefined)
+  const view = render({ input, selectedRow: kind === 'person' ? 'person-4-4' : 'check-2-2', onAbandon })
+  try {
+    const abandon = [...view.container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Abandon card…')
+    expect(abandon).toBeDefined()
+    act(() => abandon!.click())
+    const dialog = document.body.querySelector('[role="alertdialog"]')!
+    expect(dialog.textContent).toContain(`Abandon card #${cardId}?`)
+    await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Abandon card')!.click())
+    expect(onAbandon).toHaveBeenCalledWith(cardId)
+  } finally {
+    act(() => [...document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(button => button.textContent === 'Keep it')?.click())
+    view.close()
+  }
+})
+it('answers a person’s step from its inspector with the words its role declares', async () => {
+  const fixture = runFixture('person')
+  const onAnswer = vi.fn().mockResolvedValue(undefined)
+  const view = render({ input: fixture, selectedRow: 'person-4-4', onAnswer, onOpenBoard: () => {} })
+  try {
+    expect(view.container.textContent).toContain('Answer the review')
+    expect(view.container.textContent).toContain('Approved finishes the Run.')
+    expect(view.container.textContent).not.toContain('Outcomes')
+    expect(buttonsOf(view.container)).toEqual(['Approved'])
+    await act(async () => view.container.querySelector('button')!.click())
+    expect(onAnswer).toHaveBeenCalledWith(4, 'approved', '')
+  } finally { view.close() }
+})
+it('keeps a person’s answered step as text, with the answer it was given', () => {
+  const fixture = runFixture('person')
+  const answered = { ...fixture, cards: fixture.cards.map(card => card.id === 4 ? { ...card, state: 'done' as const, outcome: 'approved' } : card) }
+  const view = render({ input: answered, selectedRow: 'person-4-4', onAnswer: vi.fn(), onOpenBoard: () => {} })
+  try {
+    expect(view.container.textContent).toContain('Outcomes')
+    expect(view.container.textContent).toContain('Answer')
+    expect(view.container.querySelector('button')).toBeNull()
+  } finally { view.close() }
+})
+it('sends a person’s review step to the board', async () => {
+  const fixture = runFixture('person')
+  const review = { ...fixture, execution: { ...fixture.execution, document: { ...fixture.execution.document, flow: { ...fixture.execution.document.flow,
+    rules: [{ id: 'land', on: 'person', when: { every: ['approved'], evidence: [{ review: 'approved' }] }, then: { role: 'writer', title: 'Merge' } }] } } } } as unknown as typeof fixture
+  const onOpenBoard = vi.fn()
+  const view = render({ input: review, selectedRow: 'person-4-4', onAnswer: vi.fn(), onOpenBoard })
+  try {
+    expect(buttonsOf(view.container)).toEqual(['Pick an attempt on the board'])
+    await act(async () => view.container.querySelector('button')!.click())
+    expect(onOpenBoard).toHaveBeenCalledOnce()
+  } finally { view.close() }
+})
+
+it('isolates answer state when selection changes while the previous card is waiting on a refusal', async () => {
+  const fixture = runFixture('person')
+  const input = {
+    ...fixture,
+    execution: { ...fixture.execution, rounds: fixture.execution.rounds.map(round => round.n === 4 ? { ...round, cards: [4, 5] } : round) },
+    cards: [...fixture.cards, { ...fixture.cards[3]!, id: 5, title: 'Second person step', createdAt: fixture.cards[3]!.createdAt + 1, updatedAt: fixture.cards[3]!.updatedAt + 1 }],
+  }
+  let refuse!: (error: Error) => void
+  const onAnswer = vi.fn((card: number) => card === 4 ? new Promise<void>((_resolve, reject) => { refuse = reject }) : Promise.resolve())
+  const view = render({ input, selectedRow: 'person-4-4', onAnswer, onOpenBoard: () => {} })
+  try {
+    const note = () => view.container.querySelector<HTMLInputElement>('input[aria-label="Note"]')!
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+    if (!setter) throw new Error('no value setter — typing would be a no-op')
+    act(() => { setter.call(note(), 'first card note'); note().dispatchEvent(new Event('input', { bubbles: true })) })
+    const firstAnswer = [...view.container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Approved')!
+    act(() => firstAnswer.click())
+    expect(onAnswer).toHaveBeenCalledWith(4, 'approved', 'first card note')
+
+    act(() => view.root.render(<RunInspector input={input} selectedRow="person-4-5" seats={[]} onAnswer={onAnswer} onOpenBoard={() => {}} />))
+    const secondAnswer = [...view.container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Approved')!
+    expect(note().value).toBe('')
+    expect(secondAnswer.disabled).toBe(false)
+
+    await act(async () => { refuse(new Error('This card was already answered.')); await Promise.resolve() })
+    expect(view.container.querySelector('[role="alert"]')).toBeNull()
+    expect(secondAnswer.disabled).toBe(false)
+    expect(note().value).toBe('')
+  } finally { view.close() }
 })

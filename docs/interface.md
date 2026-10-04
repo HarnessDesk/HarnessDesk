@@ -992,6 +992,16 @@ unread notice or new work brings a Seat out of that fold. The sidebar nests
 its conversation under the same Team, even after its process has rested.
 A Team without a Run opens on Chat and still offers Overview for its Seats.
 
+What needs you can be answered from its row. A tool's request for approval
+offers the agent's own choices. The command and its working folder, files a
+change would touch, or access it would open appear beside them; the answer is
+the same as the approval in the chat, so whichever you answer first wins. A
+question with one single choice offers its options; one needing a form leaves
+to its conversation. A step a Flow addressed to you offers the words its role
+declares, a note the next step reads, and a sentence saying what each answer does before you give
+it (a review step asks you to pick an attempt on the board). A refusal stays on
+the row, beside the answer it refused.
+
 ### A Team's Run
 
 Run opens from the Team rail or its Overview strip. It reads oldest first:
@@ -1026,3 +1036,16 @@ inspector, which explains a row of the timeline, steps aside while the Flow
 shows. **Open the file** reads the Flow's file as it is now, in a window you
 can only read; the Run keeps the revision it started with, and nothing in this
 tab can be changed.
+
+A check that finished, or that the desk interrupted, can be run again from its
+row or its inspector while the Run is running or stalled. It asks first and
+shows the command exactly as it will run; the earlier result and its output are
+kept, and every result the desk recorded is listed under the check, with its
+output in the inspector. A Run that has settled or stopped refuses, says so, and
+points to starting a new Run.
+
+A card that has not finished offers **Abandon card…** in its inspector. The
+question says first what the rule after the card's role will do: open the next
+round, end the Run without a next step, wait for the round's other cards, or
+nothing when the Run is not running; a claimed card names who holds it. A
+person's step is answered there with the same controls as the Overview.

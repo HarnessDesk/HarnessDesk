@@ -1,5 +1,6 @@
 import { TeamRecordFrames } from './frames-team-record'
 import { TeamsPageFrames } from './frames-teams-page'
+import { CliInstallFrame } from './frames-cli-install'
 import { StrictMode, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 
@@ -18,7 +19,8 @@ import { ProjectTriggers } from '../components/ProjectTriggers'
 import { TriggerArm } from '../components/TriggerArm'
 import { FlowUpdate } from '../components/FlowUpdate'
 import { RaceStart } from '../components/RaceStart'
-import { FlowRunStatus, RetryCheck } from '../components/FlowRunStatus'
+import { FlowRunStatus } from '../components/FlowRunStatus'
+import { RetryCheck } from '../components/RetryCheck'
 import { AppearanceSection } from '../components/SettingsYou'
 import { LibrarySection } from '../components/Library'
 import { AgentsWindow } from '../components/AgentsWindow'
@@ -75,6 +77,7 @@ import { FlowGraphFrames } from './frames-flow-graph'
 import { RunViewFrames } from './frames-run-view'
 import { RunInspectorFrames } from './frames-run-inspector'
 import { ReviewPublicationFrames } from './frames-review-publication'
+import { ABANDON_VARIANTS, RunControlsFrames, type AbandonVariant } from './frames-run-controls'
 import { TeamOverviewFrames } from './frames-team-overview'
 import { SideBySideFrames } from './frames-side-by-side'
 import { ComposerSlotsFrames } from './frames-composer-slots'
@@ -473,6 +476,7 @@ const Preview = () => {
     | 'what was observed'
     | 'run a check'
     | 'retry check'
+    | 'retry check refused'
     | 'flow update'
     | 'flow customize'
     | 'race'
@@ -535,7 +539,7 @@ const Preview = () => {
         <Dial
           label="dialog"
           value={dialog}
-          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed', 'run a check', 'retry check', 'flow update', 'flow customize', 'race', 'trigger arm'] as const}
+          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed', 'run a check', 'retry check', 'retry check refused', 'flow update', 'flow customize', 'race', 'trigger arm'] as const}
           onChange={setDialog}
         />
         <Dial label="trigger arm scene" value={armScene} options={TRIGGER_ARM_SCENES} onChange={setArmScene} />
@@ -578,6 +582,7 @@ const Preview = () => {
       )}
       {dialog === 'new session' && <NewSessionChoice onClose={() => setDialog('off')} />}
       {dialog === 'retry check' && <RetryCheck run="run-preview" card={7} onClose={() => setDialog('off')} />}
+      {dialog === 'retry check refused' && <RetryCheck run="run-preview-ended" card={7} onClose={() => setDialog('off')} />}
       {dialog === 'flow update' && (
         <FlowUpdate root={PREVIEW_ROOT} id="old-fix" mode="update" onClose={() => setDialog('off')} onApplied={() => setDialog('off')} />
       )}
@@ -1064,6 +1069,7 @@ const Preview = () => {
       {new URLSearchParams(window.location.search).has('run-view') && <RunViewFrames />}
       {new URLSearchParams(window.location.search).has('run-inspector') && <RunInspectorFrames />}
       {new URLSearchParams(window.location.search).has('flow-graph') && <FlowGraphFrames />}
+      {new URLSearchParams(window.location.search).has('run-controls') && <RunControlsFrames variant={ABANDON_VARIANTS.find((one: AbandonVariant) => one === new URLSearchParams(window.location.search).get('abandon')) ?? null} />}
       {new URLSearchParams(window.location.search).has('teams-page') && <TeamsPageFrames />}
       {new URLSearchParams(window.location.search).has('team-record') && <TeamRecordFrames />}
       {new URLSearchParams(window.location.search).has('team-overview') && <TeamOverviewFrames />}
@@ -1085,7 +1091,9 @@ createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('review-publication')
+        {new URLSearchParams(window.location.search).has('cli-install')
+          ? <CliInstallFrame />
+          : new URLSearchParams(window.location.search).has('review-publication')
           ? <PublicationPreview />
           : new URLSearchParams(window.location.search).has('flow-brief')
           ? <FlowBriefDialog scene={(BRIEF_SCENES.find((one) => one === new URLSearchParams(window.location.search).get('flow-brief')) ?? 'empty') as BriefScene} />

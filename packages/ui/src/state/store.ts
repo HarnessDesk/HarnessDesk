@@ -75,6 +75,8 @@ import {
   type TriggerView,
   type FlowDryRun,
   type FlowEntry,
+  type FlowCheckAttempt,
+  type FlowCheckAttempts,
   type FlowExecution,
   type ReviewCandidate,
   type FlowFile,
@@ -131,6 +133,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import type { AccountPrefs, AccountPrefsMap } from '../lib/accounts'
+import type { ApprovalResponseResult } from '../lib/needs-you'
 import { isAvatarId } from '../lib/avatars'
 import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
 import { coalesce } from '../lib/coalesce'
@@ -4606,6 +4609,16 @@ export class AppStore {
   }
 
   /**
+   * What the desk recorded each time one check card's command ran, oldest first
+   * (`flow/check/attempts`) — the earlier results `evidence/board` has folded
+   * away. A read that keeps nothing: the Run view holds what it asked for, and
+   * asks again when a check's evidence or operation changes.
+   */
+  async readCheckAttempts(run: string, card: number): Promise<FlowCheckAttempts> {
+    return this.transport.request('flow/check/attempts', { run, card })
+  }
+
+  /**
    * "Continue with this answer": a stopped run's kept answer, handed to its
    * Seat again. A refusal is the host's own sentence, shown as it is: the
    * answer stays kept, so the action is still there once it can work, and
@@ -5887,11 +5900,11 @@ export class AppStore {
     }
   }
 
-  async respondToApproval(key: SessionKey, id: ApprovalId, decision: ApprovalDecision): Promise<void> {
+  async respondToApproval(key: SessionKey, id: ApprovalId, decision: ApprovalDecision): Promise<ApprovalResponseResult> {
     const pending = this.#snapshot.approvals.find(
       (entry) => entry.key === key && entry.approval.id === id,
     )
-    if (!pending) return
+    if (!pending) return { ok: true }
     // Drop it from the queue optimistically; the host confirms with
     // `approval/resolved`, and leaving a dead dialog up is worse than a flicker.
     this.#patch({ approvals: this.#snapshot.approvals.filter((entry) => entry !== pending) })
@@ -5901,9 +5914,17 @@ export class AppStore {
         approvalId: id,
         decision,
       })
+      return { ok: true }
     } catch (error) {
-      this.notice('error', describe(error))
-      this.#patch({ approvals: [...this.#snapshot.approvals, pending] })
+      const message = describe(error)
+      this.notice('error', message)
+      // A newer request may have reused this id while the older one was
+      // optimistically absent. Keep that live request in place rather than
+      // restoring a duplicate with an older requestedAt.
+      if (!this.#snapshot.approvals.some((entry) => entry.key === key && entry.approval.id === id)) {
+        this.#patch({ approvals: [...this.#snapshot.approvals, pending] })
+      }
+      return { ok: false, message }
     }
   }
 

@@ -103,6 +103,73 @@ window's whole wire.
 
 ---
 
+## The command line reaches a person's PATH through a launcher the app owns, and nothing else
+
+"Install command-line tool…" in the HarnessDesk menu puts one small file,
+`harnessdesk`, in a folder the person already owns and already has on the PATH
+their login shell builds: `~/.local/bin`, then `~/bin`. That PATH is asked of
+the login shell, because an app opened from the Dock inherits launchd's and not
+theirs. It is never `/usr/local/bin` and never a folder that needs an
+administrator, so the item never asks for a password; and it never writes into a
+package manager's or a version manager's folder, which the manager rewrites and
+which moves under a version change. When neither folder is on PATH it installs
+in `~/.local/bin` anyway, and the dialog says where the file is and gives the
+one line that puts that folder on PATH, in the person's own shell's words. No
+shell file is edited: those are the person's.
+
+The launcher is a POSIX script that runs the command line bundled in the app on
+the app's own runtime with `ELECTRON_RUN_AS_NODE=1`, so no separate Node install
+is needed. It records where the app was when it was written. When that is gone
+it looks in `/Applications` and `~/Applications` and then asks Spotlight for the
+bundle id, so an upgrade or a move never strands it and it never has to be
+rewritten. Arguments reach the program as the shell's own argument list and
+never as part of a string, so a quote, a `$` or a newline in one is only a
+character in it. Nothing in it is a credential: a local client has none.
+
+A `harnessdesk` that is not ours is never touched. Ours is a file whose second
+line is the marker, and nothing else is: not a script that quotes the marker
+further down, not a link, not a folder. A first install stops at anyone else's
+`harnessdesk` in either folder, because two commands of one name shadow each
+other and which one wins would depend on an order the person never chose. A
+second run of the item offers to remove the launcher, and an install over our
+own launcher replaces it, so a launcher an older build wrote follows a newer one.
+
+Neither acts on a name that was only checked. Checking a file and then renaming
+over its name, or deleting it, leaves a window in which another process can put
+something of its own at that name, and what it put would be overwritten or
+deleted. So the file is taken first, by renaming it to a name only the installer
+knows in the same folder, and then checked as what is held: opened without
+following a link, a regular file, our marker, and the same device, inode, text,
+size and mode as the one that was looked at. Non-zero birth and change times
+are compared in nanoseconds too, with the change time checked before the
+rename because the rename itself changes it. File numbers can be reused and
+timestamps can be coarse, so neither stands in for the text. Only then is it
+deleted, or its replacement linked
+into its name (a link refuses a name that has been taken). Anything else is put
+back, and the dialog says the launcher changed and was left as it is; if it
+cannot be put back because the name was taken again, it is kept beside it and
+the dialog says where. Restoration uses only an atomic hard link to a free
+name; if the volume cannot do that, or the held object is a link or a folder,
+it stays held rather than falling back to a check followed by a rename. Every
+failure after taking the file attempts that recovery, including inspection
+and deletion errors. The menu reports whether the command was restored and
+names any retained file. The price is that a replacement leaves the name without a
+file for the moment between those two steps. The look itself is one open that
+follows no link and waits on no pipe, so what is read and which file it was are
+the same file.
+
+The alternatives were a copy of the command line in a system folder, which
+needs an administrator and goes stale at the next update, and a package-manager
+install, which puts a second copy of the program beside the app and has to be
+kept in step with it. Windows has no launcher yet: its door is a named pipe and
+its installer is a change of its own.
+
+**The rule:** the app puts its command line on a person's PATH with one file in a
+folder they own; it never overwrites a file that is not its own, never edits a
+shell file and never asks for a password.
+
+---
+
 ## The Team overview is derived from held facts, with no reader of its own
 
 The overview model turns plain Seat, card, Run, approval and Insight data into
@@ -198,6 +265,45 @@ grant and nothing more, rather than speak for a seat it cannot see.
 
 **The rule:** the Flow tab shows what the Run froze; where things go is a
 function of the document; the list says everything the lines show.
+
+---
+
+## The window says what an answer or an abandon will do from the Run's own Flow
+
+The window's `team/intent` reply is `null`: a command-line abandon gets
+`{ role, nextRole }` back because the client door waits for the engine to open
+the next round, and the window does not. So what an abandon, or an answer to a
+person's step, will do cannot be read from what the host returns, and the
+person has to be told before acting. The window reads the Run's frozen Flow
+instead. `followOf` in `@harnessdesk/protocol` picks the first rule of the
+card's role whose answers hold for the round, reading a card with no answer as
+the engine does: it satisfies neither `every` nor `any`, and a rule with no
+restrictive guard follows any round that has cards. A host test runs the
+engine's own `decide` against the same table, so the two cannot drift apart
+unseen.
+
+The sentence follows what the engine does around the rule. Nothing follows a
+Run that is not running or a round that is over. A round decides only once its
+cards have all finished, so abandoning one of several says the round stays
+open (a card the board does not hold counts as unfinished). A rule that also
+reads evidence is said to depend on it and not to fire. A card abandoned where
+every rule needs an answer ends the Run without a next step, which reads Needs
+you: the plan's wording, that the rule after the role still fires, is only the
+common case, and the code decides.
+
+A review step, a person role whose rule reads a review fact, is not answered
+with a word: it records the attempt it answers for, which only the board's
+picker does, so the Overview and the inspector send it there. Every other
+answer, and every abandon, is the request the board's menu makes, argument for
+argument; a person's note is the card's context package. An answer given in two
+places is therefore one request, and the host refuses the second as already
+answered. An approval answered from the Overview sends the decision the docked
+card sends and shows the command and its working folder, or the other scope it
+approves, beside its choices, so a yes is never given blind.
+
+**The rule:** the window says what an answer or an abandon will do from the
+Run's own Flow, read as the engine reads it, and it sends no request the board
+does not.
 
 ---
 
@@ -1491,6 +1597,23 @@ Concurrent retries wait for their live siblings before routing the round.
 Children outside the recorded group are outside this guarantee.
 Interrupted work still needs fresh
 consent, since killing a process cannot undo its effects.
+
+The attempts a retry leaves are read from the evidence the engine already
+wrote, not from the card's operation: an operation is one record a retry
+replaces, and `evidence/board` keeps only the latest fact of a question, while
+each attempt is a durable `check` fact on the card. `flow/check/attempts`
+(`{ run, card }`) lists them oldest first with the Flow's own word for each —
+its `exits` entry for the status, else `otherwise`, which is how the engine
+answers a completed check's card, and a test holds the two together. It reads
+the store and nothing else: no token is minted and no result is judged against
+git. An attempt exists once its result is recorded; a retry still running, or
+one the desk interrupted before it could keep what it printed, is the card's
+operation until then. The refusals the Run and the check already say (the check
+is not waiting; the run has settled or stopped) are one function in the
+protocol, held to the host's own sentences by tests, so the window can keep a
+control disabled with the host's reason on screen; every other refusal comes
+from the host's preview, in the consent dialog, whose answer stays disabled
+while no token has been minted.
 
 The existing statechart already expresses a retry: `otherwise: retry` plus a
 rule back to the check, or an unconditional final rule for every non-landing

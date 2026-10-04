@@ -1356,6 +1356,7 @@ class PreviewStore {
   flowGeneration = (): number => 0
   flowCatalog = async (): Promise<readonly FlowEntry[]> => PREVIEW_FLOWS
   flowSource = async (_root: string, id: string): Promise<string> => PREVIEW_FLOW_SOURCE[id] ?? PREVIEW_FLOW_SOURCE['fix']!
+  readCheckAttempts = async () => ({ attempts: [], complete: true })
   previewFlow = async (_root: string, source: string): Promise<FlowPreview> => previewFlowPreviewFor(source)
   startFlowGoal = async (): Promise<FlowExecution> => {
     console.info('[preview] startFlowGoal')
@@ -1365,13 +1366,21 @@ class PreviewStore {
     mode === 'update' ? PREVIEW_FLOW_UPDATE : PREVIEW_FLOW_CUSTOMIZE
   applyFlowUpdate = async (): Promise<FlowUpdateResult> => ({ state: 'applied', written: PREVIEW_FLOW_UPDATE.edits.map((edit) => edit.path), message: 'The flow update was applied.' })
   readFlowExecution = async (): Promise<FlowExecution> => { throw new Error('[preview] no live flow execution to read here') }
-  previewFlowRetry = async (): Promise<FlowPreview> => ({
+  /** `run-preview-ended` is a Run that has settled: the host refuses in its own sentence and mints no token. */
+  previewFlowRetry = async (run?: string): Promise<FlowPreview> => run === 'run-preview-ended' ? {
+    ...FIX_PREVIEW,
+    token: null,
+    seats: [],
+    commands: [],
+    guards: [],
+    problems: [{ level: 'error', at: 'run', text: 'This run is settled. Start a new run to run this check again.' }],
+  } : {
     ...FIX_PREVIEW,
     token: 'preview-retry-token',
     seats: [],
     commands: FIX_PREVIEW.commands.map((command) => ({ ...command, cwd: '/work/storefront' })),
     guards: [],
-  })
+  }
   retryFlowCheck = async (): Promise<FlowExecution> => { throw new Error('[preview] no live flow run to retry here') }
 
   // --- the front door --------------------------------------------------

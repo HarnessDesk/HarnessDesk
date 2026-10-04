@@ -1503,6 +1503,44 @@ approval reasons arrive whole even in a narrow pane. Recorded usage is read
 when Overview is selected, on card completion while it is shown, and each
 minute of a running Run while it stays selected.
 
+### Answering what needs you
+
+A Needs-you row carries the way to answer it, in the row's own `meta` slot, so
+its sentence stays whole above the controls at every width. The seat that asks
+is named beside the kind chip.
+
+- **A request for approval** offers the agent's own choices in the docked
+  card's order and words (refusals first, the plain yes last), with only the
+  plain yes filled and a grant that outlives the answer quiet. What is being
+  approved is shown with it: the command whole in the code face, wrapped and
+  never cut, the files a change touches, the folders and hosts an access would
+  open (a long list names its first six and how many more, and the whole list
+  is one hover away), and the reason the runtime gave. A yes is never given
+  blind. An approval that offers no choice here leaves to its conversation. The
+  answer is the call the docked card makes, so whichever door answers first
+  wins and the other row goes with it.
+- **A question** with one single-choice question offers each option and Cancel.
+  A question that needs a form (several questions, a multiple choice, a free
+  answer) and a tool's request for information leave to their conversation,
+  and offer only Cancel here, beside **Answer in the conversation**, the one
+  filled act.
+- **A person's step** is answered with the words its role declares, one button
+  each, an optional note the next step reads, and one sentence saying what
+  each answer does, read from the Run's own frozen Flow. A word no rule follows
+  says the Run ends without a next step; a role no rule starts from says it
+  finishes the Run. A role that declares no words is marked done, as the board
+  does. A review step records the attempt it answers for, which only the
+  board's picker does, so its row says **Pick an attempt on the board** and
+  opens it.
+- **A refusal** stays on screen, in the danger alert under the controls, with
+  the answer it refused disabled and the others open: the host does not yet say
+  beforehand what it will take. The same controls stand in the Run inspector's
+  step.
+
+The `team-overview` catalogue board draws each of these on the production row:
+a command, an access request, a step, a question, a form, a review step, a
+refused answer and a narrow pane, in both themes.
+
 ### The Run timeline
 
 The Run view composes `PaneColumn`, `ListRows`, `ListRow`, `Text` and `Chip`.
@@ -1511,10 +1549,17 @@ Round headings group the oldest-first story; outcomes stay neutral unless the
 host names that outcome as the reason no step follows. Done and waiting are
 quiet text. Wrapped record titles keep their lead on the first line. Sentences wrap at
 narrow widths, while the brief previews two lines.
+A check that has run more than once draws each recorded result under its row,
+oldest first, as plain lines in the check row's own words (Passed, Failed, Timed
+out, Did not finish, or the Flow's own word). *Run again…* is a quiet link at the
+end of a check row's first line, the row's sibling and never inside its button, so
+a row's own words keep their room. It appears only where the Run and the check
+allow it; a refused row shows nothing, so one sentence is not repeated down every
+check row of an ended Run, and the inspector is where the reason is read.
 The `run-view` catalogue board mounts the production component for every Run
-state, empty and failed reads, a long timeline, and the narrow pane. The
-header's `Segmented` switch offers the Flow beside the timeline; the Flow
-drawing below is its other half.
+state, a check with two attempts, empty and failed reads, a long timeline, and
+the narrow pane. The header's `Segmented` switch offers the Flow beside the
+timeline; the Flow drawing below is its other half.
 
 ### The Run inspector
 
@@ -1541,14 +1586,29 @@ through a reload, and a card shows the ones that are its own whatever else is
 unread. Cards and cost follow the Team the timeline beside the inspector reads,
 and a Seat's cost stays on screen while the report is read again.
 
+A check that has run more than once lists its recorded attempts under
+Attempts, newest first: each with its result, exit, the commit it ran at (twelve
+characters, the whole on hover) and its time, and its output behind *Show output*,
+shown as text through the shared sanitiser, so an earlier output is read as it was
+recorded. While they are being read the section says so, and when the read failed
+it says that: a check is never said to have run once before the desk has been
+asked, and attempts already in hand stay on screen through a failed refresh.
+*Run again…* is the last control. Where the Run has ended or the check is still
+running it stays, disabled, with the host's own sentence on screen
+(`checkRetryRefusal`); everything else the host refuses (a moved checkout, cleanup
+still pending, a Team that cannot take work) is said in the consent dialog, which
+shows the command exactly as it will run and keeps its answer disabled while there
+is no token to redeem.
+
 At pane widths below 48rem, a selection pushes detail over the timeline;
 Run timeline returns to the selected row, and Run details opens the summary.
 Cost is recorded for the Seats, which may have worked in more than one Run.
 Handoffs and finding text preserve literal markup and discard terminal escapes
 through the shared sanitiser. The `run-inspector` catalogue and preview use
 the production component for every kind, findings still being read or
-unreadable, empty, pending and failed reads, narrow navigation and both
-themes.
+unreadable, a check with two attempts, one whose Run has ended, and one whose
+attempts are still being read or could not be, empty, pending and failed reads,
+narrow navigation and both themes.
 
 ### The Flow drawing
 
@@ -1622,3 +1682,24 @@ conversation; its
 preview also mounts the production sidebar and an open Team that can be wrapped
 under a dialog, and an open Team whose Assign dialog sits beside a wrapped Team's
 kept conversation.
+
+### Run controls
+
+A card that has not finished (open, claimed or blocked) offers **Abandon
+card…** in its inspector, an ordinary outline button before the conversation
+link: the door to a question is not red, because abandoning sets a card aside
+and a card can be put back in play. The question is a `ConfirmDialog` (Keep it,
+and Abandon card as the one filled act) whose first sentence says what the rule
+after the card's role will do. The window's reply to an abandon says nothing
+of that, so the sentence is read from the Run's own frozen Flow, the way the
+engine reads it: the rule that follows still fires and opens the next round; no
+rule accepts a card with no answer, so the Run ends without a next step and
+reads Needs you; the round stays open until its other cards finish; or nothing
+follows because the Run is not running or the round is over. A claimed card
+adds who holds it and that they cannot finish it. A refusal stays in the
+question, with the act disabled; asked again, it starts fresh. A person's
+step is answered in the inspector with the controls the Overview uses.
+
+The `run-controls` catalogue board and `preview.html?run-controls` draw the
+inspector's controls and, one at a time as a dialog is, the question for each
+way the Flow can answer it (`&abandon=opens|ends|waits|refused`).

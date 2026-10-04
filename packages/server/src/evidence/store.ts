@@ -47,6 +47,8 @@ export interface StoreRead {
   readonly skipped: number
   /** Which cards a skipped `evidence` line named, and which Goal each belongs to, when its envelope was readable that far. Empty on the `seats` file. */
   readonly unreadableCards: readonly CardHint[]
+  /** Skipped lines whose card could not be identified; any may belong to a requested card. */
+  readonly unscopedSkipped: number
 }
 
 /** What `merge` did with each line it was given. */
@@ -298,16 +300,18 @@ export class EvidenceStore {
     try {
       raw = await readFile(join(this.folderOf(project), FILE_OF[file]), 'utf8')
     } catch (error) {
-      if (NOTHING_YET.has(errnoOf(error))) return { lines: [], skipped: 0, unreadableCards: [] }
+      if (NOTHING_YET.has(errnoOf(error))) return { lines: [], skipped: 0, unreadableCards: [], unscopedSkipped: 0 }
       throw error
     }
     const lines: StoredLine[] = []
     let skipped = 0
+    let unscopedSkipped = 0
     const unreadableCards = new Map<string, CardHint>()
     for (const text of raw.split('\n')) {
       if (text.trim() === '') continue
       if (Buffer.byteLength(text) > LINE_LIMIT) {
         skipped += 1
+        unscopedSkipped += 1
         continue
       }
       let parsed: unknown
@@ -315,6 +319,7 @@ export class EvidenceStore {
         parsed = JSON.parse(text)
       } catch {
         skipped += 1
+        unscopedSkipped += 1
         continue
       }
       const line = lineOf(parsed, { file, project })
@@ -325,11 +330,12 @@ export class EvidenceStore {
       skipped += 1
       const hint = cardHintOf(parsed)
       if (hint !== null) unreadableCards.set(`${hint.board}\u0000${hint.id}`, hint)
+      else unscopedSkipped += 1
     }
     if (skipped > 0) {
       this.#log('some evidence records could not be read and were skipped', { project, file, skipped })
     }
     const sorted = [...unreadableCards.values()].sort((a, b) => (a.board === b.board ? a.id - b.id : a.board < b.board ? -1 : 1))
-    return { lines, skipped, unreadableCards: sorted }
+    return { lines, skipped, unreadableCards: sorted, unscopedSkipped }
   }
 }

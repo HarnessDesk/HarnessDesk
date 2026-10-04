@@ -1,8 +1,8 @@
-import { runtimeId, type BoardEvidence, type FindingView, type FlowEntry, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
+import { runtimeId, type BoardEvidence, type FindingView, type FlowCheckAttempt, type FlowEntry, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
 import { overviewRun, overviewTeamStore } from './team-overview-fixture'
 import { runTimeline } from '../lib/run-timeline'
 
-export const RUN_VIEW_STATES = ['running', 'settled', 'complete', 'stopped', 'stalled', 'findings', 'damaged-findings', 'many', 'narrow', 'empty', 'pending', 'failed', 'person'] as const
+export const RUN_VIEW_STATES = ['running', 'attempts', 'settled', 'complete', 'stopped', 'stalled', 'findings', 'damaged-findings', 'many', 'narrow', 'empty', 'pending', 'failed', 'person'] as const
 export type RunScene = typeof RUN_VIEW_STATES[number]
 const at = Date.now() - 1_200_000
 const card = (id: number, working = false, start = at): Intent => ({ id, title: id === 1 ? 'Retry the checkout call on a 502' : id === 2 ? 'Verify the change' : id === 3 ? 'Review the change' : 'Answer the review',
@@ -14,7 +14,9 @@ export const runFixture = (scene: RunScene = 'running') => {
   const count = scene === 'many' ? 20 : 4
   const terminal = ['settled', 'complete', 'stopped', 'stalled'].includes(scene)
   const initial: FlowExecution = { ...overviewRun(scene === 'settled' || scene === 'complete' ? 'settled' : scene === 'stopped' ? 'stopped' : scene === 'stalled' ? 'stalled' : 'running'),
-    operations: scene === 'stalled' ? [{ key: 'interrupted-check', kind: 'check', card: count, seat: null, state: 'uncertain' }] : [],
+    // The check at round 2 finished (it is what a Run on the rig leaves), so a running Run offers Run again… on it and an ended one does not.
+    operations: [...(scene === 'empty' ? [] : [{ key: 'check:2:0', kind: 'check' as const, card: 2, seat: null, state: 'finished' as const }]),
+      ...(scene === 'stalled' ? [{ key: 'interrupted-check', kind: 'check' as const, card: count, seat: null, state: 'uncertain' as const }] : [])],
     startedAt: start, endedAt: terminal ? start + 900_000 : null, revision: '3f9a1c',
     brief: 'Retry the checkout call when the payment service answers a 502, with a bounded backoff, and say on the order page when it gives up.',
     end: scene === 'settled' ? { kind: 'unrouted', card: 4, outcome: 'no-pr' } : scene === 'complete' ? { kind: 'complete' } : scene === 'stopped' ? { kind: 'stopped', by: 'person' } : scene === 'stalled' ? { kind: 'stalled' } : null,
@@ -57,7 +59,14 @@ export const runFixture = (scene: RunScene = 'running') => {
         problem: 'The finding history has a missing sequence.' },
     )
   }
-  return { execution, cards, signals, evidence, findings, origin: 'Started by you' }
+  // What the desk recorded each time the round-2 check ran: it failed first, and passed when it was run again at a later commit.
+  const attempts: ReadonlyMap<number, readonly FlowCheckAttempt[]> | undefined = scene !== 'attempts' ? undefined : new Map([[2, [
+    { id: 'attempt-2-1', n: 1, at: start + 160_000, commit: '9d41c0e7ab3f52d86e1c0a4b7f93d2e8a65b10c4', exit: 1, timedOut: false, outcome: 'fail',
+      tail: 'FAIL src/checkout/retry.test.ts\n  ● retries a 502 with a bounded backoff\n    expected 3 attempts, received 1\n\nTests: 1 failed, 41 passed' },
+    { id: 'attempt-2-2', n: 2, at: start + 400_000, commit: '4f0b8a21c93d7e5a60b1d82f3c4e9a7d15b6c0e8', exit: 0, timedOut: false, outcome: 'pass',
+      tail: 'Tests: 42 passed\nDone in 38.2s' },
+  ]]])
+  return { execution, cards, signals, evidence, findings, origin: 'Started by you', ...(attempts ? { attempts } : {}) }
 }
 export const runModel = (scene: RunScene) => runTimeline(runFixture(scene))
 

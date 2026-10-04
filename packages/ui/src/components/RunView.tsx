@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Banner, Button, Chip, EmptyState, IconTile, ListRow, ListRows, PaneColumn, Segmented, Separator, Text } from '../design'
 import { openExternal } from '../lib/desktop'
 import { commitDate } from '../lib/git-refs'
@@ -6,6 +6,7 @@ import type { runTimeline } from '../lib/run-timeline'
 import { sanitizeHtml } from '../lib/sanitize'
 import { doingLine, type DoingLine } from '../lib/team-overview'
 import { AgentIcon, CheckIcon, PlanIcon } from './Icons'
+import { RunAgain } from './RetryCheck'
 import { formatDuration } from './TurnTail'
 
 const words = (value: string): string => {
@@ -64,6 +65,14 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
         {problem && <Banner tone="warning" title="Some Run details could not be read">{words(problem)}{onRetry && <Button variant="link" size="inline-link" onClick={onRetry}>Try again</Button>}</Banner>}
         <ListRows size="sm" aria-label="Run timeline">
           {model.rows.map(row => {
+            // What a check ran each time, drawn once it has run more than once: plain rows under their check; the check's inspector holds the output.
+            if (row.kind === 'attempt') return <ListRow key={row.id} data-row={row.id} data-kind="attempt" wrapTitle
+              lead={<IconTile size="sm" aria-hidden className="invisible" />}
+              title={<span className="flex min-w-0 flex-wrap items-center gap-2">
+                <Text role="meta" className="min-w-0 break-words whitespace-normal [overflow-wrap:anywhere]">{words(row.title)}</Text>
+                {row.status && <Chip tone="neutral">{words(row.status)}</Chip>}
+                {row.since !== null && <Text role="meta" numeric>{commitDate(row.since, now)}</Text>}
+              </span>} />
             const previous = held.current.get(row.id) ?? null
             const next = row.working && row.seat ? doing?.get(row.seat) ?? null : null
             const line = doingLine(previous, next, now)
@@ -78,8 +87,11 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
               {row.publication && <Chip tone={row.publication.tone}>{row.publication.label}</Chip>}
               {duration !== null && <Text role="meta" numeric>{formatDuration(duration)}{row.working ? ' so far' : ''}</Text>}
             </span>
-            return <ListRow wrapTitle key={row.id} data-row={row.id} data-kind={row.kind} as="button" interactive selected={selectedRow === row.id}
+            // *Run again…* is the row's sibling, never inside its button: laid over the end of the first line, where an invisible spacer in the row's trail keeps the row's own words clear of it.
+            const again = row.kind === 'check' && row.card !== null && row.retryRefusal === null
+            const item = <ListRow wrapTitle data-row={row.id} data-kind={row.kind} as="button" interactive selected={selectedRow === row.id}
               onClick={() => onSelect(row.id)} title={row.kind === 'end' && row.detail ? null : title}
+              trail={again ? <span aria-hidden className="invisible mx-1.5 whitespace-nowrap">Run again…</span> : undefined}
               className={row.kind === 'round' ? 'mt-4' : undefined}
               lead={row.kind === 'card' ? <IconTile shape="face" size="sm">{row.seat ? faces?.get(row.seat) ?? <AgentIcon /> : <AgentIcon />}</IconTile>
                 : row.kind === 'check' ? <IconTile size="sm"><CheckIcon /></IconTile>
@@ -88,6 +100,9 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
               wrapSubtitle
               meta={row.kind === 'end' && row.detail ? <Banner tone={row.attention ? 'warning' : 'neutral'} title={row.title}>{row.publication && <Chip tone={row.publication.tone}>{row.publication.label}</Chip>}<div>{words(row.detail)}</div></Banner>
                 : row.kind === 'start' && row.since !== null ? <Text role="meta">{commitDate(row.since, now)}</Text> : undefined} />
+            return again ? <div key={row.id} data-slot="run-row" className="relative">{item}
+              <div className="absolute end-4 top-2 flex items-center"><RunAgain run={header.run} card={row.card!} refusal={null} onRow /></div>
+            </div> : <Fragment key={row.id}>{item}</Fragment>
           })}
         </ListRows>
         {!model.rows.some(row => row.kind === 'round') && <EmptyState title="No rounds have opened yet" />}

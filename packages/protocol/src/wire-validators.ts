@@ -1233,6 +1233,8 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'flow/execution/source': goalShape({ run: isFilled }),
   // Consent is a host-minted token for this card's attempt and checkout; no caller-supplied command or revision.
   'flow/check/retry': goalShape({ run: isFilled, card: goalInteger(1), token: isFilled }),
+  // A read of one card's recorded results: the run and the card name it, and nothing else can widen it.
+  'flow/check/attempts': goalShape({ run: isFilled, card: goalInteger(1) }),
   'flow/answer/continue': goalShape({ run: isFilled }),
   'flow/review/candidates': goalShape({ run: isFilled, card: goalInteger(1) }),
   'flow/review/decide': goalShape({ run: isFilled, card: goalInteger(1), candidate: isFilled, verdict: isFilled }),

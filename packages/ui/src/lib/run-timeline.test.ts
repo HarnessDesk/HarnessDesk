@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { runtimeId, type FindingRunView, type BoardEvidence, type FindingView, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
+import { runtimeId, type FindingRunView, type FlowCheckAttempt, type BoardEvidence, type FindingView, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
 import { runTimeline } from './run-timeline'
 
 const run = (patch: Partial<FlowExecution> = {}): FlowExecution => ({
@@ -174,4 +174,72 @@ it.each([true, false])('uses the current PR binding for a local round kept befor
 it('preserves a posted round’s recorded target when the Run binds another PR', () => {
   const findingRun = publicationRun({ publication: 'posted', rounds: [{ round: 1, state: 'posted', reason: null, pr: 9, cards: [1] }] })
   expect(runTimeline({ execution: run(), cards: [card()], findingRun }).rows.find(row => row.card === 1)?.publication?.label).toBe('Posted to #9')
+})
+describe('a check run again', () => {
+  const gate = (patch: Partial<FlowExecution> = {}) => run({ rounds: [{ ...run().rounds[0]!, role: 'verify', state: 'closed' }], ...patch })
+  const finished = { key: 'check', kind: 'check' as const, state: 'finished' as const, seat: null, card: 1 }
+  const attempt = (n: number, patch: Partial<FlowCheckAttempt> = {}): FlowCheckAttempt =>
+    ({ id: `attempt-${n}`, n, at: 1000 * n, commit: 'abc', exit: 1, timedOut: false, outcome: 'fail', tail: `attempt ${n}`, ...patch })
+  const attempts = (...list: FlowCheckAttempt[]) => new Map([[1, list]])
+  const rows = (input: Parameters<typeof runTimeline>[0]) => runTimeline(input).rows
+
+  it('draws each attempt under its check once there is more than one, oldest first, in the check row’s own words', () => {
+    const list = rows({ execution: gate({ operations: [finished] }), cards: [card({ state: 'done', outcome: 'pass' })], evidence,
+      attempts: attempts(attempt(1), attempt(2, { exit: 0, outcome: 'pass' })) })
+    expect(list.map(row => row.id)).toEqual(['start', 'round-1', 'check-1-1', 'attempt-1-1-1', 'attempt-1-1-2'])
+    expect(list.filter(row => row.kind === 'attempt')).toMatchObject([
+      { title: 'Attempt 1', status: 'Failed', card: 1, round: 1, since: 1000, attention: false, detail: null },
+      { title: 'Attempt 2', status: 'Passed', card: 1, round: 1, since: 2000, attention: false, detail: null },
+    ])
+  })
+  it('draws no attempt under a check that has one result or none, because the check row already says it', () => {
+    const input = { execution: gate({ operations: [finished] }), cards: [card({ state: 'done', outcome: 'pass' })], evidence }
+    for (const read of [undefined, attempts(), attempts(attempt(1))]) {
+      expect(rows({ ...input, ...(read ? { attempts: read } : {}) }).some(row => row.kind === 'attempt')).toBe(false)
+    }
+  })
+  it('does not assign readable subset ordinals to timeline rows when earlier evidence may be missing', () => {
+    const list = rows({ execution: gate({ operations: [finished] }), cards: [card({ state: 'done', outcome: 'pass' })], evidence,
+      attempts: attempts(attempt(1, { n: null }), attempt(2, { n: null, exit: 0, outcome: 'pass' })) })
+    expect(list.some(row => row.kind === 'attempt')).toBe(false)
+  })
+  it('keeps a check’s attempts with that check, and ignores a read for a card that is not a check', () => {
+    const execution = gate({ rounds: [{ ...gate().rounds[0]!, cards: [1, 2] }], operations: [finished] })
+    const list = rows({ execution, cards: [card({ state: 'done' }), card({ id: 2, state: 'done' })],
+      attempts: new Map([[1, [attempt(1), attempt(2)]], [2, [attempt(1), attempt(2)]], [9, [attempt(1), attempt(2)]]]) })
+    expect(list.map(row => row.id)).toEqual(['start', 'round-1', 'check-1-1', 'attempt-1-1-1', 'attempt-1-1-2', 'check-1-2', 'attempt-1-2-1', 'attempt-1-2-2'])
+    const writer = run({ rounds: [{ ...run().rounds[0]!, cards: [1] }] })
+    expect(rows({ execution: writer, cards: [card()], attempts: attempts(attempt(1), attempt(2)) }).some(row => row.kind === 'attempt')).toBe(false)
+  })
+  it.each([
+    ['a status the Flow reads as pass', { exit: 0, outcome: 'pass' }, 'Passed'],
+    ['a status the Flow reads as fail', { exit: 2, outcome: 'fail' }, 'Failed'],
+    ['a timeout the Flow reads as fail', { exit: null, timedOut: true, outcome: 'fail' }, 'Timed out'],
+    ['a result with no exit that was not a timeout', { exit: null, timedOut: false, outcome: 'fail' }, 'Did not finish'],
+    ['an outcome word only the Flow knows', { exit: 0, outcome: 'no-pr' }, 'No pr'],
+    ['a retry word', { exit: 1, outcome: 'retry' }, 'Retry'],
+  ] as const)('words %s as %s', (_what, patch, word) => {
+    const [, one] = rows({ execution: gate({ operations: [finished] }), cards: [card({ state: 'done' })], attempts: attempts(attempt(1), attempt(2, patch)) }).filter(row => row.kind === 'attempt')
+    expect(one!.status).toBe(word)
+  })
+  it('says why a check cannot run again from its run and its operation, in the host’s sentence, and offers it otherwise', () => {
+    const refusal = (execution: FlowExecution) => rows({ execution, cards: [card({ state: 'done' })] }).find(row => row.kind === 'check')!.retryRefusal
+    expect(refusal(gate({ operations: [finished] }))).toBeNull()
+    expect(refusal(gate({ state: 'stalled', operations: [{ ...finished, state: 'uncertain' }] }))).toBeNull()
+    expect(refusal(gate({ state: 'settled', operations: [finished] }))).toBe('This run is settled. Start a new run to run this check again.')
+    expect(refusal(gate({ state: 'stopped', operations: [{ ...finished, state: 'uncertain' }] }))).toBe('This run is stopped. Start a new run to run this check again.')
+    expect(refusal(gate({ operations: [{ ...finished, state: 'started' }] }))).toBe('This check is not waiting to be run again.')
+    expect(refusal(gate())).toBe('This check is not waiting to be run again.')
+  })
+  it('words the check row and its newest attempt alike, including a result with no exit', () => {
+    const noExit = { ...evidence, cards: evidence.cards.map(one => ({ ...one, facts: one.facts.map(view => ({ ...view, record: { ...view.record, fact: { ...view.record.fact, exit: null, timedOut: false } } })) })) } as BoardEvidence
+    const list = rows({ execution: gate({ operations: [finished] }), cards: [card({ state: 'done', outcome: 'fail' })], evidence: noExit,
+      attempts: attempts(attempt(1), attempt(2, { exit: null })) })
+    expect(list.find(row => row.kind === 'check')?.status).toBe('Did not finish')
+    expect(list.filter(row => row.kind === 'attempt').at(-1)?.status).toBe('Did not finish')
+  })
+  it('asks nothing of a card that is not a check', () => {
+    const list = rows({ execution: run(), cards: [card()] })
+    expect(list.every(row => row.retryRefusal === null)).toBe(true)
+  })
 })

@@ -1,0 +1,70 @@
+import { useMemo, useState } from 'react'
+import { splitSessionKey, type Approval, type ApprovalDecision, type ApprovalId, type FlowExecution, type Intent, type SessionKey } from '@harnessdesk/protocol'
+import { approvalDoor, stepDoor, type ApprovalRefusal, type NeedsYouAnswers } from '../lib/needs-you'
+import { useSnapshot, useStore } from './context'
+import type { AppStore } from './store'
+
+/**
+ * A person's answer to a card a Flow addressed to them, as the same request
+ * the board makes. The arguments are shaped as the board shapes them — none
+ * the card does not mean — so an answer given here and one given there are one
+ * thing to the host, which refuses the second as already answered. `note` is
+ * the context package the next round reads.
+ */
+export const answerStep = (
+  store: Pick<AppStore, 'teamIntent'>,
+  room: string,
+  card: number,
+  outcome: string | null,
+  note: string,
+): Promise<void> =>
+  note
+    ? store.teamIntent(room, card, 'done', undefined, outcome ?? undefined, note)
+    : outcome !== null
+      ? store.teamIntent(room, card, 'done', undefined, outcome)
+      : store.teamIntent(room, card, 'done')
+
+/**
+ * What a Team's Overview can do about what needs the person: the doors, from
+ * the cards and the requests the window already holds, and the calls that
+ * answer through them. An approval is answered through the store call the
+ * docked card makes, so whichever door answers first wins as it does today.
+ */
+export const useNeedsYouAnswers = ({ room, execution, cards, openBoard }: {
+  room: string
+  execution: FlowExecution | null
+  cards: readonly Intent[]
+  openBoard: () => void
+}): NeedsYouAnswers => {
+  const store = useStore()
+  const snapshot = useSnapshot()
+  const [refusals, setRefusals] = useState<readonly (ApprovalRefusal & { key: SessionKey; approval: Approval })[]>([])
+  return useMemo((): NeedsYouAnswers => ({
+    stepDoor: (card) => {
+      const found = cards.find((one) => one.id === card)
+      return found ? stepDoor(found, execution) : null
+    },
+    approvalDoor: (id, key) => {
+      const entry = snapshot.approvals.find((one) => one.key === key && one.approval.id === id)
+      if (!entry) return null
+      const runtime = snapshot.runtimes.find((one) => one.id === splitSessionKey(entry.key).runtime)
+      // The docked card's own condition for wording a board tool's grants.
+      const words = runtime?.capabilities.perToolMcpApproval && runtime.presentation.boardToolApproval ? runtime.presentation.boardToolApproval : null
+      return { key: entry.key, approval: entry.approval, ...approvalDoor(entry.approval, words) }
+    },
+    answerStep: (card, outcome, note) => answerStep(store, room, card, outcome, note),
+    approvalRefusals: (key, approval) => refusals.filter((one) => one.key === key && one.approval === approval)
+      .map(({ choiceId, message }) => ({ choiceId, message })),
+    respond: async (key, approval, decision: ApprovalDecision, choiceId) => {
+      // A stale row can outlive the request it rendered. Do not let its click
+      // answer a new request that reused the same id in this conversation.
+      if (!store.getSnapshot().approvals.some((entry) => entry.key === key && entry.approval === approval)) return
+      const result = await store.respondToApproval(key, approval.id, decision)
+      setRefusals((previous) => {
+        const other = previous.filter((one) => one.key !== key || one.approval !== approval || one.choiceId !== choiceId)
+        return result.ok ? other : [...other, { key, approval, choiceId, message: result.message }]
+      })
+    },
+    openBoard,
+  }), [store, snapshot.approvals, snapshot.runtimes, room, execution, cards, openBoard, refusals])
+}

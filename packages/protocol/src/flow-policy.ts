@@ -143,6 +143,67 @@ export interface FlowOperation {
 }
 
 /**
+ * Why a check cannot be run again from what its run and its own operation
+ * already say, in the sentence the host refuses with (`flow/preview`'s `retry`).
+ * A window holds both, so it can show the reason beside a disabled control
+ * without asking. Null when neither says no: the host can still refuse for what
+ * only it sees — a checkout that moved, cleanup still pending, a held or
+ * wrapped Team — and does, in the consent dialog. A test holds the two
+ * sentences to the host's (`flow-checks.test.ts`).
+ */
+export const checkRetryRefusal = (run: FlowExecution['state'], operation: FlowOperation['state'] | null): string | null => {
+  if (operation !== 'finished' && operation !== 'uncertain') return 'This check is not waiting to be run again.'
+  return run === 'settled' || run === 'stopped' ? `This run is ${run}. Start a new run to run this check again.` : null
+}
+
+/**
+ * One result the desk recorded for a check card's command: what it exited with
+ * and printed, the commit it ran at, and the word the Flow reads it as.
+ *
+ * A check run again adds one and rewrites none, because each is a durable
+ * evidence record of its own; `FlowOperation` is a single record a retry
+ * overwrites, and `evidence/board` folds a card to its latest fact, so
+ * `flow/check/attempts` is the read that returns the earlier ones. An attempt
+ * exists once its result is recorded: one still running, or interrupted before
+ * the desk could keep what it printed, is the card's operation, not yet an
+ * attempt.
+ */
+export interface FlowCheckAttempt {
+  /** The evidence record that holds this result. */
+  readonly id: string
+  /** 1 for the first result recorded, when its history is complete; null when skipped evidence may hide earlier results. */
+  readonly n: number | null
+  /** When the desk recorded it, in host milliseconds. */
+  readonly at: number
+  /** The commit it ran at. */
+  readonly commit: string
+  /** Its exit status; null when it did not exit by itself — it ran over its limit, was stopped, or never started. */
+  readonly exit: number | null
+  /** It ran over the check's limit and was stopped. */
+  readonly timedOut: boolean
+  /**
+   * What the Flow's own mapping says this result is: its `exits` entry for the
+   * exit status, else its `otherwise` (a timeout included). It is the word the
+   * engine answers a completed check's card with; a result the desk stopped
+   * part-way is mapped the same way, though the card took no answer from it.
+   */
+  readonly outcome: string
+  /**
+   * The last of what the command printed, at most 4,000 characters, exactly as
+   * recorded. It is command output, which can hold anything a repository or a
+   * tool printed: a surface shows it as text, through its sanitiser.
+   */
+  readonly tail: string
+}
+
+/** The readable check results and whether damaged evidence may hide earlier attempts. */
+export interface FlowCheckAttempts {
+  readonly attempts: readonly FlowCheckAttempt[]
+  /** False when a skipped evidence line could belong to this check card. */
+  readonly complete: boolean
+}
+
+/**
  * A run a trigger started (phase 8): the firing that started it, the trigger,
  * the closure digest its arm consented to, and whether its dispatch is held.
  * `dispatchHeld` is set before every start or later round a firing opens and
