@@ -230,8 +230,9 @@ test('parent work beyond the batch survives checkpoint replay and abort never wr
       await delay(55)
       return { sha, tree: sha, parents: [parent] }
     },
+    kinds: async (shas) => new Map(shas.map((sha) => [sha, 'commit'])),
     patch: async () => ({ stable: '', exact: '', files: [] }), files: async () => [],
-    ancestors: async () => [], close: async () => { controller.resolve() },
+    ancestors: async () => [], batch: (_signal, work) => work(fake), close: async () => { controller.resolve() },
   }
   const handle = await admitProject(f.repo.dir, f.repo.stateDir, [f.repo.dir])
   t.after(() => gitReader(handle).close())
@@ -529,8 +530,9 @@ test('a crash after an object append requeues its parents before acknowledging t
     snapshot: async () => ({ refs: new Map([['refs/heads/main', tip]]), heads: new Map(), takenAt: Date.now() }),
     reflogs: async () => ({ moves: [], cursors: new Map(checkpoint.logs), gaps: [], more: false }),
     commit: async (sha) => ({ sha, tree: sha, parents: [f.base] }),
+    kinds: async (shas) => new Map(shas.map((sha) => [sha, 'commit'])),
     patch: async () => ({ stable: '', exact: '', files: [] }), files: async () => [],
-    ancestors: async () => [], close: async () => {},
+    ancestors: async () => [], batch: (_signal, work) => work(fake), close: async () => {},
   }
   const handle = await admitProject(f.repo.dir, f.repo.stateDir, [f.repo.dir])
   t.after(() => gitReader(handle).close())

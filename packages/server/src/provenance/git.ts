@@ -66,9 +66,11 @@ export interface GitReader {
   snapshot(signal: AbortSignal): Promise<RefSnapshot>
   reflogs(cursors: ReadonlyMap<string, LogCursor>, signal: AbortSignal): Promise<ReflogPage>
   commit(sha: string, signal: AbortSignal): Promise<CommitObject | null>
+  kinds(shas: readonly string[], signal: AbortSignal): Promise<ReadonlyMap<string, string | null>>
   patch(from: string | null, to: string, signal: AbortSignal): Promise<Patch>
   files(from: string | null, to: string, signal: AbortSignal): Promise<readonly FilePatch[]>
   ancestors(tips: readonly string[], known: ReadonlySet<string>, limit: number, signal: AbortSignal): Promise<readonly string[]>
+  batch<T>(signal: AbortSignal, work: (reader: GitReader) => Promise<T>): Promise<T>
   close(): Promise<void>
 }
 
@@ -405,6 +407,46 @@ export const admitProject = async (
   }
 }
 
+/** A least-recently-used map: a hit moves its entry to the newest end, so the oldest is always first. */
+class Recent<V> {
+  readonly #entries = new Map<string, { value: V; weight: number }>()
+  #weight = 0
+
+  constructor(readonly limit: number, readonly weightLimit: number = Number.POSITIVE_INFINITY) {}
+
+  get(key: string): V | undefined {
+    const entry = this.#entries.get(key)
+    if (!entry) return undefined
+    this.#entries.delete(key)
+    this.#entries.set(key, entry)
+    return entry.value
+  }
+
+  set(key: string, value: V, weight = 1): void {
+    if (weight > this.weightLimit) return
+    const old = this.#entries.get(key)
+    if (old) {
+      this.#weight -= old.weight
+      this.#entries.delete(key)
+    }
+    this.#entries.set(key, { value, weight })
+    this.#weight += weight
+    for (const [oldest, entry] of this.#entries) {
+      if (this.#entries.size <= this.limit && this.#weight <= this.weightLimit) break
+      this.#entries.delete(oldest)
+      this.#weight -= entry.weight
+    }
+  }
+
+  clear(): void {
+    this.#entries.clear()
+    this.#weight = 0
+  }
+}
+
+/** Object ids one `cat-file` process is asked about at a time. */
+const KIND_BATCH = 500
+
 export const gitReader = (handle: RepoHandle, options: ReaderOptions = {}): GitReader => {
   const admission = admissions.get(handle) ?? fail('unadmitted-project')
   const lifetime = new AbortController()
@@ -429,6 +471,25 @@ export const gitReader = (handle: RepoHandle, options: ReaderOptions = {}): GitR
     '-c', `core.hooksPath=${devNull}`, '-c', 'core.fsmonitor=false',
     '-c', 'diff.external=', '-c', 'core.quotePath=true', ...args,
   ], { signal, input, env })
+  /*
+   * An object id names its content for good, so what Git said about one is kept:
+   * its type, a commit's parents, the patch between two commits. Nothing is kept
+   * about an object that was missing, because one can be fetched. A kept answer is
+   * only ever served inside a batch whose metadata check has passed, and a check
+   * that fails empties all of it, so no answer outlives a change the check catches.
+   */
+  const types = new Recent<string>(8192)
+  const commits = new Recent<CommitObject>(4096)
+  const peeled = new Recent<string>(1024)
+  const patches = new Recent<Patch>(4096, 50_000)
+  const filePatches = new Recent<{ readonly stable: string; readonly exact: string }>(8192)
+  const forget = () => {
+    types.clear()
+    commits.clear()
+    peeled.clear()
+    patches.clear()
+    filePatches.clear()
+  }
   const validate = async (signal: AbortSignal) => {
     aborted(signal)
     options.validated?.()
@@ -441,22 +502,41 @@ export const gitReader = (handle: RepoHandle, options: ReaderOptions = {}): GitR
       if ((await fileBytes(path, 4096))?.toString('utf8') !== text) fail('metadata-changed')
     }
   }
-  const job = <T>(signal: AbortSignal, action: (signal: AbortSignal) => Promise<T>): Promise<T> => {
-    const combined = AbortSignal.any([signal, lifetime.signal])
-    const next = queue.then(async () => {
-      aborted(combined)
-      await validate(combined)
-      return action(combined)
-    })
-    queue = next.catch(() => {})
-    return next
+  const checked = async (signal: AbortSignal): Promise<void> => {
+    try {
+      await validate(signal)
+    } catch (error) {
+      forget()
+      throw error
+    }
   }
-  const kind = async (sha: string, signal: AbortSignal): Promise<string | null> => {
-    const answer = utf8(await run(['cat-file', '--batch-check=%(objecttype)'], signal,
-      Buffer.from(`${objectId(sha)}\n`))).trim()
-    return answer.endsWith(' missing') ? null : answer
+  /** The type of each object id, `null` for one that is missing; one process answers for up to KIND_BATCH ids. */
+  const kindsOf = async (shas: readonly string[], signal: AbortSignal): Promise<Map<string, string | null>> => {
+    const answer = new Map<string, string | null>()
+    const unknown: string[] = []
+    for (const sha of new Set(shas)) {
+      const known = types.get(objectId(sha))
+      if (known) answer.set(sha, known)
+      else unknown.push(sha)
+    }
+    for (let at = 0; at < unknown.length; at += KIND_BATCH) {
+      const chunk = unknown.slice(at, at + KIND_BATCH)
+      const lines = utf8(await run(['cat-file', '--batch-check=%(objecttype)'], signal,
+        Buffer.from(`${chunk.join('\n')}\n`))).split('\n')
+      chunk.forEach((sha, index) => {
+        const line = lines[index] || fail('invalid-object-answer')
+        const type = line.endsWith(' missing') ? null : line
+        if (type !== null) types.set(sha, type)
+        answer.set(sha, type)
+      })
+    }
+    return answer
   }
+  const kind = async (sha: string, signal: AbortSignal): Promise<string | null> =>
+    (await kindsOf([sha], signal)).get(sha) ?? null
   const commit = async (sha: string, signal: AbortSignal): Promise<CommitObject | null> => {
+    const known = commits.get(objectId(sha))
+    if (known) return known
     if (await kind(sha, signal) !== 'commit') return null
     const bytes = await run(['cat-file', 'commit', objectId(sha)], signal)
     const end = bytes.indexOf('\n\n')
@@ -464,16 +544,24 @@ export const gitReader = (handle: RepoHandle, options: ReaderOptions = {}): GitR
     const headers = utf8(bytes.subarray(0, end)).split('\n')
     const tree = headers.find((line) => line.startsWith('tree '))?.slice(5)
     if (!tree) fail('invalid-commit')
-    return {
+    const parsed: CommitObject = Object.freeze({
       sha,
       tree: objectId(tree),
-      parents: headers.filter((line) => line.startsWith('parent ')).map((line) => objectId(line.slice(7))),
-    }
+      parents: Object.freeze(headers.filter((line) => line.startsWith('parent ')).map((line) => objectId(line.slice(7)))),
+    })
+    commits.set(sha, parsed)
+    return parsed
   }
   const peel = async (sha: string, signal: AbortSignal): Promise<string | null> => {
+    const tip = objectId(sha)
+    const known = peeled.get(tip)
+    if (known) return known
     for (let depth = 0; depth < 8; depth += 1) {
       const type = await kind(sha, signal)
-      if (type === 'commit') return sha
+      if (type === 'commit') {
+        peeled.set(tip, sha)
+        return sha
+      }
       if (type !== 'tag') return null
       const tag = utf8(await run(['cat-file', 'tag', objectId(sha)], signal))
       const target = /^object ([a-f0-9]+)\n/.exec(tag)?.[1]
@@ -558,19 +646,52 @@ export const gitReader = (handle: RepoHandle, options: ReaderOptions = {}): GitR
     ...(from === null ? ['--root', objectId(to)] : [objectId(from), objectId(to)]),
     '--', ...(path === undefined ? [] : [path]),
   ]
-  const fingerprint = async (from: string | null, to: string, signal: AbortSignal, path?: string): Promise<Patch> => {
-    const target = await commit(to, signal)
-    if (!target || (from !== null && !await commit(from, signal))) fail('missing-object')
-    if (from === null && target.parents.length > 1) fail('unsupported-merge')
+  const patchId = async (mode: '--stable' | '--verbatim', bytes: Buffer, signal: AbortSignal): Promise<string> =>
+    oid(utf8(await run(['patch-id', mode], signal, bytes)).trim().split(' ')[0]!)
+  const copy = (patch: Patch): Patch => ({ stable: patch.stable, exact: patch.exact, files: [...patch.files] })
+  const fingerprint = async (from: string | null, to: string, signal: AbortSignal): Promise<Patch> => {
+    const key = `${from ?? '-'}:${to}`
+    const known = patches.get(key)
+    if (known) return copy(known)
+    const found = await kindsOf(from === null ? [to] : [to, from], signal)
+    if (found.get(to) !== 'commit' || (from !== null && found.get(from) !== 'commit')) fail('missing-object')
+    if (from === null && (await commit(to, signal))!.parents.length > 1) fail('unsupported-merge')
+    const bytes = await run(deltaArgs(from, to, false), signal)
+    const names = utf8(await run(deltaArgs(from, to, true), signal)).split('\0').filter(Boolean).sort()
+    const patch: Patch = names.length
+      ? { stable: await patchId('--stable', bytes, signal), exact: await patchId('--verbatim', bytes, signal), files: names }
+      : { stable: '', exact: '', files: [] }
+    patches.set(key, patch, 1 + patch.files.length)
+    return copy(patch)
+  }
+  /** What one path of a patch fingerprints to. The patch it belongs to has already been read, so its commits exist. */
+  const fileFingerprint = async (from: string | null, to: string, path: string, signal: AbortSignal) => {
+    const key = JSON.stringify([from, to, path])
+    const known = filePatches.get(key)
+    if (known) return known
     const bytes = await run(deltaArgs(from, to, false, path), signal)
-    const names = utf8(await run(deltaArgs(from, to, true, path), signal))
-      .split('\0').filter(Boolean).sort()
-    if (!names.length) return { stable: '', exact: '', files: [] }
-    const stable = utf8(await run(['patch-id', '--stable'], signal, bytes)).trim().split(' ')[0]!
-    const exact = utf8(await run(['patch-id', '--verbatim'], signal, bytes)).trim().split(' ')[0]!
-    oid(stable)
-    oid(exact)
-    return { stable, exact, files: names }
+    const result = bytes.length
+      ? { stable: await patchId('--stable', bytes, signal), exact: await patchId('--verbatim', bytes, signal) }
+      : { stable: '', exact: '' }
+    filePatches.set(key, result)
+    return result
+  }
+  const filesOf = async (from: string | null, to: string, signal: AbortSignal): Promise<FilePatch[]> => {
+    const files: FilePatch[] = []
+    for (const path of (await fingerprint(from, to, signal)).files) {
+      const file = await fileFingerprint(from, to, path, signal)
+      files.push({ path, stable: file.stable, exact: file.exact })
+    }
+    return files
+  }
+  const ancestorsOf = async (
+    tips: readonly string[], known: ReadonlySet<string>, limit: number, signal: AbortSignal,
+  ): Promise<readonly string[]> => {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) fail('limit-exceeded')
+    const input = [...tips.map(objectId), ...[...known].map((sha) => `^${objectId(sha)}`)]
+    const bytes = await run(['rev-list', '--topo-order', '--reverse', `--max-count=${limit}`, '--stdin'], signal,
+      Buffer.from(`${input.join('\n')}\n`))
+    return utf8(bytes).trim().split('\n').filter(Boolean).map(objectId)
   }
   const reflogs = async (previous: ReadonlyMap<string, LogCursor>, signal: AbortSignal): Promise<ReflogPage> => {
     const logs: { key: string; path: string; ref: string; checkout: string | null }[] = []
@@ -659,31 +780,52 @@ export const gitReader = (handle: RepoHandle, options: ReaderOptions = {}): GitR
     }
     return { moves, cursors, gaps: [...gaps].sort(), more }
   }
-  return {
-    snapshot: (signal) => job(signal, snapshot),
-    reflogs: (cursors, signal) => job(signal, (signal) => reflogs(cursors, signal)),
-    commit: (sha, signal) => job(signal, (signal) => commit(objectId(sha), signal)),
-    patch: (from, to, signal) => job(signal, (signal) => fingerprint(from, to, signal)),
-    files: (from, to, signal) => job(signal, async (signal) => {
-      const patch = await fingerprint(from, to, signal)
-      const files: FilePatch[] = []
-      for (const path of patch.files) {
-        const file = await fingerprint(from, to, signal, path)
-        files.push({ path, stable: file.stable, exact: file.exact })
+  /**
+   * Reads run one at a time. A batch is one place in that line, and the
+   * repository's metadata is checked once for everything the batch reads, at
+   * the first read: a batch that reads nothing checks nothing, and a change
+   * made while a batch runs is found by the next one. Every method of the
+   * reader is a batch of one.
+   */
+  const batch = <T>(signal: AbortSignal, work: (reader: GitReader) => Promise<T>): Promise<T> => {
+    const combined = AbortSignal.any([signal, lifetime.signal])
+    const next = queue.then(async () => {
+      aborted(combined)
+      let checking: Promise<void> | null = null
+      const check = (): Promise<void> => checking ??= checked(combined)
+      const within = (own: AbortSignal): AbortSignal => own === signal ? combined : AbortSignal.any([own, combined])
+      const inside: GitReader = {
+        snapshot: async (own) => { await check(); return snapshot(within(own)) },
+        reflogs: async (cursors, own) => { await check(); return reflogs(cursors, within(own)) },
+        commit: async (sha, own) => { await check(); return commit(sha, within(own)) },
+        kinds: async (shas, own) => { await check(); return kindsOf(shas, within(own)) },
+        patch: async (from, to, own) => { await check(); return fingerprint(from, to, within(own)) },
+        files: async (from, to, own) => { await check(); return filesOf(from, to, within(own)) },
+        ancestors: async (tips, known, limit, own) => { await check(); return ancestorsOf(tips, known, limit, within(own)) },
+        batch: (_own, nested) => nested(inside),
+        close: async () => {},
       }
-      return files
-    }),
-    ancestors: (tips, known, limit, signal) => job(signal, async (signal) => {
-      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) fail('limit-exceeded')
-      const input = [...tips.map(objectId), ...[...known].map((sha) => `^${objectId(sha)}`)]
-      const bytes = await run(['rev-list', '--topo-order', '--reverse', `--max-count=${limit}`, '--stdin'], signal,
-        Buffer.from(`${input.join('\n')}\n`))
-      return utf8(bytes).trim().split('\n').filter(Boolean).map(objectId)
-    }),
+      return work(inside)
+    })
+    queue = next.catch(() => {})
+    return next
+  }
+  const reader: GitReader = {
+    snapshot: (signal) => batch(signal, (inside) => inside.snapshot(signal)),
+    reflogs: (cursors, signal) => batch(signal, (inside) => inside.reflogs(cursors, signal)),
+    commit: (sha, signal) => batch(signal, (inside) => inside.commit(sha, signal)),
+    kinds: (shas, signal) => batch(signal, (inside) => inside.kinds(shas, signal)),
+    patch: (from, to, signal) => batch(signal, (inside) => inside.patch(from, to, signal)),
+    files: (from, to, signal) => batch(signal, (inside) => inside.files(from, to, signal)),
+    ancestors: (tips, known, limit, signal) => batch(signal, (inside) => inside.ancestors(tips, known, limit, signal)),
+    batch,
     close: async () => {
       lifetime.abort()
       await queue
+      forget()
       await rm(handle.viewDir, { recursive: true, force: true })
     },
   }
+  return reader
 }
+

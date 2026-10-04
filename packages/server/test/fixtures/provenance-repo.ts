@@ -105,3 +105,20 @@ export const countingRunner = (budget = Number.POSITIVE_INFINITY): Counting => {
     verbs: () => commands.map((command) => command[0] ?? ''),
   }
 }
+
+/**
+ * One base and `length` commits after it, each rewriting `files` files. Given
+ * `from`, the commits are made on top of it instead of on a fresh base.
+ */
+export const history = async (repo: Repo, length: number, files = 1, from?: string) => {
+  const base = from ?? await repo.commitTree(null, { 'file-0': 'base\n' }, 'base')
+  const shas: string[] = []
+  let parent = base
+  while (shas.length < length) {
+    const changes: Record<string, string> = {}
+    for (let file = 0; file < files; file += 1) changes[`file-${file}`] = `commit ${shas.length + 1}, file ${file}\n`
+    parent = await repo.commitTree(parent, changes, `commit ${shas.length + 1}`)
+    shas.push(parent)
+  }
+  return { base, shas }
+}
