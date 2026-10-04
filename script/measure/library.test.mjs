@@ -1982,3 +1982,22 @@ test('a run whose copy is refused records could-not-ask: cannot isolate, and no 
   assert.equal(written.reason, 'cannot isolate')
   assert.equal(Object.hasOwn(written, 'stagedInstall'), false)
 })
+
+test('a second copy at the same place is refused and leaves the first alone', async (t) => {
+  const base = fs.realpathSync(await mkdtemp('/tmp/hd-measure-twice-'))
+  t.after(() => rm(base, { recursive: true, force: true }))
+  const install = stageCursorInstall(base)
+  const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-twice-fixture-'))
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const first = await harness.stageInstallFolder(CURSOR_AGENT, install.launcher, fixture)
+  const area = join(fixture.root, 'agent-install')
+  const before = await walkTree(area)
+  // A refusal removes only what its own call made, and this call made nothing.
+  await assert.rejects(harness.stageInstallFolder(CURSOR_AGENT, install.launcher, fixture), { message: 'cannot isolate: install copy failed' })
+  assert.deepEqual(await walkTree(area), before, 'the first copy is as it was')
+  assert.ok(existsSync(first.launcher))
+  // Another index is another place.
+  const second = await harness.stageInstallFolder(CURSOR_AGENT, install.launcher, fixture, { index: 1 })
+  assert.notEqual(second.launcher, first.launcher)
+  assert.ok(existsSync(first.launcher) && existsSync(second.launcher))
+})

@@ -1050,6 +1050,8 @@ export async function stageInstallFolder(agent, realLauncher, fixture, { index =
       if (!(await stat(join(root, name)).catch(() => null))?.isFile()) throw new Error(STAGED_INSTALL_REFUSALS.layout)
     }
     const parent = join(fixture.root, STAGED_INSTALL_DIR, String(index))
+    // Never over a copy that is already there: a failure below removes only what this call made.
+    if (existsSync(parent)) throw new Error(STAGED_INSTALL_REFUSALS.copy)
     const target = join(parent, basename(root))
     let bytes = 0
     let files = 0
