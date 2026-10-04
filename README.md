@@ -38,24 +38,6 @@ all report to, and it makes none of them. [Why →](VISION.md)
 <tr>
 <td width="40%" valign="middle">
 
-### Rooms
-
-Agents from different vendors on one piece of work, claiming from one board — each sees what the others took, and a
-second reach for a file already held is refused by name.
-
-[Docs →](docs/multi-agent.md#4-the-room-the-shared-workspace)
-
-</td>
-<td width="60%">
-  <a href="docs/images/app/rooms-light.png"><picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/rooms-dark.png" />
-    <img src="docs/images/app/rooms-light.png" width="100%" alt="A room with four agents from four vendors — Claude Code, Gemini, Copilot and Antigravity — each holding a card from the board. Its feed shows the cards claimed, two collisions refused by name because another agent's card already holds the file, and each agent's reply." />
-  </picture></a>
-</td>
-</tr>
-<tr>
-<td width="40%" valign="middle">
-
 ### Flows
 
 Pick a shape — independent review, fan-out review, comparison, a staged relay — or write your own: who does what,
@@ -69,6 +51,24 @@ yours.
   <a href="docs/images/app/flows-light.png"><picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/flows-dark.png" />
     <img src="docs/images/app/flows-light.png" width="100%" alt="The Start a team dialog listing the shapes that ship — Independent review, Fan-out review, Comparison and Staged relay — each with a one-line description." />
+  </picture></a>
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+
+### Rooms
+
+Agents from different vendors on one piece of work, claiming from one board — each sees what the others took, and a
+second reach for a file already held is refused by name.
+
+[Docs →](docs/multi-agent.md#4-the-room-the-shared-workspace)
+
+</td>
+<td width="60%">
+  <a href="docs/images/app/rooms-light.png"><picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/rooms-dark.png" />
+    <img src="docs/images/app/rooms-light.png" width="100%" alt="A room with four agents from four vendors — Claude Code, Gemini, Copilot and Antigravity — each holding a card from the board. Its feed shows the cards claimed, two collisions refused by name because another agent's card already holds the file, and each agent's reply." />
   </picture></a>
 </td>
 </tr>
@@ -151,10 +151,12 @@ a judge, a researcher — and each sits on whichever runtime can offer it a seat
 
 ## Getting started
 
-macOS 13+ · Node 22.19+ · pnpm 10 · a coding agent — for Codex,
-`brew install codex` or `npm i -g @openai/codex`, version 0.145.0 or later.
+**Download.** The signed, notarized app for macOS 13+ — Apple silicon or Intel — is on the
+[latest release](https://github.com/HarnessDesk/HarnessDesk/releases/latest), and it updates itself from there.
+Bring a coding agent: for Codex, `brew install codex` or `npm i -g @openai/codex`, version 0.145.0 or later.
+What has landed here since that release is listed under `Unreleased` in [CHANGELOG.md](CHANGELOG.md).
 
-HarnessDesk is a developer preview built from source:
+**Build from source** to contribute — Node 22.19+ and pnpm 10:
 
 ```bash
 pnpm install
@@ -180,13 +182,8 @@ Stated plainly, because the gaps are the plan.
 - **Chat-Completions model routes.** Routes speak the Responses API only;
   LiteLLM's bridge was evaluated against a captured request and declined
   (see [the gateway decision](docs/decisions.md#other-models-reach-codex-through-a-gateway-never-a-fork)).
-- **Remote crash reporting, and a release on the update feed.** The updater
-  itself ships — packaged apps check a static feed, download in the
-  background, install on quit, and roll back by republishing
-  — but it is only as real as the
-  infrastructure behind it: a notarized build on a feed someone operates.
-  Crash capture is local and ships in the diagnostics bundle; nothing is
-  reported anywhere.
+- **Remote crash reporting.** Crash capture is local and ships in the
+  diagnostics bundle; nothing is reported anywhere.
 - **Run your package manager for you.** The Install section names the copy
   of an agent that answers and the command that updates each of the others —
   `brew upgrade`, `npm install -g …@latest`, `uv tool upgrade` — and never
