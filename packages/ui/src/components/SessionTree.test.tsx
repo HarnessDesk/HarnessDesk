@@ -567,6 +567,29 @@ const treeWith = (
   }
 }
 
+it('returns focus to the session row after closing its pointer-opened actions', async () => {
+  const { container: tree } = treeWith([], [summary({ id: 'focus-return' })])
+  const row = tree.querySelector<HTMLButtonElement>('[data-region="session-row"] [data-slot="sidebar-menu-button"]')!
+  const actions = tree.querySelector<HTMLButtonElement>('button[aria-label="Actions for focus-return"]')!
+  act(() => {
+    // A pointer press focuses the action before its click opens the menu.
+    actions.focus()
+    actions.click()
+  })
+  await act(async () => {
+    await vi.waitFor(() => expect(document.activeElement?.getAttribute('role')).toBe('menuitem'))
+  })
+  act(() => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', {
+    key: 'Escape', bubbles: true, cancelable: true,
+  })))
+  await act(async () => {
+    await vi.waitFor(() => {
+      expect(document.querySelector('[role="menu"]')).toBeNull()
+      expect(document.activeElement).toBe(row)
+    })
+  })
+})
+
 it('draws a Working conversation once and removes it from the project count', () => {
   const active = summary({
     id: 'session-active',
@@ -983,7 +1006,7 @@ it('lists a receipt conversation once under the wrapped group however many Seats
     act(() => [...tree.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Wrapped · 1')!.click())
     const rows = [...tree.querySelectorAll<HTMLButtonElement>('button[data-slot="sidebar-menu-button"]')]
       .filter(one => /Keeper|Second/.test(one.textContent ?? ''))
-    expect(rows.map(one => one.textContent)).toEqual(['Second'])
+    expect(rows.map(one => one.textContent)).toEqual(['Second · Read completed work'])
     expect(errors.mock.calls.map(call => String(call[0])).filter(text => text.includes('same key'))).toEqual([])
   } finally { errors.mockRestore() }
 })
@@ -1721,6 +1744,10 @@ it('reads the ask past the context blocks the composer puts before it', () => {
  * facts about *where* a row ran.
  */
 it('marks a row whose folder is gone, and leaves the others unmarked', () => {
+  // A conversation in a folder that is gone is not listed under a project;
+  // the rows that still show it — a search is asking for it, a person pinned
+  // it — are the ones that wear the mark, which is what this holds.
+
   const runtime = {
     id: 'agent',
     name: 'Agent',
@@ -1759,7 +1786,7 @@ it('marks a row whose folder is gone, and leaves the others unmarked', () => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <SessionTree now={3} />
+        <SessionTree now={3} searching />
       </StoreProvider>,
     )
   })
@@ -1813,7 +1840,7 @@ it('shows the folder-gone mark before any click with the listing-sourced sentenc
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <SessionTree now={3} />
+        <SessionTree now={3} searching />
       </StoreProvider>,
     )
   })
@@ -1994,7 +2021,7 @@ it('keeps a durable Seat in the Team tree when no live session or history is hel
  const board=room({id:'rested-team',name:'Rested Team',members:[]})
  const view={...triggerGoalView(board),members:[{id:'rested-seat',session:{runtime:'codex',sessionId:'rested'},role:'reviewer',openedAt:1,closed:null,agent:{name:'Rested reviewer'}}]} as unknown as GoalView
  const {container:tree}=treeWith([board],[],[],{},undefined,null,new Map([[board.id,view]]))
- expect(tree.textContent).toContain('Rested reviewer')
+ expect(tree.textContent).toContain('Reviewer · Rested Team')
 })
 
 it('keeps settled Teams and their Seats out of the sidebar, and brings attention back', () => {

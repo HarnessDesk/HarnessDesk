@@ -30,6 +30,10 @@
       "implementationPath": "packages/ui/src/components/SessionTree.tsx"
     },
     {
+      "id": "surface.projects",
+      "implementationPath": "packages/ui/src/components/SessionTree.tsx"
+    },
+    {
       "id": "surface.git",
       "implementationPath": "packages/ui/src/components/GitPane.tsx"
     },

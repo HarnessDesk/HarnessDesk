@@ -9,6 +9,12 @@ move is real work and is not news to a person weighing an upgrade.
 
 HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
 
+- **One repository is one sidebar project.** Team clones and linked worktrees
+  share its row. Gone folders leave the list while their conversations remain
+  searchable. Seats with no first message are named by their job and Team,
+  and an agent's compaction summary is never a conversation title. Capture
+  state lives in the project's menu.
+
 - **The command line now ships inside the app.** HarnessDesk › Install
   command-line tool… puts a `harnessdesk` command on your PATH, in a folder you
   own, so a terminal or a script can list Teams and runs, start a flow, watch

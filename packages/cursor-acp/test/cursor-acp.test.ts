@@ -1023,6 +1023,54 @@ test('the ask a chat opened with is read from Cursor’s transcript, past the co
 })
 
 /**
+ * A chat Cursor compacted. When the context fills, Cursor replaces the head of
+ * the thread with a summary of it, in the user's seat — as a `<summary>` block
+ * or a `[Previous conversation summary]:` line — and the thread then opens
+ * with the summary, not with what anyone asked. Naming a chat after its first
+ * user message named it `<summary> 1. Primary Request and Intent …`, down the
+ * whole list. A summary is not what the person said: the name is the first
+ * thing they actually asked, and a chat with nothing but the summary has none.
+ */
+test('a chat Cursor compacted is named by the person’s first real message, never by the summary', () => {
+  const home = tempDir('cursor-store-')
+  const cwd = '/tmp/compacted-workspace'
+  const head = [
+    { role: 'system', text: 'You are an AI coding assistant.' },
+    { role: 'user', text: '<user_info>\nOS Version: darwin\n</user_info>' },
+  ]
+  writeChat(home, cwd, 'summary-block', {
+    messages: [
+      ...head,
+      { role: 'user', text: '<summary> 1. Primary Request and Intent: Worker 4 was asked to retry the checkout call on a 502.\n2. Key Technical Concepts: backoff\n</summary>' },
+      { role: 'assistant', text: 'Picking it up.' },
+      { role: 'user', text: '<timestamp>now</timestamp>\n<user_query>\nnow add the jitter\n</user_query>' },
+    ],
+  })
+  assert.equal(readChatPreview('summary-block', cwd, home), 'now add the jitter')
+
+  writeChat(home, cwd, 'summary-line', {
+    messages: [
+      ...head,
+      { role: 'user', text: '[Previous conversation summary]: Summary: 1. Primary Request and Intent: the retry path' },
+      { role: 'user', text: '<user_query>\nnow add the jitter\n</user_query>' },
+    ],
+  })
+  assert.equal(readChatPreview('summary-line', cwd, home), 'now add the jitter')
+
+  // Nothing after it that a person wrote: no name to give, so the row says what it has — it does not wear the summary.
+  writeChat(home, cwd, 'summary-only', {
+    messages: [
+      ...head,
+      { role: 'user', text: '<summary> 1. Primary Request and Intent: Worker 4 was asked to' },
+      { role: 'assistant', text: 'Picking it up.' },
+    ],
+  })
+  assert.equal(readChatPreview('summary-only', cwd, home), null)
+  // The row itself: neither the title nor the ask is the summary.
+  assert.equal(titleOf('<summary> 1. Primary Request and Intent: Worker 4 was asked to'), '')
+})
+
+/**
  * The point of all of it: a conversation the user started in Cursor — its
  * IDE or its CLI — is listed here under Cursor's own name, and can be
  * carried on from here. Nothing about it was ever in this bridge's index.

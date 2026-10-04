@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
-import { splitContext } from '@harnessdesk/protocol'
+import { isCompactionSummary, splitContext, withoutCompaction } from '@harnessdesk/protocol'
 
 /**
  * Cursor's own chat store, read only.
@@ -330,7 +330,12 @@ export const readChatPreview = (
       const asked = /<user_query>([\s\S]*?)<\/user_query>/.exec(body)?.[1]?.replace(/^\r?\n/, '')
       const said = asked ?? (body.includes('<user_info>') ? null : body)
       if (said === null) continue
-      const line = stripEnvelope(said).replace(/\s+/g, ' ').trim()
+      /* When the context fills, Cursor replaces the head of the thread with a
+         summary of it, in the user's seat. That is Cursor's own writing, not
+         an ask: the chat is named by the first thing a person asked after it,
+         and a chat that holds nothing but the summary has no name to give. */
+      if (isCompactionSummary(stripEnvelope(said))) continue
+      const line = withoutCompaction(stripEnvelope(said)).replace(/\s+/g, ' ').trim()
       if (line !== '') return line.slice(0, limit)
       /* A message that is only a context block is named by its label, as the
          bridge names it. Skipped, the chat was named by its second message,

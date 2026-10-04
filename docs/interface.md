@@ -252,13 +252,22 @@ their project and room; when a band state ends, a pinned conversation returns
 to Pinned, otherwise it returns to its project or room. Project overflow counts
 include only conversations still shown there.
 
-**Projects, not folders.** Sessions group by repository (`lib/projects.ts`):
-Codex gives every "in a worktree" thread its own checkout under
-`~/.codex/worktrees/<id>/<name>`, and grouped by folder one project became a
-dozen identical rows. The main checkout is the group's home; each row's branch
-says where it actually ran. Agents that report no git join the project another
-session placed their folder in. The current project stays open; the rest fold
-under **Other projects**.
+**Projects, not folders.** Sessions group by repository (`lib/projects.ts`).
+Clones with the same remote and linked worktrees share one project. A checkout
+you opened leads; among several, the one worked in first keeps the name.
+Each conversation's branch still says where it ran. Agents that report no git
+join the project another session placed their folder in. The current project
+stays open; the rest fold under **Other projects**.
+
+A folder that no longer exists is not listed as a project. Its conversations
+are kept and stay findable through search and the archive; a pinned conversation
+still appears in Pinned with its gone-folder mark. One line counts the gone
+folders, and its menu can forget them without deleting their conversations.
+
+A conversation is named by its title or the first thing you asked, passing
+over an agent's summary of its compacted history. A Team's Seat with no words
+of yours to name it is called by its job and Team, such as
+**Implementer · Fix the retry bug**.
 
 Trailing marks and actions share one inset rail. A state label is quiet coloured
 text, without a pill, ending on the available rail beside the title; only the
@@ -282,8 +291,8 @@ Shift+F10 or the ContextMenu key opens the focused row's actions; Escape
 returns focus to that row. Large project lists mount rows as keyboard focus
 reaches them and keep the focused row in view.
 
-**Every open conversation has a row.** The rows are the agents' own history
-read through them, and an agent with no `session/list` — Gemini CLI — lists
+**Every open conversation whose folder is still there has a row.** The rows are
+the agents' own history read through them, and an agent with no `session/list` — Gemini CLI — lists
 nothing, so the conversation being typed into had no row anywhere in the tree.
 A conversation open in this window is drawn from the desk's own knowledge of
 it, named by its title or its first ask and filed under the checkout its
@@ -832,7 +841,7 @@ it exactly where it was.
 
 History shows an associated Agent's recorded name beside its runtime's mark. A compact count indicates additional Seats; selecting the commit lists every contributor. The selected detail distinguishes complete, partial, pending and unattributed changes and keeps the explanation visible. Its Seat record opens the exact historical record, with the original conversation available only while the desk can still open it. Matching observations keep their original revisions. A missing card or conversation says why it is unavailable.
 
-Workspaces › a project › Provenance controls capture on this machine. It starts on and shows healthy, degraded or stopped capture with the host's reason and next step. The setting changes on screen after it is saved; Retry does not turn capture on. Only stopped capture appears on the existing project row, even while that row is folded. A plain conversation and its header are unchanged.
+Workspaces › a project › Provenance controls capture on this machine. It starts on and shows healthy, degraded or stopped capture with the host's reason and next step. The setting changes on screen after it is saved; Retry does not turn capture on. Stopped or degraded capture appears in the project's menu, with Retry while capture is on or Turn on while it is off. The project row carries only its name. A plain conversation and its header are unchanged.
 
 ## Goals and retained lanes
 
