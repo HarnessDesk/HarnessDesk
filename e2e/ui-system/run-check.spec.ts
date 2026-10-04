@@ -1,5 +1,13 @@
 import { expect, test, type Page } from '@playwright/test'
 
+/**
+ * The question, mounted on the page's own store.
+ *
+ * The appended source is part of `main.tsx` itself, so `Mount`, `RunCheck` and
+ * `PREVIEW_UNSEEN` are the bindings the page already holds. Importing them again
+ * by bare URL would load a second copy of `harness.tsx` beside the one the page
+ * runs once Vite has hot-reloaded it, and with it a second store (#1313).
+ */
 const mountQuestion = async (page: Page): Promise<void> => {
   await page.route('**/src/preview/main.tsx*', async (route) => {
     const response = await route.fetch()
@@ -10,19 +18,16 @@ const mountQuestion = async (page: Page): Promise<void> => {
       response,
       body: `${source}
         import questionReact from ${JSON.stringify(reactUrl)};
-        import { Mount as QuestionMount } from '/src/preview/harness.tsx';
-        import { RunCheck as Question } from '/src/components/RunCheck.tsx';
-        import { PREVIEW_UNSEEN as QUESTION } from '/src/preview/evidence-fixture.ts';
         window.__answers = 0;
         const QuestionFrame = () => {
           const [open, setOpen] = questionReact.useState(false);
-          return questionReact.createElement(QuestionMount, null,
+          return questionReact.createElement(Mount, null,
             questionReact.createElement('button', {
               type: 'button',
               onClick: () => setTimeout(() => setOpen(true), 300),
             }, 'Ask the question'),
-            open && questionReact.createElement(Question, {
-              unseen: QUESTION,
+            open && questionReact.createElement(RunCheck, {
+              unseen: PREVIEW_UNSEEN,
               card: 2,
               busy: false,
               onRun: () => { window.__answers += 1; setOpen(false); },
