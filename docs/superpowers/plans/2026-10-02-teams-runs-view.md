@@ -93,7 +93,7 @@ Sizes: S under a day of Team time, M about a day, L more.
 | 7 | Publication state and its doors | 3, 4 | after 4 | M |
 | 8 | Answer and approve from the Overview, abandon from the inspector | 2, 4 | after 4 | M |
 | 9 | Run a check again from the timeline | 3 (merged), 4 (#1263 is merged) | after 4 | S |
-| 10 | Stop a run | 2, 3, 8; the stop method from the clients design | when its method exists | S |
+| 10 | Stop a run | 2, 3 (both merged), 8; the stop method has merged (#1315) | after 8 | S |
 | 11 | The end of a Run, and Run again | 3, 4, 5, 6 (3, 5 and 6 have merged) | after 4 | M |
 | 13 | `FlowGraph` and the Flow tab (read-only) | 3 (merged) | **yes** | L |
 | 14 | The Run's state on the Flow | 13, 3 (merged), 9 | after 13 and 9 | L |
@@ -104,9 +104,8 @@ Sizes: S under a day of Team time, M about a day, L more.
 
 **One Team at a time in `SessionTree.tsx`.** PR 2 (nesting a Team's Seats) and PR 12 (listing only active Teams) have merged; PR 18 (the wrapped group) is the one left to change the sidebar tree, from a fresh fetch of main.
 
-**One Team at a time in `flow-execution.ts`.** PR 5 and the other session's
-`flow/execution/stop` PR both change it. Whichever lands second starts from the
-first's landed revision.
+**`flow-execution.ts` needs no scheduling now.** PR 5 (#1281) and the other
+session's `flow/execution/stop` PR (#1315) both changed it, and both have merged.
 
 **One Team at a time in `TeamRoomPane.tsx`.** PRs 2 and 3 have merged. Every PR
 still to come except PR 15 (the poster) wires something through
@@ -117,8 +116,8 @@ Land them one at a time, each starting from a fresh fetch of main: whichever is
 second rebases onto the first before its PR is opened, not after review. PRs 1,
 2, 3, 5, 6, 12 and 17 have merged and need no scheduling.
 
-**What waits on the other session.** Only PR 10 (the stop method). Its PR 1c has merged (#1295). The two events below have landed (#1285). Every
-other PR reads what the window's store already holds; PR 16 is the exception: it
+**What waits on the other session.** Nothing now: its PR 1c (#1295), its PR 1b (the two events below, #1285) and its stop method (#1315) have all merged. Every
+PR but PR 16 reads what the window's store already holds. PR 16
 adapts the window's store to the shared selectors' `ClientSnapshot` input (the
 window imports only `@harnessdesk/client/views`; `Client.snapshot()` is what the
 command line uses).
@@ -199,16 +198,13 @@ Its order: PR 1 (the read-only door, the library, `desks`, `status`, `teams`,
 the tool lookup in protocol; merged, #1285), PR 1c (the `views` entry with
 `teamOverview` moved, `status` using it, and `insight/goal`; merged, #1295), PR 2
 (starting a flow: `open`, `flows`, `flow preview`, `flow start`, `run show` and `run wait`; merged, #1305),
-PR 3 (`flow/execution/stop`, #1247). It will say when its PR 3
-lands (this plan's PR 10). If PR 10 cannot wait for its PR 3, it can pull
-`flow/execution/stop` forward into a small host PR of its own; PR 10 follows the
-Overview and the Run view in this plan anyway, so it can wait.
+PR 3 (`flow/execution/stop`, #1247, and answering a person card from a client
+under its own `answer` tier; merged, #1315). Its stop method is what this plan's
+PR 10 calls.
 
-**Both sessions edit `flow-execution.ts`** (PR 5's revision, `continues`,
-`brief`, `end`, `startedAt` and `endedAt` here; stop there). The two PRs land
-one at a time, as the plan does for `TeamRoomPane.tsx`: whichever is second
-starts from the first's landed revision, fetched and rebased before its PR is
-opened, not after review.
+Both sessions edited `flow-execution.ts` (PR 5's revision, `continues`, `brief`,
+`end`, `startedAt` and `endedAt` here; stop there). Both PRs have merged, so the
+rule that whichever landed second rebase onto the first no longer applies to it.
 
 The window does not need `flow/executions` (the run list): it already holds its
 runs in `snapshot.flowExecutions`.
@@ -453,7 +449,7 @@ the Overview draws, in the app's words, ordered by precedence.
 **Scope.**
 - [ ] A step addressed to a person: the outcome buttons its role declares, an optional note, and a line that says what the answer will do. Calls `team/intent` (`done`).
 - [ ] A tool approval or a seat's question: Allow once, Deny (and the existing approval's other choices), calling `approval/respond`. The existing docked approval stays; this is a second door to the same answer, and the first to answer wins as it does today.
-- [ ] **Abandon a card** (in the card's inspector, PR 4): a confirm dialog that says first that the rule after the card's role still fires, with *Stop the run instead* present only once PR 10 exists.
+- [ ] **Abandon a card** (in the card's inspector, PR 4): a confirm dialog that says first that the rule after the card's role still fires, with *Stop the run instead* present only once PR 10 exists. The window's `team/intent` reply stays `null` (a command-line abandon gets `{ role, nextRole }` back through the client door), so the dialog works out the rule that follows from the Run's Flow document, not from the reply.
 - [ ] Every button reads `{ available, why }`-shaped data when the host provides it; until it does, disable with the refusal text the existing calls already return.
 
 **Depends on.** PR 2 (the Needs-you rows) and PR 4 (the inspector, where Abandon lives).
@@ -492,14 +488,15 @@ the Overview draws, in the app's words, ordered by precedence.
 
 **Goal.** One Run can be stopped from the Run itself.
 
-**Read first.** Spec: the controls table (Stop run…) and the `dialog-stop` frame; #1247; the Wire client and CLI session's `flow/execution/stop`.
+**Read first.** Spec: the controls table (Stop run…) and the `dialog-stop` frame; #1247; the Wire client and CLI session's `flow/execution/stop` (merged, #1315): `FlowExecutions.stop` in `packages/server/src/flow-execution.ts`, `Flows.stopRun` in `packages/server/src/flows.ts`, and its wire declaration in `packages/protocol/src/wire.ts`; the Run header in `RunView.tsx` and the Overview's Run card in `TeamOverview.tsx`.
 
 **Scope.**
-- [ ] **Stop run…** in the Run header and the Overview strip, shown while the Run is running. The dialog lists each seat and says "stops now", or, for a runtime without `capabilities.interrupt`, "stops when its current turn ends". Calls `flow/execution/stop { run, reason }`.
-- [ ] Afterwards the Run reads *Stopped*, neutral, by the person.
+- [ ] **Stop run…** in the Run header and the Overview strip, shown while the Run is running. The dialog lists each seat and says "stops now", or, for a runtime without `capabilities.interrupt`, "stops when its current turn ends". Calls `flow/execution/stop { run, reason }` through a new store method (the window does not call it yet) that patches the returned `FlowExecution` into `flowExecutions` as `readFlowExecution` does. The method is on the host already, so this PR changes no wire shape. Its `reason` is required, non-empty and at most 4,096 characters: the dialog's note is optional, and the PR chooses the sentence the window sends when the person writes none.
+- [ ] What the host does, which the dialog's words and the tests rely on. The stop is saved before any seat is interrupted; every seat that is mid-turn and can be interrupted is interrupted; a seat whose runtime has no `capabilities.interrupt` finishes its current turn, and no rule follows that turn; no rule fires from the stop; and a completion queued just before it cannot open a successor card. A Run that has already ended is answered as it ended, with no error (a second click or a stale view is harmless), and the listeners that finish a stop's cleanup still run.
+- [ ] Afterwards the Run reads *Stopped*, neutral, by the person: the Run's `end` is `{ kind: 'stopped', by: 'person' }`, which the timeline's end row already words "Stopped by you" (PR 3).
 - [ ] The abandon dialog (PR 8) gains *Stop the run instead*.
 
-**Depends on.** PR 2 (the Overview strip), PR 3 (the Run header) and PR 8 (the abandon dialog it adds a door to), and the stop method from the clients design's implementation.
+**Depends on.** PR 2 (the Overview strip; merged), PR 3 (the Run header; merged) and PR 8 (the abandon dialog it adds a door to). The stop method has merged (#1315), so nothing waits on the other session.
 
 **Not in this PR.** Pause and resume; changing a card, a finding or a branch; a stop for any outside client (the clients design owns the method).
 
@@ -629,7 +626,7 @@ the Overview draws, in the app's words, ordered by precedence.
 **Scope.**
 - [ ] Move the Run timeline selector (PR 3) into `packages/client/src/views/` the same way #1295 moved the overview model: the file, its tests in `packages/client/test/views`, and a re-export left in the UI. The command line already has `run show` (#1305), so this PR changes how it renders and adds no command: its human output becomes the timeline's header and rows (the Run's id and state are in the header, the stop reason is in the end row), over the same selector the window uses, and it keeps the attendance word and the seat-override lines the timeline does not carry. The selector needs the Team's cards and signals, which a single `flow/execution` call does not return, so `run show` takes a scoped subscription baseline the way `run wait` does: it selects the `cards` and `teams` topics (`cards` brings the Team's board, its cards and signals; `teams` brings the Goal the Start row's origin is read from), scoped to the run. Its `--json` stays the unchanged `FlowExecution`, as the README documents. The Wire client and CLI session owns the command line, so this PR makes that one change there as a thin one over the moved selector, and says so in its PR body. The change reaches three small places: the README's "Reading and waiting for a Run", which describes the human output today; `run show`'s row in the command table in `packages/cli/src/cli.ts` (its `methods` gains `client/subscribe`, as `run wait`'s has) and the clients design's own table row for it, which lists `flow/execution` only; and the Flow round's state word (`opening`, `running`, `waiting-evidence` or `closed`) that `showRun` prints on each round line today, which no timeline row carries (it is not a review round's state, which PR 7's chips show), so the PR decides on purpose whether to keep it as a line of the command's own or drop it, and says which.
 - [ ] Settle two things the selector cannot move without, and say how in the PR body. (a) It imports `wordOf` (`lib/agents`) and `lifecycleWords` (`lib/findings`), which are UI-only and the client package cannot import: move those two small pure functions into the client views with it and leave re-exports in the UI, or take the words as an input the way `teamOverviewOf` takes `sentences`. (b) It reads check results and finding rows that the held snapshot does not carry. `ClientSnapshot` has `teams`, `runs`, `boards` (the cards and the channel's signals), `seats`, `approvals` and `reviews`; the client door's `CLIENT_METHODS` has no `evidence/board` and no `finding/list`. Keep `evidence` and `findings` explicit inputs of the selector, as `report` is for the overview. For `run show` to print check results and findings, add those two reads to `CLIENT_METHODS` at the `read` tier with the Wire client and CLI session's agreement (and list them in `run show`'s row of the command table: the command test requires every client method to appear in some command's `methods`); without them `run show` prints the rows it can and says that check results and findings are not shown.
-- [ ] Feed the window's overview and timeline through the shared selectors by adapting the window's store to their `ClientSnapshot` input, and delete the window-only derivations once they are identical. The window imports only `@harnessdesk/client/views`, never the client transport or `Client.snapshot()`, which the command line uses. `run.startedAt` stays caller-supplied and `SeatRow` stays open to new fields.
+- [ ] Feed the window's overview and timeline through the shared selectors by adapting the window's store to their `ClientSnapshot` input, and delete the window-only derivations once they are identical. The window imports only `@harnessdesk/client/views`, never the client transport or `Client.snapshot()`, which the command line uses. `run.startedAt` stays caller-supplied and `SeatRow` stays open to new fields. `ClientSnapshot` gained an optional `waiting` list in #1315; the overview selectors do not read it, so the window's adapter may leave it out.
 - [ ] Read `seat/activity` (`state`, and `doing` as `{ kind: 'tool', tool, target? }` or `{ kind: 'thinking' }`, null unless working) through `TeamOverviewSeat.activity` where the window has no session of its own, rendering it with `doingSentence` from `packages/protocol`; map its `seat` (`runtime:sessionId`) to the window's Seat ids through the Seat's session pointer. Map the desk's round states to the chips PR 7 defines.
 - [ ] Replay one scripted stream through the window and through the command line's `status` and `run show`, and assert they agree.
 
