@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, realpath, rm, unlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, stat, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 import { promisify } from 'node:util'
@@ -414,5 +414,72 @@ export const topLevel = async (root: string, signal?: AbortSignal): Promise<stri
     return (await git(root, ['rev-parse', '--show-toplevel'], signal)).trim()
   } catch {
     return null
+  }
+}
+
+/**
+ * The git database a folder resolves to — the common directory shared by every
+ * checkout of one repository — with its links resolved, or null when git finds
+ * no repository there. Absolute (git may answer relative from inside a linked
+ * worktree) and real, so it can be compared against real paths.
+ *
+ * This is the folder git would actually read and write, wherever a `.git` file
+ * or a symlink points: two linked worktrees of one repository share it, and a
+ * gitfile inside a folder makes it that of the repository the gitfile names,
+ * not of the folder. The confinement uses it to tell "inside what the user
+ * opened" from "git led out to a repository nobody opened."
+ */
+export const commonDir = async (root: string, signal?: AbortSignal): Promise<string | null> => {
+  const out = await repositoryPath(root, '--git-common-dir', signal)
+  if (out === null) return null
+  try {
+    const path = await realpath(out)
+    signal?.throwIfAborted()
+    return path
+  } catch (cause) {
+    throw new Error(GIT_LOOKUP_RETRY, { cause })
+  }
+}
+
+/** Confinement needs a confirmed absence, unlike the best-effort display read above. */
+export const checkedTopLevel = (root: string, signal: AbortSignal): Promise<string | null> =>
+  repositoryPath(root, '--show-toplevel', signal)
+
+export const GIT_LOOKUP_RETRY = 'Git could not confirm which repository this folder belongs to. Try again.'
+
+/** Only an absent root or Git's ordinary no-repository answer establishes absence. */
+const repositoryPath = async (root: string, field: string, signal?: AbortSignal): Promise<string | null> => {
+  try {
+    signal?.throwIfAborted()
+    try {
+      await stat(root)
+    } catch (cause) {
+      const code = (cause as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ENOTDIR') return null
+      throw cause
+    }
+    signal?.throwIfAborted()
+    let stdout: string
+    try {
+      const answer = await run('git', ['-C', root, 'rev-parse', '--path-format=absolute', field], {
+        timeout: 20_000,
+        maxBuffer: 32 * 1024 * 1024,
+        env: { ...process.env, LC_ALL: 'C' },
+        ...(signal ? { signal } : {}),
+      })
+      stdout = answer.stdout
+    } catch (cause) {
+      signal?.throwIfAborted()
+      const failure = cause as { code?: unknown; stderr?: string }
+      if (failure.code === 128 &&
+        failure.stderr?.trim().startsWith('fatal: not a git repository')) return null
+      throw cause
+    }
+    signal?.throwIfAborted()
+    const out = stdout.trim()
+    if (!isAbsolute(out)) throw new Error('Git did not return an absolute repository path.')
+    return out
+  } catch (cause) {
+    throw new Error(GIT_LOOKUP_RETRY, { cause })
   }
 }

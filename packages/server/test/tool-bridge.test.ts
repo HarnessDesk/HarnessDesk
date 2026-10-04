@@ -83,6 +83,16 @@ test('an ACP agent is born knowing where the tool gateway listens', () => {
   })
 })
 
+test('the opted-in developer directory reaches ACP agents without replacing their own choice', () => {
+  const developerEnv = { DEVELOPER_DIR: '/Library/Developer/CommandLineTools' }
+  const environment = (own?: Record<string, string>) =>
+    agentEnvironment('/run/tools.sock', own, 'rig-agent', developerEnv)
+  assert.equal(environment().DEVELOPER_DIR, developerEnv.DEVELOPER_DIR)
+  assert.equal(environment({ DEVELOPER_DIR: '/Applications/Xcode.app/Contents/Developer' }).DEVELOPER_DIR,
+    '/Applications/Xcode.app/Contents/Developer')
+  assert.equal(environment({ DEVELOPER_DIR: '' }).DEVELOPER_DIR, '', 'an explicit empty value is kept too')
+})
+
 test('the launcher sets Electron to Node and preserves the entry path without ambient env', () => {
   const root = tempDir('hd-tool-launcher-')
   const fakeElectron = join(root, 'fake electron')

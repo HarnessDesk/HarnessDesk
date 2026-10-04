@@ -272,7 +272,6 @@ it('draws no attempt rows for a check with one result', () => {
   try { expect(container.querySelector('[data-kind="attempt"]')).toBeNull() } finally { done() }
 })
 
-
 it('highlights the passive attempt rows with their selected Flow step without making them controls', () => {
   const selected = ['round-1', 'check-1-1', 'attempt-1-1-1', 'attempt-1-1-2']
   const { container, onSelect, done } = mountGate(GATE(), { attempts: ATTEMPTS }, selected)
@@ -300,4 +299,15 @@ it.each(['complete','stopped','stalled'] as const)('keeps %s status in the heade
   expect(onSelect).toHaveBeenCalledWith('end')
   if(scene==='complete')expect(ending.textContent).toContain('Nothing waits.')
  } finally {done()}
+})
+
+it('shortens the Timeline check command while keeping its full hover title', () => {
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  try {
+    act(() => root.render(<RunView model={runTimeline(runFixture('live-polish'))} home="/home/dev" number={1} selectedRow={null} onSelect={() => {}} />))
+    const check = container.querySelector('[data-row="check-2-2"]')!
+    expect(check.textContent).toContain('PATH=/usr/bin:~/bin node ~/tools/land.mjs --check')
+    expect(check.querySelector('[title="PATH=/usr/bin:/home/dev/bin node /home/dev/tools/land.mjs --check"]')).not.toBeNull()
+  } finally { act(() => root.unmount()) }
 })

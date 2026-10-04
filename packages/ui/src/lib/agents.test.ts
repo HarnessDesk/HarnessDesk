@@ -135,8 +135,8 @@ describe('agents in words', () => {
       'Publish',
       'Merge',
     ])
-    expect(seatCeilingWords({ level: 'read', hold: 'held' })).toBe('Read · held')
-    expect(seatCeilingWords({ level: 'edit', hold: 'asked' })).toBe('Edit · asked')
+    expect(seatCeilingWords({ level: 'read', hold: 'held' })).toBe('Read only')
+    expect(seatCeilingWords({ level: 'edit', hold: 'asked' })).toBe('Edit · asked, not enforced')
     expect(ceilingMeaning('read')).toBe('Changes nothing: it reads, searches and reports.')
     expect(ceilingMeaning('edit')).toBe('May change files and commit in its own checkout, and never push.')
   })
@@ -556,4 +556,12 @@ describe('sameSeat', () => {
     expect(sameSeat({ runtime: 'codex', effort: 'high' }, { runtime: 'codex' })).toBe(false)
     expect(sameSeat({ runtime: 'cursor', thinking: true }, { runtime: 'cursor', thinking: false })).toBe(false)
   })
+})
+
+
+it.each([
+  ['read', 'Read only'], ['edit', 'Edit'], ['publish', 'Publish'], ['merge', 'Merge'],
+] as const)('says whether the %s ceiling is enforced in plain words', (level, label) => {
+  expect(seatCeilingWords({ level, hold: 'held' })).toBe(label)
+  expect(seatCeilingWords({ level, hold: 'asked' })).toBe(`${label} · asked, not enforced`)
 })

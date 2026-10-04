@@ -298,6 +298,7 @@ export const Search = ({
   onBlur,
   onKeyDown,
   inputRef,
+  focusIndicator = 'default',
 }: {
   value: string
   onChange: (next: string) => void
@@ -315,6 +316,8 @@ export const Search = ({
   onKeyDown?: KeyboardEventHandler<HTMLInputElement>
   /** The owning surface may use the input as its initial focus target. */
   inputRef?: Ref<HTMLInputElement>
+  /** An always-focused field can let its caret locate focus. */
+  focusIndicator?: 'default' | 'caret'
   /** An accessible clear action, present only while the field has a value. */
   clear?: { readonly label: string; readonly onClick: () => void }
 }) => (
@@ -330,6 +333,7 @@ export const Search = ({
       : <SearchIcon size={size === 'compact' ? 12 : 14} />}
     <Input
       ref={inputRef}
+      data-focus-indicator={focusIndicator === 'caret' ? 'caret' : undefined}
       type="search"
       spellCheck={false}
       variant={size === 'compact' ? 'quiet' : 'default'}

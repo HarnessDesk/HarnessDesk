@@ -455,15 +455,16 @@ tasks chip · git control · plan meters · browser button · terminal toggle ·
 sidebar row lead with the Agent's name — once, while the conversation's title
 is still that name — the composer's agent chip names the Agent and the seat it
 took, and the name card adds an *Agent* band: what it is for, its ceiling
-(*Read · held* or *Read · asked*), where it came from, the seat and every seat passed over, and
+(*Read only* or *Read only · asked, not enforced*), where it came from, the seat and every seat passed over, and
 *The brief has changed since this started* once its file has moved on.
 
 The same ceiling vocabulary appears on six governed-seat surfaces: the
 conversation header, Agent name card, room rail, board holder, flow dry run and
 Agent roster. The chip is neutral whether the limit is held or asked — most
 runtimes have no control that holds one, so `asked` is the ordinary state, not
-a warning; the words *held* and *asked* and a hover explanation make colour
-unnecessary either way.
+a warning. A held ceiling names the level (*Read only*, *Edit*, *Publish* or
+*Merge*); an asked ceiling adds *asked, not enforced*. Those words and a hover
+explanation make colour unnecessary either way.
 The roster keeps two facts distinct: the Agent file's declared level and the
 effective would-be seat after the seating grant narrows it. A plain conversation
 has no ceiling chip.
@@ -622,6 +623,12 @@ capability rather than tried and apologised for. Stop and the queue button sit
 side by side while a turn runs, so the primary position never changes meaning
 under a pointer already moving toward it.
 
+If adding a message to the running turn fails — the turn ended, the connection
+was lost, or the agent timed out — its words and chips stay in that
+conversation's Restore list. The failure reason stays beside them, including
+after reopening the view. Restore brings the message back to the composer and
+keeps any newer draft available in the same list.
+
 What is waiting shows in a strip above the composer, with the goal and the
 running jobs: the host's order, with reorder, remove, and edit in place. If an
 edit cannot be saved because the original was already sent, the changed words
@@ -683,15 +690,19 @@ An Agent's page also shows its Skills and Servers as an editable allowlist —
 an empty one reads "Runtime defaults", never "None" — with **Edit…**
 previewing the exact `skills:`/`mcp:` diff before it writes, and **Review &
 Approve…** showing the exact bytes a runtime would load before a person
-approves them once for that repository, Agent, runtime build and ceiling. Its
-Notes section reads and clears `NOTES.md` beside the Agent's file: private
+approves them once for that repository, Agent, runtime build and ceiling. The
+review wraps long commands and preserves their line breaks. Large reviews
+scroll inside the dialog body, with the question and Approve/Keep buttons
+remaining on screen so the whole command can be read before consent. The Agent's
+Notes section reads and clears `NOTES.md` beside its file: private
 working context, never system instructions. A Seat's own name card and the
 Library's Agent filter both read back what a Seat's runtime build actually
 loaded, by that Seat's own immutable id — "declared, not loaded" and "not
 recorded" are shown as different facts, never folded into one another.
 
-**Settings › Permissions › Ceilings** shows four held/asked chips for every
-installed runtime, using controls the runtime declares and reads back rather
+**Settings › Permissions › Ceilings** shows the same four ceiling levels and
+whether each is enforced for every installed runtime, using controls the
+runtime declares and reads back rather
 than a runtime-name table. It also chooses whether a watched conversation may
 open an unheld seat and say so, or pass it over, and a second, independent
 choice for a Goal a trigger opened — refuse by default, or seat it and say so
@@ -1056,7 +1067,9 @@ were used. An unrouted answer, stall or spent budget keeps the Run and Team
 same start preview, with the seat preferences open to change. **Start**
 creates a fresh Run on the same Team and records which Run it continues; both
 stay in the chooser beside the Run’s name. This starts from the seed step.
-The Flow name and digest in the header open the frozen Flow tab.
+The Flow name and digest in the header open the frozen Flow tab. Check
+commands in the Flow drawing, Steps list, Timeline and inspector shorten the
+home folder to `~`; their hover titles keep the full command.
 
 Each Seat has its own preference; changing one keeps the others and the
 number of Seats. The preview shows checks in this Team’s retained checkout

@@ -10,7 +10,7 @@ import { ROLE_KIND_WORDS } from '../../lib/shapes'
 import { Card } from '../ui/card'
 import { FlowBaton, FlowStepSurface, FlowFaces, FlowRouteLabel, FlowDoingLine } from '../ui/flow-step'
 import { flowOverlayLabels, type FlowOverlay, type FlowStepRun } from '../../lib/flow-overlay'
-import { sanitizeHtml } from '../../lib/sanitize'
+import { sanitizeHtml, sanitizeText } from '../../lib/sanitize'
 import { formatDuration } from '../../components/TurnTail'
 import { IconTile } from '../ui/icon-tile'
 import type { Tint } from '../ui/tone'
@@ -90,6 +90,10 @@ const activityOf = (run: FlowStepRun | undefined, doing: FlowGraphProps['doing']
 const lineOf = (step: FlowStep, run: FlowStepRun | undefined, object: string): string =>
   run?.state === 'working' ? object || ROLE_KIND_WORDS[step.kind] : run?.state === 'stopped' || run?.state === 'stopping' ? statusOf(run) : words(run?.line ?? step.line)
 
+/** A working Agent shows an activity object; otherwise its line keeps the command or ceiling title. */
+const titleOf = (step: FlowStep, run: FlowStepRun | undefined, object: string): string =>
+  step.kind === 'agent' && run?.state === 'working' ? lineOf(step, run, object) : sanitizeText(step.title ?? lineOf(step, run, object))
+
 const StepCard = ({ node, drawingWidth, step, run, selected, faces, faceTints, activity, now, onSelect }: {
   drawingWidth: number
   node: FlowNode; step: FlowStep; run?: FlowStepRun; selected: boolean; faces?: ReadonlyMap<string, ReactNode>
@@ -121,7 +125,7 @@ const StepCard = ({ node, drawingWidth, step, run, selected, faces, faceTints, a
         <FlowFaces seats={step.kind === 'agent' ? run?.seats : undefined} faces={faces} tints={faceTints} fallback={<IconTile tint={tint}><Mark /></IconTile>} />
         <span className="flex min-w-0 flex-1 flex-col">
           <Text role="row" ink={run?.state === 'future' ? 'secondary' : undefined} truncate className={run?.state === 'working' || run?.state === 'blocked' ? 'max-w-12' : run?.state === 'waiting' ? 'max-w-10' : undefined} title={step.name}>{step.name}</Text>
-          <Text role="meta" ink={run?.state === 'future' ? 'muted' : undefined} truncate title={lineOf(step, run, activity.object)}>{lineOf(step, run, activity.object)}</Text>
+          <Text role="meta" ink={run?.state === 'future' ? 'muted' : undefined} truncate={step.kind !== 'agent' || run?.state === 'working'} title={titleOf(step, run, activity.object)}>{lineOf(step, run, activity.object)}</Text>
         </span>
       </FlowStepSurface>
       {activity.text &&
@@ -229,7 +233,7 @@ export const FlowGraph = ({ model, overlay, selectedStep, onSelectStep, faces, f
                     {run && durationOf(run, now) !== null && <Text role="meta" numeric>{durationOf(run, now)}</Text>}
                     {run?.runs !== undefined && run.runs !== null && run.runs > 1 && <Text role="meta" numeric>{run.runs} runs</Text>}
                   </span>}
-                  desc={[lineOf(step, run, activity.object), activity.text, ...more, ...(run ? [durationOf(run, now) === null ? 'Time not recorded' : null, run.runs === null ? 'Run count unavailable' : null] : [])].filter(Boolean).join(' · ')}
+                  desc={<span title={titleOf(step, run, activity.object)}>{[lineOf(step, run, activity.object), activity.text, ...more, ...(run ? [durationOf(run, now) === null ? 'Time not recorded' : null, run.runs === null ? 'Run count unavailable' : null] : [])].filter(Boolean).join(' · ')}</span>}
                 />
               )
             })}

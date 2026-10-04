@@ -139,13 +139,13 @@ for (const theme of ['light', 'dark'] as const) {
         .evaluateAll((texts) => texts.filter((text) => text.scrollWidth > text.clientWidth + 1).map((text) => text.textContent))
       expect(clipped).toEqual([])
       const names = await page.locator('#flow-graph-blueprint [data-slot="flow-step"]').evaluateAll((steps) => steps.map((step) => step.textContent))
-      expect(names.join('|')).toContain('Edit · asked')
-      expect(names.join('|')).toContain('Read · asked')
+      expect(names.join('|')).toContain('Edit · asked, not enforced')
+      expect(names.join('|')).toContain('Read only · asked, not enforced')
       expect(names.join('|')).toContain('pnpm verify')
       // A Run whose seats were held to their ceiling says so, in the same line.
       const held = await page.locator('#flow-graph-loop [data-slot="flow-step"]').evaluateAll((steps) => steps.map((step) => step.textContent))
-      expect(held.join('|')).toContain('Edit · held')
-      expect(held.join('|')).toContain('Read · held')
+      expect(held.join('|')).toContain('Edit')
+      expect(held.join('|')).toContain('Read only')
     })
 
     test('the list is under the drawing at a wide width, and is the view at a narrow one', async ({ page }) => {

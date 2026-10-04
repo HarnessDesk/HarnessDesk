@@ -190,7 +190,7 @@ it('shows each Agent with what it is for, its ceiling as asked, and the seat it 
 it('draws every Agent’s ceiling through the same chip, held plan or none', () => {
   mount()
   const built = sectionText('Built in')
-  expect(built).toContain('Edit · asked')
+  expect(built).toContain('Edit · asked, not enforced')
   const row = [...container.querySelectorAll('button')].find((one) =>
     one.textContent?.includes('Security reviewer'),
   )

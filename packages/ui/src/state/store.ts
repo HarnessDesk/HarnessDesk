@@ -5806,13 +5806,19 @@ export class AppStore {
     }
   }
 
-  async steer(input: readonly UserContent[], key = this.#snapshot.activeSessionKey): Promise<boolean> {
+  /** A caller recovering the message can keep its failure beside that draft. */
+  async steer(
+    input: readonly UserContent[],
+    key = this.#snapshot.activeSessionKey,
+    onFailure?: (message: string) => void,
+  ): Promise<boolean> {
     if (!key) return false
     try {
       await this.transport.request('turn/steer', { ...address(key), input })
       return true
     } catch (error) {
-      this.notice('error', describe(error))
+      if (onFailure) onFailure(describe(error))
+      else this.notice('error', describe(error))
       return false
     }
   }
