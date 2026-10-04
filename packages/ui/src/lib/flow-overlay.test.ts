@@ -129,3 +129,21 @@ it('keeps a stopped retry of a closed check’s unrecorded duration unknown', ()
   })
   expect(draw(execution, [card(1, 'passes')]).steps.get('check')).toMatchObject({ state: 'stopped', durationMs: null, since: null })
 })
+
+it('keeps an earlier closed check’s reopened retry duration unknown after Stop makes it uncertain', () => {
+  const execution = run([round(1, 'check', 'seed'), round(2, 'review', 'after:1:checked', false)], {
+    operations: [{ key: 'check:1:0', kind: 'check', state: 'started', card: 1, seat: null }],
+  })
+  const cards = [card(1, null), card(2, null)]
+  const attempts = new Map([[1, { attempts: [{ id: 'first-result', at: 1600 }], complete: true }]])
+  expect(draw(execution, cards, { attempts }).steps.get('check')).toMatchObject({
+    state: 'working', runs: 1, durationMs: null, since: null,
+  })
+  const stopped: FlowExecution = { ...execution, state: 'stopped', endedAt: 10000,
+    rounds: execution.rounds.map(one => ({ ...one, state: 'closed' })),
+    operations: execution.operations.map(one => ({ ...one, state: 'uncertain' })),
+  }
+  expect(draw(stopped, cards, { attempts }).steps.get('check')).toMatchObject({
+    state: 'stopped', runs: 1, durationMs: null, since: null,
+  })
+})

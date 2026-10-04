@@ -39,7 +39,7 @@ export const flowOverlay = ({ execution, model, cards, attempts }: FlowOverlayIn
   for (const step of model.steps) {
     const visits = rounds.filter(round => round.role === step.id)
     const latest = visits.at(-1)
-    const retry = step.kind === 'check' ? [...visits].reverse().find(round => checkOperations.some(one => one.state === 'started' && one.card !== null && round.cards.includes(one.card))) : undefined
+    const retry = step.kind === 'check' ? [...visits].reverse().find(round => checkOperations.some(one => (one.state === 'started' || one.state === 'uncertain') && one.card !== null && round.cards.includes(one.card))) : undefined
     const current = retry ?? latest
     const held = current?.cards.map(id => byCard.get(id)) ?? []
     const answered = held.length > 0 && held.every(card => card?.state === 'done' || card?.state === 'abandoned')
