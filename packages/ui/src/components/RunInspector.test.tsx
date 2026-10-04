@@ -261,3 +261,64 @@ it('reads findings rows and falls back to the Run when the selected card is gone
   const missing = render({ input: fixture, selectedRow: 'card-99-99' })
   try { expect(missing.container.textContent).toContain('Brief') } finally { missing.close() }
 })
+
+/** The controls the connected view hands the inspector; none are present unless a caller gives them. */
+const buttonsOf = (container: HTMLElement) => [...container.querySelectorAll('button')].map(one => one.textContent)
+it('offers abandoning a card that has not finished, before its conversation link', () => {
+  const fixture = runFixture()
+  const onAbandon = vi.fn().mockResolvedValue(undefined)
+  const view = render({ input: fixture, selectedRow: 'card-4-4', seats: [{ id: 'seat-0', name: 'Alpha', onOpen: () => {} }], onAbandon })
+  try {
+    expect(buttonsOf(view.container)).toEqual(['Abandon card…', 'Open the conversation'])
+    act(() => [...view.container.querySelectorAll('button')][0]!.click())
+    const dialog = document.body.querySelector('[role="alertdialog"]')
+    expect(dialog?.textContent).toContain('Abandon card #4?')
+    expect(dialog?.querySelector('[data-slot="confirm-body"] p')?.textContent).toBe('Nothing follows the writer role, so abandoning this card ends the Run without a next step.')
+    expect(dialog?.textContent).toContain('Alpha holds this card now.')
+  } finally {
+    act(() => [...document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(one => one.textContent === 'Keep it')?.click())
+    view.close()
+  }
+})
+it('offers no abandoning for a card that has finished, or when nothing can abandon', () => {
+  const fixture = runFixture()
+  const done = render({ input: fixture, selectedRow: 'card-3-3', seats: [{ id: 'seat-1', name: 'Beta', onOpen: () => {} }], onAbandon: vi.fn() })
+  try { expect(buttonsOf(done.container)).toEqual(['Open the conversation']) } finally { done.close() }
+  const none = render({ input: fixture, selectedRow: 'card-4-4', seats: [{ id: 'seat-0', name: 'Alpha', onOpen: () => {} }] })
+  try { expect(buttonsOf(none.container)).toEqual(['Open the conversation']) } finally { none.close() }
+})
+it('answers a person’s step from its inspector with the words its role declares', async () => {
+  const fixture = runFixture('person')
+  const onAnswer = vi.fn().mockResolvedValue(undefined)
+  const view = render({ input: fixture, selectedRow: 'person-4-4', onAnswer, onOpenBoard: () => {} })
+  try {
+    expect(view.container.textContent).toContain('Answer the review')
+    expect(view.container.textContent).toContain('Approved finishes the Run.')
+    expect(view.container.textContent).not.toContain('Outcomes')
+    expect(buttonsOf(view.container)).toEqual(['Approved'])
+    await act(async () => view.container.querySelector('button')!.click())
+    expect(onAnswer).toHaveBeenCalledWith(4, 'approved', '')
+  } finally { view.close() }
+})
+it('keeps a person’s answered step as text, with the answer it was given', () => {
+  const fixture = runFixture('person')
+  const answered = { ...fixture, cards: fixture.cards.map(card => card.id === 4 ? { ...card, state: 'done' as const, outcome: 'approved' } : card) }
+  const view = render({ input: answered, selectedRow: 'person-4-4', onAnswer: vi.fn(), onOpenBoard: () => {} })
+  try {
+    expect(view.container.textContent).toContain('Outcomes')
+    expect(view.container.textContent).toContain('Answer')
+    expect(view.container.querySelector('button')).toBeNull()
+  } finally { view.close() }
+})
+it('sends a person’s review step to the board', async () => {
+  const fixture = runFixture('person')
+  const review = { ...fixture, execution: { ...fixture.execution, document: { ...fixture.execution.document, flow: { ...fixture.execution.document.flow,
+    rules: [{ id: 'land', on: 'person', when: { every: ['approved'], evidence: [{ review: 'approved' }] }, then: { role: 'writer', title: 'Merge' } }] } } } } as unknown as typeof fixture
+  const onOpenBoard = vi.fn()
+  const view = render({ input: review, selectedRow: 'person-4-4', onAnswer: vi.fn(), onOpenBoard })
+  try {
+    expect(buttonsOf(view.container)).toEqual(['Pick an attempt on the board'])
+    await act(async () => view.container.querySelector('button')!.click())
+    expect(onOpenBoard).toHaveBeenCalledOnce()
+  } finally { view.close() }
+})
