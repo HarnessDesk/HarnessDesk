@@ -459,17 +459,25 @@ const installed = () => {
   return { home, path, looked: inspectLauncher(path) }
 }
 
+/** A refusal either restores the exact object or names the exact object held beside it. */
+const assertPreserved = (path, after, error, what) => {
+  const kept = error.held ?? path
+  assert.deepEqual(snapshotOf(kept), after, `${what}: the same object, with the same contents`)
+  assert.equal(dirname(kept), dirname(path), 'recovery stays in the original folder')
+  assert.deepEqual(readdirSync(dirname(path)), [kept.slice(dirname(path).length + 1)], 'only the preserved object remains')
+}
+
 test('a swap between the check and a replacement is caught, and what was swapped in is left exactly as it is', () => {
   for (const [what, swap] of Object.entries(SWAPS)) {
     const { path, looked } = installed()
     let after
+    let refused
     assert.throws(
       () => replaceLauncher(path, NEWER, { expected: looked, hooks: { afterCheck: () => { swap(path); after = snapshotOf(path) } } }),
-      (error) => error.code === 'changed' && error.path === path && /changed/.test(error.message),
+      (error) => { refused = error; return error.code === 'changed' && error.path === path && /changed/.test(error.message) },
       what,
     )
-    assert.deepEqual(snapshotOf(path), after, `${what}: the same file, with the same bytes`)
-    assert.deepEqual(readdirSync(dirname(path)), ['harnessdesk'], `${what}: nothing is left beside it`)
+    assertPreserved(path, after, refused, what)
   }
 })
 
@@ -477,13 +485,13 @@ test('a swap between the check and a removal is caught, and what was swapped in 
   for (const [what, swap] of Object.entries(SWAPS)) {
     const { home, path } = installed()
     let after
+    let refused
     assert.throws(
       () => removeLauncher({ home, hooks: { afterCheck: () => { swap(path); after = snapshotOf(path) } } }),
-      (error) => error.code === 'changed' && error.path === path,
+      (error) => { refused = error; return error.code === 'changed' && error.path === path },
       what,
     )
-    assert.deepEqual(snapshotOf(path), after, `${what}: the same file, with the same bytes`)
-    assert.deepEqual(readdirSync(dirname(path)), ['harnessdesk'], `${what}: nothing is left beside it`)
+    assertPreserved(path, after, refused, what)
   }
 })
 
@@ -491,12 +499,14 @@ test('whatever the call answers, a file swapped in at the last moment is not ove
   for (const [what, swap] of Object.entries(SWAPS)) {
     const { path, looked } = installed()
     let after
+    let refused
     try {
       replaceLauncher(path, NEWER, { expected: looked, hooks: { afterCheck: () => { swap(path); after = snapshotOf(path) } } })
-    } catch {
+    } catch (error) {
+      refused = error
       // What it answers is for the tests above; this one is about what became of the file.
     }
-    assert.deepEqual(snapshotOf(path), after, `${what}: still the file that was swapped in, byte for byte`)
+    assertPreserved(path, after, refused, what)
   }
 })
 
@@ -504,12 +514,14 @@ test('whatever the call answers, a file swapped in at the last moment is not del
   for (const [what, swap] of Object.entries(SWAPS)) {
     const { home, path } = installed()
     let after
+    let refused
     try {
       removeLauncher({ home, hooks: { afterCheck: () => { swap(path); after = snapshotOf(path) } } })
-    } catch {
+    } catch (error) {
+      refused = error
       // What it answers is for the tests above; this one is about what became of the file.
     }
-    assert.deepEqual(snapshotOf(path), after, `${what}: still the file that was swapped in, byte for byte`)
+    assertPreserved(path, after, refused, what)
   }
 })
 
@@ -517,6 +529,7 @@ test('the same swaps are caught through installLauncher, which brings our own la
   for (const [what, swap] of Object.entries(SWAPS)) {
     const { home, path } = installed()
     let after
+    let refused
     assert.throws(
       () => installLauncher({
         home,
@@ -524,10 +537,10 @@ test('the same swaps are caught through installLauncher, which brings our own la
         loginPath: null,
         hooks: { afterCheck: () => { swap(path); after = snapshotOf(path) } },
       }),
-      (error) => error.code === 'changed',
+      (error) => { refused = error; return error.code === 'changed' },
       what,
     )
-    assert.deepEqual(snapshotOf(path), after, what)
+    assertPreserved(path, after, refused, what)
   }
 })
 
@@ -1015,11 +1028,12 @@ test('a swap while the launcher is removed is said, and what was swapped in is l
   const result = await tool.run()
   assert.equal(result.outcome, 'changed')
   assert.equal(dialogs.at(-1).message, 'The command-line tool was not removed')
+  assert.ok(result.held, 'a folder cannot be restored with a hard link, so recovery names it')
   assert.equal(
     dialogs.at(-1).detail,
-    '~/.local/bin/harnessdesk was changed while HarnessDesk was removing it, so it was left as it is. Choose Install command-line tool… to look again.',
+    `~/.local/bin/harnessdesk was changed while HarnessDesk was removing it, so it was left as it is. What was there is kept as ${result.held.replace(home, '~')}. Choose Install command-line tool… to look again.`,
   )
-  assert.deepEqual(snapshotOf(path), after)
+  assertPreserved(path, after, result, 'the folder swapped in')
 })
 
 test('when the other file cannot be put back, the dialog says where it is kept', async () => {

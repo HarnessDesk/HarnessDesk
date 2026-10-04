@@ -144,7 +144,12 @@ the one that was looked at. Only then is it deleted, or its replacement linked
 into its name (a link refuses a name that has been taken). Anything else is put
 back, and the dialog says the launcher changed and was left as it is; if it
 cannot be put back because the name was taken again, it is kept beside it and
-the dialog says where. The price is that a replacement leaves the name without a
+the dialog says where. Restoration uses only an atomic hard link to a free
+name; if the volume cannot do that, or the held object is a link or a folder,
+it stays held rather than falling back to a check followed by a rename. Every
+failure after taking the file attempts that recovery, including inspection
+and deletion errors. The menu reports whether the command was restored and
+names any retained file. The price is that a replacement leaves the name without a
 file for the moment between those two steps. The look itself is one open that
 follows no link and waits on no pipe, so what is read and which file it was are
 the same file.

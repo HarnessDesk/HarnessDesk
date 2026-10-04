@@ -1,4 +1,5 @@
 import { TeamsPageFrames } from './frames-teams-page'
+import { CliInstallFrame } from './frames-cli-install'
 import { StrictMode, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 
@@ -1076,7 +1077,9 @@ createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('flow-brief')
+        {new URLSearchParams(window.location.search).has('cli-install')
+          ? <CliInstallFrame />
+          : new URLSearchParams(window.location.search).has('flow-brief')
           ? <FlowBriefDialog scene={(BRIEF_SCENES.find((one) => one === new URLSearchParams(window.location.search).get('flow-brief')) ?? 'empty') as BriefScene} />
           : <Preview />}
       </AppWindowMode.Provider>

@@ -385,31 +385,33 @@ const claim = (path) => {
 
 /**
  * Puts a claimed file back under its name. Never over something that has taken
- * the name since: then it stays where it is, and this says so by answering
- * false. A regular file goes back by a link, which refuses a taken name
- * atomically; anything else (a link or a folder, which a hard link would
- * follow or refuse) goes back by a rename made only when the name is free.
+ * the name since: then it stays where it is, and this answers with
+ * its recovery location. Only a regular file goes back, by a link which
+ * refuses a taken name atomically. There is no check-then-rename fallback:
+ * volumes without hard links and other file types stay held and are named
+ * in the result, rather than risking a newcomer at the original name.
  */
 const restore = (held, path) => {
-  if (lstatSync(held).isFile()) {
-    try {
-      linkSync(held, path)
-      unlinkQuietly(held)
-      return true
-    } catch (error) {
-      if (error.code === 'EEXIST') return false
-      // No hard links on this volume: the rename below, checked against the name being free.
-    }
+  try {
+    if (!lstatSync(held).isFile()) return { restored: false, held }
+    linkSync(held, path)
+  } catch {
+    return { restored: false, held }
   }
   try {
-    lstatSync(path)
-    return false
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error
+    unlinkSync(held)
+    return { restored: true }
+  } catch {
+    return { restored: true, held }
   }
-  renameSync(held, path)
-  return true
 }
+
+/** Every failure after taking a file carries the result of its recovery. */
+const recoverFailure = (held, path, error) => new LauncherError(
+  'recovery',
+  String(error?.message ?? error),
+  { path, ...restore(held, path) },
+)
 
 /**
  * Takes hold of the launcher at `path`, and of nothing but the launcher that
@@ -430,16 +432,15 @@ const holdOurs = (path, expected, hooks) => {
     if (error.code === 'ENOENT') throw new LauncherError('changed', `${path} was gone when it was to be changed.`, { path, gone: true })
     throw error
   }
-  hooks.afterClaim?.({ path, held })
-  const seen = inspectLauncher(held)
-  if (seen.state === 'ours' && sameFile(seen.id, expected.id)) return held
-  let restored = false
+  let seen
   try {
-    restored = restore(held, path)
-  } catch {
-    // It stays where it is, and the error says so.
+    hooks.afterClaim?.({ path, held })
+    seen = inspectLauncher(held)
+  } catch (error) {
+    throw recoverFailure(held, path, error)
   }
-  throw new LauncherError('changed', `${path} was changed while it was being worked on.`, { path, ...(restored ? {} : { held }) })
+  if (seen.state === 'ours' && sameFile(seen.id, expected.id)) return held
+  throw new LauncherError('changed', `${path} was changed while it was being worked on.`, { path, ...restore(held, path) })
 }
 
 /**
@@ -459,17 +460,20 @@ export const replaceLauncher = (path, text, { expected, hooks = {} } = {}) => {
     } catch (error) {
       if (error.code === 'EEXIST') {
         // Something took the name while ours was set aside. It stays; ours, which was being replaced, goes.
-        unlinkQuietly(held)
+        try {
+          unlinkSync(held)
+        } catch (cleanupError) {
+          throw recoverFailure(held, path, cleanupError)
+        }
         throw new LauncherError('changed', `${path} was taken by something else while it was being replaced.`, { path })
       }
-      try {
-        restore(held, path)
-      } catch {
-        // It stays where it is.
-      }
-      throw error
+      throw recoverFailure(held, path, error)
     }
-    unlinkQuietly(held)
+    try {
+      unlinkSync(held)
+    } catch (error) {
+      throw recoverFailure(held, path, error)
+    }
   } finally {
     unlinkQuietly(temporary)
   }
@@ -558,7 +562,11 @@ export const removeLauncher = ({ home, hooks = {} }) => {
       if (error.code === 'changed' && error.gone) return { status: 'absent' }
       throw error
     }
-    unlinkSync(held)
+    try {
+      unlinkSync(held)
+    } catch (error) {
+      throw recoverFailure(held, ours.path, error)
+    }
     return { status: 'removed', path: ours.path }
   }
   const foreign = found.find((one) => one.state === 'foreign')
@@ -636,6 +644,15 @@ const unavailableDialog = (missing, home) =>
 
 const failedDialog = (message) => dialog('The command-line tool could not be installed', message)
 
+const recoveryDialog = (verb, error, home) => dialog(
+  `The command-line tool could not be ${verb}`,
+  `${error.message}\n\n${error.restored
+    ? `${tildify(error.path, home)} was restored.`
+    : `${tildify(error.path, home)} could not be restored.`}${error.held
+    ? ` The file is kept as ${tildify(error.held, home)}.`
+    : ''} Choose ${MENU_LABEL} to try again.`,
+)
+
 /** The launcher was swapped for something else while it was being updated or removed, and was left as it is. */
 const changedDialog = (verb, error, home) =>
   dialog(
@@ -706,6 +723,12 @@ export const createCommandLineTool = ({
     }
   }
 
+  const reportRecovery = async (verb, error) => {
+    log('command-line tool recovery', { path: error.path, held: error.held, restored: error.restored })
+    await ask(recoveryDialog(verb, error, home))
+    return { outcome: 'failed', error: error.message, path: error.path, restored: error.restored, ...(error.held ? { held: error.held } : {}) }
+  }
+
   const execute = async () => {
     if (!available) return { outcome: 'unavailable' }
     const ours = findLaunchers(home).find((one) => one.state === 'ours')
@@ -728,10 +751,11 @@ export const createCommandLineTool = ({
           refreshed = result.status === 'updated'
           if (refreshed) log('command-line tool launcher refreshed', { path: result.path })
         } catch (error) {
+          if (error.code === 'recovery') return reportRecovery('updated', error)
           if (error.code !== 'changed') throw error
           log('command-line tool launcher changed while it was updated', { path: error.path })
           await ask(changedDialog('updated', error, home))
-          return { outcome: 'changed', path: error.path }
+          return { outcome: 'changed', path: error.path, ...(error.held ? { held: error.held } : {}) }
         }
       }
       const choice = await ask(presentDialog(ours.path, home))
@@ -740,10 +764,11 @@ export const createCommandLineTool = ({
       try {
         removal = removeLauncher({ home, hooks })
       } catch (error) {
+        if (error.code === 'recovery') return reportRecovery('removed', error)
         if (error.code !== 'changed') throw error
         log('command-line tool launcher changed while it was removed', { path: error.path })
         await ask(changedDialog('removed', error, home))
-        return { outcome: 'changed', path: error.path }
+        return { outcome: 'changed', path: error.path, ...(error.held ? { held: error.held } : {}) }
       }
       if (removal.status !== 'removed') return { outcome: 'kept', path: ours.path, refreshed }
       log('command-line tool removed', { path: removal.path })
