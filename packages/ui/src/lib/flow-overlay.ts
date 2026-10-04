@@ -71,7 +71,7 @@ export const flowOverlay = ({ execution, model, cards, attempts, sessions }: Flo
     const liveCards = unfinished ? current!.cards.map(id => byCard.get(id)) : []
     // A closed card's creation time is not the start of its later retry. The
     // overwritten operation keeps no retry timestamp, so that time is unknown.
-    const since = ended || stopped || retry?.state === 'closed' ? null : liveCards.length && liveCards.every(Boolean) ? Math.min(...liveCards.map(card => card!.createdAt)) : null
+    const since = ended || stopped || retry?.state === 'closed' ? null : liveCards.length && liveCards.every(Boolean) ? Math.min(...liveCards.map(card => timingOf(card!).since!)) : null
     const answers = latest?.cards.flatMap(id => { const answer = byCard.get(id)?.outcome; return answer ? [answer] : [] }) ?? []
     let runs: number | null = visits.length
     if (step.kind === 'check' && visits.length) {

@@ -182,4 +182,6 @@ it('uses a resumed retained claim’s current start when freezing its duration',
   const timeline = runTimeline({ execution, cards: [held] }).rows.find(row => row.card === 1)!
   expect(draw(execution, [held]).steps.get('fix')).toMatchObject({ state: 'stopped', durationMs: timeline.durationMs })
   expect(timeline.durationMs).toBe(1000)
+  expect(draw({ ...execution, state: 'running', currentEndedAt: null, rounds: [round(1, 'fix', 'seed', false)] }, [held]).steps.get('fix'))
+    .toMatchObject({ state: 'working', durationMs: 0, since: held.claim.at })
 })
