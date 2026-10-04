@@ -64,6 +64,11 @@ export interface FlowSeat {
 export interface FlowCheck {
   /** The command, run through a shell in `cwd`. */
   readonly run: string
+  /**
+   * Only true lets a read Seat run this check on request. Omitted is off;
+   * never enable for landing, publishing or deploying.
+   */
+  readonly onRequest?: boolean
   /** Relative to the room's project unless absolute. */
   readonly cwd?: string | null
   /** Seconds. The step reports the fallback outcome when it runs over. */

@@ -53,10 +53,10 @@ const LOUD = `process.stdout.write('x'.repeat(${TAIL_LIMIT * 3}) + '\\nthe end\\
 const SLOW = 'setTimeout(() => {}, 60_000)\n'
 
 const CHECKS = [
-  '  listen: { kind: check, run: "node listen.mjs", exits: { "0": pass }, otherwise: fail, timeout: 60 }',
-  '  value: { kind: check, run: "node value.mjs", exits: { "0": pass }, otherwise: fail, timeout: 60 }',
-  '  loud: { kind: check, run: "node loud.mjs", exits: { "0": pass }, otherwise: fail, timeout: 60 }',
-  '  slow: { kind: check, run: "node slow.mjs", exits: { "0": pass }, otherwise: fail, timeout: 1 }',
+  '  listen: { kind: check, onRequest: true, run: "node listen.mjs", exits: { "0": pass }, otherwise: fail, timeout: 60 }',
+  '  value: { kind: check, onRequest: true, run: "node value.mjs", exits: { "0": pass }, otherwise: fail, timeout: 60 }',
+  '  loud: { kind: check, onRequest: true, run: "node loud.mjs", exits: { "0": pass }, otherwise: fail, timeout: 60 }',
+  '  slow: { kind: check, onRequest: true, run: "node slow.mjs", exits: { "0": pass }, otherwise: fail, timeout: 1 }',
 ]
 
 /** A writer in a lane of its own, then a reviewer that only reads; its approval opens `merge` only on a passing `listen`. */
@@ -188,7 +188,7 @@ test('a read Seat’s run_check runs the committed change — a real server on 1
   }
 
   const refused = await d.host.teamPlane.runCheck(reviewer.id, { name: 'rm -rf .' }, scopeOf(reviewer))
-  assert.equal(refused, 'Refused: this card’s flow declares no check named “rm -rf .”; it declares: listen, value, loud, slow.')
+  assert.equal(refused, 'Refused: this card’s flow declares no check a Seat may run named “rm -rf .”; choose from: listen, value, loud, slow.')
 })
 
 test('a passing run_check never opens a rule guarded on that check', async (t) => {
@@ -228,7 +228,7 @@ test('run_check refuses in one sentence when the flow declares no check', async 
   const flow = ['version: 2', 'name: Review only', 'roles:', '  reviewer: { kind: agent, uses: reviewer, grant: read }', 'seed: { role: reviewer, title: Review it }', 'rules: []', ''].join('\n')
   const d = await desk(t, flow)
   const [card] = await d.until('the reviewer claiming', (all) => all[0]?.state === 'claimed')
-  assert.equal(await d.host.teamPlane.runCheck(card!.id, { name: 'listen' }, scopeOf(card!)), 'Refused: this card’s flow declares no check, so there is nothing to run.')
+  assert.equal(await d.host.teamPlane.runCheck(card!.id, { name: 'listen' }, scopeOf(card!)), 'Refused: this card’s flow declares no check a Seat may run, so there is nothing to run.')
 })
 
 // ---------------------------------------------------------------- the rig
@@ -238,10 +238,57 @@ version: 2
 name: Review a change
 roles:
   reviewer: { kind: agent, uses: reviewer, grant: read }
-  gate: { kind: check, run: "pnpm test", exits: { "0": pass }, otherwise: fail, timeout: 30 }
+  gate: { kind: check, onRequest: true, run: "pnpm test", exits: { "0": pass }, otherwise: fail, timeout: 30 }
 seed: { role: reviewer, title: Review it }
 rules: []
 `
+
+for (const field of ['', ', onRequest: false']) test(`run_check refuses an unoffered landing check (${field || 'field absent'}) without a name or with its name`, async (t) => {
+  const rig = await goalRig(t)
+  rig.heads.set('/repo', { at: 'a'.repeat(40), dirty: false })
+  const flow = REVIEW.replace(', onRequest: true', '').replace('  gate: { kind: check,', `  land: { kind: check${field},`).replace('pnpm test', 'node land.mjs')
+  await rig.start(flow, [agent('reviewer', ['approve'])])
+  await rig.flows.flush()
+  const session = rig.sessionOf('seat-1')
+  for (const options of [{}, { name: 'land' }]) {
+    assert.equal(await rig.team.runCheck(1, options, session), 'Refused: this card’s flow declares no check a Seat may run, so there is nothing to run.')
+  }
+  assert.equal(rig.events.some((one) => one.startsWith('checkout:') || one.startsWith('check:')), false, 'neither a checkout nor a command was started')
+})
+
+test('run_check selects the only opted-in check and never offers the landing check', async (t) => {
+  const rig = await goalRig(t)
+  rig.heads.set('/repo', { at: 'a'.repeat(40), dirty: false })
+  const flow = REVIEW
+    .replace('seed:', '  land: { kind: check, run: "node land.mjs" }\nseed:')
+  const run = await rig.start(flow, [agent('reviewer', ['approve'])])
+  await rig.flows.flush()
+  const session = rig.sessionOf('seat-1')
+  assert.match(await rig.team.runCheck(1, {}, session), /^gate passed \(exit 0\)/)
+  assert.equal(await rig.team.runCheck(1, { name: 'land' }, session), 'Refused: this card’s flow declares no check a Seat may run named “land”; choose from: gate.')
+  assert.deepEqual(rig.events.filter((one) => one.startsWith('check:')), ['check:pnpm test'])
+  const checkOf = () => {
+    const role = rig.flows.executionsFor(run.goal)[0]!.document.flow.roles.find((one) => one.id === 'gate')
+    return role?.kind === 'check' ? role.check : null
+  }
+  const expected = { run: 'pnpm test', onRequest: true, timeout: 30, exits: { 0: 'pass' }, otherwise: 'fail' }
+  assert.deepEqual(checkOf(), expected, 'the run freezes the opt-in')
+  await rig.restart()
+  assert.deepEqual(checkOf(), expected, 'the frozen opt-in survives storage and restart')
+})
+
+test('run_check lists only opted-in checks when a name is required', async (t) => {
+  const rig = await goalRig(t)
+  rig.heads.set('/repo', { at: 'a'.repeat(40), dirty: false })
+  const flow = REVIEW
+    .replace('seed:', '  build: { kind: check, onRequest: true, run: "pnpm build" }\n  land: { kind: check, run: "node land.mjs" }\nseed:')
+  await rig.start(flow, [agent('reviewer', ['approve'])])
+  await rig.flows.flush()
+  const session = rig.sessionOf('seat-1')
+  assert.equal(await rig.team.runCheck(1, {}, session), 'Refused: this card’s flow declares several checks a Seat may run, so name one of: gate, build.')
+  assert.equal(await rig.team.runCheck(1, { name: 'land' }, session), 'Refused: this card’s flow declares no check a Seat may run named “land”; choose from: gate, build.')
+  assert.equal(rig.events.some((one) => one.startsWith('checkout:') || one.startsWith('check:')), false)
+})
 
 test('run_check allows a few runs a turn and a few more a card, then refuses plainly', async (t) => {
   const rig = await goalRig(t)

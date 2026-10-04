@@ -1849,9 +1849,9 @@ export class FlowExecutions {
 
   /**
    * `run_check` for a card a v2 run bound (#1082): the host runs one of the
-   * run's own declared checks — a `check` role, picked by its name, never a
-   * command the caller writes — on the commit the card was handed, in a
-   * fresh detached checkout the host cuts for this one run and removes
+   * run's own opted-in checks — a `check` role with `onRequest: true`, picked
+   * by its name, never a command the caller writes — on the commit the card
+   * was handed, in a fresh detached checkout the host cuts for this one run and removes
    * after, through the same runner, timeout and output cap a check card uses.
    * A Seat's own sandbox may refuse a child process a listening socket; the
    * host's does not, so a reviewer never has to be given the network to learn
@@ -1885,16 +1885,16 @@ export class FlowExecutions {
     if (!binding || mayCommit(binding.agent, binding.grant)) {
       return 'Refused: run_check is for Seats that only read; a Seat that can write has its work checked by the flow’s own check card.'
     }
-    const declared = policyOf(run).roles.flatMap((one) => (one.kind === 'check' && one.check ? [{ name: one.id, check: one.check }] : []))
-    if (declared.length === 0) return 'Refused: this card’s flow declares no check, so there is nothing to run.'
+    const declared = policyOf(run).roles.flatMap((one) => (one.kind === 'check' && one.check?.onRequest === true ? [{ name: one.id, check: one.check }] : []))
+    if (declared.length === 0) return 'Refused: this card’s flow declares no check a Seat may run, so there is nothing to run.'
     const names = declared.map((one) => one.name).join(', ')
     const chosen = name === null
       ? (declared.length === 1 ? declared[0] : undefined)
       : declared.find((one) => one.name === name)
     if (!chosen) {
       return name === null
-        ? `Refused: this card’s flow declares several checks, so name one of: ${names}.`
-        : `Refused: this card’s flow declares no check named “${name}”; it declares: ${names}.`
+        ? `Refused: this card’s flow declares several checks a Seat may run, so name one of: ${names}.`
+        : `Refused: this card’s flow declares no check a Seat may run named “${name}”; choose from: ${names}.`
     }
     const { seat } = this.#seatForCard(run, card)
     if (!seat) return `Refused: card #${card} has no Seat, so it was handed no commit to check.`

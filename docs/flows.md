@@ -150,6 +150,7 @@ seats nobody, costs nothing, and cannot be talked round:
 ```yaml
   tests:
     kind: check
+    onRequest: true      # a read Seat may request this test check
     run: pnpm verify
     cwd: .              # relative to the room's project unless absolute
     timeout: 1200       # seconds; running over reports `otherwise`
@@ -160,6 +161,19 @@ seats nobody, costs nothing, and cannot be talked round:
 A flow whose only gates are opinions is one to be suspicious of. A check's
 command is the one thing a flow file makes happen on your machine, so the dry
 run prints every one of them verbatim and nothing runs until you press start.
+
+**Let a read Seat run a check on request.** A check must explicitly set
+`onRequest: true` for a Seat to run it with `run_check`; omitting it or setting
+`false` keeps it off. Use it for tests, builds or lint that only read and report.
+Never set it on a landing, publishing or deployment step: those commands act,
+and must wait for the Flow's rules to reach them. In a nested `check: { ... }`
+declaration, put `onRequest` inside that map with `run`.
+
+With no name, `run_check` chooses the only opted-in check. With none, it refuses;
+with several, it asks for a name and lists only those a Seat may run. It runs
+the committed change the card was handed in a fresh checkout, and records
+advisory evidence that no rule counts. The field does not change when the Flow
+runs its own check cards or when you confirm a check retry.
 
 **Run a check again.** A finished or interrupted check card on a running or
 stalled run offers *Run this check again…*. A stopped or settled run refuses
@@ -594,7 +608,7 @@ inputs:
   task: { label: "Task" }
 roles:
   fixer: { kind: agent, uses: [implementer], isolate: true, grant: edit, independentOf: [] }
-  verify: { kind: check, run: "pnpm verify", exits: { "0": pass }, otherwise: fail, timeout: 900 }
+  verify: { kind: check, onRequest: true, run: "pnpm verify", exits: { "0": pass }, otherwise: fail, timeout: 900 }
   reviewer: { kind: agent, uses: [code-reviewer], grant: read, independentOf: [] }
 seed: { role: fixer, title: "{{task}}" }
 rules:

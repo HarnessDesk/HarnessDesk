@@ -17,6 +17,7 @@ roles:
     independentOf: []
   gate:
     kind: check
+    onRequest: true
     run: "true"
     cwd: "."
     exits:

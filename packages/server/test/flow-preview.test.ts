@@ -74,6 +74,23 @@ test('preview has no execution side effects, however many times it is asked', as
   assert.equal(state.counts.previewAgent, 3)
 })
 
+test('preview keeps onRequest in its compiled and frozen Flow document', async () => {
+  const previews = new FlowPreviews(rig().port)
+  const source = FLOW.replace('kind: check,', 'kind: check, onRequest: true,')
+  const preview = await previews.preview('/repo', source, {})
+  assert.ok(preview.token, JSON.stringify(preview.problems))
+  const checkOf = (document: typeof preview.compiled.document) => {
+    const role = document.flow.roles.find((one) => one.id === 'gate')
+    return role?.kind === 'check' ? role.check : null
+  }
+  const expected = { run: 'pnpm verify', onRequest: true, exits: { 0: 'pass' }, otherwise: 'fail', timeout: 900 }
+  assert.deepEqual(checkOf(preview.compiled.document), expected)
+  assert.deepEqual(checkOf((await previews.freeze('/repo', source)).compiled.document), expected)
+  const redeemed = await previews.redeem(preview.token, '/repo', source, {})
+  assert.ok(redeemed)
+  assert.deepEqual(checkOf(redeemed.compiled.document), expected)
+})
+
 test('a remote base previews managed lanes even for a role without isolate', async () => {
   const state = rig()
   const lanes: boolean[] = []
