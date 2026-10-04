@@ -330,7 +330,12 @@ const SessionRow = memo(({
                 <SidebarMenuAction showOnHover
                   data-state={menu.at ? 'open' : undefined}
                   aria-haspopup="menu" aria-expanded={menu.at !== null}
-                  onClick={menu.open}
+                  onClick={(event) => {
+                    // The row is the list's tab stop and the menu's return
+                    // target; the hover-only action must not keep focus.
+                    rowRef.current?.focus({ preventScroll: true })
+                    menu.open(event)
+                  }}
                   aria-label={`Actions for ${label}`}>
                   <MoreIcon size={12} />
                 </SidebarMenuAction>

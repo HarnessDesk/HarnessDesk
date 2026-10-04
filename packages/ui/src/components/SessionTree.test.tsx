@@ -567,6 +567,29 @@ const treeWith = (
   }
 }
 
+it('returns focus to the session row after closing its pointer-opened actions', async () => {
+  const { container: tree } = treeWith([], [summary({ id: 'focus-return' })])
+  const row = tree.querySelector<HTMLButtonElement>('[data-region="session-row"] [data-slot="sidebar-menu-button"]')!
+  const actions = tree.querySelector<HTMLButtonElement>('button[aria-label="Actions for focus-return"]')!
+  act(() => {
+    // A pointer press focuses the action before its click opens the menu.
+    actions.focus()
+    actions.click()
+  })
+  await act(async () => {
+    await vi.waitFor(() => expect(document.activeElement?.getAttribute('role')).toBe('menuitem'))
+  })
+  act(() => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', {
+    key: 'Escape', bubbles: true, cancelable: true,
+  })))
+  await act(async () => {
+    await vi.waitFor(() => {
+      expect(document.querySelector('[role="menu"]')).toBeNull()
+      expect(document.activeElement).toBe(row)
+    })
+  })
+})
+
 it('draws a Working conversation once and removes it from the project count', () => {
   const active = summary({
     id: 'session-active',
