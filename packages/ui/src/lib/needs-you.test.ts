@@ -217,7 +217,7 @@ describe('an approval, as a second door to the same answer', () => {
     expect(door.choices.map((one) => one.decision)).toEqual([
       { type: 'option', optionId: 'no' }, { type: 'option', optionId: 'always' }, { type: 'option', optionId: 'yes' },
     ])
-    expect(door.detail).toEqual({ code: 'pnpm verify' })
+    expect(door.detail).toEqual({ code: 'pnpm verify', folder: '/work' })
     expect(door.elsewhere).toBe(false)
   })
 
@@ -228,7 +228,7 @@ describe('an approval, as a second door to the same answer', () => {
 
   it('shows the input a running command is asked to take, which is what is being approved', () => {
     const stdin: Approval = { ...base, type: 'command', kind: 'stdin', command: 'npm login', input: 'y\n', cwd: '/work', actions: [], options }
-    expect(approvalDoor(stdin).detail).toEqual({ code: 'y\n', inputTo: { command: 'npm login', folder: '/work' } })
+    expect(approvalDoor(stdin).detail).toEqual({ code: 'y\n', folder: '/work', inputTo: { command: 'npm login' } })
   })
 
   it('names the files a change would touch, and why it asks', () => {
@@ -249,7 +249,7 @@ describe('an approval, as a second door to the same answer', () => {
 
   it('shows a command whole, with the reason the runtime gave', () => {
     const command: Approval = { ...base, type: 'command', command: 'pnpm verify && echo done', cwd: '/work', actions: [], reason: 'Run the checks', options }
-    expect(approvalDoor(command).detail).toEqual({ code: 'pnpm verify && echo done', reason: 'Run the checks' })
+    expect(approvalDoor(command).detail).toEqual({ code: 'pnpm verify && echo done', folder: '/work', reason: 'Run the checks' })
   })
 
   it('words a board tool\'s grants as the card does, and fills only the plain yes', () => {

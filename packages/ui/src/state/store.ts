@@ -5891,7 +5891,12 @@ export class AppStore {
     } catch (error) {
       const message = describe(error)
       this.notice('error', message)
-      this.#patch({ approvals: [...this.#snapshot.approvals, pending] })
+      // A newer request may have reused this id while the older one was
+      // optimistically absent. Keep that live request in place rather than
+      // restoring a duplicate with an older requestedAt.
+      if (!this.#snapshot.approvals.some((entry) => entry.key === key && entry.approval.id === id)) {
+        this.#patch({ approvals: [...this.#snapshot.approvals, pending] })
+      }
       return { ok: false, message }
     }
   }

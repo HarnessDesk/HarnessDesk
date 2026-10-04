@@ -97,10 +97,10 @@ export const needsYouAnswers = (scene: NeedsYouScene, refusal: string | null = n
     approvalDoor: (id, key) => {
       const owner = input.seats.find((seat) => sessionKey(seat.record.session.runtime, seat.record.session.sessionId) === key)
       const found = owner?.approvals.find((one) => one.id === id)
-      return found ? { key, ...approvalDoor(found) } : null
+      return found ? { key, approval: found, ...approvalDoor(found) } : null
     },
     answerStep: async () => { if (refusal !== null) throw new Error(refusal) },
-    approvalRefusals: (key, id) => scene === 'approval-refused' && key === KEY && id === approvals.approval.id
+    approvalRefusals: (key, request) => scene === 'approval-refused' && key === KEY && request.id === approvals.approval.id
       ? [{ choiceId: 'once', message: 'The approval was already answered.' }]
       : [],
     respond: async () => {},

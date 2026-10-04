@@ -231,8 +231,8 @@ answer, and every abandon, is the request the board's menu makes, argument for
 argument; a person's note is the card's context package. An answer given in two
 places is therefore one request, and the host refuses the second as already
 answered. An approval answered from the Overview sends the decision the docked
-card sends and shows what it approves beside its choices, so a yes is never
-given blind.
+card sends and shows the command and its working folder, or the other scope it
+approves, beside its choices, so a yes is never given blind.
 
 **The rule:** the window says what an answer or an abandon will do from the
 Run's own Flow, read as the engine reads it, and it sends no request the board

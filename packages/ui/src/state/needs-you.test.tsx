@@ -60,13 +60,27 @@ const runtime = (id: string, words: boolean, capable = words): RuntimeInfo => ({
   capabilities: { perToolMcpApproval: capable },
 } as unknown as RuntimeInfo)
 
-const mount = (patch: Partial<AppSnapshot>, store: Partial<AppStore> = {}): { current: NeedsYouAnswers } => {
+const mount = (patch: Partial<AppSnapshot>, store: Partial<AppStore> = {}): {
+  current: NeedsYouAnswers
+  update: (patch: Partial<AppSnapshot>) => void
+} => {
   const held: { current: NeedsYouAnswers } = { current: null as never }
   const Probe = () => { held.current = useNeedsYouAnswers({ room: ROOM, execution: execution(), cards: [card(7)], openBoard: () => {} }); return null }
-  const snapshot = { ...emptySnapshot(), ...patch } as AppSnapshot
-  const full = { subscribe: () => () => {}, getSnapshot: () => snapshot, ...store } as unknown as AppStore
+  let snapshot = { ...emptySnapshot(), ...patch } as AppSnapshot
+  const listeners = new Set<() => void>()
+  const full = {
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
+    getSnapshot: () => snapshot,
+    ...store,
+  } as unknown as AppStore
   act(() => root.render(<StoreProvider store={full}><Probe /></StoreProvider>))
-  return held
+  return {
+    get current() { return held.current },
+    update: (next) => {
+      snapshot = { ...snapshot, ...next }
+      act(() => listeners.forEach((listener) => listener()))
+    },
+  }
 }
 
 it('finds a person\'s card among the Team\'s cards, and none for a card that is not there', () => {
@@ -106,19 +120,57 @@ it('keeps a refused choice with its approval after the request is restored', asy
     respondToApproval: vi.fn().mockResolvedValue({ ok: false, message }),
   })
   await act(async () => {
-    await Reflect.apply(answers.current.respond, undefined, [KEY, approvalId('a1'), { type: 'option', optionId: 'once' }, 'answer-once'])
+    await answers.current.respond(KEY, tool, { type: 'option', optionId: 'once' }, 'answer-once')
   })
-  const withRefusals = answers.current as NeedsYouAnswers & {
-    approvalRefusals?: (key: typeof KEY, id: typeof tool.id) => readonly { choiceId: string; message: string }[]
-  }
-  expect(withRefusals.approvalRefusals?.(KEY, approvalId('a1'))).toEqual([
+  expect(answers.current.approvalRefusals(KEY, tool)).toEqual([
     { choiceId: 'answer-once', message },
   ])
 })
 
+it('keeps a pending refusal with its request when a new request reuses its id', async () => {
+  const message = 'The approval was already answered.'
+  let finish!: (result: { ok: false; message: string }) => void
+  const response = new Promise<{ ok: false; message: string }>((resolve) => { finish = resolve })
+  const original = tool
+  const fresh = { ...tool, requestedAt: tool.requestedAt + 1 }
+  const answers = mount({ approvals: [{ key: KEY, approval: original }] }, {
+    respondToApproval: vi.fn().mockReturnValue(response),
+  })
+  let pending!: Promise<void>
+  act(() => {
+    pending = answers.current.respond(KEY, original, { type: 'option', optionId: 'once' }, 'answer-once')
+  })
+
+  answers.update({ approvals: [] })
+  answers.update({ approvals: [{ key: KEY, approval: fresh }] })
+  finish({ ok: false, message })
+  await act(async () => pending)
+
+  expect(answers.current.approvalRefusals(KEY, fresh)).toEqual([])
+  answers.update({ approvals: [] })
+  answers.update({ approvals: [{ key: KEY, approval: original }] })
+  expect(answers.current.approvalRefusals(KEY, original)).toEqual([
+    { choiceId: 'answer-once', message },
+  ])
+})
+
+it('does not let a stale row answer a replacement request with the same id', async () => {
+  const original = tool
+  const fresh = { ...tool, requestedAt: tool.requestedAt + 1 }
+  const respondToApproval = vi.fn().mockResolvedValue({ ok: true })
+  const answers = mount({ approvals: [{ key: KEY, approval: original }] }, { respondToApproval })
+  const staleRespond = answers.current.respond
+  answers.update({ approvals: [{ key: KEY, approval: fresh }] })
+
+  await act(async () => staleRespond(KEY, original, { type: 'option', optionId: 'once' }, 'once'))
+  expect(respondToApproval).not.toHaveBeenCalled()
+  await act(async () => answers.current.respond(KEY, fresh, { type: 'option', optionId: 'once' }, 'once'))
+  expect(respondToApproval).toHaveBeenCalledWith(KEY, fresh.id, { type: 'option', optionId: 'once' })
+})
+
 it('sends the decision through the store the docked approval answers through', async () => {
   const respondToApproval = vi.fn().mockResolvedValue({ ok: true })
-  const answers = mount({}, { respondToApproval })
-  await act(async () => answers.current.respond(KEY, approvalId('a1'), { type: 'option', optionId: 'once' }, 'once'))
+  const answers = mount({ approvals: [{ key: KEY, approval: tool }] }, { respondToApproval })
+  await act(async () => answers.current.respond(KEY, tool, { type: 'option', optionId: 'once' }, 'once'))
   expect(respondToApproval).toHaveBeenCalledWith(KEY, 'a1', { type: 'option', optionId: 'once' })
 })

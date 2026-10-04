@@ -49,6 +49,7 @@ for (const theme of ['light', 'dark'] as const) {
     // What is approved is shown whole, in the code face, and the reason beside it.
     const code = row.locator('[data-slot="approval-code"]')
     await expect(code).toHaveText('pnpm verify')
+    await expect(row).toContainText('/work/storefront')
     expect(await code.evaluate((one) => getComputedStyle(one).fontFamily)).toMatch(/mono|Menlo|Consolas|Courier/i)
     await expect(row).toContainText('The check needs a clean checkout of the branch.')
     expect(await within(row)).toEqual({ stray: 0, scrolls: false })

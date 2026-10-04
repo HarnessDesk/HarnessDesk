@@ -27,7 +27,7 @@ const fake = (approvals: readonly Approval[] = [], over: Partial<NeedsYouAnswers
   stepDoor: () => null,
   approvalDoor: (id, key) => {
     const found = approvals.find((one) => one.id === id)
-    return found ? { key, ...approvalDoor(found) } : null
+    return found ? { key, approval: found, ...approvalDoor(found) } : null
   },
   answerStep: vi.fn().mockResolvedValue(undefined),
   approvalRefusals: () => [],
@@ -43,7 +43,8 @@ const rows = () => [...box.querySelectorAll<HTMLElement>('[aria-label="Needs you
 const buttonsIn = (row: HTMLElement) => [...row.querySelectorAll<HTMLButtonElement>('button')]
 
 it('lets an approval be answered from the Overview with the agent\'s own choices, the plain yes filled', () => {
-  const answers = fake([command('a1')])
+  const request = command('a1')
+  const answers = fake([request])
   draw([item()], answers)
   const [row] = rows()
   expect(row?.textContent).toContain('Beta')
@@ -51,9 +52,9 @@ it('lets an approval be answered from the Overview with the agent\'s own choices
   expect(buttonsIn(row!).map((one) => one.textContent)).toEqual(['Deny', 'Allow for this session', 'Allow once'])
   expect(buttonsIn(row!).map((one) => one.hasAttribute('data-filled'))).toEqual([false, false, true])
   act(() => buttonsIn(row!)[2]!.click())
-  expect(answers.respond).toHaveBeenCalledWith(KEY, 'a1', { type: 'option', optionId: 'yes' }, 'yes')
+  expect(answers.respond).toHaveBeenCalledWith(KEY, request, { type: 'option', optionId: 'yes' }, 'yes')
   act(() => buttonsIn(row!)[0]!.click())
-  expect(answers.respond).toHaveBeenLastCalledWith(KEY, 'a1', { type: 'option', optionId: 'no' }, 'no')
+  expect(answers.respond).toHaveBeenLastCalledWith(KEY, request, { type: 'option', optionId: 'no' }, 'no')
 })
 
 it('shows what is being approved whole, so a yes is not given blind', () => {
@@ -65,9 +66,14 @@ it('shows what is being approved whole, so a yes is not given blind', () => {
   expect(box.textContent).toContain('The check needs a clean checkout.')
 })
 
+it('shows the working folder for an ordinary command approval', () => {
+  draw([item()], fake([command('a1', 'pnpm verify', { cwd: '/work/project' })]))
+  expect(rows()[0]?.textContent).toContain('/work/project')
+})
+
 it('shows a refused approval beside its row and disables only that choice', () => {
   const answers = Object.assign(fake([command('a1')]), {
-    approvalRefusals: (key: string, id: string) => key === KEY && id === 'a1'
+    approvalRefusals: (key: string, request: Approval) => key === KEY && request.id === 'a1'
       ? [{ choiceId: 'yes', message: 'This approval was already answered.' }]
       : [],
   })
@@ -100,13 +106,15 @@ it('names the files a change touches and the folders and hosts an access would o
 })
 
 it('answers each of two approvals asked in the same instant with its own id', () => {
-  const answers = fake([command('a1', 'pnpm build'), command('a2', 'pnpm test')])
+  const firstRequest = command('a1', 'pnpm build')
+  const secondRequest = command('a2', 'pnpm test')
+  const answers = fake([firstRequest, secondRequest])
   draw([item({ approval: approvalId('a1') }), item({ approval: approvalId('a2'), summary: 'Approve a command' })], answers)
   const [first, second] = rows()
   act(() => buttonsIn(second!).at(-1)!.click())
-  expect(answers.respond).toHaveBeenLastCalledWith(KEY, 'a2', { type: 'option', optionId: 'yes' }, 'yes')
+  expect(answers.respond).toHaveBeenLastCalledWith(KEY, secondRequest, { type: 'option', optionId: 'yes' }, 'yes')
   act(() => buttonsIn(first!).at(-1)!.click())
-  expect(answers.respond).toHaveBeenLastCalledWith(KEY, 'a1', { type: 'option', optionId: 'yes' }, 'yes')
+  expect(answers.respond).toHaveBeenLastCalledWith(KEY, firstRequest, { type: 'option', optionId: 'yes' }, 'yes')
 })
 
 it('keys approval rows by their conversation when requests reuse an id', () => {
@@ -129,9 +137,9 @@ it('answers a single question with the option picked, and can cancel it', () => 
   const [row] = rows()
   expect(buttonsIn(row!).map((one) => one.textContent)).toEqual(['Web', 'API', 'Cancel'])
   act(() => buttonsIn(row!)[1]!.click())
-  expect(answers.respond).toHaveBeenCalledWith(KEY, 'q1', { type: 'answers', answers: { target: ['api'] } }, 'answer-api')
+  expect(answers.respond).toHaveBeenCalledWith(KEY, question, { type: 'answers', answers: { target: ['api'] } }, 'answer-api')
   act(() => buttonsIn(row!)[2]!.click())
-  expect(answers.respond).toHaveBeenLastCalledWith(KEY, 'q1', { type: 'cancel' }, 'cancel')
+  expect(answers.respond).toHaveBeenLastCalledWith(KEY, question, { type: 'cancel' }, 'cancel')
 })
 
 it('leaves a question that needs a form to its conversation', () => {

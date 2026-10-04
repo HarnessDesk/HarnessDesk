@@ -124,12 +124,12 @@ export interface NeedsYouAnswers {
   /** The way to answer a person's card, or null when it has none now. */
   readonly stepDoor: (card: number) => StepDoor | null
   /** The way to answer this open approval or question, addressed within its conversation. */
-  readonly approvalDoor: (approval: ApprovalId, key: SessionKey) => (ApprovalDoor & { readonly key: SessionKey }) | null
+  readonly approvalDoor: (approval: ApprovalId, key: SessionKey) => (ApprovalDoor & { readonly key: SessionKey; readonly approval: Approval }) | null
   /** Answers a person's card, and rejects with the host's refusal. */
   readonly answerStep: (card: number, outcome: string | null, note: string) => Promise<void>
   /** Refused choices persist above the row while the store restores its optimistic request removal. */
-  readonly approvalRefusals: (key: SessionKey, approval: ApprovalId) => readonly ApprovalRefusal[]
-  readonly respond: (key: SessionKey, approval: ApprovalId, decision: ApprovalDecision, choiceId: string) => Promise<void>
+  readonly approvalRefusals: (key: SessionKey, approval: Approval) => readonly ApprovalRefusal[]
+  readonly respond: (key: SessionKey, approval: Approval, decision: ApprovalDecision, choiceId: string) => Promise<void>
   /** Opens the board, where a review step's attempt is picked. */
   readonly openBoard: () => void
 }
@@ -148,8 +148,10 @@ export interface ApprovalChoice {
 export interface ApprovalDetail {
   readonly code?: string
   readonly reason?: string
-  /** For stdin requests, what receives the input and where that command runs. */
-  readonly inputTo?: { readonly command: string; readonly folder: string }
+  /** The working folder for any command approval. */
+  readonly folder?: string
+  /** For stdin requests, what receives the input. */
+  readonly inputTo?: { readonly command: string }
   readonly lists?: readonly { readonly label: string; readonly items: readonly string[] }[]
 }
 
@@ -182,7 +184,8 @@ const detailOf = (approval: Exclude<Approval, { type: 'userInput' | 'elicitation
   return {
     // What a running command is asked to take is the input, and what is approved is that.
     ...(approval.type === 'command' ? { code: approval.kind === 'stdin' ? approval.input ?? approval.command : approval.command } : {}),
-    ...(approval.type === 'command' && approval.kind === 'stdin' ? { inputTo: { command: approval.command, folder: approval.cwd } } : {}),
+    ...(approval.type === 'command' ? { folder: approval.cwd } : {}),
+    ...(approval.type === 'command' && approval.kind === 'stdin' ? { inputTo: { command: approval.command } } : {}),
     ...(approval.reason ? { reason: approval.reason } : {}),
     ...(lists.some((one) => one.items.length > 0) ? { lists: lists.filter((one) => one.items.length > 0) } : {}),
   }

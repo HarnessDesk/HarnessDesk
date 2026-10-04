@@ -972,12 +972,12 @@ its conversation under the same Team, even after its process has rested.
 A Team without a Run opens on Chat and still offers Overview for its Seats.
 
 What needs you can be answered from its row. A tool's request for approval
-offers the agent's own choices, with the command, the files or the access it
-would open shown beside them, and sends the same answer as the approval in
-the chat, so whichever you answer first wins. A question with one single
-choice offers its options; one that needs a form leaves to its conversation. A
-step a Flow addressed to you offers the words its role declares, a note the
-next step reads, and a sentence saying what each answer does before you give
+offers the agent's own choices. The command and its working folder, files a
+change would touch, or access it would open appear beside them; the answer is
+the same as the approval in the chat, so whichever you answer first wins. A
+question with one single choice offers its options; one needing a form leaves
+to its conversation. A step a Flow addressed to you offers the words its role
+declares, a note the next step reads, and a sentence saying what each answer does before you give
 it (a review step asks you to pick an attempt on the board). A refusal stays on
 the row, beside the answer it refused.
 

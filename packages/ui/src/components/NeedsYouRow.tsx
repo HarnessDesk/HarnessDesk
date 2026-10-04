@@ -22,11 +22,11 @@ const Detail = ({ detail }: { detail: ApprovalDetail }) => (
       <div className="flex min-w-0 flex-col gap-1">
         <Text role="meta" as="div"><Text role="meta" ink="secondary">To</Text></Text>
         <ApprovalCode>{sanitizeText(detail.inputTo.command)}</ApprovalCode>
-        {detail.inputTo.folder && <Text role="meta" as="div" title={sanitizeText(detail.inputTo.folder)} className="[overflow-wrap:anywhere]">
-          <Text role="meta" ink="secondary">In</Text>{' '}{sanitizeText(detail.inputTo.folder)}
-        </Text>}
       </div>
     )}
+    {detail.folder && <Text role="meta" as="div" title={sanitizeText(detail.folder)} className="[overflow-wrap:anywhere]">
+      <Text role="meta" ink="secondary">In</Text>{' '}{sanitizeText(detail.folder)}
+    </Text>}
     {detail.lists?.map((list) => (
       <Text key={list.label} role="meta" as="div" className="[overflow-wrap:anywhere]" title={sanitizeText(list.items.join('\n'))}>
         <Text role="meta" ink="secondary">{list.label}</Text>{' '}
@@ -56,8 +56,8 @@ export const NeedsYouRow = ({ item, name, answers, onOpenSeat }: {
   const request = answers && item.approval !== undefined && item.sessionKey !== undefined
     ? answers.approvalDoor(item.approval, item.sessionKey)
     : null
-  const refusals = request && answers && item.approval !== undefined
-    ? answers.approvalRefusals(request.key, item.approval)
+  const refusals = request && answers
+    ? answers.approvalRefusals(request.key, request.approval)
     : []
   const seat = item.seat
   const controls = step && answers
@@ -72,7 +72,7 @@ export const NeedsYouRow = ({ item, name, answers, onOpenSeat }: {
                 key={choice.id} variant={choice.primary ? 'default' : 'outline'}
                 disabled={refusals.some((refusal) => refusal.choiceId === choice.id)}
                 {...(choice.title ? { title: sanitizeText(choice.title) } : {})}
-                onClick={() => { void answers.respond(request.key, item.approval!, choice.decision, choice.id) }}
+                onClick={() => { void answers.respond(request.key, request.approval, choice.decision, choice.id) }}
               >
                 {sanitizeText(choice.label)}
               </Button>

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { splitSessionKey, type ApprovalDecision, type ApprovalId, type FlowExecution, type Intent, type SessionKey } from '@harnessdesk/protocol'
+import { splitSessionKey, type Approval, type ApprovalDecision, type ApprovalId, type FlowExecution, type Intent, type SessionKey } from '@harnessdesk/protocol'
 import { approvalDoor, stepDoor, type ApprovalRefusal, type NeedsYouAnswers } from '../lib/needs-you'
 import { useSnapshot, useStore } from './context'
 import type { AppStore } from './store'
@@ -38,7 +38,7 @@ export const useNeedsYouAnswers = ({ room, execution, cards, openBoard }: {
 }): NeedsYouAnswers => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const [refusals, setRefusals] = useState<readonly (ApprovalRefusal & { key: SessionKey; approval: ApprovalId })[]>([])
+  const [refusals, setRefusals] = useState<readonly (ApprovalRefusal & { key: SessionKey; approval: Approval })[]>([])
   return useMemo((): NeedsYouAnswers => ({
     stepDoor: (card) => {
       const found = cards.find((one) => one.id === card)
@@ -50,16 +50,19 @@ export const useNeedsYouAnswers = ({ room, execution, cards, openBoard }: {
       const runtime = snapshot.runtimes.find((one) => one.id === splitSessionKey(entry.key).runtime)
       // The docked card's own condition for wording a board tool's grants.
       const words = runtime?.capabilities.perToolMcpApproval && runtime.presentation.boardToolApproval ? runtime.presentation.boardToolApproval : null
-      return { key: entry.key, ...approvalDoor(entry.approval, words) }
+      return { key: entry.key, approval: entry.approval, ...approvalDoor(entry.approval, words) }
     },
     answerStep: (card, outcome, note) => answerStep(store, room, card, outcome, note),
-    approvalRefusals: (key, id) => refusals.filter((one) => one.key === key && one.approval === id)
+    approvalRefusals: (key, approval) => refusals.filter((one) => one.key === key && one.approval === approval)
       .map(({ choiceId, message }) => ({ choiceId, message })),
-    respond: async (key, id, decision: ApprovalDecision, choiceId) => {
-      const result = await store.respondToApproval(key, id, decision)
+    respond: async (key, approval, decision: ApprovalDecision, choiceId) => {
+      // A stale row can outlive the request it rendered. Do not let its click
+      // answer a new request that reused the same id in this conversation.
+      if (!store.getSnapshot().approvals.some((entry) => entry.key === key && entry.approval === approval)) return
+      const result = await store.respondToApproval(key, approval.id, decision)
       setRefusals((previous) => {
-        const other = previous.filter((one) => one.key !== key || one.approval !== id || one.choiceId !== choiceId)
-        return result.ok ? other : [...other, { key, approval: id, choiceId, message: result.message }]
+        const other = previous.filter((one) => one.key !== key || one.approval !== approval || one.choiceId !== choiceId)
+        return result.ok ? other : [...other, { key, approval, choiceId, message: result.message }]
       })
     },
     openBoard,
