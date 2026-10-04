@@ -7,13 +7,16 @@
  *
  * URL knobs, set by the embedding page:
  *   ?theme=dark|light — the page owns the theme (postMessage keeps it live).
- *   ?view=hero|handoff|usage|room — which surface the demo opens on. `hero` is
+ *   ?view=hero|handoff|usage|room|flow|poster — which surface the demo opens on. `hero` is
  *     an empty composer waiting for the visitor. `handoff` and `usage` drive
  *     the recorded turn through the real send path at ?pace=fast, then stage
  *     the hand-off draft or open the usage dashboard. `room` opens the staged
  *     room's board, and plays its three moves once the band is on screen.
+ *     `flow` plays the preview's staged Run through the real Team pane;
+ *     `poster` holds its Fix stage in the real FlowGraph. `stage=` freezes a
+ *     flow view at a named step for inspection.
  */
-import { StrictMode } from 'react'
+import { lazy, StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { App } from '../src/app/App'
@@ -24,6 +27,11 @@ import '../src/styles/app.css'
 
 import { FakeHostSocket, NOT_WIRED, RECORDED_PROMPT, ROOM_ID } from './fake-host'
 import { guide } from './guide'
+
+const KNOBS = new URL(window.location.href).searchParams
+const VIEW = KNOBS.get('view') ?? 'hero'
+const staged = VIEW === 'flow' || VIEW === 'poster'
+const SiteRunDemo = lazy(() => import('./run-demo').then(module => ({ default: module.SiteRunDemo })))
 
 // This frame lives inside a page: the app's own focus moves (a new draft
 // hands the keyboard to the composer) must never scroll the page that embeds
@@ -57,9 +65,6 @@ store.notice = (level, message, action) => {
   raise(level, message, action)
 }
 ;(window as unknown as { __hdStore?: AppStore }).__hdStore = store
-
-const KNOBS = new URL(window.location.href).searchParams
-const VIEW = KNOBS.get('view') ?? 'hero'
 
 // The page that embeds this frame owns the theme; the recorded preferences
 // carry whichever theme the capture ran in and land at their own pace, so
@@ -127,7 +132,7 @@ const afterRecordedTurn = (then: () => void) => {
   }, 250)
 }
 
-void store
+if (!staged) void store
   .connect()
   .then(() => {
     if (VIEW === 'hero') return
@@ -278,7 +283,7 @@ if (!container) throw new Error('#root is missing from index.html')
 createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
-      <App />
+      {staged ? <Suspense fallback={null}><SiteRunDemo /></Suspense> : <App />}
     </StoreProvider>
   </StrictMode>,
 )

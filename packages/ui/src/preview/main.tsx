@@ -1,4 +1,5 @@
 import { SidebarStructureExample } from './sidebar-structure-fixture'
+import { SiteRunPreview } from '../../site-demo/run-demo'
 import { TeamRecordFrames } from './frames-team-record'
 import { TeamsPageFrames } from './frames-teams-page'
 import { CliInstallFrame } from './frames-cli-install'
@@ -1116,7 +1117,9 @@ createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('cli-install')
+        {new URLSearchParams(window.location.search).has('site-run')
+          ? <SiteRunPreview />
+          : new URLSearchParams(window.location.search).has('cli-install')
           ? <CliInstallFrame />
           : new URLSearchParams(window.location.search).has('review-publication')
           ? <PublicationPreview />
