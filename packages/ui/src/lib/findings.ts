@@ -35,18 +35,7 @@ export const emptyFindingsState = (filter: FindingFilter = 'all'): FindingsListS
 
 export type LifecycleTone = 'neutral' | 'warning' | 'success' | 'danger'
 
-/**
- * The word a row's state carries. A repair is a claim until a reviewer (or a
- * person) confirms it — never "Verified" — and a damaged history is never
- * shown as if it were clean, whatever its recorded state says.
- */
-export const lifecycleWords = (view: FindingView): string => {
-  if (view.problem !== null) return 'Unreadable'
-  const { state, confirmed } = view.lifecycle
-  if (state === 'open') return 'Open'
-  if (state === 'withdrawn') return confirmed ? 'Withdrawn' : 'Withdrawal claimed · awaiting review'
-  return confirmed ? 'Repair accepted by reviewer' : 'Repair claimed · awaiting review'
-}
+export { lifecycleWords } from '@harnessdesk/client/views'
 
 /** `stateTone`-shaped: reuse the existing open/known tones, but a finding's own words for what is finding-specific. */
 export const lifecycleTone = (view: FindingView): LifecycleTone => {

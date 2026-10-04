@@ -512,11 +512,8 @@ export const blockedWords = (entry: AgentEntry | undefined, home: string): strin
 
 /* --- a conversation seated as an Agent ------------------------------------ */
 
-/** A word from an Agent's file — its id, a verdict — as a person reads it: `request-changes` → "Request changes". */
-export const wordOf = (word: string): string => {
-  const spaced = word.replace(/[-_]+/g, ' ')
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
-}
+export { wordOf } from '@harnessdesk/client/views'
+import { wordOf } from '@harnessdesk/client/views'
 
 /** A conversation's title led by the Agent it was seated as — said once, where the title already is its name. */
 export const ledBy = (agent: string | null, title: string): string =>

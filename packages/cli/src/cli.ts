@@ -1,7 +1,7 @@
 import { connect, WireCallError, type Client, type ClientEvent, type ClientTransport } from '@harnessdesk/client'
-import { teamOverviewOf } from '@harnessdesk/client/views'
+import { teamOverviewOf, runTimelineOf } from '@harnessdesk/client/views'
 import { readTextFile, repositoryRoot, readConfirmation, canonicalProject, findDesks, localTransport, resolveDesk, type DeskPointer } from '@harnessdesk/client/node'
-import { parseSeat, seatSpec, doingSentence, type FlowPreview, type FlowSeat, type ClientTier, type ClientMethodName, type ClientTopic, type GoalView, type HostParams, type HostResult } from '@harnessdesk/protocol'
+import { parseSeat, seatSpec, doingSentence, type FlowPreview, type FlowSeat, type ClientTier, type ClientMethodName, type ClientTopic, type GoalView, type HostParams, type HostResult, type FindingView } from '@harnessdesk/protocol'
 import { CARD_ARGUMENT, FLOW_ARGUMENT, FLOW_OPTIONS, RUN_ARGUMENT, TEAM_ARGUMENT, YES_OPTION, type ArgumentDoc, type OptionDoc } from './reference.js'
 
 interface Arguments {
@@ -173,9 +173,9 @@ export const COMMANDS = [
     },
   },
   {
-    name: 'run show', tier: 'read', methods: ['flow/execution'], flags: ['target'], execute: showRun,
+    name: 'run show', tier: 'read', methods: ['flow/execution', 'client/subscribe', 'evidence/board', 'finding/list', 'finding/run'], flags: ['target'], execute: showRun,
     usage: 'run show <run>',
-    description: 'Shows one run in full: its state, rounds and cards, and why it ended. It prints whether the run is attended or unattended, each round with its role, state and the cards it opened, the reason it ended if it has, and any seat overrides it was started with.',
+    description: 'Shows the shared Run timeline: its header, brief, rounds, cards, check results, findings and ending. It keeps attendance and seat overrides. Round lines show answered counts; review rows show recorded publication state. JSON keeps the execution unchanged.',
     arguments: [RUN_ARGUMENT],
     options: [],
     json: "The run exactly as the desk holds it: `id`, `goal` (the Team's id), `state`, `attended`, `rounds`, `reason`, `overrides` and the flow's own `document`.",
@@ -663,14 +663,33 @@ async function startFlow(args: Arguments): Promise<number> {
 }
 
 async function showRun(args: Arguments): Promise<number> {
-  const client = await open(args)
+  const client = await open(args, undefined, args.json ? undefined : { topics: ['cards', 'teams'], scope: { run: args.target! } })
   try {
-    const run = await client.call('flow/execution', { run: args.target! })
-    output(args, run, () => {
-      line([run.id, run.state, run.attended === false ? 'unattended' : 'attended', run.reason])
-      for (const round of run.rounds) line([`round ${round.n}`, round.role, round.state, `cards ${round.cards.join(', ')}`])
-      for (const [role, seats] of Object.entries(run.overrides ?? {})) line([role, 'override', seats.map(seatSpec).join(', ')])
-    })
+    if (args.json) {
+      output(args, await client.call('flow/execution', { run: args.target! }), () => {})
+      return 0
+    }
+    await client.synced()
+    const snapshot = client.snapshot()
+    const run = snapshot.runs.find(one => one.id === args.target)
+    if (!run) throw new WireCallError('notFound', 'The Run is not in the subscription baseline.')
+    const evidence = await client.call('evidence/board', { room: run.goal })
+    const findings: FindingView[] = []
+    let cursor: string | undefined
+    do {
+      const page = await client.call('finding/list', { goal: run.goal, filter: 'all', ...(cursor ? { cursor } : {}) })
+      findings.push(...page.rows)
+      cursor = page.next ?? undefined
+    } while (cursor)
+    const findingRun = await client.call('finding/run', { goal: run.goal, run: run.id })
+    const timeline = runTimelineOf(snapshot, run, { evidence, findings, findingRun })
+    const header = timeline.header
+    line([header.run, header.flow, header.state, run.attended === false ? 'unattended' : 'attended',
+      header.revision ? `revision ${header.revision}` : null, header.continues ? `continues ${header.continues}` : null,
+      header.publication?.label, header.needsYou ? 'Needs you' : null])
+    for (const row of timeline.rows) line([row.title, row.status, row.publication?.label, row.detail,
+      row.durationMs === null ? null : `${row.durationMs}ms`])
+    for (const [role, seats] of Object.entries(run.overrides ?? {})) line([role, 'override', seats.map(seatSpec).join(', ')])
     return 0
   } finally { client.close() }
 }

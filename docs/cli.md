@@ -73,7 +73,7 @@ Every command ends with one of these. A command's own section lists the codes th
 | [`flows`](#harnessdesk-flows) | Lists the flows a project offers, with where each comes from and any problem in it. | read |
 | [`flow preview`](#harnessdesk-flow-preview) | Says what a flow would do, without doing it or spending anything. | read |
 | [`flow start`](#harnessdesk-flow-start) | Starts a Team running a flow, after showing a preview. | run |
-| [`run show`](#harnessdesk-run-show) | Shows one run in full: its state, rounds and cards, and why it ended. | read |
+| [`run show`](#harnessdesk-run-show) | Shows the shared Run timeline: its header, brief, rounds, cards, check results, findings and ending. | read |
 | [`run stop`](#harnessdesk-run-stop) | Stops a run and interrupts its seats, without opening the next card. | run |
 | [`run wait`](#harnessdesk-run-wait) | Waits for a run to end, without polling, and says how it ended in its exit code. | read |
 | [`card show`](#harnessdesk-card-show) | One card on a Team's board: its role, state, outcome, note and handoff. | read |
@@ -327,7 +327,7 @@ Needs the **run** tier.
 harnessdesk run show <run>
 ```
 
-Shows one run in full: its state, rounds and cards, and why it ended. It prints whether the run is attended or unattended, each round with its role, state and the cards it opened, the reason it ended if it has, and any seat overrides it was started with.
+Shows the shared Run timeline: its header, brief, rounds, cards, check results, findings and ending. It keeps attendance and seat overrides. Round lines show answered counts; review rows show recorded publication state. JSON keeps the execution unchanged.
 
 Needs the **read** tier.
 

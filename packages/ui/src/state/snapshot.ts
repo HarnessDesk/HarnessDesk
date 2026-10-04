@@ -29,6 +29,7 @@ import type {
   SessionKey,
   SessionSummary,
   TeamState,
+  SeatActivity,
   FindingRunView,
   FlowExecution,
   FlowRun,
@@ -417,6 +418,8 @@ export interface AppSnapshot {
    * this map is only ever assigned, never merged.
    */
   readonly teams: ReadonlyMap<string, TeamState>
+  /** Host fallback activity keyed by the Team and runtime:session identity. */
+  readonly seatActivities: ReadonlyMap<string, SeatActivity>
   /** Durable Goals, keyed by Goal id; their embedded board is mirrored into `teams`. */
   readonly goals: ReadonlyMap<string, GoalView>
   readonly goalProblem: string | null
@@ -852,6 +855,7 @@ const EMPTY: AppSnapshot = {
   foldersGone: new Map(),
   worktrees: [],
   teams: new Map(),
+  seatActivities: new Map(),
   goals: new Map(),
   goalProblem: null,
   findings: new Map(),
@@ -940,6 +944,7 @@ export const emptySnapshot = (): AppSnapshot => ({
   seating: null,
   seatAgents: new Map(),
   goals: new Map(),
+  seatActivities: new Map(),
   findings: new Map(),
   findingRuns: new Map(),
 })

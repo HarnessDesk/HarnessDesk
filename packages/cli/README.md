@@ -146,9 +146,14 @@ and are not an authentication boundary.
 
 ## Reading and waiting for a Run
 
-`run show <run>` reads one execution. Human output shows state, attendance,
-rounds with roles and card ids, stop reason and overrides; JSON is the unchanged
-`FlowExecution`.
+`run show <run>` takes a subscription baseline scoped to that Run and reads
+its check evidence, findings and publication state. Human output uses the
+window's shared timeline: the header, brief, rounds with answered counts,
+cards, check results, findings and ending. It keeps attendance and seat
+overrides. Flow-round state words are replaced by answered counts; review
+rows keep their recorded publication labels. JSON remains the unchanged
+`FlowExecution` and needs only the execution read. Earlier check-attempt
+history remains a separate read in the window.
 
 `run wait <run> [--timeout S]` makes one subscription scoped to that run,
 waits for its counted baseline, then uses events without polling. It drains

@@ -25,12 +25,13 @@ import { elapsedSince } from '../lib/clock'
 import { goalRunOf, namedGoalRun } from '../lib/goal-run'
 import { teamSeats, hasConversation } from '../lib/team-seats'
 import { isRecord, RECORD_REASON } from '../lib/team-record'
-import { teamOverview } from '../lib/team-overview'
+import { teamOverviewOf } from '@harnessdesk/client/views'
+import { clientSnapshot } from '../lib/client-snapshot'
 import { TeamOverview } from './TeamOverview'
 import { TeamRunView } from './TeamRunView'
 import { StopRunDialog, StopRunFailure } from './StopRunDialog'
 import { useCheckAttempts } from '../state/check-attempts'
-import { runTimeline } from '../lib/run-timeline'
+import { runTimelineOf } from '@harnessdesk/client/views'
 import { shortSha } from '../lib/evidence'
 import { goalActions, goalName } from '../lib/goals'
 import { openExternal } from '../lib/desktop'
@@ -772,8 +773,9 @@ export const TeamRoomPane = ({
   useEffect(() => {
     if (flowExecution && typeof store.loadFindingRun === 'function') void store.loadFindingRun(room, flowExecution.id).catch(() => {})
   }, [store, room, flowExecution?.id])
-  const overview = useMemo(() => teamOverview({
-    team: room, cards: intents, signals: entries.filter((one): one is Extract<TeamEntry, {kind: 'signal'}> => one.kind === 'signal'),
+  const heldClient = useMemo(() => clientSnapshot(snapshot), [snapshot])
+  const overview = useMemo(() => teamOverviewOf(heldClient, room, {
+    runtimes: snapshot.runtimes.map(one => ({ id: one.id, name: one.presentation.name, metered: one.capabilities.metered })),
     seats: seats.map(seat => ({
       record: seat.record, name: members.find(one => sessionKey(one.runtime, one.sessionId) === seat.key)?.nickname ?? seat.name,
       runtime: snapshot.runtimes.find(one => one.id === seat.record.session.runtime) ?? null,
@@ -785,11 +787,9 @@ export const TeamRoomPane = ({
     findingRun: flowExecution ? snapshot.findingRuns.get(flowExecution.id) : null,
     publicationOn: goal?.goal.findingPublication !== false,
     report: report?.goal === room ? report : null,
-    runtimeCapabilities: new Map(snapshot.runtimes.map(one => [one.id, one.capabilities])),
-  }), [room, intents, entries, seats, members, snapshot.runtimes, snapshot.sessions, snapshot.inbox, snapshot.approvals, flowExecution, report, snapshot.findingRuns, goal?.goal.findingPublication])
-  const overviewTimeline = useMemo(() => flowExecution ? runTimeline({ execution: flowExecution, cards: intents, sessions: snapshot.sessions,
-    signals: entries.filter((one): one is Extract<TeamEntry, {kind: 'signal'}> => one.kind === 'signal') }) : null,
-  [flowExecution, intents, snapshot.sessions, entries])
+  }), [heldClient, room, intents, entries, seats, members, snapshot.runtimes, snapshot.sessions, snapshot.inbox, snapshot.approvals, flowExecution, report, snapshot.findingRuns, goal?.goal.findingPublication])
+  const overviewTimeline = useMemo(() => flowExecution ? runTimelineOf(heldClient, flowExecution, { sessions: snapshot.sessions }) : null,
+  [heldClient, flowExecution, snapshot.sessions])
   const stoppingSessions = new Set(overviewTimeline?.rows.filter(row => row.status === 'Stopping').flatMap(row => {
     const claim = intents.find(card => card.id === row.card)?.claim
     return claim ? [sessionKey(claim.runtime, claim.sessionId)] : []
@@ -1496,8 +1496,7 @@ export const TeamRoomPane = ({
                 onReviewCheck={() => { const check = timelineRun.operations.find(one => one.kind === 'check' && one.state === 'uncertain'); if (check?.card != null) setRetryCheck({ run: timelineRun.id, card: check.card }) }}
                 origin={timelineRun.intake ? `From trigger ${timelineRun.intake.trigger}` : goal?.goal.origin.kind === 'person' ? 'Started by you' : null}
                 onOpenSeat={show} onOpenBoard={() => show('board')} number={runs.findIndex(one => one.id === timelineRun.id) + 1}
-                model={runTimeline({ execution: timelineRun, cards: intents, sessions: snapshot.sessions,
-                  signals: entries.filter((one): one is Extract<TeamEntry, {kind: 'signal'}> => one.kind === 'signal'),
+                model={runTimelineOf(heldClient, timelineRun, { sessions: snapshot.sessions,
                   evidence: snapshot.boardEvidence.get(room),
                   findingRun: snapshot.findingRuns.get(timelineRun.id),
                   publicationOn: goal?.goal.findingPublication !== false,

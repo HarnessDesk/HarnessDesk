@@ -7,6 +7,11 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## 0.3.1 — 2026-09-27
 
+- **Read the same Run in a terminal and the window.** `run show` uses the
+  shared timeline for rounds, cards, check results, findings and the ending,
+  while keeping attendance and seat overrides. Its JSON remains the saved
+  execution.
+
 - **A Run moves through its Flow.** The Flow tab shows the route taken, completed
   steps and their times, seated faces, current work and a person waiting for an
   answer. Repeated steps and loops show counts; check counts come from recorded

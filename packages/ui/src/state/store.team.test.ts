@@ -315,10 +315,15 @@ it('stores side-by-side tiles on the room view and removes an empty grid', async
   expect(cleared?.kind === 'room' ? cleared.sideBySide : undefined).toBeUndefined()
 })
 
-it('ignores seat/activity without changing any window state', () => {
+it('keeps seat/activity as fallback data without replacing Teams or local sessions', () => {
   const before = store.getSnapshot()
+  const activity = { goal: 'room-1', seat: 'fake:s1', role: 'reviewer', card: 1, state: 'working', doing: { kind: 'thinking' }, since: 5 }
   ;(store.transport as unknown as { handlers: { onNotification(notification: unknown): void } }).handlers.onNotification({
-    method: 'seat/activity', params: { goal: 'room-1', seat: 'fake:s1', role: 'reviewer', card: 1, state: 'working', doing: { kind: 'thinking' }, since: 5 },
+    method: 'seat/activity', params: activity,
   })
-  expect(store.getSnapshot()).toBe(before)
+  const after = store.getSnapshot()
+  expect([...after.seatActivities.values()]).toEqual([activity])
+  expect(before.seatActivities.size).toBe(0)
+  expect(after.teams).toBe(before.teams)
+  expect(after.sessions).toBe(before.sessions)
 })
