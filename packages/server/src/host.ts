@@ -102,6 +102,7 @@ import { FlowCatalog } from './flow-catalog.js'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
 import { FlowReview } from './flow-evidence.js'
 import { FlowPreviews } from './flow-preview.js'
+import { seatOptionsProblem } from './seat-options.js'
 import { sameCanonicalPath } from './path-identity.js'
 import { FlowUpdates, TreeQueue } from './flow-update.js'
 import { AuthoringPlane } from './authoring/plane.js'
@@ -1536,6 +1537,7 @@ export class Host {
       // `this.#context` is assigned once the whole constructor has run; every
       // wire call this preview port answers happens long after that.
       previewAgent: (root, agent, seats, grant, options) => previewAgent(this.#context, root, agent, seats, grant, options),
+      seatOptionsProblem: (seat, cwd) => seatOptionsProblem(this.#runtime({ runtime: seat.runtime }), seat, cwd, this.options.seatReadDeadlineMs),
       providerOf: (runtime, cwd) => this.#providerOf(runtime, cwd),
       checkoutPath: previewCheckout,
       pluginToolsProblem: async (runtimeName, root, lane) => {

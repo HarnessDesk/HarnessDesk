@@ -935,6 +935,11 @@ carries a warning chip rather than reading as already satisfied. Editing the
 source or a variable invalidates Start immediately; a stale reply can never
 re-enable it. Starting a flow opens exactly one new Goal, through one host
 operation — never a bare Goal made first and a flow started into it after.
+The preview checks each chosen model's effort and thinking controls with the
+agent's own session options. An unsupported choice names its reason on that
+Seat and refuses Start before a Run, Goal or lane is created. If the agent
+cannot yet report its catalogue or controls, the preview says so and must be
+read again when the agent is ready.
 
 **`/race`** opens a dialog asking for one Agent and two explicit, isolated
 seats — never the other installed runtime, never two ordinary drafts. It
