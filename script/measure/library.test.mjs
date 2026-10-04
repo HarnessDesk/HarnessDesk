@@ -1905,7 +1905,7 @@ test('a persisted result may carry the copy\'s size and time as plain numbers, a
 })
 
 // The command itself, from a staged copy of the harness against a scripted locator that finds exactly one install, under a stand-in home.
-async function runCommandOn(t, { install, home, version }) {
+async function runCommandOn(t, { install, home, version, refused = false }) {
   const root = await mkdtemp('/tmp/hd-measure-cli-')
   t.after(() => rm(root, { recursive: true, force: true }))
   for (const path of ['script/measure/probes', 'packages/server/src/installs', 'packages/server/dist/src/installs']) fs.mkdirSync(join(root, path), { recursive: true })
@@ -1920,9 +1920,10 @@ async function runCommandOn(t, { install, home, version }) {
   ].join('\n'))
   const execution = await promisify(execFile)(process.execPath, [fs.realpathSync(join(root, 'script/measure/library.mjs')), '--agent', 'cursor'], { env: { ...process.env, HOME: home, PATH: '/usr/bin:/bin' } }).catch((error) => error)
   assert.ok(!(execution instanceof Error), `${execution.stderr}`)
-  assert.equal(execution.stdout, `could-not-ask: cursor ${version}\n`)
+  const named = refused ? 'unknown' : version
+  assert.equal(execution.stdout, `could-not-ask: cursor ${named}\n`)
   assert.equal(execution.stderr, '', 'nothing was kept')
-  return JSON.parse(await readFile(join(root, `docs/verification/library-measurements/cursor-${version}.json`), 'utf8'))
+  return JSON.parse(await readFile(join(root, `docs/verification/library-measurements/cursor-${named}.json`), 'utf8'))
 }
 
 test('the copy lives in the fixture and goes with it, and the written result records its size and time', async (t) => {
@@ -1961,5 +1962,23 @@ test('a run that launched the install in place records no copy', async (t) => {
   const install = stageCursorInstall(base, '2031.07.05-c0ffee2', { folder: 'Caskroom/cursor-cli/2031.07.05-c0ffee2/dist-package' })
   const written = await runCommandOn(t, { install, home, version: '2031.07.05-c0ffee2' })
   assert.equal(written.reason, 'needs sign-in, not measured')
+  assert.equal(Object.hasOwn(written, 'stagedInstall'), false)
+})
+
+test('a run whose copy is refused records could-not-ask: cannot isolate, and no copy', async (t) => {
+  if (process.platform !== 'darwin') return t.skip('macOS only')
+  // Outside any credential root, where running in place would work: a fallback to it would read the version, and it
+  // would show here as a result that names one.
+  const base = fs.realpathSync(await mkdtemp('/tmp/hd-measure-refused-'))
+  const home = fs.realpathSync(await mkdtemp('/tmp/hd-measure-cursor-home-'))
+  t.after(() => Promise.all([rm(base, { recursive: true, force: true }), rm(home, { recursive: true, force: true })]))
+  // A runtime linked out of the folder: the copy is refused.
+  const install = stageCursorInstall(base, '2031.07.06-c0ffee3')
+  fs.rmSync(join(install.versionDir, 'node'))
+  fs.symlinkSync(process.execPath, join(install.versionDir, 'node'))
+  const written = await runCommandOn(t, { install, home, version: '2031.07.06-c0ffee3', refused: true })
+  assert.equal(written.version, 'unknown')
+  assert.equal(written.status, 'could-not-ask')
+  assert.equal(written.reason, 'cannot isolate')
   assert.equal(Object.hasOwn(written, 'stagedInstall'), false)
 })
