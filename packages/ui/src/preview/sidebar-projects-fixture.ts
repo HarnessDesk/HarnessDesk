@@ -228,7 +228,10 @@ export const sidebarProjectsFixture = (base: AppSnapshot): AppSnapshot => {
 }
 
 /** The search result is older than the first loaded page but belongs here. */
-export const sidebarProjectsUnloadedSearchFixture = (base: AppSnapshot): AppSnapshot => {
+export const sidebarProjectsUnloadedSearchFixture = (
+  base: AppSnapshot,
+  includeSearchMatchInIdentity = false,
+): AppSnapshot => {
   const fixture = sidebarProjectsFixture(base)
   const home = projectsHistory.find((summary) => summary.id === 'w1')
   const match = projectsHistory.find((summary) => summary.id === 'c1')
@@ -236,7 +239,8 @@ export const sidebarProjectsUnloadedSearchFixture = (base: AppSnapshot): AppSnap
   return {
     ...fixture,
     history: [match],
-    historyIdentity: [home],
+    historyIdentity: includeSearchMatchInIdentity ? [home, match] : [home],
+    workspaces: [...fixture.workspaces, workspaceAt(match.cwd, match.repo ?? repoAt(match.cwd))],
     teams: new Map(),
     goals: new Map(),
     flowExecutions: new Map(),

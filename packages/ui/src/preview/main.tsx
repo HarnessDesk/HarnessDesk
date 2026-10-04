@@ -126,6 +126,7 @@ const composerPaused = SHOW_COMPOSER ? composerStore(store.getSnapshot(), true) 
 const sidebarNoFolderStore = previewStore({ workspace: null, workspaces: [], history: [], activeSessionKey: null })
 const sidebarProjectsStore = previewStore(sidebarProjectsFixture(store.getSnapshot()))
 const sidebarProjectsSearchStore = previewStore(sidebarProjectsUnloadedSearchFixture(store.getSnapshot()))
+const sidebarProjectsSearchBeforeStore = previewStore(sidebarProjectsUnloadedSearchFixture(store.getSnapshot(), true))
 
 const previewProvenance = commitProvenance({ seats: [{ ...provenanceSeat(7), runtime: 'codex', session: { runtime: 'codex', sessionId: 'conversation-7' } }] })
 const previewMutable = store as unknown as { patch(partial: Partial<AppSnapshot>): void }
@@ -982,9 +983,11 @@ const Preview = () => {
             className="h-[720px]"
             style={{ width: 240, background: 'var(--hd-sidebar-plate, transparent)' }}
           >
-            <Mount with={SIDEBAR_VARIANT_PARAM === 'projects-search'
-              ? sidebarProjectsSearchStore
-              : SIDEBAR_VARIANT_PARAM === 'projects' ? sidebarProjectsStore : store}>
+            <Mount with={SIDEBAR_VARIANT_PARAM === 'projects-search-before'
+              ? sidebarProjectsSearchBeforeStore
+              : SIDEBAR_VARIANT_PARAM === 'projects-search'
+                ? sidebarProjectsSearchStore
+                : SIDEBAR_VARIANT_PARAM === 'projects' ? sidebarProjectsStore : store}>
               <Sidebar
                 onOpenSettings={() => {}}
                 onOpenPlugins={() => {}}

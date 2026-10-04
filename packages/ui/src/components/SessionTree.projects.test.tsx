@@ -63,7 +63,7 @@ const notify = (store: AppStore, notification: WireNotification): void => {
   transport.handlers.onNotification(notification)
 }
 
-const workspace = (path: string, repo: { root: string; worktree: boolean }): WorkspaceEntry =>
+const workspace = (path: string, repo: { root: string; worktree: boolean; origin?: string }): WorkspaceEntry =>
   ({ path, name: path.split('/').at(-1) ?? path, lastOpenedAt: 1, repo })
 
 const render = (history: SessionSummary[], open: WorkspaceEntry, over: Partial<AppSnapshot> = {}): void => {
@@ -115,7 +115,7 @@ it('gives an open subfolder one row, not a second empty one for its repository',
   expect(currentProject()).toBe('ui')
 })
 
-it('shows an older uncached search match without moving its project home', async () => {
+it('keeps the cached home when an older unloaded match is returned while both clones are open', async () => {
   const home = session('home-session', '/widgets', {
     root: '/widgets', worktree: false, origin: 'github.com/acme/widgets',
   })
@@ -124,7 +124,11 @@ it('shows an older uncached search match without moving its project home', async
   })
   // The first history page has only the home checkout. Search can return an
   // older matching conversation from another clone before pagination reaches it.
-  const history = [{ ...home, createdAt: 1 }]
+  const history = [{ ...home, createdAt: 10 }]
+  const opened = [
+    workspace('/widgets', { root: '/widgets', worktree: false, origin: 'github.com/acme/widgets' }),
+    workspace('/widgets-clone', { root: '/widgets-clone', worktree: false, origin: 'github.com/acme/widgets' }),
+  ]
   const runtimeInfo = {
     id: runtime.id,
     name: runtime.presentation.name,
@@ -137,7 +141,8 @@ it('shows an older uncached search match without moving its project home', async
     params: { query?: string },
   ) => {
     if (method === 'session/list') return { data: history, nextCursor: null }
-    if (method === 'session/search') return { data: [{ ...clone, createdAt: 0.5 }], nextCursor: null }
+    if (method === 'session/search') return { data: [{ ...clone, createdAt: 1 }], nextCursor: null }
+    if (method === 'workspace/recent') return opened
     if (method === 'routes/list') return []
     if (params.query) throw new Error(`unexpected query: ${params.query}`)
     return null
@@ -176,6 +181,7 @@ it('shows an older uncached search match without moving its project home', async
       },
     } as unknown as WireNotification)
     await store.loadHistory({ reset: true })
+    await store.loadWorkspaces()
     renderTree()
   })
 
