@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { runtimeId, sessionId, sessionKey, wrapContext, type Session, type SessionQueue } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey, wrapContext, type GoalView, type Session, type SessionQueue } from '@harnessdesk/protocol'
 
 import { createQueueBoardStore } from '../design/explorer/boards'
 import { StoreProvider } from '../state/context'
@@ -59,12 +59,13 @@ const calls = {
   addRecoverableDraft: vi.fn(),
 }
 
-const mount = (queue: SessionQueue | null, key = KEY): void => {
+const mount = (queue: SessionQueue | null, key = KEY, overrides: Partial<AppSnapshot> = {}): void => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     sessions: new Map([[key, session(key.split(':').slice(1).join(':'))]]),
     activeSessionKey: key,
     queues: queue ? new Map([[key, queue]]) : new Map(),
+    ...overrides,
   }
   const store = {
     subscribe: () => () => {},
@@ -89,6 +90,19 @@ const waiting = (...lines: string[]): SessionQueue => ({
     queuedAt: 0,
     state: 'queued',
   })),
+})
+
+it('keeps queued text but disables Send now in a wrapped conversation', () => {
+  mount({ ...waiting('Keep this draft'), status: 'paused', reason: 'Held for later' }, KEY, { goals: new Map([['record', {
+    goal: { state: 'wrapped' }, members: [], receipt: { members: [{ session: { runtime: 'alpha', sessionId: 's1' } }] },
+  } as unknown as GoalView]]) })
+  const send = [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Send now')!
+  expect(send.disabled).toBe(true)
+  expect(send.title).toBe('This Team is wrapped')
+  expect(container.textContent).toContain('Keep this draft')
+  calls.flushQueue.mockClear()
+  act(() => send.click())
+  expect(calls.flushQueue).not.toHaveBeenCalled()
 })
 
 const rows = (): HTMLLIElement[] => [...container.querySelectorAll('li')]

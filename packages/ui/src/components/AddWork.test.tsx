@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { Intent, Plan, TeamPeerInfo } from '@harnessdesk/protocol'
+import type { GoalView, Intent, Plan, TeamPeerInfo } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -311,4 +311,36 @@ it('says so rather than offering an empty menu when nobody is in the room', () =
   render(store, [])
   expect(document.body.textContent).toContain('Nobody is in the room yet.')
   expect((field('Ask someone to pick it up') as unknown as HTMLSelectElement).disabled).toBe(true)
+})
+
+/**
+ * A Run that ends wraps its Team, even under a person who is writing a card
+ * in. A wrapped Team's board is its record, so the card they were writing has
+ * nowhere to go (#1317, round 1).
+ */
+it('stops adding work when the Team wraps while the card is being written', async () => {
+  let snapshot = { ...emptySnapshot(), status: 'open' } as unknown as AppSnapshot
+  const listeners = new Set<() => void>()
+  const { store } = rig()
+  Object.assign(store, {
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
+    getSnapshot: () => snapshot,
+  })
+  const onClose = render(store, [])
+  type('What needs doing', 'Fix the token refill')
+  const add = (): HTMLButtonElement =>
+    [...document.querySelectorAll('button')].find((one) => one.textContent === 'Add to board')! as HTMLButtonElement
+  expect(add().disabled).toBe(false)
+  expect(document.body.textContent).not.toContain('This Team is wrapped')
+
+  snapshot = { ...snapshot, goals: new Map([['room-1', { goal: { state: 'wrapped' } } as unknown as GoalView]]) }
+  act(() => listeners.forEach((listener) => listener()))
+
+  expect(add().disabled).toBe(true)
+  expect(add().title).toBe('This Team is wrapped')
+  expect(document.body.textContent).toContain('This Team is wrapped')
+  expect((field('What needs doing') as HTMLInputElement).value).toBe('Fix the token refill')
+  await act(async () => { add().click() })
+  expect(store.teamAdd).not.toHaveBeenCalled()
+  expect(onClose).not.toHaveBeenCalled()
 })

@@ -3,6 +3,8 @@ import { useState } from 'react'
 import type { FlowExecution, FlowOperation } from '@harnessdesk/protocol'
 
 import { Banner, Button } from '../design'
+import { isRecord, RECORD_REASON } from '../lib/team-record'
+import { useSnapshotSelector } from '../state/context'
 import { RetryCheck } from './RetryCheck'
 
 export interface FlowRunStatusProps {
@@ -28,6 +30,7 @@ const uncertainCheck = (execution: FlowExecution): FlowOperation | null =>
  * one action and the one banner nothing else says.
  */
 export const FlowRunStatus = ({ execution }: FlowRunStatusProps) => {
+  const record = useSnapshotSelector(snapshot => isRecord(snapshot.goals.get(execution.goal)))
   const legacy = execution.document.format === 'legacy'
   const stalledCheck = uncertainCheck(execution)
   const [reviewing, setReviewing] = useState(false)
@@ -43,7 +46,7 @@ export const FlowRunStatus = ({ execution }: FlowRunStatusProps) => {
       )}
       {stalledCheck && (
         <>
-          <Button variant="outline" size="sm" onClick={() => setReviewing(true)}>Review and run again…</Button>
+          <Button variant="outline" size="sm" disabled={record} title={record ? RECORD_REASON : undefined} onClick={() => setReviewing(true)}>Review and run again…</Button>
           {reviewing && (
             <RetryCheck
               run={execution.id}

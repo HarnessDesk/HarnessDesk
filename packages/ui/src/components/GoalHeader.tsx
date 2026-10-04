@@ -2,6 +2,7 @@ import type { GoalView } from '@harnessdesk/protocol'
 
 import { Note, RowButton, Rows } from '../design'
 import { goalActions } from '../lib/goals'
+import { isRecord } from '../lib/team-record'
 import { useStore } from '../state/context'
 
 /**
@@ -41,7 +42,10 @@ export const GoalHeader = ({ view }: { readonly view: GoalView }) => {
           ))}
         </Rows>
       ) : null}
-      {reason ? <Note {...(view.problem ? { tone: 'bad' as const } : {})}>{reason}</Note> : null}
+      {/* A record's notice follows the pane name's ink column: the bar inset,
+          its small icon tile, and the gap beside it. Keep the sentence whole
+          at narrow widths rather than clipping it against the pane edge. */}
+      {reason ? <Note inset={isRecord(view) ? 'pane-title' : undefined} {...(view.problem ? { tone: 'bad' as const } : {})}>{reason}</Note> : null}
     </>
   )
 }

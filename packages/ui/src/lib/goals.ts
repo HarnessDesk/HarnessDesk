@@ -50,7 +50,7 @@ export const goalName = (goal: Pick<Goal, 'sentence' | 'origin'>): string => {
 
 export const goalActions = (goal: Goal): { disabled: boolean; reason: string | null } => {
   if (goal.state === 'wrapped') {
-    return { disabled: true, reason: 'This Goal is wrapped. Its receipt is kept here.' }
+    return { disabled: true, reason: 'This Team is wrapped. Its receipt is kept here.' }
   }
   if (goal.state === 'wrapping') {
     return { disabled: true, reason: 'The desk is finishing this receipt.' }

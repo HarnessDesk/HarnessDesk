@@ -1,7 +1,8 @@
+import { isRecordConversation, RECORD_REASON } from '../lib/team-record'
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import type { UserContent } from '@harnessdesk/protocol'
 
-import { useQueue, useSessionKey, useStore } from '../state/context'
+import { useQueue, useSessionKey, useStore, useSnapshot } from '../state/context'
 import { noteKey, splitContext, wrapContext } from '../lib/context-envelope'
 import { describeQueued, queuedLabel } from '../lib/queue'
 import {
@@ -37,6 +38,8 @@ import styles from './MessageQueue.module.css'
 export const MessageQueue = () => {
   const store = useStore()
   const key = useSessionKey()
+  const snapshot = useSnapshot()
+  const record = isRecordConversation(snapshot.goals.values(), key)
   const queue = useQueue()
   const messages = queue?.messages ?? []
   const [editing, setEditing] = useState<{
@@ -196,7 +199,8 @@ export const MessageQueue = () => {
           <Button
             variant="quiet" size="sm" className={styles.action}
             onClick={() => void store.flushQueue(key ?? undefined)}
-            title="Send the first waiting message now"
+            disabled={record}
+            title={record ? RECORD_REASON : "Send the first waiting message now"}
           >
             Send now
           </Button>

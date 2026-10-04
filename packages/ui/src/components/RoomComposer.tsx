@@ -1,3 +1,4 @@
+import { isRecord, RECORD_REASON } from '../lib/team-record'
 import {
   useCallback,
   useEffect,
@@ -206,6 +207,7 @@ export const RoomComposer = ({
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const record = isRecord(snapshot.goals.get(room))
   const mount = useMount()
   const isNoticeHost = mount?.area === 'main' && mainNoticeHost(snapshot.workbench, snapshot.windowWidth) === mount.id
   // Whether this room's own strip is the one the layout has chosen to carry
@@ -281,7 +283,7 @@ export const RoomComposer = ({
   const waits = queued.length > 0 && queued.length === recipients.length
   const over = draft.length > limit
   const empty = known && roster.length === 0
-  const canSend = draft.trim().length > 0 && !over && !empty
+  const canSend = !record && draft.trim().length > 0 && !over && !empty
 
   const items: TriggerItem[] = useMemo(() => {
     if (!mention) return []
@@ -590,7 +592,8 @@ export const RoomComposer = ({
       <ComposerText
         ref={textarea}
         value={draft}
-        placeholder="Message the room — @ to address someone"
+        disabled={record}
+        placeholder={record ? RECORD_REASON : "Message the room — @ to address someone"}
         onChange={(event) => change(event.target.value)}
         onKeyDown={onKeyDown}
       />

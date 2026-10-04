@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react'
 import type { FlowPreview } from '@harnessdesk/protocol'
 
 import { Banner, Button, CodeText, ConfirmDialog, Note, RefusedAction, Text } from '../design'
-import { useStore } from '../state/context'
+import { isRecord, RECORD_REASON } from '../lib/team-record'
+import { useSnapshotSelector, useStore } from '../state/context'
 
 /**
  * Running a finished or interrupted check again asks first, and asks the host:
@@ -20,6 +21,7 @@ import { useStore } from '../state/context'
  */
 export const RetryCheck = ({ run, card, onClose }: { readonly run: string; readonly card: number; readonly onClose: () => void }) => {
   const store = useStore()
+  const record = useSnapshotSelector(snapshot => isRecord(snapshot.goals.get(snapshot.flowExecutions.get(run)?.goal ?? '')))
   const [preview, setPreview] = useState<FlowPreview | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -38,7 +40,8 @@ export const RetryCheck = ({ run, card, onClose }: { readonly run: string; reado
   const command = preview?.commands[0]
 
   const confirm = async (): Promise<void> => {
-    if (!preview?.token || busy) return
+    const snapshot = store.getSnapshot()
+    if (!preview?.token || busy || isRecord(snapshot.goals.get(snapshot.flowExecutions.get(run)?.goal ?? ''))) return
     setBusy(true)
     try {
       await store.retryFlowCheck(run, card, preview.token)
@@ -55,10 +58,11 @@ export const RetryCheck = ({ run, card, onClose }: { readonly run: string; reado
       confirmLabel="Run again"
       tone="default"
       busy={busy}
-      pending={!preview?.token}
+      pending={record || !preview?.token}
       onConfirm={() => void confirm()}
       onCancel={onClose}
     >
+      {record && <Note>{RECORD_REASON}</Note>}
       <Note>
         This runs the same command in the card’s checkout as it is now. Its previous output is kept;
         running it again is your explicit consent.
