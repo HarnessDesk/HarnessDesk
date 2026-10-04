@@ -1712,7 +1712,7 @@ test('a link that stays inside the version folder is kept as a link inside the c
   t.after(() => rm(base, { recursive: true, force: true }))
   const install = stageCursorInstall(base)
   fs.mkdirSync(join(install.versionDir, 'node_modules'))
-  fs.symlinkSync('index.js', join(install.versionDir, 'current.js'))
+  fs.symlinkSync('./index.js', join(install.versionDir, 'current.js'))
   fs.symlinkSync(join(install.versionDir, 'index.js'), join(install.versionDir, 'absolute.js'))
   fs.symlinkSync('node_modules', join(install.versionDir, 'modules'))
   fs.symlinkSync('missing.js', join(install.versionDir, 'dangling.js'))
@@ -1722,7 +1722,7 @@ test('a link that stays inside the version folder is kept as a link inside the c
   const copy = join(fixture.root, 'agent-install/0', install.version)
   for (const name of ['current.js', 'absolute.js', 'modules', 'dangling.js']) assert.ok(fs.lstatSync(join(copy, name)).isSymbolicLink(), name)
   // Every link is spelled relative to its own folder, so it means the same in the copy, and none points back at the install.
-  assert.equal(fs.readlinkSync(join(copy, 'current.js')), 'index.js')
+  assert.equal(fs.readlinkSync(join(copy, 'current.js')), './index.js')
   assert.equal(fs.readlinkSync(join(copy, 'absolute.js')), 'index.js')
   assert.equal(fs.readlinkSync(join(copy, 'modules')), 'node_modules')
   assert.equal(fs.readlinkSync(join(copy, 'dangling.js')), 'missing.js')

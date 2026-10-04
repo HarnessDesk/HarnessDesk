@@ -1037,11 +1037,12 @@ export async function stageInstallFolder(agent, realLauncher, fixture, { index =
           // Both where the link is spelled to go and where it really ends up must be inside: a link through
           // another link can end somewhere its spelling does not say. A link to nothing has no end, so only
           // its spelling can be judged.
-          const spelled = resolve(dir, await readlink(path))
+          const target = await readlink(path)
+          const spelled = resolve(dir, target)
           let ends = spelled
           try { ends = realpathSync.native(path) } catch (error) { if (error?.code !== 'ENOENT') throw new Error(STAGED_INSTALL_REFUSALS.links) }
           if (!isWithin(root, spelled) || !isWithin(root, ends)) throw new Error(STAGED_INSTALL_REFUSALS.links)
-          entries.push({ rel, type: 'link', target: relative(dir, spelled) || '.' })
+          entries.push({ rel, type: 'link', target: isAbsolute(target) ? (relative(dir, spelled) || '.') : target })
         } else throw new Error(STAGED_INSTALL_REFUSALS.entry)
       }
     }
