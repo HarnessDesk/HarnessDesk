@@ -981,6 +981,7 @@ export interface RowFold {
 export const RowButton = ({
   mark,
   title,
+  layout = 'default',
   desc,
   truncateDesc = false,
   control,
@@ -993,6 +994,8 @@ export const RowButton = ({
 }: {
   mark?: ReactNode
   title: ReactNode
+  /** A record keeps its human title whole; narrow rows put metadata and state below it. */
+  layout?: 'default' | 'record'
   desc?: ReactNode
   /** The description is a name or a path, which gives way at its end on one line. A sentence never does: by default it wraps and arrives whole. */
   truncateDesc?: boolean
@@ -1015,13 +1018,13 @@ export const RowButton = ({
   const button = (
     <Button variant="row" size="pattern"
       type="button"
-      className={cx(styles.row, styles.rowButton, className)}
+      className={cx(styles.row, styles.rowButton, layout === 'record' && styles.rowRecord, className)}
       onClick={onClick}
       {...rest}
     >
       {mark ? <span className={styles.rowMark} data-slot="row-mark">{mark}</span> : null}
       <span className={styles.rowText}>
-        <span className={styles.rowTitle}>{title}</span>
+        <span className={styles.rowTitle} data-slot="row-title">{title}</span>
         {desc ? <RowDesc truncate={truncateDesc}>{desc}</RowDesc> : null}
       </span>
       {/* The control and the chevron are one trailing item, so a row too narrow

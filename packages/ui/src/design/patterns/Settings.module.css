@@ -1673,3 +1673,30 @@
 .row[data-slot='empty-state'] .rowMark {
   color: var(--hd-muted-foreground);
 }
+
+.rows:has(.rowRecord) {
+  container-type: inline-size;
+  container-name: rows;
+}
+
+/* A ledger record's meaning keeps a full line when metadata and state compete
+   for a narrow reading column. Settings rows retain their usual composition. */
+.rowRecord .rowTitle {
+  overflow-wrap: anywhere;
+}
+
+@container rows (max-width: 36rem) {
+  .rowRecord .rowText {
+    flex-basis: 100%;
+  }
+
+  .rowRecord .rowEnd {
+    flex: 1 1 100%;
+    justify-content: space-between;
+    margin-inline-start: 0;
+  }
+
+  .rowRecord .rowCtl {
+    margin-inline-start: 0;
+  }
+}
