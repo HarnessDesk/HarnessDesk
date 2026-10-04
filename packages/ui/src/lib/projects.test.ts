@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { RepoInfo, SessionSummary, TeamState, WorkspaceEntry } from '@harnessdesk/protocol'
 
-import { folderShown, groupByProject, groupHolding, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, repoKey, roomGroupRootOf } from './projects'
+import { commandShown, folderShown, groupByProject, groupHolding, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, repoKey, roomGroupRootOf } from './projects'
 
 const session = (
   id: string,
@@ -619,5 +619,24 @@ describe('folderShown', () => {
   it('shortens anything outside the project against home, and leaves the rest as it is', () => {
     expect(folderShown('/home/dev/elsewhere', '/home/dev', '/home/dev/work/widgets')).toBe('~/elsewhere')
     expect(folderShown('/srv/build', '/home/dev', null)).toBe('/srv/build')
+  })
+})
+
+describe('commandShown', () => {
+  it('shortens every home path in a command, including quotes and assignments', () => {
+    expect(commandShown('ROOT=/home/dev node "/home/dev/tools/land.mjs" < /home/dev/input', '/home/dev'))
+      .toBe('ROOT=~ node "~/tools/land.mjs" < ~/input')
+  })
+  it('keeps other homes, sibling names and embedded path fragments intact', () => {
+    const command = 'node /home/dev/work-two/run /home/agent/run /tmp/home/dev/work/run prefix/home/dev/work/run'
+    expect(commandShown(command, '/home/dev/work')).toBe(command)
+  })
+  it('keeps commands intact before home is known and handles a trailing separator', () => {
+    expect(commandShown('node /home/dev/run', null)).toBe('node /home/dev/run')
+    expect(commandShown('/home/dev/run', '/home/dev/')).toBe('~/run')
+  })
+  it('treats characters in a home directory literally', () => {
+    expect(commandShown('node "/home/dev/.profile/tools/run" /home/dev/Xprofile/run', '/home/dev/.profile'))
+      .toBe('node "~/tools/run" /home/dev/Xprofile/run')
   })
 })

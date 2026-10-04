@@ -237,3 +237,10 @@ describe('what a Run ran under', () => {
     expect(flowModel(policy([agent('review', 'read')]), { ceilings }).steps[0]!.line).toBe('Read')
   })
 })
+
+it('shortens a check command for display while retaining the whole command as its title', () => {
+  const command = 'node /home/dev/tools/land.mjs --check'
+  const model = flowModel(policy([check('verify', command)]), { home: '/home/dev' })
+  expect(model.steps[0]!.line).toBe('node ~/tools/land.mjs --check')
+  expect(model.steps[0]!.title).toBe(command)
+})

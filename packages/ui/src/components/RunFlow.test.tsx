@@ -220,3 +220,18 @@ it('is not asked twice while the file is being read', async () => {
   await act(async () => release('version: 2\n'))
   expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
 })
+
+it('shortens the check in both drawing and Steps, retaining its raw hover title', () => {
+  const store = fakeStore([])
+  const snapshot = { ...store.getSnapshot(), home: '/home/dev' }
+  store.getSnapshot = () => snapshot
+  const source = flowGraphDocument('blueprint')
+  if (source.format !== 'agents') throw new Error('expected an Agent flow fixture')
+  const document = { ...source, flow: { ...source.flow, roles: source.flow.roles.map(role => role.kind === 'check' ? { ...role, check: { ...role.check!, run: 'node /home/dev/tools/land.mjs --check' } } : role) } }
+  render(store, { execution: run({ document }) })
+  for (const selector of ['[data-step="check"]', '[data-step-row="check"]']) {
+    const step = container.querySelector(selector)!
+    expect(step.textContent).toContain('node ~/tools/land.mjs --check')
+    expect(step.querySelector('[title="node /home/dev/tools/land.mjs --check"]')).not.toBeNull()
+  }
+})

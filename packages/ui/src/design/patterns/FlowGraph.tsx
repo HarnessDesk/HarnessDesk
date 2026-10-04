@@ -10,7 +10,7 @@ import { ROLE_KIND_WORDS } from '../../lib/shapes'
 import { Card } from '../ui/card'
 import { FlowBaton, FlowStepSurface, FlowFaces, FlowRouteLabel, FlowDoingLine } from '../ui/flow-step'
 import { flowOverlayLabels, type FlowOverlay, type FlowStepRun } from '../../lib/flow-overlay'
-import { sanitizeHtml } from '../../lib/sanitize'
+import { sanitizeHtml, sanitizeText } from '../../lib/sanitize'
 import { formatDuration } from '../../components/TurnTail'
 import { IconTile } from '../ui/icon-tile'
 import type { Tint } from '../ui/tone'
@@ -121,7 +121,7 @@ const StepCard = ({ node, drawingWidth, step, run, selected, faces, faceTints, a
         <FlowFaces seats={step.kind === 'agent' ? run?.seats : undefined} faces={faces} tints={faceTints} fallback={<IconTile tint={tint}><Mark /></IconTile>} />
         <span className="flex min-w-0 flex-1 flex-col">
           <Text role="row" truncate className={run?.state === 'working' || run?.state === 'blocked' ? 'max-w-12' : run?.state === 'waiting' ? 'max-w-10' : undefined} title={step.name}>{step.name}</Text>
-          <Text role="meta" truncate title={lineOf(step, run, activity.object)}>{lineOf(step, run, activity.object)}</Text>
+          <Text role="meta" truncate title={step.title !== undefined ? sanitizeText(step.title) : lineOf(step, run, activity.object)}>{lineOf(step, run, activity.object)}</Text>
         </span>
       </FlowStepSurface>
       {activity.text &&
@@ -229,7 +229,7 @@ export const FlowGraph = ({ model, overlay, selectedStep, onSelectStep, faces, f
                     {run && durationOf(run, now) !== null && <Text role="meta" numeric>{durationOf(run, now)}</Text>}
                     {run?.runs !== undefined && run.runs !== null && run.runs > 1 && <Text role="meta" numeric>{run.runs} runs</Text>}
                   </span>}
-                  desc={[lineOf(step, run, activity.object), activity.text, ...more, ...(run ? [durationOf(run, now) === null ? 'Time not recorded' : null, run.runs === null ? 'Run count unavailable' : null] : [])].filter(Boolean).join(' · ')}
+                  desc={<span title={step.title !== undefined ? sanitizeText(step.title) : lineOf(step, run, activity.object)}>{[lineOf(step, run, activity.object), activity.text, ...more, ...(run ? [durationOf(run, now) === null ? 'Time not recorded' : null, run.runs === null ? 'Run count unavailable' : null] : [])].filter(Boolean).join(' · ')}</span>}
                 />
               )
             })}

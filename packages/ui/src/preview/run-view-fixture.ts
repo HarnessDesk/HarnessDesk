@@ -3,7 +3,7 @@ import { overviewRun, overviewTeamStore } from './team-overview-fixture'
 import { runTimeline } from '../lib/run-timeline'
 
 export const RUN_VIEW_STATES = ['running', 'attempts', 'settled', 'complete', 'stopped', 'desk-stopped', 'budget-rounds', 'budget-progress', 'stalled', 'findings', 'damaged-findings', 'many', 'narrow', 'empty', 'pending', 'failed', 'person'] as const
-export type RunScene = typeof RUN_VIEW_STATES[number]
+export type RunScene = typeof RUN_VIEW_STATES[number] | 'live-polish'
 const at = Date.now() - 1_200_000
 const card = (id: number, working = false, start = at): Intent => ({ id, title: id === 1 ? 'Retry the checkout call on a 502' : id === 2 ? 'Verify the change' : id === 3 ? 'Review the change' : 'Answer the review',
   state: working ? 'claimed' : 'done', outcome: working ? null : id === 3 ? 'request-changes' : id === 2 ? 'pass' : 'published',
@@ -12,8 +12,8 @@ const card = (id: number, working = false, start = at): Intent => ({ id, title: 
 export const runFixture = (scene: RunScene = 'running') => {
   const start = scene === 'many' ? at - 2_400_000 : at
   const count = scene === 'many' ? 20 : 4
-  const terminal = ['settled', 'complete', 'stopped', 'desk-stopped', 'budget-rounds', 'budget-progress', 'stalled'].includes(scene)
-  const initial: FlowExecution = { ...overviewRun(scene === 'settled' || scene === 'complete' ? 'settled' : scene === 'stopped' || scene === 'desk-stopped' ? 'stopped' : scene === 'stalled' || scene.startsWith('budget-') ? 'stalled' : 'running'),
+  const terminal = ['live-polish', 'settled', 'complete', 'stopped', 'desk-stopped', 'budget-rounds', 'budget-progress', 'stalled'].includes(scene)
+  const initial: FlowExecution = { ...overviewRun(scene === 'live-polish' || scene === 'settled' || scene === 'complete' ? 'settled' : scene === 'stopped' || scene === 'desk-stopped' ? 'stopped' : scene === 'stalled' || scene.startsWith('budget-') ? 'stalled' : 'running'),
     // The check at round 2 finished (it is what a Run on the rig leaves), so a running Run offers Run again… on it and an ended one does not.
     operations: [...(scene === 'empty' ? [] : [{ key: 'check:2:0', kind: 'check' as const, card: 2, seat: null, state: 'finished' as const }]),
       ...(scene === 'stalled' ? [{ key: 'interrupted-check', kind: 'check' as const, card: count, seat: null, state: 'uncertain' as const }] : [])],
@@ -26,7 +26,7 @@ export const runFixture = (scene: RunScene = 'running') => {
     document: { format: 'agents', flow: { version: 2, name: 'Build and review', inputs: [{ id: 'brief', label: 'Brief' }, { id: 'task', label: 'Task' }], messaging: 'board-only', wait: 240,
       roles: [
         { id: 'writer', kind: 'agent', uses: ['writer'], seats: [], isolate: false, grant: 'edit', independentOf: [] },
-        { id: 'verify', kind: 'check', check: { run: 'pnpm verify', timeout: 600, exits: { '0': 'pass' }, otherwise: 'fail' } },
+        { id: 'verify', kind: 'check', check: { run: scene === 'live-polish' ? 'node /home/dev/tools/land.mjs --check' : 'pnpm verify', timeout: 600, exits: { '0': 'pass' }, otherwise: 'fail' } },
         { id: 'reviewer', kind: 'agent', uses: ['reviewer'], seats: [], isolate: true, grant: 'read', count: 2, independentOf: ['writer'] },
         { id: 'person', kind: 'person', outcomes: ['approved'] },
       ],
@@ -41,6 +41,7 @@ export const runFixture = (scene: RunScene = 'running') => {
   const execution: FlowExecution = { ...initial, operations: [...initial.operations, ...initial.rounds.flatMap(round => round.seats.map(seat => ({ key: `seat-${round.n}`, kind: 'seat' as const, state: 'finished' as const, card: round.cards[0]!, seat })))] }
   const cards = Array.from({ length: count }, (_, i) => card(i + 1, i === count - 1 && !terminal, start))
   if (scene === 'settled' || scene === 'stalled') cards[count - 1] = { ...cards[count - 1]!, outcome: scene === 'settled' ? 'no-pr' : null, state: scene === 'stalled' ? 'open' : 'done' }
+  if (scene === 'live-polish') for (let i = 0; i < cards.length; i++) cards[i] = { ...cards[i]!, outcome: null }
   if (scene === 'person') cards[count - 1] = { ...cards[count - 1]!, state: 'open', claim: null }
   const signals: TeamSignal[] = cards.filter(one => execution.rounds.find(round => round.cards.includes(one.id))?.role !== 'verify').map(one => ({ id: `claim-${one.id}`, kind: 'signal', signal: 'claimed', intent: one.id, title: one.title, at: start + one.id * 120_000,
     by: { kind: 'agent', runtime: runtimeId('codex'), sessionId: 'overview-0', title: 'Alpha' } }))
@@ -127,8 +128,9 @@ export const runTeamStore = (scene: RunScene = 'complete') => {
   const fixture = runFixture(scene)
   const snapshot = base.getSnapshot()
   const board = { ...snapshot.teams.get('overview-team')!, intents: fixture.cards, channel: fixture.signals }
-  const goal = { ...snapshot.goals.get('overview-team')!, board }
-  let next = { ...snapshot, teams: new Map([[board.id, board]]), goals: new Map([[board.id, goal]]), flowExecutions: new Map([[fixture.execution.id, fixture.execution]]),
+  const original = snapshot.goals.get('overview-team')!
+  const goal = { ...original, board, members: scene === 'live-polish' ? original.members.map((seat, n) => ({ ...seat, ceiling: { level: n === 0 ? 'edit' as const : 'read' as const, hold: n === 0 ? 'asked' as const : 'held' as const } })) : original.members }
+  let next = { ...snapshot, ...(scene === 'live-polish' ? { home: '/home/dev', sessions: new Map([...snapshot.sessions].map(([key, session], n) => [key, { ...session, settings: { ...session.settings, ceiling: goal.members[n]!.ceiling } }])) } : {}), teams: new Map([[board.id, board]]), goals: new Map([[board.id, goal]]), flowExecutions: new Map([[fixture.execution.id, fixture.execution]]),
     boardEvidence: new Map([[board.id, fixture.evidence]]) }
   const listeners = new Set<() => void>()
   return new Proxy(base, { get(target, key) {

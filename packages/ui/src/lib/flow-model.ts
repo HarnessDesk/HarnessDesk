@@ -1,5 +1,6 @@
 import { ceilingOfPermission, narrower, type Flow, type FlowEvidenceGuard, type FlowPolicy, type SeatCeiling } from '@harnessdesk/protocol'
 
+import { commandShown } from './projects'
 import { ceilingWords, seatCeilingWords } from './agents'
 import { readGraphPositions, type GraphPoint } from './shapes'
 
@@ -23,6 +24,8 @@ export interface FlowStep {
   readonly name: string
   /** The one earned line: what an Agent may do, the command a check runs, the words a person may answer. */
   readonly line: string
+  /** The full command or ceiling meaning, kept on hover. */
+  readonly title?: string
   /** How many seats the step opens at once; more than one is drawn as a fanned stack. */
   readonly count: number
   /** The Agents the step names, for the list; a check or a person names none. */
@@ -52,6 +55,7 @@ export interface FlowModel {
 }
 
 export interface FlowModelOptions {
+  readonly home?: string | null
   /**
    * What the seats of each Agent step ran under in the Run that holds this
    * Flow, by step id, as the Seat record says it: the level they ran at and
@@ -71,7 +75,10 @@ const widthOf = (listed: number, count: number | undefined): number => (listed >
 
 const stepOf = (role: DrawnFlow['roles'][number], options: FlowModelOptions): FlowStep => {
   const name = stepName(role.id)
-  if (role.kind === 'check') return { id: role.id, kind: 'check', name, line: role.check?.run.trim() || 'No command yet', count: 1, agents: [] }
+  if (role.kind === 'check') {
+    const command = role.check?.run ?? ''
+    return { id: role.id, kind: 'check', name, line: commandShown(command.trim(), options.home) || 'No command yet', title: command, count: 1, agents: [] }
+  }
   if (role.kind === 'person') return { id: role.id, kind: 'person', name, line: role.outcomes.join(' · ') || 'No answers yet', count: 1, agents: [] }
   const ran = options.ceilings?.get(role.id)
   // The current format spells a ceiling and names Agents; the older one spells

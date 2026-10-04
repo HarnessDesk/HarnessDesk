@@ -1051,7 +1051,9 @@ were used. An unrouted answer, stall or spent budget keeps the Run and Team
 same start preview, with the seat preferences open to change. **Start**
 creates a fresh Run on the same Team and records which Run it continues; both
 stay in the chooser beside the Run’s name. This starts from the seed step.
-The Flow name and digest in the header open the frozen Flow tab.
+The Flow name and digest in the header open the frozen Flow tab. Check
+commands in the Flow drawing, Steps list, Timeline and inspector shorten the
+home folder to `~`; their hover titles keep the full command.
 
 Each Seat has its own preference; changing one keeps the others and the
 number of Seats. The preview shows checks in this Team’s retained checkout
