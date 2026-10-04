@@ -154,6 +154,19 @@ const handOverBlock = (name: string, block: string): void => {
   })
 }
 
+/**
+ * Takes the note `handOver` brought off the message, by its remove button's
+ * exact name. A missing button fails here, naming what was missing, rather than
+ * as a click that landed nowhere and a message that still carries the block.
+ */
+const removeHandedOverNote = (): void => {
+  const remove = [...container.querySelectorAll('button')].find(
+    (node) => node.getAttribute('aria-label') === 'Remove Page annotations — 1 comment',
+  )
+  expect(remove, 'the handed-over note is on the message, with a button to take it off').toBeDefined()
+  act(() => remove!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+}
+
 /** The hover text of the chip whose name contains `name`. */
 const chipTitle = (name: string): string => {
   const chip = [...container.querySelectorAll('span')].find((node) =>
@@ -252,11 +265,9 @@ describe('a block the desk composed', () => {
     mount()
     handOver(false)
     type('never mind')
-    const remove = [...container.querySelectorAll('button')].find((node) =>
-      node.getAttribute('aria-label')?.startsWith('Remove Page annotations'),
-    )
-    act(() => remove?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    removeHandedOverNote()
     await send()
+    expect(queue).toHaveBeenCalledTimes(1)
     const content = queue.mock.calls[0]?.[0] as unknown as { type: string; text?: string }[]
     expect(content).toEqual([{ type: 'text', text: 'never mind' }])
   })
