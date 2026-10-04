@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { isPersonReviewStep, parseClientMessage, ValidationError, type FlowPolicy, type HostParams } from '../src/index.js'
+import { checkRetryRefusal, isPersonReviewStep, parseClientMessage, ValidationError, type FlowPolicy, type HostParams } from '../src/index.js'
 
 /*
  * The v2 flow wire refuses forged authority before any handler runs: a
@@ -63,6 +63,25 @@ test('flow/check/attempts takes a run and a card and nothing else, so a caller c
     assert.throws(() => request('flow/check/attempts', { run, card: 1 }), ValidationError, `run ${String(run)} should be refused`)
   }
   assert.doesNotThrow(() => request('flow/check/attempts', { run: 'flow-1', card: 1 }))
+})
+
+test('a check is refused a retry in the host’s own sentence by what its run and its operation already say', () => {
+  // A check that is not waiting — still running, or never started — says so whatever the run is doing.
+  for (const run of ['running', 'stalled', 'settled', 'stopped'] as const) {
+    for (const operation of ['started', 'prepared', null] as const) {
+      assert.equal(checkRetryRefusal(run, operation), 'This check is not waiting to be run again.', `${run} run, ${String(operation)} check`)
+    }
+  }
+  // A finished or interrupted check on a run that has ended asks for a new run instead.
+  for (const run of ['settled', 'stopped'] as const) {
+    for (const operation of ['finished', 'uncertain'] as const) {
+      assert.equal(checkRetryRefusal(run, operation), `This run is ${run}. Start a new run to run this check again.`)
+    }
+  }
+  // Neither says no, so the host is asked: it alone sees a checkout that moved, cleanup pending, or a held or wrapped Team.
+  for (const run of ['running', 'stalled'] as const) {
+    for (const operation of ['finished', 'uncertain'] as const) assert.equal(checkRetryRefusal(run, operation), null)
+  }
 })
 
 test('flow/answer/continue accepts only a non-empty run id', () => {

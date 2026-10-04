@@ -143,6 +143,20 @@ export interface FlowOperation {
 }
 
 /**
+ * Why a check cannot be run again from what its run and its own operation
+ * already say, in the sentence the host refuses with (`flow/preview`'s `retry`).
+ * A window holds both, so it can show the reason beside a disabled control
+ * without asking. Null when neither says no: the host can still refuse for what
+ * only it sees — a checkout that moved, cleanup still pending, a held or
+ * wrapped Team — and does, in the consent dialog. A test holds the two
+ * sentences to the host's (`flow-checks.test.ts`).
+ */
+export const checkRetryRefusal = (run: FlowExecution['state'], operation: FlowOperation['state'] | null): string | null => {
+  if (operation !== 'finished' && operation !== 'uncertain') return 'This check is not waiting to be run again.'
+  return run === 'settled' || run === 'stopped' ? `This run is ${run}. Start a new run to run this check again.` : null
+}
+
+/**
  * One result the desk recorded for a check card's command: what it exited with
  * and printed, the commit it ran at, and the word the Flow reads it as.
  *

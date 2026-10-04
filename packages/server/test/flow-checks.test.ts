@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
+import { checkRetryRefusal } from '@harnessdesk/protocol'
+
 import { checkAttemptsOf } from '../src/evidence/check-attempts.js'
 import { CHECK_CWD_OUTSIDE } from '../src/flow-execution.js'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
@@ -335,6 +337,9 @@ for (const ended of ['settled', 'stopped'] as const) test(`a ${ended} run refuse
   const before = rig.flows.executionOf(run.id)!
   const board = rig.board(run.goal).intents
   const count = checks(rig.events).length
+  /* The window shows this sentence beside a disabled control without asking; it is the host's, word for word. */
+  const operation = before.operations.find((one) => one.kind === 'check' && one.card === card.id)!
+  await assert.rejects(rig.flows.previewCheck(run.id, card.id), { message: checkRetryRefusal(ended, operation.state) })
   await assert.rejects(rig.flows.previewCheck(run.id, card.id), /run.*(?:stopped|settled).*Start a new run/i)
   await assert.rejects(rig.flows.retryCheck(run.id, card.id), /run.*(?:stopped|settled).*Start a new run/i)
   await rig.flows.flush()
@@ -402,6 +407,7 @@ test('retry returns after launch while the check is still running, and a concurr
     ])
     assert.ok(result, 'retry must return before its long-running check finishes')
     assert.equal(result.state, 'running')
+    await assert.rejects(rig.flows.previewCheck(run.id, gate.id), { message: checkRetryRefusal('running', 'started') })
     await assert.rejects(rig.flows.retryCheck(run.id, gate.id), /not waiting|running/)
     assert.equal(checks(rig.events).length, 2)
   } finally {
@@ -601,4 +607,19 @@ test('a check run again adds an attempt and leaves the earlier one exactly as it
   assert.deepEqual(after.map((one) => [one.n, one.outcome, one.tail]), [[1, 'fix', 'FAIL: 1 test'], [2, 'pass', 'all green']])
   assert.deepEqual(after[0], before[0], 'the first attempt is the record it was, byte for byte')
   assert.equal(rig.board(run.goal).intents.find((one) => one.id === gate.id)!.outcome, 'pass', 'the card carries the latest attempt’s word')
+})
+
+test('a retry is refused on the run’s and the check’s own words only where the host’s preview refuses on them', async (t) => {
+  const rig = await goalRig(t)
+  rig.heads.set('/repo', { at: 'sha-author', dirty: false })
+  const run = await rig.start(WORDED_FLOW, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+  const gate = rig.board(run.goal).intents.find((one) => one.role === 'gate')!
+  const execution = rig.flows.executionOf(run.id)!
+  const operation = execution.operations.find((one) => one.kind === 'check' && one.card === gate.id)!
+  assert.deepEqual([execution.state, operation.state], ['running', 'finished'])
+  assert.equal(checkRetryRefusal(execution.state, operation.state), null, 'a finished check on a running run is not refused on those words')
+  await rig.flows.previewCheck(run.id, gate.id)
 })
