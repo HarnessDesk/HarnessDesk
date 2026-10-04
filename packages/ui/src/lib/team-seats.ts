@@ -1,6 +1,6 @@
 import { sessionKey, splitSessionKey, type FlowExecution, type GoalView, type SeatRecord, type SessionKey, type TeamState } from '@harnessdesk/protocol'
 
-/** One durable conversation identity, shared by the rail, Overview and tree. */
+/** A retained Seat and its conversation, shared by the rail, Overview, tree and Run inspector. */
 export interface LinkedTeamSeat {
   key: SessionKey
   record: Pick<SeatRecord, 'id' | 'session' | 'role' | 'openedAt'>
@@ -20,6 +20,7 @@ export const teamSeats = (
   goal: GoalView | null | undefined,
   team: TeamState | null | undefined,
   execution: FlowExecution | null,
+  receiptIdentity: 'conversation' | 'seat' = 'conversation',
 ): TeamSeat[] => {
   const result = new Map<SessionKey, LinkedTeamSeat>()
   const rounds = execution && execution.goal === team?.id ? execution.rounds : []
@@ -40,7 +41,8 @@ export const teamSeats = (
       if (!session) { seats.push({ key: null, record: { ...record, session: null }, role, name }); continue }
       const key = sessionKey(session.runtime, session.sessionId)
       const seat: LinkedTeamSeat = { key, record: { ...record, session }, role, name }
-      const at = placed.get(key)
+      // Run detail is keyed by Seat ID; only conversation navigation shares a row.
+      const at = receiptIdentity === 'seat' ? undefined : placed.get(key)
       if (at === undefined) { placed.set(key, seats.length); seats.push(seat) } else seats[at] = seat
     }
     return seats

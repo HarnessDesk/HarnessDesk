@@ -1541,7 +1541,11 @@ kept answer, and otherwise keep its name without a link. The rail, Overview
 and sidebar all read that same list, and it is a list of conversations as an
 open Team's is: a receipt keeps every Seat, and a conversation seated twice is
 named once — where its first Seat put it, by the last that held it — because
-each of those surfaces keys a row by its session. A Seat with no conversation
+each of those surfaces keys a row by its session. The Run inspector keeps every
+receipt Seat by Seat ID, so earlier rounds and cards retain their own details,
+conversation action and usage. Cost is read by Seat ID even when the receipt
+kept no conversation; a usage report may supply the runtime for source-qualified
+money, and otherwise known turns remain visible. A Seat with no conversation
 has no session to share, so each is its own row, and the rail says no Agents
 were kept only when it lists none. Receipt opens in the pane's scrolling
 body, so the record never pushes its own navigation away. A narrow pane opens
@@ -1558,6 +1562,33 @@ same barrier, and the conversation menus that offered them show the same
 reason instead. Closed Seat history and receipt pointers preserve that refusal
 after restart. Run history remains a read; wrapping and deletion keep their
 existing lifecycles.
+
+The host asks that question before every send, steer and delivery, so it is a
+lookup and never a scan of the desk's Goals: a send on a desk with three
+hundred wrapped Teams costs what it does on a desk with three. The Goal store
+keeps the conversations its wrapped receipts name, built at the one place a
+document enters the store, so it holds for a Team wrapped in this process, one
+read back at the next start and one a backup brought. The Seat book answers for
+a conversation's Seats, and a Goal's standing is read in place, so a Team
+that is mid-wrap refuses from the moment its wrap begins, before any receipt
+exists. A dispatch asks twice — before it reopens the conversation and once it
+is open — and a send already held by a dispatch is not fenced again. The
+renderer treats a Team as wrapped once it reads `wrapped`, the host as soon as
+a wrap begins, so a send from a composer that has not heard yet fails with the
+same reason instead of being disabled beforehand.
+
+Three things follow from a conversation belonging to a wrapped Team. Stop is
+the one control that stays on while a turn is running in it: stopping is not
+new work, and the host leaves `turn/interrupt` open for exactly that. It
+stands alone in the corner — the refused send is drawn only while nothing
+runs, because the composer's send track is one coin wide and clips a second,
+which would leave a Stop that is on and cannot be pressed; the placeholder
+already says why nothing can be sent. Choosing a conversation is not sending to one, so the Assign dialog does not
+list a conversation a wrapped Team keeps, and a host asked to seat one anyway
+says it belongs to a wrapped Team — "This Team is wrapped" would point at the
+Team the person is in. A skill is a message into the open conversation, so the
+palette withdraws an agent's skills there, as it withdraws any entry it cannot
+run.
 
 A Run that ends wraps its Team, so a Team can wrap under a person who already
 has a question open. That question reads the Team's state live rather than the

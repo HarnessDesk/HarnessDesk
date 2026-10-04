@@ -398,8 +398,12 @@ export interface HostContext {
      * the session still reads idle.
      */
     busy(record: SessionRecord): boolean
-    /** Sends straight to the live conversation, counting it busy until the agent has answered. */
-    sendNow(record: SessionRecord, input: readonly UserContent[]): Promise<TurnId>
+    /**
+     * Sends straight to the live conversation, counting it busy until the agent has answered. A caller already
+     * inside `sessions.dispatch` passes the conversation it was handed as `held`: the send is that dispatch, and the
+     * Wrap fence is not asked a second time.
+     */
+    sendNow(record: SessionRecord, input: readonly UserContent[], held?: AgentSession): Promise<TurnId>
   }
 
   readonly accounts: {

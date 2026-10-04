@@ -3,6 +3,8 @@ import { readFile, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
+import type { GoalReceipt } from '@harnessdesk/protocol'
+
 import { migrateDesk } from '../src/goals/migration.js'
 import { atomicJson, documentOf, GoalStore, type GoalDocument } from '../src/goals/store.js'
 import { goal } from './fixtures/goals.js'
@@ -166,6 +168,68 @@ test('a receipt from before members and evidenceSeats existed is still read; mal
   assert.throws(() => wrappedWith({ ...base, evidenceSeats: [{ id: 'fact-1', seat: 7 }] }), /cannot be read/)
   assert.throws(() => wrappedWith({ ...base, evidenceSeats: [{ id: 'fact-1', seat: 'seat-1', seatLabel: 7 }] }), /cannot be read/)
   assert.throws(() => wrappedWith({ ...base, evidenceSeats: 'fact-1' }), /cannot be read/)
+})
+
+/*
+ * The host asks whether a wrapped Team keeps a conversation before every send, steer and queued delivery, so the store
+ * answers from an index of what its receipts name instead of reading its documents. The index is held in the one place
+ * a document enters the store, so it is complete however the document arrived — wrapped in this process, read back at
+ * the next start, or brought by a backup — and it says nothing for a Goal that has no receipt yet.
+ */
+test('the store says which wrapped receipts keep a conversation, however the document arrived', async () => {
+  const home = await empty()
+  const store = new GoalStore(home)
+  await store.load()
+  const sat = { runtime: 'fake', sessionId: 'sat' }
+  const answered = { runtime: 'fake', sessionId: 'answered' }
+  const receipt = (id: string): GoalReceipt => ({
+    version: 1, id: `receipt-${id}`, goal: id, sentence: 'Finish the Goal', wrappedAt: 3, summary: 'Finished.',
+    cards: [], seats: ['seat-1', 'seat-2'], evidence: [], lanes: [], revisions: [], citations: [], gaps: [],
+    // A receipt wrapped before `session` was recorded names a member and no conversation: only its answer does.
+    members: [{ seat: 'seat-1', agent: null, seatLabel: 'Seat 1', session: sat }, { seat: 'seat-2', agent: null, seatLabel: 'Seat 2' }],
+    answers: [{ seat: 'seat-1', session: answered, turn: null, text: 'Done.', partial: false, stopReason: null }],
+  })
+  const wrapped = (id: string): GoalDocument => ({
+    ...document(id), goal: goal(id, { state: 'wrapped', receipt: `receipt-${id}`, revision: 1 }), receipt: receipt(id),
+  })
+  const keepers = (one: { runtime: string; sessionId: string }, from: GoalStore = store): string[] =>
+    [...from.keptBy(one.runtime, one.sessionId)].sort()
+
+  // Open, and wrapping with its receipt only staged: neither has a receipt to keep anything, and nothing is indexed.
+  await store.save(document('g-open'), null)
+  await store.save({
+    ...document('g-wrapping'), goal: goal('g-wrapping', { state: 'wrapping' }),
+    operation: { kind: 'wrap', id: 'operation-1', goal: 'g-wrapping', stamp: 'a'.repeat(64), receipt: receipt('g-wrapping') },
+  }, null)
+  assert.deepEqual(keepers(sat), [])
+  assert.deepEqual(store.standing('g-open'), { state: 'open', restored: false })
+  assert.deepEqual(store.standing('g-wrapping'), { state: 'wrapping', restored: false })
+  assert.equal(store.standing('g-nowhere'), undefined)
+
+  // Wrapped in this process: the save that writes the receipt is the one that indexes it.
+  await store.save(document('g1'), null)
+  await store.save(wrapped('g1'), 0)
+  assert.deepEqual(keepers(sat), ['g1'])
+  assert.deepEqual(keepers(answered), ['g1'])
+  assert.deepEqual(keepers({ runtime: 'another', sessionId: 'sat' }), [], 'a conversation is its runtime and its id')
+  assert.deepEqual(keepers({ runtime: 'fake', sessionId: 'seat-2' }), [], 'a member with no recorded conversation keeps none')
+  assert.deepEqual(store.standing('g1'), { state: 'wrapped', restored: false })
+
+  // Brought by a backup: inert history, and it keeps the conversation as the Goal it was.
+  assert.equal(await store.restore(wrapped('g2'), 9), 'restored')
+  assert.deepEqual(keepers(sat), ['g1', 'g2'])
+  assert.deepEqual(store.standing('g2'), { state: 'wrapped', restored: true })
+
+  // Read back at the next start, in full: nothing the lookup said depended on this process having seen the wrap.
+  const reopened = new GoalStore(home)
+  await reopened.load()
+  assert.deepEqual(keepers(sat, reopened), ['g1', 'g2'])
+  assert.deepEqual(keepers(answered, reopened), ['g1', 'g2'])
+  assert.deepEqual(keepers({ runtime: 'fake', sessionId: 'seat-2' }, reopened), [])
+
+  // What it hands back is the caller's own: editing it changes nothing the store holds.
+  ;(store.keptBy('fake', 'sat') as string[]).push('g-forged')
+  assert.deepEqual(keepers(sat), ['g1', 'g2'])
 })
 
 test('a trigger’s reserved Goal id is made once and never adopts another Goal', async () => {
