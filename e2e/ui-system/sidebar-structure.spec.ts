@@ -70,7 +70,7 @@ for (const theme of ['light', 'dark'] as const) {
     const project = team.locator('xpath=ancestor::*[@data-project-root]')
     const projectHead = project.locator('[data-draggable]')
     const position = (row: typeof team) => row.locator('[data-slot="sidebar-menu-icon"]').evaluate(node => node.getBoundingClientRect().x)
-    expect(await position(team)).toBeGreaterThan(await projectHead.locator('[data-slot="text"]').first().evaluate(node => node.getBoundingClientRect().x))
+    expect(await position(team)).toBeCloseTo(await projectHead.locator('[data-slot="text"]').first().evaluate(node => node.getBoundingClientRect().x), 0)
 
     await team.focus()
     await page.keyboard.press('ArrowRight')
@@ -162,7 +162,7 @@ for (const theme of ['light', 'dark'] as const) {
       const leading = (item: ReturnType<typeof tree.locator>) => item.locator('[data-slot="sidebar-menu-icon"]').first().evaluate(node => node.getBoundingClientRect().x)
       const step = await fixture.evaluate(node => Number.parseFloat(getComputedStyle(node).getPropertyValue('--hd-space-5')) + Number.parseFloat(getComputedStyle(node).getPropertyValue('--hd-space-2')) + 1)
       expect(await leading(seat) - await leading(team)).toBeCloseTo(step, 0)
-      expect(await leading(pinned) - await textStart(pinned.locator('[data-slot="group-label"]'))).toBeCloseTo(step, 0)
+      expect(await leading(pinned) - await textStart(pinned.locator('[data-slot="group-label"]'))).toBeCloseTo(0, 0)
     }
     await header.focus()
     await expect(header.locator('[data-slot="disclosure-chevron"]')).toHaveCSS('opacity', '1')
@@ -180,6 +180,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     const fixture = page.locator('#sidebar-structure')
     const project = fixture.locator('[data-project-root="/work/atlas"]')
+    const projectHeading = project.locator('[data-draggable] [data-slot="text"]').first()
     const team = project.getByRole('button', { name: 'Room Ship checkout retry', exact: true })
     await team.focus()
     await page.keyboard.press('ArrowRight')
@@ -195,7 +196,11 @@ for (const theme of ['light', 'dark'] as const) {
       const origin = (await fixture.boundingBox())!.x
       const bounds = async (node: typeof team) => { const b = (await node.boundingBox())!; return [b.x - origin, b.x + b.width - origin] }
       const textX = (node: typeof team) => node.evaluate(el => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect().x })
+      const leadingX = (node: typeof team) => node.locator('[data-slot="sidebar-menu-icon"]').first().evaluate(el => el.getBoundingClientRect().x)
       expect.soft(await textX(pinned.locator('[data-slot="group-label"]')) - origin).toBe(24)
+      expect.soft(await leadingX(loose)).toBeCloseTo(await textX(projectHeading), 0)
+      expect.soft(await leadingX(team)).toBeCloseTo(await textX(projectHeading), 0)
+      expect.soft(await leadingX(pinned.locator('[data-slot="sidebar-menu-button"]'))).toBeCloseTo(await textX(pinned.locator('[data-slot="group-label"]')), 0)
       expect.soft(await bounds(pinned.locator('[data-slot="separator"]'))).toEqual([16, width - 16])
       expect.soft(await bounds(pinned.locator('[data-slot="sidebar-menu-button"]'))).toEqual([16, width - 16])
       expect.soft(await bounds(loose)).toEqual([8, width - 8])
