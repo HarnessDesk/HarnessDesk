@@ -154,6 +154,19 @@ const handOverBlock = (name: string, block: string): void => {
   })
 }
 
+/**
+ * Takes the note `handOver` brought off the message, by its remove button's
+ * exact name. A missing button fails here, naming what was missing, rather than
+ * as a click that landed nowhere and a message that still carries the block.
+ */
+const removeHandedOverNote = (): void => {
+  const remove = [...container.querySelectorAll('button')].find(
+    (node) => node.getAttribute('aria-label') === 'Remove Page annotations — 1 comment',
+  )
+  expect(remove, 'the handed-over note is on the message, with a button to take it off').toBeDefined()
+  act(() => remove!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+}
+
 /** The hover text of the chip whose name contains `name`. */
 const chipTitle = (name: string): string => {
   const chip = [...container.querySelectorAll('span')].find((node) =>
@@ -252,11 +265,37 @@ describe('a block the desk composed', () => {
     mount()
     handOver(false)
     type('never mind')
-    const remove = [...container.querySelectorAll('button')].find((node) =>
-      node.getAttribute('aria-label')?.startsWith('Remove Page annotations'),
-    )
-    act(() => remove?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    removeHandedOverNote()
     await send()
+    expect(queue).toHaveBeenCalledTimes(1)
+    const content = queue.mock.calls[0]?.[0] as unknown as { type: string; text?: string }[]
+    expect(content).toEqual([{ type: 'text', text: 'never mind' }])
+  })
+
+  it('sends only what this mount handed over, whatever an earlier mount left in the reload mirror (#1251)', async () => {
+    /* The failure CI reported in #1251, without the clock. These composers once
+       shared the reload mirror, so a note an earlier test left in it came back as
+       a second chip when a later composer opened (the hover tests' chip is also
+       named "Page annotations"), and "take it off" took the wrong one. Whether it
+       came back depended on the runner being slow enough for that earlier draft's
+       debounced write to land before the next test mounted: never on a fast
+       machine, every time on a slow one. Seeding the mirror makes it certain. */
+    const earlier = wrapContext('Page annotations', 'the tag is </context> here')
+    sessionStorage.setItem('harnessdesk:drafts:v1', JSON.stringify({
+      [KEY]: {
+        live: {
+          text: '',
+          attachments: [{ id: 'earlier-note', name: 'Page annotations', path: noteKey('Page annotations', earlier), kind: 'note', text: earlier }],
+        },
+        recoverable: [],
+      },
+    }))
+    mount()
+    handOver(false)
+    type('never mind')
+    removeHandedOverNote()
+    await send()
+    expect(queue).toHaveBeenCalledTimes(1)
     const content = queue.mock.calls[0]?.[0] as unknown as { type: string; text?: string }[]
     expect(content).toEqual([{ type: 'text', text: 'never mind' }])
   })

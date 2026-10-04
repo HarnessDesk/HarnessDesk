@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { Intent, TeamPeerInfo } from '@harnessdesk/protocol'
+import type { GoalView, Intent, TeamPeerInfo } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -144,6 +144,42 @@ describe('HandOut', () => {
     ])
     expect(onTrouble).toHaveBeenCalledWith(null)
     expect(onClose).toHaveBeenCalled()
+  })
+
+  /* A Run that ends wraps its Team, even under a person who has the batch
+     laid out. The cards it would put in front of the members are the Team's
+     record by then, not work (#1317, round 1). */
+  it('stops handing out when the Team wraps while the batch is laid out', async () => {
+    const teamHandout = vi.fn(async () => ({ batch: 'b', delivered: 1, queued: 0, refused: 0 }))
+    let snapshot = { ...emptySnapshot(), status: 'open' } as AppSnapshot
+    const listeners = new Set<() => void>()
+    const store = {
+      subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
+      getSnapshot: () => snapshot,
+      teamHandout,
+    } as unknown as AppStore
+    const onClose = vi.fn()
+    act(() => {
+      root.render(
+        <StoreProvider store={store}>
+          <HandOut room="room-1" intents={[intent(1, 'Audit /')]} peers={[member('s1', 'Gemini')]} onClose={onClose} onTrouble={() => {}} />
+        </StoreProvider>,
+      )
+    })
+    const go = (): HTMLButtonElement =>
+      [...document.body.querySelectorAll('button')].find((one) => one.textContent === 'Hand out 1 card')! as HTMLButtonElement
+    expect(go().disabled).toBe(false)
+    expect(document.body.textContent).not.toContain('This Team is wrapped')
+
+    snapshot = { ...snapshot, goals: new Map([['room-1', { goal: { state: 'wrapped' } } as unknown as GoalView]]) }
+    act(() => listeners.forEach((listener) => listener()))
+
+    expect(go().disabled).toBe(true)
+    expect(go().title).toBe('This Team is wrapped')
+    expect(document.body.textContent).toContain('This Team is wrapped')
+    await act(async () => { go().click() })
+    expect(teamHandout).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
   })
 
   it('says why there is nothing to hand out', () => {

@@ -374,6 +374,25 @@ const twoRuns = () => ({
   ]),
 })
 
+it('uses the wrapped Team reason for deciding and posting even before the run read catches up', async () => {
+  const kept = goalView(true)
+  const boardEvidence = new Map([['g1', {
+    room: 'g1', stamp: 1, checks: [], refused: [], unreadable: null,
+    cards: [{ card: 1, running: [], facts: [{ record: { id: 'record-pr', restored: false, fact: { kind: 'pr', number: 7, state: 'open', head: A, url: null } }, freshness: { state: 'fresh' }, by: null }] }],
+  }]])
+  const { store } = rig(undefined, { ...twoRuns(), boardEvidence: boardEvidence as never, goals: new Map([['g1', { ...kept, goal: { ...kept.goal, state: 'wrapped' } }]]) })
+  await render(store)
+  const decide = [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Decide this run')!
+  const post = container.querySelector<HTMLElement>('[aria-label="Post closed rounds to the pull request"]')!
+  expect(decide.disabled).toBe(true)
+  expect(post.getAttribute('aria-disabled')).toBe('true')
+  for (const control of [decide, post]) {
+    expect(control.title).toBe('This Team is wrapped')
+    act(() => control.click())
+  }
+  expect(store.setFindingPublication).not.toHaveBeenCalled()
+})
+
 const choose = (select: HTMLSelectElement, value: string): void => {
   const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!
   act(() => {

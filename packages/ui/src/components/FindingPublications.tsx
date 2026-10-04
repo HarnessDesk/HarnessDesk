@@ -1,9 +1,10 @@
+import { isRecord, RECORD_REASON } from '../lib/team-record'
 import { useEffect, useState } from 'react'
 
 import type { FindingPublicationItem, FindingPublicationsView } from '@harnessdesk/protocol'
 
 import { Banner, Button, Chip, CodeText, ConfirmDialog, Dialog, EmptyState, Note, Row, Rows, SectionHead, Text, Textarea } from '../design'
-import { useStore } from '../state/context'
+import { useStore, useSnapshot } from '../state/context'
 
 /**
  * A run's closed-round postings that need a person: each one paused before
@@ -25,6 +26,8 @@ const plural = (n: number, one: string, many: string): string => `${n} ${n === 1
 
 export const FindingPublications = ({ goal, run, stamp }: { readonly goal: string; readonly run: string; readonly stamp: string }) => {
   const store = useStore()
+  const snapshot = useSnapshot()
+  const record = isRecord(snapshot.goals.get(goal))
   const [view, setView] = useState<FindingPublicationsView | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<string | null>(null)
@@ -43,7 +46,7 @@ export const FindingPublications = ({ goal, run, stamp }: { readonly goal: strin
   }, [store, goal, run, stamp])
 
   const act = async (what: string, action: Parameters<typeof store.publishFinding>[0]['action']): Promise<boolean> => {
-    if (pending) return false
+    if (pending || isRecord(store.getSnapshot().goals.get(goal))) return false
     setPending(what)
     setError(null)
     try {
@@ -79,10 +82,10 @@ export const FindingPublications = ({ goal, run, stamp }: { readonly goal: strin
               control={
                 <span className="flex items-center gap-2">
                   <Chip tone={item.state === 'prepared' ? 'warning' : 'danger'}>{STATE_WORDS[item.state]}</Chip>
-                  <Button size="sm" variant="outline" disabled={pending !== null} onClick={() => void act(item.key, { kind: 'post-again', key: item.key })}>
+                  <Button size="sm" variant="outline" disabled={record || pending !== null} title={record ? RECORD_REASON : undefined} onClick={() => void act(item.key, { kind: 'post-again', key: item.key })}>
                     {pending === item.key ? 'Working…' : 'Post again'}
                   </Button>
-                  <Button size="sm" variant="ghost" disabled={pending !== null} onClick={() => { setWhy(''); setSkipping(item) }}>
+                  <Button size="sm" variant="ghost" disabled={record || pending !== null} title={record ? RECORD_REASON : undefined} onClick={() => { setWhy(''); setSkipping(item) }}>
                     Skip…
                   </Button>
                 </span>
@@ -95,7 +98,7 @@ export const FindingPublications = ({ goal, run, stamp }: { readonly goal: strin
         <Note>
           <span className="flex items-center justify-between gap-3">
             <span>{`${plural(view.backfill.rounds.length, 'closed round was', 'closed rounds were')} kept on the desk before pull request #${view.backfill.pr} was bound.`}</span>
-            <Button size="sm" variant="outline" disabled={pending !== null} onClick={() => setPreviewing(true)}>Post earlier rounds…</Button>
+            <Button size="sm" variant="outline" disabled={record || pending !== null} title={record ? RECORD_REASON : undefined} onClick={() => setPreviewing(true)}>Post earlier rounds…</Button>
           </span>
         </Note>
       )}
@@ -107,7 +110,8 @@ export const FindingPublications = ({ goal, run, stamp }: { readonly goal: strin
             <>
               <Button
                 variant="default"
-                disabled={pending !== null || why.trim() === ''}
+                disabled={record || pending !== null || why.trim() === ''}
+                title={record ? RECORD_REASON : undefined}
                 onClick={() => void act(skipping.key, { kind: 'skip', key: skipping.key, reason: why.trim() }).then((done) => { if (done) setSkipping(null) })}
               >
                 {pending === skipping.key ? 'Working…' : 'Skip it'}
@@ -121,6 +125,7 @@ export const FindingPublications = ({ goal, run, stamp }: { readonly goal: strin
               It is not posted, and the Goal’s receipt says so with your reason. If it reached the pull request after all, where it landed is recorded instead.
             </Text>
             <Textarea aria-label="Reason" value={why} onChange={(event) => setWhy(event.target.value)} placeholder="Say why it is not posted." />
+            {record && <Note>{RECORD_REASON}</Note>}
           </div>
         </Dialog>
       )}
@@ -130,6 +135,7 @@ export const FindingPublications = ({ goal, run, stamp }: { readonly goal: strin
           tone="default"
           confirmLabel={`Post to #${view.backfill.pr}`}
           busy={pending === 'backfill'}
+          pending={record}
           onCancel={() => setPreviewing(false)}
           onConfirm={() => {
             const stampNow = view.backfill!.stamp
@@ -137,6 +143,7 @@ export const FindingPublications = ({ goal, run, stamp }: { readonly goal: strin
           }}
         >
           <div className="flex flex-col gap-1">
+            {record && <Note>{RECORD_REASON}</Note>}
             {view.backfill.rounds.map((one) => (
               <Text key={one.round} as="p" role="prose">
                 {`Round ${one.round}: ${plural(one.findings, 'finding', 'findings')} and ${plural(one.reviews, 'review', 'reviews')}`}

@@ -39,10 +39,11 @@ const Cost = ({ row, metered }: { row: SeatRow; metered?: boolean }) => (
 )
 const runWords = { running: 'Running', settled: 'Settled', stopped: 'Stopped', stalled: 'Needs you' } as const
 
-export const TeamOverview = ({ model, faces, metered, onOpen, answers, onRun, runName = 'Run', runReason, statusLine, defaultExpanded = false }: {
+export const TeamOverview = ({ model, faces, metered, unavailable, onOpen, answers, onRun, runName = 'Run', runReason, statusLine, defaultExpanded = false }: {
   model: ReturnType<typeof teamOverview>
   faces?: ReadonlyMap<string, ReactNode>
   metered?: ReadonlyMap<string, boolean>
+  unavailable?: ReadonlySet<string>
   onOpen?: (seat: string) => void
   /** How what needs the person is answered from here; without it the rows only say what waits. */
   answers?: NeedsYouAnswers | undefined
@@ -77,7 +78,7 @@ export const TeamOverview = ({ model, faces, metered, onOpen, answers, onRun, ru
     const line = words(next.line ?? row.reason ?? '')
     return line ? <div data-slot="seat-doing" title={line} className="truncate"><Text role="meta">{line}</Text></div> : null
   }
-  const name = (row: SeatRow) => onOpen
+  const name = (row: SeatRow) => onOpen && !unavailable?.has(row.seat)
     ? <Button variant="link" size="inline-link" onClick={() => onOpen(row.seat)}><Text role="row">{words(row.name)}</Text></Button>
     : <Text role="row">{words(row.name)}</Text>
   const run = model.run

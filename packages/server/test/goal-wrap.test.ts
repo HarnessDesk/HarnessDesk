@@ -10,7 +10,7 @@ import { Publications, type PublicationJournal, type StoredPublication } from '.
 import { SerialRun } from '../src/flow-execution.js'
 import { migrateDesk } from '../src/goals/migration.js'
 import { GoalPlane } from '../src/goals/plane.js'
-import { GoalStore } from '../src/goals/store.js'
+import { receiptOf, GoalStore } from '../src/goals/store.js'
 import { previewWrap, wrapStamp, Wraps, type WrapInput, type WrapPort } from '../src/goals/wrap.js'
 import { goal, intent } from './fixtures/goals.js'
 import { tempDir } from './scratch.js'
@@ -392,3 +392,13 @@ test('a receipt freezes each run attendance and overrides, and validates them on
   runs[0]!.overrides.writer[0]!.runtime = 'gamma'
   assert.equal((receipt as unknown as { runs: typeof runs }).runs[0]!.overrides.writer[0]!.runtime, 'beta')
 })
+
+ test('receipt member conversations are optional for older records and validated when present', () => {
+  const receipt = { ...previewWrap(input(), choices()).receipt, id:'receipt', wrappedAt:1 }
+  assert.equal(receiptOf(receipt, 'g1', 'receipt'), true)
+  const member = receipt.members![0]!
+  for (const session of [null, {}, {runtime:'fake'}, {runtime:'fake',sessionId:42}, {runtime:'',sessionId:'one'}]) {
+   assert.equal(receiptOf({...receipt,members:[{...member,session}]},'g1','receipt'),false)
+  }
+  assert.equal(receiptOf({...receipt,members:[{...member,session:{runtime:'fake',sessionId:'one'}}]},'g1','receipt'),true)
+ })

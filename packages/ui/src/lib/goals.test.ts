@@ -61,7 +61,7 @@ describe('Goal presentation', () => {
     })
     expect(goalActions(goal('wrapped', { state: 'wrapped' }))).toEqual({
       disabled: true,
-      reason: 'This Goal is wrapped. Its receipt is kept here.',
+      reason: 'This Team is wrapped. Its receipt is kept here.',
     })
   })
 })

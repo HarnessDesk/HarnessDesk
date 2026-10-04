@@ -458,16 +458,15 @@ export class GoalPlane {
     })
   }
 
-  /** How a Goal stands for intake: open, closing (a wrap has begun), wrapped, or not on this desk. */
+  /**
+   * How a Goal stands for intake: open, closing (a wrap has begun), wrapped, or not on this desk. Read in place, never
+   * from a copy of the document: the host asks this before every send to a conversation a Goal once held.
+   */
   lifecycle(id: string): 'open' | 'closing' | 'wrapped' | 'missing' {
-    let document: GoalDocument
-    try {
-      document = this.store.read(id)
-    } catch {
-      return 'missing'
-    }
-    if (document.restored || document.goal.state === 'wrapped') return 'wrapped'
-    if (document.goal.state === 'wrapping' || this.#closing.has(id)) return 'closing'
+    const standing = this.store.standing(id)
+    if (!standing) return 'missing'
+    if (standing.restored || standing.state === 'wrapped') return 'wrapped'
+    if (standing.state === 'wrapping' || this.#closing.has(id)) return 'closing'
     return 'open'
   }
 
@@ -1110,7 +1109,7 @@ export class GoalPlane {
       // from `GoalView.members`, which answers `[]` the moment this Goal
       // wraps (see `membersOf`). A receipt read after that has nowhere else
       // to learn a Seat's name from.
-      members: seats.map((seat) => ({ seat: seat.id, agent: seat.agent?.name.trim() || null, seatLabel: seat.seatLabel })),
+      members: seats.map((seat) => ({ seat: seat.id, agent: seat.agent?.name.trim() || null, seatLabel: seat.seatLabel, session: seat.session })),
       evidence: evidenceRefs.map((ref) => ref.id),
       evidenceSeats: evidenceRefs,
       answers: answersRead.flatMap((read) => read.answer ? [read.answer] : []),

@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react'
 import type { FlowExecution, FlowOperation, FlowPreview } from '@harnessdesk/protocol'
 
 import { Banner, Button, CodeText, ConfirmDialog, Note } from '../design'
-import { useStore } from '../state/context'
+import { isRecord, RECORD_REASON } from '../lib/team-record'
+import { useSnapshotSelector, useStore } from '../state/context'
 
 export interface FlowRunStatusProps {
   readonly execution: FlowExecution
@@ -28,6 +29,7 @@ const uncertainCheck = (execution: FlowExecution): FlowOperation | null =>
  * one action and the one banner nothing else says.
  */
 export const FlowRunStatus = ({ execution }: FlowRunStatusProps) => {
+  const record = useSnapshotSelector(snapshot => isRecord(snapshot.goals.get(execution.goal)))
   const legacy = execution.document.format === 'legacy'
   const stalledCheck = uncertainCheck(execution)
   const [reviewing, setReviewing] = useState(false)
@@ -43,7 +45,7 @@ export const FlowRunStatus = ({ execution }: FlowRunStatusProps) => {
       )}
       {stalledCheck && (
         <>
-          <Button variant="outline" size="sm" onClick={() => setReviewing(true)}>Review and run again…</Button>
+          <Button variant="outline" size="sm" disabled={record} title={record ? RECORD_REASON : undefined} onClick={() => setReviewing(true)}>Review and run again…</Button>
           {reviewing && (
             <RetryCheck
               run={execution.id}
@@ -59,6 +61,7 @@ export const FlowRunStatus = ({ execution }: FlowRunStatusProps) => {
 
 export const RetryCheck = ({ run, card, onClose }: { readonly run: string; readonly card: number; readonly onClose: () => void }) => {
   const store = useStore()
+  const record = useSnapshotSelector(snapshot => isRecord(snapshot.goals.get(snapshot.flowExecutions.get(run)?.goal ?? '')))
   const [preview, setPreview] = useState<FlowPreview | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -77,7 +80,8 @@ export const RetryCheck = ({ run, card, onClose }: { readonly run: string; reado
   const command = preview?.commands[0]
 
   const confirm = async (): Promise<void> => {
-    if (!preview?.token || busy) return
+    const snapshot = store.getSnapshot()
+    if (!preview?.token || busy || isRecord(snapshot.goals.get(snapshot.flowExecutions.get(run)?.goal ?? ''))) return
     setBusy(true)
     try {
       await store.retryFlowCheck(run, card, preview.token)
@@ -94,10 +98,11 @@ export const RetryCheck = ({ run, card, onClose }: { readonly run: string; reado
       confirmLabel="Run again"
       tone="default"
       busy={busy}
-      pending={!preview && !problem}
+      pending={record || (!preview && !problem)}
       onConfirm={() => void confirm()}
       onCancel={onClose}
     >
+      {record && <Note>{RECORD_REASON}</Note>}
       <Note>
         This runs the same command in the card’s checkout as it is now. Its previous output is kept;
         running it again is your explicit consent.
