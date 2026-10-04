@@ -99,6 +99,21 @@ for (const theme of ['light', 'dark'] as const) {
     expect(await within(row)).toEqual({ stray: 0, scrolls: false })
   })
 
+  test(`a long Seat name gives way before the kind chip on its row in ${theme}`, async ({ page }) => {
+    await page.goto(`/preview.html?team-overview&theme=${theme}`)
+    await page.evaluate(() => document.fonts.ready)
+    const row = page.locator(`${frame('narrow')} [aria-label="Needs you"] [data-slot="list-row"]`).first()
+    const name = row.locator('[data-slot="list-row-title"] [data-slot="text"]')
+    await name.evaluate((one) => { one.textContent = 'A seat whose name was written by somebody who never expected it to fit anywhere at all' })
+    const held = await row.evaluate((element) => {
+      const box = element.getBoundingClientRect()
+      const chip = element.querySelector('[data-slot="list-row-title"] [data-slot="chip"]')!.getBoundingClientRect()
+      const text = element.querySelector('[data-slot="list-row-title"] [data-slot="text"]')!
+      return { chipInside: chip.left >= box.left && chip.right <= box.right, cut: text.scrollWidth > text.clientWidth }
+    })
+    expect(held).toEqual({ chipInside: true, cut: true })
+  })
+
   test(`at a narrow pane the controls wrap under their sentence and nothing scrolls sideways in ${theme}`, async ({ page }) => {
     await page.goto(`/preview.html?team-overview&theme=${theme}`)
     await page.evaluate(() => document.fonts.ready)

@@ -74,7 +74,7 @@ export const NeedsYouRow = ({ item, name, answers, onOpenSeat }: {
       data-kind={item.kind}
       title={(
         <span className="flex min-w-0 items-center gap-2">
-          {name && <Text role="member">{words(name)}</Text>}
+          {name && <Text role="member" truncate>{words(name)}</Text>}
           <Chip tone="warning">{item.kind === 'card' ? `#${item.card}` : item.kind === 'question' ? 'Question' : 'Approval'}</Chip>
         </span>
       )}
