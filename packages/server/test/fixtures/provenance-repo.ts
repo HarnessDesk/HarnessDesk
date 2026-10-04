@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { mkdir, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import { runChild, type ChildRunner } from '../../src/provenance/git.js'
 import { tempDir } from '../scratch.js'
 
 export interface Repo {
@@ -61,4 +62,46 @@ export const makeRepo = async (format: 'sha1' | 'sha256' = 'sha1'): Promise<Repo
     return git('commit-tree', tree, ...(parent ? ['-p', parent] : []), '-m', message)
   }
   return { dir, stateDir, git, input, commitTree }
+}
+
+export interface Counting {
+  /** Hand this to a reader or a plane; it starts the real Git, and counts. */
+  readonly run: ChildRunner
+  /** Every process asked for so far, as Git's own arguments with the reader's private-view flags dropped. */
+  readonly commands: readonly (readonly string[])[]
+  readonly started: number
+  /** The subcommand of each process asked for, in order. */
+  verbs(): string[]
+}
+
+/** The reader's fixed flags come first: bare words, `-C <dir>` and `-c <setting>` pairs. */
+const subcommand = (args: readonly string[]): readonly string[] => {
+  let at = 0
+  while (at < args.length) {
+    if (args[at] === '-C' || args[at] === '-c') at += 2
+    else if (args[at]!.startsWith('--no-') || args[at] === '--literal-pathspecs') at += 1
+    else break
+  }
+  return args.slice(at)
+}
+
+/**
+ * A runner that counts the Git processes a reader starts and, past `budget`,
+ * refuses to start another. Without the refusal a read that starts thousands
+ * would fail by running for minutes; with it the same read fails at once, with
+ * the number it reached.
+ */
+export const countingRunner = (budget = Number.POSITIVE_INFINITY): Counting => {
+  const commands: (readonly string[])[] = []
+  const run: ChildRunner = (executable, args, options) => {
+    commands.push(subcommand(args))
+    if (commands.length > budget) return Promise.reject(new Error('process-budget-exceeded'))
+    return runChild(executable, args, options)
+  }
+  return {
+    run,
+    commands,
+    get started() { return commands.length },
+    verbs: () => commands.map((command) => command[0] ?? ''),
+  }
 }

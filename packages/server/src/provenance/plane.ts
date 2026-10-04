@@ -10,7 +10,7 @@ import type { EvidencePlane } from '../evidence/plane.js'
 import { foldSeats } from '../evidence/records.js'
 import { sameCanonicalPath } from '../path-identity.js'
 import { exportProvenance, importProvenance } from './backup.js'
-import { admitProject, checkoutRoot, gitReader, oid, type GitReader, type RepoHandle } from './git.js'
+import { admitProject, checkoutRoot, gitReader, oid, type GitReader, type ReaderOptions, type RepoHandle } from './git.js'
 import { captureHealth } from './health.js'
 import { digest, object, ProvenanceJournal, readCheckpoint, type JournalEntry } from './journal.js'
 import { localValues, RefObserver, type WorkerCheckpoint } from './observer.js'
@@ -26,6 +26,8 @@ export interface ProvenancePort {
   readonly projects: () => readonly string[]
   readonly push: (notice: WireNotification) => void
   readonly log: (message: string, details?: Readonly<Record<string, unknown>>) => void
+  /** How capture reads Git. The host leaves this unset; a test counts processes and checks through it. */
+  readonly reader?: ReaderOptions
 }
 interface Project {
   project: string
@@ -237,7 +239,7 @@ export class ProvenancePlane {
         return
       }
       state.catchingUp = true
-      const git = gitReader(state.handle)
+      const git = gitReader(state.handle, this.#port.reader)
       const observer = new RefObserver({
         git, journal: state.journal,
         changed: () => {

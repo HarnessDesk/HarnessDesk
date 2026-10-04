@@ -51,6 +51,17 @@ export interface ReflogPage {
   readonly more: boolean
 }
 
+/** The process boundary every Git read goes through. */
+export type ChildRunner = typeof runChild
+
+/** What a caller may change about how a reader works. The host never sets any of it. */
+export interface ReaderOptions {
+  /** Starts each Git process. Tests count and shape the processes a read starts through this. */
+  readonly run?: ChildRunner
+  /** Told each time the repository's metadata is checked. Tests count the checks through this. */
+  readonly validated?: () => void
+}
+
 export interface GitReader {
   snapshot(signal: AbortSignal): Promise<RefSnapshot>
   reflogs(cursors: ReadonlyMap<string, LogCursor>, signal: AbortSignal): Promise<ReflogPage>
@@ -394,7 +405,7 @@ export const admitProject = async (
   }
 }
 
-export const gitReader = (handle: RepoHandle): GitReader => {
+export const gitReader = (handle: RepoHandle, options: ReaderOptions = {}): GitReader => {
   const admission = admissions.get(handle) ?? fail('unadmitted-project')
   const lifetime = new AbortController()
   let queue: Promise<unknown> = Promise.resolve()
@@ -412,13 +423,15 @@ export const gitReader = (handle: RepoHandle): GitReader => {
     GIT_NO_LAZY_FETCH: '1', GIT_ALTERNATE_OBJECT_DIRECTORIES: '',
     GIT_OBJECT_DIRECTORY: handle.objectDir,
   }
-  const run = (args: readonly string[], signal: AbortSignal, input?: Buffer) => runChild('git', [
+  const start = options.run ?? runChild
+  const run = (args: readonly string[], signal: AbortSignal, input?: Buffer) => start('git', [
     '--no-pager', '--no-replace-objects', '--literal-pathspecs', '-C', handle.viewDir,
     '-c', `core.hooksPath=${devNull}`, '-c', 'core.fsmonitor=false',
     '-c', 'diff.external=', '-c', 'core.quotePath=true', ...args,
   ], { signal, input, env })
   const validate = async (signal: AbortSignal) => {
     aborted(signal)
+    options.validated?.()
     for (const [path, stamp] of admission.stamps) {
       if (await identity(path) !== stamp) fail('metadata-changed')
     }
