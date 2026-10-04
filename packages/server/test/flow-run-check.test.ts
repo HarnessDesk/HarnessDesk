@@ -512,7 +512,11 @@ else { writeFileSync('started-again', 'yes'); const timer = setInterval(() => { 
   assert.equal(retried.operations.find((one) => one.card === card && one.kind === 'check')!.state, 'started')
   assert.equal((await readdir(join(stateDir, 'evidence', 'check-processes'))).length, 1)
   await assert.rejects(host.call('flow/check/retry', { run: run.id, card, token: consent.token! }), /changed/)
+  /* The retry is still running and has recorded nothing, so the read lists the one result there is — as it was. */
+  const during = await host.call('flow/check/attempts', { run: run.id, card })
+  assert.deepEqual(during.attempts.map((one) => [one.n, one.tail]), [[1, 'first answer\n']])
   const person = host.flowsPlane.executionOf(run.id)!.rounds[1]!.cards[0]!
+  await assert.rejects(host.call('flow/check/attempts', { run: run.id, card: person }), /Card #\d+ is not a check/)
   await host.call('team/intent', { room: run.goal, id: person, action: 'done', outcome: 'done' })
   await host.flowsPlane.wakeEvidence(run.goal)
   const deadline = Date.now() + 5000
@@ -528,6 +532,71 @@ else { writeFileSync('started-again', 'yes'); const timer = setInterval(() => { 
   const facts = saved.lines.flatMap((one) => one.type === 'evidence' && one.record.fact.kind === 'check' ? [one.record.fact] : [])
   assert.ok(facts.some((one) => one.tail === 'first answer\n'), 'previous output is retained in the durable history')
   assert.ok(facts.some((one) => one.tail === 'second answer\n'), 'fresh output is durably observed')
+  /* The wire read returns both, oldest first: the first attempt after the retry is the first attempt before it. */
+  const { attempts } = await host.call('flow/check/attempts', { run: run.id, card })
+  assert.deepEqual(attempts.map((one) => [one.n, one.exit, one.outcome, one.tail]), [[1, 0, 'no-pr', 'first answer\n'], [2, 0, 'no-pr', 'second answer\n']])
+  assert.deepEqual(attempts[0], during.attempts[0], 'the first attempt read while the retry ran is the first attempt read after it')
+  assert.ok(attempts[0]!.at <= attempts[1]!.at)
+  assert.equal(attempts[0]!.commit, (await repo.git('rev-parse', 'HEAD')).trim())
+  await assert.rejects(host.call('flow/check/attempts', { run: 'no-such-run', card }), /There is no flow run no-such-run/)
   assert.equal(host.flowsPlane.executionOf(run.id)!.state, 'settled')
   assert.deepEqual(await readdir(join(stateDir, 'evidence', 'check-processes')), [])
+})
+
+
+for (const action of ['stop', 'pause'] as const) test(`${action} reaches a run_check while its checkout is still being cut (#1348)`, async (t) => {
+  let signal: AbortSignal | undefined
+  let begun!: () => void
+  const started = new Promise<void>((resolve) => { begun = resolve })
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  const rig = await goalRig(t, { checkoutAt: async (_cwd, _at, options) => {
+    signal = options?.signal
+    begun()
+    await held
+    throw new Error('cutting the checkout was stopped')
+  } })
+  rig.heads.set('/repo', { at: 'a'.repeat(40), dirty: false })
+  const run = await rig.start(REVIEW, [agent('reviewer', ['approve'])])
+  await rig.flows.flush()
+  const asked = rig.team.runCheck(1, { name: 'gate' }, rig.sessionOf('seat-1'))
+  await started
+  try {
+    if (action === 'stop') await rig.executions.stop(run.id)
+    else rig.flows.interruptChecks(run.goal)
+    assert.equal(signal?.aborted, true, 'the check signal reaches checkout creation')
+  } finally { release() }
+  assert.match(await asked, /checkout was stopped/)
+  assert.equal(rig.checkCwds.length, 0, 'no command launched')
+})
+
+
+test('stopping a Flow reaches its retained base checkout before the check launches (#1348)', async (t) => {
+  let id = ''
+  let signal: AbortSignal | undefined
+  let retained: true | undefined
+  let begun!: () => void
+  const started = new Promise<void>((resolve) => { begun = resolve })
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  const rig = await goalRig(t, {
+    fetchBase: async (_root, base, run) => { id = run; return { ...base, at: 'a'.repeat(40) } },
+    checkoutAt: async (_cwd, _at, options) => {
+      retained = options?.retained
+      signal = options?.signal
+      begun()
+      await held
+      throw new Error('cutting the checkout was stopped')
+    },
+  })
+  const opening = rig.start(`version: 2\nname: Base checkout\nbase: { remote: origin }\nroles:\n  gate: { kind: check, run: 'pnpm test' }\nseed: { role: gate, title: Check }\nrules: []\n`, [])
+  await started
+  const stopping = rig.executions.stop(id)
+  try {
+    assert.equal(retained, true)
+    assert.equal(signal?.aborted, true, 'Stop reaches the checkout while planning holds the run queue')
+  } finally { release() }
+  await opening
+  assert.equal((await stopping).state, 'stopped')
+  assert.equal(rig.checkCwds.length, 0, 'no command launched')
 })

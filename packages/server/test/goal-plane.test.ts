@@ -363,9 +363,9 @@ test('a wrap names each Seat once — an Agent’s name, or its bare seatLabel w
   const choices = { summary: 'Done', cards: [{ id: 1, resolution: 'finished' as const, reason: null }] }
   const preview = await proof.plane.preview('g1', choices)
   assert.deepEqual([...preview.receipt.members ?? []].sort((left, right) => left.seat.localeCompare(right.seat)), [
-    { seat: 'seat-blank', agent: null, seatLabel: 'Codex · gpt-5.6' },
-    { seat: 'seat-named', agent: 'Reviewer', seatLabel: 'Claude · Opus' },
-    { seat: 'seat-none', agent: null, seatLabel: 'Fake · default' },
+    { seat: 'seat-blank', agent: null, seatLabel: 'Codex · gpt-5.6', session: {runtime:'fake',sessionId:'seat-blank'} },
+    { seat: 'seat-named', agent: 'Reviewer', seatLabel: 'Claude · Opus', session: {runtime:'fake',sessionId:'seat-named'} },
+    { seat: 'seat-none', agent: null, seatLabel: 'Fake · default', session: {runtime:'fake',sessionId:'seat-none'} },
   ].sort((left, right) => left.seat.localeCompare(right.seat)))
 })
 

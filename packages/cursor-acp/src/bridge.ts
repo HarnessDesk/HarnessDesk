@@ -19,7 +19,7 @@ import { basename, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 
-import { laneEnvironmentOf, openingOf } from '@harnessdesk/protocol'
+import { laneEnvironmentOf, openingOf, withoutCompaction } from '@harnessdesk/protocol'
 
 import { childEnvironment, environmentAck, environmentIn } from './lane-environment.js'
 import {
@@ -508,7 +508,8 @@ const withContext = (known: Parameterised, context: string): Parameterised | nul
  * packet, a referenced conversation) — the block is for the model.
  */
 export const titleOf = (text: string): string => {
-  const stripped = stripEnvelope(text)
+  // A summary Cursor wrote of its own compacted thread is not a line of the user's.
+  const stripped = withoutCompaction(stripEnvelope(text)).trim()
   /* A message that is nothing but a context block has no line of the user's
      to be named by, and falling back to the raw text named the conversation
      `<context source="…">`, the envelope written for the model (#47). What

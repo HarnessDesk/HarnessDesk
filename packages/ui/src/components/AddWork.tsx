@@ -2,8 +2,9 @@ import { useState } from 'react'
 
 import type { Intent, RuntimeId, SessionId, TeamPeerInfo } from '@harnessdesk/protocol'
 
-import { ActionError, Button, Card, Checkbox, Dialog, Field, FormStack, Input, NativeSelect, Text, Textarea } from '../design'
-import { useStore } from '../state/context'
+import { ActionError, Button, Card, Checkbox, Dialog, Field, FormStack, Input, NativeSelect, Note, Text, Textarea } from '../design'
+import { isRecord, RECORD_REASON } from '../lib/team-record'
+import { useSnapshotSelector, useStore } from '../state/context'
 import styles from './AddWork.module.css'
 
 /**
@@ -40,6 +41,9 @@ export const AddWork = ({
   readonly onTrouble?: (message: string) => void
 }) => {
   const store = useStore()
+  /* A Run that ends wraps its Team, even under a person who is writing a card in: a wrapped Team's board is its
+     record, so the card has nowhere to go (#1317). */
+  const record = useSnapshotSelector((snapshot) => isRecord(snapshot.goals.get(room)))
   const [title, setTitle] = useState('')
   const [detail, setDetail] = useState('')
   const [files, setFiles] = useState('')
@@ -60,7 +64,7 @@ export const AddWork = ({
 
   const add = async (): Promise<void> => {
     const named = title.trim()
-    if (named === '') return
+    if (named === '' || record) return
     setBusy(true)
     setProblem(null)
     try {
@@ -110,7 +114,7 @@ export const AddWork = ({
       onClose={onClose}
       footer={
         <>
-          <Button variant="default" disabled={busy || title.trim() === ''} onClick={() => void add()}>
+          <Button variant="default" disabled={busy || record || title.trim() === ''} title={record ? RECORD_REASON : undefined} onClick={() => void add()}>
             {busy ? 'Adding…' : 'Add to board'}
           </Button>
           <Button variant="secondary" disabled={busy} onClick={onClose}>
@@ -215,6 +219,8 @@ export const AddWork = ({
             </Card>}
           </Field>
         )}
+
+        {record && <Note>{RECORD_REASON}</Note>}
 
         {problem && (
           <ActionError>{problem}</ActionError>

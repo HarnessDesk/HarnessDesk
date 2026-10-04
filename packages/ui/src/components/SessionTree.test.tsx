@@ -567,6 +567,29 @@ const treeWith = (
   }
 }
 
+it('returns focus to the session row after closing its pointer-opened actions', async () => {
+  const { container: tree } = treeWith([], [summary({ id: 'focus-return' })])
+  const row = tree.querySelector<HTMLButtonElement>('[data-region="session-row"] [data-slot="sidebar-menu-button"]')!
+  const actions = tree.querySelector<HTMLButtonElement>('button[aria-label="Actions for focus-return"]')!
+  act(() => {
+    // A pointer press focuses the action before its click opens the menu.
+    actions.focus()
+    actions.click()
+  })
+  await act(async () => {
+    await vi.waitFor(() => expect(document.activeElement?.getAttribute('role')).toBe('menuitem'))
+  })
+  act(() => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', {
+    key: 'Escape', bubbles: true, cancelable: true,
+  })))
+  await act(async () => {
+    await vi.waitFor(() => {
+      expect(document.querySelector('[role="menu"]')).toBeNull()
+      expect(document.activeElement).toBe(row)
+    })
+  })
+})
+
 it('draws a Working conversation once and removes it from the project count', () => {
   const active = summary({
     id: 'session-active',
@@ -938,6 +961,80 @@ it('shows Goal activity and keeps wrapped Goals in a collapsed history group', (
   expect(tree.querySelector('[aria-label="Room Prepare release"]')).toBeNull()
   act(() => [...tree.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.includes('Wrapped · 1'))!.click())
   expect(roomRow(tree, 'Prepare release').textContent).toContain('Wrapped')
+})
+
+it('opens receipt conversations from the wrapped group without live or legacy membership', () => {
+  const board = room({ id: 'record-team', name: 'Read completed work' })
+  const base = triggerGoalView(board)
+  const view = { ...base, goal: { ...base.goal, state: 'wrapped' }, members: [], receipt: {
+    seats: ['keeper', 'older', 'missing'],
+    members: [
+      { seat: 'keeper', agent: 'Keeper', seatLabel: 'Writer', session: { runtime: 'codex', sessionId: 'kept' } },
+      { seat: 'older', agent: 'Reviewer', seatLabel: 'Reviewer' },
+      { seat: 'missing', agent: 'Gamma', seatLabel: 'Reviewer' },
+    ],
+    answers: [{ seat: 'older', session: { runtime: 'codex', sessionId: 'older-answer' } }],
+  } } as unknown as GoalView
+  const { container: tree, store } = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, view]]))
+  act(() => [...tree.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Wrapped · 1')!.click())
+  for (const [name, id] of [['Keeper', 'kept'], ['Reviewer', 'older-answer']]) {
+    const button = [...tree.querySelectorAll<HTMLButtonElement>('button[data-slot="sidebar-menu-button"]')].find(one => one.textContent?.includes(name!))!
+    act(() => button.click())
+    expect(store.openSession).toHaveBeenCalledWith(id, { runtime: 'codex' })
+  }
+  const missing = [...tree.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Gamma')!
+  expect(missing.disabled).toBe(true)
+  expect(missing.title).toBe('Conversation not kept')
+})
+
+/* A conversation can be seated more than once in a Team's life, and the receipt keeps every Seat. The tree lists
+   conversations, so it names each one once under the Wrapped group, with no row sharing a React key (#1317). */
+it('lists a receipt conversation once under the wrapped group however many Seats were retained for it', () => {
+  const board = room({ id: 'record-team', name: 'Read completed work' })
+  const base = triggerGoalView(board)
+  const view = { ...base, goal: { ...base.goal, state: 'wrapped' }, members: [], receipt: {
+    seats: ['first', 'again'],
+    members: [
+      { seat: 'first', agent: 'Keeper', seatLabel: 'Writer', session: { runtime: 'codex', sessionId: 'kept' } },
+      { seat: 'again', agent: 'Second', seatLabel: 'Reviewer', session: { runtime: 'codex', sessionId: 'kept' } },
+    ],
+    answers: [],
+  } } as unknown as GoalView
+  const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+  try {
+    const { container: tree } = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, view]]))
+    act(() => [...tree.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Wrapped · 1')!.click())
+    const rows = [...tree.querySelectorAll<HTMLButtonElement>('button[data-slot="sidebar-menu-button"]')]
+      .filter(one => /Keeper|Second/.test(one.textContent ?? ''))
+    expect(rows.map(one => one.textContent)).toEqual(['Second · Read completed work'])
+    expect(errors.mock.calls.map(call => String(call[0])).filter(text => text.includes('same key'))).toEqual([])
+  } finally { errors.mockRestore() }
+})
+
+/* The Seats whose conversation was not kept are one list under the room, the way the conversations that were kept
+   are — not a menu apiece, each a one-item list with its own rule and gutter (#1317). */
+it('lists every Seat whose conversation was not kept in one nested menu', () => {
+  const board = room({ id: 'record-team', name: 'Read completed work' })
+  const base = triggerGoalView(board)
+  const view = { ...base, goal: { ...base.goal, state: 'wrapped' }, members: [], receipt: {
+    seats: ['keeper', 'lost', 'lost-too'],
+    members: [
+      { seat: 'keeper', agent: 'Keeper', seatLabel: 'Writer', session: { runtime: 'codex', sessionId: 'kept' } },
+      { seat: 'lost', agent: 'Gamma', seatLabel: 'Reviewer' },
+      { seat: 'lost-too', agent: 'Delta', seatLabel: 'Reviewer' },
+    ],
+    answers: [],
+  } } as unknown as GoalView
+  const { container: tree } = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, view]]))
+  act(() => [...tree.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Wrapped · 1')!.click())
+  const lists = [...tree.querySelectorAll('ul[data-nested="true"]')].filter(one => /Gamma|Delta/.test(one.textContent ?? ''))
+  expect(lists).toHaveLength(1)
+  const missing = [...lists[0]!.querySelectorAll<HTMLButtonElement>('button')]
+  expect(missing.map(one => one.textContent)).toEqual(['Gamma', 'Delta'])
+  for (const one of missing) {
+    expect(one.disabled).toBe(true)
+    expect(one.title).toBe('Conversation not kept')
+  }
 })
 
 it('a conversation in a room is listed once, under the room', () => {
@@ -1647,6 +1744,10 @@ it('reads the ask past the context blocks the composer puts before it', () => {
  * facts about *where* a row ran.
  */
 it('marks a row whose folder is gone, and leaves the others unmarked', () => {
+  // A conversation in a folder that is gone is not listed under a project;
+  // the rows that still show it — a search is asking for it, a person pinned
+  // it — are the ones that wear the mark, which is what this holds.
+
   const runtime = {
     id: 'agent',
     name: 'Agent',
@@ -1685,7 +1786,7 @@ it('marks a row whose folder is gone, and leaves the others unmarked', () => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <SessionTree now={3} />
+        <SessionTree now={3} searching />
       </StoreProvider>,
     )
   })
@@ -1739,7 +1840,7 @@ it('shows the folder-gone mark before any click with the listing-sourced sentenc
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <SessionTree now={3} />
+        <SessionTree now={3} searching />
       </StoreProvider>,
     )
   })
@@ -1920,7 +2021,7 @@ it('keeps a durable Seat in the Team tree when no live session or history is hel
  const board=room({id:'rested-team',name:'Rested Team',members:[]})
  const view={...triggerGoalView(board),members:[{id:'rested-seat',session:{runtime:'codex',sessionId:'rested'},role:'reviewer',openedAt:1,closed:null,agent:{name:'Rested reviewer'}}]} as unknown as GoalView
  const {container:tree}=treeWith([board],[],[],{},undefined,null,new Map([[board.id,view]]))
- expect(tree.textContent).toContain('Rested reviewer')
+ expect(tree.textContent).toContain('Reviewer · Rested Team')
 })
 
 it('keeps settled Teams and their Seats out of the sidebar, and brings attention back', () => {

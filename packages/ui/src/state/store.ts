@@ -75,6 +75,8 @@ import {
   type TriggerView,
   type FlowDryRun,
   type FlowEntry,
+  type FlowCheckAttempt,
+  type FlowCheckAttempts,
   type FlowExecution,
   type ReviewCandidate,
   type FlowFile,
@@ -132,6 +134,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import type { AccountPrefs, AccountPrefsMap } from '../lib/accounts'
+import type { ApprovalResponseResult } from '../lib/needs-you'
 import { isAvatarId } from '../lib/avatars'
 import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
 import { coalesce } from '../lib/coalesce'
@@ -313,6 +316,9 @@ export type {
 import { Drafts, type NewRecoverableDraft, type RecoverableDraft } from './drafts'
 export type { RecoverableDraft } from './drafts'
 export { emptySnapshot } from './snapshot'
+
+/** How many folders the list remembers having been asked to forget. */
+const FORGOTTEN_FOLDERS_KEPT = 2000
 
 export type UnheldCeilings = 'seat' | 'refuse'
 
@@ -1385,6 +1391,32 @@ export class AppStore {
   async forgetWorkspace(path: string): Promise<void> {
     try {
       await this.transport.request('workspace/forget', { path })
+      await this.loadWorkspaces()
+    } catch (error) {
+      this.notice('error', describe(error))
+    }
+  }
+
+  /**
+   * Stops mentioning folders that no longer exist.
+   *
+   * Nothing about the conversations that ran there changes: they are not
+   * archived or deleted, the agent's own history is untouched, and search and
+   * the archive still find them. What goes is this app's own record of the
+   * folder — one that was opened as a workspace is forgotten, the way
+   * removing a project forgets one — and the list's "N folders are gone"
+   * line, which stops counting it. Said first, so the line answers at once;
+   * the host's forgetting follows it.
+   */
+  async forgetFolders(folders: readonly string[]): Promise<void> {
+    const forgotten = [...new Set([...(this.#snapshot.listPrefs.forgottenFolders ?? []), ...folders])]
+    // A list that only ever grows would be a preference file that does too.
+    this.setListPrefs({ forgottenFolders: forgotten.slice(-FORGOTTEN_FOLDERS_KEPT) })
+    const opened = new Set(this.#snapshot.workspaces.map((workspace) => workspace.path))
+    const known = folders.filter((folder) => opened.has(folder))
+    if (known.length === 0) return
+    try {
+      for (const path of known) await this.transport.request('workspace/forget', { path })
       await this.loadWorkspaces()
     } catch (error) {
       this.notice('error', describe(error))
@@ -4300,6 +4332,16 @@ export class AppStore {
   #findingsLoads = new Map<string, number>()
   /** One coalesced reload per Goal, built lazily: several `finding/changed` in one burst reload it once. */
   #findingsRefreshers = new Map<string, () => void>()
+  #findingRunLoads = new Map<string, number>()
+  #findingRunReading = new Map<string, { goal: GoalId; run: string; generation: number }>()
+
+  /** Pending first reads count as interested too: invalidation must not disappear before the cache exists. */
+  #findingRunReads(goal: GoalId): readonly string[] {
+    return [...new Set([
+      ...[...this.#snapshot.findingRuns.values()].filter(view => view.goal === goal).map(view => view.run),
+      ...[...this.#findingRunReading.values()].filter(read => read.goal === goal).map(read => read.run),
+    ])]
+  }
 
   #findingsRefresh(goal: GoalId): void {
     let trigger = this.#findingsRefreshers.get(goal)
@@ -4307,13 +4349,11 @@ export class AppStore {
       trigger = coalesce(() => {
         const current = this.#snapshot.findings.get(goal)
         if (current) void this.loadFindings(goal, current.filter)
-        for (const run of this.#snapshot.findingRuns.values()) {
-          if (run.goal === goal) void this.loadFindingRun(goal, run.run)
-        }
+        for (const run of this.#findingRunReads(goal)) void this.loadFindingRun(goal, run).catch(() => {})
       })
       this.#findingsRefreshers.set(goal, trigger)
     }
-    if (this.#snapshot.findings.has(goal) || [...this.#snapshot.findingRuns.values()].some((run) => run.goal === goal)) trigger()
+    if (this.#snapshot.findings.has(goal) || this.#findingRunReads(goal).length) trigger()
   }
 
   #findingRunsRefreshers = new Map<string, () => void>()
@@ -4323,13 +4363,11 @@ export class AppStore {
     let trigger = this.#findingRunsRefreshers.get(goal)
     if (!trigger) {
       trigger = coalesce(() => {
-        for (const run of this.#snapshot.findingRuns.values()) {
-          if (run.goal === goal) void this.loadFindingRun(goal, run.run)
-        }
+        for (const run of this.#findingRunReads(goal)) void this.loadFindingRun(goal, run).catch(() => {})
       })
       this.#findingRunsRefreshers.set(goal, trigger)
     }
-    if ([...this.#snapshot.findingRuns.values()].some((run) => run.goal === goal)) trigger()
+    if (this.#findingRunReads(goal).length) trigger()
   }
 
   #withFindings(goal: GoalId, state: FindingsListState): void {
@@ -4401,10 +4439,19 @@ export class AppStore {
 
   /** A run's findings, as a person reads and decides them. */
   async loadFindingRun(goal: GoalId, run: string): Promise<void> {
-    const view = await this.transport.request('finding/run', { goal, run })
-    const findingRuns = new Map(this.#snapshot.findingRuns)
-    findingRuns.set(run, view)
-    this.#patch({ findingRuns })
+    const key = JSON.stringify([goal, run])
+    const generation = (this.#findingRunLoads.get(key) ?? 0) + 1
+    this.#findingRunLoads.set(key, generation)
+    this.#findingRunReading.set(key, { goal, run, generation })
+    try {
+      const view = await this.transport.request('finding/run', { goal, run })
+      if (this.#findingRunLoads.get(key) !== generation) return
+      const findingRuns = new Map(this.#snapshot.findingRuns)
+      findingRuns.set(run, view)
+      this.#patch({ findingRuns })
+    } finally {
+      if (this.#findingRunReading.get(key)?.generation === generation) this.#findingRunReading.delete(key)
+    }
   }
 
   async decideFindingRun(input: HostParams<'finding/decide'>): Promise<FindingRunView> {
@@ -4593,6 +4640,16 @@ export class AppStore {
     flowExecutions.set(execution.id, execution)
     this.#patch({ flowExecutions })
     return execution
+  }
+
+  /**
+   * What the desk recorded each time one check card's command ran, oldest first
+   * (`flow/check/attempts`) — the earlier results `evidence/board` has folded
+   * away. A read that keeps nothing: the Run view holds what it asked for, and
+   * asks again when a check's evidence or operation changes.
+   */
+  async readCheckAttempts(run: string, card: number): Promise<FlowCheckAttempts> {
+    return this.transport.request('flow/check/attempts', { run, card })
   }
 
   /**
@@ -5877,11 +5934,11 @@ export class AppStore {
     }
   }
 
-  async respondToApproval(key: SessionKey, id: ApprovalId, decision: ApprovalDecision): Promise<void> {
+  async respondToApproval(key: SessionKey, id: ApprovalId, decision: ApprovalDecision): Promise<ApprovalResponseResult> {
     const pending = this.#snapshot.approvals.find(
       (entry) => entry.key === key && entry.approval.id === id,
     )
-    if (!pending) return
+    if (!pending) return { ok: true }
     // Drop it from the queue optimistically; the host confirms with
     // `approval/resolved`, and leaving a dead dialog up is worse than a flicker.
     this.#patch({ approvals: this.#snapshot.approvals.filter((entry) => entry !== pending) })
@@ -5891,9 +5948,17 @@ export class AppStore {
         approvalId: id,
         decision,
       })
+      return { ok: true }
     } catch (error) {
-      this.notice('error', describe(error))
-      this.#patch({ approvals: [...this.#snapshot.approvals, pending] })
+      const message = describe(error)
+      this.notice('error', message)
+      // A newer request may have reused this id while the older one was
+      // optimistically absent. Keep that live request in place rather than
+      // restoring a duplicate with an older requestedAt.
+      if (!this.#snapshot.approvals.some((entry) => entry.key === key && entry.approval.id === id)) {
+        this.#patch({ approvals: [...this.#snapshot.approvals, pending] })
+      }
+      return { ok: false, message }
     }
   }
 
@@ -5966,6 +6031,9 @@ export class AppStore {
           ? rawList.panelsCollapsed.filter((entry): entry is string => typeof entry === 'string')
           : [],
         othersOpen: rawList?.othersOpen === true,
+        forgottenFolders: Array.isArray(rawList?.forgottenFolders)
+          ? rawList.forgottenFolders.filter((entry): entry is string => typeof entry === 'string')
+          : [],
       }
       const rawPlanEdits = preferences['planEdits']
       const planEdits: Record<string, readonly PlanEdit[]> = {}

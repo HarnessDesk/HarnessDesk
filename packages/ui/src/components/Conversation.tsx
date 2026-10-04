@@ -38,6 +38,7 @@ import {
   NewWorktreeIcon,
 } from './Icons'
 import { worktreeBranch } from '../lib/worktree-branch'
+import { isRecordConversation, RECORD_REASON } from '../lib/team-record'
 import { scriptedScrollBehavior } from '../lib/scripted-scroll'
 import {
   Bar,
@@ -283,6 +284,10 @@ const ConversationMenu = () => {
   const runtime = useRuntime()
   const snapshot = useSnapshot()
   const session = useActiveSession()
+  // This menu's own conversation, which is also the one its verbs act on: a
+  // wrapped Team's record is refused by the host, so the row says so up front.
+  const key = useSessionKey()
+  const record = isRecordConversation(snapshot.goals.values(), key)
   const capabilities = runtime.capabilities
   const [confirmUndo, setConfirmUndo] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -321,8 +326,10 @@ const ConversationMenu = () => {
           )}
           {capabilities.compaction && (
             <PopoverOption
+              disabled={record}
+              title={record ? RECORD_REASON : undefined}
               onClick={() => {
-                void store.compact()
+                void store.compact(key)
                 close()
               }}
             >
@@ -331,7 +338,7 @@ const ConversationMenu = () => {
               </PopoverOptionMark>
               <PopoverOptionBody>
                 <PopoverOptionLabel>Compact now</PopoverOptionLabel>
-                <PopoverOptionHint>Summarise older turns to free up context.</PopoverOptionHint>
+                <PopoverOptionHint>{record ? RECORD_REASON : 'Summarise older turns to free up context.'}</PopoverOptionHint>
               </PopoverOptionBody>
             </PopoverOption>
           )}
@@ -943,6 +950,7 @@ export const GitControl = ({
   // This control's own conversation — a room column's member, not whichever
   // one the window has focused — so a review is of the changes it names.
   const key = useSessionKey()
+  const record = isRecordConversation(snapshot.goals.values(), key)
   const runtime = useRuntime()
   // A draft pointed at a worktree will start there, and one armed with a new
   // worktree will start in the one it cuts — so that is where this says it
@@ -1101,6 +1109,7 @@ export const GitControl = ({
               icon={<ReviewIcon size={16} />}
               label="Review uncommitted changes"
               title="On a side thread, leaving this one as it is."
+              disabled={record ? RECORD_REASON : false}
               onSelect={() => void store.review({ type: 'uncommitted', delivery: 'detached' }, key)}
             />
           )}

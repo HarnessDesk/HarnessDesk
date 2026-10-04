@@ -1,7 +1,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { FindingPublicationsView } from '@harnessdesk/protocol'
+import type { FindingPublicationsView, GoalView } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
@@ -47,6 +47,72 @@ const type = (textarea: HTMLTextAreaElement, text: string): void => {
     textarea.dispatchEvent(new Event('input', { bubbles: true }))
   })
 }
+
+it('disables every posting action in a wrapped Team with the record reason', async () => {
+  const publish = vi.fn(async () => view())
+  const store = rig(async () => view({ backfill: { pr: 7, rounds: [{ round: 1, findings: 1, reviews: 1 }], stamp: STAMP }, backfillRefusal: null }), publish)
+  Object.assign(store.getSnapshot(), { goals: new Map([['g1', { goal: { state: 'wrapped' } } as unknown as GoalView]]) })
+  await render(store)
+  for (const label of ['Post again', 'Skip…', 'Post earlier rounds…']) {
+    expect(button(label).disabled).toBe(true)
+    expect(button(label).title).toBe('This Team is wrapped')
+    act(() => button(label).click())
+  }
+  expect(publish).not.toHaveBeenCalled()
+})
+
+/**
+ * A Run that ends wraps its Team, even under a person who has a posting
+ * question open. The question was asked while posting was allowed, so what is
+ * left to answer is the Team's, not the dialog's (#1317, round 1).
+ */
+const wrapsLater = (store: AppStore, goal: string): (() => void) => {
+  let snapshot = store.getSnapshot()
+  const listeners = new Set<() => void>()
+  Object.assign(store, {
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
+    getSnapshot: () => snapshot,
+  })
+  return () => {
+    snapshot = { ...snapshot, goals: new Map([[goal, { goal: { state: 'wrapped' } } as unknown as GoalView]]) }
+    act(() => listeners.forEach((listener) => listener()))
+  }
+}
+
+it('a skip question already open stops taking its answer when the Team wraps', async () => {
+  const publish = vi.fn(async () => view({ items: [] }))
+  const store = rig(async () => view(), publish)
+  const wrap = wrapsLater(store, 'g1')
+  await render(store)
+  act(() => button('Skip…').click())
+  type(document.querySelector('textarea')!, 'nobody needs this on the pull request')
+  expect(button('Skip it').disabled).toBe(false)
+
+  wrap()
+
+  expect(button('Skip it').disabled).toBe(true)
+  expect(button('Skip it').title).toBe('This Team is wrapped')
+  expect(document.body.textContent).toContain('This Team is wrapped')
+  await act(async () => { button('Skip it').click() })
+  expect(publish).not.toHaveBeenCalled()
+})
+
+it('an earlier-rounds question already open stops offering to post them when the Team wraps', async () => {
+  const backfill = { pr: 7, rounds: [{ round: 2, findings: 2, reviews: 2 }], stamp: STAMP }
+  const publish = vi.fn(async () => view({ items: [], backfill: null }))
+  const store = rig(async () => view({ items: [], backfill, backfillRefusal: null }), publish)
+  const wrap = wrapsLater(store, 'g1')
+  await render(store)
+  act(() => button('Post earlier rounds…').click())
+  expect(button('Post to #7').disabled).toBe(false)
+
+  wrap()
+
+  expect(button('Post to #7').disabled).toBe(true)
+  expect(document.body.textContent).toContain('This Team is wrapped')
+  await act(async () => { button('Post to #7').click() })
+  expect(publish).not.toHaveBeenCalled()
+})
 
 it('reads the run’s postings explicitly and shows each one needing a person with the desk’s reason, whole', async () => {
   const store = rig(async () => view(), async () => view())
@@ -102,4 +168,25 @@ it('a round kept on the desk is posted only after its preview is confirmed, with
   expect(publish).not.toHaveBeenCalled()
   await act(async () => { button('Post to #7').click() })
   expect(publish).toHaveBeenCalledWith({ goal: 'g1', run: 'run-1', action: { kind: 'backfill', stamp: STAMP } })
+})
+it('does not carry a late publication response into a later visit to the same Run', async () => {
+  let finish!: (value: FindingPublicationsView) => void
+  const store = rig(async () => view(), () => new Promise(resolve => { finish = resolve }))
+  await render(store)
+  act(() => button('Post again').click())
+  await act(async () => root.render(<StoreProvider store={store}><FindingPublications goal="g1" run="run-2" stamp="s2" /></StoreProvider>))
+  await act(async () => root.render(<StoreProvider store={store}><FindingPublications goal="g1" run="run-1" stamp="s3" /></StoreProvider>))
+  expect(container.textContent).toContain('finding-0001')
+  await act(async () => finish(view({ items: [] })))
+  expect(container.textContent).toContain('finding-0001')
+  expect(container.textContent).not.toContain('Nothing here needs you.')
+})
+it('a new visit clears an older action’s busy state even while the intervening Run read is pending', async () => {
+ let reads=0
+ const store=rig(() => ++reads===2 ? new Promise(() => {}) : Promise.resolve(view()), () => new Promise(() => {}))
+ await render(store)
+ act(() => button('Post again').click())
+ await act(async () => root.render(<StoreProvider store={store}><FindingPublications goal="g1" run="run-2" stamp="s2" /></StoreProvider>))
+ await act(async () => root.render(<StoreProvider store={store}><FindingPublications goal="g1" run="run-1" stamp="s3" /></StoreProvider>))
+ expect(button('Post again').disabled).toBe(false)
 })

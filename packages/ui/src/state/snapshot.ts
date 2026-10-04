@@ -664,6 +664,13 @@ export interface AppSnapshot {
     readonly panelsCollapsed: readonly string[]
     /** Whether the "Other projects" fold is open. */
     readonly othersOpen: boolean
+    /**
+     * Folders that no longer exist, which the person has asked the list to
+     * stop mentioning. A folder that is gone is never listed as a project;
+     * the list says how many are gone in one quiet line, and this is the
+     * ones that line no longer counts. Their conversations are untouched.
+     */
+    readonly forgottenFolders?: readonly string[]
   }
   /**
    * Agents the desk has been told not to keep track of.

@@ -6,6 +6,7 @@ import type { runTimeline } from '../lib/run-timeline'
 import { sanitizeHtml } from '../lib/sanitize'
 import { doingLine, type DoingLine } from '../lib/team-overview'
 import { AgentIcon, CheckIcon, PlanIcon } from './Icons'
+import { RunAgain } from './RetryCheck'
 import { formatDuration } from './TurnTail'
 
 const words = (value: string): string => {
@@ -58,6 +59,7 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
       <Text role="subject">Run {number}</Text>
       {runChooser}
       <Chip tone={header.needsYou ? 'warning' : 'neutral'}>{header.needsYou ? 'Needs you' : states[header.state]}</Chip>
+      {header.publication && <Chip tone={header.publication.tone}>{header.publication.label}</Chip>}
       {flow ? <Button data-slot="run-revision" variant="link" size="inline-link" className="min-w-0 whitespace-normal break-words" onClick={() => showView('flow')}>{words(header.flow)}{header.revision ? ` · ${header.revision}` : ''}</Button>
         : <Text role="meta" className="min-w-0 break-words">{words(header.flow)}{header.revision ? ` · ${header.revision}` : ''}</Text>}
       {header.continues && <Text role="meta">Continues {continuesNumber ? `Run ${continuesNumber}` : 'an earlier Run'}</Text>}
@@ -73,6 +75,14 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
         {problem && <Banner tone="warning" title="Some Run details could not be read">{words(problem)}{onRetry && <Button variant="link" size="inline-link" onClick={onRetry}>Try again</Button>}</Banner>}
         <ListRows size="sm" aria-label="Run timeline">
           {model.rows.map(row => {
+            // What a check ran each time, drawn once it has run more than once: plain rows under their check; the check's inspector holds the output.
+            if (row.kind === 'attempt') return <ListRow key={row.id} data-row={row.id} data-kind="attempt" wrapTitle
+              lead={<IconTile size="sm" aria-hidden className="invisible" />}
+              title={<span className="flex min-w-0 flex-wrap items-center gap-2">
+                <Text role="meta" className="min-w-0 break-words whitespace-normal [overflow-wrap:anywhere]">{words(row.title)}</Text>
+                {row.status && <Chip tone="neutral">{words(row.status)}</Chip>}
+                {row.since !== null && <Text role="meta" numeric>{commitDate(row.since, now)}</Text>}
+              </span>} />
             const previous = held.current.get(row.id) ?? null
             const next = row.working && row.seat ? doing?.get(row.seat) ?? null : null
             const line = doingLine(previous, next, now)
@@ -84,10 +94,24 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
             const title = <span className="flex min-w-0 flex-wrap items-center gap-2">
               <Text role={row.kind === 'round' ? 'section' : 'row'} className="min-w-0 break-words whitespace-normal [overflow-wrap:anywhere]">{words(row.title)}</Text>
               {status}
+              {row.publication && <Chip tone={row.publication.tone}>{row.publication.label}</Chip>}
               {duration !== null && <Text role="meta" numeric>{formatDuration(duration)}{row.working ? ' so far' : ''}</Text>}
             </span>
+            // *Run again…* is the row's sibling, never inside its button: laid over the end of the first line, where an invisible spacer in the row's trail keeps the row's own words clear of it.
+            const again = row.kind === 'check' && row.card !== null && row.retryRefusal === null
+            const item = <ListRow wrapTitle data-row={row.id} data-kind={row.kind} as="button" interactive selected={selectedRow === row.id}
+              onClick={() => onSelect(row.id)} title={row.kind === 'end' ? 'End' : title}
+              trail={again ? <span aria-hidden className="invisible mx-1.5 whitespace-nowrap">Run again…</span> : undefined}
+              className={row.kind === 'round' ? 'mt-4' : undefined}
+              lead={row.kind === 'card' ? <IconTile shape="face" size="sm">{row.seat ? faces?.get(row.seat) ?? <AgentIcon /> : <AgentIcon />}</IconTile>
+                : row.kind === 'check' ? <IconTile size="sm"><CheckIcon /></IconTile>
+                : row.kind === 'brief' ? <IconTile size="sm"><PlanIcon /></IconTile> : undefined}
+              subtitle={row.kind !== 'end' && (row.detail || (row.working && line.line)) ? <span data-slot="run-detail" className={row.kind === 'brief' ? 'line-clamp-2' : 'whitespace-pre-line'}>{words(row.detail ?? line.line ?? '')}</span> : undefined}
+              wrapSubtitle
+              meta={(row.kind === 'start' || row.kind === 'end') && row.since !== null ? <Text role="meta">{commitDate(row.since, now)}</Text> : undefined} />
             return <Fragment key={row.id}>
               {row.kind === 'end' && <div data-slot="run-ending"><Banner tone={row.attention ? 'warning' : 'neutral'} title={words(row.title)}>
+                {row.publication && <Chip tone={row.publication.tone}>{row.publication.label}</Chip>}
                 {row.detail && <div className="whitespace-pre-line">{words(row.detail)}</div>}
                 <div className="mt-2 flex flex-wrap gap-2">
                   {header.end?.kind === 'complete' && onWrap && <Button size="sm" variant="outline" onClick={onWrap}>Wrap</Button>}
@@ -96,15 +120,9 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
                   {header.end?.kind === 'unrouted' && onBoard && <Button size="sm" variant="outline" onClick={onBoard}>Board</Button>}
                 </div>
               </Banner></div>}
-              <ListRow wrapTitle data-row={row.id} data-kind={row.kind} as="button" interactive selected={selectedRow === row.id}
-              onClick={() => onSelect(row.id)} title={row.kind === 'end' ? 'End' : title}
-              className={row.kind === 'round' ? 'mt-4' : undefined}
-              lead={row.kind === 'card' ? <IconTile shape="face" size="sm">{row.seat ? faces?.get(row.seat) ?? <AgentIcon /> : <AgentIcon />}</IconTile>
-                : row.kind === 'check' ? <IconTile size="sm"><CheckIcon /></IconTile>
-                : row.kind === 'brief' ? <IconTile size="sm"><PlanIcon /></IconTile> : undefined}
-              subtitle={row.kind !== 'end' && (row.detail || (row.working && line.line)) ? <span data-slot="run-detail" className={row.kind === 'brief' ? 'line-clamp-2' : 'whitespace-pre-line'}>{words(row.detail ?? line.line ?? '')}</span> : undefined}
-              wrapSubtitle
-              meta={(row.kind === 'start' || row.kind === 'end') && row.since !== null ? <Text role="meta">{commitDate(row.since, now)}</Text> : undefined} />
+              {again ? <div data-slot="run-row" className="relative">{item}
+                <div className="absolute end-4 top-2 flex items-center"><RunAgain run={header.run} card={row.card!} refusal={null} onRow /></div>
+              </div> : item}
             </Fragment>
           })}
         </ListRows>

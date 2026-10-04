@@ -8,23 +8,15 @@ import { Banner, Chip, KeyValue, KeyValueRow, Text } from '../design'
  * a token stream ending or a hope about what a forge will do next.
  */
 
-const PUBLICATION_WORDS: Readonly<Record<FindingRunView['publication'], string>> = {
-  local: 'Kept on the desk',
-  pending: 'Posting…',
-  posted: 'Published',
-  partial: 'Partially published',
-  uncertain: 'Publication uncertain',
-}
-
-const PUBLICATION_TONE: Readonly<Record<FindingRunView['publication'], 'neutral' | 'warning' | 'success' | 'danger'>> = {
-  local: 'neutral', pending: 'neutral', posted: 'success', partial: 'warning', uncertain: 'danger',
-}
+import { runPublication } from '../lib/review-publication'
 
 export interface FindingRoundStatusProps {
   readonly view: FindingRunView
+  readonly publicationOn?: boolean
 }
 
-export const FindingRoundStatus = ({ view }: FindingRoundStatusProps) => {
+export const FindingRoundStatus = ({ view, publicationOn = true }: FindingRoundStatusProps) => {
+  const publication = runPublication(view, publicationOn)
   const blindWords = view.embargoed && view.reviewersTotal !== null
     ? `${view.reviewersFinished} of ${view.reviewersTotal} reviewers finished — published when the round closes`
     : null
@@ -34,7 +26,7 @@ export const FindingRoundStatus = ({ view }: FindingRoundStatusProps) => {
         <KeyValueRow label="Round">{`${view.finished} of ${view.total}`}</KeyValueRow>
         <KeyValueRow label="Open findings" numeric>{view.open}</KeyValueRow>
         <KeyValueRow label="Blocking" numeric>{view.blocking}</KeyValueRow>
-        <KeyValueRow label="Publication"><Chip tone={PUBLICATION_TONE[view.publication]}>{PUBLICATION_WORDS[view.publication]}</Chip></KeyValueRow>
+        {publication && <KeyValueRow label="Publication"><Chip tone={publication.tone}>{publication.label}</Chip></KeyValueRow>}
       </KeyValue>
       {blindWords && (
         <Banner tone="neutral" title="This round is still blind">

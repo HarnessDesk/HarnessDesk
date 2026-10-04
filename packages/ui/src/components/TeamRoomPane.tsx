@@ -23,11 +23,13 @@ import { runtimeTint, type Tint } from '../lib/accounts'
 import { brandForRuntime } from '../lib/brands'
 import { elapsedSince } from '../lib/clock'
 import { goalRunOf, namedGoalRun } from '../lib/goal-run'
-import { teamSeats } from '../lib/team-seats'
+import { teamSeats, hasConversation } from '../lib/team-seats'
+import { isRecord, RECORD_REASON } from '../lib/team-record'
 import { teamOverview } from '../lib/team-overview'
 import { TeamOverview } from './TeamOverview'
 import { TeamRunView } from './TeamRunView'
 import { RunFlow } from './RunFlow'
+import { useCheckAttempts } from '../state/check-attempts'
 import { runTimeline } from '../lib/run-timeline'
 import { shortSha } from '../lib/evidence'
 import { goalActions, goalName } from '../lib/goals'
@@ -37,6 +39,7 @@ import { budgetMeterWords, formatMeterUsd, intakeStopWords, openTriggerWaits, or
 import { isPathInside } from '../lib/paths'
 import { folderName } from '../lib/projects'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
+import { useNeedsYouAnswers } from '../state/needs-you'
 import type { AppSnapshot } from '../state/snapshot'
 import { sidebarPlacement } from '../state/workbench'
 import { useMount } from '../panels/mount'
@@ -74,7 +77,8 @@ import { GoalReceipt } from './GoalReceipt'
 import { GoalReceiptCost } from './GoalReceiptCost'
 import { FindingCarry } from './FindingCarry'
 import { FindingDetail } from './FindingDetail'
-import { FlowRunStatus, RetryCheck } from './FlowRunStatus'
+import { FlowRunStatus } from './FlowRunStatus'
+import { RetryCheck } from './RetryCheck'
 import { RunAgain } from './RunAgain'
 import { WindowControls } from './WindowControls'
 import {
@@ -244,6 +248,7 @@ export const TeamRoomPane = ({
   const store = useStore()
   const snapshot = useSnapshot()
   const goal = snapshot.goals.get(room)
+  const record = isRecord(goal)
   /** Shared by the bar's full Wrap button and its narrow ⋯ fallback. */
   const wrapDisabled = goal ? goalActions(goal.goal).disabled || goal.problem !== null : true
   /**
@@ -381,24 +386,29 @@ export const TeamRoomPane = ({
     mount?.view.kind === 'room' ? mount.view.sideBySide : undefined,
     mount?.view.kind === 'room' ? mount.view.watching : undefined,
   ))
-  const [open, setOpen] = useState<'overview' | 'run' | 'board' | 'room' | 'findings' | 'side-by-side' | SessionKey>(
-    () => (grid.tiles.length > 0 ? 'side-by-side' : flowExecution ? 'overview' : 'room'),
+  /* A wrapped Team opens on its Receipt, with or without a Run: the record is
+     what the person came for, and the rail is the way around it. */
+  const opensOnReceipt = record && Boolean(goal?.receipt)
+  const [open, setOpen] = useState<'overview' | 'receipt' | 'run' | 'board' | 'room' | 'findings' | 'side-by-side' | SessionKey>(
+    () => (opensOnReceipt ? 'receipt' : grid.tiles.length > 0 ? 'side-by-side' : flowExecution ? 'overview' : 'room'),
   )
   /* Which half a *narrow* room is showing. Two columns need width; when the
      pane has none — a three-way split, or the details panel open beside it —
      the room becomes one column at a time, the way every master/detail list
      does, rather than two unreadable ones. At full width this is inert: the
-     container query below never fires and both halves stay up. */
-  const [onRail, setOnRail] = useState(!flowExecution)
+     container query below never fires and both halves stay up. A Team opens on
+     the rail only when it has nothing to read first: a Run gives it an
+     Overview and a wrapped Team its Receipt, and each of those is the body. */
+  const [onRail, setOnRail] = useState(!(opensOnReceipt || flowExecution))
   const destination = useRef({ room, chosen: false })
   useEffect(() => {
     if (destination.current.room !== room) destination.current = { room, chosen: false }
     // Runs are loaded after the Team opens. Apply its default only until the
     // person chooses a destination; a push must not take them away from Chat.
     if (destination.current.chosen || grid.tiles.length > 0) return
-    setOpen(flowExecution ? 'overview' : 'room')
-    setOnRail(!flowExecution)
-  }, [room, flowExecution?.id])
+    setOpen(opensOnReceipt ? 'receipt' : flowExecution ? 'overview' : 'room')
+    setOnRail(!(opensOnReceipt || flowExecution))
+  }, [room, flowExecution?.id, record])
   const [chosenRun, setChosenRun] = useState<string | null>(null)
   const [again, setAgain] = useState<FlowExecution | null>(null)
   const [retryCheck, setRetryCheck] = useState<{ run: string; card: number } | null>(null)
@@ -411,6 +421,8 @@ export const TeamRoomPane = ({
   const [timelinePending, setTimelinePending] = useState(false)
   const [timelineReadError, setTimelineReadError] = useState<string | null>(null)
   const [timelineRead, setTimelineRead] = useState(0)
+  // What each check of the Run recorded each time it ran: read while the Run is on show, and again when a result lands.
+  const checkAttempts = useCheckAttempts({ execution: timelineRun ?? undefined, evidence: snapshot.boardEvidence.get(room), active: open === 'run', nonce: timelineRead })
   const [runHistoryProblem, setRunHistoryProblem] = useState<{ room: string; message: string } | null>(null)
   useEffect(() => {
     // A trigger Goal names no opener Run. Discover its history even when
@@ -463,12 +475,13 @@ export const TeamRoomPane = ({
    */
   const [railTrouble, setRailTrouble] = useState<string | null>(null)
 
-  const show = (next: 'overview' | 'run' | 'board' | 'room' | 'findings' | 'side-by-side' | SessionKey): void => {
+  const show = (next: 'overview' | 'receipt' | 'run' | 'board' | 'room' | 'findings' | 'side-by-side' | SessionKey): void => {
     destination.current.chosen = true
     setOnRail(false)
     /* Written against the literals rather than narrowed: `SessionKey` is a
        branded string, so comparing it to `'board'` tells the compiler nothing
        and the union survives into the other branch. */
+    if (next === 'receipt') return setOpen('receipt')
     if (next === 'overview') return setOpen('overview')
     if (next === 'run') return setOpen('run')
     if (next === 'board') return setOpen('board')
@@ -658,7 +671,7 @@ export const TeamRoomPane = ({
 
   /* Narrowed once, here, so the provider below gets a `SessionKey` and not a
      union the compiler has to be argued with at the call site. */
-  const singleMember: SessionKey | null = open === 'overview' || open === 'run' || open === 'board' || open === 'room' || open === 'findings' || open === 'side-by-side' ? null : open
+  const singleMember: SessionKey | null = open === 'receipt' || open === 'overview' || open === 'run' || open === 'board' || open === 'room' || open === 'findings' || open === 'side-by-side' ? null : open
   /**
    * Open the conversation behind any column that has one.
    *
@@ -717,7 +730,9 @@ export const TeamRoomPane = ({
   /* The roster as a list. `here` is already taken, by the count of
      conversations *in the folder* — which is the other half of the zero-state
      below and deliberately a different number. */
-  const seats = useMemo(() => teamSeats(goal, team, flowExecution), [goal, team, flowExecution])
+  const allSeats = useMemo(() => teamSeats(goal, team, flowExecution), [goal, team, flowExecution])
+  const seats = useMemo(() => allSeats.filter(hasConversation), [allSeats])
+  const unlinked = useMemo(() => allSeats.filter(one => !hasConversation(one)), [allSeats])
   const members = useMemo(() => {
     return seats.map(seat => {
       const peer = peers?.find(one => sessionKey(one.runtime, one.sessionId) === seat.key)
@@ -744,6 +759,9 @@ export const TeamRoomPane = ({
     const timer = flowExecution?.state === 'running' ? window.setInterval(read, 60_000) : null
     return () => { active = false; if (timer !== null) window.clearInterval(timer) }
   }, [store, room, open, Boolean(goal), closedCards, flowExecution?.state])
+  useEffect(() => {
+    if (flowExecution && typeof store.loadFindingRun === 'function') void store.loadFindingRun(room, flowExecution.id).catch(() => {})
+  }, [store, room, flowExecution?.id])
   const overview = useMemo(() => teamOverview({
     team: room, cards: intents, signals: entries.filter((one): one is Extract<TeamEntry, {kind: 'signal'}> => one.kind === 'signal'),
     seats: seats.map(seat => ({
@@ -754,9 +772,13 @@ export const TeamRoomPane = ({
       approvals: snapshot.approvals.filter(one => one.key === seat.key).map(one => one.approval),
     })),
     run: flowExecution ? {execution: flowExecution, startedAt: flowExecution.startedAt ?? null} : null,
+    findingRun: flowExecution ? snapshot.findingRuns.get(flowExecution.id) : null,
+    publicationOn: goal?.goal.findingPublication !== false,
     report: report?.goal === room ? report : null,
     runtimeCapabilities: new Map(snapshot.runtimes.map(one => [one.id, one.capabilities])),
-  }), [room, intents, entries, seats, members, snapshot.runtimes, snapshot.sessions, snapshot.inbox, snapshot.approvals, flowExecution, report])
+  }), [room, intents, entries, seats, members, snapshot.runtimes, snapshot.sessions, snapshot.inbox, snapshot.approvals, flowExecution, report, snapshot.findingRuns, goal?.goal.findingPublication])
+  // What the Overview can do about what needs you: the same requests the board and the docked approval make.
+  const needsYouAnswers = useNeedsYouAnswers({ room, execution: flowExecution ?? null, cards: intents, openBoard: () => show('board') })
   const memberOf = (key: SessionKey): TeamPeerInfo | null =>
     members.find((peer) => sessionKey(peer.runtime, peer.sessionId as SessionId) === key) ?? null
 
@@ -878,7 +900,7 @@ export const TeamRoomPane = ({
     setGrid((was) => forgetMissing(was, present))
     // A member opened on its own who has left takes the body back to the chat.
     setOpen((was) =>
-      was === 'overview' || was === 'run' || was === 'board' || was === 'room' || was === 'findings' || was === 'side-by-side' || present.has(was as SessionKey) ? was : 'room',
+      was === 'receipt' || was === 'overview' || was === 'run' || was === 'board' || was === 'room' || was === 'findings' || was === 'side-by-side' || present.has(was as SessionKey) ? was : 'room',
     )
   }, [peers, roster])
 
@@ -1098,7 +1120,8 @@ export const TeamRoomPane = ({
                  and the title (sighted, on hover) keeps the fuller sentence. */
               aria-label="Hold messages at the board"
               aria-pressed={!messaging}
-              title={
+              disabled={record}
+              title={record ? RECORD_REASON :
                 messaging
                   ? 'Members can message each other. Press to hold messages at the board — claims and signals continue.'
                   : 'Messages wait for the board. Press to let members message each other again.'
@@ -1120,7 +1143,7 @@ export const TeamRoomPane = ({
               on a dependency, already wrapped), never on who opened it. */}
           {goal && (
             <span className={styles.barWrapFull}>
-              <Button size="sm" disabled={wrapDisabled} onClick={() => setWrapping(true)}>
+              <Button size="sm" disabled={wrapDisabled} title={record ? RECORD_REASON : undefined} onClick={() => setWrapping(true)}>
                 Wrap
               </Button>
             </span>
@@ -1135,6 +1158,7 @@ export const TeamRoomPane = ({
                 <Menu close={close}>
                   <MenuItem
                     label={messaging ? 'Hold messages at the board' : 'Let members message each other'}
+                    disabled={record ? RECORD_REASON : false}
                     onSelect={() => {
                       void toggleMessaging()
                       close()
@@ -1158,14 +1182,6 @@ export const TeamRoomPane = ({
       </Bar>
       {goal ? <GoalHeader view={goal} /> : null}
       {flowExecution ? <FlowRunStatus execution={flowExecution} /> : null}
-      {goal?.receipt ? (
-        <>
-          <GoalReceipt receipt={goal.receipt} root={goal.goal.root} onOpenFinding={setReceiptFinding} />
-          <FindingCarry source={goal} />
-          <GoalReceiptCost receipt={goal.receipt} />
-          {receiptFinding ? <FindingDetail goal={goal.goal.id} finding={receiptFinding} onClose={() => setReceiptFinding(null)} /> : null}
-        </>
-      ) : null}
       {/* The one failure this row can have, said out loud and across the whole
           room: the chat's own trouble line is inside the chat, and a toggle
           that failed while the board was up had nowhere to say so. */}
@@ -1196,6 +1212,7 @@ export const TeamRoomPane = ({
                 the row can be tabbed to, so the row itself has to be the stop.
                 The member rows below stay divs — see the note on MemberCard. */}
             <ListRow as="button" size="sm" nav interactive selected={open === 'overview'} onClick={() => show('overview')} lead={<IconTile size="sm"><TeamIcon /></IconTile>} title="Overview" />
+            {goal?.receipt && <ListRow as="button" size="sm" nav interactive selected={open === 'receipt'} onClick={() => show('receipt')} lead={<IconTile size="sm"><PlanIcon /></IconTile>} title="Receipt" />}
             {flowExecution && <ListRow as="button" size="sm" nav interactive selected={open === 'run'} onClick={() => show('run')}
               lead={<IconTile size="sm"><PlanIcon /></IconTile>} title="Run" trail={<Text role="meta" numeric>{runs.length}</Text>} />}
             <ListRow
@@ -1285,12 +1302,13 @@ export const TeamRoomPane = ({
               sending it something, and coming back to see whether it had
               appeared. */}
           <NavigationGroupHeader label="Agents">
-            <Text role="meta" numeric className={styles.count}>{roster.length}</Text>
+            <Text role="meta" numeric className={styles.count}>{allSeats.length}</Text>
             {goal ? <Button
               type="button"
               variant="ghost" size="icon-sm" edge="end" edgeGlyph={13} className={styles.railAdd}
               aria-label="Seat an Agent in this Goal"
-              title="Seat an Agent in this Goal"
+              disabled={record}
+              title={record ? RECORD_REASON : "Seat an Agent in this Goal"}
               onClick={() => setAdding(true)}
             >
               <PlusIcon size={13} />
@@ -1319,7 +1337,7 @@ export const TeamRoomPane = ({
 
           <RailSection stretch="list" className={styles.railList}>
           <ListRows size="sm">
-            {peers !== null && roster.length === 0 && (
+            {peers !== null && roster.length === 0 && unlinked.length === 0 && (
               /* A zero says what it looked for *and* what it found — and it is
                  only said once the host has actually answered. Drawn from a
                  `null` roster it was not a zero at all, it was silence wearing a
@@ -1335,7 +1353,11 @@ export const TeamRoomPane = ({
                  joins when it is attached to its agent", which was true while a
                  folder was a board. Nothing joins by itself now — the + above is
                  the way in — and telling somebody to wait for something that
-                 will never happen is worse than saying nothing. */
+                 will never happen is worse than saying nothing.
+
+                 Nor is it said above Seats the list itself draws: an older
+                 receipt may keep every Seat without its conversation, and
+                 those rows below are Agents that were kept (#1317). */
               <EmptyState
                 variant="inline"
                 className={styles.railEmpty}
@@ -1346,7 +1368,7 @@ export const TeamRoomPane = ({
                      sight. They are different facts now — a room keeps its
                      members across a quit — and this line is only ever the
                      second one. */
-                  here === 0
+                  record ? 'No Agents were kept in this Team’s receipt.' : here === 0
                     ? 'No agents in this Team yet, and no conversations in this project either. + starts one and puts it in.'
                     : here === 1
                       ? 'No agents in this Team yet. One conversation is open in this project — + adds an agent.'
@@ -1363,13 +1385,14 @@ export const TeamRoomPane = ({
                 single line above them does not, and cost a line of height on
                 every one of them. */}
             {idleShared && <Note ink="muted" className={styles.railEmpty}>None of these agents has used the board yet.</Note>}
+            {unlinked.map(seat => <ListRow key={seat.record.id} size="sm" title={seat.name} subtitle="Conversation not kept" lead={<IconTile shape="face" size="sm"><AgentIcon /></IconTile>} />)}
             {shown.map((member) => (
               <MemberRow
                 key={member.key}
                 member={member}
                 idleSaidAbove={idleShared}
-                onRemove={() => leave(member.key)}
-                onInbound={(mode) => setInbound(member.key, mode)}
+                onRemove={record ? undefined : () => leave(member.key)}
+                onInbound={record ? undefined : (mode) => setInbound(member.key, mode)}
                 /* Selected means "what the body shows", as every other rail
                    row means: the member opened on its own. A member on a
                    tile is shown by the Side by side row, which is selected
@@ -1403,8 +1426,19 @@ export const TeamRoomPane = ({
               Agents
             </Button>
           </span>
-          {open === 'overview' ? (
-            <TeamOverview model={overview} onRun={() => show('run')}
+          {open === 'receipt' ? (
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {goal?.receipt ? (
+                <>
+                  <GoalReceipt receipt={goal.receipt} root={goal.goal.root} onOpenFinding={setReceiptFinding} />
+                  <FindingCarry source={goal} />
+                  <GoalReceiptCost receipt={goal.receipt} />
+                  {receiptFinding ? <FindingDetail goal={goal.goal.id} finding={receiptFinding} onClose={() => setReceiptFinding(null)} /> : null}
+                </>
+              ) : null}
+            </div>
+          ) : open === 'overview' ? (
+            <TeamOverview model={{...overview,seats:[...overview.seats,...unlinked.map(seat => ({seat:seat.record.id,name:seat.name,role:seat.role,card:null,round:null,state:'idle' as const,reason:'Conversation not kept',doing:null,since:null,cost:null,done:false}))]}} unavailable={new Set(unlinked.map(seat=>seat.record.id))} answers={needsYouAnswers} onRun={() => show('run')}
               faces={new Map(seats.map(seat => {
                 const runtime = snapshot.runtimes.find(one => one.id === seat.record.session.runtime)
                 const brand = runtime ? brandForRuntime(runtime) : null
@@ -1431,13 +1465,20 @@ export const TeamRoomPane = ({
                 onBoard={() => show('board')}
                 onReviewCheck={() => { const check = timelineRun.operations.find(one => one.kind === 'check' && one.state === 'uncertain'); if (check?.card != null) setRetryCheck({ run: timelineRun.id, card: check.card }) }}
                 origin={timelineRun.intake ? `From trigger ${timelineRun.intake.trigger}` : goal?.goal.origin.kind === 'person' ? 'Started by you' : null}
-                onOpenSeat={show} number={runs.findIndex(one => one.id === timelineRun.id) + 1}
+                onOpenSeat={show} onOpenBoard={() => show('board')} number={runs.findIndex(one => one.id === timelineRun.id) + 1}
                 model={runTimeline({ execution: timelineRun, cards: intents,
                   signals: entries.filter((one): one is Extract<TeamEntry, {kind: 'signal'}> => one.kind === 'signal'),
                   evidence: snapshot.boardEvidence.get(room),
+                  findingRun: snapshot.findingRuns.get(timelineRun.id),
+                  publicationOn: goal?.goal.findingPublication !== false,
                   findings: snapshot.findings.get(room)?.filter === 'all' ? snapshot.findings.get(room)?.rows : [],
                   origin: timelineRun.intake ? `From trigger ${timelineRun.intake.trigger}` : goal?.goal.origin.kind === 'person' ? 'Started by you' : null,
+                  ...(checkAttempts.attempts ? { attempts: checkAttempts.attempts } : {}),
+                  ...(checkAttempts.incomplete.size ? { incompleteAttempts: checkAttempts.incomplete } : {}),
                 })}
+                attempts={checkAttempts.attempts}
+                incompleteAttempts={checkAttempts.incomplete}
+                attemptsRead={checkAttempts.read}
                 selectedRow={selectedRunRows.get(timelineRun.id) ?? null}
                 onSelect={id => setSelectedRunRows(was => new Map(was).set(timelineRun.id, id))}
                 doing={new Map(overview.seats.map(one => [one.seat, one.doing]))}
@@ -1445,7 +1486,8 @@ export const TeamRoomPane = ({
                 onRetry={() => setTimelineRead(was => was + 1)}
                 flow={<RunFlow execution={timelineRun} root={goal?.goal.root ?? null} seats={goal?.members ?? []} />}
                 problem={snapshot.boardEvidenceFailed.has(room) ? 'Check evidence is unavailable.'
-                  : timelineReadError ?? (runHistoryProblem?.room === room ? runHistoryProblem.message : null) ?? snapshot.findings.get(room)?.error ?? snapshot.findings.get(room)?.problem ?? (snapshot.findings.get(room)?.next ? 'More findings remain to be read.' : null)}
+                  : timelineReadError ?? (runHistoryProblem?.room === room ? runHistoryProblem.message : null) ?? snapshot.findings.get(room)?.error ?? snapshot.findings.get(room)?.problem ?? (snapshot.findings.get(room)?.next ? 'More findings remain to be read.' : null)
+                  ?? (checkAttempts.read === 'failed' ? 'Earlier attempts of a check could not be read.' : null)}
                 faces={new Map(seats.map(seat => {
                   const runtime = snapshot.runtimes.find(one => one.id === seat.record.session.runtime)
                   const brand = runtime ? brandForRuntime(runtime) : null
@@ -1778,9 +1820,9 @@ const MemberRow = ({
   onOpen: () => void
   onWatch: () => void
   /** Take this member out of the room. On the card, never on the row. */
-  onRemove: () => void
+  onRemove?: () => void
   /** Set what it does with messages sent to it. On the card, like the rest. */
-  onInbound: (mode: TeamInbound) => void
+  onInbound?: (mode: TeamInbound) => void
 }) => {
   const { peer } = member
   const inboundState = INBOUND_MODES.find((mode) => mode.value === peer.inbound)?.state ?? null

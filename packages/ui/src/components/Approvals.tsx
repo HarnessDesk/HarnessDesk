@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
-import { FLOW_BOARD_TOOL_NAMES, type Approval, type ApprovalOption } from '@harnessdesk/protocol'
+import type { Approval, ApprovalOption } from '@harnessdesk/protocol'
 
 import { useIsFocusedPane, useRuntime, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { wholeFileOf } from '../lib/diff'
 import { boardToolPhrase } from '../lib/tool-names'
 import { approvalChoiceOrder } from '../lib/approval-order'
-import { boardToolLabel, boardToolNote, boardToolPlacement, offersPermanentGrant } from '../lib/board-tool-note'
+import { boardToolLabel, boardToolNamedBy, boardToolNote, boardToolPlacement, offersPermanentGrant } from '../lib/board-tool-note'
 import { folderShown } from '../lib/projects'
 import { DiffView } from './Diff'
 import { AlertIcon, CheckAllIcon, CheckIcon, CrossIcon } from './Icons'
@@ -24,12 +24,6 @@ import {
   type ApprovalDialogAction,
 } from '../design'
 import styles from './Approvals.module.css'
-
-const boardToolNamedBy = (approval: Approval | undefined): string | null => {
-  if (approval?.type !== 'permission') return null
-  const match = /^([a-z_]+) \(harnessdesk MCP Server\)$/.exec(approval.summary)
-  return match && FLOW_BOARD_TOOL_NAMES.includes(match[1] as typeof FLOW_BOARD_TOOL_NAMES[number]) ? match[1]! : null
-}
 
 /** The glyph for an answer: yes, yes-and-keep-saying-yes, no. */
 const INTENT_ICON = {

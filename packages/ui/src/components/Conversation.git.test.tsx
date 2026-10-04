@@ -1,14 +1,16 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   NO_CAPABILITIES,
   runtimeId,
   sessionId,
   sessionKey,
+  type GoalView,
   type RuntimeInfo,
   type Session,
+  type SessionKey,
   type WorkspaceEntry,
   type Worktree,
 } from '@harnessdesk/protocol'
@@ -220,4 +222,80 @@ it("reviews its own conversation's changes — a room column's member, not the o
     row!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   })
   expect(review).toHaveBeenCalledWith({ type: 'uncommitted', delivery: 'detached' }, member)
+})
+
+/**
+ * A wrapped Team's conversations are its record, and the host refuses to start
+ * a review in one. The row says so rather than offering what can only fail —
+ * and it is the *pane's* conversation that decides, not the one the window
+ * happens to have focused.
+ */
+describe('in a wrapped Team', () => {
+  const codex = runtimeId('codex')
+  const kept = sessionKey(codex, sessionId('kept'))
+  const loose = sessionKey(codex, sessionId('loose'))
+
+  /** `focused` is the conversation the window has open; `pane` is the one this chip belongs to. */
+  const open = (focused: SessionKey, pane: SessionKey) => {
+    const review = vi.fn(async () => {})
+    const snapshot = {
+      ...emptySnapshot(),
+      status: 'open',
+      workspace: MAIN,
+      workspaces: [MAIN],
+      runtimes: [{ id: codex, name: 'Codex', presentation: { name: 'Codex' }, capabilities: { ...NO_CAPABILITIES, review: true } } as unknown as RuntimeInfo],
+      activeRuntime: codex,
+      activeSessionKey: focused,
+      sessions: new Map([
+        [kept, { ...conversation(ROOT), id: sessionId('kept'), runtime: codex }],
+        [loose, { ...conversation(ROOT), id: sessionId('loose'), runtime: codex }],
+      ]),
+      goals: new Map([['record', {
+        goal: { state: 'wrapped' },
+        members: [],
+        receipt: { members: [{ session: { runtime: 'codex', sessionId: 'kept' } }], answers: [] },
+      } as unknown as GoalView]]),
+    } as AppSnapshot
+    const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, review } as unknown as AppStore
+    act(() => {
+      root.render(
+        <StoreProvider store={store}>
+          <PaneProvider scope={{ paneId: `room:${pane}`, view: { kind: 'conversation', session: pane }, sessionKey: pane }}>
+            <GitControl onRemoveWorktree={() => {}} onBringHome={() => {}} />
+          </PaneProvider>
+        </StoreProvider>,
+      )
+    })
+    menu()
+    const row = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+      (item) => item.textContent?.startsWith('Review uncommitted changes'),
+    )
+    if (!row) throw new Error('no Review uncommitted changes in the menu')
+    return { review, row }
+  }
+
+  it('refuses to review a kept conversation, says why, and starts nothing', () => {
+    const { review, row } = open(loose, kept)
+
+    // A row refused for a reason is `aria-disabled`, not natively disabled, so
+    // it keeps the focus and its reason can be read.
+    expect(row.getAttribute('aria-disabled')).toBe('true')
+    expect(row.title).toBe('This Team is wrapped')
+    expect(row.textContent).toContain('This Team is wrapped')
+    act(() => {
+      row.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(review).not.toHaveBeenCalled()
+  })
+
+  it('still reviews a conversation outside it, though the window has the kept one focused', () => {
+    const { review, row } = open(kept, loose)
+
+    expect(row.getAttribute('aria-disabled')).not.toBe('true')
+    expect(row.textContent).not.toContain('This Team is wrapped')
+    act(() => {
+      row.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(review).toHaveBeenCalledWith({ type: 'uncommitted', delivery: 'detached' }, loose)
+  })
 })

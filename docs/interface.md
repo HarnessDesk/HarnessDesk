@@ -252,13 +252,22 @@ their project and room; when a band state ends, a pinned conversation returns
 to Pinned, otherwise it returns to its project or room. Project overflow counts
 include only conversations still shown there.
 
-**Projects, not folders.** Sessions group by repository (`lib/projects.ts`):
-Codex gives every "in a worktree" thread its own checkout under
-`~/.codex/worktrees/<id>/<name>`, and grouped by folder one project became a
-dozen identical rows. The main checkout is the group's home; each row's branch
-says where it actually ran. Agents that report no git join the project another
-session placed their folder in. The current project stays open; the rest fold
-under **Other projects**.
+**Projects, not folders.** Sessions group by repository (`lib/projects.ts`).
+Clones with the same remote and linked worktrees share one project. A checkout
+you opened leads; among several, the one worked in first keeps the name.
+Each conversation's branch still says where it ran. Agents that report no git
+join the project another session placed their folder in. The current project
+stays open; the rest fold under **Other projects**.
+
+A folder that no longer exists is not listed as a project. Its conversations
+are kept and stay findable through search and the archive; a pinned conversation
+still appears in Pinned with its gone-folder mark. One line counts the gone
+folders, and its menu can forget them without deleting their conversations.
+
+A conversation is named by its title or the first thing you asked, passing
+over an agent's summary of its compacted history. A Team's Seat with no words
+of yours to name it is called by its job and Team, such as
+**Implementer · Fix the retry bug**.
 
 Trailing marks and actions share one inset rail. A state label is quiet coloured
 text, without a pill, ending on the available rail beside the title; only the
@@ -282,8 +291,8 @@ Shift+F10 or the ContextMenu key opens the focused row's actions; Escape
 returns focus to that row. Large project lists mount rows as keyboard focus
 reaches them and keep the focused row in view.
 
-**Every open conversation has a row.** The rows are the agents' own history
-read through them, and an agent with no `session/list` — Gemini CLI — lists
+**Every open conversation whose folder is still there has a row.** The rows are
+the agents' own history read through them, and an agent with no `session/list` — Gemini CLI — lists
 nothing, so the conversation being typed into had no row anywhere in the tree.
 A conversation open in this window is drawn from the desk's own knowledge of
 it, named by its title or its first ask and filed under the checkout its
@@ -832,7 +841,7 @@ it exactly where it was.
 
 History shows an associated Agent's recorded name beside its runtime's mark. A compact count indicates additional Seats; selecting the commit lists every contributor. The selected detail distinguishes complete, partial, pending and unattributed changes and keeps the explanation visible. Its Seat record opens the exact historical record, with the original conversation available only while the desk can still open it. Matching observations keep their original revisions. A missing card or conversation says why it is unavailable.
 
-Workspaces › a project › Provenance controls capture on this machine. It starts on and shows healthy, degraded or stopped capture with the host's reason and next step. The setting changes on screen after it is saved; Retry does not turn capture on. Only stopped capture appears on the existing project row, even while that row is folded. A plain conversation and its header are unchanged.
+Workspaces › a project › Provenance controls capture on this machine. It starts on and shows healthy, degraded or stopped capture with the host's reason and next step. The setting changes on screen after it is saved; Retry does not turn capture on. Stopped or degraded capture appears in the project's menu, with Retry while capture is on or Turn on while it is off. The project row carries only its name. A plain conversation and its header are unchanged.
 
 ## Goals and retained lanes
 
@@ -860,6 +869,24 @@ port start, block width and browser-profile isolation. Retained descriptors show
 their Goal, Seat and checkout. Releasing ports never claims to remove files.
 Wrapped Goals open an immutable receipt headed **As recorded when wrapped**;
 partial answers, gaps, unknown spend and dirty retained lanes remain visible.
+A wrapped Team opens on **Receipt** and keeps Overview, Run and its Agents
+rail. It opens there with or without a Run, and in a narrow pane too, where the
+Agents list is one tap behind it. The sidebar's Wrapped group keeps the same
+conversations, the Seats without one together in a single list. Older receipts
+use a Seat's kept answer to find its conversation; a Seat without one says
+**Conversation not kept**, and a receipt whose every Seat lacks one lists them
+all rather than saying no Agents were kept. A conversation seated more than
+once is one row, named by the last Seat that held it. Run details keep each
+Seat separately, including its recorded cost when its conversation was not kept. These conversations remain readable, with their
+composer disabled: **This Team is wrapped**. Adding, assigning, answering,
+posting and running checks are disabled with that same reason, as are a
+conversation's **Compact now** and **Review uncommitted changes**. **Stop**
+stays on while a turn is still running in one, because stopping is not new
+work, and it is the only coin in the corner then; the command palette offers
+no agent skill there, and **Give this to…**
+lists no conversation a wrapped Team keeps. A question
+already open when a Run ends and wraps its Team stays on screen with what was
+typed in it, its final action disabled and the same reason beside it.
 A receipt's Citations row opens each memory citation's own retained detail in
 a dialog, the same read-only view a project's Memory section opens.
 
@@ -945,6 +972,9 @@ open on **Active** and carry counts for **Needs you** and **Settled**.
 A row names the work, shows its Seats' faces and recorded usage, and earns its
 second line with a round or a reason for waiting. A dot means the Team changed
 since you last opened it here.
+A confirmed review that needs posting makes the Team and its Run **Needs you**.
+The Teams page and Overview read the same Run publication; a read still pending
+does not invent that state.
 Every state reads as quiet coloured text on the sentence's line. A settled
 row carries its Run's end reason when recorded; otherwise it has no second line.
 
@@ -971,6 +1001,16 @@ unread notice or new work brings a Seat out of that fold. The sidebar nests
 its conversation under the same Team, even after its process has rested.
 A Team without a Run opens on Chat and still offers Overview for its Seats.
 
+What needs you can be answered from its row. A tool's request for approval
+offers the agent's own choices. The command and its working folder, files a
+change would touch, or access it would open appear beside them; the answer is
+the same as the approval in the chat, so whichever you answer first wins. A
+question with one single choice offers its options; one needing a form leaves
+to its conversation. A step a Flow addressed to you offers the words its role
+declares, a note the next step reads, and a sentence saying what each answer does before you give
+it (a review step asks you to pick an attempt on the board). A refusal stays on
+the row, beside the answer it refused.
+
 ### A Team's Run
 
 Run opens from the Team rail or its Overview strip. It reads oldest first:
@@ -982,6 +1022,16 @@ reads Unreadable with its reason, whatever state its records carry.
 A selected row takes the inspector's fill. Historical Runs, including those
 started by triggers, are restored from the host and can be selected beside
 the header, and an observed pull request opens from it.
+
+The Run header, Overview strip, end banner and Findings summary show the Run's
+publication once at each surface. A review row shows only its recorded round:
+**Posted to #n**, **Waiting to post**, **Partly posted**, **Not confirmed**,
+**Not posted** when posting is on for a bound pull request, or **Kept on the desk**.
+An absent round or one with no decision has no chip. The inspector keeps the
+host's reason whole and offers **Copy review** and **Post to pull request**.
+Posting is enabled only for the host's waiting item or stamped earlier-round
+preview; earlier rounds require confirmation. A refusal stays visible, and
+changed findings refresh the reads. Nothing posts without a press.
 
 An ended Run has a banner above its end row. Finished work offers **Wrap**;
 an answer no rule follows offers **Run again…** and **Board**; a person or desk
@@ -1016,3 +1066,16 @@ inspector, which explains a row of the timeline, steps aside while the Flow
 shows. **Open the file** reads the Flow's file as it is now, in a window you
 can only read; the Run keeps the revision it started with, and nothing in this
 tab can be changed.
+
+A check that finished, or that the desk interrupted, can be run again from its
+row or its inspector while the Run is running or stalled. It asks first and
+shows the command exactly as it will run; the earlier result and its output are
+kept, and every result the desk recorded is listed under the check, with its
+output in the inspector. A Run that has settled or stopped refuses, says so, and
+points to starting a new Run.
+
+A card that has not finished offers **Abandon card…** in its inspector. The
+question says first what the rule after the card's role will do: open the next
+round, end the Run without a next step, wait for the round's other cards, or
+nothing when the Run is not running; a claimed card names who holds it. A
+person's step is answered there with the same controls as the Overview.

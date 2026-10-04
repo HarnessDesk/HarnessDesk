@@ -36,6 +36,7 @@ const snapshot = (overrides: Partial<AppSnapshot> = {}): AppSnapshot =>
     workspaces: [],
     workspace: null,
     skills: [],
+    goals: new Map(),
     plugins: [],
     contributions: [],
     detailsTab: null,
@@ -204,6 +205,28 @@ describe('availableCommands', () => {
     } as unknown as AppStore
     if (review?.kind.type === 'action') await review.kind.run(store, 'the diff')
     expect(doors).toEqual(['queue'])
+  })
+
+  /**
+   * A skill is a message into the open conversation, and a conversation a wrapped
+   * Team keeps takes none — the host refuses it. A palette has no greyed row, so
+   * the entry is withdrawn there, and only there.
+   */
+  test('an agent skill is not offered in a conversation a wrapped Team keeps', () => {
+    const open = {
+      ...withOptions([]),
+      skills: [{ name: 'review', description: 'Review the diff', enabled: true }],
+    } as AppSnapshot
+    const wrapped = (sessionId: string) => new Map([['g1', {
+      goal: { id: 'g1', state: 'wrapped' }, members: [],
+      receipt: { seats: ['seat'], members: [{ seat: 'seat', session: { runtime: 'r', sessionId } }], answers: [] },
+    }]]) as unknown as AppSnapshot['goals']
+    const offered = (snap: AppSnapshot) => availableCommands(snap).some((command) => command.name === 'review')
+
+    expect(offered(open)).toBe(true)
+    expect(offered({ ...open, goals: wrapped('s1') })).toBe(false)
+    // A Team that kept some other conversation says nothing about this one.
+    expect(offered({ ...open, goals: wrapped('elsewhere') })).toBe(true)
   })
 })
 

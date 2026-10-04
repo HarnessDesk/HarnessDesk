@@ -53,6 +53,98 @@ const mount = async (store: AppStore, props: Partial<ComponentProps<typeof TeamR
 }
 const sectionText = (container: HTMLElement, title: string): string =>
   [...container.querySelectorAll('section')].find(one => one.textContent?.startsWith(title))?.textContent ?? ''
+
+it.each(['member', 'answer', 'missing'] as const)('reads wrapped Run Seats with a conversation %s pointer', async pointer => {
+  const open = vi.fn()
+  const store = storeWith(snapshot => {
+    const goal = snapshot.goals.get('overview-team')!
+    const reviewer = goal.members[1]!
+    const receipt = {
+      version: 1 as const, id: 'wrapped-run-receipt', goal: goal.goal.id, sentence: goal.goal.sentence,
+      wrappedAt: 2, summary: 'Reviewed.', cards: [], seats: goal.members.map(seat => seat.id),
+      members: goal.members.map(seat => ({ seat: seat.id, agent: seat.agent?.name ?? null, seatLabel: seat.seatLabel,
+        ...(pointer === 'member' && seat.id === reviewer.id ? { session: seat.session } : {}) })),
+      answers: pointer === 'answer' ? [{ seat: reviewer.id, session: reviewer.session, turn: null, text: 'Reviewed.', partial: false, stopReason: null }] : [],
+      evidence: [], lanes: [], revisions: [], citations: [], gaps: [],
+    }
+    return { goals: new Map([[goal.goal.id, { ...goal, goal: { ...goal.goal, state: 'wrapped', receipt: receipt.id }, members: [], receipt }]]) }
+  })
+  const view = await mount(store, { selectedRow: 'run', onOpenSeat: open })
+  try {
+    expect(sectionText(view.container, 'Seats')).toContain('Alpha')
+    expect(sectionText(view.container, 'Seats')).toContain('Beta')
+    await view.show({ selectedRow: 'card-3-3' })
+    const inspector = view.container.querySelector('[data-slot="run-inspector"]')!
+    const button = [...inspector.querySelectorAll('button')].find(one => one.textContent === 'Open the conversation')
+    if (pointer === 'missing') {
+      expect(button).toBeUndefined()
+      expect(inspector.textContent).toContain('Conversation not kept')
+    } else {
+      expect(button).toBeDefined()
+      await act(async () => button!.click())
+      expect(open).toHaveBeenCalledWith('codex\0overview-1')
+      expect(costOf(view.container)).not.toContain('Not recorded')
+    }
+  } finally { view.close() }
+})
+it('keeps both receipt Seats when one conversation worked in earlier and later rounds', async () => {
+  const open = vi.fn()
+  const store = storeWith(snapshot => {
+    const goal = snapshot.goals.get('overview-team')!
+    const writer = goal.members[0]!
+    const receipt = {
+      version: 1 as const, id: 'repeated-seat-receipt', goal: goal.goal.id, sentence: goal.goal.sentence,
+      wrappedAt: 2, summary: 'Reviewed.', cards: [], seats: ['seat-0', 'seat-1'],
+      members: [
+        { seat: 'seat-0', agent: 'Earlier writer', seatLabel: 'First Seat', session: writer.session },
+        { seat: 'seat-1', agent: 'Later reviewer', seatLabel: 'Second Seat', session: writer.session },
+      ], answers: [], evidence: [], lanes: [], revisions: [], citations: [], gaps: [],
+    }
+    return { goals: new Map([[goal.goal.id, { ...goal, goal: { ...goal.goal, state: 'wrapped', receipt: receipt.id }, members: [], receipt }]]),
+      runtimes: snapshot.runtimes.map(runtime => ({ ...runtime, capabilities: { ...runtime.capabilities, metered: true } })) }
+  })
+  const view = await mount(store, { selectedRow: 'run', onOpenSeat: open })
+  try {
+    expect(sectionText(view.container, 'Seats')).toContain('Earlier writer')
+    expect(sectionText(view.container, 'Seats')).toContain('Later reviewer')
+    expect(sectionText(view.container, 'Seats')).toContain('First Seat')
+    expect(sectionText(view.container, 'Seats')).toContain('Second Seat')
+    expect(view.container.textContent).not.toContain('Seat not recorded')
+    for (const [row, cost] of [['card-1-1', '$0.64'], ['card-3-3', '$0.21']]) {
+      await view.show({ selectedRow: row })
+      expect(costOf(view.container)).toContain(cost)
+      const inspector = view.container.querySelector('[data-slot="run-inspector"]')!
+      const button = [...inspector.querySelectorAll('button')].find(one => one.textContent === 'Open the conversation')!
+      expect(button).toBeDefined()
+      await act(async () => button.click())
+      expect(open).toHaveBeenLastCalledWith('codex\0overview-0')
+    }
+  } finally { view.close() }
+})
+it.each(['breakdown', 'seat', 'missing'] as const)('shows known usage for a receipt Seat without a conversation (runtime from %s)', async source => {
+  let report = overviewReport()
+  const store = storeWith(snapshot => {
+    const goal = snapshot.goals.get('overview-team')!
+    if (source !== 'breakdown') {
+      report = { ...report, seats: source === 'seat' ? goal.members : [],
+        breakdowns: report.breakdowns.map(partition => ({ ...partition, rows: partition.rows.map(row => ({ ...row, session: null })) })) }
+    }
+    const receipt = {
+      version: 1 as const, id: 'unlinked-seat-receipt', goal: goal.goal.id, sentence: goal.goal.sentence,
+      wrappedAt: 2, summary: 'Reviewed.', cards: [], seats: ['seat-1'],
+      members: [{ seat: 'seat-1', agent: 'Beta', seatLabel: 'Reviewer' }],
+      answers: [], evidence: [], lanes: [], revisions: [], citations: [], gaps: [],
+    }
+    return { goals: new Map([[goal.goal.id, { ...goal, goal: { ...goal.goal, state: 'wrapped', receipt: receipt.id }, members: [], receipt }]]),
+      runtimes: snapshot.runtimes.map(runtime => ({ ...runtime, capabilities: { ...runtime.capabilities, metered: true } })) }
+  }, { readGoalInsight: async () => report })
+  const view = await mount(store)
+  try {
+    expect(costOf(view.container)).toContain(source === 'missing' ? '38 turns' : '$0.21')
+    expect(view.container.textContent).toContain('Conversation not kept')
+    expect(view.container.textContent).not.toContain('Open the conversation')
+  } finally { view.close() }
+})
 const tryAgain = (container: HTMLElement): HTMLButtonElement =>
   [...container.querySelectorAll('button')].find(button => button.textContent === 'Try again')!
 
@@ -220,5 +312,80 @@ it('answers to a caller that chooses the tab, and keeps the pane its own while i
     expect(view.container.querySelector('[data-slot="run-inspector"]')).toBeNull()
     await view.show({ view: 'timeline' })
     expect(view.container.querySelector('[data-slot="run-inspector"]')).not.toBeNull()
+  } finally { view.close() }
+})
+
+it('hands the attempts it was given, and why they are missing, to the check’s inspector', async () => {
+  const attempt = (n: number) => ({ id: `attempt-${n}`, n, at: Date.now() - (3 - n) * 600_000, commit: `c0ffee${n}`, exit: n === 1 ? 1 : 0, timedOut: false, outcome: n === 1 ? 'fail' : 'pass', tail: `output ${n}` })
+  const view = await mount(storeWith(), { selectedRow: 'check-2-2', attempts: new Map([[2, [attempt(1), attempt(2)]]]) })
+  try {
+    expect(sectionText(view.container, 'Attempts')).toContain('Attempt 2')
+    expect(sectionText(view.container, 'Attempts')).toContain('Attempt 1')
+    await view.show({ attempts: new Map([[2, [attempt(1), attempt(2)]]]), incompleteAttempts: new Set([2]) })
+    expect(sectionText(view.container, 'Attempts')).toContain('Attempt history could not be read completely.')
+    expect(sectionText(view.container, 'Attempts')).toContain('Recorded result')
+    expect(sectionText(view.container, 'Attempts')).not.toContain('Attempt 1')
+    await view.show({ attempts: undefined, attemptsRead: 'reading' })
+    expect(sectionText(view.container, 'Attempts')).toContain('Reading attempts…')
+    await view.show({ attempts: undefined, attemptsRead: 'failed' })
+    expect(sectionText(view.container, 'Attempts')).toContain('Earlier attempts could not be read')
+    await view.show({ attempts: undefined, attemptsRead: undefined })
+    expect(view.container.textContent).not.toContain('Attempts')
+  } finally { view.close() }
+})
+
+/** The store with another scene of the Run fixture on the Team's board, as the running Team holds it. */
+const sceneStore = (scene: 'running' | 'person', verbs: Record<string, unknown> = {}): AppStore => storeWith(snapshot => {
+  const fixture = runFixture(scene)
+  const team = { ...snapshot.teams.get('overview-team')!, intents: fixture.cards, channel: fixture.signals }
+  return { teams: new Map([[team.id, team]]), flowExecutions: new Map([[fixture.execution.id, fixture.execution]]) }
+}, verbs)
+const mountScene = async (scene: 'running' | 'person', store: AppStore, props: Partial<ComponentProps<typeof TeamRunView>>) => {
+  const fixture = runFixture(scene)
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  await act(async () => root.render(<StoreProvider store={store}><TeamRunView execution={fixture.execution} origin={null} onOpenSeat={() => {}}
+    model={runTimeline(fixture)} number={1} selectedRow={scene === 'person' ? 'person-4-4' : 'card-4-4'} onSelect={() => {}} {...props} /></StoreProvider>))
+  return { container, close: () => { act(() => root.unmount()); container.remove() } }
+}
+const press = (label: string, within: ParentNode = document.body) =>
+  act(async () => ([...within.querySelectorAll('button')].find(one => one.textContent === label) as HTMLButtonElement).click())
+
+it('abandons a card from its inspector with the request the board makes', async () => {
+  const teamIntent = vi.fn().mockResolvedValue(undefined)
+  const view = await mountScene('running', sceneStore('running', { teamIntent }), {})
+  try {
+    await press('Abandon card…', view.container)
+    expect(document.body.querySelector('[role="alertdialog"]')?.textContent).toContain('Abandon card #4?')
+    expect(teamIntent).not.toHaveBeenCalled()
+    await press('Abandon card')
+    // The board's own menu calls `teamIntent(room, id, 'abandon')` and nothing else.
+    expect(teamIntent).toHaveBeenCalledTimes(1)
+    expect(teamIntent).toHaveBeenCalledWith('overview-team', 4, 'abandon')
+  } finally { view.close() }
+})
+it('answers a person\'s step from its inspector with the request the board makes', async () => {
+  const teamIntent = vi.fn().mockResolvedValue(undefined)
+  const onOpenBoard = vi.fn()
+  const view = await mountScene('person', sceneStore('person', { teamIntent }), { onOpenBoard })
+  try {
+    await press('Approved', view.container)
+    expect(teamIntent).toHaveBeenCalledWith('overview-team', 4, 'done', undefined, 'approved')
+  } finally { view.close() }
+})
+it('keeps a person\'s step as text when the pane gives it no way to the board', async () => {
+  const view = await mountScene('person', sceneStore('person'), {})
+  try { expect([...view.container.querySelectorAll('button')].map(one => one.textContent)).not.toContain('Approved') } finally { view.close() }
+})
+it('gives the note written in the inspector as the context the next round reads', async () => {
+  const teamIntent = vi.fn().mockResolvedValue(undefined)
+  const view = await mountScene('person', sceneStore('person', { teamIntent }), { onOpenBoard: () => {} })
+  try {
+    const note = view.container.querySelector<HTMLInputElement>('input[aria-label="Note"]')!
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    act(() => { setter.call(note, 'Looks right.'); note.dispatchEvent(new Event('input', { bubbles: true })) })
+    await press('Approved', view.container)
+    expect(teamIntent).toHaveBeenCalledWith('overview-team', 4, 'done', undefined, 'approved', 'Looks right.')
   } finally { view.close() }
 })

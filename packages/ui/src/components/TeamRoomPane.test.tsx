@@ -7,6 +7,7 @@ import {
   sessionId,
   sessionKey,
   type FlowExecution,
+  type FindingPublicationsView,
   type Intent,
   type InsightReport,
   type RuntimeInfo,
@@ -198,6 +199,10 @@ const rig = (
     loadTeamRuns: vi.fn().mockResolvedValue(undefined),
     continueFlowAnswer: vi.fn().mockResolvedValue(undefined),
     loadBoardEvidence: vi.fn().mockResolvedValue(undefined),
+    // This navigation rig has no publication service; match the host's empty read for that desk.
+    readFindingPublications: vi.fn(async (goal: string, run: string): Promise<FindingPublicationsView> => ({
+      goal, run, items: [], backfill: null, backfillRefusal: 'This desk posts nothing to a pull request.',
+    })),
     setRoomWatching: vi.fn((_id: string, watching: readonly SessionKey[]) => {
       savedView = { ...savedView, watching }
     }),
@@ -3390,6 +3395,7 @@ it('opens a read-only Run from the rail and Overview, and keeps selection in the
   const card = container.querySelector('[data-row="card-1-1"]') as HTMLButtonElement
   expect(card).not.toBeNull()
   await act(async () => card.click())
+  expect(store.readFindingPublications).toHaveBeenCalledWith(ROOM, execution.id)
   expect(container.querySelector('[data-row="card-1-1"][aria-current="true"]')).not.toBeNull()
   const overview = [...container.querySelectorAll('aside button')].find(one => one.textContent === 'Overview') as HTMLButtonElement
   await act(async () => overview.click())
@@ -3451,6 +3457,7 @@ it('loads older Runs for the rail count and keeps each Run’s own selected row'
   const choose = async (label: string) => { await act(async () => { ([...container.querySelectorAll('[aria-label="Choose a Run"] button')].find(one => one.textContent === label) as HTMLButtonElement).click() }) }
   await choose('Run 1')
   await act(async () => (container.querySelector('[data-row="card-1-1"]') as HTMLButtonElement).click())
+  expect(store.readFindingPublications).toHaveBeenLastCalledWith(ROOM, 'old-run')
   await choose('Run 2')
   expect(container.querySelector('[aria-current="true"][data-row]')).toBeNull()
   await choose('Run 1')
@@ -3473,4 +3480,342 @@ it.each(['running', 'settled'] as const)('discovers an uncached %s Run when open
   expect(nav.textContent).toContain('1')
   await act(async () => nav.click())
   expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('Triage')
+})
+
+it('draws a check run more than once with each attempt under it, and asks the desk for them only while the Run is on show', async () => {
+  const gate = { version: 2, id: 'gate-run', goal: ROOM, state: 'running', startedAt: 1, reason: null, legacyRun: null,
+    operations: [{ key: 'check:1:0', kind: 'check', state: 'finished', card: 1, seat: null }],
+    rounds: [{ n: 1, role: 'verify', cards: [1], seats: [], evidence: [], state: 'closed', cause: 'seed' }],
+    document: { format: 'agents', flow: { name: 'Gate', rules: [], roles: [{ id: 'verify', kind: 'check', check: { run: 'pnpm verify', timeout: 60, exits: { '0': 'pass' }, otherwise: 'fail' } }] } } } as unknown as FlowExecution
+  const card = { id: 1, title: 'Verify', state: 'done', outcome: 'pass', files: [], dependsOn: [], createdAt: 1, updatedAt: 2 }
+  const { store } = rig([], undefined, { members: [], intents: [card] } as never, GOAL, new Map([[gate.id, gate]]))
+  const attempts = [
+    { id: 'attempt-1', n: 1, at: Date.now() - 600_000, commit: 'c0ffee1', exit: 1, timedOut: false, outcome: 'fail', tail: 'FAIL: one test' },
+    { id: 'attempt-2', n: 2, at: Date.now() - 60_000, commit: 'c0ffee2', exit: 0, timedOut: false, outcome: 'pass', tail: 'ok' },
+  ]
+  const readCheckAttempts = vi.fn(async () => ({ attempts, complete: true }))
+  Object.assign(store, { loadFindings: vi.fn().mockResolvedValue(undefined), readCheckAttempts })
+  await render(store)
+  expect(readCheckAttempts, 'the Overview is on show, not the Run').not.toHaveBeenCalled()
+  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  await act(async () => nav.click())
+  expect(readCheckAttempts).toHaveBeenCalledWith('gate-run', 1)
+  expect([...container.querySelectorAll('[data-row]')].map(one => one.getAttribute('data-row'))).toEqual(['start', 'round-1', 'check-1-1', 'attempt-1-1-1', 'attempt-1-1-2'])
+  expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Run again…')).toBe(true)
+  await act(async () => (container.querySelector('[data-row="check-1-1"]') as HTMLButtonElement).click())
+  const inspector = container.querySelector('[data-slot="run-inspector"]')!
+  expect([...inspector.querySelectorAll('section')].find(one => one.textContent?.startsWith('Attempts'))?.textContent).toContain('Attempt 2')
+})
+
+it('says a check’s attempts could not be read — in the Run’s warning and in the check’s inspector — rather than that it ran once', async () => {
+  const gate = { version: 2, id: 'gate-run', goal: ROOM, state: 'running', startedAt: 1, reason: null, legacyRun: null,
+    operations: [{ key: 'check:1:0', kind: 'check', state: 'finished', card: 1, seat: null }],
+    rounds: [{ n: 1, role: 'verify', cards: [1], seats: [], evidence: [], state: 'closed', cause: 'seed' }],
+    document: { format: 'agents', flow: { name: 'Gate', rules: [], roles: [{ id: 'verify', kind: 'check', check: { run: 'pnpm verify', timeout: 60, exits: { '0': 'pass' }, otherwise: 'fail' } }] } } } as unknown as FlowExecution
+  const card = { id: 1, title: 'Verify', state: 'done', outcome: 'pass', files: [], dependsOn: [], createdAt: 1, updatedAt: 2 }
+  const { store } = rig([], undefined, { members: [], intents: [card] } as never, GOAL, new Map([[gate.id, gate]]))
+  let answer: (() => void) | null = null
+  const readCheckAttempts = vi.fn(() => new Promise<never[]>((_resolve, reject) => { answer = () => reject(new Error('The desk did not answer.')) }))
+  Object.assign(store, { loadFindings: vi.fn().mockResolvedValue(undefined), readCheckAttempts })
+  await render(store)
+  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  await act(async () => nav.click())
+  await act(async () => (container.querySelector('[data-row="check-1-1"]') as HTMLButtonElement).click())
+  const inspector = () => container.querySelector('[data-slot="run-inspector"]')!.textContent ?? ''
+  expect(inspector()).toContain('Reading attempts…')
+  await act(async () => { answer!() })
+  expect(inspector()).toContain('Earlier attempts could not be read')
+  expect(container.querySelector('[data-slot="run-view"]')!.textContent).toContain('Earlier attempts of a check could not be read.')
+})
+
+it('a new attempt appears under the check when its result lands, and the earlier attempts stay as they were', async () => {
+  const gate = { version: 2, id: 'gate-run', goal: ROOM, state: 'running', startedAt: 1, reason: null, legacyRun: null,
+    operations: [{ key: 'check:1:0', kind: 'check', state: 'finished', card: 1, seat: null }],
+    rounds: [{ n: 1, role: 'verify', cards: [1], seats: [], evidence: [], state: 'closed', cause: 'seed' }],
+    document: { format: 'agents', flow: { name: 'Gate', rules: [], roles: [{ id: 'verify', kind: 'check', check: { run: 'pnpm verify', timeout: 60, exits: { '0': 'pass' }, otherwise: 'fail' } }] } } } as unknown as FlowExecution
+  const card = { id: 1, title: 'Verify', state: 'done', outcome: 'pass', files: [], dependsOn: [], createdAt: 1, updatedAt: 2 }
+  const { store } = rig([], undefined, { members: [], intents: [card] } as never, GOAL, new Map([[gate.id, gate]]))
+  const attempt = (n: number) => ({ id: `attempt-${n}`, n, at: n * 1000, commit: `c0ffee${n}`, exit: n === 2 ? 0 : 1, timedOut: false, outcome: n === 2 ? 'pass' : 'fail', tail: `output ${n}` })
+  let recorded = [attempt(1), attempt(2)]
+  const readCheckAttempts = vi.fn(async () => ({ attempts: recorded, complete: true }))
+  const evidenceWith = (id: string) => ({ room: ROOM, stamp: 1, checks: [], refused: [], unreadable: null, cards: [{ card: 1, running: [], facts: [{ freshness: { state: 'fresh' }, by: null,
+    record: { id, observedAt: 1, round: 1, fact: { kind: 'check', name: 'verify', run: 'pnpm verify', exit: 0, timedOut: false, at: 'abc', dirty: false, tail: '' } } }] }] })
+  const base = store.getSnapshot()
+  // One snapshot per state of the board, as the store holds them: a new object on every read is a store that never settles.
+  const snapshotWith = (id: string) => ({ ...base, boardEvidence: new Map([[ROOM, evidenceWith(id)]]) })
+  let snapshot = snapshotWith('f2')
+  Object.assign(store, { loadFindings: vi.fn().mockResolvedValue(undefined), readCheckAttempts, getSnapshot: () => snapshot })
+  await render(store)
+  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  await act(async () => nav.click())
+  const rows = () => [...container.querySelectorAll('[data-kind="attempt"]')].map(one => one.getAttribute('data-row'))
+  expect(rows()).toEqual(['attempt-1-1-1', 'attempt-1-1-2'])
+  // The person ran it again; its result lands as new evidence on the card, and the pane asks again.
+  recorded = [...recorded, attempt(3)]
+  snapshot = snapshotWith('f3')
+  await render(store)
+  expect(readCheckAttempts).toHaveBeenCalledTimes(2)
+  expect(rows()).toEqual(['attempt-1-1-1', 'attempt-1-1-2', 'attempt-1-1-3'])
+  await act(async () => (container.querySelector('[data-row="check-1-1"]') as HTMLButtonElement).click())
+  const attempts = container.querySelector('[data-slot="run-inspector"] [data-attempt="1"]')!
+  await act(async () => { [...attempts.querySelectorAll('button')].find(one => one.textContent === 'Show output')!.click() })
+  expect(attempts.textContent).toContain('output 1')
+})
+
+/**
+ * What needs you, answered from the Overview. Each answer is the request the
+ * surface that already answers it makes — the board's menu for a person's
+ * card, the docked approval for a request — so whichever door answers first
+ * wins, and the host sees one request either way.
+ */
+const personRun = (rules: readonly unknown[] = [], extraRoles: readonly unknown[] = []): FlowExecution => ({
+  version: 2, id: 'run-1', goal: ROOM, state: 'running', startedAt: 1, reason: null, legacyRun: null, operations: [],
+  rounds: [{ n: 1, role: 'decide', cards: [5], seats: [], evidence: [], state: 'running', cause: 'seed' }],
+  document: { format: 'agents', flow: {
+    version: 2, name: 'Ship', inputs: [], roles: [{ id: 'decide', kind: 'person', outcomes: ['approved', 'request-changes'] }, ...extraRoles],
+    rules, seed: { role: 'decide', title: 'Go' }, messaging: 'board-only', wait: 240,
+  } },
+} as unknown as FlowExecution)
+const personCard = { ...state.intents[1]!, id: 5, title: 'Decide whether to ship', state: 'open', role: 'decide', claim: null } as Intent
+const needsYouRow = (): HTMLElement => container.querySelector('[aria-label="Needs you"]') as HTMLElement
+const inNeedsYou = (label: string): HTMLButtonElement =>
+  [...needsYouRow().querySelectorAll('button')].find((one) => one.textContent === label) as HTMLButtonElement
+
+it("answers a person's step from the Overview with the request the board's own menu makes", async () => {
+  const execution = personRun([{ id: 'ship', on: 'decide', when: { every: ['approved'] }, then: { role: 'decide', title: 'Again' } }])
+  const { store } = rig(undefined, undefined, { intents: [personCard] }, GOAL, new Map([[execution.id, execution]]))
+  await render(store)
+  expect(needsYouRow().textContent).toContain('Decide whether to ship')
+  expect(needsYouRow().textContent).toContain('Approved opens a step for you.')
+  expect(needsYouRow().textContent).toContain('Request changes ends the Run without a next step.')
+  await act(async () => inNeedsYou('Approved').click())
+  expect(store.teamIntent).toHaveBeenCalledTimes(1)
+  const fromOverview = vi.mocked(store.teamIntent).mock.lastCall
+  expect(fromOverview).toEqual([ROOM, 5, 'done', undefined, 'approved'])
+
+  // The board's menu, for the same card and the same word.
+  act(() => row('Board').click())
+  await act(async () => {})
+  const trigger = container.querySelector<HTMLButtonElement>('button[aria-label="What to do with #5"]')!
+  act(() => {
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    trigger.click()
+  })
+  await act(async () => {})
+  const item = [...document.querySelectorAll<HTMLElement>('[data-slot="dropdown-menu-item"]')].find((one) => one.textContent?.includes('Answer approved'))!
+  act(() => item.click())
+  await act(async () => {})
+  expect(store.teamIntent).toHaveBeenCalledTimes(2)
+  expect(vi.mocked(store.teamIntent).mock.lastCall).toEqual(fromOverview)
+})
+
+it('gives the note the person wrote as the context the next round reads, and shows the host\'s refusal', async () => {
+  const execution = personRun()
+  const { store } = rig(undefined, undefined, { intents: [personCard] }, GOAL, new Map([[execution.id, execution]]))
+  vi.mocked(store.teamIntent).mockRejectedValueOnce(new Error('This card was already answered.'))
+  await render(store)
+  const note = needsYouRow().querySelector<HTMLInputElement>('input')!
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+  act(() => { setter.call(note, 'Ship it once the retry has a ceiling.'); note.dispatchEvent(new Event('input', { bubbles: true })) })
+  await act(async () => inNeedsYou('Request changes').click())
+  expect(store.teamIntent).toHaveBeenCalledWith(ROOM, 5, 'done', undefined, 'request-changes', 'Ship it once the retry has a ceiling.')
+  expect(needsYouRow().querySelector('[role="alert"]')?.textContent).toBe('This card was already answered.')
+  expect(inNeedsYou('Request changes').disabled).toBe(true)
+})
+
+it('sends a review step to the board, where its attempt is chosen', async () => {
+  const execution = personRun(
+    [{ id: 'land', on: 'decide', when: { every: ['approved'], evidence: [{ review: 'approved' }] }, then: { role: 'merge', title: 'Merge' } }],
+    [{ id: 'merge', kind: 'person', outcomes: ['merged'] }],
+  )
+  const { store } = rig(undefined, undefined, { intents: [personCard] }, GOAL, new Map([[execution.id, execution]]))
+  await render(store)
+  expect(inNeedsYou('Approved')).toBeUndefined()
+  await act(async () => inNeedsYou('Pick an attempt on the board').click())
+  expect(container.querySelector('[data-slot="board-column"]')).not.toBeNull()
+  expect(store.teamIntent).not.toHaveBeenCalled()
+})
+
+it("answers an approval from the Overview with the call the docked card makes", async () => {
+  const execution = personRun()
+  const { store } = rig(undefined, undefined, {}, GOAL, new Map([[execution.id, execution]]))
+  const approvals = [{
+    key: sessionKey('codex', 'c1'),
+    approval: {
+      id: 'a1', sessionId: 'c1', requestedAt: 5, type: 'command', kind: 'command', command: 'pnpm verify', cwd: '/repo', actions: [],
+      options: [
+        { id: 'yes', label: 'Yes', intent: 'approve' },
+        { id: 'always', label: 'Yes, always', intent: 'approveAlways' },
+        { id: 'no', label: 'No, tell it instead', intent: 'deny' },
+      ],
+    },
+  }]
+  const snapshot = { ...store.getSnapshot(), approvals: approvals as never }
+  const respondToApproval = vi.fn().mockResolvedValue({ ok: true })
+  Object.assign(store, { getSnapshot: () => snapshot, respondToApproval })
+  await render(store)
+  expect(needsYouRow().textContent).toContain('pnpm verify')
+  expect([...needsYouRow().querySelectorAll('button')].map((one) => one.textContent)).toEqual(['No, tell it instead', 'Yes, always', 'Yes'])
+  await act(async () => inNeedsYou('Yes').click())
+  const fromOverview = respondToApproval.mock.lastCall
+  expect(fromOverview).toEqual([sessionKey('codex', 'c1'), 'a1', { type: 'option', optionId: 'yes' }])
+
+  // The docked card in the chat, for the same request, sends the same thing.
+  act(() => row('Chat').click())
+  await act(async () => {})
+  const docked = [...container.querySelectorAll<HTMLButtonElement>('[data-slot="approval-card"] button')].find((one) => /^Yes\d?$/.test(one.textContent ?? ''))!
+  act(() => docked.click())
+  expect(respondToApproval).toHaveBeenCalledTimes(2)
+  expect(respondToApproval.mock.lastCall).toEqual(fromOverview)
+})
+
+it('answers a person\'s step and sends a review to the board from the Run inspector too', async () => {
+  const execution = personRun()
+  const { store } = rig(undefined, undefined, { intents: [personCard] }, GOAL, new Map([[execution.id, execution]]))
+  Object.assign(store, { loadFindings: vi.fn().mockResolvedValue(undefined) })
+  await render(store)
+  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  await act(async () => nav.click())
+  await act(async () => (container.querySelector('[data-row="person-1-5"]') as HTMLButtonElement).click())
+  const inspector = container.querySelector('[data-slot="run-inspector"]')!
+  await act(async () => ([...inspector.querySelectorAll('button')].find(one => one.textContent === 'Request changes') as HTMLButtonElement).click())
+  expect(store.teamIntent).toHaveBeenCalledWith(ROOM, 5, 'done', undefined, 'request-changes')
+})
+
+it('sends a review step to the board from the Run inspector', async () => {
+  const execution = personRun(
+    [{ id: 'land', on: 'decide', when: { every: ['approved'], evidence: [{ review: 'approved' }] }, then: { role: 'merge', title: 'Merge' } }],
+    [{ id: 'merge', kind: 'person', outcomes: ['merged'] }],
+  )
+  const { store } = rig(undefined, undefined, { intents: [personCard] }, GOAL, new Map([[execution.id, execution]]))
+  Object.assign(store, { loadFindings: vi.fn().mockResolvedValue(undefined) })
+  await render(store)
+  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  await act(async () => nav.click())
+  await act(async () => (container.querySelector('[data-row="person-1-5"]') as HTMLButtonElement).click())
+  const pick = [...container.querySelector('[data-slot="run-inspector"]')!.querySelectorAll('button')].find(one => one.textContent === 'Pick an attempt on the board') as HTMLButtonElement
+  await act(async () => pick.click())
+  expect(container.querySelector('[data-slot="board-column"]')).not.toBeNull()
+  expect(container.querySelector('[data-slot="run-inspector"]')).toBeNull()
+})
+
+it('a wrapped Team keeps receipt Seats and its Run readable while dispatching verbs are disabled', async () => {
+ const execution = {version:2,id:'wrapped-run',goal:ROOM,state:'settled',reason:null,operations:[],rounds:[],document:{format:'agents',flow:{name:'Completed review',roles:[],rules:[]}}} as unknown as FlowExecution
+ const goal: GoalView = {...GOAL,goal:{...GOAL.goal,state:'wrapped',origin:{kind:'flow',run:execution.id}},members:[],receipt:{version:1,id:'receipt',goal:ROOM,sentence:GOAL.goal.sentence,summary:'Reviewed.',wrappedAt:2,cards:[],seats:['kept','lost'],members:[{seat:'kept',agent:'Writer',seatLabel:'Alpha',session:{runtime:'codex',sessionId:'c1'}},{seat:'lost',agent:null,seatLabel:'Gamma'}],answers:[],evidence:[],lanes:[],revisions:[],citations:[],gaps:[]}}
+ const {store}=rig([],undefined,{members:[]},goal,new Map([[execution.id,execution]]))
+ await render(store)
+ expect(container.querySelector('aside')?.textContent).toContain('Writer')
+ expect(container.querySelector('aside')?.textContent).toContain('Gamma')
+ expect(container.textContent).toContain('Conversation not kept')
+ for (const label of ['Seat an Agent in this Goal','Hold messages at the board']) {
+  const button=container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)
+  expect(button?.disabled).toBe(true);expect(button?.title).toBe('This Team is wrapped')
+ }
+ const pick=async(label:string)=>{const button=[...container.querySelectorAll<HTMLButtonElement>('aside button')].find(one=>(label==='Run'?one.textContent?.startsWith(label):one.textContent===label));expect(button).toBeTruthy();act(()=>button!.click());await act(async()=>{})}
+ await pick('Run');expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('Completed review')
+ await pick('Receipt');expect(container.textContent).toContain('As recorded when wrapped')
+ act(()=>row('Writer').click());await act(async()=>{})
+ expect(container.querySelector('[data-testid="conversation"]')?.textContent).toContain(String(sessionKey('codex','c1')))
+})
+
+/* A wrapped Team's receipt, as the host keeps it: every Seat that was ever retained, each with the conversation it
+   had (or, on an older receipt, none). */
+const receiptGoal = (seats: readonly string[], members: readonly unknown[]): GoalView => ({
+ ...GOAL, goal: { ...GOAL.goal, state: 'wrapped' }, members: [],
+ receipt: { version: 1, id: 'receipt', goal: ROOM, sentence: GOAL.goal.sentence, summary: 'Reviewed.', wrappedAt: 2, cards: [], seats, members, answers: [], evidence: [], lanes: [], revisions: [], citations: [], gaps: [] },
+} as unknown as GoalView)
+
+/** The rail's rows, as a person reads them. */
+const railRows = (): string[] => [...container.querySelectorAll('aside [data-slot="list-row"]')].map(one => one.textContent ?? '')
+
+/* A conversation can be seated more than once in a Team's life, and the receipt keeps every Seat. The rail lists
+   conversations, so it names each one once — and does not draw two rows under one React key (#1317, round 1). */
+it('a wrapped Team lists a conversation once however many Seats were retained for it', async () => {
+ const goal = receiptGoal(['first', 'again', 'other'], [
+  { seat: 'first', agent: 'Writer', seatLabel: 'Alpha', session: { runtime: 'codex', sessionId: 'c1' } },
+  { seat: 'again', agent: 'Reviewer', seatLabel: 'Alpha again', session: { runtime: 'codex', sessionId: 'c1' } },
+  { seat: 'other', agent: 'Judge', seatLabel: 'Beta', session: { runtime: 'codex', sessionId: 'c2' } },
+ ])
+ const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+ try {
+  const { store } = rig([], undefined, { members: [] }, goal)
+  await render(store)
+  // The latest Seat to hold the conversation names it: `Writer` held it first and is not a second row.
+  expect(railRows().filter(text => /Writer|Reviewer|Judge/.test(text))).toHaveLength(2)
+  expect(railRows().some(text => text.includes('Reviewer'))).toBe(true)
+  expect(railRows().some(text => text.includes('Judge'))).toBe(true)
+  expect(railRows().some(text => text.includes('Writer'))).toBe(false)
+  // And the roster counts conversations, as it lists them.
+  expect(container.querySelector('aside')?.textContent).toContain('Agents2')
+  expect(errors.mock.calls.map(call => String(call[0])).filter(text => text.includes('same key'))).toEqual([])
+ } finally { errors.mockRestore() }
+})
+
+/* An older receipt may keep Seats without a conversation: the rail lists each as a name and says the conversation
+   was not kept. It cannot also say there are no Agents — it is looking at them (#1317, round 1). */
+it('an older receipt whose Seats were all kept without a conversation lists them and does not say there are none', async () => {
+ const goal = receiptGoal(['lost', 'lost-too'], [
+  { seat: 'lost', agent: 'Writer', seatLabel: 'Alpha' },
+  { seat: 'lost-too', agent: null, seatLabel: 'Gamma' },
+ ])
+ const { store } = rig([], undefined, { members: [] }, goal)
+ await render(store)
+ const rail = container.querySelector('aside')!.textContent ?? ''
+ expect(railRows().filter(text => /Writer|Gamma/.test(text))).toHaveLength(2)
+ expect(rail.match(/Conversation not kept/g)).toHaveLength(2)
+ expect(rail).not.toContain('No Agents were kept')
+})
+
+it('a receipt that kept no Seat at all still says so', async () => {
+ const { store } = rig([], undefined, { members: [] }, receiptGoal([], []))
+ await render(store)
+ expect(container.querySelector('aside')?.textContent).toContain('No Agents were kept in this Team’s receipt.')
+})
+
+/* The pane is two columns at width and one at a time without it, and `data-showing` names the one on show. A wrapped
+   Team opens on its Receipt, so in a narrow pane the Receipt has to be the half that shows — whether or not the Team
+   ever had a Run. A Team with no Run used to start on the Agents list, as an open one does, and a person-made Team
+   that wrapped read as a list of names with the record behind a way back (#1317). `receiptGoal` is exactly that Team:
+   made by a person, never given a Flow. */
+const showing = (): string | null => container.querySelector('[data-showing]')?.getAttribute('data-showing') ?? null
+const KEPT = [{ seat: 'kept', agent: 'Writer', seatLabel: 'Alpha', session: { runtime: 'codex', sessionId: 'c1' } }]
+
+it('a wrapped Team that never had a Run opens on its Receipt, not on the Agents list, in a narrow pane', async () => {
+ const { store } = rig([], undefined, { members: [] }, receiptGoal(['kept'], KEPT))
+ await render(store)
+ expect(showing()).toBe('body')
+ expect(row('Receipt').getAttribute('aria-current')).toBe('true')
+ expect(container.textContent).toContain('As recorded when wrapped')
+})
+
+it('an open Team that has no Run still starts on the Agents list in a narrow pane', async () => {
+ const { store } = rig([], undefined, { members: [] }, GOAL)
+ await render(store)
+ expect(showing()).toBe('rail')
+})
+
+it('a Team with no Run that wraps while its narrow pane shows the Agents list moves to its Receipt', async () => {
+ const { store } = rig([], undefined, { members: [] }, GOAL)
+ await render(store)
+ expect(showing()).toBe('rail')
+ const open = store.getSnapshot()
+ const wrapped = { ...open, goals: new Map([[ROOM, receiptGoal(['kept'], KEPT)]]) }
+ Object.assign(store, { getSnapshot: () => wrapped })
+ await render(store)
+ expect(showing()).toBe('body')
+ expect(row('Receipt').getAttribute('aria-current')).toBe('true')
+})
+
+it('a person who already chose where to look is not moved when a Team with no Run wraps', async () => {
+ const { store } = rig([], undefined, { members: [] }, GOAL)
+ await render(store)
+ act(() => row('Board').click())
+ await act(async () => {})
+ expect(row('Board').getAttribute('aria-current')).toBe('true')
+ const open = store.getSnapshot()
+ const wrapped = { ...open, goals: new Map([[ROOM, receiptGoal(['kept'], KEPT)]]) }
+ Object.assign(store, { getSnapshot: () => wrapped })
+ await render(store)
+ expect(row('Board').getAttribute('aria-current')).toBe('true')
+ expect(showing()).toBe('body')
 })

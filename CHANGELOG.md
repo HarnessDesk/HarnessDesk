@@ -9,6 +9,52 @@ move is real work and is not news to a person weighing an upgrade.
 
 HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
 
+- **One repository is one sidebar project.** Team clones and linked worktrees
+  share its row. Gone folders leave the list while their conversations remain
+  searchable. Seats with no first message are named by their job and Team,
+  and an agent's compaction summary is never a conversation title. Capture
+  state lives in the project's menu.
+
+- **The command line now ships inside the app.** HarnessDesk › Install
+  command-line tool… puts a `harnessdesk` command on your PATH, in a folder you
+  own, so a terminal or a script can list Teams and runs, start a flow, watch
+  it, stop it and answer the cards it addressed to you. It runs on the app's own
+  runtime, needs no separate Node install and no password, never replaces a
+  `harnessdesk` it did not put there, and keeps working when the app is updated
+  or moved; choosing the item again offers to remove it. `docs/cli.md` lists
+  every command, its `--json` shape and its exit codes.
+
+- **A wrapped Team stays readable** — it opens on its receipt, in a narrow
+  window as in a wide one and whether or not it ever had a Run. The receipt
+  keeps every Seat's conversation, and its rail and the sidebar's Wrapped group
+  still open those conversations and the Run. A conversation seated more than
+  once is listed once; Run details still keep each Seat and its recorded usage,
+  including a Seat whose conversation was not kept. Older receipts keep Seats without a retained conversation visible, even
+  when that is every Seat, rather than saying no Agents were kept. Composers and
+  work-dispatching controls say “This Team
+  is wrapped”, and the host refuses new sends, steers, queued work, reviews and
+  compaction too; the conversation's menus say so rather than offer them. A
+  turn still running in such a conversation can be stopped. “Give this to…”
+  does not list a conversation a wrapped Team keeps, and the command palette
+  offers no agent skill there. A
+  question already open when a Run ends and wraps its Team — deciding a run or
+  a finding, posting to the pull request, running a check, stopping, adding,
+  handing out, assigning or answering a card, seating an Agent, wrapping —
+  stays where it is with its final action off and the same reason, rather than
+  offer what the host would refuse.
+
+- **Answer what needs you from a Team's Overview.** Each row under Needs you
+  carries its answer: an approval or a question offers the agent's own
+  choices beside what it asks for, and a step addressed to you offers the
+  words its role declares, an optional note, and a line saying what each
+  answer does next. Command approvals name the working folder. A request to
+  type into a running command also names the command and the input. A step
+  whose answer records which attempt you choose is still answered on the
+  board. In a Run's inspector, a card that has not finished
+  can be abandoned, after a question that says first what the Flow will do
+  about it: open the next round, end the Run, or wait for the round's other
+  cards.
+
 - **An ended Run has a way on.** Its banner says why it ended and offers
   Wrap, the board, a fresh Run, or consent to an interrupted check. Run again
   prefills the saved inputs and brief, leaves seat preferences open to change,

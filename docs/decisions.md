@@ -103,6 +103,73 @@ window's whole wire.
 
 ---
 
+## The command line reaches a person's PATH through a launcher the app owns, and nothing else
+
+"Install command-line tool…" in the HarnessDesk menu puts one small file,
+`harnessdesk`, in a folder the person already owns and already has on the PATH
+their login shell builds: `~/.local/bin`, then `~/bin`. That PATH is asked of
+the login shell, because an app opened from the Dock inherits launchd's and not
+theirs. It is never `/usr/local/bin` and never a folder that needs an
+administrator, so the item never asks for a password; and it never writes into a
+package manager's or a version manager's folder, which the manager rewrites and
+which moves under a version change. When neither folder is on PATH it installs
+in `~/.local/bin` anyway, and the dialog says where the file is and gives the
+one line that puts that folder on PATH, in the person's own shell's words. No
+shell file is edited: those are the person's.
+
+The launcher is a POSIX script that runs the command line bundled in the app on
+the app's own runtime with `ELECTRON_RUN_AS_NODE=1`, so no separate Node install
+is needed. It records where the app was when it was written. When that is gone
+it looks in `/Applications` and `~/Applications` and then asks Spotlight for the
+bundle id, so an upgrade or a move never strands it and it never has to be
+rewritten. Arguments reach the program as the shell's own argument list and
+never as part of a string, so a quote, a `$` or a newline in one is only a
+character in it. Nothing in it is a credential: a local client has none.
+
+A `harnessdesk` that is not ours is never touched. Ours is a file whose second
+line is the marker, and nothing else is: not a script that quotes the marker
+further down, not a link, not a folder. A first install stops at anyone else's
+`harnessdesk` in either folder, because two commands of one name shadow each
+other and which one wins would depend on an order the person never chose. A
+second run of the item offers to remove the launcher, and an install over our
+own launcher replaces it, so a launcher an older build wrote follows a newer one.
+
+Neither acts on a name that was only checked. Checking a file and then renaming
+over its name, or deleting it, leaves a window in which another process can put
+something of its own at that name, and what it put would be overwritten or
+deleted. So the file is taken first, by renaming it to a name only the installer
+knows in the same folder, and then checked as what is held: opened without
+following a link, a regular file, our marker, and the same device, inode, text,
+size and mode as the one that was looked at. Non-zero birth and change times
+are compared in nanoseconds too, with the change time checked before the
+rename because the rename itself changes it. File numbers can be reused and
+timestamps can be coarse, so neither stands in for the text. Only then is it
+deleted, or its replacement linked
+into its name (a link refuses a name that has been taken). Anything else is put
+back, and the dialog says the launcher changed and was left as it is; if it
+cannot be put back because the name was taken again, it is kept beside it and
+the dialog says where. Restoration uses only an atomic hard link to a free
+name; if the volume cannot do that, or the held object is a link or a folder,
+it stays held rather than falling back to a check followed by a rename. Every
+failure after taking the file attempts that recovery, including inspection
+and deletion errors. The menu reports whether the command was restored and
+names any retained file. The price is that a replacement leaves the name without a
+file for the moment between those two steps. The look itself is one open that
+follows no link and waits on no pipe, so what is read and which file it was are
+the same file.
+
+The alternatives were a copy of the command line in a system folder, which
+needs an administrator and goes stale at the next update, and a package-manager
+install, which puts a second copy of the program beside the app and has to be
+kept in step with it. Windows has no launcher yet: its door is a named pipe and
+its installer is a change of its own.
+
+**The rule:** the app puts its command line on a person's PATH with one file in a
+folder they own; it never overwrites a file that is not its own, never edits a
+shell file and never asks for a password.
+
+---
+
 ## The Team overview is derived from held facts, with no reader of its own
 
 The overview model turns plain Seat, card, Run, approval and Insight data into
@@ -201,6 +268,45 @@ function of the document; the list says everything the lines show.
 
 ---
 
+## The window says what an answer or an abandon will do from the Run's own Flow
+
+The window's `team/intent` reply is `null`: a command-line abandon gets
+`{ role, nextRole }` back because the client door waits for the engine to open
+the next round, and the window does not. So what an abandon, or an answer to a
+person's step, will do cannot be read from what the host returns, and the
+person has to be told before acting. The window reads the Run's frozen Flow
+instead. `followOf` in `@harnessdesk/protocol` picks the first rule of the
+card's role whose answers hold for the round, reading a card with no answer as
+the engine does: it satisfies neither `every` nor `any`, and a rule with no
+restrictive guard follows any round that has cards. A host test runs the
+engine's own `decide` against the same table, so the two cannot drift apart
+unseen.
+
+The sentence follows what the engine does around the rule. Nothing follows a
+Run that is not running or a round that is over. A round decides only once its
+cards have all finished, so abandoning one of several says the round stays
+open (a card the board does not hold counts as unfinished). A rule that also
+reads evidence is said to depend on it and not to fire. A card abandoned where
+every rule needs an answer ends the Run without a next step, which reads Needs
+you: the plan's wording, that the rule after the role still fires, is only the
+common case, and the code decides.
+
+A review step, a person role whose rule reads a review fact, is not answered
+with a word: it records the attempt it answers for, which only the board's
+picker does, so the Overview and the inspector send it there. Every other
+answer, and every abandon, is the request the board's menu makes, argument for
+argument; a person's note is the card's context package. An answer given in two
+places is therefore one request, and the host refuses the second as already
+answered. An approval answered from the Overview sends the decision the docked
+card sends and shows the command and its working folder, or the other scope it
+approves, beside its choices, so a yes is never given blind.
+
+**The rule:** the window says what an answer or an abandon will do from the
+Run's own Flow, read as the engine reads it, and it sends no request the board
+does not.
+
+---
+
 ## The host runs a declared check for an agent; an agent is never given the network
 
 A Seat that only reads — a reviewer, a tester, an acceptance check — can ask
@@ -221,7 +327,12 @@ it, read what it printed, and repeat. The check never runs in anybody's
 working tree: the host cuts a fresh detached checkout at the handed commit
 (the card's seating's base, one of the commits it was handed, or its
 checkout's committed `HEAD`), with hooks off, and removes it afterwards, on a
-timeout or an abort too — so a writer's uncommitted edits in a shared checkout
+timeout or an abort too. Cutting the tree has its own three-minute limit,
+separate from the thirty seconds for Git reads, and a pause or stop reaches
+that write through the check's signal. A failed write removes and prunes its
+partial checkout immediately; a timeout names the limit rather than showing
+Git's progress. Retained Flow base-check snapshots use the same write limit
+and cancellation — so a writer's uncommitted edits in a shared checkout
 are never what runs. The agent names a declared check and never writes a
 command. It gets three runs a turn and ten a card, one at a time, and none
 while the run is paused or not live.
@@ -1492,6 +1603,23 @@ Children outside the recorded group are outside this guarantee.
 Interrupted work still needs fresh
 consent, since killing a process cannot undo its effects.
 
+The attempts a retry leaves are read from the evidence the engine already
+wrote, not from the card's operation: an operation is one record a retry
+replaces, and `evidence/board` keeps only the latest fact of a question, while
+each attempt is a durable `check` fact on the card. `flow/check/attempts`
+(`{ run, card }`) lists them oldest first with the Flow's own word for each —
+its `exits` entry for the status, else `otherwise`, which is how the engine
+answers a completed check's card, and a test holds the two together. It reads
+the store and nothing else: no token is minted and no result is judged against
+git. An attempt exists once its result is recorded; a retry still running, or
+one the desk interrupted before it could keep what it printed, is the card's
+operation until then. The refusals the Run and the check already say (the check
+is not waiting; the run has settled or stopped) are one function in the
+protocol, held to the host's own sentences by tests, so the window can keep a
+control disabled with the host's reason on screen; every other refusal comes
+from the host's preview, in the consent dialog, whose answer stays disabled
+while no token has been minted.
+
 The existing statechart already expresses a retry: `otherwise: retry` plus a
 rule back to the check, or an unconditional final rule for every non-landing
 outcome. `retry` remains an ordinary outcome, never a reserved command with an
@@ -1530,3 +1658,98 @@ measured.
 
 **The rule:** the interface language chooses its CJK fallback in the
 foundation; no component chooses a language's face itself.
+
+
+## Wrapping ends dispatch, while the receipt keeps conversations readable
+
+Closing a Seat ends membership. It does not erase the conversation or turn it
+into new work: a receipt now captures each Seat's own session pointer along
+with its name. Older receipts resolve a conversation only from that Seat's
+kept answer, and otherwise keep its name without a link. The rail, Overview
+and sidebar all read that same list, and it is a list of conversations as an
+open Team's is: a receipt keeps every Seat, and a conversation seated twice is
+named once — where its first Seat put it, by the last that held it — because
+each of those surfaces keys a row by its session. The Run inspector keeps every
+receipt Seat by Seat ID, so earlier rounds and cards retain their own details,
+conversation action and usage. Cost is read by Seat ID even when the receipt
+kept no conversation; a usage report may supply the runtime for source-qualified
+money, and otherwise known turns remain visible. A Seat with no conversation
+has no session to share, so each is its own row, and the rail says no Agents
+were kept only when it lists none. Receipt opens in the pane's scrolling
+body, so the record never pushes its own navigation away. A narrow pane opens
+on that body, not on the Agents list. An open Team with no Run has nothing to
+read first, so it starts on the list; a wrapped Team always has its receipt,
+and one a person made, which never had a Run, is no exception.
+
+The renderer uses one wrapped-state rule for dispatching controls and
+conversation composers. The host refuses sends, steers, queued dispatch,
+reviews and compaction before reopening the conversation and again once it is
+open, and a queue draining after a wrap at delivery. A review or a compaction
+puts work into a conversation as surely as a send does, so they sit behind the
+same barrier, and the conversation menus that offered them show the same
+reason instead. Closed Seat history and receipt pointers preserve that refusal
+after restart. Run history remains a read; wrapping and deletion keep their
+existing lifecycles.
+
+The host asks that question before every send, steer and delivery, so it is a
+lookup and never a scan of the desk's Goals: a send on a desk with three
+hundred wrapped Teams costs what it does on a desk with three. The Goal store
+keeps the conversations its wrapped receipts name, built at the one place a
+document enters the store, so it holds for a Team wrapped in this process, one
+read back at the next start and one a backup brought. The Seat book answers for
+a conversation's Seats, and a Goal's standing is read in place, so a Team
+that is mid-wrap refuses from the moment its wrap begins, before any receipt
+exists. A dispatch asks twice — before it reopens the conversation and once it
+is open — and a send already held by a dispatch is not fenced again. The
+renderer treats a Team as wrapped once it reads `wrapped`, the host as soon as
+a wrap begins, so a send from a composer that has not heard yet fails with the
+same reason instead of being disabled beforehand.
+
+Three things follow from a conversation belonging to a wrapped Team. Stop is
+the one control that stays on while a turn is running in it: stopping is not
+new work, and the host leaves `turn/interrupt` open for exactly that. It
+stands alone in the corner — the refused send is drawn only while nothing
+runs, because the composer's send track is one coin wide and clips a second,
+which would leave a Stop that is on and cannot be pressed; the placeholder
+already says why nothing can be sent. Choosing a conversation is not sending to one, so the Assign dialog does not
+list a conversation a wrapped Team keeps, and a host asked to seat one anyway
+says it belongs to a wrapped Team — "This Team is wrapped" would point at the
+Team the person is in. A skill is a message into the open conversation, so the
+palette withdraws an agent's skills there, as it withdraws any entry it cannot
+run.
+
+A Run that ends wraps its Team, so a Team can wrap under a person who already
+has a question open. That question reads the Team's state live rather than the
+data it opened with — a run's own view still says it is decidable — and stays
+on screen with its final action disabled and the reason beside it: closing it
+would throw away what was typed, and leaving it armed would offer what the host
+then refuses. This implements PR 18 of the approved Teams/Runs plan.
+
+## A Run's publication and a review round are separate facts
+
+The Run's `finding/run.publication` folds every posting it holds. It belongs
+on the Overview strip, Run header, end banner and Findings summary. A review
+row reads only its own `FindingRunView.rounds` record; a missing record or
+`none` never inherits the aggregate. The round budget and Goal-owned open
+finding counts cannot establish a new Run's publication.
+An empty release decision for work with no review, finding event or posting
+operation reads `none`; closing an author or check round does not create a review.
+For a local round, the Run's current pull request binding determines whether
+it is Not posted, including reviews kept before binding. A posted round keeps
+its recorded target.
+
+The Teams page and Overview pass the same confirmed Run read into the shared
+selector. A bound, posting-enabled local review, partial posting or uncertain
+posting needs the person. A first read still pending establishes nothing;
+`finding/changed` invalidates it too, and an older answer cannot replace the
+newer read.
+
+`finding/publications` supplies actions, not successful publication states.
+Both the Findings pane and inspector use one action hook for post-again,
+skip, backfill and host refusals. Backfill keeps its stamped preview and asks
+for confirmation; copy remains available when posting is refused. A late
+action answer belongs to the visit that submitted it, even if the person
+left that Run and returned before it answered.
+
+**The rule:** chips follow the host's recorded state, actions follow its
+offered door, and a person presses before a posting is sent.

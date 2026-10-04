@@ -275,6 +275,10 @@ export interface HostContext {
   }
 
   readonly sessions: {
+    /** Refuse new work in a conversation retained by a wrapped Team. */
+    assertDispatchable(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }): void
+    /** Hold new work against Wrap through reopening and runtime acceptance. */
+    dispatch<T>(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }, work: (live: AgentSession) => Promise<T>): Promise<T>
     /** The live handle for a conversation, reopening it when the agent restarted underneath. */
     live(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }): Promise<AgentSession>
     /** The host's record of a conversation, or a refusal. */
@@ -394,8 +398,12 @@ export interface HostContext {
      * the session still reads idle.
      */
     busy(record: SessionRecord): boolean
-    /** Sends straight to the live conversation, counting it busy until the agent has answered. */
-    sendNow(record: SessionRecord, input: readonly UserContent[]): Promise<void>
+    /**
+     * Sends straight to the live conversation, counting it busy until the agent has answered. A caller already
+     * inside `sessions.dispatch` passes the conversation it was handed as `held`: the send is that dispatch, and the
+     * Wrap fence is not asked a second time.
+     */
+    sendNow(record: SessionRecord, input: readonly UserContent[], held?: AgentSession): Promise<TurnId>
   }
 
   readonly accounts: {

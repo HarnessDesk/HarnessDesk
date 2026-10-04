@@ -16,6 +16,7 @@ import {
   type TurnStatus,
   openingOf,
   splitContext,
+  withoutCompaction,
 } from '@harnessdesk/protocol'
 import type { CodexProtocol } from '@harnessdesk/codex'
 
@@ -101,7 +102,8 @@ export const stripContext = (text: string): string =>
  * because a name Codex did not choose should not pretend to be a summary.
  */
 export const nameFromMessage = (text: string, limit = 60): string | null => {
-  const stripped = stripContext(text)
+  // A summary the agent wrote of its own compacted history is not the person's.
+  const stripped = withoutCompaction(stripContext(text)).trim()
   const line = stripped.split('\n').find((entry) => entry.trim() !== '')?.trim()
   if (!line) return null
   if (line.length <= limit) return line
@@ -119,7 +121,7 @@ export const mapSummary = (
 ): SessionSummary => ({
   id: sessionId(thread.id),
   runtime,
-  title: thread.name === null ? null : stripContext(thread.name) || null,
+  title: thread.name === null ? null : withoutCompaction(stripContext(thread.name)).trim() || null,
   // Cut where every other producer cuts, so a name's length doesn't depend on which of them made it (#188, review of #231).
   preview: openingOf(thread.preview, skip ? { skip } : {}).slice(0, 120) || null,
   cwd: thread.cwd,

@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import type { InsightReport } from '@harnessdesk/protocol'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
-import { teamSeats } from '../lib/team-seats'
-import { namedGoalRun } from '../lib/goal-run'
+import { teamSeats, hasConversation } from '../lib/team-seats'
+import { goalRunOf, namedGoalRun } from '../lib/goal-run'
 import { teamsInput } from '../lib/teams-snapshot'
 import { teamsList, type TeamFilter, type TeamListGroup, type TeamListRow } from '../lib/teams-list'
 import { sanitizeHtml } from '../lib/sanitize'
@@ -49,8 +49,10 @@ export const TeamsWindow = ({onClose, initialFilter='active'}: {onClose:()=>void
  useEffect(()=>{const timer=window.setInterval(()=>setNow(Date.now()),1000);return()=>window.clearInterval(timer)},[])
  const missingRuns=[...snapshot.goals.values()].map(namedGoalRun).filter((id):id is string=>Boolean(id) && !snapshot.flowExecutions.has(id!)).sort().join('\0')
  useEffect(()=>{for(const id of missingRuns.split('\0').filter(Boolean))void store.readFlowExecution(id).catch(()=>{})},[store,missingRuns])
+ const publicationScope=JSON.stringify([...snapshot.teams.values()].flatMap(team=>{const run=goalRunOf(team.id,snapshot.goals.get(team.id),snapshot.flowExecutions);return run?[[team.id,run.id]]:[]}).sort(([a],[b])=>a!.localeCompare(b!)))
+ useEffect(()=>{for(const [goal,run] of JSON.parse(publicationScope) as [string,string][]){if(typeof store.loadFindingRun==='function')void store.loadFindingRun(goal,run).catch(()=>{})}},[store,publicationScope])
  const inputs=useMemo(()=>teamsInput(snapshot,reports),[snapshot,reports])
- const marks=useMemo(()=>new Map(inputs.flatMap(input=>teamSeats(input.goal,input.team,input.execution).map(seat=>[seat.record.id,snapshot.runtimes.find(runtime=>runtime.id===seat.record.session.runtime)] as const))),[inputs,snapshot.runtimes])
+ const marks=useMemo(()=>new Map(inputs.flatMap(input=>teamSeats(input.goal,input.team,input.execution).filter(hasConversation).map(seat=>[seat.record.id,snapshot.runtimes.find(runtime=>runtime.id===seat.record.session.runtime)] as const))),[inputs,snapshot.runtimes])
  const list=useMemo(()=>teamsList(inputs,snapshot.teamsPrefs),[inputs,snapshot.teamsPrefs])
  const open=(row:TeamListRow)=>{
   store.markTeamSeen(row.id,row.change); void store.openTeamRoom(row.id,row.change); onClose()

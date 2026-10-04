@@ -2,6 +2,7 @@ import { connect, WireCallError, type Client, type ClientEvent, type ClientTrans
 import { teamOverviewOf } from '@harnessdesk/client/views'
 import { readTextFile, repositoryRoot, readConfirmation, canonicalProject, findDesks, localTransport, resolveDesk, type DeskPointer } from '@harnessdesk/client/node'
 import { parseSeat, seatSpec, doingSentence, type FlowPreview, type FlowSeat, type ClientTier, type ClientMethodName, type ClientTopic, type GoalView, type HostParams, type HostResult } from '@harnessdesk/protocol'
+import { CARD_ARGUMENT, FLOW_ARGUMENT, FLOW_OPTIONS, RUN_ARGUMENT, TEAM_ARGUMENT, YES_OPTION, type ArgumentDoc, type OptionDoc } from './reference.js'
 
 interface Arguments {
   command: string
@@ -35,33 +36,248 @@ interface Command {
   readonly methods: readonly ClientMethodName[]
   readonly flags: readonly string[]
   readonly execute: (args: Arguments) => Promise<number>
+  /**
+   * The rest is what `docs/cli.md` says about the command, and the reference
+   * generator writes it out verbatim. It is written for a person driving
+   * their own work: what the command does, how to type it, what it prints
+   * with `--json`, and how it ends. `usage` is the command as typed, `<name>`
+   * a value to give and `[…]` optional; a test parses an example built from
+   * it, so it cannot describe a command the parser would refuse.
+   */
+  readonly usage: string
+  readonly description: string
+  readonly arguments: readonly ArgumentDoc[]
+  readonly options: readonly OptionDoc[]
+  readonly json: string
+  /** The exit codes it has a meaning of its own for. `EXIT_CODES` is every code there is. */
+  readonly exits: Readonly<Record<number, string>>
 }
 /** The executable dispatch table is also the client-surface coverage contract. */
 export const COMMANDS = [
-  { name: 'desks', tier: 'read', methods: ['client/hello'], flags: [], execute: desks },
-  { name: 'status', tier: 'read', methods: ['client/hello', 'client/subscribe', 'insight/goal'], flags: ['team'], execute: status },
-  { name: 'teams', tier: 'read', methods: ['goal/list'], flags: ['project'], execute: teams },
-  { name: 'runs', tier: 'read', methods: ['flow/executions'], flags: ['team', 'project', 'all'], execute: runs },
-  { name: 'watch', tier: 'read', methods: ['client/subscribe', 'flow/execution', 'flow/executions', 'finding/run'], flags: ['team', 'run', 'project', 'until', 'raw'], execute: watch },
-  { name: 'open', tier: 'run', methods: ['workspace/open'], flags: ['target'], execute: openProject },
-  { name: 'flows', tier: 'read', methods: ['flow/catalog'], flags: ['project'], execute: flows },
-  { name: 'flow preview', tier: 'read', methods: ['flow/source', 'flow/preview'], flags: ['target', 'project', 'title', 'briefFile', 'input', 'seat', 'unattended'], execute: previewFlow },
-  { name: 'flow start', tier: 'run', methods: ['flow/source', 'flow/preview', 'flow/start-goal'], flags: ['target', 'project', 'title', 'briefFile', 'input', 'seat', 'unattended', 'yes'], execute: startFlow },
-  { name: 'run show', tier: 'read', methods: ['flow/execution'], flags: ['target'], execute: showRun },
-  { name: 'run stop', tier: 'run', methods: ['flow/execution/stop'], flags: ['target', 'reason', 'yes'], execute: stopRun },
-  { name: 'run wait', tier: 'read', methods: ['client/subscribe', 'flow/execution'], flags: ['target', 'timeout'], execute: waitRun },
-  { name: 'card show', tier: 'read', methods: ['goal/read'], flags: ['team', 'card'], execute: showCard },
-  { name: 'card handoff', tier: 'read', methods: ['goal/read'], flags: ['team', 'card'], execute: handoffCard },
-  { name: 'card answer', tier: 'answer', action: 'done', methods: ['team/intent'], flags: ['team', 'card', 'outcome', 'contextFile'], execute: answerCard },
-  { name: 'card abandon', tier: 'run', action: 'abandon', methods: ['goal/read', 'flow/executions', 'flow/execution', 'team/intent'], flags: ['team', 'card', 'reason', 'yes'], execute: abandonCard },
-  { name: 'waiting', tier: 'read', methods: ['client/subscribe'], flags: ['watch'], execute: waiting },
+  {
+    name: 'desks', tier: 'read', methods: ['client/hello'], flags: [], execute: desks,
+    usage: 'desks',
+    description: 'Lists the desks running for you: the folder each keeps its state in, its version and when it started. The app is one desk; a desk started with another `HARNESSDESK_HOME` is another.',
+    arguments: [],
+    options: [],
+    json: 'A single object, `{ "desks": [...] }`, with one entry for each running desk: `protocolVersion`, `hostVersion`, `desk` (`home`, `pid` and `startedAt`), `tiers`, `methods` and `runtimes`.',
+    exits: { 0: 'Done. With no desk running it says so and still exits 0.' },
+  },
+  {
+    name: 'status', tier: 'read', methods: ['client/hello', 'client/subscribe', 'insight/goal'], flags: ['team'], execute: status,
+    usage: 'status [--team TEAM]',
+    description: "Shows one desk at a glance: its agents, and each Team with a run in flight. It prints the desk's home and version, how each of its agents is doing, and for every Team with a run in flight the run's state, round and role, the review rounds used, what it has cost, anything that needs you, and what each seat is doing. With `--team`, that Team is shown whether or not it has a run in flight.",
+    arguments: [],
+    options: [{ flag: '--team', value: 'TEAM', description: 'Show this Team even when it has no run in flight. Its newest run, ended or not, is the one shown.' }],
+    json: 'A single object: `hello` (what the desk says about itself), `teams` (the Teams in scope), `runs` (their runs in flight) and `overviews`, one `{ "team", "overview" }` for each Team shown, whose `overview` has `run`, `needsYou` and `seats`.',
+    exits: { 0: 'Done.' },
+  },
+  {
+    name: 'teams', tier: 'read', methods: ['goal/list'], flags: ['project'], execute: teams,
+    usage: 'teams [--project PATH]',
+    description: "Lists the desk's Teams: each one's id, what it is doing or its state, and its sentence. With `--project`, only the Teams working in that project.",
+    arguments: [],
+    options: [{ flag: '--project', value: 'PATH', description: 'Only the Teams working in this project: the path of its folder. Symbolic links are followed.' }],
+    json: "A single object, `{ \"teams\": [...] }`. Each entry is a Team as the desk holds it: `goal` (the Team's own record: `id`, `sentence`, `state`, `root` and more), `activity`, `members` and `board`.",
+    exits: { 0: 'Done.' },
+  },
+  {
+    name: 'runs', tier: 'read', methods: ['flow/executions'], flags: ['team', 'project', 'all'], execute: runs,
+    usage: 'runs [--team TEAM | --project PATH] [--all]',
+    description: "Lists runs, newest first: each run's id, Team, state, flow, round and the reason it is not running. By default only runs in flight (running or stalled); `--all` adds the ones that have ended.",
+    arguments: [],
+    options: [
+      { flag: '--team', value: 'TEAM', description: 'Only the runs of this Team.' },
+      { flag: '--project', value: 'PATH', description: 'Only the runs of Teams working in this project: the path of its folder. Symbolic links are followed.' },
+      { flag: '--all', description: 'Include runs that have ended, settled or stopped, as well as those in flight.' },
+    ],
+    json: 'A single object, `{ "runs": [...] }`. Each run has `id`, `team`, `flow`, `state`, `round`, `role`, `reason` and `startedAt`.',
+    exits: { 0: 'Done.' },
+  },
+  {
+    name: 'watch', tier: 'read', methods: ['client/subscribe', 'flow/execution', 'flow/executions', 'finding/run'], flags: ['team', 'run', 'project', 'until', 'raw'], execute: watch,
+    usage: 'watch [--team TEAM | --run RUN | --project PATH] [--until settled] [--raw]',
+    description: "Streams what changes on the desk, one line per change, until you interrupt it. That is runs, cards, seats, reviews and Teams changing, anything that starts or stops waiting for a person, and notices. It opens with `hello` and closes with `end`, and nothing polls. A connection that drops is rejoined, marked with `gap`, and the whole current state follows it. With `--run RUN --until settled` it ends, with exit code 0, when that run settles, stops or stalls.",
+    arguments: [],
+    options: [
+      { flag: '--team', value: 'TEAM', description: 'Only changes to this Team.' },
+      { flag: '--run', value: 'RUN', description: "Only changes to this run. A run that has already ended is read once, so you still see how it ended." },
+      { flag: '--project', value: 'PATH', description: 'Only changes in this project: the path of its folder. Symbolic links are followed.' },
+      { flag: '--until', value: 'settled', description: 'End the stream when the run named with `--run` settles, stops or stalls. Needs `--run`.' },
+      { flag: '--raw', description: "Print the desk's own notifications unchanged, between `hello` and `end`. Their format is not stable: it changes as the desk grows." },
+    ],
+    json: [
+      "One object per line, each with `v` (the format's version, 1), `type` and `at` (an ISO time). It opens with `hello` and closes with `end`. Ignore any `type` you do not know, and any field you do not need.",
+      '',
+      '- `hello`: `desk`, `hostVersion`, `protocolVersion`, `tiers`.',
+      '- `run.changed`: `run`, `team`, `flow`, `state` (`running`, `settled`, `stopped` or `stalled`), `round`, `reason`.',
+      '- `card.changed`: `team`, `card`, `role`, `state`, `outcome`, `title`; sometimes `seat` and `since`.',
+      '- `seat.changed`: `team`, `seat`, `role`, `card`, `state` (`working`, `waiting` or `idle`), `doing`; sometimes `since`.',
+      "- `review.changed`: `team`, `run` and one review round's publication: `round`, `cards`, `state`, `reason`, `pr`.",
+      '- `team.changed`: `team`, `activity`, `sentence`.',
+      '- `waiting` and `waiting.cleared`: `id`, `team`, `kind` (`card`, `question` or `approval`), `card` or `seat`, `summary`. The same `id` clears the item it raised.',
+      '- `notice`: `team`, `text`.',
+      '- `gap`: `reason`. The connection dropped and came back, or the subscription changed; the whole current state follows, so a reader can start over.',
+      '- `end`: `reason` (`interrupted`, `until`, `desk-closed` or `error`).',
+      '',
+      "With `--raw` the desk's own notifications are printed between `hello` and `end` instead.",
+    ].join('\n'),
+    exits: {
+      0: 'The stream ended: `--until` was reached, or the desk closed.',
+      130: 'Interrupted with Ctrl-C. The final `end` line is written first.',
+      143: 'Terminated. The final `end` line is written first.',
+    },
+  },
+  {
+    name: 'open', tier: 'run', methods: ['workspace/open'], flags: ['target'], execute: openProject,
+    usage: 'open <path>',
+    description: "Opens a folder as a project on the desk, as opening it in the app does, so its flows and Teams can work in it. Prints the project's path and name.",
+    arguments: [{ name: 'path', description: 'The folder to open. Symbolic links are followed.' }],
+    options: [],
+    json: 'The project as the desk records it: `path`, `name`, `lastOpenedAt` and, for a Git folder, its repository facts.',
+    exits: { 0: 'Opened.' },
+  },
+  {
+    name: 'flows', tier: 'read', methods: ['flow/catalog'], flags: ['project'], execute: flows,
+    usage: 'flows [--project PATH]',
+    description: "Lists the flows a project offers, with where each comes from and any problem in it. A flow is a file that says who does what, and in which order. For each one it prints its id, whether it comes from the project, from you or from the app, and any problem the desk found in it.",
+    arguments: [],
+    options: [{ flag: '--project', value: 'PATH', description: 'The project to list: the path of its folder. Defaults to the Git repository containing the current folder.' }],
+    json: 'A single object, `{ "flows": [...] }`. Each flow has `id`, `origin` (`project`, `user` or `builtin`), `path`, `name`, `description` and `problem`.',
+    exits: { 0: 'Done.', 2: 'Not inside a Git repository, and no `--project`.' },
+  },
+  {
+    name: 'flow preview', tier: 'read', methods: ['flow/source', 'flow/preview'], flags: ['target', 'project', 'title', 'briefFile', 'input', 'seat', 'unattended'], execute: previewFlow,
+    usage: 'flow preview <flow> [--project PATH] [--title TEXT] [--brief-file PATH] [--input NAME=VALUE] [--seat ROLE=RUNTIME] [--unattended]',
+    description: "Says what a flow would do, without doing it or spending anything. It lists the seats the flow would open (with any override beside the file's own), the check commands it would run, and everything wrong with it. A preview opens no session, spends nothing and starts nothing, so it is free to repeat. Warnings stay visible and do not stop a start.",
+    arguments: [FLOW_ARGUMENT],
+    options: FLOW_OPTIONS,
+    json: "The preview exactly as the desk returns it: `token` (what a start redeems; `null` when the flow has an error a start could not get past), `attended`, `overrides`, `compiled`, `seats`, `commands`, `guards`, `messaging` and `problems`.",
+    exits: {
+      0: 'The flow can be started.',
+      2: 'The flow has no such input. The inputs it declares are listed.',
+      4: 'The preview has errors, or no token to start with. The problems are printed.',
+    },
+  },
+  {
+    name: 'flow start', tier: 'run', methods: ['flow/source', 'flow/preview', 'flow/start-goal'], flags: ['target', 'project', 'title', 'briefFile', 'input', 'seat', 'unattended', 'yes'], execute: startFlow,
+    usage: 'flow start <flow> [--project PATH] [--title TEXT] [--brief-file PATH] [--input NAME=VALUE] [--seat ROLE=RUNTIME] [--unattended] [--yes]',
+    description: "Starts a Team running a flow, after showing a preview. It previews first, then on a terminal asks `Start this Flow? [y/N]`; `--yes` answers for you, and is needed when there is no terminal. Prints the new run and its Team. Starting spends: the flow's seats run commands, within their ceilings.",
+    arguments: [FLOW_ARGUMENT],
+    options: [...FLOW_OPTIONS, YES_OPTION],
+    json: '`{ "run": "<run id>", "team": "<Team id>" }` on stdout. The preview and the confirmation prompt go to stderr, so a pipe sees only this.',
+    exits: {
+      0: 'Started.',
+      2: 'There is no terminal and no `--yes`, or the flow has no such input.',
+      4: 'The preview has errors or no token to start with, or you answered no.',
+    },
+  },
+  {
+    name: 'run show', tier: 'read', methods: ['flow/execution'], flags: ['target'], execute: showRun,
+    usage: 'run show <run>',
+    description: 'Shows one run in full: its state, rounds and cards, and why it ended. It prints whether the run is attended or unattended, each round with its role, state and the cards it opened, the reason it ended if it has, and any seat overrides it was started with.',
+    arguments: [RUN_ARGUMENT],
+    options: [],
+    json: "The run exactly as the desk holds it: `id`, `goal` (the Team's id), `state`, `attended`, `rounds`, `reason`, `overrides` and the flow's own `document`.",
+    exits: { 0: 'Done.' },
+  },
+  {
+    name: 'run stop', tier: 'run', methods: ['flow/execution/stop'], flags: ['target', 'reason', 'yes'], execute: stopRun,
+    usage: 'run stop <run> --reason TEXT [--yes]',
+    description: "Stops a run and interrupts its seats, without opening the next card. It ends the run's current round and fires no rule, so no reviewer or fixer card opens afterwards. The run then reads stopped, by you, with your reason. Stopping a run that has already ended answers with that run unchanged. On a terminal it asks `Stop this run? [y/N]`; `--yes` answers for you, and is needed when there is no terminal.",
+    arguments: [RUN_ARGUMENT],
+    options: [{ flag: '--reason', value: 'TEXT', description: 'Why the run is stopped. Required, and recorded with the run.' }, YES_OPTION],
+    json: 'The stopped run: the object `run show` prints.',
+    exits: {
+      0: 'Stopped, or it had already ended.',
+      2: 'There is no terminal and no `--yes`.',
+      4: 'You answered no, or the desk refused.',
+    },
+  },
+  {
+    name: 'run wait', tier: 'read', methods: ['client/subscribe', 'flow/execution'], flags: ['target', 'timeout'], execute: waitRun,
+    usage: 'run wait <run> [--timeout SECONDS]',
+    description: 'Waits for a run to end, without polling, and says how it ended in its exit code. A run that has already ended answers at once. A run that is waiting for you, on a person card or a question from one of its seats, also ends the wait.',
+    arguments: [RUN_ARGUMENT],
+    options: [{ flag: '--timeout', value: 'SECONDS', description: 'Give up after this many seconds, counted from when the command starts, and exit 8. Any finite number from 0 up; leave it out to wait without a deadline.' }],
+    json: '`{ "run": "<run id>", "state": "<state>", "reason": "<reason>" }`. `state` is `null` when the timeout or a signal came before the desk had answered, and `reason` is `null` when the run has none.',
+    exits: {
+      0: 'The run settled.',
+      5: 'The run is waiting for a person: an open person card, or a question from one of its seats.',
+      7: 'The run ended stopped or stalled.',
+      8: 'The timeout passed first.',
+      130: 'Interrupted with Ctrl-C.',
+      143: 'Terminated.',
+    },
+  },
+  {
+    name: 'card show', tier: 'read', methods: ['goal/read'], flags: ['team', 'card'], execute: showCard,
+    usage: 'card show <team> <card>',
+    description: "One card on a Team's board: its role, state, outcome, note and handoff. The handoff is what the card's worker left for whoever picks the work up next.",
+    arguments: [TEAM_ARGUMENT, CARD_ARGUMENT],
+    options: [],
+    json: 'The card as the board holds it: `id`, `title`, `state`, `role`, `outcome`, `note`, `handoff` and more.',
+    exits: { 0: 'Done.', 4: 'The Team has no such card.' },
+  },
+  {
+    name: 'card handoff', tier: 'read', methods: ['goal/read'], flags: ['team', 'card'], execute: handoffCard,
+    usage: 'card handoff <team> <card>',
+    description: "Prints a card's handoff text and nothing else, so it can go down a pipe. Line breaks are kept; control characters are removed.",
+    arguments: [TEAM_ARGUMENT, CARD_ARGUMENT],
+    options: [],
+    json: '`{ "handoff": "<text>" }`.',
+    exits: { 0: 'Printed.', 1: 'The card has no handoff. One line on stderr says so.', 4: 'The Team has no such card.' },
+  },
+  {
+    name: 'card answer', tier: 'answer', action: 'done', methods: ['team/intent'], flags: ['team', 'card', 'outcome', 'contextFile'], execute: answerCard,
+    usage: 'card answer <team> <card> <outcome> [--context-file PATH|-]',
+    description: "Answers a card a flow addressed to a person, with one of its role's outcomes. You give an outcome the card's role declares, and optionally the context to go with it. The run moves on from there, and the Team's channel shows the answer as given from the command line. The first answer wins: a card that has been answered cannot be answered again. The desk grants this only when Settings › Permissions › Let command-line clients answer for me is on; a scripted desk can set `HARNESSDESK_CLIENTS_MAY_ANSWER=1` in its environment instead.",
+    arguments: [TEAM_ARGUMENT, CARD_ARGUMENT, { name: 'outcome', description: "One of the outcomes the card's role declares in the flow." }],
+    options: [{ flag: '--context-file', value: 'PATH|-', description: 'Context to send with the answer, read from this file or from standard input with `-`. There is no argument for it on the command line itself.' }],
+    json: '`{ "team": "<Team id>", "card": <number>, "outcome": "<outcome>" }`.',
+    exits: {
+      0: 'Answered.',
+      4: "Refused: the card is not addressed to a person, the outcome is not one its role declares, the card was already answered (`alreadyAnswered`), or the desk does not grant answers (`tierNotGranted`). The desk's code is printed on stderr.",
+    },
+  },
+  {
+    name: 'card abandon', tier: 'run', action: 'abandon', methods: ['goal/read', 'flow/executions', 'flow/execution', 'team/intent'], flags: ['team', 'card', 'reason', 'yes'], execute: abandonCard,
+    usage: 'card abandon <team> <card> --reason TEXT [--yes]',
+    description: "Abandons a card, though the rule after its role still fires. That rule may open the next role's card: before it asks, the command says which role that would be, and points to `run stop` as the way to end the work instead. On a terminal it asks `Abandon this card? [y/N]`; `--yes` answers for you, and is needed when there is no terminal.",
+    arguments: [TEAM_ARGUMENT, CARD_ARGUMENT],
+    options: [{ flag: '--reason', value: 'TEXT', description: 'Why the card is abandoned. Required, and recorded with the card.' }, YES_OPTION],
+    json: '`{ "role": "<the abandoned card\'s role>", "nextRole": "<the role that opened next>" }`; either is `null` when there is none.',
+    exits: {
+      0: 'Abandoned.',
+      2: 'There is no terminal and no `--yes`.',
+      4: 'You answered no, or the desk refused.',
+    },
+  },
+  {
+    name: 'waiting', tier: 'read', methods: ['client/subscribe'], flags: ['watch'], execute: waiting,
+    usage: 'waiting [--watch]',
+    description: 'Everything waiting for a person: person cards, questions from seats and tool approvals. It only reads: it answers none of them, and approvals and questions are answered in the app. Each item has an id that stays the same, and clears under the same id.',
+    arguments: [],
+    options: [{ flag: '--watch', description: 'Keep going: print `waiting` and `waiting.cleared` events, between `hello` and `end`, until interrupted.' }],
+    json: 'A single object, `{ "waiting": [...] }`, each item with `id`, `team`, `kind` (`card`, `question` or `approval`), `card` or `seat`, and `summary`. With `--watch`, one event per line instead, as `watch` prints them.',
+    exits: {
+      0: 'Done.',
+      130: 'Interrupted with Ctrl-C (with `--watch`).',
+      143: 'Terminated (with `--watch`).',
+    },
+  },
 ] as const satisfies readonly Command[]
 
 class UsageError extends Error {}
-function usage(reason: string): never { throw new UsageError(`Usage: ${reason}\nharnessdesk <desks|status|teams|runs|watch|open|flows|flow preview|flow start|run show|run stop|run wait|card show|card handoff|card answer|card abandon|waiting> [--home DIR] [--json] [--trace-wire]`) }
-const globals = ['home', 'json', 'traceWire']
+/** The second line of every usage message: the command line's own, and the same each time. */
+const USAGE_LINE = 'harnessdesk <desks|status|teams|runs|watch|open|flows|flow preview|flow start|run show|run stop|run wait|card show|card handoff|card answer|card abandon|waiting> [--home DIR] [--json] [--trace-wire]'
+// The reason is one line, whatever it was made of: it can carry a name the person typed, or one a flow file declared.
+function usage(reason: string): never { throw new UsageError(`Usage: ${sanitizeHuman(reason)}`) }
+/** The flags every command takes, as the keys the parser stores them under. */
+export const GLOBAL_FLAG_KEYS: readonly string[] = ['home', 'json', 'traceWire']
 const switches = new Set(['json', 'all', 'raw', 'traceWire', 'unattended', 'yes', 'watch'])
-const names: Readonly<Record<string, keyof Arguments>> = { '--home': 'home', '--json': 'json', '--trace-wire': 'traceWire', '--project': 'project', '--team': 'team', '--run': 'run', '--all': 'all', '--raw': 'raw', '--until': 'until', '--title': 'title', '--brief-file': 'briefFile', '--input': 'input', '--seat': 'seat', '--unattended': 'unattended', '--yes': 'yes', '--timeout': 'timeout', '--reason': 'reason', '--context-file': 'contextFile', '--watch': 'watch' }
+/** Every flag's spelling, and the key the parser stores it under. */
+export const FLAG_KEYS: Readonly<Record<string, keyof Arguments>> = { '--home': 'home', '--json': 'json', '--trace-wire': 'traceWire', '--project': 'project', '--team': 'team', '--run': 'run', '--all': 'all', '--raw': 'raw', '--until': 'until', '--title': 'title', '--brief-file': 'briefFile', '--input': 'input', '--seat': 'seat', '--unattended': 'unattended', '--yes': 'yes', '--timeout': 'timeout', '--reason': 'reason', '--context-file': 'contextFile', '--watch': 'watch' }
 
 export function parseArgs(argv: readonly string[]): Arguments {
   const result: Record<string, string | boolean | string[]> = {}
@@ -77,7 +293,7 @@ export function parseArgs(argv: readonly string[]): Arguments {
       else usage(`Unexpected argument ${arg}`)
       continue
     }
-    const key = names[arg]
+    const key = FLAG_KEYS[arg]
     if (!key) usage(`Unknown flag ${arg}`)
     if (key !== 'input' && key !== 'seat' && Object.hasOwn(result, key)) usage(`Repeated flag ${arg}`)
     if (switches.has(key)) result[key] = true
@@ -91,7 +307,7 @@ export function parseArgs(argv: readonly string[]): Arguments {
   const command = COMMANDS.find(command => command.name === result['command'])
   if (!command) usage('Choose a command: ' + COMMANDS.map(command => command.name).join(', '))
   for (const key of Object.keys(result)) {
-    if (key !== 'command' && !globals.includes(key) && !(command.flags as readonly string[]).includes(key)) usage(`--${key} is not available on ${command.name}`)
+    if (key !== 'command' && !GLOBAL_FLAG_KEYS.includes(key) && !(command.flags as readonly string[]).includes(key)) usage(`--${key} is not available on ${command.name}`)
   }
   if (['team', 'run', 'project'].filter(key => result[key] !== undefined).length > 1) usage('Choose only one of --team, --run, --project')
   if ((command.flags as readonly string[]).includes('target') && !result['target']) usage(`${command.name} requires a target`)
@@ -111,6 +327,28 @@ export function sanitizeHuman(value: string): string {
     .replace(/(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]/g, '')
     .replace(/\x1b[ -/]*[0-~]/g, '')
     .replace(/[\x00-\x1f\x7f-\x9f]/g, '')
+}
+
+/** What marks every line of a message but the first, so that no line of it can pass for one the command line wrote. */
+const CONTINUATION = '  | '
+
+/**
+ * What is printed for a failure.
+ *
+ * A usage message is the command line's own, and it is the only one that is two
+ * lines: its reason is one line and its second line is a constant. Any other
+ * message is not the command line's to vouch for: a desk's, with whatever an
+ * agent put in it, or the system's naming a path an agent chose. It is cleaned
+ * a line at a time and every line after the first is marked, so it keeps its
+ * shape (a validation that lists three problems is three lines) and none of it
+ * can pass for a line of ours, such as a usage line or an error code.
+ */
+export function errorText(error: unknown): string {
+  if (error instanceof UsageError) return `${error.message}\n${USAGE_LINE}`
+  // The desk's code is part of the first line, whatever it was made of.
+  const code = error instanceof WireCallError ? `${sanitizeHuman(error.code)}: ` : ''
+  const [first = '', ...rest] = (error instanceof Error ? error.message : String(error)).split('\n').map(sanitizeHuman)
+  return [`${code}${first}`, ...rest.map(line => `${CONTINUATION}${line}`)].join('\n')
 }
 
 export function errorExit(error: unknown): number {
@@ -299,8 +537,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     const args = parseArgs(argv)
     return await COMMANDS.find(command => command.name === args.command)!.execute(args)
   } catch (error) {
-    const code = error instanceof WireCallError ? `${error.code}: ` : ''
-    process.stderr.write(sanitizeHuman(code + (error instanceof Error ? error.message : String(error))) + '\n')
+    process.stderr.write(errorText(error) + '\n')
     return errorExit(error)
   }
 }

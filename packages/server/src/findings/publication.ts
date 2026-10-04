@@ -1144,8 +1144,11 @@ export class Publications implements FindingPublisher {
     const snapshot = this.#port.run(run)
     if (!snapshot) return []
     const facts = await this.#port.facts(snapshot.goal)
+    const ledger = await this.#port.ledger(await this.#port.projectOf(snapshot.goal))
     const reviewed = new Set(facts.filter((one) => one.record.fact.kind === 'review' && one.record.card?.board === snapshot.goal)
       .map((one) => one.record.card!.id))
+    const findings = new Set(ledger.records.filter((one) => one.fact.kind === 'finding' && one.card?.board === snapshot.goal
+      && ['raise', 'repair', 'verdict'].includes(one.finding?.event.kind ?? '')).map((one) => one.card!.id))
     // A snapshot read also works inside the run's own decision queue.
     const stored = this.#port.snapshot(run)
     const entries = Object.values(stored?.ops ?? {})
@@ -1153,7 +1156,9 @@ export class Publications implements FindingPublisher {
       const decision = stored?.rounds[String(one.n)]
       if (!decision && !one.cards.some((card) => reviewed.has(card))) return []
       const operations = entries.filter((entry) => entry.round === one.n)
-      const state = decision ? this.#publicationState(operations) : 'none'
+      // Every closed role has a release decision, including roles with nothing to publish.
+      const hasPublication = operations.length > 0 || one.cards.some((card) => reviewed.has(card) || findings.has(card))
+      const state = decision && hasPublication ? this.#publicationState(operations) : 'none'
       return [{ round: one.n, state,
         reason: operations.find((entry) => entry.state !== 'posted' && entry.reason !== null)?.reason ?? decision?.reason ?? null,
         pr: decision?.pr ?? null, cards: one.cards }]

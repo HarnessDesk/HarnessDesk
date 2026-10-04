@@ -219,7 +219,7 @@ it('a project with no Agents of its own says how to give it one', async () => {
 it('the sidebar’s project menu opens the project’s page', () => {
   const { store } = mount(
     <WorkspaceMenu
-      group={{ root: STOREFRONT.path, name: 'storefront', sessions: [], updatedAt: 0 }}
+      group={{ root: STOREFRONT.path, name: 'storefront', sessions: [], updatedAt: 0, folders: [STOREFRONT.path] }}
       current={false}
       actualRoot={STOREFRONT.path}
       at={{ x: 10, y: 10 }}
