@@ -102,6 +102,7 @@ const mount = (
     activeRuntime: runtime.id,
     runtimes: [runtime],
     history,
+    historyIdentity: history,
     workspace: workspace(WIDGETS),
     workspaces: [workspace(WIDGETS)],
     ...over,
