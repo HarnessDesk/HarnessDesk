@@ -376,8 +376,10 @@ When a merge is in progress, Git requires a commit of the whole index rather
 than a pathspec. `commit_work` concludes the resolved merge with both parents,
 without staging any more work. It refuses before writing when any path still
 has conflicts or a staged path was already dirty at the claim, naming those
-files so the person's own edits cannot enter the merge. The message,
-attribution, identity and hardened Git configuration are the same as for an
+files so the person's own edits cannot enter the merge. An untracked directory
+at claim protects its descendants, and a rename's literal source is checked
+against the saved display spelling, including quoted names and literal arrows.
+The message, attribution, identity and hardened Git configuration are the same as for an
 ordinary card commit. (#1351)
 
 Git the host runs on its own in a checkout an agent can write — evidence

@@ -192,6 +192,36 @@ const displayPath = (line: string): string => {
   return arrow === -1 ? rest : rest.slice(arrow + 4)
 }
 
+/** Compare literal paths to the display spelling stored by existing claim snapshots. */
+const dirtyAtClaim = (path: string, seen: ReadonlySet<string>): boolean => {
+  const escapes: Readonly<Record<string, string>> = {
+    '\x07': '\\a', '\b': '\\b', '\t': '\\t', '\n': '\\n', '\v': '\\v', '\f': '\\f', '\r': '\\r',
+    '"': '\\"', '\\': '\\\\',
+  }
+  // Include directory ancestors: an untracked directory at claim protects all
+  // its children, but never a sibling whose name merely shares the prefix.
+  const paths = [path]
+  for (let at = path.indexOf('/'); at !== -1; at = path.indexOf('/', at + 1)) paths.push(path.slice(0, at + 1))
+  // Accept either core.quotePath setting, including a change since claim.
+  return paths.some((literal) => [true, false].some((quoteHighBytes) => {
+    let quoted = false
+    let text = ''
+    for (const char of literal) {
+      const code = char.codePointAt(0)!
+      if (escapes[char] !== undefined || code < 32 || code === 127 || (quoteHighBytes && code > 127)) {
+        quoted = true
+        text += escapes[char] ?? [...Buffer.from(char)].map((byte) => `\\${byte.toString(8).padStart(3, '0')}`).join('')
+      } else {
+        if (char === ' ') quoted = true
+        text += char
+      }
+    }
+    // revisionAt's historical display parser also trims a literal arrow.
+    // Reproduce that spelling from one literal path, never split a rename.
+    return seen.has(displayPath(`   ${quoted ? `"${text}"` : text}`))
+  }))
+}
+
 /** `git status --porcelain=v1 -z` as entries: the path, and a rename's or copy's source. */
 const zEntries = (out: string): { readonly status: string; readonly path: string; readonly from: string | null }[] => {
   const fields = out.split('\0')
@@ -249,13 +279,12 @@ export const commitCardWork = async (cwd: string, before: readonly string[], mes
     if (conflicts.length) {
       return { refused: `Refused: these files still have conflicts: ${conflicts.join(', ')}, so nothing was committed.` }
     }
-    const stagedBefore = shown.filter((path, index) => {
-      const entry = entries[index]!
+    const stagedBefore = entries.filter((entry, index) => {
       const staged = entry.status[0] !== ' ' && entry.status[0] !== '?'
       // A staged rename must not hide a pre-card edit under a new name.
-      const source = entry.from ? lines[index]!.slice(3).split(' -> ')[0]! : null
-      return staged && (seen.has(path) || (source !== null && seen.has(source)))
-    })
+      return staged && (seen.has(shown[index]!) || dirtyAtClaim(entry.path, seen)
+        || (entry.from !== null && dirtyAtClaim(entry.from, seen)))
+    }).map((entry) => entry.path)
     if (stagedBefore.length) {
       return { refused: `Refused: these files were already dirty when this card was claimed and are staged: ${stagedBefore.join(', ')}, so the merge would commit the person’s own edits.` }
     }

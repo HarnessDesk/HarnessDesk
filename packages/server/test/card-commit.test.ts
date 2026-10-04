@@ -154,6 +154,49 @@ test('commit_work refuses a merge with pre-card edits staged in its index', asyn
   assert.equal(await exists(join(root, '.git', 'MERGE_HEAD')), true)
 })
 
+test('commit_work refuses staged children of a pre-card untracked directory during a merge', async (t) => {
+  for (const directory of ['drafts', 'drafts with spaces', 'drafts -> café']) {
+    await t.test(directory, async (t) => {
+      const root = await repo(t)
+      await conflictingMerge(root)
+      await mkdir(join(root, directory, 'nested'), { recursive: true })
+      const path = `${directory}/nested/private.txt`
+      await writeFile(join(root, path), 'person’s draft\n')
+      const before = await snapshot(root)
+      assert.equal(before.length, 1, 'the claim names the directory, not its children')
+      await assert.rejects(git(root, 'merge', '--no-edit', 'incoming'))
+      await writeFile(join(root, 'shared.txt'), 'resolved\n')
+      await git(root, 'add', 'shared.txt', path)
+      const head = await git(root, 'rev-parse', 'HEAD')
+      const index = await git(root, 'ls-files', '--stage')
+
+      assert.deepEqual(await commitCardWork(root, before, 'Conclude the merge'), {
+        refused: `Refused: these files were already dirty when this card was claimed and are staged: ${path}, so the merge would commit the person’s own edits.`,
+      })
+      assert.equal(await git(root, 'rev-parse', 'HEAD'), head)
+      assert.equal(await git(root, 'ls-files', '--stage'), index)
+      assert.equal(await exists(join(root, '.git', 'MERGE_HEAD')), true)
+    })
+  }
+})
+
+test('commit_work allows a staged sibling of a pre-card untracked directory during a merge', async (t) => {
+  const root = await repo(t)
+  const parents = await conflictingMerge(root)
+  await mkdir(join(root, 'drafts'))
+  await writeFile(join(root, 'drafts', 'private.txt'), 'person’s draft\n')
+  const before = await snapshot(root)
+  await assert.rejects(git(root, 'merge', '--no-edit', 'incoming'))
+  await writeFile(join(root, 'shared.txt'), 'resolved\n')
+  await writeFile(join(root, 'drafts-public.txt'), 'card’s notes\n')
+  await git(root, 'add', 'shared.txt', 'drafts-public.txt')
+
+  const done = await commitCardWork(root, before, 'Conclude the merge')
+  assert.ok('commit' in done, JSON.stringify(done))
+  assert.deepEqual((await git(root, 'log', '-1', '--format=%P')).trim().split(' '), parents)
+  assert.equal(await git(root, 'status', '--porcelain=v1'), '?? drafts/\n')
+})
+
 test('commit_work refuses a merge when a pre-card edit was staged under a renamed path', async (t) => {
   const root = await repo(t)
   await conflictingMerge(root)
@@ -172,6 +215,40 @@ test('commit_work refuses a merge when a pre-card edit was staged under a rename
     refused: 'Refused: these files were already dirty when this card was claimed and are staged: renamed.txt, so the merge would commit the person’s own edits.',
   })
   assert.equal(await git(root, 'ls-files', '--stage'), index)
+})
+
+test('commit_work refuses renamed pre-card edits with literal arrows and Git quoting in their names', async (t) => {
+  for (const quotePath of ['true', 'false']) {
+    for (const source of ['a -> b.txt', 'a -> b -> café.txt', 'a "quote"\\tab\tline\n.txt']) {
+      await t.test(`${quotePath}: ${JSON.stringify(source)}`, async (t) => {
+        const root = await repo(t)
+        await conflictingMerge(root)
+        await git(root, 'config', 'core.quotePath', quotePath)
+        await git(root, 'mv', 'a.txt', source)
+        await writeFile(join(root, source), 'one\ntwo\nthree\nfour\nfive\n')
+        await git(root, 'add', source)
+        await git(root, 'commit', '-q', '-m', 'prepare the named file')
+        await writeFile(join(root, source), 'one\ntwo\nthree\nfour\nedited\n')
+        const before = await snapshot(root)
+        await assert.rejects(git(root, 'merge', '--no-edit', 'incoming'))
+        await writeFile(join(root, 'shared.txt'), 'resolved\n')
+        await git(root, 'add', 'shared.txt')
+        await git(root, 'mv', source, 'final.txt')
+        await git(root, 'add', 'final.txt')
+        assert.ok((await git(root, 'status', '--porcelain=v1', '-z')).includes(`R  final.txt\0${source}\0`),
+          'Git recognized the edited file as a rename')
+        const head = await git(root, 'rev-parse', 'HEAD')
+        const index = await git(root, 'ls-files', '--stage')
+
+        assert.deepEqual(await commitCardWork(root, before, 'Conclude the merge'), {
+          refused: 'Refused: these files were already dirty when this card was claimed and are staged: final.txt, so the merge would commit the person’s own edits.',
+        })
+        assert.equal(await git(root, 'rev-parse', 'HEAD'), head)
+        assert.equal(await git(root, 'ls-files', '--stage'), index)
+        assert.equal(await exists(join(root, '.git', 'MERGE_HEAD')), true)
+      })
+    }
+  }
 })
 
 test('commit_work concludes a resolved merge even when its index matches HEAD', async (t) => {
