@@ -9,6 +9,15 @@ move is real work and is not news to a person weighing an upgrade.
 
 HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
 
+- **The command line now ships inside the app.** HarnessDesk › Install
+  command-line tool… puts a `harnessdesk` command on your PATH, in a folder you
+  own, so a terminal or a script can list Teams and runs, start a flow, watch
+  it, stop it and answer the cards it addressed to you. It runs on the app's own
+  runtime, needs no separate Node install and no password, never replaces a
+  `harnessdesk` it did not put there, and keeps working when the app is updated
+  or moved; choosing the item again offers to remove it. `docs/cli.md` lists
+  every command, its `--json` shape and its exit codes.
+
 - **A Seat's commit stays yours.** The desk adds its co-author credit once
   when it commits a card's work, using your configured author and committer
   identity. An agent no longer has to remember the credit, and commits you
