@@ -1033,7 +1033,7 @@ A selected row takes the inspector's fill. Historical Runs, including those
 started by triggers, are restored from the host and can be selected beside
 the header, and an observed pull request opens from it.
 
-The Run header, Overview strip, end banner and Findings summary show the Run's
+The Run header, Overview strip and Findings summary show the Run's
 publication once at each surface. A review row shows only its recorded round:
 **Posted to #n**, **Waiting to post**, **Partly posted**, **Not confirmed**,
 **Not posted** when posting is on for a bound pull request, or **Kept on the desk**.
@@ -1043,7 +1043,9 @@ Posting is enabled only for the host's waiting item or stamped earlier-round
 preview; earlier rounds require confirmation. A refusal stays visible, and
 changed findings refresh the reads. Nothing posts without a press.
 
-An ended Run has a banner above its end row. Finished work offers **Wrap**;
+An ended Run keeps its reason, time and next actions together in one End summary.
+Status and aggregate publication stay in the Run header; the ending uses a warning
+only when a consequence needs attention. Finished work offers **Wrap**;
 an answer no rule follows offers **Run again…** and **Board**; a person or desk
 stop offers **Run again…**. An interrupted check keeps **Review and run again…**
 and its recorded reason. A spent budget names the limit and how many rounds
