@@ -26,7 +26,7 @@ it('keeps partial answers, retained lanes and gaps explicit while escaping hosti
   expect(container.textContent).toContain('Partial · cancelled')
   expect(container.textContent).toContain('Dirty checkout retained')
   expect(container.textContent).toContain('Spend was not recorded.')
-  expect(container.textContent).toContain('As recorded when wrapped')
+  expect(container.textContent).toContain('this page shows the Team as it was then')
   expect(container.querySelector('input, select, textarea')).toBeNull()
 })
 
@@ -51,14 +51,14 @@ it('a trigger Goal’s receipt keeps its origin and exact stop reason; an ordina
 
 it('an old receipt with no findings field never claims none were found', () => {
   act(() => root.render(<GoalReceipt receipt={baseReceipt} root="/repo" />))
-  expect(container.textContent).toContain('Findings were not recorded.')
-  expect(container.textContent).not.toContain('No findings recorded.')
+  expect(container.textContent).toContain('Not recorded')
+  expect(container.textContent).not.toContain('None')
 })
 
 it('an explicitly empty version-1 receipt says so, distinctly from an old one', () => {
   const receipt = { ...baseReceipt, findings: { version: 1, evidence: [], findings: [], overrides: [] } } as unknown as Receipt
   act(() => root.render(<GoalReceipt receipt={receipt} root="/repo" />))
-  expect(container.textContent).toContain('No findings recorded.')
+  expect(container.textContent).toContain('None')
   expect(container.textContent).not.toContain('were not recorded')
 })
 
@@ -207,4 +207,26 @@ it('falls back to the raw id when a receipt predates the members it would need t
   expect(text).toContain('seat-1')
   expect(text).toContain('fact-1')
   expect(text).toContain('Recorded evidence ID')
+})
+
+it('renders labelled card groups, titled work and speaker-led prose with old-card fallbacks', () => {
+  const receipt = { ...baseReceipt,
+    cards: [{ id: 1, title: 'Bound the retry', seat: 'seat-1', resolution: 'finished', reason: null }, { id: 2, resolution: 'dropped', reason: 'Out of scope' }],
+    members: [{ seat: 'seat-1', agent: 'Alpha', seatLabel: 'Alpha', role: 'Writer' }],
+    answers: [{ seat: 'seat-1', session: { runtime: 'fake', sessionId: 'one' }, turn: null, text: 'Checked the retry budget.', partial: true, stopReason: 'interrupted' }],
+  } as unknown as Receipt
+  act(() => root.render(<GoalReceipt receipt={receipt} root="/repo" />))
+  expect(container.textContent).not.toContain('As recorded when wrapped')
+  const summary = [...container.querySelectorAll('[data-slot="rows"]')].find(one => one.textContent === 'Finished.')
+  expect(summary).toBeTruthy()
+  expect(container.textContent).toContain('Bound the retry')
+  expect(container.textContent).toContain('Dropped')
+  expect(container.textContent).toContain('Out of scope')
+  const answer = [...container.querySelectorAll('[data-slot="row"]')].find(one => one.textContent?.includes('Checked the retry budget.'))!
+  expect(answer.querySelector('[data-slot="row-title"]')?.textContent).toContain('Alpha')
+  expect(answer.querySelector('[data-slot="row-title"]')?.textContent).toContain('Writer')
+  expect(answer.querySelector('code')).toBeNull()
+  expect(answer.querySelector('[data-slot="row-ctl"]')).toBeNull()
+  expect(answer.textContent).toContain('Partial · interrupted')
+  expect(container.textContent).not.toContain('Alpha · Alpha')
 })

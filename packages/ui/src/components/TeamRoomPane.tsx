@@ -961,6 +961,7 @@ export const TeamRoomPane = ({
   const needsYou = personWaits.length > 0 || goal?.activity === 'needs-you' || flowExecution?.state === 'stalled' || flowExecution?.end?.kind === 'unrouted' || flowExecution?.end?.kind === 'budget'
   const runState: { readonly label: string; readonly tone: Tone; readonly pulse: boolean } | null = !goal
     ? null
+    : record ? { label: 'Wrapped', tone: 'success', pulse: false }
     : pendingApproval || needsYou
       ? { label: 'Needs you', tone: 'warning', pulse: true }
       : goal.goal.state === 'wrapped' || goal.goal.state === 'wrapping' || flowExecution?.state === 'settled'
@@ -1081,7 +1082,7 @@ export const TeamRoomPane = ({
               >
                 {folderName(root)}
               </span>
-              {peers !== null && ' · '}
+              {(record ? goal?.receipt : peers !== null) && ' · '}
             </>
           )}
           {/* One presence fact, not three. Who is working is the thread's own
@@ -1089,14 +1090,14 @@ export const TeamRoomPane = ({
               only who is here — and two numbers when they differ, because
               after a relaunch the room is intact and nothing is warm yet, and
               "2 here" would hide that. */}
-          {peers !== null && (hereCount === roster.length
+          {record && goal?.receipt ? new Date(goal.receipt.wrappedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : peers !== null && (hereCount === roster.length
             ? `${roster.length} here`
             : `${hereCount} of ${roster.length} here`)}
           {/* What this Goal reviews, when it has a subject — a short
               seven-character sha with the full value one hover away, never a
               raw path or ref, or the target's own label alone when it has no
               sha worth pinning (see pinnedAt above). */}
-          {pinnedAt && (
+          {!record && pinnedAt && (
             <>
               {(root || peers !== null) && ' · '}
               <span title={pinnedAt.sha ?? undefined}>
@@ -1163,7 +1164,7 @@ export const TeamRoomPane = ({
               Shown for a Goal a trigger opened exactly as for one a person
               started — `goalActions` disables it on its own terms (waiting
               on a dependency, already wrapped), never on who opened it. */}
-          {goal && (
+          {goal && !record && (
             <span className={styles.barWrapFull}>
               <Button size="sm" disabled={wrapDisabled} title={record ? RECORD_REASON : undefined} onClick={() => setWrapping(true)}>
                 Wrap
@@ -1186,7 +1187,7 @@ export const TeamRoomPane = ({
                       close()
                     }}
                   />
-                  {goal && (
+                  {goal && !record && (
                     <MenuItem
                       label="Wrap…"
                       disabled={wrapDisabled}
@@ -1255,7 +1256,7 @@ export const TeamRoomPane = ({
                 </IconTile>
               }
               title="Board"
-              subtitle={`${intents.filter((one: Intent) => one.state === 'open').length} unclaimed`}
+              subtitle={record ? undefined : `${intents.filter((one: Intent) => one.state === 'open').length} unclaimed`}
               trail={<Text role="meta" numeric className={styles.count}>{intents.length}</Text>}
             />
             <ListRow
@@ -1284,7 +1285,7 @@ export const TeamRoomPane = ({
                 ) : undefined
               }
             />
-            <ListRow
+            {!record && <ListRow
               as="button"
               size="sm"
               nav
@@ -1300,7 +1301,7 @@ export const TeamRoomPane = ({
                 </IconTile>
               }
               trail={grid.tiles.length > 0 ? <Text role="meta" numeric className={styles.count}>{grid.tiles.length}</Text> : undefined}
-            />
+            />}
             {/* A Goal only: a plain conversation keeps no findings ledger, so
                 this room owns no destination for one and reads nothing here. */}
             {goal ? (
@@ -1330,7 +1331,7 @@ export const TeamRoomPane = ({
               appeared. */}
           <NavigationGroupHeader label="Agents">
             <Text role="meta" numeric className={styles.count}>{allSeats.length}</Text>
-            {goal ? <Button
+            {goal && !record ? <Button
               type="button"
               variant="ghost" size="icon-sm" edge="end" edgeGlyph={13} className={styles.railAdd}
               aria-label="Seat an Agent in this Goal"
@@ -1412,8 +1413,12 @@ export const TeamRoomPane = ({
                 single line above them does not, and cost a line of height on
                 every one of them. */}
             {idleShared && <Note ink="muted" className={styles.railEmpty}>None of these agents has used the board yet.</Note>}
-            {unlinked.map(seat => <ListRow key={seat.record.id} size="sm" title={seat.name} subtitle="Conversation not kept" lead={<IconTile shape="face" size="sm"><AgentIcon /></IconTile>} />)}
-            {shown.map((member) => (
+            {unlinked.map(seat => <ListRow key={seat.record.id} size="sm" title={<span title="Conversation not kept">{seat.name}{seat.role && <Text role="muted"> {seat.role}</Text>}</span>} lead={<IconTile shape="face" size="sm"><AgentIcon /></IconTile>} />)}
+            {shown.map((member) => record ? (
+              <ListRow key={member.key} size="sm" nav interactive selected={open === member.key} onClick={() => show(member.key)}
+                lead={<IconTile shape="face" size="sm" tint={member.tint}>{member.brand ? <BrandMark brand={member.brand} size={13} /> : <AgentIcon />}</IconTile>}
+                title={<>{member.peer.nickname}{allSeats.find(seat => seat.key === member.key)?.role && <Text role="muted"> {allSeats.find(seat => seat.key === member.key)?.role}</Text>}</>} />
+            ) : (
               <MemberRow
                 key={member.key}
                 member={member}
@@ -1454,16 +1459,19 @@ export const TeamRoomPane = ({
             </Button>
           </span>
           {open === 'receipt' ? (
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <PaneColumn inset="reading" className="min-h-0 flex-1 overflow-y-auto">
+              <div className="w-full max-w-(--hd-column)">
               {goal?.receipt ? (
                 <>
-                  <GoalReceipt receipt={goal.receipt} root={goal.goal.root} onOpenFinding={setReceiptFinding} />
+                  <GoalReceiptCost receipt={goal.receipt}>
+                    {insight => <GoalReceipt receipt={goal.receipt!} root={goal.goal.root} onOpenFinding={setReceiptFinding} insight={insight} />}
+                  </GoalReceiptCost>
                   <FindingCarry source={goal} />
-                  <GoalReceiptCost receipt={goal.receipt} />
                   {receiptFinding ? <FindingDetail goal={goal.goal.id} finding={receiptFinding} onClose={() => setReceiptFinding(null)} /> : null}
                 </>
               ) : null}
-            </div>
+              </div>
+            </PaneColumn>
           ) : open === 'overview' ? (
             <TeamOverview model={{...overview,seats:[...overview.seats,...unlinked.map(seat => ({seat:seat.record.id,name:seat.name,role:seat.role,card:null,round:null,state:'idle' as const,reason:'Conversation not kept',doing:null,since:null,cost:null,done:false}))]}} unavailable={new Set(unlinked.map(seat=>seat.record.id))} answers={needsYouAnswers} onRun={() => show('run')}
               faces={new Map(seats.map(seat => {

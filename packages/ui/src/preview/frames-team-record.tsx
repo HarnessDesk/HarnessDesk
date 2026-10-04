@@ -25,9 +25,9 @@ export const teamRecordStore = (scene: RecordScene = 'wrapped') => {
  const receipt: GoalReceipt = {
   version:1,id:'receipt-record',goal:goal.goal.id,sentence:goal.goal.sentence,wrappedAt:goal.goal.updatedAt,
   summary:scene==='empty'?'The completed work is kept in this record. No conversations were recorded.':scene==='unlinked'?'The checkout retry was built and reviewed. This older receipt did not keep the conversations.':'The checkout retry was built and reviewed. Both conversations remain part of this record.',
-  cards:goal.board.intents.map(card=>({id:card.id,resolution:'finished',reason:null})),
+  cards:goal.board.intents.map((card,index)=>({id:card.id,resolution:'finished',reason:null,...(scene==='older'||scene==='unlinked'?{}:{title:card.title,...(seats[index]?{seat:seats[index].id}:{})})})),
   seats:[...seats.map(seat=>seat.id),...(scene==='older'?['seat-unlinked']:[]),...(again?[again.seat]:[])],
-  members:[...seats.map(seat=>({seat:seat.id,agent:seat.agent?.name??null,seatLabel:seat.seatLabel,...(scene==='older'||scene==='unlinked'?{}:{session:seat.session})})),
+  members:[...seats.map(seat=>({seat:seat.id,agent:seat.agent?.name??null,seatLabel:seat.seatLabel,...(scene==='older'||scene==='unlinked'?{}:{role:seat.role}),...(scene==='older'||scene==='unlinked'?{}:{session:seat.session})})),
    ...(scene==='older'?[{seat:'seat-unlinked',agent:'Gamma',seatLabel:'Reviewer'}]:[]),
    ...(again?[again]:[])],
   answers:scene==='unlinked'?[]:seats.map(seat=>({seat:seat.id,session:seat.session,turn:null,text:'The change was checked and is ready.',partial:false,stopReason:null})),

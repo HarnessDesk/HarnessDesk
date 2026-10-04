@@ -559,3 +559,23 @@ test('goal/cite keeps phase 5’s reach: any committed document may be cited, an
     'phase 5’s own check still refuses a document that is not there',
   )
 })
+
+test('wrap reads card titles and the historical holder Seat from board signals, including closed Seats', async () => {
+  const proof = await rig()
+  const first = seat('first', { openedAt: 1, closed: { at: 5, why: 'released' } })
+  const again = seat('again', { openedAt: 6, session: first.session })
+  proof.seats.push(first, again)
+  const document = proof.store.read('g1')
+  await proof.store.save({ ...document, goal: { ...document.goal, revision: document.goal.revision + 1 }, board: { ...document.board,
+    intents: [intent(1, { state: 'done', title: 'Bound the retry' })],
+    channel: [{ id: 'completed', kind: 'signal', at: 4, signal: 'completed', intent: 1, title: 'Bound the retry', by: { kind: 'agent', runtime: first.session.runtime as RuntimeId, sessionId: first.session.sessionId, title: 'Alpha' } }],
+  } }, document.goal.revision)
+  const preview = await proof.plane.preview('g1', { summary: 'Checked.', cards: [{ id: 1, resolution: 'finished', reason: null }] })
+  assert.deepEqual(preview.receipt.cards, [{ id: 1, title: 'Bound the retry', seat: 'first', resolution: 'finished', reason: null }])
+  const current = proof.store.read('g1')
+  await proof.store.save({ ...current, goal: { ...current.goal, revision: current.goal.revision + 1 }, board: { ...current.board,
+    intents: [intent(1, { state: 'claimed', title: 'Check the retry again', claim: { runtime: again.session.runtime as RuntimeId, sessionId: again.session.sessionId, at: 7 } })],
+  } }, current.goal.revision)
+  const next = await proof.plane.preview('g1', { summary: 'Kept for later.', cards: [{ id: 1, resolution: 'dropped', reason: 'Deferred' }] })
+  assert.equal(next.receipt.cards[0]!.seat, 'again')
+})

@@ -907,6 +907,11 @@
   padding-inline: calc(var(--hd-border-width) + var(--hd-inset-card));
 }
 
+/* The summary card owns its padding token rather than the Rows inset. */
+.sectionHead:has(+ [data-slot='summary-list']) {
+  padding-inline: calc(var(--hd-border-width) + var(--hd-card-padding));
+}
+
 .sectionHead:first-child {
   margin-top: 0;
 }

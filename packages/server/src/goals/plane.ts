@@ -1123,7 +1123,18 @@ export class GoalPlane {
     ]
     return structuredClone({
       goal: document.goal,
-      cards: (this.port.cards?.(id) ?? document.board.intents).map((card) => ({ id: card.id, state: card.state })),
+      cards: (this.port.cards?.(id) ?? document.board.intents).map((card) => {
+        // Completion clears the claim. The board's last holder signal still
+        // names the conversation and time; resolve its Seat at that time,
+        // rather than a later Seat that reused the same conversation.
+        const signal = [...document.board.channel].reverse().find((entry) => entry.kind === 'signal' && entry.intent === card.id &&
+          ['claimed', 'completed', 'abandoned'].includes(entry.signal) && entry.by.kind === 'agent')
+        const holder = card.claim ?? (signal?.kind === 'signal' && signal.by.kind === 'agent' ? signal.by : null)
+        const at = card.claim?.at ?? signal?.at
+        const matches = holder && at !== undefined ? seats.filter((seat) => seat.session.runtime === holder.runtime &&
+          seat.session.sessionId === holder.sessionId && seat.openedAt <= at && (seat.closed === null || seat.closed.at >= at)) : []
+        return { id: card.id, state: card.state, title: card.title, ...(matches.length === 1 ? { seat: matches[0]!.id } : {}) }
+      }),
       dependencies: this.store.list().map((one) => ({ id: one.goal.id, state: one.goal.state })),
       busy: goalMembers(document, this.port.seats.all()).some((seat) => this.port.busy(seat.session)) ||
         evidence.cards.some((card) => card.running.length > 0),
@@ -1135,7 +1146,7 @@ export class GoalPlane {
       // from `GoalView.members`, which answers `[]` the moment this Goal
       // wraps (see `membersOf`). A receipt read after that has nowhere else
       // to learn a Seat's name from.
-      members: seats.map((seat) => ({ seat: seat.id, agent: seat.agent?.name.trim() || null, seatLabel: seat.seatLabel, session: seat.session })),
+      members: seats.map((seat) => ({ seat: seat.id, agent: seat.agent?.name.trim() || null, seatLabel: seat.seatLabel, ...(seat.role ? { role: seat.role } : {}), session: seat.session })),
       evidence: evidenceRefs.map((ref) => ref.id),
       evidenceSeats: evidenceRefs,
       answers: answersRead.flatMap((read) => read.answer ? [read.answer] : []),

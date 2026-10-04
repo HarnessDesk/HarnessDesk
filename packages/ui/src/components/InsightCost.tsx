@@ -8,6 +8,8 @@ export interface InsightCostProps {
   readonly report: InsightReport | null
   readonly loading: boolean
   readonly problem: string | null
+  /** Receipt presents the total in its Record card. */
+  readonly detailOnly?: boolean
   readonly onRefresh: () => void
   readonly onSeat?: (seat: string) => void
   readonly onSession?: (session: SessionPointer) => void
@@ -28,7 +30,7 @@ const sourceWords = (source: InsightReport['sources'][number]): string => {
 }
 
 /** Shared, deliberately textual accounting presentation: unknown is never formatted as free. */
-export const InsightCost = ({ report, loading, problem, onRefresh, onSeat, onSession, onMessage }: InsightCostProps) => {
+export const InsightCost = ({ report, loading, problem, onRefresh, onSeat, onSession, onMessage, detailOnly = false }: InsightCostProps) => {
   const [dimension, setDimension] = useState<InsightDimension | null>(null)
   const [showSources, setShowSources] = useState(false)
   if (loading) return <Note>Reading recorded usage…</Note>
@@ -40,10 +42,10 @@ export const InsightCost = ({ report, loading, problem, onRefresh, onSeat, onSes
   const words = metricWords(report.totals.usd, report.sources, Date.now())
   return (
     <section aria-label="Cost">
-      <SectionHead name="Cost" />
-      <Rows>
+      <SectionHead name={detailOnly ? "Cost detail" : "Cost"} action={<Button size="sm" variant="outline" onClick={onRefresh}>Refresh</Button>} />
+      {!detailOnly && <Rows>
         <Row title="Recorded usage" desc={[words.qualifier, words.coverage, words.source, words.freshness].filter(Boolean).join(' · ')} control={<RowValue numeric>{words.value}</RowValue>} />
-      </Rows>
+      </Rows>}
       {report.breakdowns.length > 1 && (
         <Tabs value={selected?.dimension ?? ''} onValueChange={(next) => setDimension(next as InsightDimension)}>
           <TabsList aria-label="Cost breakdown">

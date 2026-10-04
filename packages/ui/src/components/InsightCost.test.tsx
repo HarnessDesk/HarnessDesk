@@ -94,3 +94,13 @@ it('keeps safe source read status when its observation time is unknown', () => {
   expect(document.body.textContent).toContain('Stale')
   expect(document.body.textContent).toContain('Recorded usage source could not be discovered.')
 })
+
+it('receipt cost detail keeps its breakdown and refresh while the total is presented in Record', () => {
+  let refreshes = 0
+  act(() => root.render(<InsightCost report={report()} loading={false} problem={null} onRefresh={() => { refreshes++ }} {...{ detailOnly: true }} />))
+  expect(container.textContent).not.toContain('$3.00')
+  expect(container.textContent).toContain('Seat one')
+  const refresh = [...container.querySelectorAll('button')].find(one => one.textContent === 'Refresh')!
+  act(() => refresh.click())
+  expect(refreshes).toBe(1)
+})

@@ -2676,7 +2676,7 @@ it('says nothing extra on the hover when the Goal works at its own root, unchang
  * still wrapping, or the board could not be saved (the one case
  * `goalActions` itself does not cover, read straight off `problem`).
  */
-it('disables the bar\'s Wrap for a Goal that is wrapped, wrapping, or has a problem — and only then', async () => {
+it('hides Wrap for a wrapped Goal and refuses it while wrapping or when a problem remains', async () => {
   const wrapButton = (): HTMLButtonElement => {
     const found = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Wrap')
     if (!found) throw new Error('no Wrap button')
@@ -2689,7 +2689,7 @@ it('disables the bar\'s Wrap for a Goal that is wrapped, wrapping, or has a prob
 
   const { store: wrapped } = rig(undefined, undefined, {}, { ...GOAL, goal: { ...GOAL.goal, state: 'wrapped' } })
   await render(wrapped)
-  expect(wrapButton().disabled).toBe(true)
+  expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Wrap')).toBe(false)
 
   const { store: wrapping } = rig(undefined, undefined, {}, { ...GOAL, goal: { ...GOAL.goal, state: 'wrapping' } })
   await render(wrapping)
@@ -3816,14 +3816,14 @@ it('a wrapped Team keeps receipt Seats and its Run readable while dispatching ve
  await render(store)
  expect(container.querySelector('aside')?.textContent).toContain('Writer')
  expect(container.querySelector('aside')?.textContent).toContain('Gamma')
- expect(container.textContent).toContain('Conversation not kept')
- for (const label of ['Seat an Agent in this Goal','Hold messages at the board']) {
+ expect(container.querySelector('aside [title="Conversation not kept"]')).toBeTruthy()
+ for (const label of ['Hold messages at the board']) {
   const button=container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)
   expect(button?.disabled).toBe(true);expect(button?.title).toBe('This Team is wrapped')
  }
  const pick=async(label:string)=>{const button=[...container.querySelectorAll<HTMLButtonElement>('aside button')].find(one=>(label==='Run'?one.textContent?.startsWith(label):one.textContent===label));expect(button).toBeTruthy();act(()=>button!.click());await act(async()=>{})}
  await pick('Run');expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('Completed review')
- await pick('Receipt');expect(container.textContent).toContain('As recorded when wrapped')
+ await pick('Receipt');expect(container.textContent).toContain('this page shows the Team as it was then')
  act(()=>row('Writer').click());await act(async()=>{})
  expect(container.querySelector('[data-testid="conversation"]')?.textContent).toContain(String(sessionKey('codex','c1')))
 })
@@ -3872,7 +3872,7 @@ it('an older receipt whose Seats were all kept without a conversation lists them
  await render(store)
  const rail = container.querySelector('aside')!.textContent ?? ''
  expect(railRows().filter(text => /Writer|Gamma/.test(text))).toHaveLength(2)
- expect(rail.match(/Conversation not kept/g)).toHaveLength(2)
+ expect(container.querySelectorAll('aside [title="Conversation not kept"]')).toHaveLength(2)
  expect(rail).not.toContain('No Agents were kept')
 })
 
@@ -3895,7 +3895,7 @@ it('a wrapped Team that never had a Run opens on its Receipt, not on the Agents 
  await render(store)
  expect(showing()).toBe('body')
  expect(row('Receipt').getAttribute('aria-current')).toBe('true')
- expect(container.textContent).toContain('As recorded when wrapped')
+ expect(container.textContent).toContain('this page shows the Team as it was then')
 })
 
 it('an open Team that has no Run still starts on the Agents list in a narrow pane', async () => {
@@ -3928,4 +3928,19 @@ it('a person who already chose where to look is not moved when a Team with no Ru
  await render(store)
  expect(row('Board').getAttribute('aria-current')).toBe('true')
  expect(showing()).toBe('body')
+})
+
+it('a wrapped receipt has one state, a reading gutter, and a rail without moot controls', async () => {
+ const { store } = rig([], undefined, { members: [] }, receiptGoal(['kept'], KEPT))
+ await render(store)
+ expect(container.textContent).toContain('Wrapped')
+ expect(container.textContent).not.toContain('This Team is wrapped. Its receipt is kept here.')
+ expect(container.querySelector('button[aria-label="Seat an Agent in this Goal"]')).toBeNull()
+ expect(railRows().some(text => text.includes('Side by side'))).toBe(false)
+ expect(railRows().some(text => text.includes('unclaimed'))).toBe(false)
+ expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Wrap')).toBe(false)
+ expect(container.querySelector('[data-slot="goal-receipt"]')?.closest('[data-inset="reading"]')).toBeTruthy()
+ expect(container.querySelector('aside [data-slot="member-done"]')).toBeNull()
+ const kept = railRows().find(text => text.includes('Writer'))!
+ expect(kept).not.toContain('conversation')
 })

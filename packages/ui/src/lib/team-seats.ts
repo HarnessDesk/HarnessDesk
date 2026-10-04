@@ -35,7 +35,7 @@ export const teamSeats = (
     for (const id of new Set([...(receipt?.seats ?? []), ...(receipt?.members?.map(one => one.seat) ?? [])])) {
       const member = receipt?.members?.find(one => one.seat === id)
       const session = member?.session ?? receipt?.answers.find(one => one.seat === id)?.session ?? null
-      const role = [...rounds].reverse().find(round => round.seats.includes(id))?.role ?? null
+      const role = [...rounds].reverse().find(round => round.seats.includes(id))?.role ?? member?.role ?? null
       const name = member?.agent ?? member?.seatLabel ?? 'Agent'
       const record = { id, session, role, openedAt: goal.goal.createdAt }
       if (!session) { seats.push({ key: null, record: { ...record, session: null }, role, name }); continue }
