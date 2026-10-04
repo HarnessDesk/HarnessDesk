@@ -132,6 +132,15 @@ describe('abandoning a card', () => {
     expect(abandonEffect(execution, [card(4, { role: 'writer' }), silent], card(4, { role: 'writer' }))).toContain('opens a reviewer round.')
   })
 
+  it('reads the card as it is given, and an outcome it kept from an earlier answer still counts', () => {
+    // A card put back in play keeps the outcome it once answered, and abandoning it leaves that in place.
+    const rules = [rule('ship', 'writer', 'verify', { every: ['published'] }), rule('again', 'writer', 'reviewer')]
+    const execution = run({ rounds: [writerRound([4])] }, rules)
+    const reopened = card(4, { role: 'writer', outcome: 'published' })
+    expect(abandonEffect(execution, [card(4, { role: 'writer' })], reopened)).toContain('opens the verify check.')
+    expect(abandonEffect(execution, [reopened], card(4, { role: 'writer' }))).toContain('opens a reviewer round.')
+  })
+
   it('waits for the round\'s other cards before any rule decides', () => {
     const execution = run({ rounds: [writerRound([4, 5, 6])] }, [rule('review', 'writer', 'reviewer')])
     const cards = [card(4, { role: 'writer' }), card(5, { role: 'writer', state: 'claimed' }), card(6, { role: 'writer', state: 'done', outcome: 'published' })]
