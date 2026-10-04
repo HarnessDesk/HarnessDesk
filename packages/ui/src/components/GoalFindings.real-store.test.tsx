@@ -108,6 +108,7 @@ const typeInto = (textarea: HTMLTextAreaElement, text: string): void => {
   })
 }
 
+
 /**
  * Waits until `look` stops throwing, and hands back what it returned.
  *
@@ -126,6 +127,22 @@ const eventually = async <T,>(look: () => T): Promise<T> => {
     environment.IS_REACT_ACT_ENVIRONMENT = true
   }
 }
+
+/** The first button on screen that says `words`, as soon as there is one. */
+const buttonSaying = (words: string): Promise<HTMLButtonElement> =>
+  eventually(() => {
+    const found = [...container.querySelectorAll('button')].find((one) => one.textContent?.includes(words))
+    expect(found, `a button saying “${words}”`).toBeDefined()
+    return found!
+  })
+
+/** The reason box of the finding dialog, as soon as the dialog has read its finding. */
+const reasonBox = (): Promise<HTMLTextAreaElement> =>
+  eventually(() => {
+    const found = document.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea[aria-label="Why"]')
+    expect(found, 'the finding dialog, with its reason box').not.toBeNull()
+    return found!
+  })
 
 it('refreshes the round budget and blind reviewer counts from a flow execution push', { timeout: TEST_MS }, async () => {
   const store = new AppStore('ws://localhost:0/')
@@ -162,14 +179,21 @@ it('refreshes the round budget and blind reviewer counts from a flow execution p
   expect(lists).toBe(listsBefore)
 })
 
-it('a reason typed on the real store path reaches finding/decide, and a live push mid-edit does not lose it (#1089, #1090)', async () => {
+it('a reason typed on the real store path reaches finding/decide, and a live push mid-edit does not lose it (#1089, #1090)', { timeout: TEST_MS }, async () => {
   const store = new AppStore('ws://localhost:0/')
   const requests: { method: HostMethodName; params: unknown }[] = []
   const decideParams: HostParams<'finding/decide'>[] = []
+  // What the reload brings back: a second finding, which is how it shows on screen that it has landed.
+  const grown: FindingPage = {
+    ...findingsPage(),
+    rows: [findingsPage().rows[0]!, { ...findingsPage().rows[0]!, id: 'finding-2', title: 'A second problem', sequence: 2 }],
+    totals: { all: 2, open: 2, blocking: 2 },
+  }
+  let lists = 0
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: unknown) => {
     requests.push({ method, params })
     switch (method) {
-      case 'finding/list': return findingsPage()
+      case 'finding/list': lists += 1; return lists === 1 ? findingsPage() : grown
       case 'finding/read': return detailPage()
       case 'finding/run': return runView()
       case 'finding/decide':
@@ -185,22 +209,19 @@ it('a reason typed on the real store path reaches finding/decide, and a live pus
   act(() => {
     root.render(<StoreProvider store={store}><GoalFindings goal="g1" /></StoreProvider>)
   })
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
-
-  const opener = [...container.querySelectorAll('button')].find((one) => one.textContent?.includes('finding-1'))!
+  const opener = await buttonSaying('finding-1')
   act(() => opener.click())
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
 
-  const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!
-  expect(dialog.textContent).toContain('Decide it yourself')
-  const why = dialog.querySelector<HTMLTextAreaElement>('textarea[aria-label="Why"]')!
+  const why = await reasonBox()
+  expect(document.querySelector<HTMLElement>('[role="dialog"]')!.textContent).toContain('Decide it yourself')
   typeInto(why, 'checked the fix myself')
   expect(why.value).toBe('checked the fix myself')
 
   // A real live push, mid-edit: the ledger changed (round 15's own verdicts,
-  // say), coalesced into one real reload through the real store.
+  // say), coalesced into one real reload through the real store. It has landed
+  // once the finding it brought is on the list behind the dialog.
   notify(store, { method: 'finding/changed', params: { goal: 'g1', revision: 2 } })
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)) })
+  await eventually(() => expect(container.textContent).toContain('finding-2'))
 
   const stillOpen = document.querySelector<HTMLElement>('[role="dialog"]')
   expect(stillOpen).not.toBeNull()
@@ -218,7 +239,7 @@ it('a reason typed on the real store path reaches finding/decide, and a live pus
   })
 })
 
-it('a page-two finding keeps its origin run when finding/changed reloads page one (#1091)', async () => {
+it('a page-two finding keeps its origin run when finding/changed reloads page one (#1091)', { timeout: TEST_MS }, async () => {
   const firstRow = findingsPage().rows[0]!
   const secondRow = {
     ...firstRow,
@@ -261,19 +282,17 @@ it('a page-two finding keeps its origin run when finding/changed reloads page on
   act(() => {
     root.render(<StoreProvider store={store}><GoalFindings goal="g1" /></StoreProvider>)
   })
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
-  const more = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Load more')!
+  const more = await buttonSaying('Load more')
   act(() => more.click())
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
-  const opener = [...container.querySelectorAll('button')].find((one) => one.textContent?.includes(secondRow.id))!
+  const opener = await buttonSaying(secondRow.id)
   act(() => opener.click())
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
 
-  const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!
-  const why = dialog.querySelector<HTMLTextAreaElement>('textarea[aria-label="Why"]')!
+  const why = await reasonBox()
   typeInto(why, 'checked the fix myself')
+  // The reload of page one has landed once "Load more" is back: page two had
+  // used it up, and the fresh first page brings its cursor again.
   notify(store, { method: 'finding/changed', params: { goal: 'g1', revision: 2 } })
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)) })
+  await buttonSaying('Load more')
 
   const stillOpen = document.querySelector<HTMLElement>('[role="dialog"]')!
   expect(stillOpen).not.toBeNull()
