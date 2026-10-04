@@ -47,7 +47,7 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, ...view }: Componen
       // The last report stays on screen while the next is read, and when that read fails: a cost is "Not recorded"
       // only when none was ever read. A report of another Goal is never shown (below), so none is cleared here.
       if (typeof store.readGoalInsight === 'function') void store.readGoalInsight(execution.goal).then(value => { if (active) setReport(value) }, () => {})
-      if (execution.findings && typeof store.loadFindingRun === 'function') void store.loadFindingRun(execution.goal, execution.id).then(() => { if (active) setReadProblem(null) }, () => { if (active) setReadProblem('Review details could not be read.') })
+      if (typeof store.loadFindingRun === 'function') void store.loadFindingRun(execution.goal, execution.id).then(() => { if (active) setReadProblem(null) }, () => { if (active) setReadProblem('Review details could not be read.') })
     }
     read()
     const timer = execution.state === 'running' ? window.setInterval(read, 60_000) : null
@@ -57,15 +57,16 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, ...view }: Componen
     seats: seats.map(seat => ({ record: seat.record, name: seat.name, runtime: snapshot.runtimes.find(runtime => runtime.id === seat.record.session.runtime) ?? null, session: null, unreadSince: null, approvals: [] })),
     run: { execution, startedAt: execution.startedAt ?? null },
   })
-  const selected = view.model.rows.find(row => row.id === view.selectedRow)
   return <RunWorkspace {...view} onRetry={() => { setReadAgain(was => was + 1); view.onRetry?.() }} problem={view.problem ?? readProblem} inspector={{
     input: { execution, cards, origin,
       signals: (team?.channel ?? goal?.board.channel ?? []).filter((entry): entry is TeamSignal => entry.kind === 'signal'),
       evidence: snapshot.boardEvidence.get(execution.goal),
       findings: findingsList?.rows,
+      findingRun: snapshot.findingRuns.get(execution.id),
+      publicationOn: goal?.goal.findingPublication !== false,
     },
     findingsRead: findingsRead(findingsList),
-    publication: snapshot.findingRuns.get(execution.id)?.rounds.find(round => round.round === selected?.round),
+    reviewActions: {goal:execution.goal,run:execution.id,stamp:snapshot.findingRuns.get(execution.id)?.stamp ?? "reading"},
     seats: seats.map(seat => ({ id: seat.record.id, name: seat.name,
       override: goal?.members.find(record => record.id === seat.record.id)?.seatLabel,
       cost: costs.seats.find(row => row.seat === seat.record.id)?.cost,

@@ -17,6 +17,8 @@ export const teamsInput = (snapshot: AppSnapshot, reports: ReadonlyMap<string,In
    unreadSince:snapshot.inbox.find(one=>!one.read && one.from?.runtime===seat.record.session.runtime && one.from?.sessionId===seat.record.session.sessionId)?.at ?? null,
    approvals:snapshot.approvals.filter(one=>one.key===seat.key).map(one=>one.approval)})),
   run:execution?{execution,startedAt:execution.startedAt ?? null}:null,
+  findingRun:execution?snapshot.findingRuns.get(execution.id):null,
+  publicationOn:goal?.goal.findingPublication !== false,
   report:reports.get(team.id) ?? null,
   runtimeCapabilities:new Map(snapshot.runtimes.map(one=>[one.id,one.capabilities])),
  }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { runtimeId, type BoardEvidence, type FindingView, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
+import { runtimeId, type FindingRunView, type BoardEvidence, type FindingView, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
 import { runTimeline } from './run-timeline'
 
 const run = (patch: Partial<FlowExecution> = {}): FlowExecution => ({
@@ -119,4 +119,50 @@ it('does not use a manual same-name check as a Flow result without round attribu
   const execution = run({ rounds: [{ ...run().rounds[0]!, role: 'verify' }] })
   const manual = { ...evidence, cards: evidence.cards.map(one => ({ ...one, facts: one.facts.map(view => ({ ...view, record: { ...view.record, round: null, fact: { ...view.record.fact, exit: 1 } } })) })) } as BoardEvidence
   expect(runTimeline({ execution, cards: [card({ state: 'done', outcome: 'pass' })], evidence: manual }).rows.find(row => row.kind === 'check')?.status).toBe('Pass')
+})
+
+const publicationRun = (patch: Partial<FindingRunView> = {}): FindingRunView => ({
+  run: 'run', goal: 'team', round: 1, finished: 1, total: 1, embargoed: false, open: 1, blocking: 1,
+  reason: 'The review was kept on the desk.', ceilingStop: false, stamp: 'publication-stamp', publication: 'local',
+  rounds: [{ round: 1, state: 'local', reason: 'The review was kept on the desk.', pr: 7, cards: [1] }],
+  reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null,
+  boundPr: { repo: 'acme/widgets', pr: 7 }, unbound: null, undecidable: null, ...patch,
+})
+const publicationFinding: FindingView = { id: 'publication-finding', title: 'Bound the retry', body: 'Cap attempts.',
+  origin: { goal: 'team', run: 'run', round: 1, card: 1, seat: 'reviewer', at: 'abc' }, ownerGoal: 'team',
+  category: 'ordinary', blocking: true, related: null, anchor: null, lifecycle: { state: 'open', confirmed: false, repairs: [] },
+  sequence: 1, evidence: [], posted: [], restored: false, problem: null }
+it.each([
+  ['posted', true, 7, 'Posted to #7', 'neutral', false],
+  ['pending', true, 7, 'Waiting to post', 'neutral', false],
+  ['partial', true, 7, 'Partly posted', 'warning', true],
+  ['uncertain', true, 7, 'Not confirmed', 'warning', true],
+  ['local', true, 7, 'Not posted', 'warning', true],
+  ['local', false, 7, 'Kept on the desk', 'neutral', false],
+  ['local', true, null, 'Kept on the desk', 'neutral', false],
+] as const)('maps aggregate %s with posting %s and PR %s', (state, publicationOn, pr, label, tone, needsYou) => {
+  const findingRun = publicationRun({ publication: state, boundPr: pr ? { repo: 'acme/widgets', pr } : null })
+  const model = runTimeline({ execution: run({ state: 'settled' }), cards: [card()], findings: [publicationFinding], findingRun, publicationOn })
+  expect(model.header.publication).toEqual({ label, tone, needsYou })
+  expect(model.header.needsYou).toBe(needsYou)
+  expect(model.rows.at(-1)?.publication).toEqual(model.header.publication)
+})
+it.each([{ rounds: [] }, { rounds: [{ round: 1, state: 'none' as const, reason: null, pr: null, cards: [1] }] }])('never guesses a round chip from a posted aggregate ($rounds)', ({ rounds }) => {
+  const model = runTimeline({ execution: run(), cards: [card()], findings: [publicationFinding], findingRun: publicationRun({ publication: 'posted', rounds }) })
+  expect(model.header.publication?.label).toBe('Posted to #7')
+  expect(model.rows.find(row => row.card === 1)?.publication).toBeNull()
+  expect(model.rows.find(row => row.kind === 'findings')?.publication).toBeNull()
+})
+it('keeps round publication separate from the aggregate and omits chips when there are no findings', () => {
+  const input = { execution: run(), cards: [card()], findings: [publicationFinding], findingRun: publicationRun({ publication: 'partial' }) }
+  const model = runTimeline(input)
+  expect(model.header.publication?.label).toBe('Partly posted')
+  expect(model.rows.find(row => row.card === 1)?.publication?.label).toBe('Not posted')
+  expect(model.rows.find(row => row.kind === 'findings')?.publication?.label).toBe('Not posted')
+  expect(runTimeline({ ...input, findingRun: publicationRun({ total: 3, open: 0, blocking: 0, rounds: [{ round: 1, state: 'none', reason: null, pr: null, cards: [1] }] }), findings: [] }).header.publication).toBeNull()
+})
+it('shows an authoritative posted review round even when it raised no ledger findings', () => {
+ const model=runTimeline({execution:run(),cards:[card()],findings:[],findingRun:publicationRun({publication:'posted',open:0,blocking:0,rounds:[{round:1,state:'posted',reason:null,pr:7,cards:[1]}]})})
+ expect(model.rows.find(one=>one.card===1)?.publication?.label).toBe('Posted to #7')
+ expect(model.rows.some(one=>one.kind==='findings')).toBe(false)
 })

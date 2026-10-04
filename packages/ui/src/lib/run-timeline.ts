@@ -1,5 +1,6 @@
-import type { BoardEvidence, FindingView, FlowExecution, Intent, TeamSignal } from '@harnessdesk/protocol'
+import type { BoardEvidence, FindingRunView, FindingView, FlowExecution, Intent, TeamSignal } from '@harnessdesk/protocol'
 import { lifecycleWords } from './findings'
+import { reviewPublication, runPublication, type ReviewPublication } from './review-publication'
 import { wordOf } from './agents'
 
 /**
@@ -13,6 +14,7 @@ export interface RunHeader {
   flow: string
   state: FlowExecution['state']
   needsYou: boolean
+  publication: ReviewPublication | null
   revision: string | null
   continues: string | null
 }
@@ -29,6 +31,7 @@ export interface RunTimelineRow {
   durationMs: number | null
   since: number | null
   working: boolean
+  publication: ReviewPublication | null
 }
 export interface RunTimelineInput {
   execution: FlowExecution
@@ -37,10 +40,12 @@ export interface RunTimelineInput {
   evidence?: BoardEvidence | null
   findings?: readonly FindingView[]
   origin?: string | null
+  findingRun?: FindingRunView | null
+  publicationOn?: boolean
 }
 const row = (id: string, kind: RunTimelineRow['kind'], title: string, rest: Partial<RunTimelineRow> = {}): RunTimelineRow => ({
   id, kind, title, detail: null, round: null, card: null, seat: null, status: null,
-  attention: false, durationMs: null, since: null, working: false, ...rest,
+  attention: false, publication: null, durationMs: null, since: null, working: false, ...rest,
 })
 const terminal = (card: Intent): boolean => card.state === 'done' || card.state === 'abandoned'
 const claimAt = (card: Intent, signals: readonly TeamSignal[]): number | null => card.claim?.at
@@ -56,8 +61,10 @@ const endTitle = (execution: FlowExecution): string => {
 }
 export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows: RunTimelineRow[] } {
   const execution = input.execution
-  const needsYou = execution.state === 'stalled' || execution.end?.kind === 'unrouted' || execution.end?.kind === 'budget'
-  const header: RunHeader = { run: execution.id, flow: execution.document.flow.name, state: execution.state, needsYou,
+  const findingRun = input.findingRun?.run === execution.id && input.findingRun.goal === execution.goal ? input.findingRun : null
+  const publication = runPublication(findingRun, input.publicationOn !== false)
+  const needsYou = publication?.needsYou === true || execution.state === 'stalled' || execution.end?.kind === 'unrouted' || execution.end?.kind === 'budget'
+  const header: RunHeader = { run: execution.id, flow: execution.document.flow.name, state: execution.state, needsYou, publication,
     revision: execution.revision ?? null, continues: execution.continues ?? null }
   const rows: RunTimelineRow[] = [row('start', 'start', 'Start', { detail: input.origin ?? null, since: execution.startedAt ?? null })]
   if (execution.brief) rows.push(row('brief', 'brief', 'Brief', { detail: execution.brief }))
@@ -71,6 +78,9 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
     rows.push(row(`round-${round.n}`, 'round', `Round ${round.n} · ${round.role}`, {
       round: round.n, detail: `${finished} of ${round.cards.length} answered`, durationMs,
     }))
+    const roundFindings = (input.findings ?? []).filter(one => one.origin.run === execution.id && one.origin.round === round.n)
+    const recorded = findingRun?.rounds.find(one => one.round === round.n)
+    const roundPublication = recorded ? reviewPublication({ state: recorded.state, pr: recorded.pr, postingOn: input.publicationOn !== false, hasFindings: recorded.state !== 'none' }) : null
     const role = execution.document.flow.roles.find(one => one.id === round.role)
     round.cards.forEach((id, index) => {
       const card = cards[index]
@@ -99,13 +109,13 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
       const attention = uncertain || personWaiting || (execution.end?.kind === 'unrouted' && execution.end.card === id)
       rows.push(row(`${kind}-${round.n}-${id}`, kind, title, { round: round.n, card: id,
         seat: [...execution.operations].reverse().find(one => one.kind === 'seat' && one.card === id && one.seat !== null)?.seat ?? null,
-        status, attention, durationMs, since, working }))
+        status, attention, durationMs, since, working, publication: recorded?.cards.includes(id) ? roundPublication : null }))
     })
-    const findings = (input.findings ?? []).filter(one => one.origin.run === execution.id && one.origin.round === round.n)
+    const findings = roundFindings
     if (findings.length) rows.push(row(`findings-${round.n}`, 'findings', `${findings.length} ${findings.length === 1 ? 'finding' : 'findings'}`, {
-      round: round.n, detail: findings.map(one => `${one.title} · ${lifecycleWords(one)}${one.problem ? ` · ${one.problem}` : ''}`).join('\n'),
+      round: round.n, publication: roundPublication, detail: findings.map(one => `${one.title} · ${lifecycleWords(one)}${one.problem ? ` · ${one.problem}` : ''}`).join('\n'),
     }))
   }
-  if (execution.state !== 'running') rows.push(row('end', 'end', endTitle(execution), { detail: execution.reason, attention: needsYou, since: execution.endedAt ?? null }))
+  if (execution.state !== 'running') rows.push(row('end', 'end', endTitle(execution), { detail: execution.reason ?? (publication?.needsYou ? findingRun?.reason ?? null : null), publication, attention: needsYou, since: execution.endedAt ?? null }))
   return { header, rows }
 }

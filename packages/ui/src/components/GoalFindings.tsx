@@ -147,7 +147,7 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
         )}
         {runView && (
           <>
-            <FindingRoundStatus view={runView} />
+            <FindingRoundStatus view={runView} publicationOn={confirmedPublication} />
             {(runView.reason !== null || runView.blocking > 0) && (
               <Button
                 variant="outline"

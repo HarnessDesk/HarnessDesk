@@ -73,6 +73,7 @@ import { LibraryOptionFrames } from './frames-library-options'
 import { FlowGraphFrames } from './frames-flow-graph'
 import { RunViewFrames } from './frames-run-view'
 import { RunInspectorFrames } from './frames-run-inspector'
+import { ReviewPublicationFrames } from './frames-review-publication'
 import { TeamOverviewFrames } from './frames-team-overview'
 import { SideBySideFrames } from './frames-side-by-side'
 import { ComposerSlotsFrames } from './frames-composer-slots'
@@ -1072,11 +1073,18 @@ const Preview = () => {
 const container = document.getElementById('root')
 if (!container) throw new Error('#root is missing from preview.html')
 
+const PublicationPreview = () => {
+  useTheme()
+  return <ReviewPublicationFrames />
+}
+
 createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('flow-brief')
+        {new URLSearchParams(window.location.search).has('review-publication')
+          ? <PublicationPreview />
+          : new URLSearchParams(window.location.search).has('flow-brief')
           ? <FlowBriefDialog scene={(BRIEF_SCENES.find((one) => one === new URLSearchParams(window.location.search).get('flow-brief')) ?? 'empty') as BriefScene} />
           : <Preview />}
       </AppWindowMode.Provider>

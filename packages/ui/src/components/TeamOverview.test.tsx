@@ -35,3 +35,15 @@ it('uses the wrapping sentence slot for attention text',()=>{
  expect(sentence?.textContent).toBe(summary)
  expect(sentence?.hasAttribute('data-wrap-subtitle')).toBe(true)
 })
+it.each([
+ {runReason:'This review is waiting to be posted.',copies:1,statusLine:undefined},
+ {runReason:'The Run ended without a next step.',copies:1,statusLine:undefined},
+ {runReason:'This review is waiting to be posted.',copies:1,statusLine:()=> <span>Agents are idle</span>},
+])('keeps publication reason once alongside $runReason',({runReason,copies,statusLine})=>{
+ const publicationReason='This review is waiting to be posted.'
+ const findingRun={run:'run',goal:'team',publication:'local',reason:publicationReason,boundPr:{repo:'acme/widgets',pr:7},
+  rounds:[{round:3,state:'local',reason:publicationReason,pr:7,cards:[3]}]} as unknown as import('@harnessdesk/protocol').FindingRunView
+ act(()=>root.render(<TeamOverview runReason={runReason} statusLine={statusLine} model={{seats:[],needsYou:[],run:{run:'run',state:'settled',round:3,role:'reviewer',startedAt:null,reviewRounds:null,total:{money:null,turns:null},findingRun,publicationOn:true,needsYou:true}}}/>))
+ expect(box.textContent?.split(publicationReason).length).toBe(copies+1)
+ expect(box.textContent).toContain(runReason)
+})

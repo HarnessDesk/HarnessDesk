@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
-import type { FindingPublicationItem, FindingPublicationsView } from '@harnessdesk/protocol'
+import type { FindingPublicationItem } from '@harnessdesk/protocol'
 
-import { Banner, Button, Chip, CodeText, ConfirmDialog, Dialog, EmptyState, Note, Row, Rows, SectionHead, Text, Textarea } from '../design'
-import { useStore } from '../state/context'
+import { Banner, Button, Chip, CodeText, Dialog, EmptyState, Note, Row, Rows, SectionHead, Text, Textarea } from '../design'
+import { useFindingPublicationActions } from '../lib/use-finding-publication-actions'
+import { FindingBackfillDialog } from './FindingBackfillDialog'
 
 /**
  * A run's closed-round postings that need a person: each one paused before
@@ -24,41 +25,10 @@ const STATE_WORDS: Readonly<Record<FindingPublicationItem['state'], string>> = {
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
 
 export const FindingPublications = ({ goal, run, stamp }: { readonly goal: string; readonly run: string; readonly stamp: string }) => {
-  const store = useStore()
-  const [view, setView] = useState<FindingPublicationsView | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [pending, setPending] = useState<string | null>(null)
-  const [acted, setActed] = useState(false)
+  const { view, error, pending, acted, act } = useFindingPublicationActions(goal, run, stamp)
   const [skipping, setSkipping] = useState<FindingPublicationItem | null>(null)
   const [why, setWhy] = useState('')
   const [previewing, setPreviewing] = useState(false)
-
-  useEffect(() => {
-    let live = true
-    store.readFindingPublications(goal, run).then(
-      (next) => { if (live) setView(next) },
-      (failure: unknown) => { if (live) setError(failure instanceof Error ? failure.message : String(failure)) },
-    )
-    return () => { live = false }
-  }, [store, goal, run, stamp])
-
-  const act = async (what: string, action: Parameters<typeof store.publishFinding>[0]['action']): Promise<boolean> => {
-    if (pending) return false
-    setPending(what)
-    setError(null)
-    try {
-      setView(await store.publishFinding({ goal, run, action }))
-      setActed(true)
-      return true
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
-      // What the refusal left behind — a posting now uncertain, say — is read again.
-      store.readFindingPublications(goal, run).then(setView, () => {})
-      return false
-    } finally {
-      setPending(null)
-    }
-  }
 
   if (!view) return error ? <Banner tone="danger" title="These postings could not be read">{error}</Banner> : null
   const nothing = view.items.length === 0 && view.backfill === null
@@ -125,26 +95,8 @@ export const FindingPublications = ({ goal, run, stamp }: { readonly goal: strin
         </Dialog>
       )}
       {previewing && view.backfill && (
-        <ConfirmDialog
-          title="Post earlier rounds"
-          tone="default"
-          confirmLabel={`Post to #${view.backfill.pr}`}
-          busy={pending === 'backfill'}
-          onCancel={() => setPreviewing(false)}
-          onConfirm={() => {
-            const stampNow = view.backfill!.stamp
-            void act('backfill', { kind: 'backfill', stamp: stampNow }).then(() => setPreviewing(false))
-          }}
-        >
-          <div className="flex flex-col gap-1">
-            {view.backfill.rounds.map((one) => (
-              <Text key={one.round} as="p" role="prose">
-                {`Round ${one.round}: ${plural(one.findings, 'finding', 'findings')} and ${plural(one.reviews, 'review', 'reviews')}`}
-              </Text>
-            ))}
-            <Text as="p" role="meta">Each comment names the Agent that made its claim and the revision it read. One reviewed at a revision the pull request has moved past waits for you.</Text>
-          </div>
-        </ConfirmDialog>
+        <FindingBackfillDialog backfill={view.backfill} busy={pending === 'backfill'} onCancel={() => setPreviewing(false)}
+          onConfirm={() => { void act('backfill', { kind: 'backfill', stamp: view.backfill!.stamp }).then(() => setPreviewing(false)) }} />
       )}
     </section>
   )

@@ -945,6 +945,9 @@ open on **Active** and carry counts for **Needs you** and **Settled**.
 A row names the work, shows its Seats' faces and recorded usage, and earns its
 second line with a round or a reason for waiting. A dot means the Team changed
 since you last opened it here.
+A confirmed review that needs posting makes the Team and its Run **Needs you**.
+The Teams page and Overview read the same Run publication; a read still pending
+does not invent that state.
 Every state reads as quiet coloured text on the sentence's line. A settled
 row carries its Run's end reason when recorded; otherwise it has no second line.
 
@@ -982,6 +985,16 @@ reads Unreadable with its reason, whatever state its records carry.
 A selected row takes the inspector's fill. Historical Runs, including those
 started by triggers, are restored from the host and can be selected beside
 the header, and an observed pull request opens from it.
+
+The Run header, Overview strip, end banner and Findings summary show the Run's
+publication once at each surface. A review row shows only its recorded round:
+**Posted to #n**, **Waiting to post**, **Partly posted**, **Not confirmed**,
+**Not posted** when posting is on for a bound pull request, or **Kept on the desk**.
+An absent round or one with no decision has no chip. The inspector keeps the
+host's reason whole and offers **Copy review** and **Post to pull request**.
+Posting is enabled only for the host's waiting item or stamped earlier-round
+preview; earlier rounds require confirmation. A refusal stays visible, and
+changed findings refresh the reads. Nothing posts without a press.
 
 The header's switch shows the Run as a **Timeline** or as its **Flow**. The
 Flow tab draws the Flow the Run started with, named with the revision it was

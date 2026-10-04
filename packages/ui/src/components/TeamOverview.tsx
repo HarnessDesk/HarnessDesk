@@ -8,6 +8,7 @@ import {
 import { elapsedSince } from '../lib/clock'
 import { sanitizeHtml } from '../lib/sanitize'
 import { doingLine, type DoingLine, type SeatRow, type teamOverview } from '../lib/team-overview'
+import { runPublication } from '../lib/review-publication'
 import { AgentIcon } from './Icons'
 import { formatDuration } from './TurnTail'
 
@@ -77,6 +78,7 @@ export const TeamOverview = ({ model, faces, metered, onOpen, onRun, runName = '
     ? <Button variant="link" size="inline-link" onClick={() => onOpen(row.seat)}><Text role="row">{words(row.name)}</Text></Button>
     : <Text role="row">{words(row.name)}</Text>
   const run = model.run
+  const publication = runPublication(run?.findingRun, run?.publicationOn !== false)
   return (
     <div ref={box} data-slot="team-overview" data-layout={narrow ? 'narrow' : 'table'} className="min-w-0 overflow-y-auto">
       <PaneColumn inset="reading" className="flex flex-col gap-4">
@@ -85,7 +87,8 @@ export const TeamOverview = ({ model, faces, metered, onOpen, onRun, runName = '
             <section aria-label="Run" className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-2">
                 <span>{onRun ? <Button variant="link" size="inline-link" onClick={onRun}><Text role="subject">{words(runName)}</Text></Button> : <Text role="subject">{words(runName)}</Text>}</span>
-                <Chip tone={run.state === 'stalled' ? 'warning' : 'neutral'}>{runWords[run.state]}</Chip>
+                <Chip tone={run.needsYou || run.state === 'stalled' ? 'warning' : 'neutral'}>{run.needsYou ? 'Needs you' : runWords[run.state]}</Chip>
+                {publication && <Chip tone={publication.tone}>{publication.label}</Chip>}
               </div>
               <div className="flex flex-wrap gap-3">
                 {run.round !== null && <Text role="meta">Round {run.round}{run.role ? ` · ${words(run.role)}` : ''}</Text>}
@@ -96,6 +99,7 @@ export const TeamOverview = ({ model, faces, metered, onOpen, onRun, runName = '
                     run.total.turns !== null ? `${run.total.turns} turns` : null].filter(Boolean).join(' · ') || 'Usage unavailable'}
                 </Text>
               </div>
+              {publication?.needsYou && run.findingRun?.reason && (statusLine || run.findingRun.reason !== runReason) && <Text role="meta" as="div">{words(run.findingRun.reason)}</Text>}
               {statusLine ? statusLine(now) : runReason && <Text role="meta" as="div">{words(runReason)}</Text>}
             </section>
           </CardContent></Card>

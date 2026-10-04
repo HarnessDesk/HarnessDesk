@@ -1530,3 +1530,27 @@ measured.
 
 **The rule:** the interface language chooses its CJK fallback in the
 foundation; no component chooses a language's face itself.
+
+## A Run's publication and a review round are separate facts
+
+The Run's `finding/run.publication` folds every posting it holds. It belongs
+on the Overview strip, Run header, end banner and Findings summary. A review
+row reads only its own `FindingRunView.rounds` record; a missing record or
+`none` never inherits the aggregate. The round budget and Goal-owned open
+finding counts cannot establish a new Run's publication.
+
+The Teams page and Overview pass the same confirmed Run read into the shared
+selector. A bound, posting-enabled local review, partial posting or uncertain
+posting needs the person. A first read still pending establishes nothing;
+`finding/changed` invalidates it too, and an older answer cannot replace the
+newer read.
+
+`finding/publications` supplies actions, not successful publication states.
+Both the Findings pane and inspector use one action hook for post-again,
+skip, backfill and host refusals. Backfill keeps its stamped preview and asks
+for confirmation; copy remains available when posting is refused. A late
+action answer belongs to the visit that submitted it, even if the person
+left that Run and returned before it answered.
+
+**The rule:** chips follow the host's recorded state, actions follow its
+offered door, and a person presses before a posting is sent.
