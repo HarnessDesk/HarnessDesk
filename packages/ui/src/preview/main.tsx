@@ -1,3 +1,4 @@
+import { SidebarStructureExample } from './sidebar-structure-fixture'
 import { TeamRecordFrames } from './frames-team-record'
 import { TeamsPageFrames } from './frames-teams-page'
 import { StrictMode, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
@@ -1064,6 +1065,7 @@ const Preview = () => {
       {new URLSearchParams(window.location.search).has('run-inspector') && <RunInspectorFrames />}
       {new URLSearchParams(window.location.search).has('flow-graph') && <FlowGraphFrames />}
       {new URLSearchParams(window.location.search).has('teams-page') && <TeamsPageFrames />}
+      {new URLSearchParams(window.location.search).has('sidebar-structure') && <SidebarStructureExample />}
       {new URLSearchParams(window.location.search).has('team-record') && <TeamRecordFrames />}
       {new URLSearchParams(window.location.search).has('team-overview') && <TeamOverviewFrames />}
       {SHOW_COMPOSER_SLOTS && <ComposerSlotsFrames />}

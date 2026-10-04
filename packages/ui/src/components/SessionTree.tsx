@@ -1,5 +1,5 @@
 import { teamsInput } from '../lib/teams-snapshot'
-import { teamListRow } from '../lib/teams-list'
+import { teamListRow, type TeamListState } from '../lib/teams-list'
 import {
   Button,
   Chip,
@@ -124,7 +124,6 @@ const SessionRow = memo(({
   summary,
   now,
   onDelete,
-  need,
   virtualKey,
   virtualIndex,
   virtualCount,
@@ -133,16 +132,6 @@ const SessionRow = memo(({
   now: number
   /** Raises the confirmation; the dialog belongs to the list, not to a row. */
   onDelete: (summary: SessionSummary) => void
-  /**
-   * A "Needs you" row's own words: what it is for and what kind of wait.
-   * `name` — the Goal or room the conversation works for — replaces the
-   * row's title, because two rows both named after their agent ("Triager",
-   * "Triager") are indistinguishable, and the Goal is what the person is
-   * being asked about. `reason` is a word, so it is a chip on the title's
-   * own line (rule 9) rather than a sentence under it. The agent's own name
-   * is one hover away, in the row's title.
-   */
-  need?: NeedsYou
   virtualKey?: string
   virtualIndex?: number
   virtualCount?: number
@@ -159,17 +148,18 @@ const SessionRow = memo(({
     const live = snapshot.sessions.get(key)
     const needsYou = snapshot.approvals.some((entry) => entry.key === key) ||
       snapshot.queues.get(key)?.status === 'paused'
+    const trace = live ? traceOf(live, needsYou) : null
     return {
       openInPane: panes(snapshot.layout.root).some((pane) => sessionOf(pane) === key),
       runtime: snapshot.runtimes.find((entry) => entry.id === summary.runtime),
       density: snapshot.listPrefs.density,
       pinned: snapshot.listPrefs.pinnedSessions.includes(String(key)),
       liveTitle: live?.title,
-      trace: live ? traceOf(live, needsYou) : null,
+      trace,
       backgrounded: (snapshot.tasks.get(key) ?? []).filter((task) => task.state === 'running').length,
       folderGone: snapshot.foldersGone.get(summary.cwd) ?? null,
       active: snapshot.activeSessionKey === key,
-      needsYou,
+      needsYou: needsYou || trace === 'waiting',
     }
   }, sameSessionRowSlice)
   const agentName = runtime?.presentation.name ?? 'This conversation’s agent'
@@ -179,7 +169,7 @@ const SessionRow = memo(({
      whole list for the better part of a minute while the room's rail already
      read every name. The live session is the fresher record when it exists. */
   const ownLabel = sessionLabel(liveTitle ?? summary.title, summary.preview)
-  const label = need?.name ?? ownLabel
+  const label = ownLabel
   const traceShown = trace !== null && (ACTIVE_STATES.has(trace) || trace === 'waiting' || trace === 'failed')
   // Work the agent sent to the background and walked away from: the turn is
   // over, the row would read idle, and something is still running. The glyph
@@ -233,7 +223,7 @@ const SessionRow = memo(({
 
   return (
     <SidebarMenu className={styles.rowWrap} data-region="session-row" data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount} onContextMenu={menu.open}>
-      <SidebarMenuItem className="list-none" trailingMarks={(Number(Boolean(folderGone)) + Number(worktree) + Number(hasActivityMark) + Number(Boolean(need))) as 0 | 1 | 2 | 3 | 4} data-menu-open={menu.at ? '' : undefined}>
+      <SidebarMenuItem className="list-none" trailingMarks={(Number(Boolean(folderGone)) + Number(worktree) + Number(hasActivityMark) + Number(needsYou)) as 0 | 1 | 2 | 3 | 4} data-menu-open={menu.at ? '' : undefined}>
         {renaming ? (
           <Input
             variant="quiet" controlSize="row" className={styles.renameInput}
@@ -258,15 +248,13 @@ const SessionRow = memo(({
               // The needs-you chip is inline content. The shared sidebar
               // grammar gives the chip its actual width on the inset rail
               // and folds it while this row’s own actions appear.
-              labelTrailingContent={Boolean(need)}
+              labelTrailingContent={needsYou}
               size={density === 'compact' ? 'sm' : 'default'}
               isActive={active}
               data-active={active ? 'true' : undefined}
               aria-current={active ? 'page' : undefined}
               data-open={openInPane ? '' : undefined}
-              title={need
-                ? `${ownLabel} · ${agentName} — ${need.reason.toLowerCase()}`
-                : `${agentName} · ${traceShown ? TRACE_LABEL[trace] : relativeTime(summary.updatedAt, now)}${summary.git?.branch ? ` · ${summary.git.branch}` : ''}${worktree ? ` · worktree ${folderName(summary.cwd)}` : ''}${backgrounded > 0 ? ` · ${backgrounded} running in the background` : ''}`}
+              title={`${agentName} · ${needsYou ? 'Needs you' : traceShown ? TRACE_LABEL[trace] : relativeTime(summary.updatedAt, now)}${summary.git?.branch ? ` · ${summary.git.branch}` : ''}${worktree ? ` · worktree ${folderName(summary.cwd)}` : ''}${backgrounded > 0 ? ` · ${backgrounded} running in the background` : ''}`}
               onClick={() => void store.openSession(summary.id, { runtime: summary.runtime })}
               icon={
                 <SessionHoverCard
@@ -288,7 +276,7 @@ const SessionRow = memo(({
                    glyphs must remain readable beside it. */
                 <span className="flex min-w-0 items-center gap-(--hd-space-1)" title={label}>
                   <span className="min-w-0 truncate">{label}</span>
-                  {need && <SidebarMenuState label={need.reason} tone="warning" state="limit" />}
+                  {needsYou && <SidebarMenuState label="Needs you" tone="warning" state="limit" />}
                 </span>
               }
             />
@@ -666,6 +654,7 @@ const roomMembers = (
 
 const RoomRow = ({
   room,
+  state,
   sessions,
   now,
   open,
@@ -677,6 +666,7 @@ const RoomRow = ({
   virtualCount,
 }: {
   readonly room: TeamState
+  readonly state: TeamListState
   /** The project's conversations — members are matched against these. */
   readonly sessions: readonly SessionSummary[]
   readonly now: number
@@ -692,10 +682,11 @@ const RoomRow = ({
   const snapshot = useSnapshot()
   const goal = snapshot.goals.get(room.id)
   const name = goal ? goalName(goal.goal) : room.name
-  const waiting = teamSeats(snapshot.goals.get(room.id), room, goalRunOf(room.id, snapshot.goals.get(room.id), snapshot.flowExecutions)).some(({key: member}) => snapshot.approvals.some((entry) => String(entry.key) === String(member)))
-  const words = goal ? (waiting
-    ? { label: 'Needs you', tone: 'warning' as const }
-    : goalWords({ goal: goal.goal, activity: goal.activity })) : null
+  const waiting = state === 'needs-you' || teamSeats(goal, room, goalRunOf(room.id, goal, snapshot.flowExecutions)).some(({ key }) =>
+    key && (snapshot.approvals.some(one => one.key === key) || snapshot.queues.get(key)?.status === 'paused' || (snapshot.sessions.get(key) && traceOf(snapshot.sessions.get(key)!, false) === 'waiting')))
+  const words = waiting ? { label: 'Needs you', tone: 'warning' as const }
+    : state === 'working' ? { label: 'Working', tone: 'info' as const }
+      : goal ? goalWords({ goal: goal.goal, activity: goal.activity }) : null
   /* Resolved against what the tree is *showing* first, so the agent filter
      applies here as it does everywhere else — a room drawn straight from its
      member list would keep conversations the filter had just removed from
@@ -724,7 +715,7 @@ const RoomRow = ({
 
   return (
     <SidebarMenu data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount}>
-      <SidebarMenuItem trailingMarks={Number(held > 0) + Number(Boolean(goal)) as 0 | 1 | 2}>
+      <SidebarMenuItem trailingMarks={Number(held > 0) + Number(Boolean(words)) as 0 | 1 | 2}>
         <div className="relative min-w-0">
           <SidebarMenuButton
             trailingOverlay
@@ -829,9 +820,7 @@ const WindowedProjectRows = ({
     }
     const key = sessionKey(row.summary.runtime, row.summary.id)
     const live = snapshot.sessions.get(key)
-    const needsYou = snapshot.approvals.some((entry) => entry.key === key) || snapshot.queues.get(key)?.status === 'paused'
-    const need = needsYou ? needsYouOf(row.summary, snapshot) : undefined
-    return need?.name ?? sessionLabel(live?.title ?? row.summary.title, row.summary.preview)
+    return sessionLabel(live?.title ?? row.summary.title, row.summary.preview)
   }))
 
   useEffect(() => {
@@ -947,15 +936,15 @@ const WindowedProjectRows = ({
     row?.scrollIntoView?.({ block: 'nearest' })
   }, [navigationIndex, renderStart, renderEnd])
 
-  if (!enabled) return <div ref={root} className={className} data-virtual-project="true">{rows.map(renderRow)}{footer}</div>
+  if (!enabled) return <SidebarGroupContent nested ref={root} className={className} data-virtual-project="true">{rows.map(renderRow)}{footer}</SidebarGroupContent>
   return (
-    <div ref={root} className={className} data-virtual-project="true"
+    <SidebarGroupContent nested ref={root} className={className} data-virtual-project="true"
       data-virtual-labels={virtualLabels}>
       {renderStart > 0 && <div aria-hidden="true" style={{ height: renderBeforeHeight }} />}
       {rows.slice(renderStart, renderEnd).map((row, index) => renderRow(row, renderStart + index))}
       {renderAfterHeight > 0 && <div aria-hidden="true" style={{ height: renderAfterHeight }} />}
       {footer}
-    </div>
+    </SidebarGroupContent>
   )
 }
 
@@ -1030,34 +1019,6 @@ const PROJECT_MIME = 'application/x-harnessdesk-project'
  * rather than guessed: the grouping already folds a worktree path onto its
  * checkout, which is the case this was found in.
  */
-/**
- * What a "Needs you" row is for, and what kind of wait it is holding — the
- * Goal or room it belongs to, if any, and whether it is an approval, a held
- * message, or an unanswered question. Two conversations that never got their
- * own title — a trigger seats every one of them under its agent's own name —
- * used to read as one row, twice: both said only "Triager".
- */
-interface NeedsYou {
-  /** The Goal or room this conversation works for, or null for a lone one. */
-  readonly name: string | null
-  /** The kind of wait, in a word or two. */
-  readonly reason: string
-}
-
-const needsYouOf = (summary: SessionSummary, snapshot: AppSnapshot): NeedsYou => {
-  const key = sessionKey(summary.runtime, summary.id)
-  const room = [...snapshot.teams.values()].find((team) =>
-    teamSeats(snapshot.goals.get(team.id), team, goalRunOf(team.id, snapshot.goals.get(team.id), snapshot.flowExecutions)).some(member => member.key === key),
-  )
-  const goal = room ? snapshot.goals.get(room.id) : undefined
-  const reason = snapshot.approvals.some((entry) => entry.key === key)
-    ? 'Approval'
-    : snapshot.queues.get(key)?.status === 'paused'
-      ? 'Queued message'
-      : 'Question'
-  return { name: goal ? goalName(goal.goal) : room?.name ?? null, reason }
-}
-
 const rowOf = (session: Session): SessionSummary => ({
   id: session.id,
   runtime: session.runtime,
@@ -1230,38 +1191,26 @@ export const SessionTree = ({ now }: { now: number }) => {
 
   const toggle = useCallback((key: string) => store.toggleCollapsed(key), [store])
 
-  // Live state across every workspace, for the triage band.
-  const triage = useMemo(() => {
-    const waiting: SessionSummary[] = []
-    const working: SessionSummary[] = []
-    for (const summary of snapshot.history) {
-      const key = sessionKey(summary.runtime, summary.id)
-      const live = snapshot.sessions.get(key)
-      if (!live) continue
-      const state = traceOf(
-        live,
-        snapshot.approvals.some((entry) => entry.key === key) ||
-          snapshot.queues.get(key)?.status === 'paused',
-      )
-      if (state === 'waiting') waiting.push(summary)
-      else if (ACTIVE_STATES.has(state)) working.push(summary)
-    }
-    return { waiting, working }
-  }, [snapshot.history, snapshot.sessions, snapshot.approvals, snapshot.queues])
-  const triageKeys = useMemo(
-    () => new Set([...triage.waiting, ...triage.working].map((summary) => String(sessionKey(summary.runtime, summary.id)))),
-    [triage],
-  )
+  const teamKeys = useMemo(() => new Set([...snapshot.teams.values()].flatMap(team =>
+    teamSeats(snapshot.goals.get(team.id), team, goalRunOf(team.id, snapshot.goals.get(team.id), snapshot.flowExecutions))
+      .filter(hasConversation).map(one => String(one.key)))), [snapshot.teams, snapshot.goals, snapshot.flowExecutions])
   const pinnedRows = useMemo(() => {
     const byKey = new Map(groups.flatMap((group) => group.sessions).map((summary) => [String(sessionKey(summary.runtime, summary.id)), summary]))
     return snapshot.listPrefs.pinnedSessions
+      .filter(key => !teamKeys.has(String(key)))
       .map((key) => byKey.get(String(key)))
-      .filter((summary): summary is SessionSummary => summary !== undefined && !triageKeys.has(String(sessionKey(summary.runtime, summary.id))))
-  }, [groups, snapshot.listPrefs.pinnedSessions, triageKeys])
+      .filter((summary): summary is SessionSummary => summary !== undefined)
+  }, [groups, snapshot.listPrefs.pinnedSessions, teamKeys])
   const liftedKeys = useMemo(
-    () => new Set([...triageKeys, ...pinnedRows.map((summary) => String(sessionKey(summary.runtime, summary.id)))]),
-    [pinnedRows, triageKeys],
+    () => new Set(pinnedRows.map((summary) => String(sessionKey(summary.runtime, summary.id)))),
+    [pinnedRows],
   )
+  const toggleTeam = useCallback((id: string) => setExpanded(current => {
+    const next = new Set(current)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    return next
+  }), [])
 
   /* The rooms in each project, so a room can be drawn where it belongs.
      There used to be one line above the whole tree reading "Room · 2 open · 1
@@ -1561,25 +1510,22 @@ export const SessionTree = ({ now }: { now: number }) => {
     },
   }
 
-  const activeTeams = new Set(teamsInput(snapshot).filter(input => teamListRow(input).active).map(input => input.team.id))
+  const teamRows = new Map(teamsInput(snapshot).map(input => [input.team.id, teamListRow(input)]))
   const renderGroup = (group: ProjectGroup) => {
     const open = !collapsed.has(group.root)
     const allRooms = projectRoots(group)
       .flatMap((root) => roomsByProject.get(root) ?? [])
       .sort((a, b) => b.updatedAt - a.updatedAt)
-    const rooms = allRooms.filter((room) => activeTeams.has(room.id))
-    const wrapped = allRooms.filter((room) => snapshot.goals.get(room.id)?.goal.state === 'wrapped')
-    const wrappedKey = `${group.root}\u0000wrapped`
+    const rooms = allRooms.filter((room) => teamRows.get(room.id)?.active)
     /* A conversation is listed once: under its room if it is in one, under
        the project if it is not. Two rows for one session — the room's copy
        and a loose copy — would make the tree's own count disagree with
        itself, and there would be no way to tell which of them was the one
        that could be dragged, pinned or deleted. */
-    const inRooms = new Set(allRooms.flatMap((room) => teamSeats(snapshot.goals.get(room.id), room, goalRunOf(room.id, snapshot.goals.get(room.id), snapshot.flowExecutions)).map(one => String(one.key))))
     const loose = group.sessions.filter(
       (summary) => {
         const key = String(sessionKey(summary.runtime, summary.id))
-        return !inRooms.has(key) && !liftedKeys.has(key)
+        return !teamKeys.has(key) && !liftedKeys.has(key)
       },
     )
     const projectSessions = group.sessions.filter((summary) => !liftedKeys.has(String(sessionKey(summary.runtime, summary.id))))
@@ -1651,10 +1597,11 @@ export const SessionTree = ({ now }: { now: number }) => {
                 <RoomRow
                   key={row.room.id}
                   room={row.room}
+                  state={teamRows.get(row.room.id)!.state}
                   sessions={projectSessions}
                   now={now}
-                  open={!collapsed.has(row.room.id)}
-                  onToggle={() => toggle(row.room.id)}
+                  open={expanded.has(row.room.id)}
+                  onToggle={() => toggleTeam(row.room.id)}
                   onDelete={setDeleting}
                   hiddenKeys={liftedKeys}
                   virtualKey={`room:${row.room.id}`}
@@ -1667,36 +1614,7 @@ export const SessionTree = ({ now }: { now: number }) => {
             }
           />
         )}
-        {open && wrapped.length > 0 && (
-          <div className={styles.nested}>
-            {wrapped.length > 0 ? (
-              <>
-                <SidebarMenu><SidebarMenuItem><SidebarMenuButton size="sm"
-                  aria-expanded={expanded.has(wrappedKey)}
-                  onClick={() => setExpanded((current) => {
-                    const next = new Set(current)
-                    if (next.has(wrappedKey)) next.delete(wrappedKey)
-                    else next.add(wrappedKey)
-                    return next
-                  })}
-                  label={`Wrapped · ${wrapped.length}`}
-                /></SidebarMenuItem></SidebarMenu>
-                {expanded.has(wrappedKey) ? wrapped.map((room) => (
-                  <RoomRow
-                    key={room.id}
-                    room={room}
-                    sessions={projectSessions}
-                    now={now}
-                    open={!collapsed.has(room.id)}
-                    onToggle={() => toggle(room.id)}
-                    onDelete={setDeleting}
-                    hiddenKeys={liftedKeys}
-                  />
-                )) : null}
-              </>
-            ) : null}
-          </div>
-        )}
+
       </div>
     )
   }
@@ -1707,41 +1625,6 @@ export const SessionTree = ({ now }: { now: number }) => {
       const root = row?.closest<HTMLElement>('[data-project-root]')?.dataset.projectRoot
       if (root && row) setNavigationTarget({ root, index: Number(row.dataset.virtualIndex) })
     }} role="group" aria-label="Conversations" data-region="session-tree">
-      {/* Triage first: what needs the developer, then what is working — every
-          workspace, one list. The words come from the live trace. */}
-      {triage.waiting.length > 0 && (
-        <SidebarGroup className={styles.triage} data-tone="waiting">
-          <GroupLabel><Text role="muted" tone="warning">Needs you · {triage.waiting.length}</Text></GroupLabel>
-          <SidebarGroupContent>
-          {triage.waiting.map((summary) => (
-            <SessionRow
-              key={`w-${summary.runtime}-${summary.id}`}
-              summary={summary}
-              now={now}
-              onDelete={setDeleting}
-              need={needsYouOf(summary, snapshot)}
-            />
-          ))}
-          </SidebarGroupContent>
-          <Separator />
-        </SidebarGroup>
-      )}
-      {triage.working.length > 0 && (
-        <SidebarGroup className={styles.triage} data-tone="working">
-          <GroupLabel>Working · {triage.working.length}</GroupLabel>
-          <SidebarGroupContent>
-          {triage.working.map((summary) => (
-            <SessionRow
-              key={`a-${summary.runtime}-${summary.id}`}
-              summary={summary}
-              now={now}
-              onDelete={setDeleting}
-            />
-          ))}
-          </SidebarGroupContent>
-          <Separator />
-        </SidebarGroup>
-      )}
       {pinnedRows.length > 0 && (
         <SidebarGroup className={styles.triage} data-sidebar-band="pinned">
           <GroupLabel>Pinned · {pinnedRows.length}</GroupLabel>

@@ -888,6 +888,18 @@ in that exchange. Counts beside state labels yield when the row is 200px wide
 or narrower; the query measures the row, including a nested row, rather than
 the window. A room’s header and its members each own their hover surface.
 
+
+### Sidebar hierarchy
+
+State stays on its row: a quiet running dot for a conversation and **Needs you**
+when it waits. Pinned is one plain section for loose conversations. Every active
+Team is one row in its project with its Seats collapsed initially; Seats stay
+under their Team through running, waiting and pinning. Wrapped Teams live on the
+Teams page. Project children and Team Seats each take one shared nested-rail
+step, using `SidebarGroupContent nested` and `SidebarMenu nested` respectively.
+The sidebar catalogue and `preview.html?sidebar-structure` mount the same
+production tree with three projects, three Seats, loose conversations and Pinned.
+
 ### Destination rows
 
 A navigation row is at least `--hd-nav-h` tall wherever it appears, and
@@ -1607,8 +1619,8 @@ Dispatching controls and both composers are disabled with **This Team is
 wrapped**, the conversation menu's **Compact now** and the branch chip's
 **Review uncommitted changes** among them. A dialog open when the Team wraps
 stays open, with its final action disabled and a note carrying the same reason;
-Cancel still closes it. The sidebar keeps those conversations under its collapsed Wrapped
-group, the Seats whose conversation was not kept together in one nested list.
+Cancel still closes it. Wrapped Teams leave the sidebar and remain on the Teams
+page; their retained conversations stay readable from the Team’s Agents list.
 The `team-record` catalogue board mounts the production pane with
 retained conversations, an older receipt, a conversation seated twice, a
 receipt whose every Seat lost its conversation, no Seats, a narrow rail and a

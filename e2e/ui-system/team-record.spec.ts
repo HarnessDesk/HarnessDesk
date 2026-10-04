@@ -42,9 +42,9 @@ for (const theme of ['light','dark'] as const) {
   await expect(page.locator('#team-record-unlinked aside')).not.toContainText('No Agents were kept')
   await expect(page.locator('#team-record-empty aside')).toContainText('No Agents were kept')
   const sidebar=page.locator('#team-record-sidebar-shared')
-  await sidebar.getByRole('button',{name:'Wrapped · 1',exact:true}).click()
-  await expect(sidebar.locator('button[data-slot="sidebar-menu-button"]').filter({hasText:'Writer conversation'})).toHaveCount(1)
-  await expect(sidebar.locator('button[data-slot="sidebar-menu-button"]').filter({hasText:'Reviewer conversation'})).toHaveCount(1)
+  await expect(sidebar.getByRole('button',{name:'Wrapped · 1',exact:true})).toHaveCount(0)
+  await expect(sidebar.locator('button[data-slot="sidebar-menu-button"]').filter({hasText:'Writer conversation'})).toHaveCount(0)
+  await expect(sidebar.locator('button[data-slot="sidebar-menu-button"]').filter({hasText:'Reviewer conversation'})).toHaveCount(0)
  })
  test(`Wrapped Team: a question open when the Run ends keeps its place with its final action off in ${theme}`, async ({page}) => {
   const reason='This Team is wrapped'
@@ -83,14 +83,13 @@ for (const theme of ['light','dark'] as const) {
   await expect(review).toHaveAttribute('aria-disabled','true')
   await expect(review).toHaveAttribute('title','This Team is wrapped')
  })
- test(`Wrapped Team: sidebar keeps the nested conversations and unlinked Seat in ${theme}`, async ({page}) => {
+ test(`Wrapped Team: sidebar leaves retained conversations and unlinked Seats on Teams in ${theme}`, async ({page}) => {
   await page.goto(`/preview.html?team-record&theme=${theme}`)
   const sidebar=page.locator('#team-record-sidebar')
-  await sidebar.getByRole('button',{name:'Wrapped · 1',exact:true}).click()
-  await expect(sidebar.locator('button[data-slot="sidebar-menu-button"]').filter({hasText:'Writer conversation'})).toBeVisible()
-  await expect(sidebar.locator('button[data-slot="sidebar-menu-button"]').filter({hasText:'Reviewer conversation'})).toBeVisible()
-  await expect(sidebar.getByRole('button',{name:'Gamma',exact:true})).toBeDisabled()
-  await expect(sidebar.getByRole('button',{name:'Gamma',exact:true})).toHaveAttribute('title','Conversation not kept')
+  await expect(sidebar.getByRole('button',{name:'Wrapped · 1',exact:true})).toHaveCount(0)
+  await expect(sidebar.locator('button[data-slot="sidebar-menu-button"]').filter({hasText:'Writer conversation'})).toHaveCount(0)
+  await expect(sidebar.locator('button[data-slot="sidebar-menu-button"]').filter({hasText:'Reviewer conversation'})).toHaveCount(0)
+  await expect(sidebar.getByRole('button',{name:'Gamma',exact:true})).toHaveCount(0)
  })
  test(`Wrapped Team: narrow rail and receipt stay inside their frame in ${theme}`, async ({page}) => {
   await page.goto(`/preview.html?team-record&theme=${theme}`)
@@ -116,13 +115,11 @@ for (const theme of ['light','dark'] as const) {
   await expect(frame.getByText('As recorded when wrapped',{exact:true})).toBeHidden()
   expect(await frame.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
  })
- test(`Wrapped Team: the sidebar lists Seats with no conversation in one nested list in ${theme}`, async ({page}) => {
+ test(`Wrapped Team: the sidebar leaves Seats with no conversation on Teams in ${theme}`, async ({page}) => {
   await page.goto(`/preview.html?team-record&theme=${theme}`)
   const sidebar=page.locator('#team-record-sidebar-unlinked')
-  await sidebar.getByRole('button',{name:'Wrapped · 1',exact:true}).click()
-  const missing=sidebar.locator('ul[data-nested="true"]').filter({has:page.locator('button[title="Conversation not kept"]')})
-  await expect(missing).toHaveCount(1)
-  await expect(missing.locator('button[title="Conversation not kept"]')).toHaveCount(2)
-  for (const name of ['Alpha','Beta']) await expect(missing.getByRole('button',{name,exact:true})).toBeDisabled()
+  await expect(sidebar.getByRole('button',{name:'Wrapped · 1',exact:true})).toHaveCount(0)
+  await expect(sidebar.locator('ul[data-nested="true"]')).toHaveCount(0)
+  for (const name of ['Alpha','Beta']) await expect(sidebar.getByRole('button',{name,exact:true})).toHaveCount(0)
  })
 }

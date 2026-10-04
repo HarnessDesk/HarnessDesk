@@ -24,8 +24,11 @@ const SidebarGroup = ({ className, ...props }: React.ComponentProps<'section'>) 
   <section data-slot="sidebar-group" data-sidebar="group" className={cn('relative flex w-full min-w-0 flex-col px-(--hd-space-2)', className)} {...props} />
 )
 
-const SidebarGroupContent = ({ className, ...props }: React.ComponentProps<'div'>) => (
-  <div data-slot="sidebar-group-content" data-sidebar="group-content" className={cn('min-w-0 text-sm', className)} {...props} />
+const sidebarNestedClass = 'ms-(--hd-space-5) w-[calc(100%-var(--hd-space-5))] border-s border-sidebar-border ps-(--hd-space-2)'
+
+const SidebarGroupContent = ({ className, nested = false, ...props }: React.ComponentProps<'div'> & { nested?: boolean }) => (
+  <div data-slot="sidebar-group-content" data-sidebar="group-content" data-sidebar-indent={nested ? 'true' : undefined}
+    className={cn('min-w-0 text-sm', nested && sidebarNestedClass, className)} {...props} />
 )
 
 const SidebarMenu = ({ className, nested = false, horizontal = false, ...props }: React.ComponentProps<'ul'> & { nested?: boolean; horizontal?: boolean }) => (
@@ -36,7 +39,7 @@ const SidebarMenu = ({ className, nested = false, horizontal = false, ...props }
     className={cn(
       'flex w-full min-w-0 gap-(--hd-space-0-5)',
       horizontal ? 'flex-row items-center gap-(--hd-space-1) px-(--hd-space-2)' : 'flex-col',
-      nested && 'ms-5 w-[calc(100%-var(--hd-space-5))] border-s border-sidebar-border ps-(--hd-space-2)',
+      nested && sidebarNestedClass,
       className,
     )}
     {...props}

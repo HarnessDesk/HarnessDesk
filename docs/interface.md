@@ -235,22 +235,24 @@ a **Filtered** chip stays beside Projects and its × clears the query, so a
 short result list cannot read as missing data. The title, list filter and
 conversation history all remain in the same sidebar column.
 
-**Triage first.** Above the projects, two bands gather live conversations from
-every workspace: **Needs you** (amber, for approvals, input requests, or turns
-that broke) and **Working**. Each live row says what its agent is doing right
-now — Planning, Editing, Testing, Running, Thinking, Waiting for you, Failed —
-read off the turn's latest item by `lib/trace.ts`, never from the prose. A
-stored session says when it last ran instead. This is the one element that
-makes parallel agents legible at a glance, so it must never say something the
-items do not support.
+**State belongs to the row.** A running conversation wears a small quiet dot;
+its hover names the activity read from the turn's latest item — Planning,
+Editing, Testing, Running or Thinking. A conversation waiting for an approval,
+a held queue or an answer says **Needs you** beside its own title. Neither state
+moves it into a separate band. Stored conversations say when they last ran on
+hover instead.
 
-Each conversation has exactly one row. A row moves into **Needs you** or
-**Working** while it needs attention or its turn is running; it leaves its
-project or room until that state ends. **Pinned** follows those bands and
-appears only when it has rows. Pins keep their chosen order and stay out of
-their project and room; when a band state ends, a pinned conversation returns
-to Pinned, otherwise it returns to its project or room. Project overflow counts
-include only conversations still shown there.
+**One row per Team.** Each active Team sits inside its project, one indent step
+beside the project's loose conversations. Its quiet **Needs you** or **Working**
+label describes the Team. Its Seats fold underneath, collapsed initially and
+one further indent step in; the chevron reveals them without opening the Team.
+A Seat conversation stays under its Team, including when pinned or waiting.
+Wrapped Teams and their conversations leave the sidebar and remain on **Teams**.
+
+**Pinned** is a plain section above the projects, shown only when it has loose
+conversations. Pins keep their chosen order and stay out of their project.
+Running or waiting changes the row's state without moving it. Project overflow
+counts include only loose conversations still shown there.
 
 **Projects, not folders.** Sessions group by repository (`lib/projects.ts`):
 Codex gives every "in a worktree" thread its own checkout under
@@ -611,7 +613,7 @@ running jobs: the host's order, with reorder, remove, and edit in place. If an
 edit cannot be saved because the original was already sent, the changed words
 remain in a Restore list beside that conversation's composer. A turn that ended any way
 but cleanly **holds** the queue and says why (amber, with *Send now* and
-*Discard*), and the conversation joins the sidebar's *Needs you* band: firing
+*Discard*), and the conversation's sidebar row says *Needs you*: firing
 the rest of a queue into a rate limit, a crashed agent, or a turn the user just
 stopped would spend money on a guess. The queue lives in the host, so it
 survives a reload and a second window; it does not survive the host, because a
@@ -836,9 +838,8 @@ Workspaces › a project › Provenance controls capture on this machine. It sta
 
 ## Goals and retained lanes
 
-Projects list open Goals above loose conversations and keep completed work in
-one collapsed **Wrapped** group. A Goal row states Working, Needs you, Ready to
-wrap, Wrapping or Wrapped; those words describe activity, not an evidence
+Projects list active Goals alongside loose conversations; completed work stays
+on the Teams page. A Goal row states Working, Needs you or Wrapping; those words describe activity, not an evidence
 verdict. Opening a Goal keeps the existing Board, Chat and Members destinations.
 Membership comes from its open Seats. Releasing a Seat closes that membership
 record without deleting the conversation or checkout.
@@ -862,7 +863,7 @@ Wrapped Goals open an immutable receipt headed **As recorded when wrapped**;
 partial answers, gaps, unknown spend and dirty retained lanes remain visible.
 A wrapped Team opens on **Receipt** and keeps Overview, Run and its Agents
 rail. It opens there with or without a Run, and in a narrow pane too, where the
-Agents list is one tap behind it. The sidebar's Wrapped group keeps the same
+Agents list is one tap behind it. The Team’s Agents list keeps the same
 conversations, the Seats without one together in a single list. Older receipts
 use a Seat's kept answer to find its conversation; a Seat without one says
 **Conversation not kept**, and a receipt whose every Seat lacks one lists them

@@ -124,3 +124,14 @@ it('does not export sidebar parts that duplicate shared controls or workbench la
     expect(sidebarExports).not.toHaveProperty(name)
   }
 })
+
+it('shares the nested rail and token indentation between project content and Seat menus', () => {
+  const project = renderToStaticMarkup(<sidebarExports.SidebarGroupContent nested><span>Team</span></sidebarExports.SidebarGroupContent>)
+  const seats = renderToStaticMarkup(<SidebarMenu nested><SidebarMenuItem>Seat</SidebarMenuItem></SidebarMenu>)
+  expect(project).toContain('data-sidebar-indent="true"')
+  for (const markup of [project, seats]) {
+    expect(markup).toContain('ms-(--hd-space-5)')
+    expect(markup).toContain('w-[calc(100%-var(--hd-space-5))]')
+    expect(markup).toContain('border-s border-sidebar-border ps-(--hd-space-2)')
+  }
+})
