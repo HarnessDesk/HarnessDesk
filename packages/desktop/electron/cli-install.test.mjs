@@ -365,7 +365,7 @@ test('removing deletes our launcher and only that', () => {
 })
 
 test('the one line that puts a folder on PATH is the shell’s own, and never edits a file', () => {
-  const home = '/home/jane'
+  const home = '/home/user'
   const dir = `${home}/.local/bin`
   assert.deepEqual(pathAdvice({ dir, home, shell: '/bin/zsh' }), {
     file: '~/.zshrc',
