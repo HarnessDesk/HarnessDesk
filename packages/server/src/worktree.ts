@@ -164,7 +164,8 @@ export const repositoryRoot = async (path: string): Promise<string | null> =>
  */
 const topLevelOf = async (path: string): Promise<string | null> => {
   try {
-    return canonical((await git(path, ['rev-parse', '--path-format=absolute', '--show-toplevel'])).trim())
+    // Git appends one newline; any whitespace before it belongs to the path.
+    return canonical((await git(path, ['rev-parse', '--path-format=absolute', '--show-toplevel'])).replace(/\n$/, ''))
   } catch {
     // A bare repository, or a git directory with no working tree attached.
     return null
@@ -199,7 +200,8 @@ export const repositoryOf = async (path: string): Promise<RepoInfo | null> => {
       '--git-dir',
       '--show-toplevel',
     ])
-    ;[common, dir, here] = out.split('\n').map((line) => line.trim())
+    // These are path payloads, not labels: trimming can name a different folder.
+    ;[common, dir, here] = out.split('\n')
   } catch {
     return null
   }

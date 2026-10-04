@@ -46,12 +46,12 @@ const tempDir = async (prefix = 'hd-git-worktree-'): Promise<string> => {
  * A one-commit repository inside a parent of its own, because "beside the
  * repository" is the rule under test: the parent is the whole allowed world.
  */
-const seedRepo = async (): Promise<{ repo: string; beside: string; state: string }> => {
+const seedRepo = async (name = 'repo'): Promise<{ repo: string; beside: string; state: string }> => {
   // Canonical: git reports real paths, and on macOS the temp dir is reached
   // through a symlink — so an expectation built on the raw path would fail
   // over /var vs /private/var rather than over anything this module does.
   const beside = await realpath(await tempDir())
-  const repo = join(beside, 'repo')
+  const repo = join(beside, name)
   await mkdir(repo)
   await git(repo, 'init', '-q', '-b', 'main')
   await writeFile(join(repo, 'a.txt'), 'one\n')
@@ -76,6 +76,31 @@ const gone = async (path: string): Promise<boolean> => {
 }
 
 // -------------------------------------------------------------------- list
+
+test('the listing preserves a main checkout path ending in whitespace', async () => {
+  const { repo, beside, state } = await seedRepo('repo ')
+  // A trimmed sibling must never supply the main row's status or location.
+  const sibling = join(beside, 'repo')
+  await mkdir(sibling)
+  await git(sibling, 'init', '-q', '-b', 'main')
+  await writeFile(join(sibling, 'untracked.txt'), 'sibling\n')
+  const home = await worktreeHome(repo, state)
+  await mkdir(home, { recursive: true })
+  const side = join(home, 'side')
+  await git(repo, 'worktree', 'add', '-q', '-b', 'harnessdesk/side', side)
+
+  for (const from of [repo, side]) {
+    const rows = await list(from, state)
+    assert.deepEqual(
+      rows.map((row) => [row.path, row.isMain, row.isCurrent, row.managed, row.dirty]),
+      [
+        [repo, true, from === repo, false, 0],
+        [side, false, from === side, true, 0],
+      ],
+      `read from ${from}`,
+    )
+  }
+})
 
 test('the listing names every checkout, which is main, and which one we are reading from', async () => {
   const { repo, state } = await seedRepo()
