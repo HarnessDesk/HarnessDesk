@@ -1356,6 +1356,7 @@ class PreviewStore {
   flowGeneration = (): number => 0
   flowCatalog = async (): Promise<readonly FlowEntry[]> => PREVIEW_FLOWS
   flowSource = async (_root: string, id: string): Promise<string> => PREVIEW_FLOW_SOURCE[id] ?? PREVIEW_FLOW_SOURCE['fix']!
+  readCheckAttempts = async () => ({ attempts: [], complete: true })
   previewFlow = async (_root: string, source: string): Promise<FlowPreview> => previewFlowPreviewFor(source)
   startFlowGoal = async (): Promise<FlowExecution> => {
     console.info('[preview] startFlowGoal')

@@ -1428,8 +1428,10 @@ export const TeamRoomPane = ({
                   findings: snapshot.findings.get(room)?.filter === 'all' ? snapshot.findings.get(room)?.rows : [],
                   origin: timelineRun.intake ? `From trigger ${timelineRun.intake.trigger}` : goal?.goal.origin.kind === 'person' ? 'Started by you' : null,
                   ...(checkAttempts.attempts ? { attempts: checkAttempts.attempts } : {}),
+                  ...(checkAttempts.incomplete.size ? { incompleteAttempts: checkAttempts.incomplete } : {}),
                 })}
                 attempts={checkAttempts.attempts}
+                incompleteAttempts={checkAttempts.incomplete}
                 attemptsRead={checkAttempts.read}
                 selectedRow={selectedRunRows.get(timelineRun.id) ?? null}
                 onSelect={id => setSelectedRunRows(was => new Map(was).set(timelineRun.id, id))}

@@ -121,8 +121,8 @@ const GATE = (patch: Partial<ReturnType<typeof overviewRun>> = {}) => ({ ...over
   ...patch })
 const DONE = { id: 1, title: 'Verify', state: 'done' as const, outcome: 'pass', files: [], dependsOn: [], createdAt: 1, updatedAt: 2 }
 const ATTEMPTS = new Map([[1, [
-  { n: 1, at: Date.now() - 600_000, commit: 'abc', exit: 1, timedOut: false, outcome: 'fail', tail: 'FAIL' },
-  { n: 2, at: Date.now() - 60_000, commit: 'abc', exit: 0, timedOut: false, outcome: 'pass', tail: 'ok' },
+  { id: 'attempt-1', n: 1, at: Date.now() - 600_000, commit: 'abc', exit: 1, timedOut: false, outcome: 'fail', tail: 'FAIL' },
+  { id: 'attempt-2', n: 2, at: Date.now() - 60_000, commit: 'abc', exit: 0, timedOut: false, outcome: 'pass', tail: 'ok' },
 ]]])
 
 const mountGate = (execution: ReturnType<typeof GATE>, extra: Partial<Parameters<typeof runTimeline>[0]> = {}) => {

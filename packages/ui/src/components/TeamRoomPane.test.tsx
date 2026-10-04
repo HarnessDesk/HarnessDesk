@@ -3457,10 +3457,10 @@ it('draws a check run more than once with each attempt under it, and asks the de
   const card = { id: 1, title: 'Verify', state: 'done', outcome: 'pass', files: [], dependsOn: [], createdAt: 1, updatedAt: 2 }
   const { store } = rig([], undefined, { members: [], intents: [card] } as never, GOAL, new Map([[gate.id, gate]]))
   const attempts = [
-    { n: 1, at: Date.now() - 600_000, commit: 'c0ffee1', exit: 1, timedOut: false, outcome: 'fail', tail: 'FAIL: one test' },
-    { n: 2, at: Date.now() - 60_000, commit: 'c0ffee2', exit: 0, timedOut: false, outcome: 'pass', tail: 'ok' },
+    { id: 'attempt-1', n: 1, at: Date.now() - 600_000, commit: 'c0ffee1', exit: 1, timedOut: false, outcome: 'fail', tail: 'FAIL: one test' },
+    { id: 'attempt-2', n: 2, at: Date.now() - 60_000, commit: 'c0ffee2', exit: 0, timedOut: false, outcome: 'pass', tail: 'ok' },
   ]
-  const readCheckAttempts = vi.fn(async () => attempts)
+  const readCheckAttempts = vi.fn(async () => ({ attempts, complete: true }))
   Object.assign(store, { loadFindings: vi.fn().mockResolvedValue(undefined), readCheckAttempts })
   await render(store)
   expect(readCheckAttempts, 'the Overview is on show, not the Run').not.toHaveBeenCalled()
@@ -3502,9 +3502,9 @@ it('a new attempt appears under the check when its result lands, and the earlier
     document: { format: 'agents', flow: { name: 'Gate', rules: [], roles: [{ id: 'verify', kind: 'check', check: { run: 'pnpm verify', timeout: 60, exits: { '0': 'pass' }, otherwise: 'fail' } }] } } } as unknown as FlowExecution
   const card = { id: 1, title: 'Verify', state: 'done', outcome: 'pass', files: [], dependsOn: [], createdAt: 1, updatedAt: 2 }
   const { store } = rig([], undefined, { members: [], intents: [card] } as never, GOAL, new Map([[gate.id, gate]]))
-  const attempt = (n: number) => ({ n, at: n * 1000, commit: `c0ffee${n}`, exit: n === 2 ? 0 : 1, timedOut: false, outcome: n === 2 ? 'pass' : 'fail', tail: `output ${n}` })
+  const attempt = (n: number) => ({ id: `attempt-${n}`, n, at: n * 1000, commit: `c0ffee${n}`, exit: n === 2 ? 0 : 1, timedOut: false, outcome: n === 2 ? 'pass' : 'fail', tail: `output ${n}` })
   let recorded = [attempt(1), attempt(2)]
-  const readCheckAttempts = vi.fn(async () => recorded)
+  const readCheckAttempts = vi.fn(async () => ({ attempts: recorded, complete: true }))
   const evidenceWith = (id: string) => ({ room: ROOM, stamp: 1, checks: [], refused: [], unreadable: null, cards: [{ card: 1, running: [], facts: [{ freshness: { state: 'fresh' }, by: null,
     record: { id, observedAt: 1, round: 1, fact: { kind: 'check', name: 'verify', run: 'pnpm verify', exit: 0, timedOut: false, at: 'abc', dirty: false, tail: '' } } }] }] })
   const base = store.getSnapshot()

@@ -1,4 +1,4 @@
-import type { EvidenceRecord, FlowCheckAttempt, FlowExecution } from '@harnessdesk/protocol'
+import type { EvidenceRecord, FlowCheckAttempts, FlowExecution } from '@harnessdesk/protocol'
 
 /**
  * Every result the desk recorded for one check card of a run, oldest first.
@@ -28,15 +28,16 @@ import type { EvidenceRecord, FlowCheckAttempt, FlowExecution } from '@harnessde
 export const checkAttemptsOf = async (
   execution: FlowExecution,
   card: number,
-  results: (goal: string) => Promise<readonly EvidenceRecord[]>,
-): Promise<readonly FlowCheckAttempt[]> => {
+  results: (goal: string) => Promise<{ readonly records: readonly EvidenceRecord[]; readonly complete: boolean }>,
+): Promise<FlowCheckAttempts> => {
   if (execution.document.format !== 'agents') throw new Error('This run uses the old format and is run by the old engine.')
   const round = execution.rounds.find((one) => one.cards.includes(card))
   if (!round) throw new Error(`Card #${card} belongs to no round of this run.`)
   const role = execution.document.flow.roles.find((one) => one.id === round.role)
   if (role?.kind !== 'check') throw new Error(`Card #${card} is not a check.`)
   const { check } = role
-  const mine = (await results(execution.goal)).flatMap((record) => {
+  const read = await results(execution.goal)
+  const mine = read.records.flatMap((record) => {
     const fact = record.fact
     return fact.kind === 'check' && fact.advisory !== true && fact.name === role.id && fact.run === check.run &&
       record.card?.board === execution.goal && record.card.id === card && record.round === round.n
@@ -45,13 +46,19 @@ export const checkAttemptsOf = async (
   })
   // The order they were written in, except where a restored line lands after the later ones it predates; a tie keeps its place.
   mine.sort((a, b) => a.record.observedAt - b.record.observedAt)
-  return mine.map(({ record, fact }, index) => ({
-    n: index + 1,
-    at: record.observedAt,
-    commit: fact.at,
-    exit: fact.exit,
-    timedOut: fact.timedOut,
-    outcome: check.exits[String(fact.exit)] ?? check.otherwise,
-    tail: fact.tail,
-  }))
+  return {
+    attempts: mine.map(({ record, fact }, index) => ({
+      // A readable subset has no trustworthy ordinal: a skipped record may
+      // precede any of these, so do not renumber it as the first attempt.
+      id: record.id,
+      n: read.complete ? index + 1 : null,
+      at: record.observedAt,
+      commit: fact.at,
+      exit: fact.exit,
+      timedOut: fact.timedOut,
+      outcome: check.exits[String(fact.exit)] ?? check.otherwise,
+      tail: fact.tail,
+    })),
+    complete: read.complete,
+  }
 }

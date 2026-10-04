@@ -272,7 +272,7 @@ const gate = (patch: { state?: 'running' | 'stalled' | 'settled' | 'stopped'; op
   return { ...fixture, execution: { ...fixture.execution, state: patch.state ?? 'running', operations: [...fixture.execution.operations, ...operations] } }
 }
 const attempt = (n: number, patch: Partial<FlowCheckAttempt> = {}): FlowCheckAttempt =>
-  ({ n, at: Date.now() - (3 - n) * 600_000, commit: `c0ffee${n}`, exit: n === 1 ? 1 : 0, timedOut: false, outcome: n === 1 ? 'fail' : 'pass', tail: `output of attempt ${n}`, ...patch })
+  ({ id: `attempt-${n}`, n, at: Date.now() - (3 - n) * 600_000, commit: `c0ffee${n}`, exit: n === 1 ? 1 : 0, timedOut: false, outcome: n === 1 ? 'fail' : 'pass', tail: `output of attempt ${n}`, ...patch })
 const button = (container: HTMLElement, label: string) => [...container.querySelectorAll('button')].find(one => one.textContent === label)
 
 it('lists each recorded attempt newest first, with its output behind a link and the earlier output exactly as recorded', () => {
@@ -325,6 +325,16 @@ it.each([
   // The read of another check's attempts is not this one's: a card with none of its own still says it is reading.
   const other = render({ input: { ...gate(), attempts: new Map([[9, [attempt(1), attempt(2)]]]) }, attemptsRead: read, selectedRow: 'check-2-2' })
   try { expect(sectionText(other.container, 'Attempts')).toContain(shown) } finally { other.close() }
+})
+
+it('shows readable attempts and says when the history is incomplete', () => {
+  const view = render({ input: { ...gate(), attempts: new Map([[2, [attempt(1, { n: null })] ]]), incompleteAttempts: new Set([2]) }, selectedRow: 'check-2-2' })
+  try {
+    const attempts = sectionText(view.container, 'Attempts')
+    expect(attempts).toContain('Recorded result')
+    expect(attempts).not.toContain('Attempt 1')
+    expect(attempts).toContain('Attempt history could not be read completely.')
+  } finally { view.close() }
 })
 
 it.each(['reading', 'failed'] as const)('shows the attempts it has whatever the read of them says, and says nothing of a check it already knows ran once (%s)', read => {

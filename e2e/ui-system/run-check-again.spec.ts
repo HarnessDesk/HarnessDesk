@@ -131,6 +131,30 @@ for (const theme of ['light', 'dark'] as const) {
     }
   })
 
+  test(`a new check stays in reading state while earlier attempts remain visible, in ${theme}`, async ({ page }) => {
+    await open(page, theme)
+    const frameOf = page.locator('#run-inspector-attempts-new-check-reading')
+    const view = frameOf.locator('[data-slot="run-view"]')
+    const inspector = frameOf.locator('[data-slot="run-inspector"]')
+    await expect(inspector).toContainText('Verify the repair')
+    await expect(inspector).toContainText('Reading attempts…')
+    await expect(inspector).not.toContainText('No earlier attempts')
+    await expect(view.locator('[data-row="attempt-2-2-1"]')).toContainText('Failed')
+    await expect(view.locator('[data-row="attempt-2-2-2"]')).toContainText('Passed')
+    await frame(frameOf, 'inspector-new-check-reading', theme)
+  })
+
+  test(`an incomplete history keeps its known result without inventing its attempt number, in ${theme}`, async ({ page }) => {
+    await open(page, theme)
+    const frameOf = page.locator('#run-inspector-attempts-incomplete')
+    const inspector = frameOf.locator('[data-slot="run-inspector"]')
+    await expect(inspector.locator('[data-attempt]')).toHaveCount(1)
+    await expect(inspector.locator('[data-attempt]')).toContainText('Recorded result')
+    await expect(inspector).not.toContainText('Attempt 1')
+    await expect(inspector).toContainText('Attempt history could not be read completely.')
+    await frame(frameOf, 'inspector-attempts-incomplete', theme)
+  })
+
   test(`the consent dialog shows the command verbatim, or the host's refusal with its answer disabled, in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?theme=${theme}`)

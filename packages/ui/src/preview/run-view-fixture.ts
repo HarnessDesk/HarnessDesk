@@ -61,9 +61,9 @@ export const runFixture = (scene: RunScene = 'running') => {
   }
   // What the desk recorded each time the round-2 check ran: it failed first, and passed when it was run again at a later commit.
   const attempts: ReadonlyMap<number, readonly FlowCheckAttempt[]> | undefined = scene !== 'attempts' ? undefined : new Map([[2, [
-    { n: 1, at: start + 160_000, commit: '9d41c0e7ab3f52d86e1c0a4b7f93d2e8a65b10c4', exit: 1, timedOut: false, outcome: 'fail',
+    { id: 'attempt-2-1', n: 1, at: start + 160_000, commit: '9d41c0e7ab3f52d86e1c0a4b7f93d2e8a65b10c4', exit: 1, timedOut: false, outcome: 'fail',
       tail: 'FAIL src/checkout/retry.test.ts\n  ● retries a 502 with a bounded backoff\n    expected 3 attempts, received 1\n\nTests: 1 failed, 41 passed' },
-    { n: 2, at: start + 400_000, commit: '4f0b8a21c93d7e5a60b1d82f3c4e9a7d15b6c0e8', exit: 0, timedOut: false, outcome: 'pass',
+    { id: 'attempt-2-2', n: 2, at: start + 400_000, commit: '4f0b8a21c93d7e5a60b1d82f3c4e9a7d15b6c0e8', exit: 0, timedOut: false, outcome: 'pass',
       tail: 'Tests: 42 passed\nDone in 38.2s' },
   ]]])
   return { execution, cards, signals, evidence, findings, origin: 'Started by you', ...(attempts ? { attempts } : {}) }

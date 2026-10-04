@@ -42,7 +42,7 @@ import type {
 } from './intake.js'
 import type { InsightCompareQuery, InsightComparison, InsightOrderPreview, InsightOrderQuery, InsightQuery, InsightReport } from './insight.js'
 import type {
-  FlowCheckAttempt,
+  FlowCheckAttempts,
   FlowEntry,
   FlowExecution,
   FlowPolicy,
@@ -1910,7 +1910,7 @@ export interface HostMethods {
    * token is minted. A card that is not a check card of that run, and a run on
    * the old format, are refused.
    */
-  'flow/check/attempts': { params: { readonly run: string; readonly card: number }; result: { readonly attempts: readonly FlowCheckAttempt[] } }
+  'flow/check/attempts': { params: { readonly run: string; readonly card: number }; result: FlowCheckAttempts }
   /** Hands a stopped run's kept answer (`FlowExecution.keptAnswer`) to the same Seat again, and the run goes on; refused, the answer still kept, while it cannot be delivered. */
   'flow/answer/continue': { params: { readonly run: string }; result: FlowExecution }
   /** Observed predecessor subjects a person review card may choose from. */

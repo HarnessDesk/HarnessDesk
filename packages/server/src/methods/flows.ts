@@ -175,7 +175,7 @@ export const flowMethods = {
   'flow/check/attempts': async (ctx, params) => {
     const execution = ctx.flows.executionOf(params.run)
     if (!execution) throw new Error(`There is no flow run ${params.run}.`)
-    return { attempts: await checkAttemptsOf(execution, params.card, (goal) => ctx.evidence.checkResults(goal, params.card)) }
+    return checkAttemptsOf(execution, params.card, (goal) => ctx.evidence.checkResults(goal, params.card))
   },
 
   'flow/answer/continue': (ctx, params) => ctx.flows.continueAnswer(params.run),

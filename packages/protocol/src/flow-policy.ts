@@ -169,8 +169,10 @@ export const checkRetryRefusal = (run: FlowExecution['state'], operation: FlowOp
  * attempt.
  */
 export interface FlowCheckAttempt {
-  /** 1 for the first result recorded for this card, in the order recorded. */
-  readonly n: number
+  /** The evidence record that holds this result. */
+  readonly id: string
+  /** 1 for the first result recorded, when its history is complete; null when skipped evidence may hide earlier results. */
+  readonly n: number | null
   /** When the desk recorded it, in host milliseconds. */
   readonly at: number
   /** The commit it ran at. */
@@ -192,6 +194,13 @@ export interface FlowCheckAttempt {
    * tool printed: a surface shows it as text, through its sanitiser.
    */
   readonly tail: string
+}
+
+/** The readable check results and whether damaged evidence may hide earlier attempts. */
+export interface FlowCheckAttempts {
+  readonly attempts: readonly FlowCheckAttempt[]
+  /** False when a skipped evidence line could belong to this check card. */
+  readonly complete: boolean
 }
 
 /**

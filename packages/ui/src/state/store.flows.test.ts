@@ -152,12 +152,13 @@ it('retryFlowCheck redeems a check-retry token and keeps the resulting execution
 
 it('readCheckAttempts reads one check card’s recorded results by run and card, and keeps nothing of them', async () => {
   const attempts = [
-    { n: 1, at: 100, commit: 'a'.repeat(40), exit: 1, timedOut: false, outcome: 'fail', tail: 'FAIL: 1 test' },
-    { n: 2, at: 200, commit: 'b'.repeat(40), exit: 0, timedOut: false, outcome: 'pass', tail: 'ok' },
+    { id: 'attempt-1', n: 1, at: 100, commit: 'a'.repeat(40), exit: 1, timedOut: false, outcome: 'fail', tail: 'FAIL: 1 test' },
+    { id: 'attempt-2', n: 2, at: 200, commit: 'b'.repeat(40), exit: 0, timedOut: false, outcome: 'pass', tail: 'ok' },
   ]
-  const spy = vi.spyOn(store.transport, 'request').mockResolvedValue({ attempts })
+  const response = { attempts, complete: true }
+  const spy = vi.spyOn(store.transport, 'request').mockResolvedValue(response)
   const before = store.getSnapshot()
-  expect(await store.readCheckAttempts('run-1', 3)).toEqual(attempts)
+  expect(await store.readCheckAttempts('run-1', 3)).toEqual(response)
   expect(spy).toHaveBeenCalledWith('flow/check/attempts', { run: 'run-1', card: 3 })
   expect(store.getSnapshot()).toBe(before)
 })

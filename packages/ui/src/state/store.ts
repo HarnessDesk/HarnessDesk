@@ -76,6 +76,7 @@ import {
   type FlowDryRun,
   type FlowEntry,
   type FlowCheckAttempt,
+  type FlowCheckAttempts,
   type FlowExecution,
   type ReviewCandidate,
   type FlowFile,
@@ -4597,8 +4598,8 @@ export class AppStore {
    * away. A read that keeps nothing: the Run view holds what it asked for, and
    * asks again when a check's evidence or operation changes.
    */
-  async readCheckAttempts(run: string, card: number): Promise<readonly FlowCheckAttempt[]> {
-    return (await this.transport.request('flow/check/attempts', { run, card })).attempts
+  async readCheckAttempts(run: string, card: number): Promise<FlowCheckAttempts> {
+    return this.transport.request('flow/check/attempts', { run, card })
   }
 
   /**

@@ -264,15 +264,17 @@ export class EvidencePlane {
    * the branch and costs no git read beyond finding the project, so a surface
    * can ask again whenever a result lands. Refuses a room the desk does not have.
    */
-  async checkResults(room: string, card: number): Promise<readonly EvidenceRecord[]> {
+  async checkResults(room: string, card: number): Promise<{ readonly records: readonly EvidenceRecord[]; readonly complete: boolean }> {
     const board = this.#port.board(room)
     if (!board) throw new Error(`There is no room ${room} on this desk.`)
     const project = await projectOf(board.cwd ?? board.root)
-    const { lines } = await this.store.read(project, 'evidence')
-    return lines.flatMap((line) =>
+    const read = await this.store.read(project, 'evidence')
+    const records = read.lines.flatMap((line) =>
       line.type === 'evidence' && line.record.fact.kind === 'check' && line.record.card?.board === room && line.record.card.id === card
         ? [line.record]
         : [])
+    const matchingUnreadable = read.unreadableCards.some((hint) => hint.board === room && hint.id === card)
+    return { records, complete: read.unscopedSkipped === 0 && !matchingUnreadable }
   }
 
   /**

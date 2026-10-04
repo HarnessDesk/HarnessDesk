@@ -47,6 +47,8 @@ export interface RunTimelineInput {
   origin?: string | null
   /** What the desk recorded each time a check card ran, by card: a check with more than one result draws each under it. */
   attempts?: ReadonlyMap<number, readonly FlowCheckAttempt[]>
+  /** Cards whose readable evidence may omit earlier check results. */
+  incompleteAttempts?: ReadonlySet<number>
 }
 const row = (id: string, kind: RunTimelineRow['kind'], title: string, rest: Partial<RunTimelineRow> = {}): RunTimelineRow => ({
   id, kind, title, detail: null, round: null, card: null, seat: null, status: null,
@@ -122,7 +124,9 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
         status, attention, durationMs, since, working, retryRefusal }))
       // The check row says the latest result; once it has run more than once, each result is drawn under it.
       const results = kind === 'check' ? input.attempts?.get(id) ?? [] : []
-      if (results.length > 1) for (const one of results) rows.push(row(`attempt-${round.n}-${id}-${one.n}`, 'attempt', `Attempt ${one.n}`, { round: round.n, card: id, status: attemptWords(one), since: one.at }))
+      // A skipped evidence line may hide an earlier result. Show those results
+      // in the inspector without claiming the readable subset's ordinals.
+      if (results.length > 1 && !input.incompleteAttempts?.has(id) && results.every(one => one.n !== null)) for (const one of results) rows.push(row(`attempt-${round.n}-${id}-${one.n}`, 'attempt', `Attempt ${one.n}`, { round: round.n, card: id, status: attemptWords(one), since: one.at }))
     })
     const findings = (input.findings ?? []).filter(one => one.origin.run === execution.id && one.origin.round === round.n)
     if (findings.length) rows.push(row(`findings-${round.n}`, 'findings', `${findings.length} ${findings.length === 1 ? 'finding' : 'findings'}`, {

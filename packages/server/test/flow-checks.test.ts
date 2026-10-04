@@ -580,7 +580,7 @@ for (const [what, result, word] of [
   await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
   await rig.flows.flush()
   const gate = rig.board(run.goal).intents.find((one) => one.role === 'gate')!
-  const [attempt, ...more] = await checkAttemptsOf(rig.flows.executionOf(run.id)!, gate.id, async () => rig.facts.get(run.goal) ?? [])
+  const { attempts: [attempt, ...more] } = await checkAttemptsOf(rig.flows.executionOf(run.id)!, gate.id, async () => ({ records: rig.facts.get(run.goal) ?? [], complete: true }))
   assert.equal(more.length, 0)
   assert.equal(attempt!.outcome, word)
   assert.equal(attempt!.outcome, gate.outcome, 'the card was answered with the word the read gives')
@@ -596,14 +596,14 @@ test('a check run again adds an attempt and leaves the earlier one exactly as it
   await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
   await rig.flows.flush()
   const gate = rig.board(run.goal).intents.find((one) => one.role === 'gate')!
-  const read = () => checkAttemptsOf(rig.flows.executionOf(run.id)!, gate.id, async () => rig.facts.get(run.goal) ?? [])
-  const before = await read()
+  const read = () => checkAttemptsOf(rig.flows.executionOf(run.id)!, gate.id, async () => ({ records: rig.facts.get(run.goal) ?? [], complete: true }))
+  const before = (await read()).attempts
   assert.equal(before.length, 1)
 
   rig.checkOutcomes.set('pnpm verify', { exit: 0, timedOut: false, tail: 'all green' })
   await rig.flows.retryCheck(run.id, gate.id)
   await rig.flows.flush()
-  const after = await read()
+  const after = (await read()).attempts
   assert.deepEqual(after.map((one) => [one.n, one.outcome, one.tail]), [[1, 'fix', 'FAIL: 1 test'], [2, 'pass', 'all green']])
   assert.deepEqual(after[0], before[0], 'the first attempt is the record it was, byte for byte')
   assert.equal(rig.board(run.goal).intents.find((one) => one.id === gate.id)!.outcome, 'pass', 'the card carries the latest attempt’s word')

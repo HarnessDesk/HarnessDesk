@@ -125,7 +125,7 @@ describe('a check run again', () => {
   const gate = (patch: Partial<FlowExecution> = {}) => run({ rounds: [{ ...run().rounds[0]!, role: 'verify', state: 'closed' }], ...patch })
   const finished = { key: 'check', kind: 'check' as const, state: 'finished' as const, seat: null, card: 1 }
   const attempt = (n: number, patch: Partial<FlowCheckAttempt> = {}): FlowCheckAttempt =>
-    ({ n, at: 1000 * n, commit: 'abc', exit: 1, timedOut: false, outcome: 'fail', tail: `attempt ${n}`, ...patch })
+    ({ id: `attempt-${n}`, n, at: 1000 * n, commit: 'abc', exit: 1, timedOut: false, outcome: 'fail', tail: `attempt ${n}`, ...patch })
   const attempts = (...list: FlowCheckAttempt[]) => new Map([[1, list]])
   const rows = (input: Parameters<typeof runTimeline>[0]) => runTimeline(input).rows
 
@@ -143,6 +143,11 @@ describe('a check run again', () => {
     for (const read of [undefined, attempts(), attempts(attempt(1))]) {
       expect(rows({ ...input, ...(read ? { attempts: read } : {}) }).some(row => row.kind === 'attempt')).toBe(false)
     }
+  })
+  it('does not assign readable subset ordinals to timeline rows when earlier evidence may be missing', () => {
+    const list = rows({ execution: gate({ operations: [finished] }), cards: [card({ state: 'done', outcome: 'pass' })], evidence,
+      attempts: attempts(attempt(1, { n: null }), attempt(2, { n: null, exit: 0, outcome: 'pass' })) })
+    expect(list.some(row => row.kind === 'attempt')).toBe(false)
   })
   it('keeps a check’s attempts with that check, and ignores a read for a card that is not a check', () => {
     const execution = gate({ rounds: [{ ...gate().rounds[0]!, cards: [1, 2] }], operations: [finished] })
