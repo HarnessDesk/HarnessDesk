@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { approvalId, sessionId, sessionKey, turnId, type Session, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
 import { SessionTree } from '../components/SessionTree'
 import { RailSection } from '../design'
@@ -37,7 +37,31 @@ export const sidebarStructureFixture = (seed: AppSnapshot): AppSnapshot => {
 }
 
 export const SidebarStructureExample = () => {
-  const fixture = useMemo(() => previewStore(sidebarStructureFixture(store.getSnapshot())), [])
+  const fixture = useMemo(() => {
+    const seed = sidebarStructureFixture(store.getSnapshot())
+    const params = new URLSearchParams(window.location.search)
+    if (params.has('isolated-seat')) {
+      const history = seed.history.map(one => one.id === 'structure-0' ? { ...one, cwd: '/work/atlas-review' } : one)
+      const writer = history[0]!
+      const key = sessionKey(writer.runtime, writer.id)
+      return previewStore({ ...seed, history, sessions: new Map(seed.sessions).set(key, { ...seed.sessions.get(key)!, cwd: writer.cwd }) })
+    }
+    if (params.has('unread-seat')) {
+      const unread = seed.history[5]!
+      const teams = new Map(seed.teams)
+      const running = teams.get('structure-running-team')!
+      teams.set(running.id, { ...running, members: [...running.members, sessionKey(unread.runtime, unread.id)] })
+      return previewStore({ ...seed, teams, inbox: [{ id: 'structure-unread', read: false, at: 1,
+        from: { runtime: unread.runtime, sessionId: unread.id, name: 'Reviewer' }, title: 'Review ready', tone: 'neutral' }] })
+    }
+    return previewStore(seed)
+  }, [])
+  // External navigation, using only this fixture's isolated store.
+  useEffect(() => {
+    const host = window as unknown as { __hdSidebarStructure?: { store: typeof fixture; writerKey: string } }
+    host.__hdSidebarStructure = { store: fixture, writerKey: String(sessionKey(previewSession.runtime, sessionId('structure-0'))) }
+    return () => { delete host.__hdSidebarStructure }
+  }, [fixture])
   return <section id="sidebar-structure" className="w-80 bg-sidebar py-4">
     <StoreProvider store={fixture}><RailSection stretch="list"><SessionTree now={1000} /></RailSection></StoreProvider>
   </section>

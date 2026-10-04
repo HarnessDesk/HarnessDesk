@@ -2027,6 +2027,113 @@ it('starts a Team folded and keeps every Seat under it even when pinned or needi
   expect(view.container.querySelectorAll('[data-region="session-row"]')).toHaveLength(3)
 })
 
+it.each(['/repo', '/other-checkout'])('reveals an externally activated Seat from %s without undoing a deliberate fold', (cwd) => {
+  const seat = summary({ id: 'activated-seat', title: 'Writer', cwd })
+  const key = sessionKey(seat.runtime, seat.id)
+  const board = room({ id: 'activate-team', name: 'Ship retry', members: [String(key)] })
+  const view = treeWith([board], [seat], [], {}, undefined, null, new Map(), {}, false)
+  expect(view.container.querySelector('[aria-current="page"]')).toBeNull()
+
+  view.update({ activeSessionKey: key })
+
+  const selected = view.container.querySelector<HTMLButtonElement>('[aria-current="page"]')
+  expect(selected?.textContent).toBe('Writer')
+  expect(selected?.closest('[data-project-root]')?.getAttribute('data-project-root')).toBe('/repo')
+  expect(selected?.closest('[data-nested="true"]')).not.toBeNull()
+  expect(selected?.tabIndex).toBe(0)
+  expect(view.container.querySelectorAll('[aria-current="page"]')).toHaveLength(1)
+
+  const disclosure = view.container.querySelector<HTMLButtonElement>('[aria-label="Hide the agents in Ship retry"]')!
+  act(() => disclosure.click())
+  view.update({ teams: new Map([[board.id, { ...board, updatedAt: 5 }]]) })
+  expect(view.container.querySelector('[aria-current="page"]')).toBeNull()
+  expect(view.container.querySelector('[aria-label="Show the agents in Ship retry"]')?.getAttribute('aria-expanded')).toBe('false')
+
+  view.update({ activeSessionKey: null })
+  view.update({ activeSessionKey: key })
+  expect(view.container.querySelector('[aria-current="page"]')?.textContent).toBe('Writer')
+})
+
+it('reveals an activated cross-checkout Seat in its owning far project, keeping later folds', () => {
+  const seat = summary({ id: 'far-seat', cwd: '/other-checkout' })
+  const key = sessionKey(seat.runtime, seat.id)
+  const board = room({ id: 'far-team', name: 'Far Team', root: '/far', members: [String(key)] })
+  const view = treeWith([board], [seat, summary({ id: 'near-one' })], [],
+    { collapsed: ['/far'] }, undefined, null, new Map(), {}, false)
+  view.update({ activeSessionKey: key })
+  expect(view.store.toggleCollapsed).toHaveBeenCalledWith('/far')
+  expect(view.store.setOthersOpen).toHaveBeenCalledWith(true)
+  view.update({ listPrefs: { ...view.store.getSnapshot().listPrefs, collapsed: [], othersOpen: true } })
+  expect(view.container.querySelector('[aria-current="page"]')?.closest('[data-project-root]')?.getAttribute('data-project-root')).toBe('/far')
+
+  vi.mocked(view.store.toggleCollapsed).mockClear()
+  vi.mocked(view.store.setOthersOpen).mockClear()
+  view.update({ listPrefs: { ...view.store.getSnapshot().listPrefs, collapsed: ['/far'], othersOpen: false } })
+  expect(view.store.toggleCollapsed).not.toHaveBeenCalled()
+  expect(view.store.setOthersOpen).not.toHaveBeenCalled()
+})
+
+it('reveals the owning Team when its roster arrives after activation', () => {
+  const seat = summary({ id: 'late-seat' })
+  const key = sessionKey(seat.runtime, seat.id)
+  const board = room({ id: 'late-team', name: 'Late Team', members: [String(key)] })
+  const view = treeWith([], [seat], [], {}, undefined, key, new Map(), {}, false)
+  view.update({ teams: new Map([[board.id, board]]) })
+  const selected = view.container.querySelector('[aria-current="page"]')!
+  expect(selected.closest('[data-nested="true"]')).not.toBeNull()
+  expect(view.container.querySelectorAll('[aria-current="page"]')).toHaveLength(1)
+})
+
+it('reveals an activated durable Seat with no live session or history', () => {
+  const board = room({ id: 'rested-active-team', name: 'Rested Team' })
+  const goal = { ...triggerGoalView(board), members: [{ id: 'rested-seat', session: { runtime: 'codex', sessionId: 'rested' },
+    role: 'reviewer', openedAt: 1, closed: null, agent: { name: 'Rested reviewer' } }] } as unknown as GoalView
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, goal]]), {}, false)
+  view.update({ activeSessionKey: sessionKey('codex', sessionId('rested')) })
+  expect(view.container.querySelector('[aria-current="page"]')?.textContent).toBe('Rested reviewer')
+})
+
+it('mounts the owning Team for an activated Seat beyond the virtual project window', () => {
+  const seat = summary({ id: 'windowed-seat' })
+  const active = room({ id: 'last-team', name: 'Last Team', updatedAt: 1, members: [String(sessionKey(seat.runtime, seat.id))] })
+  const boards = [...Array.from({ length: 55 }, (_, index) => room({ id: `window-team-${index}`, name: `Team ${index}`, updatedAt: 100 - index })), active]
+  // jsdom has no layout: give the real virtualizer a scroller whose root moves with scrollTop.
+  container.style.overflowY = 'auto'
+  const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    const top = this === container ? 0 : -container.scrollTop
+    return { x: 0, y: top, top, left: 0, bottom: top + 100, right: 320, width: 320, height: 100, toJSON: () => ({}) }
+  })
+  try {
+    const view = treeWith(boards, [seat], [], {}, undefined, null, new Map(), {}, false)
+    expect(view.container.querySelector('[aria-label="Room Last Team"]')).toBeNull()
+    const first = roomRow(view.container, 'Team 0')
+    act(() => first.focus())
+    first.blur()
+    view.update({ activeSessionKey: sessionKey(seat.runtime, seat.id) })
+    expect(view.container.querySelector('[aria-current="page"]')?.textContent).toBe('windowed-seat')
+  } finally { rect.mockRestore() }
+})
+
+it.each([false, true])('keeps a folded Team running with unread output (same Seat: %s)', (sameSeat) => {
+  const unread = summary({ id: 'unread-seat' })
+  const busy = { ...summary({ id: 'busy-seat', status: { type: 'active' } }),
+    turns: [{ id: 'busy-turn', status: 'inProgress', items: [] }] } as unknown as Session
+  const unreadKey = sessionKey((sameSeat ? busy : unread).runtime, (sameSeat ? busy : unread).id)
+  const board = room({ id: 'mixed-team', name: 'Mixed Team', members: [unread, busy].map(one => String(sessionKey(one.runtime, one.id))) })
+  const view = treeWith([board], [unread, busy], [busy], {}, undefined, null, new Map(), {}, false)
+  view.update({ inbox: [{ id: 'unread-output', read: false, at: 2, tone: 'neutral', title: 'Review ready',
+    from: { runtime: busy.runtime, sessionId: sameSeat ? busy.id : unread.id, name: 'Reviewer' } }] })
+  const item = roomRow(view.container, board.name).closest('li')!
+  expect(view.container.querySelectorAll('[data-region="session-row"]')).toHaveLength(0)
+  expect(item.querySelector('[data-slot="spinner"]')).not.toBeNull()
+  expect(item.textContent).not.toContain('Working')
+  view.update({ approvals: [{ key: unreadKey, approval: {} }] as unknown as AppSnapshot['approvals'] })
+  expect(item.querySelector('[data-slot="spinner"]')).toBeNull()
+  expect(item.querySelector('[aria-label="Needs you"]')).not.toBeNull()
+  view.update({ approvals: [], sessions: new Map([[sessionKey(busy.runtime, busy.id), { ...busy, status: { type: 'idle' }, turns: [] }]]) })
+  expect(item.querySelector('[data-slot="spinner"]')).toBeNull()
+})
+
 it('indents project children once and a Team’s Seats a second time', () => {
   const seat = summary({ id: 'indent-seat' })
   const loose = summary({ id: 'indent-loose' })

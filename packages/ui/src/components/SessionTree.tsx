@@ -33,7 +33,7 @@ import {
 } from '../design'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 
-import { openingOf, sessionKey, type Session, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
+import { isBusy, openingOf, sessionKey, type Session, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
 
 import { agentGroups, agentKey, agentKeyOf } from '../lib/accounts'
 import { folderName, groupByProject, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, roomGroupRootOf, type ProjectGroup } from '../lib/projects'
@@ -677,9 +677,13 @@ const RoomRow = ({
   const snapshot = useSnapshot()
   const goal = snapshot.goals.get(room.id)
   const name = goal ? goalName(goal.goal) : room.name
-  const waiting = state === 'needs-you' || teamSeats(goal, room, goalRunOf(room.id, goal, snapshot.flowExecutions)).some(({ key }) =>
+  const seats = teamSeats(goal, room, goalRunOf(room.id, goal, snapshot.flowExecutions))
+  const waiting = state === 'needs-you' || seats.some(({ key }) =>
     key && (snapshot.approvals.some(one => one.key === key) || snapshot.queues.get(key)?.status === 'paused' || (snapshot.sessions.get(key) && traceOf(snapshot.sessions.get(key)!, false) === 'waiting')))
-  const running = !waiting && (state === 'working' || goal?.activity === 'working')
+  const running = !waiting && (state === 'working' || goal?.activity === 'working' || seats.some(({ key }) => {
+    const live = key ? snapshot.sessions.get(key) : undefined
+    return live !== undefined && isBusy(live)
+  }))
   /* Resolved against what the tree is *showing* first, so the agent filter
      applies here as it does everywhere else — a room drawn straight from its
      member list would keep conversations the filter had just removed from
@@ -1177,6 +1181,7 @@ export const SessionTree = ({ now }: { now: number }) => {
   const typeahead = useRef({ text: '', timer: 0 })
   const [navigationTarget, setNavigationTarget] = useState<{ root: string; index: number } | null>(null)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
+  const lastReveal = useRef<string | null>(null)
   const [revealedCount, setRevealedCount] = useState<ReadonlyMap<string, number>>(() => new Map())
   const collapsed = useMemo(
     () => new Set(migratedRoots(snapshot.listPrefs.collapsed, snapshot.workspace)),
@@ -1400,20 +1405,35 @@ export const SessionTree = ({ now }: { now: number }) => {
       }
     }
   }, [])
+  const teamRows = new Map(teamsInput(snapshot).map(input => [input.team.id, teamListRow(input)]))
+  // A Seat's own checkout can differ from the project that holds its Team.
+  const activeTeam = activeKey === null ? null : [...snapshot.teams.values()].find(room =>
+    teamRows.get(room.id)?.active && teamSeats(snapshot.goals.get(room.id), room, goalRunOf(room.id, snapshot.goals.get(room.id), snapshot.flowExecutions))
+      .some(seat => String(seat.key) === activeKey) && roomMembers(room, [], snapshot, liftedKeys)
+      .some(summary => String(sessionKey(summary.runtime, summary.id)) === activeKey)) ?? null
+  const activeTeamRoot = activeTeam ? roomGroupRootOf(activeTeam, [snapshot.workspace, ...snapshot.workspaces]) : null
   const activeGroup = useMemo(
     () =>
       activeKey === null
         ? null
-        : groups.find((group) =>
-            group.sessions.some((summary) => String(sessionKey(summary.runtime, summary.id)) === activeKey),
+        : groups.find((group) => activeTeamRoot !== null
+            ? projectRoots(group).includes(activeTeamRoot)
+            : group.sessions.some((summary) => String(sessionKey(summary.runtime, summary.id)) === activeKey),
           ) ?? null,
-    [activeKey, groups],
+    [activeKey, activeTeamRoot, groups],
   )
 
   useEffect(() => {
-    if (!activeKey || !activeGroup || liftedKeys.has(activeKey)) return
-    if (collapsed.has(activeGroup.root)) store.toggleCollapsed(activeGroup.root)
-    if (!othersOpen && far.some((group) => group.root === activeGroup.root)) store.setOthersOpen(true)
+    if (!activeKey || !activeGroup || liftedKeys.has(activeKey)) { lastReveal.current = null; return }
+    // Reveal on activation or newly resolved ownership, then let the person fold it.
+    const reveal = JSON.stringify([activeKey, activeGroup.root, activeTeam?.id ?? null])
+    if (lastReveal.current !== reveal) {
+      lastReveal.current = reveal
+      setNavigationTarget(null)
+      if (collapsed.has(activeGroup.root)) store.toggleCollapsed(activeGroup.root)
+      if (!othersOpen && far.some((group) => group.root === activeGroup.root)) store.setOthersOpen(true)
+      if (activeTeam) setExpanded(current => new Set(current).add(activeTeam.id))
+    }
 
     const roomKeys = new Set(
       projectRoots(activeGroup)
@@ -1430,7 +1450,7 @@ export const SessionTree = ({ now }: { now: number }) => {
     if (activeIndex >= visibleCount) {
       setRevealedCount((current) => new Map(current).set(activeGroup.root, activeIndex + 1))
     }
-  }, [activeGroup, activeKey, collapsed, far, liftedKeys, othersOpen, revealedCount, roomsByProject, store])
+  }, [activeGroup, activeKey, activeTeam, collapsed, far, liftedKeys, othersOpen, revealedCount, roomsByProject, snapshot.goals, snapshot.flowExecutions, store])
 
   const anyOpen = groups.some((group) => !collapsed.has(group.root))
   const toggleAll = useCallback(
@@ -1505,7 +1525,6 @@ export const SessionTree = ({ now }: { now: number }) => {
     },
   }
 
-  const teamRows = new Map(teamsInput(snapshot).map(input => [input.team.id, teamListRow(input)]))
   const renderGroup = (group: ProjectGroup) => {
     const open = !collapsed.has(group.root)
     const allRooms = projectRoots(group)
@@ -1552,7 +1571,8 @@ export const SessionTree = ({ now }: { now: number }) => {
       return b.updatedAt - a.updatedAt
     })
     const activeRowIndex = rows.findIndex(
-      (row) => row.kind === 'session' && String(sessionKey(row.summary.runtime, row.summary.id)) === activeKey,
+      (row) => row.kind === 'room' ? row.room.id === activeTeam?.id
+        : String(sessionKey(row.summary.runtime, row.summary.id)) === activeKey,
     )
     return (
       <div key={group.root} data-project-root={group.root}>

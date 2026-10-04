@@ -247,6 +247,10 @@ beside the project's loose conversations. A running Team wears the same neutral
 spinner; **Needs you** is its only state label. Its Seats fold underneath,
 collapsed initially and one further indent step in; the chevron reveals them without opening the Team.
 A Seat conversation stays under its Team, including when pinned or waiting.
+Opening a Seat conversation elsewhere reveals its project and Team, including
+when the Seat works in another checkout. A later deliberate fold stays folded
+until another conversation activation. Unread output does not hide a Team's
+running spinner; Needs you takes precedence over it.
 Wrapped Teams and their conversations leave the sidebar and remain on **Teams**.
 
 **Pinned** is a plain section above the projects, shown only when it has loose

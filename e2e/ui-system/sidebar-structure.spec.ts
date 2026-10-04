@@ -1,6 +1,59 @@
 import { expect, test } from '@playwright/test'
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`external Seat activation reveals its Team and preserves a later fold — ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto(`/preview.html?sidebar-structure&isolated-seat&theme=${theme}`)
+    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+    const fixture = page.locator('#sidebar-structure')
+    const tree = fixture.locator('[data-region="session-tree"]')
+    for (const width of [320, 200]) {
+      await fixture.evaluate((node, size) => { (node as HTMLElement).style.width = `${size}px` }, width)
+      await page.evaluate(() => {
+        const { store, writerKey } = (window as unknown as { __hdSidebarStructure: { store: { patch(value: unknown): void }; writerKey: string } }).__hdSidebarStructure
+        store.patch({ activeSessionKey: writerKey })
+      })
+      const writer = tree.locator('[aria-current="page"]')
+      await expect(writer).toHaveCount(1)
+      await expect(writer).toContainText('Writer')
+      await expect(tree.locator('[data-project-root="/work/atlas"] [data-nested="true"] [aria-current="page"]')).toBeVisible()
+      await expect(writer).toHaveAttribute('tabindex', '0')
+      await writer.focus()
+      await page.keyboard.press('ArrowLeft')
+      await expect(tree.getByRole('button', { name: 'Room Ship checkout retry', exact: true })).toBeFocused()
+      await expect(tree.getByRole('button', { name: 'Show the agents in Ship checkout retry', exact: true })).toHaveAttribute('aria-expanded', 'false')
+      await page.evaluate(() => {
+        const { store } = (window as unknown as { __hdSidebarStructure: { store: { patch(value: unknown): void } } }).__hdSidebarStructure
+        store.patch({ inbox: [] })
+      })
+      await expect(tree.locator('[aria-current="page"]')).toHaveCount(0)
+      await page.evaluate(() => {
+        (document.activeElement as HTMLElement)?.blur()
+        const { store } = (window as unknown as { __hdSidebarStructure: { store: { patch(value: unknown): void } } }).__hdSidebarStructure
+        store.patch({ activeSessionKey: null })
+      })
+    }
+  })
+
+  test(`unread output preserves a folded Team’s running spinner — ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto(`/preview.html?sidebar-structure&unread-seat&theme=${theme}`)
+    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+    const fixture = page.locator('#sidebar-structure')
+    const team = fixture.getByRole('button', { name: 'Room Check release notes', exact: true })
+    const row = team.locator('xpath=ancestor::li[@data-slot="sidebar-menu-item"][1]')
+    for (const width of [320, 200]) {
+      await fixture.evaluate((node, size) => { (node as HTMLElement).style.width = `${size}px` }, width)
+      await page.mouse.move(1000, 0)
+      await expect(fixture.getByRole('button', { name: 'Show the agents in Check release notes', exact: true })).toHaveAttribute('aria-expanded', 'false')
+      await expect(row.locator('[data-slot="spinner"]')).toBeVisible()
+      await expect(row.locator('[data-slot="spinner"]')).toHaveCSS('animation-name', 'none')
+      await expect(team).not.toContainText('Working')
+    }
+  })
+}
+
+for (const theme of ['light', 'dark'] as const) {
   test(`project / Team / Seat hierarchy and row states — ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/preview.html?sidebar-structure')
