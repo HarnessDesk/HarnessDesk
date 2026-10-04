@@ -313,6 +313,9 @@ import { Drafts, type NewRecoverableDraft, type RecoverableDraft } from './draft
 export type { RecoverableDraft } from './drafts'
 export { emptySnapshot } from './snapshot'
 
+/** How many folders the list remembers having been asked to forget. */
+const FORGOTTEN_FOLDERS_KEPT = 2000
+
 export type UnheldCeilings = 'seat' | 'refuse'
 
 export class AppStore {
@@ -1384,6 +1387,32 @@ export class AppStore {
   async forgetWorkspace(path: string): Promise<void> {
     try {
       await this.transport.request('workspace/forget', { path })
+      await this.loadWorkspaces()
+    } catch (error) {
+      this.notice('error', describe(error))
+    }
+  }
+
+  /**
+   * Stops mentioning folders that no longer exist.
+   *
+   * Nothing about the conversations that ran there changes: they are not
+   * archived or deleted, the agent's own history is untouched, and search and
+   * the archive still find them. What goes is this app's own record of the
+   * folder — one that was opened as a workspace is forgotten, the way
+   * removing a project forgets one — and the list's "N folders are gone"
+   * line, which stops counting it. Said first, so the line answers at once;
+   * the host's forgetting follows it.
+   */
+  async forgetFolders(folders: readonly string[]): Promise<void> {
+    const forgotten = [...new Set([...(this.#snapshot.listPrefs.forgottenFolders ?? []), ...folders])]
+    // A list that only ever grows would be a preference file that does too.
+    this.setListPrefs({ forgottenFolders: forgotten.slice(-FORGOTTEN_FOLDERS_KEPT) })
+    const opened = new Set(this.#snapshot.workspaces.map((workspace) => workspace.path))
+    const known = folders.filter((folder) => opened.has(folder))
+    if (known.length === 0) return
+    try {
+      for (const path of known) await this.transport.request('workspace/forget', { path })
       await this.loadWorkspaces()
     } catch (error) {
       this.notice('error', describe(error))
@@ -5961,6 +5990,9 @@ export class AppStore {
           ? rawList.panelsCollapsed.filter((entry): entry is string => typeof entry === 'string')
           : [],
         othersOpen: rawList?.othersOpen === true,
+        forgottenFolders: Array.isArray(rawList?.forgottenFolders)
+          ? rawList.forgottenFolders.filter((entry): entry is string => typeof entry === 'string')
+          : [],
       }
       const rawPlanEdits = preferences['planEdits']
       const planEdits: Record<string, readonly PlanEdit[]> = {}

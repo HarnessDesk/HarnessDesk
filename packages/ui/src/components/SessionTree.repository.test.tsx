@@ -1,0 +1,331 @@
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+
+import {
+  sessionKey,
+  type RepoInfo,
+  type RuntimeInfo,
+  type SessionSummary,
+  type WorkspaceEntry,
+} from '@harnessdesk/protocol'
+
+import { StoreProvider } from '../state/context'
+import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { SessionTree } from './SessionTree'
+
+/**
+ * What the left list contains, and how its rows are titled.
+ *
+ * One repository is one project however many clones of it were made. A folder
+ * that no longer exists is not a project, but nothing in it is lost. A row is
+ * named by what a person said, and a seat nobody typed to is named by its job.
+ * These are at the rendered list rather than at `groupByProject` because the
+ * rules live in the seam: the grouping, the pins and folds, the hiding and the
+ * rows have to agree about what a project is.
+ */
+
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+let container: HTMLDivElement
+let root: Root
+
+beforeEach(() => {
+  container = document.createElement('div')
+  document.body.appendChild(container)
+  root = createRoot(container)
+})
+
+afterEach(() => {
+  act(() => root.unmount())
+  container.remove()
+})
+
+const runtime = {
+  id: 'agent',
+  name: 'Agent',
+  capabilities: { deleteHistory: true },
+  presentation: { name: 'Agent' },
+} as unknown as RuntimeInfo
+
+const WIDGETS = '/Users/a/code/widgets'
+const PLAN = '/Users/a/code/widgets-team-plan-pr18'
+const LUNA = '/Users/a/code/widgets-team-luna-954'
+const ORIGIN = 'github.com/acme/widgets'
+
+const at = (rootPath: string, origin: string | null = ORIGIN): RepoInfo => ({
+  root: rootPath,
+  worktree: false,
+  ...(origin === null ? {} : { origin }),
+})
+
+const row = (
+  id: string,
+  cwd: string,
+  over: Partial<SessionSummary> & { repo?: RepoInfo | null } = {},
+): SessionSummary =>
+  ({
+    id,
+    runtime: runtime.id,
+    title: id,
+    preview: null,
+    cwd,
+    git: null,
+    repo: at(cwd),
+    status: { type: 'notLoaded' },
+    createdAt: 1,
+    updatedAt: 2,
+    archived: false,
+    ...over,
+  }) as unknown as SessionSummary
+
+const workspace = (path: string, repo: RepoInfo | null = at(path)): WorkspaceEntry =>
+  ({ path, name: path.split('/').at(-1) ?? path, lastOpenedAt: 1, ...(repo === null ? {} : { repo }) })
+
+interface Rig {
+  readonly store: AppStore
+  readonly update: (patch: Partial<AppSnapshot>) => void
+}
+
+const mount = (
+  history: readonly SessionSummary[],
+  over: Partial<AppSnapshot> = {},
+  props: { searching?: boolean } = {},
+  storeOver: Partial<AppStore> = {},
+): Rig => {
+  let snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    activeRuntime: runtime.id,
+    runtimes: [runtime],
+    history,
+    workspace: workspace(WIDGETS),
+    workspaces: [workspace(WIDGETS)],
+    ...over,
+  } as AppSnapshot
+  const listeners = new Set<() => void>()
+  const store = {
+    subscribe: (listener: () => void) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    getSnapshot: () => snapshot,
+    setListPrefs: vi.fn(),
+    setProjectsCollapsed: vi.fn(),
+    toggleCollapsed: vi.fn(),
+    togglePinned: vi.fn(),
+    setOthersOpen: vi.fn(),
+    forgetFolders: vi.fn(async () => {}),
+    openSession: vi.fn(),
+    ...storeOver,
+  } as unknown as AppStore
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <SessionTree now={3} {...props} />
+      </StoreProvider>,
+    )
+  })
+  return {
+    store,
+    update: (patch) => {
+      snapshot = { ...snapshot, ...patch } as AppSnapshot
+      act(() => listeners.forEach((listener) => listener()))
+    },
+  }
+}
+
+/** The project rows, by the name each one shows. */
+const projects = (): string[] =>
+  [...container.querySelectorAll<HTMLElement>('[draggable="true"]')].map(
+    (head) => head.querySelector('[class*="groupName"]')?.textContent ?? '',
+  )
+
+/** Every conversation row's title, wherever it is drawn. */
+const titles = (): string[] =>
+  [...container.querySelectorAll<HTMLElement>('[data-region="session-row"] [data-slot="sidebar-menu-button"]')].map(
+    (button) => button.textContent?.trim() ?? '',
+  )
+
+const goneLine = (): HTMLElement | null => container.querySelector<HTMLElement>('[data-region="gone-folders"]')
+
+// ------------------------------------------------------------------ clones
+
+it('lists the clones of one repository as one project, with every conversation in it', () => {
+  mount([
+    row('a', WIDGETS, { updatedAt: 10 }),
+    row('b', PLAN, { updatedAt: 30 }),
+    row('c', LUNA, { updatedAt: 20 }),
+  ])
+  expect(projects()).toEqual(['widgets'])
+  expect(titles()).toEqual(['b', 'c', 'a'])
+})
+
+it('keeps a clone with no remote, and a different repository, as projects of their own', () => {
+  const scratch = '/Users/a/code/scratch'
+  mount([
+    row('a', WIDGETS),
+    row('b', PLAN),
+    row('c', scratch, { repo: at(scratch, null) }),
+    row('d', '/Users/a/code/other', { repo: at('/Users/a/code/other', 'github.com/acme/other') }),
+  ], { listPrefs: { ...emptySnapshot().listPrefs, othersOpen: true } })
+  expect(projects().sort()).toEqual(['other', 'scratch', 'widgets'])
+})
+
+it('lights one project when the folder you have open is a clone of it, and draws no second row for it', () => {
+  mount([row('a', WIDGETS, { createdAt: 1 }), row('b', PLAN, { createdAt: 5 })], {
+    workspace: workspace(PLAN),
+    workspaces: [workspace(WIDGETS), workspace(PLAN)],
+  })
+  expect(projects()).toEqual(['widgets'])
+  expect(container.querySelector('[data-current]')).not.toBeNull()
+})
+
+it('keeps a fresh clone you have open in the project it is a copy of, before it holds a conversation', () => {
+  const fresh = '/Users/a/code/widgets-team-new'
+  mount([row('a', WIDGETS)], { workspace: workspace(fresh), workspaces: [workspace(WIDGETS), workspace(fresh)] })
+  expect(projects()).toEqual(['widgets'])
+})
+
+// ---------------------------------------------------------- pins and folds
+
+it('a pin or a fold recorded under a clone is the project’s, and is rewritten under its home once', () => {
+  const rig = mount([row('a', WIDGETS), row('b', PLAN), row('c', LUNA), row('d', '/Users/a/code/other', { repo: at('/Users/a/code/other', 'github.com/acme/other') })], {
+    listPrefs: { ...emptySnapshot().listPrefs, pinned: [PLAN, '/Users/a/code/other'], collapsed: [LUNA] },
+  })
+  // Read through the group: the project is pinned and folded though nothing is stored under its home.
+  expect(container.querySelector('[draggable="true"] [aria-label="Pinned"]')).not.toBeNull()
+  expect(titles().filter((title) => ['a', 'b', 'c'].includes(title))).toEqual([])
+  // And the lists are rewritten so a toggle or a move works on what is stored.
+  expect(rig.store.setListPrefs).toHaveBeenCalledWith({ pinned: [WIDGETS, '/Users/a/code/other'], collapsed: [WIDGETS] })
+})
+
+it('writes nothing when every pin and fold is already under its project’s home', () => {
+  const rig = mount([row('a', WIDGETS), row('b', PLAN)], { listPrefs: { ...emptySnapshot().listPrefs, pinned: [WIDGETS], collapsed: [] } })
+  expect(rig.store.setListPrefs).not.toHaveBeenCalled()
+})
+
+it('does not rewrite what is stored from a list that is filtered or still being searched', () => {
+  const prefs = { ...emptySnapshot().listPrefs, pinned: [PLAN] }
+  const filtered = mount([row('a', WIDGETS), row('b', PLAN)], { listPrefs: { ...prefs, agent: runtime.id } })
+  expect(filtered.store.setListPrefs).not.toHaveBeenCalled()
+  act(() => root.unmount())
+  root = createRoot(container)
+  const searching = mount([row('a', WIDGETS), row('b', PLAN)], { listPrefs: prefs }, { searching: true })
+  expect(searching.store.setListPrefs).not.toHaveBeenCalled()
+})
+
+// ------------------------------------------------------------- gone folders
+
+const GONE = new Map([
+  ['/Users/a/code/old-one', 'This folder no longer exists.'],
+  ['/Users/a/code/old-two', 'This folder no longer exists.'],
+  ['/Users/a/.codex/worktrees/4d4b/widgets', 'This folder no longer exists.'],
+])
+
+const withGone = (): SessionSummary[] => [
+  row('live', WIDGETS),
+  row('in-gone-project', '/Users/a/code/old-one', { repo: at('/Users/a/code/old-one', null) }),
+  row('in-gone-project-too', '/Users/a/code/old-one', { repo: at('/Users/a/code/old-one', null) }),
+  row('in-other-gone-project', '/Users/a/code/old-two', { repo: at('/Users/a/code/old-two', null) }),
+  // A worktree of a project that is still there, whose own folder was deleted.
+  row('in-gone-worktree', '/Users/a/.codex/worktrees/4d4b/widgets', { repo: null, git: { originUrl: 'git@github.com:acme/widgets.git' } as never }),
+]
+
+it('does not list a project whose folder is gone, nor a worktree whose folder is gone, and keeps every conversation', () => {
+  const history = withGone()
+  const rig = mount(history, { foldersGone: GONE })
+  expect(projects()).toEqual(['widgets'])
+  expect(titles()).toEqual(['live'])
+  // Nothing was archived, deleted or forgotten: the history still holds all of them for search and the archive.
+  expect(rig.store.getSnapshot().history).toHaveLength(5)
+})
+
+it('says how many folders are gone in one quiet line at the end, counting a folder once', () => {
+  mount(withGone(), { foldersGone: GONE })
+  const line = goneLine()
+  expect(line?.textContent).toContain('3 folders are gone')
+  expect(container.querySelectorAll('[data-region="gone-folders"]')).toHaveLength(1)
+  // It is the last thing in the list (the screen-reader announcer after it draws nothing).
+  const rows = [...container.querySelector('[data-region="session-tree"]')!.children].filter((child) => child.getAttribute('role') !== 'status')
+  expect(rows.at(-1)?.contains(line)).toBe(true)
+})
+
+it('says nothing when no folder is gone, and one folder is said in the singular', () => {
+  mount([row('live', WIDGETS)])
+  expect(goneLine()).toBeNull()
+  act(() => root.unmount())
+  root = createRoot(container)
+  mount([row('live', WIDGETS), row('lost', '/Users/a/code/old-one', { repo: null })], {
+    foldersGone: new Map([['/Users/a/code/old-one', 'This folder no longer exists.']]),
+  })
+  expect(goneLine()?.textContent).toContain('1 folder is gone')
+})
+
+it('lists a pinned conversation whose folder is gone in Pinned, because somebody put it there', () => {
+  const lost = row('lost-but-pinned', '/Users/a/code/old-one', { repo: at('/Users/a/code/old-one', null) })
+  mount([row('live', WIDGETS), lost], {
+    foldersGone: new Map([['/Users/a/code/old-one', 'This folder no longer exists.']]),
+    listPrefs: { ...emptySnapshot().listPrefs, pinnedSessions: [String(sessionKey(lost.runtime, lost.id))] },
+  })
+  expect(projects()).toEqual(['widgets'])
+  expect(container.querySelector('[data-sidebar-band="pinned"]')?.textContent).toContain('lost-but-pinned')
+  // The folder is still said to be gone, on the row.
+  expect(container.querySelector('[data-sidebar-band="pinned"] [role="img"][aria-label^="Folder is gone"]')).not.toBeNull()
+})
+
+it('lists them again while the list is being searched, because a search is asking for them', () => {
+  mount(withGone(), { foldersGone: GONE, listPrefs: { ...emptySnapshot().listPrefs, othersOpen: true } }, { searching: true })
+  expect(projects().length).toBeGreaterThan(1)
+  expect(titles()).toContain('in-gone-project')
+  expect(goneLine()).toBeNull()
+})
+
+it('leaves a folder that exists again where it was, and counts only folders that are still gone', () => {
+  const rig = mount(withGone(), { foldersGone: GONE })
+  expect(goneLine()?.textContent).toContain('3 folders are gone')
+  rig.update({ foldersGone: new Map([['/Users/a/code/old-two', 'This folder no longer exists.']]) })
+  expect(goneLine()?.textContent).toContain('1 folder is gone')
+  expect(projects().sort()).toEqual(['old-one', 'widgets'])
+})
+
+it('does not count a folder the person has asked the list to forget', () => {
+  mount(withGone(), {
+    foldersGone: GONE,
+    listPrefs: { ...emptySnapshot().listPrefs, forgottenFolders: ['/Users/a/code/old-one'] },
+  })
+  expect(goneLine()?.textContent).toContain('2 folders are gone')
+  act(() => root.unmount())
+  root = createRoot(container)
+  mount(withGone(), {
+    foldersGone: GONE,
+    listPrefs: { ...emptySnapshot().listPrefs, forgottenFolders: [...GONE.keys()] },
+  })
+  expect(goneLine()).toBeNull()
+})
+
+it('its menu forgets every folder that is gone, and names what that leaves alone', () => {
+  const rig = mount(withGone(), { foldersGone: GONE })
+  const action = goneLine()?.querySelector<HTMLButtonElement>('[aria-label="Actions for gone folders"]')
+  expect(action).not.toBeNull()
+  act(() => action!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  const forget = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent?.startsWith('Forget 3 folders'))
+  expect(forget).toBeDefined()
+  // A consequence the label cannot carry, so it is on the row.
+  expect(forget?.textContent).toContain('Their conversations are kept')
+  act(() => forget!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  expect(rig.store.forgetFolders).toHaveBeenCalledWith([...GONE.keys()].sort())
+})
+
+it('puts the line at the end of Other projects when that fold is drawn', () => {
+  const others = ['b', 'c', 'd', 'e'].map((name) => row(name, `/Users/a/code/${name}`, { repo: at(`/Users/a/code/${name}`, `github.com/acme/${name}`) }))
+  mount([row('live', WIDGETS), ...others, row('lost', '/Users/a/code/old-one', { repo: null })], {
+    foldersGone: new Map([['/Users/a/code/old-one', 'This folder no longer exists.']]),
+    listPrefs: { ...emptySnapshot().listPrefs, othersOpen: true },
+  })
+  const fold = [...container.querySelectorAll<HTMLElement>('[aria-expanded]')].find((one) => one.textContent?.startsWith('Other projects'))
+  expect(fold).toBeDefined()
+  const block = fold!.closest('[data-slot="sidebar-menu"]')!.parentElement!
+  expect(block.contains(goneLine())).toBe(true)
+  expect(block.lastElementChild?.contains(goneLine())).toBe(true)
+})

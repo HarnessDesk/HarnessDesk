@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
-import type { SessionSummary, TeamState, WorkspaceEntry } from '@harnessdesk/protocol'
+import type { RepoInfo, SessionSummary, TeamState, WorkspaceEntry } from '@harnessdesk/protocol'
 
-import { folderShown, groupByProject, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, repoKey, roomGroupRootOf } from './projects'
+import { folderShown, groupByProject, groupHolding, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, repoKey, roomGroupRootOf } from './projects'
 
 const session = (
   id: string,
   cwd: string,
   originUrl: string | null,
   updatedAt = 1,
-  repo?: { root: string; worktree: boolean } | null,
+  repo?: RepoInfo | null,
 ): SessionSummary =>
   ({
     id,
@@ -24,7 +24,7 @@ const session = (
     ...(repo === undefined ? {} : { repo }),
   }) as unknown as SessionSummary
 
-const workspace = (path: string, repo?: { root: string; worktree: boolean } | null): WorkspaceEntry =>
+const workspace = (path: string, repo?: RepoInfo | null): WorkspaceEntry =>
   ({ path, name: path.split('/').at(-1) ?? path, lastOpenedAt: 1, ...(repo === undefined ? {} : { repo }) })
 
 describe('roomGroupRootOf', () => {
@@ -272,6 +272,208 @@ describe('groupByProject', () => {
       [],
     )
     expect(groups.map((g) => g.root).sort()).toEqual([main, other].sort())
+  })
+})
+
+/**
+ * Full clones of one repository.
+ *
+ * A worktree is a checkout of a project and folds into it; a clone is a second
+ * copy of the same repository in a folder of its own, and the Team clones a
+ * desk makes — one per Team — left one repository as a dozen project rows.
+ * Git cannot say two clones are one thing and neither can their folders: only
+ * the remote does, so the host sends each folder's `origin` and the list files
+ * every folder with the same `owner/name` on the same host under one project.
+ */
+describe('groupByProject — clones of one repository', () => {
+  const origin = 'acme-widgets-origin'
+  const widgets = '/Users/a/code/widgets'
+  const planClone = '/Users/a/code/widgets-team-plan-pr18'
+  const lunaClone = '/Users/a/code/widgets-team-luna-954'
+  const repoAt = (root: string, worktree = false, remote: string | null = origin) => ({
+    root,
+    worktree,
+    ...(remote === null ? {} : { origin: `github.com/acme/${remote}` }),
+  })
+  /** A row with the dates grouping reads to say which folder was worked in first. */
+  const row = (id: string, cwd: string, repo: RepoInfo | null, createdAt: number, updatedAt = createdAt): SessionSummary =>
+    ({
+      id, runtime: 'codex', title: id, preview: '', cwd, status: 'idle', createdAt, updatedAt, git: null, repo,
+    }) as unknown as SessionSummary
+
+  it('files every clone of a repository under one project', () => {
+    const groups = groupByProject(
+      [
+        row('a', widgets, repoAt(widgets), 10),
+        row('b', planClone, repoAt(planClone), 30),
+        row('c', lunaClone, repoAt(lunaClone), 40),
+        row('d', widgets, repoAt(widgets), 20),
+      ],
+      [widgets],
+    )
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.root).toBe(widgets)
+    expect(groups[0]?.name).toBe('widgets')
+    expect(groups[0]?.sessions.map((one) => one.id)).toEqual(['c', 'b', 'd', 'a'])
+    expect(groups[0]?.updatedAt).toBe(40)
+    expect(groups[0]?.folders).toEqual(expect.arrayContaining([widgets, planClone, lunaClone]))
+  })
+
+  it('keeps a clone with no remote apart, and so a repository somebody else owns', () => {
+    const scratch = '/Users/a/code/scratch'
+    const groups = groupByProject(
+      [
+        row('a', widgets, repoAt(widgets), 10),
+        row('b', planClone, repoAt(planClone), 20),
+        row('c', scratch, repoAt(scratch, false, null), 30),
+        row('d', '/Users/a/code/other', { root: '/Users/a/code/other', worktree: false, origin: 'github.com/acme/other-repo' }, 40),
+        row('e', '/Users/a/code/fork', { root: '/Users/a/code/fork', worktree: false, origin: 'github.com/jane-doe/acme-widgets-origin' }, 50),
+        row('f', '/Users/a/code/mirror', { root: '/Users/a/code/mirror', worktree: false, origin: 'git.example.com/acme/acme-widgets-origin' }, 60),
+      ],
+      [widgets],
+    )
+    expect(groups.map((group) => group.root).sort()).toEqual(
+      [widgets, scratch, '/Users/a/code/other', '/Users/a/code/fork', '/Users/a/code/mirror'].sort(),
+    )
+    expect(groups.find((group) => group.root === widgets)?.sessions.map((one) => one.id).sort()).toEqual(['a', 'b'])
+  })
+
+  it('homes the project at a checkout the person opened, whatever the clones hold', () => {
+    const groups = groupByProject(
+      [
+        row('a', widgets, repoAt(widgets), 100),
+        row('b', planClone, repoAt(planClone), 10),
+        row('c', planClone, repoAt(planClone), 20),
+        row('d', lunaClone, repoAt(lunaClone), 30),
+      ],
+      [widgets],
+    )
+    expect(groups[0]?.root).toBe(widgets)
+  })
+
+  it('with none of them opened, homes it at the folder whose history began first, in any order', () => {
+    const rows = [
+      row('a', lunaClone, repoAt(lunaClone), 300),
+      row('b', widgets, repoAt(widgets), 100),
+      row('c', planClone, repoAt(planClone), 200),
+    ]
+    expect(groupByProject(rows, [])[0]?.root).toBe(widgets)
+    expect(groupByProject([...rows].reverse(), [])[0]?.root).toBe(widgets)
+    // The oldest conversation is the folder's age, not its newest one.
+    const busy = [row('a', planClone, repoAt(planClone), 500, 900), row('b', lunaClone, repoAt(lunaClone), 400, 410)]
+    expect(groupByProject(busy, [])[0]?.root).toBe(lunaClone)
+  })
+
+  it('among several opened folders, the one worked in first is home', () => {
+    const groups = groupByProject(
+      [
+        row('a', planClone, repoAt(planClone), 10),
+        row('b', widgets, repoAt(widgets), 90),
+        row('c', lunaClone, repoAt(lunaClone), 50),
+      ],
+      [widgets, planClone, lunaClone],
+    )
+    expect(groups[0]?.root).toBe(planClone)
+  })
+
+  it('is not renamed after a clone you have open', () => {
+    // Opening a copy to look at it must not rename the project after it — the same rule a worktree has.
+    const groups = groupByProject(
+      [row('a', widgets, repoAt(widgets), 10), row('b', planClone, repoAt(planClone), 20)],
+      [widgets, planClone],
+      workspace(planClone, repoAt(planClone)),
+    )
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.root).toBe(widgets)
+    expect(groupHolding(groups, workspace(planClone, repoAt(planClone)))).toBe(groups[0])
+  })
+
+  it('is homed at the clone you have open when it is the only one you opened', () => {
+    // A desk that only ever opened the clone: the project is the folder in front of it.
+    const open = workspace(planClone, repoAt(planClone))
+    const groups = groupByProject(
+      [row('a', widgets, repoAt(widgets), 10), row('b', planClone, repoAt(planClone), 20)],
+      [planClone],
+      open,
+    )
+    expect(groups[0]?.root).toBe(planClone)
+    expect(projectGroupRootOf(open)).toBe(groups[0]?.root)
+  })
+
+  it('still lets the folder you have open claim the home inside the checkout that leads', () => {
+    const sub = `${widgets}/packages/ui`
+    const groups = groupByProject(
+      [row('a', widgets, repoAt(widgets), 10), row('b', sub, repoAt(widgets), 20), row('c', planClone, repoAt(planClone), 30)],
+      [widgets, sub],
+      workspace(sub, repoAt(widgets)),
+    )
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.root).toBe(sub)
+  })
+
+  it('files an open clone that has no conversations yet under the project it is a clone of', () => {
+    const fresh = '/Users/a/code/widgets-team-new'
+    const open = workspace(fresh, repoAt(fresh))
+    const groups = groupByProject([row('a', widgets, repoAt(widgets), 10)], [widgets, fresh], open)
+    expect(groups).toHaveLength(1)
+    expect(groupHolding(groups, open)).toBe(groups[0])
+    // …and one that is a different repository is not.
+    const stranger = workspace('/Users/a/code/elsewhere', { root: '/Users/a/code/elsewhere', worktree: false, origin: 'github.com/acme/elsewhere' })
+    expect(groupHolding(groups, stranger)).toBeUndefined()
+  })
+
+  it('keeps a worktree of a clone with the project, and a row that knows only the remote or only the root', () => {
+    const tree = `${planClone}/.claude/worktrees/hours-bug`
+    const goneTree = '/Users/a/.codex/worktrees/4d4b/widgets'
+    const groups = groupByProject(
+      [
+        row('a', widgets, repoAt(widgets), 10),
+        row('b', tree, repoAt(planClone, true), 20),
+        // Its folder was deleted, so git could say nothing: only the agent's own remote is left.
+        { ...row('c', goneTree, null, 30), git: { originUrl: 'git@github.com-work:Acme/acme-widgets-origin.git' } } as SessionSummary,
+        // A repository the host could name but whose remote it could not read: known by its root alone.
+        row('d', lunaClone, { root: lunaClone, worktree: false }, 40),
+        row('e', lunaClone, repoAt(lunaClone), 50),
+      ],
+      [widgets],
+    )
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.sessions).toHaveLength(5)
+    expect(groups[0]?.root).toBe(widgets)
+  })
+
+  it('leaves single-checkout projects exactly as they were', () => {
+    const groups = groupByProject([row('a', widgets, repoAt(widgets), 10), row('b', `${widgets}/packages/ui`, repoAt(widgets), 20)], [])
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.root).toBe(widgets)
+    expect(groups[0]?.folders).toEqual([widgets, `${widgets}/packages/ui`])
+  })
+})
+
+describe('migratedRoots — folders that were folded into a project', () => {
+  const widgets = '/Users/a/code/widgets'
+  const planClone = '/Users/a/code/widgets-team-plan-pr18'
+  const lunaClone = '/Users/a/code/widgets-team-luna-954'
+  const remote = { origin: 'github.com/acme/widgets' }
+  const row = (id: string, cwd: string, createdAt: number): SessionSummary =>
+    ({ id, runtime: 'codex', title: id, preview: '', cwd, status: 'idle', createdAt, updatedAt: createdAt, git: null, repo: { root: cwd, worktree: false, ...remote } }) as unknown as SessionSummary
+  const groups = groupByProject([row('a', widgets, 10), row('b', planClone, 20), row('c', lunaClone, 30)], [widgets])
+
+  it('moves a pin or a fold saved under a clone onto the project that took it in', () => {
+    expect(migratedRoots([planClone, '/elsewhere'], null, groups)).toEqual([widgets, '/elsewhere'])
+    expect(migratedRoots([lunaClone, widgets, planClone], null, groups)).toEqual([widgets])
+  })
+
+  it('leaves a room’s id and a folder that is not in any project alone', () => {
+    expect(migratedRoots(['room-1', '/elsewhere'], null, groups)).toEqual(['room-1', '/elsewhere'])
+  })
+
+  it('still corrects the spelling a link introduced, then folds', () => {
+    const real = '/private/var/folders/x/work/widgets'
+    const link = '/var/folders/x/work/widgets'
+    const open = workspace(link, { root: real, worktree: false })
+    const linked = groupByProject([row('a', real, 10), row('b', planClone, 20)], [link], open)
+    expect(migratedRoots([link, planClone], open, linked)).toEqual([linked[0]!.root])
   })
 })
 

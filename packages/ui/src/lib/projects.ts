@@ -1,6 +1,9 @@
-import type { SessionSummary, TeamState, WorkspaceEntry } from '@harnessdesk/protocol'
+import { repoKey, type SessionSummary, type TeamState, type WorkspaceEntry } from '@harnessdesk/protocol'
 
 import { isPathInside, relativeTo, shortPath } from './paths'
+
+// One definition of "the same repository", shared with the host that reads each folder's remote.
+export { repoKey }
 
 /**
  * Sessions grouped by project, where a project is a repository rather than
@@ -24,6 +27,16 @@ import { isPathInside, relativeTo, shortPath } from './paths'
  * than ranked: a folder, a remote and a repository root all resolve to one
  * key, and a project is never split because two of its rows knew different
  * things about it.
+ *
+ * A *clone* is not a worktree. It is a second full copy of the repository in
+ * a folder of its own — the Team clones a desk makes, one per Team, were a
+ * dozen rows for one project — and neither git nor the folders can say it is
+ * the same project; only the remote can. So the host sends each folder's
+ * `origin` (`RepoInfo.origin`, an `owner/name` on a host, no credentials) and
+ * every folder with the same one is one project, whatever its root. A folder
+ * with no remote keeps its own root. The project is homed at the checkout the
+ * person opened — one of the folders they opened, if any is — and, among
+ * those, the one worked in first; the clones a Team made never rename it.
  */
 
 export interface ProjectGroup {
@@ -32,6 +45,17 @@ export interface ProjectGroup {
   readonly name: string
   readonly sessions: SessionSummary[]
   readonly updatedAt: number
+  /**
+   * Every folder this project answers to: its home first, then each checkout
+   * of the repository the list has met — the clones included — and every
+   * folder a conversation of it ran in, by path.
+   *
+   * A pin or a fold saved under any of them is the project's, and the folder
+   * the app has open belongs here even when it is not the home. This is for
+   * *comparing*; where an action takes place is still `root`, or the folder
+   * the person opened (`projectRootOf`).
+   */
+  readonly folders: readonly string[]
 }
 
 const WORKTREE_DIRS = ['/.codex/worktrees/', '/.harnessdesk/worktrees/', '/.worktrees/', '/worktrees/']
@@ -80,44 +104,62 @@ export const folderShown = (path: string, home: string | null | undefined, proje
   return shortPath(path, home)
 }
 
-/**
- * One key per repository, whatever the remote's spelling:
- * git@github.com-alias:owner/repo.git and https://github.com/owner/repo
- * are the same project.
- */
-export const repoKey = (originUrl: string | null | undefined): string | null => {
-  if (!originUrl) return null
-  const trimmed = originUrl.trim().replace(/\.git$/i, '').replace(/\/+$/, '')
-  // scp-like: [user@]host[-alias]:owner/repo
-  const scp = /^(?:[^@/]+@)?([^:/]+):(.+)$/.exec(trimmed)
-  if (scp && !/^[a-z]+:\/\//i.test(trimmed)) {
-    return `${hostOf(scp[1] ?? '')}/${scp[2]?.toLowerCase() ?? ''}`
-  }
-  try {
-    const url = new URL(trimmed)
-    return `${hostOf(url.hostname)}${url.pathname.toLowerCase()}`
-  } catch {
-    return trimmed.toLowerCase()
-  }
-}
-
-/** 'github.com-work' (an SSH config alias) is still github.com. */
-const hostOf = (host: string): string => host.toLowerCase().replace(/^([^.]+\.[^.]+)-.*$/, '$1')
-
 /** The folder a project is named after and acts on, when git named a checkout. */
 const ROOT = 'root:'
+/** A project known by its remote: every folder that shares one is one project. */
+const ORIGIN = 'origin:'
+
+/** The repository a conversation ran in, as the host read it or the agent reported it. */
+const originOf = (summary: SessionSummary): string | null =>
+  repoKey(summary.repo?.origin) ?? repoKey(summary.git?.originUrl)
+
+interface Entry {
+  readonly sessions: SessionSummary[]
+  /** Every folder a conversation ran in, with how many did. */
+  readonly cwds: Map<string, number>
+  /** Each checkout git named, with when the oldest conversation worked in it began. */
+  readonly roots: Map<string, number>
+  /** The checkout git named for a folder, where it named one. */
+  readonly rootOf: Map<string, string>
+  /** The remote this project is known by, when it has one. */
+  readonly origin: string | null
+}
+
+/**
+ * Which of a project's checkouts leads it.
+ *
+ * One checkout leads on its own. Several are clones of one repository, and
+ * the home must not depend on which of them an agent last ran in, or which a
+ * Team made last: the person's own checkout leads. A folder the person opened
+ * is theirs — the clones a Team made were never opened here — and among those
+ * the one worked in first is the project's home, however many conversations
+ * the others hold. With none of them opened, the oldest history leads.
+ */
+const leadRootOf = (entry: Entry, opened: ReadonlySet<string>): string | null => {
+  const candidates = [...entry.roots.entries()]
+  const only = candidates[0]
+  if (only === undefined) return null
+  if (candidates.length === 1) return only[0]
+  const mine = candidates.filter(([root]) => [...opened].some((path) => isPathInside(path, root)))
+  const first = (pool: [string, number][]): string =>
+    [...pool].sort(
+      ([a, since], [b, until]) =>
+        (since === until ? 0 : since < until ? -1 : 1) || a.length - b.length || a.localeCompare(b),
+    )[0]![0]
+  return first(mine.length > 0 ? mine : candidates)
+}
 
 const homeOf = (
-  key: string,
-  cwds: Map<string, number>,
-  workspaces: ReadonlySet<string>,
+  entry: Entry,
+  opened: ReadonlySet<string>,
   current: string | null,
 ): string => {
-  // The main checkout git named. Every worktree of the project folds into it,
-  // so the project keeps one name however many checkouts are open — which is
-  // the whole reason a worktree is not allowed to be a home below.
-  const root = key.startsWith(ROOT) ? key.slice(ROOT.length) : null
-  const candidates = [...cwds.entries()]
+  const lead = leadRootOf(entry, opened)
+  // Only the leading checkout's own folders may be the home: the project is
+  // not renamed after a clone because that clone is the folder in front of
+  // you, any more than after a worktree.
+  const own = lead === null ? entry.cwds : new Map([...entry.cwds].filter(([cwd]) => entry.rootOf.get(cwd) === lead))
+  const candidates = [...own.entries()]
   // Most sessions wins; shortest path breaks the tie. A project's home must
   // not depend on which of its folders was worked in last: `packages/desktop`
   // and the repo root are both open workspaces of the same project, and
@@ -128,9 +170,12 @@ const homeOf = (
   // The folder you have open is the home of its own project, whatever the
   // session counts say. `current` is null when that folder is a worktree:
   // opening a checkout to look at it must not rename the project after it.
-  if (current !== null && cwds.has(current)) return current
-  if (root !== null) return root
-  const home = best(candidates.filter(([cwd]) => workspaces.has(cwd)))
+  if (current !== null && own.has(current)) return current
+  // The main checkout git named. Every worktree of the project folds into it,
+  // so the project keeps one name however many checkouts are open — which is
+  // the whole reason a worktree is not allowed to be a home below.
+  if (lead !== null) return lead
+  const home = best(candidates.filter(([cwd]) => opened.has(cwd)))
   if (home !== undefined) return home
   const plain = candidates.filter(([cwd]) => !isWorktreePath(cwd))
   return best(plain.length > 0 ? plain : candidates) ?? ''
@@ -142,65 +187,77 @@ export const groupByProject = (
   /** The folder the app has open, if any: it may claim its project's home. */
   current: WorkspaceEntry | null = null,
 ): ProjectGroup[] => {
-  const known = new Set(workspaces)
+  const opened = new Set(workspaces)
   // What each signal resolves to, learned from the rows that carry two of
   // them. A repository root is the strongest — it is one path per project,
   // whether or not the project has a remote at all — so a remote and a
   // folder are both taught which root they belong to before anything is
   // grouped, and rows that know only one of the three still land together.
-  const rootByOrigin = new Map<string, string>()
   const rootByFolder = new Map<string, string>()
   const originByFolder = new Map<string, string>()
+  const originByRoot = new Map<string, string>()
   for (const summary of history) {
-    const origin = repoKey(summary.git?.originUrl)
-    if (origin !== null && !originByFolder.has(summary.cwd)) originByFolder.set(summary.cwd, origin)
+    const origin = originOf(summary)
     const root = summary.repo?.root
-    if (root === undefined) continue
-    rootByFolder.set(summary.cwd, root)
-    if (origin !== null && !rootByOrigin.has(origin)) rootByOrigin.set(origin, root)
+    if (origin !== null) {
+      if (!originByFolder.has(summary.cwd)) originByFolder.set(summary.cwd, origin)
+      if (root !== undefined && !originByRoot.has(root)) originByRoot.set(root, origin)
+    }
+    if (root !== undefined) rootByFolder.set(summary.cwd, root)
   }
 
   // Only checkouts something else in the list has vouched for. A guess read
   // off a path may name a project, never invent one.
-  const roots = new Set([...rootByFolder.values(), ...workspaces])
+  const vouched = new Set([...rootByFolder.values(), ...workspaces])
 
-  const keyOf = (summary: SessionSummary): string => {
+  const rootOfRow = (summary: SessionSummary): string | undefined => {
     const root = summary.repo?.root ?? rootByFolder.get(summary.cwd)
-    if (root !== undefined) return `${ROOT}${root}`
+    if (root !== undefined) return root
     // A worktree whose folder has since been removed: git has nothing left to
     // answer with, but a checkout kept inside its repository still says in its
     // path which repository that was.
     const checkout = checkoutOf(summary.cwd)
-    if (checkout !== null && roots.has(checkout)) return `${ROOT}${checkout}`
-    // Not every agent reports git; a session that knows only its folder joins
-    // whatever another session placed that folder in.
-    const origin = repoKey(summary.git?.originUrl) ?? originByFolder.get(summary.cwd)
-    if (origin === undefined) return `path:${summary.cwd}`
-    const placed = rootByOrigin.get(origin)
-    return placed !== undefined ? `${ROOT}${placed}` : `origin:${origin}`
+    return checkout !== null && vouched.has(checkout) ? checkout : undefined
   }
 
-  const byKey = new Map<string, { sessions: SessionSummary[]; cwds: Map<string, number> }>()
+  const byKey = new Map<string, Entry>()
   for (const summary of history) {
-    const key = keyOf(summary)
+    const root = rootOfRow(summary)
+    // Not every agent reports git; a session that knows only its folder joins
+    // whatever another session placed that folder, or its checkout, in.
+    const origin = originOf(summary) ?? (root !== undefined ? originByRoot.get(root) : undefined) ?? originByFolder.get(summary.cwd) ?? null
+    const key = origin !== null ? `${ORIGIN}${origin}` : root !== undefined ? `${ROOT}${root}` : `path:${summary.cwd}`
     let entry = byKey.get(key)
     if (!entry) {
-      entry = { sessions: [], cwds: new Map() }
+      entry = { sessions: [], cwds: new Map(), roots: new Map(), rootOf: new Map(), origin }
       byKey.set(key, entry)
     }
     entry.sessions.push(summary)
     entry.cwds.set(summary.cwd, (entry.cwds.get(summary.cwd) ?? 0) + 1)
+    if (root !== undefined) {
+      entry.rootOf.set(summary.cwd, root)
+      // A conversation with no date says nothing about when a folder was first worked in.
+      const began = Number.isFinite(summary.createdAt) && summary.createdAt > 0 ? summary.createdAt : Number.POSITIVE_INFINITY
+      entry.roots.set(root, Math.min(entry.roots.get(root) ?? Number.POSITIVE_INFINITY, began))
+    }
   }
 
   // A worktree is a checkout to work in, not a project to be homed at.
   const claimant = current === null || currentIsWorktree(current) ? null : ownPathOf(current)
-  return [...byKey.entries()].map(([key, { sessions, cwds }]) => {
-    const root = homeOf(key, cwds, known, claimant)
+  // The folder you have open has no conversations of its own yet when it is a
+  // fresh clone, but its remote still says which project it is a copy of.
+  const openedOrigin = repoKey(current?.repo?.origin)
+  const openedFolder = current === null ? null : projectGroupRootOf(current)
+  return [...byKey.values()].map((entry) => {
+    const root = homeOf(entry, opened, claimant)
+    const others = [...new Set([...entry.cwds.keys(), ...entry.roots.keys()])].filter((folder) => folder !== root).sort()
+    const holdsOpenFolder = openedFolder !== null && openedOrigin !== null && entry.origin === openedOrigin
     return {
       root,
       name: folderName(root),
-      sessions: [...sessions].sort((a, b) => b.updatedAt - a.updatedAt),
-      updatedAt: Math.max(...sessions.map((entry) => entry.updatedAt)),
+      sessions: [...entry.sessions].sort((a, b) => b.updatedAt - a.updatedAt),
+      updatedAt: Math.max(...entry.sessions.map((one) => one.updatedAt)),
+      folders: [root, ...others, ...(holdsOpenFolder && openedFolder !== root && !others.includes(openedFolder) ? [openedFolder] : [])],
     }
   })
 }
@@ -314,24 +371,59 @@ export const roomGroupRootOf = (
 }
 
 /**
- * `listPrefs.pinned`/`.collapsed`, corrected for the one spelling a link
- * could have recorded them under.
+ * The project that holds the folder the app has open, if the list has one.
  *
- * A pin or a fold names a project by its group's `root`. Before #898's fix a
- * project reached through a link — macOS's own `/var` → `/private/var` — was
- * homed at the raw, unresolved path; `projectGroupRootOf` now homes it at the
- * canonical one instead, so a pin or fold recorded under the old spelling no
- * longer matches the root the list reads by. The open workspace is the only
- * place both spellings are ever known at once, so it is the only entry a
- * plain read can correct — anything pinned or folded under a project that is
- * not open right now is unaffected either way, for better or worse.
+ * Its home when the open folder is the home, and otherwise the project the
+ * open folder is one of the folders of: a clone of the repository, or a
+ * checkout the person opened that is not the one the project is homed at.
+ * Everything the list does with "the project you are in" — leading with it,
+ * lighting its row, keeping it out of "Other projects", and deciding whether
+ * the folder needs an empty row of its own — asks this, because comparing the
+ * open folder with a group's home alone draws a clone's project twice.
+ *
+ * Comparison only. A new session, a worktree or a Goal still starts in the
+ * folder that was opened (`projectRootOf`), never in the project's home.
+ */
+export const groupHolding = (
+  groups: readonly ProjectGroup[],
+  workspace: WorkspaceEntry | null | undefined,
+): ProjectGroup | undefined => {
+  const own = projectGroupRootOf(workspace)
+  if (own === null) return undefined
+  return groups.find((group) => group.root === own) ?? groups.find((group) => group.folders.includes(own))
+}
+
+/**
+ * `listPrefs.pinned`/`.collapsed`, corrected for the spellings a project's
+ * pin or fold could have been recorded under.
+ *
+ * A pin or a fold names a project by its group's `root`. Two things move
+ * that name without the person doing anything. A project reached through a
+ * link — macOS's own `/var` → `/private/var` — was homed at the raw,
+ * unresolved path before #898's fix and at the canonical one now. And a
+ * project that was a dozen rows — one per clone of the repository — is one
+ * row homed at one of them, so what was recorded under another clone is the
+ * project's now, and two spellings of one project are one entry.
+ *
+ * The open workspace is the only entry that knows both spellings of a link,
+ * and only the groups know which folders were folded together; anything
+ * recorded under a project neither can place is unaffected either way. A
+ * room's id never collides with a folder, so it passes through untouched.
  */
 export const migratedRoots = (
   roots: readonly string[],
   workspace: WorkspaceEntry | null | undefined,
+  groups: readonly ProjectGroup[] = [],
 ): readonly string[] => {
-  if (!workspace) return roots
-  const canonical = projectGroupRootOf(workspace)
-  if (!canonical || canonical === workspace.path) return roots
-  return roots.map((root) => (root === workspace.path ? canonical : root))
+  const canonical = workspace ? projectGroupRootOf(workspace) : null
+  const spelled =
+    workspace && canonical && canonical !== workspace.path
+      ? roots.map((root) => (root === workspace.path ? canonical : root))
+      : roots
+  if (groups.length === 0) return spelled
+  const homeOfFolder = new Map<string, string>()
+  for (const group of groups) {
+    for (const folder of group.folders) if (!homeOfFolder.has(folder)) homeOfFolder.set(folder, group.root)
+  }
+  return [...new Set(spelled.map((root) => homeOfFolder.get(root) ?? root))]
 }

@@ -30,7 +30,7 @@ afterEach(() => {
   container.remove()
 })
 
-const group = (root: string, name: string): ProjectGroup => ({ root, name, sessions: [], updatedAt: 0 })
+const group = (root: string, name: string): ProjectGroup => ({ root, name, sessions: [], updatedAt: 0, folders: [root] })
 
 /** A store that answers a move the way the real one does: the pinned run is the order. */
 const mount = (pinned: string[], subject: ProjectGroup) => {

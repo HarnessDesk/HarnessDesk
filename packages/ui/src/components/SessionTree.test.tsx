@@ -1647,6 +1647,10 @@ it('reads the ask past the context blocks the composer puts before it', () => {
  * facts about *where* a row ran.
  */
 it('marks a row whose folder is gone, and leaves the others unmarked', () => {
+  // A conversation in a folder that is gone is not listed under a project;
+  // the rows that still show it — a search is asking for it, a person pinned
+  // it — are the ones that wear the mark, which is what this holds.
+
   const runtime = {
     id: 'agent',
     name: 'Agent',
@@ -1685,7 +1689,7 @@ it('marks a row whose folder is gone, and leaves the others unmarked', () => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <SessionTree now={3} />
+        <SessionTree now={3} searching />
       </StoreProvider>,
     )
   })
@@ -1739,7 +1743,7 @@ it('shows the folder-gone mark before any click with the listing-sourced sentenc
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <SessionTree now={3} />
+        <SessionTree now={3} searching />
       </StoreProvider>,
     )
   })

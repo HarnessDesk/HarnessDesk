@@ -35,7 +35,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type DragEvent
 import { openingOf, sessionKey, type Session, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
 
 import { agentGroups, agentKey, agentKeyOf } from '../lib/accounts'
-import { folderName, groupByProject, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, roomGroupRootOf, type ProjectGroup } from '../lib/projects'
+import { folderName, groupByProject, groupHolding, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, roomGroupRootOf, type ProjectGroup } from '../lib/projects'
 import { captureForRoot } from '../lib/provenance'
 import { sessionLabel } from '../lib/sessions'
 import { teamSeats } from '../lib/team-seats'
@@ -397,14 +397,14 @@ const SessionRow = memo(({
  * sliders button on the section header. When the filter hides sessions the
  * button wears a dot — a filtered list must never read as missing data.
  */
-export const SessionListControls = () => {
+export const SessionListControls = ({ searching = false }: { searching?: boolean } = {}) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const prefs = snapshot.listPrefs
   const filtered = prefs.agent !== null
-  const groups = useProjectGroups()
+  const groups = useProjectGroups({ searching })
   const roots = groups.map((group) => group.root)
-  const collapsedRoots = migratedRoots(prefs.collapsed, snapshot.workspace)
+  const collapsedRoots = migratedRoots(prefs.collapsed, snapshot.workspace, groups)
   const openCount = roots.filter((root) => !collapsedRoots.includes(root)).length
 
   return (
@@ -506,6 +506,8 @@ export const SessionListControls = () => {
 const GroupHead = ({
   group,
   open,
+  pinned,
+  holdsOpen,
   onToggle,
   onToggleAll,
   onNewWorktree,
@@ -513,6 +515,10 @@ const GroupHead = ({
 }: {
   group: ProjectGroup
   open: boolean
+  /** Read through the groups, so a pin recorded under a clone is the project's. */
+  pinned: boolean
+  /** The folder the app has open is this project's: its home, or a clone of it. */
+  holdsOpen: boolean
   onToggle: () => void
   /** ⌥-click on the chevron: the whole list, not this one folder. */
   onToggleAll: () => void
@@ -525,11 +531,13 @@ const GroupHead = ({
   const stopped = projectRoots(group)
     .map((root) => captureForRoot(root, snapshot.captureHealth, snapshot.workspaces))
     .find((health) => health?.state === 'stopped')
-  const pinned = migratedRoots(snapshot.listPrefs.pinned, snapshot.workspace).includes(group.root)
-  // The folder the app is working in. It used to be marked only by leading
-  // the list, which says nothing once you have arranged the list yourself —
-  // and "which project is this about" is the question every worktree, every
-  // ⌘N and every terminal here is answered by.
+  /* Whether the folder the app is working in *is* this row's home. It used to
+     be marked only by leading the list, which says nothing once you have
+     arranged the list yourself — and "which project is this about" is the
+     question every worktree, every ⌘N and every terminal here is answered
+     by. The row lights when the open folder is the project's (`holdsOpen`),
+     a clone of it included; where an action takes place is only ever the
+     home, or the folder that was opened, and that is this. */
   const current = projectGroupRootOf(snapshot.workspace) === group.root
   /*
    * `group.root` is a comparison key — the canonical form grouping and
@@ -559,7 +567,7 @@ const GroupHead = ({
       onContextMenu={menu.open}
     >
       <SidebarMenu>
-        <SidebarMenuItem trailingActions={2} trailingMarks={pinned ? 1 : 0} data-current={current ? '' : undefined}>
+        <SidebarMenuItem trailingActions={2} trailingMarks={pinned ? 1 : 0} data-current={holdsOpen ? '' : undefined}>
           <SidebarMenuButton
             trailingActions={2}
             data-draggable=""
@@ -567,15 +575,15 @@ const GroupHead = ({
             data-dragging={drag.dragging === group.root ? '' : undefined}
             aria-expanded={open}
             onClick={(event) => (event.altKey ? onToggleAll() : onToggle())}
-            title={`${current ? 'The folder this app is working in.\n' : ''}${actualRoot}\n⌥-click to ${open ? 'collapse' : 'expand'} every project.`}
+            title={`${holdsOpen ? (current ? 'The folder this app is working in.\n' : 'Holds the folder this app is working in.\n') : ''}${actualRoot}\n⌥-click to ${open ? 'collapse' : 'expand'} every project.`}
             icon={<>
               <Text role="meta" className="group-hover/menu-item:hidden group-focus-within/menu-item:hidden">
-                {current ? <FolderOpenIcon size={14} /> : <FolderIcon size={14} />}
+                {holdsOpen ? <FolderOpenIcon size={14} /> : <FolderIcon size={14} />}
               </Text>
               <DisclosureChevron open={open} size="xs" className="hidden group-hover/menu-item:block group-focus-within/menu-item:block" />
             </>}
             label={<span className="flex min-w-0 items-center gap-(--hd-space-1)" >
-              <Text role="navigation" ink={current ? 'primary' : undefined} truncate className={styles.groupName}>{group.name}</Text>
+              <Text role="navigation" ink={holdsOpen ? 'primary' : undefined} truncate className={styles.groupName}>{group.name}</Text>
               {stopped && <span title={`${stopped.reason} ${stopped.nextStep}`} className="group-hover/menu-item:hidden group-focus-within/menu-item:hidden"><Chip tone="neutral" variant="quiet" label="Capture stopped" /></span>}
             </span>}
           />
@@ -767,6 +775,56 @@ const RoomRow = ({
           </SidebarMenu>
         )}
       </SidebarMenuItem>
+    </SidebarMenu>
+  )
+}
+
+/**
+ * The folders that no longer exist, said once.
+ *
+ * A folder that is gone is not a project, and nothing that ran in it is listed
+ * under one: a Team's deleted clone and a deleted worktree were most of a busy
+ * desk's "Other projects". Nothing is lost — the conversations are still in
+ * the history, which search and the archive read — so this is a line, not a
+ * place: quiet text and one menu. The menu forgets them, which stops this
+ * counting them and forgets any that were opened as a workspace; it touches no
+ * conversation.
+ */
+const GoneFolders = ({ folders }: { folders: readonly string[] }) => {
+  const store = useStore()
+  const menu = useContextMenu()
+  const count = folders.length === 1 ? '1 folder' : `${folders.length} folders`
+  return (
+    <SidebarMenu data-region="gone-folders" onContextMenu={menu.open}>
+      <SidebarMenuItem trailingActions={1} data-menu-open={menu.at ? '' : undefined}>
+        <SidebarMenuButton
+          trailingActions={1}
+          title="Conversations in a folder that no longer exists are not listed here. They are kept, and search and the archive still find them."
+          onClick={menu.open}
+          icon={<Text role="meta"><FolderGoneIcon size={14} /></Text>}
+          label={<Text role="meta" truncate>{folders.length === 1 ? '1 folder is gone' : `${folders.length} folders are gone`}</Text>}
+        />
+        <Tooltip>
+          <TooltipTrigger data-slot="sidebar-menu-action" render={
+            <SidebarMenuAction showOnHover
+              data-state={menu.at ? 'open' : undefined}
+              aria-haspopup="menu" aria-expanded={menu.at !== null}
+              onClick={menu.open}
+              aria-label="Actions for gone folders">
+              <MoreIcon size={12} />
+            </SidebarMenuAction>
+          } />
+          <TooltipContent>Actions for gone folders</TooltipContent>
+        </Tooltip>
+      </SidebarMenuItem>
+      <ContextMenu at={menu.at} label="Actions for gone folders" onClose={menu.close}>
+        <MenuItem
+          icon={<FolderGoneIcon size={13} />}
+          label={`Forget ${count}`}
+          hint="Their conversations are kept."
+          onSelect={() => void store.forgetFolders(folders)}
+        />
+      </ContextMenu>
     </SidebarMenu>
   )
 }
@@ -990,6 +1048,9 @@ interface DragHandlers {
 export const projectRoots = (group: ProjectGroup): string[] => [
   ...new Set([
     group.root,
+    // Every clone of the repository answers to the project too: a room made
+    // in one is filed under the project, not under a row of its own.
+    ...group.folders,
     ...group.sessions.map((one) => one.repo?.root).filter((root): root is string => !!root),
   ]),
 ]
@@ -1077,7 +1138,21 @@ const firstAsk = (session: Session): string | null => {
   return null
 }
 
-export const useProjectGroups = (): ProjectGroup[] => {
+/**
+ * What the list is made of.
+ *
+ * The projects, in the order they are shown; the pinned conversations that
+ * ran in a folder that is gone, which no project holds but Pinned still does;
+ * and the folders that are gone, which are not listed at all.
+ */
+export interface ProjectList {
+  readonly groups: ProjectGroup[]
+  readonly hiddenPinned: SessionSummary[]
+  /** Folders that no longer exist and have not been forgotten, each once. */
+  readonly gone: readonly string[]
+}
+
+export const useProjectList = ({ searching = false }: { searching?: boolean } = {}): ProjectList => {
   const snapshot = useSnapshot()
   /* Open conversations the history does not list, as rows. Recomputed
      whenever a session changes — cheap, a handful of entries — but the
@@ -1124,21 +1199,40 @@ export const useProjectGroups = (): ProjectGroup[] => {
           (summary) => agentKeyOf(summary.runtime, snapshot.runtimes) === snapshot.listPrefs.agent,
         )
       : listed
+    /* A folder that no longer exists is not a project, and nothing in it is
+       listed under one — a deleted clone, a deleted worktree. The
+       conversations are not touched: they are still in the history, which
+       search and the archive read, and a person who is searching is asking
+       for them, so they are drawn then. The one exception is a conversation
+       somebody pinned, which they put at the top on purpose: it stays in
+       Pinned, where the row says its folder is gone. */
+    const pinnedKeys = new Set(snapshot.listPrefs.pinnedSessions.map(String))
+    const shown: SessionSummary[] = []
+    const hidden: SessionSummary[] = []
+    for (const summary of filtered) {
+      if (!searching && snapshot.foldersGone.has(summary.cwd)) hidden.push(summary)
+      else shown.push(summary)
+    }
+    const forgotten = new Set(snapshot.listPrefs.forgottenFolders ?? [])
+    const gone = [...new Set(hidden.map((summary) => summary.cwd))].filter((folder) => !forgotten.has(folder)).sort()
+    const hiddenPinned = hidden.filter((summary) => pinnedKeys.has(String(sessionKey(summary.runtime, summary.id))))
     // The open workspace leads, then what the user pinned in the order they
     // pinned it, then the rest by the chosen order. A worktree you have open
     // is the project it is a checkout of, so the row it leads is that one.
-    const current = projectGroupRootOf(snapshot.workspace)
     const list = groupByProject(
-      filtered,
+      shown,
       snapshot.workspaces.map((workspace) => workspace.path),
       snapshot.workspace,
     )
-    const pinned = migratedRoots(snapshot.listPrefs.pinned, snapshot.workspace)
+    const pinned = migratedRoots(snapshot.listPrefs.pinned, snapshot.workspace, list)
     // A folder just opened has no sessions to be grouped by, and a list that
     // does not mention the folder you are in leaves "where am I" to the branch
-    // chip. It gets its row — empty — until the first conversation fills it.
-    if (current && !snapshot.listPrefs.agent && !list.some((group) => group.root === current)) {
-      list.push({ root: current, name: folderName(current), sessions: [], updatedAt: 0 })
+    // chip. It gets its row — empty — until the first conversation fills it,
+    // unless it is a copy of a project the list already has.
+    const current = projectGroupRootOf(snapshot.workspace)
+    const holding = groupHolding(list, snapshot.workspace)
+    if (current && !snapshot.listPrefs.agent && !holding) {
+      list.push({ root: current, name: folderName(current), sessions: [], updatedAt: 0, folders: [current] })
     }
     /* And a room earns its project a row for the same reason, with more of a
        claim to one: nothing creates a room implicitly — somebody made it and
@@ -1167,16 +1261,17 @@ export const useProjectGroups = (): ProjectGroup[] => {
       // The empty string is "no rooms at all", and a room with no folder has
       // none to be filed under either — the same answer serves both.
       if (root === '' || claimed.has(root)) continue
-      list.push({ root, name: folderName(root), sessions: [], updatedAt: 0 })
+      list.push({ root, name: folderName(root), sessions: [], updatedAt: 0, folders: [root] })
       claimed.add(root)
     }
     // The folder you have open leads — unless you have put it somewhere
     // yourself, in which case the place you put it wins. Nothing else in the
     // list may quietly overrule an arrangement someone made by hand.
+    const lead = holding ?? list.find((group) => group.root === current)
     const rank = (group: ProjectGroup): number => {
       const index = pinned.indexOf(group.root)
       if (index !== -1) return index
-      if (group.root === current) return -1
+      if (group === lead) return -1
       return pinned.length
     }
     const pinnedSessions = snapshot.listPrefs.pinnedSessions
@@ -1192,16 +1287,21 @@ export const useProjectGroups = (): ProjectGroup[] => {
         return 0
       })
     }
-    return list.sort((a, b) => {
+    const groups = list.sort((a, b) => {
       const byRank = rank(a) - rank(b)
       if (byRank !== 0) return byRank
       if (snapshot.listPrefs.sort === 'name') return a.name.localeCompare(b.name)
       return b.updatedAt - a.updatedAt
     })
-  }, [snapshot.history, liveKey, snapshot.listPrefs.agent, snapshot.listPrefs.pinned, snapshot.listPrefs.pinnedSessions, snapshot.listPrefs.sort, snapshot.workspace, snapshot.workspaces, roomRoots])
+    return { groups, hiddenPinned, gone }
+  }, [snapshot.history, liveKey, snapshot.listPrefs.agent, snapshot.listPrefs.pinned, snapshot.listPrefs.pinnedSessions, snapshot.listPrefs.sort, snapshot.listPrefs.forgottenFolders, snapshot.foldersGone, snapshot.workspace, snapshot.workspaces, roomRoots, searching])
 }
 
-export const SessionTree = ({ now }: { now: number }) => {
+/** The projects alone: what the section's own controls act on. */
+export const useProjectGroups = (options: { searching?: boolean } = {}): ProjectGroup[] =>
+  useProjectList(options).groups
+
+export const SessionTree = ({ now, searching = false }: { now: number; searching?: boolean }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const treeRef = useRef<HTMLDivElement>(null)
@@ -1209,11 +1309,28 @@ export const SessionTree = ({ now }: { now: number }) => {
   const [navigationTarget, setNavigationTarget] = useState<{ root: string; index: number } | null>(null)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const [revealedCount, setRevealedCount] = useState<ReadonlyMap<string, number>>(() => new Map())
+  const { groups, hiddenPinned, gone } = useProjectList({ searching })
   const collapsed = useMemo(
-    () => new Set(migratedRoots(snapshot.listPrefs.collapsed, snapshot.workspace)),
-    [snapshot.listPrefs.collapsed, snapshot.workspace],
+    () => new Set(migratedRoots(snapshot.listPrefs.collapsed, snapshot.workspace, groups)),
+    [snapshot.listPrefs.collapsed, snapshot.workspace, groups],
   )
-  const groups = useProjectGroups()
+
+  /* A pin or a fold recorded under a folder that has since been folded into a
+     project — a clone, say, that was a row of its own — is the project's, and
+     is read that way above. It is rewritten under the project's home as well,
+     once, so a toggle or a move works on what is stored and a stale spelling
+     cannot bring the pin back after it is undone. Only from the whole list: a
+     filtered or searched one is a part of it, and a part must not decide. */
+  const listIsWhole = !searching && snapshot.listPrefs.agent === null && !snapshot.historyLoading
+  useEffect(() => {
+    if (!listIsWhole) return
+    const pinned = migratedRoots(snapshot.listPrefs.pinned, null, groups)
+    const folded = migratedRoots(snapshot.listPrefs.collapsed, null, groups)
+    const same = (left: readonly string[], right: readonly string[]) =>
+      left.length === right.length && left.every((entry, index) => entry === right[index])
+    if (same(pinned, snapshot.listPrefs.pinned) && same(folded, snapshot.listPrefs.collapsed)) return
+    store.setListPrefs({ pinned: [...pinned], collapsed: [...folded] })
+  }, [groups, listIsWhole, snapshot.listPrefs.collapsed, snapshot.listPrefs.pinned, store])
 
   const toggle = useCallback((key: string) => store.toggleCollapsed(key), [store])
 
@@ -1240,11 +1357,11 @@ export const SessionTree = ({ now }: { now: number }) => {
     [triage],
   )
   const pinnedRows = useMemo(() => {
-    const byKey = new Map(groups.flatMap((group) => group.sessions).map((summary) => [String(sessionKey(summary.runtime, summary.id)), summary]))
+    const byKey = new Map([...groups.flatMap((group) => group.sessions), ...hiddenPinned].map((summary) => [String(sessionKey(summary.runtime, summary.id)), summary]))
     return snapshot.listPrefs.pinnedSessions
       .map((key) => byKey.get(String(key)))
       .filter((summary): summary is SessionSummary => summary !== undefined && !triageKeys.has(String(sessionKey(summary.runtime, summary.id))))
-  }, [groups, snapshot.listPrefs.pinnedSessions, triageKeys])
+  }, [groups, hiddenPinned, snapshot.listPrefs.pinnedSessions, triageKeys])
   const liftedKeys = useMemo(
     () => new Set([...triageKeys, ...pinnedRows.map((summary) => String(sessionKey(summary.runtime, summary.id)))]),
     [pinnedRows, triageKeys],
@@ -1279,11 +1396,13 @@ export const SessionTree = ({ now }: { now: number }) => {
   // one can be open, and a row that unmounts while its own dialog was open —
   // which is exactly what a delete does — would take the dialog with it.
   const [deleting, setDeleting] = useState<SessionSummary | null>(null)
-  const currentRoot = projectGroupRootOf(snapshot.workspace)
-  const pinnedRoots = migratedRoots(snapshot.listPrefs.pinned, snapshot.workspace)
+  // The project the folder you have open belongs to — its home, or a clone of
+  // it — read from the groups, never by comparing the folder with a home.
+  const currentGroup = groupHolding(groups, snapshot.workspace)
+  const pinnedRoots = migratedRoots(snapshot.listPrefs.pinned, snapshot.workspace, groups)
   const near = groups.filter(
     (group) =>
-      group.root === currentRoot || pinnedRoots.includes(group.root) || groups.length <= 2,
+      group === currentGroup || pinnedRoots.includes(group.root) || groups.length <= 2,
   )
   const far = groups.filter((group) => !near.includes(group))
 
@@ -1504,7 +1623,7 @@ export const SessionTree = ({ now }: { now: number }) => {
       // Only the project you dragged joins the run: moving one thing must not
       // quietly arrange the others, and the folder you happen to have open is
       // in this list for a different reason than the ones you put here.
-      const existingPinned = migratedRoots(snapshot.listPrefs.pinned, snapshot.workspace)
+      const existingPinned = migratedRoots(snapshot.listPrefs.pinned, snapshot.workspace, groups)
       const keep = new Set([...existingPinned, root])
       const shown = arranged.filter((entry) => keep.has(entry))
       // A pinned project whose sessions have all been archived has no row to
@@ -1514,7 +1633,7 @@ export const SessionTree = ({ now }: { now: number }) => {
       store.setListPrefs({ pinned: [...shown, ...offscreen] })
       setAnnouncement(`Moved to position ${shown.indexOf(root) + 1} of ${shown.length}`)
     },
-    [near, snapshot.listPrefs.pinned, snapshot.workspace, store],
+    [groups, near, snapshot.listPrefs.pinned, snapshot.workspace, store],
   )
 
   const drag: DragHandlers = {
@@ -1548,6 +1667,10 @@ export const SessionTree = ({ now }: { now: number }) => {
     },
   }
 
+  /* The folders that are gone, in one quiet line where the list ends: at the
+     end of "Other projects" when that fold is drawn, and under the projects
+     when there is no fold. Not a project, and not a row to open. */
+  const goneLine = gone.length > 0 ? <GoneFolders folders={gone} /> : null
   const activeTeams = new Set(teamsInput(snapshot).filter(input => teamListRow(input).active).map(input => input.team.id))
   const renderGroup = (group: ProjectGroup) => {
     const open = !collapsed.has(group.root)
@@ -1605,6 +1728,8 @@ export const SessionTree = ({ now }: { now: number }) => {
         <GroupHead
           group={group}
           open={open}
+          pinned={pinnedRoots.includes(group.root)}
+          holdsOpen={group === currentGroup}
           onToggle={() => toggle(group.root)}
           onToggleAll={toggleAll}
           onNewWorktree={(root) => store.askNewWorktree(root)}
@@ -1766,9 +1891,10 @@ export const SessionTree = ({ now }: { now: number }) => {
             />
             <SidebarMenuBadge aria-label={`${far.length} other projects`}>{far.length}</SidebarMenuBadge>
           </SidebarMenuItem></SidebarMenu>
-          {othersOpen && <SidebarGroupContent>{far.map(renderGroup)}</SidebarGroupContent>}
+          {othersOpen && <SidebarGroupContent>{far.map(renderGroup)}{goneLine}</SidebarGroupContent>}
         </div>
       )}
+      {far.length === 0 && goneLine}
       {deleting && <DeleteSession summary={deleting} onClose={() => setDeleting(null)} />}
       {/* Reordering by hand is silent by nature; this is the same move said
           out loud, so the keyboard rows and the drag land in the same place
