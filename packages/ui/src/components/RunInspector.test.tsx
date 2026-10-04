@@ -13,6 +13,21 @@ const render = (props: Partial<RunInspectorProps> = {}) => {
   act(() => root.render(<RunInspector input={fixture} selectedRow={null} seats={[]} {...props} />))
   return { container, root, close: () => act(() => root.unmount()) }
 }
+it('reads the stopped card state in its header and keeps Abandon as a board release', async () => {
+  const fixture = runFixture('running')
+  const input = { ...fixture, execution: { ...fixture.execution, state: 'stopped' as const, endedAt: Date.now() } }
+  const onAbandon = vi.fn(async () => {})
+  const view = render({ input, selectedRow: 'card-4-4', onAbandon })
+  try {
+    expect(view.container.textContent).toContain('Stopped')
+    const abandon = [...view.container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Abandon card…')!
+    expect(abandon.title).toBe('Releases this card on the board; no further step starts.')
+    act(() => abandon.click())
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(one => one.textContent === 'Abandon card')!
+    await act(async () => confirm.click())
+    expect(onAbandon).toHaveBeenCalledWith(4)
+  } finally { view.close() }
+})
 it('reads the Run, its frozen base, budget and Seats without inventing absent facts', () => {
   const fixture = runFixture()
   const view = render({ input: { ...fixture, execution: { ...fixture.execution, base: { remote: 'origin', branch: 'main', at: 'abc123' } } },
@@ -28,7 +43,7 @@ it('shows card input and predecessor handoffs, findings and review before its co
   const view = render({ input: { ...fixture, cards: fixture.cards.map(card => ({ ...card, dependsOn: card.id === 3 ? [1] : [], detail: card.id === 3 ? 'Review the bounded retry' : null, handoff: card.id === 1 ? 'Added a ceiling' : null })) }, selectedRow: 'card-3-3', seats: [{ id: 'seat-1', name: 'Beta', onOpen }],
     publication: { round: 3, state: 'local', reason: 'Posting is off for this Team.', pr: null, cards: [3] } })
   try {
-    for (const text of ['Input', 'Review the bounded retry', 'Added a ceiling', 'Handoff', 'Findings', 'Cap the attempts.', 'Not posted', 'Posting is off for this Team.', 'Cost']) expect(view.container.textContent).toContain(text)
+    for (const text of ['Input', 'Review the bounded retry', 'Added a ceiling', 'Handoff', 'Findings', 'Cap the attempts.', 'Kept on the desk', 'Posting is off for this Team.', 'Cost']) expect(view.container.textContent).toContain(text)
     const buttons = [...view.container.querySelectorAll('button')]
     expect(buttons.at(-1)?.textContent).toBe('Open the conversation')
     act(() => buttons.at(-1)!.click())
@@ -261,6 +276,13 @@ it('reads findings rows and falls back to the Run when the selected card is gone
   const missing = render({ input: fixture, selectedRow: 'card-99-99' })
   try { expect(missing.container.textContent).toContain('Brief') } finally { missing.close() }
 })
+it('does not assign a round publication to a card the round record does not name', () => {
+ const view=render({input:runFixture(),selectedRow:'card-3-3',publication:{round:3,state:'posted',reason:null,pr:7,cards:[99]}})
+ try {
+  expect(sectionText(view.container,'Review')).toContain('No review recorded')
+  expect(sectionText(view.container,'Review')).not.toContain('Posted to #7')
+ } finally {view.close()}
+})
 
 /*
  * A check run again: the inspector lists what the desk recorded each time it
@@ -392,6 +414,36 @@ it.each([
 
 /** The controls the connected view hands the inspector; none are present unless a caller gives them. */
 const buttonsOf = (container: HTMLElement) => [...container.querySelectorAll('button')].map(one => one.textContent)
+
+it('keeps an abandon question and its late refusal with the Run and card it belongs to (#1342)', async () => {
+  const fixture = runFixture()
+  let refuse!: (error: Error) => void
+  const pending = new Promise<void>((_resolve, reject) => { refuse = reject })
+  const onAbandon = vi.fn(() => pending)
+  const input = { ...fixture, cards: fixture.cards.map(card => [3, 4].includes(card.id) ? { ...card, state: 'open' as const, claim: null } : card) }
+  const view = render({ input, selectedRow: 'card-4-4', onAbandon })
+  const draw = (next: typeof input, selectedRow: string) => act(() => view.root.render(<RunInspector input={next} selectedRow={selectedRow} seats={[]} onAbandon={onAbandon} />))
+  const button = (label: string) => [...document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(one => one.textContent === label)!
+  const question = () => document.body.querySelector('[role="alertdialog"]')
+  try {
+    act(() => view.container.querySelector<HTMLButtonElement>('button')!.click())
+    act(() => button('Abandon card').click())
+    expect(onAbandon).toHaveBeenCalledWith(4)
+    const completed = { ...input, cards: input.cards.map(card => card.id === 4 ? { ...card, state: 'done' as const } : card) }
+    draw(completed, 'card-4-4')
+    expect(question()).toBeNull()
+    draw(completed, 'card-3-3')
+    expect(question()).toBeNull()
+    act(() => view.container.querySelector<HTMLButtonElement>('button')!.click())
+    expect(question()?.textContent).toContain('Abandon card #3?')
+    await act(async () => { refuse(new Error('Late refusal for #4')); await pending.catch(() => {}) })
+    expect(question()?.textContent).not.toContain('Late refusal')
+    expect(button('Abandon card').disabled).toBe(false)
+    // A reused card number in another Run also starts with a fresh question.
+    draw({ ...completed, execution: { ...completed.execution, id: 'another-run' } }, 'card-3-3')
+    expect(question()).toBeNull()
+  } finally { view.close() }
+})
 it('offers abandoning a card that has not finished, before its conversation link', () => {
   const fixture = runFixture()
   const onAbandon = vi.fn().mockResolvedValue(undefined)

@@ -10,6 +10,7 @@
   --sidebar-menu-action-events: none;
   --sidebar-menu-mark-shift: var(--hd-space-0);
   --sidebar-menu-state-extra: calc(-1 * var(--hd-sidebar-end-action-step));
+  --sidebar-menu-state-hover-reserve: calc(0 * var(--hd-sidebar-end-action-step));
   /* The navigation dot is 7px (space-2 minus the hairline). A whole pill
      ends at its visible right edge, not the empty end of the 24px target. */
   --sidebar-menu-state-ink-inset: calc((var(--hd-icon-target) - var(--hd-space-2) + var(--hd-space-px)) / 2);
@@ -21,7 +22,8 @@
   --sidebar-menu-count-yield: calc(0 * var(--hd-sidebar-end-action-step));
 }
 
-[data-slot="sidebar-group-content"] [data-slot="sidebar-menu-item"] {
+/* Only a padded band moves the row edge in; nesting keeps the end edge. */
+[data-slot="sidebar-group"]:not([data-inset="false"]) > [data-slot="sidebar-group-content"] [data-slot="sidebar-menu-item"] {
   --sidebar-menu-end-rail: calc(var(--hd-sidebar-end-rail) - var(--hd-space-2));
 }
 
@@ -44,6 +46,7 @@
   --sidebar-menu-action-events: auto;
   --sidebar-menu-mark-shift: calc(-1 * var(--sidebar-menu-action-reserve));
   --sidebar-menu-state-extra: var(--sidebar-menu-action-reserve);
+  --sidebar-menu-state-hover-reserve: var(--sidebar-menu-action-reserve);
   --sidebar-menu-state-ink-inset: calc(0 * var(--hd-icon-target));
   --sidebar-menu-state-full: none;
   --sidebar-menu-state-compact: inline-flex;
@@ -103,8 +106,8 @@
   translate: var(--sidebar-menu-state-translate); /* desk: centre only the absolute hover dot, not the full chip in flow. */
 }
 
-[data-sidebar-menu-state-full] { display: var(--sidebar-menu-state-full); }
-[data-sidebar-menu-state-compact] { display: var(--sidebar-menu-state-compact); }
+[data-slot="sidebar-menu-state"] > [data-sidebar-menu-state-full] { display: var(--sidebar-menu-state-full); }
+[data-slot="sidebar-menu-state"] > [data-sidebar-menu-state-compact] { display: var(--sidebar-menu-state-compact); }
 
 /* Counts yield before the title or chip at narrow row widths, including members. */
 @container sidebar-row (max-width: 200px) {
@@ -119,4 +122,26 @@
 /* A group heading begins where the row's icon begins, in either rail. */
 [data-slot="sidebar-group"] > [data-slot="group-label"] {
   padding-inline-start: var(--hd-sidebar-start-inset);
+}
+
+/* Project and Pinned indentation moves the leading content inside the original
+   row boxes. Seat menus retain their own existing inset and guide. */
+[data-sidebar-indent="true"] [data-slot="sidebar-menu-button"] {
+  padding-inline-start: calc(var(--hd-sidebar-start-inset) + var(--hd-space-5) + var(--hd-space-2) + var(--hd-space-px));
+}
+
+/* Deeply nested Seats give the title room before spending it on a state word. */
+@container sidebar-row (max-width: 200px) {
+  [data-nested="true"] [data-slot="sidebar-menu-button"]:has([data-slot="sidebar-menu-state"]) {
+    --sidebar-menu-state-full: none;
+    --sidebar-menu-state-compact: inline-flex;
+    --sidebar-menu-state-position: absolute;
+    --sidebar-menu-state-width: var(--hd-icon-target);
+    --sidebar-menu-state-translate: 0 -50%;
+    --sidebar-menu-state-extra: var(--sidebar-menu-state-hover-reserve);
+    --sidebar-menu-state-ink-inset: calc(var(--hd-space-1) - (var(--hd-icon-target) - var(--hd-space-2) + var(--hd-space-px)) / 2);
+  }
+  [data-nested="true"] [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-state"] {
+    inset-inline-end: calc(var(--sidebar-menu-end-rail) + (var(--sidebar-menu-trailing-marks) - 1) * var(--hd-sidebar-end-action-step) + var(--sidebar-menu-state-hover-reserve) - var(--sidebar-menu-count-yield));
+  }
 }

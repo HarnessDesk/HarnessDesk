@@ -625,6 +625,7 @@ const flowEvidenceGuardValidator: Validator<FlowEvidenceGuard> = (value, path = 
 }
 const flowCheckValidator = goalShape({
   run: atMost(4000, isFilled),
+  onRequest: optional(isBoolean),
   cwd: optional(atMost(4096)),
   timeout: goalInteger(1),
   exits: recordOf(atMost(200, isFilled)),
@@ -1210,6 +1211,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'flow/catalog': goalShape({ root: isString }),
   'flow/source': goalShape({ root: isString, id: isFilled, origin: optional(literalUnion('project', 'user', 'builtin')) }),
   'flow/preview': goalShape({
+    continues: optional(isFilled),
     seats: optional(flowSeatOverrides),
     attended: optional(isBoolean),
     root: isString,

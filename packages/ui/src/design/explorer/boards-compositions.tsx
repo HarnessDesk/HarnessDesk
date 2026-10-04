@@ -1,7 +1,9 @@
 import { TeamRecordBoard } from '../../preview/frames-team-record'
 import { RunControlsBoard } from '../../preview/frames-run-controls'
+import { StopRunBoard } from '../../preview/frames-stop-run'
 import { RunInspectorBoard } from '../../preview/frames-run-inspector'
 import { FlowOverlayBoard } from '../../preview/frames-flow-overlay'
+import { ReviewPublicationBoard } from '../../preview/frames-review-publication'
 import { FlowGraphBoard } from '../../preview/frames-flow-graph'
 import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
@@ -2936,15 +2938,27 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     render: RunInspectorBoard,
   },
   {
+    id: 'review-publication',
+    title: 'Review publication',
+    about: 'The Run’s publication and each review round, with the host’s reason and its copy and posting doors.',
+    render: ReviewPublicationBoard,
+  },
+  {
     id: 'run-controls',
     title: 'Run controls',
     about: 'Abandoning a card, with the question that says first what the rule after its role will do, and answering a person’s step from the inspector — the production components.',
     render: RunControlsBoard,
   },
   {
+    id: 'stop-run',
+    title: 'Stop a Run',
+    about: 'The Run and Overview doors, each Seat’s ability to stop, an optional note, cleanup failure and the stopped record.',
+    render: StopRunBoard,
+  },
+  {
     id: 'run-view',
     title: 'Run timeline',
-    about: 'The recorded rounds, cards, checks and findings, with a selectable row — and the Flow the Run started with, one choice away.',
+    about: 'The recorded rounds, cards, checks, findings and ending doors, with a selectable row and the frozen Flow in the header.',
     render: RunViewBoard,
   },
   {

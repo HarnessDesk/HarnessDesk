@@ -73,7 +73,7 @@ const durationOf = (run: FlowStepRun | undefined, now: number): string | null =>
   const elapsed = run.since !== null && (run.state === 'working' || run.state === 'waiting') ? Math.max(0, now - run.since) : 0
   return formatDuration(run.durationMs + elapsed)
 }
-const statusOf = (run: FlowStepRun): string => ({ future: 'Not reached', done: 'Done', working: 'Working', waiting: 'Needs you', blocked: 'Waiting', stopped: 'Stopped' })[run.state]
+const statusOf = (run: FlowStepRun): string => ({ future: 'Not reached', done: 'Done', working: 'Working', waiting: 'Needs you', blocked: 'Waiting', stopping: 'Stopping', stopped: 'Stopped' })[run.state]
 
 /** Sanitize once for both views, then take file objects only from file activity. */
 const activityOf = (run: FlowStepRun | undefined, doing: FlowGraphProps['doing']): { text: string; object: string } => {
@@ -88,7 +88,7 @@ const activityOf = (run: FlowStepRun | undefined, doing: FlowGraphProps['doing']
   return { text: lines.join(' · '), object: [...new Set(objects)].join(' · ') }
 }
 const lineOf = (step: FlowStep, run: FlowStepRun | undefined, object: string): string =>
-  run?.state === 'working' ? object || ROLE_KIND_WORDS[step.kind] : run?.state === 'stopped' ? 'Stopped' : words(run?.line ?? step.line)
+  run?.state === 'working' ? object || ROLE_KIND_WORDS[step.kind] : run?.state === 'stopped' || run?.state === 'stopping' ? statusOf(run) : words(run?.line ?? step.line)
 
 const StepCard = ({ node, drawingWidth, step, run, selected, faces, faceTints, activity, now, onSelect }: {
   drawingWidth: number

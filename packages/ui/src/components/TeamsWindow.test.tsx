@@ -5,6 +5,9 @@ import { StoreProvider } from '../state/context'
 import { AppWindowMode } from './AppWindow'
 import { TeamsWindow } from './TeamsWindow'
 import { overviewTeamStore } from '../preview/team-overview-fixture'
+import type { FindingRunView } from '@harnessdesk/protocol'
+import { teamsInput } from '../lib/teams-snapshot'
+import { teamsList } from '../lib/teams-list'
 import type { AppStore } from '../state/store'
 
 ;(globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true
@@ -91,4 +94,38 @@ it('the rig has differing recorded turn totals consistent with its Seat partitio
   const seats=report.breakdowns.find(group=>group.dimension==='seat')!
   expect(seats.rows.reduce((sum,row)=>sum+(row.amounts.turns.value??0),seats.unattributed.turns.value??0)).toBe(report.totals.turns.value)
  }
+})
+
+it('reads an uncached Run and only counts its Team as Needs you after publication is confirmed', async () => {
+ const base = overviewTeamStore('done')
+ let snapshot = base.getSnapshot()
+ const execution = snapshot.flowExecutions.get('overview-run')!
+ const listeners = new Set<() => void>()
+ let answer!: () => void
+ const findingRun: FindingRunView = { run: execution.id, goal: execution.goal, round: 2, finished: 2, total: 3,
+  embargoed: false, open: 1, blocking: 1, reason: 'The closed review is waiting to be posted.', ceilingStop: false,
+  stamp: 'read-1', publication: 'local', rounds: [{ round: 2, state: 'local', reason: null, pr: 7, cards: [2,3] }],
+  reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null,
+  boundPr: { repo: 'acme/widgets', pr: 7 }, unbound: null, undecidable: null }
+ const read = vi.fn(() => new Promise<void>(resolve => { answer = () => {
+  snapshot = { ...snapshot, findingRuns: new Map([[execution.id, findingRun]]) }
+  for (const notify of listeners) notify()
+  resolve()
+ } }))
+ const store = new Proxy(base, { get(target, key) {
+  if (key === 'getSnapshot') return () => snapshot
+  if (key === 'subscribe') return (notify: () => void) => { listeners.add(notify); return () => listeners.delete(notify) }
+  if (key === 'loadFindingRun') return read
+  return Reflect.get(target, key)
+ } })
+ await act(async () => root.render(<StoreProvider store={store}><AppWindowMode.Provider value="embedded"><TeamsWindow onClose={() => {}} /></AppWindowMode.Provider></StoreProvider>))
+ expect(read).toHaveBeenCalledWith(execution.goal, execution.id)
+ expect(teamsList(teamsInput(snapshot)).counts['needs-you']).toBe(0)
+ expect(container.textContent).not.toContain('The closed review is waiting to be posted.')
+ await act(async () => answer())
+ const input = teamsInput(snapshot)[0]!
+ expect(input.overview.run?.needsYou).toBe(true)
+ expect(teamsList([input]).counts['needs-you']).toBe(1)
+ expect(container.querySelector('[data-team-row]')?.textContent).toContain('Needs you')
+ expect(container.querySelector('[data-team-row]')?.textContent).toContain('The closed review is waiting to be posted.')
 })

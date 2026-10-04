@@ -92,12 +92,12 @@ const render = (history: SessionSummary[], open: WorkspaceEntry, over: Partial<A
 /** The project rows, by the name each one shows. */
 const projects = (): string[] =>
   [...container.querySelectorAll<HTMLElement>('[draggable="true"]')].map(
-    (head) => head.querySelector('[class*="groupName"]')?.textContent ?? '',
+    (head) => head.querySelector('[data-draggable] [data-role="prose"]')?.textContent ?? '',
   )
 
 /** The row the list is calling the folder you are in. */
 const currentProject = (): string | null =>
-  container.querySelector<HTMLElement>('[data-current] [class*="groupName"]')?.textContent ?? null
+  container.querySelector<HTMLElement>('[data-current] [data-draggable] [data-role="prose"]')?.textContent ?? null
 
 it('gives an open subfolder one row, not a second empty one for its repository', () => {
   // The subfolder is the project's home — grouping lets the folder you have

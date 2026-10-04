@@ -200,6 +200,7 @@ export const Sidebar = ({
       </div>
       <div ref={listRef} className={styles.content} data-region="sidebar-content" onScroll={onScroll}>
         <NavigationGroupHeader
+          labelInk="muted"
           label={(
             <span className={styles.groupLabel}>
               <span className={styles.projectName}>Projects</span>
@@ -226,7 +227,7 @@ export const Sidebar = ({
               }}
             />
           </div>
-          <SessionListControls />
+          <SessionListControls searching={query.length > 0} />
           <Button
             variant="muted" size="icon-xs" edge="end" edgeGlyph={12} className={styles.listAddButton}
             onClick={onBrowseFolders} title="Open a project folder" aria-label="Open a project folder"
@@ -241,7 +242,7 @@ export const Sidebar = ({
                 : 'Connect a runtime to see your sessions.'}
             />
           )}
-          <SessionTree now={now} />
+          <SessionTree now={now} searching={query.length > 0} />
         </RailSection>
       </div>
       <Separator />

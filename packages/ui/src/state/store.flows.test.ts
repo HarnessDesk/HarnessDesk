@@ -126,6 +126,37 @@ it('readFlowExecution reads by run id and keeps the answer, whole, in flowExecut
   expect(store.getSnapshot().flowExecutions.get('run-1')).toEqual(EXECUTION)
 })
 
+it('stopFlowExecution sends the reason and keeps the stopped Run without changing another Run', async () => {
+  const other = { ...EXECUTION, id: 'other-run' }
+  push({ method: 'flow/execution-changed', params: { execution: other } })
+  const stopped: FlowExecution = { ...EXECUTION, state: 'stopped', reason: 'The brief changed.', end: { kind: 'stopped', by: 'person' } }
+  const spy = vi.spyOn(store.transport, 'request').mockResolvedValue(stopped)
+  expect(await store.stopFlowExecution('run-1', 'The brief changed.')).toEqual(stopped)
+  expect(spy).toHaveBeenCalledWith('flow/execution/stop', { run: 'run-1', reason: 'The brief changed.' })
+  expect(store.getSnapshot().flowExecutions.get('run-1')).toEqual(stopped)
+  expect(store.getSnapshot().flowExecutions.get('other-run')).toEqual(other)
+})
+
+it('keeps a failed Stop after the stopped push and clears only that Run’s failure when cleanup succeeds', async () => {
+  const reason = 'The brief changed.'
+  const stopped: FlowExecution = { ...EXECUTION, state: 'stopped', reason, end: { kind: 'stopped', by: 'person' } }
+  const failure = new Error('One Seat could not be released.')
+  const spy = vi.spyOn(store.transport, 'request').mockImplementationOnce((async () => {
+    push({ method: 'flow/execution-changed', params: { execution: stopped } })
+    throw failure
+  }) as never).mockRejectedValueOnce(failure).mockResolvedValue(stopped)
+  await expect(store.stopFlowExecution('run-1', reason)).rejects.toBe(failure)
+  expect(store.getSnapshot().flowExecutions.get('run-1')).toEqual(stopped)
+  expect(store.getSnapshot().flowStopProblems?.get('run-1')).toEqual({ reason, message: failure.message })
+  await expect(store.stopFlowExecution('other-run', 'Keep this other note.')).rejects.toBe(failure)
+  push({ method: 'flow/execution-changed', params: { execution: stopped } })
+  expect(store.getSnapshot().flowStopProblems.get('run-1')).toEqual({ reason, message: failure.message })
+  await store.stopFlowExecution('run-1', reason)
+  expect(spy).toHaveBeenLastCalledWith('flow/execution/stop', { run: 'run-1', reason })
+  expect(store.getSnapshot().flowStopProblems.has('run-1')).toBe(false)
+  expect(store.getSnapshot().flowStopProblems.get('other-run')?.reason).toBe('Keep this other note.')
+})
+
 it('previewFlowRetry reads the run’s own saved source back before asking flow/preview, never a blank or guessed one', async () => {
   push({ method: 'flow/execution-changed', params: { execution: EXECUTION } })
   const spy = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {

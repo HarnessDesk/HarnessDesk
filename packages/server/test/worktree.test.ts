@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -9,6 +9,8 @@ import { promisify } from 'node:util'
 import {
   WorktreeDirtyError,
   Worktrees,
+  createDetached,
+  worktreeHome,
   isManagedWorktree,
   managedWorktreePath,
   openRepositoryRoot,
@@ -84,6 +86,37 @@ test('every checkout of a repository names the same project, and only a linked o
     'and a subfolder of a worktree is still that worktree',
   )
   assert.equal(await repositoryOf(tmpdir()), null, 'nothing to say outside a repository')
+})
+
+/**
+ * Two clones of one repository are two folders to git and one project to a
+ * person, and nothing about the folders says so: only the remote does. The
+ * host reads `origin` for every folder it lists and answers with its identity
+ * — never the URL, which may carry a token — so the session list can put the
+ * clones under one project.
+ */
+test('every clone of a repository names the same origin, spelled however its remote is', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  const identity = 'github.com/acme/widgets'
+  assert.deepEqual(await repositoryOf(repo), { root: repo, worktree: false }, 'no remote, nothing to say')
+
+  await git(repo, 'remote', 'add', 'origin', 'git@github.com-work:Acme/Widgets.git')
+  assert.deepEqual(await repositoryOf(repo), { root: repo, worktree: false, origin: identity })
+
+  const clone = join(repo, '..', 'widgets-team-clone')
+  await run('git', ['clone', '-q', repo, clone])
+  await git(clone, 'remote', 'set-url', 'origin', 'https://jane:not-a-real-token@github.com/Acme/Widgets.git')
+  assert.deepEqual(await repositoryOf(clone), { root: clone, worktree: false, origin: identity }, 'credentials never travel')
+
+  const tree = await worktrees.create(repo, { name: 'Fix the parser' })
+  assert.deepEqual(await repositoryOf(tree.path), { root: repo, worktree: true, origin: identity }, 'a linked checkout shares its repository’s remote')
+
+  // The remote git would use, not the text in the config: an alias a person set up is still the same repository.
+  const aliased = join(repo, '..', 'widgets-aliased')
+  await run('git', ['clone', '-q', repo, aliased])
+  await git(aliased, 'config', 'url.https://github.com/.insteadOf', 'gh:')
+  await git(aliased, 'remote', 'set-url', 'origin', 'gh:Acme/Widgets')
+  assert.deepEqual(await repositoryOf(aliased), { root: aliased, worktree: false, origin: identity })
 })
 
 /**
@@ -791,4 +824,102 @@ test('open repository confinement refuses a POSIX slash/backslash collision', { 
   assert.equal(await openRepositoryRoot(foreign, [foreign]), foreign)
   await assert.rejects(() => openRepositoryRoot(foreign, [admitted]), /not a project opened here/)
   await assert.rejects(() => openRepositoryRoot(admitted, [foreign]), /not a project opened here/)
+})
+
+
+/** Simulate a slow tree write after real Git has registered a partial checkout.
+ * The default limits are scaled 1,000:1, so 40 ms stands for a 40 s write. */
+const slowCheckout = (delay: number, started?: () => void): NonNullable<Parameters<typeof createDetached>[2]> =>
+  async (command, args, options) => {
+    assert.equal(command, 'git')
+    const partial = await run(command, [...args.slice(0, -2), '--no-checkout', ...args.slice(-2)])
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => finish(Object.assign(new Error('checkout write killed at its limit'), { killed: true })), options.timeout >= 30_000 ? options.timeout / 1000 : options.timeout)
+      const write = setTimeout(() => finish(), delay)
+      const stopped = () => finish(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }))
+      const finish = (error?: Error) => {
+        clearTimeout(timeout)
+        clearTimeout(write)
+        options.signal?.removeEventListener('abort', stopped)
+        if (error) reject(error)
+        else resolve()
+      }
+      options.signal?.addEventListener('abort', stopped, { once: true })
+      if (options.signal?.aborted) stopped()
+      started?.()
+    })
+    const path = args.at(-2)!
+    await run('git', ['-C', path, 'reset', '--hard', args.at(-1)!])
+    return partial
+  }
+
+const assertNoCheckouts = async (repo: string, stateDir: string) => {
+  assert.equal((await git(repo, 'worktree', 'list', '--porcelain')).split('worktree ').length - 1, 1, 'no partial worktree entry')
+  assert.deepEqual(await readdir(await worktreeHome(repo, stateDir)), [], 'no partial checkout folder')
+}
+
+test('a detached check checkout slower than a Git read succeeds within its own limit (#1348)', async (t) => {
+  const { repo, stateDir } = await fixture(t)
+  const at = (await git(repo, 'rev-parse', 'HEAD')).trim()
+  const path = await createDetached(repo, { name: 'check-slow', at, stateDir }, slowCheckout(40))
+  assert.equal(await readFile(join(path, 'shared.txt'), 'utf8'), 'original\n')
+})
+
+for (const [timeoutMs, delay, limit] of [[20, 100, '20 ms'], [undefined, 220, '3 minutes']] as const) test(`a checkout timeout names its ${limit} limit and immediately removes its partial tree and entry (#1348)`, async (t) => {
+  const { repo, stateDir } = await fixture(t)
+  const at = (await git(repo, 'rev-parse', 'HEAD')).trim()
+  await assert.rejects(createDetached(repo, { name: 'check-timeout', at, stateDir, timeoutMs }, slowCheckout(delay)), new RegExp(`cutting the checkout took longer than ${limit}`, 'i'))
+  await assertNoCheckouts(repo, stateDir)
+})
+
+test('stopping a checkout interrupts its write and removes its partial tree and entry (#1348)', async (t) => {
+  const { repo, stateDir } = await fixture(t)
+  const at = (await git(repo, 'rev-parse', 'HEAD')).trim()
+  const controller = new AbortController()
+  await assert.rejects(createDetached(repo, { name: 'check-stopped', at, stateDir, signal: controller.signal }, slowCheckout(100, () => controller.abort())), /checkout.*stopped/i)
+  await assertNoCheckouts(repo, stateDir)
+})
+
+
+test('aborted checkout cleanup waits for the Git child to exit (#1348)', { skip: process.platform === 'win32' }, async (t) => {
+  const { repo, stateDir } = await fixture(t)
+  const at = (await git(repo, 'rev-parse', 'HEAD')).trim()
+  const realGit = (await run('which', ['git'])).stdout.trim()
+  const bin = join(repo, '..', 'bin')
+  const started = join(bin, 'started')
+  const exited = join(bin, 'exited')
+  await mkdir(bin)
+  // A real child that registers a tree, then delays exit on SIGTERM. The
+  // marker proves cleanup awaited termination rather than AbortError alone.
+  await writeFile(join(bin, 'git'), `#!${process.execPath}
+const { execFileSync } = require('node:child_process')
+const { writeFileSync } = require('node:fs')
+const args = process.argv.slice(2)
+if (args.includes('worktree') && args.includes('add')) {
+  execFileSync(${JSON.stringify(realGit)}, [...args.slice(0, -2), '--no-checkout', ...args.slice(-2)])
+  process.on('SIGTERM', () => setTimeout(() => { writeFileSync(${JSON.stringify(exited)}, 'exited'); process.exit(1) }, 100))
+  writeFileSync(${JSON.stringify(started)}, 'started')
+  setInterval(() => {}, 1000)
+} else process.stdout.write(execFileSync(${JSON.stringify(realGit)}, args))
+`, { mode: 0o755 })
+  const originalPath = process.env.PATH
+  process.env.PATH = `${bin}:${originalPath}`
+  const controller = new AbortController()
+  const checkout = createDetached(repo, { name: 'check-child', at, stateDir, signal: controller.signal })
+  const rejected = assert.rejects(checkout, /checkout.*stopped/i)
+  try {
+    const deadline = Date.now() + 10_000
+    while (!(await stat(started).catch(() => null))) {
+      assert.ok(Date.now() < deadline, 'Git stand-in started')
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    controller.abort()
+    await rejected
+    assert.equal(await readFile(exited, 'utf8'), 'exited', 'the child exited before cleanup returned')
+    await assertNoCheckouts(repo, stateDir)
+  } finally {
+    controller.abort()
+    await rejected.catch(() => undefined)
+    process.env.PATH = originalPath
+  }
 })

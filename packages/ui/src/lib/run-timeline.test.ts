@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { runtimeId, type BoardEvidence, type FindingView, type FlowCheckAttempt, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey, turnId, type Session, type FindingRunView, type FlowCheckAttempt, type BoardEvidence, type FindingView, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
 import { runTimeline } from './run-timeline'
 
 const run = (patch: Partial<FlowExecution> = {}): FlowExecution => ({
@@ -12,9 +12,77 @@ const run = (patch: Partial<FlowExecution> = {}): FlowExecution => ({
 })
 const card = (patch: Partial<Intent> = {}): Intent => ({ id: 1, title: 'Build', state: 'claimed', claim: { runtime: runtimeId('agent'), sessionId: 'alpha', at: 100 }, createdAt: 50, updatedAt: 300, files: [], dependsOn: [], ...patch })
 const signal = (at: number, event: TeamSignal['signal']): TeamSignal => ({ id: `${event}-${at}`, kind: 'signal', at, signal: event, intent: 1, title: 'Build', by: { kind: 'agent', runtime: runtimeId('agent'), sessionId: 'alpha', title: 'Alpha' } })
+const session = (startedAt = 100, busy = true): Session => ({ runtime: runtimeId('agent'), id: sessionId('alpha'), cwd: '/work/project',
+  createdAt: 50, updatedAt: 300, itemsLoaded: true, status: { type: busy ? 'active' : 'idle' },
+  turns: [{ id: turnId('turn'), startedAt, status: busy ? 'inProgress' : 'completed', items: [] }] })
 const evidence: BoardEvidence = { room: 'team', stamp: 400, checks: [], refused: [], unreadable: null, cards: [{ card: 1, running: [], facts: [{ freshness: { state: 'fresh' }, by: null, record: { id: 'check', observedAt: 350, round: 1, fact: { kind: 'check', name: 'verify', run: 'pnpm verify', exit: 0, timedOut: false, at: 'abc', dirty: false, tail: 'passed' } } }] }] }
 
 describe('runTimeline', () => {
+  it('restores live claimed work after a stopped Run resumes, despite its historical end', () => {
+    const execution = { ...run({ endedAt: 250 }), currentEndedAt: null }
+    const resumed = card({ claim: { ...card().claim!, at: 400 }, updatedAt: 400 })
+    expect(runTimeline({ execution, cards: [resumed] }).rows.find(row => row.card === 1))
+      .toMatchObject({ status: 'Working', working: true, since: 400, durationMs: null })
+  })
+  it('does not infer the current ending or its turn from an older Run’s first departure', () => {
+    const execution = run({ state: 'stopped', endedAt: 250 })
+    const sessions = new Map([[sessionKey('agent', 'alpha'), session(100)]])
+    const model = runTimeline({ execution, cards: [card()], sessions })
+    expect(model.rows.find(row => row.card === 1)).toMatchObject({ status: 'Stopped', working: false, durationMs: null })
+    expect(model.rows.at(-1)?.since).toBeNull()
+  })
+  it('uses the second stop after a stall and resume for retained work and the end row', () => {
+    const execution = { ...run({ state: 'stopped', endedAt: 250, currentEndedAt: 250 }), currentEndedAt: 700 }
+    const resumed = card({ claim: { ...card().claim!, at: 400 }, updatedAt: 400 })
+    for (const busy of [true, false]) {
+      const sessions = new Map([[sessionKey('agent', 'alpha'), session(400, busy)]])
+      const model = runTimeline({ execution, cards: [resumed], sessions })
+      expect(model.rows.find(row => row.card === 1))
+        .toMatchObject({ status: busy ? 'Stopping' : 'Stopped', working: false, durationMs: 300 })
+      expect(model.rows.at(-1)?.since).toBe(700)
+    }
+    expect(execution.endedAt).toBe(250)
+  })
+  it('keeps a completed post-resume claim and round at their true duration', () => {
+    const completed = card({ state: 'done', outcome: 'published', claim: null, updatedAt: 650 })
+    const signals = [signal(100, 'claimed'), signal(300, 'completed'), signal(400, 'claimed'), signal(650, 'completed')]
+    for (const state of ['running', 'settled'] as const) {
+      const execution = { ...run({ state, endedAt: 250, rounds: [{ ...run().rounds[0]!, state: 'closed' }] }), currentEndedAt: state === 'running' ? null : 700 }
+      const model = runTimeline({ execution, cards: [completed], signals })
+      expect(model.rows.find(row => row.card === 1)).toMatchObject({ status: 'Published', durationMs: 250, working: false })
+      expect(model.rows.find(row => row.kind === 'round')?.durationMs).toBe(250)
+    }
+  })
+  it.each(['stopped', 'settled', 'stalled'] as const)('freezes claimed work when the Run is %s, until and after its turn ends', state => {
+    const execution = run({ state, endedAt: 250, currentEndedAt: 250 })
+    for (const busy of [true, false]) {
+      const sessions = new Map([[sessionKey('agent', 'alpha'), session(100, busy)]])
+      expect(runTimeline({ execution, cards: [card()], sessions }).rows.find(row => row.card === 1))
+        .toMatchObject({ status: busy ? 'Stopping' : 'Stopped', working: false, durationMs: 150 })
+    }
+  })
+  it('does not call an absent or later follow-up turn Stopping, or invent a missing end time', () => {
+    for (const sessions of [undefined, new Map([[sessionKey('agent', 'alpha'), session(400)]])]) {
+      expect(runTimeline({ execution: run({ state: 'stopped', endedAt: 250, currentEndedAt: 250 }), cards: [card()], sessions }).rows.find(row => row.card === 1))
+        .toMatchObject({ status: 'Stopped', working: false, durationMs: 150 })
+    }
+    expect(runTimeline({ execution: run({ state: 'stopped' }), cards: [card()] }).rows.find(row => row.card === 1))
+      .toMatchObject({ status: 'Stopped', working: false, durationMs: null })
+  })
+  it('keeps a late completion duration bounded by the Run end without losing its answer', () => {
+    expect(runTimeline({ execution: run({ state: 'stopped', endedAt: 250, currentEndedAt: 250 }), cards: [card({ state: 'done', outcome: 'published' })] }).rows.find(row => row.card === 1))
+      .toMatchObject({ status: 'Published', working: false, durationMs: 150 })
+  })
+  it.each(['verify', 'person'])('does not leave a claimed %s step Working after the Run ends', role => {
+    const execution = run({ state: 'stopped', endedAt: 250, currentEndedAt: 250, rounds: [{ ...run().rounds[0]!, role }],
+      operations: [{ key: 'check', kind: 'check', state: 'started', seat: null, card: 1 }] })
+    expect(runTimeline({ execution, cards: [card()] }).rows.find(row => row.card === 1))
+      .toMatchObject({ status: 'Stopped', working: false, durationMs: 150 })
+  })
+  it('a completed Run says nothing waits even when its recorded reason predates that distinction', () => {
+    const model = runTimeline({ execution: run({ state: 'settled', end: { kind: 'complete' }, reason: 'No rule continues, so this waits for you.' }), cards: [] })
+    expect(model.rows.at(-1)?.detail).toBe('Nothing waits.')
+  })
   it.each([
     ['published', 'Published'], ['committed', 'Committed'], ['approve', 'Approve'],
     ['request-changes', 'Request changes'], ['agreed', 'Agreed'], ['disagree', 'Disagree'],
@@ -121,6 +189,60 @@ it('does not use a manual same-name check as a Flow result without round attribu
   expect(runTimeline({ execution, cards: [card({ state: 'done', outcome: 'pass' })], evidence: manual }).rows.find(row => row.kind === 'check')?.status).toBe('Pass')
 })
 
+const publicationRun = (patch: Partial<FindingRunView> = {}): FindingRunView => ({
+  run: 'run', goal: 'team', round: 1, finished: 1, total: 1, embargoed: false, open: 1, blocking: 1,
+  reason: 'The review was kept on the desk.', ceilingStop: false, stamp: 'publication-stamp', publication: 'local',
+  rounds: [{ round: 1, state: 'local', reason: 'The review was kept on the desk.', pr: 7, cards: [1] }],
+  reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null,
+  boundPr: { repo: 'acme/widgets', pr: 7 }, unbound: null, undecidable: null, ...patch,
+})
+const publicationFinding: FindingView = { id: 'publication-finding', title: 'Bound the retry', body: 'Cap attempts.',
+  origin: { goal: 'team', run: 'run', round: 1, card: 1, seat: 'reviewer', at: 'abc' }, ownerGoal: 'team',
+  category: 'ordinary', blocking: true, related: null, anchor: null, lifecycle: { state: 'open', confirmed: false, repairs: [] },
+  sequence: 1, evidence: [], posted: [], restored: false, problem: null }
+it.each([
+  ['posted', true, 7, 'Posted to #7', 'neutral', false],
+  ['pending', true, 7, 'Waiting to post', 'neutral', false],
+  ['partial', true, 7, 'Partly posted', 'warning', true],
+  ['uncertain', true, 7, 'Not confirmed', 'warning', true],
+  ['local', true, 7, 'Not posted', 'warning', true],
+  ['local', false, 7, 'Kept on the desk', 'neutral', false],
+  ['local', true, null, 'Kept on the desk', 'neutral', false],
+] as const)('maps aggregate %s with posting %s and PR %s', (state, publicationOn, pr, label, tone, needsYou) => {
+  const findingRun = publicationRun({ publication: state, boundPr: pr ? { repo: 'acme/widgets', pr } : null })
+  const model = runTimeline({ execution: run({ state: 'settled' }), cards: [card()], findings: [publicationFinding], findingRun, publicationOn })
+  expect(model.header.publication).toEqual({ label, tone, needsYou })
+  expect(model.header.needsYou).toBe(needsYou)
+  expect(model.rows.at(-1)?.publication).toEqual(model.header.publication)
+})
+it.each([{ rounds: [] }, { rounds: [{ round: 1, state: 'none' as const, reason: null, pr: null, cards: [1] }] }])('never guesses a round chip from a posted aggregate ($rounds)', ({ rounds }) => {
+  const model = runTimeline({ execution: run(), cards: [card()], findings: [publicationFinding], findingRun: publicationRun({ publication: 'posted', rounds }) })
+  expect(model.header.publication?.label).toBe('Posted to #7')
+  expect(model.rows.find(row => row.card === 1)?.publication).toBeNull()
+  expect(model.rows.find(row => row.kind === 'findings')?.publication).toBeNull()
+})
+it('keeps round publication separate from the aggregate and omits chips when there are no findings', () => {
+  const input = { execution: run(), cards: [card()], findings: [publicationFinding], findingRun: publicationRun({ publication: 'partial' }) }
+  const model = runTimeline(input)
+  expect(model.header.publication?.label).toBe('Partly posted')
+  expect(model.rows.find(row => row.card === 1)?.publication?.label).toBe('Not posted')
+  expect(model.rows.find(row => row.kind === 'findings')?.publication?.label).toBe('Not posted')
+  expect(runTimeline({ ...input, findingRun: publicationRun({ total: 3, open: 0, blocking: 0, rounds: [{ round: 1, state: 'none', reason: null, pr: null, cards: [1] }] }), findings: [] }).header.publication).toBeNull()
+})
+it('shows an authoritative posted review round even when it raised no ledger findings', () => {
+ const model=runTimeline({execution:run(),cards:[card()],findings:[],findingRun:publicationRun({publication:'posted',open:0,blocking:0,rounds:[{round:1,state:'posted',reason:null,pr:7,cards:[1]}]})})
+ expect(model.rows.find(one=>one.card===1)?.publication?.label).toBe('Posted to #7')
+ expect(model.rows.some(one=>one.kind==='findings')).toBe(false)
+})
+it.each([true, false])('uses the current PR binding for a local round kept before binding (posting %s)', publicationOn => {
+  const findingRun = publicationRun({ rounds: [{ round: 1, state: 'local', reason: 'Kept before binding.', pr: null, cards: [1] }] })
+  const model = runTimeline({ execution: run(), cards: [card()], findingRun, publicationOn })
+  expect(model.rows.find(row => row.card === 1)?.publication?.label).toBe(publicationOn ? 'Not posted' : 'Kept on the desk')
+})
+it('preserves a posted round’s recorded target when the Run binds another PR', () => {
+  const findingRun = publicationRun({ publication: 'posted', rounds: [{ round: 1, state: 'posted', reason: null, pr: 9, cards: [1] }] })
+  expect(runTimeline({ execution: run(), cards: [card()], findingRun }).rows.find(row => row.card === 1)?.publication?.label).toBe('Posted to #9')
+})
 describe('a check run again', () => {
   const gate = (patch: Partial<FlowExecution> = {}) => run({ rounds: [{ ...run().rounds[0]!, role: 'verify', state: 'closed' }], ...patch })
   const finished = { key: 'check', kind: 'check' as const, state: 'finished' as const, seat: null, card: 1 }

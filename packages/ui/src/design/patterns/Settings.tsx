@@ -828,6 +828,7 @@ export const NavigationGroupHeader = ({
   filtering = false,
   keepLabelWhenFiltering = false,
   inset = 'bar',
+  labelInk = 'secondary',
   className,
   children,
   ...props
@@ -844,6 +845,7 @@ export const NavigationGroupHeader = ({
    * `--hd-nav-inset`, the same number `Button size="navigation"` uses.
    */
   inset?: 'bar' | 'nav'
+  labelInk?: 'secondary' | 'muted'
   children?: ReactNode
 }) => (
   <div
@@ -854,7 +856,7 @@ export const NavigationGroupHeader = ({
     {...(inset === 'nav' ? { 'data-inset': 'nav' } : {})}
     className={cx(styles.navigationGroupHeader, className)}
   >
-    <GroupLabel className={styles.navigationGroupLabel} data-slot="navigation-group-label">{label}</GroupLabel>
+    <GroupLabel ink={labelInk} className={styles.navigationGroupLabel} data-slot="navigation-group-label">{label}</GroupLabel>
     {children}
   </div>
 )

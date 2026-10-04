@@ -446,6 +446,8 @@ export interface AppSnapshot {
    * in the one place, so a run status surface reads whichever arrived last.
    */
   readonly flowExecutions: ReadonlyMap<string, FlowExecution>
+  /** Failed Stop cleanup stays reachable even after its question or Team pane closes. */
+  readonly flowStopProblems: ReadonlyMap<string, { readonly reason: string; readonly message: string }>
   /**
    * `/race`'s dialog, open on the task it was typed with — or null. Store
    * state because the command that opens it runs wherever the composer is,
@@ -664,6 +666,13 @@ export interface AppSnapshot {
     readonly panelsCollapsed: readonly string[]
     /** Whether the "Other projects" fold is open. */
     readonly othersOpen: boolean
+    /**
+     * Folders that no longer exist, which the person has asked the list to
+     * stop mentioning. A folder that is gone is never listed as a project;
+     * the list says how many are gone in one quiet line, and this is the
+     * ones that line no longer counts. Their conversations are untouched.
+     */
+    readonly forgottenFolders?: readonly string[]
   }
   /**
    * Agents the desk has been told not to keep track of.
@@ -852,6 +861,7 @@ const EMPTY: AppSnapshot = {
   lanes: [],
   flowRuns: new Map(),
   flowExecutions: new Map(),
+  flowStopProblems: new Map(),
   raceStart: null,
   boardEvidence: new Map(),
   boardEvidenceFailed: new Set(),

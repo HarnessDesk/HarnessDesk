@@ -19,6 +19,7 @@ import { WindowGroup, WindowNav, WindowNavIdentity, WindowNavItem, WindowNavStat
 import { PREVIEW_ROOT, previewHistory, previewSession } from '../../preview/sidebar-fixture'
 import { PREVIEW_GOAL } from '../../preview/goal-fixture'
 import { sidebarGeometryFixture } from '../../preview/sidebar-geometry-fixture'
+import { SidebarStructureExample } from '../../preview/sidebar-structure-fixture'
 import { BOARD_TOOL_FRAMES, boardToolFrame } from '../../preview/approval-fixture'
 import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../../state/store'
@@ -216,6 +217,7 @@ const SIDEBAR_CATALOG_STATES = [
 const fullSidebarStore = previewStore(sidebarGeometryFixture(store.getSnapshot()))
 const SidebarBoard = () => (
   <div className="grid gap-(--hd-space-4)" data-catalog-example="sidebar" data-catalog-variants={SIDEBAR_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={SIDEBAR_CATALOG_SIZES.join(' ')} data-catalog-states={SIDEBAR_CATALOG_STATES.join(' ')}>
+    <section data-catalog-case="project-team-seat-hierarchy"><SidebarStructureExample /></section>
     <div className="grid gap-(--hd-space-2)" aria-label="Sidebar trailing slot anatomy">
       <SidebarMenu className="list-none">
         <SidebarMenuItem data-catalog-label-case="empty">
@@ -232,7 +234,7 @@ const SidebarBoard = () => (
           <SidebarMenuButton trailingOverlay label={<span className="flex min-w-0 items-center gap-(--hd-space-1)"><span className="min-w-0 truncate">Pin the flaky inventory test after reconciling every retry branch</span><SidebarMenuState label="Needs you" tone="warning" state="limit" /></span>} />
           <SidebarMenuBadge role="img" className="end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-double-action-step))]" aria-label="Folder is gone — inventory-retry"><FolderGoneIcon size={11} /></SidebarMenuBadge>
           <SidebarMenuBadge role="img" className="end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-action-step))]" aria-label="Worktree feat/inventory-retry"><BranchIcon size={11} /></SidebarMenuBadge>
-          <SidebarMenuBadge aria-label="Working"><Dot state="signin" variant="navigation" /></SidebarMenuBadge>
+          <SidebarMenuBadge aria-label="Running"><Spinner size="sm" tone="neutral" aria-hidden /></SidebarMenuBadge>
           <SidebarMenuAction showOnHover aria-label="Badge row actions"><MoreIcon size={14} /></SidebarMenuAction>
         </SidebarMenuItem>
         <SidebarMenuItem trailingMarks={1} trailingActions={2} data-catalog-title-case="pinned project head with two actions">

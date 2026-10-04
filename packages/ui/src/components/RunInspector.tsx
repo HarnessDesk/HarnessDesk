@@ -14,11 +14,13 @@ export interface RunInspectorProps {
   seats: readonly InspectorSeat[]
   /** Abandons a card; rejects with the host's refusal. Without it a card offers no abandoning. */
   onAbandon?: (card: number) => Promise<void>
+  onStop?: (() => void) | undefined
   /** Answers a person's step; rejects with the host's refusal. Without it the step's words are text. */
   onAnswer?: (card: number, outcome: string | null, note: string) => Promise<void>
   /** Opens the board, where a review step's attempt is chosen. */
   onOpenBoard?: () => void
   publication?: FindingRoundPublication | null
+  reviewActions?: ReviewActionsTarget
   /**
    * Why a finding that is not here may still exist: the read of them is still `reading`, or it `failed`.
    * Unset once every finding has been read. With no `input.findings` at all nothing has landed, so `reading`.
@@ -35,6 +37,8 @@ import { Button, Chip, CodeText, GroupLabel, PaneColumn, PanelBody, PanelFrame, 
 import { sanitizeText } from '../lib/sanitize'
 import { wordOf } from '../lib/agents'
 import { lifecycleWords } from '../lib/findings'
+import { reviewPublication } from '../lib/review-publication'
+import { ReviewPublicationActions, type ReviewActionsTarget } from './ReviewPublicationActions'
 import { commitDate } from '../lib/git-refs'
 import { useState, type ReactNode } from 'react'
 import { RunAgain } from './RetryCheck'
@@ -80,7 +84,7 @@ const detailWords = (detail: string | null | undefined): string | null => {
 }
 
 /** Recorded detail only. No transcript copies, dispatch controls or guessed results. */
-export const RunInspector = ({ input, selectedRow, seats, onAbandon, onAnswer, onOpenBoard, publication, findingsRead, attemptsRead }: RunInspectorProps) => {
+export const RunInspector = ({ input, selectedRow, seats, onAbandon, onStop, onAnswer, onOpenBoard, publication, reviewActions, findingsRead, attemptsRead }: RunInspectorProps) => {
   const { execution, cards, evidence } = input
   const selected = runTimeline(input).rows.find(row => row.id === selectedRow)
   const round = execution.rounds.find(one => one.n === selected?.round)
@@ -97,7 +101,7 @@ export const RunInspector = ({ input, selectedRow, seats, onAbandon, onAnswer, o
     : <Words>{unread === 'failed' ? 'Findings could not be read' : 'No findings recorded'}</Words>}</Section>
   const title = card ? `#${card.id} · ${card.title}` : selected?.kind === 'findings' ? 'Findings' : 'Run details'
   const abandon = onAbandon && card
-    ? <div><AbandonCard execution={execution} cards={cards} card={card} holder={seat?.name} onAbandon={onAbandon} /></div>
+    ? <div><AbandonCard key={JSON.stringify([execution.id, card.id])} execution={execution} cards={cards} card={card} holder={seat?.name} onAbandon={onAbandon} onStop={onStop} /></div>
     : null
   let body: ReactNode
   if (selected?.kind === 'check' && card && role?.kind === 'check' && role.check) {
@@ -139,15 +143,22 @@ export const RunInspector = ({ input, selectedRow, seats, onAbandon, onAnswer, o
   } else if (selected?.kind === 'card' && card) {
     // Round order is not a handoff edge: independently opened rounds have none.
     const predecessors = cards.filter(one => one.id !== card.id && card.dependsOn.includes(one.id) && one.handoff)
-    const review = publication?.round === round?.n ? publication : null
-    const reviewWords = review?.state === 'posted' ? `Posted${review.pr ? ` to #${review.pr}` : ''}`
-      : review?.state === 'partial' ? 'Some reviews posted' : review?.state === 'pending' ? 'Waiting to post'
-      : review?.state === 'uncertain' ? 'Posting needs a look' : review?.state === 'local' ? 'Not posted' : 'No review recorded'
+    const runReview = input.findingRun?.run === execution.id && input.findingRun.goal === execution.goal ? input.findingRun : null
+    const review = runReview ? runReview.rounds.find(one => one.round === round?.n && one.cards.includes(card.id))
+      : publication && publication.round === round?.n && publication.cards.includes(card.id) ? publication : null
+    const chip = review ? reviewPublication({ state: review.state,
+      pr: review.state === 'local' && runReview ? runReview.boundPr?.pr ?? null : review.pr,
+      postingOn: input.publicationOn !== false, hasFindings: review.state !== 'none' }) : null
+    const reviewText = card.handoff ?? card.note ?? findings.map(one => `${one.title}\n${one.body}`).join('\n\n')
+    const reviewReason = review?.reason ?? runReview?.reason
     body = <>
       <Section title="Input"><Words>{detailWords(card.detail) ?? 'No input recorded'}</Words>{predecessors.map(one => <div key={one.id}><Text role="meta">From #{one.id}</Text><Words>{one.handoff!}</Words></div>)}</Section>
       <Section title="Handoff"><Words>{card.handoff ?? card.note ?? 'No handoff recorded'}</Words></Section>
       {showFindings}
-      <Section title="Review"><Words>{reviewWords}</Words>{review?.reason && <Words>{review.reason}</Words>}</Section>
+      <Section title="Review">{chip ? <span><Chip tone={chip.tone}>{chip.label}</Chip></span> : <Words>No review recorded</Words>}
+        {reviewReason && <Words>{reviewReason}</Words>}
+        {reviewActions && round && <ReviewPublicationActions key={JSON.stringify([reviewActions.goal,reviewActions.run,round.n])} {...reviewActions} round={round.n} review={reviewText} alreadyShownReason={reviewReason} />}
+      </Section>
       <Section title="Cost"><Words>{costWords(seat?.cost)}</Words><Text role="meta">Recorded for this Seat</Text></Section>
       {abandon}
       {seat?.onOpen ? <Button variant="link" size="inline-link" onClick={seat.onOpen}>Open the conversation</Button> : <Text role="meta">Conversation not kept</Text>}
@@ -172,7 +183,9 @@ export const RunInspector = ({ input, selectedRow, seats, onAbandon, onAnswer, o
     </>
   }
   return <div data-slot="run-inspector" className="min-h-0 min-w-0 flex-1">
-    <PanelFrame><PanelTools><Text role="section" className="min-w-0 break-words [overflow-wrap:anywhere]">{sanitizeText(title)}</Text></PanelTools>
+    <PanelFrame><PanelTools><Text role="section" className="min-w-0 break-words [overflow-wrap:anywhere]">{sanitizeText(title)}</Text>
+      {card && selected?.status && <Text role="meta">{sanitizeText(selected.status)}</Text>}
+    </PanelTools>
       <PanelBody><PaneColumn inset="reading" className="flex min-w-0 flex-col gap-4">{body}</PaneColumn></PanelBody>
     </PanelFrame>
   </div>

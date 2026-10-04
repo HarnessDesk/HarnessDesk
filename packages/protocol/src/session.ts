@@ -225,6 +225,18 @@ export interface RepoInfo {
   readonly root: string
   /** The folder is a linked worktree rather than the main checkout. */
   readonly worktree: boolean
+  /**
+   * Which repository this is, when it has an `origin` remote: `host/owner/name`
+   * (`repoKey`), lower case, with no credentials in it. Absent when the
+   * repository has no remote.
+   *
+   * Two full clones of one repository are two folders and two roots, and
+   * nothing in either folder says they belong together except this: the list
+   * files them under one project by it. It is an identity, not a URL — a
+   * remote may carry a token, and the interface never needs the address, only
+   * to know that two folders are the same repository.
+   */
+  readonly origin?: string
 }
 
 export interface TokenUsage {

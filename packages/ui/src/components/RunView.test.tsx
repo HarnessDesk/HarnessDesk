@@ -6,8 +6,48 @@ import { overviewRun } from '../preview/team-overview-fixture'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
 import { RunView } from './RunView'
+import { runFixture } from '../preview/run-view-fixture'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+it('keeps a resumed Run Working with a ticking duration and doing line', () => {
+  vi.useFakeTimers()
+  const fixture = runFixture('running')
+  const since = fixture.cards[3]!.claim!.at
+  vi.setSystemTime(since + 60_000)
+  const model = runTimeline({ ...fixture, execution: { ...fixture.execution, endedAt: since - 60_000, currentEndedAt: null } })
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  try {
+    act(() => root.render(<RunView model={model} number={1} selectedRow="card-4-4" onSelect={() => {}} doing={new Map([['seat-0', 'Editing the retry']])} />))
+    const card = container.querySelector('[data-row="card-4-4"]')!
+    expect(card.textContent).toContain('Working')
+    expect(card.textContent).toContain('1m so far')
+    expect(card.textContent).toContain('Editing the retry')
+    act(() => vi.advanceTimersByTime(60_000))
+    expect(card.textContent).toContain('2m so far')
+  } finally { act(() => root.unmount()); vi.useRealTimers() }
+})
+
+it('shows a stopped claimed card as quiet Stopped with a frozen clock and no doing line', () => {
+  vi.useFakeTimers()
+  const fixture = runFixture('running')
+  const since = fixture.cards[3]!.claim!.at
+  const model = runTimeline({ ...fixture, execution: { ...fixture.execution, state: 'stopped', endedAt: since + 60_000, currentEndedAt: since + 60_000, end: { kind: 'stopped', by: 'person' } } })
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  try {
+    act(() => root.render(<RunView model={model} number={1} selectedRow="card-4-4" onSelect={() => {}} doing={new Map([['seat-0', 'Editing the retry']])} />))
+    const card = container.querySelector('[data-row="card-4-4"]')!
+    expect(card.textContent).toContain('Stopped')
+    expect(card.textContent).toContain('1m')
+    expect(card.querySelector('[data-slot="chip"]')).toBeNull()
+    expect(card.textContent).not.toMatch(/Working|so far|Editing the retry/)
+    const frozen = card.textContent
+    act(() => vi.advanceTimersByTime(60_000))
+    expect(card.textContent).toBe(frozen)
+  } finally { act(() => root.unmount()); vi.useRealTimers() }
+})
 
 it('selects a stable row id and sanitizes the brief and in-flight words', () => {
   const container = document.createElement('div')
@@ -60,8 +100,60 @@ const withFlow = (props: Partial<Parameters<typeof RunView>[0]> = {}) => {
   act(() => root.render(<RunView model={model} number={1} selectedRow={null} onSelect={() => {}} flow={<p data-testid="the-flow">The drawing</p>} {...props} />))
   return { container, done: () => { act(() => root.unmount()); container.remove() } }
 }
+
+it.each(['running', 'stopped', 'settled', 'stalled'] as const)('offers Stop run… in the header only when the Run is running (%s)', state => {
+  const onStop = vi.fn()
+  const { container, done } = withFlow({ model: runTimeline({ execution: overviewRun(state), cards: [] }), onStop })
+  try {
+    const stop = [...container.querySelectorAll<HTMLButtonElement>('[data-slot="run-header"] button')].find(one => one.textContent === 'Stop run…')
+    if (state === 'running') { expect(stop).toBeDefined(); act(() => stop!.click()); expect(onStop).toHaveBeenCalledOnce() }
+    else expect(stop).toBeUndefined()
+  } finally { done() }
+})
+it('does not invent a new ending door for a legacy Run without an end kind', () => {
+  const { container, done } = withFlow({ model: runTimeline({ execution: { ...runFixture('stopped').execution, end: undefined }, cards: [] }), onRunAgain: () => {} })
+  try { expect(container.querySelector('[data-slot="run-ending"] button')).toBeNull() } finally { done() }
+})
 const choice = (container: HTMLElement, name: string): HTMLButtonElement =>
   [...container.querySelectorAll<HTMLButtonElement>('[role="radiogroup"][aria-label="Show the Run as"] [role="radio"]')].find(one => one.textContent === name)!
+
+it.each([
+  ['complete', 'Wrap'], ['settled', 'Run again…'], ['stopped', 'Run again…'], ['stalled', 'Review and run again…'],
+] as const)('gives %s a banner and an independent door', (scene, label) => {
+  const onRunAgain = vi.fn(), onWrap = vi.fn(), onBoard = vi.fn(), onReviewCheck = vi.fn()
+  const { container, done } = withFlow({ model: runTimeline(runFixture(scene)), onRunAgain, onWrap, onBoard, onReviewCheck })
+  try {
+    const banner = container.querySelector('[data-slot="run-ending"]')!
+    expect(banner).not.toBeNull()
+    const button = [...banner.querySelectorAll('button')].find(one => one.textContent === label)!
+    expect(button.closest('[data-row]')).toBeNull()
+    act(() => button.click())
+    expect(scene === 'complete' ? onWrap : scene === 'stalled' ? onReviewCheck : onRunAgain).toHaveBeenCalledOnce()
+    if (scene === 'settled') {
+      act(() => [...banner.querySelectorAll('button')].find(one => one.textContent === 'Board')!.click())
+      expect(onBoard).toHaveBeenCalledOnce()
+    }
+  } finally { done() }
+})
+
+it.each(['rounds', 'without-progress'] as const)('names the %s budget and its recorded count even without a reason', which => {
+  const execution = { ...runFixture('stalled').execution, operations: [], end: { kind: 'budget' as const, which, used: 7 }, reason: null }
+  const { container, done } = withFlow({ model: runTimeline({ execution, cards: [] }), onRunAgain: () => {} })
+  try {
+    expect(container.querySelector('[data-slot="run-ending"]')!.textContent).toContain('7')
+    expect(container.querySelector('[data-slot="run-ending"]')!.textContent).toContain('Run again…')
+  } finally { done() }
+})
+
+it('opens the frozen Flow from the revision button', () => {
+  const { container, done } = withFlow()
+  try {
+    const revision = container.querySelector<HTMLButtonElement>('[data-slot="run-revision"]')!
+    expect(revision).not.toBeNull()
+    act(() => revision.click())
+    expect(container.querySelector('[data-testid="the-flow"]')).not.toBeNull()
+  } finally { done() }
+})
 
 it('has no switch when there is no Flow to show', () => {
   const { container, done } = withFlow({ flow: undefined })

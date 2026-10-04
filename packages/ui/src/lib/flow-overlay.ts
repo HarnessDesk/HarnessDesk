@@ -1,9 +1,9 @@
-import type { FlowExecution, Intent } from '@harnessdesk/protocol'
+import type { FlowExecution, Intent, Session, SessionKey } from '@harnessdesk/protocol'
 import type { FlowModel } from './flow-model'
-import type { RunTimelineRow } from './run-timeline'
+import { currentRunEnd, runCardTiming, type RunTimelineRow } from './run-timeline'
 import { FLOW_LABEL_H, FLOW_MARGIN, type FlowBox, type FlowLayout, type FlowLabel } from './flow-layout'
 
-export type FlowStepState = 'future' | 'done' | 'working' | 'waiting' | 'blocked' | 'stopped'
+export type FlowStepState = 'future' | 'done' | 'working' | 'waiting' | 'blocked' | 'stopping' | 'stopped'
 export interface FlowStepRun {
   readonly state: FlowStepState
   /** Null when earlier check results are unavailable or damaged. */
@@ -24,14 +24,15 @@ export interface OverlayCheckHistory {
   readonly complete: boolean
 }
 export interface FlowOverlayInput {
-  readonly execution: Pick<FlowExecution, 'rounds' | 'operations' | 'state' | 'endedAt'>
+  readonly execution: Pick<FlowExecution, 'rounds' | 'operations' | 'state' | 'currentEndedAt'>
+  readonly sessions?: ReadonlyMap<SessionKey, Session>
   readonly model: FlowModel
   readonly cards: readonly Intent[]
   readonly attempts?: ReadonlyMap<number, OverlayCheckHistory>
 }
 
 /** The Run's recorded journey, never a prediction from the current answers. */
-export const flowOverlay = ({ execution, model, cards, attempts }: FlowOverlayInput): FlowOverlay => {
+export const flowOverlay = ({ execution, model, cards, attempts, sessions }: FlowOverlayInput): FlowOverlay => {
   const rounds = [...execution.rounds].sort((a, b) => a.n - b.n)
   const byCard = new Map(cards.map(card => [card.id, card]))
   const checkOperations = execution.operations.filter(one => one.kind === 'check')
@@ -44,26 +45,33 @@ export const flowOverlay = ({ execution, model, cards, attempts }: FlowOverlayIn
     const held = current?.cards.map(id => byCard.get(id)) ?? []
     const answered = held.length > 0 && held.every(card => card?.state === 'done' || card?.state === 'abandoned')
     const ended = execution.state === 'settled' || execution.state === 'stopped'
+    const timingOf = (card: Intent) => runCardTiming(execution, card, step.kind === 'check'
+      ? checkOperations.some(one => one.card === card.id && one.state === 'started') : card.state === 'claimed', card.claim?.at ?? card.createdAt, sessions)
+    const timing = held.flatMap(card => card ? [timingOf(card)] : [])
+    const stopped = timing.some(one => one.stoppedWork)
+    const stopping = timing.some(one => one.status === 'Stopping')
     // Stop closes rounds without finishing their cards. A person can also
     // answer before the host advances or finishes waiting for evidence.
-    const unfinished = current !== undefined && (retry !== undefined || (ended ? !answered : current.state !== 'closed' && !answered))
+    const unfinished = current !== undefined && (stopped || timing.some(one => one.working) || retry !== undefined || (ended ? !answered : current.state !== 'closed' && !answered))
     const personWaiting = step.kind === 'person' && held.some(card => card && (card.state === 'open' || card.state === 'claimed'
       || (card.blockedBy === 'hand' && Boolean(card.blockedReason?.trim()))))
-    const state: FlowStepState = !latest ? 'future' : ended ? unfinished ? 'stopped' : 'done'
+    const state: FlowStepState = !latest ? 'future' : stopped ? stopping ? 'stopping' : 'stopped' : ended ? unfinished ? 'stopped' : 'done'
       : current?.state === 'waiting-evidence' ? 'blocked' : !unfinished ? 'done'
       : step.kind === 'person' ? personWaiting ? 'waiting' : 'blocked'
       : execution.state === 'stalled' ? 'blocked' : 'working'
-    const durations = visits.filter(round => round !== retry && (round.state === 'closed' || round === current && answered)).map(round => {
+    const durations = visits.filter(round => round !== retry && (round.state === 'closed' || round === current && (answered || stopped || ended && unfinished))).map(round => {
       const held = round.cards.map(id => byCard.get(id))
-      if (ended && round === current && unfinished) return held.length && held.every(Boolean) && execution.endedAt != null
-        ? Math.max(0, execution.endedAt - Math.min(...held.map(card => card!.createdAt))) : null
-      return held.length && held.every(Boolean)
-        ? Math.max(0, Math.max(...held.map(card => card!.updatedAt)) - Math.min(...held.map(card => card!.createdAt))) : null
+      const ends = held.flatMap(card => card ? [timingOf(card).until] : [])
+      // An open, unfinished step has no claim; its recorded Run ending still bounds its lifetime.
+      const until = ends.length && ends.every(one => one !== null) ? Math.max(...ends as number[])
+        : round === current && unfinished ? currentRunEnd(execution) : null
+      return held.length && held.every(Boolean) && until !== null
+        ? Math.max(0, until - Math.min(...held.map(card => timingOf(card!).since!))) : null
     })
     const liveCards = unfinished ? current!.cards.map(id => byCard.get(id)) : []
     // A closed card's creation time is not the start of its later retry. The
     // overwritten operation keeps no retry timestamp, so that time is unknown.
-    const since = ended || retry?.state === 'closed' ? null : liveCards.length && liveCards.every(Boolean) ? Math.min(...liveCards.map(card => card!.createdAt)) : null
+    const since = ended || stopped || retry?.state === 'closed' ? null : liveCards.length && liveCards.every(Boolean) ? Math.min(...liveCards.map(card => card!.createdAt)) : null
     const answers = latest?.cards.flatMap(id => { const answer = byCard.get(id)?.outcome; return answer ? [answer] : [] }) ?? []
     let runs: number | null = visits.length
     if (step.kind === 'check' && visits.length) {
@@ -80,7 +88,7 @@ export const flowOverlay = ({ execution, model, cards, attempts }: FlowOverlayIn
     }
     steps.set(step.id, {
       state, runs, since,
-      durationMs: visits.length === 0 || durations.some(one => one === null) || (unfinished && since === null && (retry !== undefined || !ended || current?.state !== 'closed'))
+      durationMs: visits.length === 0 || durations.some(one => one === null) || (unfinished && since === null && (retry !== undefined || !(ended || stopped)))
         ? null : durations.reduce<number>((sum, one) => sum + (one ?? 0), 0),
       line: state === 'waiting' ? step.line : answered && answers.length ? [...new Set(answers)].join(' · ') : null,
       seats: current?.seats ?? [],

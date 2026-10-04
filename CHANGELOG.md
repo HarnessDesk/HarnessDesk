@@ -17,6 +17,24 @@ move is real work and is not news to a person weighing an upgrade.
 
 HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
 
+- **Stop one Run from its header or Overview.** Stop run… ends the round,
+  asks its Seats to stop and starts no further step. Its question says which
+  Seats stop now and which finish their current turn, accepts an optional
+  note, and keeps cards, findings and recorded cost. Claimed cards read
+  Stopping until their turn ends, then Stopped, with time fixed at the
+  Run’s current end in the timeline and Overview, including after a resume
+  and a later stop. A cleanup failure keeps
+  a retry in the Team pane after its question closes. The abandon question
+  offers Stop the run instead and stays with the card it was opened for;
+  finishing that card or selecting another cannot carry over a late refusal.
+  (Fixes #1342)
+
+- **One repository is one sidebar project.** Team clones and linked worktrees
+  share its row. Gone folders leave the list while their conversations remain
+  searchable. Seats with no first message are named by their job and Team,
+  and an agent's compaction summary is never a conversation title. Capture
+  state lives in the project's menu.
+
 - **The command line now ships inside the app.** HarnessDesk › Install
   command-line tool… puts a `harnessdesk` command on your PATH, in a folder you
   own, so a terminal or a script can list Teams and runs, start a flow, watch
@@ -56,6 +74,12 @@ HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — 
   can be abandoned, after a question that says first what the Flow will do
   about it: open the next round, end the Run, or wait for the round's other
   cards.
+
+- **An ended Run has a way on.** Its banner says why it ended and offers
+  Wrap, the board, a fresh Run, or consent to an interrupted check. Run again
+  prefills the saved inputs and brief, leaves seat preferences open to change,
+  and keeps both Runs on the same Team. The header’s Flow revision opens
+  the Flow that Run started with.
 
 - **A Run shows the Flow it started with.** A Run's header switches between
   its Timeline and its Flow: the Flow it was started from, kept at the

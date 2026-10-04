@@ -1,3 +1,4 @@
+import { SidebarStructureExample } from './sidebar-structure-fixture'
 import { TeamRecordFrames } from './frames-team-record'
 import { TeamsPageFrames } from './frames-teams-page'
 import { CliInstallFrame } from './frames-cli-install'
@@ -57,6 +58,7 @@ import {
 } from './harness'
 import { PublicationCard } from '../components/Publication'
 import { denseTurns, PREVIEW_ROOT } from './sidebar-fixture'
+import { sidebarProjectsFixture } from './sidebar-projects-fixture'
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_UNSEEN } from './evidence-fixture'
 import { captureHealth, commitProvenance, provenanceSeat, PROVENANCE_ROOT, PROVENANCE_SHA } from './provenance-fixture'
 import { PREVIEW_FLOW_GOAL, PREVIEW_GOAL, PREVIEW_TRIGGER_GOAL } from './goal-fixture'
@@ -75,10 +77,12 @@ import { LibraryDevFrames } from './frames-library-dev'
 import { LibraryOptionFrames } from './frames-library-options'
 import { FlowOverlayFrames } from './frames-flow-overlay'
 import { FlowGraphFrames } from './frames-flow-graph'
-import { RunViewFrames } from './frames-run-view'
+import { RunViewFrames, RunEndingRigFrames, RunAgainExample, RunAgainFrames, RUN_AGAIN_STATES } from './frames-run-view'
 import { RunInspectorFrames } from './frames-run-inspector'
+import { ReviewPublicationFrames } from './frames-review-publication'
 import { ABANDON_VARIANTS, RunControlsFrames, type AbandonVariant } from './frames-run-controls'
 import { TeamOverviewFrames } from './frames-team-overview'
+import { STOP_RUN_DIALOG_STATES, STOP_RUN_STATES, StopRunDialogFrames, StopRunFrames } from './frames-stop-run'
 import { SideBySideFrames } from './frames-side-by-side'
 import { ComposerSlotsFrames } from './frames-composer-slots'
 import { CjkSpecimen } from './cjk-specimen'
@@ -122,6 +126,7 @@ const SIDEBAR_VARIANT_PARAM = new URLSearchParams(window.location.search).get('s
 const composerWaiting = SHOW_COMPOSER ? composerStore(store.getSnapshot()) : store
 const composerPaused = SHOW_COMPOSER ? composerStore(store.getSnapshot(), true) : store
 const sidebarNoFolderStore = previewStore({ workspace: null, workspaces: [], history: [], activeSessionKey: null })
+const sidebarProjectsStore = previewStore(sidebarProjectsFixture(store.getSnapshot()))
 
 const previewProvenance = commitProvenance({ seats: [{ ...provenanceSeat(7), runtime: 'codex', session: { runtime: 'codex', sessionId: 'conversation-7' } }] })
 const previewMutable = store as unknown as { patch(partial: Partial<AppSnapshot>): void }
@@ -978,15 +983,17 @@ const Preview = () => {
             className="h-[720px]"
             style={{ width: 240, background: 'var(--hd-sidebar-plate, transparent)' }}
           >
-            <Sidebar
-              onOpenSettings={() => {}}
-              onOpenPlugins={() => {}}
-          onOpenTeams={() => {}} onOpenAgents={() => {}}
-              onOpenUsage={() => {}}
-              onBrowseFolders={() => {}}
-              onSignIn={() => {}}
-              onSearch={() => {}}
-            />
+            <Mount with={SIDEBAR_VARIANT_PARAM === 'projects' ? sidebarProjectsStore : store}>
+              <Sidebar
+                onOpenSettings={() => {}}
+                onOpenPlugins={() => {}}
+                onOpenTeams={() => {}} onOpenAgents={() => {}}
+                onOpenUsage={() => {}}
+                onBrowseFolders={() => {}}
+                onSignIn={() => {}}
+                onSearch={() => {}}
+              />
+            </Mount>
           </div>
         </Frame>
         {SIDEBAR_VARIANT_PARAM === 'compact' && <Frame id="sidebar-compact" title="Sidebar — 200px column">
@@ -1062,25 +1069,42 @@ const Preview = () => {
         <CjkSpecimen />
       </Frame>
       <GoalFrames />
+      <RunAgainFrames />
+      <StopRunDialogFrames scene={STOP_RUN_DIALOG_STATES.find(one => one === new URLSearchParams(window.location.search).get('stop-run-dialog'))} />
       <TranscriptFrames />
       <PanelFrames />
       <CoverageFrames />
       {SHOW_SIDE_BY_SIDE && <SideBySideFrames />}
-      {new URLSearchParams(window.location.search).has('run-view') && <RunViewFrames />}
       {new URLSearchParams(window.location.search).has('run-inspector') && <RunInspectorFrames />}
       {new URLSearchParams(window.location.search).has('flow-graph') && <FlowGraphFrames />}
       {new URLSearchParams(window.location.search).has('run-controls') && <RunControlsFrames variant={ABANDON_VARIANTS.find((one: AbandonVariant) => one === new URLSearchParams(window.location.search).get('abandon')) ?? null} />}
       {new URLSearchParams(window.location.search).has('teams-page') && <TeamsPageFrames />}
+      {new URLSearchParams(window.location.search).has('sidebar-structure') && <SidebarStructureExample />}
       {new URLSearchParams(window.location.search).has('team-record') && <TeamRecordFrames />}
       {new URLSearchParams(window.location.search).has('team-overview') && <TeamOverviewFrames />}
+      {new URLSearchParams(window.location.search).has('stop-run') && <StopRunFrames scene={STOP_RUN_STATES.find(one => one === new URLSearchParams(window.location.search).get('stop-run')) ?? 'running'} />}
       {SHOW_COMPOSER_SLOTS && <ComposerSlotsFrames />}
       {SHOW_NOTICE_PLACEMENT && <NoticePlacementFrames />}
     </div>
   )
 }
 
+/** An audited Run frame mounts only its own synthetic data, like the Brief dialog. */
+const RunPreview = () => {
+  useTheme()
+  const params = new URLSearchParams(window.location.search)
+  if (params.has('run-again')) return <RunAgainExample opened scene={RUN_AGAIN_STATES.find(one => one === params.get('run-again')) ?? 'default'} />
+  if (params.has('run-ending-rig')) return <RunEndingRigFrames />
+  return <><RunViewFrames />{params.has('run-inspector') && <RunInspectorFrames />}</>
+}
+
 const container = document.getElementById('root')
 if (!container) throw new Error('#root is missing from preview.html')
+
+const PublicationPreview = () => {
+  useTheme()
+  return <ReviewPublicationFrames />
+}
 
 createRoot(container).render(
   <StrictMode>
@@ -1088,10 +1112,12 @@ createRoot(container).render(
       <AppWindowMode.Provider value="embedded">
         {new URLSearchParams(window.location.search).has('cli-install')
           ? <CliInstallFrame />
+          : new URLSearchParams(window.location.search).has('review-publication')
+          ? <PublicationPreview />
           : new URLSearchParams(window.location.search).has('flow-brief')
           ? <FlowBriefDialog scene={(BRIEF_SCENES.find((one) => one === new URLSearchParams(window.location.search).get('flow-brief')) ?? 'empty') as BriefScene} />
           : new URLSearchParams(window.location.search).has('flow-overlay') ? <FlowOverlayFrames />
-          : <Preview />}
+          : ['run-view', 'run-again', 'run-ending-rig'].some(one => new URLSearchParams(window.location.search).has(one)) ? <RunPreview /> : <Preview />}
       </AppWindowMode.Provider>
     </StoreProvider>
   </StrictMode>,

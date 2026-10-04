@@ -54,6 +54,25 @@ for (const theme of ['light', 'dark']) {
       await expect(state(page, 'fix').locator('[data-slot="flow-duration"]')).toHaveText('2m')
     })
 
+    test('a stopped claim shares Stopping and its frozen time with the Timeline, then becomes Stopped', async ({ page }) => {
+      await advance(page, 'stopping')
+      await expect(state(page, 'fix')).toHaveAttribute('data-state', 'stopping')
+      await expect(state(page, 'fix')).toContainText('Stopping')
+      await expect(state(page, 'fix').locator('[data-slot="flow-duration"]')).toHaveText('2m')
+      await expect(graph(page).locator('[data-slot="flow-ring"], [data-slot="flow-baton"], [data-slot="flow-doing"]')).toHaveCount(0)
+      await frame(page, `stopping-${theme}`)
+      await tab(page, 'Timeline').click()
+      await expect(page.locator('#flow-overlay-live [data-row="card-4-40"]')).toContainText('Stopping')
+      await advance(page, 'stopped')
+      await expect(page.locator('#flow-overlay-live [data-row="card-4-40"]')).toContainText('Stopped')
+      await tab(page, 'Flow').click()
+      await expect(state(page, 'fix')).toHaveAttribute('data-state', 'stopped')
+      await expect(state(page, 'fix').locator('[data-slot="flow-duration"]')).toHaveText('2m')
+      await page.setViewportSize({ width: 390, height: 900 })
+      await advance(page, 'stopping')
+      await expect(graph(page).locator('[data-step-row="fix"]')).toContainText('Stopping')
+    })
+
     test('annotations stay on the canvas and Working does not cover a current name', async ({ page }) => {
       const fits = async () => graph(page).evaluate(root => {
         const stage = root.querySelector('[data-slot="flow-stage"]')!.getBoundingClientRect()

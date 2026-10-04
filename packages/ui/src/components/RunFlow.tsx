@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
-import type { FlowEntry, FlowExecution, FlowOrigin, SeatRecord } from '@harnessdesk/protocol'
+import type { FlowEntry, FlowExecution, FlowOrigin, SeatRecord, Session, SessionKey } from '@harnessdesk/protocol'
 
 import { ActionError, Button, CodeBlock, Dialog, FlowGraph, Note, RefusedAction, Text, type Tint } from '../design'
 import { flowOverlay, type OverlayCheckHistory } from '../lib/flow-overlay'
@@ -32,12 +32,13 @@ const entriesNamed = (entries: readonly FlowEntry[], name: string): readonly Flo
  * is said where the file opens. Editing stays where it was, in the catalogue,
  * for the next Run.
  */
-export const RunFlow = ({ execution, root, seats, cards = [], attempts, selectedStep, onSelectStep, faces, faceTints, doing }: {
-  execution: Pick<FlowExecution, 'document' | 'revision' | 'rounds'> & Partial<Pick<FlowExecution, 'operations' | 'state' | 'endedAt'>>
+export const RunFlow = ({ execution, root, seats, cards = [], attempts, selectedStep, onSelectStep, faces, faceTints, doing, sessions }: {
+  execution: Pick<FlowExecution, 'document' | 'revision' | 'rounds'> & Partial<Pick<FlowExecution, 'operations' | 'state' | 'currentEndedAt'>>
   /** The project the Run belongs to, where its Flow's file is looked for; null when it is not known. */
   root: string | null
   /** The Seats the Run opened, for the ceiling each step's seats ran under and whether it was held or only asked. */
   seats: readonly Pick<SeatRecord, 'id' | 'ceiling'>[]
+  sessions?: ReadonlyMap<SessionKey, Session>
   cards?: readonly Intent[]
   attempts?: ReadonlyMap<number, OverlayCheckHistory>
   selectedStep?: string | null
@@ -49,7 +50,7 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, selected
   const store = useStore()
   const flow = execution.document.flow
   const model = useMemo(() => flowModel(flow, { ceilings: ceilingsOfRun(execution.rounds, seats) }), [flow, execution.rounds, seats])
-  const overlay = useMemo(() => execution.state === undefined ? undefined : flowOverlay({ execution: { ...execution, state: execution.state, operations: execution.operations ?? [] }, model, cards, attempts }), [execution, model, cards, attempts])
+  const overlay = useMemo(() => execution.state === undefined ? undefined : flowOverlay({ execution: { ...execution, state: execution.state, operations: execution.operations ?? [] }, model, cards, attempts, sessions }), [execution, model, cards, attempts, sessions])
   const [now, setNow] = useState(Date.now)
   const held = useRef(new Map<string, DoingLine>())
   useEffect(() => {

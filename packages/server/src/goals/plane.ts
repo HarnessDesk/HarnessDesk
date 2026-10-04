@@ -276,6 +276,15 @@ export class GoalPlane {
     }
     const run = this.port.flow(id)
     const executions = this.port.executions?.(id) ?? []
+    // The reservation names a fresh start on this Team; earlier endings remain
+    // history. Follow the same default Run as the room's header.
+    const origin = document.goal.origin.kind === 'flow' ? document.goal.origin.run : null
+    const named = document.flowReservation?.run ?? origin
+    const current = executions.find((one) => one.id === document.flowReservation?.run)
+      ?? executions.find((one) => one.state === 'running' || one.state === 'stalled')
+      ?? executions.find((one) => one.id === origin)
+      ?? (named === null ? executions.at(-1) : undefined)
+    const endingNeedsYou = current?.end?.kind === 'unrouted' || current?.end?.kind === 'budget' || current?.end?.kind === 'stalled'
     const placements = board.intents.map((intent) => {
       const step = flowStepOf(intent, run, executions)
       return placeCard({
@@ -290,7 +299,7 @@ export class GoalPlane {
     })
     const dependencies = this.store.list().map((one) => one.goal)
     const activity = document.restored ? null : activityOf(document.goal, {
-      needsYou: this.port.held(id) || members.some((seat) => this.port.waits(seat.session)) ||
+      needsYou: endingNeedsYou || this.port.held(id) || members.some((seat) => this.port.waits(seat.session)) ||
         placements.some((one) => one.column === 'needs'),
       busy: problem !== null || members.some((seat) => this.port.busy(seat.session)) ||
         placements.some((one) => one.column === 'review') ||
@@ -908,6 +917,23 @@ export class GoalPlane {
     const view = await this.view(input.goal)
     this.#rememberAndPublish(view)
     return view
+  }
+
+  /** A continuation keeps the board and Seats, but owns a new, journaled start. */
+  async reserveFlowContinuation(input: { readonly goal: string; readonly run: string; readonly root: string; readonly previous: readonly string[] }): Promise<void> {
+    await this.serial.run(async () => {
+      const document = this.store.read(input.goal)
+      if (document.goal.root !== input.root) throw new Error('This Team belongs to another project.')
+      const ready = this.canDispatch(input.goal)
+      if (!ready.ok) throw new Error(ready.reason)
+      if (document.restored || document.goal.state !== 'open' || document.operation !== null) throw new Error('This Team is no longer open for another Run.')
+      const reservation = document.flowReservation
+      if (reservation?.run === input.run && reservation.operation === 'start') return
+      if (reservation && !input.previous.includes(reservation.run)) throw new Error('Another start already reserved this Team.')
+      await this.store.save({ ...document, flowReservation: { run: input.run, operation: 'start' },
+        goal: { ...document.goal, revision: document.goal.revision + 1, updatedAt: this.now() } }, document.goal.revision)
+    })
+    this.#rememberAndPublish(await this.view(input.goal))
   }
 
   /**

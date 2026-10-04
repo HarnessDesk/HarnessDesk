@@ -90,6 +90,37 @@ rules:
 
 const errors = (text: string): readonly string[] => parseFlowPolicy(text).problems.map((one) => `${one.at}: ${one.text}`)
 
+test('check onRequest is an explicit boolean preserved in flat and nested declarations and on save', () => {
+  for (const field of ['', ', onRequest: true', ', onRequest: false']) {
+    for (const nested of [false, true]) {
+      const command = `run: "pnpm test"${field}`
+      const parsed = parseFlowPolicy(source(`    kind: check\n    ${nested ? `check: { ${command} }` : command.replace(', ', '\n    ')}`))
+      assert.ok(parsed.document, JSON.stringify(parsed.problems))
+      assert.equal(parsed.document.format, 'agents')
+      if (parsed.document.format !== 'agents') continue
+      const expected = { run: 'pnpm test', timeout: 900, exits: { 0: 'pass' }, otherwise: 'fail', ...(field ? { onRequest: field.includes('true') } : {}) }
+      const role = parsed.document.flow.roles[0]!
+      assert.deepEqual(role.kind === 'check' ? role.check : null, expected)
+      const saved = parseFlowPolicy(serializeFlowPolicy(parsed.document.flow)).document
+      assert.ok(saved?.format === 'agents')
+      const again = saved.flow.roles[0]!
+      assert.deepEqual(again.kind === 'check' ? again.check : null, expected)
+    }
+  }
+})
+
+test('non-boolean onRequest and mixed flat/nested check fields refuse', () => {
+  for (const value of ['"true"', '"false"', '1', 'null', '[]', '{}']) {
+    for (const nested of [false, true]) {
+      const fields = nested ? `check: { run: "pnpm test", onRequest: ${value} }` : `run: "pnpm test"\n    onRequest: ${value}`
+      const parsed = parseFlowPolicy(source(`    kind: check\n    ${fields}`))
+      assert.equal(parsed.document, null, value)
+      assert.ok(parsed.problems.some((one) => one.at === `roles.worker${nested ? '.check' : ''}.onRequest` && /boolean/.test(one.text)), JSON.stringify(parsed.problems))
+    }
+  }
+  assert.ok(errors(source('    kind: check\n    onRequest: true\n    check: { run: "pnpm test" }')).some((one) => /not both/.test(one)))
+})
+
 test('specialisation and diversity have one card per list entry', () => {
   const specialisation = parseFlowPolicy(source('    kind: agent\n    uses: [writer, reviewer, tester]'))
   assert.equal(specialisation.document?.format, 'agents')

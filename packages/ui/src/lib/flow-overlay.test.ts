@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import type { FlowExecution, Intent } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey, turnId, type Session, type FlowExecution, type Intent } from '@harnessdesk/protocol'
 import { flowGraphDocument } from '../preview/flow-graph-fixture'
 import { flowModel } from './flow-model'
 import { flowOverlay, flowOverlayLabels, stepForRow, rowsForStep } from './flow-overlay'
@@ -100,7 +100,7 @@ it('keeps labels clear of the current agent’s doing band without moving any ca
 
 it('keeps a host-closed unfinished round stopped and freezes its time at the Run end', () => {
   const execution = run([round(1, 'write', 'seed'), round(2, 'fix', 'cause:manual')], {
-    state: 'stopped', endedAt: 5000, end: { kind: 'stopped', by: 'person' },
+    state: 'stopped', endedAt: 5000, currentEndedAt: 5000, end: { kind: 'stopped', by: 'person' },
   })
   // Stop closes the rounds; the cards remain as the work record, even if a
   // later Seat release touches their timestamps.
@@ -109,8 +109,8 @@ it('keeps a host-closed unfinished round stopped and freezes its time at the Run
     state: 'stopped', durationMs: 3000, since: null, line: null,
   })
   expect(draw(execution, [card(1), unfinished]).steps.get('write')?.state).toBe('done')
-  expect(draw({ ...execution, endedAt: undefined }, [card(1), unfinished]).steps.get('fix')?.durationMs).toBeNull()
-  expect(draw({ ...execution, endedAt: null }, [card(1), unfinished]).steps.get('fix')?.durationMs).toBeNull()
+  expect(draw({ ...execution, currentEndedAt: undefined }, [card(1), unfinished]).steps.get('fix')?.durationMs).toBeNull()
+  expect(draw({ ...execution, currentEndedAt: null }, [card(1), unfinished]).steps.get('fix')?.durationMs).toBeNull()
 })
 
 it('clears Needs you for an answered person and distinguishes an evidence wait', () => {
@@ -124,7 +124,7 @@ it('clears Needs you for an answered person and distinguishes an evidence wait',
 
 it('keeps a stopped retry of a closed check’s unrecorded duration unknown', () => {
   const execution = run([round(1, 'check', 'seed')], {
-    state: 'stopped', endedAt: 5000,
+    state: 'stopped', endedAt: 5000, currentEndedAt: 5000,
     operations: [{ key: 'check:1:0', kind: 'check', state: 'started', card: 1, seat: null }],
   })
   expect(draw(execution, [card(1, 'passes')]).steps.get('check')).toMatchObject({ state: 'stopped', durationMs: null, since: null })
@@ -146,4 +146,40 @@ it('keeps an earlier closed check’s reopened retry duration unknown after Stop
   expect(draw(stopped, cards, { attempts }).steps.get('check')).toMatchObject({
     state: 'stopped', runs: 1, durationMs: null, since: null,
   })
+})
+
+
+it.each(['stopped', 'settled', 'stalled'] as const)('shares the timeline’s retained-claim rule in a %s Run after resume', state => {
+  const execution = run([round(1, 'fix', 'seed', state !== 'stalled')], { state, endedAt: 1500, currentEndedAt: 5000 })
+  const held = { ...card(1, null), claim: { runtime: runtimeId('agent'), sessionId: 'alpha', at: 1000 }, updatedAt: 9000 }
+  for (const busy of [true, false]) {
+    const session: Session = { runtime: runtimeId('agent'), id: sessionId('alpha'), cwd: '/work/project',
+      createdAt: 1000, updatedAt: 2000, itemsLoaded: true, status: { type: busy ? 'active' : 'idle' },
+      turns: [{ id: turnId('turn'), startedAt: 2000, status: busy ? 'inProgress' : 'completed', items: [] }] }
+    const sessions = new Map([[sessionKey('agent', 'alpha'), session]])
+    const timeline = runTimeline({ execution, cards: [held], sessions }).rows.find(row => row.card === 1)!
+    expect(draw(execution, [held], { sessions }).steps.get('fix')).toMatchObject({
+      state: timeline.status!.toLowerCase(), durationMs: timeline.durationMs, since: null,
+    })
+    expect(timeline.durationMs).toBe(4000)
+  }
+  expect(draw({ ...execution, state: 'running', currentEndedAt: null }, [held]).steps.get('fix'))
+    .toMatchObject({ state: 'working', since: 1000 })
+  expect(draw({ ...execution, currentEndedAt: undefined }, [held]).steps.get('fix'))
+    .toMatchObject({ state: 'stopped', durationMs: null, since: null })
+})
+
+it('bounds completed card lifetimes by the current ending instead of the first departure', () => {
+  const execution = run([round(1, 'write', 'seed')], { state: 'settled', endedAt: 1500, currentEndedAt: 5000 })
+  expect(draw(execution, [{ ...card(1), updatedAt: 9000 }]).steps.get('write'))
+    .toMatchObject({ state: 'done', durationMs: 4000 })
+})
+
+
+it('uses a resumed retained claim’s current start when freezing its duration', () => {
+  const execution = run([round(1, 'fix', 'seed')], { state: 'stopped', endedAt: 1500, currentEndedAt: 5000 })
+  const held = { ...card(1, null), claim: { runtime: runtimeId('agent'), sessionId: 'alpha', at: 4000 } }
+  const timeline = runTimeline({ execution, cards: [held] }).rows.find(row => row.card === 1)!
+  expect(draw(execution, [held]).steps.get('fix')).toMatchObject({ state: 'stopped', durationMs: timeline.durationMs })
+  expect(timeline.durationMs).toBe(1000)
 })

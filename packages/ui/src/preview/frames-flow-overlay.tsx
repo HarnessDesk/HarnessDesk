@@ -15,7 +15,7 @@ export const FLOW_STEP_CATALOG_STATES = ['default', 'working', 'needs-you', 'loa
 
 export const FlowOverlayBoard = () => <div className="flex flex-col gap-8">{FLOW_OVERLAY_SCENES.map(scene => {
   const source = flowOverlayFixture(scene)
-  return <section key={scene} data-catalog-state={scene === 'pending' ? 'loading' : scene === 'failed' ? 'error' : scene === 'empty' ? 'empty' : scene === 'you' ? 'needs-you' : scene === 'settled' || scene === 'stopped' || scene === 'answered' || scene === 'evidence-wait' ? 'default' : 'working'} className="flex flex-col gap-2">
+  return <section key={scene} data-catalog-state={scene === 'pending' ? 'loading' : scene === 'failed' ? 'error' : scene === 'empty' ? 'empty' : scene === 'you' ? 'needs-you' : scene === 'settled' || scene === 'stopped' || scene === 'stopping' || scene === 'answered' || scene === 'evidence-wait' ? 'default' : 'working'} className="flex flex-col gap-2">
     <Text role="section">{scene}</Text><FlowGraph model={source.model} overlay={source.overlay} faces={FACES} doing={DOING} />
   </section>
 })}<section data-catalog-state="narrow" className="flex max-w-sm flex-col"><FlowGraph model={flowGraphModel('blueprint')} overlay={flowOverlayFixture('fix').overlay} /></section></div>
