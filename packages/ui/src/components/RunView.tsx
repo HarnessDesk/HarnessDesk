@@ -85,7 +85,7 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
               {status}
               {duration !== null && <Text role="meta" numeric>{formatDuration(duration)}{row.working ? ' so far' : ''}</Text>}
             </span>
-            // *Run again…* is the row's sibling, never inside its button, laid over the end of the first line where the row keeps its room (the spacer is the control's own width, and the control is a button tall, centred on a line of text a little under the row's top padding).
+            // *Run again…* is the row's sibling, never inside its button: laid over the end of the first line, where an invisible spacer in the row's trail keeps the row's own words clear of it.
             const again = row.kind === 'check' && row.card !== null && row.retryRefusal === null
             const item = <ListRow wrapTitle data-row={row.id} data-kind={row.kind} as="button" interactive selected={selectedRow === row.id}
               onClick={() => onSelect(row.id)} title={row.kind === 'end' && row.detail ? null : title}
