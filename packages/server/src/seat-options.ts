@@ -1,12 +1,15 @@
 import { findOption, refuseOptionValue, type AgentRuntime, type FlowSeat, type OptionValue } from '@harnessdesk/protocol'
 
+import { openedOtherwise, runningOf } from './agent-seating.js'
 import { SEAT_READ_DEADLINE_MS, within } from './seat-reads.js'
 
 /**
  * Ask the runtime what the chosen model's session would offer, then use the
  * same refusal as session opening. ACP's draft read may drop an inapplicable
  * dimension, so inspect its returned controls rather than treating a
- * successful draft read as acceptance. Its hidden probe is never prompted.
+ * successful draft read as acceptance. Then apply the whole combination and
+ * compare what settled with the same read-back as opening. Its hidden probe
+ * is never prompted.
  */
 export const seatOptionsProblem = async (runtime: AgentRuntime, seat: FlowSeat, cwd: string, deadline = SEAT_READ_DEADLINE_MS): Promise<string | null> => {
   if (!seat.effort && seat.thinking === undefined) return null
@@ -48,5 +51,23 @@ export const seatOptionsProblem = async (runtime: AgentRuntime, seat: FlowSeat, 
     const refused = refuseOptionValue(option, value)
     if (refused) return `${label}: ${refused}`
   }
-  return null
+  // Opening applies model, effort, then thinking, and clears a movable
+  // thinking switch when the Seat did not ask for it. A model's individual
+  // controls can offer picks whose combination the runtime settles elsewhere.
+  const settled = await within(async () => {
+    const values = { ...(selectedModel ? { model: selectedModel } : {}), ...picks }
+    const options = await runtime.defaultSessionOptions!(cwd, values)
+    const thinking = findOption(options, 'thinking')
+    // Effort can reveal or fix the switch, so inspect it after the picks.
+    return seat.thinking === undefined && thinking?.currentValue === true && !thinking.disabled
+      ? runtime.defaultSessionOptions!(cwd, { ...values, thinking: false })
+      : options
+  }, deadline)
+  if (runtime.health().state === 'idle') return idleProblem()
+  if (settled.settled === 'late') return `${label}'s session options could not be read within ${deadline} ms. Read the preview again when the agent is ready.`
+  if (settled.settled === 'error') return `${label}: ${settled.error instanceof Error ? settled.error.message : String(settled.error)}`
+  return openedOtherwise(
+    { ...seat, runtime: label, ...(seat.effort === 'default' ? { effort: null } : {}) },
+    runningOf(settled.value, { cwd, model: actualModel ? String(actualModel) : '' }),
+  )
 }

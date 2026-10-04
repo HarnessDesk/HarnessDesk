@@ -28,7 +28,7 @@ seed: { role: competitor, title: Compare the change }
 rules: []
 `
 
-const rig = async (t: TestContext, kind: 'codex' | 'acp') => {
+const rig = async (t: TestContext, kind: 'codex' | 'acp' | 'variant', env: Record<string, string> = {}) => {
   const base = tempDir('hd-flow-options-')
   const root = join(base, 'project')
   const stateDir = join(base, 'state')
@@ -37,7 +37,7 @@ const rig = async (t: TestContext, kind: 'codex' | 'acp') => {
   await writeFile(join(stateDir, 'agents', 'writer', 'AGENT.md'), '---\nname: Writer\nceiling: edit\nanswers: [done]\n---\nCompare the change.\n')
   const runtime: AgentRuntime = kind === 'codex'
     ? new CodexRuntime({ binaryPath: fileURLToPath(new URL('../../../adapter-codex/dist/test/fixtures/fake-codex.mjs', import.meta.url)), clientName: 'harnessdesk-test' })
-    : new AcpRuntime({ id: 'claude-code', name: 'Claude', command: process.execPath, args: [fileURLToPath(new URL('./fixtures/seat-options-acp.mjs', import.meta.url))], toolServer: { name: 'harnessdesk', command: process.execPath, args: ['--version'], env: {} } })
+    : new AcpRuntime({ id: 'claude-code', name: 'Claude', command: process.execPath, args: [fileURLToPath(new URL(kind === 'variant' ? '../../../adapter-acp/dist/test/fixtures/variant-acp-agent.mjs' : './fixtures/seat-options-acp.mjs', import.meta.url))], env, toolServer: { name: 'harnessdesk', command: process.execPath, args: ['--version'], env: {} } })
   const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), builtinAgents: join(base, 'builtins'), catalogRefreshMs: 0 })
   host.register(runtime)
   t.after(() => host.dispose())
@@ -45,6 +45,70 @@ const rig = async (t: TestContext, kind: 'codex' | 'acp') => {
   await host.call('workspace/open', { path: root })
   return { host, root, runtime }
 }
+
+for (const answer of ['announce', 'reply']) {
+  test(`ACP ${answer}: preview refuses individually supported options that cannot settle together`, async (t) => {
+    const { host, root } = await rig(t, 'variant', { VARIANT_ANSWER: answer })
+    for (const [seat, reason] of [
+      ['claude-code=fam/high+thinking', /without thinking, which was asked for/],
+      ['claude-code=fam/medium', /with thinking on, which was not asked for and would not turn off/],
+    ] as const) {
+      const text = source(seat)
+      const preview = await host.call('flow/preview', { root, source: text })
+      assert.equal(preview.token, null, `${seat}: ${JSON.stringify(preview.problems)}`)
+      for (const index of [0, 1]) assert.ok(preview.problems.some((problem) => problem.at === `roles.competitor.seat[${index}]` && reason.test(problem.text)), JSON.stringify(preview.problems))
+      await assert.rejects(host.call('flow/start-goal', { root, source: text, token: 'not-authorized', sentence: 'Compare' }))
+    }
+    assert.deepEqual(await host.call('flow/executions', {}), [])
+    assert.deepEqual(await host.call('goal/list', { root }), [])
+    assert.deepEqual(await host.call('lane/list', {}), [])
+    assert.deepEqual(await host.call('team/rooms', { root }), [])
+  })
+}
+
+test('start rechecks the settled combination before creating a Run, Goal, lane or card', async (t) => {
+  const { host, root, runtime } = await rig(t, 'variant')
+  const read = runtime.defaultSessionOptions!.bind(runtime)
+  // The controls initially accept high with thinking; by redemption the
+  // runtime settles that same combination on its high, no-thinking variant.
+  runtime.defaultSessionOptions = async (cwd, values) => (await read(cwd, values)).map((option) => option.id === 'thinking' ? { ...option, currentValue: true } as typeof option : option)
+  const text = source('claude-code=fam/high+thinking')
+  const preview = await host.call('flow/preview', { root, source: text })
+  assert.ok(preview.token, JSON.stringify(preview.problems))
+  runtime.defaultSessionOptions = read
+  await assert.rejects(host.call('flow/start-goal', { root, source: text, token: preview.token, sentence: 'Compare' }), /changed/)
+  assert.deepEqual(await host.call('flow/executions', {}), [])
+  assert.deepEqual(await host.call('goal/list', { root }), [])
+  assert.deepEqual(await host.call('lane/list', {}), [])
+  assert.deepEqual(await host.call('team/rooms', { root }), [])
+})
+
+test('ACP supported combinations still preview and a later Seat clears inherited thinking', async (t) => {
+  const { host, root } = await rig(t, 'variant')
+  for (const seat of ['claude-code=fam/medium+thinking', 'claude-code=fam/high', 'claude-code=fam/default']) {
+    const preview = await host.call('flow/preview', { root, source: source(seat) })
+    assert.ok(preview.token, `${seat}: ${JSON.stringify(preview.problems)}`)
+  }
+})
+
+test('ACP explicit thinking off is checked against the settled combination', async (t) => {
+  const { runtime, root } = await rig(t, 'variant')
+  assert.match(await seatOptionsProblem(runtime, { runtime: 'claude-code', model: 'fam', effort: 'medium', thinking: false }, root) ?? '', /with thinking on, which was asked to be off/)
+})
+
+test('a thinking switch revealed by effort is cleared after that effort settles', async (t) => {
+  const { host, root, runtime } = await rig(t, 'codex')
+  const read = runtime.defaultSessionOptions!.bind(runtime)
+  // Preserve the real model and effort controls; this runtime reveals a
+  // movable thinking switch only after the effort pick has been applied.
+  runtime.defaultSessionOptions = async (cwd, values) => {
+    const { thinking: _thinking, ...ordinary } = values ?? {}
+    const options = await read(cwd, ordinary)
+    return values?.['effort'] ? [...options, { id: 'thinking', label: 'Thinking', scope: 'session', type: 'boolean', currentValue: values['thinking'] !== false }] : options
+  }
+  const preview = await host.call('flow/preview', { root, source: source('codex=gpt-5.5/high') })
+  assert.ok(preview.token, JSON.stringify(preview.problems))
+})
 
 for (const [kind, seat, reason] of [
   ['codex', 'codex=gpt-5.5/xhigh', /effort/i],
