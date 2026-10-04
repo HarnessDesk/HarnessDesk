@@ -32,6 +32,8 @@
  * refused row keeps its reason on screen; Settings is a document, not a menu)
  * and the ledger of what moved are docs/design.md.
  */
+import './foundation/focus-input'
+
 export {
   Dot,
   Spinner,

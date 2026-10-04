@@ -315,11 +315,9 @@
   color: var(--hd-muted-foreground);
 }
 
-/* `:focus`, not `:focus-visible` — a text field earns its ring from a click
-   as much as from a Tab, because the click is what put the cursor there. */
+/* The focused border locates the caret for pointer and keyboard use. */
 .input:focus {
   border-color: var(--hd-ring);
-  box-shadow: var(--hd-focus-ring); /* desk: a 1px hard ring → the app's one focus ring */
 }
 
 .input:disabled {
@@ -363,7 +361,7 @@
   transform: var(--hd-press);
 }
 
-.btn:focus-visible {
+:where(:root:not([data-focus-input='pointer'])) .btn:focus-visible {
   outline: none;
   border-color: var(--hd-ring);
   box-shadow: var(--hd-focus-ring);
@@ -528,6 +526,13 @@
 
 .search .input {
   padding-left: calc(var(--hd-space-2-5) * 2 + var(--hd-space-4));
+}
+
+/* An always-focused search field already locates focus with its caret. */
+.search [data-focus-indicator='caret']:focus {
+  outline: none;
+  border-color: var(--hd-border-strong);
+  box-shadow: var(--hd-input-shadow);
 }
 
 .search[data-size='compact'] > svg {
@@ -1506,11 +1511,9 @@
   outline: none;
 }
 
-/* `:focus`, not `:focus-visible` — a text field earns its ring from a click
-   as much as from a Tab, because the click is what put the cursor there. */
+/* The focused border locates the caret for pointer and keyboard use. */
 .field:focus {
   border-color: var(--hd-ring);
-  box-shadow: var(--hd-focus-ring);
 }
 
 /* The account's own colour. The brand mark stays the agent's — it answers
