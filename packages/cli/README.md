@@ -1,5 +1,15 @@
 # harnessdesk
 
+This README is for the people building the command line. The reference for the
+people using it, with every command, flag, `--json` shape and exit code, is
+[`docs/cli.md`](../../docs/cli.md). It is generated from the command table in
+`src/cli.ts` (and what the commands share, in `src/reference.ts`): after
+changing a command's name, flags, description, JSON shape or exit codes there,
+run `pnpm cli:doc`, because `pnpm verify` and CI fail on a stale reference. The
+app ships this command line and installs a launcher for it from its menu
+(**Install command-line tool…**); `docs/decisions.md` says where the launcher
+goes and why.
+
 Read and start work on a running local desk through its outside-client door.
 These observation commands use the read tier:
 
