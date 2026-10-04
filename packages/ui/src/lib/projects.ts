@@ -1,4 +1,4 @@
-import { repoKey, type SessionSummary, type TeamState, type WorkspaceEntry } from '@harnessdesk/protocol'
+import { normalizedRepoKey, repoKey, type SessionSummary, type TeamState, type WorkspaceEntry } from '@harnessdesk/protocol'
 
 import { isPathInside, relativeTo, shortPath } from './paths'
 
@@ -111,7 +111,7 @@ const ORIGIN = 'origin:'
 
 /** The repository a conversation ran in, as the host read it or the agent reported it. */
 const originOf = (summary: SessionSummary): string | null =>
-  repoKey(summary.repo?.origin) ?? repoKey(summary.git?.originUrl)
+  normalizedRepoKey(summary.repo?.origin) ?? repoKey(summary.git?.originUrl)
 
 interface Entry {
   readonly sessions: SessionSummary[]
@@ -207,7 +207,7 @@ export const groupByProject = (
   const originByRoot = new Map<string, string>()
   for (const workspace of knownWorkspaces) {
     const root = workspace.repo?.root
-    const origin = repoKey(workspace.repo?.origin)
+    const origin = normalizedRepoKey(workspace.repo?.origin)
     if (root !== undefined) rootByFolder.set(workspace.path, root)
     if (origin !== null) {
       originByFolder.set(workspace.path, origin)
@@ -262,7 +262,7 @@ export const groupByProject = (
 
   for (const workspace of knownWorkspaces) {
     const root = workspace.repo?.root ?? rootByFolder.get(workspace.path)
-    const origin = repoKey(workspace.repo?.origin) ?? originByFolder.get(workspace.path) ?? (root === undefined ? null : originByRoot.get(root))
+    const origin = normalizedRepoKey(workspace.repo?.origin) ?? originByFolder.get(workspace.path) ?? (root === undefined ? null : originByRoot.get(root))
     const key = origin ? `${ORIGIN}${origin}` : root ? `${ROOT}${root}` : `path:${workspace.path}`
     const entry = byKey.get(key)
     if (!entry) continue
@@ -277,7 +277,7 @@ export const groupByProject = (
   const claimant = current === null || currentIsWorktree(current) ? null : ownPathOf(current)
   // The folder you have open has no conversations of its own yet when it is a
   // fresh clone, but its remote still says which project it is a copy of.
-  const openedOrigin = repoKey(current?.repo?.origin)
+  const openedOrigin = normalizedRepoKey(current?.repo?.origin)
   const openedFolder = current === null ? null : projectGroupRootOf(current)
   return [...byKey.values()].filter((entry) => entry.sessions.length > 0).map((entry) => {
     const root = homeOf(entry, opened, claimant, gone)

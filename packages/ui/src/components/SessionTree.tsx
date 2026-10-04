@@ -1345,7 +1345,15 @@ export const SessionTree = ({ now, searching = false }: { now: number; searching
     store.setListPrefs({ pinned: [...pinned], collapsed: [...folded] })
   }, [groups, listIsWhole, snapshot.listPrefs.collapsed, snapshot.listPrefs.pinned, store])
 
-  const toggle = useCallback((key: string) => store.toggleCollapsed(key), [store])
+  const toggle = useCallback((key: string) => {
+    const group = groups.find(one => one.root === key)
+    const stored = store.getSnapshot().listPrefs.collapsed
+    // An explicit action can resolve this project's aliases even while the
+    // whole-list migration is waiting for history or a filter to clear.
+    if (group && stored.some(root => root !== key && group.folders.includes(root))) {
+      store.setListPrefs({ collapsed: stored.filter(root => !group.folders.includes(root)) })
+    } else store.toggleCollapsed(key)
+  }, [groups, store])
 
   // Live state across every workspace, for the triage band.
   const triage = useMemo(() => {
@@ -1587,7 +1595,7 @@ export const SessionTree = ({ now, searching = false }: { now: number; searching
 
   useEffect(() => {
     if (!activeKey || !activeGroup || liftedKeys.has(activeKey)) return
-    if (collapsed.has(activeGroup.root)) store.toggleCollapsed(activeGroup.root)
+    if (collapsed.has(activeGroup.root)) toggle(activeGroup.root)
     if (!othersOpen && far.some((group) => group.root === activeGroup.root)) store.setOthersOpen(true)
 
     const roomKeys = new Set(
@@ -1605,11 +1613,11 @@ export const SessionTree = ({ now, searching = false }: { now: number; searching
     if (activeIndex >= visibleCount) {
       setRevealedCount((current) => new Map(current).set(activeGroup.root, activeIndex + 1))
     }
-  }, [activeGroup, activeKey, collapsed, far, liftedKeys, othersOpen, revealedCount, roomsByProject, store])
+  }, [activeGroup, activeKey, collapsed, far, liftedKeys, othersOpen, revealedCount, roomsByProject, store, toggle])
 
   const anyOpen = groups.some((group) => !collapsed.has(group.root))
   const toggleAll = useCallback(
-    () => store.setProjectsCollapsed(groups.map((group) => group.root), anyOpen),
+    () => store.setProjectsCollapsed(groups.flatMap(group => anyOpen ? [group.root] : group.folders), anyOpen),
     [anyOpen, groups, store],
   )
 

@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import {
+  runtimeId,
   sessionKey,
   type GoalView,
   type RepoInfo,
@@ -190,6 +191,74 @@ it('keeps a fresh clone you have open in the project it is a copy of, before it 
 })
 
 // ---------------------------------------------------------- pins and folds
+
+const answerPreferences = (rig: Rig): void => {
+  const apply = (patch: Partial<AppSnapshot['listPrefs']>) =>
+    rig.update({ listPrefs: { ...rig.store.getSnapshot().listPrefs, ...patch } })
+  vi.mocked(rig.store.setListPrefs).mockImplementation(apply)
+  vi.mocked(rig.store.toggleCollapsed).mockImplementation(key => {
+    const roots = rig.store.getSnapshot().listPrefs.collapsed
+    apply({ collapsed: roots.includes(key) ? roots.filter(one => one !== key) : [...roots, key] })
+  })
+  vi.mocked(rig.store.togglePinned).mockImplementation(key => {
+    const roots = rig.store.getSnapshot().listPrefs.pinned
+    apply({ pinned: roots.includes(key) ? roots.filter(one => one !== key) : [...roots, key] })
+  })
+  vi.mocked(rig.store.setProjectsCollapsed).mockImplementation((roots, collapsed) => {
+    const current = rig.store.getSnapshot().listPrefs.collapsed
+    apply({ collapsed: collapsed ? [...new Set([...current, ...roots])] : current.filter(one => !roots.includes(one)) })
+  })
+}
+
+for (const state of ['filtered', 'searching', 'loading'] as const) {
+  it(`can unfold and unpin clone aliases while ${state}, without changing unrelated preferences`, () => {
+    const untouched = '/demo/unseen-project'
+    const rig = mount([row('home', WIDGETS, { runtime: state === 'filtered' ? runtimeId('other') : runtime.id }), row('clone', PLAN)], {
+      historyLoading: state === 'loading',
+      listPrefs: { ...emptySnapshot().listPrefs, agent: state === 'filtered' ? runtime.id : null,
+        pinned: [PLAN, WIDGETS, untouched], collapsed: [PLAN, WIDGETS, untouched, 'unseen-team'] },
+    }, { searching: state === 'searching' })
+    answerPreferences(rig)
+    const project = () => container.querySelector<HTMLElement>(`[data-project-root="${WIDGETS}"]`)!
+    act(() => project().querySelector<HTMLButtonElement>('[data-draggable]')!.click())
+    expect(titles()).toEqual(state === 'filtered' ? ['clone'] : ['home', 'clone'])
+    expect(rig.store.getSnapshot().listPrefs.collapsed).toEqual([untouched, 'unseen-team'])
+    act(() => project().querySelector<HTMLButtonElement>('[aria-label="Actions for widgets"]')!.click())
+    const unpin = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent?.trim() === 'Unpin')
+    expect(unpin).toBeDefined()
+    act(() => unpin!.click())
+    expect(rig.store.getSnapshot().listPrefs.pinned).toEqual([untouched])
+    rig.update({ listPrefs: { ...rig.store.getSnapshot().listPrefs, agent: null }, historyLoading: false })
+    expect(project().querySelector('[aria-label="Pinned"]')).toBeNull()
+    expect(titles()).toEqual(['home', 'clone'])
+  })
+}
+
+it('expands all projects through clone folds while filtered', () => {
+  const rig = mount([row('home', WIDGETS), row('clone', PLAN)], {
+    listPrefs: { ...emptySnapshot().listPrefs, agent: runtime.id, collapsed: [PLAN, 'unseen-team'] },
+  })
+  answerPreferences(rig)
+  act(() => container.querySelector<HTMLButtonElement>('[data-draggable]')!.dispatchEvent(new MouseEvent('click', { bubbles: true, altKey: true })))
+  expect(titles()).toEqual(['home', 'clone'])
+  expect(rig.store.getSnapshot().listPrefs.collapsed).toEqual(['unseen-team'])
+})
+
+it('moves a filtered project from its clone aliases using the effective pin order', () => {
+  const untouched = '/demo/unseen-project'
+  const rig = mount([row('home', WIDGETS), row('clone', PLAN)], {
+    listPrefs: { ...emptySnapshot().listPrefs, agent: runtime.id, pinned: [PLAN, WIDGETS, untouched] },
+  })
+  answerPreferences(rig)
+  act(() => container.querySelector<HTMLButtonElement>('[aria-label="Actions for widgets"]')!.click())
+  const menuItem = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .find(one => one.querySelector('[class*="title"]')?.textContent?.trim() === label)!
+  act(() => menuItem('Move').click())
+  expect(menuItem('Move up').getAttribute('aria-disabled')).toBe('true')
+  act(() => menuItem('Move down').click())
+  expect(rig.store.getSnapshot().listPrefs.pinned).toEqual([untouched, WIDGETS])
+  expect(container.querySelector('[data-slot="sortable-announcer"]')?.textContent).toBe('Moved widgets to position 2 of 2')
+})
 
 it('keeps the opened home and its fold while another agent’s clone is the only visible history', () => {
   const other = '/demo/other'

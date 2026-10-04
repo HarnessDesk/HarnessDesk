@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { repoKey } from '../src/repo-key.js'
+import { normalizedRepoKey, repoKey } from '../src/repo-key.js'
 
 /**
  * One key per repository, whoever spelled the remote.
@@ -56,4 +56,30 @@ test('relative local origins are not shared repository identities', () => {
   assert.equal(repoKey('widgets.git'), null)
   assert.equal(repoKey('source/widgets.git'), null)
   assert.equal(repoKey('source/acme/widgets.git'), null)
+})
+
+test('malformed scheme spellings cannot be mistaken for SCP remotes', () => {
+  for (const origin of [
+    'https:/jane:not-a-real-token@example.com/acme/widgets.git',
+    'https:jane:not-a-real-token@example.com/acme/widgets.git',
+    'ssh:/git@example.com/acme/widgets.git',
+    'git:/example.com/acme/widgets.git',
+  ]) assert.equal(repoKey(origin), null)
+})
+
+test('SCP remotes require a host and a relative repository path without userinfo', () => {
+  for (const origin of ['git@bad host:acme/widgets', 'git@example.com:/acme/widgets', 'git@example.com:token@acme/widgets', 'git@example.com:acme/widgets?token=demo']) {
+    assert.equal(repoKey(origin), null)
+  }
+  assert.equal(repoKey('git@internal:acme/widgets.git'), 'internal/acme/widgets')
+})
+
+test('single-label host identities roundtrip without accepting relative raw origins', () => {
+  const key = repoKey('git@internal:acme/widgets.git')
+  assert.equal(normalizedRepoKey(key), key)
+  assert.equal(normalizedRepoKey('INTERNAL/Acme/Widgets'), key)
+  assert.equal(repoKey('internal/acme/widgets'), null)
+  for (const identity of [null, '', 'jane@example.com/acme/widgets', 'https://example.com/acme/widgets', 'internal/acme/widgets?token=demo']) {
+    assert.equal(normalizedRepoKey(identity), null)
+  }
 })

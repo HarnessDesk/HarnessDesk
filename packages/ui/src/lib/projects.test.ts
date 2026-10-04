@@ -75,6 +75,20 @@ describe('groupByProject', () => {
   const main = '/Users/a/code/ledger-api'
   const at = (root: string, worktree = false) => ({ root, worktree })
 
+  it('groups host-supplied single-label repository identities with raw remotes', () => {
+    const clone = '/demo/widgets-clone'
+    const home = '/demo/widgets'
+    const repo = { root: home, worktree: false, origin: 'internal/acme/widgets' }
+    const groups = groupByProject([
+      session('home', home, null, 1, repo),
+      session('clone', clone, null, 2, { ...repo, root: clone }),
+      session('recorded', '/demo/widgets-old', 'git@internal:acme/widgets.git', 3),
+    ], [workspace(home, repo)], workspace(home, repo))
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.root).toBe(home)
+    expect(groups[0]?.sessions.map(one => one.id)).toEqual(['recorded', 'clone', 'home'])
+  })
+
   it('folds worktree checkouts into their project, homed at the main checkout', () => {
     const groups = groupByProject(
       [
