@@ -2288,6 +2288,7 @@ test("over ACP: the brief opens as a notice, not a turn the person is shown as h
   )
   const notice = items.find((item) => item.type === 'notice')
   assert.ok(notice, 'the brief is still recorded, just not as speech')
+  assert.equal(notice.kind, 'agentBrief', 'the actual Agent brief carries its fold marker')
   assert.match((notice as { text: string }).text, /^Read the diff\.\n\n/, 'the brief as written, first')
 })
 
@@ -3909,6 +3910,7 @@ test('over Codex: the brief opens as a notice too — Codex echoes it back as `u
   )
   const notice = items.find((item) => item.type === 'notice')
   assert.ok(notice, 'the brief is still recorded, just not as speech')
+  assert.equal(notice.kind, 'agentBrief', 'the actual Agent brief carries its fold marker')
   assert.match((notice as { text: string }).text, /^Read the diff\.\n\n/, 'the brief as written, first')
 })
 

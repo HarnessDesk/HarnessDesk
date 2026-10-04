@@ -524,6 +524,10 @@ by what their labels carry:
   turn, and a fold would hide what the reader came for. Closed by hand, such a
   turn's fold reads the sentences back as its receipt rather than a tally.
 
+A seated Agent’s brief starts as one closed **Agent brief** row in its
+conversation and in Side by side. Opening it shows the headings, lists and
+full standing order; other housekeeping notices stay on their plain rows.
+
 Opening any step shows the command under a prompt mark, then what it printed;
 the sentence never has the command glued to it, because a sentence in monospace
 with a shell line hanging off it teaches a CLI that does not exist.
@@ -622,6 +626,12 @@ steering — the others state that they cannot, so the shortcut is offered by
 capability rather than tried and apologised for. Stop and the queue button sit
 side by side while a turn runs, so the primary position never changes meaning
 under a pointer already moving toward it.
+
+If adding a message to the running turn fails — the turn ended, the connection
+was lost, or the agent timed out — its words and chips stay in that
+conversation's Restore list. The failure reason stays beside them, including
+after reopening the view. Restore brings the message back to the composer and
+keeps any newer draft available in the same list.
 
 What is waiting shows in a strip above the composer, with the goal and the
 running jobs: the host's order, with reorder, remove, and edit in place. If an

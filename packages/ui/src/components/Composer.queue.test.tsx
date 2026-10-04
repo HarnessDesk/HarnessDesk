@@ -6,7 +6,7 @@ import { sessionKey, type RuntimeInfo, type Session, type SessionQueue } from '@
 
 import { StoreProvider } from '../state/context'
 import { draftsOf, UNSCOPED_RECOVERY_KEY } from '../state/drafts'
-import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { AppStore, emptySnapshot, type AppSnapshot } from '../state/store'
 import { Composer } from './Composer'
 
 /**
@@ -201,6 +201,37 @@ beforeEach(() => {
 })
 
 describe('the composer while a turn is running', () => {
+  for (const reason of ['turn already ended', 'The connection to HarnessDesk was lost.', 'The request timed out.']) {
+    it(`keeps the steer message and its failure reason together: ${reason}`, async () => {
+      const store = new AppStore('ws://localhost:0/')
+      let reject!: (error: Error) => void
+      vi.spyOn(store.transport, 'request').mockImplementationOnce(() => new Promise((_, fail) => { reject = fail }))
+      mount({ busy: true, steer: true })
+      mountedStore.steer = store.steer.bind(store)
+      act(() => window.dispatchEvent(new CustomEvent('harnessdesk:compose', {
+        detail: { text: 'keep this steer', attachments: [{ name: 'spec.md', path: '/w/spec.md', kind: 'file' }] },
+      })))
+      enter({ meta: true })
+      type('newer draft')
+      await act(async () => reject(new Error(reason)))
+
+      expect(textarea().value).toBe('newer draft')
+      expect(container.textContent?.split(reason)).toHaveLength(2)
+      expect(store.getSnapshot().notices).toHaveLength(0)
+      expect(mockRecoveries.get(KEY)?.[0]).toMatchObject({
+        text: 'keep this steer', attachments: [{ name: 'spec.md', path: '/w/spec.md' }],
+      })
+      act(() => root.unmount())
+      root = createRoot(container)
+      mount({ busy: true, steer: true })
+      expect(container.textContent).toContain(reason)
+      const restore = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('Restore'))
+      act(() => restore?.click())
+      expect(textarea().value).toBe('keep this steer')
+      expect(container.textContent).toContain('spec.md')
+    })
+  }
+
   const runtimeShapes = [
     { name: 'Codex fake', steer: true },
     { name: 'ACP fake', steer: false },

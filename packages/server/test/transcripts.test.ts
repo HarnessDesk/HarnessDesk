@@ -248,7 +248,7 @@ test('a read that already knows as much is returned untouched', async () => {
 
 test('a cold fuller read keeps the host-recorded notice classification', async () => {
   await withStore(async (store) => {
-    store.record(session([turn('t1', [item('opening', 'notice')])]), { now: true })
+    store.record(session([turn('t1', [{ ...item('opening', 'notice'), kind: 'agentBrief' } as AgentItem])]), { now: true })
     await store.flush()
 
     const cold = session([
@@ -256,6 +256,7 @@ test('a cold fuller read keeps the host-recorded notice classification', async (
     ])
     const enriched = await store.enrich(cold)
     assert.deepEqual(enriched.turns[0]?.items.map((entry) => entry.type), ['notice', 'assistantMessage'])
+    assert.equal((enriched.turns[0]?.items[0] as { kind?: string }).kind, 'agentBrief')
   })
 })
 

@@ -39,12 +39,24 @@ export const captureShellProject = async (opened: string): Promise<ShellProjectI
   if (!contains(checkout.checkoutRoot, opened)) throw new Error('The project checkout changed its root. Open the actual project folder before running shell commands.')
   let project = checkout.checkoutRoot
   if (!samePath(checkout.gitDir, checkout.gitCommonDir)) {
-    const first = (await git(opened, ['worktree', 'list', '--porcelain'])).split('\n').find((line) => line.startsWith('worktree '))
+    const first = (await git(opened, ['worktree', 'list', '--porcelain', '-z'])).split('\0').find((field) => field.startsWith('worktree '))
     if (!first) throw new Error('The project checkout has no main working tree.')
     project = await realpath(first.slice('worktree '.length))
     await assertBoundary(project)
-    const main = await shellCheckoutIdentity(project)
-    if (!main || !samePath(main.checkoutRoot, project) || !samePath(main.gitCommonDir, checkout.gitCommonDir)) {
+    let main = await shellCheckoutIdentity(project)
+    if (main && !samePath(main.checkoutRoot, project)) {
+      /* Git lists a submodule's main checkout by its git directory, which names
+         the folder through its own `core.worktree`. The folder is not taken on
+         that word: it is asked again from inside, and must itself be a checkout
+         of this repository, with its own `.git` agreeing, as for any other
+         project. Asked only of the git directory, the common directory would
+         always match, since it is that directory. */
+      project = main.checkoutRoot
+      await assertBoundary(project)
+      main = await shellCheckoutIdentity(project)
+    }
+    if (!main || !samePath(main.checkoutRoot, project) || !samePath(main.gitCommonDir, checkout.gitCommonDir) ||
+      !samePath(main.gitDir, checkout.gitCommonDir)) {
       throw new Error('The project checkout changed its repository. Open the actual project folder before running shell commands.')
     }
   }
@@ -70,7 +82,8 @@ export const shellProjectUnchanged = async (opened: string, identity: ShellProje
     if (identity.gitCommonDir === null) return live === null && samePath(identity.project, opened) && samePath(identity.checkoutRoot, opened)
     if (!live || !samePath(live.checkoutRoot, identity.checkoutRoot) || !samePath(live.gitCommonDir, identity.gitCommonDir)) return false
     const main = await shellCheckoutIdentity(identity.project)
-    return main !== null && samePath(main.checkoutRoot, identity.project) && samePath(main.gitCommonDir, identity.gitCommonDir)
+    return main !== null && samePath(main.checkoutRoot, identity.project) && samePath(main.gitCommonDir, identity.gitCommonDir) &&
+      samePath(main.gitDir, identity.gitCommonDir)
   } catch {
     return false
   }
