@@ -2,13 +2,14 @@ import assert from 'node:assert/strict'
 import { cp, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { after as afterAll, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { ExtensionKernel, type ForgeEngine, type TeamEngine } from '@harnessdesk/cordis-host'
+import type { ForgeEngine, TeamEngine } from '@harnessdesk/cordis-host'
 import type { ContributionId, RuntimeId, SessionId } from '@harnessdesk/protocol'
 
-import { SupervisedExtensionHost } from '../src/index.js'
+import type { SupervisedExtensionHost, SupervisedExtensionHostOptions } from '../src/index.js'
+import { childrenGone, childrenUp, Hosts } from './hosts.js'
 
 /**
  * Process isolation, exercised for real: third-party plugins run in a child
@@ -16,11 +17,18 @@ import { SupervisedExtensionHost } from '../src/index.js'
  * that spins is killed from the healthy side, a plugin that leaks handles is
  * visible in the accounting, and every in-flight caller fails cleanly —
  * never hangs.
+ *
+ * "Never hangs" covers this file too. Every host starts through `hosts` and
+ * the file ends by settling it, so a test that leaves a child running fails
+ * by name — where it used to hold the whole run open (#1306, `hosts.ts`).
  */
 
 const FIXTURES = fileURLToPath(new URL('./fixtures', import.meta.url))
 
 const scope = { sessionId: 's1' as SessionId }
+
+const hosts = new Hosts()
+afterAll(() => hosts.settle())
 
 interface Harness {
   readonly host: SupervisedExtensionHost
@@ -28,17 +36,30 @@ interface Harness {
   toolId(name: string): ContributionId
 }
 
-const start = async (plugins: readonly string[]): Promise<Harness> => {
+const start = async (
+  plugins: readonly string[],
+  options: SupervisedExtensionHostOptions = {},
+): Promise<Harness> => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-exthost-'))
   const store = join(dir, 'plugins')
-  for (const plugin of plugins) {
-    await cp(join(FIXTURES, `plugin-${plugin}`), join(store, plugin), { recursive: true })
-  }
-  const host = new SupervisedExtensionHost(new ExtensionKernel(), {
+  const host = hosts.make(`start(${plugins.join(', ')})`, {
     invokeTimeoutMs: 1500,
     env: { HARNESSDESK_PLUGINS: store },
+    ...options,
   })
-  await host.loadInstalledPlugins()
+  try {
+    for (const plugin of plugins) {
+      await cp(join(FIXTURES, `plugin-${plugin}`), join(store, plugin), { recursive: true })
+    }
+    await host.loadInstalledPlugins()
+  } catch (error) {
+    // The caller's `try` begins only once this has returned, so a start that
+    // fails has no `finally` to dispose the host. Left alone, the supervisor
+    // restarts the child it killed, and that child — healthy, with nothing
+    // to talk to — keeps this file's process alive indefinitely.
+    await cleanup({ host, dir })
+    throw error
+  }
   return {
     host,
     dir,
@@ -50,7 +71,7 @@ const start = async (plugins: readonly string[]): Promise<Harness> => {
   }
 }
 
-const cleanup = async (harness: Harness): Promise<void> => {
+const cleanup = async (harness: Pick<Harness, 'host' | 'dir'>): Promise<void> => {
   await harness.host.dispose()
   await rm(harness.dir, { recursive: true, force: true })
 }
@@ -122,6 +143,24 @@ test('a plugin that spins is killed from the healthy side and reported as such',
   }
 })
 
+test('a host whose start fails is disposed, so no child is restarted behind the test', async () => {
+  // `slow-once` wedges the first child past the deadline and loads at once
+  // afterwards: a start that fails, and a restart that would work. The
+  // supervisor restarts a child it killed whether or not anyone is left who
+  // wants it, so the host has to be disposed on the failure — and the child
+  // it would have brought up is a healthy one that nothing ever ends.
+  await assert.rejects(start(['slow-once'], { invokeTimeoutMs: 400 }), /did not answer/)
+
+  // The child the deadline killed is only just gone, and its replacement
+  // would come up a quarter of a second after that. Neither may be there.
+  await childrenGone()
+  const watched = Date.now() + 1500
+  while (Date.now() < watched) {
+    assert.equal(childrenUp(), 0, 'a plugin host child is running and no test owns it')
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+})
+
 test('leaked handles show up in the resource accounting', async () => {
   const harness = await start(['leak'])
   try {
@@ -185,7 +224,7 @@ test('a hook living in a dead child fails closed, and works again after recovery
 
 test('built-ins load in-process and are routed without touching the child', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-exthost-'))
-  const host = new SupervisedExtensionHost(new ExtensionKernel(), {
+  const host = hosts.make('built-ins', {
     invokeTimeoutMs: 1500,
     env: { HARNESSDESK_PLUGINS: join(dir, 'plugins') },
   })
@@ -226,7 +265,7 @@ test('an installed copy a built-in has taken over can still be removed', async (
   const dir = await mkdtemp(join(tmpdir(), 'hd-exthost-'))
   const store = join(dir, 'plugins')
   await cp(join(FIXTURES, 'plugin-good'), join(store, 'good'), { recursive: true })
-  const host = new SupervisedExtensionHost(new ExtensionKernel(), {
+  const host = hosts.make('a built-in over an installed copy', {
     invokeTimeoutMs: 5_000,
     env: { HARNESSDESK_PLUGINS: store },
   })
@@ -298,13 +337,13 @@ test('a child plugin\'s browser tools drive the page the parent provides', async
   const store = join(dir, 'plugins')
   await cp(join(FIXTURES, 'plugin-browser'), join(store, 'browserish'), { recursive: true })
   const fake = fakeEngine()
-  const host = new SupervisedExtensionHost(new ExtensionKernel(), {
+  const host = hosts.make('browser tools', {
     invokeTimeoutMs: 5_000,
     env: { HARNESSDESK_PLUGINS: store },
     browserEngine: fake.engine,
   })
-  await host.loadInstalledPlugins()
   try {
+    await host.loadInstalledPlugins()
     const look = host.list('tool').find((entry) => entry.name === 'look')
     assert.ok(look, 'the browser-driving tool is contributed from the child')
     const result = await host.invokeTool(look.id, { url: 'http://fake/' }, scope)
@@ -361,7 +400,7 @@ test('a team call rides its own invocation or is refused: the child cannot imper
   const dir = await mkdtemp(join(tmpdir(), 'hd-exthost-'))
   const store = join(dir, 'plugins')
   await cp(join(FIXTURES, 'plugin-teamish'), join(store, 'teamish'), { recursive: true })
-  const host = new SupervisedExtensionHost(new ExtensionKernel(), {
+  const host = hosts.make('team call', {
     invokeTimeoutMs: 1500,
     env: { HARNESSDESK_PLUGINS: store },
     teamEngine: engine,
@@ -414,7 +453,7 @@ test('a child member wait remains invocation-bound and cancellation aborts the h
   const dir = await mkdtemp(join(tmpdir(), 'hd-member-wait-'))
   const store = join(dir, 'plugins')
   await cp(join(FIXTURES, 'plugin-teamish'), join(store, 'teamish'), { recursive: true })
-  const host = new SupervisedExtensionHost(new ExtensionKernel(), {
+  const host = hosts.make('member wait', {
     // This crosses two processes before it reaches the blocking engine. Keep
     // the test deadline consistent with the other child-process tests: 150ms
     // is scheduler-sensitive when the full Node suite is concurrently busy.
@@ -477,7 +516,7 @@ test('a plugin without the grant cannot ride a granted sibling’s armed scope',
   const store = join(dir, 'plugins')
   await cp(join(FIXTURES, 'plugin-teamish'), join(store, 'teamish'), { recursive: true })
   await cp(join(FIXTURES, 'plugin-ungranted'), join(store, 'ungranted'), { recursive: true })
-  const host = new SupervisedExtensionHost(new ExtensionKernel(), {
+  const host = hosts.make('a sibling without the grant', {
     invokeTimeoutMs: 3000,
     env: { HARNESSDESK_PLUGINS: store },
     teamEngine: engine,
@@ -534,7 +573,7 @@ test('a forge call rides its own invocation or is refused; the identity needs no
   const dir = await mkdtemp(join(tmpdir(), 'hd-exthost-'))
   const store = join(dir, 'plugins')
   await cp(join(FIXTURES, 'plugin-forgeish'), join(store, 'forgeish'), { recursive: true })
-  const host = new SupervisedExtensionHost(new ExtensionKernel(), {
+  const host = hosts.make('forge call', {
     invokeTimeoutMs: 1500,
     env: { HARNESSDESK_PLUGINS: store },
     forgeEngine: engine,
@@ -621,7 +660,7 @@ test('a grant is for one plane: the arming alone opens neither the other plane n
   for (const name of ['forgeish', 'teamish', 'ungranted']) {
     await cp(join(FIXTURES, `plugin-${name}`), join(store, name), { recursive: true })
   }
-  const host = new SupervisedExtensionHost(new ExtensionKernel(), {
+  const host = hosts.make('one plane per grant', {
     invokeTimeoutMs: 3000,
     env: { HARNESSDESK_PLUGINS: store },
     teamEngine: team,
@@ -669,7 +708,7 @@ test('concurrent child browser invocations keep the host-resolved lane, refusing
   const store = join(dir, 'plugins')
   await cp(join(FIXTURES, 'plugin-browser'), join(store, 'browserish'), { recursive: true })
   const profiles: string[] = []
-  const host = new SupervisedExtensionHost(new ExtensionKernel(), {
+  const host = hosts.make('concurrent browser lanes', {
     invokeTimeoutMs: 5000,
     env: { HARNESSDESK_PLUGINS: store },
     browserEngine: {

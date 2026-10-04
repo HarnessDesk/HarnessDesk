@@ -76,7 +76,15 @@ const rig = async (permissions?: unknown): Promise<Rig> => {
   // started early is not born with an empty tool set.
   host.setEditorEngine(plane)
   host.setWorkspace({ root: workspace, branch: null })
-  await host.loadInstalledPlugins()
+  try {
+    await host.loadInstalledPlugins()
+  } catch (error) {
+    // The caller's `try` begins once this has returned, so a start that fails
+    // has no `finally` to dispose the host. The supervisor restarts the child
+    // it killed, and a running child keeps this file's process alive (#1306).
+    await close({ host, dir })
+    throw error
+  }
 
   return {
     host,
@@ -97,7 +105,7 @@ const rig = async (permissions?: unknown): Promise<Rig> => {
   }
 }
 
-const close = async (harness: Rig): Promise<void> => {
+const close = async (harness: Pick<Rig, 'host' | 'dir'>): Promise<void> => {
   await harness.host.dispose()
   await rm(harness.dir, { recursive: true, force: true })
 }
