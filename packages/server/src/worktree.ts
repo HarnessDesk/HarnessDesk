@@ -5,7 +5,7 @@ import { homedir } from 'node:os'
 import { basename, isAbsolute, join, parse, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 
-import type { RepoInfo, Worktree, WorktreeChanges } from '@harnessdesk/protocol'
+import { repoKey, type RepoInfo, type Worktree, type WorktreeChanges } from '@harnessdesk/protocol'
 
 import { defaultStateDir } from './state.js'
 import { assertAbsolute } from './workspace.js'
@@ -204,9 +204,29 @@ export const repositoryOf = async (path: string): Promise<RepoInfo | null> => {
     return null
   }
   if (!common || !dir || !here) return null
-  if (samePath(dir, common)) return { root: await canonical(here), worktree: false }
+  if (samePath(dir, common)) return { root: await canonical(here), worktree: false, ...(await originOf(path)) }
   const main = await mainCheckoutOf(path)
-  return main === null ? null : { root: main, worktree: true }
+  return main === null ? null : { root: main, worktree: true, ...(await originOf(path)) }
+}
+
+/**
+ * The repository's identity, as `{ origin }` or nothing, so a repository with
+ * no remote answers exactly as it always did.
+ *
+ * `remote get-url` rather than the config's own text: it applies the
+ * `url.<base>.insteadOf` rewrites a person set up, so `gh:acme/widgets` and
+ * `https://github.com/acme/widgets` are the repository git would reach, and
+ * the same one. The answer is an identity (`repoKey`), not the URL — a remote
+ * may carry a token, and nothing above this needs the address.
+ */
+const originOf = async (path: string): Promise<{ readonly origin: string } | null> => {
+  try {
+    const origin = repoKey((await git(path, ['remote', 'get-url', 'origin'])).trim())
+    return origin === null ? null : { origin }
+  } catch {
+    // No remote called origin, or one git cannot read: this repository has no identity to share.
+    return null
+  }
 }
 
 /** The first `worktree` line of the porcelain listing is always the main one. */

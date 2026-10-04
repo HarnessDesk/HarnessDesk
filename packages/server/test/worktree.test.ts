@@ -87,6 +87,37 @@ test('every checkout of a repository names the same project, and only a linked o
 })
 
 /**
+ * Two clones of one repository are two folders to git and one project to a
+ * person, and nothing about the folders says so: only the remote does. The
+ * host reads `origin` for every folder it lists and answers with its identity
+ * — never the URL, which may carry a token — so the session list can put the
+ * clones under one project.
+ */
+test('every clone of a repository names the same origin, spelled however its remote is', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  const identity = 'github.com/acme/widgets'
+  assert.deepEqual(await repositoryOf(repo), { root: repo, worktree: false }, 'no remote, nothing to say')
+
+  await git(repo, 'remote', 'add', 'origin', 'git@github.com-work:Acme/Widgets.git')
+  assert.deepEqual(await repositoryOf(repo), { root: repo, worktree: false, origin: identity })
+
+  const clone = join(repo, '..', 'widgets-team-clone')
+  await run('git', ['clone', '-q', repo, clone])
+  await git(clone, 'remote', 'set-url', 'origin', 'https://jane:not-a-real-token@github.com/Acme/Widgets.git')
+  assert.deepEqual(await repositoryOf(clone), { root: clone, worktree: false, origin: identity }, 'credentials never travel')
+
+  const tree = await worktrees.create(repo, { name: 'Fix the parser' })
+  assert.deepEqual(await repositoryOf(tree.path), { root: repo, worktree: true, origin: identity }, 'a linked checkout shares its repository’s remote')
+
+  // The remote git would use, not the text in the config: an alias a person set up is still the same repository.
+  const aliased = join(repo, '..', 'widgets-aliased')
+  await run('git', ['clone', '-q', repo, aliased])
+  await git(aliased, 'config', 'url.https://github.com/.insteadOf', 'gh:')
+  await git(aliased, 'remote', 'set-url', 'origin', 'gh:Acme/Widgets')
+  assert.deepEqual(await repositoryOf(aliased), { root: aliased, worktree: false, origin: identity })
+})
+
+/**
  * The root has to be a folder someone works in, not wherever git keeps its
  * state. `dirname(--git-common-dir)` is the checkout only for the ordinary
  * layout: a submodule's common dir is `<super>/.git/modules/<path>`, and
