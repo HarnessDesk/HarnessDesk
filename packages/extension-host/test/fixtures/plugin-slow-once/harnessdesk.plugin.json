@@ -1,0 +1,7 @@
+{
+  "id": "slow-once",
+  "name": "Plugin that is slow to load, once",
+  "version": "1.0.0",
+  "main": "./index.js",
+  "permissions": {}
+}

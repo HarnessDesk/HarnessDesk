@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import { execFile } from 'node:child_process'
+import { execFile, spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import fs from 'node:fs'
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -38,9 +38,112 @@ import {
   nodeInstallPrefixFor,
 } from './library.mjs'
 import { installProbes, parseAcpOutput, parseCodexOutput, parseRejectionWords, summarizeAcpMessages } from './probes/index.mjs'
+// Namespace imports for what this round adds: a missing export fails its own test rather than the whole file.
+import * as probeModule from './probes/index.mjs'
 import * as harness from './library.mjs'
 
 const under = (root, path) => path.startsWith(`${root}/`) || path === root
+
+test('bundled model bridges use the app package entries and a fake bridge receives the selected CLI', async (t) => {
+  for (const [id, name, variable] of [['claude-code', 'claude-acp', 'CLAUDE_CODE_EXECUTABLE'], ['cursor', 'cursor-acp', 'CURSOR_ACP_COMMAND']]) {
+    const fixture = await createFixture()
+    t.after(() => rm(fixture.root, { recursive: true, force: true }))
+    const packagesRoot = join(fixture.root, 'packages')
+    const entry = join(packagesRoot, name, 'dist/src/main.js')
+    const requests = join(fixture.root, 'bridge-requests.jsonl')
+    const source = await readFile(new URL('../../packages/adapter-acp/test/fixtures/fake-acp-agent.mjs', import.meta.url), 'utf8')
+    await mkdir(join(packagesRoot, name, 'dist/src'), { recursive: true })
+    await writeFile(join(packagesRoot, name, 'package.json'), '{"type":"module"}')
+    await writeFile(entry, source.replace('const handler = handlers[message.method]', `appendFileSync(${JSON.stringify(requests)}, JSON.stringify({ method: message.method, executable: process.env.${variable}, nested: process.env.CLAUDECODE }) + '\\n');\n  const handler = handlers[message.method]`))
+    const agent = { id, command: process.execPath, acp: { args: [], bridge: { command: name, args: [], executableEnv: variable } } }
+    const resolved = await harness.resolveModelBridge(agent, { packagesRoot, realHome: join(fixture.root, 'real-home') })
+    assert.equal(resolved.agent.acp.bridge.command, process.execPath)
+    assert.deepEqual(resolved.agent.acp.bridge.args, [fs.realpathSync(entry)])
+    assert.ok(resolved.readPaths.includes(fs.realpathSync(join(packagesRoot, name))))
+    assert.ok(!resolved.readPaths.includes(packagesRoot))
+    const staged = await harness.stageModelBridge(resolved.agent, fixture)
+    assert.equal(await prepareSandbox(fixture, { isolation: KEYCHAIN_READ_ONLY }), true, fixture.isolation.reason)
+    const probes = await import('./probes/index.mjs')
+    installProbes({ registerProbe: () => {}, createPromptBudget: harness.createPromptBudget, run: async (command, args, passedFixture, options) => {
+      assert.equal(passedFixture, fixture)
+      return run(command, args, passedFixture, options)
+    } })
+    const result = await probes.probeAcpHandshake(staged, fixture)
+    assert.equal(result.status, 'asked')
+    assert.equal(result.prompted, false)
+    const sent = (await readFile(requests, 'utf8')).trim().split('\n').map(JSON.parse)
+    assert.deepEqual(sent.map(request => request.method), ['initialize', 'session/new'])
+    assert.ok(sent.every(request => request.executable === process.execPath))
+    if (id === 'claude-code') assert.ok(sent.every(request => request.nested === ''))
+  }
+})
+
+test('bundled bridge absence and unsafe read roots have distinct path-free refusals', async (t) => {
+  const root = await mkdtemp('/tmp/hd-measure-bridge-')
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const agent = { id: 'cursor', acp: { bridge: { command: 'cursor-acp', args: [], executableEnv: 'CURSOR_ACP_COMMAND' } } }
+  assert.equal((await harness.resolveModelBridge(agent, { packagesRoot: root })).reason, 'bridge not installed')
+  const packageRoot = join(root, 'cursor-acp')
+  await mkdir(join(packageRoot, 'dist/src'), { recursive: true })
+  await writeFile(join(packageRoot, 'dist/src/main.js'), '')
+  assert.equal((await harness.resolveModelBridge(agent, { packagesRoot: root, realHome: fs.realpathSync(packageRoot) })).reason, 'cannot isolate: bridge install directory unsafe')
+})
+
+test('bundled bridge modules and their dependency trees load under the approved profile without a session', async (t) => {
+  const { KNOWN_AGENTS } = await import('../../packages/server/dist/src/installs/known-agents.js')
+  for (const id of ['claude-code', 'cursor']) {
+    const fixture = await createFixture()
+    t.after(() => rm(fixture.root, { recursive: true, force: true }))
+    const resolved = await harness.resolveModelBridge(KNOWN_AGENTS.find(agent => agent.id === id))
+    assert.equal(resolved.reason, undefined)
+    const staged = await harness.stageModelBridge(resolved.agent, fixture)
+    const args = staged.acp.bridge.args
+    assert.ok(under(fixture.root, args.at(-1)))
+    assert.equal(await prepareSandbox(fixture, { isolation: KEYCHAIN_READ_ONLY }), true, fixture.isolation.reason)
+    const module = join(args.at(-1), '..', 'bridge.js')
+    const result = await run(staged.acp.bridge.command, [...args.slice(0, -1), '--input-type=module', '-e', `import(${JSON.stringify(module)}).then(()=>process.stdout.write('loaded')).catch(()=>process.exit(2))`], fixture)
+    assert.equal(result.code, 0, `${id} bundle import refused`)
+    assert.equal(result.stdout, 'loaded')
+  }
+})
+
+test('RPC failures reduce to fixed reasons and error classes', async () => {
+  const { classifyRequestError } = await import('./probes/index.mjs')
+  for (const [error, reason, errorClass] of [
+    [{ code: -32000, message: 'synthetic-error-detail' }, 'sign-in not reachable under the approved profile', 'authentication-required'],
+    [{ code: -32603, message: 'Internal error', data: { details: 'fetch failed: ENOTFOUND synthetic-error-detail' } }, 'network refused', 'internal-error'],
+    [{ code: -32603, message: 'quota exceeded synthetic-error-detail' }, 'quota', 'internal-error'],
+    [{ code: -32602, message: 'synthetic-error-detail' }, 'unknown', 'invalid-params'],
+  ]) assert.deepEqual(classifyRequestError(error), { reason, errorClass })
+  assert.deepEqual(classifyRequestError({ code: -32000 }, true), { reason: 'unknown', errorClass: 'server-error' })
+})
+
+test('fake ACP request failures persist only their stage and fixed error class', async (t) => {
+  for (const method of ['initialize', 'session/new', 'session/prompt']) {
+    const fixture = await createFixture()
+    t.after(() => rm(fixture.root, { recursive: true, force: true }))
+    const peer = join(fixture.root, 'failure.mjs')
+    const requests = join(fixture.root, 'requests.jsonl')
+    const source = await readFile(new URL('../../packages/adapter-acp/test/fixtures/fake-acp-agent.mjs', import.meta.url), 'utf8')
+    await writeFile(peer, source.replace('const handler = handlers[message.method]', `appendFileSync(${JSON.stringify(requests)}, JSON.stringify({ method: message.method }) + '\\n');\n  if (message.method === ${JSON.stringify(method)}) { send({ jsonrpc: '2.0', id: message.id, error: { code: -32000, message: 'synthetic-error-detail', data: { detail: 'synthetic-env-value' } } }); return; }\n  const handler = handlers[message.method]`))
+    const probes = new Map()
+    const captures = []
+    installProbes({ registerProbe: (id, probe) => probes.set(id, probe), createPromptBudget: harness.createPromptBudget, run: async (command, args, passedFixture, options) => {
+      const { stdout, stderr } = await promisify(execFile)(command, args, { env: { ...safeEnv(passedFixture), ...options.envOverrides }, timeout: 15_000 })
+      captures.push(stdout, stderr)
+      return { code: 0, stdout, stderr }
+    } })
+    const result = await probes.get('grok-build')({ id: 'grok-build', command: process.execPath, acp: { args: [peer] } }, fixture, { ask: true })
+    assert.equal(result.status, 'could-not-ask')
+    assert.equal(result.reason, 'sign-in not reachable under the approved profile')
+    assert.equal(result.prompted, method === 'session/prompt')
+    assert.deepEqual(result.facts.requestFailure, { stage: method === 'initialize' ? 'initialize' : method === 'session/new' ? 'session-new' : 'prompt', errorClass: 'authentication-required' })
+    const saved = await writeResult({ agent: 'Grok Build', agentId: 'grok-build', version: '1.0.0', measured: '2026-10-03', isolation: KEYCHAIN_READ_ONLY, auth: 'no sign-in used', ...result }, join(fixture.root, 'results'), fixture)
+    assert.doesNotMatch(JSON.stringify({ result, captures }) + await readFile(saved, 'utf8'), /synthetic-error-detail|synthetic-env-value/)
+    const sent = (await readFile(requests, 'utf8')).trim().split('\n').map(JSON.parse)
+    assert.deepEqual(sent.map(request => request.method), method === 'initialize' ? ['initialize'] : method === 'session/new' ? ['initialize', 'session/new'] : ['initialize', 'session/new', 'session/prompt'])
+  }
+})
 
 test('ask fixtures distinguish every scope and skill root by its description', async (t) => {
   const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-roots-'))
@@ -74,7 +177,7 @@ test('profile selection enumerates every agent and every isolation selection cal
   // Pin all production selection sites; profile construction and canary checks
   // consume this choice, but cannot choose an exception themselves.
   assert.deepEqual(source.split('\n').filter((line) => /(?:const isolation =|prepareSandbox\(fixture, \{ isolation)/.test(line)).map((line) => line.trim()), [
-    "export async function prepareSandbox(fixture, { isolation = 'strict', readPaths = [] } = {}) {",
+    "export async function prepareSandbox(fixture, { isolation = 'strict', readPaths = [], nodeBinary } = {}) {",
     'const isolation = discoveryIsolation(agent)',
     "if (!await prepareSandbox(fixture, { isolation, readPaths: copyRoots })) return { chosen: null, copies: [], state: 'unsafe' }",
     'const isolation = measurementIsolation(agent, options)',
@@ -885,4 +988,547 @@ test('Codex rejection parser reduces vendor errors to safe word categories', () 
     { message: 'fixture exceeds size limit' },
   ]), { description: true, size: true, manifest: true })
   assert.deepEqual(parseRejectionWords([{ message: 'other validation issue' }]), { description: false, size: false, manifest: false })
+})
+
+// ---------------------------------------------------------------------------
+// Round B2c: the permission answer, what a failed prompt saw, how an agent is
+// stopped, how a fixture is removed, and Cursor's version and install layout.
+// ---------------------------------------------------------------------------
+
+async function waitFor(condition, what, ms = 10_000) {
+  const end = Date.now() + ms
+  while (Date.now() < end) {
+    if (await condition()) return
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  assert.fail(`timed out waiting for ${what}`)
+}
+
+// The probes' `run` without the sandbox: a scripted peer is a plain Node script and needs none.
+const unsandboxedRun = (fixture, captures = []) => async (command, args, passedFixture, options = {}) => {
+  assert.equal(passedFixture, fixture)
+  const result = await promisify(execFile)(command, args, { cwd: fixture.repo, env: { ...safeEnv(fixture), ...options.envOverrides }, timeout: 30_000 })
+  captures.push(result.stdout + result.stderr)
+  return { code: 0, ...result }
+}
+
+const askedRefreshQuestion = "params.prompt[0].text.includes('one JSON object with only')"
+const finishingTheTurn = (answer) => `
+  update(params.sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: JSON.stringify(${askedRefreshQuestion} ? { description: 'REFRESHED_SENTINEL' } : ${JSON.stringify(answer)}) } });
+  return reply(id, { stopReason: 'end_turn' });
+`
+
+// The real scripted ACP peer with its session/prompt handler (and, when given, a
+// tail of startup code) replaced, so a test can play an agent that asks for
+// permission, goes quiet, fails or leaves a helper running. `messages` is
+// everything the client wrote to the peer, answers to the peer's own requests
+// included.
+async function scriptedAcpAsk(t, { prompt = ({ answer }) => finishingTheTurn(answer), startup = '', verified = false, discovery = false, promptTimeoutMs = 5000 } = {}) {
+  const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-script-'))
+  t.after(() => rm(fixture.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  const entries = await populateSkillRoots(fixture, { user: ['~/.gemini/skills'], project: ['.gemini/skills'] })
+  if (verified) assert.equal(await prepareSandbox(fixture), true, fixture.isolation.reason)
+  const answer = {
+    rules: [fixture.ruleSentinels[join(fixture.repo, 'GEMINI.md')]],
+    skills: entries.filter((entry) => entry.scope === 'project' && entry.sentinel).map(({ name, sentinel }) => ({ name, description: sentinel })),
+    mcp: ['measure_fixture'],
+  }
+  const log = join(fixture.root, 'client-messages.jsonl')
+  let source = await readFile(new URL('../../packages/adapter-acp/test/fixtures/fake-acp-agent.mjs', import.meta.url), 'utf8')
+  for (const [anchor, replacement] of [
+    ["if (typeof message.id === 'number' && pendingOutgoing.has(message.id)) {", `appendFileSync(${JSON.stringify(log)}, JSON.stringify(message) + '\\n');\n  if (typeof message.id === 'number' && pendingOutgoing.has(message.id)) {`],
+    ["'session/prompt': (id, params) => void runPrompt(id, params),", `'session/prompt': async (id, params) => {${prompt({ answer })}},`],
+    // The peer announces its commands right after it opens a session. Through a busy pipe that can arrive after the
+    // client has already sent its prompt, and the driver then counts it, rightly: but which prompt it lands in is not
+    // what these tests are about, so the staged peer does not send it and every count below is the prompt handler's own.
+    ["    update(state.id, {\n      sessionUpdate: 'available_commands_update',", "    if (false) update(state.id, {\n      sessionUpdate: 'available_commands_update',"],
+  ]) {
+    assert.ok(source.includes(anchor), `the scripted ACP peer changed under this test: ${anchor}`)
+    source = source.replace(anchor, () => replacement)
+  }
+  const peer = join(fixture.root, 'scripted-peer.mjs')
+  await writeFile(peer, source + startup)
+  const probes = new Map()
+  const captures = []
+  const sandboxed = async (command, args, passedFixture, options) => {
+    const result = await run(command, args, passedFixture, options)
+    captures.push(result.stdout + result.stderr)
+    return result
+  }
+  installProbes({ registerProbe: (id, probe) => probes.set(id, probe), createPromptBudget: harness.createPromptBudget, run: verified ? sandboxed : unsandboxedRun(fixture, captures) })
+  const agent = { id: 'gemini', name: 'Gemini CLI', version: '1.0.0', home: { path: '~/.gemini' }, auth: { secrets: [{ env: 'GEMINI_API_KEY' }] }, command: process.execPath, acp: { args: [peer] } }
+  let result
+  if (discovery) result = await probes.get('gemini')(agent, fixture)
+  else if (verified) {
+    registerProbe('gemini', probes.get('gemini'))
+    result = await askAgent(agent, fixture, { agentId: 'gemini', ask: true })
+  } else result = await probes.get('gemini')(agent, fixture, { ask: true, promptTimeoutMs, envOverrides: {}, allowedEnv: [] })
+  const messages = existsSync(log) ? (await readFile(log, 'utf8')).trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)) : []
+  return { result, fixture, captures, messages }
+}
+
+const permissionOptions = [
+  { optionId: 'allow-once-1', name: 'Allow once', kind: 'allow_once' },
+  { optionId: 'allow-always-1', name: 'Always allow', kind: 'allow_always' },
+  { optionId: 'reject-once-1', name: 'Reject once', kind: 'reject_once' },
+  { optionId: 'reject-always-1', name: 'Always reject', kind: 'reject_always' },
+]
+
+// An agent that will not finish its turn until the client has answered a
+// permission request with a valid refusal: a `cancelled` outcome, or the option
+// it offered to reject once. With `retryOnError` it behaves the way Gemini was
+// seen to: an answer that is a JSON-RPC error does not end the turn, it is asked again.
+const askingPermission = ({ options, retryOnError = false }) => ({ answer }) => `
+  if (!${askedRefreshQuestion}) {
+    const options = ${JSON.stringify(options)};
+    const ask = () => request('session/request_permission', { sessionId: params.sessionId, toolCall: { toolCallId: 'synthetic-call', title: 'synthetic tool', kind: 'other', status: 'pending' }, options });
+    let outcome;
+    ${retryOnError
+      ? 'for (;;) { try { ({ outcome } = await ask()); break } catch { await new Promise((resolve) => setTimeout(resolve, 20)) } }'
+      : "try { ({ outcome } = await ask()) } catch { return fail(id, 'the permission request was answered with an error') }"}
+    const picked = options.find((option) => option.optionId === outcome?.optionId);
+    const refused = outcome?.outcome === 'cancelled' || (outcome?.outcome === 'selected' && picked?.kind === 'reject_once');
+    if (!refused) return fail(id, 'the client did not refuse the permission request');
+  }
+  ${finishingTheTurn(answer)}
+`
+
+// An agent that talks and asks for things and then never ends its turn. Every
+// string it uses says CANARY; none of them may come back out of the harness.
+const goingQuiet = () => `
+  const session = params.sessionId;
+  const say = (kind, body = {}) => update(session, { sessionUpdate: kind, ...body });
+  for (let n = 0; n < 3; n += 1) say('agent_thought_chunk', { content: { type: 'text', text: 'CANARY_THOUGHT_TEXT' } });
+  for (let n = 0; n < 2; n += 1) say('tool_call', { toolCallId: 'CANARY_TOOL_CALL_ID', title: 'CANARY_TOOL_NAME', kind: 'execute', status: 'pending', rawInput: { command: 'CANARY_COMMAND', path: '/CANARY/path' } });
+  for (let n = 0; n < 2; n += 1) say('tool_call_update', { toolCallId: 'CANARY_TOOL_CALL_ID', status: 'in_progress' });
+  say('plan', { entries: [{ content: 'CANARY_PLAN_TEXT', priority: 'high', status: 'pending' }] });
+  say('agent_message_chunk', { content: { type: 'text', text: 'CANARY_MESSAGE_TEXT' } });
+  say('CANARY_UNKNOWN_KIND', { content: 'CANARY_UNKNOWN_PAYLOAD' });
+  notify('CANARY/notification', { detail: 'CANARY_NOTIFICATION_PAYLOAD' });
+  for (const [method, body] of [
+    ['session/request_permission', { toolCall: { toolCallId: 'CANARY_TOOL_CALL_ID', title: 'CANARY_TOOL_NAME' }, options: [{ optionId: 'CANARY_OPTION_ID', name: 'CANARY_OPTION_NAME', kind: 'allow_once' }] }],
+    ['fs/read_text_file', { path: '/CANARY/path/to/file' }],
+    ['terminal/create', { command: 'CANARY_COMMAND' }],
+    ['CANARY/request', { detail: 'CANARY_REQUEST_PAYLOAD' }],
+  ]) request(method, { sessionId: session, ...body }).catch(() => {});
+`
+
+test('an ACP permission request is refused the way the protocol specifies and nothing else is answered', () => {
+  const { answerClientRequest } = probeModule
+  const permission = (params) => answerClientRequest({ jsonrpc: '2.0', id: 7, method: 'session/request_permission', params }, true)
+  assert.deepEqual(permission({ options: permissionOptions }), { jsonrpc: '2.0', id: 7, result: { outcome: { outcome: 'selected', optionId: 'reject-once-1' } } })
+  // The request's own reject_once option wherever it sits; never an allow, never a standing reject.
+  assert.equal(permission({ options: permissionOptions.toReversed() }).result.outcome.optionId, 'reject-once-1')
+  for (const options of [
+    permissionOptions.filter((option) => option.kind.startsWith('allow')),
+    permissionOptions.filter((option) => option.kind !== 'reject_once'),
+    [], undefined, null, 'reject_once', { kind: 'reject_once', optionId: 'reject-once-1' },
+    [null, 7, 'reject_once', {}], [{ kind: 'reject_once' }], [{ kind: 'reject_once', optionId: '' }], [{ kind: 'reject_once', optionId: 7 }],
+  ]) assert.deepEqual(permission({ options }), { jsonrpc: '2.0', id: 7, result: { outcome: { outcome: 'cancelled' } } }, JSON.stringify(options))
+  assert.deepEqual(permission(undefined).result, { outcome: { outcome: 'cancelled' } })
+  // The client advertises neither fs nor terminal, so those, and anything the harness has no name for,
+  // keep the method-not-found error; so does every request to a peer that is not ACP.
+  for (const method of ['fs/read_text_file', 'fs/write_text_file', 'terminal/create', 'terminal/output', 'terminal/release', 'terminal/wait_for_exit', 'terminal/kill', 'unknown/method']) {
+    assert.deepEqual(answerClientRequest({ id: 9, method, params: {} }, true), { jsonrpc: '2.0', id: 9, error: { code: -32601, message: 'not available' } }, method)
+  }
+  assert.deepEqual(answerClientRequest({ id: 3, method: 'session/request_permission', params: { options: permissionOptions } }, false), { jsonrpc: '2.0', id: 3, error: { code: -32601, message: 'not available' } })
+})
+
+test('agent messages are classified only into the fixed vocabulary', () => {
+  const { classifyAgentMessage, ACP_ACTIVITY } = probeModule
+  const kind = (message) => classifyAgentMessage(message, ACP_ACTIVITY)
+  for (const update of ACP_ACTIVITY.updates) assert.equal(kind({ method: 'session/update', params: { update: { sessionUpdate: update } } }), update)
+  for (const [method, name] of Object.entries(ACP_ACTIVITY.requests)) assert.equal(kind({ id: 4, method, params: {} }), name)
+  // A kind or a method the harness has no name for is counted, never echoed.
+  for (const message of [
+    { method: 'session/update', params: { update: { sessionUpdate: 'private_kind_name' } } },
+    { method: 'session/update', params: { update: { sessionUpdate: '__proto__' } } },
+    { method: 'session/update', params: { update: { sessionUpdate: 'constructor' } } },
+    { method: 'session/update', params: { update: { sessionUpdate: 42 } } },
+    { method: 'session/update', params: { update: null } }, { method: 'session/update' },
+    { method: 'private/notification', params: {} },
+    { id: 5, method: 'private/request', params: {} }, { id: 5, method: '__proto__' }, { id: 5, method: 'constructor' }, { id: 5, method: 'toString' },
+    // A notification named like a request is not that request: it carries no id.
+    { method: 'fs/read_text_file', params: {} },
+  ]) assert.equal(kind(message), 'other', JSON.stringify(message))
+  // Answers to the client's own requests, and anything that is not a message, count for nothing.
+  for (const message of [{ id: 1, result: {} }, { id: 2, error: { code: -32000, message: 'private detail' } }, null, 'text', 7, []]) assert.equal(kind(message), null)
+})
+
+test('an agent that asks for permission finishes its turn only after a valid refusal, and nothing is allowed', async (t) => {
+  for (const [offered, outcome] of [
+    [permissionOptions, { outcome: 'selected', optionId: 'reject-once-1' }],
+    [permissionOptions.filter((option) => option.kind.startsWith('allow')), { outcome: 'cancelled' }],
+    [permissionOptions.filter((option) => option.kind !== 'reject_once'), { outcome: 'cancelled' }],
+  ]) {
+    const kinds = offered.map((option) => option.kind).join(',')
+    const { result, messages } = await scriptedAcpAsk(t, { prompt: askingPermission({ options: offered }) })
+    assert.equal(result.status, 'asked', kinds)
+    assert.equal(Object.hasOwn(result.facts, 'promptActivity'), false, 'a turn that completed carries no failure diagnostic')
+    const answers = messages.filter((message) => message.id > 1000)
+    assert.deepEqual(answers.map((message) => message.result), [{ outcome }], kinds)
+    assert.ok(answers.every((message) => message.error === undefined), kinds)
+  }
+})
+
+test('an agent that asks again after an error answer is no longer left waiting', async (t) => {
+  const { result, messages } = await scriptedAcpAsk(t, { prompt: askingPermission({ options: permissionOptions, retryOnError: true }), promptTimeoutMs: 10_000 })
+  assert.equal(result.status, 'asked', result.reason)
+  assert.equal(messages.filter((message) => message.id > 1000).length, 1, 'one valid answer, not an error repeated until the deadline')
+})
+
+test('the refusal also ends the turn under the verified sandbox', async (t) => {
+  if (process.platform !== 'darwin') return t.skip('macOS only')
+  const { result } = await scriptedAcpAsk(t, { prompt: askingPermission({ options: permissionOptions }), verified: true })
+  assert.equal(result.status, 'asked', result.reason)
+  assert.equal(result.isolation, 'strict')
+})
+
+// A Codex-shaped peer, as small as the model driver needs: during its turn it makes one request of its client and
+// logs the answer. The request is shaped like an ACP permission request on purpose, so a driver that answered it
+// with an outcome would show. Only ACP agents are refused that way; this driver is the one that was not changed.
+test('the app-server driver still answers every request it is sent with method-not-found', async (t) => {
+  const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-codex-requests-'))
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  await populateSkillRoots(fixture, { user: ['~/.codex/skills'], project: ['.codex/skills'] })
+  const log = join(fixture.root, 'client-answers.jsonl')
+  const peer = join(fixture.root, 'codex-peer.mjs')
+  await writeFile(peer, `#!${process.execPath}
+import { appendFileSync } from 'node:fs'
+import { createInterface } from 'node:readline'
+const send = (value) => process.stdout.write(JSON.stringify(value) + '\\n')
+createInterface({ input: process.stdin }).on('line', (line) => {
+  const message = JSON.parse(line)
+  if (message.id === 'peer-request') {
+    appendFileSync(${JSON.stringify(log)}, line + '\\n')
+    send({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } } })
+  } else if (message.method === 'initialize') send({ id: message.id, result: {} })
+  else if (message.method === 'thread/start') send({ id: message.id, result: { thread: { id: 'thread-1' } } })
+  else if (message.method === 'turn/start') {
+    send({ id: message.id, result: { turn: { id: 'turn-1' } } })
+    send({ id: 'peer-request', method: 'session/request_permission', params: { options: ${JSON.stringify(permissionOptions)} } })
+  }
+})
+`)
+  fs.chmodSync(peer, 0o755)
+  const probes = new Map()
+  installProbes({ registerProbe: (id, probe) => probes.set(id, probe), createPromptBudget: harness.createPromptBudget, run: unsandboxedRun(fixture) })
+  const agent = { id: 'codex', name: 'Codex', version: '1.0.0', home: { path: '~/.codex' }, auth: { secrets: [] }, command: peer }
+  await probes.get('codex')(agent, fixture, { ask: true, promptTimeoutMs: 10_000, envOverrides: {}, allowedEnv: [] })
+  const answers = (await readFile(log, 'utf8')).trim().split('\n').map((line) => JSON.parse(line))
+  assert.ok(answers.length >= 1, 'the peer was answered')
+  for (const answer of answers) assert.deepEqual(answer, { jsonrpc: '2.0', id: 'peer-request', error: { code: -32601, message: 'not available' } })
+})
+
+test('a prompt that times out persists counts of the message kinds it saw and nothing else', async (t) => {
+  const { result, captures, fixture } = await scriptedAcpAsk(t, { prompt: goingQuiet, promptTimeoutMs: 3000 })
+  assert.equal(result.status, 'could-not-ask')
+  assert.equal(result.reason, 'prompt timed out')
+  assert.deepEqual(result.facts.promptActivity, {
+    agent_thought_chunk: 3, tool_call: 2, tool_call_update: 2, plan: 1, agent_message_chunk: 1,
+    session_request_permission: 1, fs_read_text_file: 1, terminal_create: 1, other: 3,
+  })
+  const saved = await writeResult({ agent: 'Gemini CLI', agentId: 'gemini', version: '0.62.0', measured: '2026-10-03', isolation: 'strict', auth: 'environment key', ...result }, join(fixture.root, 'results'), fixture)
+  const persisted = await readFile(saved, 'utf8')
+  assert.match(persisted, /"promptActivity"/)
+  assert.doesNotMatch(JSON.stringify(result) + persisted + captures.join('\n'), /CANARY|acp-session-/)
+  assert.ok(!persisted.includes(fixture.root), 'no path of the machine')
+})
+
+test('the activity counted is the failing prompt\'s own, and a rejected prompt carries it too', async (t) => {
+  const { result, captures } = await scriptedAcpAsk(t, {
+    prompt: ({ answer }) => `
+      if (${askedRefreshQuestion}) {
+        update(params.sessionId, { sessionUpdate: 'tool_call', toolCallId: 'CANARY_TOOL_CALL_ID', title: 'CANARY_TOOL_NAME', kind: 'other', status: 'pending' });
+        return send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Internal error', data: { details: 'CANARY_ERROR_DETAIL' } } });
+      }
+      update(params.sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'CANARY_FIRST_PROMPT' } });
+      update(params.sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'CANARY_FIRST_PROMPT' } });
+      ${finishingTheTurn(answer)}
+    `,
+  })
+  assert.equal(result.status, 'could-not-ask')
+  assert.deepEqual(result.facts.requestFailure, { stage: 'prompt', errorClass: 'internal-error' })
+  assert.deepEqual(result.facts.promptActivity, { tool_call: 1 }, 'the first prompt\'s two thought chunks belong to a prompt that succeeded')
+  assert.doesNotMatch(JSON.stringify(result) + captures.join('\n'), /CANARY/)
+})
+
+test('a flood of agent messages is counted up to the cap and still persists', async (t) => {
+  const { result, fixture } = await scriptedAcpAsk(t, {
+    prompt: () => `for (let n = 0; n < 600; n += 1) update(params.sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'x' } });`,
+    promptTimeoutMs: 4000,
+  })
+  assert.equal(result.reason, 'prompt timed out')
+  assert.deepEqual(result.facts.promptActivity, { agent_thought_chunk: 500 })
+  await writeResult({ agent: 'Gemini CLI', agentId: 'gemini', version: '0.62.0', measured: '2026-10-03', isolation: 'strict', auth: 'environment key', ...result }, join(fixture.root, 'results'), fixture)
+})
+
+test('persisted prompt activity admits only the fixed vocabulary with bounded counts', () => {
+  const fixture = { ruleSentinels: {}, skills: { sentinel: '/tmp/measure-sentinel' } }
+  const failed = { agent: 'Gemini CLI', agentId: 'gemini', version: '0.62.0', measured: '2026-10-03', interface: 'ACP model prompt', question: 'rules catalogue precedence rejections refresh mcp', rawAnswer: '', status: 'could-not-ask', reason: 'prompt timed out', facts: {} }
+  const { ACP_ACTIVITY } = probeModule
+  const everyKind = [...ACP_ACTIVITY.updates, ...Object.values(ACP_ACTIVITY.requests), 'other']
+  for (const promptActivity of [{}, { other: 1 }, Object.fromEntries(everyKind.map((kind) => [kind, 500]))]) {
+    assert.equal(validateResult({ ...failed, facts: { promptActivity } }, fixture).status, 'could-not-ask')
+  }
+  for (const promptActivity of [
+    { read_file: 1 }, { bash: 1 }, { read_secret_file: 1 }, { 'tool_call ': 1 }, { Tool_Call: 1 }, { tool_call: 501 }, { tool_call: -1 }, { tool_call: 1.5 },
+    { tool_call: '2' }, { tool_call: null }, { tool_call: { count: 1 } }, [], [1], 'tool_call', null, 3,
+  ]) assert.throws(() => validateResult({ ...failed, facts: { promptActivity } }, fixture), /fixture-derived allowlist/, JSON.stringify(promptActivity))
+})
+
+test('a probe that reports activity outside the vocabulary loses its facts, not the run', async (t) => {
+  if (process.platform !== 'darwin') return t.skip('macOS only')
+  // A tool's name is the kind of key an agent could put here, and it passes every generic rule on facts, so only the
+  // vocabulary refuses it. (A key that names a secret is refused by those rules already and would prove nothing.)
+  let answer
+  registerProbe('activity-test-agent', async () => answer)
+  const agent = { id: 'activity-test-agent', name: 'Test Agent', home: { path: '~/.activity-test' }, auth: { secrets: [{ env: 'GEMINI_API_KEY' }] } }
+  const previous = process.env.GEMINI_API_KEY
+  process.env.GEMINI_API_KEY = 'synthetic-env-value'
+  t.after(() => { if (previous === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = previous })
+  // A model run is allowed once per fixture, so each answer gets a fixture of its own.
+  const ask = async (reply) => {
+    answer = reply
+    const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-activity-'))
+    t.after(() => rm(fixture.root, { recursive: true, force: true }))
+    assert.equal(await prepareSandbox(fixture), true, fixture.isolation.reason)
+    return askAgent(agent, fixture, { agentId: agent.id, ask: true, envName: 'GEMINI_API_KEY' })
+  }
+  const question = 'rules catalogue precedence rejections refresh mcp'
+  const failed = (promptActivity) => ({ status: 'could-not-ask', reason: 'prompt timed out', interface: 'ACP model prompt', question, facts: { promptActivity } })
+  const reached = (promptActivity) => ({ status: 'asked', rawAnswer: '', interface: 'ACP model prompt', question, facts: { signedOutCatalogue: { status: 'unknown', observation: 'session-created' }, promptActivity } })
+
+  assert.deepEqual((await ask(failed({ tool_call: 1 }))).facts.promptActivity, { tool_call: 1 }, 'a name from the vocabulary is kept')
+  const unnamed = await ask(failed({ read_file: 1 }))
+  assert.equal(unnamed.status, 'could-not-ask')
+  assert.equal(unnamed.reason, 'prompt timed out', 'the run keeps its reason')
+  assert.equal(Object.hasOwn(unnamed.facts, 'promptActivity'), false, 'and loses the facts')
+  // The same guard on an answer that claims success, which a probe never sends for a failed prompt. Its own reason tells
+  // it from the final check in validateResult, which the stand-in agent below would trip over later.
+  assert.equal((await ask(reached({ read_file: 1 }))).reason, 'parsed facts failed the privacy allowlist')
+  assert.notEqual((await ask(reached({ tool_call: 1 }))).reason, 'parsed facts failed the privacy allowlist', 'the same facts under a name from the vocabulary pass that guard')
+})
+
+test('stopping an agent waits for every process it started and kills the ones that will not leave', async (t) => {
+  const { stopProcessGroup } = probeModule
+  const root = await mkdtemp('/tmp/hd-measure-group-')
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const startGroup = async (name, helper) => {
+    const ready = join(root, `${name}.ready`)
+    const late = join(root, `${name}.late`)
+    const leader = spawn(process.execPath, ['-e', `
+      const { spawn } = require('node:child_process');
+      spawn(process.execPath, ['-e', ${JSON.stringify(helper(ready, late))}], { stdio: 'ignore' });
+      setInterval(() => {}, 1000);
+    `], { detached: true, stdio: 'ignore' })
+    t.after(() => { try { process.kill(-leader.pid, 'SIGKILL') } catch { /* already gone */ } })
+    await waitFor(() => existsSync(ready), `${name} helper`)
+    return { leader, late }
+  }
+  const slow = await startGroup('slow', (ready, late) => `
+    const fs = require('node:fs');
+    process.on('SIGTERM', () => setTimeout(() => { fs.writeFileSync(${JSON.stringify(late)}, 'flushed'); process.exit(0) }, 400));
+    fs.writeFileSync(${JSON.stringify(ready)}, 'ready');
+    setInterval(() => {}, 1000);
+  `)
+  // The grace is generous here: what is asserted is that the stop waits for the helper, and a busy machine must not turn that into a kill.
+  await stopProcessGroup(slow.leader, 10_000)
+  assert.throws(() => process.kill(-slow.leader.pid, 0), { code: 'ESRCH' }, 'the helper was still running when the stop returned')
+  assert.equal(existsSync(slow.late), true, 'the helper was given its time to finish, not killed on the spot')
+
+  const stubborn = await startGroup('stubborn', (ready) => `
+    process.on('SIGTERM', () => {});
+    require('node:fs').writeFileSync(${JSON.stringify(ready)}, 'ready');
+    setInterval(() => {}, 1000);
+  `)
+  const started = Date.now()
+  await stopProcessGroup(stubborn.leader, 150)
+  assert.throws(() => process.kill(-stubborn.leader.pid, 0), { code: 'ESRCH' }, 'a helper that ignores the stop signal was not killed')
+  assert.ok(Date.now() - started < 5000)
+
+  const gone = spawn(process.execPath, ['-e', ''], { detached: true, stdio: 'ignore' })
+  await new Promise((resolve) => gone.once('close', resolve))
+  await stopProcessGroup(gone)
+  await stopProcessGroup({})
+})
+
+// An agent that starts a helper of its own, as real ones start bridges and
+// language servers, and does not answer anything until that helper is up. The
+// helper takes a third of a second to leave once told to stop, and writes as it goes: long enough that a stop which
+// only waits for the agent itself returns first, short enough to finish well inside the one second the model driver allows.
+const lingeringHelper = (ready, late) => `
+  const fs = require('node:fs');
+  process.on('SIGTERM', () => setTimeout(() => { fs.writeFileSync(${JSON.stringify(late)}, 'written after the stop signal'); process.exit(0) }, 300));
+  fs.writeFileSync(${JSON.stringify(ready)}, String(process.pid));
+  setInterval(() => {}, 1000);
+`
+const peerWithLingeringHelper = (ready, late) => `
+const { spawn: helperSpawn } = process.getBuiltinModule('node:child_process');
+const { existsSync: helperReady } = process.getBuiltinModule('node:fs');
+helperSpawn(process.execPath, ['-e', ${JSON.stringify(lingeringHelper(ready, late))}], { stdio: 'ignore' });
+for (let waited = 0; !helperReady(${JSON.stringify(ready)}) && waited < 20000; waited += 10) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+`
+
+test('an agent helper still shutting down is gone before a probe returns, so nothing writes into the fixture afterwards', async (t) => {
+  const root = await mkdtemp('/tmp/hd-measure-linger-')
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const afterwards = async (mode, ready, late) => {
+    const pid = Number(await readFile(ready, 'utf8'))
+    t.after(() => { try { process.kill(pid, 'SIGKILL') } catch { /* already gone */ } })
+    assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' }, `${mode}: the agent's helper outlived the probe`)
+    assert.equal(existsSync(late), true, `${mode}: the helper was killed instead of being let finish`)
+  }
+  for (const [mode, options] of [['ask', {}], ['discovery', { discovery: true }]]) {
+    const ready = join(root, `${mode}.ready`)
+    const late = join(root, `${mode}.late`)
+    await scriptedAcpAsk(t, { ...options, startup: peerWithLingeringHelper(ready, late) })
+    await afterwards(mode, ready, late)
+  }
+  // The Codex app-server driver stops its child through the same call.
+  const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-linger-codex-'))
+  t.after(() => rm(fixture.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  const ready = join(root, 'codex.ready')
+  const late = join(root, 'codex.late')
+  const peer = join(fixture.root, 'codex-peer.mjs')
+  const source = (await readFile(new URL('../../packages/adapter-codex/test/fixtures/fake-codex.mjs', import.meta.url), 'utf8')).replace(/^#!.*\n/, `#!${process.execPath}\n`)
+  await writeFile(peer, source + peerWithLingeringHelper(ready, late))
+  fs.chmodSync(peer, 0o755)
+  const probes = new Map()
+  installProbes({ registerProbe: (id, probe) => probes.set(id, probe), createPromptBudget: harness.createPromptBudget, run: unsandboxedRun(fixture) })
+  await probes.get('codex')({ id: 'codex', name: 'Codex', command: peer }, fixture)
+  await afterwards('codex discovery', ready, late)
+})
+
+test('a fixture folder that cannot be removed is reported by name and code alone, after bounded retries', async () => {
+  const { removeFixtureRoot } = harness
+  const calls = []
+  assert.equal(await removeFixtureRoot('/tmp/hd-measure-AbC123', async (path, options) => { calls.push({ path, options }) }), null)
+  assert.deepEqual(calls, [{ path: '/tmp/hd-measure-AbC123', options: { recursive: true, force: true, maxRetries: 5, retryDelay: 200 } }])
+  const refused = (error) => async () => { throw error }
+  assert.deepEqual(
+    await removeFixtureRoot('/tmp/hd-measure-AbC123', refused(Object.assign(new Error("ENOTEMPTY: directory not empty, rmdir '/tmp/hd-measure-AbC123/home/Library'"), { code: 'ENOTEMPTY', path: '/tmp/hd-measure-AbC123/home/Library' }))),
+    { folder: 'hd-measure-AbC123', code: 'ENOTEMPTY' },
+  )
+  // Whatever else an error carries is not reported: not a message, not a path, not a code that is not an errno name.
+  for (const error of [new Error('plain failure in /tmp/hd-measure-AbC123'), Object.assign(new Error('x'), { code: 'not an errno /tmp/secret' }), Object.assign(new Error('x'), { code: 13 }), null, undefined, 'text']) {
+    assert.deepEqual(await removeFixtureRoot('/tmp/hd-measure-AbC123', refused(error)), { folder: 'hd-measure-AbC123', code: 'unknown' })
+  }
+})
+
+test('a folder that cannot be removed leaves the written result alone, on its own line with its own exit code', async (t) => {
+  if (process.platform !== 'darwin') return t.skip('macOS only')
+  const root = await mkdtemp('/tmp/hd-measure-cli-')
+  const startedAt = Date.now()
+  t.after(async () => {
+    // The folder this test makes unremovable on purpose: only one born during this test, holding this test's sentinel.
+    for (const name of await readdir('/tmp')) {
+      const kept = join('/tmp', name)
+      if (!name.startsWith('hd-measure-') || fs.statSync(kept).birthtimeMs < startedAt - 1000 || !existsSync(join(kept, 'home/kept/inner/sentinel'))) continue
+      spawnSync('chmod', ['-R', 'u+rwx', kept])
+      await rm(kept, { recursive: true, force: true })
+    }
+    await rm(root, { recursive: true, force: true })
+  })
+  for (const path of ['script/measure/probes', 'packages/server/src/installs', 'packages/server/dist/src/installs', 'bin']) fs.mkdirSync(join(root, path), { recursive: true })
+  for (const path of ['script/measure/library.mjs', 'script/measure/probes/index.mjs', 'packages/server/src/installs/known-agents.ts']) {
+    await writeFile(join(root, path), await readFile(new URL(`../../${path}`, import.meta.url)))
+  }
+  // An agent whose sandboxed run leaves behind a folder nothing can empty: a directory it made and then took write permission from.
+  const agent = join(root, 'bin/synthetic-agent')
+  await writeFile(agent, '#!/bin/sh\nmkdir -p "$HOME/kept/inner" && echo kept > "$HOME/kept/inner/sentinel" && chmod 500 "$HOME/kept"\necho 1.2.3\n', { mode: 0o755 })
+  const real = fs.realpathSync(agent)
+  await writeFile(join(root, 'packages/server/dist/src/installs/known-agents.js'), `export const KNOWN_AGENTS = [{ id: 'cursor', name: 'Cursor', brand: 'cursor', home: { path: '~/.cursor' }, cli: { commands: ['synthetic-agent'] } }]`)
+  await writeFile(join(root, 'packages/server/dist/src/installs/locate.js'), [
+    `export const candidatePaths = () => [${JSON.stringify(real)}]`,
+    `export const findInstalls = async (spec, { probe }) => (await probe(${JSON.stringify(real)}, ['--version'])) ? [{ path: ${JSON.stringify(real)}, realPath: ${JSON.stringify(real)}, version: '1.2.3' }] : []`,
+    `export const judgeInstalls = (found) => ({ chosen: found[0] ? { ...found[0], standing: 'chosen' } : null, copies: found })`,
+  ].join('\n'))
+  const execution = await promisify(execFile)(process.execPath, [fs.realpathSync(join(root, 'script/measure/library.mjs')), '--agent', 'cursor'], { env: process.env }).catch((error) => error)
+  assert.equal(execution.code, 3, execution.stderr)
+  assert.match(execution.stdout, /^could-not-ask: cursor 1\.2\.3$/m, 'the result line was printed')
+  const written = JSON.parse(await readFile(join(root, 'docs/verification/library-measurements/cursor-1.2.3.json'), 'utf8'))
+  assert.equal(written.reason, 'needs sign-in, not measured', 'the result file was written and kept')
+  const lines = execution.stderr.trim().split('\n')
+  assert.equal(lines.length, 1, execution.stderr)
+  assert.match(lines[0], /^cleanup incomplete: hd-measure-[A-Za-z0-9]{6} was kept \(EACCES\)$/)
+  assert.doesNotMatch(execution.stderr, /measurement refused|invalid arguments|isolation|\//)
+})
+
+test('Cursor\'s calendar version is read exactly and nothing looser is', () => {
+  assert.equal(normalizeVersion('2026.09.28-64d2043'), '2026.09.28-64d2043')
+  for (const value of [
+    '2026.09.28-64D2043', '2026.9.28-64d2043', '2026.09.28-64d204', '2026.09.28-64d20431', '2026.09.28-64d204g', '2026.09.28-',
+    '2026.09.28-64d2043+build', '2026.09.28-64d2043-rc', '26.09.28-64d2043', '1.2.3-abcdef1', 'v2026.09.28-64d2043', ' 2026.09.28-64d2043', '2026.09.28-64d2043\n',
+  ]) assert.equal(normalizeVersion(value), 'unknown', value)
+})
+
+// Cursor's install layout, staged: a launcher on PATH that points into
+// share/cursor-agent/versions/<version>/, where a script launcher finds its own
+// runtime and bundle beside it.
+function stageCursorInstall(base, version = '2026.09.28-64d2043') {
+  const versionDir = join(base, 'share/cursor-agent/versions', version)
+  fs.mkdirSync(versionDir, { recursive: true })
+  fs.mkdirSync(join(base, 'bin'), { recursive: true })
+  fs.symlinkSync(process.execPath, join(versionDir, 'node'))
+  fs.writeFileSync(join(versionDir, 'index.js'), `if (process.argv.includes('--version')) process.stdout.write(${JSON.stringify(`${version}\n`)})\n`)
+  fs.writeFileSync(join(versionDir, 'cursor-agent'), [
+    '#!/usr/bin/env bash',
+    'set -euo pipefail',
+    'HERE="$(dirname "$(realpath "$0")")"',
+    'exec "$HERE/node" "$HERE/index.js" "$@"',
+    '',
+  ].join('\n'), { mode: 0o755 })
+  fs.symlinkSync(join(versionDir, 'cursor-agent'), join(base, 'bin/cursor-agent'))
+  return { version, versionDir, launcher: join(versionDir, 'cursor-agent'), onPath: join(base, 'bin/cursor-agent'), bin: join(base, 'bin') }
+}
+
+test('a Cursor-shaped launcher-plus-versions install is discovered and its version read under strict isolation', async (t) => {
+  if (process.platform !== 'darwin') return t.skip('macOS only')
+  const base = fs.realpathSync(await mkdtemp('/tmp/hd-measure-cursor-'))
+  t.after(() => rm(base, { recursive: true, force: true }))
+  const install = stageCursorInstall(base)
+  const priorPath = process.env.PATH
+  process.env.PATH = `${install.bin}:/usr/bin:/bin`
+  t.after(() => { process.env.PATH = priorPath })
+  const fixture = await createFixture(await mkdtemp('/tmp/hd-measure-cursor-fixture-'))
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const agent = { id: 'cursor', name: 'Cursor', brand: 'cursor', home: { path: '~/.cursor' }, cli: { commands: ['cursor-agent'] } }
+  const found = await harness.findAgentInstall(agent, fixture)
+  assert.equal(found.state, 'chosen', JSON.stringify(found.copies))
+  assert.equal(found.chosen.path, install.launcher)
+  assert.equal(found.chosen.version, install.version)
+  const captured = await harness.captureHelpVersion({ ...agent, command: found.chosen.path }, fixture)
+  assert.equal(captured.version.code, 0, captured.version.stderr)
+  // main() asks the model only when the two agree; a version this function would not normalize reads as "changed during discovery".
+  assert.equal(captured.value, found.chosen.version)
+})
+
+test('a launcher script under a credential root is refused by the unchanged profile, and only that rule refuses it', async (t) => {
+  if (process.platform !== 'darwin') return t.skip('macOS only')
+  const base = fs.realpathSync(await mkdtemp('/tmp/hd-measure-credential-'))
+  t.after(() => rm(base, { recursive: true, force: true }))
+  // A stand-in home: the profile is built for it exactly as the harness builds it for the real one.
+  const stagedHome = join(base, 'stand-in-home')
+  const fixtureRoot = join(base, 'fixture')
+  fs.mkdirSync(join(fixtureRoot, 'home'), { recursive: true })
+  const underCredentialRoot = stageCursorInstall(join(stagedHome, '.local'))
+  const elsewhere = stageCursorInstall(join(base, 'elsewhere'))
+  const profile = sandboxProfileText(stagedHome, { fixtureRoot, readPaths: [underCredentialRoot.versionDir, elsewhere.versionDir] })
+  const denial = `(deny file-read* file-write* (subpath ${JSON.stringify(join(stagedHome, '.local/share'))}))`
+  const lines = profile.split('\n')
+  assert.ok(lines.indexOf(`(allow file-read* (subpath ${JSON.stringify(underCredentialRoot.versionDir)}))`) < lines.indexOf(denial), 'the install folder is allowed first and denied last')
+  const profilePath = join(base, 'strict.sb')
+  const controlPath = join(base, 'control.sb')
+  fs.writeFileSync(profilePath, profile)
+  fs.writeFileSync(controlPath, lines.filter((line) => line !== denial).join('\n'))
+  assert.equal(lines.filter((line) => line !== denial).length, lines.length - 1, 'the control differs by that one rule')
+  const version = (profileFile, launcher) => spawnSync('/usr/bin/sandbox-exec', ['-f', profileFile, launcher, '--version'], { encoding: 'utf8', cwd: fixtureRoot, env: { PATH: '/usr/bin:/bin', HOME: join(fixtureRoot, 'home') }, timeout: 30_000 })
+  const refused = version(profilePath, underCredentialRoot.launcher)
+  assert.notEqual(refused.status, 0)
+  assert.match(refused.stderr, /Operation not permitted/)
+  const control = version(controlPath, underCredentialRoot.launcher)
+  assert.equal(control.stdout.trim(), underCredentialRoot.version, control.stderr)
+  const outside = version(profilePath, elsewhere.launcher)
+  assert.equal(outside.stdout.trim(), elsewhere.version, outside.stderr)
 })

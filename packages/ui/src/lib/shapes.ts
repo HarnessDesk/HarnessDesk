@@ -135,7 +135,9 @@ const asRecord = (value: unknown): Record<string, unknown> | null => (
  * dropped, so the graph can show that it happened without guessing what a
  * broken entry meant.
  */
-export const readGraphPositions = (policy: FlowPolicy): { readonly positions: Readonly<Record<string, GraphPoint>>; readonly invalid: boolean } => {
+export const readGraphPositions = (
+  policy: Pick<FlowPolicy, 'layout'> & { readonly roles: readonly { readonly id: string }[] },
+): { readonly positions: Readonly<Record<string, GraphPoint>>; readonly invalid: boolean } => {
   const layout = asRecord(policy.layout)
   const raw = layout ? asRecord(layout['positions']) : null
   if (!raw) return { positions: {}, invalid: false }

@@ -126,7 +126,7 @@ seat overrides and attendance; changed or reused tokens are refused.
 
 The local door grants `read` and `run` by default. File permissions authorize
 this user's local processes; tiers restrict verbs, not processes owned by the
-same user. `answer` remains ungranted. The supported Node client refuses run
+same user. `answer` is off by default and can be granted as described below. The supported Node client refuses run
 calls when it carries `HARNESSDESK_GOAL_ID` or `HARNESSDESK_LANE_ID`: a desk
 Seat uses its board tools. Those removable markers prevent accidental spending
 and are not an authentication boundary.
@@ -150,3 +150,58 @@ an open person card or question from a Seat recorded in that Run, 7 for stopped/
 passes first. SIGINT and SIGTERM return 130 and 143. An unattended question
 stall keeps the question available for a late answer through the window;
 a later `run wait` sees that stall and returns 7.
+
+## Stopping, answering and waiting
+
+```sh
+harnessdesk run stop demo-run --reason "Work is no longer needed" --yes --json
+harnessdesk card show demo-team 1 --json
+harnessdesk card handoff demo-team 1
+harnessdesk card answer demo-team 2 approved --context-file findings.md --json
+harnessdesk card answer demo-team 2 approved --context-file -
+harnessdesk card abandon demo-team 1 --reason "Replan this step" --yes --json
+harnessdesk waiting --json
+harnessdesk waiting --watch --json
+```
+
+`run stop <run> --reason TEXT` uses the run tier and requires a nonempty
+reason supplied by the flag. It confirms on a terminal or accepts `--yes`;
+without terminal input or `--yes`, it exits 2. It prints the stopped run;
+JSON is the unchanged `FlowExecution`. Stopping ends the run and prevents its
+next round from opening.
+
+`card show <team> <card>` uses the read tier and prints role, state, outcome,
+note and handoff. JSON is the unchanged board `Intent`. Card ids are numeric.
+`card handoff <team> <card>` prints only the sanitized handoff for a pipe,
+preserving line breaks. Its JSON shape is `{handoff: string}`. A missing or
+empty handoff exits 1 with one line on stderr.
+
+`card answer <team> <card> <outcome> [--context-file PATH|-]` uses the answer
+tier. Context is read locally from the named file or stdin and sent as text;
+there is no positional context argument and no confirmation. The card must
+belong to a person role and the outcome must be one that role declares. The
+desk must grant answer through the Permissions setting “Let command-line clients answer for me”
+or `HARNESSDESK_CLIENTS_MAY_ANSWER=1` in the host environment. It is off by
+default. A denied tier, an agent card, an undeclared outcome or a repeated
+answer exits 4 with the desk's refusal code on stderr (`tierNotGranted`,
+`refused` or `alreadyAnswered`). The channel attributes an accepted answer
+to the command line. JSON is `{team: string, card: number, outcome: string}`.
+
+`card abandon <team> <card> --reason TEXT [--yes]` uses the run tier. Before
+confirmation, including with `--yes`, stderr warns that the rule after the
+role still fires and points to `run stop` to end the work. It names declared
+next roles, qualifying guarded rules by their conditions. The desk reports
+which next role actually opened. It requires terminal confirmation or
+`--yes` (otherwise exit 2). JSON is `{role: string | null, nextRole: string |
+null}`; human output prints the same roles. A declined confirmation exits 4.
+
+`waiting` uses the read tier, subscribes to waiting and waits for its full
+baseline before printing person cards, questions and approvals with stable
+ids. JSON is exactly one `{waiting: ClientWaitingItem[]}` object. `--watch`
+streams stable version-1 `waiting` and `waiting.cleared` events between
+`hello` and `end` lifecycle events, with reconnect gaps and notices when
+needed; `--json` writes one event per line. A cleared item retains the id
+previously listed. These commands also accept the global `--home`, `--json`
+and `--trace-wire` flags and share the exit codes above (0 for success, 1 for
+an error, 2 for usage, 3 for no desk, 4 for refusal, 6 for incompatibility,
+130/143 for SIGINT/SIGTERM).

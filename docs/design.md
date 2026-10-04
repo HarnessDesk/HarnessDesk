@@ -1512,7 +1512,85 @@ host names that outcome as the reason no step follows. Done and waiting are
 quiet text. Wrapped record titles keep their lead on the first line. Sentences wrap at
 narrow widths, while the brief previews two lines.
 The `run-view` catalogue board mounts the production component for every Run
-state, empty and failed reads, a long timeline, and the narrow pane.
+state, empty and failed reads, a long timeline, and the narrow pane. The
+header's `Segmented` switch offers the Flow beside the timeline; the Flow
+drawing below is its other half.
+
+### The Run inspector
+
+A selected timeline row opens recorded detail in `PanelFrame`, `PanelTools`
+and `PanelBody`, with the same section labels as other inspectors. Cards show
+Input, Handoff, Findings, Review and recorded Seat cost; Open the conversation
+is last. A check shows its command, recorded folder, timeout, exit mapping and
+latest evidence output. A person’s step shows its sentence and declared
+outcomes as text. Run details keeps the full brief, frozen Flow revision and
+base, Seats, origin and recorded budgets. Missing facts say so.
+Input handoffs follow the card's recorded dependencies. Card and person detail
+keeps the authored sentence without the host's appended tool instructions,
+however many blank lines a `|` block sentence leaves before them, and keeps the
+sentence's own line breaks as written.
+The round budget includes authorized extra rounds and their recorded reason.
+A Run that recorded no budget says its limit was not recorded: the Flow's own
+or the default budget is what a new Run would freeze, never what an older one
+had, so it is not read back in its place.
+Findings follow the same rule: "No findings recorded" is said only of a list
+read whole. While it is still being read, or has more pages to come, the card
+says "Reading findings…"; when the read failed or the ledger cannot be shown
+whole, "Findings could not be read". Findings already in hand stay on screen
+through a reload, and a card shows the ones that are its own whatever else is
+unread. Cards and cost follow the Team the timeline beside the inspector reads,
+and a Seat's cost stays on screen while the report is read again.
+
+At pane widths below 48rem, a selection pushes detail over the timeline;
+Run timeline returns to the selected row, and Run details opens the summary.
+Cost is recorded for the Seats, which may have worked in more than one Run.
+Handoffs and finding text preserve literal markup and discard terminal escapes
+through the shared sanitiser. The `run-inspector` catalogue and preview use
+the production component for every kind, findings still being read or
+unreadable, empty, pending and failed reads, narrow navigation and both
+themes.
+
+### The Flow drawing
+
+`FlowGraph` draws a Flow read-only, and is the one picture that says what the
+product does: agents handing work on, a check that cannot be talked round, a
+person at the gate, a loop that has to end. A step is a raised `Card` with an
+`IconTile` for its kind (violet for an Agent, sky for a check, amber for a
+person: the tints the rail already uses), its name in a word, and one earned
+line — what an Agent may do (once a Run has seated it, the level its seats ran
+at, which is below the Flow's grant when the Agent's own ceiling is, and whether
+the runtime held it or only asked), the command a check runs, the words a
+person may answer. An Agent is a square tile: the Flow defines it, a Run seats
+it, and only then does it become a face. A step that opens several seats is a
+fan of up to three cards, so a count reads without a number. A rule is a line
+with an arrowhead and, only when something guards it, the outcome word above it
+in a neutral `Chip` with a ground of its own; a loop is a curve under the line
+whose word carries the retry mark. Cards sit on a faint dot grid with hairline
+borders and one soft shadow (`Card variant="raised"`). Colour is for what a step
+is, never decoration, and every value is a token.
+
+Where things go is `lib/flow-layout.ts`, a pure function of the document:
+steps run left to right in the order their rules reach them, a loop falls under
+the line, a person who closes the Flow hangs under what handed it over, and a
+Flow's own `layout.positions` win when it carries them, with the edges derived
+again from the cards' boxes. A rule to a step the file does not define is
+skipped in the drawing and still named in the list. The component only draws
+what the layout says, so a screenshot, the list and a test read one answer.
+
+On the Flow tab the drawing has the whole pane: the inspector explains a row of
+the timeline and steps aside, and returns with the timeline.
+
+The drawing is for the eye. It is `aria-hidden`, and the list of steps and
+rules under it, built from `Rows`, carries the same facts. The drawing hides
+below `38rem` of its own container's width — the pane's, not the window's — and
+the list is then the view. Its curves and arrowheads are data geometry, as a
+chart's are: attributes on SVG marks that read `--hd-*` tokens, recorded in the
+design audit's list of such modules rather than excused. Everything else in it
+is composed from the system, so a palette, density or faces change reaches it
+and no screen draws its appearance. The `flow-graph` catalogue board mounts the
+production pattern for a straight Flow, a loop, a fan-out, a person step, a
+Flow with its own positions, a long Flow, one in the older format and one with
+no steps, in both faces.
 
 ### The wrapped Team
 

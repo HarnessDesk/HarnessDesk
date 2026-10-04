@@ -215,9 +215,15 @@ export const writeCheckpoint = async (journal: ProvenanceJournal, value: unknown
   await journal.append('cursor', { id: digest(['checkpoint', hash]), type: 'checkpoint', parts, hash })
 }
 
+/**
+ * The latest completed checkpoint. Each one names its own parts, so the ones
+ * before it were superseded and are not read again: a journal holds one for
+ * every scan that found something, and reading them all each time cost more
+ * with every scan since the desk started.
+ */
 export const readCheckpoint = (entries: readonly JournalEntry[]): unknown | null => {
-  let latest: unknown = null
-  for (const entry of entries) {
+  for (let at = entries.length - 1; at >= 0; at -= 1) {
+    const entry = entries[at]!
     if (entry.kind !== 'cursor' || !object(entry.value) || entry.value.type !== 'checkpoint') continue
     const bytes = (entry.value.parts as number[]).map((seq) => {
       const part = entries[seq - 1]
@@ -227,7 +233,7 @@ export const readCheckpoint = (entries: readonly JournalEntry[]): unknown | null
     }).join('')
     const value: unknown = JSON.parse(bytes)
     if (!checkpointValue(value) || digest(value) !== entry.value.hash) throw new Error('provenance-invalid-checkpoint')
-    latest = value
+    return value
   }
-  return latest
+  return null
 }

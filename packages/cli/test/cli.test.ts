@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { CLIENT_METHODS } from '@harnessdesk/protocol'
+import { CLIENT_METHODS, clientTierFor } from '@harnessdesk/protocol'
 import { WireCallError } from '@harnessdesk/client'
 import { COMMANDS, sanitizeHuman, parseArgs, errorExit } from '../src/cli.js'
 
 test('the executable command table covers exactly the declared client surface', () => {
-  assert.deepEqual(COMMANDS.map(command => command.name), ['desks', 'status', 'teams', 'runs', 'watch', 'open', 'flows', 'flow preview', 'flow start', 'run show', 'run wait'])
+  assert.deepEqual(COMMANDS.map(command => command.name), ['desks', 'status', 'teams', 'runs', 'watch', 'open', 'flows', 'flow preview', 'flow start', 'run show', 'run stop', 'run wait', 'card show', 'card handoff', 'card answer', 'card abandon', 'waiting'])
   const methods = new Set(COMMANDS.flatMap(command => [...command.methods]))
-  for (const command of COMMANDS) for (const method of command.methods) assert.ok(CLIENT_METHODS[method] === 'read' || CLIENT_METHODS[method] === command.tier, `${command.name}: ${method}`)
+  for (const command of COMMANDS) for (const method of command.methods) { const tier = clientTierFor(method, 'action' in command ? { action: command.action } : undefined); assert.ok(tier === 'read' || tier === command.tier, `${command.name}: ${method}`) }
   for (const method of methods) assert.ok(Object.hasOwn(CLIENT_METHODS, method), method)
   assert.deepEqual([...methods].sort(), Object.keys(CLIENT_METHODS).sort())
 })
@@ -52,4 +52,18 @@ test('run wait timeout is a finite non-negative number of seconds within timer r
   assert.equal(parseArgs(['run', 'wait', 'demo', '--timeout', '0.1']).timeout, '0.1')
   for (const value of ['NaN', 'Infinity', '-1', '2147484', '']) assert.throws(() => parseArgs(['run', 'wait', 'demo', '--timeout', value]), /usage/i)
   assert.throws(() => parseArgs(['run', 'show', 'demo', '--timeout', '1']), /usage/i)
+})
+
+
+test('run stop takes its required reason only from the flag', () => {
+  assert.deepEqual(parseArgs(['run', 'stop', 'r-demo', '--reason', 'Changed', '--yes']), { command: 'run stop', target: 'r-demo', reason: 'Changed', yes: true })
+  for (const args of [['run', 'stop', 'r-demo'], ['run', 'stop', 'r-demo', 'Changed'], ['run', 'stop', 'r-demo', '--reason', '  ']]) assert.throws(() => parseArgs(args), /usage/i)
+})
+
+
+test('card arguments bind team, card and outcome positionally; text stays in named flags', () => {
+  assert.deepEqual(parseArgs(['card', 'answer', 'g', '1', 'shipped', '--context-file', '-']), { command: 'card answer', team: 'g', card: '1', outcome: 'shipped', contextFile: '-' })
+  assert.deepEqual(parseArgs(['card', 'abandon', 'g', '1', '--reason', 'Changed', '--yes']), { command: 'card abandon', team: 'g', card: '1', reason: 'Changed', yes: true })
+  assert.equal(parseArgs(['waiting', '--watch']).watch, true)
+  for (const args of [['card', 'show', 'g'], ['card', 'answer', 'g', '1'], ['card', 'answer', 'g', '1', 'shipped', 'text'], ['card', 'abandon', 'g', '1'], ['card', 'handoff', 'g', '1', '--yes'], ['waiting', '--reason', 'text']]) assert.throws(() => parseArgs(args), /usage/i)
 })

@@ -373,10 +373,10 @@ Run, in which case it is absent.
 
 | Control | Where | What it does | Wire | Offered when | It never |
 | --- | --- | --- | --- | --- | --- |
-| **Stop run…** | Run header, Overview strip | Ends the round, interrupts the seats, fires no rule. | `flow/execution/stop` (#1247, new) | The Run is running. The dialog lists each seat and says "stops now", or, for a runtime without `capabilities.interrupt`, "stops when its current turn ends". | Changes a card, a finding or a branch. |
+| **Stop run…** | Run header, Overview strip | Ends the round, interrupts the seats, fires no rule. | `flow/execution/stop` (#1247; merged, #1315) | The Run is running. The dialog says first that the Run stops now and nothing more starts, then lists each seat and says "stops now" (asked at once, best effort), or, for a runtime without `capabilities.interrupt`, "stops when its current turn ends". | Changes a card, a finding or a branch. |
 | **Run the check again…** | A check row and its inspector | The existing consent dialog, showing the command verbatim, then a new attempt. | `flow/check/retry` (exists for an uncertain check; #1263, fixing #1245, makes it work on a finished or interrupted check, with fresh consent, and return when the check has started) | The card is a check, the Run is running or stalled, and the host says it can run. A stopped or settled Run refuses, and the dialog says to start a new Run (*Run again…*). | Overwrites the earlier attempt: its output stays in the check's durable evidence history. |
 | **Run again…** | Run header, end banner | A preview with the earlier inputs and brief, then a new linked Run. | `flow/preview`, `flow/start-goal`, plus a `continues` field on the Run | The Run has ended. | Resumes mid-round (later). |
-| **Answer a card** | Overview *Needs you*, the inspector | The outcome buttons the person role declares, with an optional note. | `team/intent` (`done`) | The card is addressed to a person role. From the command line, only where the person turned on the `answer` tier for this desk (#1271). | Answers a card addressed to an agent. |
+| **Answer a card** | Overview *Needs you*, the inspector | The outcome buttons the person role declares, with an optional note. | `team/intent` (`done`) | The card is addressed to a person role. From the command line, only where the person turned on the `answer` tier for this desk (#1271; the Settings row is "Let command-line clients answer for me", #1315). | Answers a card addressed to an agent. |
 | **Abandon a card** | The card's inspector | Abandons it, and says first that the rule after its role still fires. Offers *Stop the run instead*. | `team/intent` (`abandon`) | The card is open or claimed. | Ends the Run. |
 | **Approve, Deny** | Overview *Needs you* | A tool approval or a question. | `approval/respond` | The seat has one open. **Window only**: no outside client answers approvals (#1271). | Appear in any other client. |
 | **Open pull request** | Run header, the findings row | Opens the pull request in the browser. | None; the link comes from the forge facts the Run already carries | A pull request is bound to the Run. | Merge. Merging stays a step the Flow gives to a check or a person. |
@@ -575,20 +575,34 @@ know").
 | The list of Runs; one Run's rounds and journal | `flow/executions`, `flow/execution` | In the clients design's phase 1; the Run detail exists. |
 | Cost | A read of the Team's recorded usage (`insight/goal`), not an event | Exists; it joins the clients design's read tier. |
 | Whether *you* have read it | Nothing | The window's own state. It never goes on the wire. |
-| Stop | `flow/execution/stop` | The clients design's phase 3 (#1247). |
+| Stop | `flow/execution/stop` | The clients design's phase 3 (#1247); merged, #1315. |
 
 **One set of selectors.** Two pure functions, `teamOverview(state)` and
-`runTimeline(state, run)`, turn the event state into exactly what the table and
-the timeline draw. They belong in `@harnessdesk/client/views`: pure, no
+`runTimeline(input)` (the input is one Run's record, its cards and signals, and
+the check results and findings the timeline also needs, as below), turn the held
+state into exactly what the table and the timeline draw. They belong in
+`@harnessdesk/client/views`: pure, no
 transport, and the window imports only that entry (a layering rule holds it).
-The command line's `status` and `run show` are the same selectors with a
-terminal's words. The selector code and its tests were written first in
+The command line's `status` and `run show` are meant to be the same selectors
+with a terminal's words (`status` is; `run show` follows with plan PR 16, as
+below). The selector code and its tests were written first in
 `packages/ui/src/lib` over plain data (the plan's PR 1 and PR 3); the clients
 design moves the files into `client/views` when the command line needs them and
 leaves a re-export behind, so nothing in the window breaks. The overview model
 has moved (#1295): it lives in `packages/client/src/views/`, the window's
 `packages/ui/src/lib/team-overview.ts` is a re-export, and the command line's
-`status` renders it. The timeline selector follows with plan PR 16. Until the
+`status` renders it. `run show` exists (the clients design's PR 2, #1305) but
+reads one `flow/execution` and does not use the timeline selector yet. The
+timeline selector is written (plan PR 3, #1292) as
+`runTimeline({ execution, cards, signals?, evidence?, findings?, origin? })` in
+`packages/ui/src/lib/run-timeline.ts`; check results (`evidence`) and a Team's
+findings are read on demand and are not part of the held event state, so they
+are explicit inputs, and it moves with plan PR 16. That move either brings along
+its two small word helpers (`wordOf`, `lifecycleWords`), which are UI-only today,
+or takes their words as an input, and
+settles with the clients design whether `evidence/board` and `finding/list` join
+the client door's read tier; if they do not, `run show` prints the rows it can
+and says that check results and findings are not shown. Until the
 stream feeds the window, the window feeds the selectors from its own snapshot,
 provided the output has the same shape; replacing the input is then mechanical.
 
@@ -608,8 +622,8 @@ Each one is a wire or record change made the usual way, in its own small
 commit, and none of them ships a surface by itself:
 
 1. `flow/execution/stop { run, reason }` (#1247), and `flow/executions` (the
-   clients design's host changes 2 and 3). `flow/executions` has landed
-   (#1279); `flow/execution/stop` has not.
+   clients design's host changes 2 and 3). Both have landed:
+   `flow/executions` (#1279) and `flow/execution/stop` (#1315).
 2. `FlowExecution.revision`: a digest of the canonical document, set when the
    Run starts and never changed. And `FlowExecution.continues`: the Run this
    one continues, set at the start. And `FlowExecution.startedAt`, which the

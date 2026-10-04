@@ -482,6 +482,20 @@ export class AppStore {
     return this.#writePreference({ [QUESTION_WAIT_PREFERENCE]: value }, 'How long a question waits when nobody is here')
   }
 
+  /** Whether this desk lets local clients answer on the person's behalf. */
+  async loadClientsMayAnswer(): Promise<boolean> {
+    try {
+      const preferences = await this.transport.request('app/state/get', {})
+      return preferences['clientsMayAnswer'] === true
+    } catch {
+      return false
+    }
+  }
+
+  async setClientsMayAnswer(value: boolean): Promise<boolean> {
+    return this.#writePreference({ clientsMayAnswer: value }, 'Letting local clients answer for you')
+  }
+
   /** What happens when a Goal a trigger opened cannot hold a Seat's ceiling. Mirrors `loadUnheldCeilings`. */
   async loadUnattendedCeilings(): Promise<UnheldCeilings> {
     try {

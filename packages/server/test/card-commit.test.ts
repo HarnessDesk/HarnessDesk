@@ -114,6 +114,38 @@ test('Git parses exactly one desk trailer for every accepted message shape', asy
   }
 })
 
+test('commit_work keeps credit before scissors with a global or system comment prefix', async (t) => {
+  for (const scope of ['global', 'system'] as const) {
+    await t.test(scope, async (t) => {
+      const root = await repo(t)
+      const config = join(root, '..', `${scope}.gitconfig`)
+      await writeFile(config, '[core]\n\tcommentChar = ";"\n')
+      const overrides = {
+        GIT_CONFIG_GLOBAL: scope === 'global' ? config : '/dev/null',
+        GIT_CONFIG_SYSTEM: scope === 'system' ? config : '/dev/null',
+        GIT_CONFIG_NOSYSTEM: '0',
+      }
+      const saved = Object.fromEntries(Object.keys(overrides).map((key) => [key, process.env[key]]))
+      Object.assign(process.env, overrides)
+      t.after(() => {
+        for (const [key, value] of Object.entries(saved)) {
+          if (value === undefined) delete process.env[key]
+          else process.env[key] = value
+        }
+      })
+      const before = await snapshot(root)
+      await writeFile(join(root, 'notes.md'), 'x\n')
+      const scissors = '; ------------------------ >8 ------------------------'
+      const suffix = `${scissors}\nDetails ignored by Git`
+      const done = await commitCardWork(root, before, `Write the notes\n\nBody\n${suffix}`)
+      assert.ok('commit' in done, JSON.stringify(done))
+      assert.equal(await parsedTrailers(root), `${coauthor}\n`, 'Git recognizes the credit before the cutoff')
+      assert.equal(await git(root, 'log', '-1', '--format=%B'), `Write the notes\n\nBody\n\n${coauthor}\n${suffix}\n\n`,
+        'the credit precedes the cutoff and the supplied suffix is preserved')
+    })
+  }
+})
+
 test('commit_work adds exactly one co-author trailer after a blank line', async (t) => {
   for (const ending of ['', '\n', '\n\n', '\r\n']) {
     const root = await repo(t)

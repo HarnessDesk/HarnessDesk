@@ -169,20 +169,27 @@ test('a question that timed out and a budget stop each name their exact reason, 
   await expect(budget(frame)).not.toContainText('left')
 })
 
-test('machine settings and a trigger Goal fit light, dark and narrow layouts with no clipped sentence', async ({ page }) => {
-  const overflow = (node: Locator) => node.evaluate((root) => {
-    const rect = root.getBoundingClientRect()
-    const widest = [...root.querySelectorAll<HTMLElement>('*')]
-      .filter((el) => el.getBoundingClientRect().width > 0)
-      .reduce((max, el) => Math.max(max, el.getBoundingClientRect().right), 0)
-    return widest - rect.right
-  })
-  /* A sentence arrives whole: nothing on the line is cut by its own box. */
-  const clipped = (node: Locator) => node.evaluate((root) =>
-    [root, ...root.querySelectorAll<HTMLElement>('*')].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent ?? ''))
+const overflow = (node: Locator) => node.evaluate((root) => {
+  const rect = root.getBoundingClientRect()
+  const widest = [...root.querySelectorAll<HTMLElement>('*')]
+    .filter((el) => el.getBoundingClientRect().width > 0)
+    .reduce((max, el) => Math.max(max, el.getBoundingClientRect().right), 0)
+  return widest - rect.right
+})
+/* A sentence arrives whole: nothing on the line is cut by its own box. */
+const clipped = (node: Locator) => node.evaluate((root) =>
+  [root, ...root.querySelectorAll<HTMLElement>('*')].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent ?? ''))
 
-  for (const width of [1280, 640]) {
-    for (const colorScheme of ['light', 'dark'] as const) {
+/**
+ * One test per layout, so each has a time budget of its own. They were a
+ * single test of four page loads and eight scenes, which took 31.0–31.6 s
+ * against Playwright's 30 s test timeout on a loaded CI runner, in pull
+ * requests that touched no UI (#1140). A loop inside one test would put the
+ * four loads back under one timeout.
+ */
+for (const width of [1280, 640]) {
+  for (const colorScheme of ['light', 'dark'] as const) {
+    test(`machine settings and a trigger Goal fit with no clipped sentence at ${width}px in ${colorScheme}`, async ({ page }) => {
       await page.emulateMedia({ colorScheme })
       await page.setViewportSize({ width, height: 900 })
       await page.goto('/preview.html')
@@ -207,6 +214,6 @@ test('machine settings and a trigger Goal fit light, dark and narrow layouts wit
           expect(await overflow(card), `approval at ${width}px, ${colorScheme}`).toBeLessThanOrEqual(1)
         }
       }
-    }
+    })
   }
-})
+}

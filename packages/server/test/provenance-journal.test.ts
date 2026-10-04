@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { captureHealth, type HealthInput } from '../src/provenance/health.js'
-import { digest, ProvenanceJournal, readCheckpoint, writeCheckpoint } from '../src/provenance/journal.js'
+import { digest, ProvenanceJournal, readCheckpoint, writeCheckpoint, type JournalEntry } from '../src/provenance/journal.js'
 import { ProvenancePreferences } from '../src/provenance/preferences.js'
 import { tempDir } from './scratch.js'
 
@@ -158,6 +158,24 @@ test('an incomplete checkpoint attempt is inert and later replay deduplicates ob
   await writeCheckpoint(reopened, checkpoint())
   assert.equal((await reopened.read()).entries.filter((entry) => entry.kind === 'gap').length, 1)
   assert.deepEqual(readCheckpoint((await reopened.read()).entries), checkpoint())
+})
+
+test('the latest checkpoint is read without reading the ones it superseded, and is still checked', async () => {
+  const entries: JournalEntry[] = []
+  const memory = {
+    append: async (kind: JournalEntry['kind'], value: unknown) => { entries.push({ seq: entries.length + 1, kind, value }) },
+    read: async () => ({ entries: [...entries], broken: false }),
+  } as unknown as ProvenanceJournal
+  for (const generation of [1, 2, 3]) await writeCheckpoint(memory, { ...checkpoint(), generation })
+  const manifests = entries.filter((entry) => entry.kind === 'cursor' && (entry.value as { type: string }).type === 'checkpoint')
+  assert.equal(manifests.length, 3)
+  const damage = (manifest: JournalEntry) => {
+    entries[manifest.seq - 1] = { ...manifest, value: { ...(manifest.value as object), hash: digest('another checkpoint') } }
+  }
+  damage(manifests[0]!)
+  assert.deepEqual(readCheckpoint(entries), { ...checkpoint(), generation: 3 }, 'a manifest that was superseded is not read, so its damage is not found')
+  damage(manifests[2]!)
+  assert.throws(() => readCheckpoint(entries), /provenance-invalid-checkpoint/, 'the one in force is read, and refused when it is damaged')
 })
 
 test('preferences default on, persist off, isolate projects and refuse malformed files', async () => {

@@ -126,6 +126,39 @@ const observed = async (t: TestContext, options: { watch?: typeof watch; pollMs?
   return { repo, base, journal, observer, problems, has, changed: () => changed }
 }
 
+const cursors = async (journal: ProvenanceJournal) =>
+  (await journal.read()).entries.filter((entry) => entry.kind === 'cursor').length
+
+test('a scan that finds nothing new writes nothing, and one that finds something still does', async (t) => {
+  const f = await observed(t)
+  const settled = await cursors(f.journal)
+  assert.ok(settled > 0, 'the first scan recorded where capture is')
+  for (let wake = 0; wake < 4; wake += 1) {
+    f.observer.wake()
+    await f.observer.idle()
+  }
+  assert.equal(await cursors(f.journal), settled, 'four scans that found nothing wrote nothing')
+  const next = await f.repo.commitTree(f.base, { one: 'changed\n' }, 'next')
+  await f.repo.git('update-ref', 'refs/heads/main', next)
+  await waitUntil(() => f.has(next), 'a new commit')
+  await f.observer.idle()
+  assert.ok(await cursors(f.journal) > settled, 'a scan that found a commit recorded it')
+})
+
+test('after a restart, a scan that finds nothing new writes nothing either', async (t) => {
+  const f = await observed(t)
+  await f.observer.close()
+  const handle = await admitProject(f.repo.dir, f.repo.stateDir, [f.repo.dir])
+  const observer = new RefObserver({ git: gitReader(handle), journal: f.journal, changed: () => {}, problem: () => {}, pollMs: 0 })
+  t.after(() => observer.close())
+  const settled = await cursors(f.journal)
+  await observer.start(handle, readCheckpoint((await f.journal.read()).entries) as WorkerCheckpoint)
+  await observer.idle()
+  observer.wake()
+  await observer.idle()
+  assert.equal(await cursors(f.journal), settled)
+})
+
 test('real watches capture external branches, tags, rewinds and rapid round trips without turns', async (t) => {
   const f = await observed(t)
   assert.ok(!f.problems.includes('watch-unavailable'), 'real file notifications must attach')
@@ -230,8 +263,9 @@ test('parent work beyond the batch survives checkpoint replay and abort never wr
       await delay(55)
       return { sha, tree: sha, parents: [parent] }
     },
+    kinds: async (shas) => new Map(shas.map((sha) => [sha, 'commit'])),
     patch: async () => ({ stable: '', exact: '', files: [] }), files: async () => [],
-    ancestors: async () => [], close: async () => { controller.resolve() },
+    ancestors: async () => [], batch: (_signal, work) => work(fake), close: async () => { controller.resolve() },
   }
   const handle = await admitProject(f.repo.dir, f.repo.stateDir, [f.repo.dir])
   t.after(() => gitReader(handle).close())
@@ -529,8 +563,9 @@ test('a crash after an object append requeues its parents before acknowledging t
     snapshot: async () => ({ refs: new Map([['refs/heads/main', tip]]), heads: new Map(), takenAt: Date.now() }),
     reflogs: async () => ({ moves: [], cursors: new Map(checkpoint.logs), gaps: [], more: false }),
     commit: async (sha) => ({ sha, tree: sha, parents: [f.base] }),
+    kinds: async (shas) => new Map(shas.map((sha) => [sha, 'commit'])),
     patch: async () => ({ stable: '', exact: '', files: [] }), files: async () => [],
-    ancestors: async () => [], close: async () => {},
+    ancestors: async () => [], batch: (_signal, work) => work(fake), close: async () => {},
   }
   const handle = await admitProject(f.repo.dir, f.repo.stateDir, [f.repo.dir])
   t.after(() => gitReader(handle).close())

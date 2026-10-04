@@ -378,6 +378,8 @@ export class SerialRun {
     this.tails.set(id, tail)
     try { return await next } finally { if (this.tails.get(id) === tail) this.tails.delete(id) }
   }
+  /** Wait only for this run's already enqueued transition. */
+  async current(id: string): Promise<void> { await this.tails.get(id) }
   /**
    * Waits for every run's queue to empty, including work a turn queues on
    * itself while running — a check's own completion opening its next round,
@@ -698,6 +700,19 @@ class JournalWriteError extends Error {
   }
 }
 
+/**
+ * A person's Stop was accepted and has not yet been applied, so no card may
+ * open under it. Neither a failure of the run nor a reason to stall it: the
+ * Stop is about to end it, and should that Stop fail, `stop` queues the
+ * advance again.
+ */
+class StopPending extends Error {
+  constructor() {
+    super('This flow run is being stopped.')
+    this.name = 'StopPending'
+  }
+}
+
 /** A folder's real path, as the host compares folders; one that does not exist yet by its nearest real ancestor. */
 const realPathOf = async (path: string): Promise<string> => {
   try {
@@ -808,6 +823,8 @@ export class FlowExecutions {
   #disposed = false
   /** The checks running now, by Goal: what a pause or a stop aborts without waiting for the run's queue. */
   readonly #checks = new Map<string, Set<AbortController>>()
+  /** Stop is requested outside the queue; deferred checks must see it before spawning. */
+  readonly #stopRequests = new Map<string, number>()
   readonly #checking = new Map<Promise<unknown>, string>()
   readonly #liveCheckOperations = new Map<string, AbortController>()
   /** `run_check` asks by `goal#card`: the turn they were last counted on, how many in it, how many in all (#1082). */
@@ -834,7 +851,7 @@ export class FlowExecutions {
   /** Told when a round of a run with findings bookkeeping closes: the findings plane's close processing. */
   readonly #closeListeners = new Set<(run: string, round: number) => void | Promise<void>>()
   /** Close processing a listener started, so `idle()` waits for it as it waits for the run queues. */
-  readonly #closing = new Set<Promise<void>>()
+  readonly #closing = new Map<Promise<void>, string>()
   /** The closes being processed now, by run and round: never two of one close at once. */
   readonly #processingCloses = new Set<string>()
   /** What a ready rule also needs besides its guards: no open admitted blocker and no pending exception. */
@@ -875,7 +892,7 @@ export class FlowExecutions {
     do {
       if (++guard > 10_000) throw new Error('FlowExecutions.idle() never quieted down.')
       await this.#queue.idle()
-      await Promise.all([...this.#closing, ...this.#checking.keys()])
+      await Promise.all([...this.#closing.keys(), ...this.#checking.keys()])
     } while (this.#closing.size > 0 || this.#checking.size > 0)
     await this.#queue.idle()
   }
@@ -919,7 +936,7 @@ export class FlowExecutions {
             // Never a silent wait: the run stops for a person, saying why, and nothing opens after the round.
             await this.#queue.within(run, () => this.#stall(run, `Round ${round} could not be closed: ${why}`)).catch(() => undefined)
           }).finally(() => this.#closing.delete(tracked))
-          this.#closing.add(tracked)
+          this.#closing.set(tracked, run)
           settled.push(tracked)
         }
       } catch (error) {
@@ -2616,6 +2633,8 @@ export class FlowExecutions {
     try {
       await this.#openRound(id, then, cause, dependsOn)
     } catch (error) {
+      // The Stop ahead of this step ends the run, saying why; this is not a round that could not open.
+      if (error instanceof StopPending) return
       const reason = error instanceof Error ? error.message : String(error)
       this.#port.log('a flow run could not open a round', { run: id, round: then.role, error: reason })
       // The run's own journal would not take a write: nothing outside the
@@ -2894,6 +2913,12 @@ export class FlowExecutions {
     const existing = run.rounds.find((one) => one.cause === cause.key)
     if (existing && existing.state !== 'opening') return existing
     if (run.state !== 'running') throw new Error(run.reason ?? 'This flow run is not running.')
+    /* Every rule a run fires, its seed, a trigger's later firing and a
+       half-opened round resumed arrive here, so this is where a Stop accepted
+       ahead of them is honoured: a successor card is the one thing a Stop must
+       never be followed by. It is checked again below, past everything this
+       step waits on, because a Stop can be accepted while it does. */
+    if (this.#stopRequests.has(id)) throw new StopPending()
     const ready = this.#port.canDispatch(run.goal)
     if (!ready.ok) throw new Error(ready.reason)
     const blocked = this.refusal(run.goal)
@@ -2970,6 +2995,11 @@ export class FlowExecutions {
         return error instanceof Error ? error : new Error(String(error))
       }
     }
+    /* Everything this step waits on before its cards — the round's journal
+       write, the check plan, the facts its cards name — is behind us, and
+       the cards are added without waiting again. A Stop accepted during any
+       of those waits is honoured here, before the first card exists. */
+    if (this.#stopRequests.has(id)) throw new StopPending()
     for (let index = 0; index < width; index += 1) {
       const vars = cardVars({
         flow: policy.name, run: id, room: board.name, repo: board.root, role: role.id, round: round.n, n: index + 1, count: width,
@@ -3174,6 +3204,7 @@ export class FlowExecutions {
      */
     const mayGo = async (): Promise<boolean | 'fail'> => {
       const current = this.#get(id)
+      if (this.#stopRequests.has(id) || current.state !== 'running') return false
       if (!current.intake) return true
       if (current.intake.dispatchHeld) return false
       const verdict = await this.#gateOf(id)
@@ -3238,6 +3269,11 @@ export class FlowExecutions {
       if (await this.#port.digestOf(run.goal, binding.agent.id) !== binding.digest) return fail(BRIEF_CHANGED)
       if (await mayGo() !== true) return false
       run = await this.#put(this.#operation(this.#get(id), key, { kind: 'seat', state: 'started', card, seat: null }))
+      // A Stop accepted during the journal must precede the initial brief.
+      if (this.#stopRequests.has(id) || run.state !== 'running') {
+        await this.#put(this.#operation(this.#get(id), key, { kind: 'seat', state: 'uncertain', card, seat: null }))
+        return false
+      }
       let record: SeatRecord
       try {
         record = await this.#port.openSeat({
@@ -3342,6 +3378,11 @@ export class FlowExecutions {
       return null
     }
     await turn('started')
+    // The same boundary applies to later card handovers and re-arms.
+    if (this.#stopRequests.has(id) || this.#get(id).state !== 'running') {
+      await turn('uncertain')
+      return 'This flow was stopped before this turn was handed over.'
+    }
     try {
       const order = this.#cardOrder(this.#get(id), cardNow(), binding)
       await this.#port.order(seat, lead ? `${lead}\n\n${order}` : order)
@@ -3519,6 +3560,13 @@ export class FlowExecutions {
       }
     }
     run = await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'started', card, seat: null }))
+    // Stop can arrive during the startup write, before any controller exists.
+    // Yield this queue item to Stop without launching the deferred effect.
+    // A consented earlier retry may preserve stalled downstream work.
+    if (this.#stopRequests.has(id) || (!background && run.state !== 'running')) {
+      await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'uncertain', card, seat: null }))
+      return false
+    }
     const controller = new AbortController()
     const running = this.#checks.get(run.goal) ?? new Set<AbortController>()
     this.#checks.set(run.goal, running.add(controller))
@@ -3646,6 +3694,16 @@ export class FlowExecutions {
 
   // -------------------------------------------------------------- advance
 
+  /** A card caller waits for its run's routing, never unrelated work. */
+  async cardContinuation(id: string): Promise<void> {
+    for (;;) {
+      await this.#queue.current(id)
+      const closing = [...this.#closing].filter(([, run]) => run === id).map(([work]) => work)
+      if (closing.length === 0) return
+      await Promise.all(closing)
+    }
+  }
+
   completed(goal: string, card: number): void {
     const run = this.ownsCard(goal, card)
     if (!run) return
@@ -3760,7 +3818,9 @@ export class FlowExecutions {
   async #finish(id: string, state: 'settled' | 'stopped', reason: string, end: FlowExecutionEnd = { kind: 'stopped', by: 'desk' }): Promise<void> {
     const run = this.#get(id)
     if (run.state === 'settled' || run.state === 'stopped') return
-    await this.#put({ ...run, state, reason, end })
+    await this.#put({ ...run, state, reason, end,
+      ...(state === 'stopped' ? { rounds: run.rounds.map(round => round.state === 'closed' ? round : { ...round, state: 'closed' as const }) } : {}),
+    })
     // Ended before its first round: the empty Goal it reserved is empty still, and free for another start.
     if (run.reserving && run.rounds.length === 0) await this.#letGo(id, run.reserving.goal)
     // Finished Seats remain members for follow-ups; the host releases only
@@ -3768,8 +3828,9 @@ export class FlowExecutions {
     if (state === 'stopped') {
       const open = [...new Set(run.rounds.flatMap((round) => round.seats))]
         .filter((seat) => { const record = this.#port.seatOf(seat); return record !== null && record.closed === null })
-      // A trigger's run interrupts every Seat it lets go: no turn it started outlives its stop.
-      await this.#release(run.goal, open, run.intake !== undefined, id)
+      // Stop is durable before interrupts: even a runtime that cannot interrupt
+      // may finish its turn later, but that completion can dispatch no rule.
+      await this.#release(run.goal, open, true, id)
     }
     this.#team.nudgeRoom(run.goal)
   }
@@ -3786,17 +3847,37 @@ export class FlowExecutions {
   // ----------------------------------------------------------------- stop
 
   async stop(id: string, why = 'the person stopped this flow', by: 'person' | 'desk' = 'person'): Promise<FlowExecution> {
-    this.interruptChecks(this.#get(id).goal)
-    const tasks = await this.#queue.within(id, async () => {
-      // A retry ahead of Stop may only now have created its controller.
-      this.interruptChecks(this.#get(id).goal)
-      const tasks = [...this.#checking].filter(([, run]) => run === id).map(([task]) => task)
-      await this.#finish(id, 'stopped', why, { kind: 'stopped', by })
-      return tasks
-    })
-    // Completion uses this same queue: drain outside it, before Stop or wrap returns.
-    await Promise.all(tasks)
-    return this.#projectExecution(this.#get(id))
+    const goal = this.#get(id).goal
+    this.#stopRequests.set(id, (this.#stopRequests.get(id) ?? 0) + 1)
+    let ended = false
+    try {
+      this.interruptChecks(goal)
+      const tasks = await this.#queue.within(id, async () => {
+        // A retry ahead of Stop may only now have created its controller.
+        this.interruptChecks(goal)
+        const tasks = [...this.#checking].filter(([, run]) => run === id).map(([task]) => task)
+        await this.#finish(id, 'stopped', why, { kind: 'stopped', by })
+        return tasks
+      })
+      // Completion uses this same queue: drain outside it, before Stop or wrap returns.
+      await Promise.all(tasks)
+      const execution = this.#projectExecution(this.#get(id))
+      ended = true
+      return execution
+    } finally {
+      const pending = this.#stopRequests.get(id)! - 1
+      if (pending === 0) this.#stopRequests.delete(id)
+      else this.#stopRequests.set(id, pending)
+      /* A Stop that did not take leaves the run going, and what it held back —
+         a completion's rule, a round half opened — was only deferred: it is
+         owed its turn, and nothing else will bring it. Harmless when another
+         Stop is pending: that one ends the run, or fails and comes here. */
+      if (!ended) {
+        void this.#queue.within(id, () => this.#advance(id)).catch((error: unknown) => {
+          this.#port.log('a flow could not go on after its stop failed', { run: id, error: error instanceof Error ? error.message : String(error) })
+        })
+      }
+    }
   }
 
   /** Stops every live run on a Goal, inside each run's own queue: the wrap barrier. */

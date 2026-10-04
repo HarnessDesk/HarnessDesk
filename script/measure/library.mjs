@@ -1,10 +1,13 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { mkdir, mkdtemp, readdir, rm, unlink, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import { PROMPT_ACTIVITY_KEYS } from './probes/index.mjs'
 
 const RESULT_DIR = new URL('../../docs/verification/library-measurements/', import.meta.url)
 const RESULT_DIR_PATH = fileURLToPath(RESULT_DIR)
@@ -31,7 +34,7 @@ const CREDENTIAL_ROOTS = [
 export const KEYCHAIN_READ_ONLY = 'keychain-read-only'
 // Discovery stays strict; only an explicitly selected ask run can use this profile.
 const KEYCHAIN_READ_ONLY_AGENTS = new Set(['claude-code', 'cursor', 'grok-build'])
-const FACT_KEYS = new Set(['rulesFiles', 'catalogue', 'reportsCatalogue', 'precedence', 'rejections', 'reportsRejections', 'skillRoots', 'refresh', 'mcp', 'signedOutCatalogue'])
+const FACT_KEYS = new Set(['rulesFiles', 'catalogue', 'reportsCatalogue', 'precedence', 'rejections', 'reportsRejections', 'skillRoots', 'refresh', 'mcp', 'signedOutCatalogue', 'requestFailure', 'promptActivity'])
 const unmeasuredFacts = () => ({
   rulesFiles: { status: 'could-not-ask' }, catalogue: { status: 'could-not-ask' }, reportsCatalogue: false,
   precedence: { status: 'could-not-ask' }, rejections: { status: 'could-not-ask' }, reportsRejections: false,
@@ -44,6 +47,8 @@ const SAFE_FACT_STRINGS = new Set([
   'connected', 'disconnected', 'accepted', 'rejected', 'enabled', 'disabled', 'loaded', 'not-loaded',
   'true', 'false', 'fixture', 'read', 'not-read', 'reported', 'not-reported', 'visible', 'not-visible',
   'no-session', 'session-created', 'yes', 'no', 'measure_fixture',
+  'initialize', 'session-new', 'prompt', 'parse-error', 'invalid-request', 'method-not-found',
+  'invalid-params', 'internal-error', 'authentication-required', 'resource-not-found', 'cancelled', 'server-error',
 ])
 const SAFE_TEXT_WORDS = new Set([
   'a', 'an', 'and', 'agent', 'available', 'app-server', 'are', 'as', 'build', 'catalogue', 'codex',
@@ -61,6 +66,7 @@ const SAFE_TEXT_WORDS = new Set([
   'openai', 'claude', 'opencode', 'cline', 'hermes', 'codebuddy', 'kimi', 'pi', 'grok', 'copilot', 'antigravity', 'devin',
   'model', 'required', 'unavailable', 'listing', 'session', 'acp', 'out', 'initialize', 'request', 'cannot', 'isolation',
   'key', 'provided', 'prompt', 'cap', 'reached', 'timed', 'requested', 'json', 'already', 'used',
+  'bridge', 'install', 'directory', 'unsafe', 'reachable', 'under', 'approved', 'profile', 'network', 'refused', 'quota',
 ])
 
 const write = async (path, body) => {
@@ -140,6 +146,14 @@ function safeFact(value, fixture, depth = 0, boundedCounts = false) {
   }
   return false
 }
+
+// The one fact whose keys come from the agent's traffic rather than from the
+// fixture, so it is held to a vocabulary on top of the generic rules: only the
+// fixed names the probe counts under, each an integer from 0 to 500.
+const promptActivityAllowed = (facts) => facts.promptActivity === undefined || (
+  Boolean(facts.promptActivity) && Object.getPrototypeOf(facts.promptActivity) === Object.prototype
+  && Object.entries(facts.promptActivity).every(([kind, count]) => PROMPT_ACTIVITY_KEYS.includes(kind) && Number.isInteger(count) && count >= 0 && count <= 500)
+)
 
 export async function createFixture(root) {
   root ??= await mkdtemp('/tmp/hd-measure-')
@@ -497,7 +511,11 @@ export function sandboxProfileText(realHome, { fixtureRoot = '/tmp/fixture', fix
 }
 
 export function normalizeVersion(value) {
-  return typeof value === 'string' && value.length <= 40 && /^\d+(?:\.\d+){0,3}(?:-(?:alpha|beta|rc|pre|preview|dev|canary|nightly|next)(?:\.\d{1,4})?)?$/.test(value)
+  return typeof value === 'string' && value.length <= 40 && (
+    /^\d+(?:\.\d+){0,3}(?:-(?:alpha|beta|rc|pre|preview|dev|canary|nightly|next)(?:\.\d{1,4})?)?$/.test(value)
+    // Cursor's own scheme: the build's calendar date and the seven-character commit that made it.
+    || /^\d{4}\.\d{2}\.\d{2}-[0-9a-f]{7}$/.test(value)
+  )
     ? value
     : 'unknown'
 }
@@ -687,7 +705,7 @@ export function validateResult(result, fixture) {
   for (const key of ['interface', 'question']) if (!safeText(result[key], fixture)) throw new Error(`${key} is outside the fixture-derived allowlist`)
   if (!result.facts || typeof result.facts !== 'object' || Array.isArray(result.facts)) throw new Error('facts must be an object')
   const modelFacts = ['ACP model prompt', 'app-server model prompt'].includes(result.interface)
-  if (Object.keys(result.facts).some((key) => !FACT_KEYS.has(key)) || !safeFact(result.facts, fixture, 0, modelFacts)) throw new Error('facts are outside the fixture-derived allowlist')
+  if (Object.keys(result.facts).some((key) => !FACT_KEYS.has(key)) || !safeFact(result.facts, fixture, 0, modelFacts) || !promptActivityAllowed(result.facts)) throw new Error('facts are outside the fixture-derived allowlist')
   if (result.status !== 'asked' && result.status !== 'could-not-ask') throw new Error('status must be asked or could-not-ask')
   if (result.isolation !== undefined && !['strict', KEYCHAIN_READ_ONLY].includes(result.isolation)) throw new Error('isolation is not allowlisted')
   if (result.auth !== undefined && !['no sign-in used', 'owner subscription sign-in', 'environment key'].includes(result.auth)) throw new Error('auth is not allowlisted')
@@ -732,7 +750,7 @@ export async function askAgent(agent, fixture, options = {}) {
     if (options.ask && fixture.isolation.profile === KEYCHAIN_READ_ONLY && answer.prompted === true && base.auth !== 'environment key') base.auth = 'owner subscription sign-in'
     if (answer.status === 'could-not-ask') {
       const reason = typeof answer.reason === 'string' && safeText(answer.reason, fixture) ? answer.reason : 'probe failed safely'
-      const facts = answer.facts && Object.keys(answer.facts).every((key) => FACT_KEYS.has(key)) && safeFact(answer.facts, fixture, 0, options.ask === true) ? { ...unmeasuredFacts(), ...answer.facts } : base.facts
+      const facts = answer.facts && Object.keys(answer.facts).every((key) => FACT_KEYS.has(key)) && safeFact(answer.facts, fixture, 0, options.ask === true) && promptActivityAllowed(answer.facts) ? { ...unmeasuredFacts(), ...answer.facts } : base.facts
       return { ...base, interface: safeText(answer.interface, fixture) ? answer.interface : base.interface, question: safeText(answer.question, fixture) ? answer.question : base.question, facts, status: 'could-not-ask', reason }
     }
     const normalizedRaw = redact(answer.rawAnswer ?? '', fixtureTokens(fixture), fixture.root)
@@ -740,7 +758,7 @@ export async function askAgent(agent, fixture, options = {}) {
     const observedSignedOutOutcome = ['available', 'empty'].includes(signedOutStatus) || ['no-session', 'session-created'].includes(answer.facts?.signedOutCatalogue?.observation)
     if (!normalizedRaw && !observedSignedOutOutcome) return { ...base, status: 'could-not-ask', reason: 'answer failed the fixture-only privacy allowlist' }
     const facts = answer.facts ?? {}
-    if (!safeFact(facts, fixture, 0, options.ask === true) || Object.keys(facts).some((key) => !FACT_KEYS.has(key))) return { ...base, status: 'could-not-ask', reason: 'parsed facts failed the privacy allowlist' }
+    if (!safeFact(facts, fixture, 0, options.ask === true) || Object.keys(facts).some((key) => !FACT_KEYS.has(key)) || !promptActivityAllowed(facts)) return { ...base, status: 'could-not-ask', reason: 'parsed facts failed the privacy allowlist' }
     if (!safeText(answer.interface ?? base.interface, fixture)) return { ...base, status: 'could-not-ask', reason: 'probe interface failed the privacy allowlist' }
     if (!safeText(answer.question ?? base.question, fixture)) return { ...base, status: 'could-not-ask', reason: 'probe question failed the privacy allowlist' }
     const result = {
@@ -850,6 +868,75 @@ export async function findAgentInstall(agent, fixture, options = {}) {
   return { chosen, copies, state: installDiscoveryState({ candidateCount: candidates.length, copies, chosen, unsafeCount: unsafeCopies.length }) }
 }
 
+// AgentRegistry expands these templates to Node + a sibling package entry;
+// registering one installs nothing. Use those same bundles, never a PATH twin.
+export async function resolveModelBridge(agent, { packagesRoot = fileURLToPath(new URL('../../packages/', import.meta.url)), realHome = realpathSync(homedir()) } = {}) {
+  if (!agent.acp?.bridge) return { agent, readPaths: [] }
+  const bundled = { 'claude-code': 'claude-acp', cursor: 'cursor-acp' }[agent.id]
+  const readPaths = []
+  let candidates
+  if (bundled) candidates = [join(packagesRoot, bundled, 'dist/src/main.js')]
+  else {
+    const { candidatePaths } = await import('../../packages/server/dist/src/installs/locate.js')
+    candidates = candidatePaths({ commands: [agent.acp.bridge.command] }, { home: homedir(), env: { PATH: process.env.PATH ?? '' } })
+  }
+  let unsafe = false
+  for (const candidate of candidates) {
+    try {
+      const path = realpathSync(candidate)
+      const root = bundled ? realpathSync(join(packagesRoot, bundled)) : installReadRoot(path)
+      if (!statSync(path).isFile()) continue
+      if (!root || !installRootIsSafe(root, realHome) || !isWithin(root, path)) { unsafe = true; continue }
+      readPaths.push(root)
+      const bridge = { ...agent.acp.bridge, command: bundled ? process.execPath : path, args: bundled ? [path] : agent.acp.bridge.args }
+      const env = { ...(agent.acp.env ?? {}), ...(agent.id === 'claude-code' ? { CLAUDECODE: '' } : {}) }
+      return { agent: { ...agent, acp: { ...agent.acp, bridge, env } }, readPaths }
+    } catch { /* missing or unreadable bridges never launch */ }
+  }
+  return { reason: unsafe ? 'cannot isolate: bridge install directory unsafe' : 'bridge not installed' }
+}
+
+// Node realpaths each ancestor of an import, including the denied home. Copy
+// only the installed runtime package graph into the disposable fixture so the
+// normal loader works without admitting an ancestor or changing the profile.
+export async function stageModelBridge(agent, fixture) {
+  if (!['claude-code', 'cursor'].includes(agent.id)) return agent
+  const copied = new Map()
+  const realHome = realpathSync(homedir())
+  const copyPackage = async (source) => {
+    source = realpathSync(source)
+    if (!installRootIsSafe(source, realHome)) throw new Error('cannot isolate: bridge install directory unsafe')
+    if (copied.has(source)) return copied.get(source)
+    if (copied.size >= 500) throw new Error('bridge not installed')
+    const target = join(fixture.root, 'bridge-runtime', String(copied.size))
+    copied.set(source, target)
+    const manifest = JSON.parse(await readFile(join(source, 'package.json'), 'utf8'))
+    await cp(source, target, { recursive: true, filter: (path) => !relative(source, path).split('/').includes('node_modules') })
+    const require = createRequire(join(source, 'package.json'))
+    for (const name of Object.keys({ ...manifest.dependencies, ...manifest.optionalDependencies, ...manifest.peerDependencies })) {
+      if (!/^(?:@[a-z0-9_.-]+\/)?[a-z0-9_.-]+$/i.test(name)) throw new Error('bridge not installed')
+      const dependency = require.resolve.paths(name)?.map((root) => join(root, name)).find((path) => existsSync(join(path, 'package.json')))
+      if (!dependency) {
+        if (manifest.optionalDependencies?.[name] || manifest.peerDependenciesMeta?.[name]?.optional) continue
+        throw new Error('bridge not installed')
+      }
+      const staged = await copyPackage(dependency)
+      const link = join(target, 'node_modules', name)
+      await mkdir(dirname(link), { recursive: true })
+      await symlink(relative(dirname(link), staged), link)
+    }
+    return target
+  }
+  try {
+    const entry = agent.acp.bridge.args[0]
+    const root = dirname(dirname(dirname(entry)))
+    const staged = await copyPackage(root)
+    return { ...agent, acp: { ...agent.acp, bridge: { ...agent.acp.bridge, args: [join(staged, relative(root, entry))] } } }
+  } catch (error) {
+    throw new Error(error.message === 'cannot isolate: bridge install directory unsafe' ? error.message : 'bridge not installed')
+  }
+}
+
 async function measureModel(agent, fixture, options) {
   const base = {
     agent: agent.name, agentId: agent.id, version: agent.version, measured: new Date().toISOString().slice(0, 10),
@@ -858,25 +945,30 @@ async function measureModel(agent, fixture, options) {
   }
   const environment = askEnvironment(agent, options.envName)
   if (environment.reason) return { ...base, reason: environment.reason }
-  const readPaths = [...fixture.isolation.readPaths]
-  if (agent.acp?.bridge) {
-    const { candidatePaths } = await import('../../packages/server/dist/src/installs/locate.js')
-    const candidates = candidatePaths({ commands: [agent.acp.bridge.command] }, { home: homedir(), env: { PATH: process.env.PATH ?? '' } })
-    let bridgePath
-    for (const candidate of candidates) {
-      try {
-        const path = realpathSync(candidate)
-        const root = installReadRoot(path)
-        if (statSync(path).isFile() && root && installRootIsSafe(root, realpathSync(homedir()))) { bridgePath = path; readPaths.push(root); break }
-      } catch { /* absent or unsafe bridge candidates are not launched */ }
-    }
-    if (!bridgePath) return { ...base, reason: 'model launch unavailable' }
-    agent = { ...agent, acp: { ...agent.acp, bridge: { ...agent.acp.bridge, command: bridgePath } } }
-  }
+  const resolved = await resolveModelBridge(agent)
+  if (resolved.reason) return { ...base, reason: resolved.reason }
+  try { agent = await stageModelBridge(resolved.agent, fixture) } catch (error) { return { ...base, reason: error.message } }
+  const readPaths = [...fixture.isolation.readPaths, ...(['claude-code', 'cursor'].includes(agent.id) ? [] : resolved.readPaths)]
   const isolation = measurementIsolation(agent, options)
   if (!await prepareSandbox(fixture, { isolation, readPaths })) return { ...base, reason: 'cannot isolate' }
   await populateSkillRoots(fixture, agent.id === 'codex' ? { user: ['~/.codex/skills', '~/.agents/skills'], project: ['.codex/skills', '.agents/skills'] } : KNOWN_SKILL_ROOTS[agent.brand] ?? { user: [], project: [] })
   return askAgent(agent, fixture, options)
+}
+
+// A fixture folder that will not go away is a finding about the machine, not a
+// reason to disown a result that is already written and printed. The removal
+// is retried for the transient causes Node recognises (a helper still flushing
+// a cache into the folder is the one seen), and a failure that survives is
+// reduced to the folder's own name and the error's errno name: never a message
+// and never a path.
+export const CLEANUP_INCOMPLETE_EXIT = 3
+export async function removeFixtureRoot(root, remove = rm) {
+  try {
+    await remove(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+    return null
+  } catch (error) {
+    return { folder: basename(root), code: typeof error?.code === 'string' && /^E[A-Z0-9]{2,15}$/.test(error.code) ? error.code : 'unknown' }
+  }
 }
 
 export async function main(args = process.argv.slice(2)) {
@@ -888,6 +980,7 @@ export async function main(args = process.argv.slice(2)) {
   const agents = options.all ? registry : registry.filter((agent) => agent.id === options.agentId)
   if (!agents.length) throw new Error('agent is not registered')
   const environment = options.envName ? askEnvironment(agents[0], options.envName) : {}
+  let cleanupIncomplete = false
   for (const agent of agents) {
     const root = await mkdtemp('/tmp/hd-measure-')
     try {
@@ -922,10 +1015,15 @@ export async function main(args = process.argv.slice(2)) {
       await writeResult(result, RESULT_DIR_PATH, fixture)
       process.stdout.write(`${result.status}: ${agent.id} ${result.version}\n`)
     } finally {
-      await rm(root, { recursive: true, force: true })
+      // The result above is already written and printed; a folder that cannot be removed says so on its own line and exit code.
+      const left = await removeFixtureRoot(root)
+      if (left) {
+        cleanupIncomplete = true
+        process.stderr.write(`cleanup incomplete: ${left.folder} was kept (${left.code})\n`)
+      }
     }
   }
-  return 0
+  return cleanupIncomplete ? CLEANUP_INCOMPLETE_EXIT : 0
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {

@@ -75,6 +75,7 @@ import { PluginsSection } from './PluginsSection'
 import { ExtensionsSection } from './Extensions'
 import { CeilingsSection } from './SettingsCeilings'
 import { QuestionWaitSection } from './SettingsQuestionWait'
+import { ClientAnswersSection } from './SettingsClientAnswers'
 import { RemoveWorktree } from './RemoveWorktree'
 import { isBlocking, worstReadiness, type Readiness } from '../lib/readiness'
 import {
@@ -662,6 +663,8 @@ const PermissionsSection = ({ focus = null }: { readonly focus?: string | null }
       <CeilingsSection focus={focus} />
 
       <QuestionWaitSection />
+
+      <ClientAnswersSection />
 
       {groups.length > 0 && (
         <Section title="Approvals" description="What a new session starts with. An agent that decides this per conversation says so.">
@@ -1962,7 +1965,7 @@ export const Settings = ({
           id: 'permissions',
           label: 'Permissions',
           icon: <ShieldIcon size={14} />,
-          keywords: ['approve', 'approval', 'sandbox', 'rules', 'deny', 'allow', 'commands', 'file changes', 'network', 'ceiling', 'ceilings', 'held', 'asked'],
+          keywords: ['approve', 'approval', 'sandbox', 'rules', 'deny', 'allow', 'commands', 'file changes', 'network', 'ceiling', 'ceilings', 'held', 'asked', 'clients', 'command-line', 'answer'],
         },
         {
           id: 'browser',
