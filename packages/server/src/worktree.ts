@@ -367,7 +367,17 @@ export const list = async (repoRoot: string, stateDir: string): Promise<Worktree
   if (!main) return []
   const porcelain = await git(main, ['worktree', 'list', '--porcelain'])
   const home = await worktreeHome(main, stateDir)
-  return parseWorktreeList(porcelain, home)
+  const entries = parseWorktreeList(porcelain, home)
+  /* The first entry is the main checkout, but git names it by its git
+     directory when that is not the folder someone works in: `.git/modules/<name>`
+     for a submodule. The interface starts conversations in this path, opens it,
+     and reads its changes, so it carries the folder `repositoryRoot` answered
+     (from a linked checkout that is this same entry put through
+     `--show-toplevel`). Where git cannot say — a `--separate-git-dir` checkout
+     asked from one of its worktrees — the entry stays what git named. */
+  const first = entries[0]
+  if (first && !samePath(await canonical(first.path), main)) entries[0] = { ...first, path: main }
+  return entries
 }
 
 /**

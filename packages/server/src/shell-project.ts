@@ -43,7 +43,18 @@ export const captureShellProject = async (opened: string): Promise<ShellProjectI
     if (!first) throw new Error('The project checkout has no main working tree.')
     project = await realpath(first.slice('worktree '.length))
     await assertBoundary(project)
-    const main = await shellCheckoutIdentity(project)
+    let main = await shellCheckoutIdentity(project)
+    if (main && !samePath(main.checkoutRoot, project)) {
+      /* Git lists a submodule's main checkout by its git directory, which names
+         the folder through its own `core.worktree`. The folder is not taken on
+         that word: it is asked again from inside, and must itself be a checkout
+         of this repository, with its own `.git` agreeing, as for any other
+         project. Asked only of the git directory, the common directory would
+         always match, since it is that directory. */
+      project = main.checkoutRoot
+      await assertBoundary(project)
+      main = await shellCheckoutIdentity(project)
+    }
     if (!main || !samePath(main.checkoutRoot, project) || !samePath(main.gitCommonDir, checkout.gitCommonDir)) {
       throw new Error('The project checkout changed its repository. Open the actual project folder before running shell commands.')
     }

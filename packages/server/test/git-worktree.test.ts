@@ -144,6 +144,59 @@ test('a checkout under HarnessDesk’s own directory reads as managed', async ()
   assert.equal(at(worktrees, '/task')?.branch, 'harnessdesk/task')
 })
 
+/**
+ * Git names a submodule's main checkout by its git directory, and one made with
+ * `--separate-git-dir` by the directory kept apart. The row for it carries the
+ * folder someone works in, as the session plane's listing does: it is what
+ * "Open" opens, what a new worktree lands beside, and what decides which of
+ * the others HarnessDesk made.
+ */
+test('the main checkout of a submodule, or of a separate git directory, is named by its folder', async () => {
+  const { repo: origin, beside, state } = await seedRepo()
+  const superproject = join(beside, 'super')
+  await mkdir(superproject)
+  await git(superproject, 'init', '-q', '-b', 'main')
+  await git(superproject, 'commit', '-q', '--allow-empty', '-m', 'root')
+  await git(superproject, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', origin, 'sub')
+  const sub = join(superproject, 'sub')
+  const home = await worktreeHome(sub, state)
+  await mkdir(home, { recursive: true })
+  const side = join(home, 'side')
+  await git(sub, 'worktree', 'add', '-q', '-b', 'harnessdesk/side', side)
+
+  for (const from of [sub, side]) {
+    const rows = await list(from, state)
+    assert.deepEqual(
+      rows.map((row) => [row.path, row.isMain, row.isCurrent, row.managed]),
+      [
+        [sub, true, from === sub, false],
+        [side, false, from === side, true],
+      ],
+      `read from ${from}`,
+    )
+  }
+  // The folder can be read, which a git directory with no working tree cannot.
+  assert.equal((await list(sub, state))[0]?.dirty, 0)
+
+  // Beside the repository is beside the folder, not inside the superproject's .git.
+  const made = await add(sub, 'feature', { kind: 'new', branch: 'feature' }, state)
+  assert.equal(made.path, join(superproject, 'feature'))
+})
+
+test('a checkout with a separate git directory is listed by its folder when asked from it', async () => {
+  const { beside, state } = await seedRepo()
+  const work = join(beside, 'work')
+  const apart = join(beside, 'apart.git')
+  await git(beside, 'init', '-q', '-b', 'main', `--separate-git-dir=${apart}`, work)
+  await git(work, 'commit', '-q', '--allow-empty', '-m', 'root')
+
+  const rows = await list(work, state)
+  assert.deepEqual(
+    rows.map((row) => [row.path, row.isMain, row.isCurrent, row.dirty]),
+    [[work, true, true, 0]],
+  )
+})
+
 // --------------------------------------------------------------------- add
 
 test('add makes a branch for the worktree, or takes one that exists, or detaches', async () => {
