@@ -54,7 +54,10 @@ test('the catalogue renders shipped composer slots and Side by side cases', asyn
   await expect(rail).toBeVisible()
   await expect(rail.locator('[aria-disabled="true"]')).toContainText('Side by side')
   await expect(rail.locator('[aria-disabled="true"]')).not.toHaveAttribute('data-refused')
-  await expect(rail).toContainText('Watch a member to put it here')
+  const label = rail.locator('[data-slot="list-row-title"] > span')
+  await expect(label).toHaveText('Side by side')
+  await expect(label).toHaveAttribute('title', 'Watch a member to put it here')
+  await expect(rail.locator('[data-slot="list-row-subtitle"]')).toHaveCount(0)
 
   const two = caseLabel(page, 'room — Side by side · two members, grid without a composer')
   await expect(two.locator('[data-slot="side-by-side-tile"]')).toHaveCount(2)

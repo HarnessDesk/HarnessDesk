@@ -17,7 +17,7 @@ export const FlowStepSurface = ({ state, selected, children, duration, runs, onC
       className={`absolute -inset-1 rounded-lg ${styles.ring} ${state === 'waiting' ? 'ring-4 ring-(--hd-warning)/20' : 'ring-4 ring-(--hd-accent)/20'}`} />}
     <Card variant="raised" spacing="compact" onClick={onClick}
       className={`absolute inset-0 flex-row items-center ${onClick ? 'cursor-pointer' : ''} ${selected ? 'outline-2 outline-offset-4 outline-(--hd-accent)' : ''} ${
-        state === 'future' ? 'border-dashed opacity-50' : state === 'working' ? 'border-(--hd-accent) ring-1 ring-(--hd-accent)' : state === 'waiting' ? 'border-(--hd-warning) ring-1 ring-(--hd-warning)' : state === 'done' ? 'border-(--hd-accent)/40' : ''}`}>
+        state === 'future' ? 'border-dashed' : state === 'working' ? 'border-(--hd-accent) ring-1 ring-(--hd-accent)' : state === 'waiting' ? 'border-(--hd-warning) ring-1 ring-(--hd-warning)' : state === 'done' ? 'border-(--hd-accent)/40' : ''}`}>
       {children}
     </Card>
     {state === 'done' && <span data-slot="flow-complete" className="absolute -right-2 -top-2 inline-flex size-6 items-center justify-center rounded-full bg-(--hd-accent) text-(--hd-accent-foreground) ring-2 ring-(--hd-background)"><CheckIcon size={14} /></span>}

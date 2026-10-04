@@ -100,7 +100,7 @@ for (const theme of ['light', 'dark'] as const) {
   test(`a refused abandon keeps the host's reason in the question and disables the act in ${theme}`, async ({ page }) => {
     await open(page, theme, '&abandon=refused')
     const dialog = page.getByRole('alertdialog', { name: 'Abandon card #4?' })
-    await expect(dialog.locator('[role="alert"]')).toHaveText('There is no intent #4 on this board.')
+    await expect(dialog.locator('[role="alert"]')).toHaveText('There is no card #4 on this board.')
     await expect(dialog.getByRole('button', { name: 'Abandon card', exact: true })).toBeDisabled()
     await expect(dialog.getByRole('button', { name: 'Keep it', exact: true })).toBeEnabled()
     await dialog.getByRole('button', { name: 'Keep it', exact: true }).click()

@@ -1041,8 +1041,7 @@ const SideBySideBoard = () => {
                 size="sm"
                 nav
                 aria-disabled="true"
-                title="Side by side"
-                subtitle="Watch a member to put it here"
+                title={<span title="Watch a member to put it here">Side by side</span>}
                 lead={<IconTile size="sm" tint="violet"><TeamIcon /></IconTile>}
               />
             </ListRows>
