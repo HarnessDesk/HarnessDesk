@@ -666,6 +666,7 @@ export class AppStore {
               this.#snapshot.activeRuntime === runtime
                 ? (runtimes[0]?.id ?? null)
                 : this.#snapshot.activeRuntime,
+            historyIdentity: this.#snapshot.historyIdentity.filter((entry) => entry.runtime !== runtime),
             history: this.#snapshot.history.filter((entry) => entry.runtime !== runtime),
             historyCursor: anchored ? null : this.#snapshot.historyCursor,
           })
@@ -2074,15 +2075,18 @@ export class AppStore {
       const merged = [...page.data, ...extra.flat()].sort((a, b) => b.updatedAt - a.updatedAt)
       if (requestId !== this.#historyRequestId) return
       const nextFoldersGone = this.#foldersGoneFor(merged)
+      const mergeHistory = (current: readonly SessionSummary[]) => options.reset
+        ? merged
+        : [
+            ...current,
+            ...merged.filter((entry) => !current.some(
+              (existing) => existing.id === entry.id && existing.runtime === entry.runtime,
+            )),
+          ]
       this.#patch({
         ...(nextFoldersGone ? { foldersGone: nextFoldersGone } : {}),
-        history: options.reset
-          ? merged
-          : [...this.#snapshot.history, ...merged.filter(
-              (entry) => !this.#snapshot.history.some(
-                (existing) => existing.id === entry.id && existing.runtime === entry.runtime,
-              ),
-            )],
+        historyIdentity: mergeHistory(this.#snapshot.historyIdentity),
+        history: mergeHistory(this.#snapshot.history),
         historyCursor: page.nextCursor ?? null,
       })
     } catch (error) {
@@ -2172,13 +2176,17 @@ export class AppStore {
 
   #ensureHistorySummary(session: Session): void {
     const key = String(sessionKey(session.runtime, session.id))
-    if (this.#snapshot.history.some((entry) => String(sessionKey(entry.runtime, entry.id)) === key)) {
-      return
-    }
+    const summary = summaryOfSession(session)
+    const has = (rows: readonly SessionSummary[]) =>
+      rows.some((entry) => String(sessionKey(entry.runtime, entry.id)) === key)
+    const history = this.#snapshot.history
+    const historyIdentity = this.#snapshot.historyIdentity
+    if (has(history) && has(historyIdentity)) return
     this.#patch({
-      history: [...this.#snapshot.history, summaryOfSession(session)].sort(
-        (a, b) => b.updatedAt - a.updatedAt,
-      ),
+      history: has(history) ? history : [...history, summary].sort((a, b) => b.updatedAt - a.updatedAt),
+      historyIdentity: has(historyIdentity)
+        ? historyIdentity
+        : [...historyIdentity, summary].sort((a, b) => b.updatedAt - a.updatedAt),
     })
   }
 
@@ -2891,14 +2899,15 @@ export class AppStore {
    * again for a conversation it never showed.
    */
   #dropRemoved(key: SessionKey, deleted: boolean): void {
-    const { sessions, queues, tasks, history, approvals } = this.#snapshot
+    const { sessions, queues, tasks, history, historyIdentity, approvals } = this.#snapshot
     const shown = panes(this.#snapshot.layout.root).filter((pane) => sessionOf(pane) === key)
     const docked = mountedViewsIn(this.#snapshot.workbench).filter(
       (entry) => entry.mounted.view.kind === 'conversation' && entry.mounted.view.session === key,
     )
     const listed = history.some((entry) => sessionKey(entry.runtime, entry.id) === key)
+    const known = historyIdentity.some((entry) => sessionKey(entry.runtime, entry.id) === key)
     const waiting = approvals.some((entry) => entry.key === key)
-    const held = sessions.has(key) || queues.has(key) || tasks.has(key) || listed || waiting ||
+    const held = sessions.has(key) || queues.has(key) || tasks.has(key) || listed || known || waiting ||
       shown.length > 0 || docked.length > 0 ||
       (deleted && (this.drafts.live(key) !== null || this.drafts.recoverable(key).length > 0))
     if (!held) return
@@ -2922,6 +2931,7 @@ export class AppStore {
       queues: nextQueues,
       tasks: nextTasks,
       history: listed ? history.filter((entry) => sessionKey(entry.runtime, entry.id) !== key) : history,
+      historyIdentity: known ? historyIdentity.filter((entry) => sessionKey(entry.runtime, entry.id) !== key) : historyIdentity,
       approvals: waiting ? approvals.filter((entry) => entry.key !== key) : approvals,
     })
   }

@@ -1,4 +1,4 @@
-import { normalizedRepoKey, repoKey, type SessionSummary, type TeamState, type WorkspaceEntry } from '@harnessdesk/protocol'
+import { normalizedRepoKey, repoKey, sessionKey, type SessionSummary, type TeamState, type WorkspaceEntry } from '@harnessdesk/protocol'
 
 import { isPathInside, relativeTo, shortPath } from './paths'
 
@@ -192,7 +192,9 @@ export const groupByProject = (
   // Visibility never decides repository identity, aliases or the home. Opened
   // checkouts also supply facts before their first history page arrives.
   const facts = options.identityHistory ?? history
-  const visible = new Set(history)
+  const visible = new Map(
+    history.map((summary) => [String(sessionKey(summary.runtime, summary.id)), summary]),
+  )
   const gone = options.goneFolders ?? new Set<string>()
   const paths = workspaces.map((workspace) => typeof workspace === 'string' ? workspace : workspace.path)
   const opened = new Set(paths.filter((path) => !gone.has(path)))
@@ -250,7 +252,8 @@ export const groupByProject = (
       entry = { sessions: [], cwds: new Map(), roots: new Map(), rootOf: new Map(), origin }
       byKey.set(key, entry)
     }
-    if (visible.has(summary)) entry.sessions.push(summary)
+    const shown = visible.get(String(sessionKey(summary.runtime, summary.id)))
+    if (shown) entry.sessions.push(shown)
     entry.cwds.set(summary.cwd, (entry.cwds.get(summary.cwd) ?? 0) + 1)
     if (root !== undefined) {
       entry.rootOf.set(summary.cwd, root)

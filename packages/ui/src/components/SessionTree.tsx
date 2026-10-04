@@ -1186,6 +1186,17 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
   )
   return useMemo(() => {
     const listed = [...liveRef.current, ...snapshot.history]
+    const historyIdentityKeys = new Set(
+      snapshot.historyIdentity.map((summary) => String(sessionKey(summary.runtime, summary.id))),
+    )
+    const identityHistory = snapshot.historyIdentity.length > 0
+      ? [
+          ...snapshot.historyIdentity,
+          ...liveRef.current.filter((summary) =>
+            !historyIdentityKeys.has(String(sessionKey(summary.runtime, summary.id))),
+          ),
+        ]
+      : listed
     const filtered = snapshot.listPrefs.agent
       ? listed.filter(
           (summary) => agentKeyOf(summary.runtime, snapshot.runtimes) === snapshot.listPrefs.agent,
@@ -1215,7 +1226,7 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
       shown,
       snapshot.workspaces,
       snapshot.workspace,
-      { identityHistory: listed, goneFolders: searching ? undefined : new Set(snapshot.foldersGone.keys()) },
+      { identityHistory, goneFolders: searching ? undefined : new Set(snapshot.foldersGone.keys()) },
     )
     const pinned = migratedRoots(snapshot.listPrefs.pinned, snapshot.workspace, list)
     // A folder just opened has no sessions to be grouped by, and a list that
@@ -1288,7 +1299,7 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
       return b.updatedAt - a.updatedAt
     })
     return { groups, hiddenPinned, gone }
-  }, [snapshot.history, liveKey, snapshot.listPrefs.agent, snapshot.listPrefs.pinned, snapshot.listPrefs.pinnedSessions, snapshot.listPrefs.sort, snapshot.listPrefs.forgottenFolders, snapshot.foldersGone, snapshot.workspace, snapshot.workspaces, roomRoots, searching])
+  }, [snapshot.history, snapshot.historyIdentity, liveKey, snapshot.listPrefs.agent, snapshot.listPrefs.pinned, snapshot.listPrefs.pinnedSessions, snapshot.listPrefs.sort, snapshot.listPrefs.forgottenFolders, snapshot.foldersGone, snapshot.workspace, snapshot.workspaces, roomRoots, searching])
 }
 
 /** The projects alone: what the section's own controls act on. */

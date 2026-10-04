@@ -345,6 +345,8 @@ export interface AppSnapshot {
 
   /** Every conversation the host told us about, keyed by `(runtime, id)`. */
   readonly sessions: ReadonlyMap<SessionKey, Session>
+  /** Full, unfiltered conversation history used for stable project identity during search. */
+  readonly historyIdentity: readonly SessionSummary[]
   readonly history: readonly SessionSummary[]
   readonly historyLoading: boolean
   readonly historyCursor: string | null
@@ -835,6 +837,7 @@ const EMPTY: AppSnapshot = {
   queues: new Map(),
   recoverableDrafts: new Map(),
   tasks: new Map(),
+  historyIdentity: [],
   history: [],
   historyLoading: false,
   historyCursor: null,
