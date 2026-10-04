@@ -1,7 +1,8 @@
 import { useState } from 'react'
 
 import { projectGroupRootOf, type ProjectGroup } from '../lib/projects'
-import { shortPath } from '../lib/paths'
+import { isPathInside, shortPath } from '../lib/paths'
+import { captureForRoot, captureWords } from '../lib/provenance'
 import { isDesktop } from '../lib/desktop'
 import { useSnapshot, useStore } from '../state/context'
 import {
@@ -15,6 +16,7 @@ import {
   MoveUpIcon,
   PinIcon,
   PlusIcon,
+  RetryIcon,
   SettingsIcon,
   TerminalIcon,
   TrashIcon,
@@ -147,6 +149,14 @@ const WorkspaceRows = ({
     : group.sessions.some((summary) => Boolean(summary.git?.branch))
   const count = group.sessions.length
   const sessionsWord = count === 1 ? '1 session' : `${count} sessions`
+  /* How capture is going, for the repository this project is homed in. It is
+     said here, in one item, and not on the project's row: the row says which
+     project it is. A clone's capture is a different repository's, so only the
+     folders that contain the home are asked; a healthy capture says nothing. */
+  const capture = group.folders
+    .filter((folder) => isPathInside(group.root, folder))
+    .map((folder) => captureForRoot(folder, snapshot.captureHealth, snapshot.workspaces))
+    .find((health) => health !== undefined && health.state !== 'healthy')
 
   /* Past the end of the arranged run is back into the sort (the store
      unpins it); anywhere in it is a place in the run. */
@@ -261,6 +271,23 @@ const WorkspaceRows = ({
         title="Its own Agents, on a page of its own."
         onSelect={() => store.askSettings('workspaces', group.root)}
       />
+      {/* The control is the one the project's page offers beside this state:
+          retry while capture is on, turn it on while it is off. The host's own
+          reason and next step are on hover — a fact that varies, in the host's
+          words, which the row has not earned a line for. */}
+      {capture && (
+        <MenuItem
+          icon={<RetryIcon size={14} />}
+          label={`Capture ${captureWords(capture).label.toLowerCase()}`}
+          value={capture.enabled ? 'Retry' : 'Turn on'}
+          title={`${capture.reason} ${capture.nextStep}`}
+          onSelect={() => {
+            void (capture.enabled ? store.retryCapture(capture.project) : store.setCapture(capture.project, true)).catch(() =>
+              store.notice('warning', capture.enabled ? 'Capture could not be retried.' : 'The capture preference could not be saved.'),
+            )
+          }}
+        />
+      )}
 
       <MenuSeparator />
 

@@ -36,7 +36,6 @@ import { openingOf, sessionKey, type Session, type SessionSummary, type TeamStat
 
 import { agentGroups, agentKey, agentKeyOf } from '../lib/accounts'
 import { folderName, groupByProject, groupHolding, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, roomGroupRootOf, type ProjectGroup } from '../lib/projects'
-import { captureForRoot } from '../lib/provenance'
 import { sessionLabel } from '../lib/sessions'
 import { teamSeats } from '../lib/team-seats'
 import { goalRunOf } from '../lib/goal-run'
@@ -528,9 +527,6 @@ const GroupHead = ({
   const store = useStore()
   const snapshot = useSnapshot()
   const menu = useContextMenu()
-  const stopped = projectRoots(group)
-    .map((root) => captureForRoot(root, snapshot.captureHealth, snapshot.workspaces))
-    .find((health) => health?.state === 'stopped')
   /* Whether the folder the app is working in *is* this row's home. It used to
      be marked only by leading the list, which says nothing once you have
      arranged the list yourself — and "which project is this about" is the
@@ -584,7 +580,6 @@ const GroupHead = ({
             </>}
             label={<span className="flex min-w-0 items-center gap-(--hd-space-1)" >
               <Text role="navigation" ink={holdsOpen ? 'primary' : undefined} truncate className={styles.groupName}>{group.name}</Text>
-              {stopped && <span title={`${stopped.reason} ${stopped.nextStep}`} className="group-hover/menu-item:hidden group-focus-within/menu-item:hidden"><Chip tone="neutral" variant="quiet" label="Capture stopped" /></span>}
             </span>}
           />
           {pinned && <SidebarMenuBadge title="Pinned" aria-label="Pinned"><PinIcon size={11} /></SidebarMenuBadge>}

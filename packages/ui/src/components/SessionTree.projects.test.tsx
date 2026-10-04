@@ -146,7 +146,7 @@ it('still gives a folder you have just opened a row of its own', () => {
   expect(currentProject()).toBe('other')
 })
 
-it('only a stopped project adds capture text, including its folded canonical alias', () => {
+it('keeps capture state off the project row, stopped or not — it is in the project’s menu', () => {
   const tree = `${REPO}/.claude/worktrees/hours-bug`
   const off = { project: REPO, enabled: false, state: 'stopped' as const, reason: 'Capture is off.', nextStep: 'Turn capture on.', checkedAt: 1, lastCapturedAt: 1, pending: 0, gaps: 0, revision: 1 }
   render(
@@ -154,10 +154,9 @@ it('only a stopped project adds capture text, including its folded canonical ali
     workspace(tree, { root: REPO, worktree: true }),
     { captureHealth: new Map([[REPO, off]]) },
   )
-  expect(container.textContent).toContain('Capture stopped')
-  expect(container.querySelector('[data-slot="chip"]')?.getAttribute('data-variant')).toBe('quiet')
-  render([session('a', REPO, { root: REPO, worktree: false })], workspace(REPO, { root: REPO, worktree: false }), { captureHealth: new Map([[REPO, { ...off, enabled: true, state: 'healthy' }]]) })
-  expect(container.textContent).not.toContain('Capture stopped')
+  // The row says which project it is and nothing about how capture is going.
+  expect(container.textContent).not.toContain('Capture')
+  expect(container.querySelector('[draggable="true"] [data-slot="chip"]')).toBeNull()
 })
 
 it('a trigger Goal’s room is named by its Goal, with no origin line of its own, and no row asks Intake for one', async () => {

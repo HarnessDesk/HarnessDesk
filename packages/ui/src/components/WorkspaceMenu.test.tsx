@@ -5,7 +5,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import type { ProjectGroup } from '../lib/projects'
-import type { SessionSummary } from '@harnessdesk/protocol'
+import type { CaptureHealth, SessionSummary } from '@harnessdesk/protocol'
+import { captureHealth } from '../preview/provenance-fixture'
 import { WorkspaceMenu } from './WorkspaceMenu'
 
 /**
@@ -158,4 +159,77 @@ it('shows a home-shortened path hint and copies the absolute project path', asyn
   expect(path.querySelector('[class*="hint"]')?.textContent).toBe('~/work/project')
   act(() => path.dispatchEvent(new MouseEvent('click', { bubbles: true })))
   expect(writeText).toHaveBeenCalledWith(absolute)
+})
+
+/**
+ * Capture's state is a fact about the project, said in the project's menu —
+ * not on its row, which says which project it is. One item, naming the state
+ * and offering the control the project's own page already has: retry while
+ * capture is on, turn it on while it is off. Healthy says nothing.
+ */
+const PROJECT = '/home/dev/work/widgets'
+const mountCapture = (subject: ProjectGroup, health: readonly CaptureHealth[]) => {
+  const snapshot = { ...emptySnapshot(), home: '/home/dev', captureHealth: new Map(health.map((one) => [one.project, one])) } as AppSnapshot
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    retryCapture: vi.fn(async () => captureHealth()),
+    setCapture: vi.fn(async () => captureHealth()),
+  } as unknown as AppStore
+  act(() => root.render(
+    <StoreProvider store={store}>
+      <WorkspaceMenu group={subject} current={false} actualRoot={subject.root} at={{ x: 10, y: 10 }} onClose={() => {}} onNewWorktree={() => {}} />
+    </StoreProvider>,
+  ))
+  return store
+}
+const captureItems = (): HTMLElement[] =>
+  [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].filter((item) => item.textContent?.startsWith('Capture'))
+
+it('says a stopped capture in the menu and offers to retry it', () => {
+  const store = mountCapture(group(PROJECT, 'widgets'), [
+    captureHealth({ project: PROJECT, state: 'stopped', reason: 'Repository metadata is refused.', nextStep: 'Use a supported checkout.' }),
+  ])
+  const [item, ...more] = captureItems()
+  expect(more).toHaveLength(0)
+  expect(item?.querySelector('[class*="title"]')?.textContent).toBe('Capture stopped')
+  expect(item?.querySelector('[class*="value"]')?.textContent).toBe('Retry')
+  // The reason is on hover, in the host's own words; a menu row does not carry a sentence it did not earn.
+  expect(item?.getAttribute('title')).toBe('Repository metadata is refused. Use a supported checkout.')
+  expect(item?.querySelector('[class*="hint"]')).toBeNull()
+  act(() => item!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  expect(store.retryCapture).toHaveBeenCalledWith(PROJECT)
+  expect(store.setCapture).not.toHaveBeenCalled()
+})
+
+it('offers to turn capture on when it was turned off', () => {
+  const store = mountCapture(group(PROJECT, 'widgets'), [
+    captureHealth({ project: PROJECT, enabled: false, state: 'stopped', reason: 'Capture is off on this machine.', nextStep: 'Turn capture on.' }),
+  ])
+  const item = captureItems()[0]
+  expect(item?.querySelector('[class*="title"]')?.textContent).toBe('Capture stopped')
+  expect(item?.querySelector('[class*="value"]')?.textContent).toBe('Turn on')
+  act(() => item!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  expect(store.setCapture).toHaveBeenCalledWith(PROJECT, true)
+  expect(store.retryCapture).not.toHaveBeenCalled()
+})
+
+it('says a degraded capture too, and nothing at all for a healthy one or one it knows nothing of', () => {
+  mountCapture(group(PROJECT, 'widgets'), [captureHealth({ project: PROJECT, state: 'degraded', reason: 'Watching failed; polling continues.', nextStep: 'Retry capture.' })])
+  expect(captureItems()[0]?.querySelector('[class*="title"]')?.textContent).toBe('Capture degraded')
+  mountCapture(group(PROJECT, 'widgets'), [captureHealth({ project: PROJECT })])
+  expect(captureItems()).toHaveLength(0)
+  mountCapture(group(PROJECT, 'widgets'), [])
+  expect(captureItems()).toHaveLength(0)
+})
+
+it('reads the project’s own capture, wherever it is homed, and not a clone’s', () => {
+  const clone = '/home/dev/work/widgets-team-plan-pr18'
+  const subject: ProjectGroup = { ...group(`${PROJECT}/packages/ui`, 'ui'), folders: [`${PROJECT}/packages/ui`, PROJECT, clone] }
+  // The repository the home folder lives in is stopped: the project says so.
+  mountCapture(subject, [captureHealth({ project: PROJECT, state: 'stopped' })])
+  expect(captureItems()).toHaveLength(1)
+  // A clone's capture is a different repository's; it is not the project's.
+  mountCapture(subject, [captureHealth({ project: clone, state: 'stopped' }), captureHealth({ project: PROJECT })])
+  expect(captureItems()).toHaveLength(0)
 })
