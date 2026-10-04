@@ -265,9 +265,9 @@ test('installing again over our own launcher replaces it, and leaves nothing beh
   const home = makeHome()
   const first = installLauncher({ home, target: target(), loginPath: `${home}/.local/bin` })
   const moved = target({
-    runtime: '/Users/Jane Doe/Applications/HarnessDesk.app/Contents/MacOS/HarnessDesk',
-    entry: `/Users/Jane Doe/Applications/HarnessDesk.app/${IN_APP.entryIn}`,
-    bundle: { id: BUNDLE_ID, path: '/Users/Jane Doe/Applications/HarnessDesk.app', ...IN_APP },
+    runtime: '/srv/Jane Doe/Applications/HarnessDesk.app/Contents/MacOS/HarnessDesk',
+    entry: `/srv/Jane Doe/Applications/HarnessDesk.app/${IN_APP.entryIn}`,
+    bundle: { id: BUNDLE_ID, path: '/srv/Jane Doe/Applications/HarnessDesk.app', ...IN_APP },
   })
   const second = installLauncher({ home, target: moved, loginPath: `${home}/.local/bin` })
   assert.equal(second.status, 'updated')
@@ -365,7 +365,7 @@ test('removing deletes our launcher and only that', () => {
 })
 
 test('the one line that puts a folder on PATH is the shell’s own, and never edits a file', () => {
-  const home = '/Users/jane'
+  const home = '/home/jane'
   const dir = `${home}/.local/bin`
   assert.deepEqual(pathAdvice({ dir, home, shell: '/bin/zsh' }), {
     file: '~/.zshrc',
