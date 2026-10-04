@@ -577,7 +577,15 @@ const GroupHead = ({
             label={<span className="flex min-w-0 items-center gap-(--hd-space-1)">
               <Text role="prose" ink="secondary" truncate>{group.name}</Text>
               <DisclosureChevron open={open} size="xs" className="opacity-0 group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100" />
-              {stopped && <span title={`${stopped.reason} ${stopped.nextStep}`} className="group-hover/menu-item:hidden group-focus-within/menu-item:hidden"><Chip tone="neutral" variant="quiet" label="Capture stopped" /></span>}
+              {stopped && <span className="group-hover/menu-item:hidden group-focus-within/menu-item:hidden">
+                <SidebarMenuState
+                  label="Capture stopped"
+                  title={`${stopped.reason} ${stopped.nextStep}`}
+                  tone="neutral"
+                  state="unknown"
+                  compactAtNarrow
+                />
+              </span>}
             </span>}
           />
           {pinned && <SidebarMenuBadge title="Pinned" aria-label="Pinned"><PinIcon size={11} /></SidebarMenuBadge>}
