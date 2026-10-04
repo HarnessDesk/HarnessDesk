@@ -683,8 +683,11 @@ An Agent's page also shows its Skills and Servers as an editable allowlist —
 an empty one reads "Runtime defaults", never "None" — with **Edit…**
 previewing the exact `skills:`/`mcp:` diff before it writes, and **Review &
 Approve…** showing the exact bytes a runtime would load before a person
-approves them once for that repository, Agent, runtime build and ceiling. Its
-Notes section reads and clears `NOTES.md` beside the Agent's file: private
+approves them once for that repository, Agent, runtime build and ceiling. The
+review wraps long commands and preserves their line breaks. Large reviews
+scroll inside the dialog body, with the question and Approve/Keep buttons
+remaining on screen so the whole command can be read before consent. The Agent's
+Notes section reads and clears `NOTES.md` beside its file: private
 working context, never system instructions. A Seat's own name card and the
 Library's Agent filter both read back what a Seat's runtime build actually
 loaded, by that Seat's own immutable id — "declared, not loaded" and "not
