@@ -1,12 +1,18 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import type { CeilingLevel, FlowAgentRole, FlowPolicy, FlowPolicyRole, FlowPolicyRule, SeatCeiling } from '@harnessdesk/protocol'
 
 import { flowLayout } from '../../lib/flow-layout'
 import { flowModel } from '../../lib/flow-model'
 import { FlowGraph } from './FlowGraph'
+
+// The real layout, with its calls counted, so a test can see how often a drawing asks for one.
+vi.mock('../../lib/flow-layout', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../lib/flow-layout')>()
+  return { ...real, flowLayout: vi.fn(real.flowLayout) }
+})
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -169,6 +175,17 @@ it('draws a Flow with no steps as a sentence and nothing else', () => {
   act(() => root.render(<FlowGraph model={flowModel({ ...policy([agent('x')], []), roles: [] })} />))
   expect(container.querySelector('[data-slot="flow-step"]')).toBeNull()
   expect(container.textContent).toContain('This Flow has no steps')
+})
+
+it('lays a Flow out once for the model it was given, however often the window draws it again', () => {
+  const model = flowModel(blueprint())
+  vi.mocked(flowLayout).mockClear()
+  act(() => root.render(<FlowGraph model={model} />))
+  act(() => root.render(<FlowGraph model={model} />))
+  act(() => root.render(<FlowGraph model={model} />))
+  expect(flowLayout).toHaveBeenCalledTimes(1)
+  act(() => root.render(<FlowGraph model={flowModel(blueprint())} />))
+  expect(flowLayout).toHaveBeenCalledTimes(2)
 })
 
 it('keeps one dot grid for each drawing, so two on a page do not share a pattern', () => {

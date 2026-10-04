@@ -1,4 +1,4 @@
-import { useId } from 'react'
+import { useId, useMemo } from 'react'
 
 import { AgentIcon, CheckIcon, RetryIcon, UserIcon } from '../../components/Icons'
 import {
@@ -109,10 +109,13 @@ export interface FlowGraphProps {
 
 export const FlowGraph = ({ model }: FlowGraphProps) => {
   const grid = useId().replace(/[^A-Za-z0-9_-]/g, '')
-  if (model.steps.length === 0) {
+  // A pure function of the model, which a Run's window keeps for as long as the
+  // Run's records do: a long Flow costs a few milliseconds to lay out, and the
+  // window renders again whenever its snapshot moves.
+  const layout = useMemo(() => (model.steps.length === 0 ? null : flowLayout(model)), [model])
+  if (layout === null) {
     return <Text role="muted" as="p" data-slot="flow-graph">This Flow has no steps.</Text>
   }
-  const layout = flowLayout(model)
   const stepsById = new Map(model.steps.map((step) => [step.id, step]))
   const kindOfRule = new Map(layout.edges.flatMap((edge) => edge.rules.map((id) => [id, edge.kind] as const)))
   return (
