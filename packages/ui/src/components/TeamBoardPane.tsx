@@ -1201,10 +1201,10 @@ const IntentCard = ({
         onClose={() => setReviewDialog(null)}
         footer={(
           <>
-            <Button variant="quiet" onClick={() => setReviewDialog(null)}>Cancel</Button>
             <Button variant="default" disabled={!reviewDialog.selected || !reviewDialog.answer || reviewDialog.pending || record} title={record ? RECORD_REASON : undefined} onClick={() => void confirmReview()}>
               {reviewDialog.pending ? 'Saving…' : 'Record answer'}
             </Button>
+            <Button variant="quiet" onClick={() => setReviewDialog(null)}>Cancel</Button>
           </>
         )}
       >

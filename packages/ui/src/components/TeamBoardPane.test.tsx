@@ -960,6 +960,8 @@ it('the attempt dialog asks for both an attempt and a declared answer before rec
   const withRun = { ...snapshot, flowExecutions: new Map([[execution.id, execution]]) }
   await render({ ...store, getSnapshot: () => withRun } as unknown as AppStore)
   await pick(1, 'Pick an attempt…')
+  const footer=document.querySelector('[role="dialog"] [data-slot="dialog-footer"]')!
+  expect([...footer.querySelectorAll('button')].map(one=>one.textContent?.trim())).toEqual(['Record answer','Cancel'])
   expect(store.flowReviewCandidates).toHaveBeenCalledWith(execution.id, 1)
   expect(document.body.textContent).toContain('Pick the best attempt')
   expect(document.body.textContent).toContain('Choose the attempt this step answers for.')
