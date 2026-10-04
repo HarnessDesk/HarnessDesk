@@ -1104,10 +1104,14 @@ export interface AgentRuntime {
    * choices come from here, the user's picks travel as `SessionOptions.options`
    * when the session is created. Optional; a runtime without it simply has no
    * pre-session controls.
+   * `fresh` reads from new-session defaults without inheriting or changing a
+   * retained composer draft. Stateful adapters use a separate silent probe;
+   * stateless adapters already satisfy this and may ignore the request.
    */
   defaultSessionOptions?(
     cwd?: string,
     values?: Readonly<Record<string, OptionValue>>,
+    request?: { readonly fresh: boolean },
   ): Promise<readonly ConfigOption[]>
   getAccount(): Promise<AccountStatus>
   /**

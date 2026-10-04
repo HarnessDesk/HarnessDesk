@@ -29,12 +29,10 @@ export const seatOptionsProblem = async (runtime: AgentRuntime, seat: FlowSeat, 
   if (runtime.health().state === 'idle') return idleProblem()
   // Model first: on ACP it decides which effort and thinking controls exist.
   // Do not pass dimensions here: draft APIs may deliberately drop them.
-  // Session-declared catalogues retain the first opening's default, while
-  // their draft probe can have moved to another model. Reset that probe.
-  // Other runtimes read the effective project configuration: leaving model
-  // absent is how they choose the same default as session opening.
-  const selectedModel = seat.model ?? (runtime.knownModels ? model?.id : undefined)
-  const read = await within(() => runtime.defaultSessionOptions!(cwd, selectedModel ? { model: selectedModel } : {}), deadline)
+  // Fresh drafts start with the project's new-session defaults, rather than
+  // inheriting a composer's last model or dimension picks.
+  const selectedModel = seat.model
+  const read = await within(() => runtime.defaultSessionOptions!(cwd, selectedModel ? { model: selectedModel } : {}, { fresh: true }), deadline)
   if (runtime.health().state === 'idle') return idleProblem()
   if (read.settled === 'late') return `${label}'s session options could not be read within ${deadline} ms. Read the preview again when the agent is ready.`
   if (read.settled === 'error') return `${label}: ${read.error instanceof Error ? read.error.message : String(read.error)}`
@@ -42,7 +40,7 @@ export const seatOptionsProblem = async (runtime: AgentRuntime, seat: FlowSeat, 
   const actual = catalogue.value.find((one) => one.id === actualModel)
   if (actual) label = `${name}'s ${actual.displayName}`
   const picks: Record<string, OptionValue> = {
-    ...(seat.effort && seat.effort !== 'default' ? { effort: seat.effort } : {}),
+    ...(seat.effort ? { effort: seat.effort } : {}),
     ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),
   }
   for (const [id, value] of Object.entries(picks)) {
@@ -56,18 +54,18 @@ export const seatOptionsProblem = async (runtime: AgentRuntime, seat: FlowSeat, 
   // controls can offer picks whose combination the runtime settles elsewhere.
   const settled = await within(async () => {
     const values = { ...(selectedModel ? { model: selectedModel } : {}), ...picks }
-    const options = await runtime.defaultSessionOptions!(cwd, values)
+    const options = await runtime.defaultSessionOptions!(cwd, values, { fresh: true })
     const thinking = findOption(options, 'thinking')
     // Effort can reveal or fix the switch, so inspect it after the picks.
     return seat.thinking === undefined && thinking?.currentValue === true && !thinking.disabled
-      ? runtime.defaultSessionOptions!(cwd, { ...values, thinking: false })
+      ? runtime.defaultSessionOptions!(cwd, { ...values, thinking: false }, { fresh: true })
       : options
   }, deadline)
   if (runtime.health().state === 'idle') return idleProblem()
   if (settled.settled === 'late') return `${label}'s session options could not be read within ${deadline} ms. Read the preview again when the agent is ready.`
   if (settled.settled === 'error') return `${label}: ${settled.error instanceof Error ? settled.error.message : String(settled.error)}`
   return openedOtherwise(
-    { ...seat, runtime: label, ...(seat.effort === 'default' ? { effort: null } : {}) },
+    { ...seat, runtime: label },
     runningOf(settled.value, { cwd, model: actualModel ? String(actualModel) : '' }),
   )
 }

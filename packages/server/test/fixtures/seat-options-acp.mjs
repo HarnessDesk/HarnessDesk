@@ -8,7 +8,7 @@ const models = [
 ]
 const sessions = new Map()
 const optionsOf = (model) => model === 'opus'
-  ? [{ id: 'effort', name: 'Effort', category: 'thought_level', type: 'select', currentValue: 'high', options: [{ value: 'high', name: 'High' }] }]
+  ? [{ id: 'effort', name: 'Effort', category: 'thought_level', type: 'select', currentValue: process.env.SEAT_DEFAULT_EFFORT === '1' ? 'default' : 'high', options: [{ value: 'high', name: 'High' }, ...(process.env.SEAT_DEFAULT_EFFORT ? [{ value: 'default', name: 'Default' }] : [])] }]
   : []
 const reply = (id, result) => process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id, result })}\n`)
 createInterface({ input: process.stdin }).on('line', (line) => {

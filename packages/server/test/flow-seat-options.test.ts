@@ -11,6 +11,7 @@ import type { AgentRuntime } from '@harnessdesk/protocol'
 import { Host } from '../src/host.js'
 import { StateStore } from '../src/state.js'
 import { seatOptionsProblem } from '../src/seat-options.js'
+import { openedOtherwise, runningOf } from '../src/agent-seating.js'
 import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
 
@@ -85,15 +86,67 @@ test('start rechecks the settled combination before creating a Run, Goal, lane o
 
 test('ACP supported combinations still preview and a later Seat clears inherited thinking', async (t) => {
   const { host, root } = await rig(t, 'variant')
-  for (const seat of ['claude-code=fam/medium+thinking', 'claude-code=fam/high', 'claude-code=fam/default']) {
+  for (const seat of ['claude-code=fam/medium+thinking', 'claude-code=fam/high']) {
     const preview = await host.call('flow/preview', { root, source: source(seat) })
     assert.ok(preview.token, `${seat}: ${JSON.stringify(preview.problems)}`)
   }
 })
 
+for (const answer of ['announce', 'reply']) {
+  test(`ACP ${answer}: default effort refused by opening cannot authorize a start`, async (t) => {
+    const { host, root, runtime } = await rig(t, 'variant', { VARIANT_ANSWER: answer })
+    await assert.rejects(runtime.createSession({ cwd: root, model: 'fam', options: { effort: 'default' } }), /"default" is not one of the values/)
+    const text = source('claude-code=fam/default')
+    const preview = await host.call('flow/preview', { root, source: text })
+    assert.equal(preview.token, null, JSON.stringify(preview.problems))
+    assert.match(preview.problems[0]?.text ?? '', /"default" is not one of the values/)
+    await assert.rejects(host.call('flow/start-goal', { root, source: text, token: 'not-authorized', sentence: 'Compare' }))
+    assert.deepEqual(await host.call('flow/executions', {}), [])
+    assert.deepEqual(await host.call('goal/list', { root }), [])
+    assert.deepEqual(await host.call('lane/list', {}), [])
+    assert.deepEqual(await host.call('team/rooms', { root }), [])
+  })
+
+  test(`ACP ${answer}: omitted effort cannot inherit an earlier draft's thinking variant`, async (t) => {
+    const { host, root, runtime } = await rig(t, 'variant', { VARIANT_ANSWER: answer })
+    // Reproduce a composer or preview leaving the shared probe on medium.
+    await runtime.defaultSessionOptions!(root, { model: 'fam', effort: 'medium', thinking: true })
+    assert.ok((await host.call('flow/preview', { root, source: source('claude-code=fam/medium+thinking') })).token)
+    const seat = { runtime: 'claude-code', model: 'fam', thinking: true }
+    const opened = await runtime.createSession({ cwd: root, model: seat.model, options: { thinking: true } })
+    assert.match(openedOtherwise(seat, runningOf(opened.options(), opened.settings())) ?? '', /without thinking, which was asked for/)
+    const text = source('claude-code=fam+thinking')
+    const preview = await host.call('flow/preview', { root, source: text })
+    assert.equal(preview.token, null, JSON.stringify(preview.problems))
+    assert.match(preview.problems[0]?.text ?? '', /without thinking, which was asked for/)
+    await assert.rejects(host.call('flow/start-goal', { root, source: text, token: 'not-authorized', sentence: 'Compare' }))
+    assert.deepEqual(await host.call('flow/executions', {}), [])
+    assert.deepEqual(await host.call('goal/list', { root }), [])
+    assert.deepEqual(await host.call('lane/list', {}), [])
+    assert.deepEqual(await host.call('team/rooms', { root }), [])
+  })
+}
+
 test('ACP explicit thinking off is checked against the settled combination', async (t) => {
   const { runtime, root } = await rig(t, 'variant')
   assert.match(await seatOptionsProblem(runtime, { runtime: 'claude-code', model: 'fam', effort: 'medium', thinking: false }, root) ?? '', /with thinking on, which was asked to be off/)
+})
+
+test('ACP default effort offered by the controls previews and actually opens', async (t) => {
+  const { host, root, runtime } = await rig(t, 'acp', { SEAT_DEFAULT_EFFORT: '1' })
+  const preview = await host.call('flow/preview', { root, source: source('claude-code=opus/default') })
+  assert.ok(preview.token, JSON.stringify(preview.problems))
+  const opened = await runtime.createSession({ cwd: root, model: 'opus', options: { effort: 'default' } })
+  assert.equal(openedOtherwise({ runtime: 'claude-code', model: 'opus', effort: 'default' }, runningOf(opened.options(), opened.settings())), null)
+})
+
+test('ACP default effort offered but settled elsewhere fails the opening read-back and preview', async (t) => {
+  const { host, root, runtime } = await rig(t, 'acp', { SEAT_DEFAULT_EFFORT: 'offer' })
+  const opened = await runtime.createSession({ cwd: root, model: 'opus', options: { effort: 'default' } })
+  assert.match(openedOtherwise({ runtime: 'claude-code', model: 'opus', effort: 'default' }, runningOf(opened.options(), opened.settings())) ?? '', /at high effort, not default/)
+  const preview = await host.call('flow/preview', { root, source: source('claude-code=opus/default') })
+  assert.equal(preview.token, null)
+  assert.match(preview.problems[0]?.text ?? '', /at high effort, not default/)
 })
 
 test('a thinking switch revealed by effort is cleared after that effort settles', async (t) => {

@@ -937,6 +937,8 @@ re-enable it. Starting a flow opens exactly one new Goal, through one host
 operation — never a bare Goal made first and a flow started into it after.
 The preview checks each chosen model's effort and thinking controls with the
 agent's own session options, then checks what the full combination settles on.
+Each check starts with new-session defaults, independent of earlier draft picks.
+An explicit `default` effort must be accepted by the agent's own controls.
 An unsupported choice names its reason on that Seat and refuses Start before
 a Run, Goal or lane is created. If the agent cannot yet report its catalogue
 or controls, the preview says so and must be read again when the agent is ready.
