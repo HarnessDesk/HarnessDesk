@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FlowPreview, FlowRunOptions } from '@harnessdesk/protocol'
 import type { RunTimelineInput } from '../lib/run-timeline'
-import { Button } from '../design'
+import { Button, NativeSelect } from '../design'
 import { runTimeline } from '../lib/run-timeline'
 import { RunAgain } from '../components/RunAgain'
 import { RetryCheck } from '../components/RetryCheck'
@@ -10,6 +10,7 @@ import { RunView, type RunViewTab } from '../components/RunView'
 import { TeamRoomPane } from '../components/TeamRoomPane'
 import { TeamRunView } from '../components/TeamRunView'
 import { StoreProvider } from '../state/context'
+import { Boundary } from './boundary'
 import { RUN_VIEW_STATES, runFixture, runModel, runTeamStore, type RunScene } from './run-view-fixture'
 
 /** One store for every example on a page: *Open the file* reads the catalogue through it, as the app does. */
@@ -78,7 +79,7 @@ export const RunAgainExample = ({ scene = 'default', opened = false }: { scene?:
     {open && <RunAgain execution={execution} root="/repo" sentence="Retry the checkout call" onClose={() => setOpen(false)} onStarted={() => setOpen(false)} />}
   </StoreProvider>
 }
-export const RunAgainCases = () => {
+export const RunAgainCases = ({ dial = false }: { dial?: boolean }) => {
   const [scene, setScene] = useState<RunAgainScene | null>(null)
   const execution = useMemo(() => runFixture('stopped').execution, [])
   const store = useMemo(() => new Proxy(runTeamStore('stopped'), { get(target, key) {
@@ -89,10 +90,19 @@ export const RunAgainCases = () => {
     if (key === 'previewFlow' && scene === 'multiple-seats') return async (...args: Parameters<typeof target.previewFlow>) => multipleSeatPreview(await target.previewFlow(...args), args[3])
     return Reflect.get(target, key)
   } }), [scene])
-  return <StoreProvider store={store}><div className="flex flex-wrap gap-3">{RUN_AGAIN_STATES.map(state => <section key={state} data-catalog-state={state}><Button onClick={() => setScene(state)}>Run again… · {state}</Button></section>)}</div>
+  return <StoreProvider store={store}>{dial
+    ? <div className="my-4"><label className="flex items-center gap-1.5 text-xs text-muted-foreground">Run again sheet
+      <NativeSelect value={scene ?? 'off'} onChange={event => setScene(event.target.value === 'off' ? null : event.target.value as RunAgainScene)}>
+        {['off', ...RUN_AGAIN_STATES].map(state => <option key={state} value={state}>{state}</option>)}
+      </NativeSelect>
+    </label></div>
+    : <div className="flex flex-wrap gap-3">{RUN_AGAIN_STATES.map(state => <section key={state} data-catalog-state={state}><Button onClick={() => setScene(state)}>Run again… · {state}</Button></section>)}</div>}
     {scene && <RunAgain key={scene} execution={execution} root="/repo" sentence="Retry the checkout call" onClose={() => setScene(null)} onStarted={() => setScene(null)} />}
   </StoreProvider>
 }
+
+/** The census sweeps preview dials; keep this portalled sheet off on a fresh load. */
+export const RunAgainFrames = () => <Boundary><RunAgainCases dial /></Boundary>
 
 // Matches the host's empty preview when continuation resolution refuses.
 const supersededPreview = (): FlowPreview => ({

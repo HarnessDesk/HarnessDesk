@@ -9,6 +9,25 @@ const FINAL = 'version: 2\nname: Finish the change\nroles:\n  person: { kind: pe
 const SCENES = ['complete', 'unrouted', 'person-stop', 'desk-stop', 'stalled', 'rounds', 'without-progress'] as const
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`the census preview dial mounts ready and refused Run again states in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto(`/preview.html?theme=${theme}`)
+    const dial = page.getByRole('combobox', { name: 'Run again sheet', exact: true })
+    const dialog = page.getByRole('dialog', { name: 'Run again', exact: true })
+    await expect(dialog).toHaveCount(0)
+    await dial.selectOption('default')
+    await expect(dialog.getByLabel('Brief', { exact: true })).toHaveValue(/Retry the checkout call/)
+    await expect(dialog.getByRole('button', { name: 'Start', exact: true })).toBeEnabled()
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(dial).toHaveValue('off')
+    await dial.selectOption('superseded')
+    await expect(dialog).toContainText('A newer Run continues this one. Start work on that Run instead.')
+    await expect(dialog.getByRole('button', { name: 'Start', exact: true })).toBeDisabled()
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(dial).toHaveValue('off')
+  })
+
   test(`real Flow endings retain their banners and doors in ${theme}`, async ({ page }) => {
     const cleanup: (() => Promise<void>)[] = []
     const rig = await goalRig({ after: fn => { cleanup.push(fn) } })

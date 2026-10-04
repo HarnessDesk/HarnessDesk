@@ -75,7 +75,7 @@ import { TranscriptFrames } from './frames-transcript'
 import { LibraryDevFrames } from './frames-library-dev'
 import { LibraryOptionFrames } from './frames-library-options'
 import { FlowGraphFrames } from './frames-flow-graph'
-import { RunViewFrames, RunEndingRigFrames, RunAgainExample, RUN_AGAIN_STATES } from './frames-run-view'
+import { RunViewFrames, RunEndingRigFrames, RunAgainExample, RunAgainFrames, RUN_AGAIN_STATES } from './frames-run-view'
 import { RunInspectorFrames } from './frames-run-inspector'
 import { ReviewPublicationFrames } from './frames-review-publication'
 import { ABANDON_VARIANTS, RunControlsFrames, type AbandonVariant } from './frames-run-controls'
@@ -1066,6 +1066,7 @@ const Preview = () => {
         <CjkSpecimen />
       </Frame>
       <GoalFrames />
+      <RunAgainFrames />
       <TranscriptFrames />
       <PanelFrames />
       <CoverageFrames />
