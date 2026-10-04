@@ -122,12 +122,12 @@ it('clears Needs you for an answered person and distinguishes an evidence wait',
 })
 
 
-it('keeps a stopped retry of a closed check’s unrecorded duration unknown', () => {
+it('keeps a terminal check done when a stopped retry has unknown duration', () => {
   const execution = run([round(1, 'check', 'seed')], {
     state: 'stopped', endedAt: 5000, currentEndedAt: 5000,
     operations: [{ key: 'check:1:0', kind: 'check', state: 'started', card: 1, seat: null }],
   })
-  expect(draw(execution, [card(1, 'passes')]).steps.get('check')).toMatchObject({ state: 'stopped', durationMs: null, since: null })
+  expect(draw(execution, [card(1, 'passes')]).steps.get('check')).toMatchObject({ state: 'done', durationMs: null, since: null })
 })
 
 it('keeps an earlier closed check’s reopened retry duration unknown after Stop makes it uncertain', () => {
@@ -146,6 +146,31 @@ it('keeps an earlier closed check’s reopened retry duration unknown after Stop
   expect(draw(stopped, cards, { attempts }).steps.get('check')).toMatchObject({
     state: 'stopped', runs: 1, durationMs: null, since: null,
   })
+})
+
+it('does not show an abandoned check as working when its retry is uncertain', () => {
+  const execution = run([round(1, 'check', 'seed')], {
+    operations: [{ key: 'check:1:0', kind: 'check', state: 'uncertain', card: 1, seat: null }],
+  })
+  const abandoned = { ...card(1), state: 'abandoned' as const, outcome: null }
+  expect(draw(execution, [abandoned]).steps.get('check')).toMatchObject({ state: 'done', durationMs: null })
+})
+
+it('keeps an uncertain earlier check visit from overriding a completed later visit', () => {
+  const execution = run([round(1, 'check', 'seed'), round(2, 'check', 'after:1:checked')], {
+    operations: [{ key: 'check:1:0', kind: 'check', state: 'uncertain', card: 1, seat: null }],
+  })
+  expect(draw(execution, [card(1), card(2)]).steps.get('check')).toMatchObject({ state: 'done', durationMs: null })
+})
+
+it('does not mark any step stopped or working for a settled Run with an uncertain historical check', () => {
+  const execution = run([round(1, 'check', 'seed')], {
+    state: 'settled', endedAt: 5000, currentEndedAt: 5000,
+    operations: [{ key: 'check:1:0', kind: 'check', state: 'uncertain', card: 1, seat: null }],
+  })
+  const steps = draw(execution, [card(1)]).steps
+  expect([...steps.values()].some(step => step.state === 'working' || step.state === 'stopped')).toBe(false)
+  expect(steps.get('check')).toMatchObject({ state: 'done', durationMs: null })
 })
 
 

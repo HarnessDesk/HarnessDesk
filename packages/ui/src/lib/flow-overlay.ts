@@ -36,23 +36,29 @@ export const flowOverlay = ({ execution, model, cards, attempts, sessions }: Flo
   const rounds = [...execution.rounds].sort((a, b) => a.n - b.n)
   const byCard = new Map(cards.map(card => [card.id, card]))
   const checkOperations = execution.operations.filter(one => one.kind === 'check')
+  const hasActiveCard = (id: number): boolean => {
+    const card = byCard.get(id)
+    return card !== undefined && card.state !== 'done' && card.state !== 'abandoned'
+  }
   const steps = new Map<string, FlowStepRun>()
   for (const step of model.steps) {
     const visits = rounds.filter(round => round.role === step.id)
     const latest = visits.at(-1)
-    const retry = step.kind === 'check' ? [...visits].reverse().find(round => checkOperations.some(one => (one.state === 'started' || one.state === 'uncertain') && one.card !== null && round.cards.includes(one.card))) : undefined
+    const retry = step.kind === 'check' ? [...visits].reverse().find(round => checkOperations.some(one => one.state === 'started'
+      && one.card !== null && round.cards.includes(one.card) && hasActiveCard(one.card))) : undefined
     const current = retry ?? latest
     const held = current?.cards.map(id => byCard.get(id)) ?? []
     const answered = held.length > 0 && held.every(card => card?.state === 'done' || card?.state === 'abandoned')
     const ended = execution.state === 'settled' || execution.state === 'stopped'
     const timingOf = (card: Intent) => runCardTiming(execution, card, step.kind === 'check'
-      ? checkOperations.some(one => one.card === card.id && one.state === 'started') : card.state === 'claimed', card.claim?.at ?? card.createdAt, sessions)
+      ? checkOperations.some(one => one.card === card.id && one.state === 'started') && hasActiveCard(card.id)
+      : card.state === 'claimed', card.claim?.at ?? card.createdAt, sessions)
     const timing = held.flatMap(card => card ? [timingOf(card)] : [])
     const stopped = timing.some(one => one.stoppedWork)
     const stopping = timing.some(one => one.status === 'Stopping')
     // Stop closes rounds without finishing their cards. A person can also
     // answer before the host advances or finishes waiting for evidence.
-    const unfinished = current !== undefined && (stopped || timing.some(one => one.working) || retry !== undefined || (ended ? !answered : current.state !== 'closed' && !answered))
+    const unfinished = current !== undefined && (stopped || timing.some(one => one.working) || (ended ? !answered : current.state !== 'closed' && !answered))
     const personWaiting = step.kind === 'person' && held.some(card => card && (card.state === 'open' || card.state === 'claimed'
       || (card.blockedBy === 'hand' && Boolean(card.blockedReason?.trim()))))
     const state: FlowStepState = !latest ? 'future' : stopped ? stopping ? 'stopping' : 'stopped' : ended ? unfinished ? 'stopped' : 'done'
@@ -61,6 +67,9 @@ export const flowOverlay = ({ execution, model, cards, attempts, sessions }: Flo
       : execution.state === 'stalled' ? 'blocked' : 'working'
     const durations = visits.filter(round => round !== retry && (round.state === 'closed' || round === current && (answered || stopped || ended && unfinished))).map(round => {
       const held = round.cards.map(id => byCard.get(id))
+      const unconfirmed = step.kind === 'check' && checkOperations.some(one => (one.state === 'started' || one.state === 'uncertain')
+        && one.card !== null && round.cards.includes(one.card))
+      if (unconfirmed) return null
       const ends = held.flatMap(card => card ? [timingOf(card).until] : [])
       // An open, unfinished step has no claim; its recorded Run ending still bounds its lifetime.
       const until = ends.length && ends.every(one => one !== null) ? Math.max(...ends as number[])
