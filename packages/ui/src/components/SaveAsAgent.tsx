@@ -6,7 +6,7 @@ import { Button, Dialog, Field, Input, Note, RowChoice, Rows, SectionHead } from
 import { ceilingMeaning, ceilingWords, projectName, seatOf, seatWordsOf } from '../lib/agents'
 import { shortPath } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
-import { BriefIcon } from './Icons'
+import { AgentIcon } from './Icons'
 
 /**
  * *Save as an Agent…*: this conversation's seat, kept under a name, with what
@@ -55,7 +55,7 @@ export const SaveAsAgentDialog = ({ session, onClose }: { readonly session: Sess
   return (
     <Dialog
       title="Save as an Agent"
-      icon={<BriefIcon size={15} />}
+      icon={<AgentIcon size={15} />}
       size="md"
       tall
       onClose={onClose}

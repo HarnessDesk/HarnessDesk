@@ -4,7 +4,7 @@ import { SidebarNotices, useInboxMessages } from './Notices'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 import { useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
-import { BranchIcon, BriefIcon, CaretIcon, CrossIcon, FlowIcon, GoalIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, TeamIcon, UsageIcon } from './Icons'
+import { AgentIcon, BranchIcon, CaretIcon, CrossIcon, FlowIcon, GoalIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, TeamIcon, UsageIcon } from './Icons'
 import { WindowControls } from './WindowControls'
 import { NewSessionChoice, type NewSessionKind } from './NewSessionChoice'
 import { SessionListControls, SessionTree } from './SessionTree'
@@ -170,7 +170,7 @@ export const Sidebar = ({
             </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton
-                icon={<BriefIcon size={14} />} label={<Text role="navigation">Agents</Text>} aria-label="Agents" title="Agents"
+                icon={<AgentIcon size={14} />} label={<Text role="navigation">Agents</Text>} aria-label="Agents" title="Agents"
                 trailingOverlay={agentsCount > 0} labelTrailingContent={agentsCount > 0}
                 isActive={activeDestination === 'agents'} aria-current={activeDestination === 'agents' ? 'page' : undefined}
                 onClick={onOpenAgents}
