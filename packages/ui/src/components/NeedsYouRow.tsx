@@ -17,7 +17,7 @@ const LISTED = 6
 const Detail = ({ detail }: { detail: ApprovalDetail }) => (
   <>
     {detail.reason && <Text role="meta" as="div" className="[overflow-wrap:anywhere]">{sanitizeText(detail.reason)}</Text>}
-    {detail.code && <ApprovalCode className="max-h-40 overflow-auto">{sanitizeText(detail.code)}</ApprovalCode>}
+    {detail.code && <ApprovalCode>{sanitizeText(detail.code)}</ApprovalCode>}
     {detail.lists?.map((list) => (
       <Text key={list.label} role="meta" as="div" className="[overflow-wrap:anywhere]" title={sanitizeText(list.items.join('\n'))}>
         <Text role="meta" ink="secondary">{list.label}</Text>{' '}
