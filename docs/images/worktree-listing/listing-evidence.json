@@ -1,0 +1,173 @@
+{
+  "base": "c23ea8cbc87135b2f52ee2a5c8f7c65d6f224ffa",
+  "head": "f95a00aed8b706dd5ef9b163018c1b3cbdbcd090",
+  "repairBase": "136f08c9617e086c9378848f525ed6ff29ad1e5b",
+  "sourceHashes": {
+    "worktree": "bc2f319b0af63732a7ffe58b5aa5948ee712ecaf3f610980e81eb88c1b278d6c",
+    "git-worktree": "7de789c04e1698d5dc09a59d8d5e30eb7b2aaa636219871d8f4a3442cbb173c9",
+    "shell-project": "b8da18b28d21379a06b5fe86c98edf5ccc66f57d850f301d3e1fda74be0b1736"
+  },
+  "git": "git version 2.50.1 (Apple Git-155)",
+  "versions": {
+    "before": {
+      "worktrees": [
+        {
+          "path": "/work/super/.git/modules/widgets-module",
+          "branch": "main",
+          "head": "d71ade0e0455b7a4915dc776660fc1dc2c8b5149",
+          "isMain": true,
+          "managed": false
+        },
+        {
+          "path": "/state/worktrees/widgets-demo/parser",
+          "branch": "harnessdesk/parser",
+          "head": "d71ade0e0455b7a4915dc776660fc1dc2c8b5149",
+          "isMain": false,
+          "managed": true
+        }
+      ],
+      "history": [
+        {
+          "path": "/work/super/.git/modules/widgets-module",
+          "branch": "main",
+          "head": "d71ade0e0455b7a4915dc776660fc1dc2c8b5149",
+          "isMain": true,
+          "isCurrent": false,
+          "bare": false,
+          "detached": false,
+          "locked": null,
+          "prunable": null,
+          "managed": false,
+          "dirty": 0
+        },
+        {
+          "path": "/state/worktrees/widgets-demo/parser",
+          "branch": "harnessdesk/parser",
+          "head": "d71ade0e0455b7a4915dc776660fc1dc2c8b5149",
+          "isMain": false,
+          "isCurrent": false,
+          "bare": false,
+          "detached": false,
+          "locked": null,
+          "prunable": null,
+          "managed": false,
+          "dirty": 0
+        }
+      ]
+    },
+    "after": {
+      "worktrees": [
+        {
+          "path": "/work/super/widgets",
+          "branch": "main",
+          "head": "d71ade0e0455b7a4915dc776660fc1dc2c8b5149",
+          "isMain": true,
+          "managed": false
+        },
+        {
+          "path": "/state/worktrees/widgets-demo/parser",
+          "branch": "harnessdesk/parser",
+          "head": "d71ade0e0455b7a4915dc776660fc1dc2c8b5149",
+          "isMain": false,
+          "managed": true
+        }
+      ],
+      "history": [
+        {
+          "path": "/work/super/widgets",
+          "branch": "main",
+          "head": "d71ade0e0455b7a4915dc776660fc1dc2c8b5149",
+          "isMain": true,
+          "isCurrent": true,
+          "bare": false,
+          "detached": false,
+          "locked": null,
+          "prunable": null,
+          "managed": false,
+          "dirty": 0
+        },
+        {
+          "path": "/state/worktrees/widgets-demo/parser",
+          "branch": "harnessdesk/parser",
+          "head": "d71ade0e0455b7a4915dc776660fc1dc2c8b5149",
+          "isMain": false,
+          "isCurrent": false,
+          "bare": false,
+          "detached": false,
+          "locked": null,
+          "prunable": null,
+          "managed": true,
+          "dirty": 0
+        }
+      ]
+    }
+  },
+  "refusals": {
+    "before": {
+      "worktrees": [
+        {
+          "path": "/work/super/widgets",
+          "branch": "main",
+          "head": "d71ade0e0455b7a4915dc776660fc1dc2c8b5149",
+          "isMain": true,
+          "managed": false
+        },
+        {
+          "path": "/state/worktrees/widgets-demo/parser",
+          "branch": "harnessdesk/parser",
+          "head": "d71ade0e0455b7a4915dc776660fc1dc2c8b5149",
+          "isMain": false,
+          "managed": true
+        }
+      ],
+      "history": [
+        {
+          "path": "/work/library",
+          "branch": "main",
+          "head": "d71ade0e0455b7a4915dc776660fc1dc2c8b5149",
+          "isMain": true,
+          "isCurrent": false,
+          "bare": false,
+          "detached": false,
+          "locked": null,
+          "prunable": null,
+          "managed": false,
+          "dirty": 0
+        },
+        {
+          "path": "/state/worktrees/widgets-demo/parser",
+          "branch": "harnessdesk/parser",
+          "head": "d71ade0e0455b7a4915dc776660fc1dc2c8b5149",
+          "isMain": false,
+          "isCurrent": true,
+          "bare": false,
+          "detached": false,
+          "locked": null,
+          "prunable": null,
+          "managed": false,
+          "dirty": 0
+        }
+      ]
+    },
+    "after": {
+      "worktrees": [
+        {
+          "path": "/work/super/widgets",
+          "branch": "main",
+          "head": "d71ade0e0455b7a4915dc776660fc1dc2c8b5149",
+          "isMain": true,
+          "managed": false
+        },
+        {
+          "path": "/state/worktrees/widgets-demo/parser",
+          "branch": "harnessdesk/parser",
+          "head": "d71ade0e0455b7a4915dc776660fc1dc2c8b5149",
+          "isMain": false,
+          "managed": true
+        }
+      ],
+      "history": [],
+      "refusal": "This repository has no valid main checkout to sit beside."
+    }
+  }
+}

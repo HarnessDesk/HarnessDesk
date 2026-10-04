@@ -41,12 +41,16 @@ interface CheckoutIdentity {
 /** Live metadata is evidence of an unchanged identity, never new shell authority. */
 export const shellCheckoutIdentity = async (folder: string): Promise<CheckoutIdentity | null> => {
   try {
-    const [common, dir, top] = (await run('git', ['-C', folder, ...HARDENED_GIT_CONFIG,
-      'rev-parse', '--path-format=absolute', '--git-common-dir', '--git-dir', '--show-toplevel',
-    ], {
-      env: { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))), GIT_OPTIONAL_LOCKS: '0' },
-      timeout: 20_000, maxBuffer: 1024 * 1024,
-    })).stdout.trimEnd().split('\n')
+    // rev-parse has no NUL path mode. Read each payload separately and remove
+    // only Git's final newline, preserving whitespace inside the path.
+    const [common, dir, top] = await Promise.all(['--git-common-dir', '--git-dir', '--show-toplevel'].map(async (flag) =>
+      (await run('git', ['-C', folder, ...HARDENED_GIT_CONFIG,
+        'rev-parse', '--path-format=absolute', flag,
+      ], {
+        env: { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))), GIT_OPTIONAL_LOCKS: '0' },
+        timeout: 20_000, maxBuffer: 1024 * 1024,
+      })).stdout.replace(/\n$/, ''),
+    ))
     if (!common || !dir || !top) return null
     const [gitCommonDir, gitDir, checkoutRoot] = await Promise.all([realpath(common), realpath(dir), realpath(top)])
     return { gitCommonDir, gitDir, checkoutRoot }
@@ -153,26 +157,6 @@ export const repositoryRoot = async (path: string): Promise<string | null> =>
   (await repositoryOf(path))?.root ?? null
 
 /**
- * The working tree at the top of a checkout, asked of git rather than derived
- * from where git keeps its state.
- *
- * `dirname(--git-common-dir)` is the main checkout only for the ordinary
- * layout. A submodule's common dir is `<super>/.git/modules/<path>` and a
- * repository made with `--separate-git-dir` keeps it anywhere at all, so that
- * arithmetic answers with a directory of git's own bookkeeping — which the
- * interface would then name a project and start conversations in.
- */
-const topLevelOf = async (path: string): Promise<string | null> => {
-  try {
-    // Git appends one newline; any whitespace before it belongs to the path.
-    return canonical((await git(path, ['rev-parse', '--path-format=absolute', '--show-toplevel'])).replace(/\n$/, ''))
-  } catch {
-    // A bare repository, or a git directory with no working tree attached.
-    return null
-  }
-}
-
-/**
  * Which repository a folder belongs to, and whether it is a linked worktree
  * of it — the two facts the session list groups and marks on.
  *
@@ -189,25 +173,14 @@ const topLevelOf = async (path: string): Promise<string | null> => {
  * `--show-toplevel` to reach the folder someone actually works in.
  */
 export const repositoryOf = async (path: string): Promise<RepoInfo | null> => {
-  let common: string | undefined
-  let dir: string | undefined
-  let here: string | undefined
-  try {
-    const out = await git(path, [
-      'rev-parse',
-      '--path-format=absolute',
-      '--git-common-dir',
-      '--git-dir',
-      '--show-toplevel',
-    ])
-    // These are path payloads, not labels: trimming can name a different folder.
-    ;[common, dir, here] = out.split('\n')
-  } catch {
-    return null
+  const checkout = await shellCheckoutIdentity(path)
+  if (!checkout) return null
+  const { gitCommonDir: common, gitDir: dir, checkoutRoot: here } = checkout
+  if (samePath(dir, common)) {
+    if (!await isMainCheckout(here, common)) return null
+    return { root: here, worktree: false, ...(await originOf(path)) }
   }
-  if (!common || !dir || !here) return null
-  if (samePath(dir, common)) return { root: await canonical(here), worktree: false, ...(await originOf(path)) }
-  const main = await mainCheckoutOf(path)
+  const main = await mainCheckoutOf(path, common)
   return main === null ? null : { root: main, worktree: true, ...(await originOf(path)) }
 }
 
@@ -231,14 +204,29 @@ const originOf = async (path: string): Promise<{ readonly origin: string } | nul
   }
 }
 
-/** The first `worktree` line of the porcelain listing is always the main one. */
-const mainCheckoutOf = async (path: string): Promise<string | null> => {
+/** A folder's own checkout metadata must agree with the repository that named it. */
+const isMainCheckout = async (folder: string, common: string): Promise<boolean> => {
+  const checkout = await shellCheckoutIdentity(folder)
+  return checkout !== null && samePath(checkout.checkoutRoot, folder) &&
+    samePath(checkout.gitCommonDir, common) && samePath(checkout.gitDir, common)
+}
+
+/** The first NUL-delimited `worktree` field is always the main one. */
+const mainCheckoutOf = async (path: string, common: string): Promise<string | null> => {
   try {
-    const porcelain = await git(path, ['worktree', 'list', '--porcelain'])
-    const first = porcelain.split('\n').map((l) => l.replace(/\r$/, '')).find((line) => line.startsWith('worktree '))
+    const porcelain = await git(path, ['worktree', 'list', '--porcelain', '-z'])
+    const first = porcelain.split('\0').find((field) => field.startsWith('worktree '))
     if (first === undefined) return null
     const listed = first.slice('worktree '.length)
-    return (await topLevelOf(listed)) ?? (await canonical(listed))
+    const checkout = await shellCheckoutIdentity(listed)
+    if (checkout) {
+      const folder = checkout.checkoutRoot
+      return await isMainCheckout(folder, common) ? folder : null
+    }
+    // A separate git directory may not record its working folder. Keep that
+    // existing listing behavior, but refuse a recorded folder that is missing.
+    const recorded = await git(path, ['config', '--get', 'core.worktree']).catch(() => null)
+    return recorded === null ? await canonical(listed) : null
   } catch {
     return null
   }
@@ -333,7 +321,7 @@ export const samePath = (a: string, b: string): boolean => {
   return normalize(a) === normalize(b)
 }
 
-export const parseWorktreeList = (porcelain: string, home: string): Worktree[] => {
+export const parseWorktreeList = (porcelain: string, home: string, nul = false): Worktree[] => {
   const worktrees: Worktree[] = []
   let current: { path?: string; head?: string; branch?: string | null; detached?: boolean } = {}
   const flush = (): void => {
@@ -351,8 +339,8 @@ export const parseWorktreeList = (porcelain: string, home: string): Worktree[] =
     })
     current = {}
   }
-  for (const rawLine of porcelain.split('\n')) {
-    const line = rawLine.replace(/\r$/, '')
+  for (const rawLine of porcelain.split(nul ? '\0' : '\n')) {
+    const line = nul ? rawLine : rawLine.replace(/\r$/, '')
     if (line.startsWith('worktree ')) {
       flush()
       current = { path: line.slice('worktree '.length) }
@@ -367,9 +355,9 @@ export const parseWorktreeList = (porcelain: string, home: string): Worktree[] =
 export const list = async (repoRoot: string, stateDir: string): Promise<Worktree[]> => {
   const main = await repositoryRoot(repoRoot)
   if (!main) return []
-  const porcelain = await git(main, ['worktree', 'list', '--porcelain'])
+  const porcelain = await git(main, ['worktree', 'list', '--porcelain', '-z'])
   const home = await worktreeHome(main, stateDir)
-  const entries = parseWorktreeList(porcelain, home)
+  const entries = parseWorktreeList(porcelain, home, true)
   /* The first entry is the main checkout, but git names it by its git
      directory when that is not the folder someone works in: `.git/modules/<name>`
      for a submodule. The interface starts conversations in this path, opens it,

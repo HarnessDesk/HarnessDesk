@@ -252,6 +252,7 @@ export const list = async (root: string, stateDir: string): Promise<GitWorktree[
   // Only a path that is not the folder is replaced, so an ordinary repository
   // answers byte for byte as git does.
   const folder = await repositoryRoot(root)
+  if (folder === null && !records[0]!.bare) throw new Error('This repository has no valid main checkout to sit beside.')
   const main = folder !== null && !samePath(await canonical(listed), folder) ? folder : listed
   const home = await worktreeHome(main, stateDir)
   return Promise.all(
