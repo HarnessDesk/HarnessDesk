@@ -52,12 +52,18 @@ export const RunDemo = ({ run, poster, frozen = false }: { run: StagedRun; poste
   }, [])
   useEffect(() => {
     if (poster || paused || reduced || !box.current) return
+    let active = true
     const observer = new IntersectionObserver(entries => {
+      if (!active) return
       if (entries.some(entry => entry.isIntersecting)) run.play()
       else run.pause()
     }, { threshold: 0.3 })
-    observer.observe(box.current)
-    return () => { observer.disconnect(); run.pause() }
+    const hide = () => { active = false; observer.disconnect(); run.pause() }
+    const show = () => { active = true; if (box.current) observer.observe(box.current) }
+    show()
+    window.addEventListener('pagehide', hide)
+    window.addEventListener('pageshow', show)
+    return () => { hide(); window.removeEventListener('pagehide', hide); window.removeEventListener('pageshow', show) }
   }, [run, poster, paused, reduced])
   const finished = run.stage === 'you' || run.stage === 'done'
   return <div ref={box} data-slot="site-run-demo" data-stage={run.stage} className={`site-run-demo ${poster ? 'site-run-poster' : ''}`}>
@@ -89,10 +95,10 @@ const StagedScene = ({ preview }: { preview: boolean }) => {
       const data = event.data as { hdTheme?: string } | null
       if (data?.hdTheme === 'light' || data?.hdTheme === 'dark') run.store.setTheme(data.hdTheme)
     }
-    const dispose = () => run.dispose()
+    const hide = (event: PageTransitionEvent) => { if (event.persisted) run.pause(); else run.dispose() }
     window.addEventListener('message', changed)
-    window.addEventListener('pagehide', dispose)
-    return () => { window.removeEventListener('message', changed); window.removeEventListener('pagehide', dispose) }
+    window.addEventListener('pagehide', hide)
+    return () => { run.pause(); window.removeEventListener('message', changed); window.removeEventListener('pagehide', hide) }
   }, [run, preview])
   return <StoreProvider store={run.store}><RunDemo run={run} poster={poster} frozen={knobs.has('stage')} /></StoreProvider>
 }

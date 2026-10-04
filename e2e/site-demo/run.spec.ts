@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { chromium, expect, test } from '@playwright/test'
 
 for (const theme of ['light', 'dark'] as const) for (const width of [1280, 390]) {
   test(`Overview, person answer and Run Flow in ${theme} at ${width}px`, async ({ page }) => {
@@ -33,6 +33,17 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1280, 390])
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     expect(await page.locator('body').evaluate(body => body.hasAttribute('data-hd-dark-theme'))).toBe(theme === 'dark')
     expect(errors).toEqual([])
+  })
+  test(`staged stop refusal in ${theme} at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto(`/?view=flow&stage=fix&theme=${theme}`)
+    await page.getByRole('button', { name: 'Write, review, land', exact: true }).click()
+    await page.getByRole('button', { name: 'Stop run…', exact: true }).click()
+    await page.getByRole('button', { name: 'Stop run', exact: true }).click()
+    await expect(page.getByRole('alertdialog')).toContainText('Stopping is not available in this staged Run.')
+    await page.getByRole('button', { name: 'Keep running', exact: true }).click()
+    await page.getByRole('button', { name: 'Next step', exact: true }).click()
+    await expect(page.locator('[data-slot="site-run-demo"]')).toHaveAttribute('data-stage', 'check-again')
   })
 }
 
@@ -75,4 +86,43 @@ test('visible playback advances and can be paused and resumed', async ({ page })
   await expect(page.locator('[data-slot="site-run-demo"]')).toHaveAttribute('data-stage', 'check')
   await page.getByRole('button', { name: 'Play demo', exact: true }).click()
   await expect(page.locator('[data-slot="site-run-demo"]')).toHaveAttribute('data-stage', 'changes', { timeout: 10_000 })
+})
+
+test('cached-page lifecycle pauses hidden playback and restores automatic and manual advancement', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.goto('/?view=flow')
+  await expect(page.getByRole('button', { name: 'Pause demo', exact: true })).toBeVisible()
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })))
+  await page.waitForTimeout(3800)
+  await expect(page.locator('[data-slot="site-run-demo"]')).toHaveAttribute('data-stage', 'write')
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })))
+  await expect(page.locator('[data-slot="site-run-demo"]')).toHaveAttribute('data-stage', 'check', { timeout: 10_000 })
+  await page.getByRole('button', { name: 'Pause demo', exact: true }).click()
+  await page.evaluate(() => {
+    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }))
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
+  })
+  await page.waitForTimeout(3800)
+  await expect(page.locator('[data-slot="site-run-demo"]')).toHaveAttribute('data-stage', 'check')
+  await page.getByRole('button', { name: 'Next step', exact: true }).click()
+  await expect(page.locator('[data-slot="site-run-demo"]')).toHaveAttribute('data-stage', 'changes')
+})
+
+test('Next step survives an actual back/forward cache restoration', async ({ baseURL }) => {
+  // The default headless shell excludes cached returns; full headless Chromium supports them.
+  const browser = await chromium.launch({ channel: 'chromium', headless: true, ignoreDefaultArgs: ['--disable-back-forward-cache'] })
+  try {
+    const page = await browser.newPage({ baseURL, reducedMotion: 'reduce' })
+    await page.goto('/?view=flow&stage=write')
+    await expect(page.locator('[data-slot="site-run-demo"]')).toHaveAttribute('data-stage', 'write')
+    await page.evaluate(() => window.addEventListener('pageshow', event => {
+      document.body.dataset.cacheRestored = String(event.persisted)
+    }))
+    await page.goto('/?view=poster')
+    await expect(page.locator('[data-slot="site-poster"]')).toBeVisible()
+    await page.goBack({ waitUntil: 'commit' })
+    await expect(page.locator('body')).toHaveAttribute('data-cache-restored', 'true')
+    await page.getByRole('button', { name: 'Next step', exact: true }).click()
+    await expect(page.locator('[data-slot="site-run-demo"]')).toHaveAttribute('data-stage', 'check')
+  } finally { await browser.close() }
 })

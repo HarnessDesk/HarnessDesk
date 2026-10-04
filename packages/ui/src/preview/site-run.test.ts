@@ -6,10 +6,82 @@ import { TeamRoomPane } from '../components/TeamRoomPane'
 import { StoreProvider } from '../state/context'
 import { flowOverlay } from '../lib/flow-overlay'
 import { flowModel } from '../lib/flow-model'
+import { SiteRunDemo } from '../../site-demo/run-demo'
 
-afterEach(() => vi.useRealTimers())
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); window.history.replaceState(null, '', '/') })
 
 describe('the site Run', () => {
+  it('keeps the mounted stop dialog open with an explicit staged refusal', async () => {
+    ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+    const run = new StagedRun('fix')
+    const box = document.createElement('div')
+    document.body.append(box)
+    const root = createRoot(box)
+    const button = (name: string) => [...document.querySelectorAll('button')].find(one => one.textContent === name)!
+    try {
+      await act(async () => root.render(createElement(StoreProvider, { store: run.store,
+        children: createElement(TeamRoomPane, { room: 'overlay-team' }) })))
+      await act(async () => button('Write, review, land').click())
+      await act(async () => button('Stop run…').click())
+      await act(async () => button('Stop run').click())
+      expect(document.querySelector('[role="alertdialog"]')?.textContent ?? '').toContain('Stopping is not available in this staged Run.')
+      expect(run.read().execution.state).toBe('running')
+      expect(run.stage).toBe('fix')
+    } finally { act(() => root.unmount()); box.remove(); run.dispose() }
+  })
+
+  for (const mode of ['playing', 'paused', 'frozen', 'reduced'] as const) {
+    it(`restores a cached ${mode} page with working playback controls`, async () => {
+      ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+      vi.useFakeTimers()
+      let visible = true
+      let notify: (() => void) | undefined
+      vi.stubGlobal('IntersectionObserver', class {
+        constructor(readonly callback: IntersectionObserverCallback) {}
+        observe(target: Element) {
+          notify = () => this.callback([{ target, isIntersecting: visible } as IntersectionObserverEntry], this as unknown as IntersectionObserver)
+          notify()
+        }
+        disconnect() {}
+      })
+      if (mode === 'reduced') vi.spyOn(window, 'matchMedia').mockImplementation(media => ({
+        media, matches: media === '(prefers-reduced-motion: reduce)', onchange: null,
+        addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false,
+      }))
+      window.history.replaceState(null, '', `/?view=flow${mode === 'frozen' ? '&stage=write' : ''}`)
+      const box = document.createElement('div')
+      document.body.append(box)
+      const root = createRoot(box)
+      const button = (name: string) => [...box.querySelectorAll('button')].find(one => one.textContent === name)!
+      const stage = () => box.querySelector('[data-slot="site-run-demo"]')?.getAttribute('data-stage')
+      try {
+        await act(async () => root.render(createElement(SiteRunDemo)))
+        if (mode === 'paused') await act(async () => button('Pause demo').click())
+        act(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })))
+        // A visibility callback already queued before disconnect must stay paused.
+        act(() => notify?.())
+        act(() => vi.advanceTimersByTime(7000))
+        expect(stage()).toBe('write')
+        // A restored page rechecks visibility before resuming its story.
+        visible = false
+        act(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })))
+        act(() => vi.advanceTimersByTime(3500))
+        expect(stage()).toBe('write')
+        visible = true
+        act(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })))
+        act(() => vi.advanceTimersByTime(3500))
+        expect(stage()).toBe(mode === 'playing' ? 'check' : 'write')
+        await act(async () => button('Next step').click())
+        expect(stage()).toBe(mode === 'playing' ? 'changes' : 'check')
+        if (mode !== 'reduced') {
+          await act(async () => button('Play demo').click())
+          act(() => vi.advanceTimersByTime(3500))
+          expect(stage()).toBe(mode === 'playing' ? 'fix' : 'changes')
+        }
+      } finally { act(() => root.unmount()); box.remove(); vi.restoreAllMocks() }
+    })
+  }
+
   it('plays the recorded review loop once and leaves the person step waiting', () => {
     vi.useFakeTimers()
     const run = new StagedRun('write')
@@ -57,6 +129,7 @@ describe('the site Run', () => {
     run.play()
     run.dispose()
     vi.advanceTimersByTime(60_000)
+    run.next()
     expect(run.stage).toBe('check')
   })
 

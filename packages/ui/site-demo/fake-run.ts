@@ -45,6 +45,9 @@ export class StagedRun {
     this.#seed = this.#base.getSnapshot()
     this.store = new Proxy(this.#base, { get: (target, key) => {
       if (key === 'teamIntent') return this.#answerStep
+      if (key === 'stopFlowExecution') return async () => {
+        throw new Error('Stopping is not available in this staged Run.')
+      }
       if (key === 'readGoalInsight') return async () => {
         const report = overviewReport()
         return { ...report, goal: RUN_TEAM, breakdowns: report.breakdowns.map(group => ({ ...group,
