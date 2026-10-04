@@ -524,7 +524,7 @@ it.each(['Overview', 'Run'])('stops the %s Run with only its open Seats, from ca
   expect(stopping).toHaveBeenCalledWith('stop-me', 'You stopped this Run. No further step starts.')
   expect(document.body.querySelector('[role="alertdialog"]')).toBeNull()
   expect(container.textContent).not.toContain('Stop run…')
-  if (door === 'Run') expect(container.textContent).toContain('Stopped by you')
+  if (door === 'Run') expect(container.textContent).toContain('By you')
 })
 
 it.each(['Close', 'Escape'])('keeps cleanup retry after a stopped push, late rejection and %s dismissal, even after reopening the pane', async dismissal => {
@@ -1303,6 +1303,8 @@ it('does not spin on a project that has no board', async () => {
   expect(reads).toBeLessThan(CEILING)
   // And it settled saying the honest empty thing rather than nothing at all.
   expect(container.textContent).toContain('Nothing said yet')
+  expect(container.querySelector('[data-slot="room-stream"] [data-slot="empty-state"]')?.getAttribute('data-variant')).toBe('inline')
+  expect(container.textContent).not.toContain('Signals — a claim, a completion — land here too.')
 })
 
 /**
@@ -3546,7 +3548,7 @@ it('does not carry a Run again dialog into another Team in the same pane', async
   await render(store)
   const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
   await act(async () => nav.click())
-  await act(async () => (container.querySelector('[data-slot="run-ending"] button') as HTMLButtonElement).click())
+  await act(async () => ([...container.querySelectorAll<HTMLButtonElement>('[data-slot="run-ending"] button')].find(button => button.textContent === 'Run again…')!).click())
   expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Run again')
   const snapshot = store.getSnapshot()
   const next = { ...snapshot, teams: new Map(snapshot.teams).set('room-2', { ...state, id: 'room-2', members: [] }),

@@ -2540,18 +2540,8 @@ const Room = ({
           <div className={styles.streamColumn}>
             {entries.length === 0 ? (
               <EmptyState
-                icon={<TeamIcon />}
-                title="Nothing said yet"
-                description={
-                  messaging
-                    ? 'The agents in this room can message each other and you. Signals — a claim, a completion — land here too.'
-                    : /* Where the switch actually is. It named the Team panel,
-                         which stopped existing when this room absorbed it, and
-                         then the room's own chat header, which the top row has
-                         now absorbed in turn — so a reader following the
-                         sentence arrived at a surface that was not there. */
-                      'Board-only: agents may claim and signal, but not message. Turn messaging back on at the top of the room.'
-                }
+                variant="inline" align="start"
+                title={messaging ? <span title="The agents in this room can message each other and you. Signals — a claim, a completion — land here too.">Nothing said yet</span> : 'Nothing said yet. Board-only: agents may claim and signal, but not message. Turn messaging back on at the top of the room.'}
               />
             ) : (
               <ChannelStream
