@@ -1028,4 +1028,15 @@ A card that has not finished offers **Abandon card…** in its inspector. The
 question says first what the rule after the card's role will do: open the next
 round, end the Run without a next step, wait for the round's other cards, or
 nothing when the Run is not running; a claimed card names who holds it. A
-person's step is answered there with the same controls as the Overview.
+person's step is answered there with the same controls as the Overview. The
+question belongs to that Run and card, closes when the card finishes, and
+offers **Stop the run instead** while the Run is running.
+
+**Stop run…** appears in the running Run's header and its Overview strip.
+The question says first that the Run stops now and no further step starts,
+then lists its open Seats: an Agent that can be interrupted stops now; one
+that cannot stops when its current turn ends. Interruption is best effort;
+if it fails, the turn finishes and nothing follows it. The note is optional
+and limited to 4,096 characters. Cards, findings and recorded cost are kept,
+and the timeline reads **Stopped by you**. A cleanup failure stays beside
+Stop so you can try again to finish stopping the Run.

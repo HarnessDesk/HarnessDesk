@@ -483,6 +483,43 @@ const GOAL: GoalView = {
 
 const FLOW_DOCUMENT = { format: 'agents' as const, flow: { version: 2 as const, name: 'Review', inputs: [], roles: [], rules: [], seed: { role: 'reviewer', title: 'Go' }, messaging: 'board-only' as const, wait: 240 } }
 
+it.each(['Overview', 'Run'])('stops the %s Run with only its open Seats, from capabilities rather than the runtime’s identity', async door => {
+  const members = [
+    { id: 'alpha', session: { runtime: 'codex', sessionId: 'c1' }, agent: { name: 'Alpha' }, openedAt: 1, closed: null },
+    { id: 'beta', session: { runtime: 'claude', sessionId: 'k1' }, agent: { name: 'Beta' }, openedAt: 1, closed: null },
+    { id: 'closed', session: { runtime: 'codex', sessionId: 'old' }, agent: { name: 'Closed Seat' }, openedAt: 1, closed: { at: 2 } },
+    { id: 'other-run', session: { runtime: 'codex', sessionId: 'other' }, agent: { name: 'Other Run Seat' }, openedAt: 1, closed: null },
+  ] as unknown as GoalView['members']
+  const execution: FlowExecution = { version: 2, id: 'stop-me', goal: ROOM, document: FLOW_DOCUMENT, state: 'running',
+    reason: null, operations: [], legacyRun: null,
+    rounds: [{ n: 1, role: 'reviewer', cards: [], seats: ['alpha', 'beta', 'closed'], state: 'running', cause: 'seed', evidence: [] }] }
+  const runs = new Map([[execution.id, execution]])
+  const { store, pushes } = rig([], [
+    { id: 'codex', presentation: { name: 'Agent A' }, capabilities: { interrupt: false } },
+    { id: 'claude', presentation: { name: 'Agent B' }, capabilities: { interrupt: true } },
+  ], { members: [] }, { ...GOAL, members }, runs)
+  const stopping = vi.fn(async (_run: string, reason: string) => {
+    const stopped: FlowExecution = { ...execution, state: 'stopped', reason, end: { kind: 'stopped', by: 'person' } }
+    runs.set(execution.id, stopped)
+    await pushes({ updatedAt: 2 })
+    return stopped
+  })
+  store.stopFlowExecution = stopping
+  await render(store)
+  if (door === 'Run') { act(() => row('Run').click()); await act(async () => {}) }
+  const frame = container.querySelector(door === 'Run' ? '[data-slot="run-header"]' : '[aria-label="Run"]')!
+  act(() => [...frame.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Stop run…')!.click())
+  const question = document.body.querySelector('[role="alertdialog"]')!
+  expect([...question.querySelectorAll('[data-stop-seat]')].map(one => one.textContent)).toEqual([
+    'Alphastops when its current turn ends', 'Betastops now',
+  ])
+  await act(async () => [...question.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Stop run')!.click())
+  expect(stopping).toHaveBeenCalledWith('stop-me', 'You stopped this Run. No further step starts.')
+  expect(document.body.querySelector('[role="alertdialog"]')).toBeNull()
+  expect(container.textContent).not.toContain('Stop run…')
+  if (door === 'Run') expect(container.textContent).toContain('Stopped by you')
+})
+
 /**
  * The commit a review run is pinned to, in the header's own meta line — moved
  * here from `FlowRunStatus` once #905 gave every Goal or room one header, so

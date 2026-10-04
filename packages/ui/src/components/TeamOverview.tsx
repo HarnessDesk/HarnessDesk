@@ -39,7 +39,7 @@ const Cost = ({ row, metered }: { row: SeatRow; metered?: boolean }) => (
 )
 const runWords = { running: 'Running', settled: 'Settled', stopped: 'Stopped', stalled: 'Needs you' } as const
 
-export const TeamOverview = ({ model, faces, metered, unavailable, onOpen, answers, onRun, runName = 'Run', runReason, statusLine, defaultExpanded = false }: {
+export const TeamOverview = ({ model, faces, metered, unavailable, onOpen, answers, onRun, runName = 'Run', runReason, statusLine, defaultExpanded = false, onStop }: {
   model: ReturnType<typeof teamOverview>
   faces?: ReadonlyMap<string, ReactNode>
   metered?: ReadonlyMap<string, boolean>
@@ -48,6 +48,7 @@ export const TeamOverview = ({ model, faces, metered, unavailable, onOpen, answe
   /** How what needs the person is answered from here; without it the rows only say what waits. */
   answers?: NeedsYouAnswers | undefined
   onRun?: () => void
+  onStop?: (() => void) | undefined
   runName?: string
   runReason?: string | null
   /** The Team's shared live line, using this view's ticking clock. */
@@ -91,6 +92,7 @@ export const TeamOverview = ({ model, faces, metered, unavailable, onOpen, answe
               <div className="flex flex-wrap items-center gap-2">
                 <span>{onRun ? <Button variant="link" size="inline-link" onClick={onRun}><Text role="subject">{words(runName)}</Text></Button> : <Text role="subject">{words(runName)}</Text>}</span>
                 <Chip tone={run.state === 'stalled' ? 'warning' : 'neutral'}>{runWords[run.state]}</Chip>
+                {run.state === 'running' && onStop && <Button variant="outline" onClick={onStop}>Stop run…</Button>}
               </div>
               <div className="flex flex-wrap gap-3">
                 {run.round !== null && <Text role="meta">Round {run.round}{run.role ? ` · ${words(run.role)}` : ''}</Text>}

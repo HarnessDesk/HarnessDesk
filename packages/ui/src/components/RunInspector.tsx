@@ -14,6 +14,7 @@ export interface RunInspectorProps {
   seats: readonly InspectorSeat[]
   /** Abandons a card; rejects with the host's refusal. Without it a card offers no abandoning. */
   onAbandon?: (card: number) => Promise<void>
+  onStop?: (() => void) | undefined
   /** Answers a person's step; rejects with the host's refusal. Without it the step's words are text. */
   onAnswer?: (card: number, outcome: string | null, note: string) => Promise<void>
   /** Opens the board, where a review step's attempt is chosen. */
@@ -55,7 +56,7 @@ const detailWords = (detail: string | null | undefined): string | null => {
 }
 
 /** Recorded detail only. No transcript copies, dispatch controls or guessed results. */
-export const RunInspector = ({ input, selectedRow, seats, onAbandon, onAnswer, onOpenBoard, publication, findingsRead }: RunInspectorProps) => {
+export const RunInspector = ({ input, selectedRow, seats, onAbandon, onStop, onAnswer, onOpenBoard, publication, findingsRead }: RunInspectorProps) => {
   const { execution, cards, evidence } = input
   const selected = runTimeline(input).rows.find(row => row.id === selectedRow)
   const round = execution.rounds.find(one => one.n === selected?.round)
@@ -72,7 +73,7 @@ export const RunInspector = ({ input, selectedRow, seats, onAbandon, onAnswer, o
     : <Words>{unread === 'failed' ? 'Findings could not be read' : 'No findings recorded'}</Words>}</Section>
   const title = card ? `#${card.id} · ${card.title}` : selected?.kind === 'findings' ? 'Findings' : 'Run details'
   const abandon = onAbandon && card
-    ? <div><AbandonCard execution={execution} cards={cards} card={card} holder={seat?.name} onAbandon={onAbandon} /></div>
+    ? <div><AbandonCard key={JSON.stringify([execution.id, card.id])} execution={execution} cards={cards} card={card} holder={seat?.name} onAbandon={onAbandon} onStop={onStop} /></div>
     : null
   let body: ReactNode
   if (selected?.kind === 'check' && card && role?.kind === 'check' && role.check) {

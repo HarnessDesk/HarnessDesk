@@ -264,6 +264,36 @@ it('reads findings rows and falls back to the Run when the selected card is gone
 
 /** The controls the connected view hands the inspector; none are present unless a caller gives them. */
 const buttonsOf = (container: HTMLElement) => [...container.querySelectorAll('button')].map(one => one.textContent)
+
+it('keeps an abandon question and its late refusal with the Run and card it belongs to (#1342)', async () => {
+  const fixture = runFixture()
+  let refuse!: (error: Error) => void
+  const pending = new Promise<void>((_resolve, reject) => { refuse = reject })
+  const onAbandon = vi.fn(() => pending)
+  const input = { ...fixture, cards: fixture.cards.map(card => [3, 4].includes(card.id) ? { ...card, state: 'open' as const, claim: null } : card) }
+  const view = render({ input, selectedRow: 'card-4-4', onAbandon })
+  const draw = (next: typeof input, selectedRow: string) => act(() => view.root.render(<RunInspector input={next} selectedRow={selectedRow} seats={[]} onAbandon={onAbandon} />))
+  const button = (label: string) => [...document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(one => one.textContent === label)!
+  const question = () => document.body.querySelector('[role="alertdialog"]')
+  try {
+    act(() => view.container.querySelector<HTMLButtonElement>('button')!.click())
+    act(() => button('Abandon card').click())
+    expect(onAbandon).toHaveBeenCalledWith(4)
+    const completed = { ...input, cards: input.cards.map(card => card.id === 4 ? { ...card, state: 'done' as const } : card) }
+    draw(completed, 'card-4-4')
+    expect(question()).toBeNull()
+    draw(completed, 'card-3-3')
+    expect(question()).toBeNull()
+    act(() => view.container.querySelector<HTMLButtonElement>('button')!.click())
+    expect(question()?.textContent).toContain('Abandon card #3?')
+    await act(async () => { refuse(new Error('Late refusal for #4')); await pending.catch(() => {}) })
+    expect(question()?.textContent).not.toContain('Late refusal')
+    expect(button('Abandon card').disabled).toBe(false)
+    // A reused card number in another Run also starts with a fresh question.
+    draw({ ...completed, execution: { ...completed.execution, id: 'another-run' } }, 'card-3-3')
+    expect(question()).toBeNull()
+  } finally { view.close() }
+})
 it('offers abandoning a card that has not finished, before its conversation link', () => {
   const fixture = runFixture()
   const onAbandon = vi.fn().mockResolvedValue(undefined)

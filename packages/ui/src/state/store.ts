@@ -4566,6 +4566,15 @@ export class AppStore {
     return execution
   }
 
+  /** Stop one Run; the returned record also covers a stale view of a Run that already ended. */
+  async stopFlowExecution(run: string, reason: string): Promise<FlowExecution> {
+    const execution = await this.transport.request('flow/execution/stop', { run, reason })
+    const flowExecutions = new Map(this.#snapshot.flowExecutions)
+    flowExecutions.set(execution.id, execution)
+    this.#patch({ flowExecutions })
+    return execution
+  }
+
   /**
    * A fresh preview bound to an interrupted check's exact saved source and
    * inputs — `flow/preview`'s own `retry` param validates that equality on

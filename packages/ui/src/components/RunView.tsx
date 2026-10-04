@@ -20,7 +20,7 @@ export type RunViewTab = 'timeline' | 'flow'
 const TABS = [{ value: 'timeline', label: 'Timeline' }, { value: 'flow', label: 'Flow' }] as const
 
 /** Read-only story. Selection belongs to the caller for the later inspector. */
-export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pullRequest, pending = false, problem, onRetry, flow, view, onView }: {
+export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pullRequest, pending = false, problem, onRetry, flow, view, onView, onStop }: {
   model: ReturnType<typeof runTimeline>
   number: number
   selectedRow: string | null
@@ -36,6 +36,7 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
   /** Which half shows, when the caller chooses it; left out, the view keeps it itself. */
   view?: RunViewTab
   onView?: (view: RunViewTab) => void
+  onStop?: (() => void) | undefined
 }) => {
   const [kept, keep] = useState<RunViewTab>('timeline')
   const showing: RunViewTab = flow ? view ?? kept : 'timeline'
@@ -52,6 +53,7 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
       <Chip tone={header.needsYou ? 'warning' : 'neutral'}>{header.needsYou ? 'Needs you' : states[header.state]}</Chip>
       <Text role="meta" className="min-w-0 break-words">{words(header.flow)}{header.revision ? ` · ${header.revision}` : ''}</Text>
       {pullRequest && <Button variant="link" size="inline-link" onClick={() => openExternal(pullRequest.url)}>Open pull request #{pullRequest.number}</Button>}
+      {header.state === 'running' && onStop && <Button variant="outline" onClick={onStop}>Stop run…</Button>}
       {flow && <span className="ml-auto"><Segmented label="Show the Run as" value={showing} options={TABS}
         onChange={next => { if (view === undefined) keep(next); onView?.(next) }} /></span>}
     </PaneColumn>

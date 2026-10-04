@@ -75,6 +75,7 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, ...vie
     findingsRead: findingsRead(findingsList),
     // The same requests the board makes, so a card answered or abandoned here is one thing to the host.
     onAbandon: card => store.teamIntent(execution.goal, card, 'abandon'),
+    onStop: view.onStop,
     onAnswer: (card, outcome, note) => answerStep(store, execution.goal, card, outcome, note),
     ...(onOpenBoard ? { onOpenBoard } : {}),
     publication: snapshot.findingRuns.get(execution.id)?.rounds.find(round => round.round === selected?.round),

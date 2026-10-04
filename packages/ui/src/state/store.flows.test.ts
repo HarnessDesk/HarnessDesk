@@ -126,6 +126,17 @@ it('readFlowExecution reads by run id and keeps the answer, whole, in flowExecut
   expect(store.getSnapshot().flowExecutions.get('run-1')).toEqual(EXECUTION)
 })
 
+it('stopFlowExecution sends the reason and keeps the stopped Run without changing another Run', async () => {
+  const other = { ...EXECUTION, id: 'other-run' }
+  push({ method: 'flow/execution-changed', params: { execution: other } })
+  const stopped: FlowExecution = { ...EXECUTION, state: 'stopped', reason: 'The brief changed.', end: { kind: 'stopped', by: 'person' } }
+  const spy = vi.spyOn(store.transport, 'request').mockResolvedValue(stopped)
+  expect(await store.stopFlowExecution('run-1', 'The brief changed.')).toEqual(stopped)
+  expect(spy).toHaveBeenCalledWith('flow/execution/stop', { run: 'run-1', reason: 'The brief changed.' })
+  expect(store.getSnapshot().flowExecutions.get('run-1')).toEqual(stopped)
+  expect(store.getSnapshot().flowExecutions.get('other-run')).toEqual(other)
+})
+
 it('previewFlowRetry reads the run’s own saved source back before asking flow/preview, never a blank or guessed one', async () => {
   push({ method: 'flow/execution-changed', params: { execution: EXECUTION } })
   const spy = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {

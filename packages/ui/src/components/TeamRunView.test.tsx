@@ -346,6 +346,18 @@ it('abandons a card from its inspector with the request the board makes', async 
     expect(teamIntent).toHaveBeenCalledWith('overview-team', 4, 'abandon')
   } finally { view.close() }
 })
+it('leaves the keyed abandon question for the Run’s stop question without abandoning its card', async () => {
+  const teamIntent = vi.fn()
+  const onStop = vi.fn()
+  const view = await mountScene('running', sceneStore('running', { teamIntent }), { onStop })
+  try {
+    await press('Abandon card…', view.container)
+    await press('Stop the run instead')
+    expect(document.body.querySelector('[role="alertdialog"]')).toBeNull()
+    expect(onStop).toHaveBeenCalledOnce()
+    expect(teamIntent).not.toHaveBeenCalled()
+  } finally { view.close() }
+})
 it('answers a person\'s step from its inspector with the request the board makes', async () => {
   const teamIntent = vi.fn().mockResolvedValue(undefined)
   const onOpenBoard = vi.fn()

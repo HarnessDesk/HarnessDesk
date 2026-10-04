@@ -9,6 +9,14 @@ move is real work and is not news to a person weighing an upgrade.
 
 HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
 
+- **Stop one Run from its header or Overview.** Stop run… ends the round,
+  asks its Seats to stop and starts no further step. Its question says which
+  Seats stop now and which finish their current turn, accepts an optional
+  note, and keeps cards, findings and recorded cost. The abandon question
+  offers Stop the run instead and stays with the card it was opened for;
+  finishing that card or selecting another cannot carry over a late refusal.
+  (Fixes #1342)
+
 - **The command line now ships inside the app.** HarnessDesk › Install
   command-line tool… puts a `harnessdesk` command on your PATH, in a folder you
   own, so a terminal or a script can list Teams and runs, start a flow, watch

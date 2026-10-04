@@ -58,6 +58,16 @@ const withFlow = (props: Partial<Parameters<typeof RunView>[0]> = {}) => {
   act(() => root.render(<RunView model={model} number={1} selectedRow={null} onSelect={() => {}} flow={<p data-testid="the-flow">The drawing</p>} {...props} />))
   return { container, done: () => { act(() => root.unmount()); container.remove() } }
 }
+
+it.each(['running', 'stopped', 'settled', 'stalled'] as const)('offers Stop run… in the header only when the Run is running (%s)', state => {
+  const onStop = vi.fn()
+  const { container, done } = withFlow({ model: runTimeline({ execution: overviewRun(state), cards: [] }), onStop })
+  try {
+    const stop = [...container.querySelectorAll<HTMLButtonElement>('[data-slot="run-header"] button')].find(one => one.textContent === 'Stop run…')
+    if (state === 'running') { expect(stop).toBeDefined(); act(() => stop!.click()); expect(onStop).toHaveBeenCalledOnce() }
+    else expect(stop).toBeUndefined()
+  } finally { done() }
+})
 const choice = (container: HTMLElement, name: string): HTMLButtonElement =>
   [...container.querySelectorAll<HTMLButtonElement>('[role="radiogroup"][aria-label="Show the Run as"] [role="radio"]')].find(one => one.textContent === name)!
 

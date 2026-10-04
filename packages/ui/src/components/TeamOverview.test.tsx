@@ -1,6 +1,7 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
+import { overviewModel } from '../preview/team-overview-fixture'
 import { TeamOverview } from './TeamOverview'
 import type { SeatRow } from '../lib/team-overview'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -8,6 +9,16 @@ const box=document.createElement('div');document.body.append(box);const root=cre
 afterEach(()=>act(()=>root.render(null)))
 const row=(name:string,patch:Partial<SeatRow>={}):SeatRow=>({seat:name,name,role:'writer',card:null,round:null,state:'idle',done:false,reason:null,doing:null,since:null,cost:null,...patch})
 const render=(seats:SeatRow[])=>act(()=>root.render(<TeamOverview model={{run:null,needsYou:[],seats}} metered={new Map(seats.map(one => [one.seat, false]))} />))
+it('offers Stop run… in the running Overview strip and withdraws it when the Run ends',()=>{
+ const onStop=vi.fn()
+ act(()=>root.render(<TeamOverview model={overviewModel('running')} onStop={onStop} />))
+ const stop=[...box.querySelectorAll<HTMLButtonElement>('[aria-label="Run"] button')].find(one=>one.textContent==='Stop run…')
+ expect(stop).toBeDefined()
+ act(()=>stop!.click())
+ expect(onStop).toHaveBeenCalledOnce()
+ act(()=>root.render(<TeamOverview model={overviewModel('done')} onStop={onStop} />))
+ expect(box.textContent).not.toContain('Stop run…')
+})
 it('shows precedence order, empty cards and the unit explanation',()=>{
  render([row('Wait',{state:'needs-you'}),row('News',{state:'unread'}),row('Work',{state:'working',cost:{unit:'turns',value:4,estimated:false}}),row('Idle')])
  expect([...box.querySelectorAll('[data-seat]')].map(e=>e.getAttribute('data-seat'))).toEqual(['Wait','News','Work','Idle'])

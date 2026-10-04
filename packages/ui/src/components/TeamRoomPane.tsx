@@ -28,6 +28,7 @@ import { isRecord, RECORD_REASON } from '../lib/team-record'
 import { teamOverview } from '../lib/team-overview'
 import { TeamOverview } from './TeamOverview'
 import { TeamRunView } from './TeamRunView'
+import { StopRunDialog } from './StopRunDialog'
 import { RunFlow } from './RunFlow'
 import { runTimeline } from '../lib/run-timeline'
 import { shortSha } from '../lib/evidence'
@@ -246,6 +247,16 @@ export const TeamRoomPane = ({
   const snapshot = useSnapshot()
   const goal = snapshot.goals.get(room)
   const record = isRecord(goal)
+  const [stoppingRun, setStoppingRun] = useState<string | null>(null)
+  const stoppingExecution = stoppingRun ? snapshot.flowExecutions.get(stoppingRun) : null
+  // Only the open Seats recorded by this Run: a Team can also hold another Run's Seats.
+  const stopSeatIds = new Set(stoppingExecution?.rounds.flatMap(round => round.seats) ?? [])
+  const stopSeatNames = new Map(stoppingExecution ? teamSeats(goal, snapshot.teams.get(room), stoppingExecution, 'seat').map(seat => [seat.record.id, seat.name]) : [])
+  const stopSeats = (goal?.members ?? []).filter(seat => !seat.closed && stopSeatIds.has(seat.id)).map(seat => ({
+    id: seat.id,
+    name: stopSeatNames.get(seat.id) ?? 'Agent',
+    interrupt: snapshot.runtimes.find(runtime => runtime.id === seat.session.runtime)?.capabilities.interrupt,
+  }))
   /** Shared by the bar's full Wrap button and its narrow ⋯ fallback. */
   const wrapDisabled = goal ? goalActions(goal.goal).disabled || goal.problem !== null : true
   /**
@@ -960,6 +971,9 @@ export const TeamRoomPane = ({
     <PaneSurface className={`${styles.pane} h-full`} data-showing={onRail ? 'rail' : 'body'}>
       {adding && goal ? <AddMember room={room} root={root} onClose={() => setAdding(false)} /> : null}
       {wrapping && goal ? <GoalWrap view={goal} onClose={() => setWrapping(false)} /> : null}
+      {stoppingRun && stoppingExecution?.goal === room ? <StopRunDialog key={stoppingRun} seats={stopSeats}
+        refusal={record ? RECORD_REASON : null}
+        onStop={reason => store.stopFlowExecution(stoppingRun, reason)} onClose={() => setStoppingRun(null)} /> : null}
 
       {/*
         * The one header row, at the window's own bar height — the same one a
@@ -1433,6 +1447,7 @@ export const TeamRoomPane = ({
                 return runtime ? [[seat.record.id, runtime.capabilities.metered === true] as const] : []
               }))}
               runName={flowExecution?.document.flow.name}
+              onStop={!record && flowExecution ? () => setStoppingRun(flowExecution.id) : undefined}
               statusLine={now => <RoomLiveLine members={roster} snapshot={snapshot} now={now} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} includeRunReason />}
               onOpen={id => { const seat = seats.find(one => one.record.id === id); if (seat) show(seat.key) }} />
           ) : open === 'run' && timelineRun ? (
@@ -1442,6 +1457,7 @@ export const TeamRoomPane = ({
                   onClick={() => setChosenRun(one.id)}>Run {index + 1}</Button>)}
               </PaneColumn>}
               <TeamRunView key={timelineRun.id} execution={timelineRun}
+                onStop={!record ? () => setStoppingRun(timelineRun.id) : undefined}
                 origin={timelineRun.intake ? `From trigger ${timelineRun.intake.trigger}` : goal?.goal.origin.kind === 'person' ? 'Started by you' : null}
                 onOpenSeat={show} onOpenBoard={() => show('board')} number={runs.findIndex(one => one.id === timelineRun.id) + 1}
                 model={runTimeline({ execution: timelineRun, cards: intents,

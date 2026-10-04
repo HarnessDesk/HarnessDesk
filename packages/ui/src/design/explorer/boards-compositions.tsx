@@ -1,5 +1,6 @@
 import { TeamRecordBoard } from '../../preview/frames-team-record'
 import { RunControlsBoard } from '../../preview/frames-run-controls'
+import { StopRunBoard } from '../../preview/frames-stop-run'
 import { RunInspectorBoard } from '../../preview/frames-run-inspector'
 import { FlowGraphBoard } from '../../preview/frames-flow-graph'
 import { RunViewBoard } from '../../preview/frames-run-view'
@@ -2939,6 +2940,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'Run controls',
     about: 'Abandoning a card, with the question that says first what the rule after its role will do, and answering a person’s step from the inspector — the production components.',
     render: RunControlsBoard,
+  },
+  {
+    id: 'stop-run',
+    title: 'Stop a Run',
+    about: 'The Run and Overview doors, each Seat’s ability to stop, an optional note, cleanup failure and the stopped record.',
+    render: StopRunBoard,
   },
   {
     id: 'run-view',
