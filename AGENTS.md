@@ -186,7 +186,7 @@ default on newer Node),
 the UI typecheck,
 the layering rule, the half-applied-fixes check, the tracked-secrets scan, the reachable-methods check, the
 third-party notices check, the design-system gates, the UI-system architecture gate, interface drift, the
-recorded-claims link, the doc-paths check, the gate-against-CI check below,
+command-line reference check, the recorded-claims link, the doc-paths check, the gate-against-CI check below,
 the Codex protocol drift check, and a check that this paragraph and
 CONTRIBUTING.md name every step the gate runs.
 

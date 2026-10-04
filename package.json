@@ -57,6 +57,7 @@
     "design:tokens": "node script/check-design-tokens.mjs",
     "design:audit": "node script/design-audit.mjs",
     "design:doc": "node script/design-doc.mjs",
+    "cli:doc": "tsc -b packages/cli && node script/cli-doc.mjs",
     "design": "pnpm --filter @harnessdesk/ui run dev",
     "test:ui-system": "playwright test -c playwright.ui-system.config.ts",
     "test:ui-system:install": "playwright install chromium",

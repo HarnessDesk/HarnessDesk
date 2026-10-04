@@ -13,6 +13,10 @@
  * not installed on this machine are fine — that is the machine's fact, not
  * the build's.
  *
+ * It then runs the command line the app carries, on the app's own runtime
+ * with `ELECTRON_RUN_AS_NODE=1`, against that same throwaway desk: the very
+ * thing the launcher written by "Install command-line tool…" does.
+ *
  *   pnpm --filter @harnessdesk/desktop run pack
  *   pnpm --filter @harnessdesk/desktop run smoke   # [path/to/HarnessDesk.app]
  *
@@ -24,7 +28,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 const PORT = Number(process.env['HD_SMOKE_CDP_PORT'] ?? 9271)
@@ -107,6 +111,10 @@ if (!portFree) {
 
 const home = mkdtempSync(join(tmpdir(), 'hd-smoke-home-'))
 const profile = mkdtempSync(join(tmpdir(), 'hd-smoke-profile-'))
+// The desk's door for outside clients, in a folder of its own: never the shared
+// one where the desks of this user meet, and short, because a socket's path has
+// a length limit that a long temporary folder would pass.
+const door = mkdtempSync('/tmp/hd-smoke-door-')
 const child = spawn(
   binary,
   [
@@ -120,7 +128,7 @@ const child = spawn(
     // preserves the safeStorage code path with an isolated mock keychain.
     '--use-mock-keychain',
   ],
-  { env: { ...process.env, HARNESSDESK_HOME: home }, stdio: ['ignore', 'ignore', 'pipe'] },
+  { env: { ...process.env, HARNESSDESK_HOME: home, HARNESSDESK_CLIENT_DIR: door }, stdio: ['ignore', 'ignore', 'pipe'] },
 )
 let stderr = ''
 child.stderr.on('data', (chunk) => (stderr += String(chunk)))
@@ -204,6 +212,35 @@ try {
     )
   }
   console.log(`smoke: ok — the ${SHIPPED_AGENTS.length} shipped Agents are on disk and parse`)
+
+  // The command line the app carries, run the way the launcher that
+  // "Install command-line tool…" writes runs it: this build's own runtime as
+  // Node, on the bundled script, against this throwaway desk and no other.
+  const bundledCli = join(
+    appPath,
+    'Contents/Resources/app.asar.unpacked/node_modules/@harnessdesk/cli/dist/src/bin.js',
+  )
+  if (!existsSync(bundledCli)) {
+    throw new Error(
+      `this build does not carry the command line at ${bundledCli} — ` +
+        `check that packages/desktop/package.json depends on @harnessdesk/cli and that pnpm build:node ran before packaging`,
+    )
+  }
+  const cli = spawnSync(binary, [bundledCli, 'status', '--json'], {
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', HARNESSDESK_HOME: home, HARNESSDESK_CLIENT_DIR: door },
+    encoding: 'utf8',
+    timeout: 60_000,
+  })
+  if (cli.status !== 0) {
+    throw new Error(`the bundled command line exited ${cli.status}: ${(cli.stderr || cli.error?.message || '').slice(-500)}`)
+  }
+  const reported = JSON.parse(cli.stdout)
+  if (typeof reported.hello?.hostVersion !== 'string' || reported.hello.hostVersion === '') {
+    throw new Error(`the bundled command line did not read this desk: ${cli.stdout.slice(0, 300)}`)
+  }
+  console.log(
+    `smoke: ok — the bundled command line ran on the app's own runtime and read this desk (host ${reported.hello.hostVersion})`,
+  )
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error))
 } finally {
@@ -223,5 +260,6 @@ try {
   }
   rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+  rmSync(door, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 process.exit(process.exitCode ?? 0)

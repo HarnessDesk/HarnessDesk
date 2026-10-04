@@ -39,6 +39,7 @@ import { budgetMeterWords, formatMeterUsd, intakeStopWords, openTriggerWaits, or
 import { isPathInside } from '../lib/paths'
 import { folderName } from '../lib/projects'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
+import { useNeedsYouAnswers } from '../state/needs-you'
 import type { AppSnapshot } from '../state/snapshot'
 import { sidebarPlacement } from '../state/workbench'
 import { useMount } from '../panels/mount'
@@ -766,6 +767,8 @@ export const TeamRoomPane = ({
     report: report?.goal === room ? report : null,
     runtimeCapabilities: new Map(snapshot.runtimes.map(one => [one.id, one.capabilities])),
   }), [room, intents, entries, seats, members, snapshot.runtimes, snapshot.sessions, snapshot.inbox, snapshot.approvals, flowExecution, report])
+  // What the Overview can do about what needs you: the same requests the board and the docked approval make.
+  const needsYouAnswers = useNeedsYouAnswers({ room, execution: flowExecution ?? null, cards: intents, openBoard: () => show('board') })
   const memberOf = (key: SessionKey): TeamPeerInfo | null =>
     members.find((peer) => sessionKey(peer.runtime, peer.sessionId as SessionId) === key) ?? null
 
@@ -1422,7 +1425,7 @@ export const TeamRoomPane = ({
               ) : null}
             </div>
           ) : open === 'overview' ? (
-            <TeamOverview model={{...overview,seats:[...overview.seats,...unlinked.map(seat => ({seat:seat.record.id,name:seat.name,role:seat.role,card:null,round:null,state:'idle' as const,reason:'Conversation not kept',doing:null,since:null,cost:null,done:false}))]}} unavailable={new Set(unlinked.map(seat=>seat.record.id))} onRun={() => show('run')}
+            <TeamOverview model={{...overview,seats:[...overview.seats,...unlinked.map(seat => ({seat:seat.record.id,name:seat.name,role:seat.role,card:null,round:null,state:'idle' as const,reason:'Conversation not kept',doing:null,since:null,cost:null,done:false}))]}} unavailable={new Set(unlinked.map(seat=>seat.record.id))} answers={needsYouAnswers} onRun={() => show('run')}
               faces={new Map(seats.map(seat => {
                 const runtime = snapshot.runtimes.find(one => one.id === seat.record.session.runtime)
                 const brand = runtime ? brandForRuntime(runtime) : null
@@ -1443,7 +1446,7 @@ export const TeamRoomPane = ({
               </PaneColumn>}
               <TeamRunView key={timelineRun.id} execution={timelineRun}
                 origin={timelineRun.intake ? `From trigger ${timelineRun.intake.trigger}` : goal?.goal.origin.kind === 'person' ? 'Started by you' : null}
-                onOpenSeat={show} number={runs.findIndex(one => one.id === timelineRun.id) + 1}
+                onOpenSeat={show} onOpenBoard={() => show('board')} number={runs.findIndex(one => one.id === timelineRun.id) + 1}
                 model={runTimeline({ execution: timelineRun, cards: intents,
                   signals: entries.filter((one): one is Extract<TeamEntry, {kind: 'signal'}> => one.kind === 'signal'),
                   evidence: snapshot.boardEvidence.get(room),

@@ -1,4 +1,5 @@
 import { TeamRecordBoard } from '../../preview/frames-team-record'
+import { RunControlsBoard } from '../../preview/frames-run-controls'
 import { RunInspectorBoard } from '../../preview/frames-run-inspector'
 import { FlowGraphBoard } from '../../preview/frames-flow-graph'
 import { RunViewBoard } from '../../preview/frames-run-view'
@@ -2932,6 +2933,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'Run inspector',
     about: 'Recorded detail for a Run, card, check or person’s step, beside the timeline or pushed at narrow widths.',
     render: RunInspectorBoard,
+  },
+  {
+    id: 'run-controls',
+    title: 'Run controls',
+    about: 'Abandoning a card, with the question that says first what the rule after its role will do, and answering a person’s step from the inspector — the production components.',
+    render: RunControlsBoard,
   },
   {
     id: 'run-view',

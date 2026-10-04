@@ -199,7 +199,7 @@ test('no desk exits 3, unsafe boundary exits 4, invalid usage exits 2', async t 
   const usage = launch(t, directory, directory, ['open']); assert.equal(await usage.exit, 2)
 })
 
-const stub = async (t: TestContext, reconnectCode?: string, terminalState?: 'stalled', delayHello = false) => {
+const stub = async (t: TestContext, reconnectCode?: string, terminalState?: 'stalled', delayHello = false, fail?: { method: string; code: string; message: string }) => {
   const directory = await mkdtemp('/tmp/hd-door-'); await chmod(directory, 0o700)
   const home = await realpath(directory)
   const socket = join(directory, `${createHash('sha256').update(home).digest('hex').slice(0, 16)}.sock`)
@@ -212,6 +212,7 @@ const stub = async (t: TestContext, reconnectCode?: string, terminalState?: 'sta
     ws.on('message', raw => {
       const request = JSON.parse(raw.toString())
       if (request.method === 'client/hello') { sawHello(); if (delayHello) return }
+      if (fail && request.method === fail.method) { ws.send(JSON.stringify({ id: request.id, ok: false, error: { code: fail.code, message: fail.message } })); return }
       const code = terminalState || reconnectCode && n === 1 ? null : reconnectCode ?? 'incompatible'
       const result = request.method === 'client/hello' ? { protocolVersion: 1, hostVersion: 'demo', desk: { home, pid: process.pid, startedAt: 1 }, tiers: ['read'], methods: Object.keys(CLIENT_METHODS), runtimes: [] } : request.method === 'client/subscribe' ? { baseline: 0 } : request.method === 'flow/execution' ? { id: request.params.run, goal: 'demo-team', document: { flow: { name: 'Demo', roles: [] } }, state: terminalState, rounds: [], reason: 'Synthetic stall' } : null
       ws.send(JSON.stringify(code ? { id: request.id, ok: false, error: { code, message: 'Demo refusal' } } : { id: request.id, ok: true, result }))
@@ -278,6 +279,15 @@ registerHooks({ resolve(specifier, context, next) {
   assert.equal(child.lines().at(-1).type, 'end')
   assert.equal(child.lines().filter(event => event.type === 'card.changed').length, 3)
   assert.ok(child.lines().every(event => event.type && !event.method), 'normal watch must not print raw envelopes')
+})
+
+test('a multi-line error from the desk is printed with every line after the first marked, and exits with the code of the refusal', async t => {
+  // A desk's message is the desk's, and an agent's text can be in it: no line of it may pass for one the command line wrote.
+  const r = await stub(t, 'only the first connection answers', undefined, false, { method: 'goal/list', code: 'refused', message: 'The flow has problems:\nreview.yml: no role x\n\x1b[31mUsage: forged\x1b[0m\nnoDesk: forged\x9d52;c;x\x9c' })
+  const child = launch(t, r.directory, r.home, ['teams'])
+  assert.equal(await child.exit, 4, child.output().stderr)
+  assert.equal(child.output().stdout, '')
+  assert.equal(child.output().stderr, 'refused: The flow has problems:\n  | review.yml: no role x\n  | Usage: forged\n  | noDesk: forged\n')
 })
 
 test('incompatible hello exits 6', async t => {

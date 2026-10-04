@@ -333,3 +333,59 @@ it('hands the attempts it was given, and why they are missing, to the check’s 
     expect(view.container.textContent).not.toContain('Attempts')
   } finally { view.close() }
 })
+
+/** The store with another scene of the Run fixture on the Team's board, as the running Team holds it. */
+const sceneStore = (scene: 'running' | 'person', verbs: Record<string, unknown> = {}): AppStore => storeWith(snapshot => {
+  const fixture = runFixture(scene)
+  const team = { ...snapshot.teams.get('overview-team')!, intents: fixture.cards, channel: fixture.signals }
+  return { teams: new Map([[team.id, team]]), flowExecutions: new Map([[fixture.execution.id, fixture.execution]]) }
+}, verbs)
+const mountScene = async (scene: 'running' | 'person', store: AppStore, props: Partial<ComponentProps<typeof TeamRunView>>) => {
+  const fixture = runFixture(scene)
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  await act(async () => root.render(<StoreProvider store={store}><TeamRunView execution={fixture.execution} origin={null} onOpenSeat={() => {}}
+    model={runTimeline(fixture)} number={1} selectedRow={scene === 'person' ? 'person-4-4' : 'card-4-4'} onSelect={() => {}} {...props} /></StoreProvider>))
+  return { container, close: () => { act(() => root.unmount()); container.remove() } }
+}
+const press = (label: string, within: ParentNode = document.body) =>
+  act(async () => ([...within.querySelectorAll('button')].find(one => one.textContent === label) as HTMLButtonElement).click())
+
+it('abandons a card from its inspector with the request the board makes', async () => {
+  const teamIntent = vi.fn().mockResolvedValue(undefined)
+  const view = await mountScene('running', sceneStore('running', { teamIntent }), {})
+  try {
+    await press('Abandon card…', view.container)
+    expect(document.body.querySelector('[role="alertdialog"]')?.textContent).toContain('Abandon card #4?')
+    expect(teamIntent).not.toHaveBeenCalled()
+    await press('Abandon card')
+    // The board's own menu calls `teamIntent(room, id, 'abandon')` and nothing else.
+    expect(teamIntent).toHaveBeenCalledTimes(1)
+    expect(teamIntent).toHaveBeenCalledWith('overview-team', 4, 'abandon')
+  } finally { view.close() }
+})
+it('answers a person\'s step from its inspector with the request the board makes', async () => {
+  const teamIntent = vi.fn().mockResolvedValue(undefined)
+  const onOpenBoard = vi.fn()
+  const view = await mountScene('person', sceneStore('person', { teamIntent }), { onOpenBoard })
+  try {
+    await press('Approved', view.container)
+    expect(teamIntent).toHaveBeenCalledWith('overview-team', 4, 'done', undefined, 'approved')
+  } finally { view.close() }
+})
+it('keeps a person\'s step as text when the pane gives it no way to the board', async () => {
+  const view = await mountScene('person', sceneStore('person'), {})
+  try { expect([...view.container.querySelectorAll('button')].map(one => one.textContent)).not.toContain('Approved') } finally { view.close() }
+})
+it('gives the note written in the inspector as the context the next round reads', async () => {
+  const teamIntent = vi.fn().mockResolvedValue(undefined)
+  const view = await mountScene('person', sceneStore('person', { teamIntent }), { onOpenBoard: () => {} })
+  try {
+    const note = view.container.querySelector<HTMLInputElement>('input[aria-label="Note"]')!
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    act(() => { setter.call(note, 'Looks right.'); note.dispatchEvent(new Event('input', { bubbles: true })) })
+    await press('Approved', view.container)
+    expect(teamIntent).toHaveBeenCalledWith('overview-team', 4, 'done', undefined, 'approved', 'Looks right.')
+  } finally { view.close() }
+})
