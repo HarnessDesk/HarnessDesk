@@ -1124,12 +1124,13 @@ export class GoalPlane {
     return structuredClone({
       goal: document.goal,
       cards: (this.port.cards?.(id) ?? document.board.intents).map((card) => {
-        // Completion clears the claim. The board's last holder signal still
-        // names the conversation and time; resolve its Seat at that time,
-        // rather than a later Seat that reused the same conversation.
+        // Completion clears the claim. Read the latest disposition boundary,
+        // including a release/reopen or a person's completion: walking past
+        // one would credit an earlier holder for work they did not finish.
         const signal = [...document.board.channel].reverse().find((entry) => entry.kind === 'signal' && entry.intent === card.id &&
-          ['claimed', 'completed', 'abandoned'].includes(entry.signal) && entry.by.kind === 'agent')
-        const holder = card.claim ?? (signal?.kind === 'signal' && signal.by.kind === 'agent' ? signal.by : null)
+          ['claimed', 'released', 'reopened', 'completed', 'abandoned'].includes(entry.signal))
+        const holder = card.claim ?? (signal?.kind === 'signal' &&
+          (signal.signal === 'completed' || signal.signal === 'abandoned') && signal.by.kind === 'agent' ? signal.by : null)
         const at = card.claim?.at ?? signal?.at
         const matches = holder && at !== undefined ? seats.filter((seat) => seat.session.runtime === holder.runtime &&
           seat.session.sessionId === holder.sessionId && seat.openedAt <= at && (seat.closed === null || seat.closed.at >= at)) : []

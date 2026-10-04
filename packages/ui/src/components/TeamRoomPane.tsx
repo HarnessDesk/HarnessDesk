@@ -63,7 +63,7 @@ import {
   TeamIcon,
 } from './Icons'
 import { AddMember } from './AddMember'
-import { MemberHoverCard, type MemberCardFacts } from './AgentCards'
+import { MemberHoverCard, SeatFace, type SeatFaceIdentity, type MemberCardFacts } from './AgentCards'
 import { Approvals } from './Approvals'
 import { Conversation } from './Conversation'
 import { SideBySide, sideBySideTileEntry } from './SideBySide'
@@ -744,6 +744,12 @@ export const TeamRoomPane = ({
   const allSeats = useMemo(() => teamSeats(goal, team, flowExecution), [goal, team, flowExecution])
   const seats = useMemo(() => allSeats.filter(hasConversation), [allSeats])
   const unlinked = useMemo(() => allSeats.filter(one => !hasConversation(one)), [allSeats])
+  const receiptFaces = useMemo(() => new Map<string, SeatFaceIdentity>(teamSeats(goal, team, flowExecution, 'seat').map(seat => {
+    const runtime = seat.record.session?.runtime
+    const info = snapshot.runtimes.find(one => one.id === runtime)
+    return [seat.record.id, { brand: info ? brandForRuntime(info) : null,
+      tint: runtime ? runtimeTint(runtime as RuntimeId, snapshot.accountsByRuntime, snapshot.accountPrefs) : 'blue' }]
+  })), [goal, team, flowExecution, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs])
   const members = useMemo(() => {
     return seats.map(seat => {
       const peer = peers?.find(one => sessionKey(one.runtime, one.sessionId) === seat.key)
@@ -1115,7 +1121,7 @@ export const TeamRoomPane = ({
           {/* Everything to the left of this states a fact; everything to the
               right does something — the tool header's own divider, drawn for
               the same reason between a tool's controls and its panel's. */}
-          <ToolPaneHeaderDivider />
+          {!record && <ToolPaneHeaderDivider />}
           {/* Board-only used to live in the chat's header, one surface down,
               spelled out in the app's own name for it. It governs *messages* —
               every one of them, from every member, in this room — so it
@@ -1413,10 +1419,10 @@ export const TeamRoomPane = ({
                 single line above them does not, and cost a line of height on
                 every one of them. */}
             {idleShared && <Note ink="muted" className={styles.railEmpty}>None of these agents has used the board yet.</Note>}
-            {unlinked.map(seat => <ListRow key={seat.record.id} size="sm" title={<span title="Conversation not kept">{seat.name}{seat.role && <Text role="muted"> {seat.role}</Text>}</span>} lead={<IconTile shape="face" size="sm"><AgentIcon /></IconTile>} />)}
+            {unlinked.map(seat => <ListRow key={seat.record.id} size="sm" title={<span title="Conversation not kept">{seat.name}{seat.role && <Text role="muted"> {seat.role}</Text>}</span>} lead={<SeatFace {...receiptFaces.get(seat.record.id)} />} />)}
             {shown.map((member) => record ? (
-              <ListRow key={member.key} size="sm" nav interactive selected={open === member.key} onClick={() => show(member.key)}
-                lead={<IconTile shape="face" size="sm" tint={member.tint}>{member.brand ? <BrandMark brand={member.brand} size={13} /> : <AgentIcon />}</IconTile>}
+              <ListRow as="button" key={member.key} size="sm" nav interactive selected={open === member.key} onClick={() => show(member.key)}
+                lead={<SeatFace brand={member.brand} tint={member.tint} />}
                 title={<>{member.peer.nickname}{allSeats.find(seat => seat.key === member.key)?.role && <Text role="muted"> {allSeats.find(seat => seat.key === member.key)?.role}</Text>}</>} />
             ) : (
               <MemberRow
@@ -1459,12 +1465,12 @@ export const TeamRoomPane = ({
             </Button>
           </span>
           {open === 'receipt' ? (
-            <PaneColumn inset="reading" className="min-h-0 flex-1 overflow-y-auto">
+            <PaneColumn inset="reading" page className="min-h-0 flex-1 overflow-y-auto">
               <div className="w-full max-w-(--hd-column)">
               {goal?.receipt ? (
                 <>
                   <GoalReceiptCost receipt={goal.receipt}>
-                    {insight => <GoalReceipt receipt={goal.receipt!} root={goal.goal.root} onOpenFinding={setReceiptFinding} insight={insight} />}
+                    {insight => <GoalReceipt receipt={goal.receipt!} root={goal.goal.root} faces={receiptFaces} onOpenFinding={setReceiptFinding} insight={insight} />}
                   </GoalReceiptCost>
                   <FindingCarry source={goal} />
                   {receiptFinding ? <FindingDetail goal={goal.goal.id} finding={receiptFinding} onClose={() => setReceiptFinding(null)} /> : null}

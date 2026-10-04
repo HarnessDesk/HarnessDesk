@@ -876,7 +876,11 @@ port start, block width and browser-profile isolation. Retained descriptors show
 their Goal, Seat and checkout. Releasing ports never claims to remove files.
 Wrapped Goals open an immutable receipt in the pane’s reading column. Its labelled
 card groups show What finished, titled Work, speaker-led prose Answers, and a final
-Record with findings status, recorded cost and wrap date. Older cards show their
+Record with findings status, recorded cost and wrap date. The total keeps its
+source, observation age and qualifications. Cost is read separately from the
+frozen wrap; Record and its breakdowns show the same read, and Refresh reads
+the sources again. Facts shared by every part are said once, while differing
+row facts remain beside that amount. Older cards show their
 number when no title was kept. Partial answers, gaps, unknown spend and dirty
 retained lanes remain visible; cost detail and Refresh use the same column.
 A wrapped Team opens on **Receipt** and keeps Overview, Run and its Agents

@@ -33,7 +33,7 @@ import { usageAccount } from '../lib/usage-alerts'
 import { useSeatAgent, type SeatAgent } from '../state/seat-agent'
 import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
-import { AgentCard, type AgentCardAction, type AgentCardCaution, type AgentCardSubject } from '../design'
+import { AgentCard, IconTile, MemberName, type Tint, type AgentCardAction, type AgentCardCaution, type AgentCardSubject } from '../design'
 import {
   HOVER_CARD_COLLISION_PADDING,
   HOVER_CARD_OPEN_DELAY,
@@ -45,8 +45,22 @@ import {
   PaneColumn,
   type PaneColumnInset,
 } from '../design'
-import { RuntimeMark } from './BrandIcons'
+import { BrandMark, RuntimeMark } from './BrandIcons'
+import type { brandForRuntime } from '../lib/brands'
 import { AgentIcon } from './Icons'
+
+export interface SeatFaceIdentity {
+  readonly brand: ReturnType<typeof brandForRuntime> | null
+  readonly tint: Tint
+}
+
+/** The same Seat face in a rail and inline with its recorded name. */
+export const SeatFace = ({ brand = null, tint = 'blue', name, meta, description }: Partial<SeatFaceIdentity> & { readonly name?: string; readonly meta?: ReactNode; readonly description?: ReactNode }) => {
+  const mark = brand ? <BrandMark brand={brand} size={13} /> : <AgentIcon />
+  return name === undefined
+    ? <IconTile shape="face" size="sm" tint={tint}>{mark}</IconTile>
+    : <MemberName name={name} mark={mark} tint={tint} meta={meta} description={description} />
+}
 
 /**
  * The app's side of the name card: what a subject is, read off the store.

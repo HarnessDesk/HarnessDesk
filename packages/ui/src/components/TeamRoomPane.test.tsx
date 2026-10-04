@@ -3945,8 +3945,17 @@ it('a wrapped receipt has one state, a reading gutter, and a rail without moot c
  expect(railRows().some(text => text.includes('Side by side'))).toBe(false)
  expect(railRows().some(text => text.includes('unclaimed'))).toBe(false)
  expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Wrap')).toBe(false)
+ expect(container.querySelector('[data-slot="tool-pane-header-divider"]')).toBeNull()
  expect(container.querySelector('[data-slot="goal-receipt"]')?.closest('[data-inset="reading"]')).toBeTruthy()
  expect(container.querySelector('aside [data-slot="member-done"]')).toBeNull()
  const kept = railRows().find(text => text.includes('Writer'))!
  expect(kept).not.toContain('conversation')
+})
+
+it('wrapped Agent destinations are native keyboard buttons', async () => {
+ const { store } = rig([], undefined, { members: [] }, receiptGoal(['kept'], KEPT))
+ await render(store)
+ const kept = [...container.querySelectorAll<HTMLElement>('aside [data-slot="list-row"]')].find(one => one.textContent?.includes('Writer'))!
+ expect(kept.tagName).toBe('BUTTON')
+ expect(kept.tabIndex).toBe(0)
 })

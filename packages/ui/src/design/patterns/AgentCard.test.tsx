@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { AgentCard, CardCrest, CardCrestBody, CardShell, type AgentCardSubject } from './AgentCard'
+import { AgentCard, CardCrest, CardCrestBody, CardShell, MemberName, type AgentCardSubject } from './AgentCard'
 
 /**
  * The card's one structural rule, pinned.
@@ -42,6 +42,14 @@ const render = (subject: AgentCardSubject): void => {
 }
 
 const text = (): string => container.textContent ?? ''
+
+it('speaker prose retains the row description’s wrapping contract for an unbroken URL', () => {
+  const answer = `https://example.com/${'a'.repeat(180)}`
+  act(() => root.render(<MemberName name="Alpha" mark={<svg />} description={answer} />))
+  const prose = container.querySelector<HTMLElement>('[data-slot="member-description"]')!
+  expect(prose.textContent).toBe(answer)
+  expect(getComputedStyle(prose).overflowWrap).toBe('anywhere')
+})
 
 /** How many bands the card drew — each one costs a divider and some height. */
 const bands = (): number => container.querySelectorAll('[data-slot="agent-card-band"]').length

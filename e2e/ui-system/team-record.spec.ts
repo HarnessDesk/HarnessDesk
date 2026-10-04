@@ -1,6 +1,54 @@
 import { expect, test, type Locator } from '@playwright/test'
 
 for (const theme of ['light','dark'] as const) {
+ test(`Wrapped Team: Tab and Enter or Space open retained conversations in ${theme}`, async ({page}) => {
+  await page.emulateMedia({colorScheme:theme})
+  await page.goto(`/preview.html?team-record&theme=${theme}`)
+  const frame=page.locator('#team-record-wrapped')
+  const rail=frame.locator('aside')
+  for (const [name,key] of [['Alpha','Enter'],['Beta','Space']]) {
+   const destination=rail.getByRole('button',{name:new RegExp(`^${name}`)})
+   await expect(destination).toHaveCount(1)
+   await rail.getByRole('button',{name:'Receipt',exact:true}).focus()
+   for (let n=0;n<12 && !await destination.evaluate(el=>el===document.activeElement);n++) await page.keyboard.press('Tab')
+   await expect(destination).toBeFocused()
+   await page.keyboard.press(key!)
+   await expect(destination).toHaveAttribute('aria-current','true')
+   await expect(frame.locator('textarea[data-slot="composer-text"]')).toBeDisabled()
+  }
+ })
+ test(`Wrapped Team: three Cost breakdowns, speaker faces and the reading inset align in ${theme}`, async ({page}) => {
+  await page.emulateMedia({colorScheme:theme})
+  await page.goto(`/preview.html?team-record&theme=${theme}`)
+  const frame=page.locator('#team-record-wrapped')
+  const cost=frame.getByRole('region',{name:'Cost',exact:true})
+  await expect(cost.getByRole('tab')).toHaveCount(3)
+  const measure=await frame.evaluate(el=>{
+   const box=(node:Element)=>node.getBoundingClientRect()
+   const column=el.querySelector('[data-inset="reading"]')!
+   const summary=el.querySelector('[data-slot="goal-receipt"] [data-section-head]')!
+   const cost=el.querySelector('section[aria-label="Cost"]')!
+   const heading=cost.querySelector('[data-slot="section-name"]')!
+   const title=[...cost.querySelectorAll('[data-slot="row-title"]')].find(node=>node.textContent==='Alpha')!
+   const answer=[...el.querySelectorAll('[data-slot="goal-receipt"] [data-slot="row"]')].find(node=>node.textContent?.includes('The change was checked'))!
+   return {top:box(summary).top-box(column).top, cost:box(heading).left-box(title).left,
+    answerMark:answer.querySelector('[data-slot="row-mark"]')!==null,
+    answerLeft:box(answer.querySelector('[data-slot="member-name"] [data-role="member"]')!).left-box(answer.querySelector('[data-slot="member-description"]')!).left}
+  })
+  expect(measure.top).toBe(24)
+  expect(Math.abs(measure.cost)).toBeLessThan(2)
+  expect(measure.answerMark).toBe(false)
+  expect(measure.answerLeft).toBe(0)
+  for (const name of ['Alpha','Beta']) {
+   const face=frame.locator(`aside [data-slot="list-row"]`).filter({hasText:name}).locator('[data-slot="icon-tile"]')
+   const receiptFaces=frame.locator('[data-slot="goal-receipt"] [data-slot="member-name"]').filter({hasText:name}).locator('[data-slot="icon-tile"]')
+   await expect(receiptFaces).toHaveCount(2)
+   for (const one of await receiptFaces.all()) {
+    expect(await one.getAttribute('data-tint')).toBe(await face.getAttribute('data-tint'))
+    expect(await one.locator('svg').innerHTML()).toBe(await face.locator('svg').innerHTML())
+   }
+  }
+ })
  test(`Wrapped Team: receipt, rail, conversations and Run stay readable in ${theme}`, async ({page}) => {
   await page.emulateMedia({ colorScheme: theme })
   await page.goto(`/preview.html?team-record&theme=${theme}`)
@@ -156,6 +204,12 @@ for (const theme of ['light','dark'] as const) {
   await frame.locator('aside').getByRole('button',{name:'Receipt',exact:true}).click()
   await expect(frame.getByText('What finished',{exact:true})).toBeVisible()
   expect(await frame.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+  const answers=frame.locator('[data-slot="member-description"]')
+  await expect(answers).toHaveCount(2)
+  for(const answer of await answers.all()) {
+   expect(await answer.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+   expect(await answer.evaluate(el=>getComputedStyle(el).overflowWrap)).toBe('anywhere')
+  }
  })
  /* A narrow room shows one half at a time. A wrapped Team opens on its Receipt, so the Receipt is the half that shows
     — for a Team a person made, which never had a Run, as much as for one a Run wrapped. The Agents list is one tap

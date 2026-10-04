@@ -104,3 +104,37 @@ it('receipt cost detail keeps its breakdown and refresh while the total is prese
   act(() => refresh.click())
   expect(refreshes).toBe(1)
 })
+
+it('keeps breakdown tabs inside the Rows card named by Cost detail and says shared facts once', () => {
+  const base = report()
+  const common = metric(1, 'exact')
+  const amounts = { ...base.totals, usd: common }
+  const three = { ...base, totals: amounts, breakdowns: ['seat', 'goal', 'agent'].map(dimension => ({
+    ...base.breakdowns[0]!, dimension: dimension as 'seat' | 'goal' | 'agent', unattributed: amounts,
+    rows: [1, 2].map(n => ({ ...base.breakdowns[0]!.rows[0]!, key: `part-${n}`, label: `Part ${n}`, amounts })),
+  })) }
+  act(() => root.render(<InsightCost report={three} loading={false} problem={null} onRefresh={() => {}} detailOnly />))
+  const head = container.querySelector('[data-section-head]')!
+  expect(head.nextElementSibling?.getAttribute('data-slot')).toBe('rows')
+  expect(container.querySelector('[role="tablist"]')?.closest('[data-slot="rows"]')).toBe(head.nextElementSibling)
+  for (const row of container.querySelectorAll('[data-slot="row"]')) {
+    expect(row.textContent).not.toContain('Recorded usage')
+    expect(row.textContent).not.toContain('minutes since observation')
+  }
+  // In detailOnly these common facts are already beside the aggregate in Record.
+  expect(container.textContent).toContain('read separately from the wrap')
+})
+
+it('keeps unknown unattributed facts without repeating the aggregate source and age on measured Seats', () => {
+  const base = report()
+  const unknown = { ...base.breakdowns[0]!.unattributed, usd: { ...metric(null, 'unknown', 'none'), sourceIds: [] } }
+  const measured = { ...base, totals: { ...base.totals, usd: metric(1, 'exact') }, breakdowns: [{ ...base.breakdowns[0]!, unattributed: unknown }] }
+  act(() => root.render(<InsightCost report={measured} loading={false} problem={null} onRefresh={() => {}} detailOnly />))
+  const rows = [...container.querySelectorAll('[data-slot="row"]')]
+  const seat = rows.find(row => row.textContent?.includes('Seat one'))!
+  expect(seat.textContent).not.toContain('Recorded usage')
+  expect(seat.textContent).not.toContain('minutes since observation')
+  const unassigned = rows.find(row => row.textContent?.includes('Unattributed'))!
+  expect(unassigned.textContent).toContain('No measured source')
+  expect(unassigned.textContent).toContain('Observation time unavailable')
+})

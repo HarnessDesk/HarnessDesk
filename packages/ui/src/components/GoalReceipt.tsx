@@ -2,11 +2,11 @@ import { useState } from 'react'
 
 import type { GoalCitation, GoalReceipt as GoalReceiptRecord } from '@harnessdesk/protocol'
 
-import { Chip, CodeText, Dialog, IconTile, MemberName, MetaList, Note, Row, RowButton, Rows, SectionHead, SummaryItem, SummaryList, Text } from '../design'
-import { AgentIcon } from './Icons'
+import { Chip, CodeText, Dialog, MetaList, Note, Row, RowButton, Rows, SectionHead, SummaryItem, SummaryList, Text } from '../design'
+import { SeatFace, type SeatFaceIdentity } from './AgentCards'
 import { shortSha } from '../lib/evidence'
 import { blockingWords, lifecycleTone, lifecycleWords } from '../lib/findings'
-import { metricWords } from '../lib/insight'
+import { receiptMetricWords } from '../lib/insight'
 import { intakeStopWords } from '../lib/intake'
 import { InsightCost } from './InsightCost'
 import { MemoryCitation } from './MemoryCitation'
@@ -14,6 +14,8 @@ import { MemoryCitation } from './MemoryCitation'
 export interface GoalReceiptProps {
   readonly receipt: GoalReceiptRecord | Omit<GoalReceiptRecord, 'id' | 'wrappedAt'>
   readonly root: string
+  /** Read from the same runtime/account facts as the Agents rail, keyed by Seat rather than conversation. */
+  readonly faces?: ReadonlyMap<string, SeatFaceIdentity>
   /** Supplied by the receipt owner after an explicit Insight read; omitted by previews and isolated renderers. */
   readonly insight?: Omit<import('./InsightCost').InsightCostProps, 'onSeat' | 'onSession' | 'onMessage'>
   /** Findings this receipt froze that a person may still carry forward — omitted once none are unresolved. */
@@ -36,9 +38,9 @@ const nameOf = (members: GoalReceiptRecord['members'], seat: string): string | n
   return `${member.agent} · ${member.seatLabel}`
 }
 
-export const GoalReceipt = ({ receipt, insight, onOpenFinding }: GoalReceiptProps) => {
+export const GoalReceipt = ({ receipt, insight, faces, onOpenFinding }: GoalReceiptProps) => {
   const [opened, setOpened] = useState<GoalCitation | null>(null)
-  const cost = insight?.report ? metricWords(insight.report.totals.usd, insight.report.sources, Date.now()) : null
+  const cost = insight?.report ? receiptMetricWords(insight.report.totals.usd, insight.report.sources, Date.now()) : null
   return (
   <div data-slot="goal-receipt">
     {receipt.intake && <Note>{`Opened ${receipt.intake.label}.`}</Note>}
@@ -85,7 +87,7 @@ export const GoalReceipt = ({ receipt, insight, onOpenFinding }: GoalReceiptProp
           title={<span className="inline-flex flex-wrap items-baseline gap-2"><Text role="meta">#{card.id}</Text>{card.title && <Text role="prose">{card.title}</Text>}</span>}
           {...(card.reason ? { desc: card.reason } : {})}
           control={<span className="inline-flex flex-wrap items-center justify-end gap-2">
-            {member && <MemberName name={member.agent ?? member.seatLabel} mark={<AgentIcon />} />}
+            {member && <SeatFace name={member.agent ?? member.seatLabel} {...faces?.get(member.seat)} />}
             <Chip tone={card.resolution === 'finished' ? 'success' : 'neutral'}>{card.resolution === 'finished' ? 'Finished' : 'Dropped'}</Chip>
           </span>}
         />
@@ -99,18 +101,15 @@ export const GoalReceipt = ({ receipt, insight, onOpenFinding }: GoalReceiptProp
             const member = receipt.members?.find((one) => one.seat === answer.seat)
             return <Row
               key={`${answer.seat}:${index}`}
-              mark={<IconTile shape="face" size="sm"><AgentIcon /></IconTile>}
-              title={<>
-                <Text role="member">{member?.agent ?? member?.seatLabel ?? answer.seat}</Text>
+              title={<SeatFace name={member?.agent ?? member?.seatLabel ?? answer.seat} {...faces?.get(answer.seat)} meta={<>
                 {member?.role && <Text role="muted"> {member.role}</Text>}
                 {member?.agent && member.seatLabel && member.seatLabel !== member.agent && <Text role="muted"> · {member.seatLabel}</Text>}
-              </>}
-              desc={<>
-                <Text role="prose" as="div" className="whitespace-pre-wrap">{answer.text || 'No answer was recorded.'}</Text>
-                {(answer.partial || answer.stopReason) && <Text role="muted" as="div" tone={answer.partial ? 'warning' : undefined}>
+              </>} description={<>
+                <Text role="prose" className="block whitespace-pre-wrap">{answer.text || 'No answer was recorded.'}</Text>
+                {(answer.partial || answer.stopReason) && <Text role="muted" className="block" tone={answer.partial ? 'warning' : undefined}>
                   {answer.partial ? `Partial${answer.stopReason ? ` · ${answer.stopReason}` : ''}` : answer.stopReason}
                 </Text>}
-              </>}
+              </>} />}
             />
           })}
         </Rows>
@@ -168,7 +167,7 @@ export const GoalReceipt = ({ receipt, insight, onOpenFinding }: GoalReceiptProp
       <SectionHead name="Record" />
       <SummaryList>
         <SummaryItem label="Findings">{receipt.findings ? receipt.findings.findings.length || 'None' : 'Not recorded'}</SummaryItem>
-        {insight && <SummaryItem label="Cost">{insight.loading ? 'Reading recorded usage…' : insight.problem ? 'Unavailable' : cost ? <>{cost.value} <Text role="muted">{[cost.qualifier, cost.coverage].filter(Boolean).join(' · ') || 'recorded usage'}</Text></> : 'Not recorded'}</SummaryItem>}
+        {insight && <SummaryItem label="Cost" note={!insight.loading && !insight.problem && cost ? `${cost.source} · ${cost.freshness}` : undefined}>{insight.loading ? 'Reading recorded usage…' : insight.problem ? 'Unavailable' : cost ? <>{cost.value} <Text role="muted">{[cost.qualifier, cost.coverage].filter(Boolean).join(' · ') || 'recorded usage'}</Text></> : 'Not recorded'}</SummaryItem>}
         <SummaryItem label="Wrapped">{new Date(receipt.wrappedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} <Text role="muted">· this page shows the Team as it was then</Text></SummaryItem>
       </SummaryList>
     </>}

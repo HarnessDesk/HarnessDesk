@@ -579,3 +579,23 @@ test('wrap reads card titles and the historical holder Seat from board signals, 
   const next = await proof.plane.preview('g1', { summary: 'Kept for later.', cards: [{ id: 1, resolution: 'dropped', reason: 'Deferred' }] })
   assert.equal(next.receipt.cards[0]!.seat, 'again')
 })
+
+test('wrap never credits a released or reopened claim when a person finishes the card', async () => {
+  for (const boundary of ['released', 'reopened'] as const) {
+    const proof = await rig()
+    const first = seat('first', { openedAt: 1, closed: { at: 5, why: 'released' } })
+    proof.seats.push(first)
+    const by = { kind: 'agent' as const, runtime: first.session.runtime as RuntimeId, sessionId: first.session.sessionId, title: 'Alpha' }
+    const document = proof.store.read('g1')
+    await proof.store.save({ ...document, goal: { ...document.goal, revision: document.goal.revision + 1 }, board: { ...document.board,
+      intents: [intent(1, { state: 'done', title: 'Bound the retry' })],
+      channel: [
+        { id: 'claim', kind: 'signal', at: 2, signal: 'claimed', intent: 1, title: 'Bound the retry', by },
+        { id: 'boundary', kind: 'signal', at: 3, signal: boundary, intent: 1, title: 'Bound the retry', by },
+        { id: 'finish', kind: 'signal', at: 6, signal: 'completed', intent: 1, title: 'Bound the retry', by: { kind: 'user' } },
+      ],
+    } }, document.goal.revision)
+    const preview = await proof.plane.preview('g1', { summary: 'Finished by a person.', cards: [{ id: 1, resolution: 'finished', reason: null }] })
+    assert.deepEqual(preview.receipt.cards, [{ id: 1, title: 'Bound the retry', resolution: 'finished', reason: null }], boundary)
+  }
+})

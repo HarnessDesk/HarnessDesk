@@ -6,6 +6,8 @@ import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import stylesSettings from '../design/patterns/Settings.module.css'
 import { GoalReceipt } from './GoalReceipt'
+import { overviewReport } from '../preview/team-overview-fixture'
+import { teamRecordStore } from '../preview/frames-team-record'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 let container: HTMLDivElement; let root: Root
@@ -243,4 +245,49 @@ it('renders labelled card groups, titled work and speaker-led prose with old-car
   expect(answer.querySelector('[data-slot="row-ctl"]')).toBeNull()
   expect(answer.textContent).toContain('Partial · interrupted')
   expect(container.textContent).not.toContain('Alpha · Alpha')
+})
+
+it('Record retains the aggregate source and observation age, including an unknown observation time', () => {
+  const base = overviewReport()
+  const report = { ...base, totals: { ...base.totals, usd: { ...base.totals.usd, value: 3, sourceIds: ['total-source'] } },
+    sources: [{ id: 'total-source', kind: 'corpus' as const, label: 'Recorded agent usage', observedAt: 0, checkedAt: Date.now(), stale: true, problem: null }] }
+  const insight = { report, loading: false, problem: null, onRefresh: () => {} }
+  act(() => root.render(<GoalReceipt receipt={baseReceipt} root="/repo" insight={insight} />))
+  const record = container.querySelector('[data-slot="summary-list"]')!
+  expect(record.textContent).toContain('$3.00')
+  expect(record.textContent).toContain('recorded usage')
+  expect(record.textContent).toContain('Recorded agent usage')
+  expect(record.textContent).toContain('minutes since observation')
+  const unknown = { ...report, sources: [{ ...report.sources[0]!, observedAt: null }] }
+  act(() => root.render(<GoalReceipt receipt={baseReceipt} root="/repo" insight={{ ...insight, report: unknown }} />))
+  expect(record.textContent).toContain('Observation time unavailable')
+  const partial = { ...unknown, totals: { ...unknown.totals, usd: { ...unknown.totals.usd, quality: 'floor' as const, coverage: 'partial' as const } } }
+  act(() => root.render(<GoalReceipt receipt={baseReceipt} root="/repo" insight={{ ...insight, report: partial }} />))
+  expect(record.textContent).toContain('At least')
+  expect(record.textContent).toContain('Estimated known subtotal')
+})
+
+it('puts a speaker’s tinted face inline with its name instead of in a separate answer column', () => {
+  const receipt = { ...baseReceipt, members: [{ seat: 'seat-1', agent: 'Alpha', seatLabel: 'Alpha' }],
+    answers: [{ seat: 'seat-1', session: { runtime: 'fake', sessionId: 'one' }, turn: null, text: 'Checked the budget.', partial: false, stopReason: null }] } as Receipt
+  act(() => root.render(<GoalReceipt receipt={receipt} root="/repo" />))
+  const answer = [...container.querySelectorAll('[data-slot="row"]')].find(one => one.textContent?.includes('Checked the budget.'))!
+  expect(answer.querySelector('[data-slot="row-mark"]')).toBeNull()
+  expect(answer.querySelector('[data-slot="row-title"] [data-slot="member-name"] [data-slot="icon-tile"]')).toBeTruthy()
+  expect(answer.querySelector('[data-slot="member-description"]')?.textContent).toBe('Checked the budget.')
+})
+
+it('preview accounting uses the Team’s own Seats and every partition adds up to Record', async () => {
+  for (const scene of ['wrapped', 'shared', 'empty'] as const) {
+    const store = teamRecordStore(scene)
+    const goal = store.getSnapshot().goals.get('overview-team')!
+    const report = await store.readGoalInsight(goal.goal.id)
+    expect(report.breakdowns.map(one => one.dimension).sort()).toEqual(['agent', 'goal', 'seat'])
+    const seats = new Set(goal.receipt!.seats)
+    for (const row of report.breakdowns.find(one => one.dimension === 'seat')!.rows) expect(seats.has(row.seat!)).toBe(true)
+    for (const breakdown of report.breakdowns) {
+      const sum = breakdown.rows.reduce((total, row) => total + row.amounts.usd.value!, breakdown.unattributed.usd.value!)
+      expect(sum).toBeCloseTo(report.totals.usd.value!, 8)
+    }
+  }
 })
