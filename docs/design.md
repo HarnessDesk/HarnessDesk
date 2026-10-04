@@ -1513,3 +1513,38 @@ quiet text. Wrapped record titles keep their lead on the first line. Sentences w
 narrow widths, while the brief previews two lines.
 The `run-view` catalogue board mounts the production component for every Run
 state, empty and failed reads, a long timeline, and the narrow pane.
+
+
+### The Run inspector
+
+A selected timeline row opens recorded detail in `PanelFrame`, `PanelTools`
+and `PanelBody`, with the same section labels as other inspectors. Cards show
+Input, Handoff, Findings, Review and recorded Seat cost; Open the conversation
+is last. A check shows its command, recorded folder, timeout, exit mapping and
+latest evidence output. A person’s step shows its sentence and declared
+outcomes as text. Run details keeps the full brief, frozen Flow revision and
+base, Seats, origin and recorded budgets. Missing facts say so.
+Input handoffs follow the card's recorded dependencies. Card and person detail
+keeps the authored sentence without the host's appended tool instructions,
+however many blank lines a `|` block sentence leaves before them, and keeps the
+sentence's own line breaks as written.
+The round budget includes authorized extra rounds and their recorded reason.
+A Run that recorded no budget says its limit was not recorded: the Flow's own
+or the default budget is what a new Run would freeze, never what an older one
+had, so it is not read back in its place.
+Findings follow the same rule: "No findings recorded" is said only of a list
+read whole. While it is still being read, or has more pages to come, the card
+says "Reading findings…"; when the read failed or the ledger cannot be shown
+whole, "Findings could not be read". Findings already in hand stay on screen
+through a reload, and a card shows the ones that are its own whatever else is
+unread. Cards and cost follow the Team the timeline beside the inspector reads,
+and a Seat's cost stays on screen while the report is read again.
+
+At pane widths below 48rem, a selection pushes detail over the timeline;
+Run timeline returns to the selected row, and Run details opens the summary.
+Cost is recorded for the Seats, which may have worked in more than one Run.
+Handoffs and finding text preserve literal markup and discard terminal escapes
+through the shared sanitiser. The `run-inspector` catalogue and preview use
+the production component for every kind, findings still being read or
+unreadable, empty, pending and failed reads, narrow navigation and both
+themes.

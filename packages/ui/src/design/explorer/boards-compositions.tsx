@@ -1,3 +1,4 @@
+import { RunInspectorBoard } from '../../preview/frames-run-inspector'
 import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
 import { TeamOverviewBoard } from '../../preview/frames-team-overview'
@@ -2923,6 +2924,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'Board',
     about: 'Work in columns: what is waiting, what is being done, and who has it.',
     render: KanbanBoard,
+  },
+  {
+    id: 'run-inspector',
+    title: 'Run inspector',
+    about: 'Recorded detail for a Run, card, check or person’s step, beside the timeline or pushed at narrow widths.',
+    render: RunInspectorBoard,
   },
   {
     id: 'run-view',
