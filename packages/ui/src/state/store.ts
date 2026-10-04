@@ -83,6 +83,7 @@ import {
   type FlowOrigin,
   type FlowPreview,
   type FlowStartRequest,
+  type FlowRunOptions,
   type FlowUpdatePreview,
   type FlowUpdateResult,
   type CarryFindingsInput,
@@ -4568,13 +4569,17 @@ export class AppStore {
   /**
    * What this flow would do, spending nothing: every seat it would open, its
    * guards and its commands verbatim. `flow/start-goal` redeems the token
-   * this mints, for exactly the `(root, source, vars)` it was taken of.
+   * this mints, for exactly the inputs and seating it was taken of.
    */
-  async previewFlow(root: string, source: string, vars: Readonly<Record<string, string>> = {}): Promise<FlowPreview> {
-    return this.transport.request('flow/preview', { root, source, vars })
+  async previewFlow(root: string, source: string, vars: Readonly<Record<string, string>> = {}, options?: FlowRunOptions & { readonly continues?: string }): Promise<FlowPreview> {
+    return this.transport.request('flow/preview', { root, source, vars, ...options })
   }
 
-  /** Starts a new Goal running this flow. The only v2 call that spends anything. */
+  async flowExecutionSource(run: string): Promise<{ readonly source: string; readonly vars: Readonly<Record<string, string>> }> {
+    return this.transport.request('flow/execution/source', { run })
+  }
+
+  /** Starts a fresh Run; `continues` keeps it on the earlier Run's Team. */
   async startFlowGoal(input: FlowStartRequest): Promise<FlowExecution> {
     return this.transport.request('flow/start-goal', input)
   }

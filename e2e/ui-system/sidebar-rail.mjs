@@ -8,11 +8,14 @@ export function measureSidebarRail(sidebar) {
   const visible = node => getComputedStyle(node).display !== 'none'
     && getComputedStyle(node).visibility !== 'hidden' && node.getBoundingClientRect().width > 0
   const direct = ':scope > [data-slot="sidebar-menu-button"], :scope > div > [data-slot="sidebar-menu-button"]'
-  const anchor = sidebar.querySelector('[data-region="session-row"] [data-slot="sidebar-menu-badge"] [data-slot="dot"]')
-  if (!anchor) throw new Error('missing session dot rail anchor')
-  const rail = rect(anchor).right
-  const targetRail = rect(anchor.closest('[data-slot="sidebar-menu-badge"]')).right
-  const step = Number.parseFloat(getComputedStyle(sidebar).getPropertyValue('--hd-icon-target'))
+  const project = sidebar.querySelector('[data-draggable]')?.closest('[data-slot="sidebar-menu-item"]')
+  const anchor = [...(project?.querySelectorAll(':scope > [data-slot="sidebar-menu-action"]') ?? [])].at(-1)
+  if (!anchor) throw new Error('missing top-level project rail anchor')
+  const targetRail = rect(anchor).right
+  const css = getComputedStyle(sidebar)
+  const step = Number.parseFloat(css.getPropertyValue('--hd-icon-target'))
+  const dotWidth = Number.parseFloat(css.getPropertyValue('--hd-space-2')) - Number.parseFloat(css.getPropertyValue('--hd-space-px'))
+  const rail = targetRail - (step - dotWidth) / 2
   const rows = [...sidebar.querySelectorAll('[data-slot="sidebar-menu-item"]')].flatMap(row => {
     const button = row.querySelector(direct)
     if (!button) return []

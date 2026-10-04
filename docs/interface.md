@@ -235,22 +235,28 @@ a **Filtered** chip stays beside Projects and its × clears the query, so a
 short result list cannot read as missing data. The title, list filter and
 conversation history all remain in the same sidebar column.
 
-**Triage first.** Above the projects, two bands gather live conversations from
-every workspace: **Needs you** (amber, for approvals, input requests, or turns
-that broke) and **Working**. Each live row says what its agent is doing right
-now — Planning, Editing, Testing, Running, Thinking, Waiting for you, Failed —
-read off the turn's latest item by `lib/trace.ts`, never from the prose. A
-stored session says when it last ran instead. This is the one element that
-makes parallel agents legible at a glance, so it must never say something the
-items do not support.
+**State belongs to the row.** A running conversation wears a small neutral
+spinner, still under reduced motion; its hover names the activity read from the
+turn's latest item — Planning, Editing, Testing, Running or Thinking. A conversation waiting for an approval,
+a held queue or an answer says **Needs you** beside its own title. Neither state
+moves it into a separate band. Stored conversations say when they last ran on
+hover instead.
 
-Each conversation has exactly one row. A row moves into **Needs you** or
-**Working** while it needs attention or its turn is running; it leaves its
-project or room until that state ends. **Pinned** follows those bands and
-appears only when it has rows. Pins keep their chosen order and stay out of
-their project and room; when a band state ends, a pinned conversation returns
-to Pinned, otherwise it returns to its project or room. Project overflow counts
-include only conversations still shown there.
+**One row per Team.** Each active Team sits inside its project, one indent step
+beside the project's loose conversations. A running Team wears the same neutral
+spinner; **Needs you** is its only state label. Its Seats fold underneath,
+collapsed initially and one further indent step in; the chevron reveals them without opening the Team.
+A Seat conversation stays under its Team, including when pinned or waiting.
+Opening a Seat conversation elsewhere reveals its project and Team, including
+when the Seat works in another checkout. A later deliberate fold stays folded
+until another conversation activation. Unread output does not hide a Team's
+running spinner; Needs you takes precedence over it.
+Wrapped Teams and their conversations leave the sidebar and remain on **Teams**.
+
+**Pinned** is a plain section above the projects, shown only when it has loose
+conversations. Pins keep their chosen order and stay out of their project.
+Running or waiting changes the row's state without moving it. Project overflow
+counts include only loose conversations still shown there.
 
 **Projects, not folders.** Sessions group by repository (`lib/projects.ts`).
 Clones with the same remote and linked worktrees share one project. A checkout
@@ -276,7 +282,8 @@ right edge, inside the trailing
 control's larger hit target. Hover, focus or an open menu folds that row’s
 label to its state dot and puts its actions on the rail, without taking more
 title space. At narrow row widths a count beside a
-state label hides first, returning when there is room. A room and each of its
+state label hides first, returning when there is room. A narrow Seat row folds
+its state to the compact mark to keep its title readable. A room and each of its
 members reveal their actions independently.
 
 The conversation list has one Tab stop: it enters at the active conversation,
@@ -620,7 +627,7 @@ running jobs: the host's order, with reorder, remove, and edit in place. If an
 edit cannot be saved because the original was already sent, the changed words
 remain in a Restore list beside that conversation's composer. A turn that ended any way
 but cleanly **holds** the queue and says why (amber, with *Send now* and
-*Discard*), and the conversation joins the sidebar's *Needs you* band: firing
+*Discard*), and the conversation's sidebar row says *Needs you*: firing
 the rest of a queue into a rate limit, a crashed agent, or a turn the user just
 stopped would spend money on a guess. The queue lives in the host, so it
 survives a reload and a second window; it does not survive the host, because a
@@ -841,14 +848,14 @@ it exactly where it was.
 
 History shows an associated Agent's recorded name beside its runtime's mark. A compact count indicates additional Seats; selecting the commit lists every contributor. The selected detail distinguishes complete, partial, pending and unattributed changes and keeps the explanation visible. Its Seat record opens the exact historical record, with the original conversation available only while the desk can still open it. Matching observations keep their original revisions. A missing card or conversation says why it is unavailable.
 
-Workspaces › a project › Provenance controls capture on this machine. It starts on and shows healthy, degraded or stopped capture with the host's reason and next step. The setting changes on screen after it is saved; Retry does not turn capture on. Stopped or degraded capture appears in the project's menu, with Retry while capture is on or Turn on while it is off. The project row carries only its name. A plain conversation and its header are unchanged.
+Workspaces › a project › Provenance controls capture on this machine. It starts on and shows healthy, degraded or stopped capture with the host's reason and next step. The setting changes on screen after it is saved; Retry does not turn capture on. Stopped or degraded capture appears in the project's menu, with Retry while capture is on or Turn on while it is off. Only stopped capture adds a quiet Capture stopped chip to the project row; hover or focus makes room for its actions. A plain conversation and its header are unchanged.
 
 ## Goals and retained lanes
 
-Projects list open Goals above loose conversations and keep completed work in
-one collapsed **Wrapped** group. A Goal row states Working, Needs you, Ready to
-wrap, Wrapping or Wrapped; those words describe activity, not an evidence
-verdict. Opening a Goal keeps the existing Board, Chat and Members destinations.
+Projects list active Goals alongside loose conversations; completed work stays
+on the Teams page. A running Goal row carries a small quiet spinner; a waiting row says Needs you.
+The spinner stays still under reduced motion. These signals describe activity,
+not an evidence verdict. Opening a Goal keeps the existing Board, Chat and Members destinations.
 Membership comes from its open Seats. Releasing a Seat closes that membership
 record without deleting the conversation or checkout.
 Finishing a Run keeps its Seats listed and their conversations available for
@@ -871,7 +878,7 @@ Wrapped Goals open an immutable receipt headed **As recorded when wrapped**;
 partial answers, gaps, unknown spend and dirty retained lanes remain visible.
 A wrapped Team opens on **Receipt** and keeps Overview, Run and its Agents
 rail. It opens there with or without a Run, and in a narrow pane too, where the
-Agents list is one tap behind it. The sidebar's Wrapped group keeps the same
+Agents list is one tap behind it. The Team’s Agents list keeps the same
 conversations, the Seats without one together in a single list. Older receipts
 use a Seat's kept answer to find its conversation; a Seat without one says
 **Conversation not kept**, and a receipt whose every Seat lacks one lists them
@@ -1032,6 +1039,27 @@ host's reason whole and offers **Copy review** and **Post to pull request**.
 Posting is enabled only for the host's waiting item or stamped earlier-round
 preview; earlier rounds require confirmation. A refusal stays visible, and
 changed findings refresh the reads. Nothing posts without a press.
+
+An ended Run has a banner above its end row. Finished work offers **Wrap**;
+an answer no rule follows offers **Run again…** and **Board**; a person or desk
+stop offers **Run again…**. An interrupted check keeps **Review and run again…**
+and its recorded reason. A spent budget names the limit and how many rounds
+were used. An unrouted answer, stall or spent budget keeps the Run and Team
+**Needs you**.
+
+**Run again…** reads the earlier Run’s saved Flow, inputs and brief into the
+same start preview, with the seat preferences open to change. **Start**
+creates a fresh Run on the same Team and records which Run it continues; both
+stay in the chooser beside the Run’s name. This starts from the seed step.
+The Flow name and digest in the header open the frozen Flow tab.
+
+Each Seat has its own preference; changing one keeps the others and the
+number of Seats. The preview shows checks in this Team’s retained checkout
+and rechecks that checkout before Start. An earlier Run that a newer one
+continues keeps its questions and any saved answer as history; answering
+there cannot restart the earlier work. Preview and Start refuse another
+successor from that earlier Run, even when its successor has ended. Continue
+from the newer Run instead.
 
 The header's switch shows the Run as a **Timeline** or as its **Flow**. The
 Flow tab draws the Flow the Run started with, named with the revision it was

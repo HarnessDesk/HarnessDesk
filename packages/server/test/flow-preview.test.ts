@@ -91,6 +91,61 @@ test('preview keeps onRequest in its compiled and frozen Flow document', async (
   assert.deepEqual(checkOf(redeemed.compiled.document), expected)
 })
 
+test('Run again previews and redeems the retained Team checkout, while keeping the project roster', async () => {
+  const state = rig()
+  let cwd = '/repo/retained'
+  const reads: string[] = []
+  const port: FlowPreviewPort = {
+    ...state.port,
+    continuation: async (run, root) => {
+      assert.equal(run, 'earlier'); assert.equal(root, '/repo')
+      return { team: 'team-1', cwd }
+    },
+    agents: async root => { assert.equal(root, '/repo'); return state.agentsRoster },
+    providerOf: async (_runtime, where) => { reads.push(where); return 'provider' },
+    pluginToolsProblem: async (_runtime, where) => { reads.push(where); return null },
+  }
+  const previews = new FlowPreviews(port)
+  const options = { continues: 'earlier' }
+  const dry = await previews.preview('/repo', FLOW, {}, undefined, undefined, options)
+  assert.ok(dry.token)
+  assert.equal(dry.commands[0]!.cwd, cwd)
+  assert.deepEqual(reads, [cwd, cwd])
+  const redeemed = await previews.redeem(dry.token!, '/repo', FLOW, {}, options)
+  assert.equal(redeemed?.continuation?.cwd, cwd)
+  assert.equal(redeemed?.continuation?.team, 'team-1')
+  const moved = await previews.preview('/repo', FLOW, {}, undefined, undefined, options)
+  cwd = '/repo/replaced'
+  assert.equal(await previews.redeem(moved.token!, '/repo', FLOW, {}, options), null, 'a changed checkout requires fresh consent')
+})
+
+test('a continuation token cannot start another Team or an ordinary Run, and an ordinary token cannot continue', async () => {
+  const state = rig()
+  const previews = new FlowPreviews({ ...state.port, continuation: async run => ({ team: run, cwd: `/repo/${run}` }) })
+  for (const options of [{}, { continues: 'another' }]) {
+    const dry = await previews.preview('/repo', FLOW, {}, undefined, undefined, { continues: 'earlier' })
+    assert.equal(await previews.redeem(dry.token!, '/repo', FLOW, {}, options), null)
+  }
+  const ordinary = await previews.preview('/repo', FLOW)
+  assert.equal(await previews.redeem(ordinary.token!, '/repo', FLOW, {}, { continues: 'earlier' }), null)
+  const missing = new FlowPreviews(state.port)
+  assert.equal((await missing.preview('/repo', FLOW, {}, undefined, undefined, { continues: 'earlier' })).token, null)
+})
+
+test('per-slot preferences preserve both the inferred Seat width and a list of Agents', async () => {
+  const state = rig()
+  state.agentsRoster = [AGENT('writer'), AGENT('reviewer')]
+  const previews = new FlowPreviews(state.port)
+  for (const role of ['uses: writer, seats: [alpha, beta]', 'uses: [writer, reviewer]']) {
+    const source = `version: 2\nname: Review\nroles:\n  review: { kind: agent, ${role} }\nseed: { role: review, title: Review }\nrules: []\n`
+    const options = { seats: { review: [{ runtime: 'alpha', effort: 'high' }, { runtime: 'beta' }] } }
+    const dry = await previews.preview('/repo', source, {}, undefined, undefined, options)
+    assert.ok(dry.token, JSON.stringify(dry.problems))
+    assert.equal(dry.seats.length, 2)
+    assert.deepEqual(dry.compiled.bindings.map(one => one.seats), options.seats.review.map(one => [one]))
+  }
+})
+
 test('a remote base previews managed lanes even for a role without isolate', async () => {
   const state = rig()
   const lanes: boolean[] = []

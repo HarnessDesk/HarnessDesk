@@ -28,7 +28,7 @@ for (const theme of ['light', 'dark'] as const) {
       if (['local', 'partial', 'uncertain'].includes(state)) await expect(header).toContainText('Needs you')
       const round = frame.locator('[data-row="findings-3"]')
       await expect(round).toContainText(words)
-      await expect(frame.locator('[data-row="end"] [data-slot="chip-words"]').filter({ hasText: words })).toHaveCount(1)
+      await expect(frame.locator('[data-slot="run-ending"] [data-slot="chip-words"]').filter({ hasText: words })).toHaveCount(1)
       const inspector = frame.locator('[data-slot="run-inspector"]')
       await expect(inspector.getByRole('button', { name: 'Copy review', exact: true })).toBeEnabled()
       const post = inspector.getByRole('button', { name: 'Post to pull request', exact: true })

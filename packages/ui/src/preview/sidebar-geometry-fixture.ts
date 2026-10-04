@@ -29,7 +29,8 @@ export const sidebarGeometryFixture = (sidebarSnapshot: AppSnapshot): AppSnapsho
   listPrefs: {
     ...sidebarSnapshot.listPrefs,
     pinned: [PREVIEW_ROOT],
-    pinnedSessions: [String(sessionKey(runtimeId('codex'), 's4' as SessionId))],
+    // A gone-folder conversation remains visible when pinned; keep its rail case.
+    pinnedSessions: [String(sessionKey(runtimeId('codex'), 's2' as SessionId))],
     collapsed: ['/work/harnessdesk-mobile'],
   },
   approvals: ['s0', 'c1'].map((id) => ({

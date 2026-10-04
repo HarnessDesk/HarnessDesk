@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { DEFAULT_FLOW_BUDGET, type AgentEntry, type FlowEntry, type FlowPolicy, type FlowPreview, type FlowPreviewSeat, type FlowProblem } from '@harnessdesk/protocol'
+import { DEFAULT_FLOW_BUDGET, type AgentEntry, type FlowEntry, type FlowPolicy, type FlowPreview, type FlowPreviewSeat, type FlowProblem, type FlowRunOptions, type FlowSeat, type SeatCandidate } from '@harnessdesk/protocol'
 
 import { ActionError, Banner, Button, Chip, CodeText, Field, Input, NativeSelect, Note, NoteList, Rows, Row, SectionHead, Text, Textarea } from '../design'
 import { agentName, firstReason, fixWords, markFor, reasonWords, seatTaken } from '../lib/agents'
@@ -35,7 +35,7 @@ const startable = (preview: FlowPreview): boolean =>
   !preview.problems.some((one) => one.level === 'error')
 
 /** What the parent needs to start the flow, once it holds a live token. */
-export interface FlowChoice {
+export interface FlowChoice extends FlowRunOptions {
   readonly source: string
   readonly token: string
   readonly vars: Readonly<Record<string, string>>
@@ -43,11 +43,14 @@ export interface FlowChoice {
 
 export interface FlowStartProps {
   readonly root: string
+  readonly continues?: string
   readonly disabled?: boolean
   readonly onChange: (choice: FlowChoice | null) => void
+  /** A Run's exact saved text and inputs, rather than the current catalogue file. */
+  readonly initial?: { readonly source: string; readonly vars: Readonly<Record<string, string>> } & FlowRunOptions
 }
 
-export const FlowStart = ({ root, disabled, onChange }: FlowStartProps) => {
+export const FlowStart = ({ root, disabled, onChange, initial, continues }: FlowStartProps) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [entries, setEntries] = useState<readonly FlowEntry[] | null>(null)
@@ -59,6 +62,9 @@ export const FlowStart = ({ root, disabled, onChange }: FlowStartProps) => {
   const [id, setId] = useState<string>(NONE)
   const [source, setSource] = useState<string>('')
   const [vars, setVars] = useState<Readonly<Record<string, string>>>({})
+  const [seats, setSeats] = useState(initial?.seats)
+  const defaultSeats = useRef(new Map<string, readonly (FlowSeat | undefined)[]>())
+  const seatCandidates = useRef(new Map<string, readonly SeatCandidate[]>())
   const [preview, setPreview] = useState<FlowPreview | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   /* Bumped on every choice or edit, so a preview that lands after a newer one
@@ -104,22 +110,55 @@ export const FlowStart = ({ root, disabled, onChange }: FlowStartProps) => {
   }, [root, store])
 
   const runPreview = useCallback(
-    async (text: string, nextVars: Readonly<Record<string, string>>): Promise<void> => {
+    async (text: string, nextVars: Readonly<Record<string, string>>, nextSeats = seats): Promise<void> => {
       const mine = ++sequence.current
       const generation = store.flowGeneration()
       reportChoice(null)
+      setProblem(null)
       try {
-        const dry = await store.previewFlow(root, text, nextVars)
+        const options = initial ? { seats: nextSeats, attended: initial.attended, ...(continues ? { continues } : {}) } : undefined
+        const dry = options ? await store.previewFlow(root, text, nextVars, options) : await store.previewFlow(root, text, nextVars)
         if (mine !== sequence.current || generation !== store.flowGeneration()) return
+        if (initial) {
+          for (const seat of dry.seats) {
+            const key = JSON.stringify([seat.role, seat.index])
+            const candidates = seatCandidates.current.get(key) ?? []
+            // An explicit preference narrows the next plan to that candidate.
+            // Keep the choices this form offered so the person can edit again.
+            seatCandidates.current.set(key, [...candidates, ...seat.plan.candidates.filter(one => !candidates.some(previous => JSON.stringify(previous.seat) === JSON.stringify(one.seat)))])
+            if (!defaultSeats.current.has(seat.role)) {
+              const role = dry.compiled.document.format === 'agents' ? dry.compiled.document.flow.roles.find(one => one.id === seat.role) : undefined
+              const slots = dry.seats.filter(one => one.role === seat.role).sort((a, b) => a.index - b.index)
+              defaultSeats.current.set(seat.role, slots.map(one => {
+                const declared = role?.kind === 'agent' ? role.seats[one.index] ?? role.seats[0] : undefined
+                return declared ?? (one.plan.winner === null ? undefined : one.plan.candidates[one.plan.winner]?.seat)
+              }))
+            }
+          }
+        }
         setPreview(dry)
-        if (startable(dry)) reportChoice({ source: text, token: dry.token!, vars: nextVars })
+        if (startable(dry)) reportChoice({ source: text, token: dry.token!, vars: nextVars, ...options })
       } catch (error) {
         if (mine !== sequence.current) return
         setProblem(error instanceof Error ? error.message : 'That flow could not be checked.')
       }
     },
-    [reportChoice, root, store],
+    [reportChoice, root, store, seats, initial, continues],
   )
+
+  useEffect(() => {
+    if (!initial) return
+    defaultSeats.current.clear()
+    seatCandidates.current.clear()
+    setSeats(initial.seats)
+    setPreview(null)
+    setSource(initial.source)
+    setVars(initial.vars)
+    void runPreview(initial.source, initial.vars, initial.seats)
+    return () => { sequence.current += 1; reportChoice(null) }
+    // Only the saved Run's identity seeds the form; edits preview themselves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial, root, store, continues])
 
   const choose = useCallback(
     async (next: string): Promise<void> => {
@@ -172,7 +211,7 @@ export const FlowStart = ({ root, disabled, onChange }: FlowStartProps) => {
     [runPreview, source, vars],
   )
 
-  if (unlisted !== null) {
+  if (!initial && unlisted !== null) {
     return (
       <Banner tone="danger" title="The flows in this project could not be read">
         {unlisted}
@@ -180,7 +219,7 @@ export const FlowStart = ({ root, disabled, onChange }: FlowStartProps) => {
     )
   }
 
-  if (entries !== null && entries.length === 0) {
+  if (!initial && entries !== null && entries.length === 0) {
     return (
       <Note>
         No flows of its own. A flow is a file in <code>.harnessdesk/flows</code>, versioned with the code it
@@ -192,12 +231,13 @@ export const FlowStart = ({ root, disabled, onChange }: FlowStartProps) => {
   const errors = (preview?.problems ?? []).filter((one) => one.level === 'error')
   const warnings = (preview?.problems ?? []).filter((one) => one.level === 'warning')
   const document = preview?.compiled.document ?? null
-  const legacy = document?.format === 'legacy'
+  // An early host refusal carries an empty legacy document, not a parsed old-format Flow.
+  const legacy = document?.format === 'legacy' && document.flow.name !== ''
   const flow = document?.format === 'agents' ? document.flow : null
 
   return (
     <div className={styles.flow}>
-      <Field
+      {!initial && <Field
         label="Run a flow in it"
         hint="A flow declares who does what and what moves work between them, so a loop of agents runs without you routing every card."
       >
@@ -215,7 +255,8 @@ export const FlowStart = ({ root, disabled, onChange }: FlowStartProps) => {
             ))}
           </NativeSelect>
         )}
-      </Field>
+      </Field>}
+      {initial && (document?.flow.name || !preview) && <Text role="subject">{document?.flow.name || 'Reading the earlier Run’s Flow…'}</Text>}
 
       {problem && <ActionError>That flow could not be read. {problem}</ActionError>}
 
@@ -252,7 +293,30 @@ export const FlowStart = ({ root, disabled, onChange }: FlowStartProps) => {
         </Field>
       ))}
 
-      {preview && !legacy && <FlowPreviewReport preview={preview} flow={flow} warnings={warnings} roster={roster} />}
+      {initial && preview?.seats.map(seat => {
+        const slots = preview.seats.filter(one => one.role === seat.role).sort((a, b) => a.index - b.index)
+        const defaults = defaultSeats.current.get(seat.role) ?? []
+        const candidates = seatCandidates.current.get(JSON.stringify([seat.role, seat.index])) ?? seat.plan.candidates
+        const selected = seats?.[seat.role]?.[seat.index] ?? seats?.[seat.role]?.[0]
+        return <Field key={`${seat.role}-${seat.index}`} label={`${seat.role}${slots.length > 1 ? ` · Seat ${seat.index + 1}` : ''} · Seat preference`}>
+        {control => <NativeSelect {...control} disabled={disabled} value={selected ? JSON.stringify(selected) : ''}
+          onChange={event => {
+            const candidate = candidates.find(one => JSON.stringify(one.seat) === event.target.value)
+            const next = { ...seats }
+            const choices = slots.map(one => seats?.[seat.role]?.[one.index] ?? seats?.[seat.role]?.[0] ?? defaults[one.index])
+            choices[seat.index] = candidate?.seat ?? defaults[seat.index]
+            if (!choices.every((one): one is FlowSeat => one !== undefined)) return
+            if (JSON.stringify(choices) === JSON.stringify(defaults)) delete next[seat.role]
+            else next[seat.role] = choices
+            setSeats(next)
+            void runPreview(source, vars, next)
+          }}>
+          <option value="">Flow’s seat choices</option>
+          {candidates.map((candidate, index) => <option key={index} value={JSON.stringify(candidate.seat)}>{candidate.label}</option>)}
+        </NativeSelect>}
+      </Field>})}
+
+      {preview && flow && !legacy && <FlowPreviewReport preview={preview} flow={flow} warnings={warnings} roster={roster} />}
     </div>
   )
 }

@@ -563,6 +563,7 @@ export const CANONICAL_PATTERN_MODULES = [
  * it, and it is the exemption the check looks for.
  */
 export const PRODUCT_SURFACES = [
+  ['surface.run-again', 'run-again', 'Fresh Run preview from recorded inputs and editable seating', 'packages/ui/src/components/RunAgain.tsx', false, 'packages/ui/src/components/TeamRoomPane.tsx', 'RunAgainSurface'],
   ['surface.flow-brief', 'flow-brief', 'Flow Brief paragraphs and capped text-file import', 'packages/ui/src/components/FlowStart.tsx', false, 'packages/ui/src/components/NewSessionChoice.tsx', 'FlowBriefSurface'],
   ['surface.dashboard', 'dashboard', 'Plan usage, cost and limits', 'packages/ui/src/components/Usage.tsx', false, 'packages/ui/src/app/App.tsx', 'DashboardSurface'],
   ['surface.group', 'group', 'Room, board and agent collaboration', 'packages/ui/src/components/TeamBoardPane.tsx', false, 'packages/ui/src/panels/builtins.tsx', 'GroupSurface'],
@@ -627,7 +628,7 @@ export const CATALOG_ENTRIES: readonly CatalogEntry[] = [
     id: 'component.RunView',
     category: 'Patterns',
     implementationPath: 'packages/ui/src/components/RunView.tsx',
-    purpose: 'A Run’s rounds, cards, checks with their attempts, findings and reason for ending, and the Flow it started with',
+    purpose: 'A Run’s rounds, cards, checks with their attempts, findings and ending doors, and the Flow it started with',
     exampleId: 'run-view',
     variants: ['light', 'dark'],
     sizes: ['default'],
