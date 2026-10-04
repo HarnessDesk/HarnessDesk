@@ -257,6 +257,25 @@ export class EvidencePlane {
   }
 
   /**
+   * Every check result recorded for one card of a room, in the order written —
+   * the whole append-only sequence, where `board()` folds a card to the latest
+   * fact of each question and `factsForGoal()` judges every fact it returns
+   * against git. This reads the store and nothing else: it starts no look at
+   * the branch and costs no git read beyond finding the project, so a surface
+   * can ask again whenever a result lands. Refuses a room the desk does not have.
+   */
+  async checkResults(room: string, card: number): Promise<readonly EvidenceRecord[]> {
+    const board = this.#port.board(room)
+    if (!board) throw new Error(`There is no room ${room} on this desk.`)
+    const project = await projectOf(board.cwd ?? board.root)
+    const { lines } = await this.store.read(project, 'evidence')
+    return lines.flatMap((line) =>
+      line.type === 'evidence' && line.record.fact.kind === 'check' && line.record.card?.board === room && line.record.card.id === card
+        ? [line.record]
+        : [])
+  }
+
+  /**
    * Every fact attributable to a Goal, including Seat-scoped facts without a
    * card — each with the Seat (if any) that produced it, so a wrap can name
    * it in the receipt rather than only carrying its bare id.

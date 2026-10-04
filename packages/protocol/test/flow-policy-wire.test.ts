@@ -52,6 +52,19 @@ test('flow/check/retry rejects unknown fields, and its ids and card are bounded'
   assert.doesNotThrow(() => request('flow/check/retry', { run: 'flow-1', card: 1, token: 't1' }))
 })
 
+test('flow/check/attempts takes a run and a card and nothing else, so a caller cannot ask for another card’s output by any other name', () => {
+  for (const extra of [{ token: 't1' }, { round: 1 }, { name: 'verify' }, { goal: 'goal-1' }, { origin: 'user' }]) {
+    assert.throws(() => request('flow/check/attempts', { run: 'flow-1', card: 1, ...extra }), ValidationError, `${Object.keys(extra)[0]} is not a parameter`)
+  }
+  for (const card of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '1', null, undefined]) {
+    assert.throws(() => request('flow/check/attempts', { run: 'flow-1', card }), ValidationError, `card ${String(card)} should be refused`)
+  }
+  for (const run of ['', '   ', 1, null, undefined]) {
+    assert.throws(() => request('flow/check/attempts', { run, card: 1 }), ValidationError, `run ${String(run)} should be refused`)
+  }
+  assert.doesNotThrow(() => request('flow/check/attempts', { run: 'flow-1', card: 1 }))
+})
+
 test('flow/answer/continue accepts only a non-empty run id', () => {
   assert.throws(() => request('flow/answer/continue', { run: '' }), ValidationError)
   assert.throws(() => request('flow/answer/continue', { run: 'run-1', origin: 'user' }), ValidationError)

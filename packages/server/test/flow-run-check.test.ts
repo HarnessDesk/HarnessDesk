@@ -512,7 +512,11 @@ else { writeFileSync('started-again', 'yes'); const timer = setInterval(() => { 
   assert.equal(retried.operations.find((one) => one.card === card && one.kind === 'check')!.state, 'started')
   assert.equal((await readdir(join(stateDir, 'evidence', 'check-processes'))).length, 1)
   await assert.rejects(host.call('flow/check/retry', { run: run.id, card, token: consent.token! }), /changed/)
+  /* The retry is still running and has recorded nothing, so the read lists the one result there is — as it was. */
+  const during = await host.call('flow/check/attempts', { run: run.id, card })
+  assert.deepEqual(during.attempts.map((one) => [one.n, one.tail]), [[1, 'first answer\n']])
   const person = host.flowsPlane.executionOf(run.id)!.rounds[1]!.cards[0]!
+  await assert.rejects(host.call('flow/check/attempts', { run: run.id, card: person }), /Card #\d+ is not a check/)
   await host.call('team/intent', { room: run.goal, id: person, action: 'done', outcome: 'done' })
   await host.flowsPlane.wakeEvidence(run.goal)
   const deadline = Date.now() + 5000
@@ -528,6 +532,13 @@ else { writeFileSync('started-again', 'yes'); const timer = setInterval(() => { 
   const facts = saved.lines.flatMap((one) => one.type === 'evidence' && one.record.fact.kind === 'check' ? [one.record.fact] : [])
   assert.ok(facts.some((one) => one.tail === 'first answer\n'), 'previous output is retained in the durable history')
   assert.ok(facts.some((one) => one.tail === 'second answer\n'), 'fresh output is durably observed')
+  /* The wire read returns both, oldest first: the first attempt after the retry is the first attempt before it. */
+  const { attempts } = await host.call('flow/check/attempts', { run: run.id, card })
+  assert.deepEqual(attempts.map((one) => [one.n, one.exit, one.outcome, one.tail]), [[1, 0, 'no-pr', 'first answer\n'], [2, 0, 'no-pr', 'second answer\n']])
+  assert.deepEqual(attempts[0], during.attempts[0], 'the first attempt read while the retry ran is the first attempt read after it')
+  assert.ok(attempts[0]!.at <= attempts[1]!.at)
+  assert.equal(attempts[0]!.commit, (await repo.git('rev-parse', 'HEAD')).trim())
+  await assert.rejects(host.call('flow/check/attempts', { run: 'no-such-run', card }), /There is no flow run no-such-run/)
   assert.equal(host.flowsPlane.executionOf(run.id)!.state, 'settled')
   assert.deepEqual(await readdir(join(stateDir, 'evidence', 'check-processes')), [])
 })

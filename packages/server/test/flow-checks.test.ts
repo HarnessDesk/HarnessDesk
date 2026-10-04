@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
+import { checkAttemptsOf } from '../src/evidence/check-attempts.js'
 import { CHECK_CWD_OUTSIDE } from '../src/flow-execution.js'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 
@@ -549,3 +550,55 @@ rules:
     })
   }
 }
+
+/*
+ * `flow/check/attempts` words each recorded result with the Flow's own mapping,
+ * and the engine answers a check's card with that same mapping — so the read
+ * and the card can be held to each other, for a status the Flow names, one it
+ * does not, and a timeout.
+ */
+const WORDED_FLOW = CHECK_FLOW.replace('exits: { "0": pass, "2": fail }, otherwise: fail', 'exits: { "0": pass, "2": fix }, otherwise: stuck')
+  .replace('seed:', '  person: { kind: person, outcomes: [done] }\nseed:') + '  - { id: to-person, on: gate, then: { role: person, title: Decide } }\n'
+
+for (const [what, result, word] of [
+  ['a status the flow names', { exit: 0, timedOut: false, tail: 'all green' }, 'pass'],
+  ['another status the flow names', { exit: 2, timedOut: false, tail: 'FAIL: 1 test' }, 'fix'],
+  ['a status the flow names no outcome for', { exit: 7, timedOut: false, tail: 'odd' }, 'stuck'],
+  ['a timeout', { exit: null, timedOut: true, tail: 'It ran past 30s and was stopped.' }, 'stuck'],
+] as const) test(`the attempt read words ${what} exactly as the engine answered the card`, async (t) => {
+  const rig = await goalRig(t)
+  rig.heads.set('/repo', { at: 'sha-author', dirty: false })
+  rig.checkOutcomes.set('pnpm verify', result)
+  const run = await rig.start(WORDED_FLOW, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+  const gate = rig.board(run.goal).intents.find((one) => one.role === 'gate')!
+  const [attempt, ...more] = await checkAttemptsOf(rig.flows.executionOf(run.id)!, gate.id, async () => rig.facts.get(run.goal) ?? [])
+  assert.equal(more.length, 0)
+  assert.equal(attempt!.outcome, word)
+  assert.equal(attempt!.outcome, gate.outcome, 'the card was answered with the word the read gives')
+  assert.deepEqual([attempt!.exit, attempt!.timedOut, attempt!.tail, attempt!.commit], [result.exit, result.timedOut, result.tail, 'sha-author'])
+})
+
+test('a check run again adds an attempt and leaves the earlier one exactly as it was recorded', async (t) => {
+  const rig = await goalRig(t)
+  rig.heads.set('/repo', { at: 'sha-author', dirty: false })
+  rig.checkOutcomes.set('pnpm verify', { exit: 2, timedOut: false, tail: 'FAIL: 1 test' })
+  const run = await rig.start(WORDED_FLOW, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+  const gate = rig.board(run.goal).intents.find((one) => one.role === 'gate')!
+  const read = () => checkAttemptsOf(rig.flows.executionOf(run.id)!, gate.id, async () => rig.facts.get(run.goal) ?? [])
+  const before = await read()
+  assert.equal(before.length, 1)
+
+  rig.checkOutcomes.set('pnpm verify', { exit: 0, timedOut: false, tail: 'all green' })
+  await rig.flows.retryCheck(run.id, gate.id)
+  await rig.flows.flush()
+  const after = await read()
+  assert.deepEqual(after.map((one) => [one.n, one.outcome, one.tail]), [[1, 'fix', 'FAIL: 1 test'], [2, 'pass', 'all green']])
+  assert.deepEqual(after[0], before[0], 'the first attempt is the record it was, byte for byte')
+  assert.equal(rig.board(run.goal).intents.find((one) => one.id === gate.id)!.outcome, 'pass', 'the card carries the latest attempt’s word')
+})

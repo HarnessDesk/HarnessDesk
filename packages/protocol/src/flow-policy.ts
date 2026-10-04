@@ -143,6 +143,44 @@ export interface FlowOperation {
 }
 
 /**
+ * One result the desk recorded for a check card's command: what it exited with
+ * and printed, the commit it ran at, and the word the Flow reads it as.
+ *
+ * A check run again adds one and rewrites none, because each is a durable
+ * evidence record of its own; `FlowOperation` is a single record a retry
+ * overwrites, and `evidence/board` folds a card to its latest fact, so
+ * `flow/check/attempts` is the read that returns the earlier ones. An attempt
+ * exists once its result is recorded: one still running, or interrupted before
+ * the desk could keep what it printed, is the card's operation, not yet an
+ * attempt.
+ */
+export interface FlowCheckAttempt {
+  /** 1 for the first result recorded for this card, in the order recorded. */
+  readonly n: number
+  /** When the desk recorded it, in host milliseconds. */
+  readonly at: number
+  /** The commit it ran at. */
+  readonly commit: string
+  /** Its exit status; null when it did not exit by itself — it ran over its limit, was stopped, or never started. */
+  readonly exit: number | null
+  /** It ran over the check's limit and was stopped. */
+  readonly timedOut: boolean
+  /**
+   * What the Flow's own mapping says this result is: its `exits` entry for the
+   * exit status, else its `otherwise` (a timeout included). It is the word the
+   * engine answers a completed check's card with; a result the desk stopped
+   * part-way is mapped the same way, though the card took no answer from it.
+   */
+  readonly outcome: string
+  /**
+   * The last of what the command printed, at most 4,000 characters, exactly as
+   * recorded. It is command output, which can hold anything a repository or a
+   * tool printed: a surface shows it as text, through its sanitiser.
+   */
+  readonly tail: string
+}
+
+/**
  * A run a trigger started (phase 8): the firing that started it, the trigger,
  * the closure digest its arm consented to, and whether its dispatch is held.
  * `dispatchHeld` is set before every start or later round a firing opens and

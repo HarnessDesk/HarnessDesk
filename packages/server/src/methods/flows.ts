@@ -1,5 +1,6 @@
 import type { AgentRuntime, Flow, FlowProblem, ModelInfo } from '@harnessdesk/protocol'
 
+import { checkAttemptsOf } from '../evidence/check-attempts.js'
 import { CHANGED_PREVIEW } from '../flow-preview.js'
 import { sourceDigest } from '../flow-execution.js'
 import { dryRun, parseFlow, validateFlow } from '../flow.js'
@@ -163,6 +164,18 @@ export const flowMethods = {
     const redeemed = await ctx.flowPreviews.redeem(params.token, goal.goal.root, stored.source, stored.vars)
     if (!redeemed) throw new Error(CHANGED_PREVIEW)
     return ctx.flows.retryCheck(params.run, params.card, approved)
+  },
+
+  /**
+   * What the desk recorded each time this check card's command ran. Reads only:
+   * the run says which card is a check, the evidence says what each attempt did,
+   * and the Goal the evidence is read for is the run's own — the caller names a
+   * run and a card, never a place in the store.
+   */
+  'flow/check/attempts': async (ctx, params) => {
+    const execution = ctx.flows.executionOf(params.run)
+    if (!execution) throw new Error(`There is no flow run ${params.run}.`)
+    return { attempts: await checkAttemptsOf(execution, params.card, (goal) => ctx.evidence.checkResults(goal, params.card)) }
   },
 
   'flow/answer/continue': (ctx, params) => ctx.flows.continueAnswer(params.run),
