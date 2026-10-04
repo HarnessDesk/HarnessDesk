@@ -22,6 +22,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuState,
+  Spinner,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -40,7 +41,7 @@ import { captureForRoot } from '../lib/provenance'
 import { sessionLabel } from '../lib/sessions'
 import { teamSeats, hasConversation } from '../lib/team-seats'
 import { goalRunOf } from '../lib/goal-run'
-import { goalName, goalWords } from '../lib/goals'
+import { goalName } from '../lib/goals'
 import { ACTIVE_STATES, TRACE_LABEL, traceOf } from '../lib/trace'
 import { panes, sessionOf } from '../state/layout'
 
@@ -56,8 +57,6 @@ import {
   EveryoneIcon,
   ExpandAllIcon,
   FolderGoneIcon,
-  FolderIcon,
-  FolderOpenIcon,
   ForkIcon,
   MoreIcon,
   PencilIcon,
@@ -173,7 +172,7 @@ const SessionRow = memo(({
   const traceShown = trace !== null && (ACTIVE_STATES.has(trace) || trace === 'waiting' || trace === 'failed')
   // Work the agent sent to the background and walked away from: the turn is
   // over, the row would read idle, and something is still running. The glyph
-  // says so, in green, so a person browsing other conversations knows this
+  // says so with a quiet spinner, so a person browsing other conversations knows this
   // one has something to look at — the Background tasks panel, once opened.
   const dotState =
     backgrounded > 0
@@ -186,7 +185,8 @@ const SessionRow = memo(({
             ? 'signin'
             : 'available'
   const worktree = isWorktreeSession(summary)
-  const hasActivityMark = backgrounded > 0 || traceShown || summary.status.type === 'active'
+  const running = !needsYou && (backgrounded > 0 || (trace !== null && ACTIVE_STATES.has(trace)) || summary.status.type === 'active')
+  const hasActivityMark = running || (!needsYou && traceShown)
   const badgeSlot = (step: 0 | 1 | 2) => step === 0
     ? undefined
     : step === 1
@@ -296,14 +296,14 @@ const SessionRow = memo(({
                 <Text role="meta"><BranchIcon size={11} /></Text>
               </SidebarMenuBadge>
             )}
-            {(backgrounded > 0 || traceShown || summary.status.type === 'active') && (
-              <SidebarMenuBadge aria-label={backgrounded > 0 ? 'Background tasks running' : traceShown ? TRACE_LABEL[trace] : 'Working'}>
-                <Dot state={dotState} variant="navigation"
+            {hasActivityMark && (
+              <SidebarMenuBadge aria-label={backgrounded > 0 ? 'Background tasks running' : traceShown ? TRACE_LABEL[trace] : 'Running'}>
+                {running ? <Spinner size="sm" tone="neutral" data-tasks={backgrounded > 0 ? '' : undefined} data-live={summary.status.type === 'active' ? '' : undefined} aria-hidden /> : <Dot state={dotState} variant="navigation"
                   pulse={trace !== null && ACTIVE_STATES.has(trace)}
                   data-tasks={backgrounded > 0 ? '' : undefined}
                   data-live={summary.status.type === 'active' ? '' : undefined}
                   data-trace={traceShown ? trace : undefined}
-                  aria-hidden="true" />
+                  aria-hidden="true" />}
               </SidebarMenuBadge>
             )}
             <Tooltip>
@@ -556,14 +556,9 @@ const GroupHead = ({
             aria-expanded={open}
             onClick={(event) => (event.altKey ? onToggleAll() : onToggle())}
             title={`${current ? 'The folder this app is working in.\n' : ''}${actualRoot}\n⌥-click to ${open ? 'collapse' : 'expand'} every project.`}
-            icon={<>
-              <Text role="meta" className="group-hover/menu-item:hidden group-focus-within/menu-item:hidden">
-                {current ? <FolderOpenIcon size={14} /> : <FolderIcon size={14} />}
-              </Text>
-              <DisclosureChevron open={open} size="xs" className="hidden group-hover/menu-item:block group-focus-within/menu-item:block" />
-            </>}
-            label={<span className="flex min-w-0 items-center gap-(--hd-space-1)" >
-              <Text role="navigation" ink={current ? 'primary' : undefined} truncate className={styles.groupName}>{group.name}</Text>
+            label={<span className="flex min-w-0 items-center gap-(--hd-space-1)">
+              <Text role="prose" ink="secondary" truncate>{group.name}</Text>
+              <DisclosureChevron open={open} size="xs" className="opacity-0 group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100" />
               {stopped && <span title={`${stopped.reason} ${stopped.nextStep}`} className="group-hover/menu-item:hidden group-focus-within/menu-item:hidden"><Chip tone="neutral" variant="quiet" label="Capture stopped" /></span>}
             </span>}
           />
@@ -684,9 +679,7 @@ const RoomRow = ({
   const name = goal ? goalName(goal.goal) : room.name
   const waiting = state === 'needs-you' || teamSeats(goal, room, goalRunOf(room.id, goal, snapshot.flowExecutions)).some(({ key }) =>
     key && (snapshot.approvals.some(one => one.key === key) || snapshot.queues.get(key)?.status === 'paused' || (snapshot.sessions.get(key) && traceOf(snapshot.sessions.get(key)!, false) === 'waiting')))
-  const words = waiting ? { label: 'Needs you', tone: 'warning' as const }
-    : state === 'working' ? { label: 'Working', tone: 'info' as const }
-      : goal ? goalWords({ goal: goal.goal, activity: goal.activity }) : null
+  const running = !waiting && (state === 'working' || goal?.activity === 'working')
   /* Resolved against what the tree is *showing* first, so the agent filter
      applies here as it does everywhere else — a room drawn straight from its
      member list would keep conversations the filter had just removed from
@@ -715,7 +708,7 @@ const RoomRow = ({
 
   return (
     <SidebarMenu data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount}>
-      <SidebarMenuItem trailingMarks={Number(held > 0) + Number(Boolean(words)) as 0 | 1 | 2}>
+      <SidebarMenuItem trailingMarks={Number(held > 0) + Number(waiting || running) as 0 | 1 | 2}>
         <div className="relative min-w-0">
           <SidebarMenuButton
             trailingOverlay
@@ -735,10 +728,12 @@ const RoomRow = ({
           icon={<Text role="meta"><TeamIcon size={14} /></Text>}
           label={<span className="flex min-w-0 items-center gap-(--hd-space-1)">
             <span className="min-w-0 truncate">{name}</span>
-            {words && <SidebarMenuState label={words.label} tone={words.tone}
-              state={words.tone === 'warning' ? 'limit' : words.tone === 'info' ? 'signin' : words.tone === 'brand' ? 'ready' : 'available'} />}
+            {waiting && <SidebarMenuState label="Needs you" tone="warning" state="limit" />}
           </span>}
         />
+        {running && <SidebarMenuBadge aria-label="Running" className={held > 0 ? 'end-[calc(var(--sidebar-menu-end-rail)+var(--hd-sidebar-end-action-step))]' : undefined}>
+          <Spinner size="sm" tone="neutral" aria-hidden />
+        </SidebarMenuBadge>}
         {held > 0 && <SidebarMenuBadge kind="count" title={`${held} held ${held === 1 ? 'message' : 'messages'} waiting for you`}>
           {held}
         </SidebarMenuBadge>}
@@ -1626,9 +1621,9 @@ export const SessionTree = ({ now }: { now: number }) => {
       if (root && row) setNavigationTarget({ root, index: Number(row.dataset.virtualIndex) })
     }} role="group" aria-label="Conversations" data-region="session-tree">
       {pinnedRows.length > 0 && (
-        <SidebarGroup className={styles.triage} data-sidebar-band="pinned">
-          <GroupLabel>Pinned · {pinnedRows.length}</GroupLabel>
-          <SidebarGroupContent>
+        <SidebarGroup inset={false} className={styles.triage} data-sidebar-band="pinned">
+          <GroupLabel ink="muted">Pinned · {pinnedRows.length}</GroupLabel>
+          <SidebarGroupContent nested>
             {pinnedRows.map((summary) => (
               <SessionRow key={`p-${summary.runtime}-${summary.id}`} summary={summary} now={now} onDelete={setDeleting} />
             ))}
@@ -1641,7 +1636,7 @@ export const SessionTree = ({ now }: { now: number }) => {
         <div>
           <SidebarMenu><SidebarMenuItem>
             <SidebarMenuButton
-              label={<span className="flex items-center gap-(--hd-space-2)">Other projects<span data-slot="sidebar-menu-icon" className="inline-flex shrink-0 items-center justify-center"><DisclosureChevron open={othersOpen} size="xs" className={styles.groupChevron} /></span></span>}
+              label={<span className="flex items-center gap-(--hd-space-2)"><Text role="navigation" ink="muted">Other projects</Text><span data-slot="sidebar-menu-icon" className="inline-flex shrink-0 items-center justify-center"><DisclosureChevron open={othersOpen} size="xs" className={styles.groupChevron} /></span></span>}
               aria-expanded={othersOpen}
               onClick={() => setOthersOpen(!othersOpen)}
               {...(dragging && !far.some((group) => group.root === dragging) ? { 'data-insert': 'into' } : {})}

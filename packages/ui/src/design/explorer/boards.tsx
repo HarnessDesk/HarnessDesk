@@ -234,7 +234,7 @@ const SidebarBoard = () => (
           <SidebarMenuButton trailingOverlay label={<span className="flex min-w-0 items-center gap-(--hd-space-1)"><span className="min-w-0 truncate">Pin the flaky inventory test after reconciling every retry branch</span><SidebarMenuState label="Needs you" tone="warning" state="limit" /></span>} />
           <SidebarMenuBadge role="img" className="end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-double-action-step))]" aria-label="Folder is gone — inventory-retry"><FolderGoneIcon size={11} /></SidebarMenuBadge>
           <SidebarMenuBadge role="img" className="end-[calc(var(--hd-sidebar-end-rail)+var(--hd-sidebar-end-action-step))]" aria-label="Worktree feat/inventory-retry"><BranchIcon size={11} /></SidebarMenuBadge>
-          <SidebarMenuBadge aria-label="Working"><Dot state="signin" variant="navigation" /></SidebarMenuBadge>
+          <SidebarMenuBadge aria-label="Running"><Spinner size="sm" tone="neutral" aria-hidden /></SidebarMenuBadge>
           <SidebarMenuAction showOnHover aria-label="Badge row actions"><MoreIcon size={14} /></SidebarMenuAction>
         </SidebarMenuItem>
         <SidebarMenuItem trailingMarks={1} trailingActions={2} data-catalog-title-case="pinned project head with two actions">

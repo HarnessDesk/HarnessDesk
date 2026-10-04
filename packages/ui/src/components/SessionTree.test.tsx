@@ -301,7 +301,10 @@ it('uses one fixed trailing slot for conversation state and actions', () => {
   expect(quiet.querySelector('[data-slot="sidebar-menu-badge"]')).toBeNull()
   expect(busy.querySelectorAll('[data-slot="sidebar-menu-badge"]')).toHaveLength(1)
   expect(needsYou.length).toBeGreaterThan(0)
-  for (const row of needsYou) expect(row.querySelectorAll('[data-slot="sidebar-menu-badge"]')).toHaveLength(1)
+  for (const row of needsYou) {
+    expect(row.querySelectorAll('[data-slot="sidebar-menu-badge"]')).toHaveLength(0)
+    expect(row.querySelector('[data-slot="sidebar-menu-state"]')?.getAttribute('aria-label')).toBe('Needs you')
+  }
   const label = busy.querySelector('[data-slot="sidebar-menu-label"]')!
   const classes = label.className
   const action = busy.querySelector<HTMLElement>('[data-slot="sidebar-menu-action"]')!
@@ -311,10 +314,10 @@ it('uses one fixed trailing slot for conversation state and actions', () => {
   expect(label.className).toBe(classes)
 })
 
-it('a conversation with work still running in the background wears a green glyph, and says so on hover', () => {
+it('a conversation with work still running in the background wears a quiet spinner, and says so on hover', () => {
   // The turn is over and the row would read idle, but the agent sent
   // something to the background and walked away. A person browsing other
-  // conversations gets a dot on this one, and the hover line names the door.
+  // conversations gets a spinner on this one, and the hover line names the door.
   const runtime = {
     id: 'agent',
     name: 'Agent',
@@ -366,10 +369,10 @@ it('a conversation with work still running in the background wears a green glyph
     if (!found) throw new Error(`no row called ${title}`)
     return found as HTMLButtonElement
   }
-  const glyph = (title: string): HTMLElement | null => row(title).parentElement?.querySelector('[data-slot="dot"]') ?? null
+  const glyph = (title: string): HTMLElement | null => row(title).parentElement?.querySelector('[data-slot="spinner"]') ?? null
   expect(glyph('Busy one')?.hasAttribute('data-tasks')).toBe(true)
   expect(row('Busy one').title).toContain('running in the background')
-  // Finished work is not a reason to look: only running work earns the dot.
+  // Finished work is not a reason to look: only running work earns the spinner.
   expect(glyph('Quiet one')).toBeNull()
   expect(row('Quiet one').title).not.toContain('background')
 })
@@ -873,7 +876,7 @@ it('names waiting Teams by their Goal and keeps each Seat’s title on its own l
  * shape: the chip and the counts are never inside the name's line box, and
  * the name is the only thing given to fade.
  */
-it('draws a trigger Goal’s row on one line: its subject and one state chip, nothing crowding the name', async () => {
+it('draws a trigger Goal’s row on one line: its subject and one running mark', async () => {
   const board = room({ id: 'g1', name: 'Issue #43, from trigger triage-issue', updatedAt: 4 })
   const triggerGoal = vi.fn(async () => ({
     goal: 'g1', trigger: 'triage-issue', source: 'issue' as const, label: 'from issue #43', url: null, budget: null, waits: [],
@@ -883,12 +886,13 @@ it('draws a trigger Goal’s row on one line: its subject and one state chip, no
 
   const row = roomRow(tree, 'Issue #43')
   const head = row.querySelector('[data-slot="sidebar-menu-label"]')
-  expect(head?.textContent).toBe('Issue #43Working')
-  expect(row.querySelectorAll('[data-slot="chip"]')).toHaveLength(1)
+  expect(head?.textContent).toBe('Issue #43')
+  expect(row.querySelectorAll('[data-slot="chip"]')).toHaveLength(0)
+  expect(row.closest('li')?.querySelector('[data-slot="spinner"]')).not.toBeNull()
   expect(row.querySelector('[class*="rowMeta"]')).toBeNull()
   expect(row.textContent).not.toContain('from issue')
   expect(row.textContent).not.toContain('triage-issue')
-  // Nothing beside the chip competes with the name for the row's width.
+  // No second line competes with the name for the row's height.
   expect(row.querySelector('[class*="groupCount"], [class*="roomClaimed"]')).toBeNull()
   expect(triggerGoal).not.toHaveBeenCalled()
 })
@@ -1922,7 +1926,7 @@ it('renames an inactive session without opening it or changing active session (#
   expect(renameSession).toHaveBeenCalledWith('Renamed Conversation', keyB)
 })
 
-it('declares all four marks when a missing worktree has activity and needs you', () => {
+it('keeps the folder and worktree marks beside Needs you without a duplicate activity mark', () => {
   const one = summary({ id: 'four-marks', cwd: '/repo/gone', repo: { root: '/repo', worktree: true }, git: { branch: 'fix/rail' }, status: { type: 'active' } })
   const { update } = treeWith([], [one], [one])
   update({
@@ -1933,14 +1937,15 @@ it('declares all four marks when a missing worktree has activity and needs you',
     } }],
   })
   const row = container.querySelector('[data-region="session-row"] [data-slot="sidebar-menu-item"]')!
-  expect(row.querySelectorAll('[data-slot="sidebar-menu-badge"]')).toHaveLength(3)
+  expect(row.querySelectorAll('[data-slot="sidebar-menu-badge"]')).toHaveLength(2)
   expect(row.querySelector('[data-slot="sidebar-menu-state"]')).not.toBeNull()
-  expect(row.getAttribute('data-sidebar-trailing-marks')).toBe('4')
+  expect(row.querySelector('[data-slot="spinner"]')).toBeNull()
+  expect(row.getAttribute('data-sidebar-trailing-marks')).toBe('3')
 })
 
 it.each([
   ['needs-you', 'Needs you', 'warning', 'limit'],
-  ['working', 'Working', 'info', 'signin'],
+  ['working', 'Running', 'info', 'signin'],
   ['ready-to-wrap', 'Ready to wrap', 'brand', 'ready'],
 ] as const)('keeps a Goal’s %s signal in its compact state without a member approval', (activity, label, tone, state) => {
   const board = room({ id: 'goal-signal', name: 'Check the rail' })
@@ -1948,6 +1953,11 @@ it.each([
     new Map([[board.id, triggerGoalView(board, activity)]]))
   if (activity === 'ready-to-wrap') {
     expect(tree.querySelector(`[aria-label="Room ${board.name}"]`)).toBeNull()
+    return
+  }
+  if (activity === 'working') {
+    expect(roomRow(tree, board.name).textContent).toBe(board.name)
+    expect(roomRow(tree, board.name).closest('li')?.querySelector('[data-slot="spinner"]')).not.toBeNull()
     return
   }
   const mark = roomRow(tree, board.name).querySelector('[data-slot="sidebar-menu-state"]')!
@@ -2061,4 +2071,38 @@ it('keeps a Seat with another checkout out of that project’s loose rows', () =
   const view = treeWith([board], [seat], [seat as unknown as Session])
   expect(view.container.querySelector('[data-project-root="/other-checkout"] [data-region="session-row"]')).toBeNull()
   expect(rowTitles(view.container).filter(one => one === 'session-cross-checkout')).toHaveLength(1)
+})
+
+it('uses a quiet project header without a leading icon, including Other projects', () => {
+  const view = treeWith([], [summary({ id: 'session-near' }), summary({ id: 'session-far', cwd: '/other' })], [], { othersOpen: true })
+  const headers = view.container.querySelectorAll('[data-draggable]')
+  expect(headers).toHaveLength(2)
+  for (const header of headers) {
+    expect(header.querySelector('[data-slot="sidebar-menu-icon"]')).toBeNull()
+    const name = header.querySelector('[data-slot="text"]')!
+    expect(name.getAttribute('data-role')).toBe('prose')
+    expect(name.className).toContain('text-(--hd-secondary-foreground)')
+    expect(name.nextElementSibling?.getAttribute('data-slot')).toBe('disclosure-chevron')
+  }
+  act(() => (headers[0] as HTMLButtonElement).click())
+  expect(view.store.toggleCollapsed).toHaveBeenCalledWith('/repo')
+})
+
+it('indents Pinned conversations by the shared project child step', () => {
+  const one = summary({ id: 'session-pin-indent' })
+  const view = treeWith([], [one], [], { pinnedSessions: [sessionKey(one.runtime, one.id)] })
+  expect(view.container.querySelector('[data-sidebar-band="pinned"] [data-slot="sidebar-group-content"]')?.getAttribute('data-sidebar-indent')).toBe('true')
+})
+
+it('uses a quiet spinner for running conversations and Teams without a Working word', () => {
+  const one = summary({ id: 'session-spin', status: { type: 'active' } })
+  const live = { ...one, turns: [{ id: 'spin-turn', status: 'inProgress', items: [] }] } as unknown as Session
+  const board = room({ id: 'spin-team', name: 'Running Team', members: [String(sessionKey(one.runtime, one.id))] })
+  const view = treeWith([board], [one], [live])
+  expect(view.container.querySelectorAll('[data-slot="spinner"][data-tone="neutral"][data-size="sm"]')).toHaveLength(2)
+  expect(view.container.textContent).not.toContain('Working')
+  expect(roomRow(view.container, board.name).querySelector('[data-slot="sidebar-menu-state"]')).toBeNull()
+  view.update({ approvals: [{ key: sessionKey(one.runtime, one.id), approval: {} }] as unknown as AppSnapshot['approvals'] })
+  expect(roomRow(view.container, board.name).querySelector('[data-slot="sidebar-menu-state"]')?.getAttribute('aria-label')).toBe('Needs you')
+  expect(view.container.querySelectorAll('[data-slot="spinner"]')).toHaveLength(0)
 })

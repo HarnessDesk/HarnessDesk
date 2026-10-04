@@ -53,3 +53,10 @@ it('gives navigation metadata the rail ink without changing its role', () => {
   expect(meta?.getAttribute('data-ink')).toBe('navigation')
   expect(meta?.className).toContain('text-(--hd-sidebar-muted-foreground)')
 })
+
+it('lets a sidebar section label use muted ink without changing its geometry', () => {
+  act(() => root.render(<NavigationGroupHeader label="Projects" labelInk="muted" />))
+  const label = container.querySelector('[data-slot="navigation-group-label"]')!
+  expect(label.className).toContain('text-(--hd-muted-foreground)')
+  expect(label.className).not.toContain('text-(--hd-secondary-foreground)')
+})

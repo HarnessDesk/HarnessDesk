@@ -20,8 +20,8 @@ import './sidebar.css'
 const sidebarMenuTrailingSlotClass =
   'sidebar-menu-trailing-slot absolute end-(--sidebar-menu-end-rail) top-1/2 z-10 inline-flex size-(--hd-icon-target) -translate-y-1/2 items-center justify-center rounded-md text-sidebar-foreground transition-colors'
 
-const SidebarGroup = ({ className, ...props }: React.ComponentProps<'section'>) => (
-  <section data-slot="sidebar-group" data-sidebar="group" className={cn('relative flex w-full min-w-0 flex-col px-(--hd-space-2)', className)} {...props} />
+const SidebarGroup = ({ className, inset = true, ...props }: React.ComponentProps<'section'> & { inset?: boolean }) => (
+  <section data-slot="sidebar-group" data-sidebar="group" data-inset={inset ? undefined : 'false'} className={cn('relative flex w-full min-w-0 flex-col', inset ? 'px-(--hd-space-2)' : 'px-0', className)} {...props} />
 )
 
 const sidebarNestedClass = 'ms-(--hd-space-5) w-[calc(100%-var(--hd-space-5))] border-s border-sidebar-border ps-(--hd-space-2)'

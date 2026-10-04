@@ -839,8 +839,9 @@ Workspaces › a project › Provenance controls capture on this machine. It sta
 ## Goals and retained lanes
 
 Projects list active Goals alongside loose conversations; completed work stays
-on the Teams page. A Goal row states Working, Needs you or Wrapping; those words describe activity, not an evidence
-verdict. Opening a Goal keeps the existing Board, Chat and Members destinations.
+on the Teams page. A running Goal row carries a small quiet spinner; a waiting row says Needs you.
+The spinner stays still under reduced motion. These signals describe activity,
+not an evidence verdict. Opening a Goal keeps the existing Board, Chat and Members destinations.
 Membership comes from its open Seats. Releasing a Seat closes that membership
 record without deleting the conversation or checkout.
 Finishing a Run keeps its Seats listed and their conversations available for

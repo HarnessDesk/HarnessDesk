@@ -396,8 +396,8 @@ grounds in both themes.
 
 Three rules, learned the hard way:
 
-1. **A project is not a lesser thing than the conversation inside it.** Rows
-   that name something are primary ink, at every level of the tree.
+1. **A project groups its conversations.** Its quiet header uses secondary
+   ink; conversation names keep primary ink at every level of the tree.
 2. **Explanation is content.** A sentence describing what a setting does is
    secondary, not tertiary. If it were not worth reading it would not be on
    screen.
@@ -865,7 +865,10 @@ group-label role — see "One title, one group label" above, where the design
 audit's `uppercaseLabel` already refuses the capitals in source. Its weight is
 the interface's label weight, `--hd-label-weight`: regular in Desk, and
 medium in Studio, which varies only the weight and the air above a rail's
-group, on purpose. Size, ink and case are the same in both.
+group, on purpose. Size, ink and case are the same in both. Quiet sidebar bands
+(Pinned, Projects and Other projects) use muted ink; other group labels keep
+secondary ink. `GroupLabel ink="muted"` and `NavigationGroupHeader labelInk="muted"`
+carry that choice without changing the label’s inset.
 
 Enforced by `rules.spec.ts` ("rule: group labels"), which asserts the
 rendered result in both interfaces and both themes, with a mutation each for
@@ -891,12 +894,19 @@ the window. A room’s header and its members each own their hover surface.
 
 ### Sidebar hierarchy
 
-State stays on its row: a quiet running dot for a conversation and **Needs you**
-when it waits. Pinned is one plain section for loose conversations. Every active
+State stays on its row: a small neutral `Spinner` for a running conversation or
+Team, still under reduced motion, and **Needs you** when it waits. No sidebar row
+uses a Working label. Pinned is one plain section for loose conversations, whose
+leading marks and titles take the same indent step as a project’s children. Every active
 Team is one row in its project with its Seats collapsed initially; Seats stay
 under their Team through running, waiting and pinning. Wrapped Teams live on the
 Teams page. Project children and Team Seats each take one shared nested-rail
 step, using `SidebarGroupContent nested` and `SidebarMenu nested` respectively.
+Project headers have no folder icon: their names use regular 14px secondary ink,
+one tier above the muted section labels. Hover or keyboard focus reveals a fold
+chevron immediately after the name and the two end actions. Folding leaves only
+the header. Indentation moves the leading content alone; every trailing target
+keeps the enclosing rail, including Seats two steps in.
 The sidebar catalogue and `preview.html?sidebar-structure` mount the same
 production tree with three projects, three Seats, loose conversations and Pinned.
 

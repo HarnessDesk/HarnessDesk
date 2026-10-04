@@ -21,7 +21,8 @@
   --sidebar-menu-count-yield: calc(0 * var(--hd-sidebar-end-action-step));
 }
 
-[data-slot="sidebar-group-content"] [data-slot="sidebar-menu-item"] {
+/* Only a padded band moves the row edge in; nesting keeps the end edge. */
+[data-slot="sidebar-group"]:not([data-inset="false"]) > [data-slot="sidebar-group-content"] [data-slot="sidebar-menu-item"] {
   --sidebar-menu-end-rail: calc(var(--hd-sidebar-end-rail) - var(--hd-space-2));
 }
 

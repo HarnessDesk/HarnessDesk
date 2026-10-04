@@ -135,3 +135,10 @@ it('shares the nested rail and token indentation between project content and Sea
     expect(markup).toContain('border-s border-sidebar-border ps-(--hd-space-2)')
   }
 })
+
+it('lets a band share the enclosing rail without a second horizontal inset', () => {
+  const markup = renderToStaticMarkup(<sidebarExports.SidebarGroup inset={false}>Pinned</sidebarExports.SidebarGroup>)
+  expect(markup).toContain('data-inset="false"')
+  expect(markup).toContain('px-0')
+  expect(markup).not.toContain('px-(--hd-space-2)')
+})

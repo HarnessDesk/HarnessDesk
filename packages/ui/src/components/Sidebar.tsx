@@ -200,6 +200,7 @@ export const Sidebar = ({
       </div>
       <div ref={listRef} className={styles.content} data-region="sidebar-content" onScroll={onScroll}>
         <NavigationGroupHeader
+          labelInk="muted"
           label={(
             <span className={styles.groupLabel}>
               <span className={styles.projectName}>Projects</span>

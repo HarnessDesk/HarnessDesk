@@ -62,6 +62,7 @@ test('hover actions take the rail and every trailing mark moves by the declared 
     }, width)
     for (let rowIndex = 0; rowIndex < await rows.count(); rowIndex += 1) {
       const row = rows.nth(rowIndex)
+      await row.scrollIntoViewIfNeeded()
       const caseName = await row.getAttribute('data-catalog-title-case') ?? 'marked row'
       const actions = row.locator(':scope > [data-slot="sidebar-menu-action"]')
       const actionCount = await actions.count()
@@ -91,7 +92,7 @@ test('hover actions take the rail and every trailing mark moves by the declared 
         expect(declaredMarks, 'three badges plus the folded state reserve four marks').toBe(4)
         const reserve = await title.evaluate((node) => Number.parseFloat(getComputedStyle(node).paddingInlineEnd))
         const endRail = await action.evaluate((node) => Number.parseFloat(getComputedStyle(node).insetInlineEnd))
-        const dotWidth = (await box(row.locator('[data-slot="sidebar-menu-badge"] [data-slot="dot"]'))).width
+        const dotWidth = await row.locator('[data-sidebar-menu-state-compact] [data-slot="dot"]').evaluate(node => Number.parseFloat(getComputedStyle(node).width))
         expect(reserve, 'the full state clears the three badges and ends on their visible dot edge').toBe(endRail + 3 * rail.target + (rail.target - dotWidth) / 2)
       }
 
@@ -168,6 +169,7 @@ test('marked sidebar titles clear every trailing box without changing label geom
     }, width)
     for (let rowIndex = 0; rowIndex < await rows.count(); rowIndex += 1) {
       const row = rows.nth(rowIndex)
+      await row.scrollIntoViewIfNeeded()
       const caseName = await row.getAttribute('data-catalog-title-case') ?? 'marked row'
       const button = row.locator(':scope > [data-slot="sidebar-menu-button"], :scope > div > [data-slot="sidebar-menu-button"]').first()
       const label = button.locator('[data-slot="sidebar-menu-label"]')
@@ -278,7 +280,7 @@ test('sidebar state marks yield to actions and every trailing control stays on t
         return {
           name: node.querySelector('[data-slot="sidebar-menu-button"]')?.getAttribute('aria-label') ?? 'sidebar row',
           badges: atoms('sidebar-menu-badge').map((badge) => ({
-            box: rect(badge), ink: rect(badge.querySelector('svg, [data-role="meta"]') ?? badge),
+            box: rect(badge), ink: rect(badge.querySelector('svg, [data-role="meta"], [data-slot="spinner"]') ?? badge),
             label: badge.getAttribute('aria-label') ?? 'row badge',
             slot: badge.className.includes('double-action-step') ? 2 : badge.className.includes('action-step') ? 1 : 0,
           })),
@@ -581,10 +583,10 @@ test('real session and room rows keep every visible trailing mark in its own slo
   }
 
   await expect(session).toHaveCount(1)
-  await expect(session).toHaveAttribute('data-sidebar-trailing-marks', '3')
+  await expect(session).toHaveAttribute('data-sidebar-trailing-marks', '2')
   await expect(session.locator('[data-slot="sidebar-menu-state"]')).toHaveCount(1)
   await expect(session.locator('[data-slot="sidebar-menu-badge"][aria-label^="Worktree "]')).toHaveCount(1)
-  await expect(session.locator('[data-slot="sidebar-menu-badge"] [data-live]')).toHaveCount(1)
+  await expect(session.locator('[data-slot="sidebar-menu-badge"] [data-live]')).toHaveCount(0)
   await expect(room).toHaveCount(1)
   await expect(room.locator('[data-slot="sidebar-menu-badge"][title="1 held message waiting for you"]')).toHaveText('1')
   await expect(room.locator('[data-slot="sidebar-menu-state"]'), 'production approval RoomRow must render the shared fold').toHaveCount(1)
@@ -658,7 +660,10 @@ test('nested board and expanded room keep trailing marks on their own label line
   }
 
   await expect(productRoom).toHaveCount(1)
-  if (await roomToggle.getAttribute('aria-expanded') !== 'true') await roomToggle.click()
+  if (await roomToggle.getAttribute('aria-expanded') !== 'true') {
+    await productRoom.locator(':scope > div > [data-slot="sidebar-menu-button"]').hover()
+    await roomToggle.click()
+  }
   const productMember = productRoom.locator('[data-nested="true"] [data-region="session-row"] [data-slot="sidebar-menu-item"]').first()
   await expect(productMember).toBeVisible()
   for (const [row, label] of [[productRoom, 'product room head'], [productMember, 'product room member']] as const) {
@@ -676,13 +681,13 @@ test('real section headers start at the row icon inset', async ({ page }) => {
   const sidebar = page.locator('[data-catalog-example="sidebar"] [data-region="sidebar-header"]')
     .locator('xpath=ancestor::div[contains(@class,"sidebar_")][last()]').first()
   const frame = sidebar.locator('xpath=parent::*')
-  await expect(sidebar.getByText('Working · 2', { exact: true })).toBeVisible()
+  await expect(sidebar.locator('[data-tone="working"], [data-tone="waiting"]')).toHaveCount(0)
   await expect(sidebar.getByText('Pinned · 1', { exact: true })).toBeVisible()
   for (const width of [200, 220, 260, 320, 520]) {
     await frame.evaluate((node, next) => { const css = getComputedStyle(node); (node as HTMLElement).style.width = `${next + Number.parseFloat(css.borderLeftWidth) + Number.parseFloat(css.borderRightWidth)}px` }, width)
     await sidebar.evaluate((node) => { (node as HTMLElement).style.width = '100%' })
-    const icon = sidebar.locator('[data-draggable] [data-slot="sidebar-menu-icon"]').first()
-    const iconX = (await box(icon)).x
+    const name = sidebar.locator('[data-draggable] [data-slot="text"]').first()
+    const iconX = await name.evaluate(node => { const range = document.createRange(); range.selectNodeContents(node); return range.getBoundingClientRect().x })
     for (const header of [sidebar.getByText('Projects', { exact: true }), sidebar.getByText('Other projects', { exact: true }),
       ]) {
       const x = await header.evaluate((node) => {
@@ -696,7 +701,7 @@ test('real section headers start at the row icon inset', async ({ page }) => {
       if (await header.count() === 0) continue
       const x = await header.evaluate((node) => { const range = document.createRange(); range.selectNodeContents(node); return range.getBoundingClientRect().x })
       const rowX = (await box(group.locator('[data-slot="sidebar-menu-icon"]').first())).x
-      expect.soft(Math.abs(x - rowX), `${await header.textContent()} at ${width}px: header x=${x}, row icon x=${rowX}`).toBeLessThanOrEqual(1)
+      expect.soft(Math.abs(x + 29 - rowX), `${await header.textContent()} at ${width}px: Pinned children take one leading step from ${x} to ${rowX}`).toBeLessThanOrEqual(1)
     }
   }
   await page.goto('/design.html?view=app-window')
@@ -713,13 +718,13 @@ test('real section headers start at the row icon inset', async ({ page }) => {
   }
 })
 
-test('real working room keeps its whole chip before the fade and count, then folds on hover', async ({ page }, testInfo) => {
+test('real waiting room keeps its whole chip before the fade and count, then folds on hover', async ({ page }, testInfo) => {
   test.setTimeout(120_000)
   await page.goto('/design.html?view=sidebar')
   const sidebar = page.locator('[data-catalog-example="sidebar"] [data-region="sidebar-header"]')
     .locator('xpath=ancestor::div[contains(@class,"sidebar_")][last()]').first()
   const frame = sidebar.locator('xpath=parent::*')
-  const room = sidebar.getByRole('button', { name: 'Room Finish the checkout boundary', exact: true })
+  const room = sidebar.locator('[data-slot="sidebar-menu-button"][aria-label="Room Approve the migration evidence"][data-held]')
     .locator('xpath=ancestor::li[@data-slot="sidebar-menu-item"][1]')
   const label = room.locator(':scope > div > [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-label"]')
   const chip = label.locator('[data-sidebar-menu-state-full] [data-slot="chip"]')
@@ -728,8 +733,8 @@ test('real working room keeps its whole chip before the fade and count, then fol
   const action = room.locator(':scope > div > [data-slot="sidebar-menu-action"]')
   const measurements = []
   await expect(count).toHaveText('1')
-  await expect(room.locator(':scope > div > [data-slot="sidebar-menu-button"]')).toHaveAttribute('aria-label', 'Room Finish the checkout boundary')
-  await expect(room.locator(':scope > div > [data-slot="sidebar-menu-button"]')).toHaveAttribute('title', /Finish the checkout boundary/)
+  await expect(room.locator(':scope > div > [data-slot="sidebar-menu-button"]')).toHaveAttribute('aria-label', 'Room Approve the migration evidence')
+  await expect(room.locator(':scope > div > [data-slot="sidebar-menu-button"]')).toHaveAttribute('title', /Approve the migration evidence/)
   for (const width of [200, 220, 260, 320, 520]) {
     await frame.evaluate((node, next) => { const css = getComputedStyle(node); (node as HTMLElement).style.width = `${next + Number.parseFloat(css.borderLeftWidth) + Number.parseFloat(css.borderRightWidth)}px` }, width)
     await sidebar.evaluate((node) => { (node as HTMLElement).style.width = '100%' })
@@ -741,20 +746,20 @@ test('real working room keeps its whole chip before the fade and count, then fol
     const countVisible = await count.isVisible()
     const fade = await label.evaluate((node) => getComputedStyle(node).maskImage === 'none' ? 0 : Number.parseFloat(getComputedStyle(node).getPropertyValue('--hd-space-8')))
     const clipRight = await label.locator('[data-slot="sidebar-menu-label-content"]').evaluate((node) => node.getBoundingClientRect().right - Number.parseFloat(getComputedStyle(node).paddingRight))
-    expect.soft(chipBox.x + chipBox.width, `Working chip clips content by ${chipBox.x + chipBox.width - clipRight}px at ${width}px`).toBeLessThanOrEqual(clipRight + 0.1)
-    expect.soft(chipBox.x, `Working chip begins outside label at ${width}px`).toBeGreaterThanOrEqual(labelBox.x)
-    expect.soft(chipBox.x + chipBox.width, `Working chip runs into fade at ${width}px`).toBeLessThanOrEqual(labelBox.x + labelBox.width - fade)
-    if (countVisible) expect.soft(intersection(chipBox, await box(count)), `Working chip overlaps held count at ${width}px`).toBe(false)
+    expect.soft(chipBox.x + chipBox.width, `Needs you chip clips content by ${chipBox.x + chipBox.width - clipRight}px at ${width}px`).toBeLessThanOrEqual(clipRight + 0.1)
+    expect.soft(chipBox.x, `Needs you chip begins outside label at ${width}px`).toBeGreaterThanOrEqual(labelBox.x)
+    expect.soft(chipBox.x + chipBox.width, `Needs you chip runs into fade at ${width}px`).toBeLessThanOrEqual(labelBox.x + labelBox.width - fade)
+    if (countVisible) expect.soft(intersection(chipBox, await box(count)), `Needs you chip overlaps held count at ${width}px`).toBe(false)
     const { rail } = await sidebar.evaluate(measureSidebarRail)
-    expect.soft(Math.abs(chipBox.x + chipBox.width - (rail - (countVisible ? 24 : 0))), `Working chip ends at the available visible rail at ${width}px`).toBeLessThanOrEqual(0.5)
+    expect.soft(Math.abs(chipBox.x + chipBox.width - (rail - (countVisible ? 24 : 0))), `Needs you chip ends at the available visible rail at ${width}px`).toBeLessThanOrEqual(0.5)
     measurements.push({ width, chip: chipBox, contentRight: clipRight, title: await box(title) })
     await room.locator(':scope > div > [data-slot="sidebar-menu-button"]').hover()
     await expect(chip).toBeHidden()
     await expect(label.locator('[data-sidebar-menu-state-compact] [data-slot="dot"]')).toBeVisible()
     expect(await box(label), `room label changed on hover at ${width}px`).toEqual(labelBox)
   }
-  await testInfo.attach('working-room-chip.json', { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' })
-  console.info('WORKING_ROOM_CHIP', JSON.stringify(measurements))
+  await testInfo.attach('waiting-room-chip.json', { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' })
+  console.info('WAITING_ROOM_CHIP', JSON.stringify(measurements))
 })
 
 test('real header glyph ink occupies the end rail and its adjacent target columns', async ({ page }) => {
@@ -790,12 +795,15 @@ test('real working worktree and expanded room members share distinct rail slots 
   const sidebar = page.locator('[data-catalog-example="sidebar"] [data-region="sidebar-header"]')
     .locator('xpath=ancestor::div[contains(@class,"sidebar_")][last()]').first()
   const frame = sidebar.locator('xpath=parent::*')
-  const active = sidebar.locator('[data-tone="working"] [data-region="session-row"] [data-slot="sidebar-menu-item"]')
+  const active = sidebar.locator('[data-region="session-row"] [data-slot="sidebar-menu-item"]')
     .filter({ hasText: 'Add fixtures for the refund path before extending the checkout matrix' })
   const room = sidebar.locator('[aria-label="Room Approve the migration evidence"][data-held]')
     .locator('xpath=ancestor::li[@data-slot="sidebar-menu-item"][1]')
   const parentAction = room.locator(':scope > div > [data-slot="sidebar-menu-action"]')
-  if (await parentAction.getAttribute('aria-expanded') !== 'true') await parentAction.click()
+  if (await parentAction.getAttribute('aria-expanded') !== 'true') {
+    await room.locator(':scope > div > [data-slot="sidebar-menu-button"]').hover()
+    await parentAction.click()
+  }
   const member = room.locator('[data-nested="true"] [data-region="session-row"] [data-slot="sidebar-menu-item"]').first()
   await expect(active).toHaveCount(1)
   await expect(active).toHaveAttribute('data-sidebar-trailing-marks', '2')
@@ -817,11 +825,11 @@ test('real working worktree and expanded room members share distinct rail slots 
       await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
       await page.mouse.move(0, 0)
       const label = active.locator('[data-slot="sidebar-menu-label"]'), rest = await box(label)
-      if (mode === 'hover') await active.locator('[data-slot="sidebar-menu-button"]').hover()
+      if (mode === 'hover') await active.locator('[data-slot="sidebar-menu-button"]').hover({ position: { x: 8, y: 12 } })
       if (mode === 'focus-within') await active.locator('[data-slot="sidebar-menu-button"]').focus()
       const move = mode === 'rest' ? 0 : 24
       expect(Math.abs(await centre(branch.locator('svg')) - (rail - 24 - move)), `working branch ink at ${width}px (${mode})`).toBeLessThanOrEqual(1)
-      expect(Math.abs(await centre(activity.locator('[data-slot="dot"]')) - (rail - move)), `working activity ink at ${width}px (${mode})`).toBeLessThanOrEqual(1)
+      expect(Math.abs(await centre(activity.locator('[data-slot="spinner"]')) - (rail - move)), `working activity ink at ${width}px (${mode})`).toBeLessThanOrEqual(1)
       expect(intersection(await box(branch), await box(activity)), `branch and activity overlap at ${width}px (${mode})`).toBe(false)
       expect(await box(label), `working title box moved at ${width}px (${mode})`).toEqual(rest)
     }
@@ -832,7 +840,7 @@ test('real working worktree and expanded room members share distinct rail slots 
       const mark = row.locator(':scope > [data-slot="sidebar-menu-badge"], :scope > div > [data-slot="sidebar-menu-badge"]').last()
       if (await mark.isVisible()) expect(Math.abs(await centre(mark) - rail), `real ${row === room ? 'parent' : 'member'} mark misses rail at ${width}px`).toBeLessThanOrEqual(1)
       else {
-        const chip = await box(row.locator('[data-sidebar-menu-state-full] [data-slot="chip"]'))
+        const chip = await box(row.locator(':scope > div > [data-slot="sidebar-menu-button"] [data-sidebar-menu-state-full] [data-slot="chip"], :scope > [data-slot="sidebar-menu-button"] [data-sidebar-menu-state-full] [data-slot="chip"]'))
         const measured = await sidebar.evaluate(measureSidebarRail)
         expect(Math.abs(chip.x + chip.width - measured.rail), `whole parent chip occupies the visible rail when the count yields at ${width}px`).toBeLessThanOrEqual(0.5)
       }
@@ -843,7 +851,7 @@ test('real working worktree and expanded room members share distinct rail slots 
   }
 })
 
-test('540px window floats the real sidebar with aligned headers and a whole Working chip', async ({ page }) => {
+test('540px window floats the real sidebar with aligned headers and a whole Needs you chip', async ({ page }) => {
   test.setTimeout(120_000)
   await page.setViewportSize({ width: 540, height: 900 })
   await page.goto('/design.html?view=panels&sidebar-geometry')
@@ -859,17 +867,21 @@ test('540px window floats the real sidebar with aligned headers and a whole Work
   expect((await box(canvas)).width).toBe(540)
   const sidebar = floating.locator('[data-region="sidebar-header"]').locator('xpath=ancestor::div[contains(@class,"sidebar_")][last()]')
   expect((await box(sidebar)).width).toBe(240)
-  const group = sidebar.locator('[data-tone="working"]')
-  await expect(group.getByText('Working · 2', { exact: true })).toBeVisible()
-  const headerX = await group.locator('[data-slot="group-label"]').evaluate((node) => { const range = document.createRange(); range.selectNodeContents(node); return range.getBoundingClientRect().x })
-  expect(Math.abs(headerX - (await box(group.locator('[data-slot="sidebar-menu-icon"]').first())).x)).toBeLessThanOrEqual(1)
-  const button = sidebar.getByRole('button', { name: 'Room Finish the checkout boundary', exact: true })
+  await expect(sidebar.locator('[data-tone="working"], [data-tone="waiting"]')).toHaveCount(0)
+  const headerX = await sidebar.getByText('Projects', { exact: true }).evaluate((node) => { const range = document.createRange(); range.selectNodeContents(node); return range.getBoundingClientRect().x })
+  const projectX = await sidebar.locator('[data-draggable] [data-slot="text"]').first().evaluate(node => { const range = document.createRange(); range.selectNodeContents(node); return range.getBoundingClientRect().x })
+  expect(Math.abs(headerX - projectX)).toBeLessThanOrEqual(1)
+  const button = sidebar.locator('[data-slot="sidebar-menu-button"][aria-label="Room Approve the migration evidence"][data-held]')
   await button.scrollIntoViewIfNeeded()
   await page.mouse.move(539, 899)
   const label = button.locator('[data-slot="sidebar-menu-label"]'), chip = label.locator('[data-slot="chip"]')
   const full = await box(chip), labelBox = await box(label)
-  expect(full.x + full.width).toBeLessThanOrEqual(labelBox.x + labelBox.width - 32)
-  await expect(chip).toHaveText('Working')
+  const fade = await label.evaluate((node) => getComputedStyle(node).maskImage === 'none' ? 0 : Number.parseFloat(getComputedStyle(node).getPropertyValue('--hd-space-8')))
+  expect(full.x + full.width).toBeLessThanOrEqual(labelBox.x + labelBox.width - fade)
+  const measured = await sidebar.evaluate(measureSidebarRail)
+  const count = button.locator('xpath=parent::*').locator(':scope > [data-sidebar-count]')
+  expect(Math.abs(full.x + full.width - (measured.rail - (await count.isVisible() ? 24 : 0)))).toBeLessThanOrEqual(0.5)
+  await expect(chip).toHaveText('Needs you')
   await button.hover()
   await expect(chip).toBeHidden()
   await expect(label.locator('[data-sidebar-menu-state-compact] [data-slot="dot"]')).toBeVisible()
@@ -893,6 +905,7 @@ for (const theme of ['light', 'dark'] as const) {
       measurements.push({ theme, width, ...measured })
       expect(measured.rail).toBeLessThanOrEqual(measured.sidebarRight - 20)
       expect(measured.rows.filter(row => row.chipBox).length).toBeGreaterThanOrEqual(9)
+      expect(measured.rows.filter(row => row.chipBox).map(row => row.chip)).toEqual(Array(measured.rows.filter(row => row.chipBox).length).fill('Needs you'))
       for (const row of measured.rows) {
         if (row.targetRight !== null) expect.soft(Math.abs(row.targetRight - measured.targetRail), `${row.name}: trailing target at ${width}px`).toBeLessThanOrEqual(0.5)
         if (row.chipBox) {
@@ -918,7 +931,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto('/design.html?view=sidebar')
     const sidebar = page.locator('[data-catalog-example="sidebar"] [data-region="sidebar-header"]')
       .locator('xpath=ancestor::div[contains(@class,"sidebar_")][last()]').first()
-    const room = sidebar.getByRole('button', { name: 'Room Finish the checkout boundary', exact: true })
+    const room = sidebar.locator('[data-slot="sidebar-menu-button"][aria-label="Room Approve the migration evidence"][data-held]')
       .locator('xpath=ancestor::li[@data-slot="sidebar-menu-item"][1]')
     const button = room.locator(':scope > div > [data-slot="sidebar-menu-button"]')
     const title = button.locator('[data-slot="sidebar-menu-label-content"] > span > span').first()
