@@ -21,6 +21,32 @@ test('the same name on another host is another repository', () => {
   assert.notEqual(repoKey('https://git.example.com/AcmeCo/ledger-api'), repoKey('https://github.com/AcmeCo/ledger-api'))
 })
 
+test('hyphens in a host name never merge distinct repositories', () => {
+  for (const [left, right] of [
+    [
+      'https://git.example-one.test/acme/widgets',
+      'https://git.example-two.test/acme/widgets',
+    ],
+    [
+      'git@git.example-one.test:acme/widgets',
+      'git@git.example-two.test:acme/widgets',
+    ],
+  ]) {
+    assert.equal(repoKey(left), 'git.example-one.test/acme/widgets')
+    assert.equal(repoKey(right), 'git.example-two.test/acme/widgets')
+    assert.notEqual(repoKey(left), repoKey(right))
+  }
+})
+
+test('SSH aliases are removed only from the final non-punycode label', () => {
+  assert.equal(repoKey('git@github.com-work:acme/widgets.git'), 'github.com/acme/widgets')
+  assert.equal(repoKey('ssh://git@github.com-work/acme/widgets'), 'github.com/acme/widgets')
+  assert.equal(
+    repoKey('git@xn--e1afmkfd.xn--p1ai:acme/widgets'),
+    'xn--e1afmkfd.xn--p1ai/acme/widgets',
+  )
+})
+
 test('a remote with no value says nothing', () => {
   assert.equal(repoKey(null), null)
   assert.equal(repoKey(undefined), null)

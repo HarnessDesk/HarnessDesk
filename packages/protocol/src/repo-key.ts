@@ -22,7 +22,10 @@ export const repoKey = (originUrl: string | null | undefined): string | null => 
     if (!/^[a-z][a-z\d+.-]*:\/\//i.test(trimmed)) return null
     try {
       const url = new URL(trimmed)
-      return normalizedRepoKey(`${hostOf(url.hostname)}${url.pathname}`)
+      const host = url.protocol === 'ssh:' || url.protocol === 'git+ssh:'
+        ? hostOf(url.hostname)
+        : url.hostname
+      return normalizedRepoKey(`${host}${url.pathname}`)
     } catch {
       return null
     }
@@ -41,4 +44,12 @@ export const normalizedRepoKey = (key: string | null | undefined): string | null
   key && /^[a-z\d-]+(?:\.[a-z\d-]+)*\/[^\s@:?#[\]\\]+$/i.test(key) ? key.toLowerCase() : null
 
 /** 'github.com-work' (an SSH config alias) is still github.com. */
-const hostOf = (host: string): string => host.toLowerCase().replace(/^([^.]+\.[^.]+)-.*$/, '$1')
+const hostOf = (host: string): string => {
+  const lower = host.toLowerCase()
+  const lastDot = lower.lastIndexOf('.')
+  if (lastDot === -1) return lower
+  const lastLabel = lower.slice(lastDot + 1)
+  if (lastLabel.startsWith('xn--')) return lower
+  const alias = lastLabel.indexOf('-')
+  return alias === -1 ? lower : `${lower.slice(0, lastDot + 1)}${lastLabel.slice(0, alias)}`
+}

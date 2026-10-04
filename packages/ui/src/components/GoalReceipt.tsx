@@ -29,7 +29,9 @@ export interface GoalReceiptProps {
 const nameOf = (members: GoalReceiptRecord['members'], seat: string): string | null => {
   const member = members?.find((one) => one.seat === seat)
   if (!member) return null
-  return member.agent ? `${member.agent} · ${member.seatLabel}` : member.seatLabel
+  if (!member.agent) return member.seatLabel
+  if (!member.seatLabel || member.seatLabel === member.agent) return member.agent
+  return `${member.agent} · ${member.seatLabel}`
 }
 
 export const GoalReceipt = ({ receipt, insight, onOpenFinding }: GoalReceiptProps) => {

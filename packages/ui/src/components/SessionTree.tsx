@@ -481,7 +481,7 @@ export const SessionListControls = ({ searching = false }: { searching?: boolean
               icon={<ExpandAllIcon size={14} />}
               label="Expand all"
               disabled={openCount === roots.length ? 'Every project is already open.' : false}
-              onSelect={() => store.setProjectsCollapsed(roots, false)}
+              onSelect={() => store.setProjectsCollapsed(groups.flatMap((group) => group.folders), false)}
             />
           </Menu>
         )}
@@ -1186,6 +1186,19 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
   )
   return useMemo(() => {
     const listed = [...liveRef.current, ...snapshot.history]
+    const historyIdentityKeys = new Set(
+      snapshot.historyIdentity.map((summary) => String(sessionKey(summary.runtime, summary.id))),
+    )
+    const identityHistory = [...snapshot.historyIdentity]
+    // A live conversation can precede its first history page. Outside search,
+    // the loaded history also supplies folder facts for hidden gone rows;
+    // search results stay out so they cannot choose a different clone home.
+    for (const summary of searching ? liveRef.current : [...liveRef.current, ...snapshot.history]) {
+      const key = String(sessionKey(summary.runtime, summary.id))
+      if (historyIdentityKeys.has(key)) continue
+      historyIdentityKeys.add(key)
+      identityHistory.push(summary)
+    }
     const filtered = snapshot.listPrefs.agent
       ? listed.filter(
           (summary) => agentKeyOf(summary.runtime, snapshot.runtimes) === snapshot.listPrefs.agent,
@@ -1215,7 +1228,7 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
       shown,
       snapshot.workspaces,
       snapshot.workspace,
-      { identityHistory: listed, goneFolders: searching ? undefined : new Set(snapshot.foldersGone.keys()) },
+      { identityHistory, goneFolders: searching ? undefined : new Set(snapshot.foldersGone.keys()) },
     )
     const pinned = migratedRoots(snapshot.listPrefs.pinned, snapshot.workspace, list)
     // A folder just opened has no sessions to be grouped by, and a list that
@@ -1288,7 +1301,7 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
       return b.updatedAt - a.updatedAt
     })
     return { groups, hiddenPinned, gone }
-  }, [snapshot.history, liveKey, snapshot.listPrefs.agent, snapshot.listPrefs.pinned, snapshot.listPrefs.pinnedSessions, snapshot.listPrefs.sort, snapshot.listPrefs.forgottenFolders, snapshot.foldersGone, snapshot.workspace, snapshot.workspaces, roomRoots, searching])
+  }, [snapshot.history, snapshot.historyIdentity, liveKey, snapshot.listPrefs.agent, snapshot.listPrefs.pinned, snapshot.listPrefs.pinnedSessions, snapshot.listPrefs.sort, snapshot.listPrefs.forgottenFolders, snapshot.foldersGone, snapshot.workspace, snapshot.workspaces, roomRoots, searching])
 }
 
 /** The projects alone: what the section's own controls act on. */

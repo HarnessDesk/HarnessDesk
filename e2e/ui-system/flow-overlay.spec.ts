@@ -29,6 +29,16 @@ for (const theme of ['light', 'dark']) {
       await expect(graph(page)).toContainText('request-changes ×1')
       await expect(state(page, 'fix')).toContainText('Edited src/checkout/retry.ts')
       await expect(state(page, 'fix').locator('[data-slot="card"] [data-slot="text"][data-role="meta"]')).toHaveText('retry.ts')
+      for (const id of ['land', 'you']) {
+        const future = state(page, id)
+        const card = future.locator('[data-slot="card"]')
+        await expect(future).toHaveAttribute('data-state', 'future')
+        await expect(card).toHaveClass(/border-dashed/)
+        await expect(card).not.toHaveClass(/opacity-50/)
+        await expect(future.locator('[data-slot="text"][data-role="row"]')).toHaveAttribute('data-ink', 'secondary')
+        await expect(future.locator('[data-slot="text"][data-role="meta"]')).toHaveAttribute('data-ink', 'muted')
+        expect(await card.evaluate(el => getComputedStyle(el).opacity)).toBe('1')
+      }
       await expect(state(page, 'land').locator('.lucide-square-terminal')).toHaveCount(1)
       await expect(state(page, 'land').locator('.lucide-check')).toHaveCount(0)
       await frame(page, `before-${theme}`, '#flow-overlay-blueprint [data-slot="flow-stage"]')

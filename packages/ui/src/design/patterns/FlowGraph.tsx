@@ -124,8 +124,8 @@ const StepCard = ({ node, drawingWidth, step, run, selected, faces, faceTints, a
       <FlowStepSurface state={run?.state} selected={selected} duration={durationOf(run, now)} runs={run?.runs} onClick={onSelect ? () => onSelect(step.id) : undefined}>
         <FlowFaces seats={step.kind === 'agent' ? run?.seats : undefined} faces={faces} tints={faceTints} fallback={<IconTile tint={tint}><Mark /></IconTile>} />
         <span className="flex min-w-0 flex-1 flex-col">
-          <Text role="row" truncate className={run?.state === 'working' || run?.state === 'blocked' ? 'max-w-12' : run?.state === 'waiting' ? 'max-w-10' : undefined} title={step.name}>{step.name}</Text>
-          <Text role="meta" truncate={step.kind !== 'agent' || run?.state === 'working'} title={titleOf(step, run, activity.object)}>{lineOf(step, run, activity.object)}</Text>
+          <Text role="row" ink={run?.state === 'future' ? 'secondary' : undefined} truncate className={run?.state === 'working' || run?.state === 'blocked' ? 'max-w-12' : run?.state === 'waiting' ? 'max-w-10' : undefined} title={step.name}>{step.name}</Text>
+          <Text role="meta" ink={run?.state === 'future' ? 'muted' : undefined} truncate={step.kind !== 'agent' || run?.state === 'working'} title={titleOf(step, run, activity.object)}>{lineOf(step, run, activity.object)}</Text>
         </span>
       </FlowStepSurface>
       {activity.text &&

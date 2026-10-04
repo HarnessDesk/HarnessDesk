@@ -17,7 +17,7 @@ export type RunControlScene = typeof RUN_CONTROL_STATES[number]
 export const ABANDON_VARIANTS = ['opens', 'ends', 'waits', 'refused'] as const
 export type AbandonVariant = typeof ABANDON_VARIANTS[number]
 
-const REFUSAL = 'There is no intent #4 on this board.'
+const REFUSAL = 'There is no card #4 on this board.'
 const reviewer = { id: 'review', on: 'writer', then: { role: 'reviewer', title: 'Review the change' } }
 
 type Press = (frame: HTMLElement) => HTMLElement | undefined
