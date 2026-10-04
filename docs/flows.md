@@ -172,6 +172,10 @@ again. A fresh preview accepts the checkout at its current revision, including
 changes the previous check made; movement after that preview requires another
 preview. A check already running cannot be duplicated. Rechecking an earlier
 round updates its evidence without reopening downstream rounds already created.
+The Run view offers the same dialog from the check's row and its inspector, and
+lists every result the desk recorded for that card (`flow/check/attempts`): each
+attempt's exit, the commit it ran at and the last of what it printed. An attempt
+appears once its result is recorded; while a retry runs, the check says so.
 
 Before a host-started check can execute its command, the host durably records
 its exact process group. Startup stops those recorded groups before recovering

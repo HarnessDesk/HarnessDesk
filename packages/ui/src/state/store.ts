@@ -75,6 +75,8 @@ import {
   type TriggerView,
   type FlowDryRun,
   type FlowEntry,
+  type FlowCheckAttempt,
+  type FlowCheckAttempts,
   type FlowExecution,
   type ReviewCandidate,
   type FlowFile,
@@ -4589,6 +4591,16 @@ export class AppStore {
     flowExecutions.set(execution.id, execution)
     this.#patch({ flowExecutions })
     return execution
+  }
+
+  /**
+   * What the desk recorded each time one check card's command ran, oldest first
+   * (`flow/check/attempts`) — the earlier results `evidence/board` has folded
+   * away. A read that keeps nothing: the Run view holds what it asked for, and
+   * asks again when a check's evidence or operation changes.
+   */
+  async readCheckAttempts(run: string, card: number): Promise<FlowCheckAttempts> {
+    return this.transport.request('flow/check/attempts', { run, card })
   }
 
   /**

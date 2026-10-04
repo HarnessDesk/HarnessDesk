@@ -29,6 +29,7 @@ import { teamOverview } from '../lib/team-overview'
 import { TeamOverview } from './TeamOverview'
 import { TeamRunView } from './TeamRunView'
 import { RunFlow } from './RunFlow'
+import { useCheckAttempts } from '../state/check-attempts'
 import { runTimeline } from '../lib/run-timeline'
 import { shortSha } from '../lib/evidence'
 import { goalActions, goalName } from '../lib/goals'
@@ -415,6 +416,8 @@ export const TeamRoomPane = ({
   const [timelinePending, setTimelinePending] = useState(false)
   const [timelineReadError, setTimelineReadError] = useState<string | null>(null)
   const [timelineRead, setTimelineRead] = useState(0)
+  // What each check of the Run recorded each time it ran: read while the Run is on show, and again when a result lands.
+  const checkAttempts = useCheckAttempts({ execution: timelineRun ?? undefined, evidence: snapshot.boardEvidence.get(room), active: open === 'run', nonce: timelineRead })
   const [runHistoryProblem, setRunHistoryProblem] = useState<{ room: string; message: string } | null>(null)
   useEffect(() => {
     // A trigger Goal names no opener Run. Discover its history even when
@@ -1449,7 +1452,12 @@ export const TeamRoomPane = ({
                   evidence: snapshot.boardEvidence.get(room),
                   findings: snapshot.findings.get(room)?.filter === 'all' ? snapshot.findings.get(room)?.rows : [],
                   origin: timelineRun.intake ? `From trigger ${timelineRun.intake.trigger}` : goal?.goal.origin.kind === 'person' ? 'Started by you' : null,
+                  ...(checkAttempts.attempts ? { attempts: checkAttempts.attempts } : {}),
+                  ...(checkAttempts.incomplete.size ? { incompleteAttempts: checkAttempts.incomplete } : {}),
                 })}
+                attempts={checkAttempts.attempts}
+                incompleteAttempts={checkAttempts.incomplete}
+                attemptsRead={checkAttempts.read}
                 selectedRow={selectedRunRows.get(timelineRun.id) ?? null}
                 onSelect={id => setSelectedRunRows(was => new Map(was).set(timelineRun.id, id))}
                 doing={new Map(overview.seats.map(one => [one.seat, one.doing]))}
@@ -1457,7 +1465,8 @@ export const TeamRoomPane = ({
                 onRetry={() => setTimelineRead(was => was + 1)}
                 flow={<RunFlow execution={timelineRun} root={goal?.goal.root ?? null} seats={goal?.members ?? []} />}
                 problem={snapshot.boardEvidenceFailed.has(room) ? 'Check evidence is unavailable.'
-                  : timelineReadError ?? (runHistoryProblem?.room === room ? runHistoryProblem.message : null) ?? snapshot.findings.get(room)?.error ?? snapshot.findings.get(room)?.problem ?? (snapshot.findings.get(room)?.next ? 'More findings remain to be read.' : null)}
+                  : timelineReadError ?? (runHistoryProblem?.room === room ? runHistoryProblem.message : null) ?? snapshot.findings.get(room)?.error ?? snapshot.findings.get(room)?.problem ?? (snapshot.findings.get(room)?.next ? 'More findings remain to be read.' : null)
+                  ?? (checkAttempts.read === 'failed' ? 'Earlier attempts of a check could not be read.' : null)}
                 faces={new Map(seats.map(seat => {
                   const runtime = snapshot.runtimes.find(one => one.id === seat.record.session.runtime)
                   const brand = runtime ? brandForRuntime(runtime) : null
