@@ -68,7 +68,7 @@ test('the catalogue renders shipped composer slots and Side by side cases', asyn
   await expect(four.locator('[data-slot="side-by-side-tile"]')).toHaveCount(4)
   const tile = (nickname: string) => four.locator(`[data-slot="side-by-side-tile"][aria-label="${nickname}"]`)
   await expect(tile('Alpha').getByText('Working', { exact: true })).toBeVisible()
-  await expect(tile('Alpha').getByText(/Edit.*Held/i)).toBeVisible()
+  await expect(tile('Alpha').getByText('Edit', { exact: true })).toBeVisible()
   await expect(four.getByRole('dialog')).toHaveCount(0)
   await expect(tile('Beta').getByText('Done', { exact: true })).toBeVisible()
   await expect(tile('Gamma').getByText('Stopped', { exact: true })).toBeVisible()

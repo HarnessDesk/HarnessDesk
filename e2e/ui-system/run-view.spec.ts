@@ -110,3 +110,41 @@ for (const theme of ['light', 'dark'] as const) {
     expect(ratios.boundary).toBeGreaterThanOrEqual(3)
   })
 }
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`Run commands shorten home paths across Flow, Steps, Timeline and inspector in ${theme}`, async ({ page }) => {
+    await page.goto(`/preview.html?run-view&theme=${theme}`)
+    const flow = page.locator('#run-view-live-polish-flow')
+    const raw = 'PATH=/usr/bin:/home/dev/bin node /home/dev/tools/land.mjs --check'
+    const shown = 'PATH=/usr/bin:~/bin node ~/tools/land.mjs --check'
+    for (const selector of ['[data-step="verify"]', '[data-step-row="verify"]']) {
+      await expect(flow.locator(selector)).toContainText(shown)
+      await expect(flow.locator(selector).locator('[title]').filter({ hasText: shown })).toHaveAttribute('title', raw)
+    }
+    await flow.getByRole('radio', { name: 'Timeline', exact: true }).click()
+    const check = flow.locator('[data-row="check-2-2"]')
+    await expect(check).toContainText(shown)
+    await expect(check.locator('[title]').filter({ hasText: shown })).toHaveAttribute('title', raw)
+    await check.click()
+    await expect(flow.locator('[data-slot="run-inspector"]')).toContainText(shown)
+    await expect(flow.locator('[data-slot="run-inspector"] [title]').filter({ hasText: shown })).toHaveAttribute('title', raw)
+  })
+}
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`seat ceiling words appear in the Team rail and Flow step in ${theme}`, async ({ page }) => {
+    await page.goto(`/preview.html?run-view&theme=${theme}`)
+    const flow = page.locator('#run-view-live-polish-flow')
+    await expect(flow.locator('[data-step-row="writer"]')).toContainText('Edit · asked, not enforced')
+    const ceiling = flow.locator('[data-step="writer"] [data-role="meta"]')
+    expect(await ceiling.evaluate(el => ({ clipped: el.scrollWidth > el.clientWidth + 1,
+      outside: el.getBoundingClientRect().bottom > el.closest('[data-slot="flow-step"]')!.getBoundingClientRect().bottom })))
+      .toEqual({ clipped: false, outside: false })
+    await expect(flow.locator('[data-step="reviewer"]')).toContainText('Read only')
+    await expect(flow.locator('[data-step="reviewer"] [title]').filter({ hasText: 'Read only' }))
+      .toHaveAttribute('title', 'Changes nothing: it reads, searches and reports.')
+    const rail = page.locator('#run-view-live-polish-team')
+    await expect(rail.locator('[data-ceiling="edit"]')).toHaveText('Edit · asked, not enforced')
+    await expect(rail.locator('[data-ceiling="read"]')).toHaveText('Read only')
+  })
+}

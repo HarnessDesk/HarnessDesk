@@ -75,7 +75,7 @@ it('shows who was seated, on what, told what, where, on which board, and since w
   expect(text).toContain('Scout · In HarnessDesk')
   expect(text).toContain('Alpha · alpha-max')
   expect(text).toContain('Beta · beta-pro — passed over')
-  expect(text).toContain('Read · asked')
+  expect(text).toContain('Read only · asked, not enforced')
   expect(text).toContain('retry-on-502 at a1b2c3d')
   expect(text).toContain('~/code/HarnessDesk')
   expect(text).toContain('Checkout hardening')
@@ -94,7 +94,7 @@ it('a closed seat says how the desk let it go', async () => {
 it("a seat phase 3 kept for an Agent that said only `ceiling:` is drawn in that order's words", async () => {
   await mount(async () => ({ ...PREVIEW_SEAT, standing: { kind: 'ceiling', level: 'edit' }, ceiling: { level: 'edit', hold: 'asked' } }))
   expect(container.textContent).toContain('Edit · its ceiling')
-  expect(container.textContent).not.toContain('Read · asked')
+  expect(container.textContent).not.toContain('Read only · asked, not enforced')
 })
 
 it('a Seat a backup brought says so, and that it says nothing about this conversation here', async () => {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
 import { after, test } from 'node:test'
@@ -2844,6 +2844,373 @@ test('a git root that is not there yet is judged by the folder it would be in, l
     // folder.
     const leaving = join(await realpath(repo), 'out', 'not-yet')
     await assert.rejects(() => client.call('git/status', { root: leaving }), /outside every open workspace/)
+  })
+})
+
+test('a folder inside an open one cannot reach a repository it only points at, yet real alternate layouts still answer', async (t) => {
+  // `realpath` sees a symlink but not the contents of a `.git` *file*. A folder
+  // `A/x` inside open `A` holding `gitdir: <B>/.git` passes the folder rule the
+  // git surface confines by, and then `git -C A/x` runs against B — a
+  // repository nobody opened. The repository git actually resolves is judged
+  // too, by where its database lives; but that judgement must not turn away the
+  // real layouts that legitimately keep their `.git` outside their own folder:
+  // a linked worktree, a submodule, and a `--separate-git-dir` tree.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  // Real paths throughout, so nothing but the pointer under test stands between
+  // a folder and the repository it reaches.
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'hd-git-database-')))
+  t.after(() => rm(scratch, { recursive: true, force: true }))
+  const repository = async (path: string): Promise<void> => {
+    await mkdir(path, { recursive: true })
+    await gitIn(path, 'init', '-q', '-b', 'main')
+    await gitIn(path, 'commit', '-q', '--allow-empty', '-m', 'root commit')
+  }
+  // The branches a repository holds, for reading before an answer that might
+  // have written one.
+  const branches = async (repo: string): Promise<string[]> =>
+    (await gitIn(repo, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/'))
+      .split('\n')
+      .filter((line) => line.length > 0)
+  // A git verb answers when it names the repository's own root commit.
+  const answers = async (root: string): Promise<boolean> => {
+    const page = (await client.call('git/log', { root })) as { commits: readonly { subject: string }[] }
+    return page.commits.some((commit) => commit.subject === 'root commit')
+  }
+
+  await t.test('the gitfile case is refused, and the pointed-at repository gains no branch', async () => {
+    const opened = join(scratch, 'opened')
+    const other = join(scratch, 'other')
+    await repository(opened)
+    await repository(other)
+    const inside = join(opened, 'x')
+    await mkdir(inside)
+    // A regular file, not a symlink, so `realpath(inside)` is `inside` and only
+    // git, reading the file, follows it out to `other`.
+    await writeFile(join(inside, '.git'), `gitdir: ${join(other, '.git')}\n`)
+    await client.call('workspace/open', { path: opened })
+
+    // The controls: `inside` is a real directory (no link to collapse), git run
+    // there resolves to `other`, and `other` spelled directly is refused for
+    // being unopened — so a refusal below is about the pointer being followed,
+    // not about a path that leads nowhere.
+    assert.equal(await realpath(inside), inside)
+    assert.equal((await gitIn(inside, 'rev-parse', '--path-format=absolute', '--git-common-dir')).trim(), join(other, '.git'))
+    await assert.rejects(() => client.call('git/log', { root: other }), /outside every open workspace/)
+
+    const otherHead = (await gitIn(other, 'rev-parse', 'HEAD')).trim()
+    assert.deepEqual(await branches(other), ['main'])
+    const answer = await client
+      .call('git/createBranch', { root: inside, name: 'via-gitfile', at: otherHead })
+      .then(() => ({ created: true }), (error: Error) => ({ refused: error.message }))
+    // Read before the answer, so a call that was let in fails on the branch it
+    // made in `other` rather than only on having been answered.
+    assert.deepEqual(await branches(other), ['main'])
+    assert.deepEqual(answer, {
+      refused:
+        `${inside} is inside an open folder, but git there resolves to a repository (${join(other, '.git')}) ` +
+        'that is not open. Open that repository to work in it.',
+    })
+  })
+
+  for (const layout of ['relative gitdir', 'commondir', 'symlinked .git', 'nested gitfile folder']) {
+    await t.test(`${layout} is refused until its repository is open`, async () => {
+      const opened = join(scratch, layout.replaceAll(' ', '-'))
+      const other = `${opened}-other`
+      await repository(opened)
+      await repository(other)
+      const inside = join(opened, 'x')
+      await mkdir(inside)
+      if (layout === 'commondir') {
+        await gitIn(inside, 'init', '-q', '-b', 'main')
+        await writeFile(join(inside, '.git', 'commondir'), `${relative(join(inside, '.git'), join(other, '.git'))}\n`)
+      } else if (layout === 'symlinked .git') {
+        await symlink(join(other, '.git'), join(inside, '.git'))
+      } else {
+        await writeFile(join(inside, '.git'), `gitdir: ${relative(inside, join(other, '.git'))}\n`)
+      }
+      const asked = layout === 'nested gitfile folder' ? join(inside, 'nested') : inside
+      await mkdir(asked, { recursive: true })
+      assert.equal(await realpath((await gitIn(asked, 'rev-parse', '--path-format=absolute', '--git-common-dir')).trim()), join(other, '.git'))
+      await client.call('workspace/open', { path: opened })
+      await assert.rejects(() => client.call('git/log', { root: asked }), {
+        message: `${asked} is inside an open folder, but git there resolves to a repository (${join(other, '.git')}) ` +
+          'that is not open. Open that repository to work in it.',
+      })
+      await client.call('workspace/open', { path: other })
+      assert.equal(await answers(asked), true)
+    })
+  }
+
+  await t.test('a fallback top level must share the open checkout database even with core.worktree', async () => {
+    const asked = join(scratch, 'configured-top')
+    const opened = join(scratch, 'configured-checkout')
+    await repository(asked)
+    await repository(opened)
+    await client.call('workspace/open', { path: opened })
+    await gitIn(opened, 'config', 'core.worktree', asked)
+    assert.equal((await gitIn(opened, 'rev-parse', '--show-toplevel')).trim(), asked)
+    await assert.rejects(() => client.call('git/log', { root: asked }), {
+      message: `${asked} is the top level of an open checkout, but git there resolves to a different repository. ` +
+        'Open its folder first to work in it.',
+    })
+    assert.equal(await answers(opened), true)
+    await client.call('workspace/open', { path: asked })
+    assert.equal(await answers(asked), true)
+  })
+
+  await t.test('a linked worktree opened on its own still answers', async () => {
+    // Its database is the repository's, kept in the main checkout's `.git`,
+    // which is not open — but the worktree itself is a checkout of it.
+    const main = join(scratch, 'wt-main')
+    const linked = join(scratch, 'wt-linked')
+    await repository(main)
+    await gitIn(main, 'worktree', 'add', '-q', '-b', 'side', linked)
+    await client.call('workspace/open', { path: linked })
+    assert.equal(await answers(linked), true)
+  })
+
+  await t.test('a submodule opened on its own still answers', async () => {
+    // Its database lives in the superproject's `.git/modules`, and only the
+    // submodule is open.
+    const library = join(scratch, 'sub-library')
+    const superproject = join(scratch, 'sub-super')
+    await repository(library)
+    await repository(superproject)
+    await gitIn(superproject, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', library, 'vendored')
+    const vendored = join(superproject, 'vendored')
+    await client.call('workspace/open', { path: vendored })
+    assert.equal(await answers(vendored), true)
+  })
+
+  await t.test('a --separate-git-dir tree opened on its own still answers', async () => {
+    // Its database is a sibling directory git was told to keep it in, inside no
+    // open folder.
+    const work = join(scratch, 'sep-work')
+    const gitDir = join(scratch, 'sep-gitdir')
+    await gitIn(scratch, 'init', '-q', '-b', 'main', '--separate-git-dir', gitDir, work)
+    await gitIn(work, 'commit', '-q', '--allow-empty', '-m', 'root commit')
+    await client.call('workspace/open', { path: work })
+    assert.equal(await answers(work), true)
+  })
+
+  await t.test('a subfolder of an open repository reaches its top level', async () => {
+    // The database is under the repository, which the top level names; the one
+    // layout the escape check never turns away.
+    const repo = join(scratch, 'sub-repo')
+    await repository(repo)
+    await mkdir(join(repo, 'pkg'))
+    await client.call('workspace/open', { path: join(repo, 'pkg') })
+    assert.equal(await answers(repo), true)
+  })
+})
+
+test('top-level fallback admission does not depend on the order of open checkouts', async (t) => {
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'hd-git-fallback-order-')))
+  const state = new StateStore(join(scratch, 'state.json'))
+  const harness = await start({ state })
+  const client = await Client.connect(harness.server)
+  t.after(async () => {
+    client.close()
+    await stop(harness)
+    await rm(scratch, { recursive: true, force: true })
+  })
+  const asked = join(scratch, 'project')
+  const configured = join(scratch, 'configured-checkout')
+  const subfolder = join(asked, 'pkg')
+  for (const root of [asked, configured]) {
+    await mkdir(root)
+    await gitIn(root, 'init', '-q', '-b', 'main')
+    await gitIn(root, 'commit', '-q', '--allow-empty', '-m', root === asked ? 'project commit' : 'configured commit')
+  }
+  await mkdir(subfolder)
+  await gitIn(configured, 'config', 'core.worktree', asked)
+  // Both checkouts report this top level, but only the subfolder shares its database.
+  for (const root of [configured, subfolder]) {
+    assert.equal((await gitIn(root, 'rev-parse', '--show-toplevel')).trim(), asked)
+  }
+  assert.notEqual(
+    (await gitIn(configured, 'rev-parse', '--path-format=absolute', '--git-common-dir')).trim(),
+    (await gitIn(subfolder, 'rev-parse', '--path-format=absolute', '--git-common-dir')).trim(),
+  )
+  for (const [name, roots] of [
+    ['configured checkout first', [configured, subfolder]],
+    ['genuine subfolder first', [subfolder, configured]],
+  ] as const) {
+    await t.test(name, async () => {
+      await gitIn(configured, 'config', '--unset', 'core.worktree')
+      state.state.workspaces = []
+      // Opening a workspace puts it first in the persisted list.
+      for (const path of [...roots].reverse()) await client.call('workspace/open', { path })
+      assert.deepEqual(state.state.workspaces.map((entry) => entry.path), roots)
+      await gitIn(configured, 'config', 'core.worktree', asked)
+      const page = await client.call('git/log', { root: asked }) as { commits: readonly { subject: string }[] }
+      assert.deepEqual(page.commits.map((commit) => commit.subject), ['project commit'])
+    })
+  }
+})
+
+test('git confinement refuses uncertain reads, deduplicates canonical roots, and shares one deadline', async (t) => {
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'hd-git-lookup-')))
+  const state = new StateStore(join(scratch, 'state.json'))
+  const harness = await start({ state })
+  const client = await Client.connect(harness.server)
+  const opened = join(scratch, 'opened')
+  const other = join(scratch, 'other')
+  for (const root of [opened, other]) {
+    await mkdir(root)
+    await gitIn(root, 'init', '-q', '-b', 'main')
+    await gitIn(root, 'commit', '-q', '--allow-empty', '-m', 'root commit')
+  }
+  const inside = join(opened, 'x')
+  await mkdir(inside)
+  await writeFile(join(inside, '.git'), `gitdir: ${join(other, '.git')}\n`)
+  await client.call('workspace/open', { path: opened })
+  const otherHead = (await gitIn(other, 'rev-parse', 'HEAD')).trim()
+  const realGit = (await promisify(execFile)('which', ['git'])).stdout.trim()
+  const bin = join(scratch, 'bin')
+  const reads = join(scratch, 'reads')
+  await mkdir(bin)
+  const wrapper = join(bin, 'git')
+  const originalPath = process.env.PATH
+  t.afterEach(() => { process.env.PATH = originalPath })
+  t.after(async () => {
+    process.env.PATH = originalPath
+    client.close()
+    await stop(harness)
+    await rm(scratch, { recursive: true, force: true })
+  })
+  // A real child process supplies failures and counts only confinement reads.
+  // All other git verbs still run the real binary against the real repositories.
+  const install = async (behavior: string): Promise<void> => {
+    process.env.PATH = originalPath
+    await writeFile(wrapper, `#!${process.execPath}
+const { execFileSync } = require('node:child_process')
+const { appendFileSync } = require('node:fs')
+const args = process.argv.slice(2)
+if (args.includes('rev-parse')) {
+  appendFileSync(${JSON.stringify(reads)}, JSON.stringify(args) + '\\n')
+  ${behavior}
+}
+try { execFileSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }) }
+catch (error) { process.exit(error.status ?? 1) }
+`)
+    await chmod(wrapper, 0o755)
+    await writeFile(reads, '')
+    process.env.PATH = `${bin}:${originalPath}`
+  }
+  const retry = { message: 'Git could not confirm which repository this folder belongs to. Try again.' }
+  for (const [name, behavior] of [
+    ['non-repository diagnostics with another exit code', "console.error('fatal: not a git repository (or any of the parent directories): .git'); process.exit(1)"],
+    ['other git failure', "console.error('fatal: unable to read config'); process.exit(128)"],
+    ['empty answer', 'process.exit(0)'],
+    ['database cannot be canonicalized', `console.log(${JSON.stringify(join(scratch, 'unreadable-database'))}); process.exit(0)`],
+  ]) {
+    await t.test(name!, async () => {
+      await install(behavior!)
+      await assert.rejects(() => client.call('git/createBranch', { root: inside, name: 'must-not-exist', at: otherHead }), retry)
+      process.env.PATH = originalPath
+      assert.equal((await gitIn(other, 'branch', '--list', 'must-not-exist')).trim(), '')
+    })
+  }
+  await t.test('git cannot launch', async () => {
+    process.env.PATH = bin
+    await rm(wrapper)
+    await assert.rejects(() => client.call('git/status', { root: opened }), retry)
+    process.env.PATH = originalPath
+  })
+  await t.test('a confirmed non-repository and a missing folder still answer null', async () => {
+    // Use a separate non-repository as an open root: a folder under a repository
+    // inherits that repository even when it has no .git of its own.
+    const noRepo = join(scratch, 'plain')
+    await mkdir(noRepo)
+    await client.call('workspace/open', { path: noRepo })
+    assert.equal(await client.call('git/status', { root: noRepo }), null)
+    assert.equal(await client.call('git/status', { root: join(noRepo, 'not-yet') }), null)
+  })
+  const boundary = join(scratch, 'filesystem-boundary')
+  await mkdir(boundary)
+  // Creating a mounted volume is not portable. Inject the complete C-locale
+  // diagnostic observed from Git at a filesystem boundary, only for this root;
+  // the other roots and all non-discovery verbs still use real Git.
+  const boundaryDiagnostic = 'fatal: not a git repository (or any parent up to mount point /)\n' +
+    'Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).'
+  for (const [name, roots, asked] of [
+    ['a filesystem-boundary common-directory read confirms absence', [boundary], boundary],
+    ['a filesystem-boundary top-level read does not block another open project', [boundary, join(opened, 'pkg')], opened],
+  ] as const) {
+    await t.test(name, async () => {
+      await mkdir(join(opened, 'pkg'), { recursive: true })
+      state.state.workspaces = roots.map((path) => ({ path, name: 'project', lastOpenedAt: 0 }))
+      await install(`if (args[1] === ${JSON.stringify(boundary)}) { console.error(${JSON.stringify(boundaryDiagnostic)}); process.exit(128) }`)
+      const status = await client.call('git/status', { root: asked }) as { root: string } | null
+      if (asked === boundary) assert.equal(status, null)
+      else assert.equal(status?.root, opened)
+      const calls = (await readFile(reads, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as string[])
+      assert.equal(calls.some((args) => args[1] === boundary && args.includes(
+        asked === boundary ? '--git-common-dir' : '--show-toplevel',
+      )), true)
+    })
+  }
+  await t.test('forty repeated roots, including a symlink alias, cost two common-directory reads', async () => {
+    const alias = join(scratch, 'alias')
+    await symlink(opened, alias)
+    state.state.workspaces = Array.from({ length: 40 }, (_, i) => ({ path: i % 2 ? alias : opened, name: 'opened', lastOpenedAt: 0 }))
+    await install('')
+    await assert.rejects(() => client.call('git/log', { root: inside }), {
+      message: `${inside} is inside an open folder, but git there resolves to a repository (${join(other, '.git')}) ` +
+        'that is not open. Open that repository to work in it.',
+    })
+    const calls = (await readFile(reads, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as string[])
+    assert.equal(calls.filter((args) => args.includes('--git-common-dir')).length, 2)
+    assert.equal(calls.length, 2)
+    process.env.PATH = originalPath
+  })
+  await t.test('repeated roots cost one top-level read when the requested folder is outside', async () => {
+    state.state.workspaces = Array.from({ length: 40 }, () => ({ path: opened, name: 'opened', lastOpenedAt: 0 }))
+    await install('')
+    await assert.rejects(() => client.call('git/log', { root: other }), {
+      message: `${other} is outside every open workspace. Open its folder first to read from it.`,
+    })
+    const calls = (await readFile(reads, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as string[])
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0]?.includes('--show-toplevel'), true)
+  })
+  await t.test('slow reads use one deadline for the whole membership lookup', async () => {
+    const extra = join(scratch, 'extra')
+    await mkdir(extra)
+    state.state.workspaces = [{ path: opened, name: 'opened', lastOpenedAt: 0 }, { path: extra, name: 'extra', lastOpenedAt: 0 }]
+    const timeout = AbortSignal.timeout.bind(AbortSignal)
+    const deadlines: number[] = []
+    const clock = t.mock.method(AbortSignal, 'timeout', (ms: number) => {
+      deadlines.push(ms)
+      return timeout(1_500)
+    })
+    await install(`Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, args[1] === ${JSON.stringify(inside)} ? 100 : 3_000)`)
+    try {
+      await assert.rejects(() => client.call('git/log', { root: inside }), retry)
+      assert.deepEqual(deadlines, [20_000])
+      const calls = (await readFile(reads, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as string[])
+      assert.equal(calls.length, 2, 'the second process is interrupted; a third is never started')
+    } finally {
+      clock.mock.restore()
+      process.env.PATH = originalPath
+    }
+  })
+  await t.test('a slow top-level fallback uses the same refusal sentence', async () => {
+    state.state.workspaces = [{ path: join(opened, 'x'), name: 'inside', lastOpenedAt: 0 }]
+    const timeout = AbortSignal.timeout.bind(AbortSignal)
+    const clock = t.mock.method(AbortSignal, 'timeout', () => timeout(300))
+    await install('Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000)')
+    try {
+      await assert.rejects(() => client.call('git/log', { root: other }), retry)
+    } finally {
+      clock.mock.restore()
+      process.env.PATH = originalPath
+    }
   })
 })
 

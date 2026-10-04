@@ -9,6 +9,7 @@ export interface InspectorSeat {
   onOpen?: () => void
 }
 export interface RunInspectorProps {
+  home?: string | null
   input: RunTimelineInput
   selectedRow: string | null
   seats: readonly InspectorSeat[]
@@ -34,6 +35,7 @@ export interface RunInspectorProps {
 }
 
 import { Button, Chip, CodeText, GroupLabel, PaneColumn, PanelBody, PanelFrame, PanelTools, Text } from '../design'
+import { commandShown } from '../lib/projects'
 import { sanitizeText } from '../lib/sanitize'
 import { wordOf } from '../lib/agents'
 import { lifecycleWords } from '../lib/findings'
@@ -84,7 +86,7 @@ const detailWords = (detail: string | null | undefined): string | null => {
 }
 
 /** Recorded detail only. No transcript copies, dispatch controls or guessed results. */
-export const RunInspector = ({ input, selectedRow, seats, onAbandon, onStop, onAnswer, onOpenBoard, publication, reviewActions, findingsRead, attemptsRead }: RunInspectorProps) => {
+export const RunInspector = ({ home, input, selectedRow, seats, onAbandon, onStop, onAnswer, onOpenBoard, publication, reviewActions, findingsRead, attemptsRead }: RunInspectorProps) => {
   const { execution, cards, evidence } = input
   const selected = runTimeline(input).rows.find(row => row.id === selectedRow)
   const round = execution.rounds.find(one => one.n === selected?.round)
@@ -113,7 +115,7 @@ export const RunInspector = ({ input, selectedRow, seats, onAbandon, onStop, onA
       .sort((a, b) => b.observedAt - a.observedAt)[0]
     const fact = record?.fact.kind === 'check' ? record.fact : null
     body = <>
-      <Section title="Command"><CodeText block wrap>{sanitizeText(check.run)}</CodeText></Section>
+      <Section title="Command"><CodeText block wrap title={sanitizeText(check.run)}>{sanitizeText(commandShown(check.run, home))}</CodeText></Section>
       <Section title="Where"><Words>{record?.checkout?.cwd ?? (check.cwd ? `Declared folder: ${check.cwd} · Run location not recorded` : 'Run location not recorded')}</Words></Section>
       <Section title="Limit"><Words>{`${check.timeout} seconds`}</Words></Section>
       <Section title="Exit mapping"><Words>{[...Object.entries(check.exits).map(([exit, outcome]) => `Exit ${exit} → ${wordOf(outcome)}`), `Other exits and timeout → ${wordOf(check.otherwise)}`].join('\n')}</Words></Section>

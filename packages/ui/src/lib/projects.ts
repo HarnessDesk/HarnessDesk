@@ -104,6 +104,15 @@ export const folderShown = (path: string, home: string | null | undefined, proje
   return shortPath(path, home)
 }
 
+/** A command for reading, never execution: shorten only this home's path tokens. */
+export const commandShown = (command: string, home: string | null | undefined): string => {
+  const root = home?.replace(/\/+$/, '')
+  if (!root) return command
+  const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const token = new RegExp(`(^|[\\s"'=:;|&()<>])${escaped}(?=$|[/\\s"':;|&()<>])`, 'g')
+  return command.replace(token, (_, before: string) => `${before}${shortPath(root, root)}`)
+}
+
 /** The folder a project is named after and acts on, when git named a checkout. */
 const ROOT = 'root:'
 /** A project known by its remote: every folder that shares one is one project. */

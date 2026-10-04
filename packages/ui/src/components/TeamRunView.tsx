@@ -84,7 +84,8 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, drawFl
       const latest = [...rows].reverse().find(id => view.model.rows.find(row => row.id === id)?.kind === 'round')
       if (latest) view.onSelect(latest)
     }} faces={view.faces} faceTints={new Map(seats.filter(hasConversation).map(seat => [seat.record.id, runtimeTint(runtimeId(seat.record.session.runtime), snapshot.accountsByRuntime, snapshot.accountPrefs)]))} doing={view.doing} /> : view.flow
-  return <RunWorkspace {...view} flow={flow} selectedRows={stepRows} onRetry={() => { setReadAgain(was => was + 1); view.onRetry?.() }} problem={view.problem ?? readProblem} inspector={{
+  return <RunWorkspace {...view} home={snapshot.home} flow={flow} selectedRows={stepRows} onRetry={() => { setReadAgain(was => was + 1); view.onRetry?.() }} problem={view.problem ?? readProblem} inspector={{
+    home: snapshot.home,
     input: { execution, cards, origin, sessions: snapshot.sessions,
       signals: (team?.channel ?? goal?.board.channel ?? []).filter((entry): entry is TeamSignal => entry.kind === 'signal'),
       evidence: snapshot.boardEvidence.get(execution.goal),
