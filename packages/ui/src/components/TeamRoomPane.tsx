@@ -27,6 +27,7 @@ import { teamSeats } from '../lib/team-seats'
 import { teamOverview } from '../lib/team-overview'
 import { TeamOverview } from './TeamOverview'
 import { TeamRunView } from './TeamRunView'
+import { RunFlow } from './RunFlow'
 import { runTimeline } from '../lib/run-timeline'
 import { shortSha } from '../lib/evidence'
 import { goalActions, goalName } from '../lib/goals'
@@ -1429,6 +1430,7 @@ export const TeamRoomPane = ({
                 doing={new Map(overview.seats.map(one => [one.seat, one.doing]))}
                 pending={timelinePending}
                 onRetry={() => setTimelineRead(was => was + 1)}
+                flow={<RunFlow execution={timelineRun} root={goal?.goal.root ?? null} seats={goal?.members ?? []} />}
                 problem={snapshot.boardEvidenceFailed.has(room) ? 'Check evidence is unavailable.'
                   : timelineReadError ?? (runHistoryProblem?.room === room ? runHistoryProblem.message : null) ?? snapshot.findings.get(room)?.error ?? snapshot.findings.get(room)?.problem ?? (snapshot.findings.get(room)?.next ? 'More findings remain to be read.' : null)}
                 faces={new Map(seats.map(seat => {

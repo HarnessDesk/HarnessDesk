@@ -1,4 +1,5 @@
 import { RunInspectorBoard } from '../../preview/frames-run-inspector'
+import { FlowGraphBoard } from '../../preview/frames-flow-graph'
 import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
 import { TeamOverviewBoard } from '../../preview/frames-team-overview'
@@ -2934,8 +2935,14 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   {
     id: 'run-view',
     title: 'Run timeline',
-    about: 'The recorded rounds, cards, checks and findings, with a selectable row.',
+    about: 'The recorded rounds, cards, checks and findings, with a selectable row — and the Flow the Run started with, one choice away.',
     render: RunViewBoard,
+  },
+  {
+    id: 'flow-graph',
+    title: 'FlowGraph',
+    about: 'A Flow’s steps and rules, drawn read-only: cards on a dot grid, edges with the outcome word above them, loops under the line, and the list that says the same.',
+    render: FlowGraphBoard,
   },
   {
     id: 'teams-page',

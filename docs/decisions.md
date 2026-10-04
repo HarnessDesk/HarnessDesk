@@ -147,6 +147,54 @@ invented to fill a missing observation.
 
 ---
 
+## A Run's Flow is drawn from the document it froze, by a layout that is a function
+
+A Run holds the Flow it started with, so the Flow tab draws that document and
+never the file as it is now. *Open the file* reads the file beside it, found
+by the name the Run froze, because a Run keeps no catalogue id or place of its
+own. The window says it is the file as it is now and that the Run keeps its
+revision, and a name the catalogue no longer holds says so and reads nothing.
+
+Where each step goes is a pure function of the document, not a decision the
+component makes while it renders: steps run left to right in the order their
+rules reach them, a loop falls under the line, and a Flow's own
+`layout.positions` win when it carries them. Edges are derived from the cards'
+boxes, so a hand layout reroutes them and never leaves a line where a card
+used to be. A rule to a step the file does not define is skipped in the
+drawing, because there is nothing to join it to, and is still named in the
+list. The older format of Flow is drawn too, without positions it never had.
+
+The Flow tab takes the whole pane, and the inspector steps aside while it
+shows. The inspector explains a row of the timeline and the Flow has none on
+show; and beside it the drawing would have only the part of the pane the
+inspector leaves, which at an ordinary window is under the width the drawing
+needs, so the list would be the only view.
+
+The drawing is for the eye and the list is for everyone. The drawing is hidden
+from assistive technology and, below a narrow width of its own container, from
+view; the list of steps and rules says the same and is then the view. The
+container decides and the window does not, because a Run sits in a pane of any
+width.
+
+Its curves and arrowheads are data geometry, as a chart's marks are:
+attributes on SVG elements that take their colour from `--hd-*` tokens, and
+recorded in the design audit's list of such modules. Everything else in it —
+cards, tiles, words, rows — is composed from the design system, so a palette,
+density or faces change reaches it, and the screen that mounts it draws no
+appearance of its own. The one part added to the system for it is
+`Card variant="raised"`, the registry card with its soft shadow, for a card
+that stands on a canvas of its own.
+
+An Agent step says what the runtime held only when the Run recorded it: a step
+reads *held* when every seat it opened was held, *asked* when any was only
+asked of its agent, and says nothing when no seat of it recorded a ceiling.
+The weaker answer wins because it is the one a person must not miss.
+
+**The rule:** the Flow tab shows what the Run froze; where things go is a
+function of the document; the list says everything the lines show.
+
+---
+
 ## The host runs a declared check for an agent; an agent is never given the network
 
 A Seat that only reads — a reviewer, a tester, an acceptance check — can ask

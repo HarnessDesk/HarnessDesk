@@ -182,3 +182,43 @@ it('does not call a card’s findings none while more of them remain to be read'
   const reloading = await mount(withFindings(list({ ...read, rows, loading: true })), { selectedRow: 'card-1-1' })
   try { onlySays(reloading.container, NONE) } finally { reloading.close() }
 })
+
+const flowing = { flow: <p data-testid="the-flow">The drawing</p> }
+const choice = (container: HTMLElement, name: string): HTMLButtonElement =>
+  [...container.querySelectorAll<HTMLButtonElement>('[role="radiogroup"][aria-label="Show the Run as"] [role="radio"]')].find(one => one.textContent === name)!
+it('gives the Flow the whole pane: the inspector steps aside on the Flow tab and returns with the timeline', async () => {
+  const view = await mount(storeWith(), flowing)
+  try {
+    expect(view.container.querySelector('[data-slot="run-inspector"]')).not.toBeNull()
+    expect(view.container.textContent).toContain('Run details')
+    await act(async () => choice(view.container, 'Flow').click())
+    expect(view.container.querySelector('[data-testid="the-flow"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-slot="run-inspector"]')).toBeNull()
+    expect(view.container.textContent).not.toContain('Run details')
+    await act(async () => choice(view.container, 'Timeline').click())
+    expect(view.container.querySelector('[data-testid="the-flow"]')).toBeNull()
+    expect(view.container.querySelector('[data-slot="run-inspector"]')).not.toBeNull()
+  } finally { view.close() }
+})
+it('keeps the inspector beside the timeline when there is no Flow to show', async () => {
+  const view = await mount(storeWith())
+  try {
+    expect(view.container.querySelector('[role="radiogroup"]')).toBeNull()
+    expect(view.container.querySelector('[data-slot="run-inspector"]')).not.toBeNull()
+  } finally { view.close() }
+})
+it('answers to a caller that chooses the tab, and keeps the pane its own while it does', async () => {
+  const onView = vi.fn()
+  const view = await mount(storeWith(), { ...flowing, view: 'flow', onView })
+  try {
+    expect(view.container.querySelector('[data-testid="the-flow"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-slot="run-inspector"]')).toBeNull()
+    await act(async () => choice(view.container, 'Timeline').click())
+    expect(onView).toHaveBeenCalledWith('timeline')
+    // The caller has not moved the tab, so neither has the pane.
+    expect(view.container.querySelector('[data-testid="the-flow"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-slot="run-inspector"]')).toBeNull()
+    await view.show({ view: 'timeline' })
+    expect(view.container.querySelector('[data-slot="run-inspector"]')).not.toBeNull()
+  } finally { view.close() }
+})

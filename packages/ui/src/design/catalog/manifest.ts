@@ -135,7 +135,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'spark', 'stepper', 'table', 'toast', 'tool-pane', 'tooltip',
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'AppWindow', 'Change', 'RefusedAction',
-  'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist',
+  'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist', 'FlowGraph',
   'heat-grid', 'PlanCard', 'SidebarMenuState',
 ])
 
@@ -226,6 +226,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   TurnWork: ['default'],
   Notices: ['default'],
   Checklist: ['default'],
+  FlowGraph: ['default'],
   'heat-grid': ['default'],
   PaneColumn: ['default'],
   PlanCard: ['default'],
@@ -313,6 +314,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   TurnWork: ['default', 'expanded'],
   Notices: ['default', 'populated', 'empty', 'warning', 'recoverable', 'memory-only', 'image-warning', 'error', 'open', 'closed'],
   Checklist: ['default', 'active', 'inactive', 'success', 'empty'],
+  FlowGraph: ['default', 'empty'],
   'heat-grid': ['default', 'empty', 'populated'],
   sidebar: [
     'default', 'hover', 'active', 'populated', 'working', 'needs-you', 'pinned',
@@ -370,6 +372,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   TurnWork: 'packages/ui/src/components/TurnWork.tsx',
   Notices: 'packages/ui/src/components/Notices.tsx',
   Checklist: 'packages/ui/src/components/TaskPanel.tsx',
+  FlowGraph: 'packages/ui/src/components/RunFlow.tsx',
   PaneColumn: 'packages/ui/src/components/Conversation.tsx',
   PlanCard: 'packages/ui/src/components/SettingsAgents.tsx',
   SidebarMenuState: 'packages/ui/src/components/SessionTree.tsx',
@@ -385,6 +388,7 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   ApprovalDialog: 'packages/ui/src/design/explorer/boards.tsx',
   Notices: 'packages/ui/src/design/explorer/boards.tsx',
   Checklist: 'packages/ui/src/design/explorer/boards.tsx',
+  FlowGraph: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   DialogForm: 'packages/ui/src/design/explorer/boards.tsx',
   Lightbox: 'packages/ui/src/design/explorer/boards.tsx',
   Popover: 'packages/ui/src/design/explorer/boards.tsx',
@@ -535,6 +539,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['TurnWork', 'conversation', 'Turn work header and disclosure anatomy'],
   ['Notices', 'notices', 'Message surfaces: sidebar card, composer notice, strip, inbox and toast'],
   ['Checklist', 'checklist', 'An agent plan: steps to do, under way and done'],
+  ['FlowGraph', 'flow-graph', 'A Flow’s steps and rules drawn read-only, with the list that says the same'],
   ['PaneColumn', 'conversation', 'The reading column\'s inset, shared by the transcript and the room stream, plus the bars strip, the jobs strip and the rail'],
   ['PlanCard', 'plan-card', 'A plan\'s price and a key or metered account\'s monthly budget, set once from a suggested price'],
 ] as const satisfies readonly ModuleSeed[]
@@ -607,7 +612,7 @@ export const CATALOG_ENTRIES: readonly CatalogEntry[] = [
     id: 'component.RunView',
     category: 'Patterns',
     implementationPath: 'packages/ui/src/components/RunView.tsx',
-    purpose: 'A Run’s rounds, cards, checks, findings and reason for ending',
+    purpose: 'A Run’s rounds, cards, checks, findings and reason for ending, and the Flow it started with',
     exampleId: 'run-view',
     variants: ['light', 'dark'],
     sizes: ['default'],

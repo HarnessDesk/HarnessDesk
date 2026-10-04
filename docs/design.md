@@ -1512,8 +1512,9 @@ host names that outcome as the reason no step follows. Done and waiting are
 quiet text. Wrapped record titles keep their lead on the first line. Sentences wrap at
 narrow widths, while the brief previews two lines.
 The `run-view` catalogue board mounts the production component for every Run
-state, empty and failed reads, a long timeline, and the narrow pane.
-
+state, empty and failed reads, a long timeline, and the narrow pane. The
+header's `Segmented` switch offers the Flow beside the timeline; the Flow
+drawing below is its other half.
 
 ### The Run inspector
 
@@ -1548,3 +1549,44 @@ through the shared sanitiser. The `run-inspector` catalogue and preview use
 the production component for every kind, findings still being read or
 unreadable, empty, pending and failed reads, narrow navigation and both
 themes.
+
+### The Flow drawing
+
+`FlowGraph` draws a Flow read-only, and is the one picture that says what the
+product does: agents handing work on, a check that cannot be talked round, a
+person at the gate, a loop that has to end. A step is a raised `Card` with an
+`IconTile` for its kind (violet for an Agent, sky for a check, amber for a
+person: the tints the rail already uses), its name in a word, and one earned
+line — what an Agent may do (and whether the runtime held it or only asked,
+once a Run has seated it), the command a check runs, the words a person may
+answer. An Agent is a square tile: the Flow defines it, a Run seats it, and
+only then does it become a face. A step that opens several seats is a fan of
+up to three cards, so a count reads without a number. A rule is a line with an
+arrowhead and, only when something guards it, the outcome word above it in a
+neutral `Chip` with a ground of its own; a loop is a curve under the line whose
+word carries the retry mark. Cards sit on a faint dot grid with hairline
+borders and one soft shadow (`Card variant="raised"`). Colour is for what a
+step is, never decoration, and every value is a token.
+
+Where things go is `lib/flow-layout.ts`, a pure function of the document:
+steps run left to right in the order their rules reach them, a loop falls under
+the line, a person who closes the Flow hangs under what handed it over, and a
+Flow's own `layout.positions` win when it carries them, with the edges derived
+again from the cards' boxes. A rule to a step the file does not define is
+skipped in the drawing and still named in the list. The component only draws
+what the layout says, so a screenshot, the list and a test read one answer.
+
+On the Flow tab the drawing has the whole pane: the inspector explains a row of
+the timeline and steps aside, and returns with the timeline.
+
+The drawing is for the eye. It is `aria-hidden`, and the list of steps and
+rules under it, built from `Rows`, carries the same facts. The drawing hides
+below `38rem` of its own container's width — the pane's, not the window's — and
+the list is then the view. Its curves and arrowheads are data geometry, as a
+chart's are: attributes on SVG marks that read `--hd-*` tokens, recorded in the
+design audit's list of such modules rather than excused. Everything else in it
+is composed from the system, so a palette, density or faces change reaches it
+and no screen draws its appearance. The `flow-graph` catalogue board mounts the
+production pattern for a straight Flow, a loop, a fan-out, a person step, a
+Flow with its own positions, a long Flow, one in the older format and one with
+no steps, in both faces.

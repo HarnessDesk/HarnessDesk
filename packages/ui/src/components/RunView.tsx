@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Banner, Button, Chip, EmptyState, IconTile, ListRow, ListRows, PaneColumn, Separator, Text } from '../design'
+import { Banner, Button, Chip, EmptyState, IconTile, ListRow, ListRows, PaneColumn, Segmented, Separator, Text } from '../design'
 import { openExternal } from '../lib/desktop'
 import { commitDate } from '../lib/git-refs'
 import type { runTimeline } from '../lib/run-timeline'
@@ -15,8 +15,12 @@ const words = (value: string): string => {
 }
 const states = { running: 'Running', settled: 'Settled', stopped: 'Stopped', stalled: 'Needs you' } as const
 
+/** The two halves of a Run: what happened, and the Flow it was started from. */
+export type RunViewTab = 'timeline' | 'flow'
+const TABS = [{ value: 'timeline', label: 'Timeline' }, { value: 'flow', label: 'Flow' }] as const
+
 /** Read-only story. Selection belongs to the caller for the later inspector. */
-export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pullRequest, pending = false, problem, onRetry }: {
+export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pullRequest, pending = false, problem, onRetry, flow, view, onView }: {
   model: ReturnType<typeof runTimeline>
   number: number
   selectedRow: string | null
@@ -27,7 +31,14 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
   pending?: boolean
   problem?: string | null
   onRetry?: () => void
+  /** The Flow this Run started with, drawn: with it, the header offers it beside the timeline. */
+  flow?: ReactNode
+  /** Which half shows, when the caller chooses it; left out, the view keeps it itself. */
+  view?: RunViewTab
+  onView?: (view: RunViewTab) => void
 }) => {
+  const [kept, keep] = useState<RunViewTab>('timeline')
+  const showing: RunViewTab = flow ? view ?? kept : 'timeline'
   const [now, setNow] = useState(Date.now)
   const held = useRef(new Map<string, DoingLine>())
   useEffect(() => {
@@ -41,10 +52,13 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
       <Chip tone={header.needsYou ? 'warning' : 'neutral'}>{header.needsYou ? 'Needs you' : states[header.state]}</Chip>
       <Text role="meta" className="min-w-0 break-words">{words(header.flow)}{header.revision ? ` · ${header.revision}` : ''}</Text>
       {pullRequest && <Button variant="link" size="inline-link" onClick={() => openExternal(pullRequest.url)}>Open pull request #{pullRequest.number}</Button>}
+      {flow && <span className="ml-auto"><Segmented label="Show the Run as" value={showing} options={TABS}
+        onChange={next => { if (view === undefined) keep(next); onView?.(next) }} /></span>}
     </PaneColumn>
     <Separator />
     <div data-slot="run-scroll" className="min-h-0 overflow-y-auto">
       <PaneColumn inset="reading">
+        {showing === 'flow' ? flow : <>
         {pending && <Text role="meta" as="div">Reading checks and findings…</Text>}
         {problem && <Banner tone="warning" title="Some Run details could not be read">{words(problem)}{onRetry && <Button variant="link" size="inline-link" onClick={onRetry}>Try again</Button>}</Banner>}
         <ListRows size="sm" aria-label="Run timeline">
@@ -75,6 +89,7 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
           })}
         </ListRows>
         {!model.rows.some(row => row.kind === 'round') && <EmptyState title="No rounds have opened yet" />}
+        </>}
       </PaneColumn>
     </div>
   </div>

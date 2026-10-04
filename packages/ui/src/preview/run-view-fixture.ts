@@ -1,4 +1,4 @@
-import { runtimeId, type BoardEvidence, type FindingView, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
+import { runtimeId, type BoardEvidence, type FindingView, type FlowEntry, type FlowExecution, type Intent, type TeamSignal } from '@harnessdesk/protocol'
 import { overviewRun, overviewTeamStore } from './team-overview-fixture'
 import { runTimeline } from '../lib/run-timeline'
 
@@ -20,7 +20,21 @@ export const runFixture = (scene: RunScene = 'running') => {
     end: scene === 'settled' ? { kind: 'unrouted', card: 4, outcome: 'no-pr' } : scene === 'complete' ? { kind: 'complete' } : scene === 'stopped' ? { kind: 'stopped', by: 'person' } : scene === 'stalled' ? { kind: 'stalled' } : null,
     reason: scene === 'settled' ? 'The landing check answered no-pr; no rule continues from it.' : scene === 'stopped' ? 'You stopped this Run. Its cards and findings are kept.' : scene === 'stalled' ? 'The desk stopped while the check ran. Review it before running it again.' : scene === 'complete' ? 'Every step finished. Nothing waits.' : null,
     rounds: scene === 'empty' ? [] : Array.from({ length: count }, (_, i) => ({ n: i + 1, role: i === count - 1 && scene === 'person' ? 'person' : i === 1 || (i === count - 1 && (scene === 'settled' || scene === 'stalled')) ? 'verify' : i === 2 ? 'reviewer' : 'writer', cards: [i + 1], seats: i === 1 || (i === count - 1 && ['person', 'settled', 'stalled'].includes(scene)) ? [] : [i === 2 ? 'seat-1' : 'seat-0'], evidence: [], cause: i ? 'review-loop' : 'seed', state: i === count - 1 && !terminal ? 'running' : 'closed' })),
-    document: { format: 'agents', flow: { version: 2, name: 'Build and review', inputs: [], rules: [], messaging: 'board-only', wait: 240, roles: [{ id: 'person', kind: 'person', outcomes: ['approved'] }, { id: 'verify', kind: 'check', check: { run: 'pnpm verify', timeout: 600, exits: { '0': 'pass' }, otherwise: 'fail' } }], seed: { role: 'writer', title: 'Retry the checkout call' } } },
+    // The Flow this Run froze, whole: its Flow tab draws it, so its steps and rules are the ones its rounds name.
+    document: { format: 'agents', flow: { version: 2, name: 'Build and review', inputs: [], messaging: 'board-only', wait: 240,
+      roles: [
+        { id: 'writer', kind: 'agent', uses: ['writer'], seats: [], isolate: false, grant: 'edit', independentOf: [] },
+        { id: 'verify', kind: 'check', check: { run: 'pnpm verify', timeout: 600, exits: { '0': 'pass' }, otherwise: 'fail' } },
+        { id: 'reviewer', kind: 'agent', uses: ['reviewer'], seats: [], isolate: true, grant: 'read', count: 2, independentOf: ['writer'] },
+        { id: 'person', kind: 'person', outcomes: ['approved'] },
+      ],
+      rules: [
+        { id: 'written', on: 'writer', then: { role: 'verify', title: 'Verify the change' } },
+        { id: 'verified', on: 'verify', when: { every: ['pass'] }, then: { role: 'reviewer', title: 'Review the change' } },
+        { id: 'changes', on: 'reviewer', when: { any: ['request-changes'] }, then: { role: 'writer', title: 'Answer the review' } },
+        { id: 'approved', on: 'reviewer', when: { every: ['approve'] }, then: { role: 'person', title: 'Approve the change' } },
+      ],
+      seed: { role: 'writer', title: 'Retry the checkout call' } } },
   }
   const execution: FlowExecution = { ...initial, operations: [...initial.operations, ...initial.rounds.flatMap(round => round.seats.map(seat => ({ key: `seat-${round.n}`, kind: 'seat' as const, state: 'finished' as const, card: round.cards[0]!, seat })))] }
   const cards = Array.from({ length: count }, (_, i) => card(i + 1, i === count - 1 && !terminal, start))
@@ -46,6 +60,56 @@ export const runFixture = (scene: RunScene = 'running') => {
   return { execution, cards, signals, evidence, findings, origin: 'Started by you' }
 }
 export const runModel = (scene: RunScene) => runTimeline(runFixture(scene))
+
+/** The file the fixture Run's Flow came from: what *Open the file* finds in the catalogue and reads. */
+export const RUN_FLOW_ENTRY: FlowEntry = {
+  id: 'build-and-review', origin: 'project', path: '.harnessdesk/flows/build-and-review.yml', name: 'Build and review',
+  description: null, format: 'agents', problem: null, shadows: [],
+}
+export const RUN_FLOW_SOURCE = [
+  'version: 2',
+  'name: "Build and review"',
+  'roles:',
+  '  writer:',
+  '    kind: agent',
+  '    uses: [writer]',
+  '    grant: edit',
+  '    independentOf: []',
+  '  verify:',
+  '    kind: check',
+  '    run: "pnpm verify"',
+  '    timeout: 600',
+  '  reviewer:',
+  '    kind: agent',
+  '    uses: [reviewer]',
+  '    isolate: true',
+  '    count: 2',
+  '    grant: read',
+  '    independentOf: [writer]',
+  '  person:',
+  '    kind: person',
+  '    outcomes: [approved]',
+  'seed: { role: writer, title: "Retry the checkout call" }',
+  'rules:',
+  '  - id: written',
+  '    on: writer',
+  '    then: { role: verify, title: "Verify the change" }',
+  '  - id: verified',
+  '    on: verify',
+  '    when: { every: [pass] }',
+  '    then: { role: reviewer, title: "Review the change" }',
+  '  - id: changes',
+  '    on: reviewer',
+  '    when: { any: [request-changes] }',
+  '    then: { role: writer, title: "Answer the review" }',
+  '  - id: approved',
+  '    on: reviewer',
+  '    when: { every: [approve] }',
+  '    then: { role: person, title: "Approve the change" }',
+  'messaging: board-only',
+  'wait: 240',
+  '',
+].join('\n')
 export const runTeamStore = () => {
   const base = overviewTeamStore()
   const fixture = runFixture('complete')
@@ -57,6 +121,8 @@ export const runTeamStore = () => {
   return new Proxy(base, { get(target, key) {
     if (key === 'getSnapshot') return () => next
     if (key === 'loadFindings' || key === 'loadBoardEvidence' || key === 'loadTeamRuns') return async () => {}
+    if (key === 'flowCatalog') return async () => [RUN_FLOW_ENTRY]
+    if (key === 'flowSource') return async () => RUN_FLOW_SOURCE
     return Reflect.get(target, key)
   } })
 }
