@@ -24,7 +24,13 @@
  *   a marker on the second line and by nothing else. A file, a folder or a link
  *   of anyone else's is left exactly as it is, in either candidate folder, and
  *   the dialog says so. Only a file that carries the marker is replaced or
- *   removed.
+ *   removed, and only the very file that was looked at: it is taken by being
+ *   renamed to a name only this call knows, and is then checked (a regular
+ *   file, opened without following a link, our marker, the same device and
+ *   inode as the one that was looked at) before it is replaced or deleted.
+ *   Anything else is put back, and the item says the launcher changed. A check
+ *   made just before a change leaves a window for a swap in between; the file
+ *   being held is what closes it.
  * - **The launcher finds the app when it runs, not when it was written.** It
  *   records where the app was, and when that is gone — an upgrade that moved
  *   it, a drag to another folder, the transient path a downloaded app runs from
@@ -42,12 +48,16 @@ import { randomUUID } from 'node:crypto'
 import {
   accessSync,
   chmodSync,
+  closeSync,
   constants,
   existsSync,
+  fstatSync,
   linkSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  readSync,
   realpathSync,
   renameSync,
   statSync,
@@ -186,23 +196,56 @@ export const isOurLauncher = (text) => {
 const LARGEST_LAUNCHER = 64 * 1024
 
 /**
+ * How a launcher is opened to be read: not through a link, and without waiting
+ * for a writer if it turns out to be a pipe. It is one open, and everything
+ * known about the file comes from that descriptor, so what was read and who it
+ * was (device and inode) are the same file by construction. A look that took
+ * the type from the name and then read the name again could be handed a
+ * different file, or a pipe to wait on forever, by a swap in between.
+ */
+const READ_WITHOUT_FOLLOWING = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)
+
+/**
  * What is at `path`: nothing, our launcher, or something else. Never follows a
- * link: a link is somebody's arrangement, however it points.
+ * link: a link is somebody's arrangement, however it points. Our launcher comes
+ * back with its `id`, the device and inode of the file that was read.
  */
 export const inspectLauncher = (path) => {
-  let stat
+  let descriptor
   try {
-    stat = lstatSync(path)
+    descriptor = openSync(path, READ_WITHOUT_FOLLOWING)
   } catch (error) {
     if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return { state: 'absent' }
+    // O_NOFOLLOW refuses a link, one that points nowhere included.
+    if (error.code === 'ELOOP' || error.code === 'EMLINK') return { state: 'foreign', why: 'link' }
+    // A socket or a device is not a file this module wrote.
+    if (error.code === 'ENXIO' || error.code === 'ENODEV' || error.code === 'EOPNOTSUPP') return { state: 'foreign', why: 'file' }
     throw error
   }
-  if (stat.isSymbolicLink()) return { state: 'foreign', why: 'link' }
-  if (stat.isDirectory()) return { state: 'foreign', why: 'folder' }
-  if (!stat.isFile() || stat.size > LARGEST_LAUNCHER) return { state: 'foreign', why: 'file' }
-  const text = readFileSync(path, 'utf8')
-  return isOurLauncher(text) ? { state: 'ours', text } : { state: 'foreign', why: 'file' }
+  try {
+    const stat = fstatSync(descriptor, { bigint: true })
+    if (stat.isDirectory()) return { state: 'foreign', why: 'folder' }
+    if (!stat.isFile() || stat.size > BigInt(LARGEST_LAUNCHER)) return { state: 'foreign', why: 'file' }
+    const buffer = Buffer.alloc(LARGEST_LAUNCHER + 1)
+    let length = 0
+    while (length < buffer.length) {
+      const read = readSync(descriptor, buffer, length, buffer.length - length, null)
+      if (read === 0) break
+      length += read
+    }
+    // A file that grew past the limit since it was measured is not ours either.
+    if (length > LARGEST_LAUNCHER) return { state: 'foreign', why: 'file' }
+    const text = buffer.toString('utf8', 0, length)
+    return isOurLauncher(text)
+      ? { state: 'ours', text, id: { dev: stat.dev, ino: stat.ino } }
+      : { state: 'foreign', why: 'file' }
+  } finally {
+    closeSync(descriptor)
+  }
 }
+
+/** Whether two looks were at one file. */
+const sameFile = (a, b) => a.dev === b.dev && a.ino === b.ino
 
 /** What is at `harnessdesk` in each candidate folder, in order. */
 const findLaunchers = (home) =>
@@ -276,6 +319,42 @@ const usableFolder = (dir) => {
 
 const temporaryIn = (dir) => join(dir, `.${COMMAND_NAME}.${process.pid}.${randomUUID()}.tmp`)
 
+/** The name a file is held under while it is being decided about: in its own folder, and known to nobody else. */
+const heldIn = (dir) => join(dir, `.${COMMAND_NAME}.${process.pid}.${randomUUID()}.held`)
+
+const unlinkQuietly = (path) => {
+  try {
+    unlinkSync(path)
+  } catch {
+    // Never written, already moved into place, or already gone.
+  }
+}
+
+/** A new launcher, written and made executable beside its place, before anything is taken. */
+const prepareLauncher = (path, text) => {
+  const temporary = temporaryIn(dirname(path))
+  try {
+    writeFileSync(temporary, text, { flag: 'wx', mode: 0o755 })
+    chmodSync(temporary, 0o755)
+  } catch (error) {
+    unlinkQuietly(temporary)
+    throw error
+  }
+  return temporary
+}
+
+/** Gives a prepared launcher its name, and never replaces anything: a link refuses a name that is taken. */
+const placeLauncher = (temporary, path) => {
+  try {
+    linkSync(temporary, path)
+  } catch (error) {
+    if (error.code === 'EEXIST') throw error
+    // A folder on a volume with no hard links: create it in place, still without replacing.
+    writeFileSync(path, readFileSync(temporary), { flag: 'wx', mode: 0o755 })
+    chmodSync(path, 0o755)
+  }
+}
+
 /**
  * A new launcher, atomically and without ever replacing something that
  * appeared there a moment ago: the file is written beside its place and then
@@ -283,43 +362,116 @@ const temporaryIn = (dir) => join(dir, `.${COMMAND_NAME}.${process.pid}.${random
  * test: the race it answers cannot be made to happen from outside.)
  */
 export const createLauncher = (path, text) => {
-  const temporary = temporaryIn(dirname(path))
+  const temporary = prepareLauncher(path, text)
   try {
-    writeFileSync(temporary, text, { flag: 'wx', mode: 0o755 })
-    chmodSync(temporary, 0o755)
-    try {
-      linkSync(temporary, path)
-    } catch (error) {
-      if (error.code === 'EEXIST') throw error
-      // A folder on a volume with no hard links: create it in place, still without replacing.
-      writeFileSync(path, text, { flag: 'wx', mode: 0o755 })
-      chmodSync(path, 0o755)
-    }
+    placeLauncher(temporary, path)
   } finally {
-    try {
-      unlinkSync(temporary)
-    } catch {
-      // Never written, or already gone.
-    }
+    unlinkQuietly(temporary)
   }
 }
 
-/** Our own launcher, replaced atomically; refused if it stopped being ours since it was read. */
-export const replaceLauncher = (path, text) => {
-  if (inspectLauncher(path).state !== 'ours') {
-    throw new LauncherError('foreign', 'A harnessdesk that is not ours is there.', { path })
-  }
-  const temporary = temporaryIn(dirname(path))
-  try {
-    writeFileSync(temporary, text, { flag: 'wx', mode: 0o755 })
-    chmodSync(temporary, 0o755)
-    renameSync(temporary, path)
-  } finally {
+/**
+ * Takes the file at `path` by moving it to a name only this call knows, in its
+ * own folder. A rename is atomic and takes whatever is at the name at that
+ * instant, so from then on the file cannot be swapped under what is decided
+ * about it: nothing else knows where it is. (The alternative, checking the name
+ * and then deleting or renaming over it, leaves a window between the two.)
+ */
+const claim = (path) => {
+  const held = heldIn(dirname(path))
+  renameSync(path, held)
+  return held
+}
+
+/**
+ * Puts a claimed file back under its name. Never over something that has taken
+ * the name since: then it stays where it is, and this says so by answering
+ * false. A regular file goes back by a link, which refuses a taken name
+ * atomically; anything else (a link or a folder, which a hard link would
+ * follow or refuse) goes back by a rename made only when the name is free.
+ */
+const restore = (held, path) => {
+  if (lstatSync(held).isFile()) {
     try {
-      unlinkSync(temporary)
-    } catch {
-      // Renamed into place, or never written.
+      linkSync(held, path)
+      unlinkQuietly(held)
+      return true
+    } catch (error) {
+      if (error.code === 'EEXIST') return false
+      // No hard links on this volume: the rename below, checked against the name being free.
     }
+  }
+  try {
+    lstatSync(path)
+    return false
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error
+  }
+  renameSync(held, path)
+  return true
+}
+
+/**
+ * Takes hold of the launcher at `path`, and of nothing but the launcher that
+ * was looked at (`expected`). The file is claimed first, and then checked as
+ * what is held: the same device and inode, a regular file, our marker, opened
+ * without following a link. If it is anything else it is put back and this
+ * throws `changed`, naming where it is kept when it could not be put back.
+ *
+ * `hooks` are for tests, which swap the file at the two instants that matter:
+ * `afterCheck` just before it is claimed, `afterClaim` just after.
+ */
+const holdOurs = (path, expected, hooks) => {
+  hooks.afterCheck?.({ path })
+  let held
+  try {
+    held = claim(path)
+  } catch (error) {
+    if (error.code === 'ENOENT') throw new LauncherError('changed', `${path} was gone when it was to be changed.`, { path, gone: true })
+    throw error
+  }
+  hooks.afterClaim?.({ path, held })
+  const seen = inspectLauncher(held)
+  if (seen.state === 'ours' && sameFile(seen.id, expected.id)) return held
+  let restored = false
+  try {
+    restored = restore(held, path)
+  } catch {
+    // It stays where it is, and the error says so.
+  }
+  throw new LauncherError('changed', `${path} was changed while it was being worked on.`, { path, ...(restored ? {} : { held }) })
+}
+
+/**
+ * Our own launcher, replaced; refused if the file at its name is not the one
+ * that was looked at (`expected`, or a look taken now), whatever happened in
+ * between. The new launcher is written first, so the name is without a file
+ * only for as long as it takes to check the old one and link the new one in.
+ */
+export const replaceLauncher = (path, text, { expected, hooks = {} } = {}) => {
+  const looked = expected ?? inspectLauncher(path)
+  if (looked.state !== 'ours') throw new LauncherError('foreign', 'A harnessdesk that is not ours is there.', { path })
+  const temporary = prepareLauncher(path, text)
+  try {
+    const held = holdOurs(path, looked, hooks)
+    try {
+      placeLauncher(temporary, path)
+    } catch (error) {
+      if (error.code === 'EEXIST') {
+        // Something took the name while ours was set aside. It stays; ours, which was being replaced, goes.
+        unlinkQuietly(held)
+        throw new LauncherError('changed', `${path} was taken by something else while it was being replaced.`, { path })
+      }
+      try {
+        restore(held, path)
+      } catch {
+        // It stays where it is.
+      }
+      throw error
+    }
+    unlinkQuietly(held)
+  } finally {
+    unlinkQuietly(temporary)
   }
 }
 
@@ -330,11 +482,13 @@ export const replaceLauncher = (path, text) => {
  * `loginPath` is that PATH, or null when it could not be read. Returns
  * `{ status: 'installed' | 'updated' | 'unchanged', path, dir, onPath }`, with
  * `onPath` null when the PATH was unknown. Our own launcher, wherever it is, is
- * brought up to date in place. Otherwise a first install throws a `foreign`
- * error, before it writes anything, when a `harnessdesk` that is not ours is in
- * either candidate folder, and a `no-folder` error when neither can take a file.
+ * brought up to date in place, and a `changed` error is thrown, with the file
+ * left as it is, if it was swapped for something else while that was done.
+ * Otherwise a first install throws a `foreign` error, before it writes
+ * anything, when a `harnessdesk` that is not ours is in either candidate
+ * folder, and a `no-folder` error when neither can take a file.
  */
-export const installLauncher = ({ home, target, loginPath, searchFolders }) => {
+export const installLauncher = ({ home, target, loginPath, searchFolders, hooks = {} }) => {
   const text = launcherText({ ...target, ...(searchFolders ? { searchFolders } : {}) })
   const found = findLaunchers(home)
   const entries = typeof loginPath === 'string' ? entriesOf(loginPath) : null
@@ -345,7 +499,7 @@ export const installLauncher = ({ home, target, loginPath, searchFolders }) => {
   const ours = found.find((one) => one.state === 'ours')
   if (ours) {
     if (ours.text === text) return { status: 'unchanged', path: ours.path, dir: ours.dir, onPath: onPathFor(ours.dir) }
-    replaceLauncher(ours.path, text)
+    replaceLauncher(ours.path, text, { expected: ours, hooks })
     return { status: 'updated', path: ours.path, dir: ours.dir, onPath: onPathFor(ours.dir) }
   }
 
@@ -387,16 +541,25 @@ export const installLauncher = ({ home, target, loginPath, searchFolders }) => {
   )
 }
 
-/** Deletes our launcher, and only ours. */
-export const removeLauncher = ({ home }) => {
+/**
+ * Deletes our launcher, and only ours: the file that was looked at, taken and
+ * checked before it is deleted (see `holdOurs`). Throws `changed`, with the
+ * file left as it is, if it was swapped for something else in between; a
+ * launcher that somebody else removed first is simply gone.
+ */
+export const removeLauncher = ({ home, hooks = {} }) => {
   const found = findLaunchers(home)
   const ours = found.find((one) => one.state === 'ours')
   if (ours) {
-    // Read again at the last moment: it is the file that is checked, not the memory of it.
-    if (inspectLauncher(ours.path).state === 'ours') {
-      unlinkSync(ours.path)
-      return { status: 'removed', path: ours.path }
+    let held
+    try {
+      held = holdOurs(ours.path, ours, hooks)
+    } catch (error) {
+      if (error.code === 'changed' && error.gone) return { status: 'absent' }
+      throw error
     }
+    unlinkSync(held)
+    return { status: 'removed', path: ours.path }
   }
   const foreign = found.find((one) => one.state === 'foreign')
   if (foreign) return { status: 'foreign', path: foreign.path }
@@ -473,6 +636,15 @@ const unavailableDialog = (missing, home) =>
 
 const failedDialog = (message) => dialog('The command-line tool could not be installed', message)
 
+/** The launcher was swapped for something else while it was being updated or removed, and was left as it is. */
+const changedDialog = (verb, error, home) =>
+  dialog(
+    `The command-line tool was not ${verb}`,
+    `${tildify(error.path, home)} was changed while HarnessDesk was ${verb === 'removed' ? 'removing' : 'updating'} it, so it was left as it is.${
+      error.held ? ` What was there is kept as ${tildify(error.held, home)}.` : ''
+    } Choose ${MENU_LABEL} to look again.`,
+  )
+
 /**
  * The menu item. `run()` is its click: it never throws and never rejects, as
  * the shell treats an unhandled rejection as a crash, and it answers the same
@@ -483,6 +655,7 @@ const failedDialog = (message) => dialog('The command-line tool could not be ins
  * - `loginPath()` resolves to the PATH the person's login shell builds, or null.
  * - `showDialog(request)` resolves to the index of the button pressed.
  * - `copyText(text)` puts a line on the clipboard.
+ * - `hooks` are for tests: they run at the instants a swap would matter (see `holdOurs`).
  */
 export const createCommandLineTool = ({
   platform = process.platform,
@@ -494,6 +667,7 @@ export const createCommandLineTool = ({
   copyText = () => {},
   log = () => {},
   searchFolders,
+  hooks = {},
 }) => {
   const available = platform === 'darwin' || platform === 'linux'
   const where = { home, shell }
@@ -549,13 +723,28 @@ export const createCommandLineTool = ({
       // older build wrote follows this one; then the person is offered the way out.
       let refreshed = false
       if (app) {
-        const result = installLauncher({ home, target: app, loginPath: null, searchFolders })
-        refreshed = result.status === 'updated'
-        if (refreshed) log('command-line tool launcher refreshed', { path: result.path })
+        try {
+          const result = installLauncher({ home, target: app, loginPath: null, searchFolders, hooks })
+          refreshed = result.status === 'updated'
+          if (refreshed) log('command-line tool launcher refreshed', { path: result.path })
+        } catch (error) {
+          if (error.code !== 'changed') throw error
+          log('command-line tool launcher changed while it was updated', { path: error.path })
+          await ask(changedDialog('updated', error, home))
+          return { outcome: 'changed', path: error.path }
+        }
       }
       const choice = await ask(presentDialog(ours.path, home))
       if (choice !== 1) return { outcome: 'kept', path: ours.path, refreshed }
-      const removal = removeLauncher({ home })
+      let removal
+      try {
+        removal = removeLauncher({ home, hooks })
+      } catch (error) {
+        if (error.code !== 'changed') throw error
+        log('command-line tool launcher changed while it was removed', { path: error.path })
+        await ask(changedDialog('removed', error, home))
+        return { outcome: 'changed', path: error.path }
+      }
       if (removal.status !== 'removed') return { outcome: 'kept', path: ours.path, refreshed }
       log('command-line tool removed', { path: removal.path })
       await ask(removedDialog(removal.path, home))

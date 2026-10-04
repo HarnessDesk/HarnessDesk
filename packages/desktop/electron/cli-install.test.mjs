@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import {
   chmodSync,
   existsSync,
@@ -8,8 +8,10 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  readlinkSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
@@ -385,6 +387,245 @@ test('the one line that puts a folder on PATH is the shell’s own, and never ed
   })
 })
 
+/* ---- a swap between the check and the change ------------------------------------------- */
+
+/**
+ * The launcher is looked at, and a moment later changed. Whatever another
+ * process does in between (put a script of its own where ours was, a link, a
+ * folder, even another copy of our launcher) must never be overwritten or
+ * deleted. `hooks.afterCheck` runs at the last instant before the change and
+ * `hooks.afterClaim` at the first instant after the file is taken, so every
+ * swap below happens at exactly the moment that matters and none of these
+ * tests depends on timing.
+ */
+
+/** What is at a path, in a form two looks can be compared by, including which file it is. */
+const snapshotOf = (path) => {
+  const stat = lstatSync(path, { bigint: true })
+  const kind = stat.isSymbolicLink() ? 'link' : stat.isDirectory() ? 'folder' : stat.isFile() ? 'file' : 'other'
+  return {
+    kind,
+    ino: stat.ino,
+    ...(kind === 'file' ? { text: readFileSync(path, 'utf8') } : {}),
+    ...(kind === 'link' ? { to: readlinkSync(path) } : {}),
+    ...(kind === 'folder' ? { entries: readdirSync(path).sort() } : {}),
+  }
+}
+
+const THEIRS = '#!/bin/sh\necho theirs\n'
+
+/** What another process could put where our launcher is, each as a function of the path. */
+const SWAPS = {
+  'a script of someone else’s': (path) => {
+    rmSync(path)
+    writeFileSync(path, THEIRS, { mode: 0o755 })
+  },
+  'a script that only quotes our marker': (path) => {
+    rmSync(path)
+    writeFileSync(path, `#!/bin/sh\necho theirs\n${LAUNCHER_MARKER}\n`)
+  },
+  'foreign text written into the same file, which keeps its inode': (path) => {
+    writeFileSync(path, THEIRS)
+  },
+  'a link to a program elsewhere': (path) => {
+    const elsewhere = join(dirname(path), '..', '..', 'program.sh')
+    writeFileSync(elsewhere, THEIRS)
+    rmSync(path)
+    symlinkSync(elsewhere, path)
+  },
+  'a link to a copy of our own launcher': (path) => {
+    const copy = join(dirname(path), '..', '..', 'copy-of-ours')
+    writeFileSync(copy, launcherText(target()))
+    rmSync(path)
+    symlinkSync(copy, path)
+  },
+  'a folder': (path) => {
+    rmSync(path)
+    mkdirSync(path)
+    writeFileSync(join(path, 'inside'), 'theirs')
+  },
+  'another copy of our own launcher, which is not the file that was looked at': (path) => {
+    rmSync(path)
+    writeFileSync(path, launcherText(target({ runtime: '/elsewhere/runtime' })), { mode: 0o755 })
+  },
+}
+
+const NEWER = launcherText(target({ runtime: '/newer/runtime' }))
+
+/** A home with our launcher installed in ~/.local/bin, and what was seen of it. */
+const installed = () => {
+  const home = makeHome()
+  const { path } = installLauncher({ home, target: target(), loginPath: `${home}/.local/bin` })
+  return { home, path, looked: inspectLauncher(path) }
+}
+
+test('a swap between the check and a replacement is caught, and what was swapped in is left exactly as it is', () => {
+  for (const [what, swap] of Object.entries(SWAPS)) {
+    const { path, looked } = installed()
+    let after
+    assert.throws(
+      () => replaceLauncher(path, NEWER, { expected: looked, hooks: { afterCheck: () => { swap(path); after = snapshotOf(path) } } }),
+      (error) => error.code === 'changed' && error.path === path && /changed/.test(error.message),
+      what,
+    )
+    assert.deepEqual(snapshotOf(path), after, `${what}: the same file, with the same bytes`)
+    assert.deepEqual(readdirSync(dirname(path)), ['harnessdesk'], `${what}: nothing is left beside it`)
+  }
+})
+
+test('a swap between the check and a removal is caught, and what was swapped in is left exactly as it is', () => {
+  for (const [what, swap] of Object.entries(SWAPS)) {
+    const { home, path } = installed()
+    let after
+    assert.throws(
+      () => removeLauncher({ home, hooks: { afterCheck: () => { swap(path); after = snapshotOf(path) } } }),
+      (error) => error.code === 'changed' && error.path === path,
+      what,
+    )
+    assert.deepEqual(snapshotOf(path), after, `${what}: the same file, with the same bytes`)
+    assert.deepEqual(readdirSync(dirname(path)), ['harnessdesk'], `${what}: nothing is left beside it`)
+  }
+})
+
+test('whatever the call answers, a file swapped in at the last moment is not overwritten by a replacement', () => {
+  for (const [what, swap] of Object.entries(SWAPS)) {
+    const { path, looked } = installed()
+    let after
+    try {
+      replaceLauncher(path, NEWER, { expected: looked, hooks: { afterCheck: () => { swap(path); after = snapshotOf(path) } } })
+    } catch {
+      // What it answers is for the tests above; this one is about what became of the file.
+    }
+    assert.deepEqual(snapshotOf(path), after, `${what}: still the file that was swapped in, byte for byte`)
+  }
+})
+
+test('whatever the call answers, a file swapped in at the last moment is not deleted by a removal', () => {
+  for (const [what, swap] of Object.entries(SWAPS)) {
+    const { home, path } = installed()
+    let after
+    try {
+      removeLauncher({ home, hooks: { afterCheck: () => { swap(path); after = snapshotOf(path) } } })
+    } catch {
+      // What it answers is for the tests above; this one is about what became of the file.
+    }
+    assert.deepEqual(snapshotOf(path), after, `${what}: still the file that was swapped in, byte for byte`)
+  }
+})
+
+test('the same swaps are caught through installLauncher, which brings our own launcher up to date', () => {
+  for (const [what, swap] of Object.entries(SWAPS)) {
+    const { home, path } = installed()
+    let after
+    assert.throws(
+      () => installLauncher({
+        home,
+        target: target({ runtime: '/newer/runtime' }),
+        loginPath: null,
+        hooks: { afterCheck: () => { swap(path); after = snapshotOf(path) } },
+      }),
+      (error) => error.code === 'changed',
+      what,
+    )
+    assert.deepEqual(snapshotOf(path), after, what)
+  }
+})
+
+test('without a swap the same hooks change nothing: the launcher is replaced, and removed', () => {
+  const calls = []
+  const { home, path, looked } = installed()
+  replaceLauncher(path, NEWER, { expected: looked, hooks: { afterCheck: () => calls.push('check'), afterClaim: () => calls.push('claim') } })
+  assert.deepEqual(calls, ['check', 'claim'], 'the hooks are called once each, in order')
+  assert.equal(readFileSync(path, 'utf8'), NEWER)
+  assert.equal(lstatSync(path).mode & 0o777, 0o755)
+  assert.deepEqual(readdirSync(dirname(path)), ['harnessdesk'])
+
+  assert.deepEqual(removeLauncher({ home, hooks: { afterCheck: () => calls.push('check'), afterClaim: () => calls.push('claim') } }), { status: 'removed', path })
+  assert.deepEqual(calls, ['check', 'claim', 'check', 'claim'])
+  assert.deepEqual(readdirSync(dirname(path)), [])
+})
+
+test('a launcher that has gone by the time it is changed is already removed, and is a refusal to replace', () => {
+  const removing = installed()
+  assert.deepEqual(removeLauncher({ home: removing.home, hooks: { afterCheck: () => rmSync(removing.path) } }), { status: 'absent' })
+
+  const replacing = installed()
+  assert.throws(
+    () => replaceLauncher(replacing.path, NEWER, { expected: replacing.looked, hooks: { afterCheck: () => rmSync(replacing.path) } }),
+    (error) => error.code === 'changed' && error.path === replacing.path,
+  )
+  assert.deepEqual(readdirSync(dirname(replacing.path)), [], 'nothing is created where our launcher was')
+})
+
+test('something that takes the name while our launcher is set aside is never overwritten', () => {
+  const newcomer = (info) => writeFileSync(info.path, 'newcomer\n')
+
+  const replacing = installed()
+  assert.throws(
+    () => replaceLauncher(replacing.path, NEWER, { expected: replacing.looked, hooks: { afterClaim: newcomer } }),
+    (error) => error.code === 'changed',
+  )
+  assert.equal(readFileSync(replacing.path, 'utf8'), 'newcomer\n', 'the newcomer stays, ours is dropped')
+  assert.deepEqual(readdirSync(dirname(replacing.path)), ['harnessdesk'], 'and nothing is left beside it')
+
+  const removing = installed()
+  assert.deepEqual(removeLauncher({ home: removing.home, hooks: { afterClaim: newcomer } }), { status: 'removed', path: removing.path })
+  assert.equal(readFileSync(removing.path, 'utf8'), 'newcomer\n', 'ours was removed and the newcomer is untouched')
+  assert.deepEqual(readdirSync(dirname(removing.path)), ['harnessdesk'])
+})
+
+test('when what was swapped in cannot be put back because the name was taken again, it is kept and said where', () => {
+  const { path, looked } = installed()
+  let refused
+  try {
+    replaceLauncher(path, NEWER, {
+      expected: looked,
+      hooks: { afterCheck: () => SWAPS['a script of someone else’s'](path), afterClaim: (info) => writeFileSync(info.path, 'newcomer\n') },
+    })
+  } catch (error) {
+    refused = error
+  }
+  assert.equal(refused?.code, 'changed')
+  assert.equal(readFileSync(path, 'utf8'), 'newcomer\n', 'the newcomer is untouched')
+  assert.ok(refused.held, 'the error names where the other file is kept')
+  assert.equal(dirname(refused.held), dirname(path))
+  assert.equal(readFileSync(refused.held, 'utf8'), THEIRS, 'nothing of anyone else’s was deleted')
+  assert.deepEqual(readdirSync(dirname(path)).sort(), ['harnessdesk', refused.held.slice(dirname(path).length + 1)].sort())
+})
+
+test('a launcher is read through one open that follows no link and waits on no pipe, and says which file it read', (t) => {
+  const { path, looked } = installed()
+  const stat = statSync(path, { bigint: true })
+  assert.deepEqual(looked.id, { dev: stat.dev, ino: stat.ino }, 'the identity is the one of the file that was read')
+
+  const links = makeHome()
+  mkdirSync(join(links, '.local', 'bin'), { recursive: true })
+  symlinkSync(join(links, 'nowhere'), COMMAND(links))
+  assert.deepEqual(inspectLauncher(COMMAND(links)), { state: 'foreign', why: 'link' }, 'a link that points nowhere is still a link')
+
+  const pipes = makeHome()
+  mkdirSync(join(pipes, '.local', 'bin'), { recursive: true })
+  try {
+    execFileSync('mkfifo', [COMMAND(pipes)])
+  } catch {
+    return t.skip('no mkfifo on this machine')
+  }
+  // Read in a child with a hard deadline: a look that waits for a writer to the pipe waits for as long as
+  // nobody writes, and neither this runner's timeout nor anything else can interrupt a blocked open.
+  const look = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `import { inspectLauncher } from ${JSON.stringify(new URL('./cli-install.mjs', import.meta.url).href)}\n` +
+        `process.stdout.write(JSON.stringify(inspectLauncher(${JSON.stringify(COMMAND(pipes))})))`,
+    ],
+    { encoding: 'utf8', timeout: 15_000, killSignal: 'SIGKILL' },
+  )
+  assert.equal(look.error?.code, undefined, `the look waited on the pipe: ${look.error?.message ?? ''}`)
+  assert.deepEqual(JSON.parse(look.stdout), { state: 'foreign', why: 'file' }, 'a pipe is not read, and is not waited on')
+})
+
 /* ---- the launcher, run for real ------------------------------------------------------- */
 
 const ARGUMENTS = [
@@ -543,6 +784,7 @@ const rig = ({
   answers = [],
   showDialog,
   withApp = true,
+  hooks,
 } = {}) => {
   const app = withApp ? fakeApp(join(home, 'Applications', 'HarnessDesk.app')) : target({ runtime: join(home, 'missing-runtime'), entry: join(home, 'missing-bin.js'), bundle: null })
   const dialogs = []
@@ -560,6 +802,7 @@ const rig = ({
     }),
     copyText: (text) => copied.push(text),
     log: (message, data) => logs.push([message, data]),
+    ...(hooks ? { hooks } : {}),
   })
   return { home, app, tool, dialogs, copied, logs }
 }
@@ -726,6 +969,82 @@ test('an install that fails is said plainly, with the folder and the reason', as
   assert.equal(dialogs[0].message, 'The command-line tool could not be installed')
   assert.match(dialogs[0].detail, /~\/\.local\/bin/)
   assert.match(dialogs[0].detail, /~\/bin/)
+})
+
+test('a swap while the launcher is brought up to date is said, and what was swapped in is left as it is', async () => {
+  const home = makeHome()
+  await rig({ home }).tool.run()
+  const path = COMMAND(home)
+  let after
+  const moved = fakeApp(join(home, 'Applications', 'HarnessDesk Beta.app'))
+  const dialogs = []
+  const tool = createCommandLineTool({
+    platform: 'darwin',
+    home,
+    shell: '/bin/zsh',
+    target: () => moved,
+    loginPath: async () => `${home}/.local/bin`,
+    showDialog: async (request) => { dialogs.push(request); return 0 },
+    copyText: () => {},
+    hooks: { afterCheck: () => { SWAPS['a script of someone else’s'](path); after = snapshotOf(path) } },
+  })
+  const result = await tool.run()
+  assert.equal(result.outcome, 'changed')
+  assert.deepEqual(dialogs, [{
+    message: 'The command-line tool was not updated',
+    detail: '~/.local/bin/harnessdesk was changed while HarnessDesk was updating it, so it was left as it is. Choose Install command-line tool… to look again.',
+    buttons: ['OK'],
+    defaultId: 0,
+    cancelId: 0,
+  }])
+  assert.deepEqual(snapshotOf(path), after)
+})
+
+test('a swap while the launcher is removed is said, and what was swapped in is left as it is', async () => {
+  const home = makeHome()
+  const path = COMMAND(home)
+  let after
+  const { tool, dialogs } = rig({
+    home,
+    answers: [0, 1, 0],
+    hooks: { afterCheck: () => { SWAPS['a folder'](path); after = snapshotOf(path) } },
+  })
+  // The first run installs; the hook is only reached by a change to an existing launcher.
+  await tool.run()
+  assert.equal(existsSync(path), true)
+  const result = await tool.run()
+  assert.equal(result.outcome, 'changed')
+  assert.equal(dialogs.at(-1).message, 'The command-line tool was not removed')
+  assert.equal(
+    dialogs.at(-1).detail,
+    '~/.local/bin/harnessdesk was changed while HarnessDesk was removing it, so it was left as it is. Choose Install command-line tool… to look again.',
+  )
+  assert.deepEqual(snapshotOf(path), after)
+})
+
+test('when the other file cannot be put back, the dialog says where it is kept', async () => {
+  const home = makeHome()
+  const path = COMMAND(home)
+  const first = rig({ home })
+  await first.tool.run()
+  const moved = fakeApp(join(home, 'Applications', 'HarnessDesk Beta.app'))
+  const dialogs = []
+  const tool = createCommandLineTool({
+    platform: 'darwin',
+    home,
+    shell: '/bin/zsh',
+    target: () => moved,
+    loginPath: async () => `${home}/.local/bin`,
+    showDialog: async (request) => { dialogs.push(request); return 0 },
+    copyText: () => {},
+    hooks: {
+      afterCheck: () => SWAPS['a script of someone else’s'](path),
+      afterClaim: (info) => writeFileSync(info.path, 'newcomer\n'),
+    },
+  })
+  assert.equal((await tool.run()).outcome, 'changed')
+  assert.match(dialogs[0].detail, /^~\/\.local\/bin\/harnessdesk was changed while HarnessDesk was updating it, so it was left as it is\. What was there is kept as ~\/\.local\/bin\/\.harnessdesk\.\d+\.[0-9a-f-]+\.held\. Choose Install command-line tool… to look again\.$/)
+  assert.equal(readFileSync(path, 'utf8'), 'newcomer\n')
 })
 
 test('a dialog that fails is logged and never becomes an unhandled rejection', async () => {

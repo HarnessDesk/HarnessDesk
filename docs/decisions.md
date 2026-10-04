@@ -131,9 +131,23 @@ line is the marker, and nothing else is: not a script that quotes the marker
 further down, not a link, not a folder. A first install stops at anyone else's
 `harnessdesk` in either folder, because two commands of one name shadow each
 other and which one wins would depend on an order the person never chose. A
-second run of the item offers to remove the launcher, and the file is read again
-for the marker at the moment it is deleted. An install over our own launcher
-replaces it, so a launcher an older build wrote follows a newer one.
+second run of the item offers to remove the launcher, and an install over our
+own launcher replaces it, so a launcher an older build wrote follows a newer one.
+
+Neither acts on a name that was only checked. Checking a file and then renaming
+over its name, or deleting it, leaves a window in which another process can put
+something of its own at that name, and what it put would be overwritten or
+deleted. So the file is taken first, by renaming it to a name only the installer
+knows in the same folder, and then checked as what is held: opened without
+following a link, a regular file, our marker, and the same device and inode as
+the one that was looked at. Only then is it deleted, or its replacement linked
+into its name (a link refuses a name that has been taken). Anything else is put
+back, and the dialog says the launcher changed and was left as it is; if it
+cannot be put back because the name was taken again, it is kept beside it and
+the dialog says where. The price is that a replacement leaves the name without a
+file for the moment between those two steps. The look itself is one open that
+follows no link and waits on no pipe, so what is read and which file it was are
+the same file.
 
 The alternatives were a copy of the command line in a system folder, which
 needs an administrator and goes stale at the next update, and a package-manager
