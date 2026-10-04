@@ -2,6 +2,10 @@
   "version": 1,
   "surfaces": [
     {
+      "id": "surface.run-again",
+      "implementationPath": "packages/ui/src/components/RunAgain.tsx"
+    },
+    {
       "id": "surface.flow-brief",
       "implementationPath": "packages/ui/src/components/FlowStart.tsx"
     },

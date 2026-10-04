@@ -355,6 +355,10 @@ export const goalRig = async (
       // Found again by `goalsOf`, the way the host's store answers for a reservation.
       rig.goals.set(input.goal, input.run)
     },
+    reserveContinuation: async (input) => {
+      if (team.stateFor(input.goal).root !== input.root) throw new Error('This Team belongs to another project.')
+      rig.goals.set(input.goal, input.run)
+    },
     releaseGoal: async (input) => {
       if (rig.goals.get(input.goal) !== input.run) return
       rig.events.push(`unreserve:${input.goal}:${input.run}`)

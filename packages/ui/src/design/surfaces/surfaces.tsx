@@ -27,6 +27,7 @@ import { sidebarGeometryFixture } from '../../preview/sidebar-geometry-fixture'
 import { denseTurns, PREVIEW_ROOT, previewHistory, previewSession } from '../../preview/sidebar-fixture'
 import { ComposerSlotsContent } from '../../preview/composer-slots-content'
 import { SIGN_IN_SELECTED, signInSeed } from '../../preview/signin-fixture'
+import { RunAgainCases } from '../../preview/frames-run-view'
 import { FlowBriefCases } from '../../preview/flow-brief-content'
 import styles from './surfaces.module.css'
 
@@ -958,3 +959,6 @@ export const SignInSurface = () => (
 
 /** The shipped Brief input and file-import states, on synthetic data. */
 export const FlowBriefSurface = () => <FlowBriefCases />
+
+/** The same saved-source start dialog in its reading, refusal and ready states. */
+export const RunAgainSurface = () => <RunAgainCases />

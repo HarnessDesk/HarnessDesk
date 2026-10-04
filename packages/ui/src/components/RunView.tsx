@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Banner, Button, Chip, EmptyState, IconTile, ListRow, ListRows, PaneColumn, Segmented, Separator, Text } from '../design'
 import { openExternal } from '../lib/desktop'
 import { commitDate } from '../lib/git-refs'
@@ -20,7 +20,7 @@ export type RunViewTab = 'timeline' | 'flow'
 const TABS = [{ value: 'timeline', label: 'Timeline' }, { value: 'flow', label: 'Flow' }] as const
 
 /** Read-only story. Selection belongs to the caller for the later inspector. */
-export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pullRequest, pending = false, problem, onRetry, flow, view, onView }: {
+export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pullRequest, pending = false, problem, onRetry, flow, view, onView, onRunAgain, onWrap, onBoard, onReviewCheck, runChooser, continuesNumber }: {
   model: ReturnType<typeof runTimeline>
   number: number
   selectedRow: string | null
@@ -36,6 +36,12 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
   /** Which half shows, when the caller chooses it; left out, the view keeps it itself. */
   view?: RunViewTab
   onView?: (view: RunViewTab) => void
+  onRunAgain?: () => void
+  onWrap?: () => void
+  onBoard?: () => void
+  onReviewCheck?: () => void
+  runChooser?: ReactNode
+  continuesNumber?: number
 }) => {
   const [kept, keep] = useState<RunViewTab>('timeline')
   const showing: RunViewTab = flow ? view ?? kept : 'timeline'
@@ -46,14 +52,18 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
     return () => window.clearInterval(timer)
   }, [])
   const header = model.header
+  const showView = (next: RunViewTab) => { if (view === undefined) keep(next); onView?.(next) }
   return <div data-slot="run-view" className="flex min-h-0 min-w-0 flex-1 flex-col">
     <PaneColumn inset="reading" data-slot="run-header" className="flex flex-wrap items-center gap-3">
       <Text role="subject">Run {number}</Text>
+      {runChooser}
       <Chip tone={header.needsYou ? 'warning' : 'neutral'}>{header.needsYou ? 'Needs you' : states[header.state]}</Chip>
-      <Text role="meta" className="min-w-0 break-words">{words(header.flow)}{header.revision ? ` · ${header.revision}` : ''}</Text>
+      {flow ? <Button data-slot="run-revision" variant="link" size="inline-link" className="min-w-0 whitespace-normal break-words" onClick={() => showView('flow')}>{words(header.flow)}{header.revision ? ` · ${header.revision}` : ''}</Button>
+        : <Text role="meta" className="min-w-0 break-words">{words(header.flow)}{header.revision ? ` · ${header.revision}` : ''}</Text>}
+      {header.continues && <Text role="meta">Continues {continuesNumber ? `Run ${continuesNumber}` : 'an earlier Run'}</Text>}
       {pullRequest && <Button variant="link" size="inline-link" onClick={() => openExternal(pullRequest.url)}>Open pull request #{pullRequest.number}</Button>}
       {flow && <span className="ml-auto"><Segmented label="Show the Run as" value={showing} options={TABS}
-        onChange={next => { if (view === undefined) keep(next); onView?.(next) }} /></span>}
+        onChange={showView} /></span>}
     </PaneColumn>
     <Separator />
     <div data-slot="run-scroll" className="min-h-0 overflow-y-auto">
@@ -76,16 +86,26 @@ export const RunView = ({ model, number, selectedRow, onSelect, faces, doing, pu
               {status}
               {duration !== null && <Text role="meta" numeric>{formatDuration(duration)}{row.working ? ' so far' : ''}</Text>}
             </span>
-            return <ListRow wrapTitle key={row.id} data-row={row.id} data-kind={row.kind} as="button" interactive selected={selectedRow === row.id}
-              onClick={() => onSelect(row.id)} title={row.kind === 'end' && row.detail ? null : title}
+            return <Fragment key={row.id}>
+              {row.kind === 'end' && <div data-slot="run-ending"><Banner tone={row.attention ? 'warning' : 'neutral'} title={words(row.title)}>
+                {row.detail && <div className="whitespace-pre-line">{words(row.detail)}</div>}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {header.end?.kind === 'complete' && onWrap && <Button size="sm" variant="outline" onClick={onWrap}>Wrap</Button>}
+                  {header.interruptedCheck !== null && onReviewCheck ? <Button size="sm" variant="outline" onClick={onReviewCheck}>Review and run again…</Button>
+                    : header.end && header.end.kind !== 'complete' && onRunAgain && <Button size="sm" variant="outline" onClick={onRunAgain}>Run again…</Button>}
+                  {header.end?.kind === 'unrouted' && onBoard && <Button size="sm" variant="outline" onClick={onBoard}>Board</Button>}
+                </div>
+              </Banner></div>}
+              <ListRow wrapTitle data-row={row.id} data-kind={row.kind} as="button" interactive selected={selectedRow === row.id}
+              onClick={() => onSelect(row.id)} title={row.kind === 'end' ? 'End' : title}
               className={row.kind === 'round' ? 'mt-4' : undefined}
               lead={row.kind === 'card' ? <IconTile shape="face" size="sm">{row.seat ? faces?.get(row.seat) ?? <AgentIcon /> : <AgentIcon />}</IconTile>
                 : row.kind === 'check' ? <IconTile size="sm"><CheckIcon /></IconTile>
                 : row.kind === 'brief' ? <IconTile size="sm"><PlanIcon /></IconTile> : undefined}
               subtitle={row.kind !== 'end' && (row.detail || (row.working && line.line)) ? <span data-slot="run-detail" className={row.kind === 'brief' ? 'line-clamp-2' : 'whitespace-pre-line'}>{words(row.detail ?? line.line ?? '')}</span> : undefined}
               wrapSubtitle
-              meta={row.kind === 'end' && row.detail ? <Banner tone={row.attention ? 'warning' : 'neutral'} title={row.title}>{words(row.detail)}</Banner>
-                : row.kind === 'start' && row.since !== null ? <Text role="meta">{commitDate(row.since, now)}</Text> : undefined} />
+              meta={(row.kind === 'start' || row.kind === 'end') && row.since !== null ? <Text role="meta">{commitDate(row.since, now)}</Text> : undefined} />
+            </Fragment>
           })}
         </ListRows>
         {!model.rows.some(row => row.kind === 'round') && <EmptyState title="No rounds have opened yet" />}

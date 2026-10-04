@@ -52,6 +52,8 @@ test('lineage and the declared brief round-trip through storage and the Run read
   const source = FINAL.replace('roles:', 'inputs:\n  brief: { default: Default brief }\nroles:')
   const vars = { brief: 'A long brief\nwith a second line.' }
   const run = await start(rig, source, { continues: earlier.id, vars })
+  assert.equal(run.goal, earlier.goal, 'Run again keeps the same Team')
+  assert.deepEqual(rig.flows.executionSummaries({ team: earlier.goal, active: false }).map(one => one.id).sort(), [earlier.id, run.id].sort())
   vars.brief = 'Edited after start'
   await rig.restart()
   const restored = record(await read(rig, run.id))
@@ -62,6 +64,104 @@ test('lineage and the declared brief round-trip through storage and the Run read
   const undeclared = await start(rig, FINAL, { vars: { brief: 'Not an input' } })
   assert.equal(record(undeclared)['brief'], null)
   assert.equal(record(undeclared)['continues'], null)
+})
+
+test('Run again refuses a running Team, an unknown Run and another project before opening work', async t => {
+  const rig = await goalRig(t)
+  const earlier = await start(rig)
+  await assert.rejects(start(rig, FINAL, { continues: earlier.id }), /running or interrupted/)
+  await assert.rejects(start(rig, FINAL, { continues: 'missing' }), /no longer recorded/)
+  await rig.executions.stop(earlier.id)
+  await assert.rejects(start(rig, FINAL, { continues: earlier.id, root: '/another' }), /another project/)
+  assert.equal(rig.flows.executionsFor(earlier.goal).length, 1)
+})
+
+test('a stopped interrupted check can start a fresh Run while keeping its uncertain attempt as history', async t => {
+  const rig = await goalRig(t)
+  rig.checkEvidenceFails = true
+  const source = 'version: 2\nname: Verify\nroles:\n  check: { kind: check, run: echo checked, exits: { "0": pass }, otherwise: fail }\nseed: { role: check, title: Verify }\nrules: []\n'
+  const earlier = await start(rig, source)
+  await rig.flows.flush()
+  assert.equal((await read(rig, earlier.id)).state, 'stalled')
+  await assert.rejects(start(rig, FINAL, { continues: earlier.id }), /running or interrupted/)
+  await rig.flows.stopRun(earlier.id)
+  assert.ok((await read(rig, earlier.id)).operations.some(one => one.state === 'uncertain'))
+  const next = await start(rig, FINAL, { continues: earlier.id })
+  assert.equal(next.goal, earlier.goal)
+  await assert.rejects(rig.executions.previewCheck(earlier.id, earlier.rounds[0]!.cards[0]!), /newer Run/)
+})
+
+test('concurrent Run again starts open one seed, and a continued budget stall stays history', async t => {
+  const rig = await goalRig(t)
+  const source = FINAL.replace('roles:', 'budget: { rounds: 1, without-progress: 2 }\nroles:').replace('rules: []', 'rules:\n  - { id: again, on: person, then: { role: person, title: Again } }')
+  const earlier = await start(rig, source)
+  await rig.team.intentAction(earlier.goal, 1, 'done', undefined, 'done')
+  await rig.flows.flush()
+  assert.equal((await read(rig, earlier.id)).state, 'stalled')
+  const attempts = await Promise.allSettled([start(rig, FINAL, { continues: earlier.id }), start(rig, FINAL, { continues: earlier.id })])
+  assert.equal(attempts.filter(one => one.status === 'fulfilled').length, 1)
+  const next = attempts.find(one => one.status === 'fulfilled')!
+  assert.ok(next.status === 'fulfilled')
+  assert.equal(next.value.goal, earlier.goal)
+  await assert.rejects(rig.executions.authorizeExtraRound(earlier.id, 1, 'Another round'), /newer Run/)
+  await rig.team.intentAction(earlier.goal, next.value.rounds[0]!.cards[0]!, 'done', undefined, 'done')
+  await rig.flows.flush()
+  assert.deepEqual(rig.flows.executionSummaries({ team: earlier.goal }), [])
+  assert.deepEqual(rig.flows.liveExecutionsFor(earlier.goal), [])
+  assert.equal((await read(rig, earlier.id)).state, 'stalled', 'earlier state stays recorded')
+  await rig.restart()
+  assert.equal((await read(rig, next.value.id)).continues, earlier.id)
+  assert.deepEqual(rig.flows.liveExecutionsFor(earlier.goal), [])
+  const third = await start(rig, FINAL, { continues: next.value.id })
+  await rig.executions.stopGoal(earlier.goal, 'The Team was wrapped.')
+  assert.equal((await read(rig, third.id)).state, 'stopped')
+  assert.equal((await read(rig, earlier.id)).state, 'stalled', 'wrapping stops current work without rewriting continued history')
+})
+
+test('Run again holds the earlier Run’s queue while its start is journaled', async t => {
+  const rig = await goalRig(t)
+  const source = FINAL.replace('roles:', 'budget: { rounds: 1, without-progress: 2 }\nroles:').replace('rules: []', 'rules:\n  - { id: again, on: person, then: { role: person, title: Again } }')
+  const earlier = await start(rig, source)
+  await rig.team.intentAction(earlier.goal, 1, 'done', undefined, 'done')
+  await rig.flows.flush()
+  let entered!: () => void, release!: () => void
+  const writing = new Promise<void>(resolve => { entered = resolve })
+  const held = new Promise<void>(resolve => { release = resolve })
+  const save = rig.files.save.bind(rig.files)
+  rig.files.save = async run => {
+    if (run.continues === earlier.id && run.goal === '') { entered(); await held }
+    await save(run)
+  }
+  const starting = start(rig, FINAL, { continues: earlier.id })
+  await writing
+  const authorizing = Promise.allSettled([rig.executions.authorizeExtraRound(earlier.id, 1, 'Another round')])
+  // Let a competing authorization reach the earlier Run's queue before the write finishes.
+  await new Promise<void>(resolve => setImmediate(resolve))
+  release()
+  const next = await starting
+  const answer = (await authorizing)[0]!
+  assert.equal(answer.status, 'rejected')
+  if (answer.status === 'rejected') assert.match(String(answer.reason), /newer Run/)
+  assert.equal(next.goal, earlier.goal)
+  assert.equal((await read(rig, earlier.id)).state, 'stalled')
+})
+
+test('a lost continuation start finds its reserved Team after restart without making another', async t => {
+  const rig = await goalRig(t)
+  const earlier = await start(rig)
+  await rig.executions.stop(earlier.id)
+  rig.files.dieWhen = run => run.continues === earlier.id && run.goal === earlier.goal
+  await assert.rejects(start(rig, FINAL, { continues: earlier.id }), /simulated crash/)
+  await rig.restart()
+  await rig.executions.resume()
+  const runs = rig.flows.executionsFor(earlier.goal)
+  assert.equal(runs.length, 2)
+  const next = runs.find(run => run.continues === earlier.id)!
+  assert.equal(next.goal, earlier.goal)
+  assert.equal(next.rounds.length, 1)
+  const cards = rig.board(earlier.goal).intents.map(card => card.id)
+  await rig.restart()
+  assert.deepEqual(rig.board(earlier.goal).intents.map(card => card.id), cards)
 })
 
 test('a trigger start records its canonical revision and only its declared brief default', async (t) => {

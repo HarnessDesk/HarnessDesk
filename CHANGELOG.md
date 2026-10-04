@@ -9,6 +9,12 @@ move is real work and is not news to a person weighing an upgrade.
 
 HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
 
+- **An ended Run has a way on.** Its banner says why it ended and offers
+  Wrap, the board, a fresh Run, or consent to an interrupted check. Run again
+  prefills the saved inputs and brief, leaves seat preferences open to change,
+  and keeps both Runs on the same Team. The header’s Flow revision opens
+  the Flow that Run started with.
+
 - **A Run shows the Flow it started with.** A Run's header switches between
   its Timeline and its Flow: the Flow it was started from, kept at the
   revision it began with, drawn as cards joined by arrows that name the

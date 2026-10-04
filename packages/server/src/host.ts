@@ -1248,6 +1248,7 @@ export class Host {
       },
       // A front-door run's empty Goal, reserved in the Goal queue against the revision its preview saw.
       reserveGoal: async (input) => { await this.#goals.reserveEmptyFlowGoal(input) },
+      reserveContinuation: (input) => this.#goals.reserveFlowContinuation(input),
       // Let go of again by the run that holds it, when that run ended before its first round.
       releaseGoal: (input) => this.#goals.releaseFlowReservation(input),
       // A Goal this run made, or an existing one reserved for it: how an interrupted start is found rather than repeated.
@@ -1777,7 +1778,7 @@ export class Host {
       },
       wake: (goal: string) => this.#team.nudgeRoom(goal),
       stopFlows: (goal: string) => this.#flows.stopGoal(goal),
-      flowLive: (goal: string) => this.#flows.executionsFor(goal).some((run) => run.state === 'running' || run.state === 'stalled'),
+      flowLive: (goal: string) => this.#flows.liveExecutionsFor(goal).length > 0,
       executions: (goal: string) => this.#flows.executionsFor(goal),
       cards: (goal: string) => this.#goalIntents(goal),
       holdBoard: (goal: string, reason: string) => this.#team.holdBoard(goal, reason),

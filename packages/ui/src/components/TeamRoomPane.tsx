@@ -74,7 +74,8 @@ import { GoalReceipt } from './GoalReceipt'
 import { GoalReceiptCost } from './GoalReceiptCost'
 import { FindingCarry } from './FindingCarry'
 import { FindingDetail } from './FindingDetail'
-import { FlowRunStatus } from './FlowRunStatus'
+import { FlowRunStatus, RetryCheck } from './FlowRunStatus'
+import { RunAgain } from './RunAgain'
 import { WindowControls } from './WindowControls'
 import {
   ActionError,
@@ -399,6 +400,9 @@ export const TeamRoomPane = ({
     setOnRail(!flowExecution)
   }, [room, flowExecution?.id])
   const [chosenRun, setChosenRun] = useState<string | null>(null)
+  const [again, setAgain] = useState<FlowExecution | null>(null)
+  const [retryCheck, setRetryCheck] = useState<{ run: string; card: number } | null>(null)
+  useEffect(() => { setAgain(null); setRetryCheck(null) }, [room])
   const [selectedRunRows, setSelectedRunRows] = useState<ReadonlyMap<string, string>>(new Map())
   const runs = useMemo(() => [...snapshot.flowExecutions.values()].filter(one => one.goal === room)
     .sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0)), [snapshot.flowExecutions, room])
@@ -915,7 +919,7 @@ export const TeamRoomPane = ({
    * to "Needs you" — the two surfaces disagreeing about the same run is
    * exactly the bug this constant exists to close.
    */
-  const needsYou = personWaits.length > 0 || goal?.activity === 'needs-you' || flowExecution?.state === 'stalled'
+  const needsYou = personWaits.length > 0 || goal?.activity === 'needs-you' || flowExecution?.state === 'stalled' || flowExecution?.end?.kind === 'unrouted' || flowExecution?.end?.kind === 'budget'
   const runState: { readonly label: string; readonly tone: Tone; readonly pulse: boolean } | null = !goal
     ? null
     : pendingApproval || needsYou
@@ -947,6 +951,9 @@ export const TeamRoomPane = ({
     <PaneSurface className={`${styles.pane} h-full`} data-showing={onRail ? 'rail' : 'body'}>
       {adding && goal ? <AddMember room={room} root={root} onClose={() => setAdding(false)} /> : null}
       {wrapping && goal ? <GoalWrap view={goal} onClose={() => setWrapping(false)} /> : null}
+      {again?.goal === room && goal && <RunAgain key={again.id} execution={again} root={goal.goal.root} sentence={goal.goal.sentence}
+        onClose={() => setAgain(null)} onStarted={next => { setAgain(null); setChosenRun(next.id); show('run'); void store.loadTeamRuns(room) }} />}
+      {retryCheck && runs.some(one => one.id === retryCheck.run) && <RetryCheck run={retryCheck.run} card={retryCheck.card} onClose={() => setRetryCheck(null)} />}
 
       {/*
         * The one header row, at the window's own bar height — the same one a
@@ -1408,15 +1415,21 @@ export const TeamRoomPane = ({
                 return runtime ? [[seat.record.id, runtime.capabilities.metered === true] as const] : []
               }))}
               runName={flowExecution?.document.flow.name}
+              runNeedsYou={flowExecution?.state === 'stalled' || flowExecution?.end?.kind === 'unrouted' || flowExecution?.end?.kind === 'budget'}
               statusLine={now => <RoomLiveLine members={roster} snapshot={snapshot} now={now} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} includeRunReason />}
               onOpen={id => { const seat = seats.find(one => one.record.id === id); if (seat) show(seat.key) }} />
           ) : open === 'run' && timelineRun ? (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-              {runs.length > 1 && <PaneColumn inset="reading" aria-label="Choose a Run" className="flex flex-wrap gap-2">
-                {runs.map((one, index) => <Button key={one.id} variant="choice" size="sm" data-active={timelineRun.id === one.id || undefined}
-                  onClick={() => setChosenRun(one.id)}>Run {index + 1}</Button>)}
-              </PaneColumn>}
               <TeamRunView key={timelineRun.id} execution={timelineRun}
+                runChooser={runs.length > 1 && <span aria-label="Choose a Run" className="flex flex-wrap gap-2">
+                  {runs.map((one, index) => <Button key={one.id} variant="choice" size="sm" data-active={timelineRun.id === one.id || undefined}
+                    onClick={() => setChosenRun(one.id)}>Run {index + 1}</Button>)}
+                </span>}
+                continuesNumber={timelineRun.continues ? runs.findIndex(one => one.id === timelineRun.continues) + 1 || undefined : undefined}
+                onRunAgain={goal?.goal.state === 'open' ? () => setAgain(timelineRun) : undefined}
+                onWrap={!wrapDisabled ? () => setWrapping(true) : undefined}
+                onBoard={() => show('board')}
+                onReviewCheck={() => { const check = timelineRun.operations.find(one => one.kind === 'check' && one.state === 'uncertain'); if (check?.card != null) setRetryCheck({ run: timelineRun.id, card: check.card }) }}
                 origin={timelineRun.intake ? `From trigger ${timelineRun.intake.trigger}` : goal?.goal.origin.kind === 'person' ? 'Started by you' : null}
                 onOpenSeat={show} number={runs.findIndex(one => one.id === timelineRun.id) + 1}
                 model={runTimeline({ execution: timelineRun, cards: intents,

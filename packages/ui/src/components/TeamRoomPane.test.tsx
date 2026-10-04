@@ -3410,6 +3410,32 @@ it('warns when a Run reads only part of the findings ledger', async () => {
   expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('One finding could not be read.')
 })
 
+it('an unrouted settled Run keeps the Team and its Overview strip Needs you', async () => {
+  const execution = { version: 2, id: 'unrouted-run', goal: ROOM, state: 'settled', end: { kind: 'unrouted', card: 1, outcome: 'no-pr' }, reason: 'No rule follows no-pr.', operations: [], rounds: [], document: { format: 'agents', flow: { name: 'Build', roles: [], rules: [] } } } as unknown as FlowExecution
+  const { store } = rig([], undefined, { members: [] }, GOAL, new Map([[execution.id, execution]]))
+  await render(store)
+  expect(container.querySelector('[aria-label="Run"] [data-slot="chip"]')!.textContent).toBe('Needs you')
+})
+
+it('does not carry a Run again dialog into another Team in the same pane', async () => {
+  const execution = { version: 2, id: 'stopped-run', goal: ROOM, state: 'stopped', end: { kind: 'stopped', by: 'person' }, reason: 'Stopped.', operations: [], rounds: [], document: { format: 'agents', flow: { name: 'Build', roles: [], rules: [] } } } as unknown as FlowExecution
+  const { store } = rig([], undefined, { members: [] }, GOAL, new Map([[execution.id, execution]]))
+  Object.assign(store, { flowExecutionSource: vi.fn(() => new Promise(() => {})) })
+  await render(store)
+  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  await act(async () => nav.click())
+  await act(async () => (container.querySelector('[data-slot="run-ending"] button') as HTMLButtonElement).click())
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Run again')
+  const snapshot = store.getSnapshot()
+  const next = { ...snapshot, teams: new Map(snapshot.teams).set('room-2', { ...state, id: 'room-2', members: [] }),
+    goals: new Map(snapshot.goals).set('room-2', { ...GOAL, goal: { ...GOAL.goal, id: 'room-2' } }) }
+  Object.assign(store, { getSnapshot: () => next })
+  await render(store, 'room-2')
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+  await render(store)
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+})
+
 it('loads older Runs for the rail count and keeps each Run’s own selected row', async () => {
   const execution = { version: 2, id: 'new-run', goal: ROOM, state: 'running', startedAt: 2, reason: null, operations: [], rounds: [{ n: 1, role: 'writer', cards: [1], seats: [], evidence: [], state: 'running', cause: 'seed' }], document: { format: 'agents', flow: { name: 'Build', roles: [], rules: [] } } } as unknown as FlowExecution
   const runs = new Map([[execution.id, execution]])

@@ -15,6 +15,8 @@ export interface RunHeader {
   needsYou: boolean
   revision: string | null
   continues: string | null
+  end: FlowExecution['end']
+  interruptedCheck: number | null
 }
 export interface RunTimelineRow {
   id: string
@@ -58,7 +60,8 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
   const execution = input.execution
   const needsYou = execution.state === 'stalled' || execution.end?.kind === 'unrouted' || execution.end?.kind === 'budget'
   const header: RunHeader = { run: execution.id, flow: execution.document.flow.name, state: execution.state, needsYou,
-    revision: execution.revision ?? null, continues: execution.continues ?? null }
+    revision: execution.revision ?? null, continues: execution.continues ?? null, end: execution.end,
+    interruptedCheck: execution.state === 'stalled' ? execution.operations.find(one => one.kind === 'check' && one.state === 'uncertain')?.card ?? null : null }
   const rows: RunTimelineRow[] = [row('start', 'start', 'Start', { detail: input.origin ?? null, since: execution.startedAt ?? null })]
   if (execution.brief) rows.push(row('brief', 'brief', 'Brief', { detail: execution.brief }))
   for (const round of [...execution.rounds].sort((a, b) => a.n - b.n)) {
@@ -106,6 +109,12 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
       round: round.n, detail: findings.map(one => `${one.title} · ${lifecycleWords(one)}${one.problem ? ` · ${one.problem}` : ''}`).join('\n'),
     }))
   }
-  if (execution.state !== 'running') rows.push(row('end', 'end', endTitle(execution), { detail: execution.reason, attention: needsYou, since: execution.endedAt ?? null }))
+  if (execution.state !== 'running') {
+    const end = execution.end
+    const detail = end?.kind === 'complete' ? 'Nothing waits.'
+      : end?.kind === 'budget' ? `${execution.reason ?? ''}${execution.reason ? '\n' : ''}${end.used} round${end.used === 1 ? '' : 's'} ${end.which === 'rounds' ? 'used' : 'without progress'}.`
+        : execution.reason ?? (end?.kind === 'unrouted' ? `Card #${end.card} answered ${wordOf(end.outcome)}; no rule follows it.` : null)
+    rows.push(row('end', 'end', endTitle(execution), { detail, attention: needsYou, since: execution.endedAt ?? null }))
+  }
   return { header, rows }
 }

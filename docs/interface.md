@@ -983,6 +983,19 @@ A selected row takes the inspector's fill. Historical Runs, including those
 started by triggers, are restored from the host and can be selected beside
 the header, and an observed pull request opens from it.
 
+An ended Run has a banner above its end row. Finished work offers **Wrap**;
+an answer no rule follows offers **Run again…** and **Board**; a person or desk
+stop offers **Run again…**. An interrupted check keeps **Review and run again…**
+and its recorded reason. A spent budget names the limit and how many rounds
+were used. An unrouted answer, stall or spent budget keeps the Run and Team
+**Needs you**.
+
+**Run again…** reads the earlier Run’s saved Flow, inputs and brief into the
+same start preview, with the seat preferences open to change. **Start**
+creates a fresh Run on the same Team and records which Run it continues; both
+stay in the chooser beside the Run’s name. This starts from the seed step.
+The Flow name and digest in the header open the frozen Flow tab.
+
 The header's switch shows the Run as a **Timeline** or as its **Flow**. The
 Flow tab draws the Flow the Run started with, named with the revision it was
 frozen at: a card for each step, joined by arrows that carry the outcome

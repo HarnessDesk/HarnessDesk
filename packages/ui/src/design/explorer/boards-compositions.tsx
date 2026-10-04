@@ -2935,7 +2935,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   {
     id: 'run-view',
     title: 'Run timeline',
-    about: 'The recorded rounds, cards, checks and findings, with a selectable row — and the Flow the Run started with, one choice away.',
+    about: 'The recorded rounds, cards, checks, findings and ending doors, with a selectable row and the frozen Flow in the header.',
     render: RunViewBoard,
   },
   {

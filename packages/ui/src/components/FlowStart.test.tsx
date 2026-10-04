@@ -82,6 +82,19 @@ const select = async (value: string): Promise<void> => {
   })
 }
 
+it('previews the recorded source and inputs without reading the current catalogue file', async () => {
+  const theStore = store({ entries: [], source: () => { throw new Error('must not read'); }, preview: () => ({ ...emptyPreview(), compiled: compiled({ flow: {
+    version: 2, name: 'Fix', inputs: [{ id: 'brief', label: 'Brief' }, { id: 'task', label: 'Task' }], roles: [], rules: [], seed: { role: 'fixer', title: 'Go' }, messaging: 'board-only', wait: 240,
+  } }) }) })
+  const initial = { source: 'frozen source', vars: { task: 'Retry', brief: 'Two\nparagraphs' }, seats: {}, attended: true }
+  const change = vi.fn()
+  await act(async () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" initial={initial} onChange={change} /></StoreProvider>))
+  expect(theStore.flowSource).not.toHaveBeenCalled()
+  expect(theStore.previewFlow).toHaveBeenCalledWith('/repo', initial.source, initial.vars, { seats: {}, attended: true })
+  expect(container.querySelector('textarea')!.value).toBe(initial.vars.brief)
+  expect(change).toHaveBeenLastCalledWith({ source: initial.source, vars: initial.vars, token: 't', seats: {}, attended: true })
+})
+
 it('every candidate and effective ceiling remains visible', async () => {
   const seatHeld: FlowPreviewSeat = {
     role: 'fixer', index: 0, agent: 'builder', isolate: true, reviews: false,
@@ -534,4 +547,23 @@ it.each(['unreadable', 'binary'])('a pending %s file restores the valid choice w
   })
   expect(container.querySelector('textarea')?.value).toBe('Existing draft')
   expect(onChange).toHaveBeenLastCalledWith(previous)
+})
+
+it('changing a recorded seat preference invalidates consent until that exact choice is previewed', async () => {
+  const first: FlowPreview = { ...emptyPreview(), seats: [{ role: 'fixer', index: 0, agent: 'builder', isolate: false, reviews: false,
+    plan: { id: 'builder', from: 'machine', winner: 0, blocked: null, ceiling: { level: 'edit', hold: 'held' }, candidates: [
+      candidate({ state: 'taken', label: 'Alpha', reason: null, fix: null }),
+      candidate({ state: 'untried', label: 'Beta', seat: { runtime: 'beta' }, reason: null, fix: null }),
+    ] } }] }
+  let resolve!: (value: FlowPreview) => void
+  let calls = 0
+  const theStore = store({ entries: [], source: () => 'unused', preview: () => ++calls === 1 ? first : new Promise<FlowPreview>(done => { resolve = done }) })
+  const change = vi.fn()
+  const initial = { source: 'saved', vars: {} }
+  await act(async () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" initial={initial} onChange={change} /></StoreProvider>))
+  await select(JSON.stringify({ runtime: 'beta' }))
+  expect(change).toHaveBeenLastCalledWith(null)
+  expect(theStore.previewFlow).toHaveBeenLastCalledWith('/repo', 'saved', {}, { seats: { fixer: [{ runtime: 'beta' }] }, attended: undefined })
+  await act(async () => resolve({ ...first, token: 'second' }))
+  expect(change).toHaveBeenLastCalledWith({ source: 'saved', vars: {}, token: 'second', seats: { fixer: [{ runtime: 'beta' }] }, attended: undefined })
 })

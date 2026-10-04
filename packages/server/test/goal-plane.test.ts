@@ -432,6 +432,32 @@ test('an open person step needs its person only while the run that opened it is 
   assert.equal((await proof.plane.view('g1')).activity, 'needs-you', 'a live run still asks its person')
 })
 
+test('the current Run ending makes its Team need a person, while continued history does not', async () => {
+  const proof = await rig()
+  const document = proof.store.read('g1')
+  await proof.store.save({ ...document,
+    goal: { ...document.goal, revision: 1, origin: { kind: 'flow', run: 'old' } },
+    board: { ...document.board, intents: [] },
+  }, 0)
+  const old = { version: 2, id: 'old', goal: 'g1', state: 'settled', rounds: [],
+    end: { kind: 'unrouted', card: 1, outcome: 'other' } } as unknown as FlowExecution
+  proof.port.executions = () => [old]
+  assert.equal((await proof.plane.view('g1')).activity, 'needs-you', 'an unrouted ending needs a door even without a person card')
+  for (const end of [{ kind: 'budget', which: 'rounds', used: 2 }, { kind: 'budget', which: 'without-progress', used: 3 }, { kind: 'stalled' }] as const) {
+    proof.port.executions = () => [{ ...old, state: 'stalled', end }]
+    assert.equal((await proof.plane.view('g1')).activity, 'needs-you', `${end.kind} needs a person`)
+  }
+  const next = { ...old, id: 'next', continues: 'old', state: 'running', end: undefined } as FlowExecution
+  const current = proof.store.read('g1')
+  await proof.store.save({ ...current, goal: { ...current.goal, revision: 2 },
+    flowReservation: { run: 'next', operation: 'start' },
+  }, 1)
+  for (const end of [undefined, { kind: 'complete' }, { kind: 'stopped', by: 'person' }, { kind: 'stopped', by: 'desk' }] as const) {
+    proof.port.executions = () => [{ ...old, state: 'stalled', end: { kind: 'stalled' } }, { ...next, end }]
+    assert.equal((await proof.plane.view('g1')).activity, 'working', 'a reserved successor replaces historical attention')
+  }
+})
+
 /*
  * A finished card must stay finished whatever its run is doing now: the
  * placement rule #996 shared between the board and this Goal's own activity

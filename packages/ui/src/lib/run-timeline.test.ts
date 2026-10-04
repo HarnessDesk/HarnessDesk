@@ -15,6 +15,10 @@ const signal = (at: number, event: TeamSignal['signal']): TeamSignal => ({ id: `
 const evidence: BoardEvidence = { room: 'team', stamp: 400, checks: [], refused: [], unreadable: null, cards: [{ card: 1, running: [], facts: [{ freshness: { state: 'fresh' }, by: null, record: { id: 'check', observedAt: 350, round: 1, fact: { kind: 'check', name: 'verify', run: 'pnpm verify', exit: 0, timedOut: false, at: 'abc', dirty: false, tail: 'passed' } } }] }] }
 
 describe('runTimeline', () => {
+  it('a completed Run says nothing waits even when its recorded reason predates that distinction', () => {
+    const model = runTimeline({ execution: run({ state: 'settled', end: { kind: 'complete' }, reason: 'No rule continues, so this waits for you.' }), cards: [] })
+    expect(model.rows.at(-1)?.detail).toBe('Nothing waits.')
+  })
   it.each([
     ['published', 'Published'], ['committed', 'Committed'], ['approve', 'Approve'],
     ['request-changes', 'Request changes'], ['agreed', 'Agreed'], ['disagree', 'Disagree'],

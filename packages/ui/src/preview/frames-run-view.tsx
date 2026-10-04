@@ -1,4 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import type { RunTimelineInput } from '../lib/run-timeline'
+import { Button } from '../design'
+import { runTimeline } from '../lib/run-timeline'
+import { RunAgain } from '../components/RunAgain'
+import { RetryCheck } from '../components/FlowRunStatus'
 import { RunFlow } from '../components/RunFlow'
 import { RunView, type RunViewTab } from '../components/RunView'
 import { TeamRoomPane } from '../components/TeamRoomPane'
@@ -10,13 +15,19 @@ import { RUN_VIEW_STATES, runFixture, runModel, runTeamStore, type RunScene } fr
 let shared: ReturnType<typeof runTeamStore> | undefined
 const sharedStore = () => (shared ??= runTeamStore())
 
-export const RunExample = ({ scene }: { scene: RunScene }) => {
+export const RunExample = ({ scene, input }: { scene: RunScene; input?: RunTimelineInput }) => {
   const [selected, setSelected] = useState<string | null>(null)
-  const execution = useMemo(() => runFixture(scene).execution, [scene])
-  return <StoreProvider store={sharedStore()}><RunView model={runModel(scene)} number={1} selectedRow={selected} onSelect={setSelected}
+  const execution = useMemo(() => input?.execution ?? runFixture(scene).execution, [scene, input])
+  const [again, setAgain] = useState(false)
+  const [retry, setRetry] = useState(false)
+  return <StoreProvider store={sharedStore()}><RunView model={input ? runTimeline(input) : runModel(scene)} number={1} selectedRow={selected} onSelect={setSelected}
     doing={new Map([['seat-0', 'Editing src/checkout/retry.ts']])}
     pending={scene === 'pending'} problem={scene === 'failed' ? 'Check evidence is unavailable.' : null}
-    flow={<RunFlow execution={execution} root="/repo" seats={[]} />} /></StoreProvider>
+    onRunAgain={() => setAgain(true)} onWrap={() => setSelected('end')} onBoard={() => setSelected('end')} onReviewCheck={() => setRetry(true)}
+    flow={<RunFlow execution={execution} root="/repo" seats={[]} />} />
+    {again && <RunAgain execution={execution} root="/repo" sentence="Retry the checkout call" onClose={() => setAgain(false)} onStarted={() => setAgain(false)} />}
+    {retry && <RetryCheck run={execution.id} card={execution.operations.find(one => one.kind === 'check' && one.state === 'uncertain')?.card ?? 1} onClose={() => setRetry(false)} />}
+  </StoreProvider>
 }
 /** The Run as the app mounts it: the timeline with the inspector beside it, and the Flow when it is chosen. */
 export const RunWorkspaceExample = ({ scene = 'running', view: first = 'timeline' }: { scene?: RunScene; view?: RunViewTab }) => {
@@ -31,10 +42,49 @@ export const RunViewBoard = () => <div className="flex flex-col gap-4">{RUN_VIEW
   <section key={scene} data-catalog-state={scene} className={scene === 'narrow' ? 'flex h-144 max-w-sm flex-col' : 'flex h-144 flex-col'}><RunExample scene={scene} /></section>)}
   <section data-catalog-state="flow" className="flex h-144 flex-col"><RunWorkspaceExample view="flow" /></section></div>
 export const RunViewFrames = () => {
-  const store = useMemo(runTeamStore, [])
+  const store = useMemo(() => runTeamStore('settled'), [])
   return <div className="flex flex-col gap-4 p-4">{RUN_VIEW_STATES.map(scene =>
     <section key={scene} id={`run-view-${scene}`} className={scene === 'narrow' ? 'flex h-144 max-w-sm flex-col' : 'flex h-144 flex-col'}><RunExample scene={scene} /></section>)}
     <section id="run-view-flow" className="flex h-144 flex-col"><RunWorkspaceExample view="flow" /></section>
     <section id="run-view-team" className="h-144"><StoreProvider store={store}><TeamRoomPane room="overview-team" /></StoreProvider></section>
   </div>
+}
+
+/** Browser tests feed records produced by the real Flow engine's synthetic rig. */
+export const RunEndingRigFrames = () => {
+  const [input, setInput] = useState<RunTimelineInput | null>(null)
+  useEffect(() => { void fetch('/run-ending-rig.json').then(response => response.json()).then(setInput) }, [])
+  return input ? <section id="run-ending-rig" className="flex h-144 flex-col"><RunExample scene="settled" input={input} /></section> : null
+}
+
+export const RUN_AGAIN_STATES = ['default', 'empty', 'pending', 'failed'] as const
+export type RunAgainScene = typeof RUN_AGAIN_STATES[number]
+export const RunAgainExample = ({ scene = 'default', opened = false }: { scene?: RunAgainScene; opened?: boolean }) => {
+  const [open, setOpen] = useState(opened)
+  const execution = useMemo(() => runFixture('stopped').execution, [])
+  const store = useMemo(() => {
+    const base = runTeamStore('stopped')
+    return new Proxy(base, { get(target, key) {
+      if (key === 'flowExecutionSource' && scene === 'empty') return async () => ({ ...await target.flowExecutionSource(execution.id), vars: { brief: '', task: '' } })
+      if (key === 'flowExecutionSource' && scene === 'pending') return () => new Promise(() => {})
+      if (key === 'flowExecutionSource' && scene === 'failed') return async () => { throw new Error('The earlier Run’s source could not be read.') }
+      return Reflect.get(target, key)
+    } })
+  }, [scene])
+  return <StoreProvider store={store}><Button onClick={() => setOpen(true)}>Run again… · {scene}</Button>
+    {open && <RunAgain execution={execution} root="/repo" sentence="Retry the checkout call" onClose={() => setOpen(false)} onStarted={() => setOpen(false)} />}
+  </StoreProvider>
+}
+export const RunAgainCases = () => {
+  const [scene, setScene] = useState<RunAgainScene | null>(null)
+  const execution = useMemo(() => runFixture('stopped').execution, [])
+  const store = useMemo(() => new Proxy(runTeamStore('stopped'), { get(target, key) {
+    if (key === 'flowExecutionSource' && scene === 'empty') return async () => ({ ...await target.flowExecutionSource(execution.id), vars: { brief: '', task: '' } })
+    if (key === 'flowExecutionSource' && scene === 'pending') return () => new Promise(() => {})
+    if (key === 'flowExecutionSource' && scene === 'failed') return async () => { throw new Error('The earlier Run’s source could not be read.') }
+    return Reflect.get(target, key)
+  } }), [scene])
+  return <StoreProvider store={store}><div className="flex flex-wrap gap-3">{RUN_AGAIN_STATES.map(state => <section key={state} data-catalog-state={state}><Button onClick={() => setScene(state)}>Run again… · {state}</Button></section>)}</div>
+    {scene && <RunAgain key={scene} execution={execution} root="/repo" sentence="Retry the checkout call" onClose={() => setScene(null)} onStarted={() => setScene(null)} />}
+  </StoreProvider>
 }
