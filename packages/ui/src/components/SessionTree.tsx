@@ -660,13 +660,21 @@ const roomMembers = (
   )
   const filtered = snapshot.listPrefs.agent !== null
   return teamSeats(snapshot.goals.get(room.id), room, goalRunOf(room.id, snapshot.goals.get(room.id), snapshot.flowExecutions))
-    .map(({key, record, name}) => shown.get(String(key)) ?? snapshot.sessions.get(key) ?? (
-      record.openedAt > 0 ? {
+    .map(({key, record}) => {
+      const listed = shown.get(String(key))
+      if (listed) return listed
+      const live = snapshot.sessions.get(key)
+      const recorded = snapshot.history.find((one) => sessionKey(one.runtime, one.id) === key)
+      // A search already put its matches in `shown`. Outside that list, a
+      // hidden gone-folder member must not be recreated from its Seat record.
+      if (snapshot.foldersGone.has(recorded?.cwd ?? live?.cwd ?? room.cwd ?? room.root)) return undefined
+      return live ?? (record.openedAt > 0 ? {
         id: record.session.sessionId as SessionSummary['id'], runtime: record.session.runtime as SessionSummary['runtime'],
-        title: name, cwd: room.cwd ?? room.root, status: { type: 'idle' as const },
+        // The Seat's job is the fallback; its agent's name is not a title.
+        title: null, cwd: room.cwd ?? room.root, status: { type: 'idle' as const },
         createdAt: record.openedAt, updatedAt: room.updatedAt,
-      } : undefined
-    ))
+      } : undefined)
+    })
     .filter((one): one is SessionSummary => one !== undefined)
     .filter((one) => !hiddenKeys.has(String(sessionKey(one.runtime, one.id))))
     .filter(
@@ -1234,7 +1242,8 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
     // unless it is a copy of a project the list already has.
     const current = projectGroupRootOf(snapshot.workspace)
     const holding = groupHolding(list, snapshot.workspace)
-    if (current && !snapshot.listPrefs.agent && !holding) {
+    const currentGone = snapshot.workspace !== null && snapshot.foldersGone.has(snapshot.workspace.path)
+    if (current && !snapshot.listPrefs.agent && !holding && (searching || !currentGone)) {
       list.push({ root: current, name: folderName(current), sessions: [], updatedAt: 0, folders: [current] })
     }
     /* And a room earns its project a row for the same reason, with more of a
@@ -1263,7 +1272,7 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
     for (const root of roomRoots.split('\u0000')) {
       // The empty string is "no rooms at all", and a room with no folder has
       // none to be filed under either — the same answer serves both.
-      if (root === '' || claimed.has(root)) continue
+      if (root === '' || claimed.has(root) || !searching && snapshot.foldersGone.has(root)) continue
       list.push({ root, name: folderName(root), sessions: [], updatedAt: 0, folders: [root] })
       claimed.add(root)
     }

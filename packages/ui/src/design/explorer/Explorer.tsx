@@ -200,7 +200,7 @@ const SURFACES = [
     id: 'projects',
     title: 'Projects in the left bar',
     about:
-      'The left bar on a busy desk: one repository cloned once per Team is one project, whichever clone holds the conversation; a second repository and a folder with no remote keep rows of their own; twelve deleted folders are not projects and are said in one quiet line at the end, with a menu that forgets them. A conversation Claude named after its own summary is named by what the person asked; a Team\'s two seats, which nobody typed to, are named by their jobs. The project\'s ⋯ menu holds its capture state — the row says only which project it is. This tab shows that fixture, on a store of its own; the shared preview is a different desk.',
+      'The left bar on a busy desk: one repository cloned once per Team is one project, whichever clone holds the conversation; a second repository and a folder with no remote keep rows of their own; twelve deleted folders are not projects and are said in one quiet line at the end, with a menu that forgets them. A conversation an agent named after its own summary is named by what the person asked; a Team\'s two seats, which nobody typed to, are named by their jobs. The project\'s ⋯ menu holds its capture state — the row says only which project it is. This tab shows that fixture, on a store of its own; the shared preview is a different desk.',
     render: ProjectsSurface,
   },
   {

@@ -243,6 +243,17 @@ it('does not list a project whose folder is gone, nor a worktree whose folder is
   expect(rig.store.getSnapshot().history).toHaveLength(5)
 })
 
+it('does not recreate a gone project from the open folder or a Team’s recorded root', () => {
+  const lost = '/Users/a/code/old-one'
+  mount([row('live', WIDGETS), row('lost', lost, { repo: null })], {
+    workspace: workspace(lost, null),
+    foldersGone: new Map([[lost, 'This folder no longer exists.']]),
+    teams: new Map([['old-team', { id: 'old-team', root: lost, name: 'Old work', members: [], intents: [], channel: [], updatedAt: 1 } as unknown as TeamState]]),
+  })
+  expect(projects()).toEqual(['widgets'])
+  expect(goneLine()?.textContent).toContain('1 folder is gone')
+})
+
 it('says how many folders are gone in one quiet line at the end, counting a folder once', () => {
   mount(withGone(), { foldersGone: GONE })
   const line = goneLine()
@@ -352,7 +363,7 @@ const seatRig = (members: Array<{ id: string; role: string | null; name?: string
       closed: null, agent: { name: member.name ?? 'Claude Code' }, seatLabel: 'agent · model',
     })),
   } as unknown as GoalView
-  mount(rows, { teams: new Map([[team.id, team]]), goals: new Map([[team.id, goal]]) })
+  return mount(rows, { teams: new Map([[team.id, team]]), goals: new Map([[team.id, goal]]) })
 }
 
 it('names a seat nobody typed to by its job and its Team, never “Untitled session”', () => {
@@ -361,6 +372,18 @@ it('names a seat nobody typed to by its job and its Team, never “Untitled sess
   expect(names).toContain('Implementer · Retry the checkout call')
   expect(names).toContain('Reviewer · Retry the checkout call')
   expect(names).not.toContain('Untitled session')
+})
+
+it('names a newly seated conversation by its job before its history arrives', () => {
+  const rig = seatRig([{ id: 'seat-a', role: 'implementer' }])
+  rig.update({ history: [] })
+  expect(titles()).toContain('Implementer · Retry the checkout call')
+})
+
+it('does not synthesize a hidden gone-folder conversation back into its Team', () => {
+  const rig = seatRig([{ id: 'seat-a', role: 'implementer' }], { cwd: PLAN, repo: at(PLAN) })
+  rig.update({ foldersGone: new Map([[PLAN, 'This folder no longer exists.']]) })
+  expect(titles()).toEqual([])
 })
 
 it('names a seat with no job by the agent it is, and still prefers what a person said', () => {

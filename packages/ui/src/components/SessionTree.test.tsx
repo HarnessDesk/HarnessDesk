@@ -1924,7 +1924,7 @@ it('keeps a durable Seat in the Team tree when no live session or history is hel
  const board=room({id:'rested-team',name:'Rested Team',members:[]})
  const view={...triggerGoalView(board),members:[{id:'rested-seat',session:{runtime:'codex',sessionId:'rested'},role:'reviewer',openedAt:1,closed:null,agent:{name:'Rested reviewer'}}]} as unknown as GoalView
  const {container:tree}=treeWith([board],[],[],{},undefined,null,new Map([[board.id,view]]))
- expect(tree.textContent).toContain('Rested reviewer')
+ expect(tree.textContent).toContain('Reviewer · Rested Team')
 })
 
 it('keeps settled Teams and their Seats out of the sidebar, and brings attention back', () => {

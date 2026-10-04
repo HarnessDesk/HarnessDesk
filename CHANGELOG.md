@@ -9,6 +9,12 @@ move is real work and is not news to a person weighing an upgrade.
 
 HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — with clearer evidence, safer isolation and a Dashboard that makes progress and spend easier to follow.
 
+- **One repository is one sidebar project.** Team clones and linked worktrees
+  share its row. Gone folders leave the list while their conversations remain
+  searchable. Seats with no first message are named by their job and Team,
+  and an agent's compaction summary is never a conversation title. Capture
+  state lives in the project's menu.
+
 - **A Seat's commit stays yours.** The desk adds its co-author credit once
   when it commits a card's work, using your configured author and committer
   identity. An agent no longer has to remember the credit, and commits you

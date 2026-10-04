@@ -149,6 +149,7 @@ export const opensEnvelope = (text: string): boolean => peelDeskContextPrefix(te
 const COMPACTION_OPENINGS: readonly RegExp[] = [
   /^\[Previous conversation summary\]/,
   /^This session is being continued from a previous conversation/,
+  /^##\s+1\.\s+Primary Request(?:\s+and Intent)?(?=\s|:|$)/,
 ]
 
 /** `<summary>`, and the `<analysis>` a model writes ahead of it; `<summary-card>` is a word. */

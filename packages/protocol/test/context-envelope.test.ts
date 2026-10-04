@@ -195,6 +195,7 @@ test("what a message asks of its receiver about acting for its sender outside th
 const SUMMARY_BLOCK = '<summary>\n## 1. Primary Request and Intent\nThe user asked for a retry on a 502.\n## 2. Key Technical Concepts\n- backoff\n</summary>'
 
 test('a summary an agent wrote of its own history is nobody’s opening', () => {
+  assert.equal(openingOf('## 1. Primary Request and Intent\nThe user asked for a retry.'), '')
   assert.equal(openingOf(SUMMARY_BLOCK), '')
   // One that was cut off before it closed is all block, not the start of a sentence.
   assert.equal(openingOf('<summary> 1. Primary Request and Intent: Worker 4 was asked to'), '')

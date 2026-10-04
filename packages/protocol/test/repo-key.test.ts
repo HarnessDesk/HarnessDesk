@@ -30,7 +30,7 @@ test('a remote with no value says nothing', () => {
 
 test('a path on this machine is not an address, so it names nothing', () => {
   // `git clone ./source ./copy` points a clone's origin at a folder; two folders sharing a source are not a repository's identity.
-  assert.equal(repoKey('/Users/jane/code/ledger-api'), null)
+  assert.equal(repoKey('/Users/dev/code/ledger-api'), null)
   assert.equal(repoKey('../ledger-api.git'), null)
   assert.equal(repoKey('file:///srv/git/ledger-api.git'), null)
   assert.equal(repoKey('C:\\repos\\ledger-api'), null)

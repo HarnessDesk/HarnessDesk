@@ -41,7 +41,7 @@ const CODEX = runtimeId('codex')
 const CLAUDE = runtimeId('claude')
 const CURSOR = runtimeId('cursor')
 
-const HOME = '/Users/jane'
+const HOME = '/Users/dev'
 export const PROJECTS_ROOT = `${HOME}/code/widgets`
 const ORIGIN = 'github.com/acme/widgets'
 const CLONES = ['widgets-team-plan-pr18', 'widgets-team-luna-954', 'widgets-team-x1324'] as const
@@ -108,7 +108,7 @@ const CODEX_WORKTREES = ['4d4b', 'b017', 'c3a9', '7e21', '91fa', 'a0d6', '2b88',
 const goneCodex: Seed[] = CODEX_WORKTREES.map((id, index) => ({
   id: `g-${id}`,
   runtime: CODEX,
-  title: `Codex worktree conversation ${index + 1}`,
+  title: `Worktree conversation ${index + 1}`,
   cwd: `${HOME}/.codex/worktrees/${id}/widgets`,
   // The folder is gone, so git can say nothing about it; only the agent's own remote is left.
   repo: null,
@@ -140,8 +140,8 @@ const workspaceAt = (path: string, repo: RepoInfo): WorkspaceEntry => ({
 })
 
 const SEATS = [
-  { id: 'seat-impl', runtime: CLAUDE, role: 'implementer', agent: 'Claude Code' },
-  { id: 'seat-review', runtime: CODEX, role: 'reviewer', agent: 'Codex' },
+  { id: 'seat-impl', runtime: CLAUDE, role: 'implementer', agent: 'Beta' },
+  { id: 'seat-review', runtime: CODEX, role: 'reviewer', agent: 'Alpha' },
 ] as const
 
 const team: TeamState = {
