@@ -28,7 +28,7 @@ import { isRecord, RECORD_REASON } from '../lib/team-record'
 import { teamOverview } from '../lib/team-overview'
 import { TeamOverview } from './TeamOverview'
 import { TeamRunView } from './TeamRunView'
-import { StopRunDialog } from './StopRunDialog'
+import { StopRunDialog, StopRunFailure } from './StopRunDialog'
 import { RunFlow } from './RunFlow'
 import { runTimeline } from '../lib/run-timeline'
 import { shortSha } from '../lib/evidence'
@@ -973,6 +973,8 @@ export const TeamRoomPane = ({
       {wrapping && goal ? <GoalWrap view={goal} onClose={() => setWrapping(false)} /> : null}
       {stoppingRun && stoppingExecution?.goal === room ? <StopRunDialog key={stoppingRun} seats={stopSeats}
         refusal={record ? RECORD_REASON : null}
+        ended={stoppingExecution.state === 'stopped' || stoppingExecution.state === 'settled'}
+        failure={snapshot.flowStopProblems.get(stoppingRun)}
         onStop={reason => store.stopFlowExecution(stoppingRun, reason)} onClose={() => setStoppingRun(null)} /> : null}
 
       {/*
@@ -1180,6 +1182,11 @@ export const TeamRoomPane = ({
       </Bar>
       {goal ? <GoalHeader view={goal} /> : null}
       {flowExecution ? <FlowRunStatus execution={flowExecution} /> : null}
+      {runs.map((execution, index) => {
+        const failure = snapshot.flowStopProblems.get(execution.id)
+        return failure ? <StopRunFailure key={execution.id} number={index + 1} message={failure.message}
+          refusal={record ? RECORD_REASON : null} onRetry={() => setStoppingRun(execution.id)} /> : null
+      })}
       {/* The one failure this row can have, said out loud and across the whole
           room: the chat's own trouble line is inside the chat, and a toggle
           that failed while the board was up had nowhere to say so. */}

@@ -12,7 +12,8 @@ HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — 
 - **Stop one Run from its header or Overview.** Stop run… ends the round,
   asks its Seats to stop and starts no further step. Its question says which
   Seats stop now and which finish their current turn, accepts an optional
-  note, and keeps cards, findings and recorded cost. The abandon question
+  note, and keeps cards, findings and recorded cost. A cleanup failure keeps
+  a retry in the Team pane after its question closes. The abandon question
   offers Stop the run instead and stays with the card it was opened for;
   finishing that card or selecting another cannot carry over a late refusal.
   (Fixes #1342)

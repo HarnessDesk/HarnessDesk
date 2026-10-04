@@ -446,6 +446,8 @@ export interface AppSnapshot {
    * in the one place, so a run status surface reads whichever arrived last.
    */
   readonly flowExecutions: ReadonlyMap<string, FlowExecution>
+  /** Failed Stop cleanup stays reachable even after its question or Team pane closes. */
+  readonly flowStopProblems: ReadonlyMap<string, { readonly reason: string; readonly message: string }>
   /**
    * `/race`'s dialog, open on the task it was typed with — or null. Store
    * state because the command that opens it runs wherever the composer is,
@@ -852,6 +854,7 @@ const EMPTY: AppSnapshot = {
   lanes: [],
   flowRuns: new Map(),
   flowExecutions: new Map(),
+  flowStopProblems: new Map(),
   raceStart: null,
   boardEvidence: new Map(),
   boardEvidenceFailed: new Set(),

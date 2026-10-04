@@ -1038,5 +1038,8 @@ then lists its open Seats: an Agent that can be interrupted stops now; one
 that cannot stops when its current turn ends. Interruption is best effort;
 if it fails, the turn finishes and nothing follows it. The note is optional
 and limited to 4,096 characters. Cards, findings and recorded cost are kept,
-and the timeline reads **Stopped by you**. A cleanup failure stays beside
-Stop so you can try again to finish stopping the Run.
+and the timeline reads **Stopped by you**. A cleanup failure stays with that
+Run in the Team pane, with **Retry stop…**, even after you close the question
+or leave and reopen the pane. The retry keeps your note and clears the failure
+only when cleanup succeeds; a Run that already ended offers **Close**, rather
+than **Keep running**.
