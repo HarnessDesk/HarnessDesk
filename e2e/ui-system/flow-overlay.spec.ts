@@ -169,7 +169,7 @@ for (const theme of ['light', 'dark']) {
       await expect(fix).not.toContainText('retry.ts')
       await advance(page, 'fix-idle')
       await expect(fix).not.toContainText('Read src/checkout/cart.ts')
-      await expect(fix).not.toContainText('Edit · held')
+      await expect(fix).not.toContainText('Edit')
       expect(await graph(page).evaluate(root => root.scrollWidth <= root.clientWidth + 1)).toBe(true)
       await advance(page, 'you')
       await expect(graph(page).locator('[data-step-row="you"]')).toContainText('Needs you')

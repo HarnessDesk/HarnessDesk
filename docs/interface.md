@@ -455,7 +455,7 @@ tasks chip · git control · plan meters · browser button · terminal toggle ·
 sidebar row lead with the Agent's name — once, while the conversation's title
 is still that name — the composer's agent chip names the Agent and the seat it
 took, and the name card adds an *Agent* band: what it is for, its ceiling
-(*Read · held* or *Read · asked*), where it came from, the seat and every seat passed over, and
+(*Read only* or *Read only · asked, not enforced*), where it came from, the seat and every seat passed over, and
 *The brief has changed since this started* once its file has moved on.
 
 The same ceiling vocabulary appears on six governed-seat surfaces: the

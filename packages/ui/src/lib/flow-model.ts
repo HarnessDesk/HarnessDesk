@@ -1,7 +1,7 @@
 import { ceilingOfPermission, narrower, type Flow, type FlowEvidenceGuard, type FlowPolicy, type SeatCeiling } from '@harnessdesk/protocol'
 
 import { commandShown } from './projects'
-import { ceilingWords, seatCeilingWords } from './agents'
+import { ceilingMeaning, ceilingWords, seatCeilingWords } from './agents'
 import { readGraphPositions, type GraphPoint } from './shapes'
 
 /**
@@ -94,6 +94,7 @@ const stepOf = (role: DrawnFlow['roles'][number], options: FlowModelOptions): Fl
     // a Run has seated the step the line is the seat's own record, in the words
     // the Seat record uses; the grant is never followed by a hold it did not earn.
     line: ran ? seatCeilingWords(ran) : ceilingWords(grant),
+    title: ceilingMeaning(ran?.level ?? grant),
     count: widthOf(listed, count),
     agents,
   }

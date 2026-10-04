@@ -130,3 +130,21 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(flow.locator('[data-slot="run-inspector"] [title]').filter({ hasText: shown })).toHaveAttribute('title', raw)
   })
 }
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`seat ceiling words appear in the Team rail and Flow step in ${theme}`, async ({ page }) => {
+    await page.goto(`/preview.html?run-view&theme=${theme}`)
+    const flow = page.locator('#run-view-live-polish-flow')
+    await expect(flow.locator('[data-step-row="writer"]')).toContainText('Edit · asked, not enforced')
+    const ceiling = flow.locator('[data-step="writer"] [data-role="meta"]')
+    expect(await ceiling.evaluate(el => ({ clipped: el.scrollWidth > el.clientWidth + 1,
+      outside: el.getBoundingClientRect().bottom > el.closest('[data-slot="flow-step"]')!.getBoundingClientRect().bottom })))
+      .toEqual({ clipped: false, outside: false })
+    await expect(flow.locator('[data-step="reviewer"]')).toContainText('Read only')
+    await expect(flow.locator('[data-step="reviewer"] [title]').filter({ hasText: 'Read only' }))
+      .toHaveAttribute('title', 'Changes nothing: it reads, searches and reports.')
+    const rail = page.locator('#run-view-live-polish-team')
+    await expect(rail.locator('[data-ceiling="edit"]')).toHaveText('Edit · asked, not enforced')
+    await expect(rail.locator('[data-ceiling="read"]')).toHaveText('Read only')
+  })
+}

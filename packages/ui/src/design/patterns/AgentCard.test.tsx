@@ -248,7 +248,7 @@ it('draws an Agent band only for a conversation seated as one', () => {
     mark: <svg />,
     agent: {
       name: 'Code reviewer',
-      ceiling: 'Read · asked',
+      ceiling: 'Read only · asked, not enforced',
       description: 'Reviews a change it did not write.',
       origin: 'Built in',
       seat: 'Claude · Opus 5 · High',
@@ -256,7 +256,7 @@ it('draws an Agent band only for a conversation seated as one', () => {
     },
   })
   expect(bands()).toBe(1)
-  for (const words of ['Code reviewer', 'Read · asked', 'Reviews a change it did not write.', 'Built in', 'Seated on Claude · Opus 5 · High', 'Passed over Cursor — Cursor is signed out']) {
+  for (const words of ['Code reviewer', 'Read only · asked, not enforced', 'Reviews a change it did not write.', 'Built in', 'Seated on Claude · Opus 5 · High', 'Passed over Cursor — Cursor is signed out']) {
     expect(text()).toContain(words)
   }
 })

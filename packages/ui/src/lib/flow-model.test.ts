@@ -50,14 +50,14 @@ describe('a step', () => {
     const model = flowModel(policy([agent('write', 'edit'), agent('review', 'read'), check('verify', 'pnpm verify')]), {
       ceilings: new Map([['write', ran('edit', 'asked')], ['review', ran('read', 'held')], ['verify', ran('read', 'held')]]),
     })
-    expect(model.steps.map((step) => step.line)).toEqual(['Edit · asked', 'Read · held', 'pnpm verify'])
+    expect(model.steps.map((step) => step.line)).toEqual(['Edit · asked, not enforced', 'Read only', 'pnpm verify'])
   })
 
   it('says the level its seats ran at when that is below the grant the Flow asks for', () => {
     // A seat runs at the narrower of its Agent's ceiling and the grant: the
     // grant followed by *held* would say the runtime enforced what it never did.
     const model = flowModel(policy([agent('write', 'edit')]), { ceilings: new Map([['write', ran('read', 'held')]]) })
-    expect(model.steps[0]!.line).toBe('Read · held')
+    expect(model.steps[0]!.line).toBe('Read only')
   })
 
   it('does not guess when it does not know', () => {
@@ -243,4 +243,10 @@ it('shortens a check command for display while retaining the whole command as it
   const model = flowModel(policy([check('verify', command)]), { home: '/home/dev' })
   expect(model.steps[0]!.line).toBe('node ~/tools/land.mjs --check')
   expect(model.steps[0]!.title).toBe(command)
+})
+
+
+it('keeps the effective ceiling meaning on hover for a seated Flow step', () => {
+  const model = flowModel(policy([agent('write', 'edit')]), { ceilings: new Map([['write', ran('read', 'held')]]) })
+  expect(model.steps[0]!.title).toBe('Changes nothing: it reads, searches and reports.')
 })
