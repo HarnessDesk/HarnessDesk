@@ -27,7 +27,8 @@
  *   removed, and only the very file that was looked at: it is taken by being
  *   renamed to a name only this call knows, and is then checked (a regular
  *   file, opened without following a link, our marker, the same device and
- *   inode as the one that was looked at) before it is replaced or deleted.
+ *   inode, text and stat facts as the one that was looked at) before it is
+ *   replaced or deleted. File numbers can be reused after a deletion.
  *   Anything else is put back, and the item says the launcher changed. A check
  *   made just before a change leaves a window for a swap in between; the file
  *   being held is what closes it.
@@ -208,7 +209,7 @@ const READ_WITHOUT_FOLLOWING = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) 
 /**
  * What is at `path`: nothing, our launcher, or something else. Never follows a
  * link: a link is somebody's arrangement, however it points. Our launcher comes
- * back with its `id`, the device and inode of the file that was read.
+ * back with its `id` and `facts`, all from the descriptor whose text was read.
  */
 export const inspectLauncher = (path) => {
   let descriptor
@@ -237,15 +238,26 @@ export const inspectLauncher = (path) => {
     if (length > LARGEST_LAUNCHER) return { state: 'foreign', why: 'file' }
     const text = buffer.toString('utf8', 0, length)
     return isOurLauncher(text)
-      ? { state: 'ours', text, id: { dev: stat.dev, ino: stat.ino } }
+      ? {
+          state: 'ours', text, id: { dev: stat.dev, ino: stat.ino },
+          facts: { size: stat.size, mode: stat.mode, birthtimeNs: stat.birthtimeNs, ctimeNs: stat.ctimeNs },
+        }
       : { state: 'foreign', why: 'file' }
   } finally {
     closeSync(descriptor)
   }
 }
 
-/** Whether two looks were at one file. */
-const sameFile = (a, b) => a.dev === b.dev && a.ino === b.ino
+/** Some filesystems do not report a birth time; zero or missing is not a fact. */
+const sameTime = (a, b) => !(a > 0n && b > 0n) || a === b
+
+/** File numbers can be reused, and timestamps can be coarse: compare the text too. */
+const sameFile = (a, b, { renamed = false } = {}) =>
+  a.state === 'ours' && b.state === 'ours' &&
+  a.id.dev === b.id.dev && a.id.ino === b.id.ino && a.text === b.text &&
+  a.facts.size === b.facts.size && a.facts.mode === b.facts.mode &&
+  sameTime(a.facts.birthtimeNs, b.facts.birthtimeNs) &&
+  (renamed || sameTime(a.facts.ctimeNs, b.facts.ctimeNs))
 
 /** What is at `harnessdesk` in each candidate folder, in order. */
 const findLaunchers = (home) =>
@@ -416,15 +428,19 @@ const recoverFailure = (held, path, error) => new LauncherError(
 /**
  * Takes hold of the launcher at `path`, and of nothing but the launcher that
  * was looked at (`expected`). The file is claimed first, and then checked as
- * what is held: the same device and inode, a regular file, our marker, opened
- * without following a link. If it is anything else it is put back and this
- * throws `changed`, naming where it is kept when it could not be put back.
+ * what is held: the same device, inode, text and stat facts, a regular file,
+ * our marker, opened without following a link. If it is anything else it is
+ * put back and this throws `changed`, naming where it is kept when it could
+ * not be put back.
  *
  * `hooks` are for tests, which swap the file at the two instants that matter:
  * `afterCheck` just before it is claimed, `afterClaim` just after.
  */
 const holdOurs = (path, expected, hooks) => {
   hooks.afterCheck?.({ path })
+  // Rename itself changes ctime. Compare it before claiming, then check the
+  // held file again so a swap during the rename is still caught.
+  const beforeClaim = inspectLauncher(path)
   let held
   try {
     held = claim(path)
@@ -439,7 +455,7 @@ const holdOurs = (path, expected, hooks) => {
   } catch (error) {
     throw recoverFailure(held, path, error)
   }
-  if (seen.state === 'ours' && sameFile(seen.id, expected.id)) return held
+  if (sameFile(beforeClaim, expected) && sameFile(seen, beforeClaim, { renamed: true })) return held
   throw new LauncherError('changed', `${path} was changed while it was being worked on.`, { path, ...restore(held, path) })
 }
 

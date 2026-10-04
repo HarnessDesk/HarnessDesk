@@ -20,7 +20,10 @@ const rig = () => {
   const descriptors = new Map()
   let next = 1
   let fault = () => {}
-  const put = (path, text, kind = 'file') => files.set(path, { text, kind, ino: BigInt(next++), dev: 1n })
+  const put = (path, text, kind = 'file') => files.set(path, {
+    text, kind, ino: BigInt(next++), dev: 1n, mode: 0o100755n,
+    birthtimeNs: BigInt(next), ctimeNs: BigInt(next),
+  })
   const get = (path) => {
     const file = files.get(path)
     if (!file) throw fail('ENOENT')
@@ -51,7 +54,13 @@ const rig = () => {
     },
     closeSync(fd) { const d = descriptors.get(fd); descriptors.delete(fd); fault('close', d.path) },
     lstatSync(path) { fault('lstat', path); return stat(get(path)) },
-    renameSync(from, to) { fault('rename', to); files.set(to, get(from)); files.delete(from) },
+    renameSync(from, to) {
+      fault('rename', to)
+      const file = get(from)
+      if (file.ctimeNs > 0n) file.ctimeNs += 1n
+      files.set(to, file)
+      files.delete(from)
+    },
     linkSync(from, to) {
       fault('link', to)
       if (files.has(to)) throw fail('EEXIST')
@@ -68,11 +77,68 @@ const rig = () => {
     existsSync: (path) => files.has(path),
   }
   const sandbox = { ...paths, ...fs, randomUUID, homedir, Buffer, process }
-  runInNewContext(`${source}\nglobalThis.api = { removeLauncher, replaceLauncher, createCommandLineTool, launcherText };`, sandbox)
+  runInNewContext(`${source}\nglobalThis.api = { removeLauncher, replaceLauncher, installLauncher, createCommandLineTool, launcherText };`, sandbox)
   const api = sandbox.api
   const text = api.launcherText({ runtime: '/Applications/HarnessDesk.app/runtime', entry: '/Applications/HarnessDesk.app/bin.js' })
   put(LAUNCHER_PATH, text)
   return { ...api, files, put, text, faults: (fn) => { fault = fn } }
+}
+
+for (const action of ['remove', 'replace', 'install']) {
+  for (const difference of ['text with equal size and timestamps', 'mode', 'birthtimeNs', 'ctimeNs']) {
+    test(`${action} preserves a swapped launcher with a reused inode and different ${difference}`, () => {
+      const r = rig()
+      let swapped
+      const hooks = { afterCheck: () => {
+        const old = r.files.get(LAUNCHER_PATH)
+        // Give the new file exactly the same device and inode, independently
+        // of whether the real filesystem happens to reuse one on this run.
+        r.put(LAUNCHER_PATH, old.text)
+        swapped = Object.assign(r.files.get(LAUNCHER_PATH), old)
+        if (difference.startsWith('text')) swapped.text = old.text.replace('/runtime', '/changed')
+        else swapped[difference] += 1n
+      } }
+      assert.throws(() => action === 'remove'
+        ? r.removeLauncher({ home: FIXTURE_HOME, hooks })
+        : action === 'replace'
+          ? r.replaceLauncher(LAUNCHER_PATH, 'replacement', { hooks })
+          : r.installLauncher({ home: FIXTURE_HOME, target: { runtime: '/new/runtime', entry: '/new/bin.js' }, loginPath: null, hooks }),
+      (error) => error.code === 'changed' && error.restored === true && !error.held)
+      assert.equal(r.files.get(LAUNCHER_PATH), swapped, 'the swapped file is restored, not overwritten or deleted')
+      assert.equal(r.files.size, 1, 'no prepared or held file remains')
+    })
+  }
+}
+
+test('a reused inode swapped during the claim is checked against the held text', () => {
+  const r = rig()
+  let swapped
+  r.faults((step, path) => {
+    if (step !== 'rename' || !path.endsWith('.held')) return
+    const old = r.files.get(LAUNCHER_PATH)
+    r.put(LAUNCHER_PATH, old.text)
+    swapped = Object.assign(r.files.get(LAUNCHER_PATH), old, { text: old.text.replace('/runtime', '/changed') })
+  })
+  assert.throws(() => r.removeLauncher({ home: FIXTURE_HOME }), { code: 'changed' })
+  assert.equal(r.files.get(LAUNCHER_PATH), swapped)
+})
+
+for (const timestamp of [0n, undefined]) {
+  test(`identical text and stat facts with ${timestamp === 0n ? 'zero' : 'unavailable'} timestamps can be replaced and removed`, () => {
+    const r = rig()
+    const original = r.files.get(LAUNCHER_PATH)
+    original.birthtimeNs = timestamp
+    original.ctimeNs = timestamp
+    const hooks = { afterCheck: () => {
+      const old = r.files.get(LAUNCHER_PATH)
+      r.put(LAUNCHER_PATH, old.text)
+      Object.assign(r.files.get(LAUNCHER_PATH), old)
+    } }
+    r.replaceLauncher(LAUNCHER_PATH, r.text, { hooks })
+    assert.equal(r.files.get(LAUNCHER_PATH).text, r.text)
+    assert.equal(r.removeLauncher({ home: FIXTURE_HOME, hooks }).status, 'removed')
+    assert.equal(r.files.size, 0)
+  })
 }
 
 test('restore never renames over a newcomer, including when hard links are unavailable', () => {

@@ -139,8 +139,12 @@ over its name, or deleting it, leaves a window in which another process can put
 something of its own at that name, and what it put would be overwritten or
 deleted. So the file is taken first, by renaming it to a name only the installer
 knows in the same folder, and then checked as what is held: opened without
-following a link, a regular file, our marker, and the same device and inode as
-the one that was looked at. Only then is it deleted, or its replacement linked
+following a link, a regular file, our marker, and the same device, inode, text,
+size and mode as the one that was looked at. Non-zero birth and change times
+are compared in nanoseconds too, with the change time checked before the
+rename because the rename itself changes it. File numbers can be reused and
+timestamps can be coarse, so neither stands in for the text. Only then is it
+deleted, or its replacement linked
 into its name (a link refuses a name that has been taken). Anything else is put
 back, and the dialog says the launcher changed and was left as it is; if it
 cannot be put back because the name was taken again, it is kept beside it and

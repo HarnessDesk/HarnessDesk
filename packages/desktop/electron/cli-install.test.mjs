@@ -610,6 +610,9 @@ test('a launcher is read through one open that follows no link and waits on no p
   const { path, looked } = installed()
   const stat = statSync(path, { bigint: true })
   assert.deepEqual(looked.id, { dev: stat.dev, ino: stat.ino }, 'the identity is the one of the file that was read')
+  assert.deepEqual(looked.facts, {
+    size: stat.size, mode: stat.mode, birthtimeNs: stat.birthtimeNs, ctimeNs: stat.ctimeNs,
+  }, 'the comparison facts belong to the file whose text was read')
 
   const links = makeHome()
   mkdirSync(join(links, '.local', 'bin'), { recursive: true })
