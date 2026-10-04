@@ -96,3 +96,36 @@ it('keeps labels clear of the current agent’s doing band without moving any ca
   expect(layout).toEqual(before)
   expect(flowOverlayLabels(layout, draw(run([])))).toEqual(new Map(layout.edges.flatMap(edge => edge.label ? [[edge.id, edge.label]] : [])))
 })
+
+
+it('keeps a host-closed unfinished round stopped and freezes its time at the Run end', () => {
+  const execution = run([round(1, 'write', 'seed'), round(2, 'fix', 'cause:manual')], {
+    state: 'stopped', endedAt: 5000, end: { kind: 'stopped', by: 'person' },
+  })
+  // Stop closes the rounds; the cards remain as the work record, even if a
+  // later Seat release touches their timestamps.
+  const unfinished = { ...card(2, null), updatedAt: 9000 }
+  expect(draw(execution, [card(1), unfinished]).steps.get('fix')).toMatchObject({
+    state: 'stopped', durationMs: 3000, since: null, line: null,
+  })
+  expect(draw(execution, [card(1), unfinished]).steps.get('write')?.state).toBe('done')
+  expect(draw({ ...execution, endedAt: undefined }, [card(1), unfinished]).steps.get('fix')?.durationMs).toBeNull()
+  expect(draw({ ...execution, endedAt: null }, [card(1), unfinished]).steps.get('fix')?.durationMs).toBeNull()
+})
+
+it('clears Needs you for an answered person and distinguishes an evidence wait', () => {
+  const execution = run([round(1, 'you', 'seed', false)])
+  expect(draw(execution, [card(1, 'merged')]).steps.get('you')).toMatchObject({ state: 'done', line: 'merged', since: null })
+  const waiting = { ...execution, rounds: execution.rounds.map(one => ({ ...one, state: 'waiting-evidence' as const })) }
+  expect(draw(waiting, [card(1, 'merged')]).steps.get('you')).toMatchObject({ state: 'blocked', line: 'merged' })
+  expect(draw(execution, [{ ...card(1, null), state: 'blocked', blockedBy: 'graph' }]).steps.get('you')?.state).toBe('blocked')
+})
+
+
+it('keeps a stopped retry of a closed check’s unrecorded duration unknown', () => {
+  const execution = run([round(1, 'check', 'seed')], {
+    state: 'stopped', endedAt: 5000,
+    operations: [{ key: 'check:1:0', kind: 'check', state: 'started', card: 1, seat: null }],
+  })
+  expect(draw(execution, [card(1, 'passes')]).steps.get('check')).toMatchObject({ state: 'stopped', durationMs: null, since: null })
+})

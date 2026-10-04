@@ -6,7 +6,7 @@ import { PREVIEW_GOAL } from './goal-fixture'
 import { previewStore } from './harness'
 import type { AppSnapshot, AppStore } from '../state/store'
 
-export const FLOW_OVERLAY_SCENES = ['fix', 'check-again', 'review', 'you', 'settled', 'pending', 'failed', 'empty'] as const
+export const FLOW_OVERLAY_SCENES = ['fix', 'fix-reading', 'fix-idle', 'check-again', 'review', 'you', 'answered', 'evidence-wait', 'settled', 'stopped', 'pending', 'failed', 'empty'] as const
 export type FlowOverlayScene = typeof FLOW_OVERLAY_SCENES[number]
 const START = Date.now() - 22 * 60_000
 const ROLES = ['write', 'check', 'review', 'fix', 'check', 'review', 'land', 'you'] as const
@@ -24,7 +24,7 @@ const seatsFor = (role: string): string[] => role === 'review' ? ['beta', 'gamma
 
 /** Real host record shapes, including the cause key that records which rule fired. All identities are placeholders. */
 export const flowOverlayFixture = (scene: FlowOverlayScene) => {
-  const count = scene === 'empty' ? 0 : scene === 'fix' || scene === 'pending' || scene === 'failed' ? 4 : scene === 'check-again' ? 5 : scene === 'review' ? 6 : 8
+  const count = scene === 'empty' ? 0 : scene.startsWith('fix') || scene === 'stopped' || scene === 'pending' || scene === 'failed' ? 4 : scene === 'check-again' ? 5 : scene === 'review' ? 6 : 8
   const cards: Intent[] = []
   const rounds: FlowExecution['rounds'][number][] = []
   const operations: FlowExecution['operations'][number][] = []
@@ -32,12 +32,13 @@ export const flowOverlayFixture = (scene: FlowOverlayScene) => {
   for (let i = 0; i < count; i++) {
     const role = ROLES[i]!
     const live = i === count - 1 && scene !== 'settled'
+    const answered = !live || scene === 'answered' || scene === 'evidence-wait'
     const seats = seatsFor(role)
     const ids = role === 'review' ? [(i + 1) * 10 + 1, (i + 1) * 10 + 2] : [(i + 1) * 10]
-    rounds.push({ n: i + 1, role, cards: ids, seats, state: live ? 'running' : 'closed', cause: CAUSES[i]!, evidence: [] })
+    rounds.push({ n: i + 1, role, cards: ids, seats, state: scene === 'stopped' ? 'closed' : live ? scene === 'evidence-wait' ? 'waiting-evidence' : 'running' : 'closed', cause: CAUSES[i]!, evidence: [] })
     ids.forEach((id, slot) => {
-      cards.push({ id, title: `Open ${role}`, detail: null, state: live ? role === 'you' ? 'open' : 'claimed' : 'done', files: [], dependsOn: [],
-        createdAt: TIMES[i]!, updatedAt: live ? TIMES[i]! : TIMES[i + 1]!, outcome: live ? null : OUTCOMES[i]!,
+      cards.push({ id, title: `Open ${role}`, detail: null, state: answered ? 'done' : role === 'you' || scene === 'stopped' ? 'open' : 'claimed', files: [], dependsOn: [],
+        createdAt: TIMES[i]!, updatedAt: answered ? TIMES[i + 1]! : TIMES[i]!, outcome: answered ? OUTCOMES[i]! : null,
         claim: live && seats[slot] ? { runtime: runtimeId(OVERLAY_SEATS.find(seat => seat.id === seats[slot])!.session.runtime), sessionId: seats[slot]!, at: TIMES[i]! } : null,
       })
       if (seats[slot]) operations.push({ key: `seat:${i + 1}:${slot}`, kind: 'seat', state: 'finished', card: id, seat: seats[slot]! })
@@ -52,8 +53,9 @@ export const flowOverlayFixture = (scene: FlowOverlayScene) => {
     ...(scene === 'check-again' ? [] : [{ id: 'result-50', at: TIMES[5]! }])], complete: true })
   if (scene === 'failed') attempts.set(20, { attempts: [{ id: 'result-20', at: TIMES[2]! }], complete: false })
   if (scene === 'pending') attempts.clear()
-  const execution: FlowExecution = { version: 2, id: 'overlay-run', goal: 'overlay-team', state: scene === 'settled' ? 'settled' : 'running',
-    document: flowGraphDocument('blueprint'), revision: '3f9a1c', rounds, operations, legacyRun: null, reason: null, startedAt: START,
+  const execution: FlowExecution = { version: 2, id: 'overlay-run', goal: 'overlay-team', state: scene === 'settled' ? 'settled' : scene === 'stopped' ? 'stopped' : 'running',
+    document: flowGraphDocument('blueprint'), revision: '3f9a1c', rounds, operations, legacyRun: null, reason: scene === 'evidence-wait' ? 'Waiting for recorded evidence' : scene === 'stopped' ? 'Stopped by you' : null, startedAt: START,
+    ...(scene === 'stopped' ? { endedAt: TIMES[4], end: { kind: 'stopped' as const, by: 'person' as const } } : {}),
     ...(scene === 'settled' ? { endedAt: TIMES[8], end: { kind: 'complete' as const } } : {}),
   }
   const model = flowModel(execution.document.flow)
@@ -74,10 +76,10 @@ export const flowOverlayRig = (initial: FlowOverlayScene = 'fix') => {
     const goal = { ...PREVIEW_GOAL, goal: { ...PREVIEW_GOAL.goal, id: board.id, root: board.root, cwd: board.root, sentence: board.name, state: 'open' as const,
       reservation: undefined }, reservation: { run: source.execution.id }, members: OVERLAY_SEATS, board, activity: 'working' as const }
     const sessions = new Map(OVERLAY_SEATS.map(seat => {
-      const live = source.execution.rounds.at(-1)?.seats.includes(seat.id) ?? false
+      const live = source.execution.state === 'running' && (source.execution.rounds.at(-1)?.seats.includes(seat.id) ?? false)
       const session: Session = { runtime: runtimeId(seat.session.runtime), id: sessionId(seat.session.sessionId), title: seat.agent!.name, cwd: board.root,
         createdAt: START, updatedAt: Date.now(), status: { type: live ? 'active' : 'idle' }, itemsLoaded: true,
-        turns: live ? [{ id: turnId('work'), startedAt: Date.now() - 120_000, status: 'inProgress', items: seat.ceiling?.level === 'read' ? [{ id: itemId('read'), type: 'toolCall', tool: 'read', source: { kind: 'builtin' }, status: 'inProgress', args: { path: 'src/checkout/retry.ts' } }] : [{ id: itemId('edit'), type: 'fileChange', status: 'inProgress', changes: [{ path: 'src/checkout/retry.ts', kind: { type: 'update', movePath: null }, diff: '' }] }] }] : [],
+        turns: live ? [{ id: turnId('work'), startedAt: Date.now() - 120_000, status: 'inProgress', items: scene === 'fix-idle' ? [] : seat.ceiling?.level === 'read' || scene === 'fix-reading' ? [{ id: itemId('read'), type: 'toolCall', tool: 'read', source: { kind: 'builtin' }, status: 'inProgress', args: { path: scene === 'fix-reading' ? 'src/checkout/cart.ts' : 'src/checkout/retry.ts' } }] : [{ id: itemId('edit'), type: 'fileChange', status: 'inProgress', changes: [{ path: 'src/checkout/retry.ts', kind: { type: 'update', movePath: null }, diff: '' }] }] }] : [],
       } as Session
       return [sessionKey(seat.session.runtime, seat.session.sessionId), session]
     }))

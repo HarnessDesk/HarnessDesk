@@ -21,7 +21,7 @@ export const FlowStepSurface = ({ state, selected, children, duration, runs, onC
       {children}
     </Card>
     {state === 'done' && <span data-slot="flow-complete" className="absolute -right-2 -top-2 inline-flex size-6 items-center justify-center rounded-full bg-(--hd-accent) text-(--hd-accent-foreground) ring-2 ring-(--hd-background)"><CheckIcon size={14} /></span>}
-    {(state === 'working' || state === 'waiting') && <span data-slot="flow-state" className="absolute right-2 top-2 pointer-events-none"><Chip size="sm" tone={state === 'waiting' ? 'warning' : 'info'}>{state === 'waiting' ? 'Needs you' : 'Working'}</Chip></span>}
+    {(state === 'working' || state === 'waiting' || state === 'blocked') && <span data-slot="flow-state" className="absolute right-2 top-2 pointer-events-none"><Chip size="sm" tone={state === 'waiting' ? 'warning' : state === 'working' ? 'info' : 'neutral'}>{state === 'waiting' ? 'Needs you' : state === 'working' ? 'Working' : 'Waiting'}</Chip></span>}
     {(duration !== null || (runs !== undefined && runs !== null && runs > 1)) && <span data-slot="flow-duration" className="absolute bottom-0 left-3 translate-y-1/2 pointer-events-none"><Chip size="sm" tone="neutral">{[duration, runs !== undefined && runs !== null && runs > 1 ? `×${runs}` : null].filter(Boolean).join(' · ')}</Chip></span>}
   </>
 )

@@ -1039,7 +1039,10 @@ person's step is answered there with the same controls as the Overview.
 
 The Run is laid over that frozen Flow as it moves: completed steps have a filled
 check and their recorded time; the route already taken is bold in the accent;
-current work has a breathing ring, Working and its doing line below. Seated
+current work has a breathing ring, Working and its doing line below. A working
+card names the file in that activity, or its kind when there is no file; the
+blueprint keeps the permission line. Command steps carry a terminal mark, so a
+check badge always means completion. Seated
 Agent steps carry their Seats' faces, overlapping when several work at once.
 Unreached steps are dashed; a person waiting for an answer says Needs you in
 the warning ring. Repeated steps and loops show their counts. Check counts read
@@ -1050,4 +1053,8 @@ motion stops the baton and ring. The blueprint has no motion.
 
 Selecting a step selects its rounds and rows in the Timeline. Selecting a
 Timeline row selects its step on the Flow. The same live state and selection
-are available through the accessible step list in a narrow pane.
+are available through the accessible step list in a narrow pane, including the
+live doing sentence. An answered person step clears Needs you; a wait for
+evidence reads Waiting. Stopping closes rounds without finishing their cards:
+those steps read Stopped, freeze their time at the recorded Run end, and carry
+no completion badge, activity, glow or motion.

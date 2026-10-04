@@ -33,7 +33,7 @@ const entriesNamed = (entries: readonly FlowEntry[], name: string): readonly Flo
  * for the next Run.
  */
 export const RunFlow = ({ execution, root, seats, cards = [], attempts, selectedStep, onSelectStep, faces, faceTints, doing }: {
-  execution: Pick<FlowExecution, 'document' | 'revision' | 'rounds'> & Partial<Pick<FlowExecution, 'operations' | 'state'>>
+  execution: Pick<FlowExecution, 'document' | 'revision' | 'rounds'> & Partial<Pick<FlowExecution, 'operations' | 'state' | 'endedAt'>>
   /** The project the Run belongs to, where its Flow's file is looked for; null when it is not known. */
   root: string | null
   /** The Seats the Run opened, for the ceiling each step's seats ran under and whether it was held or only asked. */

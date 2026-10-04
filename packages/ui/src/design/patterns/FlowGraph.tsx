@@ -1,6 +1,6 @@
 import { useId, useMemo, type ReactNode } from 'react'
 
-import { AgentIcon, CheckIcon, RetryIcon, UserIcon } from '../../components/Icons'
+import { AgentIcon, TerminalIcon, RetryIcon, UserIcon } from '../../components/Icons'
 import {
   FLOW_FAN_INSET, FLOW_FAN_RISE, FLOW_GRID, FLOW_MARGIN, flowLayout,
   type FlowEdge, type FlowLabel, type FlowNode,
@@ -51,7 +51,7 @@ import { Chip, Row, RowButton, Rows, SectionHead, Text } from './Settings'
 
 const KIND: Readonly<Record<StepKind, { readonly tint: Tint; readonly Mark: typeof AgentIcon }>> = {
   agent: { tint: 'violet', Mark: AgentIcon },
-  check: { tint: 'sky', Mark: CheckIcon },
+  check: { tint: 'sky', Mark: TerminalIcon },
   person: { tint: 'amber', Mark: UserIcon },
 }
 
@@ -75,10 +75,25 @@ const durationOf = (run: FlowStepRun | undefined, now: number): string | null =>
 }
 const statusOf = (run: FlowStepRun): string => ({ future: 'Not reached', done: 'Done', working: 'Working', waiting: 'Needs you', blocked: 'Waiting', stopped: 'Stopped' })[run.state]
 
-const StepCard = ({ node, drawingWidth, step, run, selected, faces, faceTints, doing, now, onSelect }: {
+/** Sanitize once for both views, then take file objects only from file activity. */
+const activityOf = (run: FlowStepRun | undefined, doing: FlowGraphProps['doing']): { text: string; object: string } => {
+  const lines = run?.state === 'working' ? [...new Set(run.seats.flatMap(id => {
+    const line = doing?.get(id)
+    return line ? [words(line)] : []
+  }).filter(Boolean))] : []
+  const objects = lines.flatMap(line => {
+    const target = /^(?:Read|Reading|Edited|Editing|Wrote|Writing|Created|Creating)\s+(.+)$/i.exec(line)?.[1]
+    return target && target !== 'a file' && target !== 'files' ? [target.split(/[/\\]/).at(-1)!] : []
+  })
+  return { text: lines.join(' · '), object: [...new Set(objects)].join(' · ') }
+}
+const lineOf = (step: FlowStep, run: FlowStepRun | undefined, object: string): string =>
+  run?.state === 'working' ? object || ROLE_KIND_WORDS[step.kind] : run?.state === 'stopped' ? 'Stopped' : words(run?.line ?? step.line)
+
+const StepCard = ({ node, drawingWidth, step, run, selected, faces, faceTints, activity, now, onSelect }: {
   drawingWidth: number
   node: FlowNode; step: FlowStep; run?: FlowStepRun; selected: boolean; faces?: ReadonlyMap<string, ReactNode>
-  faceTints?: ReadonlyMap<string, Tint>; doing?: ReadonlyMap<string, string | null>; now: number; onSelect?: (step: string) => void
+  faceTints?: ReadonlyMap<string, Tint>; activity: { text: string; object: string }; now: number; onSelect?: (step: string) => void
 }) => {
   const { tint, Mark } = KIND[step.kind]
   return (
@@ -105,21 +120,21 @@ const StepCard = ({ node, drawingWidth, step, run, selected, faces, faceTints, d
       <FlowStepSurface state={run?.state} selected={selected} duration={durationOf(run, now)} runs={run?.runs} onClick={onSelect ? () => onSelect(step.id) : undefined}>
         <FlowFaces seats={step.kind === 'agent' ? run?.seats : undefined} faces={faces} tints={faceTints} fallback={<IconTile tint={tint}><Mark /></IconTile>} />
         <span className="flex min-w-0 flex-1 flex-col">
-          <Text role="row" truncate className={run?.state === 'working' ? 'max-w-12' : run?.state === 'waiting' ? 'max-w-10' : undefined} title={step.name}>{step.name}</Text>
-          <Text role="meta" truncate title={words(run?.line ?? step.line)}>{words(run?.line ?? step.line)}</Text>
+          <Text role="row" truncate className={run?.state === 'working' || run?.state === 'blocked' ? 'max-w-12' : run?.state === 'waiting' ? 'max-w-10' : undefined} title={step.name}>{step.name}</Text>
+          <Text role="meta" truncate title={lineOf(step, run, activity.object)}>{lineOf(step, run, activity.object)}</Text>
         </span>
       </FlowStepSurface>
-      {run?.state === 'working' && run.seats.some(id => doing?.get(id)) &&
+      {activity.text &&
         <span data-slot="flow-doing" className="absolute left-1/2 top-full mt-5 -translate-x-1/2 max-w-80 whitespace-nowrap text-center pointer-events-none"
-          style={{ width: 2 * Math.min(node.box.x + node.box.w / 2, drawingWidth - node.box.x - node.box.w / 2) }}><FlowDoingLine text={words([...new Set(run.seats.flatMap(id => doing?.get(id) ? [doing.get(id)!] : []))].join(' · '))} /></span>}
+          style={{ width: 2 * Math.min(node.box.x + node.box.w / 2, drawingWidth - node.box.x - node.box.w / 2) }}><FlowDoingLine text={activity.text} /></span>}
 
     </div>
   )
 }
 
-const EdgeLine = ({ edge, travelled, overlay, glow }: { edge: FlowEdge; travelled: boolean; overlay: boolean; glow: string }) => (
+const EdgeLine = ({ edge, travelled, overlay, glow, active }: { edge: FlowEdge; travelled: boolean; overlay: boolean; glow: string; active: boolean }) => (
   <g data-slot="flow-edge" data-edge={edge.id} data-kind={edge.kind} data-state={overlay ? travelled ? 'travelled' : 'future' : undefined}>
-    {travelled && <path d={edge.path} fill="none" stroke="var(--hd-accent)" strokeOpacity={0.12} strokeWidth={10} strokeLinecap="round" filter={`url(#${glow})`} />}
+    {travelled && active && <path d={edge.path} fill="none" stroke="var(--hd-accent)" strokeOpacity={0.12} strokeWidth={10} strokeLinecap="round" filter={`url(#${glow})`} />}
     <path d={edge.path} fill="none" stroke={travelled ? 'var(--hd-accent)' : INK} strokeOpacity={travelled ? 1 : overlay ? 0.3 : LINE_OPACITY} strokeWidth={travelled ? 3 : LINE_WIDTH} strokeDasharray={overlay && !travelled ? '5 5' : undefined} strokeLinecap="round" />
     <polygon points={points(edge.head)} fill={travelled ? 'var(--hd-accent)' : INK} fillOpacity={travelled ? 1 : overlay ? 0.3 : LINE_OPACITY} />
   </g>
@@ -160,6 +175,7 @@ export const FlowGraph = ({ model, overlay, selectedStep, onSelectStep, faces, f
     return <Text role="muted" as="p" data-slot="flow-graph">This Flow has no steps.</Text>
   }
   const stepsById = new Map(model.steps.map((step) => [step.id, step]))
+  const activities = new Map(model.steps.map(step => [step.id, activityOf(overlay?.steps.get(step.id), doing)]))
   const kindOfRule = new Map(layout.edges.flatMap((edge) => edge.rules.map((id) => [id, edge.kind] as const)))
   const countOf = (edge: FlowEdge): number => edge.rules.reduce((count, id) => count + (overlay?.rules.get(id)?.count ?? 0), 0)
   const incoming = layout.edges.find(edge => edge.rules.some(id => overlay?.rules.get(id)?.current))
@@ -177,10 +193,10 @@ export const FlowGraph = ({ model, overlay, selectedStep, onSelectStep, faces, f
               </pattern>
             </defs>
             <rect width={layout.width} height={height} fill={`url(#${grid})`} />
-            {layout.edges.map((edge) => <EdgeLine key={edge.id} edge={edge} travelled={countOf(edge) > 0} overlay={Boolean(overlay)} glow={glow} />)}
+            {layout.edges.map((edge) => <EdgeLine key={edge.id} edge={edge} travelled={countOf(edge) > 0} overlay={Boolean(overlay)} glow={glow} active={Boolean(incoming)} />)}
           </svg>
           {incoming && <FlowBaton path={incoming.path} />}
-          {layout.nodes.map((node) => <StepCard key={node.id} node={node} drawingWidth={layout.width} step={stepsById.get(node.id)!} run={overlay?.steps.get(node.id)} selected={selectedStep === node.id} onSelect={onSelectStep} faces={faces} faceTints={faceTints} doing={doing} now={now} />)}
+          {layout.nodes.map((node) => <StepCard key={node.id} node={node} drawingWidth={layout.width} step={stepsById.get(node.id)!} run={overlay?.steps.get(node.id)} selected={selectedStep === node.id} onSelect={onSelectStep} faces={faces} faceTints={faceTints} activity={activities.get(node.id)!} now={now} />)}
           {layout.edges.map((edge) => (labels.has(edge.id) ? <Word key={edge.id} label={labels.get(edge.id)!} count={countOf(edge)} /> : null))}
         </div>
       </div>
@@ -196,6 +212,7 @@ export const FlowGraph = ({ model, overlay, selectedStep, onSelectStep, faces, f
                 ...step.agents,
               ]
               const run = overlay?.steps.get(step.id)
+              const activity = activities.get(step.id)!
               const StateRow = onSelectStep ? RowButton : Row
               return (
                 <StateRow
@@ -212,7 +229,7 @@ export const FlowGraph = ({ model, overlay, selectedStep, onSelectStep, faces, f
                     {run && durationOf(run, now) !== null && <Text role="meta" numeric>{durationOf(run, now)}</Text>}
                     {run?.runs !== undefined && run.runs !== null && run.runs > 1 && <Text role="meta" numeric>{run.runs} runs</Text>}
                   </span>}
-                  desc={[words(run?.line ?? step.line), ...more, ...(run ? [durationOf(run, now) === null ? 'Time not recorded' : null, run.runs === null ? 'Run count unavailable' : null] : [])].filter(Boolean).join(' · ')}
+                  desc={[lineOf(step, run, activity.object), activity.text, ...more, ...(run ? [durationOf(run, now) === null ? 'Time not recorded' : null, run.runs === null ? 'Run count unavailable' : null] : [])].filter(Boolean).join(' · ')}
                 />
               )
             })}

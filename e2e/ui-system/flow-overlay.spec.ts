@@ -28,13 +28,18 @@ for (const theme of ['light', 'dark']) {
       await expect(state(page, 'review').locator('[data-shape="face"]')).toHaveCount(2)
       await expect(graph(page)).toContainText('request-changes ×1')
       await expect(state(page, 'fix')).toContainText('Edited src/checkout/retry.ts')
+      await expect(state(page, 'fix').locator('[data-slot="card"] [data-slot="text"][data-role="meta"]')).toHaveText('retry.ts')
+      await expect(state(page, 'land').locator('.lucide-square-terminal')).toHaveCount(1)
+      await expect(state(page, 'land').locator('.lucide-check')).toHaveCount(0)
       await frame(page, `before-${theme}`, '#flow-overlay-blueprint [data-slot="flow-stage"]')
       await frame(page, `fix-${theme}`)
       await frame(page, `pane-${theme}`, '#flow-overlay-live')
-      for (const [scene, step, expected] of [['check-again', 'check', 'working'], ['review', 'review', 'working'], ['you', 'you', 'waiting'], ['settled', 'you', 'done']]) {
+      for (const [scene, step, expected] of [['check-again', 'check', 'working'], ['review', 'review', 'working'], ['you', 'you', 'waiting'], ['answered', 'you', 'done'], ['evidence-wait', 'you', 'blocked'], ['settled', 'you', 'done'], ['stopped', 'fix', 'stopped']]) {
         await advance(page, scene!)
         await expect(state(page, step!)).toHaveAttribute('data-state', expected!)
         await expect(tab(page, 'Flow')).toBeChecked()
+        if (scene === 'answered' || scene === 'evidence-wait') await expect(state(page, 'you')).not.toContainText('Needs you')
+        if (scene === 'evidence-wait') await expect(state(page, 'you').locator('[data-slot="flow-state"]')).toHaveText('Waiting')
         if (scene === 'check-again') await expect(state(page, 'check')).toContainText('×2')
         if (scene === 'review') {
           await expect(state(page, 'review')).toContainText('Read src/checkout/retry.ts')
@@ -44,6 +49,9 @@ for (const theme of ['light', 'dark']) {
       }
       await expect(graph(page).locator('[data-slot="flow-baton"]')).toHaveCount(0)
       await expect(graph(page).locator('[data-slot="flow-ring"]')).toHaveCount(0)
+      await expect(graph(page).locator('[data-slot="flow-doing"], path[filter]')).toHaveCount(0)
+      await expect(state(page, 'fix').locator('[data-slot="flow-complete"]')).toHaveCount(0)
+      await expect(state(page, 'fix').locator('[data-slot="flow-duration"]')).toHaveText('2m')
     })
 
     test('annotations stay on the canvas and Working does not cover a current name', async ({ page }) => {
@@ -134,7 +142,15 @@ for (const theme of ['light', 'dark']) {
     test('the accessible step list retains the live state and fits in a narrow pane', async ({ page }) => {
       await page.setViewportSize({ width: 390, height: 900 })
       await expect(graph(page).locator('[data-slot="flow-drawing"]')).toBeHidden()
-      await expect(graph(page).locator('[data-step-row="fix"]')).toContainText('Working')
+      const fix = graph(page).locator('[data-step-row="fix"]')
+      await expect(fix).toContainText('Working')
+      await expect(fix).toContainText('Edited src/checkout/retry.ts')
+      await advance(page, 'fix-reading')
+      await expect(fix).toContainText('Read src/checkout/cart.ts')
+      await expect(fix).not.toContainText('retry.ts')
+      await advance(page, 'fix-idle')
+      await expect(fix).not.toContainText('Read src/checkout/cart.ts')
+      await expect(fix).not.toContainText('Edit · held')
       expect(await graph(page).evaluate(root => root.scrollWidth <= root.clientWidth + 1)).toBe(true)
       await advance(page, 'you')
       await expect(graph(page).locator('[data-step-row="you"]')).toContainText('Needs you')
