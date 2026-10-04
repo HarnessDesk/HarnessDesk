@@ -18,6 +18,14 @@ HarnessDesk now turns Agents, Goals and flows into bounded, reviewable work — 
   or moved; choosing the item again offers to remove it. `docs/cli.md` lists
   every command, its `--json` shape and its exit codes.
 
+- **A Run shows the Flow it started with.** A Run's header switches between
+  its Timeline and its Flow: the Flow it was started from, kept at the
+  revision it began with, drawn as cards joined by arrows that name the
+  outcome taking each rule, with a loop falling under the line and a step that
+  opens several seats fanned. The steps and rules are listed under the
+  drawing, and in a narrow pane the list is the view. Open the file reads the
+  Flow's file as it is now; nothing can be edited there.
+
 - **A Seat's commit stays yours.** The desk adds its co-author credit once
   when it commits a card's work, using your configured author and committer
   identity. An agent no longer has to remember the credit, and commits you

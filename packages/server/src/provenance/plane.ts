@@ -10,15 +10,15 @@ import type { EvidencePlane } from '../evidence/plane.js'
 import { foldSeats } from '../evidence/records.js'
 import { sameCanonicalPath } from '../path-identity.js'
 import { exportProvenance, importProvenance } from './backup.js'
-import { admitProject, checkoutRoot, gitReader, oid, type GitReader, type RepoHandle } from './git.js'
+import { admitProject, gitReader, oid, releaseProject, sweepViews, type GitReader, type ReaderOptions, type RepoHandle } from './git.js'
 import { captureHealth } from './health.js'
 import { digest, object, ProvenanceJournal, readCheckpoint, type JournalEntry } from './journal.js'
-import { localValues, RefObserver, type WorkerCheckpoint } from './observer.js'
+import { RefObserver, type WorkerCheckpoint } from './observer.js'
 import { ProvenancePreferences } from './preferences.js'
 import {
-  captureRange, factSource, rangeCandidates, rangeSource, reconcileProject, relatedEvidence,
-  type CommitObservation, type LinkObservation, type RangeObservation, type ProvenanceSource,
+  relatedEvidence, type CommitObservation, type LinkObservation,
 } from './reconcile.js'
+import { Reconciler, type Ranges } from './reconciler.js'
 
 export interface ProvenancePort {
   readonly evidence: EvidencePlane
@@ -26,6 +26,8 @@ export interface ProvenancePort {
   readonly projects: () => readonly string[]
   readonly push: (notice: WireNotification) => void
   readonly log: (message: string, details?: Readonly<Record<string, unknown>>) => void
+  /** How capture reads Git. The host leaves this unset; a test counts processes and checks through it. */
+  readonly reader?: ReaderOptions
 }
 interface Project {
   project: string
@@ -40,8 +42,7 @@ interface Project {
   fatal: boolean
   pending: Set<string>
   catchingUp: boolean
-  factSources: Map<string, ProvenanceSource>
-  reconciled: string | null
+  reconciler: Reconciler
   links: Map<string, LinkObservation>
   historical: Map<string, LinkObservation>
   observed: Set<string>
@@ -77,6 +78,8 @@ export class ProvenancePlane {
   #aliases = new Map<string, string>()
   #journals = new Map<string, ProvenanceJournal>()
   #roots: readonly string[] = []
+  /** Every project folder this plane admitted and has not released: whatever else happens, none outlives `close()`. */
+  #handles = new Set<RepoHandle>()
   #revision = 0
   #generation = 0
   #closed = false
@@ -91,8 +94,24 @@ export class ProvenancePlane {
   async start(): Promise<void> {
     await this.#preferences.load()
     if (this.#closed) return
+    // Views a process that ended without closing them left behind; none of this plane's exists yet.
+    await sweepViews(this.#port.stateDir).catch(() => this.#port.log('provenance views could not be swept'))
+    if (this.#closed) return
     this.#started = true
     this.setProjects(this.#port.projects())
+  }
+
+  async #admit(root: string, roots: readonly string[]): Promise<RepoHandle> {
+    const handle = await admitProject(root, this.#port.stateDir, roots)
+    this.#handles.add(handle)
+    return handle
+  }
+
+  /** Give a handle's view back. Safe to call for a handle already released, or for none. */
+  async #release(handle: RepoHandle | null): Promise<void> {
+    if (!handle) return
+    this.#handles.delete(handle)
+    await releaseProject(handle).catch(() => this.#port.log('a provenance view could not be removed'))
   }
 
   #queue<T>(work: () => Promise<T>): Promise<T> {
@@ -117,21 +136,21 @@ export class ProvenancePlane {
         if (generation !== this.#generation || this.#closed) return
         let handle: RepoHandle | null = null
         try {
-          handle = await admitProject(root, this.#port.stateDir, next)
+          handle = await this.#admit(root, next)
           if (generation !== this.#generation || this.#closed) {
-            await gitReader(handle).close()
+            await this.#release(handle)
             return
           }
           this.#aliases.set(root, handle.project)
           if (this.#projects.has(handle.project)) {
-            await gitReader(handle).close()
+            await this.#release(handle)
             continue
           }
           const state = this.#state(handle.project, handle)
           this.#projects.set(handle.project, state)
           await this.#open(state)
         } catch (error) {
-          if (handle) await gitReader(handle).close().catch(() => {})
+          await this.#release(handle)
           const state = this.#state(root, null)
           this.#projects.set(root, state)
           this.#aliases.set(root, root)
@@ -159,9 +178,9 @@ export class ProvenancePlane {
 
   #state(project: string, handle: RepoHandle | null): Project {
     const preference = this.#preferences.get(project)
-    return {
+    const state: Project = {
       project, handle, observer: null, journal: this.#journal(project), entries: [], seats: [], facts: [],
-      catchingUp: true, factSources: new Map(), reconciled: null,
+      catchingUp: true, reconciler: new Reconciler((kind, reason) => this.#problem(state, kind, reason)),
       links: new Map(), historical: new Map(), observed: new Set(),
       issues: new Set(preference.problem ? [preference.problem] : []), fatal: !!preference.problem, pending: new Set(),
       health: captureHealth({
@@ -169,6 +188,7 @@ export class ProvenancePlane {
         checkedAt: null, lastCapturedAt: null, pending: 1, gaps: 0, revision: ++this.#revision,
       }),
     }
+    return state
   }
 
   async #load(state: Project): Promise<void> {
@@ -205,7 +225,7 @@ export class ProvenancePlane {
   #publish(state: Project): void {
     if (this.#closed || this.#projects.get(state.project) !== state) return
     const preference = this.#preferences.get(state.project)
-    const checkpoint = readCheckpoint(state.entries) as WorkerCheckpoint | null
+    const checkpoint = (state.observer?.checkpoint ?? readCheckpoint(state.entries)) as WorkerCheckpoint | null
     const pending = state.pending.size + (checkpoint?.frontier.length ?? 0) + (checkpoint?.rangePending.length ?? 0)
     state.health = captureHealth({
       project: state.project, enabled: preference.enabled, fatal: state.fatal,
@@ -226,18 +246,25 @@ export class ProvenancePlane {
   }
 
   async #open(state: Project): Promise<void> {
-    await this.#prepare(state.project)
+    try {
+      await this.#prepare(state.project)
+    } catch (error) {
+      // No observer owns the handle yet, so it goes now, whoever asked and however this ends.
+      await this.#release(state.handle)
+      state.handle = null
+      throw error
+    }
     try {
       await this.#load(state)
       const preference = this.#preferences.get(state.project)
       if (!preference.enabled || preference.problem || !state.handle || this.#closed) {
-        if (state.handle) await gitReader(state.handle).close()
+        await this.#release(state.handle)
         state.handle = null
         this.#publish(state)
         return
       }
       state.catchingUp = true
-      const git = gitReader(state.handle)
+      const git = gitReader(state.handle, this.#port.reader)
       const observer = new RefObserver({
         git, journal: state.journal,
         changed: () => {
@@ -251,100 +278,19 @@ export class ProvenancePlane {
       await observer.start(state.handle, readCheckpoint(state.entries) as WorkerCheckpoint | null)
       if (this.#closed) await this.#stop(state)
     } catch {
-      if (state.handle && !state.observer) await gitReader(state.handle).close()
+      if (!state.observer) {
+        await this.#release(state.handle)
+        state.handle = null
+      }
       this.#problem(state, 'stopped', 'storage-failed')
     }
   }
 
   async #reconcile(
     state: Project, entries: readonly JournalEntry[], checkpoint: WorkerCheckpoint, git: GitReader, signal: AbortSignal,
-  ): Promise<Pick<WorkerCheckpoint, 'rangeKeys' | 'rangePending'>> {
+  ): Promise<Ranges> {
     await this.#load(state)
-    const signature = digest([
-      entries.filter((entry) => entry.kind === 'commit' || entry.kind === 'ref').map((entry) => entry.seq),
-      state.facts.map((fact) => fact.id), state.seats,
-    ])
-    if (signature === state.reconciled && !checkpoint.rangePending.length) {
-      return { rangeKeys: checkpoint.rangeKeys, rangePending: [] }
-    }
-    const commits = localValues<CommitObservation>(entries, 'commit')
-    const storedRanges = localValues<RangeObservation>(entries, 'range')
-    const ranges = storedRanges.filter((range) => !range.id.startsWith('fact-'))
-    let links = localValues<LinkObservation>(entries, 'link')
-    const sources: ProvenanceSource[] = []
-    const checkoutRoots = new Map<string, Promise<string | null>>()
-    const canonicalRoot = (cwd: string): Promise<string | null> => {
-      let root = checkoutRoots.get(cwd)
-      if (!root) {
-        root = checkoutRoot(state.handle!, cwd)
-        checkoutRoots.set(cwd, root)
-      }
-      return root
-    }
-    for (const record of state.facts) {
-      signal.throwIfAborted()
-      if (record.restored || record.fact.kind !== 'diff' || !record.checkout || !state.handle) continue
-      const cwd = await canonicalRoot(record.checkout.cwd)
-      if (!cwd) continue
-      const fact = record.fact
-      try {
-        let source = state.factSources.get(record.id)
-        if (!source) {
-          const factId = `fact-${digest([record.id, record.fact.from, record.fact.to])}`
-          const saved = storedRanges.find((range) => range.id === factId)
-          const observed = commits.find((commit) => commit.sha === fact.to && commit.parents[0] === fact.from)
-          const patch = saved?.patch ?? observed?.patch ?? await git.patch(record.fact.from, record.fact.to, signal)
-          const seats = (await Promise.all(state.seats.map(async (seat) =>
-            await canonicalRoot(seat.checkout.cwd) === cwd ? { ...seat, checkout: { ...seat.checkout, cwd } } : null,
-          ))).filter((seat): seat is SeatRecord => seat !== null)
-          const canonical = { ...record, checkout: { ...record.checkout, cwd } }
-          source = factSource(state.project, cwd, record.fact.from, record.fact.to,
-            patch, seats, [canonical]) ?? undefined
-          if (source) {
-            // An exact fact range is not a first-parent decomposition. Keep its
-            // fingerprint for replay, but never offer it as a squash candidate.
-            if (!saved) await state.journal.append('range', {
-              id: factId, from: record.fact.from, to: record.fact.to,
-              commits: [record.fact.to], patch, seats: source.seats, ambiguous: true, at: record.observedAt,
-            } satisfies RangeObservation)
-            state.factSources.set(record.id, source)
-          }
-        }
-        if (source) sources.push(source)
-      } catch {
-        signal.throwIfAborted()
-        this.#problem(state, 'degraded', 'history-gap')
-      }
-    }
-    const reconcile = async () => {
-      const decisions = await reconcileProject({
-        commits, sources: [...sources, ...ranges.map((range) => rangeSource(range, links))],
-        moves: localValues(entries, 'ref'), priorLinks: links, now: Date.now(),
-      }, git, signal)
-      for (const link of decisions) await state.journal.append('link', link)
-      links = [...links, ...decisions]
-    }
-    await reconcile()
-    const keys = new Set(checkpoint.rangeKeys)
-    const candidates = rangeCandidates(commits, keys)
-    const failed: string[] = []
-    for (const candidate of candidates.ready) {
-      signal.throwIfAborted()
-      try {
-        const range = await captureRange(candidate.from, candidate.commits, links, git, signal, Date.now())
-        await state.journal.append('range', range)
-        ranges.push(range)
-        keys.add(candidate.key)
-      } catch (error) {
-        signal.throwIfAborted()
-        if ((error as Error).message.startsWith('provenance-')) throw error
-        failed.push(`limit:${candidate.key}`)
-        this.#problem(state, 'degraded', 'history-gap')
-      }
-    }
-    await reconcile()
-    state.reconciled = signature
-    return { rangeKeys: [...keys], rangePending: [...candidates.pending, ...failed] }
+    return state.reconciler.run(state, entries, checkpoint, git, signal)
   }
 
   evidenceChanged(project: string): void {
@@ -418,11 +364,12 @@ export class ProvenancePlane {
       await this.#load(state)
       if (enabled && !this.#closed && this.#roots.includes(root)) {
         try {
-          state.handle = await admitProject(root, this.#port.stateDir, this.#roots)
+          state.handle = await this.#admit(root, this.#roots)
           state.fatal = false
           state.issues.clear()
           await this.#open(state)
         } catch (error) {
+          if (!state.observer) await this.#release(state.handle)
           state.handle = null
           this.#problem(state, 'stopped', 'external-metadata')
           throw error
@@ -445,15 +392,14 @@ export class ProvenancePlane {
       state.links.clear()
       state.historical.clear()
       state.observed.clear()
-      state.factSources.clear()
-      state.reconciled = null
+      state.reconciler.reset()
       state.fatal = false
       state.issues.clear()
       const preference = this.#preferences.get(state.project)
       if (preference.problem) this.#problem(state, 'stopped', preference.problem)
       if (preference.enabled && !this.#closed) {
         try {
-          state.handle = await admitProject(root, this.#port.stateDir, this.#roots)
+          state.handle = await this.#admit(root, this.#roots)
         } catch (error) {
           state.handle = null
           this.#problem(state, 'stopped', 'external-metadata')
@@ -503,6 +449,8 @@ export class ProvenancePlane {
     const observer = state.observer
     state.observer = null
     if (observer) await observer.close().catch(() => this.#problem(state, 'stopped', 'storage-failed'))
+    // The observer's reader removed its view; a handle nothing opened a reader on still has one.
+    await this.#release(state.handle)
     state.handle = null
   }
 
@@ -512,6 +460,8 @@ export class ProvenancePlane {
     for (const state of this.#projects.values()) void state.observer?.close().catch(() => {})
     await this.#tail
     for (const state of this.#projects.values()) await this.#stop(state)
+    // Whatever else was admitted and never stopped: a state that was replaced, an admission that failed half way.
+    for (const handle of [...this.#handles]) await this.#release(handle)
     for (const journal of this.#journals.values()) {
       await journal.flush().catch(() => this.#port.log('provenance observations could not be saved'))
     }

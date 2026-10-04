@@ -205,6 +205,60 @@ invented to fill a missing observation.
 
 ---
 
+## A Run's Flow is drawn from the document it froze, by a layout that is a function
+
+A Run holds the Flow it started with, so the Flow tab draws that document and
+never the file as it is now. *Open the file* reads the file beside it, found
+by the name the Run froze, because a Run keeps no catalogue id or place of its
+own. The window says it is the file as it is now and that the Run keeps its
+revision, and a name the catalogue no longer holds says so and reads nothing.
+
+Where each step goes is a pure function of the document, not a decision the
+component makes while it renders: steps run left to right in the order their
+rules reach them, a loop falls under the line, and a Flow's own
+`layout.positions` win when it carries them. Edges are derived from the cards'
+boxes, so a hand layout reroutes them and never leaves a line where a card
+used to be. A rule to a step the file does not define is skipped in the
+drawing, because there is nothing to join it to, and is still named in the
+list. The older format of Flow is drawn too, without positions it never had.
+
+The Flow tab takes the whole pane, and the inspector steps aside while it
+shows. The inspector explains a row of the timeline and the Flow has none on
+show; and beside it the drawing would have only the part of the pane the
+inspector leaves, which at an ordinary window is under the width the drawing
+needs, so the list would be the only view.
+
+The drawing is for the eye and the list is for everyone. The drawing is hidden
+from assistive technology and, below a narrow width of its own container, from
+view; the list of steps and rules says the same and is then the view. The
+container decides and the window does not, because a Run sits in a pane of any
+width.
+
+Its curves and arrowheads are data geometry, as a chart's marks are:
+attributes on SVG elements that take their colour from `--hd-*` tokens, and
+recorded in the design audit's list of such modules. Everything else in it —
+cards, tiles, words, rows — is composed from the design system, so a palette,
+density or faces change reaches it, and the screen that mounts it draws no
+appearance of its own. The one part added to the system for it is
+`Card variant="raised"`, the registry card with its soft shadow, for a card
+that stands on a canvas of its own.
+
+An Agent step says what its seats ran under only when the Run recorded it. A
+seat runs at the narrower of its Agent's own ceiling and the grant the Flow
+gives the step, so once a Run has seated the step the card reads the seat's
+record, in the words the Seat record uses — the level it ran at, and whether
+the runtime *held* it or only *asked* it of the agent — and not the grant,
+which an Agent with a lower ceiling never reached. Where a step's seats differ
+it reads the floor of them: the narrowest level, and *asked* if any was only
+asked, because the weaker answer is the one a person must not miss. A step
+with no seat, or with any seat whose record this window does not have, says its
+grant and nothing more, rather than speak for a seat it cannot see.
+
+**The rule:** the Flow tab shows what the Run froze; where things go is a
+function of the document; the list says everything the lines show.
+
+---
+
 ## The host runs a declared check for an agent; an agent is never given the network
 
 A Seat that only reads — a reviewer, a tester, an acceptance check — can ask
@@ -738,6 +792,18 @@ A commit's author, message and trailers do not authenticate the Seat that made i
 Passive capture cannot recover a ref move whose reflog and objects Git no longer retains. The desk reads available transitions, preserves known gaps and says when capture is degraded or stopped. It installs no hooks, changes no Git configuration and never delays a turn to observe it.
 
 **The rule:** ambiguity remains visible; a rewritten association never refreshes the original checks, reviews or evidence.
+
+## Provenance capture does bounded work and leaves nothing behind
+
+Capture runs for as long as the desk does. A history of N commits offers about 63 ranges to each (every first-parent suffix of up to 64 commits), and reading one costs Git processes, so a pass that read them again on every wake kept one desk's host busy for hours over a repository that had not changed: a range it could not read, or a history longer than 64 commits, was enough to keep the pass from ever being skipped. A pass now does a bounded amount of work, and only when something it reads has changed: a commit or ref move, a fact, a Seat. A range that could not be read (an object pruned, or never fetched) waits for such a change; it never starts a pass by itself and never takes the place of a range not yet tried.
+
+What the reader keeps is what Git can never contradict. An object id names its content, so what Git said about one stays true; but an object that is missing now can be fetched later, so a miss is never remembered. Speed does not buy back a check: the metadata, pointer and object-format checks run before any kept answer is served, once for a batch of reads rather than once per read, and a check that fails empties everything kept.
+
+Capture's record of where it is, the checkpoint, says what is new or says nothing. Every scan used to append a whole checkpoint, however little it had found, and every health update read every checkpoint ever written, so a desk that stayed up grew larger and slower with each scan, idle or not (a checkpoint over a history of a few hundred commits runs to hundreds of kilobytes). A scan that finds nothing new now writes nothing, though it still moves its own clock, and the checkpoint in force is read without reading those it superseded.
+
+The private view capture reads through is a folder in the state directory. Whoever makes one removes it on every path they control (the reader closing, an admission abandoned half way, the process exiting), and at startup the views no live handle owns are swept, which is all that can be done about a process that was killed. A view's name carries its process id, so one desk never sweeps a view another running process is using.
+
+**The rule:** capture does bounded work, and none when nothing it reads has changed; it keeps only what Git cannot contradict and writes only what is new; and a view it makes is removed by whoever made it, or by the next start.
 
 ## A Goal is finite; Seats and receipts are the authority
 

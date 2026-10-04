@@ -70,6 +70,7 @@ import { SettingsFrames } from './frames-settings'
 import { TranscriptFrames } from './frames-transcript'
 import { LibraryDevFrames } from './frames-library-dev'
 import { LibraryOptionFrames } from './frames-library-options'
+import { FlowGraphFrames } from './frames-flow-graph'
 import { RunViewFrames } from './frames-run-view'
 import { RunInspectorFrames } from './frames-run-inspector'
 import { TeamOverviewFrames } from './frames-team-overview'
@@ -119,6 +120,18 @@ const sidebarNoFolderStore = previewStore({ workspace: null, workspaces: [], his
 
 const previewProvenance = commitProvenance({ seats: [{ ...provenanceSeat(7), runtime: 'codex', session: { runtime: 'codex', sessionId: 'conversation-7' } }] })
 const previewMutable = store as unknown as { patch(partial: Partial<AppSnapshot>): void }
+/**
+ * The store this page mounted, for a spec that has to stage state in it.
+ *
+ * A spec cannot reach it by importing `./harness` itself. Once Vite has
+ * hot-reloaded `harness.tsx` (or a module it imports), the page runs
+ * `harness.tsx?t=…` and the bare URL is a second module instance with a second
+ * store, so the spec changes a store nothing mounted and the screen it then
+ * reads is unchanged (#1313). This file is the page's one entry, loaded once
+ * whatever URL names it, so the `store` it holds is the one the page mounts
+ * its frames on. `e2e/ui-system/trajectory-layout.spec.ts` is the caller.
+ */
+;(window as unknown as { __hdPreview: unknown }).__hdPreview = { store, sessionKey: PREVIEW_SESSION_KEY }
 // The roster and chat share the real name role; populate this Goal's chat
 // with the existing rig messages so both treatments can be read together.
 previewMutable.patch({
@@ -1047,6 +1060,7 @@ const Preview = () => {
       {SHOW_SIDE_BY_SIDE && <SideBySideFrames />}
       {new URLSearchParams(window.location.search).has('run-view') && <RunViewFrames />}
       {new URLSearchParams(window.location.search).has('run-inspector') && <RunInspectorFrames />}
+      {new URLSearchParams(window.location.search).has('flow-graph') && <FlowGraphFrames />}
       {new URLSearchParams(window.location.search).has('teams-page') && <TeamsPageFrames />}
       {new URLSearchParams(window.location.search).has('team-overview') && <TeamOverviewFrames />}
       {SHOW_COMPOSER_SLOTS && <ComposerSlotsFrames />}

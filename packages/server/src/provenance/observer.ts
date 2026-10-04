@@ -6,7 +6,7 @@ import { setImmediate } from 'node:timers/promises'
 import type { GitReader, LogCursor, RepoHandle, ReflogMove } from './git.js'
 import { digest, JOURNAL_LIMIT, object, ProvenanceJournal, type JournalEntry, writeCheckpoint } from './journal.js'
 import { moves } from './model.js'
-import type { CommitObservation } from './reconcile.js'
+import { backlog, type CommitObservation } from './reconcile.js'
 
 export interface ObserverCheckpoint {
   readonly generation: number
@@ -76,6 +76,15 @@ export class Coalesced {
 }
 
 let watchers = 0
+/**
+ * What a checkpoint durably says. Every scan moves its generation and its time
+ * forward; a scan that found nothing else to record says what the last one
+ * said, and that is not written again.
+ */
+const lasting = (checkpoint: WorkerCheckpoint): string => digest([
+  checkpoint.refs, checkpoint.heads, checkpoint.logs, checkpoint.frontier,
+  checkpoint.capturedThrough, checkpoint.baseline, checkpoint.rangeKeys, checkpoint.rangePending,
+])
 const empty = (): WorkerCheckpoint => ({
   generation: 0, refs: [], heads: [], logs: [], frontier: [],
   capturedThrough: 0, scanStartedAt: 0, rangeKeys: [], rangePending: [], baseline: [],
@@ -89,6 +98,8 @@ export class RefObserver {
   readonly #options: RefObserverOptions
   readonly #queue: Coalesced
   #checkpoint = empty()
+  /** What the last checkpoint written, or loaded, durably said. */
+  #written: string | null = null
   #handle: RepoHandle | null = null
   #closed = false
   #watchers = new Map<string, FSWatcher>()
@@ -109,10 +120,16 @@ export class RefObserver {
     if (this.#closed) return
     this.#handle = handle
     this.#checkpoint = checkpoint ? { ...empty(), ...checkpoint } : empty()
+    this.#written = checkpoint ? lasting(this.#checkpoint) : null
     await this.#attach()
     if (this.#closed) return
     this.#schedulePoll(true)
     this.wake()
+  }
+
+  /** Where the last scan left capture, in time and in work; `null` before there has been a scan. */
+  get checkpoint(): WorkerCheckpoint | null {
+    return this.#checkpoint.generation ? this.#checkpoint : null
   }
 
   wake(): void {
@@ -220,8 +237,10 @@ export class RefObserver {
     const unacknowledged = new Set(read.entries.filter((entry) => entry.seq > acknowledged &&
       entry.kind === 'commit' && object(entry.value) && !('restoredAt' in entry.value))
       .map((entry) => (entry.value as CommitObservation).sha))
-    const snapshot = await git.snapshot(signal)
-    const logs = await git.reflogs(new Map(prior.logs), signal)
+    const { snapshot, logs } = await git.batch(signal, async (reader) => ({
+      snapshot: await reader.snapshot(signal),
+      logs: await reader.reflogs(new Map(prior.logs), signal),
+    }))
     const generation = prior.generation + 1
     const delta: ReflogMove[] = moves(new Map(prior.refs), snapshot.refs).map((move) => ({
       ...move, id: digest(['snapshot', generation, move]), checkout: null, recordedAt: null,
@@ -252,59 +271,63 @@ export class RefObserver {
     const frontier = [...new Set([...prior.frontier, ...tips, ...requested].filter((sha): sha is string => !!sha))]
     const baseline = first ? [...new Set(tips.filter((sha): sha is string => !!sha))] : [...prior.baseline]
     const began = performance.now()
+    const checkouts = [...this.#handle.checkouts.keys()]
     let captured = 0
-    while (frontier.length && captured < 200 && performance.now() - began < 50) {
-      signal.throwIfAborted()
-      const sha = frontier.shift()!
-      const existing = commits.get(sha)
-      if (existing) {
-        if (unacknowledged.delete(sha) && !first && !baseline.includes(sha)) {
-          for (const parent of existing.parents) if (!commits.has(parent) && !frontier.includes(parent)) frontier.push(parent)
-        }
-        continue
-      }
-      const object = await git.commit(sha, signal)
-      if (!object) {
-        // Refs retain tag object IDs. A bounded rev-list peels a tag without
-        // executing project configuration or traversing its whole ancestry.
-        const targets = await git.ancestors([sha], new Set(), 1, signal).catch(() => [])
+    // One check of the repository's metadata covers everything this batch reads.
+    await git.batch(signal, async (reader) => {
+      while (frontier.length && captured < 200 && performance.now() - began < 50) {
         signal.throwIfAborted()
-        const target = targets[0]
-        if (target && target !== sha) {
-          if (first && !baseline.includes(target)) baseline.push(target)
-          if (!commits.has(target) && !frontier.includes(target)) frontier.unshift(target)
-          captured += 1
+        const sha = frontier.shift()!
+        const existing = commits.get(sha)
+        if (existing) {
+          if (unacknowledged.delete(sha) && !first && !baseline.includes(sha)) {
+            for (const parent of existing.parents) if (!commits.has(parent) && !frontier.includes(parent)) frontier.push(parent)
+          }
           continue
         }
-      }
-      let observation: CommitObservation = {
-        id: digest(['commit', 1, sha]), sha, tree: object?.tree ?? sha, parents: object?.parents ?? [],
-        firstSeenAt: now(), fingerprintVersion: 1,
-        discoveredBy: [...logs.moves, ...delta].filter((move) => move.before === sha || move.after === sha).map((move) => move.id),
-        checkoutHints: [...this.#handle.checkouts.keys()],
-        window: { from: prior.scanStartedAt || null, to: snapshot.takenAt },
-        patch: null, files: [], why: object ? null : 'missing-object',
-      }
-      if (object) {
-        try {
-          const from = object.parents[0] ?? null
-          observation = { ...observation, patch: await git.patch(from, sha, signal), files: await git.files(from, sha, signal) }
-        } catch (error) {
+        const object = await reader.commit(sha, signal)
+        if (!object) {
+          // Refs retain tag object IDs. A bounded rev-list peels a tag without
+          // executing project configuration or traversing its whole ancestry.
+          const targets = await reader.ancestors([sha], new Set(), 1, signal).catch(() => [])
           signal.throwIfAborted()
-          observation = { ...observation, why: (error as Error).message === 'limit-exceeded' ? 'limit-exceeded' : 'missing-object' }
+          const target = targets[0]
+          if (target && target !== sha) {
+            if (first && !baseline.includes(target)) baseline.push(target)
+            if (!commits.has(target) && !frontier.includes(target)) frontier.unshift(target)
+            captured += 1
+            continue
+          }
         }
+        let observation: CommitObservation = {
+          id: digest(['commit', 1, sha]), sha, tree: object?.tree ?? sha, parents: object?.parents ?? [],
+          firstSeenAt: now(), fingerprintVersion: 1,
+          discoveredBy: [...logs.moves, ...delta].filter((move) => move.before === sha || move.after === sha).map((move) => move.id),
+          checkoutHints: [...checkouts],
+          window: { from: prior.scanStartedAt || null, to: snapshot.takenAt },
+          patch: null, files: [], why: object ? null : 'missing-object',
+        }
+        if (object) {
+          try {
+            const from = object.parents[0] ?? null
+            observation = { ...observation, patch: await reader.patch(from, sha, signal), files: await reader.files(from, sha, signal) }
+          } catch (error) {
+            signal.throwIfAborted()
+            observation = { ...observation, why: (error as Error).message === 'limit-exceeded' ? 'limit-exceeded' : 'missing-object' }
+          }
+        }
+        if (Buffer.byteLength(JSON.stringify(observation)) > JOURNAL_LIMIT - 1024) {
+          observation = { ...observation, patch: null, files: [], discoveredBy: [], checkoutHints: [], why: 'limit-exceeded' }
+        }
+        await journal.append('commit', observation)
+        commits.set(sha, observation)
+        if (observation.why) this.#options.problem('degraded', observation.why === 'limit-exceeded' ? 'limit-exceeded' : 'history-gap')
+        if (!first && !baseline.includes(sha)) {
+          for (const parent of observation.parents) if (!commits.has(parent) && !frontier.includes(parent)) frontier.push(parent)
+        }
+        captured += 1
       }
-      if (Buffer.byteLength(JSON.stringify(observation)) > JOURNAL_LIMIT - 1024) {
-        observation = { ...observation, patch: null, files: [], discoveredBy: [], checkoutHints: [], why: 'limit-exceeded' }
-      }
-      await journal.append('commit', observation)
-      commits.set(sha, observation)
-      if (observation.why) this.#options.problem('degraded', observation.why === 'limit-exceeded' ? 'limit-exceeded' : 'history-gap')
-      if (!first && !baseline.includes(sha)) {
-        for (const parent of observation.parents) if (!commits.has(parent) && !frontier.includes(parent)) frontier.push(parent)
-      }
-      captured += 1
-    }
+    })
     signal.throwIfAborted()
     let next: WorkerCheckpoint = {
       generation, refs: [...snapshot.refs], heads: [...snapshot.heads], logs: [...logs.cursors],
@@ -316,12 +339,16 @@ export class RefObserver {
       next = { ...next, ...ranges }
     }
     signal.throwIfAborted()
-    await writeCheckpoint(journal, next)
+    const durable = lasting(next)
+    if (durable !== this.#written) {
+      await writeCheckpoint(journal, next)
+      this.#written = durable
+    }
     this.#checkpoint = next
     for (const sha of requested) this.#requested.delete(sha)
     await this.#attach()
     this.#options.changed()
-    if (logs.more || frontier.length || next.rangePending.some((key) => !key.startsWith('limit:'))) this.wake()
+    if (logs.more || frontier.length || backlog(next.rangePending)) this.wake()
   }
 
   async close(): Promise<void> {

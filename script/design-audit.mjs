@@ -2260,6 +2260,10 @@ const ICON_MODULES = new Set([
   // A shape's own roles and rules, drawn to scale — the same exception as
   // GitGraph's commit graph, not a second icon set.
   'ShapeGraph.tsx',
+  // A Flow's steps and rules drawn read-only: the curves and arrowheads are
+  // computed from the document, the same data geometry as ShapeGraph's lines
+  // and a chart's marks. Its cards, words and lists are all design parts.
+  'FlowGraph.tsx',
 ])
 
 /**
