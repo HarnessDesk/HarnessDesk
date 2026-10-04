@@ -4,7 +4,8 @@ import { StopRunDialog, StopRunFailure, type StopRunSeat } from '../components/S
 import { RunWorkspace } from '../components/RunWorkspace'
 import { TeamOverview } from '../components/TeamOverview'
 import { runTimeline } from '../lib/run-timeline'
-import { Button } from '../design'
+import { Button, NativeSelect } from '../design'
+import { Boundary } from './boundary'
 import { runFixture } from './run-view-fixture'
 import { overviewInput, overviewModel } from './team-overview-fixture'
 
@@ -15,6 +16,24 @@ const SEATS: readonly StopRunSeat[] = [
   { id: 'beta', name: 'Beta', interrupt: false },
 ]
 const CLEANUP_FAILURE = { reason: 'The brief changed.', message: 'The Run stopped, but one Seat could not be released. Try again to finish stopping it.' }
+
+export const STOP_RUN_DIALOG_STATES = ['default', 'cleanup'] as const
+type StopRunDialogScene = typeof STOP_RUN_DIALOG_STATES[number]
+
+/** The census sweeps this dial; a direct query opens either question on load. */
+export const StopRunDialogFrames = ({ scene }: { scene?: StopRunDialogScene }) => {
+  const [shown, setShown] = useState<StopRunDialogScene | null>(scene ?? null)
+  return <Boundary>
+    <div className="my-4"><label className="flex items-center gap-1.5 text-xs text-muted-foreground">Stop run question
+      <NativeSelect aria-label="Stop run question" value={shown ?? 'off'} onChange={event => setShown(event.target.value === 'off' ? null : event.target.value as StopRunDialogScene)}>
+        {['off', ...STOP_RUN_DIALOG_STATES].map(state => <option key={state} value={state}>{state}</option>)}
+      </NativeSelect>
+    </label></div>
+    {shown && <StopRunDialog key={shown} seats={SEATS} ended={shown === 'cleanup'}
+      failure={shown === 'cleanup' ? CLEANUP_FAILURE : undefined}
+      onStop={async () => {}} onClose={() => setShown(null)} />}
+  </Boundary>
+}
 
 /** The production strip, header, inspector and stop question, with placeholder identities only. */
 export const StopRunExample = ({ scene = 'running' }: { scene?: StopRunScene }) => {

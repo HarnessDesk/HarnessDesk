@@ -14,6 +14,30 @@ const capture = async (frame: Locator, name: string) => {
   if (process.env.STOP_RUN_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.STOP_RUN_FRAMES_DIR, name) })
 }
 for (const theme of ['light', 'dark'] as const) {
+  for (const scene of ['default', 'cleanup'] as const) test(`the ${scene} stop question preview renders on load in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto(`/preview.html?stop-run-dialog=${scene}&theme=${theme}`)
+    await page.evaluate(() => document.fonts.ready)
+    const dialog = page.getByRole('alertdialog', { name: scene === 'cleanup' ? 'Finish stopping this Run?' : 'Stop this Run?', exact: true })
+    await expect(dialog).toBeVisible()
+    await expect(page.getByRole('alertdialog')).toHaveCount(1)
+    await expect(dialog.locator('[data-stop-seat="alpha"]')).toContainText('stops now')
+    await expect(dialog.locator('[data-stop-seat="beta"]')).toContainText('stops when its current turn ends')
+    await expect(dialog.getByRole('textbox', { name: 'Note' })).toHaveValue(scene === 'cleanup' ? 'The brief changed.' : '')
+    if (scene === 'cleanup') await expect(dialog).toContainText('one Seat could not be released')
+    const publicText = await dialog.evaluate(node => [node.textContent, ...[...node.querySelectorAll('*')].flatMap(element => [...element.attributes].map(attribute => attribute.value))].join('\n'))
+    expect(publicText).not.toMatch(/\/Users\/|[\w.+-]+@(?!example\.com\b|acme\.dev\b|harnessdesk\.app\b)[\w.-]+/)
+    await capture(dialog, `preview-${scene}-${theme}.png`)
+    await dialog.getByRole('button', { name: scene === 'cleanup' ? 'Close' : 'Keep running', exact: true }).click()
+    await expect(dialog).toBeHidden()
+    const dial = page.getByLabel('Stop run question', { exact: true })
+    await expect(dial).toHaveValue('off')
+    await dial.selectOption(scene)
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('button', { name: scene === 'cleanup' ? 'Retry stop' : 'Stop run', exact: true }).click()
+    await expect(dialog).toBeHidden()
+  })
+
   test(`a resumed Run clocks live work and a second stop freezes at its own end in ${theme}`, async ({ page }) => {
     await page.clock.install()
     let frame = await open(page, theme, 'resumed')
