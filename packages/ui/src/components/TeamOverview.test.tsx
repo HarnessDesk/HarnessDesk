@@ -87,3 +87,11 @@ it('does not repeat a waiting approval sentence in the activity cell',()=>{
  expect(waiting.querySelector('[data-slot="seat-doing"]')).toBeNull()
  expect(box.querySelector('[aria-label="Needs you"]')?.textContent).toContain('choose whether to keep the original payment method')
 })
+
+it('keeps the no-agent sentence inline on the section content edge',()=>{
+ render([])
+ const empty=box.querySelector('[aria-label="Seats"] [data-slot="empty-state"]')!
+ expect(empty?.getAttribute('data-variant')).toBe('inline')
+ expect(empty?.className).toContain('text-left')
+ expect(empty?.querySelector('h3,svg')).toBeNull()
+})

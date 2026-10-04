@@ -424,7 +424,7 @@ it('offers the same long form from an empty board', async () => {
   await render(store)
 
   const door = [...container.querySelectorAll('button')].find(
-    (one) => one.textContent?.trim() === 'Add the first job',
+    (one) => one.getAttribute('aria-label')?.startsWith('New job'),
   )
   if (!door) throw new Error('an empty board offers no way to start')
   act(() => door.click())
@@ -1604,4 +1604,15 @@ it('an attempt question already open stops recording an answer when the Team wra
   expect(questionText()).toContain('This Team is wrapped')
   await act(async () => record().click())
   expect(store.decideFlowReview).not.toHaveBeenCalled()
+})
+
+it('keeps an empty Board quiet with one add-work control in its toolbar',async()=>{
+ const {store}=rig([])
+ await render(store)
+ const empty=container.querySelector('[data-slot="empty-state"]')!
+ expect(empty?.getAttribute('data-variant')).toBe('inline')
+ expect(empty?.textContent).toBe('Nothing on the board yet')
+ expect(empty?.querySelector('h3,svg,button')).toBeNull()
+ expect(container.textContent?.split('Nothing on the board yet')).toHaveLength(2)
+ expect(container.querySelectorAll('button[aria-label^="New job"]')).toHaveLength(1)
 })

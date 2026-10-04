@@ -1007,6 +1007,9 @@ the Overview folds them into a disclosure such as **3 done**. A question,
 unread notice or new work brings a Seat out of that fold. The sidebar nests
 its conversation under the same Team, even after its process has rested.
 A Team without a Run opens on Chat and still offers Overview for its Seats.
+Empty Board and Chat content keeps one quiet sentence in the reading column.
+The Board toolbar keeps **New job**; an empty Goal also offers **Start with a team** there.
+Board-only Chat keeps the consequence of its messaging mode on screen.
 
 What needs you can be answered from its row. A tool's request for approval
 offers the agent's own choices. The command and its working folder, files a

@@ -139,7 +139,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
         )}
         <section aria-label="Seats" className="min-w-0">
           <GroupLabel>Agents · {model.seats.length}</GroupLabel>
-          {model.seats.length === 0 ? <EmptyState title="No agents in this Team yet" /> : rows.length === 0 ? null : narrow ? (
+          {model.seats.length === 0 ? <EmptyState variant="inline" align="start" title="No agents in this Team yet" /> : rows.length === 0 ? null : narrow ? (
             <ListRows>
               {rows.map(row => (
                 <ListRow key={row.seat} data-seat={row.seat} lead={face(row)}

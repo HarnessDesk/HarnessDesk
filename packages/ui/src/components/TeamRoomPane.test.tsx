@@ -1303,6 +1303,8 @@ it('does not spin on a project that has no board', async () => {
   expect(reads).toBeLessThan(CEILING)
   // And it settled saying the honest empty thing rather than nothing at all.
   expect(container.textContent).toContain('Nothing said yet')
+  expect(container.querySelector('[data-slot="room-stream"] [data-slot="empty-state"]')?.getAttribute('data-variant')).toBe('inline')
+  expect(container.textContent).not.toContain('Signals — a claim, a completion — land here too.')
 })
 
 /**
