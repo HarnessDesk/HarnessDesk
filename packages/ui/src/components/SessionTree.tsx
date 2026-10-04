@@ -481,7 +481,7 @@ export const SessionListControls = ({ searching = false }: { searching?: boolean
               icon={<ExpandAllIcon size={14} />}
               label="Expand all"
               disabled={openCount === roots.length ? 'Every project is already open.' : false}
-              onSelect={() => store.setProjectsCollapsed(roots, false)}
+              onSelect={() => store.setProjectsCollapsed(groups.flatMap((group) => group.folders), false)}
             />
           </Menu>
         )}

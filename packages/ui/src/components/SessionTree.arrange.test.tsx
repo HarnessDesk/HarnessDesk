@@ -233,6 +233,66 @@ it('folds every project the list is showing, not just the ones on screen', () =>
   )
 })
 
+it('expands a project folded under a clone while the agent filter delays migration', () => {
+  const home = '/widgets'
+  const clone = '/widgets-clone'
+  const repository = (root: string) => ({ root, worktree: false, origin: 'github.com/acme/widgets' })
+  const { snapshot, store } = rig({ agent: runtime.id, collapsed: [clone], pinned: [] })
+  let currentSnapshot = {
+    ...snapshot,
+    history: [
+      { ...session('home-session', home, 1), repo: repository(home) },
+      { ...session('clone-session', clone, 2), repo: repository(clone) },
+    ],
+  } as AppSnapshot
+  const listeners = new Set<() => void>()
+  const liveStore = {
+    ...store,
+    subscribe: (listener: () => void) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    getSnapshot: () => currentSnapshot,
+    setProjectsCollapsed: vi.fn((folders: readonly string[], collapsed: boolean) => {
+      const current = currentSnapshot.listPrefs.collapsed
+      currentSnapshot = {
+        ...currentSnapshot,
+        listPrefs: {
+          ...currentSnapshot.listPrefs,
+          collapsed: collapsed
+            ? [...new Set([...current, ...folders])]
+            : current.filter((folder) => !folders.includes(folder)),
+        },
+      }
+      listeners.forEach((listener) => listener())
+    }),
+  } as unknown as AppStore
+
+  act(() => {
+    root.render(
+      <StoreProvider store={liveStore}>
+        <SessionListControls />
+        <SessionTree now={4} />
+      </StoreProvider>,
+    )
+  })
+
+  expect(container.textContent).not.toContain('clone-session')
+
+  const trigger = container.querySelector<HTMLButtonElement>('button[title="How this list is shown"]')
+  if (!trigger) throw new Error('the display controls did not render')
+  act(() => trigger.click())
+
+  const expand = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+    (button) => button.textContent?.startsWith('Expand all'),
+  )
+  if (!expand) throw new Error('Expand all did not render')
+  act(() => expand.click())
+
+  expect(liveStore.setProjectsCollapsed).toHaveBeenCalledWith([home, clone], false)
+  expect(container.textContent).toContain('clone-session')
+})
+
 const openControlSubmenu = async (name: string): Promise<HTMLElement> => {
   const trigger = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
     .find((item) => item.querySelector('[class*="title"]')?.textContent?.trim() === name)
