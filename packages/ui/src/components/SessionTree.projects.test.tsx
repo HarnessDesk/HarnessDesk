@@ -115,15 +115,15 @@ it('gives an open subfolder one row, not a second empty one for its repository',
   expect(currentProject()).toBe('ui')
 })
 
-it('shows an uncached search match without moving its project home', async () => {
+it('shows an older uncached search match without moving its project home', async () => {
   const home = session('home-session', '/widgets', {
     root: '/widgets', worktree: false, origin: 'github.com/acme/widgets',
   })
   const clone = session('clone-session', '/widgets-clone', {
     root: '/widgets-clone', worktree: false, origin: 'github.com/acme/widgets',
   })
-  // The first history page has only the home checkout. Search can return a
-  // matching conversation from another clone before pagination reaches it.
+  // The first history page has only the home checkout. Search can return an
+  // older matching conversation from another clone before pagination reaches it.
   const history = [{ ...home, createdAt: 1 }]
   const runtimeInfo = {
     id: runtime.id,
@@ -137,7 +137,7 @@ it('shows an uncached search match without moving its project home', async () =>
     params: { query?: string },
   ) => {
     if (method === 'session/list') return { data: history, nextCursor: null }
-    if (method === 'session/search') return { data: [{ ...clone, createdAt: 2 }], nextCursor: null }
+    if (method === 'session/search') return { data: [{ ...clone, createdAt: 0.5 }], nextCursor: null }
     if (method === 'routes/list') return []
     if (params.query) throw new Error(`unexpected query: ${params.query}`)
     return null

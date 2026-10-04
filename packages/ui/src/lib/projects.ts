@@ -117,6 +117,8 @@ interface Entry {
   readonly sessions: SessionSummary[]
   /** Every folder a conversation ran in, with how many did. */
   readonly cwds: Map<string, number>
+  /** Folders known only through visible search results; they do not choose the home. */
+  readonly visibleFolders: Set<string>
   /** Each checkout git named, with when the oldest conversation worked in it began. */
   readonly roots: Map<string, number>
   /** The checkout git named for a folder, where it named one. */
@@ -241,7 +243,10 @@ export const groupByProject = (
   }
 
   const byKey = new Map<string, Entry>()
+  const identityKeys = new Set<string>()
   for (const summary of facts) {
+    const session = String(sessionKey(summary.runtime, summary.id))
+    identityKeys.add(session)
     const root = rootOfRow(summary)
     // Not every agent reports git; a session that knows only its folder joins
     // whatever another session placed that folder, or its checkout, in.
@@ -249,7 +254,7 @@ export const groupByProject = (
     const key = origin !== null ? `${ORIGIN}${origin}` : root !== undefined ? `${ROOT}${root}` : `path:${summary.cwd}`
     let entry = byKey.get(key)
     if (!entry) {
-      entry = { sessions: [], cwds: new Map(), roots: new Map(), rootOf: new Map(), origin }
+      entry = { sessions: [], cwds: new Map(), visibleFolders: new Set(), roots: new Map(), rootOf: new Map(), origin }
       byKey.set(key, entry)
     }
     const shown = visible.get(String(sessionKey(summary.runtime, summary.id)))
@@ -261,6 +266,31 @@ export const groupByProject = (
       const began = Number.isFinite(summary.createdAt) && summary.createdAt > 0 ? summary.createdAt : Number.POSITIVE_INFINITY
       entry.roots.set(root, Math.min(entry.roots.get(root) ?? Number.POSITIVE_INFINITY, began))
     }
+  }
+
+  // Search can return conversations beyond the loaded history pages. Show
+  // those rows and remember their folders, while keeping them out of the
+  // facts that decide which clone is the project's home.
+  for (const summary of history) {
+    if (identityKeys.has(String(sessionKey(summary.runtime, summary.id)))) continue
+    const root = rootOfRow(summary)
+    const origin = originOf(summary) ?? (root !== undefined ? originByRoot.get(root) : undefined) ?? originByFolder.get(summary.cwd) ?? null
+    const key = origin !== null ? `${ORIGIN}${origin}` : root !== undefined ? `${ROOT}${root}` : `path:${summary.cwd}`
+    let entry = byKey.get(key)
+    if (!entry) {
+      entry = { sessions: [], cwds: new Map(), visibleFolders: new Set(), roots: new Map(), rootOf: new Map(), origin }
+      byKey.set(key, entry)
+      entry.cwds.set(summary.cwd, 1)
+      if (root !== undefined) {
+        entry.rootOf.set(summary.cwd, root)
+        const began = Number.isFinite(summary.createdAt) && summary.createdAt > 0 ? summary.createdAt : Number.POSITIVE_INFINITY
+        entry.roots.set(root, began)
+      }
+    } else {
+      entry.visibleFolders.add(summary.cwd)
+      if (root !== undefined) entry.visibleFolders.add(root)
+    }
+    entry.sessions.push(summary)
   }
 
   for (const workspace of knownWorkspaces) {
@@ -284,7 +314,7 @@ export const groupByProject = (
   const openedFolder = current === null ? null : projectGroupRootOf(current)
   return [...byKey.values()].filter((entry) => entry.sessions.length > 0).map((entry) => {
     const root = homeOf(entry, opened, claimant, gone)
-    const others = [...new Set([...entry.cwds.keys(), ...entry.roots.keys()])].filter((folder) => folder !== root).sort()
+    const others = [...new Set([...entry.cwds.keys(), ...entry.roots.keys(), ...entry.visibleFolders])].filter((folder) => folder !== root).sort()
     const holdsOpenFolder = openedFolder !== null && openedOrigin !== null && entry.origin === openedOrigin
     return {
       root,

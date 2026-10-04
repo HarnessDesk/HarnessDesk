@@ -287,6 +287,7 @@ it('expands a project folded under a clone while the agent filter delays migrati
     (button) => button.textContent?.startsWith('Expand all'),
   )
   if (!expand) throw new Error('Expand all did not render')
+  expect(expand.getAttribute('aria-disabled')).not.toBe('true')
   act(() => expand.click())
 
   expect(liveStore.setProjectsCollapsed).toHaveBeenCalledWith([home, clone], false)

@@ -1190,9 +1190,10 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
       snapshot.historyIdentity.map((summary) => String(sessionKey(summary.runtime, summary.id))),
     )
     const identityHistory = [...snapshot.historyIdentity]
-    // Search can find older rows beyond the loaded pages. Add those after the
-    // cached facts so they join their project without choosing its home.
-    for (const summary of [...liveRef.current, ...snapshot.history]) {
+    // A live conversation can precede its first history page. Outside search,
+    // the loaded history also supplies folder facts for hidden gone rows;
+    // search results stay out so they cannot choose a different clone home.
+    for (const summary of searching ? liveRef.current : [...liveRef.current, ...snapshot.history]) {
       const key = String(sessionKey(summary.runtime, summary.id))
       if (historyIdentityKeys.has(key)) continue
       historyIdentityKeys.add(key)
