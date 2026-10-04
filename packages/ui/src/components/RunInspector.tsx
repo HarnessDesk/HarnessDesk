@@ -12,6 +12,12 @@ export interface RunInspectorProps {
   input: RunTimelineInput
   selectedRow: string | null
   seats: readonly InspectorSeat[]
+  /** Abandons a card; rejects with the host's refusal. Without it a card offers no abandoning. */
+  onAbandon?: (card: number) => Promise<void>
+  /** Answers a person's step; rejects with the host's refusal. Without it the step's words are text. */
+  onAnswer?: (card: number, outcome: string | null, note: string) => Promise<void>
+  /** Opens the board, where a review step's attempt is chosen. */
+  onOpenBoard?: () => void
   publication?: FindingRoundPublication | null
   /**
    * Why a finding that is not here may still exist: the read of them is still `reading`, or it `failed`.
@@ -24,7 +30,10 @@ import { Button, CodeText, GroupLabel, PaneColumn, PanelBody, PanelFrame, PanelT
 import { sanitizeText } from '../lib/sanitize'
 import { wordOf } from '../lib/agents'
 import { lifecycleWords } from '../lib/findings'
+import { stepDoor } from '../lib/needs-you'
 import type { ReactNode } from 'react'
+import { AbandonCard } from './AbandonCard'
+import { StepAnswer } from './StepAnswer'
 
 const Section = ({ title, children }: { title: string; children: ReactNode }) => <section className="flex min-w-0 flex-col gap-2">
   <GroupLabel>{title}</GroupLabel>{children}
@@ -46,7 +55,7 @@ const detailWords = (detail: string | null | undefined): string | null => {
 }
 
 /** Recorded detail only. No transcript copies, dispatch controls or guessed results. */
-export const RunInspector = ({ input, selectedRow, seats, publication, findingsRead }: RunInspectorProps) => {
+export const RunInspector = ({ input, selectedRow, seats, onAbandon, onAnswer, onOpenBoard, publication, findingsRead }: RunInspectorProps) => {
   const { execution, cards, evidence } = input
   const selected = runTimeline(input).rows.find(row => row.id === selectedRow)
   const round = execution.rounds.find(one => one.n === selected?.round)
@@ -62,6 +71,9 @@ export const RunInspector = ({ input, selectedRow, seats, publication, findingsR
   </div>) : unread === 'reading' ? <Text role="meta" as="div">Reading findings…</Text>
     : <Words>{unread === 'failed' ? 'Findings could not be read' : 'No findings recorded'}</Words>}</Section>
   const title = card ? `#${card.id} · ${card.title}` : selected?.kind === 'findings' ? 'Findings' : 'Run details'
+  const abandon = onAbandon && card
+    ? <div><AbandonCard execution={execution} cards={cards} card={card} holder={seat?.name} onAbandon={onAbandon} /></div>
+    : null
   let body: ReactNode
   if (selected?.kind === 'check' && card && role?.kind === 'check' && role.check) {
     const check = role.check
@@ -76,11 +88,17 @@ export const RunInspector = ({ input, selectedRow, seats, publication, findingsR
       <Section title="Exit mapping"><Words>{[...Object.entries(check.exits).map(([exit, outcome]) => `Exit ${exit} → ${wordOf(outcome)}`), `Other exits and timeout → ${wordOf(check.otherwise)}`].join('\n')}</Words></Section>
       <Section title="Latest result"><Words>{selected.status ?? 'Result unavailable'}</Words>{fact && <Text role="meta">{fact.timedOut ? 'Timed out' : fact.exit === null ? 'No exit recorded' : `Exit ${fact.exit}`} · {sanitizeText(fact.at)}</Text>}</Section>
       <Section title="Output">{fact ? <CodeText block wrap>{sanitizeText(fact.tail || 'No output was printed')}</CodeText> : <Words>Output is not kept for this check</Words>}</Section>
+      {abandon}
     </>
   } else if (selected?.kind === 'person' && card) {
+    // A card recorded without its role is still its round's: the round is what opened it.
+    const door = onAnswer && onOpenBoard && round ? stepDoor({ ...card, role: card.role ?? round.role }, execution) : null
     body = <><Section title="Step"><Words>{detailWords(card.detail) ?? card.title}</Words></Section>
-      <Section title="Outcomes"><Words>{role?.kind === 'person' ? role.outcomes.map(wordOf).join(' · ') : 'Not recorded'}</Words></Section>
+      {door && onAnswer && onOpenBoard
+        ? <Section title="Your answer"><StepAnswer key={JSON.stringify([execution.id, card.id])} door={door} onAnswer={onAnswer} onOpenBoard={onOpenBoard} /></Section>
+        : <Section title="Outcomes"><Words>{role?.kind === 'person' ? role.outcomes.map(wordOf).join(' · ') : 'Not recorded'}</Words></Section>}
       {card.outcome && <Section title="Answer"><Words>{wordOf(card.outcome)}</Words></Section>}
+      {abandon}
     </>
   } else if (selected?.kind === 'findings') {
     body = showFindings
@@ -97,6 +115,7 @@ export const RunInspector = ({ input, selectedRow, seats, publication, findingsR
       {showFindings}
       <Section title="Review"><Words>{reviewWords}</Words>{review?.reason && <Words>{review.reason}</Words>}</Section>
       <Section title="Cost"><Words>{costWords(seat?.cost)}</Words><Text role="meta">Recorded for this Seat</Text></Section>
+      {abandon}
       {seat?.onOpen ? <Button variant="link" size="inline-link" onClick={seat.onOpen}>Open the conversation</Button> : <Text role="meta">Conversation not kept</Text>}
     </>
   } else {

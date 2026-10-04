@@ -3448,3 +3448,261 @@ it.each(['running', 'settled'] as const)('discovers an uncached %s Run when open
   await act(async () => nav.click())
   expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('Triage')
 })
+
+/**
+ * What needs you, answered from the Overview. Each answer is the request the
+ * surface that already answers it makes — the board's menu for a person's
+ * card, the docked approval for a request — so whichever door answers first
+ * wins, and the host sees one request either way.
+ */
+const personRun = (rules: readonly unknown[] = [], extraRoles: readonly unknown[] = []): FlowExecution => ({
+  version: 2, id: 'run-1', goal: ROOM, state: 'running', startedAt: 1, reason: null, legacyRun: null, operations: [],
+  rounds: [{ n: 1, role: 'decide', cards: [5], seats: [], evidence: [], state: 'running', cause: 'seed' }],
+  document: { format: 'agents', flow: {
+    version: 2, name: 'Ship', inputs: [], roles: [{ id: 'decide', kind: 'person', outcomes: ['approved', 'request-changes'] }, ...extraRoles],
+    rules, seed: { role: 'decide', title: 'Go' }, messaging: 'board-only', wait: 240,
+  } },
+} as unknown as FlowExecution)
+const personCard = { ...state.intents[1]!, id: 5, title: 'Decide whether to ship', state: 'open', role: 'decide', claim: null } as Intent
+const needsYouRow = (): HTMLElement => container.querySelector('[aria-label="Needs you"]') as HTMLElement
+const inNeedsYou = (label: string): HTMLButtonElement =>
+  [...needsYouRow().querySelectorAll('button')].find((one) => one.textContent === label) as HTMLButtonElement
+
+it("answers a person's step from the Overview with the request the board's own menu makes", async () => {
+  const execution = personRun([{ id: 'ship', on: 'decide', when: { every: ['approved'] }, then: { role: 'decide', title: 'Again' } }])
+  const { store } = rig(undefined, undefined, { intents: [personCard] }, GOAL, new Map([[execution.id, execution]]))
+  await render(store)
+  expect(needsYouRow().textContent).toContain('Decide whether to ship')
+  expect(needsYouRow().textContent).toContain('Approved opens a step for you.')
+  expect(needsYouRow().textContent).toContain('Request changes ends the Run without a next step.')
+  await act(async () => inNeedsYou('Approved').click())
+  expect(store.teamIntent).toHaveBeenCalledTimes(1)
+  const fromOverview = vi.mocked(store.teamIntent).mock.lastCall
+  expect(fromOverview).toEqual([ROOM, 5, 'done', undefined, 'approved'])
+
+  // The board's menu, for the same card and the same word.
+  act(() => row('Board').click())
+  await act(async () => {})
+  const trigger = container.querySelector<HTMLButtonElement>('button[aria-label="What to do with #5"]')!
+  act(() => {
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    trigger.click()
+  })
+  await act(async () => {})
+  const item = [...document.querySelectorAll<HTMLElement>('[data-slot="dropdown-menu-item"]')].find((one) => one.textContent?.includes('Answer approved'))!
+  act(() => item.click())
+  await act(async () => {})
+  expect(store.teamIntent).toHaveBeenCalledTimes(2)
+  expect(vi.mocked(store.teamIntent).mock.lastCall).toEqual(fromOverview)
+})
+
+it('gives the note the person wrote as the context the next round reads, and shows the host\'s refusal', async () => {
+  const execution = personRun()
+  const { store } = rig(undefined, undefined, { intents: [personCard] }, GOAL, new Map([[execution.id, execution]]))
+  vi.mocked(store.teamIntent).mockRejectedValueOnce(new Error('This card was already answered.'))
+  await render(store)
+  const note = needsYouRow().querySelector<HTMLInputElement>('input')!
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+  act(() => { setter.call(note, 'Ship it once the retry has a ceiling.'); note.dispatchEvent(new Event('input', { bubbles: true })) })
+  await act(async () => inNeedsYou('Request changes').click())
+  expect(store.teamIntent).toHaveBeenCalledWith(ROOM, 5, 'done', undefined, 'request-changes', 'Ship it once the retry has a ceiling.')
+  expect(needsYouRow().querySelector('[role="alert"]')?.textContent).toBe('This card was already answered.')
+  expect(inNeedsYou('Request changes').disabled).toBe(true)
+})
+
+it('sends a review step to the board, where its attempt is chosen', async () => {
+  const execution = personRun(
+    [{ id: 'land', on: 'decide', when: { every: ['approved'], evidence: [{ review: 'approved' }] }, then: { role: 'merge', title: 'Merge' } }],
+    [{ id: 'merge', kind: 'person', outcomes: ['merged'] }],
+  )
+  const { store } = rig(undefined, undefined, { intents: [personCard] }, GOAL, new Map([[execution.id, execution]]))
+  await render(store)
+  expect(inNeedsYou('Approved')).toBeUndefined()
+  await act(async () => inNeedsYou('Pick an attempt on the board').click())
+  expect(container.querySelector('[data-slot="board-column"]')).not.toBeNull()
+  expect(store.teamIntent).not.toHaveBeenCalled()
+})
+
+it("answers an approval from the Overview with the call the docked card makes", async () => {
+  const execution = personRun()
+  const { store } = rig(undefined, undefined, {}, GOAL, new Map([[execution.id, execution]]))
+  const approvals = [{
+    key: sessionKey('codex', 'c1'),
+    approval: {
+      id: 'a1', sessionId: 'c1', requestedAt: 5, type: 'command', kind: 'command', command: 'pnpm verify', cwd: '/repo', actions: [],
+      options: [
+        { id: 'yes', label: 'Yes', intent: 'approve' },
+        { id: 'always', label: 'Yes, always', intent: 'approveAlways' },
+        { id: 'no', label: 'No, tell it instead', intent: 'deny' },
+      ],
+    },
+  }]
+  const snapshot = { ...store.getSnapshot(), approvals: approvals as never }
+  const respondToApproval = vi.fn().mockResolvedValue({ ok: true })
+  Object.assign(store, { getSnapshot: () => snapshot, respondToApproval })
+  await render(store)
+  expect(needsYouRow().textContent).toContain('pnpm verify')
+  expect([...needsYouRow().querySelectorAll('button')].map((one) => one.textContent)).toEqual(['No, tell it instead', 'Yes, always', 'Yes'])
+  await act(async () => inNeedsYou('Yes').click())
+  const fromOverview = respondToApproval.mock.lastCall
+  expect(fromOverview).toEqual([sessionKey('codex', 'c1'), 'a1', { type: 'option', optionId: 'yes' }])
+
+  // The docked card in the chat, for the same request, sends the same thing.
+  act(() => row('Chat').click())
+  await act(async () => {})
+  const docked = [...container.querySelectorAll<HTMLButtonElement>('[data-slot="approval-card"] button')].find((one) => /^Yes\d?$/.test(one.textContent ?? ''))!
+  act(() => docked.click())
+  expect(respondToApproval).toHaveBeenCalledTimes(2)
+  expect(respondToApproval.mock.lastCall).toEqual(fromOverview)
+})
+
+it('answers a person\'s step and sends a review to the board from the Run inspector too', async () => {
+  const execution = personRun()
+  const { store } = rig(undefined, undefined, { intents: [personCard] }, GOAL, new Map([[execution.id, execution]]))
+  Object.assign(store, { loadFindings: vi.fn().mockResolvedValue(undefined) })
+  await render(store)
+  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  await act(async () => nav.click())
+  await act(async () => (container.querySelector('[data-row="person-1-5"]') as HTMLButtonElement).click())
+  const inspector = container.querySelector('[data-slot="run-inspector"]')!
+  await act(async () => ([...inspector.querySelectorAll('button')].find(one => one.textContent === 'Request changes') as HTMLButtonElement).click())
+  expect(store.teamIntent).toHaveBeenCalledWith(ROOM, 5, 'done', undefined, 'request-changes')
+})
+
+it('sends a review step to the board from the Run inspector', async () => {
+  const execution = personRun(
+    [{ id: 'land', on: 'decide', when: { every: ['approved'], evidence: [{ review: 'approved' }] }, then: { role: 'merge', title: 'Merge' } }],
+    [{ id: 'merge', kind: 'person', outcomes: ['merged'] }],
+  )
+  const { store } = rig(undefined, undefined, { intents: [personCard] }, GOAL, new Map([[execution.id, execution]]))
+  Object.assign(store, { loadFindings: vi.fn().mockResolvedValue(undefined) })
+  await render(store)
+  const nav = [...container.querySelectorAll('aside button')].find(one => one.querySelector('[data-slot="list-row-title"]')?.textContent === 'Run') as HTMLButtonElement
+  await act(async () => nav.click())
+  await act(async () => (container.querySelector('[data-row="person-1-5"]') as HTMLButtonElement).click())
+  const pick = [...container.querySelector('[data-slot="run-inspector"]')!.querySelectorAll('button')].find(one => one.textContent === 'Pick an attempt on the board') as HTMLButtonElement
+  await act(async () => pick.click())
+  expect(container.querySelector('[data-slot="board-column"]')).not.toBeNull()
+  expect(container.querySelector('[data-slot="run-inspector"]')).toBeNull()
+})
+
+it('a wrapped Team keeps receipt Seats and its Run readable while dispatching verbs are disabled', async () => {
+ const execution = {version:2,id:'wrapped-run',goal:ROOM,state:'settled',reason:null,operations:[],rounds:[],document:{format:'agents',flow:{name:'Completed review',roles:[],rules:[]}}} as unknown as FlowExecution
+ const goal: GoalView = {...GOAL,goal:{...GOAL.goal,state:'wrapped',origin:{kind:'flow',run:execution.id}},members:[],receipt:{version:1,id:'receipt',goal:ROOM,sentence:GOAL.goal.sentence,summary:'Reviewed.',wrappedAt:2,cards:[],seats:['kept','lost'],members:[{seat:'kept',agent:'Writer',seatLabel:'Alpha',session:{runtime:'codex',sessionId:'c1'}},{seat:'lost',agent:null,seatLabel:'Gamma'}],answers:[],evidence:[],lanes:[],revisions:[],citations:[],gaps:[]}}
+ const {store}=rig([],undefined,{members:[]},goal,new Map([[execution.id,execution]]))
+ await render(store)
+ expect(container.querySelector('aside')?.textContent).toContain('Writer')
+ expect(container.querySelector('aside')?.textContent).toContain('Gamma')
+ expect(container.textContent).toContain('Conversation not kept')
+ for (const label of ['Seat an Agent in this Goal','Hold messages at the board']) {
+  const button=container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)
+  expect(button?.disabled).toBe(true);expect(button?.title).toBe('This Team is wrapped')
+ }
+ const pick=async(label:string)=>{const button=[...container.querySelectorAll<HTMLButtonElement>('aside button')].find(one=>(label==='Run'?one.textContent?.startsWith(label):one.textContent===label));expect(button).toBeTruthy();act(()=>button!.click());await act(async()=>{})}
+ await pick('Run');expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('Completed review')
+ await pick('Receipt');expect(container.textContent).toContain('As recorded when wrapped')
+ act(()=>row('Writer').click());await act(async()=>{})
+ expect(container.querySelector('[data-testid="conversation"]')?.textContent).toContain(String(sessionKey('codex','c1')))
+})
+
+/* A wrapped Team's receipt, as the host keeps it: every Seat that was ever retained, each with the conversation it
+   had (or, on an older receipt, none). */
+const receiptGoal = (seats: readonly string[], members: readonly unknown[]): GoalView => ({
+ ...GOAL, goal: { ...GOAL.goal, state: 'wrapped' }, members: [],
+ receipt: { version: 1, id: 'receipt', goal: ROOM, sentence: GOAL.goal.sentence, summary: 'Reviewed.', wrappedAt: 2, cards: [], seats, members, answers: [], evidence: [], lanes: [], revisions: [], citations: [], gaps: [] },
+} as unknown as GoalView)
+
+/** The rail's rows, as a person reads them. */
+const railRows = (): string[] => [...container.querySelectorAll('aside [data-slot="list-row"]')].map(one => one.textContent ?? '')
+
+/* A conversation can be seated more than once in a Team's life, and the receipt keeps every Seat. The rail lists
+   conversations, so it names each one once — and does not draw two rows under one React key (#1317, round 1). */
+it('a wrapped Team lists a conversation once however many Seats were retained for it', async () => {
+ const goal = receiptGoal(['first', 'again', 'other'], [
+  { seat: 'first', agent: 'Writer', seatLabel: 'Alpha', session: { runtime: 'codex', sessionId: 'c1' } },
+  { seat: 'again', agent: 'Reviewer', seatLabel: 'Alpha again', session: { runtime: 'codex', sessionId: 'c1' } },
+  { seat: 'other', agent: 'Judge', seatLabel: 'Beta', session: { runtime: 'codex', sessionId: 'c2' } },
+ ])
+ const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+ try {
+  const { store } = rig([], undefined, { members: [] }, goal)
+  await render(store)
+  // The latest Seat to hold the conversation names it: `Writer` held it first and is not a second row.
+  expect(railRows().filter(text => /Writer|Reviewer|Judge/.test(text))).toHaveLength(2)
+  expect(railRows().some(text => text.includes('Reviewer'))).toBe(true)
+  expect(railRows().some(text => text.includes('Judge'))).toBe(true)
+  expect(railRows().some(text => text.includes('Writer'))).toBe(false)
+  // And the roster counts conversations, as it lists them.
+  expect(container.querySelector('aside')?.textContent).toContain('Agents2')
+  expect(errors.mock.calls.map(call => String(call[0])).filter(text => text.includes('same key'))).toEqual([])
+ } finally { errors.mockRestore() }
+})
+
+/* An older receipt may keep Seats without a conversation: the rail lists each as a name and says the conversation
+   was not kept. It cannot also say there are no Agents — it is looking at them (#1317, round 1). */
+it('an older receipt whose Seats were all kept without a conversation lists them and does not say there are none', async () => {
+ const goal = receiptGoal(['lost', 'lost-too'], [
+  { seat: 'lost', agent: 'Writer', seatLabel: 'Alpha' },
+  { seat: 'lost-too', agent: null, seatLabel: 'Gamma' },
+ ])
+ const { store } = rig([], undefined, { members: [] }, goal)
+ await render(store)
+ const rail = container.querySelector('aside')!.textContent ?? ''
+ expect(railRows().filter(text => /Writer|Gamma/.test(text))).toHaveLength(2)
+ expect(rail.match(/Conversation not kept/g)).toHaveLength(2)
+ expect(rail).not.toContain('No Agents were kept')
+})
+
+it('a receipt that kept no Seat at all still says so', async () => {
+ const { store } = rig([], undefined, { members: [] }, receiptGoal([], []))
+ await render(store)
+ expect(container.querySelector('aside')?.textContent).toContain('No Agents were kept in this Team’s receipt.')
+})
+
+/* The pane is two columns at width and one at a time without it, and `data-showing` names the one on show. A wrapped
+   Team opens on its Receipt, so in a narrow pane the Receipt has to be the half that shows — whether or not the Team
+   ever had a Run. A Team with no Run used to start on the Agents list, as an open one does, and a person-made Team
+   that wrapped read as a list of names with the record behind a way back (#1317). `receiptGoal` is exactly that Team:
+   made by a person, never given a Flow. */
+const showing = (): string | null => container.querySelector('[data-showing]')?.getAttribute('data-showing') ?? null
+const KEPT = [{ seat: 'kept', agent: 'Writer', seatLabel: 'Alpha', session: { runtime: 'codex', sessionId: 'c1' } }]
+
+it('a wrapped Team that never had a Run opens on its Receipt, not on the Agents list, in a narrow pane', async () => {
+ const { store } = rig([], undefined, { members: [] }, receiptGoal(['kept'], KEPT))
+ await render(store)
+ expect(showing()).toBe('body')
+ expect(row('Receipt').getAttribute('aria-current')).toBe('true')
+ expect(container.textContent).toContain('As recorded when wrapped')
+})
+
+it('an open Team that has no Run still starts on the Agents list in a narrow pane', async () => {
+ const { store } = rig([], undefined, { members: [] }, GOAL)
+ await render(store)
+ expect(showing()).toBe('rail')
+})
+
+it('a Team with no Run that wraps while its narrow pane shows the Agents list moves to its Receipt', async () => {
+ const { store } = rig([], undefined, { members: [] }, GOAL)
+ await render(store)
+ expect(showing()).toBe('rail')
+ const open = store.getSnapshot()
+ const wrapped = { ...open, goals: new Map([[ROOM, receiptGoal(['kept'], KEPT)]]) }
+ Object.assign(store, { getSnapshot: () => wrapped })
+ await render(store)
+ expect(showing()).toBe('body')
+ expect(row('Receipt').getAttribute('aria-current')).toBe('true')
+})
+
+it('a person who already chose where to look is not moved when a Team with no Run wraps', async () => {
+ const { store } = rig([], undefined, { members: [] }, GOAL)
+ await render(store)
+ act(() => row('Board').click())
+ await act(async () => {})
+ expect(row('Board').getAttribute('aria-current')).toBe('true')
+ const open = store.getSnapshot()
+ const wrapped = { ...open, goals: new Map([[ROOM, receiptGoal(['kept'], KEPT)]]) }
+ Object.assign(store, { getSnapshot: () => wrapped })
+ await render(store)
+ expect(row('Board').getAttribute('aria-current')).toBe('true')
+ expect(showing()).toBe('body')
+})

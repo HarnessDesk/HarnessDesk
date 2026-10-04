@@ -1,3 +1,15 @@
+import { FLOW_BOARD_TOOL_NAMES, type Approval } from '@harnessdesk/protocol'
+
+/**
+ * The board tool a permission request names, when it is one of the desk's own. The docked approval and the
+ * Overview's Needs-you row word its grants the same way, so one answer reads the same wherever it is asked.
+ */
+export const boardToolNamedBy = (approval: Approval | undefined): string | null => {
+  if (approval?.type !== 'permission') return null
+  const match = /^([a-z_]+) \(harnessdesk MCP Server\)$/.exec(approval.summary)
+  return match && FLOW_BOARD_TOOL_NAMES.includes(match[1] as typeof FLOW_BOARD_TOOL_NAMES[number]) ? match[1]! : null
+}
+
 /** One sentence shared by the real approval, the catalogue and the preview. */
 export interface BoardToolNoteInput {
   /** What the tool does, as a verb phrase (`boardToolPhrase`). */

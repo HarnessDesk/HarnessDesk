@@ -1,7 +1,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { FindingRunView } from '@harnessdesk/protocol'
+import type { FindingRunView, GoalView } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
@@ -154,6 +154,68 @@ it('a run whose Goal is wrapped greys every action and says why, and sends nothi
   expect(actions).toHaveLength(5)
   expect(actions.every((one) => (one as HTMLButtonElement).disabled)).toBe(true)
   expect(decideFindingRun).not.toHaveBeenCalled()
+})
+
+/**
+ * A Run that ends wraps its Team, and it can do that under a person who is in
+ * the middle of deciding it. The dialog holds the run as it read it when it
+ * opened — which still says the run is stopped and decidable — so only the
+ * Team itself can say the decision is over (#1317, round 1).
+ */
+const wrapsLater = (store: AppStore, goal: string): (() => void) => {
+  let snapshot = store.getSnapshot()
+  const listeners = new Set<() => void>()
+  Object.assign(store, {
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
+    getSnapshot: () => snapshot,
+  })
+  return () => {
+    snapshot = { ...snapshot, goals: new Map([[goal, { goal: { state: 'wrapped' } } as unknown as GoalView]]) }
+    act(() => listeners.forEach((listener) => listener()))
+  }
+}
+
+const finals = (): HTMLButtonElement[] =>
+  [...document.querySelectorAll<HTMLButtonElement>('button')].filter((one) =>
+    ['Authorise another round', 'Merge anyway', 'Drop', 'Admit selected', 'Decline selected'].includes(one.textContent ?? ''))
+
+it('a decision already open stops offering its actions when the Team wraps, though the run it read still looks open', async () => {
+  const decideFindingRun = vi.fn(async () => view())
+  const store = rig(decideFindingRun as never)
+  const wrap = wrapsLater(store, 'g1')
+  render(store, { goal: 'g1', view: view({ pendingExceptions: ['finding-0002'] }), onClose: () => {} })
+
+  // While the Team is open every action is on: a chosen exception and a
+  // reason are all it takes to arm the five.
+  act(() => document.querySelector<HTMLButtonElement>('[role="switch"]')!.click())
+  const textarea = document.querySelector('textarea')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'the ceiling was reached, one more try')
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(finals()).toHaveLength(5)
+  expect(finals().every((one) => !one.disabled)).toBe(true)
+  expect(document.body.textContent).not.toContain('This Team is wrapped')
+
+  wrap()
+
+  expect(finals()).toHaveLength(5)
+  expect(finals().every((one) => one.disabled)).toBe(true)
+  expect(finals().every((one) => one.title === 'This Team is wrapped')).toBe(true)
+  expect(document.body.textContent).toContain('This Team is wrapped')
+  for (const one of finals()) act(() => one.click())
+  await act(async () => {})
+  expect(decideFindingRun).not.toHaveBeenCalled()
+})
+
+it('the host’s own reason for a closed run still reads first when it has one', () => {
+  const store = rig((async () => view()) as never)
+  const wrap = wrapsLater(store, 'g1')
+  const undecidable = 'This Goal is wrapped. Its findings are history here; carry them into an open Goal to decide them.'
+  render(store, { goal: 'g1', view: view({ undecidable }), onClose: () => {} })
+  wrap()
+  expect(document.body.textContent).toContain(undecidable)
+  expect(finals().every((one) => one.disabled && one.title === undecidable)).toBe(true)
 })
 
 it('a run with nothing pending greys both exception buttons with their reason', () => {

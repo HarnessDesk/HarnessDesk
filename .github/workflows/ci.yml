@@ -187,6 +187,12 @@ jobs:
       - name: Design doc
         run: node script/design-doc.mjs --check
 
+      # The command-line reference is written out of the command table, which
+      # it reads from the build above, so a table edit that did not regenerate
+      # `docs/cli.md` is red here and not only on the machine that forgot.
+      - name: CLI reference
+        run: node script/cli-doc.mjs --check
+
       - name: Gate matches CI
         run: node script/check-verify-drift.mjs
 

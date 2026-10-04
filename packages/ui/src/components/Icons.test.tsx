@@ -78,7 +78,7 @@ describe('the renderer draws icons only through Icons.tsx and BrandIcons.tsx', (
   // lobe-icons' company marks on the same terms, and has its own tests.
   const sources = import.meta.glob<string>('../**/*.{ts,tsx}', { query: '?raw', import: 'default', eager: true })
   // GitGraph draws the commit graph, ShapeGraph draws a shape's roles and
-  // rules, and spark.tsx and chart.tsx draw the charts — per the audit's own
+  // rules, FlowGraph draws a Flow's, and spark.tsx and chart.tsx draw the charts — per the audit's own
   // carve-out these are drawings, not icons: a path computed from an array of
   // numbers (or, for ShapeGraph, from a role's own position) has no place in
   // a glyph set, there is no icon set it could be imported from, and swapping
@@ -86,12 +86,15 @@ describe('the renderer draws icons only through Icons.tsx and BrandIcons.tsx', (
   // terms the design audit records them under. AppearancePreview draws the
   // three theme miniatures — a picture of a window in each face, which no
   // token-driven render can produce inside a window wearing the other face —
-  // and is an illustration on the same terms.
+  // and is an illustration on the same terms. FlowGraph draws a Flow's rules
+  // as curves with arrowheads computed from the document, the same drawing
+  // ShapeGraph is excluded for.
   const others = Object.entries(sources).filter(
     ([path]) =>
       !/\/(Brand)?Icons\.tsx$/.test(path) &&
       !/\/GitGraph\.tsx$/.test(path) &&
       !/\/ShapeGraph\.tsx$/.test(path) &&
+      !/\/design\/patterns\/FlowGraph\.tsx$/.test(path) &&
       !/\/AppearancePreview\.tsx$/.test(path) &&
       !/\/design\/ui\/(spark|chart)\.tsx$/.test(path) &&
       !/\.test\.tsx?$/.test(path),

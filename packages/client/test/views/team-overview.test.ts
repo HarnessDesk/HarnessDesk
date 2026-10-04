@@ -192,12 +192,35 @@ describe('teamOverview', () => {
   })
 
   it('classifies structured questions and tool approvals with their own times', () => {
-    const result = teamOverview(input({ seats: [seat('Alpha', { session: session('Alpha'), approvals: [approval('Alpha'), { id: approvalId('question'), type: 'userInput', tool: 'ask', sessionId: sessionId('Alpha'), requestedAt: 260, questions: [{ id: 'target', question: 'Which target?', multiSelect: false, options: [] }] }] })] }))
+    const result = teamOverview(input({ seats: [seat('Jane Doe', { session: session('Jane Doe'), approvals: [approval('Jane Doe'), { id: approvalId('question'), type: 'userInput', tool: 'ask', sessionId: sessionId('Jane Doe'), requestedAt: 260, questions: [{ id: 'target', question: 'Which target?', multiSelect: false, options: [] }] }] })] }))
     assert.deepEqual(result.needsYou, [
-      { kind: 'question', seat: 'Alpha', card: null, summary: 'Which target?', since: 260 },
-      { kind: 'approval', seat: 'Alpha', card: null, summary: 'Use a tool', since: 275 },
+      { kind: 'question', seat: 'Jane Doe', card: null, summary: 'Which target?', since: 260, approval: 'question', sessionKey: sessionKey('agent-a', 'Jane Doe') },
+      { kind: 'approval', seat: 'Jane Doe', card: null, summary: 'Use a tool', since: 275, approval: 'approval', sessionKey: sessionKey('agent-a', 'Jane Doe') },
     ])
     assert.partialDeepStrictEqual(result.seats[0], { state: 'needs-you', since: 260, reason: 'Which target?' })
+  })
+
+  it('names the open request on a question or approval, so two asked in one instant stay apart, and none on a card', () => {
+    const first: Approval = { id: approvalId('first'), type: 'userInput', tool: 'ask', sessionId: sessionId('Alpha'), requestedAt: 260, questions: [{ id: 'a', question: 'Which target?', multiSelect: false, options: [] }] }
+    const second: Approval = { id: approvalId('second'), type: 'userInput', tool: 'ask', sessionId: sessionId('Alpha'), requestedAt: 260, questions: [{ id: 'b', question: 'Which branch?', multiSelect: false, options: [] }] }
+    const result = teamOverview(input({ seats: [seat('Alpha', { approvals: [first, second] })] }))
+    assert.deepEqual(result.needsYou.map((one) => [one.summary, one.approval]), [['Which target?', 'first'], ['Which branch?', 'second']])
+    const person = teamOverview(input({ cards: [card(2, { role: 'person' })], run: { execution: execution({ rounds: [{ n: 2, role: 'person', cards: [2], seats: [], evidence: [], state: 'running', cause: 'answer' }] }), startedAt: 150 } }))
+    assert.equal(person.needsYou[0]?.kind, 'card')
+    assert.equal('approval' in person.needsYou[0]!, false)
+  })
+
+  it('keeps the session identity on approval rows when two sessions reuse an approval id', () => {
+    const alpha: Approval = { id: approvalId('shared'), type: 'userInput', tool: 'ask', sessionId: sessionId('session-a'), requestedAt: 260, questions: [{ id: 'a', question: 'First conversation?', multiSelect: false, options: [] }] }
+    const beta: Approval = { id: approvalId('shared'), type: 'userInput', tool: 'ask', sessionId: sessionId('session-b'), requestedAt: 261, questions: [{ id: 'b', question: 'Second conversation?', multiSelect: false, options: [] }] }
+    const result = teamOverview(input({ seats: [
+      seat('Jane Doe', { record: { id: 'seat-alpha', session: { runtime: runtimeId('agent-a'), sessionId: sessionId('session-a') }, role: 'builder', openedAt: 100 }, approvals: [alpha] }),
+      seat('Jane Doe', { record: { id: 'seat-beta', session: { runtime: runtimeId('agent-b'), sessionId: sessionId('session-b') }, role: 'builder', openedAt: 100 }, approvals: [beta] }),
+    ] }))
+    assert.deepEqual(result.needsYou.map((one) => [one.seat, one.approval, one.sessionKey]), [
+      ['seat-alpha', 'shared', sessionKey('agent-a', 'session-a')],
+      ['seat-beta', 'shared', sessionKey('agent-b', 'session-b')],
+    ])
   })
 
   it('does not copy command text into an approval summary', () => {

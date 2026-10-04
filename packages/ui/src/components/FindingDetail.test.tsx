@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { FindingDetailPage, SeatRecord } from '@harnessdesk/protocol'
+import type { FindingDetailPage, GoalView, SeatRecord } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
@@ -217,6 +217,46 @@ it('a finding of another run, or a Goal no longer open, keeps the decision greye
   await renderDeciding(store, runView({ undecidable: 'This Goal is wrapped. Its findings are history here; carry them into an open Goal to decide them.' }))
   expect(clickNamed('Withdraw it').disabled).toBe(true)
   expect(document.body.textContent).toContain('This Goal is wrapped.')
+})
+
+/**
+ * A Run that ends wraps its Team, even under a person who is deciding one of
+ * its findings. The run view the form holds still says the run is open, so
+ * only the Team itself can say a verdict is no longer takable (#1317, round 1).
+ */
+const wrapsLater = (store: AppStore, goal: string): (() => void) => {
+  let snapshot = store.getSnapshot()
+  const listeners = new Set<() => void>()
+  Object.assign(store, {
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
+    getSnapshot: () => snapshot,
+  })
+  return () => {
+    snapshot = { ...snapshot, goals: new Map([[goal, { goal: { state: 'wrapped' } } as unknown as GoalView]]) }
+    act(() => listeners.forEach((listener) => listener()))
+  }
+}
+
+it('a verdict form already open stops taking a verdict when the Team wraps, though the run it read still looks open', async () => {
+  const repaired = page({ finding: { ...page().finding, lifecycle: { state: 'repaired', confirmed: false, repairs: [] } } })
+  const { store } = rig(repaired)
+  const decideFindingRun = vi.fn(async () => runView())
+  Object.assign(store, { decideFindingRun })
+  const wrap = wrapsLater(store, 'g1')
+  await renderDeciding(store, runView())
+  typeReason('checked the change myself')
+  const choices = (): HTMLButtonElement[] => ['Accept the repair', 'Reject the repair', 'Withdraw it'].map(clickNamed)
+  expect(choices().every((one) => !one.disabled)).toBe(true)
+  expect(document.body.textContent).not.toContain('This Team is wrapped')
+
+  wrap()
+
+  expect(choices().every((one) => one.disabled)).toBe(true)
+  expect(choices().every((one) => one.title === 'This Team is wrapped')).toBe(true)
+  expect(document.body.textContent).toContain('This Team is wrapped')
+  expect((document.querySelector('textarea[aria-label="Why"]') as HTMLTextAreaElement).disabled).toBe(true)
+  for (const one of choices()) await act(async () => { one.click() })
+  expect(decideFindingRun).not.toHaveBeenCalled()
 })
 
 it('regression guard: a reason typed survives PersonVerdict remounting if `decide` is ever absent and back (#1089, #1090)', async () => {

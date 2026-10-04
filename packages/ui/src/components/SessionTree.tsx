@@ -38,7 +38,7 @@ import { agentGroups, agentKey, agentKeyOf } from '../lib/accounts'
 import { folderName, groupByProject, groupHolding, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, roomGroupRootOf, type ProjectGroup } from '../lib/projects'
 import { sessionLabel } from '../lib/sessions'
 import { seatLabelsOf } from '../lib/seat-names'
-import { teamSeats } from '../lib/team-seats'
+import { teamSeats, hasConversation } from '../lib/team-seats'
 import { goalRunOf } from '../lib/goal-run'
 import { goalName, goalWords } from '../lib/goals'
 import { ACTIVE_STATES, TRACE_LABEL, traceOf } from '../lib/trace'
@@ -660,6 +660,7 @@ const roomMembers = (
   )
   const filtered = snapshot.listPrefs.agent !== null
   return teamSeats(snapshot.goals.get(room.id), room, goalRunOf(room.id, snapshot.goals.get(room.id), snapshot.flowExecutions))
+    .filter(hasConversation)
     .map(({key, record}) => {
       const listed = shown.get(String(key))
       if (listed) return listed
@@ -668,7 +669,7 @@ const roomMembers = (
       // A search already put its matches in `shown`. Outside that list, a
       // hidden gone-folder member must not be recreated from its Seat record.
       if (snapshot.foldersGone.has(recorded?.cwd ?? live?.cwd ?? room.cwd ?? room.root)) return undefined
-      return live ?? (record.openedAt > 0 ? {
+      return live ?? ((record.openedAt > 0 || snapshot.goals.get(room.id)?.receipt) ? {
         id: record.session.sessionId as SessionSummary['id'], runtime: record.session.runtime as SessionSummary['runtime'],
         // The Seat's job is the fallback; its agent's name is not a title.
         title: null, cwd: room.cwd ?? room.root, status: { type: 'idle' as const },
@@ -732,6 +733,9 @@ const RoomRow = ({
      filter keeps is the rule; where they were found is not. */
   const filtered = snapshot.listPrefs.agent !== null
   const members = roomMembers(room, sessions, snapshot, hiddenKeys)
+  /* A wrapped Team's Seats whose conversation was not kept: names, with nothing to open. Listed together, as the
+     conversations that were kept are. */
+  const unlinked = open ? teamSeats(goal, room, goalRunOf(room.id, goal, snapshot.flowExecutions)).filter(one => !hasConversation(one)) : []
   const claimed = room.intents.filter((one) => one.state === 'claimed').length
   const held = room.channel.filter(
     (entry) => entry.kind === 'message' && entry.state === 'held',
@@ -776,6 +780,15 @@ const RoomRow = ({
           <DisclosureChevron open={open} size="xs" />
         </SidebarMenuAction>
         </div>
+        {unlinked.length > 0 && (
+          <SidebarMenu nested>
+            {unlinked.map((one) => (
+              <SidebarMenuItem key={one.record.id}>
+                <SidebarMenuButton disabled title="Conversation not kept" label={one.name} />
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        )}
         {open && members.length > 0 && (
           <SidebarMenu nested>
             {members.map((summary) => (

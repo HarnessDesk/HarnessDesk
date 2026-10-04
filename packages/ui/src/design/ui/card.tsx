@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils'
 
 type CardProps<T extends React.ElementType = 'div'> = {
   as?: T
-  variant?: 'default' | 'muted' | 'flush' | 'plate'
+  variant?: 'default' | 'muted' | 'flush' | 'plate' | 'raised'
   radius?: 'sm' | 'default' | 'lg'
   /** `flush` zeroes the gap and vertical padding `variant="flush"` also
    *  carries, for a card whose surface is a visual variant on its own — a
@@ -42,6 +42,9 @@ const Card = <T extends React.ElementType = 'div'>({
         'bg-card text-card-foreground flex flex-col gap-4 rounded-lg border py-4',
         variant === 'muted' && 'border-dashed bg-(--hd-muted)',
         variant === 'flush' && 'gap-0 overflow-hidden py-0',
+        /* A card that stands on a canvas of its own, a step in a drawing of a
+           Flow: the registry card with the one soft shadow under it. */
+        variant === 'raised' && 'shadow-(--hd-shadow-sm)',
         variant === 'plate' &&
           'overflow-hidden rounded-(--hd-card-radius,var(--hd-radius-lg)) border-0 bg-(--hd-card-fill,var(--hd-card)) shadow-[inset_0_0_0_1px_var(--hd-card-border,var(--hd-border-strong))]',
         radius === 'sm' && 'rounded-(--hd-radius-sm)',

@@ -103,6 +103,73 @@ window's whole wire.
 
 ---
 
+## The command line reaches a person's PATH through a launcher the app owns, and nothing else
+
+"Install command-line tool…" in the HarnessDesk menu puts one small file,
+`harnessdesk`, in a folder the person already owns and already has on the PATH
+their login shell builds: `~/.local/bin`, then `~/bin`. That PATH is asked of
+the login shell, because an app opened from the Dock inherits launchd's and not
+theirs. It is never `/usr/local/bin` and never a folder that needs an
+administrator, so the item never asks for a password; and it never writes into a
+package manager's or a version manager's folder, which the manager rewrites and
+which moves under a version change. When neither folder is on PATH it installs
+in `~/.local/bin` anyway, and the dialog says where the file is and gives the
+one line that puts that folder on PATH, in the person's own shell's words. No
+shell file is edited: those are the person's.
+
+The launcher is a POSIX script that runs the command line bundled in the app on
+the app's own runtime with `ELECTRON_RUN_AS_NODE=1`, so no separate Node install
+is needed. It records where the app was when it was written. When that is gone
+it looks in `/Applications` and `~/Applications` and then asks Spotlight for the
+bundle id, so an upgrade or a move never strands it and it never has to be
+rewritten. Arguments reach the program as the shell's own argument list and
+never as part of a string, so a quote, a `$` or a newline in one is only a
+character in it. Nothing in it is a credential: a local client has none.
+
+A `harnessdesk` that is not ours is never touched. Ours is a file whose second
+line is the marker, and nothing else is: not a script that quotes the marker
+further down, not a link, not a folder. A first install stops at anyone else's
+`harnessdesk` in either folder, because two commands of one name shadow each
+other and which one wins would depend on an order the person never chose. A
+second run of the item offers to remove the launcher, and an install over our
+own launcher replaces it, so a launcher an older build wrote follows a newer one.
+
+Neither acts on a name that was only checked. Checking a file and then renaming
+over its name, or deleting it, leaves a window in which another process can put
+something of its own at that name, and what it put would be overwritten or
+deleted. So the file is taken first, by renaming it to a name only the installer
+knows in the same folder, and then checked as what is held: opened without
+following a link, a regular file, our marker, and the same device, inode, text,
+size and mode as the one that was looked at. Non-zero birth and change times
+are compared in nanoseconds too, with the change time checked before the
+rename because the rename itself changes it. File numbers can be reused and
+timestamps can be coarse, so neither stands in for the text. Only then is it
+deleted, or its replacement linked
+into its name (a link refuses a name that has been taken). Anything else is put
+back, and the dialog says the launcher changed and was left as it is; if it
+cannot be put back because the name was taken again, it is kept beside it and
+the dialog says where. Restoration uses only an atomic hard link to a free
+name; if the volume cannot do that, or the held object is a link or a folder,
+it stays held rather than falling back to a check followed by a rename. Every
+failure after taking the file attempts that recovery, including inspection
+and deletion errors. The menu reports whether the command was restored and
+names any retained file. The price is that a replacement leaves the name without a
+file for the moment between those two steps. The look itself is one open that
+follows no link and waits on no pipe, so what is read and which file it was are
+the same file.
+
+The alternatives were a copy of the command line in a system folder, which
+needs an administrator and goes stale at the next update, and a package-manager
+install, which puts a second copy of the program beside the app and has to be
+kept in step with it. Windows has no launcher yet: its door is a named pipe and
+its installer is a change of its own.
+
+**The rule:** the app puts its command line on a person's PATH with one file in a
+folder they own; it never overwrites a file that is not its own, never edits a
+shell file and never asks for a password.
+
+---
+
 ## The Team overview is derived from held facts, with no reader of its own
 
 The overview model turns plain Seat, card, Run, approval and Insight data into
@@ -144,6 +211,99 @@ unknown rather than borrowing the Run's age.
 
 **The rule:** one plain-data contract derives the rows; no overview fact is
 invented to fill a missing observation.
+
+---
+
+## A Run's Flow is drawn from the document it froze, by a layout that is a function
+
+A Run holds the Flow it started with, so the Flow tab draws that document and
+never the file as it is now. *Open the file* reads the file beside it, found
+by the name the Run froze, because a Run keeps no catalogue id or place of its
+own. The window says it is the file as it is now and that the Run keeps its
+revision, and a name the catalogue no longer holds says so and reads nothing.
+
+Where each step goes is a pure function of the document, not a decision the
+component makes while it renders: steps run left to right in the order their
+rules reach them, a loop falls under the line, and a Flow's own
+`layout.positions` win when it carries them. Edges are derived from the cards'
+boxes, so a hand layout reroutes them and never leaves a line where a card
+used to be. A rule to a step the file does not define is skipped in the
+drawing, because there is nothing to join it to, and is still named in the
+list. The older format of Flow is drawn too, without positions it never had.
+
+The Flow tab takes the whole pane, and the inspector steps aside while it
+shows. The inspector explains a row of the timeline and the Flow has none on
+show; and beside it the drawing would have only the part of the pane the
+inspector leaves, which at an ordinary window is under the width the drawing
+needs, so the list would be the only view.
+
+The drawing is for the eye and the list is for everyone. The drawing is hidden
+from assistive technology and, below a narrow width of its own container, from
+view; the list of steps and rules says the same and is then the view. The
+container decides and the window does not, because a Run sits in a pane of any
+width.
+
+Its curves and arrowheads are data geometry, as a chart's marks are:
+attributes on SVG elements that take their colour from `--hd-*` tokens, and
+recorded in the design audit's list of such modules. Everything else in it —
+cards, tiles, words, rows — is composed from the design system, so a palette,
+density or faces change reaches it, and the screen that mounts it draws no
+appearance of its own. The one part added to the system for it is
+`Card variant="raised"`, the registry card with its soft shadow, for a card
+that stands on a canvas of its own.
+
+An Agent step says what its seats ran under only when the Run recorded it. A
+seat runs at the narrower of its Agent's own ceiling and the grant the Flow
+gives the step, so once a Run has seated the step the card reads the seat's
+record, in the words the Seat record uses — the level it ran at, and whether
+the runtime *held* it or only *asked* it of the agent — and not the grant,
+which an Agent with a lower ceiling never reached. Where a step's seats differ
+it reads the floor of them: the narrowest level, and *asked* if any was only
+asked, because the weaker answer is the one a person must not miss. A step
+with no seat, or with any seat whose record this window does not have, says its
+grant and nothing more, rather than speak for a seat it cannot see.
+
+**The rule:** the Flow tab shows what the Run froze; where things go is a
+function of the document; the list says everything the lines show.
+
+---
+
+## The window says what an answer or an abandon will do from the Run's own Flow
+
+The window's `team/intent` reply is `null`: a command-line abandon gets
+`{ role, nextRole }` back because the client door waits for the engine to open
+the next round, and the window does not. So what an abandon, or an answer to a
+person's step, will do cannot be read from what the host returns, and the
+person has to be told before acting. The window reads the Run's frozen Flow
+instead. `followOf` in `@harnessdesk/protocol` picks the first rule of the
+card's role whose answers hold for the round, reading a card with no answer as
+the engine does: it satisfies neither `every` nor `any`, and a rule with no
+restrictive guard follows any round that has cards. A host test runs the
+engine's own `decide` against the same table, so the two cannot drift apart
+unseen.
+
+The sentence follows what the engine does around the rule. Nothing follows a
+Run that is not running or a round that is over. A round decides only once its
+cards have all finished, so abandoning one of several says the round stays
+open (a card the board does not hold counts as unfinished). A rule that also
+reads evidence is said to depend on it and not to fire. A card abandoned where
+every rule needs an answer ends the Run without a next step, which reads Needs
+you: the plan's wording, that the rule after the role still fires, is only the
+common case, and the code decides.
+
+A review step, a person role whose rule reads a review fact, is not answered
+with a word: it records the attempt it answers for, which only the board's
+picker does, so the Overview and the inspector send it there. Every other
+answer, and every abandon, is the request the board's menu makes, argument for
+argument; a person's note is the card's context package. An answer given in two
+places is therefore one request, and the host refuses the second as already
+answered. An approval answered from the Overview sends the decision the docked
+card sends and shows the command and its working folder, or the other scope it
+approves, beside its choices, so a yes is never given blind.
+
+**The rule:** the window says what an answer or an abandon will do from the
+Run's own Flow, read as the engine reads it, and it sends no request the board
+does not.
 
 ---
 
@@ -680,6 +840,18 @@ A commit's author, message and trailers do not authenticate the Seat that made i
 Passive capture cannot recover a ref move whose reflog and objects Git no longer retains. The desk reads available transitions, preserves known gaps and says when capture is degraded or stopped. It installs no hooks, changes no Git configuration and never delays a turn to observe it.
 
 **The rule:** ambiguity remains visible; a rewritten association never refreshes the original checks, reviews or evidence.
+
+## Provenance capture does bounded work and leaves nothing behind
+
+Capture runs for as long as the desk does. A history of N commits offers about 63 ranges to each (every first-parent suffix of up to 64 commits), and reading one costs Git processes, so a pass that read them again on every wake kept one desk's host busy for hours over a repository that had not changed: a range it could not read, or a history longer than 64 commits, was enough to keep the pass from ever being skipped. A pass now does a bounded amount of work, and only when something it reads has changed: a commit or ref move, a fact, a Seat. A range that could not be read (an object pruned, or never fetched) waits for such a change; it never starts a pass by itself and never takes the place of a range not yet tried.
+
+What the reader keeps is what Git can never contradict. An object id names its content, so what Git said about one stays true; but an object that is missing now can be fetched later, so a miss is never remembered. Speed does not buy back a check: the metadata, pointer and object-format checks run before any kept answer is served, once for a batch of reads rather than once per read, and a check that fails empties everything kept.
+
+Capture's record of where it is, the checkpoint, says what is new or says nothing. Every scan used to append a whole checkpoint, however little it had found, and every health update read every checkpoint ever written, so a desk that stayed up grew larger and slower with each scan, idle or not (a checkpoint over a history of a few hundred commits runs to hundreds of kilobytes). A scan that finds nothing new now writes nothing, though it still moves its own clock, and the checkpoint in force is read without reading those it superseded.
+
+The private view capture reads through is a folder in the state directory. Whoever makes one removes it on every path they control (the reader closing, an admission abandoned half way, the process exiting), and at startup the views no live handle owns are swept, which is all that can be done about a process that was killed. A view's name carries its process id, so one desk never sweeps a view another running process is using.
+
+**The rule:** capture does bounded work, and none when nothing it reads has changed; it keeps only what Git cannot contradict and writes only what is new; and a view it makes is removed by whoever made it, or by the next start.
 
 ## A Goal is finite; Seats and receipts are the authority
 
@@ -1464,3 +1636,69 @@ measured.
 
 **The rule:** the interface language chooses its CJK fallback in the
 foundation; no component chooses a language's face itself.
+
+
+## Wrapping ends dispatch, while the receipt keeps conversations readable
+
+Closing a Seat ends membership. It does not erase the conversation or turn it
+into new work: a receipt now captures each Seat's own session pointer along
+with its name. Older receipts resolve a conversation only from that Seat's
+kept answer, and otherwise keep its name without a link. The rail, Overview
+and sidebar all read that same list, and it is a list of conversations as an
+open Team's is: a receipt keeps every Seat, and a conversation seated twice is
+named once — where its first Seat put it, by the last that held it — because
+each of those surfaces keys a row by its session. The Run inspector keeps every
+receipt Seat by Seat ID, so earlier rounds and cards retain their own details,
+conversation action and usage. Cost is read by Seat ID even when the receipt
+kept no conversation; a usage report may supply the runtime for source-qualified
+money, and otherwise known turns remain visible. A Seat with no conversation
+has no session to share, so each is its own row, and the rail says no Agents
+were kept only when it lists none. Receipt opens in the pane's scrolling
+body, so the record never pushes its own navigation away. A narrow pane opens
+on that body, not on the Agents list. An open Team with no Run has nothing to
+read first, so it starts on the list; a wrapped Team always has its receipt,
+and one a person made, which never had a Run, is no exception.
+
+The renderer uses one wrapped-state rule for dispatching controls and
+conversation composers. The host refuses sends, steers, queued dispatch,
+reviews and compaction before reopening the conversation and again once it is
+open, and a queue draining after a wrap at delivery. A review or a compaction
+puts work into a conversation as surely as a send does, so they sit behind the
+same barrier, and the conversation menus that offered them show the same
+reason instead. Closed Seat history and receipt pointers preserve that refusal
+after restart. Run history remains a read; wrapping and deletion keep their
+existing lifecycles.
+
+The host asks that question before every send, steer and delivery, so it is a
+lookup and never a scan of the desk's Goals: a send on a desk with three
+hundred wrapped Teams costs what it does on a desk with three. The Goal store
+keeps the conversations its wrapped receipts name, built at the one place a
+document enters the store, so it holds for a Team wrapped in this process, one
+read back at the next start and one a backup brought. The Seat book answers for
+a conversation's Seats, and a Goal's standing is read in place, so a Team
+that is mid-wrap refuses from the moment its wrap begins, before any receipt
+exists. A dispatch asks twice — before it reopens the conversation and once it
+is open — and a send already held by a dispatch is not fenced again. The
+renderer treats a Team as wrapped once it reads `wrapped`, the host as soon as
+a wrap begins, so a send from a composer that has not heard yet fails with the
+same reason instead of being disabled beforehand.
+
+Three things follow from a conversation belonging to a wrapped Team. Stop is
+the one control that stays on while a turn is running in it: stopping is not
+new work, and the host leaves `turn/interrupt` open for exactly that. It
+stands alone in the corner — the refused send is drawn only while nothing
+runs, because the composer's send track is one coin wide and clips a second,
+which would leave a Stop that is on and cannot be pressed; the placeholder
+already says why nothing can be sent. Choosing a conversation is not sending to one, so the Assign dialog does not
+list a conversation a wrapped Team keeps, and a host asked to seat one anyway
+says it belongs to a wrapped Team — "This Team is wrapped" would point at the
+Team the person is in. A skill is a message into the open conversation, so the
+palette withdraws an agent's skills there, as it withdraws any entry it cannot
+run.
+
+A Run that ends wraps its Team, so a Team can wrap under a person who already
+has a question open. That question reads the Team's state live rather than the
+data it opened with — a run's own view still says it is decidable — and stays
+on screen with its final action disabled and the reason beside it: closing it
+would throw away what was typed, and leaving it armed would offer what the host
+then refuses. This implements PR 18 of the approved Teams/Runs plan.

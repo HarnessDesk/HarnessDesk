@@ -45,9 +45,9 @@ Twenty packages make up the repository:
 | Package | Role | Allowed imports |
 | --- | --- | --- |
 | `packages/protocol` | Domain vocabulary, wire methods, validators | Zero dependencies |
-| `packages/desktop` | Electron shell, Keychain broker, packaging | `server`, `claude-acp`, `cursor-acp` |
+| `packages/desktop` | Electron shell, Keychain broker, packaging, the command-line launcher | `server`, `claude-acp`, `cursor-acp` |
 | `packages/client` | Transport-independent client calls and events; local I/O in its `node` entry | `protocol`, and `ws`/Node in the Node entry |
-| `packages/cli` | Command line reads and Flow starts over the client library | `client`, `protocol` |
+| `packages/cli` | The `harnessdesk` command line over the client library; the app bundles it and installs a launcher for it, and `docs/cli.md` is its reference, generated from its command table | `client`, `protocol` |
 | `packages/ui` | Renderer: Zustand store, slot layout, panels | `protocol` (browser context only, no `node:*`) |
 | `packages/server` | Host process: sessions, git, approvals, wire | `protocol`, adapters, `cordis-host`, `plugins`, `extension-host`, `agent-inventory`, `responses-gateway`, `mcp-tools` |
 | `packages/adapter-codex` | Native Codex adapter for `codex app-server` | `protocol`, `codex` |
@@ -476,5 +476,7 @@ See [AGENTS.md](../AGENTS.md) for the maintainer rules and
 ## Provenance capture
 
 The host owns a `ProvenancePlane` beside the evidence plane. It registers open projects, reads admitted Git metadata through a private Git view and journals observations beneath the evidence project's folder. Metadata watches and polling enqueue bounded work; startup resumes durable catch-up. Neither a turn nor a Git action waits for capture. History reads one bounded batch of indexed provenance beside its ordinary Git log.
+
+Capture does bounded work, and none when nothing it reads has changed. The reader checks the repository's metadata once for a batch of reads, at the batch's first read, and keeps what Git says about an object id (its type, a commit's parents, the patch between two commits) but never an answer about a missing object and never past a failed check. A reconcile pass is skipped while the commits, ref moves, facts and Seats it reads are as it last left them; it reads at most 128 ranges, eight to a batch with a turn for the event loop after each, and leaves the rest for the next pass. A range it could not read waits for something to change and never starts a pass by itself. A scan that found nothing new writes no checkpoint, and the checkpoint in force is read without reading those it superseded, so an idle desk's journal stops growing. The private view is a folder in the state directory: it is removed when its reader closes, when an admission is abandoned and when the process exits, and at startup the plane sweeps those in its own state folder that nothing owns ([why](decisions.md#provenance-capture-does-bounded-work-and-leaves-nothing-behind)).
 
 An association needs a locally observed diff fact, a matching checkout and a compatible Seat lifetime. Reconciliation adds links to immutable original observations; it does not move checks or reviews to a rewritten commit. Capture preferences belong to this machine, default to on, and are shared by a project's linked checkouts.

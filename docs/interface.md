@@ -869,6 +869,24 @@ port start, block width and browser-profile isolation. Retained descriptors show
 their Goal, Seat and checkout. Releasing ports never claims to remove files.
 Wrapped Goals open an immutable receipt headed **As recorded when wrapped**;
 partial answers, gaps, unknown spend and dirty retained lanes remain visible.
+A wrapped Team opens on **Receipt** and keeps Overview, Run and its Agents
+rail. It opens there with or without a Run, and in a narrow pane too, where the
+Agents list is one tap behind it. The sidebar's Wrapped group keeps the same
+conversations, the Seats without one together in a single list. Older receipts
+use a Seat's kept answer to find its conversation; a Seat without one says
+**Conversation not kept**, and a receipt whose every Seat lacks one lists them
+all rather than saying no Agents were kept. A conversation seated more than
+once is one row, named by the last Seat that held it. Run details keep each
+Seat separately, including its recorded cost when its conversation was not kept. These conversations remain readable, with their
+composer disabled: **This Team is wrapped**. Adding, assigning, answering,
+posting and running checks are disabled with that same reason, as are a
+conversation's **Compact now** and **Review uncommitted changes**. **Stop**
+stays on while a turn is still running in one, because stopping is not new
+work, and it is the only coin in the corner then; the command palette offers
+no agent skill there, and **Give this to…**
+lists no conversation a wrapped Team keeps. A question
+already open when a Run ends and wraps its Team stays on screen with what was
+typed in it, its final action disabled and the same reason beside it.
 A receipt's Citations row opens each memory citation's own retained detail in
 a dialog, the same read-only view a project's Memory section opens.
 
@@ -980,6 +998,16 @@ unread notice or new work brings a Seat out of that fold. The sidebar nests
 its conversation under the same Team, even after its process has rested.
 A Team without a Run opens on Chat and still offers Overview for its Seats.
 
+What needs you can be answered from its row. A tool's request for approval
+offers the agent's own choices. The command and its working folder, files a
+change would touch, or access it would open appear beside them; the answer is
+the same as the approval in the chat, so whichever you answer first wins. A
+question with one single choice offers its options; one needing a form leaves
+to its conversation. A step a Flow addressed to you offers the words its role
+declares, a note the next step reads, and a sentence saying what each answer does before you give
+it (a review step asks you to pick an attempt on the board). A refusal stays on
+the row, beside the answer it refused.
+
 ### A Team's Run
 
 Run opens from the Team rail or its Overview strip. It reads oldest first:
@@ -991,3 +1019,22 @@ reads Unreadable with its reason, whatever state its records carry.
 A selected row takes the inspector's fill. Historical Runs, including those
 started by triggers, are restored from the host and can be selected beside
 the header, and an observed pull request opens from it.
+
+The header's switch shows the Run as a **Timeline** or as its **Flow**. The
+Flow tab draws the Flow the Run started with, named with the revision it was
+frozen at: a card for each step, joined by arrows that carry the outcome
+taking each rule, with a loop falling under the line and a step that opens
+several seats fanned. A card says what the step is, its name, and one line —
+what an Agent may do, the command a check runs, the words a person may
+answer. Under the drawing the steps and rules are listed in words, and in a
+narrow pane that list is the view. The drawing has the whole pane: the
+inspector, which explains a row of the timeline, steps aside while the Flow
+shows. **Open the file** reads the Flow's file as it is now, in a window you
+can only read; the Run keeps the revision it started with, and nothing in this
+tab can be changed.
+
+A card that has not finished offers **Abandon card…** in its inspector. The
+question says first what the rule after the card's role will do: open the next
+round, end the Run without a next step, wait for the round's other cards, or
+nothing when the Run is not running; a claimed card names who holds it. A
+person's step is answered there with the same controls as the Overview.

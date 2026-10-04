@@ -167,6 +167,14 @@ desktop app) and passes them to the agent environment at startup.
 Panels are split through the panel's `⋯` menu (**Side by side** or **One above
 the other**), not by shortcut.
 
+## The command line
+
+The app ships a `harnessdesk` command for a terminal or a script: list Teams and
+runs, start a flow, watch it, stop it, and answer the cards it addressed to
+you. Choose **HarnessDesk › Install command-line tool…** in the app's menu to
+put it on your `PATH`; it needs no separate Node install and never asks for a
+password. [cli.md](cli.md) has every command, flag and exit code.
+
 ## Plugins
 
 Twelve ship built in: git, files, search, task list, team, checkpoints,

@@ -3,7 +3,8 @@
  * SeatState = 'needs-you' | 'unread' | 'working' | 'idle'.
  * SeatRow = { seat, name, role, card: { id, title } | null, round, state, done,
  *             reason, doing, since, cost: { unit: 'money' | 'turns', value, estimated } | null }.
- * NeedsYouItem = { kind: 'card' | 'question' | 'approval', seat, card, summary, since }.
+ * NeedsYouItem = { kind: 'card' | 'question' | 'approval', seat, card, summary, since,
+ *                  approval?: the open request's id, on a question or an approval }.
  * RunStrip = { run, state: 'running' | 'settled' | 'stopped' | 'stalled', round,
  *              role, startedAt: number | null, reviewRounds: { used, of } | null, total: { money, turns } }.
  * teamOverview(TeamOverviewInput) -> { run: RunStrip | null, needsYou: NeedsYouItem[], seats: SeatRow[] }.
@@ -26,6 +27,7 @@ import {
   isBusy,
   type AgentItem,
   type Approval,
+  type ApprovalId,
   type FlowExecution,
   type InsightMetric,
   type InsightReport,
@@ -34,7 +36,9 @@ import {
   type SeatRecord,
   type SeatActivity,
   type Session,
+  type SessionKey,
   type TeamSignal,
+  sessionKey,
 } from '@harnessdesk/protocol'
 
 export type SeatState = 'needs-you' | 'unread' | 'working' | 'idle'
@@ -59,6 +63,10 @@ export interface NeedsYouItem {
   card: number | null
   summary: string
   since: number
+  /** The open request a question or an approval is, so an answer reaches that one and not another asked in the same instant. Absent on a card. */
+  approval?: ApprovalId
+  /** The conversation that owns the request; approval ids are only unique within that conversation. */
+  sessionKey?: SessionKey
 }
 
 export interface RunStrip {
@@ -119,13 +127,13 @@ const estimated = (metric: InsightMetric): boolean =>
 const moneyOf = (metric: InsightMetric, metered: boolean | undefined): number | null =>
   metered === true && hasRate(metric) ? observed(metric) : null
 
-const costOf = (input: TeamOverviewInput, seat: TeamOverviewSeat): SeatRow['cost'] => {
+/** Recorded usage belongs to a Seat even when its receipt kept no conversation to open. */
+export const teamSeatCost = (input: Pick<TeamOverviewInput, 'team' | 'report'>, seat: string, metered: boolean | undefined): SeatRow['cost'] => {
   const amounts = input.report?.breakdowns.find((one) => one.dimension === 'seat')?.rows.find(
-    (row) => row.seat === seat.record.id && row.goal === input.team,
+    (row) => row.seat === seat && row.goal === input.team,
   )?.amounts
   if (!amounts) return null
-  const capabilities = seat.runtime?.capabilities ?? input.runtimeCapabilities?.get(seat.record.session.runtime)
-  const money = moneyOf(amounts.usd, capabilities?.metered)
+  const money = moneyOf(amounts.usd, metered)
   if (money !== null) {
     return { unit: 'money', value: money, estimated: estimated(amounts.usd) }
   }
@@ -218,6 +226,7 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
     const waits: NeedsYouItem[] = seat.approvals.filter((request) => request.sessionId === seat.record.session.sessionId).map((request) => ({
       kind: request.type === 'userInput' || request.type === 'elicitation' ? 'question' : 'approval',
       seat: seat.record.id, card: card?.id ?? null, summary: approvalWords(request), since: request.requestedAt,
+      approval: request.id, sessionKey: sessionKey(seat.record.session.runtime, seat.record.session.sessionId),
     }))
     needsYou.push(...waits)
     waits.push(...needsYou.filter((one) => one.kind === 'card' && one.seat === seat.record.id))
@@ -248,7 +257,7 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
         : state === 'unread' ? seat.unreadSince
           : state === 'working' ? busy ? turn?.startedAt ?? activity?.since ?? card?.claim?.at ?? null : card?.claim?.at ?? null
             : card?.state === 'blocked' ? card.updatedAt : turn?.completedAt ?? seat.record.openedAt,
-      cost: costOf(input, seat),
+      cost: teamSeatCost(input, seat.record.id, (seat.runtime?.capabilities ?? input.runtimeCapabilities?.get(seat.record.session.runtime))?.metered),
     }
   })
   const precedence: Readonly<Record<SeatState, number>> = { 'needs-you': 0, unread: 1, working: 2, idle: 3 }

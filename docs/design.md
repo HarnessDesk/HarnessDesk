@@ -1503,6 +1503,44 @@ approval reasons arrive whole even in a narrow pane. Recorded usage is read
 when Overview is selected, on card completion while it is shown, and each
 minute of a running Run while it stays selected.
 
+### Answering what needs you
+
+A Needs-you row carries the way to answer it, in the row's own `meta` slot, so
+its sentence stays whole above the controls at every width. The seat that asks
+is named beside the kind chip.
+
+- **A request for approval** offers the agent's own choices in the docked
+  card's order and words (refusals first, the plain yes last), with only the
+  plain yes filled and a grant that outlives the answer quiet. What is being
+  approved is shown with it: the command whole in the code face, wrapped and
+  never cut, the files a change touches, the folders and hosts an access would
+  open (a long list names its first six and how many more, and the whole list
+  is one hover away), and the reason the runtime gave. A yes is never given
+  blind. An approval that offers no choice here leaves to its conversation. The
+  answer is the call the docked card makes, so whichever door answers first
+  wins and the other row goes with it.
+- **A question** with one single-choice question offers each option and Cancel.
+  A question that needs a form (several questions, a multiple choice, a free
+  answer) and a tool's request for information leave to their conversation,
+  and offer only Cancel here, beside **Answer in the conversation**, the one
+  filled act.
+- **A person's step** is answered with the words its role declares, one button
+  each, an optional note the next step reads, and one sentence saying what
+  each answer does, read from the Run's own frozen Flow. A word no rule follows
+  says the Run ends without a next step; a role no rule starts from says it
+  finishes the Run. A role that declares no words is marked done, as the board
+  does. A review step records the attempt it answers for, which only the
+  board's picker does, so its row says **Pick an attempt on the board** and
+  opens it.
+- **A refusal** stays on screen, in the danger alert under the controls, with
+  the answer it refused disabled and the others open: the host does not yet say
+  beforehand what it will take. The same controls stand in the Run inspector's
+  step.
+
+The `team-overview` catalogue board draws each of these on the production row:
+a command, an access request, a step, a question, a form, a review step, a
+refused answer and a narrow pane, in both themes.
+
 ### The Run timeline
 
 The Run view composes `PaneColumn`, `ListRows`, `ListRow`, `Text` and `Chip`.
@@ -1512,8 +1550,9 @@ host names that outcome as the reason no step follows. Done and waiting are
 quiet text. Wrapped record titles keep their lead on the first line. Sentences wrap at
 narrow widths, while the brief previews two lines.
 The `run-view` catalogue board mounts the production component for every Run
-state, empty and failed reads, a long timeline, and the narrow pane.
-
+state, empty and failed reads, a long timeline, and the narrow pane. The
+header's `Segmented` switch offers the Flow beside the timeline; the Flow
+drawing below is its other half.
 
 ### The Run inspector
 
@@ -1548,3 +1587,97 @@ through the shared sanitiser. The `run-inspector` catalogue and preview use
 the production component for every kind, findings still being read or
 unreadable, empty, pending and failed reads, narrow navigation and both
 themes.
+
+### The Flow drawing
+
+`FlowGraph` draws a Flow read-only, and is the one picture that says what the
+product does: agents handing work on, a check that cannot be talked round, a
+person at the gate, a loop that has to end. A step is a raised `Card` with an
+`IconTile` for its kind (violet for an Agent, sky for a check, amber for a
+person: the tints the rail already uses), its name in a word, and one earned
+line — what an Agent may do (once a Run has seated it, the level its seats ran
+at, which is below the Flow's grant when the Agent's own ceiling is, and whether
+the runtime held it or only asked), the command a check runs, the words a
+person may answer. An Agent is a square tile: the Flow defines it, a Run seats
+it, and only then does it become a face. A step that opens several seats is a
+fan of up to three cards, so a count reads without a number. A rule is a line
+with an arrowhead and, only when something guards it, the outcome word above it
+in a neutral `Chip` with a ground of its own; a loop is a curve under the line
+whose word carries the retry mark. Cards sit on a faint dot grid with hairline
+borders and one soft shadow (`Card variant="raised"`). Colour is for what a step
+is, never decoration, and every value is a token.
+
+Where things go is `lib/flow-layout.ts`, a pure function of the document:
+steps run left to right in the order their rules reach them, a loop falls under
+the line, a person who closes the Flow hangs under what handed it over, and a
+Flow's own `layout.positions` win when it carries them, with the edges derived
+again from the cards' boxes. A rule to a step the file does not define is
+skipped in the drawing and still named in the list. The component only draws
+what the layout says, so a screenshot, the list and a test read one answer.
+
+On the Flow tab the drawing has the whole pane: the inspector explains a row of
+the timeline and steps aside, and returns with the timeline.
+
+The drawing is for the eye. It is `aria-hidden`, and the list of steps and
+rules under it, built from `Rows`, carries the same facts. The drawing hides
+below `38rem` of its own container's width — the pane's, not the window's — and
+the list is then the view. Its curves and arrowheads are data geometry, as a
+chart's are: attributes on SVG marks that read `--hd-*` tokens, recorded in the
+design audit's list of such modules rather than excused. Everything else in it
+is composed from the system, so a palette, density or faces change reaches it
+and no screen draws its appearance. The `flow-graph` catalogue board mounts the
+production pattern for a straight Flow, a loop, a fan-out, a person step, a
+Flow with its own positions, a long Flow, one in the older format and one with
+no steps, in both faces.
+
+### The wrapped Team
+
+Wrap retains the same pane and navigation, opening on Receipt. The receipt
+scrolls in the body, leaving the rail and its Agents available. In a narrow
+pane Receipt is the half that shows, for a Team that never had a Run as much as
+for one a Run wrapped, and the Agents list is one tap behind it. Overview and
+Run stay readable. The shared Seat list reads the receipt's captured
+conversations, then an older receipt's answers, naming each conversation once
+however many Seats were retained for it; an unlinked Seat remains a face and
+name with **Conversation not kept**, without an opening action, and the rail's
+**No Agents were kept** line is for a receipt that kept no Seat at all.
+Dispatching controls and both composers are disabled with **This Team is
+wrapped**, the conversation menu's **Compact now** and the branch chip's
+**Review uncommitted changes** among them; **Stop** is the exception while a
+turn is still running in a kept conversation, since stopping adds nothing, and
+it stands alone in the corner — the refused send is drawn only when nothing
+runs, as the corner holds one coin. A
+dialog that chooses a conversation for a card does not list one a wrapped Team
+keeps. A dialog open when the Team wraps
+stays open, with its final action disabled and a note carrying the same reason;
+Cancel still closes it. The sidebar keeps those conversations under its collapsed Wrapped
+group, the Seats whose conversation was not kept together in one nested list.
+The `team-record` catalogue board mounts the production pane with
+retained conversations, an older receipt, a conversation seated twice, a
+receipt whose every Seat lost its conversation, no Seats, a narrow rail, a
+Team that never had a Run in a narrow pane and a turn still running in a kept
+conversation; its
+preview also mounts the production sidebar and an open Team that can be wrapped
+under a dialog, and an open Team whose Assign dialog sits beside a wrapped Team's
+kept conversation.
+
+### Run controls
+
+A card that has not finished (open, claimed or blocked) offers **Abandon
+card…** in its inspector, an ordinary outline button before the conversation
+link: the door to a question is not red, because abandoning sets a card aside
+and a card can be put back in play. The question is a `ConfirmDialog` (Keep it,
+and Abandon card as the one filled act) whose first sentence says what the rule
+after the card's role will do. The window's reply to an abandon says nothing
+of that, so the sentence is read from the Run's own frozen Flow, the way the
+engine reads it: the rule that follows still fires and opens the next round; no
+rule accepts a card with no answer, so the Run ends without a next step and
+reads Needs you; the round stays open until its other cards finish; or nothing
+follows because the Run is not running or the round is over. A claimed card
+adds who holds it and that they cannot finish it. A refusal stays in the
+question, with the act disabled; asked again, it starts fresh. A person's
+step is answered in the inspector with the controls the Overview uses.
+
+The `run-controls` catalogue board and `preview.html?run-controls` draw the
+inspector's controls and, one at a time as a dialog is, the question for each
+way the Flow can answer it (`&abandon=opens|ends|waits|refused`).

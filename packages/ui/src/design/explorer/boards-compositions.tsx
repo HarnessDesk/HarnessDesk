@@ -1,4 +1,7 @@
+import { TeamRecordBoard } from '../../preview/frames-team-record'
+import { RunControlsBoard } from '../../preview/frames-run-controls'
 import { RunInspectorBoard } from '../../preview/frames-run-inspector'
+import { FlowGraphBoard } from '../../preview/frames-flow-graph'
 import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
 import { TeamOverviewBoard } from '../../preview/frames-team-overview'
@@ -2932,16 +2935,34 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     render: RunInspectorBoard,
   },
   {
+    id: 'run-controls',
+    title: 'Run controls',
+    about: 'Abandoning a card, with the question that says first what the rule after its role will do, and answering a person’s step from the inspector — the production components.',
+    render: RunControlsBoard,
+  },
+  {
     id: 'run-view',
     title: 'Run timeline',
-    about: 'The recorded rounds, cards, checks and findings, with a selectable row.',
+    about: 'The recorded rounds, cards, checks and findings, with a selectable row — and the Flow the Run started with, one choice away.',
     render: RunViewBoard,
+  },
+  {
+    id: 'flow-graph',
+    title: 'FlowGraph',
+    about: 'A Flow’s steps and rules, drawn read-only: cards on a dot grid, edges with the outcome word above them, loops under the line, and the list that says the same.',
+    render: FlowGraphBoard,
   },
   {
     id: 'teams-page',
     title: 'Teams on the desk',
     about: 'Attention first, settled work folded, and recorded usage in its own unit.',
     render: TeamsPageBoard,
+  },
+  {
+    id: 'team-record',
+    title: 'The wrapped Team',
+    about: 'The receipt, conversations and Run stay readable after work ends.',
+    render: TeamRecordBoard,
   },
   {
     id: 'team-overview',
