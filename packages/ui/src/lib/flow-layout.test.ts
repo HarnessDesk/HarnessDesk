@@ -234,6 +234,22 @@ describe("a Flow's own positions", () => {
     expect(node(layout, 'review').box.y).toBeGreaterThan(node(layout, 'write').box.y)
   })
 
+  it('are looked up as the file’s own entries, so a step called like a built-in of any object is not placed by one', () => {
+    // A step id is free text. `toString` is a legal one, and a plain object
+    // answers a lookup under it with a function, whose x and y are nothing.
+    const ids = ['constructor', 'toString', 'valueOf', 'hasOwnProperty']
+    const layout = draw(
+      [agent('write'), ...ids.map((id) => agent(id))],
+      ids.map((id, index) => rule(index === 0 ? 'write' : ids[index - 1]!, id)),
+      { layout: { positions: { write: { x: 40, y: 40 } } } },
+    )
+    for (const one of layout.nodes) expect(Object.values(one.box).every(Number.isFinite), `the card of ${one.id}`).toBe(true)
+    expect([layout.width, layout.height].every(Number.isFinite)).toBe(true)
+    const rows = ['write', ...ids].map((id) => node(layout, id).box.y)
+    expect(rows).toEqual([...rows].sort((a, b) => a - b))
+    expect(new Set(rows).size).toBe(rows.length)
+  })
+
   it('are ignored when the file carries none the Flow can use', () => {
     const plain = draw([agent('write'), agent('review')], [rule('write', 'review')])
     const unusable = draw([agent('write'), agent('review')], [rule('write', 'review')], { layout: { positions: { ghost: { x: 5, y: 5 } } } })

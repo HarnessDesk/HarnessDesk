@@ -316,9 +316,14 @@ const arrange = (model: FlowModel, shape: Shape): Map<string, FlowBox> => {
   return boxes
 }
 
-/** Where the file's own positions put them, exactly as the editor reads them. */
+/**
+ * Where the file's own positions put them, exactly as the editor reads them.
+ * A step id is free text, so one called `constructor` is looked for as the
+ * file's own entry and never found on `Object.prototype`.
+ */
 const placed = (model: FlowModel): Map<string, FlowBox> => {
-  const raw = model.steps.map((step, index) => model.positions[step.id] ?? defaultGraphPosition(index))
+  const byFile = (id: string): GraphPoint | undefined => (Object.hasOwn(model.positions, id) ? model.positions[id] : undefined)
+  const raw = model.steps.map((step, index) => byFile(step.id) ?? defaultGraphPosition(index))
   const left = Math.min(...raw.map((one) => one.x))
   const top = Math.min(...raw.map((one) => one.y))
   return new Map(model.steps.map((step, index) => [
