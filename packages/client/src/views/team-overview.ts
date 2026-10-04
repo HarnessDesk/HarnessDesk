@@ -3,7 +3,8 @@
  * SeatState = 'needs-you' | 'unread' | 'working' | 'idle'.
  * SeatRow = { seat, name, role, card: { id, title } | null, round, state, done,
  *             reason, doing, since, cost: { unit: 'money' | 'turns', value, estimated } | null }.
- * NeedsYouItem = { kind: 'card' | 'question' | 'approval', seat, card, summary, since }.
+ * NeedsYouItem = { kind: 'card' | 'question' | 'approval', seat, card, summary, since,
+ *                  approval?: the open request's id, on a question or an approval }.
  * RunStrip = { run, state: 'running' | 'settled' | 'stopped' | 'stalled', round,
  *              role, startedAt: number | null, reviewRounds: { used, of } | null, total: { money, turns } }.
  * teamOverview(TeamOverviewInput) -> { run: RunStrip | null, needsYou: NeedsYouItem[], seats: SeatRow[] }.
@@ -26,6 +27,7 @@ import {
   isBusy,
   type AgentItem,
   type Approval,
+  type ApprovalId,
   type FlowExecution,
   type InsightMetric,
   type InsightReport,
@@ -59,6 +61,8 @@ export interface NeedsYouItem {
   card: number | null
   summary: string
   since: number
+  /** The open request a question or an approval is, so an answer reaches that one and not another asked in the same instant. Absent on a card. */
+  approval?: ApprovalId
 }
 
 export interface RunStrip {
@@ -218,6 +222,7 @@ export function teamOverview(input: TeamOverviewInput): { run: RunStrip | null; 
     const waits: NeedsYouItem[] = seat.approvals.filter((request) => request.sessionId === seat.record.session.sessionId).map((request) => ({
       kind: request.type === 'userInput' || request.type === 'elicitation' ? 'question' : 'approval',
       seat: seat.record.id, card: card?.id ?? null, summary: approvalWords(request), since: request.requestedAt,
+      approval: request.id,
     }))
     needsYou.push(...waits)
     waits.push(...needsYou.filter((one) => one.kind === 'card' && one.seat === seat.record.id))
