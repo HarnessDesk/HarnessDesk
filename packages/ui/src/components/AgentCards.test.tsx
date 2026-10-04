@@ -1731,7 +1731,7 @@ it('a conversation seated as an Agent is carded as it, and says when its brief h
   rest(trigger())
   const text = openCard()?.textContent ?? ''
   expect(text).toContain('Reviews a change it did not write.')
-  expect(text).toContain('Edit · asked')
+  expect(text).toContain('Edit · asked, not enforced')
   const chip = openCard()?.querySelector('[data-ceiling]')
   expect(chip?.getAttribute('data-hold')).toBe('asked')
   // Neutral: `asked` is the ordinary state, not a warning (#898).

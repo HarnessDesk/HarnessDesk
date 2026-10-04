@@ -91,7 +91,7 @@ it('draws a Run from before the current format as well, without a position it ne
 
 it('says what a step’s seats ran under and whether the runtime held it, from the seats the Run opened', () => {
   render(fakeStore([]), { seats: [{ id: 'seat-a', ceiling: { level: 'edit', hold: 'asked' } }] })
-  expect(container.querySelector('[data-step="write"]')!.textContent).toContain('Edit · asked')
+  expect(container.querySelector('[data-step="write"]')!.textContent).toContain('Edit · asked, not enforced')
   expect(container.querySelector('[data-step="fix"]')!.textContent).not.toContain('·')
 })
 
@@ -99,7 +99,7 @@ it('says the level a step’s seat ran at, not the one the Flow asks for, when i
   // The blueprint grants `write` an edit ceiling; a seat of an Agent that only reads runs at read.
   render(fakeStore([]), { seats: [{ id: 'seat-a', ceiling: { level: 'read', hold: 'held' } }] })
   const write = container.querySelector('[data-step="write"]')!.textContent
-  expect(write).toContain('Read · held')
+  expect(write).toContain('Read only')
   expect(write).not.toContain('Edit')
 })
 
@@ -108,7 +108,7 @@ it('says the narrowest level of a step’s seats when they ran at different ones
     execution: run({ rounds: [{ n: 1, role: 'write', cards: [1, 2], seats: ['seat-a', 'seat-b'], evidence: [], state: 'closed', cause: 'seed' }] }),
     seats: [{ id: 'seat-a', ceiling: { level: 'edit', hold: 'held' } }, { id: 'seat-b', ceiling: { level: 'read', hold: 'held' } }],
   })
-  expect(container.querySelector('[data-step="write"]')!.textContent).toContain('Read · held')
+  expect(container.querySelector('[data-step="write"]')!.textContent).toContain('Read only')
 })
 
 it('says only the grant for a step when any one of its seats is unknown here, rather than speak for the rest', () => {
@@ -219,4 +219,19 @@ it('is not asked twice while the file is being read', async () => {
   expect(store.flowSource).toHaveBeenCalledTimes(1)
   await act(async () => release('version: 2\n'))
   expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
+})
+
+it('shortens the check in both drawing and Steps, retaining its raw hover title', () => {
+  const store = fakeStore([])
+  const snapshot = { ...store.getSnapshot(), home: '/home/dev' }
+  store.getSnapshot = () => snapshot
+  const source = flowGraphDocument('blueprint')
+  if (source.format !== 'agents') throw new Error('expected an Agent flow fixture')
+  const document = { ...source, flow: { ...source.flow, roles: source.flow.roles.map(role => role.kind === 'check' ? { ...role, check: { ...role.check!, run: 'node /home/dev/tools/land.mjs --check' } } : role) } }
+  render(store, { execution: run({ document }) })
+  for (const selector of ['[data-step="check"]', '[data-step-row="check"]']) {
+    const step = container.querySelector(selector)!
+    expect(step.textContent).toContain('node ~/tools/land.mjs --check')
+    expect(step.querySelector('[title="node /home/dev/tools/land.mjs --check"]')).not.toBeNull()
+  }
 })

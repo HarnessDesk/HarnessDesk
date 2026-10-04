@@ -1,9 +1,10 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Banner, Button, Chip, EmptyState, IconTile, ListRow, ListRows, PaneColumn, Segmented, Separator, Text } from '../design'
+import { commandShown } from '../lib/projects'
 import { openExternal } from '../lib/desktop'
 import { commitDate } from '../lib/git-refs'
 import type { runTimeline } from '../lib/run-timeline'
-import { sanitizeHtml } from '../lib/sanitize'
+import { sanitizeHtml, sanitizeText } from '../lib/sanitize'
 import { doingLine, type DoingLine } from '../lib/team-overview'
 import { AgentIcon, CheckIcon, PlanIcon } from './Icons'
 import { RunAgain } from './RetryCheck'
@@ -21,7 +22,8 @@ export type RunViewTab = 'timeline' | 'flow'
 const TABS = [{ value: 'timeline', label: 'Timeline' }, { value: 'flow', label: 'Flow' }] as const
 
 /** Read-only story. Selection belongs to the caller for the later inspector. */
-export const RunView = ({ model, number, selectedRow, selectedRows, onSelect, faces, doing, pullRequest, pending = false, problem, onRetry, flow, view, onView, onStop, onRunAgain, onWrap, onBoard, onReviewCheck, runChooser, continuesNumber }: {
+export const RunView = ({ home, model, number, selectedRow, selectedRows, onSelect, faces, doing, pullRequest, pending = false, problem, onRetry, flow, view, onView, onStop, onRunAgain, onWrap, onBoard, onReviewCheck, runChooser, continuesNumber }: {
+  home?: string | null
   model: ReturnType<typeof runTimeline>
   number: number
   selectedRow: string | null
@@ -95,7 +97,7 @@ export const RunView = ({ model, number, selectedRow, selectedRows, onSelect, fa
             const selectedChip = selectedRow === row.id && !row.attention
             const status = row.status && (rest ? <Text role="meta">{row.status}</Text> : <Chip tone={row.attention ? 'warning' : 'neutral'} variant={selectedChip ? 'outline' : 'default'} emphasis={selectedChip}>{words(row.status)}</Chip>)
             const title = <span className="flex min-w-0 flex-wrap items-center gap-2">
-              <Text role={row.kind === 'round' ? 'section' : 'row'} className="min-w-0 break-words whitespace-normal [overflow-wrap:anywhere]">{words(row.title)}</Text>
+              <Text title={row.kind === 'check' ? sanitizeText(row.title) : undefined} role={row.kind === 'round' ? 'section' : 'row'} className="min-w-0 break-words whitespace-normal [overflow-wrap:anywhere]">{words(row.kind === 'check' ? commandShown(row.title, home) : row.title)}</Text>
               {status}
               {row.publication && <Chip tone={row.publication.tone}>{row.publication.label}</Chip>}
               {duration !== null && <Text role="meta" numeric>{formatDuration(duration)}{row.working ? ' so far' : ''}</Text>}

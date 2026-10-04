@@ -35,10 +35,10 @@ it('says asked or held in words; both draw the same neutral tone', () => {
     )
   })
   const [asked, held] = [...host.querySelectorAll('[data-ceiling]')] as HTMLElement[]
-  expect(asked?.textContent).toBe('Read · asked')
+  expect(asked?.textContent).toBe('Read only · asked, not enforced')
   expect(asked?.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('neutral')
   expect(asked?.title).toMatch(/Asked, not held/)
-  expect(held?.textContent).toBe('Read · held')
+  expect(held?.textContent).toBe('Read only')
   expect(held?.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('neutral')
   expect(held?.title).toBe('Changes nothing: it reads, searches and reports. Held: Read-only sandbox; anything past it asks you.')
 })
